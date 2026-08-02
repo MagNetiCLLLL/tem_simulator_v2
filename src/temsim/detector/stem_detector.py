@@ -1,0 +1,256 @@
+"""Shared canonical BF, DF and HAADF recording-stop components."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import ClassVar
+
+import numpy as np
+
+from temsim.component_keys import (
+    BRIGHT_FIELD_DETECTOR,
+    DARK_FIELD_DETECTOR,
+    HAADF_DETECTOR,
+    SELECTED_AREA_APERTURE,
+    STEM_DETECTOR_KEYS,
+    canonical_recording_plane_key,
+)
+from temsim.optics.selected_area_aperture import (
+    SELECTED_AREA_APERTURE_DEFINITION,
+)
+from temsim.optics.selected_area_downstream import downstream_offset_mm
+
+
+@dataclass(frozen=True)
+class StemDetectorDefinition:
+    key: str
+    label: str
+    optical_reference_downstream_of_anchor_mm: float
+    layout_center_downstream_of_anchor_mm: float
+    layout_length_mm: float
+    geometry: str
+    outer_width_mm: float
+    inner_diameter_mm: float
+    colour: str
+    anchor_key: str = SELECTED_AREA_APERTURE
+    owner: str = "detector"
+    kind: str = "detector"
+    shape_profile: str = "detector_plane"
+    interaction_kind: str = "recording_plane_stop"
+
+    @property
+    def name(self):
+        return self.label
+
+    def create_component(
+        self,
+        anchor_z_mm=(
+            SELECTED_AREA_APERTURE_DEFINITION
+            .standalone_optical_reference_z_mm
+        ),
+    ):
+        return StemDetectorComponent(
+            key=self.key,
+            name=self.label,
+            z_mm=(
+                float(anchor_z_mm)
+                + self.optical_reference_downstream_of_anchor_mm
+            ),
+            geometry=self.geometry,
+            outer_width_mm=self.outer_width_mm,
+            inner_diameter_mm=self.inner_diameter_mm,
+            inserted=True,
+            colour=self.colour,
+            anchor_key=self.anchor_key,
+            optical_reference_downstream_of_anchor_mm=(
+                self.optical_reference_downstream_of_anchor_mm
+            ),
+            layout_center_downstream_of_anchor_mm=(
+                self.layout_center_downstream_of_anchor_mm
+            ),
+            layout_length_mm=self.layout_length_mm,
+            owner=self.owner,
+        )
+
+
+@dataclass
+class StemDetectorComponent:
+    key: str
+    name: str
+    z_mm: float
+    geometry: str
+    outer_width_mm: float
+    inner_diameter_mm: float = 0.0
+    inserted: bool = True
+    colour: str = "#455a64"
+    anchor_key: str = SELECTED_AREA_APERTURE
+    optical_reference_downstream_of_anchor_mm: float = 0.0
+    layout_center_downstream_of_anchor_mm: float = 0.0
+    layout_length_mm: float = 1.0
+    owner: str = "detector"
+
+    NON_BLOCKING: ClassVar[bool] = False
+    INTERACTION_KIND: ClassVar[str] = "recording_plane_stop"
+
+    @property
+    def outer_diameter_mm(self):
+        return self.outer_width_mm
+
+    @property
+    def readout_enabled(self):
+        return bool(self.inserted)
+
+    @readout_enabled.setter
+    def readout_enabled(self, value):
+        self.inserted = bool(value)
+
+    def validate(self):
+        self.key = canonical_recording_plane_key(self.key)
+        if self.key not in STEM_DETECTOR_KEYS:
+            raise ValueError("Unknown STEM detector key.")
+        if self.anchor_key != SELECTED_AREA_APERTURE:
+            raise ValueError(
+                "STEM detectors must follow the Selected Area Aperture."
+            )
+        geometry = str(self.geometry).lower()
+        if geometry not in {"disk", "annulus"}:
+            raise ValueError("STEM detector geometry must be disk or annulus.")
+        self.geometry = geometry
+        if self.outer_width_mm <= 0.0:
+            raise ValueError("STEM detector outer diameter must be positive.")
+        if self.inner_diameter_mm < 0.0:
+            raise ValueError("STEM detector inner diameter cannot be negative.")
+        if (
+            geometry == "annulus"
+            and self.inner_diameter_mm >= self.outer_width_mm
+        ):
+            raise ValueError(
+                "STEM detector inner diameter must be smaller than its "
+                "outer diameter."
+            )
+        if self.layout_length_mm <= 0.0:
+            raise ValueError("STEM detector layout length must be positive.")
+        return self
+
+    def resolve_against(self, anchor_z_mm):
+        self.optical_reference_downstream_of_anchor_mm = float(
+            self.layout_center_downstream_of_anchor_mm
+        )
+        self.z_mm = (
+            float(anchor_z_mm)
+            + float(self.layout_center_downstream_of_anchor_mm)
+        )
+        return self
+
+    def set_optical_reference_z_mm(self, anchor_z_mm, z_mm):
+        offset_mm = (
+            float(z_mm) - float(anchor_z_mm)
+        )
+        self.layout_center_downstream_of_anchor_mm = offset_mm
+        self.optical_reference_downstream_of_anchor_mm = offset_mm
+        return self.resolve_against(anchor_z_mm)
+
+    def hit_mask(self, x_mm, y_mm):
+        x_mm = np.asarray(x_mm, dtype=float)
+        y_mm = np.asarray(y_mm, dtype=float)
+        radius = np.hypot(x_mm, y_mm)
+        outer = float(self.outer_width_mm) / 2.0
+        if self.geometry == "annulus":
+            inner = float(self.inner_diameter_mm) / 2.0
+            return (radius >= inner) & (radius <= outer)
+        return radius <= outer
+
+
+STEM_DETECTOR_DEFINITIONS = (
+    StemDetectorDefinition(
+        key=HAADF_DETECTOR,
+        label="HAADF Detector",
+        optical_reference_downstream_of_anchor_mm=downstream_offset_mm(
+            HAADF_DETECTOR
+        ),
+        layout_center_downstream_of_anchor_mm=downstream_offset_mm(
+            HAADF_DETECTOR
+        ),
+        layout_length_mm=60.0,
+        geometry="annulus",
+        outer_width_mm=22.0,
+        inner_diameter_mm=4.0,
+        colour="#d81b60",
+    ),
+    StemDetectorDefinition(
+        key=DARK_FIELD_DETECTOR,
+        label="DF Detector",
+        optical_reference_downstream_of_anchor_mm=downstream_offset_mm(
+            DARK_FIELD_DETECTOR
+        ),
+        layout_center_downstream_of_anchor_mm=downstream_offset_mm(
+            DARK_FIELD_DETECTOR
+        ),
+        layout_length_mm=50.0,
+        geometry="annulus",
+        outer_width_mm=14.0,
+        inner_diameter_mm=2.0,
+        colour="#fb8c00",
+    ),
+    StemDetectorDefinition(
+        key=BRIGHT_FIELD_DETECTOR,
+        label="BF Detector",
+        optical_reference_downstream_of_anchor_mm=downstream_offset_mm(
+            BRIGHT_FIELD_DETECTOR
+        ),
+        layout_center_downstream_of_anchor_mm=downstream_offset_mm(
+            BRIGHT_FIELD_DETECTOR
+        ),
+        layout_length_mm=40.0,
+        geometry="disk",
+        outer_width_mm=1.5,
+        inner_diameter_mm=0.0,
+        colour="#1e88e5",
+    ),
+)
+
+STEM_DETECTOR_DEFINITION_BY_KEY = {
+    definition.key: definition
+    for definition in STEM_DETECTOR_DEFINITIONS
+}
+
+
+def create_stem_detectors(
+    anchor_z_mm=(
+        SELECTED_AREA_APERTURE_DEFINITION
+        .standalone_optical_reference_z_mm
+    ),
+):
+    return [
+        definition.create_component(anchor_z_mm).validate()
+        for definition in STEM_DETECTOR_DEFINITIONS
+    ]
+
+
+def stem_detector_from_dict(
+    data,
+    anchor_z_mm=(
+        SELECTED_AREA_APERTURE_DEFINITION
+        .standalone_optical_reference_z_mm
+    ),
+):
+    values = dict(data)
+    key = canonical_recording_plane_key(values.get("key", ""))
+    definition = STEM_DETECTOR_DEFINITION_BY_KEY[key]
+    component = definition.create_component(anchor_z_mm)
+    known = component.__dataclass_fields__
+    for field, value in values.items():
+        if field in known and field in {
+            "inserted",
+            "colour",
+        }:
+            setattr(component, field, value)
+    component.key = key
+    component.name = definition.label
+    legacy_anchor = values.get("anchor_key") != SELECTED_AREA_APERTURE
+    component.anchor_key = SELECTED_AREA_APERTURE
+    if legacy_anchor:
+        offset = downstream_offset_mm(key)
+        component.optical_reference_downstream_of_anchor_mm = offset
+        component.layout_center_downstream_of_anchor_mm = offset
+    return component.resolve_against(anchor_z_mm).validate()

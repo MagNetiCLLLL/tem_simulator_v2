@@ -1,0 +1,77 @@
+# Allowed reusable modules and their assembly rules.
+
+format_version = 1
+coordinate_system = "module_local_z_mm"
+
+[assembly]
+order = ["gun", "column", "project_and_recording_system"]
+first_interface = "electron_source_reference"
+last_interface = "recording_system_end"
+
+[rules]
+monochromator_supported = true
+monochromator_only_with_feg = true
+corrector_requires_c3_lens = true
+
+[[gun_variants]]
+name = "FEG"
+file = "gun/FEG.toml"
+electron_gun = "FEG"
+monochromator = false
+
+[[gun_variants]]
+name = "FEG + Mono"
+file = "gun/FEG_Mono.toml"
+electron_gun = "FEG"
+monochromator = true
+
+[[gun_variants]]
+name = "Thermionic"
+file = "gun/Thermionic.toml"
+electron_gun = "Thermionic"
+monochromator = false
+
+[[column_variants]]
+name = "C2"
+file = "column/C2.toml"
+c3_lens = false
+probe_corrector = false
+image_corrector = false
+
+[[column_variants]]
+name = "C3"
+file = "column/C3.toml"
+c3_lens = true
+probe_corrector = false
+image_corrector = false
+
+[[column_variants]]
+name = "C3 + Probe Corrector"
+file = "column/C3_ProbeCorrector.toml"
+c3_lens = true
+probe_corrector = true
+image_corrector = false
+
+[[column_variants]]
+name = "C3 + Image Corrector"
+file = "column/C3_ImageCorrector.toml"
+c3_lens = true
+probe_corrector = false
+image_corrector = true
+
+[[column_variants]]
+name = "C3 + Probe Corrector + Image Corrector"
+file = "column/C3_ProbeCorrector_ImageCorrector.toml"
+c3_lens = true
+probe_corrector = true
+image_corrector = true
+
+[[project_and_recording_system_variants]]
+name = "No Energy Filter"
+file = "project_and_recording_system/NoEnergyFilter.toml"
+energy_filter = false
+
+[[project_and_recording_system_variants]]
+name = "Energy Filter"
+file = "project_and_recording_system/EnergyFilter.toml"
+energy_filter = true

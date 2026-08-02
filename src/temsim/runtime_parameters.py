@@ -1,0 +1,227 @@
+"""Discover editable operating parameters without making them geometry owners."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import math
+from typing import Any
+
+
+SCALAR_TYPES = (bool, int, float, str)
+IDENTITY_FIELDS = frozenset({
+    "key", "name", "label", "display_name", "colour", "color", "type_key",
+    "corrector", "owner", "kind", "shape_profile", "interaction_kind",
+})
+INTERNAL_FIELDS = frozenset({
+    "active_backend",
+    "active_installation",
+    "accelerator_restore_profile",
+    "column_mode",
+    "corrector_mode",
+    "energy_filter_installed",
+    "energy_filter_mode",
+    "image_corrector_installed",
+    "installation_model_version",
+    "installed",
+    "m12_frames_placed",
+    "monochromator_installed",
+    "probe_corrector_installed",
+    "schema_version",
+    "stem_wave_enabled",
+})
+TOML_OWNED_FIELDS = frozenset({
+    "a_mm",
+    "b0_t",
+    "inner_face_gap_mm",
+    "lower_a_mm",
+    "lower_b0_t",
+    "lower_objective_lens_axial_length_mm",
+    "max_percent",
+    "maximum_kick_mrad",
+    "maximum_strength_m2",
+    "maximum_strength_m3",
+    "nominal_focal_length_mm",
+    "nominal_voltage_kv",
+    "sample_axial_offset_mm",
+    "upper_a_mm",
+    "upper_b0_t",
+    "upper_objective_lens_axial_length_mm",
+    "virtual_lens_offset_below_lower_surface_mm",
+})
+GEOMETRY_MARKERS = (
+    "z_mm", "mechanical_", "optical_reference", "field_center",
+    "pole_piece", "assembly_length", "assembly_outer", "anchor_key",
+    "downstream_of_anchor", "upstream_gap", "layout_", "maximum_radius_mm",
+    "plate_thickness_mm", "outer_width_mm",
+    "inner_diameter_mm", "bore_radius", "bore_diameter", "pole_gap_mm",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeTarget:
+    key: str
+    label: str
+    obj: object
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeParameter:
+    name: str
+    value: object
+
+
+def _label(obj: object, fallback: str) -> str:
+    for attribute in ("name", "label", "display_name"):
+        value = getattr(obj, attribute, None)
+        if isinstance(value, str) and value:
+            return value
+    return fallback.replace("_", " ").title()
+
+
+def runtime_targets(state) -> dict[str, RuntimeTarget]:
+    targets: dict[str, RuntimeTarget] = {}
+
+    def add(key: str, obj: object) -> None:
+        targets.setdefault(key, RuntimeTarget(key, _label(obj, key), obj))
+
+    add("simulation", state)
+    add("electron_gun", state.electron_gun)
+
+    def add_children(parent_key: str, parent: object) -> None:
+        for attribute, obj in vars(parent).items():
+            if attribute.startswith("_") or isinstance(
+                obj, (type(None), bool, int, float, str, bytes, tuple, list, dict)
+            ):
+                continue
+            child_key = str(
+                getattr(obj, "key", None) or f"{parent_key}.{attribute}"
+            )
+            add(child_key, obj)
+
+    add_children("electron_gun", state.electron_gun)
+    monochromator = getattr(state.electron_gun, "monochromator", None)
+    if monochromator is not None:
+        add("electron_gun.monochromator", monochromator)
+        add_children("electron_gun.monochromator", monochromator)
+    for collection in (
+        state.lenses,
+        state.apertures,
+        state.stigmators,
+        state.deflectors,
+        getattr(state, "corrector_elements", ()),
+        getattr(state, "recording_planes", ()),
+    ):
+        for obj in collection:
+            key = getattr(obj, "key", None)
+            if key:
+                add(str(key), obj)
+    add("sample", state.sample)
+    camera = getattr(state, "camera", None)
+    if camera is not None:
+        add("camera", camera)
+    energy_filter = getattr(state, "energy_filter", None)
+    if energy_filter is not None:
+        add("energy_filter", energy_filter)
+        add_children("energy_filter", energy_filter)
+    return targets
+
+
+def is_geometry_owned(name: str) -> bool:
+    return any(marker in name for marker in GEOMETRY_MARKERS)
+
+
+def editable_parameters(target: RuntimeTarget) -> tuple[RuntimeParameter, ...]:
+    result = []
+    for name, value in vars(target.obj).items():
+        if (
+            name.startswith("_")
+            or name in IDENTITY_FIELDS
+            or name in INTERNAL_FIELDS
+            or name in TOML_OWNED_FIELDS
+            or is_geometry_owned(name)
+        ):
+            continue
+        if value is None or isinstance(value, SCALAR_TYPES):
+            result.append(RuntimeParameter(name, value))
+    return tuple(sorted(result, key=lambda parameter: parameter.name))
+
+
+def convert_runtime_value(old_value: Any, text: str) -> object:
+    if isinstance(old_value, bool):
+        normalised = text.strip().lower()
+        if normalised not in {"true", "false"}:
+            raise ValueError("Boolean values must be true or false")
+        return normalised == "true"
+    if isinstance(old_value, int) and not isinstance(old_value, bool):
+        return int(text)
+    if isinstance(old_value, float):
+        return float(text)
+    if old_value is None:
+        return None if text.strip().lower() == "none" else float(text)
+    return text
+
+
+def validate_runtime_assignment(
+    target: RuntimeTarget, name: str, value: object
+) -> object:
+    """Type-check and domain-check one profile/runtime assignment."""
+
+    old_value = getattr(target.obj, name)
+    if isinstance(old_value, bool):
+        if not isinstance(value, bool):
+            raise ValueError(f"{target.key}.{name} must be a Boolean")
+        converted = value
+    elif isinstance(old_value, int):
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{target.key}.{name} must be an integer")
+        converted = int(value)
+    elif isinstance(old_value, float):
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise ValueError(f"{target.key}.{name} must be numeric")
+        converted = float(value)
+        if not math.isfinite(converted):
+            raise ValueError(f"{target.key}.{name} must be finite")
+    elif old_value is None:
+        if value is None:
+            converted = None
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            converted = float(value)
+            if not math.isfinite(converted):
+                raise ValueError(f"{target.key}.{name} must be finite")
+        else:
+            raise ValueError(f"{target.key}.{name} must be numeric or none")
+    elif isinstance(old_value, str):
+        if not isinstance(value, str):
+            raise ValueError(f"{target.key}.{name} must be text")
+        converted = value
+    else:
+        raise ValueError(f"{target.key}.{name} has an unsupported value type")
+
+    if name in {"step_mm", "history_step_mm", "trace_step_mm", "ray_step_mm"}:
+        if float(converted) <= 0.0:
+            raise ValueError(f"{target.key}.{name} must be positive")
+    if name == "ray_count" and int(converted) <= 0:
+        raise ValueError(f"{target.key}.{name} must be positive")
+    if name == "polarity" and int(converted) not in (-1, 1):
+        raise ValueError(f"{target.key}.{name} must be +1 or -1")
+    if name in {"radius_mm", "thickness_nm", "rocking_width_inv_nm"}:
+        if float(converted) < 0.0:
+            raise ValueError(f"{target.key}.{name} cannot be negative")
+    if (
+        name == "wave_grid_pixels"
+        and int(converted) != 0
+        and int(converted) < 32
+    ):
+        raise ValueError(f"{target.key}.{name} must be 0 or at least 32")
+    if name == "wave_field_of_view_angstrom" and float(converted) < 0.0:
+        raise ValueError(f"{target.key}.{name} cannot be negative")
+    if name == "percent":
+        maximum = min(
+            100.0,
+            float(getattr(target.obj, "max_percent", 100.0)),
+        )
+        if float(converted) < 0.0 or float(converted) > maximum:
+            raise ValueError(
+                f"{target.key}.{name} must be between 0 and {maximum:g}"
+            )
+    return converted

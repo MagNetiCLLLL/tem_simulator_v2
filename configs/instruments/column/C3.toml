@@ -1,0 +1,834 @@
+# Reusable mechanical module exported from the current TEM assembly.
+# All coordinates are local to this module, not source-absolute.
+# Positive z follows the electron-beam direction.
+
+format_version = 1
+coordinate_system = "module_local_z_mm"
+
+[module]
+type = "column"
+key = "column:c3"
+name = "C3"
+c3_lens = true
+probe_corrector = false
+image_corrector = false
+
+[ports.entrance]
+interface = "gun_to_column"
+local_z_mm = 0.0
+
+[ports.exit]
+interface = "column_to_project_and_recording_system"
+local_z_mm = 1040.4
+
+[geometry]
+length_mm = 1040.4
+parts_start_z_mm = 0.0
+parts_end_z_mm = 1035.4
+vacuum_drift_inner_diameter_mm = 5
+vacuum_liner_wall_thickness_mm = 0.25
+
+[[parts]]
+order = 1
+key = "condenser_lens_1"
+name = "C1 Lens"
+branch = "common"
+local_start_z_mm = 0.0
+local_center_z_mm = 70.0
+local_end_z_mm = 140.0
+length_mm = 140.0
+mechanical_overlap_reason = "Nested pole pieces inside the condenser_lens_1 assembly."
+mechanical_overlap_role = "container"
+mechanical_overlap_group = "condenser_lens_1_assembly"
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 70.0
+mechanical_outer_diameter_mm = 225.0
+bore_diameter_mm = 20.0
+pole_gap_mm = 20.0
+effective_aperture_radius_mm = 10.0
+
+mechanical_profile = "magnetic_lens_assembly"
+mechanical_part_role = "optical_parent"
+[[parts]]
+order = 7
+key = "condenser_aperture_2"
+name = "C2 Aperture"
+branch = "common"
+local_start_z_mm = 300.0
+local_center_z_mm = 310.0
+local_end_z_mm = 320.0
+length_mm = 20.0
+vacuum_inner_diameter_mm = 5
+optical_reference_local_z_mm = 310.0
+mechanical_outer_diameter_mm = 80.0
+mechanical_bore_diameter_mm = 4.0
+plate_thickness_mm = 0.2
+maximum_radius_mm = 2.0
+
+[[parts]]
+order = 12
+key = "condenser_aperture_3"
+name = "C3 Aperture"
+branch = "common"
+local_start_z_mm = 550.0
+local_center_z_mm = 560.0
+local_end_z_mm = 570.0
+length_mm = 20.0
+vacuum_inner_diameter_mm = 5
+optical_reference_local_z_mm = 560.0
+mechanical_outer_diameter_mm = 75.0
+mechanical_bore_diameter_mm = 4.0
+plate_thickness_mm = 0.2
+maximum_radius_mm = 2.0
+
+[[parts]]
+order = 14
+key = "objective_lens"
+name = "Objective Lens Assembly"
+branch = "common"
+local_start_z_mm = 615.0
+local_center_z_mm = 825.2
+local_end_z_mm = 1035.4
+length_mm = 420.4
+vacuum_inner_diameter_mm = 5
+upper_field_reference_local_z_mm = 823.85
+lower_field_reference_local_z_mm = 826.55
+virtual_reference_local_z_mm = 825.2
+mechanical_outer_diameter_mm = 380.0
+upper_yoke_start_local_z_mm = 617.5
+upper_yoke_end_local_z_mm = 772.5
+lower_yoke_start_local_z_mm = 877.9
+lower_yoke_end_local_z_mm = 1032.9
+s_twin_pole_gap_mm = 5.4
+nominal_voltage_kv = 300.0
+nominal_focal_length_mm = 2.8
+spherical_aberration_mm = 1.2
+nominal_back_focal_plane_local_z_mm = 839.4536907227932
+nominal_image_plane_local_z_mm = 981.316738548523
+nominal_excitation_percent = 43.4655991515515
+maximum_excitation_percent = 100.0
+upper_peak_field_t = 0.619078848303691
+lower_peak_field_t = 0.619078848303691
+upper_field_half_width_mm = 24.0
+lower_field_half_width_mm = 24.0
+upper_field_profile_amplitudes = [0.09, 0.82, 0.09]
+upper_field_profile_offsets = [-1.0, 0.0, 1.0]
+upper_field_profile_sigmas = [0.9, 0.55, 0.9]
+lower_field_profile_amplitudes = [0.09, 0.82, 0.09]
+lower_field_profile_offsets = [-1.0, 0.0, 1.0]
+lower_field_profile_sigmas = [0.9, 0.55, 0.9]
+polarity = 1
+chromatic_aberration_mm = 2.0
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "container"
+mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+
+mechanical_profile = "magnetic_lens_assembly"
+mechanical_part_role = "optical_parent"
+[[parts]]
+order = 15
+key = "sample_stage"
+name = "Sample Stage / Goniometer"
+branch = "common"
+local_start_z_mm = 615.0
+local_center_z_mm = 825.2
+local_end_z_mm = 1035.4
+length_mm = 420.4
+vacuum_inner_diameter_mm = 5
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "container"
+mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+parent_key = "objective_lens"
+
+[[parts]]
+order = 4
+key = "condenser_lens_2"
+name = "C2 Lens"
+branch = "common"
+local_start_z_mm = 140.0
+local_center_z_mm = 220.0
+local_end_z_mm = 300.0
+length_mm = 160.0
+mechanical_overlap_reason = "Nested pole pieces inside the condenser_lens_2 assembly."
+mechanical_overlap_role = "container"
+mechanical_overlap_group = "condenser_lens_2_assembly"
+pole_gap_mm = 20
+bore_diameter_mm = 20
+mechanical_outer_diameter_mm = 245
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 220.0
+
+mechanical_profile = "magnetic_lens_assembly"
+mechanical_part_role = "optical_parent"
+[[parts]]
+order = 16
+key = "condenser_stigmator"
+name = "Condenser Stigmator"
+branch = "illumination"
+local_start_z_mm = 662.5
+local_center_z_mm = 677.5
+local_end_z_mm = 692.5
+length_mm = 30.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 677.5
+mechanical_outer_diameter_mm = 120.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_length_mm = 6.0
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+parent_key = "objective_lens"
+
+[[parts]]
+order = 13
+key = "beam_deflector"
+name = "BSh/BTlt Beam Shift/Tilt Deflector"
+branch = "common"
+local_start_z_mm = 570.0
+local_center_z_mm = 590.0
+local_end_z_mm = 610.0
+length_mm = 40.0
+vacuum_inner_diameter_mm = 5
+optical_reference_local_z_mm = 590.0
+interaction_centers_local_z_mm = [577.5, 602.5]
+
+[[parts]]
+order = 17
+key = "ac_deflector"
+name = "AC Scan Coil"
+branch = "illumination"
+local_start_z_mm = 697.5
+local_center_z_mm = 717.5
+local_end_z_mm = 737.5
+length_mm = 40.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 717.5
+interaction_centers_local_z_mm = [705.0, 730.0]
+mechanical_outer_diameter_mm = 75.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_thickness_mm = 15.0
+mechanical_coil_length_mm = 15.0
+mechanical_inter_coil_gap_mm = 10.0
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+parent_key = "objective_lens"
+
+[[parts]]
+order = 18
+key = "mini_condenser"
+name = "Mini Condenser Lens"
+branch = "illumination"
+local_start_z_mm = 742.5
+local_center_z_mm = 757.5
+local_end_z_mm = 772.5
+length_mm = 30.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 757.5
+mechanical_outer_diameter_mm = 210.0
+bore_diameter_mm = 20.0
+pole_gap_mm = 16.0
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+parent_key = "objective_lens"
+
+pole_piece_topology = "two_pole_single_gap"
+mechanical_profile = "magnetic_lens_assembly"
+mechanical_part_role = "optical_parent"
+[[parts]]
+order = 20
+key = "sample"
+name = "Sample"
+branch = "common"
+local_start_z_mm = 825.1999500000001
+local_center_z_mm = 825.2
+local_end_z_mm = 825.20005
+length_mm = 9.99999999749e-05
+vacuum_inner_diameter_mm = 5
+optical_reference_local_z_mm = 825.2
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+parent_key = "sample_stage"
+
+[[parts]]
+order = 21
+key = "objective_aperture"
+name = "Objective Aperture"
+branch = "common"
+local_start_z_mm = 825.7
+local_center_z_mm = 826.7
+local_end_z_mm = 827.7
+length_mm = 2.0
+vacuum_inner_diameter_mm = 5
+optical_reference_local_z_mm = 839.4536907227932
+mechanical_outer_diameter_mm = 80.0
+mechanical_bore_diameter_mm = 2.0
+plate_thickness_mm = 0.2
+maximum_radius_mm = 1.0
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+
+[[parts]]
+order = 23
+key = "descan_deflector"
+name = "AC Descan Coil"
+branch = "image"
+local_start_z_mm = 877.9
+local_center_z_mm = 897.9
+local_end_z_mm = 917.9
+length_mm = 40.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 897.9
+interaction_centers_local_z_mm = [885.4, 910.4]
+mechanical_outer_diameter_mm = 90.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_thickness_mm = 15.0
+mechanical_coil_length_mm = 15.0
+mechanical_inter_coil_gap_mm = 10.0
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+parent_key = "objective_lens"
+
+[[parts]]
+order = 24
+key = "objective_stigmator"
+name = "Objective Stigmator"
+branch = "image"
+local_start_z_mm = 922.9
+local_center_z_mm = 937.9
+local_end_z_mm = 952.9
+length_mm = 30.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 937.9
+mechanical_outer_diameter_mm = 120.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_length_mm = 6.0
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+parent_key = "objective_lens"
+
+[[parts]]
+order = 25
+key = "image_diffraction_deflector"
+name = "Image/Diffraction Deflectors"
+branch = "image"
+local_start_z_mm = 957.9
+local_center_z_mm = 977.9
+local_end_z_mm = 997.9
+length_mm = 40.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 977.9
+interaction_centers_local_z_mm = [965.4, 990.4]
+mechanical_outer_diameter_mm = 90.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_thickness_mm = 15.0
+mechanical_coil_length_mm = 15.0
+mechanical_inter_coil_gap_mm = 10.0
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+parent_key = "objective_lens"
+
+[[parts]]
+order = 8
+key = "condenser_deflector"
+name = "Condenser Deflector"
+branch = "common"
+local_start_z_mm = 340.0
+local_center_z_mm = 360.0
+local_end_z_mm = 380.0
+length_mm = 40.0
+vacuum_inner_diameter_mm = 5
+optical_reference_local_z_mm = 360.0
+interaction_centers_local_z_mm = [350.0, 370.0]
+
+[[parts]]
+order = 9
+key = "condenser_lens_3"
+name = "C3 Lens"
+branch = "common"
+local_start_z_mm = 380.0
+local_center_z_mm = 465.0
+local_end_z_mm = 550.0
+length_mm = 170.0
+mechanical_overlap_reason = "Nested pole pieces inside the condenser_lens_3 assembly."
+mechanical_overlap_role = "container"
+mechanical_overlap_group = "condenser_lens_3_assembly"
+pole_gap_mm = 18
+bore_diameter_mm = 18
+mechanical_outer_diameter_mm = 270
+vacuum_inner_diameter_mm = 18
+optical_reference_local_z_mm = 465.0
+mechanical_profile = "magnetic_lens_assembly"
+mechanical_part_role = "optical_parent"
+[[parts]]
+order = 3
+key = "condenser_lens_1_lower_pole"
+name = "C1 Lower Pole Piece"
+branch = "common"
+local_start_z_mm = 80
+local_center_z_mm = 105
+local_end_z_mm = 130
+length_mm = 50
+vacuum_inner_diameter_mm = 20
+mechanical_outer_diameter_mm = 150
+mechanical_tip_diameter_mm = 40
+mechanical_bore_diameter_mm = 20
+mechanical_overlap_group = "condenser_lens_1_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested pole pieces inside the condenser_lens_1 assembly."
+parent_key = "condenser_lens_1"
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 5
+key = "condenser_lens_2_upper_pole"
+name = "C2 Upper Pole Piece"
+branch = "common"
+local_start_z_mm = 150
+local_center_z_mm = 180
+local_end_z_mm = 210
+length_mm = 60
+vacuum_inner_diameter_mm = 20
+mechanical_outer_diameter_mm = 165
+mechanical_tip_diameter_mm = 40
+mechanical_bore_diameter_mm = 20
+mechanical_overlap_group = "condenser_lens_2_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested pole pieces inside the condenser_lens_2 assembly."
+parent_key = "condenser_lens_2"
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 10
+key = "condenser_lens_3_upper_pole"
+name = "C3 Upper Pole Piece"
+branch = "common"
+local_start_z_mm = 380
+local_center_z_mm = 418
+local_end_z_mm = 456
+length_mm = 76
+vacuum_inner_diameter_mm = 18
+mechanical_outer_diameter_mm = 180
+mechanical_tip_diameter_mm = 36
+mechanical_bore_diameter_mm = 18
+mechanical_overlap_group = "condenser_lens_3_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested pole pieces inside the condenser_lens_3 assembly."
+parent_key = "condenser_lens_3"
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 11
+key = "condenser_lens_3_lower_pole"
+name = "C3 Lower Pole Piece"
+branch = "common"
+local_start_z_mm = 474
+local_center_z_mm = 512
+local_end_z_mm = 550
+length_mm = 76
+vacuum_inner_diameter_mm = 18
+mechanical_outer_diameter_mm = 180
+mechanical_tip_diameter_mm = 36
+mechanical_bore_diameter_mm = 18
+mechanical_overlap_group = "condenser_lens_3_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested pole pieces inside the condenser_lens_3 assembly."
+parent_key = "condenser_lens_3"
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 19
+key = "objective_upper_pole"
+name = "Upper Objective"
+branch = "common"
+local_start_z_mm = 772.5
+local_center_z_mm = 797.5
+local_end_z_mm = 822.5
+length_mm = 50
+vacuum_inner_diameter_mm = 2
+mechanical_outer_diameter_mm = 150
+mechanical_tip_diameter_mm = 10
+mechanical_bore_diameter_mm = 2
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+parent_key = "objective_lens"
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 22
+key = "objective_lower_pole"
+name = "Lower Objective"
+branch = "common"
+local_start_z_mm = 827.9
+local_center_z_mm = 852.9
+local_end_z_mm = 877.9
+length_mm = 50
+vacuum_inner_diameter_mm = 2
+mechanical_outer_diameter_mm = 150
+mechanical_tip_diameter_mm = 10
+mechanical_bore_diameter_mm = 2
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+parent_key = "objective_lens"
+
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 26
+key = "mini_condenser_upper_pole"
+name = "Mini Condenser Lens Upper Pole Piece"
+branch = "illumination"
+local_start_z_mm = 742.5
+local_center_z_mm = 746
+local_end_z_mm = 749.5
+length_mm = 7
+vacuum_inner_diameter_mm = 20
+mechanical_outer_diameter_mm = 140.7
+mechanical_tip_diameter_mm = 40
+mechanical_bore_diameter_mm = 20
+mechanical_profile = "magnetic_pole_piece"
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Independent pole piece nested inside the Mini Condenser Lens assembly."
+parent_key = "mini_condenser"
+
+[[parts]]
+order = 27
+key = "mini_condenser_lower_pole"
+name = "Mini Condenser Lens Lower Pole Piece"
+branch = "illumination"
+local_start_z_mm = 765.5
+local_center_z_mm = 769
+local_end_z_mm = 772.5
+length_mm = 7
+vacuum_inner_diameter_mm = 20
+mechanical_outer_diameter_mm = 140.7
+mechanical_tip_diameter_mm = 40
+mechanical_bore_diameter_mm = 20
+mechanical_profile = "magnetic_pole_piece"
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Independent pole piece nested inside the Mini Condenser Lens assembly."
+parent_key = "mini_condenser"
+
+[[parts]]
+order = 28
+key = "condenser_lens_1_housing"
+name = "C1 Lens Housing"
+branch = "common"
+local_start_z_mm = 0
+local_center_z_mm = 70
+local_end_z_mm = 140
+length_mm = 140
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 211.5
+mechanical_outer_diameter_mm = 225
+mechanical_profile = "magnetic_lens_housing"
+mechanical_part_role = "housing"
+material_class = "non_magnetic_structural"
+mechanical_only = true
+mechanical_overlap_group = "condenser_lens_1_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the C1 Lens assembly."
+parent_key = "condenser_lens_1"
+
+[[parts]]
+order = 29
+key = "condenser_lens_1_yoke"
+name = "C1 Lens Magnetic Yoke"
+branch = "common"
+local_start_z_mm = 0
+local_center_z_mm = 70
+local_end_z_mm = 140
+length_mm = 140
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 171
+mechanical_outer_diameter_mm = 207
+mechanical_profile = "magnetic_lens_yoke"
+mechanical_part_role = "yoke"
+material_class = "soft_magnetic"
+mechanical_only = true
+mechanical_overlap_group = "condenser_lens_1_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the C1 Lens assembly."
+parent_key = "condenser_lens_1"
+
+[[parts]]
+order = 30
+key = "condenser_lens_1_excitation_coil"
+name = "C1 Lens Excitation Coil"
+branch = "common"
+local_start_z_mm = 35
+local_center_z_mm = 70
+local_end_z_mm = 105
+length_mm = 70
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 155.25
+mechanical_outer_diameter_mm = 166.5
+mechanical_profile = "magnetic_excitation_coil"
+mechanical_part_role = "excitation_coil"
+material_class = "insulated_copper_winding"
+mechanical_only = true
+mechanical_overlap_group = "condenser_lens_1_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the C1 Lens assembly."
+parent_key = "condenser_lens_1"
+field_source_key = "condenser_lens_1"
+
+[[parts]]
+order = 31
+key = "condenser_lens_2_housing"
+name = "C2 Lens Housing"
+branch = "common"
+local_start_z_mm = 140
+local_center_z_mm = 220
+local_end_z_mm = 300
+length_mm = 160
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 230.3
+mechanical_outer_diameter_mm = 245
+mechanical_profile = "magnetic_lens_housing"
+mechanical_part_role = "housing"
+material_class = "non_magnetic_structural"
+mechanical_only = true
+mechanical_overlap_group = "condenser_lens_2_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the C2 Lens assembly."
+parent_key = "condenser_lens_2"
+
+[[parts]]
+order = 32
+key = "condenser_lens_2_yoke"
+name = "C2 Lens Magnetic Yoke"
+branch = "common"
+local_start_z_mm = 140
+local_center_z_mm = 220
+local_end_z_mm = 300
+length_mm = 160
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 186.2
+mechanical_outer_diameter_mm = 225.4
+mechanical_profile = "magnetic_lens_yoke"
+mechanical_part_role = "yoke"
+material_class = "soft_magnetic"
+mechanical_only = true
+mechanical_overlap_group = "condenser_lens_2_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the C2 Lens assembly."
+parent_key = "condenser_lens_2"
+
+[[parts]]
+order = 33
+key = "condenser_lens_2_excitation_coil"
+name = "C2 Lens Excitation Coil"
+branch = "common"
+local_start_z_mm = 180
+local_center_z_mm = 220
+local_end_z_mm = 260
+length_mm = 80
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 169.05
+mechanical_outer_diameter_mm = 181.3
+mechanical_profile = "magnetic_excitation_coil"
+mechanical_part_role = "excitation_coil"
+material_class = "insulated_copper_winding"
+mechanical_only = true
+mechanical_overlap_group = "condenser_lens_2_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the C2 Lens assembly."
+parent_key = "condenser_lens_2"
+field_source_key = "condenser_lens_2"
+
+[[parts]]
+order = 34
+key = "condenser_lens_3_housing"
+name = "C3 Lens Housing"
+branch = "common"
+local_start_z_mm = 380
+local_center_z_mm = 465
+local_end_z_mm = 550
+length_mm = 170
+vacuum_inner_diameter_mm = 18
+mechanical_inner_diameter_mm = 253.8
+mechanical_outer_diameter_mm = 270
+mechanical_profile = "magnetic_lens_housing"
+mechanical_part_role = "housing"
+material_class = "non_magnetic_structural"
+mechanical_only = true
+mechanical_overlap_group = "condenser_lens_3_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the C3 Lens assembly."
+parent_key = "condenser_lens_3"
+
+[[parts]]
+order = 35
+key = "condenser_lens_3_yoke"
+name = "C3 Lens Magnetic Yoke"
+branch = "common"
+local_start_z_mm = 380
+local_center_z_mm = 465
+local_end_z_mm = 550
+length_mm = 170
+vacuum_inner_diameter_mm = 18
+mechanical_inner_diameter_mm = 205.2
+mechanical_outer_diameter_mm = 248.4
+mechanical_profile = "magnetic_lens_yoke"
+mechanical_part_role = "yoke"
+material_class = "soft_magnetic"
+mechanical_only = true
+mechanical_overlap_group = "condenser_lens_3_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the C3 Lens assembly."
+parent_key = "condenser_lens_3"
+
+[[parts]]
+order = 36
+key = "condenser_lens_3_excitation_coil"
+name = "C3 Lens Excitation Coil"
+branch = "common"
+local_start_z_mm = 422.5
+local_center_z_mm = 465
+local_end_z_mm = 507.5
+length_mm = 85
+vacuum_inner_diameter_mm = 18
+mechanical_inner_diameter_mm = 186.3
+mechanical_outer_diameter_mm = 199.8
+mechanical_profile = "magnetic_excitation_coil"
+mechanical_part_role = "excitation_coil"
+material_class = "insulated_copper_winding"
+mechanical_only = true
+mechanical_overlap_group = "condenser_lens_3_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the C3 Lens assembly."
+parent_key = "condenser_lens_3"
+field_source_key = "condenser_lens_3"
+
+[[parts]]
+order = 37
+key = "mini_condenser_housing"
+name = "Mini Condenser Lens Housing"
+branch = "illumination"
+local_start_z_mm = 742.5
+local_center_z_mm = 757.5
+local_end_z_mm = 772.5
+length_mm = 30
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 197.4
+mechanical_outer_diameter_mm = 210
+mechanical_profile = "magnetic_lens_housing"
+mechanical_part_role = "housing"
+material_class = "non_magnetic_structural"
+mechanical_only = true
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Mini Condenser Lens assembly."
+parent_key = "mini_condenser"
+
+[[parts]]
+order = 38
+key = "mini_condenser_yoke"
+name = "Mini Condenser Lens Magnetic Yoke"
+branch = "illumination"
+local_start_z_mm = 742.5
+local_center_z_mm = 757.5
+local_end_z_mm = 772.5
+length_mm = 30
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 159.6
+mechanical_outer_diameter_mm = 193.2
+mechanical_profile = "magnetic_lens_yoke"
+mechanical_part_role = "yoke"
+material_class = "soft_magnetic"
+mechanical_only = true
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Mini Condenser Lens assembly."
+parent_key = "mini_condenser"
+
+[[parts]]
+order = 39
+key = "mini_condenser_excitation_coil"
+name = "Mini Condenser Lens Excitation Coil"
+branch = "illumination"
+local_start_z_mm = 750
+local_center_z_mm = 757.5
+local_end_z_mm = 765
+length_mm = 15
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 144.9
+mechanical_outer_diameter_mm = 155.4
+mechanical_profile = "magnetic_excitation_coil"
+mechanical_part_role = "excitation_coil"
+material_class = "insulated_copper_winding"
+mechanical_only = true
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Mini Condenser Lens assembly."
+parent_key = "mini_condenser"
+field_source_key = "mini_condenser"
+
+[[parts]]
+order = 40
+key = "objective_lens_housing"
+name = "Objective Lens Housing"
+branch = "common"
+local_start_z_mm = 615
+local_center_z_mm = 825.2
+local_end_z_mm = 1035.4
+length_mm = 420.4
+vacuum_inner_diameter_mm = 5
+mechanical_inner_diameter_mm = 357.2
+mechanical_outer_diameter_mm = 380
+mechanical_profile = "magnetic_lens_housing"
+mechanical_part_role = "housing"
+material_class = "non_magnetic_structural"
+mechanical_only = true
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Objective Lens assembly."
+parent_key = "objective_lens"
+
+[[parts]]
+order = 41
+key = "objective_lens_yoke"
+name = "Objective Lens Magnetic Yoke"
+branch = "common"
+local_start_z_mm = 615
+local_center_z_mm = 825.2
+local_end_z_mm = 1035.4
+length_mm = 420.4
+vacuum_inner_diameter_mm = 5
+mechanical_inner_diameter_mm = 288.8
+mechanical_outer_diameter_mm = 349.6
+mechanical_profile = "magnetic_lens_yoke"
+mechanical_part_role = "yoke"
+material_class = "soft_magnetic"
+mechanical_only = true
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Objective Lens assembly."
+parent_key = "objective_lens"
+
+[[parts]]
+order = 42
+key = "objective_lens_excitation_coil"
+name = "Objective Lens Excitation Coil"
+branch = "common"
+local_start_z_mm = 720.1
+local_center_z_mm = 825.2
+local_end_z_mm = 930.3
+length_mm = 210.2
+vacuum_inner_diameter_mm = 5
+mechanical_inner_diameter_mm = 262.2
+mechanical_outer_diameter_mm = 281.2
+mechanical_profile = "magnetic_excitation_coil"
+mechanical_part_role = "excitation_coil"
+material_class = "insulated_copper_winding"
+mechanical_only = true
+mechanical_overlap_group = "objective_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Objective Lens assembly."
+parent_key = "objective_lens"
+field_source_key = "objective_lens"

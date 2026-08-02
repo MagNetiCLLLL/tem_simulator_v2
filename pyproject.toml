@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tem-simulator-v2"
+version = "0.1.0"
+description = "Transmission electron microscope simulation and control GUI"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "matplotlib",
+    "numba",
+    "numpy",
+    "pyqtgraph",
+    "PySide6==6.8.3",
+    "scipy",
+    "tomli-w",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-qt",
+]
+
+[project.scripts]
+tem-simulator = "temsim.app:run"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.data-files]
+"configs/instruments" = ["configs/instruments/catalog.toml"]
+"configs/instruments/column" = ["configs/instruments/column/*.toml"]
+"configs/instruments/gun" = ["configs/instruments/gun/*.toml"]
+"configs/instruments/project_and_recording_system" = [
+    "configs/instruments/project_and_recording_system/*.toml",
+]
+"configs/specimens" = ["configs/specimens/*.toml"]
+"configs/operating_modes" = ["configs/operating_modes/*.toml"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

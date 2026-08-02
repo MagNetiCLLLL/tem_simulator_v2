@@ -1,0 +1,165 @@
+# Reusable mechanical module exported from the current TEM assembly.
+# All coordinates are local to this module, not source-absolute.
+# Positive z follows the electron-beam direction.
+
+format_version = 1
+coordinate_system = "module_local_z_mm"
+
+[module]
+type = "gun"
+key = "gun:feg_mono"
+name = "FEG + Mono"
+electron_gun = "FEG"
+monochromator = true
+
+[ports.entrance]
+interface = "electron_source_reference"
+local_z_mm = 0.0
+
+[ports.exit]
+interface = "gun_to_column"
+local_z_mm = 500.0
+
+[geometry]
+length_mm = 500.0
+vacuum_drift_inner_diameter_mm = 5
+vacuum_liner_wall_thickness_mm = 0.25
+parts_start_z_mm = -1.0
+parts_end_z_mm = 496.0
+
+[[parts]]
+order = 1
+key = "feg_tip"
+name = "Cold Field Emission Tip"
+branch = "common"
+local_start_z_mm = -1.0
+local_center_z_mm = 0.0
+local_end_z_mm = 1.0
+length_mm = 2.0
+vacuum_inner_diameter_mm = 5
+optical_reference_local_z_mm = 0.0
+outer_diameter_mm = 0.25
+
+[[parts]]
+order = 2
+key = "feg_extractor"
+name = "Extractor"
+branch = "common"
+local_start_z_mm = 6.0
+local_center_z_mm = 8.0
+local_end_z_mm = 10.0
+length_mm = 4.0
+vacuum_inner_diameter_mm = 4
+optical_reference_local_z_mm = 8.0
+outer_diameter_mm = 20.0
+bore_diameter_mm = 4.0
+
+[[parts]]
+order = 3
+key = "feg_electrostatic_lens"
+name = "Electrostatic Gun Lens"
+branch = "common"
+local_start_z_mm = 14.0
+local_center_z_mm = 18.0
+local_end_z_mm = 22.0
+length_mm = 8.0
+vacuum_inner_diameter_mm = 8
+optical_reference_local_z_mm = 18.0
+outer_diameter_mm = 60.0
+bore_diameter_mm = 8.0
+
+[[parts]]
+order = 4
+key = "feg_monochromator_wien"
+name = "FEG Wien Monochromator"
+branch = "common"
+local_start_z_mm = 26.0
+local_center_z_mm = 51.0
+local_end_z_mm = 76.0
+length_mm = 50.0
+vacuum_inner_diameter_mm = 8
+optical_reference_local_z_mm = 51.0
+outer_diameter_mm = 90.0
+bore_diameter_mm = 8.0
+active_length_mm = 42.0
+
+[[parts]]
+order = 5
+key = "feg_accelerator"
+name = "Accelerator Tube"
+branch = "common"
+local_start_z_mm = 80.0
+local_center_z_mm = 250.0
+local_end_z_mm = 420.0
+length_mm = 340.0
+vacuum_inner_diameter_mm = 10
+outer_diameter_mm = 300.0
+bore_diameter_mm = 10.0
+stage_centers_z_mm = [
+    92.0, 127.55555555555556, 163.11111111111111,
+    198.66666666666669, 234.22222222222223,
+    269.77777777777777, 305.33333333333337,
+    340.8888888888889, 376.44444444444446, 412.0,
+]
+
+[[parts]]
+order = 6
+key = "feg_dpa_aperture"
+name = "Gun / DPA Aperture"
+branch = "common"
+local_start_z_mm = 169.0
+local_center_z_mm = 170.0
+local_end_z_mm = 171.0
+length_mm = 2.0
+vacuum_inner_diameter_mm = 6
+optical_reference_local_z_mm = 170.0
+outer_diameter_mm = 35.0
+bore_diameter_mm = 6.0
+active_length_mm = 0.2
+parent_key = "feg_accelerator"
+
+[[parts]]
+order = 7
+key = "feg_deflector"
+name = "Gun Deflector Pair"
+branch = "common"
+local_start_z_mm = 448.0
+local_center_z_mm = 460.0
+local_end_z_mm = 472.0
+length_mm = 24.0
+vacuum_inner_diameter_mm = 10
+optical_reference_local_z_mm = 460.0
+interaction_centers_local_z_mm = [452.0, 468.0]
+outer_diameter_mm = 90.0
+bore_diameter_mm = 10.0
+active_length_mm = 8.0
+
+[[parts]]
+order = 8
+key = "feg_stigmator"
+name = "Gun Stigmator"
+branch = "common"
+local_start_z_mm = 477.0
+local_center_z_mm = 483.0
+local_end_z_mm = 489.0
+length_mm = 12.0
+vacuum_inner_diameter_mm = 10
+optical_reference_local_z_mm = 483.0
+outer_diameter_mm = 90.0
+bore_diameter_mm = 10.0
+active_length_mm = 8.0
+
+[[parts]]
+order = 9
+key = "feg_c1_aperture"
+name = "Monochromator Slit (C1 Aperture)"
+branch = "common"
+local_start_z_mm = 494.0
+local_center_z_mm = 495.0
+local_end_z_mm = 496.0
+length_mm = 2.0
+vacuum_inner_diameter_mm = 6
+optical_reference_local_z_mm = 495.0
+outer_diameter_mm = 45.0
+bore_diameter_mm = 6.0
+active_length_mm = 0.2

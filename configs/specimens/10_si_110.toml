@@ -1,0 +1,47 @@
+schema_version = 1
+key = "si_110"
+name = "Silicon [110]"
+default = true
+description = "Analytic projected Si dumbbell columns for qualitative phase-contrast imaging."
+zone_axis = "[110]"
+reference_thickness_nm = 10.0
+
+[unit_cell]
+x_angstrom = 3.840
+y_angstrom = 5.431
+
+[grid]
+field_of_view_angstrom = 40.0
+pixels = 256
+
+[[columns]]
+x_fraction = 0.000
+y_fraction = 0.000
+atomic_number = 14
+occupancy = 1.0
+sigma_angstrom = 0.235
+projected_potential_v_angstrom = 18.0
+
+[[columns]]
+x_fraction = 0.250
+y_fraction = 0.250
+atomic_number = 14
+occupancy = 1.0
+sigma_angstrom = 0.235
+projected_potential_v_angstrom = 18.0
+
+[[columns]]
+x_fraction = 0.500
+y_fraction = 0.500
+atomic_number = 14
+occupancy = 1.0
+sigma_angstrom = 0.235
+projected_potential_v_angstrom = 18.0
+
+[[columns]]
+x_fraction = 0.750
+y_fraction = 0.750
+atomic_number = 14
+occupancy = 1.0
+sigma_angstrom = 0.235
+projected_potential_v_angstrom = 18.0

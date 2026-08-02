@@ -1,0 +1,55 @@
+format_version = 1
+description = "Assembly-aware initial operating states awaiting optical calibration."
+
+# Device values deliberately remain empty until the required crossover map is
+# confirmed.  Future lens percentages, aperture diameters and aperture choices
+# belong here rather than in mechanical assembly TOMLs.
+
+[[modes]]
+key = "micro_probe"
+name = "Micro Probe"
+family = "condenser"
+calibration_status = "awaiting_crossover_constraints"
+compatible_columns = ["C2", "C3", "C3 + Probe Corrector", "C3 + Image Corrector", "C3 + Probe Corrector + Image Corrector"]
+compatible_recording_systems = ["*"]
+[modes.devices]
+[modes.apertures]
+
+[[modes]]
+key = "nano_probe"
+name = "Nano Probe"
+family = "condenser"
+calibration_status = "awaiting_crossover_constraints"
+compatible_columns = ["C2", "C3", "C3 + Probe Corrector", "C3 + Image Corrector", "C3 + Probe Corrector + Image Corrector"]
+compatible_recording_systems = ["*"]
+[modes.devices]
+[modes.apertures]
+
+[[modes]]
+key = "imaging"
+name = "Imaging"
+family = "projector"
+calibration_status = "awaiting_crossover_constraints"
+compatible_columns = ["*"]
+compatible_recording_systems = ["No Energy Filter", "Energy Filter"]
+[modes.devices]
+[modes.apertures]
+
+[[modes]]
+key = "diffraction"
+name = "Diffraction"
+family = "projector"
+calibration_status = "awaiting_crossover_constraints"
+compatible_columns = ["*"]
+compatible_recording_systems = ["No Energy Filter", "Energy Filter"]
+[modes.devices]
+[modes.apertures]
+
+[[crossover_constraints]]
+key = "c1_c2_interlens"
+upstream_lens = "condenser_lens_1"
+downstream_lens = "condenser_lens_2"
+target_z_source = "pole_gap_midpoint"
+applies_to_modes = ["micro_probe", "nano_probe"]
+status = "confirmed"
+note = "The crossover target is the mid-plane of the opposing C1-lower and C2-upper pole tips."

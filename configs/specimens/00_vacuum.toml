@@ -1,0 +1,14 @@
+schema_version = 1
+key = "vacuum"
+name = "Vacuum"
+description = "Zero projected potential for reference and alignment checks."
+zone_axis = "none"
+reference_thickness_nm = 10.0
+
+[unit_cell]
+x_angstrom = 4.0
+y_angstrom = 4.0
+
+[grid]
+field_of_view_angstrom = 40.0
+pixels = 256

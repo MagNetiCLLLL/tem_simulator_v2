@@ -1,0 +1,54 @@
+schema_version = 1
+key = "amorphous_carbon"
+name = "Amorphous carbon (model)"
+description = "Deterministic aperiodic carbon-column model for qualitative contrast checks."
+zone_axis = "none"
+reference_thickness_nm = 10.0
+
+[unit_cell]
+x_angstrom = 13.0
+y_angstrom = 13.0
+
+[grid]
+field_of_view_angstrom = 40.0
+pixels = 256
+
+[[columns]]
+x_fraction = 0.080
+y_fraction = 0.130
+atomic_number = 6
+occupancy = 0.8
+sigma_angstrom = 0.260
+projected_potential_v_angstrom = 9.0
+
+[[columns]]
+x_fraction = 0.310
+y_fraction = 0.740
+atomic_number = 6
+occupancy = 1.0
+sigma_angstrom = 0.250
+projected_potential_v_angstrom = 10.0
+
+[[columns]]
+x_fraction = 0.470
+y_fraction = 0.360
+atomic_number = 6
+occupancy = 0.9
+sigma_angstrom = 0.270
+projected_potential_v_angstrom = 9.5
+
+[[columns]]
+x_fraction = 0.680
+y_fraction = 0.880
+atomic_number = 6
+occupancy = 0.7
+sigma_angstrom = 0.280
+projected_potential_v_angstrom = 8.0
+
+[[columns]]
+x_fraction = 0.830
+y_fraction = 0.220
+atomic_number = 6
+occupancy = 1.0
+sigma_angstrom = 0.245
+projected_potential_v_angstrom = 10.0

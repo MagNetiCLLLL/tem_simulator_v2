@@ -1,0 +1,667 @@
+# Reusable mechanical module exported from the current TEM assembly.
+# All coordinates are local to this module, not source-absolute.
+# Positive z follows the electron-beam direction.
+
+format_version = 1
+coordinate_system = "module_local_z_mm"
+
+[module]
+type = "project_and_recording_system"
+key = "project_and_recording_system:energyfilter"
+name = "Energy Filter"
+energy_filter = true
+
+[ports.entrance]
+interface = "column_to_project_and_recording_system"
+local_z_mm = 0.0
+
+[ports.exit]
+interface = "recording_system_end"
+local_z_mm = 1400.0
+
+[geometry]
+length_mm = 1400.0
+vacuum_drift_inner_diameter_mm = 20
+vacuum_liner_wall_thickness_mm = 0.25
+parts_start_z_mm = 0.0
+parts_end_z_mm = 1400.0
+
+[[parts]]
+order = 1
+key = "selected_area_aperture"
+name = "Selected Area Aperture"
+branch = "common"
+local_start_z_mm = 0.0
+local_center_z_mm = 10.0
+local_end_z_mm = 20.0
+length_mm = 20.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 10.0
+
+[[parts]]
+order = 2
+key = "diffraction_stigmator"
+name = "Diffraction Stigmator"
+branch = "common"
+local_start_z_mm = 5.0
+local_center_z_mm = 25.0
+local_end_z_mm = 45.0
+length_mm = 40.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 25.0
+
+[[parts]]
+order = 3
+key = "diffraction_lens"
+name = "Diffraction Lens"
+branch = "common"
+local_start_z_mm = 5.0
+local_center_z_mm = 82.5
+local_end_z_mm = 160.0
+length_mm = 155.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 82.5
+mechanical_outer_diameter_mm = 250.0
+mechanical_clear_bore_diameter_mm = 20.0
+pole_gap_mm = 20.0
+pole_piece_topology = "two_pole_single_gap"
+mechanical_overlap_group = "diffraction_lens_assembly"
+mechanical_overlap_role = "container"
+mechanical_overlap_reason = "Independent pole-piece parts nested inside the Diffraction Lens assembly."
+
+mechanical_profile = "magnetic_lens_assembly"
+mechanical_part_role = "optical_parent"
+[[parts]]
+order = 4
+key = "diffraction_lens_upper_pole"
+name = "Diffraction Lens Upper Pole Piece"
+branch = "common"
+local_start_z_mm = 5.0
+local_center_z_mm = 38.75
+local_end_z_mm = 72.5
+length_mm = 67.5
+vacuum_inner_diameter_mm = 20
+mechanical_outer_diameter_mm = 167.5
+mechanical_tip_diameter_mm = 40.0
+mechanical_bore_diameter_mm = 20.0
+mechanical_overlap_group = "diffraction_lens_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Independent pole piece nested inside the Diffraction Lens assembly."
+parent_key = "diffraction_lens"
+
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 5
+key = "diffraction_lens_lower_pole"
+name = "Diffraction Lens Lower Pole Piece"
+branch = "common"
+local_start_z_mm = 92.5
+local_center_z_mm = 126.25
+local_end_z_mm = 160.0
+length_mm = 67.5
+vacuum_inner_diameter_mm = 20
+mechanical_outer_diameter_mm = 167.5
+mechanical_tip_diameter_mm = 40.0
+mechanical_bore_diameter_mm = 20.0
+mechanical_overlap_group = "diffraction_lens_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Independent pole piece nested inside the Diffraction Lens assembly."
+parent_key = "diffraction_lens"
+
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 6
+key = "intermediate_lens"
+name = "Intermediate Lens"
+branch = "common"
+local_start_z_mm = 165.0
+local_center_z_mm = 252.5
+local_end_z_mm = 340.0
+length_mm = 175.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 252.5
+mechanical_outer_diameter_mm = 270.0
+mechanical_clear_bore_diameter_mm = 20.0
+pole_gap_mm = 20.0
+pole_piece_topology = "two_pole_single_gap"
+mechanical_overlap_group = "intermediate_lens_assembly"
+mechanical_overlap_role = "container"
+mechanical_overlap_reason = "Independent pole-piece parts nested inside the Intermediate Lens assembly."
+
+mechanical_profile = "magnetic_lens_assembly"
+mechanical_part_role = "optical_parent"
+[[parts]]
+order = 7
+key = "intermediate_lens_upper_pole"
+name = "Intermediate Lens Upper Pole Piece"
+branch = "common"
+local_start_z_mm = 165.0
+local_center_z_mm = 203.75
+local_end_z_mm = 242.5
+length_mm = 77.5
+vacuum_inner_diameter_mm = 20
+mechanical_outer_diameter_mm = 180.9
+mechanical_tip_diameter_mm = 40.0
+mechanical_bore_diameter_mm = 20.0
+mechanical_overlap_group = "intermediate_lens_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Independent pole piece nested inside the Intermediate Lens assembly."
+parent_key = "intermediate_lens"
+
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 8
+key = "intermediate_lens_lower_pole"
+name = "Intermediate Lens Lower Pole Piece"
+branch = "common"
+local_start_z_mm = 262.5
+local_center_z_mm = 301.25
+local_end_z_mm = 340.0
+length_mm = 77.5
+vacuum_inner_diameter_mm = 20
+mechanical_outer_diameter_mm = 180.9
+mechanical_tip_diameter_mm = 40.0
+mechanical_bore_diameter_mm = 20.0
+mechanical_overlap_group = "intermediate_lens_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Independent pole piece nested inside the Intermediate Lens assembly."
+parent_key = "intermediate_lens"
+
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 9
+key = "projector_lens_1"
+name = "Projector Lens P1"
+branch = "common"
+local_start_z_mm = 345.0
+local_center_z_mm = 432.5
+local_end_z_mm = 520.0
+length_mm = 175.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 432.5
+mechanical_outer_diameter_mm = 285.0
+mechanical_clear_bore_diameter_mm = 20.0
+pole_gap_mm = 20.0
+pole_piece_topology = "two_pole_single_gap"
+mechanical_overlap_group = "projector_lens_1_assembly"
+mechanical_overlap_role = "container"
+mechanical_overlap_reason = "Independent pole-piece parts nested inside the Projector Lens P1 assembly."
+
+mechanical_profile = "magnetic_lens_assembly"
+mechanical_part_role = "optical_parent"
+[[parts]]
+order = 10
+key = "projector_lens_1_upper_pole"
+name = "Projector Lens P1 Upper Pole Piece"
+branch = "common"
+local_start_z_mm = 345.0
+local_center_z_mm = 383.75
+local_end_z_mm = 422.5
+length_mm = 77.5
+vacuum_inner_diameter_mm = 20
+mechanical_outer_diameter_mm = 190.95
+mechanical_tip_diameter_mm = 40.0
+mechanical_bore_diameter_mm = 20.0
+mechanical_overlap_group = "projector_lens_1_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Independent pole piece nested inside the Projector Lens P1 assembly."
+parent_key = "projector_lens_1"
+
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 11
+key = "projector_lens_1_lower_pole"
+name = "Projector Lens P1 Lower Pole Piece"
+branch = "common"
+local_start_z_mm = 442.5
+local_center_z_mm = 481.25
+local_end_z_mm = 520.0
+length_mm = 77.5
+vacuum_inner_diameter_mm = 20
+mechanical_outer_diameter_mm = 190.95
+mechanical_tip_diameter_mm = 40.0
+mechanical_bore_diameter_mm = 20.0
+mechanical_overlap_group = "projector_lens_1_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Independent pole piece nested inside the Projector Lens P1 assembly."
+parent_key = "projector_lens_1"
+
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 12
+key = "projector_lens_2"
+name = "Projector Lens P2"
+branch = "common"
+local_start_z_mm = 542.5
+local_center_z_mm = 635.0
+local_end_z_mm = 727.5
+length_mm = 185.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 635.0
+mechanical_outer_diameter_mm = 300.0
+mechanical_clear_bore_diameter_mm = 20.0
+pole_gap_mm = 20.0
+pole_piece_topology = "two_pole_single_gap"
+mechanical_overlap_group = "projector_lens_2_assembly"
+mechanical_overlap_role = "container"
+mechanical_overlap_reason = "Independent pole-piece parts nested inside the Projector Lens P2 assembly."
+
+mechanical_profile = "magnetic_lens_assembly"
+mechanical_part_role = "optical_parent"
+[[parts]]
+order = 13
+key = "projector_lens_2_upper_pole"
+name = "Projector Lens P2 Upper Pole Piece"
+branch = "common"
+local_start_z_mm = 542.5
+local_center_z_mm = 583.75
+local_end_z_mm = 625.0
+length_mm = 82.5
+vacuum_inner_diameter_mm = 20
+mechanical_outer_diameter_mm = 201.0
+mechanical_tip_diameter_mm = 40.0
+mechanical_bore_diameter_mm = 20.0
+mechanical_overlap_group = "projector_lens_2_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Independent pole piece nested inside the Projector Lens P2 assembly."
+parent_key = "projector_lens_2"
+
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 14
+key = "projector_lens_2_lower_pole"
+name = "Projector Lens P2 Lower Pole Piece"
+branch = "common"
+local_start_z_mm = 645.0
+local_center_z_mm = 686.25
+local_end_z_mm = 727.5
+length_mm = 82.5
+vacuum_inner_diameter_mm = 20
+mechanical_outer_diameter_mm = 201.0
+mechanical_tip_diameter_mm = 40.0
+mechanical_bore_diameter_mm = 20.0
+mechanical_overlap_group = "projector_lens_2_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Independent pole piece nested inside the Projector Lens P2 assembly."
+parent_key = "projector_lens_2"
+
+mechanical_profile = "magnetic_pole_piece"
+[[parts]]
+order = 15
+key = "flu_screen"
+name = "Fluorescent Screen"
+branch = "detection"
+local_start_z_mm = 740.0
+local_center_z_mm = 900.0
+local_end_z_mm = 1060.0
+length_mm = 320.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 900.0
+outer_width_mm = 80.0
+inner_diameter_mm = 0.0
+
+[[parts]]
+order = 16
+key = "haadf"
+name = "HAADF Detector"
+branch = "detection"
+local_start_z_mm = 750.0
+local_center_z_mm = 780.0
+local_end_z_mm = 810.0
+length_mm = 60.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 780.0
+outer_width_mm = 22.0
+inner_diameter_mm = 4.0
+
+[[parts]]
+order = 17
+key = "energy_filter"
+name = "GIF / Camera Interface"
+branch = "energy_filter"
+local_start_z_mm = 900.0
+local_center_z_mm = 1150.0
+local_end_z_mm = 1400.0
+length_mm = 500.0
+vacuum_inner_diameter_mm = 20
+prism_radius_mm = 150.0
+bend_angle_deg = 90.0
+entrance_multipole_s_mm = 73.0
+prism_entrance_s_mm = 92.0
+prism_fringe_mm = 20.0
+pole_gap_mm = 30.0
+sector_radial_aperture_mm = 30.0
+exit_multipole_d_mm = 32.0
+slit_d_mm = 205.0
+output_detector_d_mm = 470.0
+output_detector_width_mm = 57.344
+eels_plane_offset_mm = 5.0
+entrance_m12_bore_radius_mm = 7.5
+entrance_m12_outer_radius_mm = 35.0
+entrance_m12_length_mm = 20.0
+entrance_m12_entrance_soft_edge_mm = 4.0
+entrance_m12_exit_soft_edge_mm = 4.0
+entrance_m12_pole_zero_angle_deg = 0.0
+exit_m12_bore_radius_mm = 7.5
+exit_m12_outer_radius_mm = 35.0
+exit_m12_length_mm = 20.0
+exit_m12_entrance_soft_edge_mm = 4.0
+exit_m12_exit_soft_edge_mm = 4.0
+exit_m12_pole_zero_angle_deg = 0.0
+slit_clear_height_mm = 12.5
+slit_maximum_gap_mm = 12.5
+slit_blade_thickness_mm = 1.0
+
+[[parts]]
+order = 18
+key = "camera"
+name = "Camera"
+branch = "detection"
+local_start_z_mm = 950.0
+local_center_z_mm = 1150.0
+local_end_z_mm = 1350.0
+length_mm = 400.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 1150.0
+outer_width_mm = 57.344
+inner_diameter_mm = 0.0
+
+[[parts]]
+order = 19
+key = "df"
+name = "DF Detector"
+branch = "detection"
+local_start_z_mm = 965.0
+local_center_z_mm = 990.0
+local_end_z_mm = 1015.0
+length_mm = 50.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 990.0
+outer_width_mm = 14.0
+inner_diameter_mm = 2.0
+
+[[parts]]
+order = 20
+key = "bf"
+name = "BF Detector"
+branch = "detection"
+local_start_z_mm = 1040.0
+local_center_z_mm = 1060.0
+local_end_z_mm = 1080.0
+length_mm = 40.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 1060.0
+outer_width_mm = 1.5
+inner_diameter_mm = 0.0
+
+[[parts]]
+order = 21
+key = "energy_filter_entrance_aperture"
+name = "Energy Filter Entrance Aperture"
+branch = "energy_filter"
+local_start_z_mm = 1209.5
+local_center_z_mm = 1211.5
+local_end_z_mm = 1213.5
+length_mm = 4.0
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 1211.5
+mechanical_outer_diameter_mm = 120.0
+mechanical_bore_diameter_mm = 12.5
+plate_thickness_mm = 1.0
+maximum_radius_mm = 6.25
+
+[[parts]]
+order = 22
+key = "diffraction_lens_housing"
+name = "Diffraction Lens Housing"
+branch = "common"
+local_start_z_mm = 5
+local_center_z_mm = 82.5
+local_end_z_mm = 160
+length_mm = 155
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 235
+mechanical_outer_diameter_mm = 250
+mechanical_profile = "magnetic_lens_housing"
+mechanical_part_role = "housing"
+material_class = "non_magnetic_structural"
+mechanical_only = true
+mechanical_overlap_group = "diffraction_lens_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Diffraction Lens assembly."
+parent_key = "diffraction_lens"
+
+[[parts]]
+order = 23
+key = "diffraction_lens_yoke"
+name = "Diffraction Lens Magnetic Yoke"
+branch = "common"
+local_start_z_mm = 5
+local_center_z_mm = 82.5
+local_end_z_mm = 160
+length_mm = 155
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 190
+mechanical_outer_diameter_mm = 230
+mechanical_profile = "magnetic_lens_yoke"
+mechanical_part_role = "yoke"
+material_class = "soft_magnetic"
+mechanical_only = true
+mechanical_overlap_group = "diffraction_lens_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Diffraction Lens assembly."
+parent_key = "diffraction_lens"
+
+[[parts]]
+order = 24
+key = "diffraction_lens_excitation_coil"
+name = "Diffraction Lens Excitation Coil"
+branch = "common"
+local_start_z_mm = 43.75
+local_center_z_mm = 82.5
+local_end_z_mm = 121.25
+length_mm = 77.5
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 172.5
+mechanical_outer_diameter_mm = 185
+mechanical_profile = "magnetic_excitation_coil"
+mechanical_part_role = "excitation_coil"
+material_class = "insulated_copper_winding"
+mechanical_only = true
+mechanical_overlap_group = "diffraction_lens_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Diffraction Lens assembly."
+parent_key = "diffraction_lens"
+field_source_key = "diffraction_lens"
+
+[[parts]]
+order = 25
+key = "intermediate_lens_housing"
+name = "Intermediate Lens Housing"
+branch = "common"
+local_start_z_mm = 165
+local_center_z_mm = 252.5
+local_end_z_mm = 340
+length_mm = 175
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 253.8
+mechanical_outer_diameter_mm = 270
+mechanical_profile = "magnetic_lens_housing"
+mechanical_part_role = "housing"
+material_class = "non_magnetic_structural"
+mechanical_only = true
+mechanical_overlap_group = "intermediate_lens_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Intermediate Lens assembly."
+parent_key = "intermediate_lens"
+
+[[parts]]
+order = 26
+key = "intermediate_lens_yoke"
+name = "Intermediate Lens Magnetic Yoke"
+branch = "common"
+local_start_z_mm = 165
+local_center_z_mm = 252.5
+local_end_z_mm = 340
+length_mm = 175
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 205.2
+mechanical_outer_diameter_mm = 248.4
+mechanical_profile = "magnetic_lens_yoke"
+mechanical_part_role = "yoke"
+material_class = "soft_magnetic"
+mechanical_only = true
+mechanical_overlap_group = "intermediate_lens_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Intermediate Lens assembly."
+parent_key = "intermediate_lens"
+
+[[parts]]
+order = 27
+key = "intermediate_lens_excitation_coil"
+name = "Intermediate Lens Excitation Coil"
+branch = "common"
+local_start_z_mm = 208.75
+local_center_z_mm = 252.5
+local_end_z_mm = 296.25
+length_mm = 87.5
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 186.3
+mechanical_outer_diameter_mm = 199.8
+mechanical_profile = "magnetic_excitation_coil"
+mechanical_part_role = "excitation_coil"
+material_class = "insulated_copper_winding"
+mechanical_only = true
+mechanical_overlap_group = "intermediate_lens_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Intermediate Lens assembly."
+parent_key = "intermediate_lens"
+field_source_key = "intermediate_lens"
+
+[[parts]]
+order = 28
+key = "projector_lens_1_housing"
+name = "Projector Lens P1 Housing"
+branch = "common"
+local_start_z_mm = 345
+local_center_z_mm = 432.5
+local_end_z_mm = 520
+length_mm = 175
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 267.9
+mechanical_outer_diameter_mm = 285
+mechanical_profile = "magnetic_lens_housing"
+mechanical_part_role = "housing"
+material_class = "non_magnetic_structural"
+mechanical_only = true
+mechanical_overlap_group = "projector_lens_1_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Projector Lens P1 assembly."
+parent_key = "projector_lens_1"
+
+[[parts]]
+order = 29
+key = "projector_lens_1_yoke"
+name = "Projector Lens P1 Magnetic Yoke"
+branch = "common"
+local_start_z_mm = 345
+local_center_z_mm = 432.5
+local_end_z_mm = 520
+length_mm = 175
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 216.6
+mechanical_outer_diameter_mm = 262.2
+mechanical_profile = "magnetic_lens_yoke"
+mechanical_part_role = "yoke"
+material_class = "soft_magnetic"
+mechanical_only = true
+mechanical_overlap_group = "projector_lens_1_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Projector Lens P1 assembly."
+parent_key = "projector_lens_1"
+
+[[parts]]
+order = 30
+key = "projector_lens_1_excitation_coil"
+name = "Projector Lens P1 Excitation Coil"
+branch = "common"
+local_start_z_mm = 388.75
+local_center_z_mm = 432.5
+local_end_z_mm = 476.25
+length_mm = 87.5
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 196.65
+mechanical_outer_diameter_mm = 210.9
+mechanical_profile = "magnetic_excitation_coil"
+mechanical_part_role = "excitation_coil"
+material_class = "insulated_copper_winding"
+mechanical_only = true
+mechanical_overlap_group = "projector_lens_1_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Projector Lens P1 assembly."
+parent_key = "projector_lens_1"
+field_source_key = "projector_lens_1"
+
+[[parts]]
+order = 31
+key = "projector_lens_2_housing"
+name = "Projector Lens P2 Housing"
+branch = "common"
+local_start_z_mm = 542.5
+local_center_z_mm = 635
+local_end_z_mm = 727.5
+length_mm = 185
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 282
+mechanical_outer_diameter_mm = 300
+mechanical_profile = "magnetic_lens_housing"
+mechanical_part_role = "housing"
+material_class = "non_magnetic_structural"
+mechanical_only = true
+mechanical_overlap_group = "projector_lens_2_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Projector Lens P2 assembly."
+parent_key = "projector_lens_2"
+
+[[parts]]
+order = 32
+key = "projector_lens_2_yoke"
+name = "Projector Lens P2 Magnetic Yoke"
+branch = "common"
+local_start_z_mm = 542.5
+local_center_z_mm = 635
+local_end_z_mm = 727.5
+length_mm = 185
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 228
+mechanical_outer_diameter_mm = 276
+mechanical_profile = "magnetic_lens_yoke"
+mechanical_part_role = "yoke"
+material_class = "soft_magnetic"
+mechanical_only = true
+mechanical_overlap_group = "projector_lens_2_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Projector Lens P2 assembly."
+parent_key = "projector_lens_2"
+
+[[parts]]
+order = 33
+key = "projector_lens_2_excitation_coil"
+name = "Projector Lens P2 Excitation Coil"
+branch = "common"
+local_start_z_mm = 588.75
+local_center_z_mm = 635
+local_end_z_mm = 681.25
+length_mm = 92.5
+vacuum_inner_diameter_mm = 20
+mechanical_inner_diameter_mm = 207
+mechanical_outer_diameter_mm = 222
+mechanical_profile = "magnetic_excitation_coil"
+mechanical_part_role = "excitation_coil"
+material_class = "insulated_copper_winding"
+mechanical_only = true
+mechanical_overlap_group = "projector_lens_2_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Concentric independent mechanical layer inside the Projector Lens P2 assembly."
+parent_key = "projector_lens_2"
+field_source_key = "projector_lens_2"
