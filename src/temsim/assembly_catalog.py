@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import tomllib
 
+from temsim import module_manifest
 from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.optics.corrector_structure import ensure_corrector_structure
 from temsim.paths import INSTRUMENT_CONFIG_ROOT
@@ -30,11 +31,97 @@ class AssemblyCatalog:
         self.root = Path(root).resolve()
         with (self.root / "catalog.toml").open("rb") as stream:
             document = tomllib.load(stream)
+        self._validate_document(document)
         self.guns = self._options(document["gun_variants"])
         self.columns = self._options(document["column_variants"])
         self.recording_systems = self._options(
             document["project_and_recording_system_variants"]
         )
+
+    def _validate_document(self, document) -> None:
+        if int(document.get("format_version", 0)) != 1:
+            raise ValueError("Unsupported instrument-catalog format")
+        if document.get("coordinate_system") != "module_local_z_mm":
+            raise ValueError("Invalid instrument-catalog coordinate system")
+
+        expected = (
+            ("gun", "gun_variants"),
+            ("column", "column_variants"),
+            (
+                "project_and_recording_system",
+                "project_and_recording_system_variants",
+            ),
+        )
+        order = tuple(document.get("assembly", {}).get("order", ()))
+        expected_order = tuple(module_type for module_type, _ in expected)
+        if order != expected_order:
+            raise ValueError(
+                "Instrument catalog assembly order must be exactly "
+                f"{expected_order}, found {order}"
+            )
+
+        selected_files: list[str] = []
+        module_keys: list[str] = []
+        for module_type, group in expected:
+            entries = tuple(document.get(group, ()))
+            if not entries:
+                raise ValueError(f"Instrument catalog has no {group}")
+            names = [str(entry["name"]) for entry in entries]
+            files = [Path(str(entry["file"])).as_posix() for entry in entries]
+            signatures = [
+                tuple(sorted(
+                    (str(key), repr(value))
+                    for key, value in entry.items()
+                    if key not in {"name", "file"}
+                ))
+                for entry in entries
+            ]
+            for label, values in (
+                ("name", names),
+                ("file", files),
+                ("selection properties", signatures),
+            ):
+                if len(set(values)) != len(values):
+                    raise ValueError(
+                        f"Duplicate {label} in instrument catalog {group}"
+                    )
+            for relative in files:
+                path = (self.root / relative).resolve()
+                if not path.is_relative_to(self.root):
+                    raise ValueError(
+                        f"Instrument module escapes catalog root: {relative}"
+                    )
+                if not path.is_file():
+                    raise ValueError(
+                        f"Instrument catalog module does not exist: {relative}"
+                    )
+                module_document = module_manifest.read_document(path)
+                module_manifest.validate_document(module_document)
+                actual_type = str(module_document["module"]["type"])
+                if actual_type != module_type:
+                    raise ValueError(
+                        f"Instrument module {relative} has type "
+                        f"{actual_type!r}, expected {module_type!r}"
+                    )
+                module_keys.append(str(module_document["module"]["key"]))
+            selected_files.extend(files)
+
+        if len(set(selected_files)) != len(selected_files):
+            raise ValueError("Instrument module file is listed more than once")
+        if len(set(module_keys)) != len(module_keys):
+            raise ValueError("Instrument module key is defined more than once")
+        disk_files = {
+            path.relative_to(self.root).as_posix()
+            for path in self.root.rglob("*.toml")
+            if path.name != "catalog.toml"
+        }
+        catalog_files = set(selected_files)
+        if disk_files != catalog_files:
+            raise ValueError(
+                "Instrument TOML/catalog mismatch: "
+                f"unlisted={sorted(disk_files - catalog_files)}, "
+                f"missing={sorted(catalog_files - disk_files)}"
+            )
 
     @staticmethod
     def _options(entries) -> tuple[AssemblyOption, ...]:
@@ -111,8 +198,34 @@ class AssemblyCatalog:
         has_filter = bool(recording.properties["energy_filter"])
         state.energy_filter_mode = "energy_filter" if has_filter else "no_energy_filter"
         state.energy_filter_installed = has_filter
+        from temsim.optics.energy_filter import ensure_energy_filter
+        ensure_energy_filter(state)
+        state.energy_filter.enabled = has_filter
         ensure_corrector_structure(state)
         apply_physical_layout_to_state(
-            state, preserve_operating_parameters=False
+            state,
+            preserve_operating_parameters=False,
+            assembly_root=self.root,
+        )
+        from temsim.component_keys import (
+            BRIGHT_FIELD_DETECTOR,
+            CAMERA,
+            FLUORESCENT_SCREEN,
+        )
+        from temsim.detector.recording_system import ensure_recording_system
+        ensure_recording_system(state)
+        for plane in state.recording_planes:
+            if plane.key in {
+                FLUORESCENT_SCREEN,
+                BRIGHT_FIELD_DETECTOR,
+                CAMERA,
+            }:
+                # These solid on-axis recording surfaces must retract before
+                # rays can enter the post-column Energy Filter branch.
+                plane.inserted = not has_filter
+        state.condenser_aperture_3.radius_mm = (
+            0.05
+            if state.monochromator_installed
+            else state.condenser_aperture_3.maximum_radius_mm
         )
         return state._resolved_assembly

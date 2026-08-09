@@ -13,6 +13,16 @@ y_angstrom = 4.078
 field_of_view_angstrom = 40.0
 pixels = 256
 
+[atomistic]
+generator = "ase_bulk_surface"
+chemical_symbol = "Au"
+atomic_number = 79
+crystal_structure = "fcc"
+lattice_constant_angstrom = 4.078
+zone_axis = [0, 0, 1]
+thermal_sigma_angstrom = 0.080
+thermal_sigma_reference = "Isotropic 300 K Debye-model one-axis RMS 0.0796 angstrom (rounded to 0.080), using Theta=188 K from Synecek, Chessin and Simerska, Acta Cryst. A26 (1970), DOI 10.1107/S0567739470000141."
+
 [[columns]]
 x_fraction = 0.000
 y_fraction = 0.000

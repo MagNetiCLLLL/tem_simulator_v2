@@ -6,14 +6,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from temsim import module_manifest
 from temsim.component_keys import (
     IMAGE_DIFFRACTION_DEFLECTOR,
     IMAGE_CORRECTOR_SAD_PLANE,
     SELECTED_AREA_APERTURE,
-)
-from temsim.optics.image_corrector import (
-    IMAGE_CORRECTOR_BY_KEY,
-    REFERENCE_OBJECTIVE_IMAGE_PLANE_Z_MM,
 )
 
 
@@ -24,6 +21,67 @@ DEFAULT_STANDALONE_GAP_AFTER_IMAGE_DEFLECTOR_MM = 5.0
 DEFAULT_STANDALONE_GAP_AFTER_DESCAN_MM = (
     DEFAULT_STANDALONE_GAP_AFTER_IMAGE_DEFLECTOR_MM
 )
+
+_DEFAULT_GUN_MODULE = "gun/FEG.toml"
+_STANDALONE_COLUMN_MODULE = "column/C3_ProbeCorrector.toml"
+_IMAGE_CORRECTED_COLUMN_MODULE = (
+    "column/C3_ProbeCorrector_ImageCorrector.toml"
+)
+_DEFAULT_RECORDING_MODULE = (
+    "project_and_recording_system/NoEnergyFilter.toml"
+)
+_SELECTED_AREA_PART = module_manifest.part_data(
+    _DEFAULT_RECORDING_MODULE, SELECTED_AREA_APERTURE
+)
+
+
+def _module_span_mm(module_path):
+    return (
+        module_manifest.port_z_mm(module_path, "exit")
+        - module_manifest.port_z_mm(module_path, "entrance")
+    )
+
+
+def _default_station(column_module):
+    gun_span = _module_span_mm(_DEFAULT_GUN_MODULE)
+    column_origin = (
+        gun_span
+        - module_manifest.port_z_mm(column_module, "entrance")
+    )
+    sample_part = module_manifest.part_data(column_module, "sample")
+    sample_z_mm = (
+        column_origin + float(sample_part["local_center_z_mm"])
+    )
+    recording_origin = (
+        column_origin
+        + module_manifest.port_z_mm(column_module, "exit")
+        - module_manifest.port_z_mm(
+            _DEFAULT_RECORDING_MODULE, "entrance"
+        )
+    )
+    selected_area_center_z_mm = (
+        recording_origin
+        + float(_SELECTED_AREA_PART["local_center_z_mm"])
+    )
+    optical_reference_z_mm = (
+        selected_area_center_z_mm
+        + float(_SELECTED_AREA_PART["optical_reference_local_z_mm"])
+        - float(_SELECTED_AREA_PART["local_center_z_mm"])
+    )
+    return (
+        selected_area_center_z_mm - sample_z_mm,
+        optical_reference_z_mm,
+    )
+
+
+(
+    _STANDALONE_CENTER_BELOW_SAMPLE_MM,
+    _STANDALONE_REFERENCE_Z_MM,
+) = _default_station(_STANDALONE_COLUMN_MODULE)
+(
+    _IMAGE_CORRECTED_CENTER_BELOW_SAMPLE_MM,
+    _IMAGE_CORRECTED_REFERENCE_Z_MM,
+) = _default_station(_IMAGE_CORRECTED_COLUMN_MODULE)
 
 
 @dataclass(frozen=True)
@@ -44,30 +102,45 @@ class SelectedAreaApertureDefinition:
     key: str = SELECTED_AREA_APERTURE
     label: str = "Selected Area Aperture"
     default_radius_mm: float = 0.10
-    maximum_radius_mm: float = 1.0
+    maximum_radius_mm: float = float(
+        _SELECTED_AREA_PART["maximum_radius_mm"]
+    )
     colour: str = "#7cb342"
-    # These cartridge-envelope values are provisional drawing dimensions.
-    standalone_mechanical_center_below_sample_mm: float = 160.0
-    standalone_mechanical_length_mm: float = 20.0
-    standalone_mechanical_outer_diameter_mm: float = 80.0
-    standalone_mechanical_bore_diameter_mm: float = 2.0
-    standalone_plate_thickness_mm: float = 0.2
+    standalone_mechanical_center_below_sample_mm: float = (
+        _STANDALONE_CENTER_BELOW_SAMPLE_MM
+    )
+    standalone_mechanical_length_mm: float = float(
+        _SELECTED_AREA_PART["length_mm"]
+    )
+    standalone_mechanical_outer_diameter_mm: float = float(
+        _SELECTED_AREA_PART["mechanical_outer_diameter_mm"]
+    )
+    standalone_mechanical_bore_diameter_mm: float = float(
+        _SELECTED_AREA_PART["mechanical_bore_diameter_mm"]
+    )
+    standalone_plate_thickness_mm: float = float(
+        _SELECTED_AREA_PART["plate_thickness_mm"]
+    )
     standalone_optical_reference_z_mm: float = (
-        REFERENCE_OBJECTIVE_IMAGE_PLANE_Z_MM
+        _STANDALONE_REFERENCE_Z_MM
     )
     image_corrected_mechanical_center_below_sample_mm: float = (
-        IMAGE_CORRECTOR_BY_KEY[
-            IMAGE_CORRECTOR_SAD_PLANE
-        ].mechanical_center_from_specimen_mm
+        _IMAGE_CORRECTED_CENTER_BELOW_SAMPLE_MM
     )
-    image_corrected_mechanical_length_mm: float = 20.0
-    image_corrected_mechanical_outer_diameter_mm: float = 80.0
-    image_corrected_mechanical_bore_diameter_mm: float = 2.0
-    image_corrected_plate_thickness_mm: float = 0.2
+    image_corrected_mechanical_length_mm: float = float(
+        _SELECTED_AREA_PART["length_mm"]
+    )
+    image_corrected_mechanical_outer_diameter_mm: float = float(
+        _SELECTED_AREA_PART["mechanical_outer_diameter_mm"]
+    )
+    image_corrected_mechanical_bore_diameter_mm: float = float(
+        _SELECTED_AREA_PART["mechanical_bore_diameter_mm"]
+    )
+    image_corrected_plate_thickness_mm: float = float(
+        _SELECTED_AREA_PART["plate_thickness_mm"]
+    )
     image_corrected_optical_reference_z_mm: float = (
-        IMAGE_CORRECTOR_BY_KEY[
-            IMAGE_CORRECTOR_SAD_PLANE
-        ].reference_effective_z_mm
+        _IMAGE_CORRECTED_REFERENCE_Z_MM
     )
     kind: str = "continuous_aperture"
     shape_profile: str = "adjustable_circular_aperture"
@@ -130,7 +203,7 @@ class SelectedAreaApertureDefinition:
             radius_mm=self.default_radius_mm,
             offset_x_mm=0.0,
             offset_y_mm=0.0,
-            enabled=True,
+            enabled=False,
             colour=self.colour,
             maximum_radius_mm=self.maximum_radius_mm,
             standalone_mechanical_center_below_sample_mm=(

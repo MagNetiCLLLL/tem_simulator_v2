@@ -1,5 +1,19 @@
 from dataclasses import dataclass, asdict, field
 
+from temsim import module_manifest
+
+
+_DEFAULT_COLUMN_MODULE = "column/C3_ProbeCorrector.toml"
+_DEFAULT_GUN_MODULE = "gun/FEG.toml"
+_DEFAULT_SAMPLE_PART = module_manifest.part_data(
+    _DEFAULT_COLUMN_MODULE,
+    "sample",
+)
+_DEFAULT_SAMPLE_Z_MM = (
+    module_manifest.port_z_mm(_DEFAULT_GUN_MODULE, "exit")
+    + float(_DEFAULT_SAMPLE_PART["local_center_z_mm"])
+)
+
 
 @dataclass
 
@@ -168,7 +182,7 @@ class DeflectorPair:
 
 class Sample:
 
-    z_mm: float = 1149.0
+    z_mm: float = _DEFAULT_SAMPLE_Z_MM
 
     thickness_nm: float = 100.0
 
@@ -193,6 +207,25 @@ class Sample:
     wave_grid_pixels: int = 0
 
     wave_field_of_view_angstrom: float = 0.0
+
+    # Multislice can use the legacy qualitative 2-D column projection or a
+    # TOML-defined, ASE-oriented 3-D crystal with Lobato IAM slice potentials.
+    wave_multislice_enabled: bool = True
+
+    wave_slice_thickness_angstrom: float = 2.0
+
+    wave_bandwidth_fraction: float = 2.0 / 3.0
+
+    wave_atomistic_enabled: bool = True
+
+    wave_frozen_phonon_enabled: bool = False
+
+    wave_frozen_phonon_configurations: int = 4
+
+    # Zero means use the material value and provenance in its specimen TOML.
+    wave_frozen_phonon_sigma_angstrom: float = 0.0
+
+    wave_frozen_phonon_seed: int = 100
 
     # Angle-resolved STEM frames are acquired explicitly from the detector
     # panel and therefore never run during ordinary lens recalculation.
@@ -237,7 +270,7 @@ class State:
 
     history_step_mm: float = 2.0
 
-    acceleration_enabled: bool = False
+    acceleration_enabled: bool = True
 
     acceleration_backend: str = "Auto"
 
@@ -253,7 +286,8 @@ class State:
 
     objective_coupled: bool = True
 
-    corrector_crossover_targets_mm: list = field(default_factory=lambda: [810.0, 853.0, 963.0])
+    # Derived from the selected TOML assembly; never a persisted geometry input.
+    corrector_crossover_targets_mm: list = field(default_factory=list)
 
     energy_filter: object = None
 
@@ -280,11 +314,11 @@ class State:
     selected_area_aperture_offset_from_sad_mm: float = 0.0
     standalone_selected_area_aperture_gap_after_descan_mm: float = 5.0
     wobble_observation_plane_key: str = "flu_screen"
-    wobble_custom_observation_z_mm: float = 1149.0
-    virtual_observation_z_mm: float = 1149.0
+    wobble_custom_observation_z_mm: float = _DEFAULT_SAMPLE_Z_MM
+    virtual_observation_z_mm: float = _DEFAULT_SAMPLE_Z_MM
     chromatic_aberration_enabled: bool = False
 
-    schema_version: int = 61
+    schema_version: int = 63
 
     def __post_init__(self):
         if self.electron_gun is None:
@@ -1189,7 +1223,10 @@ class State:
     def to_dict(self):
 
         """Return a complete, versioned, JSON-safe simulator state."""
-        from temsim.component_keys import OBJECTIVE_LENS
+        from temsim.component_keys import (
+            OBJECTIVE_LENS,
+            canonical_component_placement_key,
+        )
         from temsim.detector.recording_system import serialise_recording_system
         from temsim.optics.corrector_structure import serialise_corrector_structure
         from temsim.optics.energy_filter import (
@@ -1198,22 +1235,13 @@ class State:
         )
         from temsim.configuration import corrector_mode_for_hardware
         from temsim.column.module_assembly import (
+            STRUCTURAL_FIELD_SOURCES,
             TOML_OWNED_GEOMETRY_KEYS,
-            resolve_module_assembly,
         )
-        from temsim.column.state_layout import layout_configuration_from_state
-        try:
-            manifest_fields = {
-                part.key: frozenset(part.data)
-                for part in resolve_module_assembly(
-                    layout_configuration_from_state(self)
-                ).parts
-            }
-        except (KeyError, ValueError):
-            manifest_fields = {}
 
         def strip_position_fields(payload, component_key=None):
             payload = dict(payload)
+            component_key = canonical_component_placement_key(component_key)
             for key in tuple(payload):
                 if (
                     key in {
@@ -1238,34 +1266,8 @@ class State:
                     or key == "virtual_lens_reference_z_mm"
                 ):
                     payload.pop(key, None)
-            fields = manifest_fields.get(str(component_key), frozenset())
-            geometry_sources = {
-                "mechanical_outer_diameter_mm": {
-                    "mechanical_outer_diameter_mm",
-                    "outer_diameter_mm",
-                },
-                "mechanical_bore_diameter_mm": {
-                    "mechanical_bore_diameter_mm",
-                    "bore_diameter_mm",
-                },
-                "mechanical_clear_bore_diameter_mm": {
-                    "mechanical_clear_bore_diameter_mm",
-                    "bore_diameter_mm",
-                },
-                "bore_diameter_mm": {
-                    "bore_diameter_mm",
-                    "mechanical_bore_diameter_mm",
-                    "mechanical_clear_bore_diameter_mm",
-                },
-                "plate_thickness_mm": {"plate_thickness_mm"},
-                "maximum_radius_mm": {"maximum_radius_mm"},
-                "pole_gap_mm": {"pole_gap_mm"},
-                "effective_length_mm": {"effective_length_mm"},
-                "effective_thickness_mm": {"effective_thickness_mm"},
-            }
-            for attribute, sources in geometry_sources.items():
-                if fields.intersection(sources):
-                    payload.pop(attribute, None)
+            for attribute in STRUCTURAL_FIELD_SOURCES:
+                payload.pop(attribute, None)
             if str(component_key) == OBJECTIVE_LENS:
                 for attribute in (
                     "assembly_outer_diameter_mm",
@@ -1297,19 +1299,28 @@ class State:
 
         def lens_payload(item):
             payload = asdict(item)
-            if item.key in TOML_OWNED_GEOMETRY_KEYS:
+            if (
+                canonical_component_placement_key(item.key)
+                in TOML_OWNED_GEOMETRY_KEYS
+            ):
                 payload = strip_position_fields(payload, item.key)
             return payload
 
         def aperture_payload(item):
             payload = asdict(item)
-            if item.key in TOML_OWNED_GEOMETRY_KEYS:
+            if (
+                canonical_component_placement_key(item.key)
+                in TOML_OWNED_GEOMETRY_KEYS
+            ):
                 payload = strip_position_fields(payload, item.key)
             return payload
 
         def component_payload(item):
             payload = asdict(item)
-            if item.key in TOML_OWNED_GEOMETRY_KEYS:
+            if (
+                canonical_component_placement_key(item.key)
+                in TOML_OWNED_GEOMETRY_KEYS
+            ):
                 payload = strip_position_fields(payload, item.key)
             return payload
 
@@ -1360,8 +1371,6 @@ class State:
             "c2c3_crossover_required":self.c2c3_crossover_required,
 
             "objective_coupled":self.objective_coupled,
-
-            "corrector_crossover_targets_mm":list(self.corrector_crossover_targets_mm),
 
             "recording_planes":serialise_recording_system(self),
             "corrector_elements":serialise_corrector_structure(self),
@@ -1454,7 +1463,9 @@ class State:
             payload[collection] = [
                 (
                     strip_position_fields(item, item.get("key"))
-                    if str(item.get("key", "")) in TOML_OWNED_GEOMETRY_KEYS
+                    if canonical_component_placement_key(
+                        item.get("key", "")
+                    ) in TOML_OWNED_GEOMETRY_KEYS
                     else item
                 )
                 for item in payload.get(collection, ())
@@ -1524,7 +1535,9 @@ class State:
         )
 
         sample_data = dict(d.get("sample", {}))
-        sample_z_mm = float(sample_data.get("z_mm", 1149.0))
+        # Saved sample Z is legacy geometry. The selected assembly TOML is
+        # authoritative; only specimen properties survive deserialisation.
+        sample_z_mm = _DEFAULT_SAMPLE_Z_MM
         sample_thickness_nm = float(
             sample_data.get("thickness_nm", 100.0)
         )
@@ -2275,14 +2288,15 @@ class State:
             component_placements=component_placements,
             illumination_mode=d.get("illumination_mode","STEM"), projector_mode=d.get("projector_mode","diffraction"),
             step_mm=d.get("step_mm",0.5),
-            history_step_mm=d.get("history_step_mm",2.0), acceleration_enabled=d.get("acceleration_enabled",False),
+            history_step_mm=d.get("history_step_mm",2.0), acceleration_enabled=d.get("acceleration_enabled",True),
             acceleration_backend=d.get("acceleration_backend","Auto"), active_backend=d.get("active_backend","CPU"),
             corrector_mode=corrector_mode_for_hardware(
                 d.get("corrector_mode", "probe_corrector"),
                 d.get("layout_c3_hardware", "three_condenser"),
             ), energy_filter_mode=d.get("energy_filter_mode","energy_filter"),
             column_mode=d.get("column_mode","three_lens"), c2c3_crossover_required=d.get("c2c3_crossover_required",True),
-            objective_coupled=d.get("objective_coupled",True), corrector_crossover_targets_mm=d.get("corrector_crossover_targets_mm",[810.0,853.0,963.0]),
+            objective_coupled=d.get("objective_coupled",True),
+            corrector_crossover_targets_mm=[],
             layout_c3_hardware=d.get("layout_c3_hardware","three_condenser"),
             layout_c3_excited=d.get("layout_c3_excited",d.get("column_mode","three_lens")=="three_lens"),
             layout_reference_positions={
@@ -2352,7 +2366,7 @@ class State:
             wobble_custom_observation_z_mm=float(
                 d.get(
                     "wobble_custom_observation_z_mm",
-                    d.get("sample", {}).get("z_mm", 1149.0),
+                    _DEFAULT_SAMPLE_Z_MM,
                 )
             ),
             virtual_observation_z_mm=float(
@@ -2360,14 +2374,14 @@ class State:
                     "virtual_observation_z_mm",
                     d.get(
                         "wobble_custom_observation_z_mm",
-                        d.get("sample", {}).get("z_mm", 1149.0),
+                        _DEFAULT_SAMPLE_Z_MM,
                     ),
                 )
             ),
             chromatic_aberration_enabled=bool(
                 d.get("chromatic_aberration_enabled", False)
             ),
-            schema_version=61,
+            schema_version=63,
         )
         state.probe_corrector_installed=d.get("probe_corrector_installed",True)
         state.image_corrector_installed=d.get("image_corrector_installed",False)
@@ -2833,6 +2847,86 @@ class State:
                     offsets[key] = (
                         float(offsets[key]) + rigid_shift_mm
                     )
+        if loaded_schema_version < 62:
+            # V62 installs the current two-hexapole corrector calibration.
+            # Strengths change, but all manifest-owned component centres stay
+            # fixed.  ``None`` Cs values deliberately select the conventional
+            # positive magnetic-lens estimate in the propagation core.
+            from temsim.optics.probe_corrector import (
+                PROBE_HP1_HEXAPOLE_ORIENTATION_RAD,
+                PROBE_HP1_HEXAPOLE_STRENGTH_RATIO,
+                PROBE_MAIN_HEXAPOLE_STRENGTH_M3,
+            )
+            probe = state.probe_corrector_system
+            probe.tl22_lens.b0_t = 0.31809425
+            probe.tl22_lens.percent = 100.0
+            probe.tl21_lens.b0_t = 0.29864759
+            probe.tl21_lens.percent = 100.0
+            probe.hp2_hexapole.strength_m3 = (
+                PROBE_MAIN_HEXAPOLE_STRENGTH_M3
+            )
+            probe.hp2_hexapole.orientation_rad = 0.0
+            probe.hp1_hexapole.strength_m3 = (
+                PROBE_MAIN_HEXAPOLE_STRENGTH_M3
+                * PROBE_HP1_HEXAPOLE_STRENGTH_RATIO
+            )
+            probe.hp1_hexapole.orientation_rad = (
+                PROBE_HP1_HEXAPOLE_ORIENTATION_RAD
+            )
+
+            from temsim.optics.image_corrector import (
+                IMAGE_HP2_HEXAPOLE_ORIENTATION_RAD,
+                IMAGE_HP2_HEXAPOLE_STRENGTH_RATIO,
+                IMAGE_MAIN_HEXAPOLE_STRENGTH_M3,
+            )
+            image = state.image_corrector_system
+            image_lens_fields = (
+                (image.ol_post_lens, 1.82167110),
+                (image.tl11_lens, 0.33677618),
+                (image.tl12_lens, 0.19797227),
+                (image.tl21_lens, 1.29298746),
+                (image.tl22_lens, 1.27157328),
+                (image.adapter_lens, 0.25184796),
+            )
+            for lens, field_t in image_lens_fields:
+                lens.b0_t = field_t
+                lens.percent = 100.0
+            image.hp1_hexapole.strength_m3 = (
+                IMAGE_MAIN_HEXAPOLE_STRENGTH_M3
+            )
+            image.hp1_hexapole.orientation_rad = 0.0
+            image.hp2_hexapole.strength_m3 = (
+                IMAGE_MAIN_HEXAPOLE_STRENGTH_M3
+                * IMAGE_HP2_HEXAPOLE_STRENGTH_RATIO
+            )
+            image.hp2_hexapole.orientation_rad = (
+                IMAGE_HP2_HEXAPOLE_ORIENTATION_RAD
+            )
+        if loaded_schema_version < 63:
+            # V63 adds rated-field headroom to every lens whose calibrated
+            # default had reached 100%.  Scale maximum field and excitation
+            # inversely so existing projects keep exactly the same Bz.
+            c2 = state.condenser_lens_2.lens
+            c2.b0_t /= 0.7
+            c2.percent *= 0.7
+
+            probe = state.probe_corrector_system
+            for lens in (
+                probe.tl22_lens,
+                probe.tl21_lens,
+                probe.tl12_lens,
+            ):
+                lens.b0_t /= 0.6
+                lens.percent *= 0.6
+
+            for lens in state.image_corrector_system.round_lens_components:
+                lens.b0_t /= 0.6
+                lens.percent *= 0.6
+
+            # Objective field ratings are manifest-owned, so from_dict has
+            # already loaded the larger V63 rating; only the saved percentage
+            # needs rebasing to preserve the previous physical field.
+            state.objective_lens.percent *= 0.7
         from temsim.optics.beam_deflector import (
             resolve_beam_deflector_after_active_aperture,
         )

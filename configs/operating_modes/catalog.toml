@@ -1,49 +1,58 @@
 format_version = 1
-description = "Assembly-aware initial operating states awaiting optical calibration."
-
-# Device values deliberately remain empty until the required crossover map is
-# confirmed.  Future lens percentages, aperture diameters and aperture choices
-# belong here rather than in mechanical assembly TOMLs.
+description = "Calculated FEI-style Microprobe/Nanoprobe and Image/Diffraction operating states."
+# A calibrated default must not remain at 100% excitation. If a solver reaches
+# saturation, increase that lens's maximum field and rebase the stored default
+# into 30-70% while preserving maximum_field * percent / 100.
+# field_polarity is the effective signed Bz direction in the source-to-detector
+# +z coordinate. It is independent of the non-negative excitation percentage.
 
 [[modes]]
 key = "micro_probe"
-name = "Micro Probe"
+name = "Microprobe (TEM)"
 family = "condenser"
-calibration_status = "awaiting_crossover_constraints"
-compatible_columns = ["C2", "C3", "C3 + Probe Corrector", "C3 + Image Corrector", "C3 + Probe Corrector + Image Corrector"]
+calibration_status = "calibrated_300kv_c3_probe_corrector"
+calibration_reference = "300 kV FEG, C3 + Probe Corrector; 0.1 mm integration step; no mechanical coordinates changed"
+compatible_columns = ["C3 + Probe Corrector"]
 compatible_recording_systems = ["*"]
-[modes.devices]
-[modes.apertures]
+devices = { condenser_lens_1 = { percent = 60.0 }, condenser_lens_2 = { percent = 70.0 }, condenser_lens_3 = { percent = 33.7460694622 }, adapter_lens = { percent = 42.0 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 35.0, field_polarity = 1 }, objective_lens = { percent = 70.0 } }
+apertures = { condenser_aperture_2 = { enabled = true, radius_mm = 0.05 } }
+targets = { beam_character = "quasi_parallel", maximum_convergence_sem_angle_mrad = 0.5, achieved_convergence_sem_angle_mrad = 0.410863492, achieved_convergence_rms_mrad = 0.190149843, achieved_sample_rms_radius_nm = 611.613394, c2_aperture_radius_um = 50.0 }
 
 [[modes]]
 key = "nano_probe"
-name = "Nano Probe"
+name = "Nanoprobe (STEM)"
 family = "condenser"
-calibration_status = "awaiting_crossover_constraints"
-compatible_columns = ["C2", "C3", "C3 + Probe Corrector", "C3 + Image Corrector", "C3 + Probe Corrector + Image Corrector"]
+calibration_status = "calibrated_300kv_c3_probe_corrector"
+calibration_reference = "300 kV FEG, C3 + Probe Corrector; 0.1 mm integration step; no mechanical coordinates changed"
+compatible_columns = ["C3 + Probe Corrector"]
 compatible_recording_systems = ["*"]
-[modes.devices]
-[modes.apertures]
+devices = { condenser_lens_1 = { percent = 86.2438509176 }, condenser_lens_2 = { percent = 39.06875040761 }, condenser_lens_3 = { percent = 22.3926301538 }, adapter_lens = { percent = 86.0039434207 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 41.5570797718, field_polarity = -1 }, objective_lens = { percent = 70.0 } }
+apertures = { condenser_aperture_2 = { enabled = true, radius_mm = 0.10 } }
+targets = { beam_character = "convergent_probe", target_convergence_sem_angle_mrad = 30.0, minimum_convergence_sem_angle_mrad = 20.0, maximum_convergence_sem_angle_mrad = 40.0, achieved_convergence_sem_angle_mrad = 29.547791354, achieved_convergence_rms_mrad = 13.703816118, achieved_sample_rms_radius_nm = 0.919961, c2_aperture_radius_um = 100.0 }
 
 [[modes]]
 key = "imaging"
-name = "Imaging"
+name = "Image (objective image plane)"
 family = "projector"
-calibration_status = "awaiting_crossover_constraints"
-compatible_columns = ["*"]
+calibration_status = "calibrated_300kv_energy_filter"
+calibration_reference = "Objective image plane relayed to the active recording stop; 0.1 mm integration step"
+compatible_columns = ["C2", "C3", "C3 + Probe Corrector"]
 compatible_recording_systems = ["No Energy Filter", "Energy Filter"]
-[modes.devices]
-[modes.apertures]
+devices = { diffraction_lens = { percent = 16.0105466828 }, intermediate_lens = { percent = 40.0 }, projector_lens_1 = { percent = 30.0 }, projector_lens_2 = { percent = 30.0 } }
+apertures = {}
+targets = { conjugate_plane = "objective_image_plane", achieved_plane_magnification = 54.001809470, achieved_relay_error_um = 4.631175238 }
 
 [[modes]]
 key = "diffraction"
-name = "Diffraction"
+name = "Diffraction (objective back focal plane)"
 family = "projector"
-calibration_status = "awaiting_crossover_constraints"
-compatible_columns = ["*"]
+calibration_status = "calibrated_300kv_energy_filter"
+calibration_reference = "Objective back focal plane relayed to the active recording stop; 0.1 mm integration step"
+compatible_columns = ["C2", "C3", "C3 + Probe Corrector"]
 compatible_recording_systems = ["No Energy Filter", "Energy Filter"]
-[modes.devices]
-[modes.apertures]
+devices = { diffraction_lens = { percent = 17.4982940301 }, intermediate_lens = { percent = 40.0 }, projector_lens_1 = { percent = 30.0 }, projector_lens_2 = { percent = 30.0 } }
+apertures = {}
+targets = { conjugate_plane = "objective_back_focal_plane", achieved_plane_magnification = 10.530105689, achieved_relay_error_um = 0.540565623 }
 
 [[crossover_constraints]]
 key = "c1_c2_interlens"
@@ -53,3 +62,72 @@ target_z_source = "pole_gap_midpoint"
 applies_to_modes = ["micro_probe", "nano_probe"]
 status = "confirmed"
 note = "The crossover target is the mid-plane of the opposing C1-lower and C2-upper pole tips."
+
+# Direct Alignment controls are user-level coupled solves, not extra field
+# sources and not manufacturer lens tables.  The requested range is kept
+# separate from the range reachable by the current non-OEM field model.  A
+# failed or unreachable solve must leave every lens at its previous value.
+
+[[direct_alignments]]
+key = "nanoprobe_convergence"
+name = "Nanoprobe convergence semi-angle"
+family = "condenser"
+mode_key = "nano_probe"
+unit = "mrad"
+minimum = 20.0
+maximum = 40.0
+default_value = 30.0
+devices = ["condenser_lens_2", "condenser_lens_3"]
+observable = "sample_current_weighted_95_percent_semi_angle"
+constraint = "probe_waist_at_sample"
+calibration_status = "live_coupled_solve_full_ray_validation_non_oem"
+calibration_reference = "C2/C3 are solved together at the active sample plane; the 95%-current radial angle is measured relative to the chief ray and is invariant to Larmor rotation."
+targets = { maximum_relative_error = 0.03, maximum_waist_offset_mm = 0.002, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.1, validation_step_mm = 0.05 }
+
+[[direct_alignments]]
+key = "microprobe_illumination"
+name = "Microprobe illuminated-area diameter"
+family = "condenser"
+mode_key = "micro_probe"
+unit = "um"
+minimum = 0.5
+maximum = 2.2
+default_value = 2.0
+devices = ["condenser_lens_2", "condenser_lens_3"]
+observable = "sample_current_weighted_95_percent_diameter"
+constraint = "parallel_wavefront_at_sample"
+calibration_status = "live_coupled_solve_full_ray_validation_non_oem"
+calibration_reference = "C2/C3 are solved together for illuminated diameter and zero sample-plane radial wavefront curvature; the 0.5-2.2 um range is the validated range of the current non-OEM column model and the 95%-current semi-angle must remain within the Microprobe limit."
+targets = { maximum_relative_error = 0.05, maximum_curvature_per_m = 25.0, maximum_convergence_mrad = 0.5, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.1, validation_step_mm = 0.05 }
+
+[[direct_alignments]]
+key = "image_magnification"
+name = "Image magnification (physical)"
+family = "projector"
+mode_key = "imaging"
+unit = "x"
+minimum = 10.0
+maximum = 1000000.0
+default_value = 65.7
+devices = ["diffraction_lens", "intermediate_lens", "projector_lens_1", "projector_lens_2"]
+observable = "sample_to_active_recording_plane_isotropic_magnification"
+constraint = "objective_image_plane_relay"
+calibration_status = "requested_range_live_coupled_solve_full_transfer_validation_non_oem"
+calibration_reference = "D/I/P1/P2 are solved together. This is the physical sample-to-active-recording-plane scale, not an unproven manufacturer nominal-magnification table. The request range follows the GUI requirement; current non-OEM fields may not reach every target while preserving the objective-image-plane conjugate."
+targets = { maximum_relative_error = 0.03, maximum_relay_error_um = 20.0, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.1, validation_step_mm = 0.05 }
+
+[[direct_alignments]]
+key = "diffraction_camera_length"
+name = "Effective camera length"
+family = "projector"
+mode_key = "diffraction"
+unit = "m"
+minimum = 0.05
+maximum = 30.0
+default_value = 0.05
+devices = ["diffraction_lens", "intermediate_lens", "projector_lens_1", "projector_lens_2"]
+observable = "sample_angle_to_active_recording_plane_isotropic_scale"
+constraint = "objective_back_focal_plane_relay"
+calibration_status = "requested_range_live_coupled_solve_full_transfer_validation_non_oem"
+calibration_reference = "D/I/P1/P2 are solved together. Effective camera length is the full laboratory-frame transverse angular-to-position scale; the Objective BFP Z is defined by the axisymmetric canonical (Larmor-rotating) transfer, and current non-OEM fields may not reach every requested value while preserving that conjugate."
+targets = { maximum_relative_error = 0.03, maximum_relay_error_um = 30.0, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.05, validation_step_mm = 0.025 }

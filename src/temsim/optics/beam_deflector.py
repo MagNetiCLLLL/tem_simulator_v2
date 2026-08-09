@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
+from temsim import module_manifest
 from temsim.component_keys import (
     BEAM_DEFLECTOR,
     CONDENSER_APERTURE_2,
@@ -14,6 +15,19 @@ from temsim.component_keys import (
 from temsim.optics.condenser_aperture import (
     CONDENSER_APERTURE_2_DEFINITION,
     CONDENSER_APERTURE_3_DEFINITION,
+)
+
+
+_DEFAULT_COLUMN_MODULE = "column/C3_ProbeCorrector.toml"
+_DEFAULT_MANIFEST_PART = module_manifest.part_data(
+    _DEFAULT_COLUMN_MODULE, BEAM_DEFLECTOR
+)
+_DEFAULT_C3_APERTURE_PART = module_manifest.part_data(
+    _DEFAULT_COLUMN_MODULE, CONDENSER_APERTURE_3
+)
+_DEFAULT_COLUMN_ORIGIN_Z_MM = (
+    module_manifest.port_z_mm("gun/FEG.toml", "exit")
+    - module_manifest.port_z_mm(_DEFAULT_COLUMN_MODULE, "entrance")
 )
 
 
@@ -91,7 +105,7 @@ class BeamDeflectorDefinition:
 
 @dataclass
 class BeamDeflectorComponent:
-    """Physical 15 mm + gap + 15 mm double deflector.
+    """TOML-sized double deflector with one stored axial coordinate.
 
     ``z_mm`` is the sole stored position.  Mechanical drawing, ray interaction
     planes and numerical kick events are all derived from that coordinate.
@@ -111,9 +125,14 @@ class BeamDeflectorComponent:
     mechanical_outer_diameter_mm: float
     mechanical_clear_bore_diameter_mm: float
     maximum_kick_mrad: float
-    inter_coil_gap_mm: float = 10.0
+    inter_coil_gap_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_inter_coil_gap_mm"]
+    )
     anchor_key: str = CONDENSER_APERTURE_3
-    mechanical_center_downstream_of_anchor_mm: float = 30.0
+    mechanical_center_downstream_of_anchor_mm: float = (
+        float(_DEFAULT_MANIFEST_PART["local_center_z_mm"])
+        - float(_DEFAULT_C3_APERTURE_PART["local_center_z_mm"])
+    )
 
     EXPECTED_KEY: ClassVar[str] = BEAM_DEFLECTOR
     OWNER: ClassVar[str] = "shared_column"
@@ -346,17 +365,29 @@ class BeamDeflectorComponent:
 
 BEAM_DEFLECTOR_DEFINITION = BeamDeflectorDefinition(
     key=BEAM_DEFLECTOR,
-    label="BSh/BTlt Beam Shift/Tilt Deflector",
+    label=str(_DEFAULT_MANIFEST_PART["name"]),
     center_from_tip_mm=(
-        CONDENSER_APERTURE_3_DEFINITION.center_from_tip_mm + 30.0
+        _DEFAULT_COLUMN_ORIGIN_Z_MM
+        + float(_DEFAULT_MANIFEST_PART["local_center_z_mm"])
     ),
-    mechanical_outer_diameter_mm=90.0,
-    mechanical_clear_bore_diameter_mm=20.0,
-    effective_coil_thickness_mm=15.0,
-    inter_coil_gap_mm=10.0,
+    mechanical_outer_diameter_mm=float(
+        _DEFAULT_MANIFEST_PART["mechanical_outer_diameter_mm"]
+    ),
+    mechanical_clear_bore_diameter_mm=float(
+        _DEFAULT_MANIFEST_PART["mechanical_clear_bore_diameter_mm"]
+    ),
+    effective_coil_thickness_mm=float(
+        _DEFAULT_MANIFEST_PART["effective_thickness_mm"]
+    ),
+    inter_coil_gap_mm=float(
+        _DEFAULT_MANIFEST_PART["mechanical_inter_coil_gap_mm"]
+    ),
     two_condenser_anchor_key=CONDENSER_APERTURE_2,
     three_condenser_anchor_key=CONDENSER_APERTURE_3,
-    center_downstream_of_anchor_mm=30.0,
+    center_downstream_of_anchor_mm=(
+        float(_DEFAULT_MANIFEST_PART["local_center_z_mm"])
+        - float(_DEFAULT_C3_APERTURE_PART["local_center_z_mm"])
+    ),
     maximum_kick_mrad=100.0,
     colour="#ef6c00",
 )

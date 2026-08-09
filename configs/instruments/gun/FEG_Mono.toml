@@ -152,7 +152,7 @@ active_length_mm = 8.0
 [[parts]]
 order = 9
 key = "feg_c1_aperture"
-name = "Monochromator Slit (C1 Aperture)"
+name = "C1 Aperture Mechanism"
 branch = "common"
 local_start_z_mm = 494.0
 local_center_z_mm = 495.0
@@ -163,3 +163,28 @@ optical_reference_local_z_mm = 495.0
 outer_diameter_mm = 45.0
 bore_diameter_mm = 6.0
 active_length_mm = 0.2
+mechanical_overlap_group = "feg_c1_selection_assembly"
+mechanical_overlap_role = "container"
+mechanical_overlap_reason = "The C1 aperture mechanism hosts the co-located monochromator slit blades."
+
+[[parts]]
+order = 10
+key = "feg_monochromator_slit"
+name = "Monochromator Energy-selection Slit"
+branch = "common"
+local_start_z_mm = 494.6
+local_center_z_mm = 495.0
+local_end_z_mm = 495.4
+length_mm = 0.8
+vacuum_inner_diameter_mm = 6
+optical_reference_local_z_mm = 495.0
+outer_diameter_mm = 32.0
+bore_diameter_mm = 6.0
+active_length_mm = 0.2
+mechanical_profile = "two_blade_energy_slit"
+mechanical_part_role = "slit_blade_carrier"
+mechanical_only = true
+mechanical_overlap_group = "feg_c1_selection_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "Co-located slit-blade envelope inside the C1 aperture mechanism."
+parent_key = "feg_c1_aperture"

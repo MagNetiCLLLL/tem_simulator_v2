@@ -7,6 +7,7 @@ from typing import ClassVar
 
 import numpy as np
 
+from temsim import module_manifest
 from temsim.component_keys import (
     FLUORESCENT_SCREEN,
     SELECTED_AREA_APERTURE,
@@ -17,18 +18,26 @@ from temsim.optics.selected_area_aperture import (
 from temsim.optics.selected_area_downstream import downstream_offset_mm
 
 
+_DEFAULT_MANIFEST_PART = module_manifest.part_data(
+    "project_and_recording_system/NoEnergyFilter.toml",
+    FLUORESCENT_SCREEN,
+)
+
+
 @dataclass(frozen=True)
 class FluorescentScreenDefinition:
     key: str = FLUORESCENT_SCREEN
-    label: str = "Fluorescent Screen"
+    label: str = str(_DEFAULT_MANIFEST_PART["name"])
     optical_reference_downstream_of_anchor_mm: float = downstream_offset_mm(
         FLUORESCENT_SCREEN
     )
     layout_center_downstream_of_anchor_mm: float = downstream_offset_mm(
         FLUORESCENT_SCREEN
     )
-    layout_length_mm: float = 320.0
-    active_diameter_mm: float = 80.0
+    layout_length_mm: float = float(_DEFAULT_MANIFEST_PART["length_mm"])
+    active_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["outer_width_mm"]
+    )
     colour: str = "#43a047"
     anchor_key: str = SELECTED_AREA_APERTURE
     owner: str = "detector"
@@ -78,11 +87,18 @@ class FluorescentScreenDefinition:
 @dataclass
 class FluorescentScreenComponent:
     key: str = FLUORESCENT_SCREEN
-    name: str = "Fluorescent Screen"
-    z_mm: float = 1890.0
+    name: str = str(_DEFAULT_MANIFEST_PART["name"])
+    z_mm: float = (
+        SELECTED_AREA_APERTURE_DEFINITION.standalone_optical_reference_z_mm
+        + downstream_offset_mm(FLUORESCENT_SCREEN)
+    )
     geometry: str = "disk"
-    outer_width_mm: float = 80.0
-    inner_diameter_mm: float = 0.0
+    outer_width_mm: float = float(
+        _DEFAULT_MANIFEST_PART["outer_width_mm"]
+    )
+    inner_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["inner_diameter_mm"]
+    )
     inserted: bool = True
     colour: str = "#43a047"
     anchor_key: str = SELECTED_AREA_APERTURE
@@ -92,7 +108,7 @@ class FluorescentScreenComponent:
     layout_center_downstream_of_anchor_mm: float = downstream_offset_mm(
         FLUORESCENT_SCREEN
     )
-    layout_length_mm: float = 320.0
+    layout_length_mm: float = float(_DEFAULT_MANIFEST_PART["length_mm"])
     owner: str = "detector"
     kind: str = "detector"
     shape_profile: str = "detector_plane"

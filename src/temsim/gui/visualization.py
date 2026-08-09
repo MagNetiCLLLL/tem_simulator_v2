@@ -19,7 +19,9 @@ from PySide6.QtWidgets import (
 
 from temsim.diagnostics import ray_stop_records, vacuum_bore_plot_points
 from temsim.gui.diagnostic_tabs import (
+    EnergyFilterView,
     MagneticFieldView,
+    OpticalTransferView,
     PhysicalLayoutView,
     TransverseBeamView,
 )
@@ -53,6 +55,7 @@ class WaveImagingView(QWidget):
         if wave_result is None:
             self.image.clear()
             self.diffraction.clear()
+            self.summary.setToolTip("")
             self.summary.setText(
                 "No wave image in this result. Enable TEM wave imaging on "
                 "the Sample and run High accuracy."
@@ -69,18 +72,101 @@ class WaveImagingView(QWidget):
             autoLevels=True,
         )
         metrics = wave_result.metrics
+        model = str(metrics.get("specimen_model", "unknown"))
+        slices = int(metrics.get("specimen_slice_count", 0))
+        potential_model = str(
+            metrics.get("specimen_potential_model", "unknown potential")
+        )
+        configurations = int(
+            metrics.get("specimen_configuration_count", 1)
+        )
+        warnings = []
+        if bool(metrics.get("wave_sampling_truncates_illumination", False)):
+            warnings.append("illumination exceeds wave bandwidth")
+        if not bool(
+            metrics.get(
+                "wave_intensity_conservation_within_0_1_percent", True
+            )
+        ):
+            warnings.append("intensity conservation check failed")
+        if metrics.get("fft_fallback_reason"):
+            warnings.append("wave CUDA fell back to CPU")
+        atomistic_fallback = metrics.get(
+            "specimen_atomistic_fallback_reason"
+        )
+        if atomistic_fallback and wave_result.preset_key != "vacuum":
+            warnings.append("atomistic potential fell back")
+        if (
+            bool(metrics.get("specimen_frozen_phonon_applied", False))
+            and configurations < 4
+        ):
+            warnings.append("frozen-phonon ensemble may be under-converged")
+        relative_standard_error = float(
+            metrics.get(
+                "image_configuration_relative_standard_error", 0.0
+            )
+        )
+        if relative_standard_error > 0.1:
+            warnings.append("frozen-phonon image standard error exceeds 10%")
+        warning_text = f" | WARNING: {', '.join(warnings)}" if warnings else ""
+        backend = str(metrics.get("wave_compute_backend", "NumPy CPU"))
+        thermal_text = ""
+        if bool(metrics.get("specimen_frozen_phonon_applied", False)):
+            thermal_text = (
+                ", sigma "
+                f"{float(metrics['specimen_thermal_sigma_angstrom']):.4g} Å"
+            )
         self.summary.setText(
             f"{wave_result.preset_name} | "
+            f"{model}, {slices} slices | "
+            f"{potential_model}, {configurations} configuration(s)"
+            f"{thermal_text} | "
+            f"compute {backend} | "
             f"FOV {float(metrics['field_of_view_angstrom']):.5g} Å | "
             f"pixel {float(metrics['pixel_size_angstrom']):.5g} Å | "
             f"surviving rays {int(metrics['surviving_rays'])}"
+            f"{warning_text}"
         )
+        details = [
+            "Intensity treatment: "
+            f"{metrics.get('displayed_intensity_average', 'unknown')}",
+            "Potential builder: "
+            f"{metrics.get('specimen_potential_builder_backend', 'unknown')}",
+        ]
+        realised_extent = metrics.get(
+            "specimen_realised_lateral_extent_angstrom"
+        )
+        if realised_extent is not None:
+            details.append(
+                "Realised periodic cell: "
+                f"{float(realised_extent[0]):.5g} x "
+                f"{float(realised_extent[1]):.5g} Å; "
+                "realised thickness "
+                f"{float(metrics.get('specimen_total_thickness_angstrom', 0.0)):.5g} Å."
+            )
+        if atomistic_fallback:
+            details.append(f"Atomistic fallback: {atomistic_fallback}")
+        if bool(metrics.get("specimen_frozen_phonon_applied", False)):
+            details.append(
+                "Independent isotropic Gaussian displacements; correlated "
+                "phonons are not included."
+            )
+            details.append(
+                "Image relative standard error: "
+                f"{relative_standard_error:.3g}"
+            )
+        self.summary.setToolTip("\n".join(details))
 
 
 class VisualizationWorkspace(QWidget):
     component_selected = Signal(str)
     MAX_DISPLAY_RAYS = 48
     MAX_RANGE_SAMPLE_RAYS = 256
+    RAY_LABEL_BASE_PT = 10
+    RAY_LABEL_MAX_PT = 14
+    RAY_AXIS_TICK_PT = 10
+    RAY_AXIS_LABEL_PT = 11
+    RAY_LEGEND_PT = 10
     OPTION_BUTTON_STYLE = """
         QPushButton {
             min-height: 28px;
@@ -234,17 +320,21 @@ class VisualizationWorkspace(QWidget):
 
         self.plot = pg.PlotWidget(background="#050816")
         self.plot.setObjectName("rayPlot")
-        self.plot.setLabel("bottom", "Axial position", units="mm")
-        self.plot.setLabel("left", "Projected displacement", units="mm")
+        self._set_ray_axis_label("bottom", "Axial position")
+        self._set_ray_axis_label("left", "Projected displacement")
+        self._style_ray_axes()
         # Keep the ViewBox geometry invariant while the projection angle
         # changes.  Otherwise differently sized X/Y/U axis titles move the
         # on-screen Z origin even when the numeric Z range is restored.
-        self.plot.getAxis("left").setWidth(92)
+        self.plot.getAxis("left").setWidth(112)
         self.plot.showGrid(x=True, y=True, alpha=0.18)
         self.plot.setMenuEnabled(True)
-        self.plot.addLegend(offset=(10, 10))
+        self._style_ray_legend(self.plot.addLegend(offset=(10, 10)))
         self.component_marker_items = []
         self._component_labels = []
+        self._ray_label_items = []
+        self._ray_label_font_pt = None
+        self.sample_marker_items = []
         self.aperture_marker_items = []
         self.aperture_optical_plane_items = []
         self.aperture_stop_segment_items = []
@@ -283,6 +373,8 @@ class VisualizationWorkspace(QWidget):
 
         self.physical_layout = PhysicalLayoutView()
         self.magnetic_field = MagneticFieldView()
+        self.optical_transfer = OpticalTransferView()
+        self.energy_filter = EnergyFilterView()
         self.transverse_beam = TransverseBeamView()
         self.wave_imaging = WaveImagingView()
         self.tabs = QTabWidget()
@@ -290,6 +382,8 @@ class VisualizationWorkspace(QWidget):
         self.tabs.addTab(ray_page, "Ray Diagram")
         self.tabs.addTab(self.physical_layout, "Physical Layout")
         self.tabs.addTab(self.magnetic_field, "Magnetic Field")
+        self.tabs.addTab(self.optical_transfer, "Optical Transfer")
+        self.tabs.addTab(self.energy_filter, "Energy Filter")
         self.tabs.addTab(self.transverse_beam, "Transverse X-Y")
         self.tabs.addTab(self.wave_imaging, "TEM Wave Image")
 
@@ -338,6 +432,9 @@ class VisualizationWorkspace(QWidget):
         self.magnetic_field.component_selected.connect(
             self.component_selected.emit
         )
+        self.energy_filter.component_selected.connect(
+            self.component_selected.emit
+        )
         self.physical_layout.axial_position_selected.connect(
             self.jump_to_ray_position
         )
@@ -348,10 +445,34 @@ class VisualizationWorkspace(QWidget):
     def _show_notice(self, text: str) -> None:
         self.plot.clear()
         notice = pg.TextItem(text, color="#94a3b8", anchor=(0.5, 0.5))
+        notice.setFont(self._marker_font(self.RAY_AXIS_LABEL_PT))
         notice.setPos(0.5, 0.5)
         self.plot.addItem(notice)
         self.plot.setXRange(0.0, 1.0, padding=0.0)
         self.plot.setYRange(0.0, 1.0, padding=0.0)
+
+    def _set_ray_axis_label(self, axis: str, text: str) -> None:
+        self.plot.setLabel(
+            axis,
+            text,
+            units="mm",
+            **{
+                "color": "#e2e8f0",
+                "font-size": f"{self.RAY_AXIS_LABEL_PT}pt",
+                "font-weight": "600",
+            },
+        )
+
+    def _style_ray_axes(self) -> None:
+        tick_font = self._marker_font(self.RAY_AXIS_TICK_PT)
+        for axis_name in ("bottom", "left"):
+            axis = self.plot.getAxis(axis_name)
+            axis.setTickFont(tick_font)
+            axis.setStyle(tickTextOffset=7)
+
+    def _style_ray_legend(self, legend) -> None:
+        legend.setLabelTextSize(f"{self.RAY_LEGEND_PT}pt")
+        legend.setLabelTextColor("#e2e8f0")
 
     @staticmethod
     def _bundle_lines(
@@ -391,7 +512,32 @@ class VisualizationWorkspace(QWidget):
 
     def _redraw_last_result(self) -> None:
         if self._last_result is not None:
-            self._draw_ray_diagram(self._last_result, self._last_quality)
+            self._draw_ray_diagram(
+                self._last_result,
+                self._last_quality,
+                preserve_view=True,
+            )
+
+    @staticmethod
+    def _ray_geometry_signature(result) -> tuple | None:
+        """Identify geometry changes that require a fresh column fit."""
+
+        assembly = getattr(result, "assembly", None)
+        if assembly is None:
+            return None
+        return (
+            tuple(getattr(assembly, "selected_module_paths", ())),
+            tuple(
+                (
+                    str(part.key),
+                    float(part.start_z_mm),
+                    float(part.center_z_mm),
+                    float(part.end_z_mm),
+                )
+                for part in assembly.parts
+                if not bool(part.data.get("branch_path_only", False))
+            ),
+        )
 
     @staticmethod
     def _project_transverse_values(x, y, angle_deg: float) -> np.ndarray:
@@ -533,7 +679,7 @@ class VisualizationWorkspace(QWidget):
             "Selected axial position; drag to another Z or double-click "
             "an axial plot"
         )
-        cursor.label.setFont(self._marker_font())
+        self._register_ray_label(cursor.label)
         cursor.sigPositionChangeFinished.connect(
             self._axial_cursor_move_finished
         )
@@ -574,6 +720,9 @@ class VisualizationWorkspace(QWidget):
         x_min = selected - 0.5 * view_span
         x_max = selected + 0.5 * view_span
         x_min, x_max = self._clamp_focus_range(x_min, x_max)
+        # The initial full-column fit is one-shot. Keeping AutoRange enabled
+        # lets aperture span updates pull a manually zoomed view back out.
+        self.plot.disableAutoRange()
         self.plot.setXRange(x_min, x_max, padding=0.0)
         y_range = self._local_y_range(x_min, x_max)
         if y_range is not None:
@@ -598,6 +747,7 @@ class VisualizationWorkspace(QWidget):
         radius_mm = self._column_radius_mm()
         if limits is None or radius_mm is None:
             return
+        self.plot.disableAutoRange()
         self.plot.setXRange(*limits, padding=0.0)
         margin = max(0.05 * radius_mm, 0.01)
         self.plot.setYRange(
@@ -833,6 +983,7 @@ class VisualizationWorkspace(QWidget):
         if self._last_result is None:
             return
         x_min, x_max = self._clamp_focus_range(*self._component_x_range(part))
+        self.plot.disableAutoRange()
         self.plot.setXRange(x_min, x_max, padding=0.0)
         y_range = self._local_y_range(x_min, x_max)
         if y_range is not None:
@@ -865,10 +1016,45 @@ class VisualizationWorkspace(QWidget):
         return sorted(records, key=lambda item: float(item["z_mm"]))
 
     @staticmethod
-    def _marker_font() -> QFont:
+    def _marker_font(point_size: int = RAY_LABEL_BASE_PT) -> QFont:
         font = QFont()
-        font.setPointSize(7)
+        font.setPointSize(int(point_size))
+        font.setWeight(QFont.Weight.DemiBold)
+        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
         return font
+
+    def _ray_label_point_size(self) -> int:
+        """Return a readable, bounded label size for the current axial zoom."""
+
+        limits = self._simulation_x_limits()
+        if limits is None:
+            return self.RAY_LABEL_BASE_PT
+        x_min, x_max = self.plot.getViewBox().viewRange()[0]
+        visible_span = max(float(x_max - x_min), np.finfo(float).eps)
+        full_span = max(float(limits[1] - limits[0]), visible_span)
+        zoom_ratio = max(full_span / visible_span, 1.0)
+        zoom_steps = int(np.floor(np.log2(zoom_ratio) / 2.0))
+        return int(
+            np.clip(
+                self.RAY_LABEL_BASE_PT + zoom_steps,
+                self.RAY_LABEL_BASE_PT,
+                self.RAY_LABEL_MAX_PT,
+            )
+        )
+
+    def _register_ray_label(self, label) -> None:
+        self._ray_label_items.append(label)
+        label.setFont(self._marker_font(self._ray_label_point_size()))
+
+    def _update_ray_label_fonts(self) -> int:
+        point_size = self._ray_label_point_size()
+        if self._ray_label_font_pt == point_size:
+            return point_size
+        font = self._marker_font(point_size)
+        for label in self._ray_label_items:
+            label.setFont(font)
+        self._ray_label_font_pt = point_size
+        return point_size
 
     @staticmethod
     def _deflector_planes(part) -> tuple[float, ...]:
@@ -919,7 +1105,7 @@ class VisualizationWorkspace(QWidget):
             and record.get("installed", True)
         )
         if not enabled:
-            status = "DISABLED" if available else "REFERENCE ONLY"
+            status = "RETRACTED" if available else "REFERENCE ONLY"
             line = pg.InfiniteLine(
                 pos=optical_z_mm,
                 angle=90,
@@ -988,7 +1174,7 @@ class VisualizationWorkspace(QWidget):
             line.setToolTip(tooltip)
             self.plot.addItem(line)
             self.aperture_stop_segment_items.append(line)
-        representative.label.setFont(self._marker_font())
+        self._register_ray_label(representative.label)
         representative.label.setToolTip(tooltip)
         self.aperture_marker_items.append(representative)
         self.aperture_optical_plane_items.append(representative)
@@ -1025,7 +1211,7 @@ class VisualizationWorkspace(QWidget):
             )
             body.setZValue(12)
             body.setToolTip(tooltip)
-            body.label.setFont(self._marker_font())
+            self._register_ray_label(body.label)
             body.label.setToolTip(tooltip)
             self.plot.addItem(body)
             self.component_marker_items.append(body)
@@ -1083,7 +1269,7 @@ class VisualizationWorkspace(QWidget):
                 f"{z_mm:.6g} mm"
             )
             line.setToolTip(tooltip)
-            line.label.setFont(self._marker_font())
+            self._register_ray_label(line.label)
             line.label.setToolTip(tooltip)
             self.plot.addItem(line)
             self.deflector_pair_items.append(line)
@@ -1091,8 +1277,13 @@ class VisualizationWorkspace(QWidget):
     def _add_component_markers(self, assembly) -> None:
         if assembly is None or not self.component_centres.isChecked():
             return
-        marker_font = self._marker_font()
         for index, part in enumerate(assembly.parts):
+            if bool(part.data.get("branch_path_only", False)):
+                continue
+            # The specimen plane is drawn independently and remains visible
+            # when generic component-centre markers are hidden.
+            if part.key == "sample":
+                continue
             is_lens = "lens" in part.key
             is_aperture = "aperture" in part.key
             if is_aperture:
@@ -1145,7 +1336,7 @@ class VisualizationWorkspace(QWidget):
             line.setZValue(6)
             tooltip = f"{part.name}\nCentre Z = {part.center_z_mm:.6g} mm"
             line.setToolTip(tooltip)
-            line.label.setFont(marker_font)
+            self._register_ray_label(line.label)
             line.label.setToolTip(tooltip)
             self.plot.addItem(line)
             self.component_marker_items.append(line)
@@ -1157,8 +1348,67 @@ class VisualizationWorkspace(QWidget):
                 )
             )
 
+    def _add_sample_marker(self, result) -> None:
+        """Draw the incident/post-specimen boundary above rays and lenses."""
+
+        assembly = getattr(result, "assembly", None)
+        if assembly is not None:
+            try:
+                sample_part = assembly.part("sample")
+            except KeyError:
+                sample_part = None
+        else:
+            sample_part = None
+        sample_z_mm = (
+            float(sample_part.center_z_mm)
+            if sample_part is not None
+            else float(result.simulation.incident.z[-1])
+        )
+        label = f"SAMPLE / SPECIMEN  Z={sample_z_mm:.6g} mm"
+        tooltip = (
+            "Sample / specimen plane\n"
+            f"Exact axial position Z = {sample_z_mm:.9g} mm\n"
+            "The blue incident bundle terminates here and every "
+            "post-specimen branch starts here. Their overlap at this plane "
+            "is the continuous ray boundary, not a second optical element."
+        )
+        line = pg.InfiniteLine(
+            pos=sample_z_mm,
+            angle=90,
+            pen=pg.mkPen("#ffffff", width=2.6),
+            label=label,
+            labelOpts={
+                "position": 0.94,
+                "color": "#ffffff",
+                "rotateAxis": (1, 0),
+            },
+        )
+        line.setZValue(40)
+        line.setToolTip(tooltip)
+        self._register_ray_label(line.label)
+        line.label.setToolTip(tooltip)
+        self.plot.addItem(line)
+
+        axis_marker = pg.ScatterPlotItem(
+            x=[sample_z_mm],
+            y=[0.0],
+            symbol="s",
+            size=11,
+            pen=pg.mkPen("#ffffff", width=2.0),
+            brush=pg.mkBrush("#ef4444"),
+        )
+        axis_marker.setZValue(41)
+        axis_marker.setToolTip(tooltip)
+        self.plot.addItem(axis_marker)
+
+        self.sample_marker_items.extend((line, axis_marker))
+        # Preserve the established one-marker-per-assembly-part diagnostic.
+        self.component_marker_items.append(line)
+        self._component_labels.append((line.label, sample_z_mm, True))
+
     def _update_component_label_visibility(self, *_args) -> None:
         """Keep the full-column view legible and reveal labels while zooming."""
+        point_size = self._update_ray_label_fonts()
         if not self._component_labels:
             return
         x_min, x_max = self.plot.getViewBox().viewRange()[0]
@@ -1169,6 +1419,8 @@ class VisualizationWorkspace(QWidget):
             for _label, z_mm, is_priority in self._component_labels
             if is_priority
         ]
+        priority_clearance = max(32.0, 3.0 * point_size)
+        regular_spacing = max(38.0, 3.5 * point_size)
         last_regular_pixel = -float("inf")
         for label, z_mm, is_priority in sorted(
             self._component_labels, key=lambda item: item[1]
@@ -1178,11 +1430,12 @@ class VisualizationWorkspace(QWidget):
                 label.setVisible(True)
                 continue
             separated_from_priority = all(
-                abs(pixel - priority_pixel) >= 28.0
+                abs(pixel - priority_pixel) >= priority_clearance
                 for priority_pixel in priority_pixels
             )
             visible = (
-                separated_from_priority and pixel - last_regular_pixel >= 32.0
+                separated_from_priority
+                and pixel - last_regular_pixel >= regular_spacing
             )
             label.setVisible(visible)
             if visible:
@@ -1192,7 +1445,6 @@ class VisualizationWorkspace(QWidget):
         if not self.crossovers.isChecked():
             return
         records = self._all_crossovers(result)
-        marker_font = self._marker_font()
         for index, record in enumerate(records):
             z_mm = float(record["z_mm"])
             rms_radius = float(record.get("rms_radius_mm", float("nan")))
@@ -1220,7 +1472,7 @@ class VisualizationWorkspace(QWidget):
                 f"{name}\nZ = {z_mm:.6g} mm\nRMS radius = {radius_text}"
             )
             line.setToolTip(tooltip)
-            line.label.setFont(marker_font)
+            self._register_ray_label(line.label)
             line.label.setToolTip(tooltip)
             self.plot.addItem(line)
             self.crossover_marker_items.append(line)
@@ -1247,13 +1499,13 @@ class VisualizationWorkspace(QWidget):
         )
         simulation = result.simulation
         self.plot.clear()
-        self.plot.setLabel(
-            "left",
-            "Projected displacement",
-            units="mm",
-        )
+        self._set_ray_axis_label("left", "Projected displacement")
+        self._style_ray_axes()
         self.component_marker_items = []
         self._component_labels = []
+        self._ray_label_items = []
+        self._ray_label_font_pt = None
+        self.sample_marker_items = []
         self.aperture_marker_items = []
         self.aperture_optical_plane_items = []
         self.aperture_stop_segment_items = []
@@ -1271,7 +1523,7 @@ class VisualizationWorkspace(QWidget):
         if limits is not None:
             self.axial_position.setRange(*limits)
         legend = self.plot.addLegend(offset=(10, 10))
-        del legend
+        self._style_ray_legend(legend)
 
         bundles = [(simulation.incident, "Incident")]
         bundles.extend(
@@ -1306,10 +1558,14 @@ class VisualizationWorkspace(QWidget):
         self.plot.plot(
             [], [], pen=pg.mkPen("#2cffad", width=2.0), name="Deflector U/L"
         )
+        self.plot.plot(
+            [], [], pen=pg.mkPen("#ffffff", width=2.6), name="Sample plane"
+        )
 
         self._add_column_walls(result)
         self._add_stop_markers(simulation)
         self._add_component_markers(result.assembly)
+        self._add_sample_marker(result)
         self._add_crossover_markers(result)
         self._add_axial_position_cursor()
 
@@ -1328,6 +1584,11 @@ class VisualizationWorkspace(QWidget):
                     self._selected_z_mm, activate_tab=False
                 )
             else:
+                # Resolve the initial data bounds synchronously, then freeze
+                # them. Aperture openings are view-dependent graphics, so an
+                # always-live AutoRange creates a zoom/span feedback loop.
+                self.plot.getViewBox().autoRange()
+                self.plot.disableAutoRange()
                 self._update_component_label_visibility()
         self._update_aperture_spans()
         self._update_scale_notice()
@@ -1348,11 +1609,22 @@ class VisualizationWorkspace(QWidget):
         )
 
     def display_result(self, result, quality: str) -> None:
+        preserve_ray_view = (
+            self._last_result is not None
+            and self._ray_geometry_signature(self._last_result)
+            == self._ray_geometry_signature(result)
+        )
         self._last_result = result
         self._last_quality = quality
-        self._draw_ray_diagram(result, quality)
+        self._draw_ray_diagram(
+            result,
+            quality,
+            preserve_view=preserve_ray_view,
+        )
         self.physical_layout.display_result(result)
         self.magnetic_field.display_result(result)
+        self.optical_transfer.display_result(result)
+        self.energy_filter.display_result(result)
         self.transverse_beam.display_result(result)
         self.wave_imaging.display_result(getattr(result, "wave_imaging", None))
         if self._focused_part is not None:

@@ -211,7 +211,11 @@ def resolve_selected_area_downstream_anchors(
 
 
 def layout_configuration_from_state(
-    state, *, preserve_operating_parameters=True
+    state,
+    *,
+    preserve_operating_parameters=True,
+    assembly_root=None,
+    assembly=None,
 ):
     """Translate persisted topology selections into layout configuration."""
     hardware = C3Hardware(getattr(state, "layout_c3_hardware", "three_condenser"))
@@ -370,7 +374,9 @@ def layout_configuration_from_state(
     apply_column_manifest_geometry(
         state,
         configuration,
+        assembly=assembly,
         preserve_operating_parameters=preserve_operating_parameters,
+        root=assembly_root,
     )
     configuration = replace(
         configuration,
@@ -453,7 +459,11 @@ def _set_topology_installation(state, item, binding_key, installed):
 
 
 def apply_physical_layout_to_state(
-    state, *, preserve_operating_parameters=True
+    state,
+    *,
+    preserve_operating_parameters=True,
+    assembly_root=None,
+    assembly=None,
 ):
     """Resolve selected hardware topology onto the effective ray-tracing axis."""
     from temsim.column.module_assembly import (
@@ -466,6 +476,8 @@ def apply_physical_layout_to_state(
     configuration = layout_configuration_from_state(
         state,
         preserve_operating_parameters=preserve_operating_parameters,
+        assembly_root=assembly_root,
+        assembly=assembly,
     )
     state.corrector_mode = configuration.corrector.value
     state.probe_corrector_installed = configuration.corrector in (

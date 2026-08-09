@@ -66,9 +66,22 @@ _PROBE_DEFAULT_PARTS = {
     for key in PROBE_CORRECTOR_KEYS
 }
 
+# First-order unit-magnification HP2 -> HP1 relay at 300 kV.  The downstream
+# hexapole is rotated to cancel the pair's second-order threefold term in the
+# Larmor frame, leaving the desired negative third-order spherical term.  The
+# pair is calibrated at the exact specimen plane; the endpoint-safe RK4 grid
+# must not reuse the former value fitted 0.03885 mm before that plane.
+PROBE_MAIN_HEXAPOLE_STRENGTH_M3 = 5.08073490e5
+PROBE_HP1_HEXAPOLE_STRENGTH_RATIO = 0.59513503
+PROBE_HP1_HEXAPOLE_ORIENTATION_RAD = -0.04234211
+
 
 def _probe_manifest_value(key, field):
     return float(_PROBE_DEFAULT_PARTS[key][field])
+
+
+def _probe_manifest_field_polarity(key):
+    return int(_PROBE_DEFAULT_PARTS[key]["field_polarity"])
 
 
 def _probe_manifest_absolute(key, field):
@@ -134,11 +147,19 @@ def _create_quadrupole(definition, component_type):
 
 
 def _create_hexapole(definition, component_type):
+    is_hp1 = definition.key == PROBE_HP1_HEXAPOLE
     return component_type(
         name=definition.label,
         key=definition.key,
         z_mm=definition.optical_reference_from_tip_mm,
-        strength_m3=0.0,
+        strength_m3=(
+            PROBE_MAIN_HEXAPOLE_STRENGTH_M3
+            * PROBE_HP1_HEXAPOLE_STRENGTH_RATIO
+            if is_hp1 else 0.0
+        ),
+        orientation_rad=(
+            PROBE_HP1_HEXAPOLE_ORIENTATION_RAD if is_hp1 else 0.0
+        ),
         maximum_strength_m3=definition.maximum_strength_m3,
         effective_length_mm=definition.effective_length_mm,
         enabled=True,
@@ -178,7 +199,7 @@ def _create_round_lens(definition, component_type):
         enabled=True,
         cs_mm=None,
         cc_mm=None,
-        polarity=1,
+        polarity=_probe_manifest_field_polarity(definition.key),
         normalise_profile_peak=False,
         mechanical_center_from_tip_mm=(
             definition.mechanical_center_from_tip_mm
@@ -235,7 +256,7 @@ class AdapterLensDefinition:
             enabled=True,
             cs_mm=None,
             cc_mm=None,
-            polarity=1,
+            polarity=_probe_manifest_field_polarity(self.key),
             normalise_profile_peak=False,
             mechanical_center_from_tip_mm=(
                 self.mechanical_center_from_tip_mm
@@ -686,7 +707,8 @@ class Hp2HexapoleDefinition:
             name=self.label,
             key=self.key,
             z_mm=self.optical_reference_from_tip_mm,
-            strength_m3=0.0,
+            strength_m3=PROBE_MAIN_HEXAPOLE_STRENGTH_M3,
+            orientation_rad=0.0,
             maximum_strength_m3=self.maximum_strength_m3,
             effective_length_mm=self.effective_length_mm,
             enabled=True,
@@ -811,7 +833,7 @@ class Tl22LensDefinition:
             enabled=True,
             cs_mm=None,
             cc_mm=None,
-            polarity=1,
+            polarity=_probe_manifest_field_polarity(self.key),
             normalise_profile_peak=False,
             mechanical_center_from_tip_mm=(
                 self.mechanical_center_from_tip_mm
@@ -1166,9 +1188,10 @@ TL22_LENS_DEFINITION = Tl22LensDefinition(
     optical_reference_from_tip_mm=_probe_manifest_absolute(
         PROBE_TL22_LENS, "optical_reference_local_z_mm"
     ),
-    maximum_peak_field_t=0.11,
+    # Preserve the calibrated 0.31809425 T operating field at 60%.
+    maximum_peak_field_t=0.5301570833333334,
     field_scale_half_width_mm=6.0,
-    default_excitation_percent=45.0,
+    default_excitation_percent=60.0,
     maximum_excitation_percent=100.0,
     colour="#8e24aa",
 )
@@ -1192,9 +1215,10 @@ TL21_LENS_DEFINITION = Tl21LensDefinition(
     optical_reference_from_tip_mm=_probe_manifest_absolute(
         PROBE_TL21_LENS, "optical_reference_local_z_mm"
     ),
-    maximum_peak_field_t=0.13,
+    # Preserve the calibrated 0.29864759 T operating field at 60%.
+    maximum_peak_field_t=0.49774598333333335,
     field_scale_half_width_mm=6.0,
-    default_excitation_percent=52.0,
+    default_excitation_percent=60.0,
     maximum_excitation_percent=100.0,
     colour="#c2185b",
 )
@@ -1368,10 +1392,10 @@ TL12_LENS_DEFINITION = Tl12LensDefinition(
     optical_reference_from_tip_mm=_probe_manifest_absolute(
         PROBE_TL12_LENS, "optical_reference_local_z_mm"
     ),
-    # The former 300% operating point is now the physical 100% field.
-    maximum_peak_field_t=0.33,
+    # Preserve the calibrated 0.33 T operating field at 60%.
+    maximum_peak_field_t=0.55,
     field_scale_half_width_mm=7.0,
-    default_excitation_percent=100.0,
+    default_excitation_percent=60.0,
     maximum_excitation_percent=100.0,
     colour="#ad1457",
 )

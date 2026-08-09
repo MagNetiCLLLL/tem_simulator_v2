@@ -41,7 +41,10 @@ class AnchorRecord:
 class CatalogAudit:
     module_count: int
     part_definition_count: int
+    logical_part_key_count: int
+    variant_scoped_duplicate_count: int
     assembly_count: int
+    resolved_part_authority_count: int
 
 
 STRUCTURAL_READ_ONLY_FIELDS = frozenset({"key"})
@@ -114,6 +117,11 @@ class ManifestEditor:
         return originals
 
     def validate_catalog(self) -> CatalogAudit:
+        from temsim.assembly_catalog import AssemblyCatalog
+
+        # Validate catalog names, selection signatures, module paths/types,
+        # and the one-to-one catalog/disk file set before enumerating builds.
+        AssemblyCatalog(self.root)
         with (self.root / "catalog.toml").open("rb") as stream:
             catalog = tomllib.load(stream)
         module_paths = {
@@ -126,12 +134,18 @@ class ManifestEditor:
             for entry in catalog[group]
         }
         part_count = 0
+        logical_part_keys = set()
         for module_path in module_paths:
             document = module_manifest.read_document(self.root / module_path)
             module_manifest.validate_document(document)
             part_count += len(document.get("parts", ()))
+            logical_part_keys.update(
+                str(part["key"])
+                for part in document.get("parts", ())
+            )
 
         assembly_count = 0
+        resolved_part_authority_count = 0
         for gun in catalog["gun_variants"]:
             for column in catalog["column_variants"]:
                 for recording in catalog[
@@ -160,12 +174,29 @@ class ManifestEditor:
                         )),
                         energy_filter_selected=bool(recording["energy_filter"]),
                     )
-                    resolve_module_assembly(configuration, root=self.root)
+                    assembly = resolve_module_assembly(
+                        configuration, root=self.root
+                    )
+                    authorities = assembly.part_authorities
+                    if len(authorities) != len(assembly.parts):
+                        raise ValueError(
+                            "Resolved assembly has duplicate active part keys"
+                        )
+                    if len(set(authorities.values())) != len(assembly.parts):
+                        raise ValueError(
+                            "Resolved assembly reuses one TOML part definition"
+                        )
+                    resolved_part_authority_count += len(assembly.parts)
                     assembly_count += 1
         return CatalogAudit(
             module_count=len(module_paths),
             part_definition_count=part_count,
+            logical_part_key_count=len(logical_part_keys),
+            variant_scoped_duplicate_count=(
+                part_count - len(logical_part_keys)
+            ),
             assembly_count=assembly_count,
+            resolved_part_authority_count=resolved_part_authority_count,
         )
 
     @staticmethod

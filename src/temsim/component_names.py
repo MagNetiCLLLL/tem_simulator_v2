@@ -13,6 +13,15 @@ from temsim.component_keys import (
     PROJECTOR_LENS_1,
     PROJECTOR_LENS_2,
     ENERGY_FILTER_ENTRANCE_APERTURE,
+    ENERGY_FILTER_TAPERED_PRISM,
+    ENERGY_FILTER_SLIT,
+    ENERGY_FILTER_MULTIPOLE_KEYS,
+    ENERGY_FILTER_DYNAMIC_FOCUS_QUADRUPOLE,
+    ENERGY_FILTER_BIAS_TUBE,
+    ENERGY_FILTER_SHUTTER,
+    ENERGY_FILTER_CAMERA_DEFLECTOR,
+    ENERGY_FILTER_EFTEM_OUTPUT_PLANE,
+    ENERGY_FILTER_ZEBRA,
     FEG_DEFLECTOR,
     FEG_STIGMATOR,
     GUN_EXTRACTOR_APERTURE,
@@ -20,6 +29,7 @@ from temsim.component_keys import (
     IMAGE_DIFFRACTION_DEFLECTOR,
     IMAGE_CORRECTOR_OL_POST_LENS,
     IMAGE_CORRECTOR_TL11_LENS,
+    IMAGE_CORRECTOR_TL12_LENS,
     IMAGE_CORRECTOR_TL21_LENS,
     IMAGE_CORRECTOR_TL22_LENS,
     IMAGE_CORRECTOR_ADAPTER_LENS,
@@ -52,6 +62,7 @@ LENS_NAMES = {
     OBJECTIVE_LENS: "Objective Lens Assembly",
     IMAGE_CORRECTOR_OL_POST_LENS: "Image Corrector OL Post Lens",
     IMAGE_CORRECTOR_TL11_LENS: "Image Corrector TL11",
+    IMAGE_CORRECTOR_TL12_LENS: "Image Corrector TL12",
     IMAGE_CORRECTOR_TL21_LENS: "Image Corrector TL21",
     IMAGE_CORRECTOR_TL22_LENS: "Image Corrector TL22",
     IMAGE_CORRECTOR_ADAPTER_LENS: "Image Corrector ADL",
@@ -71,6 +82,7 @@ LENS_SHORT_NAMES = {
     OBJECTIVE_LENS: "Obj",
     IMAGE_CORRECTOR_OL_POST_LENS: "IC OL post",
     IMAGE_CORRECTOR_TL11_LENS: "IC TL11",
+    IMAGE_CORRECTOR_TL12_LENS: "IC TL12",
     IMAGE_CORRECTOR_TL21_LENS: "IC TL21",
     IMAGE_CORRECTOR_TL22_LENS: "IC TL22",
     IMAGE_CORRECTOR_ADAPTER_LENS: "IC ADL",
@@ -91,10 +103,32 @@ APERTURE_NAMES = {
     },
     OBJECTIVE_APERTURE: "Objective Aperture",
     SELECTED_AREA_APERTURE: "Selected Area Aperture",
-    ENERGY_FILTER_ENTRANCE_APERTURE: "Energy Filter Entrance Aperture",
+    ENERGY_FILTER_ENTRANCE_APERTURE: (
+        "Iliad Spectrometer Entrance Aperture"
+    ),
 }
 
 APERTURE_SHORT_NAMES = APERTURE_NAMES
+
+ENERGY_FILTER_NAMES = {
+    ENERGY_FILTER_ENTRANCE_APERTURE: (
+        "Iliad Spectrometer Entrance Aperture"
+    ),
+    ENERGY_FILTER_TAPERED_PRISM: "Iliad Large Tapered Prism",
+    **{
+        key: f"Iliad Multipole {index:02d} (model index)"
+        for index, key in enumerate(ENERGY_FILTER_MULTIPOLE_KEYS, start=1)
+    },
+    ENERGY_FILTER_SLIT: "XO / Optional EFTEM Energy Slit",
+    ENERGY_FILTER_DYNAMIC_FOCUS_QUADRUPOLE: (
+        "Dynamic-focus Electrostatic Quadrupole"
+    ),
+    ENERGY_FILTER_BIAS_TUBE: "Iliad MultiEELS Bias Tube",
+    ENERGY_FILTER_SHUTTER: "Iliad Fast Electrostatic Shutter",
+    ENERGY_FILTER_CAMERA_DEFLECTOR: "Iliad Zebra Camera Deflector",
+    ENERGY_FILTER_EFTEM_OUTPUT_PLANE: "Optional EFTEM Output Plane",
+    ENERGY_FILTER_ZEBRA: "Iliad Zebra EELS Detector",
+}
 
 STIGMATOR_NAMES = {
     FEG_STIGMATOR: "Gun Stigmator",

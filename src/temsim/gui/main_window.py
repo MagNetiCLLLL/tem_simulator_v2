@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import replace
 
 from PySide6.QtCore import QByteArray, QSettings, Qt, QTimer
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QDockWidget,
     QDoubleSpinBox,
+    QComboBox,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -16,6 +18,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSplitter,
     QSpinBox,
     QToolBar,
     QWidget,
@@ -32,11 +35,26 @@ from temsim.gui.calculation_controller import (
     estimate_calculation_memory_bytes,
     format_memory_size,
 )
+from temsim.gui.direct_alignment_controller import (
+    DirectAlignmentController,
+)
 from temsim.gui.parameter_panel import ParameterPanel
 from temsim.gui.visualization import VisualizationWorkspace
 from temsim.manifest_editor import ManifestEditor, ManifestTarget
 from temsim.optics.column import default_state
+from temsim.operating_modes import (
+    apply_operating_mode_pair,
+    direct_alignment_by_key,
+)
 from temsim.profile_io import apply_profile_values, read_profile, save_profile
+from temsim.physics.compute_backend import (
+    BACKEND_AUTO,
+    BACKEND_CHOICES,
+    BACKEND_CPU,
+    BACKEND_CUDA,
+    cupy_capability,
+    cuda_capability,
+)
 from temsim.runtime_parameters import runtime_targets
 
 
@@ -70,6 +88,14 @@ class MainWindow(QMainWindow):
             self.catalog, self.selection, self
         )
         self.parameter_panel = ParameterPanel(self)
+        self.instrument_editor = QSplitter(Qt.Orientation.Vertical, self)
+        self.instrument_editor.setObjectName("instrumentEditorSplitter")
+        self.instrument_editor.setChildrenCollapsible(False)
+        self.instrument_editor.addWidget(self.assembly_panel)
+        self.instrument_editor.addWidget(self.parameter_panel)
+        self.instrument_editor.setStretchFactor(0, 1)
+        self.instrument_editor.setStretchFactor(1, 1)
+        self.instrument_editor.setSizes([430, 430])
         self.log_output = QPlainTextEdit(self)
         self.log_output.setObjectName("calculationLog")
         self.log_output.setReadOnly(True)
@@ -82,31 +108,43 @@ class MainWindow(QMainWindow):
         )
 
         self.instrument_dock = self._create_dock(
-            "Instrument", "instrumentDock", self.assembly_panel,
+            "Instrument setup and parameters", "instrumentDock",
+            self.instrument_editor,
             Qt.DockWidgetArea.LeftDockWidgetArea,
         )
-        self.parameter_dock = self._create_dock(
-            "Parameters", "parameterDock", self.parameter_panel,
-            Qt.DockWidgetArea.RightDockWidgetArea,
-        )
+        self.instrument_dock.setMinimumWidth(420)
         self.log_dock = self._create_dock(
             "Status and calculation log", "logDock", self.log_output,
             Qt.DockWidgetArea.BottomDockWidgetArea,
         )
 
         self.calculations = CalculationController(self)
+        self.direct_alignments = DirectAlignmentController(self)
+        self._direct_alignment_state_token: str | None = None
+        self._progress_owners: set[str] = set()
         self.preview_timer = QTimer(self)
         self.preview_timer.setSingleShot(True)
         self.preview_timer.setInterval(250)
 
         self.assembly_panel.selection_requested.connect(self.load_assembly)
-        self.assembly_panel.tree.component_selected.connect(
+        self.assembly_panel.operating_mode_requested.connect(
+            self.apply_operating_modes
+        )
+        self.assembly_panel.direct_alignment_requested.connect(
+            self.apply_direct_alignment
+        )
+        self.assembly_panel.component_selected.connect(
             self._select_tree_item
         )
         self.workspace.component_selected.connect(
-            self.assembly_panel.tree.select_key
+            self._select_component_from_workspace
         )
-        self.parameter_panel.runtime_changed.connect(self.schedule_preview)
+        self.parameter_panel.runtime_changed.connect(
+            self._runtime_parameter_changed
+        )
+        self.parameter_panel.energy_filter_match_requested.connect(
+            self.match_energy_filter_to_ht
+        )
         self.parameter_panel.manifest_save_requested.connect(
             self._save_manifest_updates
         )
@@ -116,6 +154,18 @@ class MainWindow(QMainWindow):
         self.calculations.result_ready.connect(self._calculation_ready)
         self.calculations.failed.connect(self._calculation_failed)
         self.calculations.finished.connect(self._calculation_finished)
+        self.direct_alignments.started.connect(
+            self._direct_alignment_started
+        )
+        self.direct_alignments.result_ready.connect(
+            self._direct_alignment_ready
+        )
+        self.direct_alignments.failed.connect(
+            self._direct_alignment_failed
+        )
+        self.direct_alignments.finished.connect(
+            self._direct_alignment_finished
+        )
 
         self._create_actions()
         self._create_toolbar()
@@ -163,7 +213,6 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.exit_action)
         view_menu = self.menuBar().addMenu("View")
         view_menu.addAction(self.instrument_dock.toggleViewAction())
-        view_menu.addAction(self.parameter_dock.toggleViewAction())
         view_menu.addAction(self.log_dock.toggleViewAction())
         view_menu.addSeparator()
         view_menu.addAction(self.reset_layout_action)
@@ -197,6 +246,38 @@ class MainWindow(QMainWindow):
         self.high_step.setValue(0.1)
         toolbar.addWidget(self.high_step)
 
+        toolbar.addWidget(QLabel("Compute"))
+        self.compute_backend = QComboBox()
+        self.compute_backend.setObjectName("computeBackend")
+        for backend in BACKEND_CHOICES:
+            label = backend
+            if backend == BACKEND_AUTO:
+                label = "Auto (GPU / CPU)"
+            self.compute_backend.addItem(label, backend)
+        selected_backend = str(
+            getattr(self.state, "acceleration_backend", BACKEND_AUTO)
+        )
+        selected_index = self.compute_backend.findData(selected_backend)
+        self.compute_backend.setCurrentIndex(max(selected_index, 0))
+        self.state.acceleration_backend = str(
+            self.compute_backend.currentData() or BACKEND_AUTO
+        )
+        self.state.acceleration_enabled = (
+            self.state.acceleration_backend != BACKEND_CPU
+        )
+        cuda_status = cuda_capability()
+        cupy_status = cupy_capability()
+        self.compute_backend.setToolTip(
+            "Shared ray and wave-optics preference. Auto uses CUDA for "
+            "sufficiently large ray bundles and CuPy for sufficiently large "
+            "multislice/FFT workloads; small jobs remain on CPU. "
+            f"Ray CUDA: {cuda_status.detail}. Wave CUDA: {cupy_status.detail}."
+        )
+        self.compute_backend.currentIndexChanged.connect(
+            self._compute_backend_changed
+        )
+        toolbar.addWidget(self.compute_backend)
+
         high_button = QPushButton("Run high-accuracy once")
         high_button.setObjectName("highAccuracyButton")
         high_button.clicked.connect(self.run_high_accuracy)
@@ -214,13 +295,44 @@ class MainWindow(QMainWindow):
         self.statusBar().addWidget(self.status_label, 1)
         self.statusBar().addPermanentWidget(self.progress)
 
+    def _set_progress_active(self, owner: str, active: bool) -> None:
+        if active:
+            self._progress_owners.add(str(owner))
+        else:
+            self._progress_owners.discard(str(owner))
+        self.progress.setVisible(bool(self._progress_owners))
+
     def _refresh_assembly_views(self) -> None:
         self._runtime_targets = runtime_targets(self.state)
+        # The persisted runtime key predates the explicit TOML part name.
+        # Expose the same live object under the active assembly key so the
+        # Objective Stigmator stays on the optical page with working controls.
+        objective_stigmator = self._runtime_targets.get(
+            "objective_stigmator"
+        )
+        if objective_stigmator is not None:
+            self._runtime_targets.setdefault(
+                "objective_stigmator", objective_stigmator
+            )
         anchors = self.manifest_editor.anchor_records(self.assembly)
         self._anchors_by_key = {record.part_key: record for record in anchors}
-        self.assembly_panel.tree.load_assembly(
+        self.assembly_panel.load_assembly(
             self.assembly, self._runtime_targets
         )
+        condenser_key = (
+            "micro_probe"
+            if str(self.state.illumination_mode).upper() == "TEM"
+            else "nano_probe"
+        )
+        projector_key = (
+            "imaging"
+            if str(self.state.projector_mode).lower() == "image"
+            else "diffraction"
+        )
+        self.assembly_panel.load_operating_modes(
+            self.selection, condenser_key, projector_key
+        )
+        self.assembly_panel.set_direct_alignment_state(self.state)
         self.log_output.appendPlainText(
             f"Assembly validated: {len(self.assembly.parts)} parts, "
             f"{len(anchors)} confirmed anchors."
@@ -259,7 +371,41 @@ class MainWindow(QMainWindow):
             self.workspace.magnetic_field.diagnostic_text(selection.key)
         )
 
+    def _select_component_from_workspace(self, key: str) -> None:
+        """Open the left editor for a component clicked in a plot."""
+
+        key = str(key)
+        self.instrument_dock.show()
+        self.instrument_dock.raise_()
+        if not self.assembly_panel.select_key(key):
+            self.status_label.setText(
+                f"No editable component is registered for {key}"
+            )
+            return
+        sizes = self.instrument_editor.sizes()
+        if len(sizes) == 2 and sizes[1] < 320:
+            total = max(sum(sizes), 640)
+            parameter_size = min(420, total - 220)
+            self.instrument_editor.setSizes([
+                total - parameter_size,
+                parameter_size,
+            ])
+        if key in self._runtime_targets:
+            self.parameter_panel.tabs.setCurrentIndex(0)
+            self.parameter_panel.runtime_table.setFocus(
+                Qt.FocusReason.OtherFocusReason
+            )
+        else:
+            self.parameter_panel.tabs.setCurrentIndex(1)
+            self.parameter_panel.manifest_table.setFocus(
+                Qt.FocusReason.OtherFocusReason
+            )
+        self.status_label.setText(
+            f"Selected {self.parameter_panel.title.text()} from layout"
+        )
+
     def load_assembly(self, selection) -> None:
+        self._invalidate_direct_alignment()
         try:
             candidate_state = type(self.state).from_dict(self.state.to_dict())
             candidate_assembly = self.catalog.apply(candidate_state, selection)
@@ -275,10 +421,272 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._show_error(f"Unable to load assembly: {exc}")
 
+    def apply_operating_modes(
+        self, condenser_key: str, projector_key: str
+    ) -> None:
+        self._invalidate_direct_alignment()
+        try:
+            result = apply_operating_mode_pair(
+                self.state,
+                condenser_key,
+                projector_key,
+                column_name=self.selection.column,
+                recording_name=self.selection.recording,
+            )
+            # Lens strengths do not own geometry, but the calculated objective
+            # image/BFP coordinates depend on excitation and must be refreshed.
+            apply_physical_layout_to_state(self.state)
+            self._refresh_assembly_views()
+            self.assembly_panel.set_operating_mode_keys(
+                condenser_key, projector_key
+            )
+            details = self.assembly_panel.operating_mode_status.text()
+            self.assembly_panel.set_operating_mode_status(
+                f"Applied: {result.summary}. {details}"
+            )
+            self.log_output.appendPlainText(
+                f"Applied operating preset: {result.summary}. "
+                f"Updated {len(result.changed_devices)} optical devices."
+            )
+            self.schedule_preview()
+        except Exception as exc:
+            self._show_error(f"Unable to apply operating preset: {exc}")
+
+    def apply_direct_alignment(self, key: str, target: float) -> None:
+        """Submit one transactional user-level coupled lens adjustment."""
+
+        self.preview_timer.stop()
+        self.calculations.invalidate_pending()
+        self._set_progress_active("calculation", False)
+        try:
+            self._direct_alignment_state_token = repr(self.state.to_dict())
+            self.direct_alignments.submit(self.state, key, target)
+        except Exception as exc:
+            self._direct_alignment_state_token = None
+            self.assembly_panel.set_direct_alignment_busy(None)
+            self._set_progress_active("direct_alignment", False)
+            self.assembly_panel.set_direct_alignment_message(
+                f"Direct Alignment could not start: {exc}", error=True
+            )
+            self._show_error(f"Unable to apply Direct Alignment: {exc}")
+
+    def _direct_alignment_started(self, key: str, target: float) -> None:
+        self.assembly_panel.set_direct_alignment_busy(key)
+        self._set_progress_active("direct_alignment", True)
+        self.status_label.setText(
+            f"Direct Alignment solving {key}: {target:g}..."
+        )
+
+    def _direct_alignment_ready(
+        self, key: str, result, duration: float
+    ) -> None:
+        definition = direct_alignment_by_key(key)
+        expected_keys = set(definition.devices)
+        result_keys = set(result.strengths)
+        if result.key != key or result_keys != expected_keys:
+            lenses = {lens.key: lens for lens in self.state.lenses}
+            current = {
+                lens_key: float(lenses[lens_key].percent)
+                for lens_key in expected_keys
+                if lens_key in lenses
+            }
+            result = replace(
+                result,
+                key=key,
+                success=False,
+                strengths=current,
+                message=(
+                    "The background result did not match the submitted "
+                    "Direct Alignment key and exact coupled-device set; it "
+                    "was rejected without changing any lens."
+                ),
+            )
+        state_is_current = (
+            self._direct_alignment_state_token is not None
+            and repr(self.state.to_dict())
+            == self._direct_alignment_state_token
+        )
+        if not state_is_current:
+            current = {
+                lens.key: float(lens.percent)
+                for lens in self.state.lenses
+                if lens.key in result.strengths
+            }
+            result = replace(
+                result,
+                success=False,
+                strengths=current,
+                message=(
+                    "The microscope state changed while the background solve "
+                    "was running; the stale result was discarded and no "
+                    "lens value was changed."
+                ),
+            )
+
+        if result.success:
+            # Reject any ordinary calculation snapshot that may have been
+            # submitted while the Direct Alignment worker was running.
+            self.calculations.invalidate_pending()
+            self._set_progress_active("calculation", False)
+            lenses = {lens.key: lens for lens in self.state.lenses}
+            updates = []
+            try:
+                for lens_key, value in result.strengths.items():
+                    lens = lenses.get(lens_key)
+                    if lens is None or not bool(
+                        getattr(lens, "enabled", True)
+                    ):
+                        raise ValueError(
+                            f"Coupled lens {lens_key!r} is no longer available"
+                        )
+                    numeric = float(value)
+                    if not 0.0 <= numeric <= float(lens.max_percent):
+                        raise ValueError(
+                            f"Coupled lens {lens_key!r} result is outside limits"
+                        )
+                    updates.append((lens, numeric))
+            except Exception as exc:
+                current = {
+                    lens_key: float(lenses[lens_key].percent)
+                    for lens_key in result.strengths
+                    if lens_key in lenses
+                }
+                result = replace(
+                    result,
+                    success=False,
+                    strengths=current,
+                    message=(
+                        f"The background result could not be committed: {exc}. "
+                        "No lens value was changed."
+                    ),
+                )
+
+        if result.success:
+            previous = [(lens, float(lens.percent)) for lens, _ in updates]
+            try:
+                for lens, numeric in updates:
+                    lens.percent = numeric
+                self._refresh_assembly_views()
+            except Exception as exc:
+                for lens, numeric in previous:
+                    lens.percent = numeric
+                result = replace(
+                    result,
+                    success=False,
+                    strengths={lens.key: numeric for lens, numeric in previous},
+                    message=(
+                        f"The coupled values passed optical validation but "
+                        f"the live GUI refresh failed: {exc}. The exact "
+                        "previous lens values were restored."
+                    ),
+                )
+
+        if result.success:
+            strengths = ", ".join(
+                f"{lens_key}={value:.5g}%"
+                for lens_key, value in result.strengths.items()
+            )
+            self.log_output.appendPlainText(
+                f"Direct Alignment applied in {duration:.3f} s: "
+                f"{result.message} Coupled values: {strengths}."
+            )
+            self.status_label.setText(
+                f"Direct Alignment applied: {result.achieved:.6g} "
+                f"{result.unit}"
+            )
+            self.schedule_preview()
+        else:
+            self.log_output.appendPlainText(
+                f"Direct Alignment not applied after {duration:.3f} s: "
+                f"{result.message}"
+            )
+            self.status_label.setText(
+                "Direct Alignment not applied; live lens values are unchanged"
+            )
+        self.assembly_panel.show_direct_alignment_result(result)
+
+    def _direct_alignment_failed(self, key: str, message: str) -> None:
+        self.assembly_panel.set_direct_alignment_message(
+            f"Direct Alignment {key} failed: {message}", error=True
+        )
+        self._show_error(
+            f"Direct Alignment {key} failed without changing lenses: {message}"
+        )
+
+    def _direct_alignment_finished(self, _key: str) -> None:
+        self._direct_alignment_state_token = None
+        self.assembly_panel.set_direct_alignment_busy(None)
+        self._set_progress_active("direct_alignment", False)
+
+    def match_energy_filter_to_ht(self) -> None:
+        self._invalidate_direct_alignment()
+        try:
+            from temsim.optics.energy_filter import (
+                match_energy_filter_to_voltage,
+            )
+            match = match_energy_filter_to_voltage(self.state)
+            self._refresh_assembly_views()
+            self.assembly_panel.select_key("energy_filter")
+            detail = (
+                f", dispersion {match.slit_dispersion_um_per_ev:.6g} um/eV"
+                if match.slit_dispersion_um_per_ev is not None
+                else ""
+            )
+            if match.diagnostic_message:
+                detail += f"; diagnostic: {match.diagnostic_message}"
+            self.log_output.appendPlainText(
+                f"Energy Filter matched to {match.target_voltage_kv:g} kV; "
+                f"rigidity scale {match.rigidity_scale:.8g}{detail}."
+            )
+            self.schedule_preview()
+        except Exception as exc:
+            self._show_error(f"Unable to match Energy Filter: {exc}")
+
     def schedule_preview(self, _parameter: str = "") -> None:
         self.preview_timer.start()
 
+    def _runtime_parameter_changed(self, parameter: str = "") -> None:
+        # A background coupled solution was calculated for the pre-edit state.
+        # Its generation must not be allowed to overwrite a newer manual edit.
+        self._invalidate_direct_alignment()
+        self.schedule_preview(parameter)
+
+    def _invalidate_direct_alignment(self) -> None:
+        was_running = self._direct_alignment_state_token is not None
+        self.direct_alignments.invalidate_pending()
+        self._direct_alignment_state_token = None
+        self.assembly_panel.set_direct_alignment_busy(None)
+        if was_running:
+            self._set_progress_active("direct_alignment", False)
+            self.assembly_panel.set_direct_alignment_message(
+                "Direct Alignment cancelled because the microscope state "
+                "changed before the background solve completed."
+            )
+
+    def _compute_backend_changed(self, _index: int) -> None:
+        self._invalidate_direct_alignment()
+        backend = str(self.compute_backend.currentData() or BACKEND_AUTO)
+        self.state.acceleration_backend = backend
+        self.state.acceleration_enabled = backend != BACKEND_CPU
+        if backend == BACKEND_CUDA:
+            ray_status = cuda_capability()
+            wave_status = cupy_capability()
+            detail = (
+                f" (ray: {ray_status.detail}; wave: {wave_status.detail})"
+            )
+        else:
+            detail = ""
+        self.status_label.setText(f"Compute backend: {backend}{detail}")
+        self.log_output.appendPlainText(
+            f"Compute backend requested: {backend}{detail}."
+        )
+
     def run_preview(self) -> None:
+        if self._direct_alignment_state_token is not None:
+            self.status_label.setText(
+                "Preview deferred until Direct Alignment finishes"
+            )
+            return
         self.calculations.submit(
             self.state,
             "Preview",
@@ -287,6 +695,12 @@ class MainWindow(QMainWindow):
         )
 
     def run_high_accuracy(self) -> None:
+        if self._direct_alignment_state_token is not None:
+            self.status_label.setText(
+                "High-accuracy calculation deferred until Direct Alignment "
+                "finishes"
+            )
+            return
         self.preview_timer.stop()
         try:
             estimate = estimate_calculation_memory_bytes(
@@ -309,7 +723,7 @@ class MainWindow(QMainWindow):
             self._show_error(str(exc))
 
     def _calculation_started(self, quality: str) -> None:
-        self.progress.show()
+        self._set_progress_active("calculation", True)
         self.status_label.setText(f"{quality} calculation running...")
 
     def _calculation_ready(self, quality: str, result, duration: float) -> None:
@@ -321,25 +735,40 @@ class MainWindow(QMainWindow):
                 )
             )
         metrics = result.simulation.metrics
+        self.assembly_panel.update_direct_alignment_metrics(metrics)
         mode = metrics.get("mode", "unknown")
+        backend = str(
+            getattr(result.state_snapshot, "active_backend", "CPU")
+        )
+        wave_result = getattr(result, "wave_imaging", None)
+        wave_backend = (
+            str(wave_result.metrics.get("wave_compute_backend", "unknown"))
+            if wave_result is not None
+            else None
+        )
+        wave_status = f" | wave: {wave_backend}" if wave_backend else ""
+        wave_log = f", wave backend={wave_backend}" if wave_backend else ""
         self.status_label.setText(
-            f"{quality} completed in {duration:.3f} s | mode: {mode}"
+            f"{quality} completed in {duration:.3f} s | "
+            f"mode: {mode} | rays: {backend}{wave_status}"
         )
         self.log_output.appendPlainText(
             f"{quality}: {duration:.3f} s, "
-            f"{result.simulation.incident.x.shape[1]} rays, mode={mode}."
+            f"{result.simulation.incident.x.shape[1]} rays, mode={mode}, "
+            f"ray backend={backend}{wave_log}."
         )
 
     def _calculation_failed(self, quality: str, message: str) -> None:
         self._show_error(f"{quality} calculation failed: {message}")
 
     def _calculation_finished(self, _quality: str) -> None:
-        self.progress.hide()
+        self._set_progress_active("calculation", False)
 
     def _save_manifest_updates(self, target, updates) -> None:
         if not updates:
             self.status_label.setText("No TOML values changed")
             return
+        self._invalidate_direct_alignment()
         try:
             configuration = layout_configuration_from_state(self.state)
             originals = self.manifest_editor.save(
@@ -388,6 +817,7 @@ class MainWindow(QMainWindow):
             self._show_error(f"Unable to save profile: {exc}")
 
     def open_profile(self) -> None:
+        self._invalidate_direct_alignment()
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Open operating profile",
@@ -423,6 +853,7 @@ class MainWindow(QMainWindow):
             self._show_error(f"Unable to open profile: {exc}")
 
     def reload_toml_catalog(self) -> None:
+        self._invalidate_direct_alignment()
         try:
             catalog = AssemblyCatalog()
             audit = self.manifest_editor.validate_catalog()
@@ -434,8 +865,10 @@ class MainWindow(QMainWindow):
             self.assembly_panel.reload_catalog(catalog, self.selection)
             self._refresh_assembly_views()
             self.status_label.setText(
-                f"TOML catalog valid: {audit.part_definition_count} part "
-                f"definitions and {audit.assembly_count} assemblies"
+                f"TOML catalog valid: {audit.part_definition_count} "
+                f"variant-scoped definitions, "
+                f"{audit.logical_part_key_count} logical part keys, and "
+                f"{audit.assembly_count} collision-free assemblies"
             )
             self.schedule_preview()
         except Exception as exc:
@@ -458,12 +891,12 @@ class MainWindow(QMainWindow):
     def reset_workspace(self) -> None:
         for dock, area in (
             (self.instrument_dock, Qt.DockWidgetArea.LeftDockWidgetArea),
-            (self.parameter_dock, Qt.DockWidgetArea.RightDockWidgetArea),
             (self.log_dock, Qt.DockWidgetArea.BottomDockWidgetArea),
         ):
             dock.setFloating(False)
             self.addDockWidget(area, dock)
             dock.show()
+        self.instrument_editor.setSizes([430, 430])
         self.resize(1500, 920)
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802

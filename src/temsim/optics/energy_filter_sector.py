@@ -46,7 +46,7 @@ def beam_frame(origin_m, tangent):
 
 @dataclass
 class SectorMagnetElement:
-    """Uniform-sector body with compact C6 entrance and exit fringes."""
+    """Large-radius sector with compact fringes and a radial field taper."""
 
     entrance_point_m: np.ndarray
     radius_m: float
@@ -55,6 +55,7 @@ class SectorMagnetElement:
     fringe_length_m: float
     pole_gap_m: float
     radial_aperture_m: float
+    radial_field_index: float = 0.0
     soft_edges_enabled: bool = False
     enabled: bool = True
 
@@ -72,6 +73,7 @@ class SectorMagnetElement:
             self.fringe_length_m,
             self.pole_gap_m,
             self.radial_aperture_m,
+            self.radial_field_index,
         )
         if not all(math.isfinite(float(value)) for value in dimensions):
             raise ValueError("Sector parameters must be finite.")
@@ -177,6 +179,15 @@ class SectorMagnetElement:
         field[..., 1] = (
             float(self.plateau_field_t)
             * envelope
+            * np.power(
+                np.divide(
+                    float(self.radius_m),
+                    radius,
+                    out=np.ones_like(radius),
+                    where=radius > 0.0,
+                ),
+                float(self.radial_field_index),
+            )
             * inside_angle
             * inside_radial_map
         )
@@ -205,6 +216,7 @@ def sector_plateau_field_t(
     radius_m,
     bend_angle_rad,
     fringe_length_m,
+    radial_field_index=0.0,
 ):
     """Return the soft-edge field matched to the sector reference orbit.
 
@@ -218,6 +230,7 @@ def sector_plateau_field_t(
         round(float(radius_m), 12),
         round(float(bend_angle_rad), 12),
         round(float(fringe_length_m), 12),
+        round(float(radial_field_index), 12),
     )
     return (
         magnetic_rigidity_t_m(voltage_kv)
@@ -231,6 +244,7 @@ def _soft_edge_reference_scale(
     radius_m,
     bend_angle_rad,
     fringe_length_m,
+    radial_field_index,
 ):
     """Numerically match the central-ray exit direction for one geometry."""
 
@@ -251,6 +265,7 @@ def _soft_edge_reference_scale(
             fringe_length_m=fringe_length_m,
             pole_gap_m=max(0.03, radius_m),
             radial_aperture_m=max(0.03, 0.25 * radius_m),
+            radial_field_index=radial_field_index,
             soft_edges_enabled=True,
         )
         momentum = momentum_from_kinetic_energy_ev(
@@ -317,75 +332,165 @@ def sector_from_energy_filter(energy_filter):
         radial_aperture_m=(
             float(energy_filter.sector_radial_aperture_mm) * 1.0e-3
         ),
+        radial_field_index=float(
+            getattr(energy_filter, "prism_radial_field_index", 0.0)
+        ),
         soft_edges_enabled=bool(
             energy_filter.sector_soft_edges_enabled
         ),
     )
 
 
-def place_m12_in_sector_frames(energy_filter):
-    """Place both independent M12s without coupling their settings."""
+def sector_reference_path_xz_mm(sector, sample_count=181):
+    """Return the central sector orbit in the global X-Z drawing plane."""
+
+    sample_count = int(sample_count)
+    if sample_count < 2:
+        raise ValueError("Sector drawing requires at least two samples.")
+    theta = np.linspace(0.0, float(sector.bend_angle_rad), sample_count)
+    radius_m = float(sector.radius_m)
+    centre = np.asarray(sector.centre_m, dtype=float)
+    points = np.column_stack((
+        centre[0] + radius_m * np.sin(theta),
+        centre[2] + radius_m * np.cos(theta),
+    ))
+    return points * 1.0e3
+
+
+def sector_radial_aperture_paths_xz_mm(sector, sample_count=181):
+    """Return both in-plane clear-aperture edges for the sector magnet.
+
+    The radial aperture lies in the X-Z drawing plane.  ``pole_gap_m`` is the
+    independent non-dispersive Y opening and must not be substituted here.
+    """
+
+    sample_count = int(sample_count)
+    if sample_count < 2:
+        raise ValueError("Sector drawing requires at least two samples.")
+    theta = np.linspace(0.0, float(sector.bend_angle_rad), sample_count)
+    centre = np.asarray(sector.centre_m, dtype=float)
+    paths = []
+    for radial_offset_m in (
+        -float(sector.radial_aperture_m),
+        float(sector.radial_aperture_m),
+    ):
+        radius_m = float(sector.radius_m) + radial_offset_m
+        paths.append(np.column_stack((
+            centre[0] + radius_m * np.sin(theta),
+            centre[2] + radius_m * np.cos(theta),
+        )) * 1.0e3)
+    return tuple(paths)
+
+
+def multipole_housing_bank_polygons_xz_mm(element):
+    """Return two scaled X-Z polygons for one M12 carrier and its bore.
+
+    Splitting the carrier into two banks leaves the physical bore visible.
+    The returned geometry uses the mechanical housing length, not the magnetic
+    support length, and therefore has no effect on ray tracing or fields.
+    """
+
+    housing_length_m = float(element.housing_length_m)
+    half_length_m = 0.5 * housing_length_m
+    bore_radius_m = float(element.bore_radius_m)
+    outer_radius_m = float(element.outer_radius_m)
+    local_banks = (
+        np.array((
+            (-outer_radius_m, 0.0, -half_length_m),
+            (-bore_radius_m, 0.0, -half_length_m),
+            (-bore_radius_m, 0.0, half_length_m),
+            (-outer_radius_m, 0.0, half_length_m),
+        )),
+        np.array((
+            (bore_radius_m, 0.0, -half_length_m),
+            (outer_radius_m, 0.0, -half_length_m),
+            (outer_radius_m, 0.0, half_length_m),
+            (bore_radius_m, 0.0, half_length_m),
+        )),
+    )
+    return tuple(
+        element.frame.points_to_global_m(bank)[:, (0, 2)] * 1.0e3
+        for bank in local_banks
+    )
+
+
+def place_multipoles_in_sector_frames(energy_filter):
+    """Place all ten carriers on the entrance/exit curvilinear reference."""
 
     sector = sector_from_energy_filter(energy_filter)
-    entrance_origin = np.array(
-        [
-            float(energy_filter.entrance_multipole_s_mm) * 1.0e-3,
-            0.0,
-            0.0,
-        ]
-    )
-    exit_origin = (
-        sector.exit_point_m
-        + sector.exit_tangent
-        * float(energy_filter.exit_multipole_d_mm)
-        * 1.0e-3
-    )
-    energy_filter.entrance_m12.frame = beam_frame(
-        entrance_origin,
-        sector.entrance_tangent,
-    )
-    energy_filter.exit_m12.frame = beam_frame(
-        exit_origin,
-        sector.exit_tangent,
-    )
+    for index, element in enumerate(energy_filter.multipoles, start=1):
+        if index <= 3:
+            s_mm = float(getattr(
+                energy_filter, f"multipole_{index:02d}_s_mm"
+            ))
+            if s_mm >= float(energy_filter.prism_entrance_s_mm):
+                raise ValueError(
+                    f"{element.name} cannot overlap the prism body."
+                )
+            origin = np.array([s_mm * 1.0e-3, 0.0, 0.0])
+            tangent = sector.entrance_tangent
+        else:
+            d_mm = float(getattr(
+                energy_filter, f"multipole_{index:02d}_d_mm"
+            ))
+            if d_mm <= 0.0:
+                raise ValueError(
+                    f"{element.name} must follow the prism exit."
+                )
+            origin = (
+                sector.exit_point_m
+                + sector.exit_tangent
+                * d_mm * 1.0e-3
+            )
+            tangent = sector.exit_tangent
+        element.frame = beam_frame(origin, tangent)
+    # Compatibility aliases point to the two historical field locations.
+    energy_filter.entrance_m12 = energy_filter.multipoles[2]
+    energy_filter.exit_m12 = energy_filter.multipoles[3]
     energy_filter.m12_frames_placed = True
-    return energy_filter.entrance_m12, energy_filter.exit_m12
+    return tuple(energy_filter.multipoles)
+
+
+def place_m12_in_sector_frames(energy_filter):
+    """Backward-compatible name for the completed ten-carrier placement."""
+
+    return place_multipoles_in_sector_frames(energy_filter)
 
 
 @dataclass
 class EnergyFilterMagneticField:
-    """Superposed sector, Entrance M12 and Exit M12 fields."""
+    """Superposed tapered prism and ten independently powered multipoles."""
 
     sector: SectorMagnetElement
-    entrance_m12: object
-    exit_m12: object
+    multipoles: tuple
 
     def field_at_global_positions_t(self, positions_m):
         return (
             self.sector.field_at_global_positions_t(positions_m)
-            + self.entrance_m12.field_at_global_positions_t(positions_m)
-            + self.exit_m12.field_at_global_positions_t(positions_m)
+            + sum(
+                (
+                    element.field_at_global_positions_t(positions_m)
+                    for element in self.multipoles
+                ),
+                np.zeros_like(np.asarray(positions_m, dtype=float)),
+            )
         )
 
     def component_fields_t(self, positions_m):
-        return {
+        fields = {
             "sector": self.sector.field_at_global_positions_t(
                 positions_m
             ),
-            "entrance_m12": (
-                self.entrance_m12.field_at_global_positions_t(
-                    positions_m
-                )
-            ),
-            "exit_m12": self.exit_m12.field_at_global_positions_t(
-                positions_m
-            ),
         }
+        fields.update({
+            element.key: element.field_at_global_positions_t(positions_m)
+            for element in self.multipoles
+        })
+        return fields
 
 
 def magnetic_field_from_energy_filter(energy_filter):
     return EnergyFilterMagneticField(
         sector=sector_from_energy_filter(energy_filter),
-        entrance_m12=energy_filter.entrance_m12,
-        exit_m12=energy_filter.exit_m12,
+        multipoles=tuple(energy_filter.multipoles),
     )

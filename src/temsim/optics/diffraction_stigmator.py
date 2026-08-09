@@ -7,6 +7,7 @@ from typing import ClassVar
 
 import numpy as np
 
+from temsim import module_manifest
 from temsim.component_keys import (
     DIFFRACTION_STIGMATOR,
     SELECTED_AREA_APERTURE,
@@ -21,6 +22,10 @@ from temsim.optics.selected_area_downstream import downstream_offset_mm
 
 STANDALONE_INSTALLATION = "standalone"
 IMAGE_CORRECTED_INSTALLATION = "image_corrected"
+_DEFAULT_MANIFEST_PART = module_manifest.part_data(
+    "project_and_recording_system/NoEnergyFilter.toml",
+    DIFFRACTION_STIGMATOR,
+)
 
 
 @dataclass(frozen=True)
@@ -45,7 +50,6 @@ class DiffractionStigmatorDefinition:
     optical_reference_downstream_of_anchor_mm: float = downstream_offset_mm(
         DIFFRACTION_STIGMATOR
     )
-    # Mechanical envelope dimensions remain provisional.
     standalone_mechanical_center_below_sample_mm: float = (
         SELECTED_AREA_APERTURE_DEFINITION
         .standalone_mechanical_center_below_sample_mm
@@ -56,9 +60,15 @@ class DiffractionStigmatorDefinition:
         .image_corrected_mechanical_center_below_sample_mm
         + downstream_offset_mm(DIFFRACTION_STIGMATOR)
     )
-    mechanical_length_mm: float = 40.0
-    mechanical_outer_diameter_mm: float = 120.0
-    mechanical_clear_bore_diameter_mm: float = 20.0
+    mechanical_length_mm: float = float(
+        _DEFAULT_MANIFEST_PART["length_mm"]
+    )
+    mechanical_outer_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_outer_diameter_mm"]
+    )
+    mechanical_clear_bore_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_clear_bore_diameter_mm"]
+    )
     standalone_optical_reference_z_mm: float = (
         SELECTED_AREA_APERTURE_DEFINITION
         .standalone_optical_reference_z_mm
@@ -69,7 +79,9 @@ class DiffractionStigmatorDefinition:
         .image_corrected_optical_reference_z_mm
         + downstream_offset_mm(DIFFRACTION_STIGMATOR)
     )
-    effective_length_mm: float = 8.0
+    effective_length_mm: float = float(
+        _DEFAULT_MANIFEST_PART["effective_length_mm"]
+    )
     maximum_strength_m2: float = 300.0
     colour: str = "#fb8c00"
     owner: str = "diffraction"
@@ -173,9 +185,15 @@ class DiffractionStigmatorComponent(Stigmator):
         .image_corrected_mechanical_center_below_sample_mm
         + downstream_offset_mm(DIFFRACTION_STIGMATOR)
     )
-    mechanical_length_mm: float = 40.0
-    mechanical_outer_diameter_mm: float = 120.0
-    mechanical_clear_bore_diameter_mm: float = 20.0
+    mechanical_length_mm: float = float(
+        _DEFAULT_MANIFEST_PART["length_mm"]
+    )
+    mechanical_outer_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_outer_diameter_mm"]
+    )
+    mechanical_clear_bore_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_clear_bore_diameter_mm"]
+    )
     standalone_optical_reference_z_mm: float = (
         SELECTED_AREA_APERTURE_DEFINITION
         .standalone_optical_reference_z_mm

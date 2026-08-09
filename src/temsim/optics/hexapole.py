@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import ClassVar
 
 import numpy as np
@@ -32,6 +33,7 @@ class HexapoleComponent:
     mechanical_clear_bore_diameter_mm: float
     optical_reference_from_tip_mm: float
     corrector: str = "probe"
+    orientation_rad: float = 0.0
 
     EXPECTED_KEY: ClassVar[str | None] = None
     KIND: ClassVar[str] = "hexapole"
@@ -131,6 +133,8 @@ class HexapoleComponent:
             raise ValueError(
                 f"{self.name} strength exceeds its configured limit."
             )
+        if not math.isfinite(float(self.orientation_rad)):
+            raise ValueError(f"{self.name} orientation must be finite.")
         return self
 
     def apply_optical_position(self):
@@ -138,16 +142,30 @@ class HexapoleComponent:
         return self
 
     def hexapole_strength_m3(self, z_mm):
-        """Return the signed Gaussian nonlinear-field coefficient."""
+        """Return the normal Gaussian nonlinear-field coefficient.
+
+        The compatibility scalar is the normal component.  The propagator uses
+        :meth:`hexapole_strength_components_m3` so a Larmor-rotated second
+        principal hexapole can also contribute its required skew component.
+        """
+
+        normal, _skew = self.hexapole_strength_components_m3(z_mm)
+        return normal
+
+    def hexapole_strength_components_m3(self, z_mm):
+        """Return normal/skew coefficients of the oriented hexapole field."""
 
         z = np.asarray(z_mm, dtype=float)
         if not self.enabled:
-            return np.zeros_like(z)
+            zeros = np.zeros_like(z)
+            return zeros, zeros.copy()
         sigma_mm = max(self.effective_length_mm / 2.355, 1e-12)
         envelope = np.exp(
             -0.5 * ((z - self.z_mm) / sigma_mm) ** 2
         )
-        return float(self.strength_m3) * envelope
+        amplitude = float(self.strength_m3) * envelope
+        phase = 3.0 * float(self.orientation_rad)
+        return amplitude * math.cos(phase), amplitude * math.sin(phase)
 
     def draw_layout(self):
         return {
@@ -171,6 +189,7 @@ class HexapoleComponent:
             "optical_reference_z_mm": self.z_mm,
             "effective_length_mm": self.effective_length_mm,
             "strength_m3": self.strength_m3,
+            "orientation_rad": self.orientation_rad,
             "enabled": self.enabled,
         }
 

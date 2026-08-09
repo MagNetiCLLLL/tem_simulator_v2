@@ -7,6 +7,7 @@ from typing import ClassVar
 
 import numpy as np
 
+from temsim import module_manifest
 from temsim.component_keys import (
     BRIGHT_FIELD_DETECTOR,
     DARK_FIELD_DETECTOR,
@@ -19,6 +20,19 @@ from temsim.optics.selected_area_aperture import (
     SELECTED_AREA_APERTURE_DEFINITION,
 )
 from temsim.optics.selected_area_downstream import downstream_offset_mm
+
+
+_DEFAULT_RECORDING_MODULE = (
+    "project_and_recording_system/NoEnergyFilter.toml"
+)
+_DEFAULT_MANIFEST_PARTS = {
+    key: module_manifest.part_data(_DEFAULT_RECORDING_MODULE, key)
+    for key in (
+        HAADF_DETECTOR,
+        DARK_FIELD_DETECTOR,
+        BRIGHT_FIELD_DETECTOR,
+    )
+}
 
 
 @dataclass(frozen=True)
@@ -164,47 +178,65 @@ class StemDetectorComponent:
 STEM_DETECTOR_DEFINITIONS = (
     StemDetectorDefinition(
         key=HAADF_DETECTOR,
-        label="HAADF Detector",
+        label=str(_DEFAULT_MANIFEST_PARTS[HAADF_DETECTOR]["name"]),
         optical_reference_downstream_of_anchor_mm=downstream_offset_mm(
             HAADF_DETECTOR
         ),
         layout_center_downstream_of_anchor_mm=downstream_offset_mm(
             HAADF_DETECTOR
         ),
-        layout_length_mm=60.0,
+        layout_length_mm=float(
+            _DEFAULT_MANIFEST_PARTS[HAADF_DETECTOR]["length_mm"]
+        ),
         geometry="annulus",
-        outer_width_mm=22.0,
-        inner_diameter_mm=4.0,
+        outer_width_mm=float(
+            _DEFAULT_MANIFEST_PARTS[HAADF_DETECTOR]["outer_width_mm"]
+        ),
+        inner_diameter_mm=float(
+            _DEFAULT_MANIFEST_PARTS[HAADF_DETECTOR]["inner_diameter_mm"]
+        ),
         colour="#d81b60",
     ),
     StemDetectorDefinition(
         key=DARK_FIELD_DETECTOR,
-        label="DF Detector",
+        label=str(_DEFAULT_MANIFEST_PARTS[DARK_FIELD_DETECTOR]["name"]),
         optical_reference_downstream_of_anchor_mm=downstream_offset_mm(
             DARK_FIELD_DETECTOR
         ),
         layout_center_downstream_of_anchor_mm=downstream_offset_mm(
             DARK_FIELD_DETECTOR
         ),
-        layout_length_mm=50.0,
+        layout_length_mm=float(
+            _DEFAULT_MANIFEST_PARTS[DARK_FIELD_DETECTOR]["length_mm"]
+        ),
         geometry="annulus",
-        outer_width_mm=14.0,
-        inner_diameter_mm=2.0,
+        outer_width_mm=float(
+            _DEFAULT_MANIFEST_PARTS[DARK_FIELD_DETECTOR]["outer_width_mm"]
+        ),
+        inner_diameter_mm=float(
+            _DEFAULT_MANIFEST_PARTS[DARK_FIELD_DETECTOR]["inner_diameter_mm"]
+        ),
         colour="#fb8c00",
     ),
     StemDetectorDefinition(
         key=BRIGHT_FIELD_DETECTOR,
-        label="BF Detector",
+        label=str(_DEFAULT_MANIFEST_PARTS[BRIGHT_FIELD_DETECTOR]["name"]),
         optical_reference_downstream_of_anchor_mm=downstream_offset_mm(
             BRIGHT_FIELD_DETECTOR
         ),
         layout_center_downstream_of_anchor_mm=downstream_offset_mm(
             BRIGHT_FIELD_DETECTOR
         ),
-        layout_length_mm=40.0,
+        layout_length_mm=float(
+            _DEFAULT_MANIFEST_PARTS[BRIGHT_FIELD_DETECTOR]["length_mm"]
+        ),
         geometry="disk",
-        outer_width_mm=1.5,
-        inner_diameter_mm=0.0,
+        outer_width_mm=float(
+            _DEFAULT_MANIFEST_PARTS[BRIGHT_FIELD_DETECTOR]["outer_width_mm"]
+        ),
+        inner_diameter_mm=float(
+            _DEFAULT_MANIFEST_PARTS[BRIGHT_FIELD_DETECTOR]["inner_diameter_mm"]
+        ),
         colour="#1e88e5",
     ),
 )

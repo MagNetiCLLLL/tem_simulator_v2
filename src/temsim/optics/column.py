@@ -97,11 +97,13 @@ def default_state():
             lens.enabled = False
 
 
-    # All apertures are inserted by default. Positions are normalized simulator
+    # Condenser/filter apertures start inserted. The objective and selected-area
+    # aperture cartridges are present mechanically but retracted by default.
+    # Positions are normalized simulator
 
     # coordinates preserving the documented optical-plane order, not claimed
 
-    # Titan mechanical dimensions.
+    # common-column coordinates, not claimed manufacturer dimensions.
 
     apertures = [
 
@@ -154,10 +156,6 @@ def default_state():
 
         state.objective_coupled = True
 
-    if hasattr(state, 'corrector_crossover_targets_mm'):
-
-        state.corrector_crossover_targets_mm = [810.0, 853.0, 963.0]
-
     if hasattr(state, 'sync_objective'):
 
         state.sync_objective()
@@ -200,5 +198,7 @@ def default_state():
         image_corrected=False,
     )
     from temsim.column.state_layout import apply_physical_layout_to_state
-    apply_physical_layout_to_state(state)
+    apply_physical_layout_to_state(
+        state, preserve_operating_parameters=False
+    )
     return state

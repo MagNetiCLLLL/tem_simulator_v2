@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import ClassVar, Optional
 
 from temsim import module_manifest
@@ -10,6 +10,8 @@ from temsim.component_keys import (
     IMAGE_CORRECTOR_ADAPTER_LENS,
     IMAGE_CORRECTOR_DP11_DEFLECTOR,
     IMAGE_CORRECTOR_DP12_DEFLECTOR,
+    IMAGE_CORRECTOR_DPH1_DEFLECTOR,
+    IMAGE_CORRECTOR_DPH2_DEFLECTOR,
     IMAGE_CORRECTOR_DP21_DEFLECTOR,
     IMAGE_CORRECTOR_DP22_DEFLECTOR,
     IMAGE_CORRECTOR_DSH_DEFLECTOR,
@@ -25,6 +27,7 @@ from temsim.component_keys import (
     IMAGE_CORRECTOR_QPOL_QUADRUPOLE,
     IMAGE_CORRECTOR_SAD_PLANE,
     IMAGE_CORRECTOR_TL11_LENS,
+    IMAGE_CORRECTOR_TL12_LENS,
     IMAGE_CORRECTOR_TL21_LENS,
     IMAGE_CORRECTOR_TL22_LENS,
 )
@@ -52,9 +55,19 @@ REFERENCE_OBJECTIVE_IMAGE_PLANE_Z_MM = (
     )
 )
 REFERENCE_SOURCE_TO_SAMPLE_MECHANICAL_MM = 1705.0
-# Canonical source-z coordinate used by the current default mechanical column.
-# Keep the 1705 mm calibration span above for legacy field-profile scaling.
-DEFAULT_IMAGE_CORRECTOR_SAMPLE_CENTER_FROM_SOURCE_MM = 1149.0
+_DEFAULT_IMAGE_CORRECTOR_MODULE_PATH = "column/C3_ImageCorrector.toml"
+# Bootstrap source-z coordinate from the default FEG plus image-corrected
+# column TOMLs. Keep the 1705 mm calibration span above only for legacy field
+# profile scaling; it is not mechanical geometry.
+DEFAULT_IMAGE_CORRECTOR_SAMPLE_CENTER_FROM_SOURCE_MM = (
+    module_manifest.port_z_mm("gun/FEG.toml", "exit")
+    - module_manifest.port_z_mm(
+        _DEFAULT_IMAGE_CORRECTOR_MODULE_PATH, "entrance"
+    )
+    + float(module_manifest.part_data(
+        _DEFAULT_IMAGE_CORRECTOR_MODULE_PATH, "sample"
+    )["local_center_z_mm"])
+)
 REFERENCE_MECHANICAL_TO_EFFECTIVE_SCALE = (
     REFERENCE_SAMPLE_EFFECTIVE_Z_MM
     / REFERENCE_SOURCE_TO_SAMPLE_MECHANICAL_MM
@@ -62,6 +75,9 @@ REFERENCE_MECHANICAL_TO_EFFECTIVE_SCALE = (
 IMAGE_CORRECTOR_RELAY_CALIBRATION_STEP_MM = 0.5
 DEFAULT_IMAGE_CORRECTOR_UPSTREAM_GAP_MM = 5.0
 DEFAULT_SELECTED_AREA_APERTURE_OFFSET_FROM_SAD_MM = 0.0
+IMAGE_MAIN_HEXAPOLE_STRENGTH_M3 = 2.49050244e7
+IMAGE_HP2_HEXAPOLE_STRENGTH_RATIO = 0.59946796
+IMAGE_HP2_HEXAPOLE_ORIENTATION_RAD = -2.00126792
 
 
 @dataclass(frozen=True)
@@ -81,6 +97,8 @@ class ImageCorrectorComponentDefinition:
     default_excitation_percent: float = 0.0
     maximum_strength_m2: float = 300.0
     maximum_strength_m3: float = 1.0e9
+    default_strength_m3: float = 0.0
+    orientation_rad: float = 0.0
     maximum_kick_mrad: float = 100.0
     conjugate_to: Optional[str] = None
 
@@ -108,117 +126,6 @@ class ImageCorrectorComponentDefinition:
         )
 
 
-IMAGE_CORRECTOR_COMPONENTS = (
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_OL_POST_LENS,
-        "OL post", "round_lens", 162.5, 45, 280,
-        "magnetic_lens_yoke", 162.5, effective_aperture_radius_mm=10.0,
-        reference_peak_field_t=1.690720840008,
-        default_excitation_percent=100.0,
-    ),
-    # The former 18 mm HPol/QPol/DP11 placeholder is now three independent
-    # six-millimetre modules in upstream-to-downstream order.
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_HPOL_HEXAPOLE,
-        "HPol", "hexapole", 192.5, 6, 80,
-        "hexapole_body", 192.5, effective_aperture_radius_mm=10.0,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_QPOL_QUADRUPOLE,
-        "QPol", "quadrupole", 198.5, 6, 80,
-        "quadrupole_body", 198.5, effective_aperture_radius_mm=10.0,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_DP11_DEFLECTOR,
-        "DP11", "deflector", 204.5, 6, 80,
-        "single_deflector_coil", 204.5,
-        effective_aperture_radius_mm=10.0,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_TL11_LENS,
-        "TL11", "round_lens", 236.5, 46, 200,
-        "magnetic_lens_yoke", 236.5, effective_aperture_radius_mm=6.5,
-        reference_peak_field_t=0.45,
-        default_excitation_percent=68.61345787,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_DP12_DEFLECTOR,
-        "DP12", "deflector", 272.5, 15, 75,
-        "single_deflector_coil", 272.5,
-        effective_aperture_radius_mm=10.0,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_HP1_HEXAPOLE,
-        "HP1", "hexapole", 302, 44, 220,
-        "hexapole_body", 302, effective_aperture_radius_mm=4.0,
-        active_diameter_mm=152, active_length_mm=30,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_DP21_DEFLECTOR,
-        "DP21", "deflector", 331, 14, 75,
-        "single_deflector_coil", 331,
-        effective_aperture_radius_mm=10.0,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_TL21_LENS,
-        "TL21", "round_lens", 356, 36, 170,
-        "magnetic_lens_yoke", 356, effective_aperture_radius_mm=6.5,
-        reference_peak_field_t=0.13,
-        default_excitation_percent=72.30593939,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_DP22_DEFLECTOR,
-        "DP22", "deflector", 381, 14, 75,
-        "single_deflector_coil", 381,
-        effective_aperture_radius_mm=10.0,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_TL22_LENS,
-        "TL22", "round_lens", 406, 36, 170,
-        "magnetic_lens_yoke", 406, effective_aperture_radius_mm=6.5,
-        reference_peak_field_t=0.196885770873,
-        default_excitation_percent=100.0,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_HP2_HEXAPOLE,
-        "HP2", "hexapole", 446, 44, 220,
-        "hexapole_body", 446, effective_aperture_radius_mm=4.0,
-        active_diameter_mm=152, active_length_mm=30,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_ADAPTER_LENS,
-        "ADL", "round_lens", 486, 36, 160,
-        "magnetic_lens_yoke", 486, effective_aperture_radius_mm=6.5,
-        reference_peak_field_t=0.332974454964,
-        default_excitation_percent=100.0,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_ISH_DEFLECTOR,
-        "ISh", "deflector", 520, 14, 70,
-        "single_deflector_coil", 520,
-        effective_aperture_radius_mm=10.0,
-    ),
-    # DSh and DStg independently occupy the former 16 mm grouped envelope.
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_DSH_DEFLECTOR,
-        "DSh", "deflector", 544, 8, 75,
-        "single_deflector_coil", 544,
-        effective_aperture_radius_mm=10.0,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_DSTG_QUADRUPOLE,
-        "DStg", "quadrupole", 552, 8, 75,
-        "quadrupole_body", 552,
-        effective_aperture_radius_mm=10.0,
-    ),
-    ImageCorrectorComponentDefinition(
-        IMAGE_CORRECTOR_SAD_PLANE,
-        "SAD plane", "reference_plane", 576, 0, None,
-        "reference_plane", 576,
-        conjugate_to="objective_image_plane",
-    ),
-)
-
 _DEFAULT_IMAGE_CORRECTOR_MANIFEST = module_manifest.read_document(
     module_manifest.MODULE_ROOT
     / "column"
@@ -233,25 +140,194 @@ _DEFAULT_IMAGE_CORRECTOR_SAMPLE_Z_MM = float(
 )
 
 
-def _toml_positioned_image_corrector_definition(definition):
-    part = _DEFAULT_IMAGE_CORRECTOR_PARTS[definition.key]
-    return replace(
-        definition,
+def _image_corrector_definition(
+    key, label, kind, shape_profile, **calibration
+):
+    """Combine TOML-owned structure with code-owned field behaviour."""
+
+    part = _DEFAULT_IMAGE_CORRECTOR_PARTS[key]
+    bore_diameter_mm = part.get(
+        "bore_diameter_mm",
+        part.get("mechanical_clear_bore_diameter_mm"),
+    )
+    if kind != "reference_plane":
+        missing = [
+            field
+            for field, value in (
+                ("mechanical_outer_diameter_mm", part.get(
+                    "mechanical_outer_diameter_mm"
+                )),
+                ("bore diameter", bore_diameter_mm),
+            )
+            if value is None
+        ]
+        if missing:
+            raise ValueError(
+                f"Image-corrector TOML part {key} is missing "
+                + ", ".join(missing)
+            )
+    return ImageCorrectorComponentDefinition(
+        key=key,
+        label=label,
+        kind=kind,
         mechanical_center_from_specimen_mm=(
             float(part["local_center_z_mm"])
             - _DEFAULT_IMAGE_CORRECTOR_SAMPLE_Z_MM
         ),
         mechanical_length_mm=float(part["length_mm"]),
+        outer_diameter_mm=(
+            float(part["mechanical_outer_diameter_mm"])
+            if "mechanical_outer_diameter_mm" in part
+            else None
+        ),
+        shape_profile=shape_profile,
         optical_reference_from_specimen_mm=(
             float(part["optical_reference_local_z_mm"])
             - _DEFAULT_IMAGE_CORRECTOR_SAMPLE_Z_MM
         ),
+        effective_aperture_radius_mm=(
+            0.5 * float(bore_diameter_mm)
+            if bore_diameter_mm is not None
+            else None
+        ),
+        active_diameter_mm=(
+            float(part["active_diameter_mm"])
+            if "active_diameter_mm" in part
+            else None
+        ),
+        active_length_mm=(
+            float(part.get(
+                "effective_length_mm",
+                part.get("effective_thickness_mm"),
+            ))
+            if (
+                "effective_length_mm" in part
+                or "effective_thickness_mm" in part
+            )
+            else None
+        ),
+        **calibration,
     )
 
 
-IMAGE_CORRECTOR_COMPONENTS = tuple(
-    _toml_positioned_image_corrector_definition(definition)
-    for definition in IMAGE_CORRECTOR_COMPONENTS
+IMAGE_CORRECTOR_COMPONENTS = (
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_OL_POST_LENS,
+        "OL post",
+        "round_lens",
+        "magnetic_lens_yoke",
+        reference_peak_field_t=3.0364085833333334,
+        default_excitation_percent=60.0,
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_HPOL_HEXAPOLE,
+        "HPol", "hexapole", "hexapole_body",
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_QPOL_QUADRUPOLE,
+        "QPol", "quadrupole", "quadrupole_body",
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_DP11_DEFLECTOR,
+        "DP11", "deflector", "single_deflector_coil",
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_TL11_LENS,
+        "TL11",
+        "round_lens",
+        "magnetic_lens_yoke",
+        reference_peak_field_t=0.5609032,
+        default_excitation_percent=60.0,
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_DP12_DEFLECTOR,
+        "DP12", "deflector", "single_deflector_coil",
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_TL12_LENS,
+        "TL12",
+        "round_lens",
+        "integrated_magnetic_lens_channel",
+        reference_peak_field_t=0.3299537833333333,
+        default_excitation_percent=60.0,
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_DPH1_DEFLECTOR,
+        "DPH1", "deflector", "single_deflector_coil",
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_HP1_HEXAPOLE,
+        "HP1",
+        "hexapole",
+        "hexapole_body",
+        default_strength_m3=IMAGE_MAIN_HEXAPOLE_STRENGTH_M3,
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_DP21_DEFLECTOR,
+        "DP21", "deflector", "single_deflector_coil",
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_TL21_LENS,
+        "TL21",
+        "round_lens",
+        "magnetic_lens_yoke",
+        reference_peak_field_t=2.1599302,
+        default_excitation_percent=60.0,
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_DP22_DEFLECTOR,
+        "DP22", "deflector", "single_deflector_coil",
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_TL22_LENS,
+        "TL22",
+        "round_lens",
+        "magnetic_lens_yoke",
+        reference_peak_field_t=2.1261313,
+        default_excitation_percent=60.0,
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_DPH2_DEFLECTOR,
+        "DPH2", "deflector", "single_deflector_coil",
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_HP2_HEXAPOLE,
+        "HP2",
+        "hexapole",
+        "hexapole_body",
+        default_strength_m3=(
+            IMAGE_MAIN_HEXAPOLE_STRENGTH_M3
+            * IMAGE_HP2_HEXAPOLE_STRENGTH_RATIO
+        ),
+        orientation_rad=IMAGE_HP2_HEXAPOLE_ORIENTATION_RAD,
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_ADAPTER_LENS,
+        "ADL",
+        "round_lens",
+        "magnetic_lens_yoke",
+        reference_peak_field_t=0.41919165,
+        default_excitation_percent=60.0,
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_ISH_DEFLECTOR,
+        "ISh", "deflector", "single_deflector_coil",
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_DSH_DEFLECTOR,
+        "DSh", "deflector", "single_deflector_coil",
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_DSTG_QUADRUPOLE,
+        "DStg", "quadrupole", "quadrupole_body",
+    ),
+    _image_corrector_definition(
+        IMAGE_CORRECTOR_SAD_PLANE,
+        "SAD plane",
+        "reference_plane",
+        "reference_plane",
+        conjugate_to="objective_image_plane",
+    ),
 )
 
 IMAGE_CORRECTOR_BY_KEY = {
@@ -286,6 +362,10 @@ class ImageCorrectorOlPostLensComponent(RoundLensComponent):
 
 class ImageCorrectorTl11LensComponent(RoundLensComponent):
     EXPECTED_KEY: ClassVar[str] = IMAGE_CORRECTOR_TL11_LENS
+
+
+class ImageCorrectorTl12LensComponent(RoundLensComponent):
+    EXPECTED_KEY: ClassVar[str] = IMAGE_CORRECTOR_TL12_LENS
 
 
 class ImageCorrectorTl21LensComponent(RoundLensComponent):
@@ -326,6 +406,14 @@ class ImageCorrectorDp11DeflectorComponent(SinglePlaneDeflectorComponent):
 
 class ImageCorrectorDp12DeflectorComponent(SinglePlaneDeflectorComponent):
     EXPECTED_KEY: ClassVar[str] = IMAGE_CORRECTOR_DP12_DEFLECTOR
+
+
+class ImageCorrectorDph1DeflectorComponent(SinglePlaneDeflectorComponent):
+    EXPECTED_KEY: ClassVar[str] = IMAGE_CORRECTOR_DPH1_DEFLECTOR
+
+
+class ImageCorrectorDph2DeflectorComponent(SinglePlaneDeflectorComponent):
+    EXPECTED_KEY: ClassVar[str] = IMAGE_CORRECTOR_DPH2_DEFLECTOR
 
 
 class ImageCorrectorDp21DeflectorComponent(SinglePlaneDeflectorComponent):
@@ -468,6 +556,7 @@ class ImageCorrectorSadPlaneComponent:
 _ROUND_LENS_TYPES = {
     IMAGE_CORRECTOR_OL_POST_LENS: ImageCorrectorOlPostLensComponent,
     IMAGE_CORRECTOR_TL11_LENS: ImageCorrectorTl11LensComponent,
+    IMAGE_CORRECTOR_TL12_LENS: ImageCorrectorTl12LensComponent,
     IMAGE_CORRECTOR_TL21_LENS: ImageCorrectorTl21LensComponent,
     IMAGE_CORRECTOR_TL22_LENS: ImageCorrectorTl22LensComponent,
     IMAGE_CORRECTOR_ADAPTER_LENS: ImageCorrectorAdapterLensComponent,
@@ -491,6 +580,10 @@ _DEFLECTOR_TYPES = {
         ImageCorrectorDp11DeflectorComponent,
     IMAGE_CORRECTOR_DP12_DEFLECTOR:
         ImageCorrectorDp12DeflectorComponent,
+    IMAGE_CORRECTOR_DPH1_DEFLECTOR:
+        ImageCorrectorDph1DeflectorComponent,
+    IMAGE_CORRECTOR_DPH2_DEFLECTOR:
+        ImageCorrectorDph2DeflectorComponent,
     IMAGE_CORRECTOR_DP21_DEFLECTOR:
         ImageCorrectorDp21DeflectorComponent,
     IMAGE_CORRECTOR_DP22_DEFLECTOR:
@@ -531,13 +624,15 @@ def _create_round_lens(key):
         enabled=True,
         cs_mm=None,
         cc_mm=None,
-        polarity=1,
+        polarity=int(_DEFAULT_IMAGE_CORRECTOR_PARTS[key]["field_polarity"]),
         normalise_profile_peak=False,
         mechanical_center_from_tip_mm=mechanical_center_mm,
         mechanical_length_mm=definition.mechanical_length_mm,
         mechanical_outer_diameter_mm=definition.outer_diameter_mm,
         bore_diameter_mm=bore,
-        pole_gap_mm=min(20.0, definition.mechanical_length_mm),
+        pole_gap_mm=float(
+            _DEFAULT_IMAGE_CORRECTOR_PARTS[key]["pole_gap_mm"]
+        ),
         optical_reference_from_tip_mm=mechanical_center_mm,
         corrector="image",
     ).validate()
@@ -551,7 +646,8 @@ def _create_hexapole(key):
         name=f"Image Corrector {definition.label} Hexapole",
         key=key,
         z_mm=mechanical_center_mm,
-        strength_m3=0.0,
+        strength_m3=definition.default_strength_m3,
+        orientation_rad=definition.orientation_rad,
         maximum_strength_m3=definition.maximum_strength_m3,
         effective_length_mm=(
             definition.active_length_mm
@@ -580,7 +676,10 @@ def _create_quadrupole(key):
         z_mm=mechanical_center_mm,
         strength_m2=0.0,
         maximum_strength_m2=definition.maximum_strength_m2,
-        effective_length_mm=definition.mechanical_length_mm,
+        effective_length_mm=(
+            definition.active_length_mm
+            or definition.mechanical_length_mm
+        ),
         enabled=True,
         colour="#7b1fa2",
         mechanical_center_from_tip_mm=mechanical_center_mm,
@@ -604,7 +703,10 @@ def _create_deflector(key):
         z_mm=mechanical_center_mm,
         kick_x_mrad=0.0,
         kick_y_mrad=0.0,
-        effective_thickness_mm=definition.mechanical_length_mm,
+        effective_thickness_mm=(
+            definition.active_length_mm
+            or definition.mechanical_length_mm
+        ),
         enabled=True,
         colour="#5c6bc0",
         mechanical_center_from_tip_mm=mechanical_center_mm,
@@ -749,6 +851,14 @@ class ImageCorrectorSystem:
         return self.component(IMAGE_CORRECTOR_DP12_DEFLECTOR)
 
     @property
+    def tl12_lens(self):
+        return self.component(IMAGE_CORRECTOR_TL12_LENS)
+
+    @property
+    def dph1_deflector(self):
+        return self.component(IMAGE_CORRECTOR_DPH1_DEFLECTOR)
+
+    @property
     def hp1_hexapole(self):
         return self.component(IMAGE_CORRECTOR_HP1_HEXAPOLE)
 
@@ -767,6 +877,10 @@ class ImageCorrectorSystem:
     @property
     def tl22_lens(self):
         return self.component(IMAGE_CORRECTOR_TL22_LENS)
+
+    @property
+    def dph2_deflector(self):
+        return self.component(IMAGE_CORRECTOR_DPH2_DEFLECTOR)
 
     @property
     def hp2_hexapole(self):

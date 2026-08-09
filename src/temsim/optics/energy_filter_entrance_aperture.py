@@ -1,4 +1,4 @@
-"""Canonical continuously adjustable Energy Filter Entrance Aperture."""
+"""Canonical continuously adjustable Iliad spectrometer entrance aperture."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from temsim import module_manifest
 from temsim.component_keys import (
     ENERGY_FILTER_ENTRANCE_APERTURE,
     SELECTED_AREA_APERTURE,
@@ -16,10 +17,16 @@ from temsim.optics.selected_area_aperture import (
 from temsim.optics.selected_area_downstream import downstream_offset_mm
 
 
+_DEFAULT_MANIFEST_PART = module_manifest.part_data(
+    "project_and_recording_system/EnergyFilter.toml",
+    ENERGY_FILTER_ENTRANCE_APERTURE,
+)
+
+
 @dataclass(frozen=True)
 class EnergyFilterEntranceApertureDefinition:
     key: str = ENERGY_FILTER_ENTRANCE_APERTURE
-    label: str = "Energy Filter Entrance Aperture"
+    label: str = "Iliad Spectrometer Entrance Aperture"
     anchor_key: str = SELECTED_AREA_APERTURE
     optical_reference_downstream_of_anchor_mm: float = downstream_offset_mm(
         ENERGY_FILTER_ENTRANCE_APERTURE
@@ -27,12 +34,24 @@ class EnergyFilterEntranceApertureDefinition:
     layout_center_downstream_of_anchor_mm: float = downstream_offset_mm(
         ENERGY_FILTER_ENTRANCE_APERTURE
     )
-    mechanical_length_mm: float = 4.0
-    mechanical_outer_diameter_mm: float = 120.0
-    mechanical_bore_diameter_mm: float = 12.5
-    plate_thickness_mm: float = 1.0
-    default_radius_mm: float = 2.5
-    maximum_radius_mm: float = 6.25
+    mechanical_length_mm: float = float(
+        _DEFAULT_MANIFEST_PART["length_mm"]
+    )
+    mechanical_outer_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_outer_diameter_mm"]
+    )
+    mechanical_bore_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_bore_diameter_mm"]
+    )
+    plate_thickness_mm: float = float(
+        _DEFAULT_MANIFEST_PART["plate_thickness_mm"]
+    )
+    default_radius_mm: float = 0.5 * float(
+        _DEFAULT_MANIFEST_PART["reference_operating_diameter_mm"]
+    )
+    maximum_radius_mm: float = float(
+        _DEFAULT_MANIFEST_PART["maximum_radius_mm"]
+    )
     colour: str = "#6d4c41"
     owner: str = "energy_filter"
     kind: str = "continuous_aperture"
@@ -88,14 +107,16 @@ class EnergyFilterEntranceApertureDefinition:
 
 @dataclass
 class EnergyFilterEntranceApertureComponent:
-    name: str = "Energy Filter Entrance Aperture"
+    name: str = "Iliad Spectrometer Entrance Aperture"
     key: str = ENERGY_FILTER_ENTRANCE_APERTURE
     z_mm: float = (
         SELECTED_AREA_APERTURE_DEFINITION
         .standalone_optical_reference_z_mm
         + downstream_offset_mm(ENERGY_FILTER_ENTRANCE_APERTURE)
     )
-    radius_mm: float = 2.5
+    radius_mm: float = 0.5 * float(
+        _DEFAULT_MANIFEST_PART["reference_operating_diameter_mm"]
+    )
     offset_x_mm: float = 0.0
     offset_y_mm: float = 0.0
     enabled: bool = True
@@ -108,11 +129,21 @@ class EnergyFilterEntranceApertureComponent:
     layout_center_downstream_of_anchor_mm: float = downstream_offset_mm(
         ENERGY_FILTER_ENTRANCE_APERTURE
     )
-    mechanical_length_mm: float = 4.0
-    mechanical_outer_diameter_mm: float = 120.0
-    mechanical_bore_diameter_mm: float = 12.5
-    plate_thickness_mm: float = 1.0
-    maximum_radius_mm: float = 6.25
+    mechanical_length_mm: float = float(
+        _DEFAULT_MANIFEST_PART["length_mm"]
+    )
+    mechanical_outer_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_outer_diameter_mm"]
+    )
+    mechanical_bore_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_bore_diameter_mm"]
+    )
+    plate_thickness_mm: float = float(
+        _DEFAULT_MANIFEST_PART["plate_thickness_mm"]
+    )
+    maximum_radius_mm: float = float(
+        _DEFAULT_MANIFEST_PART["maximum_radius_mm"]
+    )
 
     @property
     def owner(self):
@@ -165,42 +196,42 @@ class EnergyFilterEntranceApertureComponent:
     def validate(self):
         if self.key != ENERGY_FILTER_ENTRANCE_APERTURE:
             raise ValueError(
-                "Energy Filter Entrance Aperture has a non-canonical key."
+                "Iliad Spectrometer Entrance Aperture has a non-canonical key."
             )
         if self.anchor_key != SELECTED_AREA_APERTURE:
             raise ValueError(
-                "Energy Filter Entrance Aperture must follow the "
+                "Iliad Spectrometer Entrance Aperture must follow the "
                 "Selected Area Aperture."
             )
         if self.mechanical_length_mm <= 0.0:
             raise ValueError(
-                "Energy Filter Entrance Aperture length must be positive."
+                "Iliad Spectrometer Entrance Aperture length must be positive."
             )
         if (
             self.mechanical_outer_diameter_mm
             <= self.mechanical_bore_diameter_mm
         ):
             raise ValueError(
-                "Energy Filter Entrance Aperture outer diameter must "
+                "Iliad Spectrometer Entrance Aperture outer diameter must "
                 "exceed its bore."
             )
         if self.plate_thickness_mm <= 0.0:
             raise ValueError(
-                "Energy Filter Entrance Aperture plate must have thickness."
+                "Iliad Spectrometer Entrance Aperture plate must have thickness."
             )
         if self.maximum_radius_mm <= 0.0:
             raise ValueError(
-                "Energy Filter Entrance Aperture maximum radius must "
+                "Iliad Spectrometer Entrance Aperture maximum radius must "
                 "be positive."
             )
         if not 0.0 <= self.radius_mm <= self.maximum_radius_mm:
             raise ValueError(
-                "Energy Filter Entrance Aperture radius must lie within "
+                "Iliad Spectrometer Entrance Aperture radius must lie within "
                 "its continuous range."
             )
         if 2.0 * self.maximum_radius_mm > self.mechanical_bore_diameter_mm:
             raise ValueError(
-                "Energy Filter Entrance Aperture opening must fit "
+                "Iliad Spectrometer Entrance Aperture opening must fit "
                 "inside its bore."
             )
         return self

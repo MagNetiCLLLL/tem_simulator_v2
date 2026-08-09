@@ -16,6 +16,8 @@ INTERNAL_FIELDS = frozenset({
     "active_backend",
     "active_installation",
     "accelerator_restore_profile",
+    "calibrated_dispersion_um_per_ev",
+    "centre_m",
     "column_mode",
     "corrector_mode",
     "energy_filter_installed",
@@ -23,23 +25,42 @@ INTERNAL_FIELDS = frozenset({
     "image_corrector_installed",
     "installation_model_version",
     "installed",
+    "gap_m",
     "m12_frames_placed",
     "monochromator_installed",
     "probe_corrector_installed",
     "schema_version",
     "stem_wave_enabled",
+    "zero_loss_offset_m",
 })
 TOML_OWNED_FIELDS = frozenset({
     "a_mm",
     "b0_t",
+    "blade_thickness_m",
+    "clear_height_m",
+    "distance_from_sector_exit_m",
+    "detector_axis_rotation_deg",
+    "detector_flip_x",
+    "detector_flip_y",
+    "detector_orientation_source",
+    "detector_orientation_status",
+    "detector_orientation_uncertainty_deg",
+    "field_polarity_source",
+    "field_polarity_status",
+    "housing_length_mm",
     "inner_face_gap_mm",
     "lower_a_mm",
     "lower_b0_t",
     "lower_objective_lens_axial_length_mm",
     "max_percent",
+    "maximum_gap_m",
+    "maximum_abs_offset_ev",
+    "offset_range_status",
     "maximum_kick_mrad",
     "maximum_strength_m2",
     "maximum_strength_m3",
+    "electrode_length_mm",
+    "electrode_gap_mm",
     "nominal_focal_length_mm",
     "nominal_voltage_kv",
     "sample_axial_offset_mm",
@@ -47,6 +68,17 @@ TOML_OWNED_FIELDS = frozenset({
     "upper_b0_t",
     "upper_objective_lens_axial_length_mm",
     "virtual_lens_offset_below_lower_surface_mm",
+    "spectral_clear_height_mm",
+    "strip_count",
+    "pixels_per_strip",
+    "strip_height_pixels",
+    "alignment_pixels_x",
+    "alignment_pixels_y",
+    "pixel_size_um",
+    "maximum_spectra_per_s",
+    "provisional_strip_center_pitch_mm",
+    "strip_center_pitch_status",
+    "external_envelope_status",
 })
 GEOMETRY_MARKERS = (
     "z_mm", "mechanical_", "optical_reference", "field_center",
@@ -120,9 +152,18 @@ def runtime_targets(state) -> dict[str, RuntimeTarget]:
     if camera is not None:
         add("camera", camera)
     energy_filter = getattr(state, "energy_filter", None)
-    if energy_filter is not None:
+    if (
+        energy_filter is not None
+        and bool(getattr(state, "energy_filter_installed", False))
+        and getattr(state, "energy_filter_mode", "no_energy_filter")
+        == "energy_filter"
+    ):
         add("energy_filter", energy_filter)
         add_children("energy_filter", energy_filter)
+        for element in getattr(energy_filter, "multipoles", ()) or ():
+            key = getattr(element, "key", None)
+            if key:
+                add(str(key), element)
     return targets
 
 
@@ -200,7 +241,7 @@ def validate_runtime_assignment(
     if name in {"step_mm", "history_step_mm", "trace_step_mm", "ray_step_mm"}:
         if float(converted) <= 0.0:
             raise ValueError(f"{target.key}.{name} must be positive")
-    if name == "ray_count" and int(converted) <= 0:
+    if name in {"ray_count", "maximum_trace_rays"} and int(converted) <= 0:
         raise ValueError(f"{target.key}.{name} must be positive")
     if name == "polarity" and int(converted) not in (-1, 1):
         raise ValueError(f"{target.key}.{name} must be +1 or -1")
@@ -214,6 +255,28 @@ def validate_runtime_assignment(
     ):
         raise ValueError(f"{target.key}.{name} must be 0 or at least 32")
     if name == "wave_field_of_view_angstrom" and float(converted) < 0.0:
+        raise ValueError(f"{target.key}.{name} cannot be negative")
+    if (
+        name == "wave_slice_thickness_angstrom"
+        and float(converted) <= 0.0
+    ):
+        raise ValueError(f"{target.key}.{name} must be positive")
+    if name == "wave_bandwidth_fraction" and not (
+        0.0 < float(converted) <= 1.0
+    ):
+        raise ValueError(f"{target.key}.{name} must be in (0, 1]")
+    if name == "wave_frozen_phonon_configurations" and not (
+        1 <= int(converted) <= 64
+    ):
+        raise ValueError(
+            f"{target.key}.{name} must be between 1 and 64"
+        )
+    if (
+        name == "wave_frozen_phonon_sigma_angstrom"
+        and float(converted) < 0.0
+    ):
+        raise ValueError(f"{target.key}.{name} cannot be negative")
+    if name == "wave_frozen_phonon_seed" and int(converted) < 0:
         raise ValueError(f"{target.key}.{name} cannot be negative")
     if name == "percent":
         maximum = min(

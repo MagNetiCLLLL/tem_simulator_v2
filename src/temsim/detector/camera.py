@@ -7,6 +7,7 @@ from typing import ClassVar
 
 import numpy as np
 
+from temsim import module_manifest
 from temsim.component_keys import CAMERA, SELECTED_AREA_APERTURE
 from temsim.optics.selected_area_aperture import (
     SELECTED_AREA_APERTURE_DEFINITION,
@@ -14,18 +15,25 @@ from temsim.optics.selected_area_aperture import (
 from temsim.optics.selected_area_downstream import downstream_offset_mm
 
 
+_DEFAULT_MANIFEST_PART = module_manifest.part_data(
+    "project_and_recording_system/NoEnergyFilter.toml", CAMERA
+)
+
+
 @dataclass(frozen=True)
 class CameraDetectorDefinition:
     key: str = CAMERA
-    label: str = "Camera"
+    label: str = str(_DEFAULT_MANIFEST_PART["name"])
     optical_reference_downstream_of_anchor_mm: float = downstream_offset_mm(
         CAMERA
     )
     layout_center_downstream_of_anchor_mm: float = downstream_offset_mm(
         CAMERA
     )
-    layout_length_mm: float = 400.0
-    sensor_width_mm: float = 57.344
+    layout_length_mm: float = float(_DEFAULT_MANIFEST_PART["length_mm"])
+    sensor_width_mm: float = float(
+        _DEFAULT_MANIFEST_PART["outer_width_mm"]
+    )
     pixels: int = 2048
     colour: str = "#5e35b1"
     anchor_key: str = SELECTED_AREA_APERTURE
@@ -34,6 +42,24 @@ class CameraDetectorDefinition:
     shape_profile: str = "detector_plane"
     external_envelope: str = "400-800 mm envelope"
     interaction_kind: str = "recording_plane_stop"
+    detector_axis_rotation_deg: float = float(
+        _DEFAULT_MANIFEST_PART["detector_axis_rotation_deg"]
+    )
+    detector_flip_x: bool = bool(
+        _DEFAULT_MANIFEST_PART["detector_flip_x"]
+    )
+    detector_flip_y: bool = bool(
+        _DEFAULT_MANIFEST_PART["detector_flip_y"]
+    )
+    detector_orientation_uncertainty_deg: float = float(
+        _DEFAULT_MANIFEST_PART["detector_orientation_uncertainty_deg"]
+    )
+    detector_orientation_status: str = str(
+        _DEFAULT_MANIFEST_PART["detector_orientation_status"]
+    )
+    detector_orientation_source: str = str(
+        _DEFAULT_MANIFEST_PART["detector_orientation_source"]
+    )
 
     @property
     def name(self):
@@ -75,17 +101,32 @@ class CameraDetectorDefinition:
             kind=self.kind,
             shape_profile=self.shape_profile,
             external_envelope=self.external_envelope,
+            detector_axis_rotation_deg=self.detector_axis_rotation_deg,
+            detector_flip_x=self.detector_flip_x,
+            detector_flip_y=self.detector_flip_y,
+            detector_orientation_uncertainty_deg=(
+                self.detector_orientation_uncertainty_deg
+            ),
+            detector_orientation_status=self.detector_orientation_status,
+            detector_orientation_source=self.detector_orientation_source,
         )
 
 
 @dataclass
 class CameraDetectorComponent:
     key: str = CAMERA
-    name: str = "Camera"
-    z_mm: float = 2165.0
+    name: str = str(_DEFAULT_MANIFEST_PART["name"])
+    z_mm: float = (
+        SELECTED_AREA_APERTURE_DEFINITION.standalone_optical_reference_z_mm
+        + downstream_offset_mm(CAMERA)
+    )
     geometry: str = "square"
-    outer_width_mm: float = 57.344
-    inner_diameter_mm: float = 0.0
+    outer_width_mm: float = float(
+        _DEFAULT_MANIFEST_PART["outer_width_mm"]
+    )
+    inner_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["inner_diameter_mm"]
+    )
     inserted: bool = True
     colour: str = "#5e35b1"
     pixels: int = 2048
@@ -96,11 +137,29 @@ class CameraDetectorComponent:
     layout_center_downstream_of_anchor_mm: float = downstream_offset_mm(
         CAMERA
     )
-    layout_length_mm: float = 400.0
+    layout_length_mm: float = float(_DEFAULT_MANIFEST_PART["length_mm"])
     owner: str = "detector"
     kind: str = "detector"
     shape_profile: str = "detector_plane"
     external_envelope: str = "400-800 mm envelope"
+    detector_axis_rotation_deg: float = float(
+        _DEFAULT_MANIFEST_PART["detector_axis_rotation_deg"]
+    )
+    detector_flip_x: bool = bool(
+        _DEFAULT_MANIFEST_PART["detector_flip_x"]
+    )
+    detector_flip_y: bool = bool(
+        _DEFAULT_MANIFEST_PART["detector_flip_y"]
+    )
+    detector_orientation_uncertainty_deg: float = float(
+        _DEFAULT_MANIFEST_PART["detector_orientation_uncertainty_deg"]
+    )
+    detector_orientation_status: str = str(
+        _DEFAULT_MANIFEST_PART["detector_orientation_status"]
+    )
+    detector_orientation_source: str = str(
+        _DEFAULT_MANIFEST_PART["detector_orientation_source"]
+    )
 
     NON_BLOCKING: ClassVar[bool] = False
     INTERACTION_KIND: ClassVar[str] = "recording_plane_stop"
@@ -136,6 +195,17 @@ class CameraDetectorComponent:
         self.pixels = int(self.pixels)
         if self.layout_length_mm <= 0.0:
             raise ValueError("Camera mechanical length must be positive.")
+        if not np.isfinite(float(self.detector_axis_rotation_deg)):
+            raise ValueError("Camera detector-axis rotation must be finite.")
+        uncertainty = float(self.detector_orientation_uncertainty_deg)
+        if not np.isfinite(uncertainty) or not 0.0 <= uncertainty <= 180.0:
+            raise ValueError(
+                "Camera orientation uncertainty must be between 0 and 180 deg."
+            )
+        if not str(self.detector_orientation_status).strip():
+            raise ValueError("Camera orientation status must not be empty.")
+        if not str(self.detector_orientation_source).strip():
+            raise ValueError("Camera orientation source must not be empty.")
         return self
 
     def resolve_against(self, anchor_z_mm):
@@ -197,6 +267,12 @@ def camera_detector_from_dict(
             "inserted",
             "pixels",
             "colour",
+            "detector_axis_rotation_deg",
+            "detector_flip_x",
+            "detector_flip_y",
+            "detector_orientation_uncertainty_deg",
+            "detector_orientation_status",
+            "detector_orientation_source",
         }:
             setattr(component, field, value)
     component.key = CAMERA

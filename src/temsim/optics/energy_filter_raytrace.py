@@ -45,6 +45,7 @@ class EnergyFilterTraceBatch:
     passed_slit: np.ndarray
     reached_output: np.ndarray
     reached_eels: np.ndarray
+    zebra_recorded: np.ndarray
     slit_dispersive_m: np.ndarray
     slit_non_dispersive_m: np.ndarray
     output_dispersive_m: np.ndarray
@@ -200,6 +201,34 @@ def extract_entrance_rays(state, simulation):
     return output
 
 
+def _representative_entrance_rays(rays, maximum_count):
+    """Bound branch-memory use while preserving total current weight."""
+
+    maximum = max(1, int(maximum_count))
+    if len(rays) <= maximum:
+        return list(rays), len(rays)
+    indices = np.unique(np.linspace(
+        0, len(rays) - 1, maximum, dtype=int
+    ))
+    selected = [rays[index] for index in indices]
+    total_weight = sum(ray.source_fraction for ray in rays)
+    selected_weight = sum(ray.source_fraction for ray in selected)
+    scale = total_weight / max(selected_weight, np.finfo(float).tiny)
+    selected = [
+        EntranceRay(
+            x_mm=ray.x_mm,
+            y_mm=ray.y_mm,
+            tx_rad=ray.tx_rad,
+            ty_rad=ray.ty_rad,
+            energy_offset_ev=ray.energy_offset_ev,
+            colour=ray.colour,
+            source_fraction=ray.source_fraction * scale,
+        )
+        for ray in selected
+    ]
+    return selected, len(rays)
+
+
 def _m12_bore_blocked(element, positions_m):
     local = element.local_positions_m(positions_m)
     within_length = (
@@ -322,6 +351,7 @@ def trace_energy_filter_batch(
     passed_slit = np.zeros(ray_count, dtype=bool)
     reached_output = np.zeros(ray_count, dtype=bool)
     reached_eels = np.zeros(ray_count, dtype=bool)
+    zebra_recorded = np.zeros(ray_count, dtype=bool)
     slit_dispersive = np.full(ray_count, np.nan)
     slit_non_dispersive = np.full(ray_count, np.nan)
     output_dispersive = np.full(ray_count, np.nan)
@@ -338,6 +368,9 @@ def trace_energy_filter_batch(
     eels_plane = output_plane + (
         float(energy_filter.eels_plane_offset_mm) * 1.0e-3
     )
+    shutter_plane = (
+        float(energy_filter.fast_shutter_d_mm) * 1.0e-3
+    )
 
     for step_index in range(1, step_count + 1):
         previous_position = state_now.position_m.copy()
@@ -353,24 +386,15 @@ def trace_energy_filter_batch(
         current_position = state_now.position_m
         positions[step_index] = current_position
 
-        newly_blocked = alive & (
-            _m12_bore_blocked(
-                energy_filter.entrance_m12,
-                current_position,
+        newly_blocked = np.zeros(ray_count, dtype=bool)
+        for multipole in energy_filter.multipoles:
+            carrier_blocked = (
+                alive
+                & ~newly_blocked
+                & _m12_bore_blocked(multipole, current_position)
             )
-            | _m12_bore_blocked(
-                energy_filter.exit_m12,
-                current_position,
-            )
-        )
-        entrance_bore = newly_blocked & _m12_bore_blocked(
-            energy_filter.entrance_m12,
-            current_position,
-        )
-        stop_key[entrance_bore] = energy_filter.entrance_m12.key
-        stop_key[newly_blocked & ~entrance_bore] = (
-            energy_filter.exit_m12.key
-        )
+            stop_key[carrier_blocked] = multipole.key
+            newly_blocked |= carrier_blocked
 
         sector_blocked = (
             alive
@@ -434,6 +458,33 @@ def trace_energy_filter_batch(
                 stop_key[indices] = "slit_measurement_plane"
                 current_position[indices] = crossing_position
 
+        shutter_crossing = (
+            alive
+            & ~newly_blocked
+            & (previous_along < shutter_plane)
+            & (current_along >= shutter_plane)
+        )
+        shutter = energy_filter.fast_shutter
+        if (
+            np.any(shutter_crossing)
+            and shutter.enabled
+            and not shutter.open
+        ):
+            indices = np.flatnonzero(shutter_crossing)
+            fraction = _crossing_fraction(
+                previous_along[indices],
+                current_along[indices],
+                shutter_plane,
+            )
+            crossing_position = (
+                previous_position[indices]
+                + fraction[:, np.newaxis]
+                * (current_position[indices] - previous_position[indices])
+            )
+            newly_blocked[indices] = True
+            stop_key[indices] = shutter.key
+            current_position[indices] = crossing_position
+
         output_crossing = (
             alive
             & ~newly_blocked
@@ -487,9 +538,56 @@ def trace_energy_filter_batch(
             & (current_along >= eels_plane)
         )
         if np.any(eels_crossing):
-            reached_eels[eels_crossing] = True
-            newly_blocked |= eels_crossing
-            stop_key[eels_crossing] = "eels_plane"
+            indices = np.flatnonzero(eels_crossing)
+            fraction = _crossing_fraction(
+                previous_along[indices],
+                current_along[indices],
+                eels_plane,
+            )
+            crossing_position = (
+                previous_position[indices]
+                + fraction[:, np.newaxis]
+                * (current_position[indices] - previous_position[indices])
+            )
+            crossing_delta = crossing_position - exit_origin
+            dispersive = crossing_delta @ outgoing_x
+            non_dispersive = crossing_delta @ outgoing_y
+            bias = energy_filter.bias_tube
+            if (
+                energy_filter.multi_eels_enabled
+                and bias.enabled
+                and abs(float(bias.offset_ev)) > 0.0
+            ):
+                dispersion_um_per_ev = float(
+                    energy_filter.energy_slit
+                    .calibrated_dispersion_um_per_ev
+                )
+                dispersive = (
+                    dispersive
+                    - float(bias.offset_ev)
+                    * dispersion_um_per_ev
+                    * 1.0e-6
+                )
+            zebra = energy_filter.zebra_detector
+            recorded = zebra.recording_mask(
+                dispersive, non_dispersive
+            )
+            reached_eels[indices] = True
+            zebra_recorded[indices] = recorded
+            newly_blocked[indices] = True
+            current_position[indices] = crossing_position
+            stop_key[indices] = "energy_filter_zebra_miss"
+            if np.any(recorded):
+                active_strip = (
+                    int(energy_filter.camera_deflector.active_strip)
+                    if energy_filter.camera_deflector.enabled
+                    else 1
+                )
+                stop_key[indices[recorded]] = (
+                    f"{zebra.key}_strip_{active_strip}"
+                    if not zebra.alignment_mode
+                    else f"{zebra.key}_alignment"
+                )
 
         if np.any(newly_blocked):
             stop_step[newly_blocked] = step_index
@@ -508,6 +606,7 @@ def trace_energy_filter_batch(
         passed_slit=passed_slit,
         reached_output=reached_output,
         reached_eels=reached_eels,
+        zebra_recorded=zebra_recorded,
         slit_dispersive_m=slit_dispersive,
         slit_non_dispersive_m=slit_non_dispersive,
         output_dispersive_m=output_dispersive,
@@ -554,7 +653,10 @@ def simulate_energy_filter(state, simulation):
         state,
         state.energy_filter_entrance_aperture,
     )
-    rays = extract_entrance_rays(state, simulation)
+    rays, total_entrance_count = _representative_entrance_rays(
+        extract_entrance_rays(state, simulation),
+        energy_filter.maximum_trace_rays,
+    )
     if not rays:
         return EnergyFilterResult(
             paths_u_mm=[],
@@ -570,7 +672,7 @@ def simulate_energy_filter(state, simulation):
             entrance_signal=entrance_signal,
             status=(
                 "No TEM rays reached and passed the "
-                "Energy Filter Entrance Aperture"
+                "Iliad Spectrometer Entrance Aperture"
             ),
             stop_keys=(),
             slit_transmitted_fraction=0.0,
@@ -614,9 +716,9 @@ def simulate_energy_filter(state, simulation):
         batch.stop_key == "energy_filter_output_detector"
     )
     camera_fraction = float(weights[camera_recorded].sum())
-    eels_fraction = float(weights[batch.reached_eels].sum())
+    eels_fraction = float(weights[batch.zebra_recorded].sum())
     source_pa = source_current_pa(state)
-    eels_count = int(np.count_nonzero(batch.reached_eels))
+    eels_count = int(np.count_nonzero(batch.zebra_recorded))
     stop_counts = {
         str(key): int(np.count_nonzero(batch.stop_key == key))
         for key in np.unique(batch.stop_key)
@@ -627,7 +729,12 @@ def simulate_energy_filter(state, simulation):
         for key, count in sorted(stop_counts.items())
     )
     status = (
-        f"{eels_count} trajectories reached the EELS plane"
+        f"{eels_count}/{len(rays)} sampled trajectories recorded by Zebra"
+        + (
+            f" ({total_entrance_count} entrance rays represented)"
+            if total_entrance_count != len(rays)
+            else ""
+        )
         + (f" | stops: {counts_text}" if counts_text else "")
     )
     return EnergyFilterResult(

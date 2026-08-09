@@ -21,6 +21,32 @@ from temsim.mechanical_profiles import (
 
 MODULE_ROOT = INSTRUMENT_CONFIG_ROOT
 
+MAGNETIC_FIELD_POLARITY_PROFILES = frozenset({
+    MAGNETIC_LENS_ASSEMBLY,
+    "integrated_magnetic_lens_channel",
+})
+FIELD_POLARITY_STATUSES = frozenset({
+    "manufacturer_documented",
+    "measured_calibration",
+    "provisional_model_assumption",
+})
+DETECTOR_ORIENTATION_STATUSES = frozenset({
+    "uncalibrated_identity",
+    "measured_calibration",
+    "service_calibration",
+})
+PROJECTOR_LENS_KEYS = (
+    "diffraction_lens",
+    "intermediate_lens",
+    "projector_lens_1",
+    "projector_lens_2",
+)
+MECHANICAL_GEOMETRY_STATUSES = frozenset({
+    "manufacturer_documented",
+    "measured_calibration",
+    "engineering_reconstruction_not_oem",
+})
+
 PAIRED_INTERACTION_PART_KEYS = frozenset({
     "feg_deflector",
     "thermionic_deflector",
@@ -72,37 +98,84 @@ OBJECTIVE_LENS_LOCAL_POSITION_FIELDS = (
 ENERGY_FILTER_GEOMETRY_FIELDS = (
     "prism_radius_mm",
     "bend_angle_deg",
+    "prism_radial_field_index",
     "entrance_multipole_s_mm",
     "prism_entrance_s_mm",
     "prism_fringe_mm",
     "pole_gap_mm",
     "sector_radial_aperture_mm",
     "exit_multipole_d_mm",
+    "multipole_01_s_mm",
+    "multipole_02_s_mm",
+    "multipole_03_s_mm",
+    "multipole_04_d_mm",
+    "multipole_05_d_mm",
+    "multipole_06_d_mm",
+    "multipole_07_d_mm",
+    "multipole_08_d_mm",
+    "multipole_09_d_mm",
+    "multipole_10_d_mm",
     "slit_d_mm",
+    "dynamic_focus_quadrupole_d_mm",
+    "bias_tube_d_mm",
+    "fast_shutter_d_mm",
+    "camera_deflector_d_mm",
     "output_detector_d_mm",
     "output_detector_width_mm",
+    "zebra_detector_d_mm",
     "eels_plane_offset_mm",
 )
 
 ENERGY_FILTER_M12_GEOMETRY_FIELDS = (
-    "entrance_m12_bore_radius_mm",
-    "entrance_m12_outer_radius_mm",
-    "entrance_m12_length_mm",
-    "entrance_m12_entrance_soft_edge_mm",
-    "entrance_m12_exit_soft_edge_mm",
-    "entrance_m12_pole_zero_angle_deg",
-    "exit_m12_bore_radius_mm",
-    "exit_m12_outer_radius_mm",
-    "exit_m12_length_mm",
-    "exit_m12_entrance_soft_edge_mm",
-    "exit_m12_exit_soft_edge_mm",
-    "exit_m12_pole_zero_angle_deg",
+    "mechanical_bore_radius_mm",
+    "mechanical_outer_radius_mm",
+    "housing_length_mm",
+    "magnetic_support_length_mm",
+    "entrance_soft_edge_mm",
+    "exit_soft_edge_mm",
+    "pole_zero_angle_deg",
+)
+
+ENERGY_FILTER_MECHANICAL_METADATA_FIELDS = (
+    "m12_housing_geometry_status",
+    "m12_housing_geometry_source",
 )
 
 ENERGY_FILTER_SLIT_GEOMETRY_FIELDS = (
-    "slit_clear_height_mm",
-    "slit_maximum_gap_mm",
-    "slit_blade_thickness_mm",
+    "clear_height_mm",
+    "maximum_gap_mm",
+    "blade_thickness_mm",
+)
+
+ENERGY_FILTER_PRISM_GEOMETRY_FIELDS = (
+    "prism_radius_mm",
+    "bend_angle_deg",
+    "prism_radial_field_index",
+    "fringe_length_mm",
+    "pole_gap_mm",
+    "radial_clear_half_width_mm",
+)
+
+ENERGY_FILTER_BRANCH_METADATA_FIELDS = (
+    "public_topology_status",
+    "public_topology_source",
+    "multipole_family_evidence",
+    "multipole_numbering_status",
+    "geometry_policy",
+)
+
+ENERGY_FILTER_ZEBRA_FIELDS = (
+    "strip_count",
+    "pixels_per_strip",
+    "strip_pixel_pitch_um",
+    "strip_active_width_mm",
+    "strip_active_height_mm",
+    "alignment_pixels_non_dispersive",
+    "alignment_pixels_dispersive",
+    "alignment_active_height_mm",
+    "alignment_active_width_mm",
+    "maximum_spectra_per_s",
+    "provisional_strip_center_pitch_mm",
 )
 
 RECORDING_PLANE_GEOMETRY_FIELDS = (
@@ -153,11 +226,14 @@ IMAGE_CORRECTOR_COLUMN_KEYS = (
     "image_dp11_deflector",
     "image_tl11_lens",
     "image_dp12_deflector",
+    "image_tl12_lens",
+    "image_dph1_deflector",
     "image_hp1_hexapole",
     "image_dp21_deflector",
     "image_tl21_lens",
     "image_dp22_deflector",
     "image_tl22_lens",
+    "image_dph2_deflector",
     "image_hp2_hexapole",
     "image_adapter_lens",
     "image_ish_deflector",
@@ -231,8 +307,21 @@ def part_geometry(module_path, key, root=None):
     return geometry
 
 
-def part_requires_optical_reference(key):
-    key = str(key)
+def part_requires_optical_reference(part):
+    """Return whether an axial TOML optical-reference coordinate is needed.
+
+    Curvilinear branch components own a path coordinate instead.  Requiring a
+    fictitious axial reference at the branch entrance would silently flatten
+    the Energy Filter into the main column and create a second geometry
+    authority.
+    """
+
+    if isinstance(part, dict):
+        if bool(part.get("branch_path_only", False)):
+            return False
+        key = str(part["key"])
+    else:
+        key = str(part)
     mechanical_suffixes = (
         "_housing",
         "_yoke",
@@ -341,6 +430,19 @@ def validate_document(document):
     if document.get("coordinate_system") != "module_local_z_mm":
         raise ValueError("Invalid module coordinate system")
     parts = tuple(document.get("parts", ()))
+    part_keys = [str(part["key"]) for part in parts]
+    if len(set(part_keys)) != len(part_keys):
+        raise ValueError("Duplicate part key in module TOML")
+    part_orders = []
+    for part in parts:
+        order = part.get("order")
+        if not isinstance(order, int) or isinstance(order, bool):
+            raise ValueError(
+                f"{part['key']}.order must be an integer"
+            )
+        part_orders.append(order)
+    if len(set(part_orders)) != len(part_orders):
+        raise ValueError("Duplicate part order in module TOML")
     for part in parts:
         key = str(part["key"])
         start = float(part["local_start_z_mm"])
@@ -357,6 +459,36 @@ def validate_document(document):
             raise ValueError(
                 f"Vacuum inner diameter for {key} must be finite and positive"
             )
+        if part_requires_field_polarity(part):
+            if "polarity" in part:
+                raise ValueError(
+                    f"{key} uses deprecated polarity; use field_polarity"
+                )
+            try:
+                field_polarity = part["field_polarity"]
+                status = str(part["field_polarity_status"]).strip()
+                source = str(part["field_polarity_source"]).strip()
+            except KeyError as exc:
+                raise ValueError(
+                    f"Missing {exc.args[0]} for magnetic lens {key}"
+                ) from exc
+            if (
+                not isinstance(field_polarity, int)
+                or isinstance(field_polarity, bool)
+                or field_polarity not in (-1, 1)
+            ):
+                raise ValueError(
+                    f"{key}.field_polarity must be integer +1 or -1"
+                )
+            if status not in FIELD_POLARITY_STATUSES:
+                raise ValueError(
+                    f"{key}.field_polarity_status must be one of "
+                    f"{sorted(FIELD_POLARITY_STATUSES)}"
+                )
+            if not source:
+                raise ValueError(
+                    f"{key}.field_polarity_source must not be empty"
+                )
         if not start <= center <= end:
             raise ValueError(f"Invalid part range for {key}")
         if abs(length - (end - start)) > 1.0e-9:
@@ -381,18 +513,7 @@ def validate_document(document):
                     "virtual, lower"
                 )
             continue
-        if key == "objective_aperture":
-            # The cartridge body remains in the S-TWIN pole gap while its
-            # effective aperture plane is independently calibrated to the
-            # distributed-field back focal plane.
-            try:
-                float(part["optical_reference_local_z_mm"])
-            except KeyError as exc:
-                raise ValueError(
-                    "Missing Objective Aperture optical reference"
-                ) from exc
-            continue
-        if not part_requires_optical_reference(key):
+        if not part_requires_optical_reference(part):
             continue
         try:
             reference = float(part["optical_reference_local_z_mm"])
@@ -463,14 +584,18 @@ def validate_document(document):
         ) from exc
     if not math.isfinite(liner_wall) or liner_wall <= 0.0:
         raise ValueError("Vacuum liner wall thickness must be positive")
+    if document.get("module", {}).get("type") == "gun":
+        _validate_gun_mechanical_relationships(parts)
     if document.get("module", {}).get("type") == "column":
         _validate_column_order(parts)
         _validate_column_mechanical_overlaps(parts)
         _validate_objective_assembly(parts)
         _validate_two_pole_lens_assemblies(parts)
         _validate_magnetic_lens_mechanical_parts(parts)
+        _validate_shared_lens_housings(parts)
     if document.get("module", {}).get("type") == "project_and_recording_system":
         _validate_projector_lens_clearances(parts)
+        _validate_projector_lens_geometry_provenance(parts)
         _validate_two_pole_lens_assemblies(parts)
         _validate_magnetic_lens_mechanical_parts(parts)
         _validate_recording_plane_geometry(parts)
@@ -484,6 +609,16 @@ def validate_document(document):
             f"length_mm={length}, port_span={exit_z - entrance}"
         )
     return document
+
+
+def part_requires_field_polarity(part):
+    """Return whether one TOML optical parent produces an axial magnetic field."""
+
+    return (
+        not bool(part.get("mechanical_only", False))
+        and part.get("mechanical_profile")
+        in MAGNETIC_FIELD_POLARITY_PROFILES
+    )
 
 
 def _validate_recording_plane_geometry(parts):
@@ -506,107 +641,546 @@ def _validate_recording_plane_geometry(parts):
         inner = float(part["inner_diameter_mm"])
         if outer <= 0.0 or inner < 0.0 or inner >= outer:
             if inner == 0.0 and outer > 0.0:
-                continue
+                pass
+            else:
+                raise ValueError(
+                    f"{key} detector diameters must satisfy "
+                    "0 <= inner < outer"
+                )
+        if part.get("mechanical_part_role") != "interaction_plane":
+            raise ValueError(f"{key} must be an interaction-plane row")
+        if not 0.0 < float(part["length_mm"]) <= 1.0:
+            raise ValueError(f"{key} active plane must remain axially thin")
+        if key != "camera":
+            continue
+        calibration_fields = (
+            "detector_axis_rotation_deg",
+            "detector_flip_x",
+            "detector_flip_y",
+            "detector_orientation_uncertainty_deg",
+            "detector_orientation_status",
+            "detector_orientation_source",
+        )
+        missing_calibration = [
+            field for field in calibration_fields if field not in part
+        ]
+        if missing_calibration:
             raise ValueError(
-                f"{key} detector diameters must satisfy "
-                "0 <= inner < outer"
+                "Missing camera detector-orientation calibration: "
+                + ", ".join(missing_calibration)
             )
+        angle = part["detector_axis_rotation_deg"]
+        uncertainty = part["detector_orientation_uncertainty_deg"]
+        if (
+            not isinstance(angle, (int, float))
+            or isinstance(angle, bool)
+            or not math.isfinite(float(angle))
+        ):
+            raise ValueError("Camera detector-axis rotation must be finite")
+        if (
+            not isinstance(uncertainty, (int, float))
+            or isinstance(uncertainty, bool)
+            or not math.isfinite(float(uncertainty))
+            or not 0.0 <= float(uncertainty) <= 180.0
+        ):
+            raise ValueError(
+                "Camera orientation uncertainty must be between 0 and 180 deg"
+            )
+        for field in ("detector_flip_x", "detector_flip_y"):
+            if not isinstance(part[field], bool):
+                raise ValueError(f"camera.{field} must be Boolean")
+        status = str(part["detector_orientation_status"]).strip()
+        if status not in DETECTOR_ORIENTATION_STATUSES:
+            raise ValueError(
+                "camera.detector_orientation_status must be one of "
+                f"{sorted(DETECTOR_ORIENTATION_STATUSES)}"
+            )
+        if not str(part["detector_orientation_source"]).strip():
+            raise ValueError(
+                "camera.detector_orientation_source must not be empty"
+            )
+
+
+def _validate_gun_mechanical_relationships(parts):
+    """Validate co-located C1 and monochromator-slit mechanics."""
+
+    by_key = {str(part["key"]): part for part in parts}
+    slit = by_key.get("feg_monochromator_slit")
+    if slit is None:
+        return
+    c1 = by_key.get("feg_c1_aperture")
+    if c1 is None:
+        raise ValueError("Monochromator slit requires the C1 mechanism")
+    if (
+        slit.get("parent_key") != "feg_c1_aperture"
+        or not bool(slit.get("mechanical_only", False))
+        or slit.get("mechanical_part_role") != "slit_blade_carrier"
+    ):
+        raise ValueError(
+            "Monochromator slit must be a mechanical child of C1"
+        )
+    tolerance = 1.0e-9
+    if abs(
+        float(slit["local_center_z_mm"])
+        - float(c1["local_center_z_mm"])
+    ) > tolerance:
+        raise ValueError("Monochromator slit and C1 must be co-located")
+    if (
+        float(slit["local_start_z_mm"])
+        < float(c1["local_start_z_mm"]) - tolerance
+        or float(slit["local_end_z_mm"])
+        > float(c1["local_end_z_mm"]) + tolerance
+    ):
+        raise ValueError("Monochromator slit must fit inside the C1 envelope")
 
 
 def _validate_energy_filter_geometry(parts):
     by_key = {str(part["key"]): part for part in parts}
-    part = by_key.get("energy_filter")
-    if part is None:
+    interface = by_key.get("energy_filter")
+    if interface is None:
         return
-    required_fields = (
-        *ENERGY_FILTER_GEOMETRY_FIELDS,
-        *ENERGY_FILTER_M12_GEOMETRY_FIELDS,
-        *ENERGY_FILTER_SLIT_GEOMETRY_FIELDS,
+
+    multipole_keys = tuple(
+        f"energy_filter_multipole_{index:02d}"
+        for index in range(1, 11)
+    )
+    branch_keys = (
+        "energy_filter_tapered_prism",
+        *multipole_keys,
+        "energy_filter_slit",
+        "energy_filter_dynamic_focus_electrostatic_quadrupole",
+        "energy_filter_bias_tube",
+        "energy_filter_shutter",
+        "energy_filter_camera_deflector",
+        "energy_filter_eftem_output_plane",
+        "energy_filter_zebra",
+    )
+    required_keys = {
+        "energy_filter_entrance_aperture",
+        *branch_keys,
+    }
+    missing_keys = sorted(required_keys - by_key.keys())
+    if missing_keys:
+        raise ValueError(
+            "Missing Iliad Energy Filter components: "
+            + ", ".join(missing_keys)
+        )
+
+    # Geometry formerly lived on the branch interface.  Reject reintroduced
+    # aliases so every internal component keeps one clear TOML owner.
+    duplicate_geometry = sorted(
+        field for field in ENERGY_FILTER_GEOMETRY_FIELDS
+        if field in interface
+    )
+    if duplicate_geometry:
+        raise ValueError(
+            "Energy Filter branch interface must not duplicate component "
+            "geometry: " + ", ".join(duplicate_geometry)
+        )
+
+    required_interface_fields = (
+        *ENERGY_FILTER_BRANCH_METADATA_FIELDS,
+        *ENERGY_FILTER_MECHANICAL_METADATA_FIELDS,
+        "confirmed_large_tapered_prism_count",
+        "confirmed_multipole_count",
     )
     missing = [
-        field for field in required_fields
-        if field not in part
+        field for field in required_interface_fields
+        if field not in interface
     ]
     if missing:
         raise ValueError(
-            "Missing Energy Filter TOML geometry: "
+            "Missing Energy Filter topology metadata: "
             + ", ".join(missing)
         )
-    values = {
-        field: float(part[field])
-        for field in required_fields
+    for field in (
+        *ENERGY_FILTER_BRANCH_METADATA_FIELDS,
+        *ENERGY_FILTER_MECHANICAL_METADATA_FIELDS,
+    ):
+        value = interface[field]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"Energy Filter {field} must be a non-empty string"
+            )
+    prism_count = interface["confirmed_large_tapered_prism_count"]
+    multipole_count = interface["confirmed_multipole_count"]
+    if (
+        not isinstance(prism_count, int)
+        or isinstance(prism_count, bool)
+        or prism_count != 1
+    ):
+        raise ValueError("Iliad requires exactly one large tapered prism")
+    if (
+        not isinstance(multipole_count, int)
+        or isinstance(multipole_count, bool)
+        or multipole_count != 10
+    ):
+        raise ValueError("Iliad requires exactly ten multipole elements")
+    if interface["multipole_numbering_status"] != (
+        "simulator_m01_m10_indices_not_public_production_labels_or_exact_order"
+    ):
+        raise ValueError(
+            "Iliad M01-M10 labels must remain identified as simulator indices"
+        )
+
+    entrance = by_key.get("energy_filter_entrance_aperture")
+    if (
+        interface.get("mechanical_part_role") != "branch_interface"
+        or interface.get("path_coordinate") != "curvilinear_s_mm"
+        or float(interface["length_mm"]) != 0.0
+    ):
+        raise ValueError(
+            "Energy Filter must begin at a zero-thickness curvilinear "
+            "branch interface"
+        )
+    if abs(
+        float(interface["local_center_z_mm"])
+        - float(entrance["local_center_z_mm"])
+    ) > 1.0e-9:
+        raise ValueError(
+            "Energy Filter branch interface must coincide with its entrance "
+            "aperture"
+        )
+    try:
+        reference_aperture_diameter = float(
+            entrance["reference_operating_diameter_mm"]
+        )
+    except KeyError as exc:
+        raise ValueError(
+            "Iliad entrance aperture requires the public 5 mm reference "
+            "operating condition"
+        ) from exc
+    if not math.isfinite(reference_aperture_diameter) or not math.isclose(
+        reference_aperture_diameter, 5.0, abs_tol=1.0e-12
+    ):
+        raise ValueError(
+            "Iliad entrance reference operating diameter must remain 5 mm"
+        )
+    if reference_aperture_diameter > 2.0 * float(
+        entrance["maximum_radius_mm"]
+    ):
+        raise ValueError(
+            "Iliad entrance reference aperture exceeds its mechanism travel"
+        )
+
+    interface_z = float(interface["local_center_z_mm"])
+    for key in branch_keys:
+        component = by_key[key]
+        if (
+            not bool(component.get("branch_path_only", False))
+            or component.get("branch") != "energy_filter"
+            or float(component["length_mm"]) != 0.0
+            or not math.isclose(
+                float(component["local_center_z_mm"]),
+                interface_z,
+                abs_tol=1.0e-9,
+                rel_tol=0.0,
+            )
+        ):
+            raise ValueError(
+                f"{key} must be a zero-thickness curvilinear branch part"
+            )
+        if component.get("path_reference") not in {
+            "branch_entrance", "prism_exit"
+        }:
+            raise ValueError(f"{key} has an invalid branch path reference")
+        path_field = (
+            "path_entrance_mm"
+            if key == "energy_filter_tapered_prism"
+            else "path_center_mm"
+        )
+        try:
+            path_value = float(component[path_field])
+        except KeyError as exc:
+            raise ValueError(f"{key} requires {path_field}") from exc
+        if not math.isfinite(path_value) or path_value < 0.0:
+            raise ValueError(f"{key}.{path_field} must be non-negative")
+        status = str(
+            component.get("mechanical_geometry_status", "")
+        ).strip()
+        if not status:
+            raise ValueError(f"{key} requires mechanical geometry status")
+
+    prism = by_key["energy_filter_tapered_prism"]
+    missing = [
+        field for field in ENERGY_FILTER_PRISM_GEOMETRY_FIELDS
+        if field not in prism
+    ]
+    if missing:
+        raise ValueError(
+            "Missing Iliad tapered-prism geometry: " + ", ".join(missing)
+        )
+    prism_values = {
+        field: float(prism[field])
+        for field in ENERGY_FILTER_PRISM_GEOMETRY_FIELDS
     }
-    if values["prism_radius_mm"] <= 0.0:
+    if not all(math.isfinite(value) for value in prism_values.values()):
+        raise ValueError("Iliad tapered-prism geometry must be finite")
+    if prism_values["prism_radius_mm"] <= 0.0:
         raise ValueError("Energy Filter prism radius must be positive")
-    if not 0.0 < values["bend_angle_deg"] <= 180.0:
+    if not 0.0 <= prism_values["prism_radial_field_index"] < 1.0:
+        raise ValueError(
+            "Energy Filter prism radial field index must be in [0, 1)"
+        )
+    if not 0.0 < prism_values["bend_angle_deg"] <= 180.0:
         raise ValueError("Energy Filter bend angle must be in (0, 180]")
     for field in (
-        "prism_fringe_mm",
+        "fringe_length_mm",
         "pole_gap_mm",
-        "sector_radial_aperture_mm",
-        "output_detector_width_mm",
+        "radial_clear_half_width_mm",
     ):
-        if values[field] <= 0.0:
+        if prism_values[field] <= 0.0:
             raise ValueError(
                 f"Energy Filter {field} must be positive"
             )
-    for field in (
-        "entrance_multipole_s_mm",
-        "prism_entrance_s_mm",
-        "exit_multipole_d_mm",
-        "slit_d_mm",
-        "output_detector_d_mm",
-        "eels_plane_offset_mm",
-    ):
-        if values[field] < 0.0:
-            raise ValueError(
-                f"Energy Filter {field} must be non-negative"
-            )
-    if not (
-        values["entrance_multipole_s_mm"]
-        < values["prism_entrance_s_mm"]
+    if prism.get("bend_angle_status") != (
+        "provisional_patent_example_not_product_confirmed"
     ):
         raise ValueError(
-            "Energy Filter entrance multipole must precede prism entrance"
+            "Iliad prism bend angle must remain explicitly provisional"
         )
-    if not (
-        values["exit_multipole_d_mm"]
-        < values["slit_d_mm"]
-        < values["output_detector_d_mm"]
-    ):
-        raise ValueError(
-            "Energy Filter exit geometry must be ordered M12, slit, detector"
-        )
-    for role in ("entrance", "exit"):
-        bore = values[f"{role}_m12_bore_radius_mm"]
-        outer = values[f"{role}_m12_outer_radius_mm"]
-        length = values[f"{role}_m12_length_mm"]
-        entrance_edge = values[
-            f"{role}_m12_entrance_soft_edge_mm"
+
+    multipole_values = {}
+    for index, key in enumerate(multipole_keys, start=1):
+        component = by_key[key]
+        missing = [
+            field for field in ENERGY_FILTER_M12_GEOMETRY_FIELDS
+            if field not in component
         ]
-        exit_edge = values[f"{role}_m12_exit_soft_edge_mm"]
+        if missing:
+            raise ValueError(
+                f"Missing {key} geometry: " + ", ".join(missing)
+            )
+        values = {
+            field: float(component[field])
+            for field in ENERGY_FILTER_M12_GEOMETRY_FIELDS
+        }
+        if not all(math.isfinite(value) for value in values.values()):
+            raise ValueError(f"{key} geometry must be finite")
+        bore = values["mechanical_bore_radius_mm"]
+        outer = values["mechanical_outer_radius_mm"]
+        housing_length = values["housing_length_mm"]
+        support_length = values["magnetic_support_length_mm"]
+        entrance_edge = values["entrance_soft_edge_mm"]
+        exit_edge = values["exit_soft_edge_mm"]
         if not 0.0 < bore < outer:
             raise ValueError(
-                f"Energy Filter {role} M12 radii must satisfy "
-                "0 < bore < outer"
+                f"{key} radii must satisfy 0 < bore < outer"
             )
         if (
-            length <= 0.0
+            support_length <= 0.0
             or entrance_edge <= 0.0
             or exit_edge <= 0.0
-            or entrance_edge + exit_edge >= length
+            or entrance_edge + exit_edge >= support_length
         ):
             raise ValueError(
-                f"Energy Filter {role} M12 soft edges must leave "
-                "a positive plateau"
+                f"{key} soft edges must leave a positive plateau"
             )
-    if min(
-        values["slit_clear_height_mm"],
-        values["slit_maximum_gap_mm"],
-        values["slit_blade_thickness_mm"],
-    ) <= 0.0:
+        if housing_length < support_length:
+            raise ValueError(
+                f"{key} housing length cannot be shorter than its "
+                "magnetic support length"
+            )
+        if component.get("individual_pole_assignment_status") != "not_public":
+            raise ValueError(
+                f"{key} must not claim a public individual pole assignment"
+            )
+        expected_reference = (
+            "branch_entrance" if index <= 3 else "prism_exit"
+        )
+        if component.get("path_reference") != expected_reference:
+            raise ValueError(f"{key} uses the wrong path reference")
+        multipole_values[index] = (
+            float(component["path_center_mm"]), values
+        )
+
+    pre_positions = tuple(
+        multipole_values[index][0] for index in range(1, 4)
+    )
+    if not (
+        pre_positions[0]
+        < pre_positions[1]
+        < pre_positions[2]
+        < float(prism["path_entrance_mm"])
+    ):
+        raise ValueError("Iliad M01-M03 must be ordered before the prism")
+    for upstream, downstream in zip(pre_positions, pre_positions[1:]):
+        upstream_index = pre_positions.index(upstream) + 1
+        housing = multipole_values[upstream_index][1]["housing_length_mm"]
+        next_housing = multipole_values[upstream_index + 1][1][
+            "housing_length_mm"
+        ]
+        if 0.5 * (housing + next_housing) > downstream - upstream:
+            raise ValueError("Iliad pre-prism multipole housings overlap")
+
+    post_positions = tuple(
+        multipole_values[index][0] for index in range(4, 11)
+    )
+    for offset, (upstream, downstream) in enumerate(
+        zip(post_positions, post_positions[1:]), start=4
+    ):
+        housing = multipole_values[offset][1]["housing_length_mm"]
+        next_housing = multipole_values[offset + 1][1]["housing_length_mm"]
+        if 0.5 * (housing + next_housing) > downstream - upstream:
+            raise ValueError("Iliad post-prism multipole housings overlap")
+
+    slit = by_key["energy_filter_slit"]
+    missing = [
+        field for field in ENERGY_FILTER_SLIT_GEOMETRY_FIELDS
+        if field not in slit
+    ]
+    if missing:
         raise ValueError(
-            "Energy Filter slit mechanical dimensions must be positive"
+            "Missing Iliad XO/slit geometry: " + ", ".join(missing)
+        )
+    slit_values = tuple(
+        float(slit[field]) for field in ENERGY_FILTER_SLIT_GEOMETRY_FIELDS
+    )
+    if (
+        not all(math.isfinite(value) for value in slit_values)
+        or min(slit_values) <= 0.0
+    ):
+        raise ValueError("Iliad energy-slit dimensions must be positive")
+    if not (
+        bool(slit.get("xo_crossover_plane_confirmed", False))
+        and bool(slit.get("eftem_energy_selection_optional", False))
+    ):
+        raise ValueError(
+            "Iliad slit row must identify the XO plane and optional EFTEM stop"
+        )
+
+    dynamic_quad = by_key[
+        "energy_filter_dynamic_focus_electrostatic_quadrupole"
+    ]
+    if (
+        int(dynamic_quad.get("electrode_count", 0)) != 4
+        or not bool(dynamic_quad.get("mechanical_only", False))
+        or dynamic_quad.get("optical_model_status")
+        != "mechanical_layout_only_dynamic_focus_field_not_implemented"
+    ):
+        raise ValueError(
+            "Iliad dynamic-focus electrostatic quadrupole must remain an "
+            "explicit four-electrode, mechanical-only placeholder"
+        )
+    for field in (
+        "housing_length_mm", "clear_bore_diameter_mm",
+        "mechanical_outer_diameter_mm",
+    ):
+        value = float(dynamic_quad[field])
+        if not math.isfinite(value) or value <= 0.0:
+            raise ValueError(f"Iliad dynamic quadrupole {field} must be positive")
+
+    bias = by_key["energy_filter_bias_tube"]
+    shutter = by_key["energy_filter_shutter"]
+    camera_deflector = by_key["energy_filter_camera_deflector"]
+    output_plane = by_key["energy_filter_eftem_output_plane"]
+    for component, fields in (
+        (bias, (
+            "housing_length_mm", "clear_bore_diameter_mm",
+            "mechanical_outer_diameter_mm", "maximum_abs_offset_ev",
+        )),
+        (shutter, (
+            "electrode_length_mm", "electrode_gap_mm",
+            "mechanical_outer_diameter_mm",
+        )),
+        (camera_deflector, (
+            "electrode_length_mm", "electrode_gap_mm",
+            "mechanical_outer_diameter_mm",
+        )),
+        (output_plane, ("active_width_mm",)),
+    ):
+        values = tuple(float(component[field]) for field in fields)
+        if not all(math.isfinite(value) for value in values) or min(values) <= 0.0:
+            raise ValueError(
+                f"{component['key']} mechanical dimensions must be positive"
+            )
+    if bias.get("offset_range_status") != (
+        "provisional_simulator_limit_not_iliad_product_specification"
+    ):
+        raise ValueError("Iliad bias-tube range must remain marked provisional")
+
+    zebra = by_key["energy_filter_zebra"]
+    missing = [
+        field for field in ENERGY_FILTER_ZEBRA_FIELDS
+        if field not in zebra
+    ]
+    if missing:
+        raise ValueError(
+            "Missing Iliad Zebra detector data: " + ", ".join(missing)
+        )
+    if (
+        int(zebra["strip_count"]) != 5
+        or int(zebra["pixels_per_strip"]) != 2048
+        or int(zebra["alignment_pixels_non_dispersive"]) != 256
+        or int(zebra["alignment_pixels_dispersive"]) != 2048
+    ):
+        raise ValueError("Iliad Zebra pixel topology does not match public data")
+    pixel_pitch_mm = float(zebra["strip_pixel_pitch_um"]) * 1.0e-3
+    zebra_numeric = tuple(
+        float(zebra[field]) for field in ENERGY_FILTER_ZEBRA_FIELDS
+    )
+    if not all(math.isfinite(value) and value > 0.0 for value in zebra_numeric):
+        raise ValueError("Iliad Zebra detector data must be finite and positive")
+    expected_width = int(zebra["pixels_per_strip"]) * pixel_pitch_mm
+    expected_alignment_height = (
+        int(zebra["alignment_pixels_non_dispersive"]) * pixel_pitch_mm
+    )
+    if not math.isclose(
+        float(zebra["strip_active_width_mm"]), expected_width,
+        abs_tol=1.0e-9,
+    ):
+        raise ValueError("Iliad Zebra strip active width is inconsistent")
+    if not math.isclose(
+        float(zebra["alignment_active_width_mm"]), expected_width,
+        abs_tol=1.0e-9,
+    ):
+        raise ValueError("Iliad Zebra alignment width is inconsistent")
+    if not math.isclose(
+        float(zebra["alignment_active_height_mm"]),
+        expected_alignment_height,
+        abs_tol=1.0e-9,
+    ):
+        raise ValueError("Iliad Zebra alignment height is inconsistent")
+    if not math.isclose(
+        float(zebra["strip_active_height_mm"]), 0.800,
+        abs_tol=1.0e-12,
+    ):
+        raise ValueError("Iliad Zebra strip active height must be 0.800 mm")
+    if float(zebra["provisional_strip_center_pitch_mm"]) < float(
+        zebra["strip_active_height_mm"]
+    ):
+        raise ValueError("Iliad Zebra provisional strip pitch causes overlap")
+    if zebra.get("strip_center_pitch_status") != (
+        "adjustable_unknown_not_public"
+    ):
+        raise ValueError("Iliad Zebra strip pitch must remain marked unknown")
+
+    positions = {
+        key: float(by_key[key]["path_center_mm"])
+        for key in branch_keys
+        if key != "energy_filter_tapered_prism"
+    }
+    if not (
+        positions["energy_filter_multipole_04"]
+        < positions["energy_filter_multipole_05"]
+        < positions["energy_filter_multipole_06"]
+        < positions["energy_filter_multipole_07"]
+        < positions["energy_filter_slit"]
+        < positions[
+            "energy_filter_dynamic_focus_electrostatic_quadrupole"
+        ]
+        < positions["energy_filter_multipole_08"]
+        < positions["energy_filter_multipole_09"]
+        < positions["energy_filter_multipole_10"]
+        < positions["energy_filter_bias_tube"]
+        < positions["energy_filter_shutter"]
+        < positions["energy_filter_camera_deflector"]
+        < positions["energy_filter_eftem_output_plane"]
+        < positions["energy_filter_zebra"]
+    ):
+        raise ValueError(
+            "Iliad post-prism multipoles, XO/slit, dynamic-focus element, "
+            "MultiEELS electrostatics, output plane and Zebra must be ordered"
         )
 
 
@@ -615,6 +1189,7 @@ def _validate_objective_assembly(parts):
     required = {
         "objective_lens",
         "objective_upper_pole",
+        "sample_stage",
         "sample",
         "objective_aperture",
         "objective_lower_pole",
@@ -623,10 +1198,33 @@ def _validate_objective_assembly(parts):
         return
     lens = by_key["objective_lens"]
     upper_pole = by_key["objective_upper_pole"]
+    stage = by_key["sample_stage"]
     sample = by_key["sample"]
     aperture = by_key["objective_aperture"]
     lower_pole = by_key["objective_lower_pole"]
     tolerance = 1.0e-9
+
+    stage_fields = (
+        "transverse_envelope_x_mm",
+        "transverse_envelope_y_mm",
+        "holder_insertion_axis",
+    )
+    missing_stage = [field for field in stage_fields if field not in stage]
+    if missing_stage:
+        raise ValueError(
+            "Objective sample stage is missing TOML structure: "
+            + ", ".join(missing_stage)
+        )
+    if "mechanical_outer_diameter_mm" not in sample:
+        raise ValueError(
+            "Objective sample is missing mechanical_outer_diameter_mm"
+        )
+    if (
+        float(stage["transverse_envelope_x_mm"]) <= 0.0
+        or float(stage["transverse_envelope_y_mm"]) <= 0.0
+        or float(sample["mechanical_outer_diameter_mm"]) <= 0.0
+    ):
+        raise ValueError("Objective stage and sample envelopes must be positive")
 
     gap = (
         float(lower_pole["local_start_z_mm"])
@@ -647,6 +1245,23 @@ def _validate_objective_assembly(parts):
     if abs(sample_center - gap_center) > tolerance:
         raise ValueError(
             "The S-TWIN sample must remain centered in the pole gap"
+        )
+    if (
+        stage.get("mechanical_profile") != "transverse_goniometer"
+        or abs(float(stage["local_center_z_mm"]) - sample_center)
+        > tolerance
+        or abs(
+            float(stage["local_start_z_mm"])
+            - float(upper_pole["local_end_z_mm"])
+        ) > tolerance
+        or abs(
+            float(stage["local_end_z_mm"])
+            - float(lower_pole["local_start_z_mm"])
+        ) > tolerance
+    ):
+        raise ValueError(
+            "The transverse sample goniometer must cross the Objective pole "
+            "gap at the sample plane"
         )
 
     lens_start = float(lens["local_start_z_mm"])
@@ -749,12 +1364,22 @@ def _validate_objective_assembly(parts):
             "Objective Aperture optical plane must remain downstream of the "
             "sample and inside the Objective assembly"
         )
+    aperture_center = float(aperture["local_center_z_mm"])
+    if abs(aperture_reference - aperture_center) > tolerance:
+        raise ValueError(
+            "Objective Aperture optical plane must equal its mechanical centre"
+        )
+    if (
+        float(aperture["local_start_z_mm"]) < sample_center - tolerance
+        or float(aperture["local_end_z_mm"])
+        > float(lower_pole["local_start_z_mm"]) + tolerance
+    ):
+        raise ValueError(
+            "Objective Aperture body must remain below the sample and inside "
+            "the Objective pole gap"
+        )
     nominal_bfp = float(lens["nominal_back_focal_plane_local_z_mm"])
     nominal_image = float(lens["nominal_image_plane_local_z_mm"])
-    if abs(aperture_reference - nominal_bfp) > tolerance:
-        raise ValueError(
-            "Objective Aperture optical plane must equal the TOML nominal BFP"
-        )
     if not nominal_bfp < nominal_image <= lens_end:
         raise ValueError(
             "Objective TOML planes must be ordered BFP, image inside assembly"
@@ -934,6 +1559,32 @@ def _validate_projector_lens_clearances(parts):
             )
 
 
+def _validate_projector_lens_geometry_provenance(parts):
+    """Require an explicit authority level for D-I-P1-P2 dimensions."""
+
+    by_key = {str(part["key"]): part for part in parts}
+    for lens_key in PROJECTOR_LENS_KEYS:
+        if lens_key not in by_key:
+            continue
+        lens = by_key[lens_key]
+        try:
+            status = str(lens["mechanical_geometry_status"]).strip()
+            source = str(lens["mechanical_geometry_source"]).strip()
+        except KeyError as exc:
+            raise ValueError(
+                f"Missing {exc.args[0]} for projector lens {lens_key}"
+            ) from exc
+        if status not in MECHANICAL_GEOMETRY_STATUSES:
+            raise ValueError(
+                f"{lens_key}.mechanical_geometry_status must be one of "
+                f"{sorted(MECHANICAL_GEOMETRY_STATUSES)}"
+            )
+        if not source:
+            raise ValueError(
+                f"{lens_key}.mechanical_geometry_source must not be empty"
+            )
+
+
 def _validate_two_pole_lens_assemblies(parts):
     """Validate declared independent two-pole, single-gap assemblies."""
 
@@ -975,6 +1626,74 @@ def _validate_two_pole_lens_assemblies(parts):
                 raise ValueError(
                     f"{pole_key} diameters must satisfy bore < tip < outer"
                 )
+            vacuum = float(pole["vacuum_inner_diameter_mm"])
+            if vacuum > bore + tolerance:
+                raise ValueError(
+                    f"{pole_key} vacuum ID must not exceed its pole bore"
+                )
+        if "mechanical_clear_bore_diameter_mm" in lens:
+            clear_bore = float(lens["mechanical_clear_bore_diameter_mm"])
+            parent_vacuum = float(lens["vacuum_inner_diameter_mm"])
+            minimum_pole_bore = min(
+                float(upper["mechanical_bore_diameter_mm"]),
+                float(lower["mechanical_bore_diameter_mm"]),
+            )
+            if (
+                abs(clear_bore - parent_vacuum) > tolerance
+                or clear_bore > minimum_pole_bore + tolerance
+            ):
+                raise ValueError(
+                    f"{lens_key} clear bore must equal its vacuum ID and "
+                    "fit inside both pole bores"
+                )
+        detail_fields = (
+            "pole_nose_axial_length_mm",
+            "pole_cone_angle_to_axis_deg",
+            "pole_face_land_axial_thickness_mm",
+            "pole_root_fillet_radius_range_mm",
+        )
+        for field in detail_fields:
+            upper_has = field in upper
+            lower_has = field in lower
+            if upper_has != lower_has:
+                raise ValueError(
+                    f"{lens_key} pole pieces must both declare {field}"
+                )
+            if not upper_has:
+                continue
+            upper_value = upper[field]
+            lower_value = lower[field]
+            if field.endswith("_range_mm"):
+                upper_range = tuple(float(value) for value in upper_value)
+                lower_range = tuple(float(value) for value in lower_value)
+                if (
+                    len(upper_range) != 2
+                    or len(lower_range) != 2
+                    or upper_range != lower_range
+                    or not 0.0 < upper_range[0] <= upper_range[1]
+                ):
+                    raise ValueError(
+                        f"{lens_key} pole pieces require one matching, "
+                        f"positive {field}"
+                    )
+                continue
+            upper_scalar = float(upper_value)
+            lower_scalar = float(lower_value)
+            if abs(upper_scalar - lower_scalar) > tolerance:
+                raise ValueError(
+                    f"{lens_key} pole pieces must match in {field}"
+                )
+            if field == "pole_cone_angle_to_axis_deg":
+                valid = 0.0 < upper_scalar < 90.0
+            elif field == "pole_nose_axial_length_mm":
+                valid = (
+                    0.0 < upper_scalar <= float(upper["length_mm"])
+                    and upper_scalar <= float(lower["length_mm"])
+                )
+            else:
+                valid = upper_scalar > 0.0
+            if not valid:
+                raise ValueError(f"Invalid {lens_key}.{field}")
         lens_start = float(lens["local_start_z_mm"])
         lens_center = float(lens["local_center_z_mm"])
         lens_end = float(lens["local_end_z_mm"])
@@ -1054,6 +1773,65 @@ def _validate_magnetic_lens_mechanical_parts(parts):
                 raise ValueError(
                     f"Magnetic-lens radial layers overlap: "
                     f"{first[2]} and {second[2]}"
+                )
+
+
+def _validate_shared_lens_housings(parts):
+    """Validate one housing represented by contiguous axial sections."""
+
+    by_key = {str(part["key"]): part for part in parts}
+    grouped = {}
+    for part in parts:
+        shared_key = part.get("shared_housing_key")
+        if shared_key:
+            grouped.setdefault(str(shared_key), []).append(part)
+    for shared_key, members in grouped.items():
+        optical_parents = {
+            str(part["key"]): part
+            for part in members
+            if part.get("mechanical_part_role") == "optical_parent"
+        }
+        housing_sections = {
+            str(part.get("shared_housing_section")): part
+            for part in members
+            if part.get("mechanical_part_role") == "housing"
+        }
+        if set(optical_parents) != {
+            "condenser_lens_1",
+            "condenser_lens_2",
+        }:
+            raise ValueError(
+                f"{shared_key} must be shared by the C1 and C2 lenses"
+            )
+        if set(housing_sections) != {"upstream", "downstream"}:
+            raise ValueError(
+                f"{shared_key} requires upstream and downstream housing "
+                "sections"
+            )
+        upstream = housing_sections["upstream"]
+        downstream = housing_sections["downstream"]
+        if (
+            upstream.get("parent_key") != "condenser_lens_1"
+            or downstream.get("parent_key") != "condenser_lens_2"
+        ):
+            raise ValueError(
+                f"{shared_key} housing sections must belong to C1 and C2"
+            )
+        if abs(
+            float(upstream["local_end_z_mm"])
+            - float(downstream["local_start_z_mm"])
+        ) > 1.0e-9:
+            raise ValueError(
+                f"{shared_key} housing sections must be axially contiguous"
+            )
+        for section in housing_sections.values():
+            if (
+                not bool(section.get("mechanical_only", False))
+                or section.get("mechanical_profile")
+                != MAGNETIC_LENS_HOUSING
+            ):
+                raise ValueError(
+                    f"{shared_key} sections must be mechanical housing rows"
                 )
 
 

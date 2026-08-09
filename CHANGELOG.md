@@ -2,6 +2,64 @@
 
 ## Unreleased
 
+- Added a TOML-driven **Direct Alignment** page with four background,
+  transactional coupled controls: C2/C3 Nanoprobe convergence, C2/C3
+  quasi-parallel Microprobe area, D/I/P1/P2 Image magnification and D/I/P1/P2
+  effective camera length. Metrics use rotation-invariant current containment
+  and complete transverse transfer matrices; fine-step conjugate validation,
+  stale-state rejection and exact rollback prevent failed targets from changing
+  live lens values. Requested projector ranges remain distinct from the
+  presently verified non-OEM reachability. Production validation now includes
+  affine kicks, exact aperture planes, column walls, strict ray weights and a
+  configured optimiser/fine-grid stability limit.
+- Rebuilt the Iliad branch manifest around the supplied public evidence: one
+  large tapered prism, ten individually defined multipoles, XO/optional EFTEM
+  slit, dynamic-focus electrostatic quadrupole, bias tube, fast shutter,
+  camera deflector, EFTEM output plane and Zebra now have unique TOML rows and
+  click-to-edit names. Unpublished coordinates and envelopes remain explicit
+  adjustable non-OEM parameters. Corrected each Zebra strip to a 28.672 x
+  0.800 mm active area while retaining 28.672 x 3.584 mm for the separate 2-D
+  alignment region, and kept the unmodelled electrostatic-quadrupole field
+  visibly disabled rather than fabricating its optics.
+- Made the selected instrument TOMLs the enforceable final authority for TEM
+  structure. Removed the gun's default-root re-read, propagated custom catalog
+  roots through runtime geometry, assigned every active part a unique
+  variant-scoped source ID, canonicalised Objective Stigmator identity and
+  stopped saved state from retaining manifest-owned structural fields.
+- Added catalog-wide uniqueness checks, required structural-field validation,
+  TOML-derived Energy Filter/sample bootstrap geometry and regression coverage
+  that instantiates all 30 selectable assemblies without an override or
+  fallback path.
+- Rebuilt the D-I-P1-P2 mechanical geometry in both recording-system TOMLs
+  from the supplied FEI public-reference engineering reconstruction.  Added
+  independent yoke, coil, pole shoulder/bore/gap/nose and 0.75 mm liner
+  dimensions with explicit non-OEM provenance, while preserving every lens
+  centre, optical reference and excitation parameter.
+- Made projector-lens Python fallbacks read their mechanical values from the
+  authoritative TOML, updated Physical Layout pole-nose rendering and added
+  validation/regression coverage for the reconstructed radial and axial
+  hierarchy.
+- Made every ray-optics RK4 propagation hit its requested physical endpoint
+  exactly. CPU, Numba and CUDA retain full requested steps and use a shortened
+  final interval, eliminating the finite blue/yellow bundle overlap at the
+  specimen without display-only clipping.
+- Recalibrated the probe two-hexapole pair at the exact specimen plane while
+  preserving its orientation and all mechanical coordinates. Added endpoint,
+  sample-interface and accelerated-backend regression coverage.
+- Added full signed 2x2 `J_img` and `J_diff` sample-to-plane outputs, including
+  rotation, reflection, anisotropy and conjugacy diagnostics. Scalar image
+  magnification and effective camera length now derive from the determinants
+  of these coupled X-Y maps instead of taking one unsigned X coefficient.
+- Added an **Optical Transfer** page that can capture one Image state and one
+  Diffraction state at the same plane and calculate their normalised relative
+  direction map. Camera-axis rotation, flips, uncertainty and provenance are
+  TOML-owned; shipped identity values are explicitly uncalibrated and cannot
+  support an absolute hardware crystal-orientation claim.
+- Moved every magnetic-lens effective Bz sign from Python tables into the
+  selected instrument TOMLs as validated `field_polarity` values with explicit
+  status/source provenance. Microprobe/Nanoprobe Mini Condenser reversal now
+  comes from the operating-mode TOML, while ordinary recalculation preserves
+  runtime overrides.
 - Colour-coded the magnetic-field plot by the active solver formula and added
   formula names and expressions to its legend, tooltips and selection details.
 - Rebased every magnetic-lens excitation range to a hard 100% maximum while

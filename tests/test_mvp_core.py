@@ -14,6 +14,70 @@ from temsim.profile_io import apply_profile_values, read_profile, save_profile
 from temsim import presets
 
 
+PROJECTOR_RECONSTRUCTION = {
+    "diffraction_lens": {
+        "center": 82.5,
+        "length": 68.0,
+        "housing_od": 168.0,
+        "yoke_od": 162.0,
+        "yoke_id": 143.0,
+        "coil_id": 56.0,
+        "coil_od": 140.0,
+        "coil_length": 44.0,
+        "pole_bore": 10.0,
+        "clear_bore": 8.5,
+        "pole_gap": 4.0,
+        "pole_shoulder_od": 54.0,
+        "pole_nose": 12.0,
+    },
+    "intermediate_lens": {
+        "center": 252.5,
+        "length": 60.0,
+        "housing_od": 164.0,
+        "yoke_od": 158.0,
+        "yoke_id": 141.0,
+        "coil_id": 60.0,
+        "coil_od": 138.0,
+        "coil_length": 38.0,
+        "pole_bore": 12.0,
+        "clear_bore": 10.5,
+        "pole_gap": 6.0,
+        "pole_shoulder_od": 55.0,
+        "pole_nose": 12.0,
+    },
+    "projector_lens_1": {
+        "center": 432.5,
+        "length": 62.0,
+        "housing_od": 164.0,
+        "yoke_od": 158.0,
+        "yoke_id": 141.0,
+        "coil_id": 58.0,
+        "coil_od": 138.0,
+        "coil_length": 40.0,
+        "pole_bore": 10.0,
+        "clear_bore": 8.5,
+        "pole_gap": 5.0,
+        "pole_shoulder_od": 54.0,
+        "pole_nose": 13.0,
+    },
+    "projector_lens_2": {
+        "center": 635.0,
+        "length": 70.0,
+        "housing_od": 171.0,
+        "yoke_od": 165.0,
+        "yoke_id": 148.0,
+        "coil_id": 66.0,
+        "coil_od": 145.0,
+        "coil_length": 45.0,
+        "pole_bore": 15.0,
+        "clear_bore": 13.5,
+        "pole_gap": 7.0,
+        "pole_shoulder_od": 62.0,
+        "pole_nose": 14.0,
+    },
+}
+
+
 def test_every_catalog_option_resolves_to_the_requested_toml():
     catalog = AssemblyCatalog()
     state = default_state()
@@ -53,6 +117,13 @@ def test_every_lens_and_preset_uses_at_most_one_hundred_percent():
             for lens in candidate.lenses
         )
 
+    operating_catalog = load_operating_mode_catalog()
+    assert all(
+        float(values.get("percent", 0.0)) < 100.0
+        for mode in operating_catalog.modes
+        for values in mode.devices.values()
+    )
+
 
 def test_rebased_lens_percentages_preserve_reference_fields():
     catalog = AssemblyCatalog()
@@ -64,7 +135,7 @@ def test_rebased_lens_percentages_preserve_reference_fields():
     objective = by_key["objective_lens"]
     assert (
         objective.upper_b0_t * objective.percent / 100.0
-    ) == pytest.approx(0.2690863306357239)
+    ) == pytest.approx(0.26910326119741307)
 
     catalog.apply(
         state,
@@ -74,12 +145,13 @@ def test_rebased_lens_percentages_preserve_reference_fields():
     )
     by_key = {lens.key: lens for lens in state.lenses}
     expected_scales = {
-        "image_ol_post_lens": 1.690720840008,
-        "image_tl22_lens": 0.196885770873,
-        "image_adapter_lens": 0.332974454964,
+        "image_ol_post_lens": 1.82184515,
+        "image_tl22_lens": 1.27567878,
+        "image_adapter_lens": 0.25151499,
     }
     for key, expected in expected_scales.items():
         assert by_key[key].scale() == pytest.approx(expected)
+        assert by_key[key].percent == pytest.approx(60.0)
 
 
 def test_every_active_part_has_a_confirmed_assembly_anchor():
@@ -102,7 +174,7 @@ def test_complete_catalog_and_every_assembly_combination_validate():
     audit = ManifestEditor().validate_catalog()
 
     assert audit.module_count == 10
-    assert audit.part_definition_count == 441
+    assert audit.part_definition_count == 466
     assert audit.assembly_count == 30
 
 
@@ -133,6 +205,121 @@ def test_magnetic_lens_mechanical_layers_are_required_and_radially_nested():
         validate_document(document)
 
 
+@pytest.mark.parametrize(
+    "column",
+    (
+        "C2",
+        "C3",
+        "C3 + Probe Corrector",
+        "C3 + Image Corrector",
+        "C3 + Probe Corrector + Image Corrector",
+    ),
+)
+def test_objective_aperture_stop_is_co_located_in_the_pole_gap(column):
+    state = default_state()
+    assembly = AssemblyCatalog().apply(
+        state,
+        AssemblySelection("FEG", column, "No Energy Filter"),
+    )
+    part = assembly.part("objective_aperture")
+
+    assert state.objective_aperture.z_mm == pytest.approx(part.center_z_mm)
+    assert state.objective_aperture.z_mm == pytest.approx(
+        state.sample.z_mm
+        + state.objective_aperture.mechanical_center_below_sample_mm
+    )
+    state.objective_aperture.validate_co_located_with_mechanics(
+        state.sample.z_mm
+    )
+    state.objective_aperture.validate_between_poles(state.objective_lens)
+
+
+@pytest.mark.parametrize(
+    "column", ("C2", "C3", "C3 + Probe Corrector")
+)
+def test_standalone_selected_area_aperture_is_between_deflector_and_stigmator(
+    column,
+):
+    state = default_state()
+    assembly = AssemblyCatalog().apply(
+        state,
+        AssemblySelection("FEG", column, "No Energy Filter"),
+    )
+    image_deflector = assembly.part("image_diffraction_deflector")
+    aperture = assembly.part("selected_area_aperture")
+    diffraction_stigmator = assembly.part("diffraction_stigmator")
+
+    assert image_deflector.end_z_mm <= aperture.start_z_mm
+    assert aperture.end_z_mm <= diffraction_stigmator.start_z_mm
+
+
+@pytest.mark.parametrize(
+    "column",
+    (
+        "C2",
+        "C3",
+        "C3 + Probe Corrector",
+        "C3 + Image Corrector",
+        "C3 + Probe Corrector + Image Corrector",
+    ),
+)
+def test_c1_c2_use_contiguous_sections_of_one_shared_housing(column):
+    state = default_state()
+    assembly = AssemblyCatalog().apply(
+        state,
+        AssemblySelection("FEG", column, "No Energy Filter"),
+    )
+    c1 = assembly.part("condenser_lens_1_housing")
+    c2 = assembly.part("condenser_lens_2_housing")
+
+    assert c1.data["shared_housing_key"] == (
+        "condenser_c1_c2_shared_housing"
+    )
+    assert c2.data["shared_housing_key"] == c1.data["shared_housing_key"]
+    assert c1.end_z_mm == pytest.approx(c2.start_z_mm)
+
+
+def test_monochromator_slit_has_a_separate_colocated_mechanical_envelope():
+    state = default_state()
+    assembly = AssemblyCatalog().apply(
+        state,
+        AssemblySelection("FEG + Mono", "C3", "No Energy Filter"),
+    )
+    c1 = assembly.part("feg_c1_aperture")
+    slit = assembly.part("feg_monochromator_slit")
+
+    assert slit.center_z_mm == pytest.approx(c1.center_z_mm)
+    assert slit.parent_key == c1.key
+    assert slit.data["mechanical_only"] is True
+
+
+@pytest.mark.parametrize("recording", ("No Energy Filter", "Energy Filter"))
+def test_recording_surfaces_are_thin_interaction_planes(recording):
+    state = default_state()
+    assembly = AssemblyCatalog().apply(
+        state,
+        AssemblySelection("FEG", "C3", recording),
+    )
+    for key in ("haadf", "flu_screen", "df", "bf", "camera"):
+        part = assembly.part(key)
+        assert part.length_mm == pytest.approx(0.5)
+        assert part.data["mechanical_part_role"] == "interaction_plane"
+
+
+def test_energy_filter_uses_a_colocated_curvilinear_branch_interface():
+    state = default_state()
+    assembly = AssemblyCatalog().apply(
+        state,
+        AssemblySelection("FEG", "C3", "Energy Filter"),
+    )
+    interface = assembly.part("energy_filter")
+    aperture = assembly.part("energy_filter_entrance_aperture")
+
+    assert interface.length_mm == pytest.approx(0.0)
+    assert interface.center_z_mm == pytest.approx(aperture.center_z_mm)
+    assert interface.data["path_coordinate"] == "curvilinear_s_mm"
+
+
 @pytest.mark.parametrize("recording", ("No Energy Filter", "Energy Filter"))
 def test_projector_lenses_have_non_overlapping_mechanical_envelopes(recording):
     catalog = AssemblyCatalog()
@@ -152,8 +339,7 @@ def test_projector_lenses_have_non_overlapping_mechanical_envelopes(recording):
         for upstream, downstream in zip(parts, parts[1:])
     ]
 
-    assert clearances[0] == pytest.approx(5.0)
-    assert all(clearance >= 0.0 for clearance in clearances)
+    assert clearances == pytest.approx((106.0, 119.0, 136.5))
     lens_by_key = {lens.key: lens for lens in state.lenses}
     for part in parts:
         assert lens_by_key[part.key].z_mm == pytest.approx(part.center_z_mm)
@@ -163,7 +349,104 @@ def test_projector_lenses_have_non_overlapping_mechanical_envelopes(recording):
         assert lower.parent_key == part.key
         assert upper.start_z_mm == pytest.approx(part.start_z_mm)
         assert lower.end_z_mm == pytest.approx(part.end_z_mm)
-        assert lower.start_z_mm - upper.end_z_mm == pytest.approx(20.0)
+        assert lower.start_z_mm - upper.end_z_mm == pytest.approx(
+            PROJECTOR_RECONSTRUCTION[part.key]["pole_gap"]
+        )
+
+
+@pytest.mark.parametrize("manifest_name", (
+    "NoEnergyFilter.toml",
+    "EnergyFilter.toml",
+))
+def test_projector_manifests_use_public_reference_engineering_dimensions(
+    manifest_name,
+):
+    path = (
+        Path(__file__).parents[1]
+        / "configs"
+        / "instruments"
+        / "project_and_recording_system"
+        / manifest_name
+    )
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    validate_document(document)
+    assert document["geometry"]["vacuum_liner_wall_thickness_mm"] == (
+        pytest.approx(0.75)
+    )
+    by_key = {part["key"]: part for part in document["parts"]}
+
+    for key, expected in PROJECTOR_RECONSTRUCTION.items():
+        lens = by_key[key]
+        housing = by_key[f"{key}_housing"]
+        yoke = by_key[f"{key}_yoke"]
+        coil = by_key[f"{key}_excitation_coil"]
+        poles = (
+            by_key[f"{key}_upper_pole"],
+            by_key[f"{key}_lower_pole"],
+        )
+
+        assert lens["local_center_z_mm"] == pytest.approx(expected["center"])
+        assert lens["optical_reference_local_z_mm"] == pytest.approx(
+            expected["center"]
+        )
+        assert lens["length_mm"] == pytest.approx(expected["length"])
+        assert lens["local_start_z_mm"] == pytest.approx(
+            expected["center"] - 0.5 * expected["length"]
+        )
+        assert lens["local_end_z_mm"] == pytest.approx(
+            expected["center"] + 0.5 * expected["length"]
+        )
+        assert lens["mechanical_outer_diameter_mm"] == pytest.approx(
+            expected["housing_od"]
+        )
+        assert lens["mechanical_clear_bore_diameter_mm"] == pytest.approx(
+            expected["clear_bore"]
+        )
+        assert lens["pole_gap_mm"] == pytest.approx(expected["pole_gap"])
+        assert lens["mechanical_geometry_status"] == (
+            "engineering_reconstruction_not_oem"
+        )
+        assert "not an OEM production drawing" in (
+            lens["mechanical_geometry_source"]
+        )
+
+        assert housing["mechanical_outer_diameter_mm"] == pytest.approx(
+            expected["housing_od"]
+        )
+        assert yoke["mechanical_outer_diameter_mm"] == pytest.approx(
+            expected["yoke_od"]
+        )
+        assert yoke["mechanical_inner_diameter_mm"] == pytest.approx(
+            expected["yoke_id"]
+        )
+        assert coil["mechanical_inner_diameter_mm"] == pytest.approx(
+            expected["coil_id"]
+        )
+        assert coil["mechanical_outer_diameter_mm"] == pytest.approx(
+            expected["coil_od"]
+        )
+        assert coil["length_mm"] == pytest.approx(expected["coil_length"])
+
+        for pole in poles:
+            assert pole["mechanical_outer_diameter_mm"] == pytest.approx(
+                expected["pole_shoulder_od"]
+            )
+            assert pole["mechanical_bore_diameter_mm"] == pytest.approx(
+                expected["pole_bore"]
+            )
+            assert pole["vacuum_inner_diameter_mm"] == pytest.approx(
+                expected["clear_bore"]
+            )
+            assert pole["pole_nose_axial_length_mm"] == pytest.approx(
+                expected["pole_nose"]
+            )
+            assert pole["pole_cone_angle_to_axis_deg"] == pytest.approx(63.0)
+            assert pole["pole_face_land_axial_thickness_mm"] == pytest.approx(
+                3.0
+            )
+            assert pole["pole_root_fillet_radius_range_mm"] == pytest.approx(
+                (2.0, 4.0)
+            )
 
 
 def test_recording_manifest_rejects_future_projector_lens_overlap():
@@ -181,17 +464,40 @@ def test_recording_manifest_rejects_future_projector_lens_overlap():
         if part["key"] == "intermediate_lens"
     )
     intermediate.update({
-        "local_start_z_mm": 150.0,
-        "local_center_z_mm": 237.5,
-        "local_end_z_mm": 325.0,
-        "optical_reference_local_z_mm": 237.5,
+        "local_start_z_mm": 120.0,
+        "local_center_z_mm": 150.0,
+        "local_end_z_mm": 180.0,
+        "optical_reference_local_z_mm": 150.0,
     })
 
     with pytest.raises(ValueError, match="requires at least 5 mm"):
         validate_document(document)
 
 
-def test_operating_mode_storage_waits_for_confirmed_calibration_values():
+def test_recording_manifest_requires_projector_geometry_provenance():
+    path = (
+        Path(__file__).parents[1]
+        / "configs"
+        / "instruments"
+        / "project_and_recording_system"
+        / "EnergyFilter.toml"
+    )
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    diffraction = next(
+        part
+        for part in document["parts"]
+        if part["key"] == "diffraction_lens"
+    )
+    diffraction.pop("mechanical_geometry_source")
+
+    with pytest.raises(
+        ValueError,
+        match="Missing mechanical_geometry_source for projector lens",
+    ):
+        validate_document(document)
+
+
+def test_operating_mode_storage_contains_calculated_optical_values():
     catalog = load_operating_mode_catalog()
     by_key = {mode.key: mode for mode in catalog.modes}
 
@@ -201,7 +507,39 @@ def test_operating_mode_storage_waits_for_confirmed_calibration_values():
     assert {mode.family for mode in catalog.modes} == {
         "condenser", "projector"
     }
-    assert all(not mode.devices and not mode.apertures for mode in catalog.modes)
+    assert all(mode.devices for mode in catalog.modes)
+    assert all(
+        mode.calibration_status.startswith("calibrated_")
+        for mode in catalog.modes
+    )
+    assert by_key["micro_probe"].targets[
+        "achieved_convergence_sem_angle_mrad"
+    ] < 0.5
+    assert 20.0 <= by_key["nano_probe"].targets[
+        "achieved_convergence_sem_angle_mrad"
+    ] <= 40.0
+    assert by_key["micro_probe"].apertures[
+        "condenser_aperture_2"
+    ]["radius_mm"] == pytest.approx(0.05)
+    assert by_key["nano_probe"].apertures[
+        "condenser_aperture_2"
+    ]["radius_mm"] == pytest.approx(0.10)
+    for mode_key in ("micro_probe", "nano_probe"):
+        assert by_key[mode_key].devices["probe_tl22_lens"][
+            "percent"
+        ] == pytest.approx(60.0)
+        assert by_key[mode_key].devices["probe_tl21_lens"][
+            "percent"
+        ] == pytest.approx(60.0)
+        assert by_key[mode_key].devices["probe_tl12_lens"][
+            "percent"
+        ] == pytest.approx(60.0)
+    assert by_key["imaging"].targets["conjugate_plane"] == (
+        "objective_image_plane"
+    )
+    assert by_key["diffraction"].targets["conjugate_plane"] == (
+        "objective_back_focal_plane"
+    )
     constraint = next(
         item
         for item in catalog.crossover_constraints
@@ -248,6 +586,13 @@ def test_operating_profile_round_trip_uses_toml(tmp_path: Path):
     state.objective_lens.percent = 87.25
     state.objective_lens.cs_mm = 0.85
     state.objective_lens.polarity = -1
+    state.sample.wave_multislice_enabled = False
+    state.sample.wave_slice_thickness_angstrom = 1.25
+    state.sample.wave_atomistic_enabled = True
+    state.sample.wave_frozen_phonon_enabled = True
+    state.sample.wave_frozen_phonon_configurations = 9
+    state.sample.wave_frozen_phonon_sigma_angstrom = 0.072
+    state.sample.wave_frozen_phonon_seed = 12345
     path = tmp_path / "operating-profile.toml"
 
     save_profile(path, state, selection)
@@ -260,6 +605,15 @@ def test_operating_profile_round_trip_uses_toml(tmp_path: Path):
     assert restored.objective_lens.percent == 87.25
     assert restored.objective_lens.cs_mm == 0.85
     assert restored.objective_lens.polarity == -1
+    assert restored.sample.wave_multislice_enabled is False
+    assert restored.sample.wave_slice_thickness_angstrom == pytest.approx(1.25)
+    assert restored.sample.wave_atomistic_enabled is True
+    assert restored.sample.wave_frozen_phonon_enabled is True
+    assert restored.sample.wave_frozen_phonon_configurations == 9
+    assert restored.sample.wave_frozen_phonon_sigma_angstrom == pytest.approx(
+        0.072
+    )
+    assert restored.sample.wave_frozen_phonon_seed == 12345
 
 
 @pytest.mark.parametrize("gun", ("FEG", "FEG + Mono", "Thermionic"))
@@ -296,6 +650,18 @@ def test_profile_assignments_are_transactional_and_domain_checked():
 
     assert state.objective_lens.percent == original_percent
     assert state.step_mm == 0.5
+
+    with pytest.raises(ValueError, match="wave_slice_thickness_angstrom"):
+        apply_profile_values(
+            state,
+            {"sample": {"wave_slice_thickness_angstrom": 0.0}},
+        )
+
+    with pytest.raises(ValueError, match="wave_frozen_phonon_configurations"):
+        apply_profile_values(
+            state,
+            {"sample": {"wave_frozen_phonon_configurations": 65}},
+        )
 
 
 def test_profile_cannot_override_catalog_owned_topology():

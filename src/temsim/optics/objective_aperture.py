@@ -1,4 +1,4 @@
-"""Objective-aperture mechanics and independent hard-edge optical stop."""
+"""Objective-aperture mechanics and its co-located hard-edge stop."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ class ObjectiveApertureDefinition:
             radius_mm=self.default_radius_mm,
             offset_x_mm=0.0,
             offset_y_mm=0.0,
-            enabled=True,
+            enabled=False,
             colour=self.colour,
             mechanical_center_below_sample_mm=(
                 self.mechanical_center_below_sample_mm
@@ -88,7 +88,7 @@ class ObjectiveApertureDefinition:
 
 @dataclass
 class ObjectiveApertureComponent:
-    """Pole-gap cartridge with an independent effective optical plane."""
+    """Pole-gap cartridge whose plate centre is the interaction plane."""
 
     name: str
     key: str
@@ -186,6 +186,20 @@ class ObjectiveApertureComponent:
         if 2.0 * self.maximum_radius_mm > self.mechanical_bore_diameter_mm:
             raise ValueError(
                 "Objective Aperture opening must fit inside its bore."
+            )
+        return self
+
+    def validate_co_located_with_mechanics(self, sample_z_mm):
+        """Reject a virtual stop displaced from the physical aperture plate."""
+
+        expected_z_mm = (
+            float(sample_z_mm)
+            + float(self.mechanical_center_below_sample_mm)
+        )
+        if not np.isclose(self.z_mm, expected_z_mm, atol=1.0e-9, rtol=0.0):
+            raise ValueError(
+                "Objective Aperture optical plane must equal its mechanical "
+                "centre."
             )
         return self
 

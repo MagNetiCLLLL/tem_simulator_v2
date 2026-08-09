@@ -14,6 +14,16 @@ y_angstrom = 5.431
 field_of_view_angstrom = 40.0
 pixels = 256
 
+[atomistic]
+generator = "ase_bulk_surface"
+chemical_symbol = "Si"
+atomic_number = 14
+crystal_structure = "diamond"
+lattice_constant_angstrom = 5.431
+zone_axis = [1, 1, 0]
+thermal_sigma_angstrom = 0.085
+thermal_sigma_reference = "Loane, Xu and Silcox, Acta Cryst. A47 (1991), DOI 10.1107/S0108767391000375; near-room-temperature fitted RMS amplitude 0.085(5) angstrom."
+
 [[columns]]
 x_fraction = 0.000
 y_fraction = 0.000

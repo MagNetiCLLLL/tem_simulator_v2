@@ -1,9 +1,9 @@
 """Parameterized mechanical optical-column layouts.
 
 Coordinates are mechanical drawing coordinates: the sample plane is ``Z = 0``
-and the electron beam travels from positive Z toward negative Z.  These values
-are provisional Titan G2-style mechanical defaults for drawing, collision
-checking and topology work.  They are not electron-optical effective distances.
+and the electron beam travels from positive Z toward negative Z. Selected TOML
+modules own all assembled positions and dimensions; the Python objects below
+provide component behaviour and TOML-derived bootstrap values only.
 """
 
 from dataclasses import dataclass, field, replace
@@ -144,6 +144,8 @@ from temsim.component_keys import (
     IMAGE_CORRECTOR_ADAPTER_LENS,
     IMAGE_CORRECTOR_DP11_DEFLECTOR,
     IMAGE_CORRECTOR_DP12_DEFLECTOR,
+    IMAGE_CORRECTOR_DPH1_DEFLECTOR,
+    IMAGE_CORRECTOR_DPH2_DEFLECTOR,
     IMAGE_CORRECTOR_DP21_DEFLECTOR,
     IMAGE_CORRECTOR_DP22_DEFLECTOR,
     IMAGE_CORRECTOR_DSH_DEFLECTOR,
@@ -157,6 +159,7 @@ from temsim.component_keys import (
     IMAGE_CORRECTOR_QPOL_QUADRUPOLE,
     IMAGE_CORRECTOR_SAD_PLANE,
     IMAGE_CORRECTOR_TL11_LENS,
+    IMAGE_CORRECTOR_TL12_LENS,
     IMAGE_CORRECTOR_TL21_LENS,
     IMAGE_CORRECTOR_TL22_LENS,
     DESCAN_DEFLECTOR,
@@ -317,15 +320,13 @@ class LayoutResult(tuple):
 @dataclass(frozen=True)
 class ObjectiveLayout:
     pole_piece_type: str = "s_twin"
-    inner_face_gap_mm: float = 5.4
+    inner_face_gap_mm: float = OBJECTIVE_LENS_DEFINITION.inner_face_gap_mm
     sample_axial_offset_mm: float = 0.0
     specimen_thickness_mm: float = 0.0001
 
     def __post_init__(self):
-        if not abs(self.inner_face_gap_mm - 5.4) <= 1e-9:
-            raise ValueError(
-                "Objective flat pole-tip separation must be 5.4 mm."
-            )
+        if self.inner_face_gap_mm <= 0.0:
+            raise ValueError("Objective flat pole-tip gap must be positive.")
         if abs(self.sample_axial_offset_mm) >= self.inner_face_gap_mm / 2.0:
             raise ValueError("Sample offset must remain between the objective inner faces.")
         if self.specimen_thickness_mm < 0.0:
@@ -342,7 +343,7 @@ class LayoutConfiguration:
     c3_excited: bool = True
     monochromator_installed: bool = False
     source_relative_column_offset_mm: float = 0.0
-    sample_center_from_source_mm: float = 1149.0
+    sample_center_from_source_mm: float = REFERENCE_SAMPLE_EFFECTIVE_Z_MM
     objective: ObjectiveLayout = field(default_factory=ObjectiveLayout)
     energy_filter_selected: bool = False
     gun_components: tuple = field(
@@ -544,7 +545,7 @@ class LayoutConfiguration:
             != ENERGY_FILTER_ENTRANCE_APERTURE
         ):
             raise ValueError(
-                "The Energy Filter Entrance Aperture has a "
+                "The Iliad Spectrometer Entrance Aperture has a "
                 "non-canonical key."
             )
         if self.objective_lens_component.key != OBJECTIVE_LENS:
@@ -685,7 +686,7 @@ def _image_corrector_specs(
             Branch.IMAGE,
             installed_if=_IMAGE_MODES,
             excitation_enabled=component.enabled,
-            shape_profile=component.shape_profile,
+            shape_profile=definition.shape_profile,
             outer_diameter_mm=(
                 component.mechanical_outer_diameter_mm
             ),
@@ -804,11 +805,14 @@ _IMAGE_CORRECTOR_SEQUENCE = (
     IMAGE_CORRECTOR_DP11_DEFLECTOR,
     IMAGE_CORRECTOR_TL11_LENS,
     IMAGE_CORRECTOR_DP12_DEFLECTOR,
+    IMAGE_CORRECTOR_TL12_LENS,
+    IMAGE_CORRECTOR_DPH1_DEFLECTOR,
     IMAGE_CORRECTOR_HP1_HEXAPOLE,
     IMAGE_CORRECTOR_DP21_DEFLECTOR,
     IMAGE_CORRECTOR_TL21_LENS,
     IMAGE_CORRECTOR_DP22_DEFLECTOR,
     IMAGE_CORRECTOR_TL22_LENS,
+    IMAGE_CORRECTOR_DPH2_DEFLECTOR,
     IMAGE_CORRECTOR_HP2_HEXAPOLE,
     IMAGE_CORRECTOR_ADAPTER_LENS,
     IMAGE_CORRECTOR_ISH_DEFLECTOR,
@@ -1751,7 +1755,8 @@ def _base_specs(configuration):
         ),
         "sample_stage": _LayoutSpec(
             "sample_stage", "Sample Stage / Goniometer", "stage", "objective",
-            0.0, 260.0, external_envelope="650 x 500 mm transverse envelope",
+            0.0, configuration.objective.inner_face_gap_mm,
+            shape_profile="transverse_goniometer",
             nested_parent_key=OBJECTIVE_LENS,
             mechanical_overlap_reason=(
                 "The sample stage crosses the Objective Lens assembly "
@@ -1762,7 +1767,6 @@ def _base_specs(configuration):
             "sample", "Sample", "sample", "objective", 0.0,
             configuration.objective.specimen_thickness_mm,
             shape_profile="specimen_slab",
-            outer_diameter_mm=3.0,
             nested_parent_key="sample_stage",
             mechanical_overlap_reason=(
                 "The specimen is mounted inside the sample stage."
@@ -1890,7 +1894,9 @@ def _base_specs(configuration):
                 .mechanical_center_downstream_of_anchor_mm
             ),
             diffraction_lens_geometry.mechanical_length_mm,
-            external_envelope="D220-280 mm (provisional)",
+            external_envelope=(
+                "Yoke D155-170 mm (engineering reconstruction)"
+            ),
             shape_profile=diffraction_lens.shape_profile,
             outer_diameter_mm=(
                 diffraction_lens_geometry.mechanical_outer_diameter_mm
@@ -1916,7 +1922,9 @@ def _base_specs(configuration):
             intermediate_lens.owner,
             -intermediate_lens_geometry.mechanical_center_below_sample_mm,
             intermediate_lens_geometry.mechanical_length_mm,
-            external_envelope="D240-300 mm (provisional)",
+            external_envelope=(
+                "Yoke D150-165 mm (engineering reconstruction)"
+            ),
             shape_profile=intermediate_lens.shape_profile,
             outer_diameter_mm=(
                 intermediate_lens_geometry.mechanical_outer_diameter_mm
@@ -1940,7 +1948,9 @@ def _base_specs(configuration):
             projector_lens_p1.owner,
             -projector_lens_p1_geometry.mechanical_center_below_sample_mm,
             projector_lens_p1_geometry.mechanical_length_mm,
-            external_envelope="D250-320 mm (provisional)",
+            external_envelope=(
+                "Yoke D150-165 mm (engineering reconstruction)"
+            ),
             shape_profile=projector_lens_p1.shape_profile,
             outer_diameter_mm=(
                 projector_lens_p1_geometry.mechanical_outer_diameter_mm
@@ -1964,7 +1974,9 @@ def _base_specs(configuration):
             projector_lens_p2.owner,
             -projector_lens_p2_geometry.mechanical_center_below_sample_mm,
             projector_lens_p2_geometry.mechanical_length_mm,
-            external_envelope="D260-340 mm (provisional)",
+            external_envelope=(
+                "Yoke D155-175 mm (engineering reconstruction)"
+            ),
             shape_profile=projector_lens_p2.shape_profile,
             outer_diameter_mm=(
                 projector_lens_p2_geometry.mechanical_outer_diameter_mm
@@ -2117,10 +2129,12 @@ def _base_specs(configuration):
             ),
         ),
         "energy_filter": _LayoutSpec(
-            "energy_filter", "GIF / Camera Interface", "branch_interface",
-            "energy_filter", selected_area_downstream_center(1140.0), 500.0,
+            "energy_filter", "Iliad Ultra Spectrometer Branch", "branch_interface",
+            "energy_filter", selected_area_downstream_center(1201.5), 0.0,
             Branch.ENERGY_FILTER,
-            external_envelope="400-800 mm envelope", installed_if=("energy_filter",),
+            external_envelope="folded curvilinear branch",
+            installed_if=("energy_filter",),
+            shape_profile="reference_plane",
         ),
     })
     specs.update(_image_corrector_specs(
@@ -2142,6 +2156,7 @@ def _base_specs(configuration):
         )
         if (
             component.key in specs
+            and component.key != IMAGE_CORRECTOR_TL12_LENS
             and getattr(component, "interaction_kind", "")
             == "axial_magnetic_field"
         )
@@ -2884,11 +2899,14 @@ def resolve_installed_image_corrector_exit_mechanical_axis(
         IMAGE_CORRECTOR_DP11_DEFLECTOR,
         IMAGE_CORRECTOR_TL11_LENS,
         IMAGE_CORRECTOR_DP12_DEFLECTOR,
+        IMAGE_CORRECTOR_TL12_LENS,
+        IMAGE_CORRECTOR_DPH1_DEFLECTOR,
         IMAGE_CORRECTOR_HP1_HEXAPOLE,
         IMAGE_CORRECTOR_DP21_DEFLECTOR,
         IMAGE_CORRECTOR_TL21_LENS,
         IMAGE_CORRECTOR_DP22_DEFLECTOR,
         IMAGE_CORRECTOR_TL22_LENS,
+        IMAGE_CORRECTOR_DPH2_DEFLECTOR,
         IMAGE_CORRECTOR_HP2_HEXAPOLE,
         IMAGE_CORRECTOR_ADAPTER_LENS,
         IMAGE_CORRECTOR_ISH_DEFLECTOR,

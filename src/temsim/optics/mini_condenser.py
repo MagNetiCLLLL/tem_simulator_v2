@@ -78,7 +78,7 @@ class MiniCondenserDefinition:
             enabled=True,
             cs_mm=None,
             cc_mm=None,
-            polarity=1,
+            polarity=int(_INTEGRATED_PART["field_polarity"]),
             normalise_profile_peak=False,
             mechanical_center_from_tip_mm=(
                 integrated.mechanical_center_from_tip_mm

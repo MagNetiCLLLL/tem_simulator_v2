@@ -3,6 +3,11 @@ from __future__ import annotations
 import math
 import numpy as np
 
+from temsim.optics.excitation_policy import (
+    DEFAULT_OPERATING_TARGET_PERCENT,
+    is_saturated_excitation,
+)
+
 E = 1.602176634e-19
 M = 9.1093837015e-31
 C = 299792458.0
@@ -95,15 +100,17 @@ def set_focal_length(lens, voltage_kv, target_focal_mm):
     b0 = abs(float(lens.b0_t))
     required_percent = math.inf if b0 <= 0.0 else 100.0 * required_scale / b0
 
-    if required_percent <= float(lens.max_percent):
+    if (
+        required_percent <= float(lens.max_percent)
+        and not is_saturated_excitation(
+            required_percent, float(lens.max_percent)
+        )
+    ):
         lens.percent = required_percent
         return "percentage"
 
-    current_percent = abs(float(lens.percent))
-    if current_percent <= 1.0e-12:
-        raise ValueError(
-            "The current percentage is zero. Set a non-zero percentage before "
-            "adjusting B0 while preserving the percentage."
-        )
-    lens.b0_t = required_scale * 100.0 / current_percent
+    lens.percent = DEFAULT_OPERATING_TARGET_PERCENT
+    lens.b0_t = (
+        required_scale * 100.0 / DEFAULT_OPERATING_TARGET_PERCENT
+    )
     return "maximum field"

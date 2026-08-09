@@ -506,10 +506,16 @@ class ThermionicGun(FieldEmissionGun):
     def apply_manifest_geometry(self, monochromator_installed=None):
         for component in self.base_components:
             _apply_part_geometry(component, _THERMIONIC_MODULE_PATH)
+        self._resolved_exit_plane_z_mm = module_manifest.port_z_mm(
+            _THERMIONIC_MODULE_PATH, "exit"
+        )
         return self
 
     @property
     def exit_plane_z_mm(self):
+        resolved = getattr(self, "_resolved_exit_plane_z_mm", None)
+        if resolved is not None:
+            return float(resolved)
         return module_manifest.port_z_mm(
             _THERMIONIC_MODULE_PATH, "exit"
         )

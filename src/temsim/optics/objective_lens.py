@@ -12,6 +12,10 @@ from temsim import module_manifest
 from temsim.component_keys import OBJECTIVE_LENS
 from temsim.optics.condenser_lens import AxialFieldTerm
 from temsim.optics.lens_focal_length import electron_momentum
+from temsim.optics.excitation_policy import (
+    DEFAULT_OPERATING_TARGET_PERCENT,
+    is_saturated_excitation,
+)
 
 
 ELECTRON_CHARGE_C = 1.602176634e-19
@@ -356,11 +360,17 @@ class ObjectiveLensComponent:
         required_percent = 100.0 * math.sqrt(
             1.0 / (target_m * coefficient)
         )
-        if required_percent <= self.max_percent:
+        if (
+            required_percent <= self.max_percent
+            and not is_saturated_excitation(
+                required_percent, self.max_percent
+            )
+        ):
             self.percent = required_percent
             return "percentage"
-        ratio = required_percent / max(abs(self.percent), 1e-12)
+        ratio = required_percent / DEFAULT_OPERATING_TARGET_PERCENT
         self.b0_t = self.b0_t * ratio
+        self.percent = DEFAULT_OPERATING_TARGET_PERCENT
         return "maximum field"
 
     def transfer_matrix(
@@ -678,7 +688,7 @@ def _component_from_manifest(
         ),
         cs_mm=float(part["spherical_aberration_mm"]),
         cc_mm=float(part["chromatic_aberration_mm"]),
-        polarity=int(part["polarity"]),
+        polarity=int(part["field_polarity"]),
         corrector="objective",
     ).validate()
 

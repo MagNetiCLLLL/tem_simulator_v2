@@ -54,3 +54,17 @@ def test_wave_imaging_is_disabled_only_for_preview():
 
     assert captured[0].state.sample.wave_enabled is True
     assert captured[1].state.sample.wave_enabled is False
+
+
+def test_high_accuracy_preserves_selected_compute_backend():
+    controller = CalculationController()
+    captured = []
+    controller.pool.start = captured.append
+    state = default_state()
+    state.acceleration_enabled = False
+    state.acceleration_backend = "CPU"
+
+    controller.submit(state, "High accuracy", 25, 5.0)
+
+    assert captured[0].state.acceleration_enabled is False
+    assert captured[0].state.acceleration_backend == "CPU"

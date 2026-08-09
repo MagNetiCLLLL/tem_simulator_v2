@@ -4,6 +4,10 @@ import numpy as np
 import pytest
 
 from temsim.physics.core import electron, propagate
+from temsim.optics.magnetic_lens_aberration import (
+    DEFAULT_CS_TO_FOCAL_LENGTH_RATIO,
+    spherical_aberration_mm,
+)
 
 
 class _RoundLens:
@@ -117,3 +121,11 @@ def test_zero_cs_preserves_the_paraxial_ray_direction():
 
     assert tx[-1, 0] == pytest.approx(2.0e-3)
     assert ty[-1, 0] == pytest.approx(0.0)
+
+
+def test_unspecified_round_lens_cs_uses_positive_physical_estimate():
+    lens = _RoundLens(peak_t=0.0, focal_mm=10.0)
+
+    assert spherical_aberration_mm(lens, 300.0) == pytest.approx(
+        DEFAULT_CS_TO_FOCAL_LENGTH_RATIO * 10.0
+    )

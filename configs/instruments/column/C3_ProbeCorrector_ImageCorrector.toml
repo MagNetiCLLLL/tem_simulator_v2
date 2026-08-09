@@ -49,6 +49,10 @@ effective_aperture_radius_mm = 10.0
 
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Provisional common-column sign convention; physical coil direction is not confirmed by manufacturer service data."
+shared_housing_key = "condenser_c1_c2_shared_housing"
 [[parts]]
 order = 7
 key = "condenser_aperture_2"
@@ -93,6 +97,10 @@ length_mm = 40.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 360.0
 interaction_centers_local_z_mm = [350.0, 370.0]
+mechanical_outer_diameter_mm = 90.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_thickness_mm = 10.0
+mechanical_inter_coil_gap_mm = 20.0
 
 [[parts]]
 order = 14
@@ -112,6 +120,9 @@ optical_reference_local_z_mm = 638.2
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 15
 key = "probe_dph2_deflector"
@@ -162,6 +173,10 @@ optical_reference_local_z_mm = 220.0
 
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Provisional common-column sign convention; physical coil direction is not confirmed by manufacturer service data."
+shared_housing_key = "condenser_c1_c2_shared_housing"
 [[parts]]
 order = 17
 key = "probe_hp2_hexapole"
@@ -195,6 +210,9 @@ optical_reference_local_z_mm = 716.35
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = -1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 19
 key = "probe_dp22_deflector"
@@ -273,6 +291,9 @@ optical_reference_local_z_mm = 799.95
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 24
 key = "probe_dph1_deflector"
@@ -381,6 +402,9 @@ optical_reference_local_z_mm = 916.3
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 32
 key = "objective_lens"
@@ -405,10 +429,10 @@ nominal_focal_length_mm = 2.8
 spherical_aberration_mm = 1.2
 nominal_back_focal_plane_local_z_mm = 1163.4536907227932
 nominal_image_plane_local_z_mm = 1305.316738548523
-nominal_excitation_percent = 43.4655991515515
+nominal_excitation_percent = 30.42591940608605
 maximum_excitation_percent = 100.0
-upper_peak_field_t = 0.619078848303691
-lower_peak_field_t = 0.619078848303691
+upper_peak_field_t = 0.884453999912932
+lower_peak_field_t = 0.884453999912932
 upper_field_half_width_mm = 24.0
 lower_field_half_width_mm = 24.0
 upper_field_profile_amplitudes = [0.09, 0.82, 0.09]
@@ -417,7 +441,6 @@ upper_field_profile_sigmas = [0.9, 0.55, 0.9]
 lower_field_profile_amplitudes = [0.09, 0.82, 0.09]
 lower_field_profile_offsets = [-1.0, 0.0, 1.0]
 lower_field_profile_sigmas = [0.9, 0.55, 0.9]
-polarity = 1
 chromatic_aberration_mm = 2.0
 mechanical_overlap_group = "objective_assembly"
 mechanical_overlap_role = "container"
@@ -425,19 +448,26 @@ mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Len
 
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Provisional common-column sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 33
 key = "sample_stage"
 name = "Sample Stage / Goniometer"
 branch = "common"
-local_start_z_mm = 939.0
+local_start_z_mm = 1146.5
 local_center_z_mm = 1149.2
-local_end_z_mm = 1359.4
-length_mm = 420.4
+local_end_z_mm = 1151.9
+length_mm = 5.4
 vacuum_inner_diameter_mm = 5
+mechanical_profile = "transverse_goniometer"
+transverse_envelope_x_mm = 650.0
+transverse_envelope_y_mm = 500.0
+holder_insertion_axis = "x"
 mechanical_overlap_group = "objective_assembly"
 mechanical_overlap_role = "container"
-mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+mechanical_overlap_reason = "Transverse goniometer crossing the Objective pole gap at the sample plane."
 parent_key = "objective_lens"
 
 [[parts]]
@@ -487,6 +517,10 @@ length_mm = 40.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 590.0
 interaction_centers_local_z_mm = [577.5, 602.5]
+mechanical_outer_diameter_mm = 90.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_thickness_mm = 15.0
+mechanical_inter_coil_gap_mm = 10.0
 
 [[parts]]
 order = 35
@@ -532,6 +566,9 @@ parent_key = "objective_lens"
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = -1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Default STEM effective-field sign; Microprobe mode overrides it in operating_modes/catalog.toml; physical channel sign is not manufacturer-confirmed."
 [[parts]]
 order = 9
 key = "condenser_lens_3"
@@ -552,6 +589,9 @@ optical_reference_local_z_mm = 465.0
 
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Provisional common-column sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 38
 key = "sample"
@@ -563,6 +603,7 @@ local_end_z_mm = 1149.2000500000001
 length_mm = 0.000100000000202
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1149.2
+mechanical_outer_diameter_mm = 3.0
 mechanical_overlap_group = "objective_assembly"
 mechanical_overlap_role = "member"
 mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
@@ -578,7 +619,7 @@ local_center_z_mm = 1150.7
 local_end_z_mm = 1151.7
 length_mm = 2.0
 vacuum_inner_diameter_mm = 5
-optical_reference_local_z_mm = 1163.4536907227932
+optical_reference_local_z_mm = 1150.7
 mechanical_outer_diameter_mm = 80.0
 mechanical_bore_diameter_mm = 2.0
 plate_thickness_mm = 0.2
@@ -668,6 +709,9 @@ pole_gap_mm = 20
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 45
 key = "image_hpol_hexapole"
@@ -679,6 +723,9 @@ local_end_z_mm = 1419.9
 length_mm = 6.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1416.9
+mechanical_outer_diameter_mm = 80.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_length_mm = 6.0
 
 [[parts]]
 order = 46
@@ -691,6 +738,9 @@ local_end_z_mm = 1425.9
 length_mm = 6.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1422.9
+mechanical_outer_diameter_mm = 80.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_length_mm = 6.0
 
 [[parts]]
 order = 47
@@ -703,6 +753,9 @@ local_end_z_mm = 1431.9
 length_mm = 6.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1428.9
+mechanical_outer_diameter_mm = 80.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_thickness_mm = 6.0
 
 [[parts]]
 order = 48
@@ -722,6 +775,9 @@ pole_gap_mm = 20
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = -1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 49
 key = "image_dp12_deflector"
@@ -733,9 +789,55 @@ local_end_z_mm = 1504.4
 length_mm = 15.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1496.9
+mechanical_outer_diameter_mm = 75.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_thickness_mm = 15.0
+mechanical_overlap_group = "image_dp12_tl12_integrated_assembly"
+mechanical_overlap_role = "container"
+mechanical_overlap_reason = "DP12 contains the latest-structure TL12 optical thin-lens channel without moving the existing DP12 centre."
 
 [[parts]]
 order = 50
+key = "image_tl12_lens"
+name = "Image Corrector TL12"
+branch = "image"
+local_start_z_mm = 1496.4
+local_center_z_mm = 1496.9
+local_end_z_mm = 1497.4
+length_mm = 1.0
+vacuum_inner_diameter_mm = 5
+optical_reference_local_z_mm = 1496.9
+mechanical_outer_diameter_mm = 160
+bore_diameter_mm = 13
+pole_gap_mm = 1
+pole_piece_topology = "single_effective_plane"
+mechanical_profile = "integrated_magnetic_lens_channel"
+mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
+mechanical_overlap_group = "image_dp12_tl12_integrated_assembly"
+mechanical_overlap_role = "member"
+mechanical_overlap_reason = "TL12 is an optical thin-lens channel integrated in the existing DP12 module envelope; existing component centres remain unchanged."
+
+[[parts]]
+order = 51
+key = "image_dph1_deflector"
+name = "Image Corrector DPH1 Deflector"
+branch = "image"
+local_start_z_mm = 1511.4
+local_center_z_mm = 1526.4
+local_end_z_mm = 1541.4
+length_mm = 30.0
+vacuum_inner_diameter_mm = 5
+optical_reference_local_z_mm = 1526.4
+mechanical_outer_diameter_mm = 220.0
+mechanical_clear_bore_diameter_mm = 8.0
+effective_thickness_mm = 30.0
+parent_key = "image_hp1_hexapole"
+
+[[parts]]
+order = 52
 key = "image_hp1_hexapole"
 name = "Image Corrector HP1 Hexapole"
 branch = "image"
@@ -745,9 +847,13 @@ local_end_z_mm = 1548.4
 length_mm = 44.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1526.4
+mechanical_outer_diameter_mm = 220.0
+mechanical_clear_bore_diameter_mm = 8.0
+effective_length_mm = 30.0
+active_diameter_mm = 152.0
 
 [[parts]]
-order = 51
+order = 53
 key = "image_dp21_deflector"
 name = "Image Corrector DP21 Deflector"
 branch = "image"
@@ -757,9 +863,12 @@ local_end_z_mm = 1562.4
 length_mm = 14.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1555.4
+mechanical_outer_diameter_mm = 75.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_thickness_mm = 14.0
 
 [[parts]]
-order = 52
+order = 54
 key = "image_tl21_lens"
 name = "Image Corrector TL21"
 branch = "image"
@@ -776,8 +885,11 @@ pole_gap_mm = 20
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
-order = 53
+order = 55
 key = "image_dp22_deflector"
 name = "Image Corrector DP22 Deflector"
 branch = "image"
@@ -787,9 +899,12 @@ local_end_z_mm = 1612.4
 length_mm = 14.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1605.4
+mechanical_outer_diameter_mm = 75.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_thickness_mm = 14.0
 
 [[parts]]
-order = 54
+order = 56
 key = "image_tl22_lens"
 name = "Image Corrector TL22"
 branch = "image"
@@ -806,8 +921,27 @@ pole_gap_mm = 20
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = -1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
-order = 55
+order = 57
+key = "image_dph2_deflector"
+name = "Image Corrector DPH2 Deflector"
+branch = "image"
+local_start_z_mm = 1655.4
+local_center_z_mm = 1670.4
+local_end_z_mm = 1685.4
+length_mm = 30.0
+vacuum_inner_diameter_mm = 5
+optical_reference_local_z_mm = 1670.4
+mechanical_outer_diameter_mm = 220.0
+mechanical_clear_bore_diameter_mm = 8.0
+effective_thickness_mm = 30.0
+parent_key = "image_hp2_hexapole"
+
+[[parts]]
+order = 58
 key = "image_hp2_hexapole"
 name = "Image Corrector HP2 Hexapole"
 branch = "image"
@@ -817,9 +951,13 @@ local_end_z_mm = 1692.4
 length_mm = 44.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1670.4
+mechanical_outer_diameter_mm = 220.0
+mechanical_clear_bore_diameter_mm = 8.0
+effective_length_mm = 30.0
+active_diameter_mm = 152.0
 
 [[parts]]
-order = 56
+order = 59
 key = "image_adapter_lens"
 name = "Image Corrector ADL"
 branch = "image"
@@ -836,8 +974,11 @@ pole_gap_mm = 20
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
-order = 57
+order = 60
 key = "image_ish_deflector"
 name = "Image Corrector ISh Deflector"
 branch = "image"
@@ -847,9 +988,12 @@ local_end_z_mm = 1751.4
 length_mm = 14.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1744.4
+mechanical_outer_diameter_mm = 70.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_thickness_mm = 14.0
 
 [[parts]]
-order = 58
+order = 61
 key = "image_dsh_deflector"
 name = "Image Corrector DSh Deflector"
 branch = "image"
@@ -859,9 +1003,12 @@ local_end_z_mm = 1772.4
 length_mm = 8.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1768.4
+mechanical_outer_diameter_mm = 75.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_thickness_mm = 8.0
 
 [[parts]]
-order = 59
+order = 62
 key = "image_dstg_quadrupole"
 name = "Image Corrector DStg Quadrupole"
 branch = "image"
@@ -871,9 +1018,12 @@ local_end_z_mm = 1780.4
 length_mm = 8.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1776.4
+mechanical_outer_diameter_mm = 75.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_length_mm = 8.0
 
 [[parts]]
-order = 60
+order = 63
 key = "image_sad_plane"
 name = "Image Corrector SAD Plane"
 branch = "image"
@@ -993,7 +1143,7 @@ parent_key = "objective_lens"
 
 mechanical_profile = "magnetic_pole_piece"
 [[parts]]
-order = 61
+order = 64
 key = "mini_condenser_upper_pole"
 name = "Mini Condenser Lens Upper Pole Piece"
 branch = "illumination"
@@ -1012,7 +1162,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the Mini Conde
 parent_key = "mini_condenser"
 
 [[parts]]
-order = 62
+order = 65
 key = "mini_condenser_lower_pole"
 name = "Mini Condenser Lens Lower Pole Piece"
 branch = "illumination"
@@ -1031,7 +1181,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the Mini Conde
 parent_key = "mini_condenser"
 
 [[parts]]
-order = 63
+order = 66
 key = "adapter_lens_upper_pole"
 name = "ADL (Adapter Lens) Upper Pole Piece"
 branch = "illumination"
@@ -1050,7 +1200,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the ADL (Adapt
 parent_key = "adapter_lens"
 
 [[parts]]
-order = 64
+order = 67
 key = "adapter_lens_lower_pole"
 name = "ADL (Adapter Lens) Lower Pole Piece"
 branch = "illumination"
@@ -1069,7 +1219,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the ADL (Adapt
 parent_key = "adapter_lens"
 
 [[parts]]
-order = 65
+order = 68
 key = "probe_tl22_lens_upper_pole"
 name = "TL22 Transfer Lens Upper Pole Piece"
 branch = "illumination"
@@ -1088,7 +1238,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the TL22 Trans
 parent_key = "probe_tl22_lens"
 
 [[parts]]
-order = 66
+order = 69
 key = "probe_tl22_lens_lower_pole"
 name = "TL22 Transfer Lens Lower Pole Piece"
 branch = "illumination"
@@ -1107,7 +1257,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the TL22 Trans
 parent_key = "probe_tl22_lens"
 
 [[parts]]
-order = 67
+order = 70
 key = "probe_tl21_lens_upper_pole"
 name = "TL21 Transfer Lens Upper Pole Piece"
 branch = "illumination"
@@ -1126,7 +1276,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the TL21 Trans
 parent_key = "probe_tl21_lens"
 
 [[parts]]
-order = 68
+order = 71
 key = "probe_tl21_lens_lower_pole"
 name = "TL21 Transfer Lens Lower Pole Piece"
 branch = "illumination"
@@ -1145,7 +1295,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the TL21 Trans
 parent_key = "probe_tl21_lens"
 
 [[parts]]
-order = 69
+order = 72
 key = "probe_tl12_lens_upper_pole"
 name = "TL12 Transfer Lens Upper Pole Piece"
 branch = "illumination"
@@ -1164,7 +1314,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the TL12 Trans
 parent_key = "probe_tl12_lens"
 
 [[parts]]
-order = 70
+order = 73
 key = "probe_tl12_lens_lower_pole"
 name = "TL12 Transfer Lens Lower Pole Piece"
 branch = "illumination"
@@ -1183,7 +1333,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the TL12 Trans
 parent_key = "probe_tl12_lens"
 
 [[parts]]
-order = 71
+order = 74
 key = "image_ol_post_lens_upper_pole"
 name = "Image Corrector OL Post Lens Upper Pole Piece"
 branch = "image"
@@ -1202,7 +1352,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the Image Corr
 parent_key = "image_ol_post_lens"
 
 [[parts]]
-order = 72
+order = 75
 key = "image_ol_post_lens_lower_pole"
 name = "Image Corrector OL Post Lens Lower Pole Piece"
 branch = "image"
@@ -1221,7 +1371,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the Image Corr
 parent_key = "image_ol_post_lens"
 
 [[parts]]
-order = 73
+order = 76
 key = "image_tl11_lens_upper_pole"
 name = "Image Corrector TL11 Upper Pole Piece"
 branch = "image"
@@ -1240,7 +1390,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the Image Corr
 parent_key = "image_tl11_lens"
 
 [[parts]]
-order = 74
+order = 77
 key = "image_tl11_lens_lower_pole"
 name = "Image Corrector TL11 Lower Pole Piece"
 branch = "image"
@@ -1259,7 +1409,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the Image Corr
 parent_key = "image_tl11_lens"
 
 [[parts]]
-order = 75
+order = 78
 key = "image_tl21_lens_upper_pole"
 name = "Image Corrector TL21 Upper Pole Piece"
 branch = "image"
@@ -1278,7 +1428,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the Image Corr
 parent_key = "image_tl21_lens"
 
 [[parts]]
-order = 76
+order = 79
 key = "image_tl21_lens_lower_pole"
 name = "Image Corrector TL21 Lower Pole Piece"
 branch = "image"
@@ -1297,7 +1447,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the Image Corr
 parent_key = "image_tl21_lens"
 
 [[parts]]
-order = 77
+order = 80
 key = "image_tl22_lens_upper_pole"
 name = "Image Corrector TL22 Upper Pole Piece"
 branch = "image"
@@ -1316,7 +1466,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the Image Corr
 parent_key = "image_tl22_lens"
 
 [[parts]]
-order = 78
+order = 81
 key = "image_tl22_lens_lower_pole"
 name = "Image Corrector TL22 Lower Pole Piece"
 branch = "image"
@@ -1335,7 +1485,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the Image Corr
 parent_key = "image_tl22_lens"
 
 [[parts]]
-order = 79
+order = 82
 key = "image_adapter_lens_upper_pole"
 name = "Image Corrector ADL Upper Pole Piece"
 branch = "image"
@@ -1354,7 +1504,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the Image Corr
 parent_key = "image_adapter_lens"
 
 [[parts]]
-order = 80
+order = 83
 key = "image_adapter_lens_lower_pole"
 name = "Image Corrector ADL Lower Pole Piece"
 branch = "image"
@@ -1373,7 +1523,7 @@ mechanical_overlap_reason = "Independent pole piece nested inside the Image Corr
 parent_key = "image_adapter_lens"
 
 [[parts]]
-order = 81
+order = 84
 key = "adapter_lens_housing"
 name = "ADL (Adapter Lens) Housing"
 branch = "illumination"
@@ -1394,7 +1544,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "adapter_lens"
 
 [[parts]]
-order = 82
+order = 85
 key = "adapter_lens_yoke"
 name = "ADL (Adapter Lens) Magnetic Yoke"
 branch = "illumination"
@@ -1415,7 +1565,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "adapter_lens"
 
 [[parts]]
-order = 83
+order = 86
 key = "adapter_lens_excitation_coil"
 name = "ADL (Adapter Lens) Excitation Coil"
 branch = "illumination"
@@ -1437,9 +1587,9 @@ parent_key = "adapter_lens"
 field_source_key = "adapter_lens"
 
 [[parts]]
-order = 84
+order = 87
 key = "condenser_lens_1_housing"
-name = "C1 Lens Housing"
+name = "C1/C2 Shared Housing — C1 Axial Section"
 branch = "common"
 local_start_z_mm = 0
 local_center_z_mm = 70
@@ -1450,15 +1600,17 @@ mechanical_inner_diameter_mm = 211.5
 mechanical_outer_diameter_mm = 225
 mechanical_profile = "magnetic_lens_housing"
 mechanical_part_role = "housing"
+shared_housing_key = "condenser_c1_c2_shared_housing"
+shared_housing_section = "upstream"
 material_class = "non_magnetic_structural"
 mechanical_only = true
 mechanical_overlap_group = "condenser_lens_1_assembly"
 mechanical_overlap_role = "member"
-mechanical_overlap_reason = "Concentric independent mechanical layer inside the C1 Lens assembly."
+mechanical_overlap_reason = "Upstream axial section of the common C1/C2 condenser housing."
 parent_key = "condenser_lens_1"
 
 [[parts]]
-order = 85
+order = 88
 key = "condenser_lens_1_yoke"
 name = "C1 Lens Magnetic Yoke"
 branch = "common"
@@ -1479,7 +1631,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "condenser_lens_1"
 
 [[parts]]
-order = 86
+order = 89
 key = "condenser_lens_1_excitation_coil"
 name = "C1 Lens Excitation Coil"
 branch = "common"
@@ -1501,9 +1653,9 @@ parent_key = "condenser_lens_1"
 field_source_key = "condenser_lens_1"
 
 [[parts]]
-order = 87
+order = 90
 key = "condenser_lens_2_housing"
-name = "C2 Lens Housing"
+name = "C1/C2 Shared Housing — C2 Axial Section"
 branch = "common"
 local_start_z_mm = 140
 local_center_z_mm = 220
@@ -1514,15 +1666,17 @@ mechanical_inner_diameter_mm = 230.3
 mechanical_outer_diameter_mm = 245
 mechanical_profile = "magnetic_lens_housing"
 mechanical_part_role = "housing"
+shared_housing_key = "condenser_c1_c2_shared_housing"
+shared_housing_section = "downstream"
 material_class = "non_magnetic_structural"
 mechanical_only = true
 mechanical_overlap_group = "condenser_lens_2_assembly"
 mechanical_overlap_role = "member"
-mechanical_overlap_reason = "Concentric independent mechanical layer inside the C2 Lens assembly."
+mechanical_overlap_reason = "Downstream axial section of the common C1/C2 condenser housing."
 parent_key = "condenser_lens_2"
 
 [[parts]]
-order = 88
+order = 91
 key = "condenser_lens_2_yoke"
 name = "C2 Lens Magnetic Yoke"
 branch = "common"
@@ -1543,7 +1697,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "condenser_lens_2"
 
 [[parts]]
-order = 89
+order = 92
 key = "condenser_lens_2_excitation_coil"
 name = "C2 Lens Excitation Coil"
 branch = "common"
@@ -1565,7 +1719,7 @@ parent_key = "condenser_lens_2"
 field_source_key = "condenser_lens_2"
 
 [[parts]]
-order = 90
+order = 93
 key = "condenser_lens_3_housing"
 name = "C3 Lens Housing"
 branch = "common"
@@ -1586,7 +1740,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "condenser_lens_3"
 
 [[parts]]
-order = 91
+order = 94
 key = "condenser_lens_3_yoke"
 name = "C3 Lens Magnetic Yoke"
 branch = "common"
@@ -1607,7 +1761,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "condenser_lens_3"
 
 [[parts]]
-order = 92
+order = 95
 key = "condenser_lens_3_excitation_coil"
 name = "C3 Lens Excitation Coil"
 branch = "common"
@@ -1629,7 +1783,7 @@ parent_key = "condenser_lens_3"
 field_source_key = "condenser_lens_3"
 
 [[parts]]
-order = 93
+order = 96
 key = "image_adapter_lens_housing"
 name = "Image Corrector ADL Housing"
 branch = "image"
@@ -1650,7 +1804,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "image_adapter_lens"
 
 [[parts]]
-order = 94
+order = 97
 key = "image_adapter_lens_yoke"
 name = "Image Corrector ADL Magnetic Yoke"
 branch = "image"
@@ -1671,7 +1825,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "image_adapter_lens"
 
 [[parts]]
-order = 95
+order = 98
 key = "image_adapter_lens_excitation_coil"
 name = "Image Corrector ADL Excitation Coil"
 branch = "image"
@@ -1693,7 +1847,7 @@ parent_key = "image_adapter_lens"
 field_source_key = "image_adapter_lens"
 
 [[parts]]
-order = 96
+order = 99
 key = "image_ol_post_lens_housing"
 name = "Image Corrector OL Post Lens Housing"
 branch = "image"
@@ -1714,7 +1868,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "image_ol_post_lens"
 
 [[parts]]
-order = 97
+order = 100
 key = "image_ol_post_lens_yoke"
 name = "Image Corrector OL Post Lens Magnetic Yoke"
 branch = "image"
@@ -1735,7 +1889,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "image_ol_post_lens"
 
 [[parts]]
-order = 98
+order = 101
 key = "image_ol_post_lens_excitation_coil"
 name = "Image Corrector OL Post Lens Excitation Coil"
 branch = "image"
@@ -1757,7 +1911,7 @@ parent_key = "image_ol_post_lens"
 field_source_key = "image_ol_post_lens"
 
 [[parts]]
-order = 99
+order = 102
 key = "image_tl11_lens_housing"
 name = "Image Corrector TL11 Housing"
 branch = "image"
@@ -1778,7 +1932,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "image_tl11_lens"
 
 [[parts]]
-order = 100
+order = 103
 key = "image_tl11_lens_yoke"
 name = "Image Corrector TL11 Magnetic Yoke"
 branch = "image"
@@ -1799,7 +1953,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "image_tl11_lens"
 
 [[parts]]
-order = 101
+order = 104
 key = "image_tl11_lens_excitation_coil"
 name = "Image Corrector TL11 Excitation Coil"
 branch = "image"
@@ -1821,7 +1975,7 @@ parent_key = "image_tl11_lens"
 field_source_key = "image_tl11_lens"
 
 [[parts]]
-order = 102
+order = 105
 key = "image_tl21_lens_housing"
 name = "Image Corrector TL21 Housing"
 branch = "image"
@@ -1842,7 +1996,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "image_tl21_lens"
 
 [[parts]]
-order = 103
+order = 106
 key = "image_tl21_lens_yoke"
 name = "Image Corrector TL21 Magnetic Yoke"
 branch = "image"
@@ -1863,7 +2017,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "image_tl21_lens"
 
 [[parts]]
-order = 104
+order = 107
 key = "image_tl21_lens_excitation_coil"
 name = "Image Corrector TL21 Excitation Coil"
 branch = "image"
@@ -1885,7 +2039,7 @@ parent_key = "image_tl21_lens"
 field_source_key = "image_tl21_lens"
 
 [[parts]]
-order = 105
+order = 108
 key = "image_tl22_lens_housing"
 name = "Image Corrector TL22 Housing"
 branch = "image"
@@ -1906,7 +2060,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "image_tl22_lens"
 
 [[parts]]
-order = 106
+order = 109
 key = "image_tl22_lens_yoke"
 name = "Image Corrector TL22 Magnetic Yoke"
 branch = "image"
@@ -1927,7 +2081,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "image_tl22_lens"
 
 [[parts]]
-order = 107
+order = 110
 key = "image_tl22_lens_excitation_coil"
 name = "Image Corrector TL22 Excitation Coil"
 branch = "image"
@@ -1949,7 +2103,7 @@ parent_key = "image_tl22_lens"
 field_source_key = "image_tl22_lens"
 
 [[parts]]
-order = 108
+order = 111
 key = "mini_condenser_housing"
 name = "Mini Condenser Lens Housing"
 branch = "illumination"
@@ -1970,7 +2124,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "mini_condenser"
 
 [[parts]]
-order = 109
+order = 112
 key = "mini_condenser_yoke"
 name = "Mini Condenser Lens Magnetic Yoke"
 branch = "illumination"
@@ -1991,7 +2145,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "mini_condenser"
 
 [[parts]]
-order = 110
+order = 113
 key = "mini_condenser_excitation_coil"
 name = "Mini Condenser Lens Excitation Coil"
 branch = "illumination"
@@ -2013,7 +2167,7 @@ parent_key = "mini_condenser"
 field_source_key = "mini_condenser"
 
 [[parts]]
-order = 111
+order = 114
 key = "objective_lens_housing"
 name = "Objective Lens Housing"
 branch = "common"
@@ -2034,7 +2188,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "objective_lens"
 
 [[parts]]
-order = 112
+order = 115
 key = "objective_lens_yoke"
 name = "Objective Lens Magnetic Yoke"
 branch = "common"
@@ -2055,7 +2209,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "objective_lens"
 
 [[parts]]
-order = 113
+order = 116
 key = "objective_lens_excitation_coil"
 name = "Objective Lens Excitation Coil"
 branch = "common"
@@ -2077,7 +2231,7 @@ parent_key = "objective_lens"
 field_source_key = "objective_lens"
 
 [[parts]]
-order = 114
+order = 117
 key = "probe_tl12_lens_housing"
 name = "TL12 Transfer Lens Housing"
 branch = "illumination"
@@ -2098,7 +2252,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "probe_tl12_lens"
 
 [[parts]]
-order = 115
+order = 118
 key = "probe_tl12_lens_yoke"
 name = "TL12 Transfer Lens Magnetic Yoke"
 branch = "illumination"
@@ -2119,7 +2273,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "probe_tl12_lens"
 
 [[parts]]
-order = 116
+order = 119
 key = "probe_tl12_lens_excitation_coil"
 name = "TL12 Transfer Lens Excitation Coil"
 branch = "illumination"
@@ -2141,7 +2295,7 @@ parent_key = "probe_tl12_lens"
 field_source_key = "probe_tl12_lens"
 
 [[parts]]
-order = 117
+order = 120
 key = "probe_tl21_lens_housing"
 name = "TL21 Transfer Lens Housing"
 branch = "illumination"
@@ -2162,7 +2316,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "probe_tl21_lens"
 
 [[parts]]
-order = 118
+order = 121
 key = "probe_tl21_lens_yoke"
 name = "TL21 Transfer Lens Magnetic Yoke"
 branch = "illumination"
@@ -2183,7 +2337,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "probe_tl21_lens"
 
 [[parts]]
-order = 119
+order = 122
 key = "probe_tl21_lens_excitation_coil"
 name = "TL21 Transfer Lens Excitation Coil"
 branch = "illumination"
@@ -2205,7 +2359,7 @@ parent_key = "probe_tl21_lens"
 field_source_key = "probe_tl21_lens"
 
 [[parts]]
-order = 120
+order = 123
 key = "probe_tl22_lens_housing"
 name = "TL22 Transfer Lens Housing"
 branch = "illumination"
@@ -2226,7 +2380,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "probe_tl22_lens"
 
 [[parts]]
-order = 121
+order = 124
 key = "probe_tl22_lens_yoke"
 name = "TL22 Transfer Lens Magnetic Yoke"
 branch = "illumination"
@@ -2247,7 +2401,7 @@ mechanical_overlap_reason = "Concentric independent mechanical layer inside the 
 parent_key = "probe_tl22_lens"
 
 [[parts]]
-order = 122
+order = 125
 key = "probe_tl22_lens_excitation_coil"
 name = "TL22 Transfer Lens Excitation Coil"
 branch = "illumination"

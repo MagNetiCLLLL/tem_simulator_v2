@@ -10,6 +10,7 @@ import numpy as np
 from temsim.component_keys import (
     ENERGY_FILTER_ENTRANCE_M12,
     ENERGY_FILTER_EXIT_M12,
+    ENERGY_FILTER_MULTIPOLE_KEYS,
 )
 from temsim.optics.twelve_pole_element import (
     LocalCoordinateFrame,
@@ -29,6 +30,37 @@ from temsim.physics.relativistic_lorentz import (
 MINIMUM_MATCH_VOLTAGE_KV = 30.0
 MAXIMUM_MATCH_VOLTAGE_KV = 300.0
 DEFAULT_REFERENCE_VOLTAGE_KV = 300.0
+ILIAD_REFERENCE_RADIUS_M = 2.0e-3
+# Solved reference fields at 300 kV.  Values are the field amplitude at
+# ILIAD_REFERENCE_RADIUS_M, rather than raw SI coefficients, so the preset is
+# easy to audit and remains numerically well-scaled.  The geometry is a
+# documented reference calibration based on the public tapered-prism/ten-
+# multipole topology; it is not claimed to reproduce proprietary factory
+# excitation tables.
+ILIAD_REFERENCE_QUADRUPOLE_FIELD_T = (
+    -7.00701380e-3,
+    -7.28743610e-4,
+    4.36144547e-3,
+    -4.67007982e-4,
+    -1.22447848e-3,
+    5.12576293e-7,
+    6.78299991e-3,
+    -6.89927e-3,
+    5.49052e-3,
+    -8.36259e-3,
+)
+ILIAD_REFERENCE_SEXTUPOLE_FIELD_T = (
+    -4.38361777e-4,
+    8.60942288e-4,
+    2.83908043e-4,
+    5.34073905e-5,
+    -2.73658563e-4,
+    6.60512471e-4,
+    4.79346486e-4,
+    0.0,
+    0.0,
+    0.0,
+)
 
 
 def magnetic_rigidity_t_m(voltage_kv):
@@ -156,9 +188,15 @@ class M12VoltageCalibration:
 
 @dataclass
 class EnergyFilterM12Component(TwelvePoleElement):
-    """One Energy Filter M12 with its own voltage calibration."""
+    """One independently powered 12-pole carrier in the Energy Filter.
+
+    ``field_backend.length_m`` is the magnetic support length used by the
+    solver. ``housing_length_m`` is a separate mechanical envelope used only
+    by layout views and collision checks; it must never create extra field.
+    """
 
     role: str = "entrance"
+    housing_length_m: float = 22.0e-3
     calibration: M12VoltageCalibration = field(
         default_factory=lambda: M12VoltageCalibration(
             "unassigned_m12"
@@ -167,13 +205,21 @@ class EnergyFilterM12Component(TwelvePoleElement):
 
     def __post_init__(self):
         super().__post_init__()
-        if self.role not in {"entrance", "exit"}:
-            raise ValueError("M12 role must be 'entrance' or 'exit'.")
-        expected_key = (
-            ENERGY_FILTER_ENTRANCE_M12
-            if self.role == "entrance"
-            else ENERGY_FILTER_EXIT_M12
-        )
+        expected_by_role = {
+            "entrance": ENERGY_FILTER_ENTRANCE_M12,
+            "exit": ENERGY_FILTER_EXIT_M12,
+            **{
+                f"m{index:02d}": key
+                for index, key in enumerate(
+                    ENERGY_FILTER_MULTIPOLE_KEYS, start=1
+                )
+            },
+        }
+        expected_key = expected_by_role.get(self.role)
+        if expected_key is None:
+            raise ValueError(
+                "M12 role must be entrance, exit, or m01 through m10."
+            )
         if self.key != expected_key:
             raise ValueError(
                 f"{self.name} key does not match its {self.role} role."
@@ -187,6 +233,15 @@ class EnergyFilterM12Component(TwelvePoleElement):
             raise TypeError(
                 "Energy Filter M12 requires M12VoltageCalibration."
             )
+        housing_length = float(self.housing_length_m)
+        if not math.isfinite(housing_length):
+            raise ValueError("Energy Filter M12 housing length must be finite.")
+        if housing_length < self.length_m:
+            raise ValueError(
+                "Energy Filter M12 housing length cannot be shorter than "
+                "its magnetic support length."
+            )
+        self.housing_length_m = housing_length
 
     @property
     def multipole_field(self):
@@ -205,15 +260,7 @@ class EnergyFilterM12Component(TwelvePoleElement):
         return scale
 
 
-def _create_m12(role, reference_voltage_kv):
-    if role == "entrance":
-        key = ENERGY_FILTER_ENTRANCE_M12
-        name = "Entrance M12"
-    elif role == "exit":
-        key = ENERGY_FILTER_EXIT_M12
-        name = "Exit M12"
-    else:
-        raise ValueError("M12 role must be 'entrance' or 'exit'.")
+def _create_multipole(key, name, role, reference_voltage_kv):
     reference_voltage = float(reference_voltage_kv)
     magnetic_rigidity_t_m(reference_voltage)
     return EnergyFilterM12Component(
@@ -233,10 +280,25 @@ def _create_m12(role, reference_voltage_kv):
         pole_zero_angle_rad=0.0,
         enabled=True,
         role=role,
+        housing_length_m=22.0e-3,
         calibration=M12VoltageCalibration(
             calibration_id=f"{key}_calibration",
             reference_voltage_kv=reference_voltage,
         ),
+    )
+
+
+def _create_m12(role, reference_voltage_kv):
+    if role == "entrance":
+        key = ENERGY_FILTER_ENTRANCE_M12
+        name = "Entrance M12"
+    elif role == "exit":
+        key = ENERGY_FILTER_EXIT_M12
+        name = "Exit M12"
+    else:
+        raise ValueError("M12 role must be 'entrance' or 'exit'.")
+    return _create_multipole(
+        key, name, role, reference_voltage_kv
     )
 
 
@@ -250,6 +312,39 @@ def create_exit_m12(
     reference_voltage_kv=DEFAULT_REFERENCE_VOLTAGE_KV,
 ):
     return _create_m12("exit", reference_voltage_kv)
+
+
+def create_iliad_multipoles(
+    reference_voltage_kv=DEFAULT_REFERENCE_VOLTAGE_KV,
+):
+    """Create ten independent carriers matching the public Iliad topology."""
+
+    multipoles = [
+        _create_multipole(
+            key,
+            f"Iliad Multipole {index:02d} (model index)",
+            f"m{index:02d}",
+            reference_voltage_kv,
+        )
+        for index, key in enumerate(ENERGY_FILTER_MULTIPOLE_KEYS, start=1)
+    ]
+    for element, quadrupole_t, sextupole_t in zip(
+        multipoles,
+        ILIAD_REFERENCE_QUADRUPOLE_FIELD_T,
+        ILIAD_REFERENCE_SEXTUPOLE_FIELD_T,
+    ):
+        reference_normal = np.zeros(MultipoleField.ORDER_COUNT)
+        reference_normal[1] = (
+            quadrupole_t / ILIAD_REFERENCE_RADIUS_M
+        )
+        reference_normal[2] = (
+            sextupole_t / ILIAD_REFERENCE_RADIUS_M**2
+        )
+        element.calibration.reference_normal_coefficients = (
+            reference_normal
+        )
+        element.apply_voltage_match(reference_voltage_kv)
+    return multipoles
 
 
 def serialise_energy_filter_m12(component):
@@ -356,6 +451,87 @@ def energy_filter_m12_from_dict(values, role, reference_voltage_kv):
                     reference_voltage_kv,
                 )
             ),
+            reference_normal_coefficients=calibration_values.get(
+                "reference_normal_coefficients",
+                np.zeros(MultipoleField.ORDER_COUNT),
+            ),
+            reference_skew_coefficients=calibration_values.get(
+                "reference_skew_coefficients",
+                np.zeros(MultipoleField.ORDER_COUNT),
+            ),
+            normal_trim_coefficients=calibration_values.get(
+                "normal_trim_coefficients",
+                np.zeros(MultipoleField.ORDER_COUNT),
+            ),
+            skew_trim_coefficients=calibration_values.get(
+                "skew_trim_coefficients",
+                np.zeros(MultipoleField.ORDER_COUNT),
+            ),
+        ),
+    )
+
+
+def energy_filter_multipole_from_dict(
+    values, index, reference_voltage_kv
+):
+    """Restore one of the ten Iliad carriers without legacy key migration."""
+
+    index = int(index)
+    if not 1 <= index <= len(ENERGY_FILTER_MULTIPOLE_KEYS):
+        raise ValueError("Energy Filter multipole index must be 1 through 10.")
+    key = ENERGY_FILTER_MULTIPOLE_KEYS[index - 1]
+    role = f"m{index:02d}"
+    defaults = _create_multipole(
+        key,
+        f"Iliad Multipole {index:02d} (model index)",
+        role,
+        reference_voltage_kv,
+    )
+    if not isinstance(values, dict):
+        return defaults
+    field_values = values.get("field", {})
+    calibration_values = values.get("calibration", {})
+    return EnergyFilterM12Component(
+        name=str(values.get("name", defaults.name)),
+        key=key,
+        field_backend=FiniteMultipoleField(
+            MultipoleField(
+                normal=field_values.get(
+                    "normal_coefficients",
+                    defaults.multipole_field.normal_coefficients,
+                ),
+                skew=field_values.get(
+                    "skew_coefficients",
+                    defaults.multipole_field.skew_coefficients,
+                ),
+            ),
+            SoftEdgeEnvelope(
+                length_m=defaults.field_backend.envelope.length_m,
+                entrance_soft_edge_m=(
+                    defaults.field_backend.envelope.entrance_soft_edge_m
+                ),
+                exit_soft_edge_m=(
+                    defaults.field_backend.envelope.exit_soft_edge_m
+                ),
+            ),
+            fringe_expansion_order=int(field_values.get(
+                "fringe_expansion_order",
+                defaults.field_backend.fringe_expansion_order,
+            )),
+        ),
+        frame=LocalCoordinateFrame(),
+        bore_radius_m=float(defaults.bore_radius_m),
+        outer_radius_m=float(defaults.outer_radius_m),
+        pole_zero_angle_rad=float(defaults.pole_zero_angle_rad),
+        enabled=bool(values.get("enabled", defaults.enabled)),
+        role=role,
+        calibration=M12VoltageCalibration(
+            calibration_id=str(calibration_values.get(
+                "calibration_id", f"{key}_calibration"
+            )),
+            reference_voltage_kv=float(calibration_values.get(
+                "reference_voltage_kv", reference_voltage_kv
+            )),
             reference_normal_coefficients=calibration_values.get(
                 "reference_normal_coefficients",
                 np.zeros(MultipoleField.ORDER_COUNT),

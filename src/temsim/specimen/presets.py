@@ -27,6 +27,20 @@ class SpecimenColumn:
 
 
 @dataclass(frozen=True)
+class AtomisticCrystal:
+    """TOML-owned equilibrium crystal and thermal-displacement metadata."""
+
+    generator: str
+    chemical_symbol: str
+    atomic_number: int
+    crystal_structure: str
+    lattice_constant_angstrom: float
+    zone_axis: tuple[int, int, int]
+    thermal_sigma_angstrom: float
+    thermal_sigma_reference: str
+
+
+@dataclass(frozen=True)
 class SpecimenPreset:
     key: str
     name: str
@@ -38,6 +52,7 @@ class SpecimenPreset:
     field_of_view_angstrom: float
     pixels: int
     columns: tuple[SpecimenColumn, ...]
+    atomistic: AtomisticCrystal | None
     source_path: Path
 
 
@@ -96,6 +111,26 @@ def load_specimen_preset(key: str) -> SpecimenPreset:
         data = tomllib.load(stream)
     cell = data.get("unit_cell", {})
     grid = data.get("grid", {})
+    atomistic_data = data.get("atomistic")
+    atomistic = None
+    if atomistic_data is not None:
+        zone_axis = tuple(int(value) for value in atomistic_data["zone_axis"])
+        atomistic = AtomisticCrystal(
+            generator=str(atomistic_data["generator"]),
+            chemical_symbol=str(atomistic_data["chemical_symbol"]),
+            atomic_number=int(atomistic_data["atomic_number"]),
+            crystal_structure=str(atomistic_data["crystal_structure"]),
+            lattice_constant_angstrom=float(
+                atomistic_data["lattice_constant_angstrom"]
+            ),
+            zone_axis=zone_axis,
+            thermal_sigma_angstrom=float(
+                atomistic_data.get("thermal_sigma_angstrom", 0.0)
+            ),
+            thermal_sigma_reference=str(
+                atomistic_data.get("thermal_sigma_reference", "")
+            ),
+        )
     columns = tuple(
         SpecimenColumn(
             x_fraction=float(item["x_fraction"]),
@@ -120,6 +155,7 @@ def load_specimen_preset(key: str) -> SpecimenPreset:
         field_of_view_angstrom=float(grid["field_of_view_angstrom"]),
         pixels=int(grid["pixels"]),
         columns=columns,
+        atomistic=atomistic,
         source_path=path,
     )
     if preset.reference_thickness_nm <= 0.0:
@@ -128,6 +164,27 @@ def load_specimen_preset(key: str) -> SpecimenPreset:
         raise ValueError(f"{path}: unit-cell dimensions must be positive.")
     if preset.field_of_view_angstrom <= 0.0 or preset.pixels < 32:
         raise ValueError(f"{path}: wave grid is invalid.")
+    if preset.atomistic is not None:
+        crystal = preset.atomistic
+        if crystal.generator != "ase_bulk_surface":
+            raise ValueError(f"{path}: unsupported atomistic generator.")
+        if not crystal.chemical_symbol.strip():
+            raise ValueError(f"{path}: atomistic chemical symbol is empty.")
+        if not 1 <= crystal.atomic_number <= 118:
+            raise ValueError(f"{path}: atomistic atomic number is invalid.")
+        if crystal.lattice_constant_angstrom <= 0.0:
+            raise ValueError(f"{path}: atomistic lattice constant must be positive.")
+        if len(crystal.zone_axis) != 3 or not any(crystal.zone_axis):
+            raise ValueError(f"{path}: atomistic zone axis must be a nonzero triplet.")
+        if crystal.thermal_sigma_angstrom < 0.0:
+            raise ValueError(f"{path}: thermal sigma cannot be negative.")
+        if (
+            crystal.thermal_sigma_angstrom > 0.0
+            and not crystal.thermal_sigma_reference.strip()
+        ):
+            raise ValueError(
+                f"{path}: a nonzero thermal sigma requires a source reference."
+            )
     for column in preset.columns:
         if not (0.0 <= column.x_fraction < 1.0):
             raise ValueError(f"{path}: column x_fraction must be in [0, 1).")

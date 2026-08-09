@@ -49,6 +49,10 @@ effective_aperture_radius_mm = 10.0
 
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Provisional common-column sign convention; physical coil direction is not confirmed by manufacturer service data."
+shared_housing_key = "condenser_c1_c2_shared_housing"
 [[parts]]
 order = 7
 key = "condenser_aperture_2"
@@ -93,6 +97,10 @@ length_mm = 40.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 360.0
 interaction_centers_local_z_mm = [350.0, 370.0]
+mechanical_outer_diameter_mm = 90.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_thickness_mm = 10.0
+mechanical_inter_coil_gap_mm = 20.0
 
 [[parts]]
 order = 14
@@ -112,6 +120,9 @@ optical_reference_local_z_mm = 638.2
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 15
 key = "probe_dph2_deflector"
@@ -162,6 +173,10 @@ optical_reference_local_z_mm = 220.0
 
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Provisional common-column sign convention; physical coil direction is not confirmed by manufacturer service data."
+shared_housing_key = "condenser_c1_c2_shared_housing"
 [[parts]]
 order = 17
 key = "probe_hp2_hexapole"
@@ -195,6 +210,9 @@ optical_reference_local_z_mm = 716.35
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = -1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 19
 key = "probe_dp22_deflector"
@@ -273,6 +291,9 @@ optical_reference_local_z_mm = 799.95
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 24
 key = "probe_dph1_deflector"
@@ -381,6 +402,9 @@ optical_reference_local_z_mm = 916.3
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Existing coupled-corrector sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 32
 key = "objective_lens"
@@ -405,10 +429,10 @@ nominal_focal_length_mm = 2.8
 spherical_aberration_mm = 1.2
 nominal_back_focal_plane_local_z_mm = 1163.4536907227932
 nominal_image_plane_local_z_mm = 1305.316738548523
-nominal_excitation_percent = 43.4655991515515
+nominal_excitation_percent = 30.42591940608605
 maximum_excitation_percent = 100.0
-upper_peak_field_t = 0.619078848303691
-lower_peak_field_t = 0.619078848303691
+upper_peak_field_t = 0.884453999912932
+lower_peak_field_t = 0.884453999912932
 upper_field_half_width_mm = 24.0
 lower_field_half_width_mm = 24.0
 upper_field_profile_amplitudes = [0.09, 0.82, 0.09]
@@ -417,7 +441,6 @@ upper_field_profile_sigmas = [0.9, 0.55, 0.9]
 lower_field_profile_amplitudes = [0.09, 0.82, 0.09]
 lower_field_profile_offsets = [-1.0, 0.0, 1.0]
 lower_field_profile_sigmas = [0.9, 0.55, 0.9]
-polarity = 1
 chromatic_aberration_mm = 2.0
 mechanical_overlap_group = "objective_assembly"
 mechanical_overlap_role = "container"
@@ -425,19 +448,26 @@ mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Len
 
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Provisional common-column sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 33
 key = "sample_stage"
 name = "Sample Stage / Goniometer"
 branch = "common"
-local_start_z_mm = 939.0
+local_start_z_mm = 1146.5
 local_center_z_mm = 1149.2
-local_end_z_mm = 1359.4
-length_mm = 420.4
+local_end_z_mm = 1151.9
+length_mm = 5.4
 vacuum_inner_diameter_mm = 5
+mechanical_profile = "transverse_goniometer"
+transverse_envelope_x_mm = 650.0
+transverse_envelope_y_mm = 500.0
+holder_insertion_axis = "x"
 mechanical_overlap_group = "objective_assembly"
 mechanical_overlap_role = "container"
-mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
+mechanical_overlap_reason = "Transverse goniometer crossing the Objective pole gap at the sample plane."
 parent_key = "objective_lens"
 
 [[parts]]
@@ -487,6 +517,10 @@ length_mm = 40.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 590.0
 interaction_centers_local_z_mm = [577.5, 602.5]
+mechanical_outer_diameter_mm = 90.0
+mechanical_clear_bore_diameter_mm = 20.0
+effective_thickness_mm = 15.0
+mechanical_inter_coil_gap_mm = 10.0
 
 [[parts]]
 order = 35
@@ -532,6 +566,9 @@ parent_key = "objective_lens"
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = -1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Default STEM effective-field sign; Microprobe mode overrides it in operating_modes/catalog.toml; physical channel sign is not manufacturer-confirmed."
 [[parts]]
 order = 9
 key = "condenser_lens_3"
@@ -552,6 +589,9 @@ optical_reference_local_z_mm = 465.0
 
 mechanical_profile = "magnetic_lens_assembly"
 mechanical_part_role = "optical_parent"
+field_polarity = 1
+field_polarity_status = "provisional_model_assumption"
+field_polarity_source = "Provisional common-column sign convention; physical coil direction is not confirmed by manufacturer service data."
 [[parts]]
 order = 38
 key = "sample"
@@ -563,6 +603,7 @@ local_end_z_mm = 1149.2000500000001
 length_mm = 0.000100000000202
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1149.2
+mechanical_outer_diameter_mm = 3.0
 mechanical_overlap_group = "objective_assembly"
 mechanical_overlap_role = "member"
 mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
@@ -578,7 +619,7 @@ local_center_z_mm = 1150.7
 local_end_z_mm = 1151.7
 length_mm = 2.0
 vacuum_inner_diameter_mm = 5
-optical_reference_local_z_mm = 1163.4536907227932
+optical_reference_local_z_mm = 1150.7
 mechanical_outer_diameter_mm = 80.0
 mechanical_bore_diameter_mm = 2.0
 plate_thickness_mm = 0.2
@@ -1015,7 +1056,7 @@ field_source_key = "adapter_lens"
 [[parts]]
 order = 57
 key = "condenser_lens_1_housing"
-name = "C1 Lens Housing"
+name = "C1/C2 Shared Housing — C1 Axial Section"
 branch = "common"
 local_start_z_mm = 0
 local_center_z_mm = 70
@@ -1026,11 +1067,13 @@ mechanical_inner_diameter_mm = 211.5
 mechanical_outer_diameter_mm = 225
 mechanical_profile = "magnetic_lens_housing"
 mechanical_part_role = "housing"
+shared_housing_key = "condenser_c1_c2_shared_housing"
+shared_housing_section = "upstream"
 material_class = "non_magnetic_structural"
 mechanical_only = true
 mechanical_overlap_group = "condenser_lens_1_assembly"
 mechanical_overlap_role = "member"
-mechanical_overlap_reason = "Concentric independent mechanical layer inside the C1 Lens assembly."
+mechanical_overlap_reason = "Upstream axial section of the common C1/C2 condenser housing."
 parent_key = "condenser_lens_1"
 
 [[parts]]
@@ -1079,7 +1122,7 @@ field_source_key = "condenser_lens_1"
 [[parts]]
 order = 60
 key = "condenser_lens_2_housing"
-name = "C2 Lens Housing"
+name = "C1/C2 Shared Housing — C2 Axial Section"
 branch = "common"
 local_start_z_mm = 140
 local_center_z_mm = 220
@@ -1090,11 +1133,13 @@ mechanical_inner_diameter_mm = 230.3
 mechanical_outer_diameter_mm = 245
 mechanical_profile = "magnetic_lens_housing"
 mechanical_part_role = "housing"
+shared_housing_key = "condenser_c1_c2_shared_housing"
+shared_housing_section = "downstream"
 material_class = "non_magnetic_structural"
 mechanical_only = true
 mechanical_overlap_group = "condenser_lens_2_assembly"
 mechanical_overlap_role = "member"
-mechanical_overlap_reason = "Concentric independent mechanical layer inside the C2 Lens assembly."
+mechanical_overlap_reason = "Downstream axial section of the common C1/C2 condenser housing."
 parent_key = "condenser_lens_2"
 
 [[parts]]

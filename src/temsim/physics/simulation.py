@@ -10,9 +10,14 @@ import numpy as np, math
 
 from temsim.physics.chromatic import objective_chromatic_kick
 
-from temsim.physics.core import propagate,transfer,electron
+from temsim.physics.core import propagate,electron
+from temsim.physics.first_order import (
+    linear_map_properties,
+    trace_transverse_transfer,
+)
 
 from temsim.physics.beam_waist import detect_beam_waist
+from temsim.physics.beam_statistics import branch_sample_statistics
 
 
 from temsim.physics.corrector_crossovers import detect_corrector_crossovers
@@ -32,7 +37,7 @@ class Branch:
 
 class Simulation:
 
-    incident:Branch; branches:dict; metrics:dict; gun_waist:dict|None=None; c2c3_crossover:dict|None=None; corrector_crossovers:list|None=None; gun_trace:object|None=None
+    incident:Branch; branches:dict; metrics:dict; gun_waist:dict|None=None; c2c3_crossover:dict|None=None; corrector_crossovers:list|None=None; gun_trace:object|None=None; sample_to_analysis_transfer:object|None=None; optical_transfers:tuple=()
 
 
 def _legacy_clip_unused(s,z,X,Y):
@@ -182,17 +187,113 @@ def run(s, *, resolved_layout=None):
 
         branches[name]=Branch(name,COLOURS[name],zp,XP,YP,TP,TYP,al,bl,ks,w,dE,emitted.weight)
 
-    post=transfer(s,s.sample.z_mm,determine_tem_stop_z(s));half=s.camera.width_mm/2;M=post[0,0];B=post[0,1]
+    recording_stop_z=determine_tem_stop_z(s)
+    sample_transfer=trace_transverse_transfer(
+        s,s.sample.z_mm,recording_stop_z
+    )
+    image_properties=linear_map_properties(sample_transfer.j_img)
+    diffraction_properties=linear_map_properties(
+        sample_transfer.j_diff_m_per_rad
+    )
+    half=s.camera.width_mm/2
 
     if s.projector_mode=='image':
 
-        metrics={'mode':'image','magnification':abs(M),'object_full_m':s.camera.width_mm*1e-3/max(abs(M),1e-15),'relay_error':abs(B)}
+        plane_name='objective_image_plane'
+        plane_z=s.objective_image_plane_z_mm
+        plane_map=(
+            trace_transverse_transfer(s,plane_z,recording_stop_z)
+            if plane_z is not None else None
+        )
+        relay_error=(
+            float(np.linalg.norm(plane_map.j_diff_m_per_rad,ord=2))
+            if plane_map is not None else math.inf
+        )
+        plane_magnification=(
+            linear_map_properties(plane_map.j_img).isotropic_scale
+            if plane_map is not None else 0.0
+        )
+        magnification=max(image_properties.isotropic_scale,1e-15)
+        metrics={'mode':'image','magnification':magnification,'object_full_m':s.camera.width_mm*1e-3/magnification,'relay_error':relay_error,'conjugate_plane':plane_name,'conjugate_plane_z_mm':plane_z,'conjugate_plane_magnification':plane_magnification}
 
     else:
 
-        L=max(abs(B),1e-15);mrad_half=half/L;metrics={'mode':'diffraction','effective_camera_length_m':L,'mrad_half':mrad_half,'g_half_inv_nm':mrad_half*1e-3/lam,'relay_error':abs(post[0,0])}
+        plane_name='objective_back_focal_plane'
+        plane_z=s.objective_back_focal_plane_z_mm
+        plane_map=(
+            trace_transverse_transfer(s,plane_z,recording_stop_z)
+            if plane_z is not None else None
+        )
+        relay_error=(
+            float(np.linalg.norm(plane_map.j_diff_m_per_rad,ord=2))
+            if plane_map is not None else math.inf
+        )
+        plane_magnification=(
+            linear_map_properties(plane_map.j_img).isotropic_scale
+            if plane_map is not None else 0.0
+        )
+        L=max(diffraction_properties.isotropic_scale,1e-15);mrad_half=half/L;metrics={'mode':'diffraction','effective_camera_length_m':L,'mrad_half':mrad_half,'g_half_inv_nm':mrad_half*1e-3/lam,'relay_error':relay_error,'conjugate_plane':plane_name,'conjugate_plane_z_mm':plane_z,'conjugate_plane_magnification':plane_magnification}
 
-    metrics.update({'lambda_nm':lam,'theta_g_mrad':theta*1e3,'diffraction_weight':weight})
+    # A mechanically valid trace may still lose every ray before the sample
+    # (for example a deliberately coarse diagnostic trace through a small
+    # aperture).  Keep that simulation result inspectable while making the
+    # user-level beam observables explicitly unavailable.  Invalid weights on
+    # surviving rays are still rejected by ``branch_sample_statistics``.
+    sample_beam = (
+        branch_sample_statistics(incident)
+        if np.any(np.asarray(incident.alive, dtype=bool))
+        else None
+    )
+    metrics.update({
+        'lambda_nm':lam,
+        'theta_g_mrad':theta*1e3,
+        'diffraction_weight':weight,
+        'transfer_coordinate_order':('x','y','theta_x','theta_y'),
+        'transfer_analysis_plane_z_mm':recording_stop_z,
+        'j_img':sample_transfer.j_img.tolist(),
+        'j_diff_m_per_rad':sample_transfer.j_diff_m_per_rad.tolist(),
+        'image_rotation_deg':image_properties.orientation_deg,
+        'diffraction_rotation_deg':diffraction_properties.orientation_deg,
+        'image_handedness':(
+            'mirrored' if image_properties.mirrored else 'preserved'
+        ),
+        'diffraction_handedness':(
+            'mirrored' if diffraction_properties.mirrored else 'preserved'
+        ),
+        'image_anisotropy_ratio':image_properties.anisotropy_ratio,
+        'diffraction_anisotropy_ratio':(
+            diffraction_properties.anisotropy_ratio
+        ),
+        'image_conjugacy_residual_m_per_rad':float(
+            np.linalg.norm(sample_transfer.j_diff_m_per_rad,ord=2)
+        ),
+        'diffraction_conjugacy_residual':float(
+            np.linalg.norm(sample_transfer.j_img,ord=2)
+        ),
+        'sample_convergence_95_mrad':(
+            sample_beam.convergence_95_mrad
+            if sample_beam is not None else math.nan
+        ),
+        'sample_convergence_99_mrad':(
+            sample_beam.convergence_99_mrad
+            if sample_beam is not None else math.nan
+        ),
+        'sample_illumination_diameter_95_um':(
+            sample_beam.illumination_diameter_95_um
+            if sample_beam is not None else math.nan
+        ),
+        'sample_wavefront_curvature_per_m':(
+            sample_beam.radial_wavefront_curvature_per_m
+            if sample_beam is not None else math.nan
+        ),
+        'sample_waist_offset_mm':(
+            sample_beam.waist_offset_m * 1.0e3
+            if sample_beam is not None else math.nan
+        ),
+        'sample_beam_surviving_rays':(
+            sample_beam.surviving_rays if sample_beam is not None else 0
+        ),
+    })
 
     crossovers=detect_corrector_crossovers(incident,getattr(s,"corrector_crossover_targets_mm",[810.0,853.0,963.0]))
 
@@ -215,10 +316,13 @@ def run(s, *, resolved_layout=None):
             "C2-C3 intermediate image crossover",
             stop_z_mm=condenser_lens_3.z_mm)
 
+    from temsim.diagnostics import optical_transfer_records
     result=Simulation(
         incident=incident, branches=branches, metrics=metrics, gun_waist=gun_waist,
         c2c3_crossover=c2c3, corrector_crossovers=crossovers,
         gun_trace=gun_trace,
+        sample_to_analysis_transfer=sample_transfer,
+        optical_transfers=optical_transfer_records(s),
     )
 
     return result

@@ -259,6 +259,85 @@ def _apply_part_geometry(component, module_path):
     return component
 
 
+def _apply_resolved_part_geometry(component, part):
+    """Apply one already-resolved assembly part without reopening a TOML."""
+
+    data = part.data
+    local_shift_mm = (
+        float(part.center_z_mm) - float(data["local_center_z_mm"])
+    )
+
+    def absolute(local_value):
+        return float(local_value) + local_shift_mm
+
+    if hasattr(component, "name"):
+        try:
+            object.__setattr__(component, "name", str(part.name))
+        except (AttributeError, TypeError):
+            pass
+    component.mechanical_center_from_tip_mm = float(part.center_z_mm)
+    component.mechanical_length_mm = float(part.length_mm)
+    if (
+        "optical_reference_local_z_mm" in data
+        and hasattr(component, "optical_reference_from_tip_mm")
+    ):
+        descriptor = getattr(
+            type(component), "optical_reference_from_tip_mm", None
+        )
+        if not (
+            isinstance(descriptor, property)
+            and descriptor.fset is None
+        ):
+            component.optical_reference_from_tip_mm = absolute(
+                data["optical_reference_local_z_mm"]
+            )
+    component.mechanical_outer_diameter_mm = float(
+        data["outer_diameter_mm"]
+    )
+    if hasattr(component, "mechanical_clear_bore_diameter_mm"):
+        component.mechanical_clear_bore_diameter_mm = float(
+            data["bore_diameter_mm"]
+        )
+    if hasattr(component, "mechanical_bore_diameter_mm"):
+        component.mechanical_bore_diameter_mm = float(
+            data["bore_diameter_mm"]
+        )
+    if isinstance(component, AcceleratorColumn):
+        centers = [
+            absolute(value) for value in data["stage_centers_z_mm"]
+        ]
+        if len(centers) != len(component.stages):
+            raise ValueError(
+                "Resolved accelerator TOML stage count changed; "
+                "restart the state to rebuild its physics records."
+            )
+        for stage, center in zip(component.stages, centers):
+            stage.center_from_tip_mm = center
+    elif isinstance(component, GunAperture):
+        component.plate_thickness_mm = float(data["active_length_mm"])
+    elif isinstance(component, GunDeflector):
+        centers = [
+            absolute(value)
+            for value in data["interaction_centers_local_z_mm"]
+        ]
+        if len(centers) != 2:
+            raise ValueError(
+                "Resolved gun deflector requires two interaction centres."
+            )
+        component.upper_center_from_tip_mm = centers[0]
+        component.lower_center_from_tip_mm = centers[1]
+        component.coil_length_mm = float(data["active_length_mm"])
+    elif isinstance(component, GunStigmator):
+        component.effective_length_mm = float(data["active_length_mm"])
+    elif component.key == FEG_MONOCHROMATOR_WIEN:
+        component.active_length_mm = float(data["active_length_mm"])
+
+    component._manifest_source_file = str(part.source_file)
+    component._manifest_part_key = str(part.key)
+    component._manifest_definition_id = str(part.definition_id)
+    return component
+
+
 def _component_payload(component):
     payload = asdict(component)
     if component.key in _TOML_GEOMETRY_COMPONENT_KEYS:
@@ -355,6 +434,26 @@ class FieldEmissionGun:
             _apply_part_geometry(component, module_path)
         if installed:
             _apply_part_geometry(self.monochromator.wien, module_path)
+        self._resolved_exit_plane_z_mm = module_manifest.port_z_mm(
+            module_path, "exit"
+        )
+        return self
+
+    def apply_resolved_manifest_geometry(
+        self, parts, *, exit_plane_z_mm
+    ):
+        """Accept the selected assembly as the sole runtime geometry source."""
+
+        for component in self.components:
+            try:
+                part = parts[component.key]
+            except KeyError as exc:
+                raise ValueError(
+                    "Selected gun assembly is missing runtime component "
+                    f"{component.key!r}"
+                ) from exc
+            _apply_resolved_part_geometry(component, part)
+        self._resolved_exit_plane_z_mm = float(exit_plane_z_mm)
         return self
 
     @property
@@ -445,6 +544,9 @@ class FieldEmissionGun:
 
     @property
     def exit_plane_z_mm(self):
+        resolved = getattr(self, "_resolved_exit_plane_z_mm", None)
+        if resolved is not None:
+            return float(resolved)
         module_path = (
             "gun/FEG_Mono.toml"
             if self.monochromator_installed

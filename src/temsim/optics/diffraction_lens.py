@@ -7,6 +7,7 @@ from typing import ClassVar
 
 import numpy as np
 
+from temsim import module_manifest
 from temsim.component_keys import (
     DIFFRACTION_LENS,
     SELECTED_AREA_APERTURE,
@@ -24,6 +25,10 @@ from temsim.optics.selected_area_downstream import downstream_offset_mm
 
 STANDALONE_INSTALLATION = "standalone"
 IMAGE_CORRECTED_INSTALLATION = "image_corrected"
+_DEFAULT_MANIFEST_PART = module_manifest.part_data(
+    "project_and_recording_system/EnergyFilter.toml",
+    DIFFRACTION_LENS,
+)
 
 
 @dataclass(frozen=True)
@@ -59,12 +64,15 @@ class DiffractionLensDefinition:
         .image_corrected_mechanical_center_below_sample_mm
         + downstream_offset_mm(DIFFRACTION_LENS)
     )
-    mechanical_length_mm: float = 155.0
-    # The legacy drawing specifies only a D220-280 mm envelope. Until a
-    # verified drawing is available, 250 mm is an explicit editable midpoint.
-    mechanical_outer_diameter_mm: float = 250.0
-    mechanical_clear_bore_diameter_mm: float = 20.0
-    pole_gap_mm: float = 20.0
+    # Mechanical defaults come from the authoritative recording-system TOML.
+    mechanical_length_mm: float = float(_DEFAULT_MANIFEST_PART["length_mm"])
+    mechanical_outer_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_outer_diameter_mm"]
+    )
+    mechanical_clear_bore_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_clear_bore_diameter_mm"]
+    )
+    pole_gap_mm: float = float(_DEFAULT_MANIFEST_PART["pole_gap_mm"])
     standalone_optical_reference_z_mm: float = (
         SELECTED_AREA_APERTURE_DEFINITION
         .standalone_optical_reference_z_mm
@@ -138,7 +146,7 @@ class DiffractionLensDefinition:
             enabled=True,
             cs_mm=None,
             cc_mm=None,
-            polarity=1,
+            polarity=int(_DEFAULT_MANIFEST_PART["field_polarity"]),
             normalise_profile_peak=False,
             anchor_key=self.anchor_key,
             mechanical_center_downstream_of_anchor_mm=(
@@ -191,10 +199,14 @@ class DiffractionLensComponent(Lens):
         .image_corrected_mechanical_center_below_sample_mm
         + downstream_offset_mm(DIFFRACTION_LENS)
     )
-    mechanical_length_mm: float = 155.0
-    mechanical_outer_diameter_mm: float = 250.0
-    mechanical_clear_bore_diameter_mm: float = 20.0
-    pole_gap_mm: float = 20.0
+    mechanical_length_mm: float = float(_DEFAULT_MANIFEST_PART["length_mm"])
+    mechanical_outer_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_outer_diameter_mm"]
+    )
+    mechanical_clear_bore_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_clear_bore_diameter_mm"]
+    )
+    pole_gap_mm: float = float(_DEFAULT_MANIFEST_PART["pole_gap_mm"])
     standalone_optical_reference_z_mm: float = (
         SELECTED_AREA_APERTURE_DEFINITION
         .standalone_optical_reference_z_mm

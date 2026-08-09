@@ -155,7 +155,7 @@ def _default_column_absolute(part, local_key):
 
 CONDENSER_LENS_1_DEFINITION = CondenserLensDefinition(
     key=CONDENSER_LENS_1,
-    label="C1 Lens",
+    label=str(_C1_MANIFEST["name"]),
     mechanical_center_from_tip_mm=_default_c1_absolute(
         "local_center_z_mm"
     ),
@@ -173,6 +173,7 @@ CONDENSER_LENS_1_DEFINITION = CondenserLensDefinition(
     default_excitation_percent=90.0,
     maximum_excitation_percent=100.0,
     colour="#1565c0",
+    polarity=int(_C1_MANIFEST["field_polarity"]),
     effective_aperture_radius_mm=float(
         _C1_MANIFEST["effective_aperture_radius_mm"]
     ),
@@ -181,35 +182,44 @@ CONDENSER_LENS_1_DEFINITION = CondenserLensDefinition(
 
 CONDENSER_LENS_2_DEFINITION = CondenserLensDefinition(
     key=CONDENSER_LENS_2,
-    label="C2 Lens",
+    label=str(_C2_MANIFEST["name"]),
     mechanical_center_from_tip_mm=_default_column_absolute(
         _C2_MANIFEST, "local_center_z_mm"
     ),
     mechanical_length_mm=float(_C2_MANIFEST["length_mm"]),
-    mechanical_outer_diameter_mm=245.0,
-    bore_diameter_mm=20.0,
-    pole_gap_mm=20.0,
+    mechanical_outer_diameter_mm=float(
+        _C2_MANIFEST["mechanical_outer_diameter_mm"]
+    ),
+    bore_diameter_mm=float(_C2_MANIFEST["bore_diameter_mm"]),
+    pole_gap_mm=float(_C2_MANIFEST["pole_gap_mm"]),
     optical_reference_from_tip_mm=_default_column_absolute(
         _C2_MANIFEST, "optical_reference_local_z_mm"
     ),
-    maximum_peak_field_t=0.726,
+    # The calibrated microprobe solution previously occupied 100%.  Rebase
+    # the rating so the same 0.726 T field is produced at 70% with headroom.
+    maximum_peak_field_t=1.0371428571428571,
     field_scale_half_width_mm=10.0,
-    default_excitation_percent=50.0,
+    default_excitation_percent=35.0,
     maximum_excitation_percent=100.0,
     colour="#1976d2",
-    effective_aperture_radius_mm=10.0,
+    polarity=int(_C2_MANIFEST["field_polarity"]),
+    effective_aperture_radius_mm=(
+        0.5 * float(_C2_MANIFEST["bore_diameter_mm"])
+    ),
 )
 
 CONDENSER_LENS_3_DEFINITION = CondenserLensDefinition(
     key=CONDENSER_LENS_3,
-    label="C3 Lens",
+    label=str(_C3_MANIFEST["name"]),
     mechanical_center_from_tip_mm=_default_column_absolute(
         _C3_MANIFEST, "local_center_z_mm"
     ),
     mechanical_length_mm=float(_C3_MANIFEST["length_mm"]),
-    mechanical_outer_diameter_mm=270.0,
-    bore_diameter_mm=18.0,
-    pole_gap_mm=18.0,
+    mechanical_outer_diameter_mm=float(
+        _C3_MANIFEST["mechanical_outer_diameter_mm"]
+    ),
+    bore_diameter_mm=float(_C3_MANIFEST["bore_diameter_mm"]),
+    pole_gap_mm=float(_C3_MANIFEST["pole_gap_mm"]),
     optical_reference_from_tip_mm=_default_column_absolute(
         _C3_MANIFEST, "optical_reference_local_z_mm"
     ),
@@ -218,7 +228,10 @@ CONDENSER_LENS_3_DEFINITION = CondenserLensDefinition(
     default_excitation_percent=55.0,
     maximum_excitation_percent=100.0,
     colour="#0288d1",
-    effective_aperture_radius_mm=9.0,
+    polarity=int(_C3_MANIFEST["field_polarity"]),
+    effective_aperture_radius_mm=(
+        0.5 * float(_C3_MANIFEST["bore_diameter_mm"])
+    ),
 )
 
 CONDENSER_LENS_DEFINITIONS = (

@@ -1,4 +1,4 @@
-"""Explicit joint tuning of the independent Entrance and Exit M12 units."""
+"""Explicit joint tuning of the seven pre-slit Iliad multipoles."""
 
 from __future__ import annotations
 
@@ -105,7 +105,7 @@ def optimize_energy_filter_m12(
     maximum_field_at_reference_t=0.02,
     max_function_evaluations=12,
 ):
-    """Jointly tune both M12s; called only by an explicit user action."""
+    """Jointly tune M01-M07; called only by an explicit user action."""
 
     ensure_energy_filter(state)
     energy_filter = state.energy_filter
@@ -132,10 +132,7 @@ def optimize_energy_filter_m12(
         or bound_t <= 0.0
     ):
         raise ValueError("Optimizer radius and field bound must be positive.")
-    elements = (
-        energy_filter.entrance_m12,
-        energy_filter.exit_m12,
-    )
+    elements = tuple(energy_filter.multipoles[:7])
     initial = _coefficient_parameters(
         elements,
         orders,
@@ -245,7 +242,7 @@ def optimize_energy_filter_m12(
         message=(
             str(solution.message)
             if accepted
-            else "No improving M12 solution was applied."
+            else "No improving multipole solution was applied."
         ),
         function_evaluations=int(solution.nfev),
         optimized_orders=orders,

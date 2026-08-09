@@ -59,11 +59,14 @@ IMAGE_CORRECTOR_QPOL_QUADRUPOLE = "image_qpol_quadrupole"
 IMAGE_CORRECTOR_DP11_DEFLECTOR = "image_dp11_deflector"
 IMAGE_CORRECTOR_TL11_LENS = "image_tl11_lens"
 IMAGE_CORRECTOR_DP12_DEFLECTOR = "image_dp12_deflector"
+IMAGE_CORRECTOR_TL12_LENS = "image_tl12_lens"
+IMAGE_CORRECTOR_DPH1_DEFLECTOR = "image_dph1_deflector"
 IMAGE_CORRECTOR_HP1_HEXAPOLE = "image_hp1_hexapole"
 IMAGE_CORRECTOR_DP21_DEFLECTOR = "image_dp21_deflector"
 IMAGE_CORRECTOR_TL21_LENS = "image_tl21_lens"
 IMAGE_CORRECTOR_DP22_DEFLECTOR = "image_dp22_deflector"
 IMAGE_CORRECTOR_TL22_LENS = "image_tl22_lens"
+IMAGE_CORRECTOR_DPH2_DEFLECTOR = "image_dph2_deflector"
 IMAGE_CORRECTOR_HP2_HEXAPOLE = "image_hp2_hexapole"
 IMAGE_CORRECTOR_ADAPTER_LENS = "image_adapter_lens"
 IMAGE_CORRECTOR_ISH_DEFLECTOR = "image_ish_deflector"
@@ -74,6 +77,7 @@ IMAGE_CORRECTOR_SAD_PLANE = "image_sad_plane"
 IMAGE_CORRECTOR_LENS_KEYS = (
     IMAGE_CORRECTOR_OL_POST_LENS,
     IMAGE_CORRECTOR_TL11_LENS,
+    IMAGE_CORRECTOR_TL12_LENS,
     IMAGE_CORRECTOR_TL21_LENS,
     IMAGE_CORRECTOR_TL22_LENS,
     IMAGE_CORRECTOR_ADAPTER_LENS,
@@ -84,9 +88,11 @@ IMAGE_CORRECTOR_ELEMENT_KEYS = (
     IMAGE_CORRECTOR_QPOL_QUADRUPOLE,
     IMAGE_CORRECTOR_DP11_DEFLECTOR,
     IMAGE_CORRECTOR_DP12_DEFLECTOR,
+    IMAGE_CORRECTOR_DPH1_DEFLECTOR,
     IMAGE_CORRECTOR_HP1_HEXAPOLE,
     IMAGE_CORRECTOR_DP21_DEFLECTOR,
     IMAGE_CORRECTOR_DP22_DEFLECTOR,
+    IMAGE_CORRECTOR_DPH2_DEFLECTOR,
     IMAGE_CORRECTOR_HP2_HEXAPOLE,
     IMAGE_CORRECTOR_ISH_DEFLECTOR,
     IMAGE_CORRECTOR_DSH_DEFLECTOR,
@@ -101,11 +107,14 @@ IMAGE_CORRECTOR_KEYS = (
     IMAGE_CORRECTOR_DP11_DEFLECTOR,
     IMAGE_CORRECTOR_TL11_LENS,
     IMAGE_CORRECTOR_DP12_DEFLECTOR,
+    IMAGE_CORRECTOR_TL12_LENS,
+    IMAGE_CORRECTOR_DPH1_DEFLECTOR,
     IMAGE_CORRECTOR_HP1_HEXAPOLE,
     IMAGE_CORRECTOR_DP21_DEFLECTOR,
     IMAGE_CORRECTOR_TL21_LENS,
     IMAGE_CORRECTOR_DP22_DEFLECTOR,
     IMAGE_CORRECTOR_TL22_LENS,
+    IMAGE_CORRECTOR_DPH2_DEFLECTOR,
     IMAGE_CORRECTOR_HP2_HEXAPOLE,
     IMAGE_CORRECTOR_ADAPTER_LENS,
     IMAGE_CORRECTOR_ISH_DEFLECTOR,
@@ -130,8 +139,9 @@ FEG_DEFLECTOR = "feg_deflector"
 FEG_STIGMATOR = "feg_stigmator"
 C1_APERTURE = "feg_c1_aperture"
 FEG_MONOCHROMATOR_WIEN = "feg_monochromator_wien"
-# Legacy input identifier only. The FEI slit is now the alternate operating
-# mode of the canonical C1 aperture mechanism and has no runtime/layout row.
+# The slit is the alternate optical mode of the canonical C1 aperture
+# mechanism.  It also has a co-located mechanical-only manifest row so the
+# distinct blade carrier is visible without introducing a second stop plane.
 FEG_MONOCHROMATOR_SLIT = "feg_monochromator_slit"
 FEG_MONOCHROMATOR_COMPONENT_KEYS = (
     FEG_MONOCHROMATOR_WIEN,
@@ -160,7 +170,31 @@ SELECTED_AREA_APERTURE = "selected_area_aperture"
 ENERGY_FILTER_ENTRANCE_APERTURE = "energy_filter_entrance_aperture"
 ENERGY_FILTER_ENTRANCE_M12 = "energy_filter_entrance_m12"
 ENERGY_FILTER_EXIT_M12 = "energy_filter_exit_m12"
+ENERGY_FILTER_TAPERED_PRISM = "energy_filter_tapered_prism"
 ENERGY_FILTER_SLIT = "energy_filter_slit"
+ENERGY_FILTER_MULTIPOLE_KEYS = tuple(
+    f"energy_filter_multipole_{index:02d}" for index in range(1, 11)
+)
+ENERGY_FILTER_DYNAMIC_FOCUS_QUADRUPOLE = (
+    "energy_filter_dynamic_focus_electrostatic_quadrupole"
+)
+ENERGY_FILTER_BIAS_TUBE = "energy_filter_bias_tube"
+ENERGY_FILTER_SHUTTER = "energy_filter_shutter"
+ENERGY_FILTER_CAMERA_DEFLECTOR = "energy_filter_camera_deflector"
+ENERGY_FILTER_EFTEM_OUTPUT_PLANE = "energy_filter_eftem_output_plane"
+ENERGY_FILTER_ZEBRA = "energy_filter_zebra"
+ENERGY_FILTER_INTERNAL_KEYS = (
+    ENERGY_FILTER_ENTRANCE_APERTURE,
+    ENERGY_FILTER_TAPERED_PRISM,
+    *ENERGY_FILTER_MULTIPOLE_KEYS,
+    ENERGY_FILTER_SLIT,
+    ENERGY_FILTER_DYNAMIC_FOCUS_QUADRUPOLE,
+    ENERGY_FILTER_BIAS_TUBE,
+    ENERGY_FILTER_SHUTTER,
+    ENERGY_FILTER_CAMERA_DEFLECTOR,
+    ENERGY_FILTER_EFTEM_OUTPUT_PLANE,
+    ENERGY_FILTER_ZEBRA,
+)
 
 CONDENSER_APERTURE_KEYS = (
     CONDENSER_APERTURE_2,
@@ -210,7 +244,7 @@ STEM_DETECTOR_KEYS = (
 )
 # Retain the established persisted identifier while the Objective Stigmator
 # gains a canonical owned runtime component.
-OBJECTIVE_STIGMATOR = "obj_stig"
+OBJECTIVE_STIGMATOR = "objective_stigmator"
 IMAGE_DIFFRACTION_DEFLECTOR = "image_diffraction_deflector"
 DESCAN_DEFLECTOR = "descan_deflector"
 OBJECTIVE_LENS = "objective_lens"
@@ -245,6 +279,7 @@ _LEGACY_LENS_KEYS = {
     "p2": PROJECTOR_LENS_2,
     "ic_ol_post": IMAGE_CORRECTOR_OL_POST_LENS,
     "ic_tl11": IMAGE_CORRECTOR_TL11_LENS,
+    "ic_tl12": IMAGE_CORRECTOR_TL12_LENS,
     "ic_tl21": IMAGE_CORRECTOR_TL21_LENS,
     "ic_tl22": IMAGE_CORRECTOR_TL22_LENS,
     "ic_adl": IMAGE_CORRECTOR_ADAPTER_LENS,
@@ -293,9 +328,11 @@ _LEGACY_CORRECTOR_ELEMENT_KEYS = {
     "ac": AC_DEFLECTOR,
     "descan": DESCAN_DEFLECTOR,
     "ic_dp12": IMAGE_CORRECTOR_DP12_DEFLECTOR,
+    "ic_dph1": IMAGE_CORRECTOR_DPH1_DEFLECTOR,
     "ic_hp1": IMAGE_CORRECTOR_HP1_HEXAPOLE,
     "ic_dp21": IMAGE_CORRECTOR_DP21_DEFLECTOR,
     "ic_dp22": IMAGE_CORRECTOR_DP22_DEFLECTOR,
+    "ic_dph2": IMAGE_CORRECTOR_DPH2_DEFLECTOR,
     "ic_hp2": IMAGE_CORRECTOR_HP2_HEXAPOLE,
     "ic_ish": IMAGE_CORRECTOR_ISH_DEFLECTOR,
     "ic_sad_plane": IMAGE_CORRECTOR_SAD_PLANE,

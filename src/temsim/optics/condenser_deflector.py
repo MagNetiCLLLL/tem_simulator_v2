@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
+from temsim import module_manifest
 from temsim.component_keys import (
     CONDENSER_DEFLECTOR,
     canonical_deflector_key,
@@ -12,6 +13,22 @@ from temsim.component_keys import (
 from temsim.optics.paired_deflector import (
     PairedDeflectorComponent,
     restore_paired_deflector,
+)
+
+
+_DEFAULT_COLUMN_MODULE = "column/C3_ProbeCorrector.toml"
+_DEFAULT_MANIFEST_PART = module_manifest.part_data(
+    _DEFAULT_COLUMN_MODULE, CONDENSER_DEFLECTOR
+)
+_DEFAULT_COLUMN_ORIGIN_Z_MM = (
+    module_manifest.port_z_mm("gun/FEG.toml", "exit")
+    - module_manifest.port_z_mm(_DEFAULT_COLUMN_MODULE, "entrance")
+)
+_DEFAULT_INTERACTION_CENTERS_MM = tuple(
+    _DEFAULT_COLUMN_ORIGIN_Z_MM + float(value)
+    for value in _DEFAULT_MANIFEST_PART[
+        "interaction_centers_local_z_mm"
+    ]
 )
 
 
@@ -74,14 +91,27 @@ class CondenserDeflectorComponent(PairedDeflectorComponent):
 
 CONDENSER_DEFLECTOR_DEFINITION = CondenserDeflectorDefinition(
     key=CONDENSER_DEFLECTOR,
-    label="Condenser Deflector",
-    mechanical_center_from_tip_mm=1034.0,
-    mechanical_length_mm=40.0,
-    mechanical_outer_diameter_mm=90.0,
-    mechanical_clear_bore_diameter_mm=20.0,
-    optical_upper_reference_from_tip_mm=610.0,
-    optical_lower_reference_from_tip_mm=630.0,
-    effective_coil_thickness_mm=10.0,
+    label=str(_DEFAULT_MANIFEST_PART["name"]),
+    mechanical_center_from_tip_mm=(
+        _DEFAULT_COLUMN_ORIGIN_Z_MM
+        + float(_DEFAULT_MANIFEST_PART["local_center_z_mm"])
+    ),
+    mechanical_length_mm=float(_DEFAULT_MANIFEST_PART["length_mm"]),
+    mechanical_outer_diameter_mm=float(
+        _DEFAULT_MANIFEST_PART["mechanical_outer_diameter_mm"]
+    ),
+    mechanical_clear_bore_diameter_mm=float(
+        _DEFAULT_MANIFEST_PART["mechanical_clear_bore_diameter_mm"]
+    ),
+    optical_upper_reference_from_tip_mm=(
+        _DEFAULT_INTERACTION_CENTERS_MM[0]
+    ),
+    optical_lower_reference_from_tip_mm=(
+        _DEFAULT_INTERACTION_CENTERS_MM[1]
+    ),
+    effective_coil_thickness_mm=float(
+        _DEFAULT_MANIFEST_PART["effective_thickness_mm"]
+    ),
     maximum_kick_mrad=100.0,
     colour="#26a69a",
 )

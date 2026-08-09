@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 
 import numpy as np
 
 from temsim.component_keys import CONDENSER_LENS_KEYS
 from temsim.optics.lens_focal_length import focal_length_mm
+from temsim.optics.magnetic_lens_aberration import spherical_aberration_mm
 from temsim.physics.core import electron, fields
+from temsim.physics.first_order import (
+    DetectorFrameCalibration,
+    LinearMapProperties,
+    TransverseTransfer,
+    detector_frame_from_component,
+    linear_map_properties,
+    trace_transverse_transfers,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +36,9 @@ class PhysicalLayoutRecord:
     vacuum_inner_diameter_mm: float
     pole_gap_mm: float
     pole_tip_diameter_mm: float
+    pole_nose_axial_length_mm: float
+    pole_cone_angle_to_axis_deg: float
+    pole_face_land_axial_thickness_mm: float
     optical_references_mm: tuple[float, ...]
     excitation_enabled: bool | None
 
@@ -42,6 +54,10 @@ class LensFieldRecord:
     formula_colour: str
     enabled: bool
     excitation_percent: float
+    polarity: int
+    field_polarity_status: str
+    field_polarity_source: str
+    center_z_mm: float
     z_mm: np.ndarray
     field_t: np.ndarray
     peak_t: float
@@ -49,7 +65,35 @@ class LensFieldRecord:
     focal_length_mm: float
     signed_field_integral_t_m: float
     larmor_rotation_deg: float
+    cumulative_column_rotation_deg: float
     spherical_aberration_mm: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class ImagePlaneRotationRecord:
+    key: str
+    name: str
+    z_mm: float
+    magnification: float
+    image_rotation_from_sample_deg: float
+    larmor_rotation_from_sample_deg: float
+    conjugacy_error_m: float
+    anisotropy_ratio: float
+
+
+@dataclass(frozen=True, slots=True)
+class OpticalTransferRecord:
+    """Signed sample-to-plane Jacobian blocks and their coordinate metadata."""
+
+    key: str
+    name: str
+    z_mm: float
+    plane_role: str
+    inserted: bool | None
+    transfer: TransverseTransfer
+    image_properties: LinearMapProperties
+    diffraction_properties: LinearMapProperties
+    detector_frame: DetectorFrameCalibration
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,19 +133,42 @@ def physical_layout_records(result) -> tuple[PhysicalLayoutRecord, ...]:
     layout_by_key = {component.key: component for component in result.layout}
     records = []
     for part in result.assembly.parts:
+        # Curvilinear branch internals have their own Energy Filter view.  A
+        # zero-thickness marker at the main-column interface would duplicate
+        # and visually flatten their TOML path geometry.
+        if bool(part.data.get("branch_path_only", False)):
+            continue
         component = layout_by_key.get(part.key)
         shape = getattr(component, "mechanical_shape", None)
+        profile = part.data.get(
+            "mechanical_profile",
+            getattr(shape, "profile", "axial_envelope"),
+        )
+        recording_surface = profile in {
+            "retractable_detector_plane",
+            "camera_sensor_plane",
+        }
         outer = getattr(shape, "outer_diameter_mm", None)
         if outer is None:
             outer = part.data.get(
                 "mechanical_outer_diameter_mm",
-                part.data.get("outer_diameter_mm", 1.0),
+                part.data.get(
+                    "outer_diameter_mm",
+                    part.data.get("outer_width_mm", 1.0),
+                ),
+            )
+        if recording_surface:
+            outer = part.data.get(
+                "outer_width_mm",
+                getattr(shape, "active_diameter_mm", outer),
             )
         active = getattr(shape, "active_diameter_mm", None)
         effective_radius = getattr(
             component, "effective_aperture_radius_mm", None
         )
-        if active is not None and float(active) > 0.0:
+        if recording_surface:
+            bore = float(part.data.get("inner_diameter_mm", 0.0))
+        elif active is not None and float(active) > 0.0:
             bore = float(active)
         elif effective_radius is not None and float(effective_radius) > 0.0:
             bore = 2.0 * float(effective_radius)
@@ -115,10 +182,6 @@ def physical_layout_records(result) -> tuple[PhysicalLayoutRecord, ...]:
                     ),
                 )
             ))
-        profile = part.data.get(
-            "mechanical_profile",
-            getattr(shape, "profile", "axial_envelope"),
-        )
         kind = getattr(
             component,
             "kind",
@@ -149,6 +212,15 @@ def physical_layout_records(result) -> tuple[PhysicalLayoutRecord, ...]:
             pole_tip_diameter_mm=max(float(part.data.get(
                 "mechanical_tip_diameter_mm",
                 part.data.get("pole_piece_tip_diameter_mm", 0.0),
+            )), 0.0),
+            pole_nose_axial_length_mm=max(float(part.data.get(
+                "pole_nose_axial_length_mm", 0.0,
+            )), 0.0),
+            pole_cone_angle_to_axis_deg=max(float(part.data.get(
+                "pole_cone_angle_to_axis_deg", 0.0,
+            )), 0.0),
+            pole_face_land_axial_thickness_mm=max(float(part.data.get(
+                "pole_face_land_axial_thickness_mm", 0.0,
             )), 0.0),
             optical_references_mm=_optical_references(part),
             excitation_enabled=getattr(
@@ -276,7 +348,7 @@ def lens_field_records(
             if field_t.size > 1 else 0.0
         )
         rotation_rad = -charge_c * integral / (2.0 * momentum)
-        cs_value = getattr(lens, "cs_mm", None)
+        cs_value = spherical_aberration_mm(lens, state.beam_voltage_kv)
         records.append(LensFieldRecord(
             key=str(lens.key),
             name=str(lens.name),
@@ -287,6 +359,16 @@ def lens_field_records(
             formula_colour=formula_colour,
             enabled=bool(getattr(lens, "enabled", True)),
             excitation_percent=float(getattr(lens, "percent", 0.0)),
+            polarity=int(getattr(lens, "polarity", 1)),
+            field_polarity_status=str(getattr(
+                lens, "field_polarity_status", "untracked"
+            )),
+            field_polarity_source=str(getattr(
+                lens,
+                "field_polarity_source",
+                "No selected-manifest provenance is attached.",
+            )),
+            center_z_mm=float(getattr(lens, "z_mm", 0.0)),
             z_mm=z_mm,
             field_t=field_t,
             peak_t=float(np.max(np.abs(field_t))) if field_t.size else 0.0,
@@ -294,11 +376,216 @@ def lens_field_records(
             focal_length_mm=focal,
             signed_field_integral_t_m=integral,
             larmor_rotation_deg=float(np.degrees(rotation_rad)),
+            cumulative_column_rotation_deg=0.0,
             spherical_aberration_mm=(
                 None if cs_value is None else float(cs_value)
             ),
         ))
+    cumulative_deg = 0.0
+    for index in sorted(
+        range(len(records)), key=lambda item: records[item].center_z_mm
+    ):
+        cumulative_deg += records[index].larmor_rotation_deg
+        records[index] = replace(
+            records[index],
+            cumulative_column_rotation_deg=cumulative_deg,
+        )
     return total, tuple(records)
+
+
+def _sample_to_plane_larmor_rotation_deg(state, plane_z_mm: float) -> float:
+    sample_z_mm = float(state.sample.z_mm)
+    plane_z_mm = float(plane_z_mm)
+    if plane_z_mm <= sample_z_mm:
+        return 0.0
+    step_mm = max(min(float(getattr(state, "step_mm", 0.1)), 0.25), 0.01)
+    count = max(2, int(math.ceil((plane_z_mm - sample_z_mm) / step_mm)) + 1)
+    z_mm = np.linspace(sample_z_mm, plane_z_mm, count)
+    magnetic_t = fields(z_mm, state)[0]
+    charge_c, momentum, _ = electron(state)
+    integral_t_m = float(np.trapezoid(magnetic_t, z_mm * 1.0e-3))
+    return float(np.degrees(-charge_c * integral_t_m / (2.0 * momentum)))
+
+
+def _sample_to_plane_image_maps(state, plane_z_values_mm):
+    """Trace a reference plus four transverse bases at requested planes."""
+
+    sample_z_mm = float(state.sample.z_mm)
+    transfers = trace_transverse_transfers(
+        state,
+        sample_z_mm,
+        (
+            float(value) for value in plane_z_values_mm
+            if float(value) > sample_z_mm
+        ),
+    )
+    return {
+        z_mm: (transfer.j_img, transfer.j_diff_m_per_rad)
+        for z_mm, transfer in transfers.items()
+    }
+
+
+def optical_transfer_records(state) -> tuple[OpticalTransferRecord, ...]:
+    """Return full signed J_img/J_diff data at named downstream planes.
+
+    Objective reference planes use the simulator's laboratory X-Y frame.
+    Physical recording planes additionally carry their detector/display-axis
+    calibration.  The curved Energy Filter branch is not folded into these
+    straight-column matrices; its entrance is exposed as a chain boundary.
+    """
+
+    sample_z_mm = float(state.sample.z_mm)
+    candidates: list[tuple[str, str, float, str, bool | None, object]] = [
+        (
+            "objective_back_focal_plane",
+            "Objective back focal plane",
+            float(state.objective_back_focal_plane_z_mm),
+            "diffraction_reference",
+            None,
+            None,
+        ),
+        (
+            "objective_image_plane",
+            "Objective image plane",
+            float(state.objective_image_plane_z_mm),
+            "image_reference",
+            None,
+            None,
+        ),
+    ]
+    if bool(getattr(state, "image_corrector_installed", False)):
+        sad = state.image_corrector_system.sad_plane
+        candidates.append((
+            str(sad.key),
+            str(sad.name),
+            float(sad.z_mm),
+            "image_reference",
+            None,
+            None,
+        ))
+    candidates.extend(
+        (
+            str(plane.key),
+            str(plane.name),
+            float(plane.z_mm),
+            "recording_plane",
+            bool(getattr(plane, "inserted", True)),
+            plane,
+        )
+        for plane in getattr(state, "recording_planes", ())
+    )
+    if bool(getattr(state, "energy_filter_installed", False)):
+        entrance = getattr(state, "energy_filter_entrance_aperture", None)
+        if entrance is not None:
+            candidates.append((
+                str(entrance.key),
+                "Energy Filter entrance",
+                float(entrance.z_mm),
+                "energy_filter_chain_boundary",
+                bool(getattr(entrance, "enabled", True)),
+                None,
+            ))
+
+    prepared = []
+    used_keys = set()
+    for candidate in candidates:
+        key, _name, z_mm, _role, _inserted, _component = candidate
+        if z_mm <= sample_z_mm or key in used_keys:
+            continue
+        prepared.append(candidate)
+        used_keys.add(key)
+    transfers = trace_transverse_transfers(
+        state,
+        sample_z_mm,
+        (candidate[2] for candidate in prepared),
+    )
+    records = []
+    for key, name, z_mm, role, inserted, component in prepared:
+        transfer = transfers[z_mm]
+        records.append(OpticalTransferRecord(
+            key=key,
+            name=name,
+            z_mm=z_mm,
+            plane_role=role,
+            inserted=inserted,
+            transfer=transfer,
+            image_properties=linear_map_properties(transfer.j_img),
+            diffraction_properties=linear_map_properties(
+                transfer.j_diff_m_per_rad
+            ),
+            detector_frame=detector_frame_from_component(component),
+        ))
+    return tuple(sorted(records, key=lambda record: (record.z_mm, record.key)))
+
+
+def image_plane_rotation_records(state) -> tuple[ImagePlaneRotationRecord, ...]:
+    """Return paraxial image orientation at named planes below the sample.
+
+    Rotation is the orthogonal factor of the full 2-D sample-to-plane spatial
+    map.  This remains meaningful in the presence of quadrupoles, where the X
+    and Y magnifications need not be identical.  The angular-to-spatial norm is
+    retained so a plane that is not actually conjugate to the sample is not
+    presented as exact.
+    """
+
+    candidates = [
+        (
+            "objective_image_plane",
+            "Objective image plane",
+            float(state.objective_image_plane_z_mm),
+        )
+    ]
+    if bool(getattr(state, "image_corrector_installed", False)):
+        sad = state.image_corrector_system.sad_plane
+        candidates.append((str(sad.key), str(sad.name), float(sad.z_mm)))
+    selected_area = state.selected_area_aperture
+    if getattr(selected_area, "conjugate_to", None) == "objective_image_plane":
+        candidates.append(
+            (str(selected_area.key), str(selected_area.name), float(selected_area.z_mm))
+        )
+    if str(getattr(state, "projector_mode", "")) == "image":
+        candidates.extend(
+            (str(plane.key), str(plane.name), float(plane.z_mm))
+            for plane in getattr(state, "recording_planes", ())
+            if bool(getattr(plane, "inserted", True))
+        )
+
+    sample_z_mm = float(state.sample.z_mm)
+    prepared_candidates = []
+    used_z_mm = []
+    for key, name, plane_z_mm in candidates:
+        if plane_z_mm <= sample_z_mm:
+            continue
+        if any(abs(plane_z_mm - used) <= 1.0e-9 for used in used_z_mm):
+            continue
+        prepared_candidates.append((key, name, plane_z_mm))
+        used_z_mm.append(plane_z_mm)
+
+    plane_maps = _sample_to_plane_image_maps(
+        state, (item[2] for item in prepared_candidates)
+    )
+    records = []
+    for key, name, plane_z_mm in prepared_candidates:
+        spatial, angular = plane_maps[plane_z_mm]
+        properties = linear_map_properties(spatial)
+        rotation_deg = (
+            float(properties.orientation_deg)
+            if properties.orientation_deg is not None
+            else math.nan
+        )
+        records.append(ImagePlaneRotationRecord(
+            key=key,
+            name=name,
+            z_mm=plane_z_mm,
+            magnification=properties.isotropic_scale,
+            image_rotation_from_sample_deg=rotation_deg,
+            larmor_rotation_from_sample_deg=(
+                _sample_to_plane_larmor_rotation_deg(state, plane_z_mm)
+            ),
+            conjugacy_error_m=float(np.linalg.norm(angular, ord=2)),
+            anisotropy_ratio=properties.anisotropy_ratio,
+        ))
+    return tuple(records)
 
 
 def _interpolate_stop(branch, ray_index: int, stop_z_mm: float):

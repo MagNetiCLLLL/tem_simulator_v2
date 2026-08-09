@@ -293,7 +293,12 @@ def _aperture_definition(key, label, colour):
             part["mechanical_bore_diameter_mm"]
         ),
         plate_thickness_mm=float(part["plate_thickness_mm"]),
-        default_radius_mm=0.05,
+        # In a non-monochromated column the C3 aperture is parked at its
+        # approximately 2 mm open radius and does not limit illumination.
+        # The C2 aperture remains the normal convergence-defining stop.
+        default_radius_mm=(
+            2.0 if key == CONDENSER_APERTURE_3 else 0.05
+        ),
         maximum_radius_mm=float(part["maximum_radius_mm"]),
         colour=colour,
     )

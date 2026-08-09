@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
+from temsim import module_manifest
 from temsim.component_keys import (
     PROJECTOR_LENS_1,
     SELECTED_AREA_APERTURE,
@@ -21,6 +22,11 @@ from temsim.optics.round_lens import (
     restore_anchored_round_lens,
 )
 
+_DEFAULT_MANIFEST_PART = module_manifest.part_data(
+    "project_and_recording_system/EnergyFilter.toml",
+    PROJECTOR_LENS_1,
+)
+
 
 @dataclass(frozen=True)
 class ProjectorLensP1Definition:
@@ -33,11 +39,15 @@ class ProjectorLensP1Definition:
     optical_reference_downstream_of_anchor_mm: float = downstream_offset_mm(
         PROJECTOR_LENS_1
     )
-    mechanical_length_mm: float = 175.0
-    # The legacy drawing specifies only D250-320 mm.
-    mechanical_outer_diameter_mm: float = 285.0
-    mechanical_clear_bore_diameter_mm: float = 20.0
-    pole_gap_mm: float = 20.0
+    # Mechanical defaults come from the authoritative recording-system TOML.
+    mechanical_length_mm: float = float(_DEFAULT_MANIFEST_PART["length_mm"])
+    mechanical_outer_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_outer_diameter_mm"]
+    )
+    mechanical_clear_bore_diameter_mm: float = float(
+        _DEFAULT_MANIFEST_PART["mechanical_clear_bore_diameter_mm"]
+    )
+    pole_gap_mm: float = float(_DEFAULT_MANIFEST_PART["pole_gap_mm"])
     b0_t: float = 0.42
     a_mm: float = 18.0
     percent: float = 30.0
@@ -98,7 +108,7 @@ class ProjectorLensP1Definition:
             enabled=True,
             cs_mm=None,
             cc_mm=None,
-            polarity=1,
+            polarity=int(_DEFAULT_MANIFEST_PART["field_polarity"]),
             normalise_profile_peak=False,
             anchor_key=self.anchor_key,
             mechanical_center_downstream_of_anchor_mm=(

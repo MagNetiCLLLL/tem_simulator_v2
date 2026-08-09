@@ -15,6 +15,15 @@ from temsim.component_keys import (
     CONDENSER_LENS_1,
     CONDENSER_STIGMATOR,
     DESCAN_DEFLECTOR,
+    ENERGY_FILTER_BIAS_TUBE,
+    ENERGY_FILTER_CAMERA_DEFLECTOR,
+    ENERGY_FILTER_DYNAMIC_FOCUS_QUADRUPOLE,
+    ENERGY_FILTER_EFTEM_OUTPUT_PLANE,
+    ENERGY_FILTER_MULTIPOLE_KEYS,
+    ENERGY_FILTER_SHUTTER,
+    ENERGY_FILTER_SLIT,
+    ENERGY_FILTER_TAPERED_PRISM,
+    ENERGY_FILTER_ZEBRA,
     FEG_ACCELERATOR,
     FEG_DEFLECTOR,
     FEG_ELECTROSTATIC_LENS,
@@ -44,6 +53,42 @@ from temsim.component_keys import (
 _TOML_OWNED_GEOMETRY_KEYS = module_manifest.all_part_keys()
 TOML_OWNED_GEOMETRY_KEYS = _TOML_OWNED_GEOMETRY_KEYS
 _RUNTIME_POSITION_OWNED_KEYS = frozenset()
+
+STRUCTURAL_FIELD_SOURCES = MappingProxyType({
+    "mechanical_outer_diameter_mm": (
+        "mechanical_outer_diameter_mm",
+        "outer_diameter_mm",
+    ),
+    "mechanical_clear_bore_diameter_mm": (
+        "mechanical_clear_bore_diameter_mm",
+        "bore_diameter_mm",
+    ),
+    "mechanical_bore_diameter_mm": (
+        "mechanical_bore_diameter_mm",
+        "bore_diameter_mm",
+    ),
+    "bore_diameter_mm": (
+        "bore_diameter_mm",
+        "mechanical_bore_diameter_mm",
+        "mechanical_clear_bore_diameter_mm",
+    ),
+    "pole_gap_mm": ("pole_gap_mm",),
+    "effective_length_mm": ("effective_length_mm", "active_length_mm"),
+    "effective_thickness_mm": (
+        "effective_thickness_mm",
+        "active_length_mm",
+    ),
+    "mechanical_coil_length_mm": ("mechanical_coil_length_mm",),
+    "mechanical_inter_coil_gap_mm": (
+        "mechanical_inter_coil_gap_mm",
+    ),
+    "inter_coil_gap_mm": ("mechanical_inter_coil_gap_mm",),
+    "thickness_mm": ("effective_thickness_mm", "active_length_mm"),
+    "plate_thickness_mm": ("plate_thickness_mm", "active_length_mm"),
+    "maximum_radius_mm": ("maximum_radius_mm",),
+    "outer_width_mm": ("outer_width_mm",),
+    "inner_diameter_mm": ("inner_diameter_mm",),
+})
 
 
 @dataclass(frozen=True)
@@ -76,6 +121,7 @@ class ModuleDefinition:
 @dataclass(frozen=True)
 class AssemblyPart:
     module_key: str
+    source_file: str
     key: str
     name: str
     branch: str
@@ -85,6 +131,12 @@ class AssemblyPart:
     length_mm: float
     parent_key: str | None
     data: Mapping
+
+    @property
+    def definition_id(self):
+        """Stable, variant-scoped authority for this assembled part."""
+
+        return f"{self.source_file}::parts[{self.key}]"
 
 
 @dataclass(frozen=True)
@@ -138,6 +190,14 @@ class ResolvedAssembly(ModuleAssembly):
             if part.key == key:
                 return part
         raise KeyError(key)
+
+    @property
+    def part_authorities(self):
+        """Map every active key to its one selected TOML definition."""
+
+        return MappingProxyType({
+            part.key: part.definition_id for part in self.parts
+        })
 
     @property
     def maximum_vacuum_inner_diameter_mm(self):
@@ -252,6 +312,9 @@ def _load_module(path, source_file=None):
         raise ValueError(f"Invalid coordinate system in {path}")
     if len({part.key for part in parts}) != len(parts):
         raise ValueError(f"Duplicate part key in {path}")
+    orders = [int(part.data["order"]) for part in parts]
+    if len(set(orders)) != len(orders):
+        raise ValueError(f"Duplicate part order in {path}")
     for part in parts:
         if not part.start_z_mm <= part.center_z_mm <= part.end_z_mm:
             raise ValueError(f"Invalid part range for {part.key} in {path}")
@@ -392,6 +455,7 @@ def resolve_module_assembly(configuration, root=None):
         for part in module.parts:
             parts.append(AssemblyPart(
                 module.key,
+                module.source_file,
                 part.key,
                 part.name,
                 part.branch,
@@ -457,7 +521,16 @@ def apply_module_assembly(
         for component in layout
     }
     parts = {part.key: part for part in assembly.parts}
-    component_keys = {component.key for component in layout}
+    component_key_list = [component.key for component in layout]
+    component_keys = set(component_key_list)
+    if len(component_keys) != len(component_key_list):
+        duplicates = sorted({
+            key for key in component_key_list
+            if component_key_list.count(key) > 1
+        })
+        raise ValueError(
+            f"Duplicate component key in optics layout: {duplicates}"
+        )
     physical_keys = {
         component.key
         for component in layout
@@ -469,7 +542,10 @@ def apply_module_assembly(
     missing = physical_keys - parts.keys()
     extra = {
         key for key in parts.keys() - component_keys
-        if not bool(parts[key].data.get("mechanical_only", False))
+        if not (
+            bool(parts[key].data.get("mechanical_only", False))
+            or bool(parts[key].data.get("branch_path_only", False))
+        )
     }
     if missing or extra:
         raise ValueError(
@@ -527,8 +603,20 @@ def apply_module_assembly(
         center_s_mm = sample_z_mm - center_z_mm
         end_s_mm = sample_z_mm - start_z_mm
         shape = component.mechanical_shape
+        external_envelope = component.external_envelope
         if shape is not None:
             shape_updates = {"axial_length_mm": end_z_mm - start_z_mm}
+            if (
+                part is not None
+                and "transverse_envelope_x_mm" in part.data
+                and "transverse_envelope_y_mm" in part.data
+            ):
+                external_envelope = (
+                    f"{float(part.data['transverse_envelope_x_mm']):g} x "
+                    f"{float(part.data['transverse_envelope_y_mm']):g} mm "
+                    "transverse envelope"
+                )
+                shape_updates["external_envelope"] = external_envelope
             for field in (
                 "mechanical_outer_diameter_mm", "outer_diameter_mm",
             ):
@@ -572,6 +660,7 @@ def apply_module_assembly(
             local_s_range_mm=(start_s_mm, end_s_mm),
             rendered_z_center_mm=center_s_mm,
             rendered_z_range_mm=(start_s_mm, end_s_mm),
+            external_envelope=external_envelope,
             mechanical_shape=shape,
             optical_reference_plane_z_mm=optical_reference,
             optical_interaction_planes_z_mm=interaction_planes,
@@ -635,6 +724,7 @@ def apply_column_manifest_geometry(
     assembly=None,
     *,
     preserve_operating_parameters=True,
+    root=None,
 ):
     """Inject selected TOML geometry into every available runtime component."""
 
@@ -653,7 +743,7 @@ def apply_column_manifest_geometry(
     if assembly is None:
         assembly = getattr(configuration, "resolved_assembly", None)
     if assembly is None:
-        assembly = resolve_module_assembly(configuration)
+        assembly = resolve_module_assembly(configuration, root=root)
     parts = {
         part.key: part
         for part in assembly.parts
@@ -709,7 +799,7 @@ def apply_column_manifest_geometry(
             if field in part.data:
                 geometry[field] = float(part.data[field])
         component.apply_manifest_geometry(**geometry)
-    _apply_manifest_runtime_geometry(state, parts)
+    _apply_manifest_runtime_geometry(state, parts, assembly)
     for lens in getattr(state, "lenses", ()):
         for name, value in operating_values.get(str(lens.key), {}).items():
             object.__setattr__(lens, name, value)
@@ -736,6 +826,18 @@ def apply_column_manifest_geometry(
 
 def _state_targets(state):
     targets = {}
+
+    def add_target(key, kind, item):
+        key = str(key)
+        existing = targets.get(key)
+        if existing is not None and existing[1] is not item:
+            raise ValueError(
+                f"Duplicate runtime component key {key!r}: "
+                f"{type(existing[1]).__name__} and "
+                f"{type(item).__name__}"
+            )
+        targets[key] = (kind, item)
+
     for items in (
         state.lenses,
         state.apertures,
@@ -745,13 +847,11 @@ def _state_targets(state):
     ):
         for item in items:
             if hasattr(item, "z_mm"):
-                targets[item.key] = ("single", item)
+                add_target(item.key, "single", item)
     for pair in state.deflectors:
-        targets[pair.key] = ("pair", pair)
+        add_target(pair.key, "pair", pair)
     if hasattr(state.sample, "z_mm"):
-        targets["sample"] = ("single", state.sample)
-    if "obj_stig" in targets:
-        targets["objective_stigmator"] = targets["obj_stig"]
+        add_target("sample", "single", state.sample)
     return targets
 
 
@@ -820,6 +920,21 @@ def _set_single_position(item, reference):
             object.__setattr__(item, "z_mm", reference)
 
 
+def _set_manifest_authority(item, part):
+    """Attach non-serialised provenance for the active TOML definition."""
+
+    if hasattr(item, "name"):
+        try:
+            object.__setattr__(item, "name", str(part.name))
+        except (AttributeError, TypeError):
+            pass
+    object.__setattr__(item, "_manifest_source_file", str(part.source_file))
+    object.__setattr__(item, "_manifest_part_key", str(part.key))
+    object.__setattr__(
+        item, "_manifest_definition_id", str(part.definition_id)
+    )
+
+
 def _set_mechanical_geometry(item, part, parts):
     center = float(part.center_z_mm)
     length = float(part.length_mm)
@@ -853,25 +968,26 @@ def _set_mechanical_geometry(item, part, parts):
             item.mechanical_length_mm = length
         except (AttributeError, TypeError):
             pass
-    for attribute in (
-        "mechanical_outer_diameter_mm",
-        "mechanical_clear_bore_diameter_mm",
-        "mechanical_bore_diameter_mm",
-        "bore_diameter_mm",
-        "pole_gap_mm",
-        "effective_length_mm",
-        "effective_thickness_mm",
-        "mechanical_coil_length_mm",
-        "mechanical_inter_coil_gap_mm",
-        "plate_thickness_mm",
-        "maximum_radius_mm",
-        "outer_width_mm",
-        "inner_diameter_mm",
-    ):
-        if attribute not in part.data or not hasattr(item, attribute):
+    for attribute, source_fields in STRUCTURAL_FIELD_SOURCES.items():
+        if not hasattr(item, attribute):
             continue
         try:
-            setattr(item, attribute, float(part.data[attribute]))
+            current_value = getattr(item, attribute)
+        except (AttributeError, TypeError):
+            continue
+        if current_value is None:
+            continue
+        source_field = next(
+            (field for field in source_fields if field in part.data),
+            None,
+        )
+        if source_field is None:
+            raise ValueError(
+                f"TOML authority {part.definition_id} is missing the "
+                f"structural value for {attribute}"
+            )
+        try:
+            setattr(item, attribute, float(part.data[source_field]))
         except (AttributeError, TypeError):
             pass
     if hasattr(item, "layout_length_mm"):
@@ -906,11 +1022,58 @@ def _set_mechanical_geometry(item, part, parts):
             pass
 
 
+def _apply_manifest_field_polarity(item, part):
+    """Apply the selected TOML's signed Bz convention and its provenance."""
+
+    if not module_manifest.part_requires_field_polarity(part.data):
+        return
+    if not hasattr(item, "polarity"):
+        raise ValueError(
+            f"Magnetic lens {part.key} has no runtime polarity attribute"
+        )
+    object.__setattr__(item, "polarity", int(part.data["field_polarity"]))
+    object.__setattr__(
+        item,
+        "field_polarity_status",
+        str(part.data["field_polarity_status"]),
+    )
+    object.__setattr__(
+        item,
+        "field_polarity_source",
+        str(part.data["field_polarity_source"]),
+    )
+
+
+def _apply_detector_orientation_calibration(item, part):
+    """Apply TOML-owned detector/display axes without changing geometry."""
+
+    fields = (
+        "detector_axis_rotation_deg",
+        "detector_flip_x",
+        "detector_flip_y",
+        "detector_orientation_uncertainty_deg",
+        "detector_orientation_status",
+        "detector_orientation_source",
+    )
+    if not any(field in part.data for field in fields):
+        return
+    for field in fields:
+        if field not in part.data or not hasattr(item, field):
+            raise ValueError(
+                f"Detector {part.key} cannot apply TOML calibration field {field}"
+            )
+        object.__setattr__(item, field, part.data[field])
+    validate = getattr(item, "validate", None)
+    if callable(validate):
+        validate()
+
+
 def _apply_objective_manifest_geometry(state, parts):
     component = getattr(state, "objective_lens", None)
     part = parts.get(OBJECTIVE_LENS)
     if component is None or part is None:
         return
+    _set_manifest_authority(component, part)
     upper = _absolute_part_value(
         part, "upper_field_reference_local_z_mm"
     )
@@ -1072,7 +1235,7 @@ def _apply_objective_manifest_geometry(state, parts):
         "cs_mm",
         float(part.data["spherical_aberration_mm"]),
     )
-    object.__setattr__(component, "polarity", int(part.data["polarity"]))
+    _apply_manifest_field_polarity(component, part)
     if upper_pole is not None:
         object.__setattr__(
             component,
@@ -1174,18 +1337,38 @@ def _apply_objective_manifest_geometry(state, parts):
     )
 
 
-def _apply_manifest_runtime_geometry(state, parts):
-    if hasattr(state.electron_gun, "apply_manifest_geometry"):
-        state.electron_gun.apply_manifest_geometry(
-            bool(getattr(state, "monochromator_installed", False))
+def _apply_manifest_runtime_geometry(state, parts, assembly):
+    gun = state.electron_gun
+    if not hasattr(gun, "apply_resolved_manifest_geometry"):
+        raise ValueError(
+            f"Electron gun {type(gun).__name__} cannot accept a resolved "
+            "TOML assembly"
         )
+    gun_module = next(
+        (module for module in assembly.modules if module.type == "gun"),
+        None,
+    )
+    if gun_module is None:
+        raise ValueError("Resolved assembly has no gun module")
+    gun.apply_resolved_manifest_geometry(
+        parts,
+        exit_plane_z_mm=(
+            float(gun_module.exit_z_mm)
+            - float(gun_module.entrance_z_mm)
+        ),
+    )
     targets = _state_targets(state)
     for key, target in targets.items():
         part = parts.get(key)
-        if part is None or key == OBJECTIVE_LENS:
+        if part is None:
             continue
         _, item = target
+        _set_manifest_authority(item, part)
+        if key == OBJECTIVE_LENS:
+            continue
         _set_mechanical_geometry(item, part, parts)
+        _apply_manifest_field_polarity(item, part)
+        _apply_detector_orientation_calibration(item, part)
         if "interaction_centers_local_z_mm" in part.data:
             positions = tuple(
                 float(part.center_z_mm)
@@ -1216,76 +1399,274 @@ def _apply_manifest_runtime_geometry(state, parts):
     if "sample" in parts:
         state.sample.z_mm = float(parts["sample"].center_z_mm)
     _apply_objective_manifest_geometry(state, parts)
+    objective_aperture = getattr(state, "objective_aperture", None)
+    objective_lens = getattr(state, "objective_lens", None)
+    if objective_aperture is not None and objective_lens is not None:
+        objective_aperture.validate_co_located_with_mechanics(
+            state.sample.z_mm
+        ).validate_between_poles(objective_lens)
     _apply_energy_filter_manifest_geometry(state, parts)
 
 
 def _apply_energy_filter_manifest_geometry(state, parts):
-    part = parts.get("energy_filter")
+    interface = parts.get("energy_filter")
     energy_filter = getattr(state, "energy_filter", None)
-    if part is None or energy_filter is None:
+    if interface is None or energy_filter is None:
         return
-    for field in module_manifest.ENERGY_FILTER_GEOMETRY_FIELDS:
-        setattr(energy_filter, field, float(part.data[field]))
+    _set_manifest_authority(energy_filter, interface)
+    for field in module_manifest.ENERGY_FILTER_MECHANICAL_METADATA_FIELDS:
+        setattr(energy_filter, field, str(interface.data[field]))
+
+    prism = parts[ENERGY_FILTER_TAPERED_PRISM]
+    energy_filter.prism_radius_mm = float(prism.data["prism_radius_mm"])
+    energy_filter.bend_angle_deg = float(prism.data["bend_angle_deg"])
+    energy_filter.prism_radial_field_index = float(
+        prism.data["prism_radial_field_index"]
+    )
+    energy_filter.prism_entrance_s_mm = float(
+        prism.data["path_entrance_mm"]
+    )
+    energy_filter.prism_fringe_mm = float(prism.data["fringe_length_mm"])
+    energy_filter.pole_gap_mm = float(prism.data["pole_gap_mm"])
+    energy_filter.sector_radial_aperture_mm = float(
+        prism.data["radial_clear_half_width_mm"]
+    )
+    energy_filter._prism_manifest_part_key = str(prism.key)
+    energy_filter._prism_geometry_status = str(
+        prism.data["mechanical_geometry_status"]
+    )
+    energy_filter._prism_geometry_source = str(
+        prism.data["mechanical_geometry_source"]
+    )
+
     from temsim.physics.finite_multipole_field import SoftEdgeEnvelope
-    for role, element in (
-        ("entrance", getattr(energy_filter, "entrance_m12", None)),
-        ("exit", getattr(energy_filter, "exit_m12", None)),
-    ):
+    multipoles = tuple(getattr(energy_filter, "multipoles", ()) or ())
+    for index, element in enumerate(multipoles, start=1):
         if element is None:
             continue
+        part = parts[ENERGY_FILTER_MULTIPOLE_KEYS[index - 1]]
+        _set_manifest_authority(element, part)
+        path_value = float(part.data["path_center_mm"])
+        position_field = (
+            f"multipole_{index:02d}_s_mm"
+            if index <= 3
+            else f"multipole_{index:02d}_d_mm"
+        )
+        setattr(energy_filter, position_field, path_value)
         element.bore_radius_m = (
-            float(part.data[f"{role}_m12_bore_radius_mm"]) * 1.0e-3
+            float(part.data["mechanical_bore_radius_mm"]) * 1.0e-3
         )
         element.outer_radius_m = (
-            float(part.data[f"{role}_m12_outer_radius_mm"]) * 1.0e-3
+            float(part.data["mechanical_outer_radius_mm"]) * 1.0e-3
+        )
+        element.housing_length_m = (
+            float(part.data["housing_length_mm"]) * 1.0e-3
         )
         element.pole_zero_angle_rad = math.radians(float(
-            part.data[f"{role}_m12_pole_zero_angle_deg"]
+            part.data["pole_zero_angle_deg"]
         ))
         element.field_backend.envelope = SoftEdgeEnvelope(
             length_m=(
-                float(part.data[f"{role}_m12_length_mm"]) * 1.0e-3
+                float(part.data["magnetic_support_length_mm"]) * 1.0e-3
             ),
             entrance_soft_edge_m=(
-                float(
-                    part.data[
-                        f"{role}_m12_entrance_soft_edge_mm"
-                    ]
-                )
-                * 1.0e-3
+                float(part.data["entrance_soft_edge_mm"]) * 1.0e-3
             ),
             exit_soft_edge_m=(
-                float(
-                    part.data[f"{role}_m12_exit_soft_edge_mm"]
-                )
-                * 1.0e-3
+                float(part.data["exit_soft_edge_mm"]) * 1.0e-3
             ),
         )
+        element._mechanical_geometry_status = str(
+            part.data["mechanical_geometry_status"]
+        )
+        element._mechanical_geometry_source = str(
+            part.data["mechanical_geometry_source"]
+        )
+        element._individual_pole_assignment_status = str(
+            part.data["individual_pole_assignment_status"]
+        )
         element.__post_init__()
+
+    energy_filter.entrance_multipole_s_mm = float(
+        energy_filter.multipole_03_s_mm
+    )
+    energy_filter.exit_multipole_d_mm = float(
+        energy_filter.multipole_04_d_mm
+    )
+
     energy_slit = getattr(energy_filter, "energy_slit", None)
     if energy_slit is not None:
+        slit_part = parts[ENERGY_FILTER_SLIT]
+        _set_manifest_authority(energy_slit, slit_part)
+        energy_filter.slit_d_mm = float(slit_part.data["path_center_mm"])
         energy_slit.distance_from_sector_exit_m = (
             float(energy_filter.slit_d_mm) * 1.0e-3
         )
         energy_slit.clear_height_m = (
-            float(part.data["slit_clear_height_mm"]) * 1.0e-3
+            float(slit_part.data["clear_height_mm"]) * 1.0e-3
         )
         energy_slit.maximum_gap_m = (
-            float(part.data["slit_maximum_gap_mm"]) * 1.0e-3
+            float(slit_part.data["maximum_gap_mm"]) * 1.0e-3
         )
         energy_slit.blade_thickness_m = (
-            float(part.data["slit_blade_thickness_mm"]) * 1.0e-3
+            float(slit_part.data["blade_thickness_mm"]) * 1.0e-3
+        )
+        energy_slit._mechanical_geometry_status = str(
+            slit_part.data["mechanical_geometry_status"]
+        )
+        energy_slit._mechanical_geometry_source = str(
+            slit_part.data["mechanical_geometry_source"]
         )
         energy_slit.__post_init__()
+
+    dynamic_quad = parts[ENERGY_FILTER_DYNAMIC_FOCUS_QUADRUPOLE]
+    energy_filter.dynamic_focus_quadrupole_d_mm = float(
+        dynamic_quad.data["path_center_mm"]
+    )
+    energy_filter.dynamic_focus_quadrupole_length_mm = float(
+        dynamic_quad.data["housing_length_mm"]
+    )
+    energy_filter.dynamic_focus_quadrupole_bore_mm = float(
+        dynamic_quad.data["clear_bore_diameter_mm"]
+    )
+    energy_filter.dynamic_focus_quadrupole_outer_mm = float(
+        dynamic_quad.data["mechanical_outer_diameter_mm"]
+    )
+    energy_filter.dynamic_focus_quadrupole_model_status = str(
+        dynamic_quad.data["optical_model_status"]
+    )
+    energy_filter.dynamic_focus_quadrupole_geometry_status = str(
+        dynamic_quad.data["mechanical_geometry_status"]
+    )
+    energy_filter.dynamic_focus_quadrupole_geometry_source = str(
+        dynamic_quad.data["mechanical_geometry_source"]
+    )
+
+    detector_end_parts = (
+        (
+            ENERGY_FILTER_BIAS_TUBE,
+            "bias_tube",
+            "bias_tube_d_mm",
+            ("housing_length_mm", "clear_bore_diameter_mm",
+             "mechanical_outer_diameter_mm", "maximum_abs_offset_ev"),
+        ),
+        (
+            ENERGY_FILTER_SHUTTER,
+            "fast_shutter",
+            "fast_shutter_d_mm",
+            ("electrode_length_mm", "electrode_gap_mm",
+             "mechanical_outer_diameter_mm"),
+        ),
+        (
+            ENERGY_FILTER_CAMERA_DEFLECTOR,
+            "camera_deflector",
+            "camera_deflector_d_mm",
+            ("electrode_length_mm", "electrode_gap_mm",
+             "mechanical_outer_diameter_mm"),
+        ),
+    )
+    for key, attribute, position_attribute, geometry_fields in detector_end_parts:
+        device_part = parts[key]
+        device = getattr(energy_filter, attribute, None)
+        setattr(
+            energy_filter,
+            position_attribute,
+            float(device_part.data["path_center_mm"]),
+        )
+        if device is None:
+            continue
+        _set_manifest_authority(device, device_part)
+        for field in geometry_fields:
+            setattr(device, field, float(device_part.data[field]))
+        device._mechanical_geometry_status = str(
+            device_part.data["mechanical_geometry_status"]
+        )
+        device._mechanical_geometry_source = str(
+            device_part.data["mechanical_geometry_source"]
+        )
+        if key == ENERGY_FILTER_BIAS_TUBE:
+            device.offset_range_status = str(
+                device_part.data["offset_range_status"]
+            )
+        device.validate()
+
+    output_plane = parts[ENERGY_FILTER_EFTEM_OUTPUT_PLANE]
+    energy_filter.output_detector_d_mm = float(
+        output_plane.data["path_center_mm"]
+    )
+    energy_filter.output_detector_width_mm = float(
+        output_plane.data["active_width_mm"]
+    )
+    energy_filter.output_plane_geometry_status = str(
+        output_plane.data["mechanical_geometry_status"]
+    )
+    energy_filter.output_plane_geometry_source = str(
+        output_plane.data["mechanical_geometry_source"]
+    )
+
+    zebra_part = parts[ENERGY_FILTER_ZEBRA]
+    energy_filter.zebra_detector_d_mm = float(
+        zebra_part.data["path_center_mm"]
+    )
+    energy_filter.eels_plane_offset_mm = (
+        energy_filter.zebra_detector_d_mm
+        - energy_filter.output_detector_d_mm
+    )
+    zebra = getattr(energy_filter, "zebra_detector", None)
+    if zebra is not None:
+        _set_manifest_authority(zebra, zebra_part)
+        zebra.strip_count = int(zebra_part.data["strip_count"])
+        zebra.pixels_per_strip = int(zebra_part.data["pixels_per_strip"])
+        zebra.spectral_clear_height_mm = float(
+            zebra_part.data["strip_active_height_mm"]
+        )
+        zebra.alignment_pixels_x = int(
+            zebra_part.data["alignment_pixels_non_dispersive"]
+        )
+        zebra.alignment_pixels_y = int(
+            zebra_part.data["alignment_pixels_dispersive"]
+        )
+        zebra.pixel_size_um = float(
+            zebra_part.data["strip_pixel_pitch_um"]
+        )
+        zebra.maximum_spectra_per_s = float(
+            zebra_part.data["maximum_spectra_per_s"]
+        )
+        zebra.provisional_strip_center_pitch_mm = float(
+            zebra_part.data["provisional_strip_center_pitch_mm"]
+        )
+        zebra.strip_center_pitch_status = str(
+            zebra_part.data["strip_center_pitch_status"]
+        )
+        zebra.external_envelope_status = str(
+            zebra_part.data["external_envelope_status"]
+        )
+        zebra._detector_geometry_source = str(
+            zebra_part.data["detector_geometry_source"]
+        )
+        zebra.validate()
+
     energy_filter.m12_frames_placed = False
-    if (
-        getattr(energy_filter, "entrance_m12", None) is not None
-        and getattr(energy_filter, "exit_m12", None) is not None
-    ):
+    if len(multipoles) == 10:
         from temsim.optics.energy_filter_sector import (
             place_m12_in_sector_frames,
         )
         place_m12_in_sector_frames(energy_filter)
+    from temsim.optics.energy_filter_m12 import rigidity_scale
+    from temsim.optics.energy_filter_sector import sector_plateau_field_t
+    reference_voltage = float(energy_filter.voltage_reference_kv)
+    matched_voltage = float(energy_filter.matched_voltage_kv)
+    energy_filter.sector_reference_field_t = sector_plateau_field_t(
+        reference_voltage,
+        float(energy_filter.prism_radius_mm) * 1.0e-3,
+        math.radians(float(energy_filter.bend_angle_deg)),
+        float(energy_filter.prism_fringe_mm) * 1.0e-3,
+        float(energy_filter.prism_radial_field_index),
+    )
+    energy_filter.sector_field_t = (
+        float(energy_filter.sector_reference_field_t)
+        * rigidity_scale(matched_voltage, reference_voltage)
+    )
 
 
 def _shift_target(target, shift):

@@ -3,11 +3,14 @@
 import math
 
 import numpy as np
-from matplotlib.patches import Arc, Circle, Rectangle
+from matplotlib.patches import Circle, Polygon
 
 from temsim.optics.energy_filter_sector import (
     magnetic_field_from_energy_filter,
+    multipole_housing_bank_polygons_xz_mm,
     sector_from_energy_filter,
+    sector_radial_aperture_paths_xz_mm,
+    sector_reference_path_xz_mm,
 )
 
 
@@ -20,7 +23,7 @@ def _draw_m12_glyph(ax, centre_axes, element):
         0.055,
         transform=ax.transAxes,
         fill=False,
-        edgecolor="#6a1b9a",
+        edgecolor="#c084fc",
         linewidth=1.0,
         clip_on=False,
     ))
@@ -32,7 +35,7 @@ def _draw_m12_glyph(ax, centre_axes, element):
             ),
             0.006,
             transform=ax.transAxes,
-            facecolor="#8e24aa",
+            facecolor="#c084fc",
             edgecolor="none",
             clip_on=False,
         ))
@@ -106,36 +109,29 @@ def draw_energy_filter(ax, state, result):
     exit_u = sector.exit_point_m[0] * 1.0e3
     exit_v = sector.exit_point_m[2] * 1.0e3
     radius = float(energy_filter.prism_radius_mm)
-    centre = (
-        sector.centre_m[0] * 1.0e3,
-        sector.centre_m[2] * 1.0e3,
-    )
     bend_deg = math.degrees(float(sector.bend_angle_rad))
-    for radial_offset, width in (
-        (-0.5 * energy_filter.pole_gap_mm, 1.2),
-        (0.0, 4.0),
-        (0.5 * energy_filter.pole_gap_mm, 1.2),
-    ):
-        diameter = 2.0 * (radius + radial_offset)
-        ax.add_patch(Arc(
-            centre,
-            diameter,
-            diameter,
-            theta1=0.0,
-            theta2=bend_deg,
-            color="#0d47a1",
-            lw=width,
-            alpha=0.35 if width > 2 else 0.8,
-        ))
+    reference_path = sector_reference_path_xz_mm(sector)
+    ax.plot(
+        reference_path[:, 0],
+        reference_path[:, 1],
+        color="#fde047",
+        lw=1.0,
+        ls=":",
+    )
+    for aperture_path in sector_radial_aperture_paths_xz_mm(sector):
+        ax.plot(
+            aperture_path[:, 0],
+            aperture_path[:, 1],
+            color="#60a5fa",
+            lw=2.0,
+            alpha=0.75,
+        )
 
     ax.plot([0.0, entrance_u], [0.0, 0.0], color="#78909c", lw=1)
     downstream_end = (
         sector.exit_point_m
         + sector.exit_tangent
-        * (
-            float(energy_filter.output_detector_d_mm)
-            + float(energy_filter.eels_plane_offset_mm)
-        )
+        * float(energy_filter.zebra_detector_d_mm)
         * 1.0e-3
     )
     ax.plot(
@@ -152,23 +148,32 @@ def draw_energy_filter(ax, state, result):
         lw=5,
     )
 
-    for element in (
-        energy_filter.entrance_m12,
-        energy_filter.exit_m12,
-    ):
+    for index, element in enumerate(energy_filter.multipoles, start=1):
         origin = element.frame.origin_m * 1.0e3
+        for polygon_points in multipole_housing_bank_polygons_xz_mm(
+            element
+        ):
+            ax.add_patch(Polygon(
+                polygon_points,
+                closed=True,
+                facecolor="#c084fc",
+                edgecolor="#c084fc",
+                linewidth=0.8,
+                alpha=0.55,
+                zorder=4,
+            ))
         ax.scatter(
             [origin[0]],
             [origin[2]],
-            s=95,
-            marker="s",
-            facecolor="#8e24aa",
-            edgecolor="#4a148c",
-            alpha=0.55,
+            s=20,
+            marker="o",
+            facecolor="#f3e5f5",
+            edgecolor="#ffffff",
+            alpha=0.9,
             zorder=5,
         )
         ax.annotate(
-            element.name,
+            f"M{index:02d}",
             (origin[0], origin[2]),
             xytext=(4, 6),
             textcoords="offset points",
@@ -197,14 +202,15 @@ def draw_energy_filter(ax, state, result):
     slit = energy_filter.energy_slit
     slit_point = plane_segment(
         slit.distance_from_sector_exit_m * 1.0e3,
-        25.0,
+        0.5 * slit.maximum_gap_m * 1.0e3,
         color="#e91e63",
         lw=4 if slit.inserted else 1.5,
         ls="-" if slit.inserted else ":",
     )
     ax.annotate(
         (
-            f"physical slit {'INSERTED' if slit.inserted else 'retracted'}\n"
+            "XO / optional EFTEM energy slit "
+            f"{'INSERTED' if slit.inserted else 'retracted'}\n"
             f"gap {slit.gap_m * 1e6:.3g} µm = "
             f"{slit.derived_width_ev:.3g} eV"
         ),
@@ -215,6 +221,51 @@ def draw_energy_filter(ax, state, result):
         fontsize=6.3,
         color="#ad1457",
     )
+
+    device_planes = (
+        (
+            energy_filter.dynamic_focus_quadrupole_d_mm,
+            0.5 * energy_filter.dynamic_focus_quadrupole_outer_mm,
+            "Dynamic-focus electrostatic quadrupole\n"
+            "provisional envelope; field not implemented",
+            "#7e57c2",
+        ),
+        (
+            energy_filter.bias_tube_d_mm,
+            0.5 * energy_filter.bias_tube.mechanical_outer_diameter_mm,
+            "MultiEELS bias tube",
+            "#78909c",
+        ),
+        (
+            energy_filter.fast_shutter_d_mm,
+            0.5 * energy_filter.fast_shutter.mechanical_outer_diameter_mm,
+            "Fast electrostatic shutter (beam gate)",
+            "#ef5350",
+        ),
+        (
+            energy_filter.camera_deflector_d_mm,
+            0.5 * energy_filter.camera_deflector.mechanical_outer_diameter_mm,
+            "Zebra camera deflector",
+            "#00897b",
+        ),
+    )
+    for distance_mm, half_width_mm, label, colour in device_planes:
+        point = plane_segment(
+            distance_mm,
+            half_width_mm,
+            color=colour,
+            lw=1.8,
+        )
+        ax.annotate(
+            label,
+            (point[0] * 1.0e3, point[2] * 1.0e3),
+            xytext=(8, 0),
+            textcoords="offset points",
+            va="center",
+            fontsize=6.0,
+            color=colour,
+        )
+
     camera_point = plane_segment(
         energy_filter.output_detector_d_mm,
         0.5 * energy_filter.output_detector_width_mm,
@@ -227,7 +278,7 @@ def draw_energy_filter(ax, state, result):
         ls="-" if energy_filter.output_detector_inserted else ":",
     )
     ax.annotate(
-        "Camera "
+        "Optional EFTEM output plane "
         + (
             "INSERTED"
             if energy_filter.output_detector_inserted
@@ -240,17 +291,18 @@ def draw_energy_filter(ax, state, result):
         fontsize=6.3,
     )
     eels_point = plane_segment(
-        (
-            energy_filter.output_detector_d_mm
-            + energy_filter.eels_plane_offset_mm
-        ),
-        30.0,
+        energy_filter.zebra_detector_d_mm,
+        0.5 * energy_filter.zebra_detector.spectral_width_mm,
         color="#1565c0",
         lw=1.2,
         ls="--",
     )
     ax.annotate(
-        "EELS spectrometer plane",
+        (
+            "Zebra 5 x 2048 active plane\n"
+            f"strip {energy_filter.zebra_detector.spectral_width_mm:g} x "
+            f"{energy_filter.zebra_detector.spectral_height_mm:g} mm"
+        ),
         (eels_point[0] * 1.0e3, eels_point[2] * 1.0e3),
         xytext=(8, 0),
         textcoords="offset points",
@@ -282,14 +334,22 @@ def draw_energy_filter(ax, state, result):
         0.97,
         (
             f"sector B = {float(energy_filter.sector_field_t):.6g} T\n"
-            f"R = {radius:.3g} mm, bend = {bend_deg:.3g}°"
+            f"R = {radius:.3g} mm, bend = {bend_deg:.3g}°\n"
+            f"radial clear +/-{energy_filter.sector_radial_aperture_mm:g} "
+            f"mm; Y pole gap {energy_filter.pole_gap_mm:g} mm\n"
+            "One tapered prism + ten multipoles are public topology;\n"
+            "all unpublished carrier coordinates/envelopes are provisional"
         ),
         transform=ax.transAxes,
         va="top",
         fontsize=6.5,
     )
-    _draw_m12_glyph(ax, (0.72, 0.90), energy_filter.entrance_m12)
-    _draw_m12_glyph(ax, (0.87, 0.90), energy_filter.exit_m12)
+    for index, element in enumerate(energy_filter.multipoles):
+        _draw_m12_glyph(
+            ax,
+            (0.54 + 0.105 * (index % 5), 0.94 - 0.15 * (index // 5)),
+            element,
+        )
     ax.set_aspect("auto")
     ax.margins(0.08)
 

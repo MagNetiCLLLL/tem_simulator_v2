@@ -86,6 +86,8 @@ class CalculationWorker(QRunnable):
     def run(self) -> None:
         started = perf_counter()
         try:
+            self.state.active_backend = "CPU"
+            self.state._active_backends_used = set()
             if self.quality == "Preview":
                 layout = apply_physical_layout_to_state(self.state)
                 simulation = run_ray_simulation(
@@ -170,15 +172,18 @@ class CalculationController(QObject):
             # The interactive path is a direct-beam optical schematic. Full
             # diffraction branches remain part of the one-shot calculation.
             snapshot.sample.diffraction_enabled = False
-        else:
-            snapshot.acceleration_enabled = True
-            snapshot.acceleration_backend = "Numba CPU"
         worker = CalculationWorker(generation, quality, snapshot)
         worker.signals.result.connect(self._accept_result)
         worker.signals.error.connect(self._accept_error)
         worker.signals.finished.connect(self._accept_finished)
         self.started.emit(quality)
         self.pool.start(worker)
+
+    def invalidate_pending(self) -> None:
+        """Ignore queued/running results after the live state has changed."""
+
+        self._generation += 1
+        self.pool.clear()
 
     def _accept_result(self, generation, quality, result, duration) -> None:
         if generation == self._generation:
