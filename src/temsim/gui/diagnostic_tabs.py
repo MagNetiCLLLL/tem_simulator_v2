@@ -1043,17 +1043,20 @@ class PhysicalLayoutView(QWidget):
         self.summary = QLabel(
             "Hollow-cylinder projections and vacuum bores come from the active TOML assembly."
         )
+        self.summary.setWordWrap(True)
         self.summary.setStyleSheet("color: #64748b; font-weight: 600;")
         self.fit_all = QPushButton("Fit all hardware")
         self.fit_bore = QPushButton("Fit vacuum bore")
         for button in (self.fit_all, self.fit_bore):
             button.setStyleSheet(BUTTON_STYLE)
 
-        header = QHBoxLayout()
-        header.addWidget(self.heading)
-        header.addStretch(1)
-        header.addWidget(self.fit_bore)
-        header.addWidget(self.fit_all)
+        heading_row = QHBoxLayout()
+        heading_row.addWidget(self.heading)
+        heading_row.addStretch(1)
+        action_row = QHBoxLayout()
+        action_row.addStretch(1)
+        action_row.addWidget(self.fit_bore)
+        action_row.addWidget(self.fit_all)
 
         self.plot = pg.PlotWidget(background="#050816")
         self.plot.setObjectName("physicalLayoutPlot")
@@ -1065,7 +1068,8 @@ class PhysicalLayoutView(QWidget):
         view_box.setMouseEnabled(x=True, y=True)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(header)
+        layout.addLayout(heading_row)
+        layout.addLayout(action_row)
         layout.addWidget(self.plot, 1)
         layout.addWidget(self.summary)
 
@@ -2492,14 +2496,17 @@ class TransverseBeamView(QWidget):
         self.summary = QLabel(
             "Select a component to inspect the beam at its centre plane."
         )
+        self.summary.setWordWrap(True)
         self.summary.setStyleSheet("color: #64748b; font-weight: 600;")
         self.fit_beam = QPushButton("Fit beam")
         self.fit_beam.setStyleSheet(BUTTON_STYLE)
 
-        header = QHBoxLayout()
-        header.addWidget(self.heading)
-        header.addStretch(1)
-        header.addWidget(self.fit_beam)
+        heading_row = QHBoxLayout()
+        heading_row.addWidget(self.heading)
+        heading_row.addStretch(1)
+        action_row = QHBoxLayout()
+        action_row.addStretch(1)
+        action_row.addWidget(self.fit_beam)
 
         self.plot = pg.PlotWidget(background="#050816")
         self.plot.setObjectName("transverseBeamPlot")
@@ -2509,7 +2516,8 @@ class TransverseBeamView(QWidget):
         self.plot.setAspectLocked(True)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(header)
+        layout.addLayout(heading_row)
+        layout.addLayout(action_row)
         layout.addWidget(self.plot, 1)
         layout.addWidget(self.summary)
         self.fit_beam.clicked.connect(self.plot.autoRange)
@@ -2663,13 +2671,16 @@ class OpticalTransferView(QWidget):
         self.clear_pair.setObjectName("clearOpticalTransferPair")
         self.clear_pair.setStyleSheet(BUTTON_STYLE)
 
-        header = QHBoxLayout()
-        header.addWidget(self.heading)
-        header.addStretch(1)
-        header.addWidget(QLabel("Target plane"))
-        header.addWidget(self.target_plane)
-        header.addWidget(self.capture_current)
-        header.addWidget(self.clear_pair)
+        heading_row = QHBoxLayout()
+        heading_row.addWidget(self.heading)
+        heading_row.addStretch(1)
+        target_row = QHBoxLayout()
+        target_row.addWidget(QLabel("Target plane"))
+        target_row.addWidget(self.target_plane, 1)
+        action_row = QHBoxLayout()
+        action_row.addStretch(1)
+        action_row.addWidget(self.capture_current)
+        action_row.addWidget(self.clear_pair)
 
         self.matrix_text = QPlainTextEdit()
         self.matrix_text.setObjectName("opticalTransferMatrixText")
@@ -2697,7 +2708,9 @@ class OpticalTransferView(QWidget):
         )
 
         layout = QVBoxLayout(self)
-        layout.addLayout(header)
+        layout.addLayout(heading_row)
+        layout.addLayout(target_row)
+        layout.addLayout(action_row)
         layout.addWidget(self.summary)
         layout.addWidget(self.matrix_text, 1)
         layout.addWidget(self.pair_summary)
@@ -2987,6 +3000,7 @@ class MagneticFieldView(QWidget):
 
         self.heading = QLabel("Axial magnetic field Bz")
         self.summary = QLabel("Recalculate to evaluate lens fields.")
+        self.summary.setWordWrap(True)
         self.summary.setStyleSheet("color: #64748b; font-weight: 600;")
         self.show_individual = QPushButton("Individual lenses")
         self.show_individual.setCheckable(True)
@@ -2997,11 +3011,13 @@ class MagneticFieldView(QWidget):
         self.show_rotation_labels.setChecked(True)
         self.show_rotation_labels.setStyleSheet(BUTTON_STYLE)
 
-        header = QHBoxLayout()
-        header.addWidget(self.heading)
-        header.addStretch(1)
-        header.addWidget(self.show_rotation_labels)
-        header.addWidget(self.show_individual)
+        heading_row = QHBoxLayout()
+        heading_row.addWidget(self.heading)
+        heading_row.addStretch(1)
+        action_row = QHBoxLayout()
+        action_row.addStretch(1)
+        action_row.addWidget(self.show_rotation_labels)
+        action_row.addWidget(self.show_individual)
 
         self.plot = pg.PlotWidget(background="#050816")
         self.plot.setObjectName("magneticFieldPlot")
@@ -3011,7 +3027,8 @@ class MagneticFieldView(QWidget):
         self.legend = self.plot.addLegend(offset=(10, 10))
 
         layout = QVBoxLayout(self)
-        layout.addLayout(header)
+        layout.addLayout(heading_row)
+        layout.addLayout(action_row)
         layout.addWidget(self.plot, 1)
         layout.addWidget(self.summary)
         self.show_individual.toggled.connect(self._apply_curve_styles)

@@ -140,6 +140,29 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
     )
 
 
+def test_workspace_action_buttons_fit_without_a_window_state_change(qtbot):
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+    workspace.resize(640, 700)
+    workspace.show()
+    qtbot.wait(20)
+
+    assert workspace.minimumSizeHint().width() < 900
+    for button in (
+        workspace.auto_zoom,
+        workspace.fit_column,
+        workspace.column_walls,
+        workspace.component_centres,
+        workspace.crossovers,
+        workspace.jump_to_position,
+    ):
+        top_left = button.mapTo(workspace, button.rect().topLeft())
+        bottom_right = button.mapTo(workspace, button.rect().bottomRight())
+        assert button.isVisible()
+        assert top_left.x() >= 0
+        assert bottom_right.x() < workspace.width()
+
+
 def test_direct_alignment_gui_gates_modes_and_emits_the_requested_target(qtbot):
     panel = DirectAlignmentPanel()
     qtbot.addWidget(panel)
@@ -785,6 +808,34 @@ def test_sample_selection_exposes_multislice_controls(qtbot):
     assert "wave_slice_thickness_angstrom" in widgets
     assert widgets["wave_slice_thickness_angstrom"].value() == pytest.approx(2.0)
     assert widgets["wave_slice_thickness_angstrom"].suffix() == " Å"
+
+
+def test_sample_parameters_are_immediately_scrollable_in_a_short_panel(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1100, 700)
+    window.show()
+    window.preview_timer.stop()
+    window.instrument_editor.setSizes([220, 220])
+    sample_item = _find_tree_item(window.assembly_panel.tree, "sample")
+
+    window.assembly_panel.tree.setCurrentItem(sample_item)
+    qtbot.wait(20)
+
+    panel = window.parameter_panel
+    scroll_bar = panel.scroll_area.verticalScrollBar()
+    assert panel.minimumSizeHint().height() < (
+        panel.scroll_content.minimumSizeHint().height()
+    )
+    assert scroll_bar.maximum() > 0
+
+    last_control = panel._quick_widgets["wave_defocus_nm"]
+    panel.scroll_area.ensureWidgetVisible(last_control)
+    qtbot.wait(20)
+    bottom_right = last_control.mapTo(
+        panel.scroll_area.viewport(), last_control.rect().bottomRight()
+    )
+    assert 0 <= bottom_right.y() < panel.scroll_area.viewport().height()
 
 
 def test_ray_plot_marks_every_component_centre_and_detected_crossover(

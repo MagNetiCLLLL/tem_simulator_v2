@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -292,31 +293,47 @@ class VisualizationWorkspace(QWidget):
         ):
             option_button.setStyleSheet(self.OPTION_BUTTON_STYLE)
 
-        title_row = QHBoxLayout()
-        title_row.addWidget(self.heading)
-        title_row.addStretch(1)
-        title_row.addWidget(self.projection_label)
-        title_row.addWidget(self.projection_xz)
-        title_row.addWidget(self.projection_yz)
-        title_row.addWidget(self.projection_slider)
-        title_row.addWidget(self.projection_angle)
-        title_row.addWidget(self.auto_zoom)
-        title_row.addWidget(self.fit_column)
-        title_row.addWidget(self.column_walls)
-        title_row.addWidget(self.component_centres)
-        title_row.addWidget(self.crossovers)
+        # Keep the ray controls responsive when the instrument dock is wide or
+        # display scaling is high.  A single horizontal row gave the central
+        # widget a very large minimum width, placing the buttons at its right
+        # edge outside the visible window until a maximise/restore relayout.
+        heading_row = QHBoxLayout()
+        heading_row.addWidget(self.heading)
+        heading_row.addStretch(1)
 
-        navigation_row = QHBoxLayout()
+        projection_row = QHBoxLayout()
+        projection_row.addWidget(self.projection_label)
+        projection_row.addWidget(self.projection_xz)
+        projection_row.addWidget(self.projection_yz)
+        projection_row.addWidget(self.projection_slider, 1)
+        projection_row.addWidget(self.projection_angle)
+
+        option_grid = QGridLayout()
+        option_grid.setHorizontalSpacing(6)
+        option_grid.setVerticalSpacing(6)
+        option_buttons = (
+            self.auto_zoom,
+            self.fit_column,
+            self.column_walls,
+            self.component_centres,
+            self.crossovers,
+        )
+        for index, button in enumerate(option_buttons):
+            option_grid.addWidget(button, index // 3, index % 3)
+        for column in range(3):
+            option_grid.setColumnStretch(column, 1)
+
         navigation_hint = QLabel(
             "Double-click an axial position in Ray Diagram, Physical Layout, "
             "or Magnetic Field to open the same Z here"
         )
+        navigation_hint.setWordWrap(True)
         navigation_hint.setStyleSheet("color: #64748b; font-weight: 600;")
-        navigation_row.addWidget(navigation_hint)
-        navigation_row.addStretch(1)
-        navigation_row.addWidget(QLabel("Axial Z"))
-        navigation_row.addWidget(self.axial_position)
-        navigation_row.addWidget(self.jump_to_position)
+        navigation_controls = QHBoxLayout()
+        navigation_controls.addStretch(1)
+        navigation_controls.addWidget(QLabel("Axial Z"))
+        navigation_controls.addWidget(self.axial_position)
+        navigation_controls.addWidget(self.jump_to_position)
 
         self.plot = pg.PlotWidget(background="#050816")
         self.plot.setObjectName("rayPlot")
@@ -354,8 +371,10 @@ class VisualizationWorkspace(QWidget):
         self.stop_detail = QLabel(
             "Click a stop marker to inspect the first physical intercept"
         )
+        self.stop_detail.setWordWrap(True)
         self.stop_detail.setStyleSheet("color: #fbbf24; font-weight: 600;")
         self.hint = QLabel("Angle and display-scale diagnostics appear here")
+        self.hint.setWordWrap(True)
         self.hint.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.hint.setStyleSheet("color: #64748b; font-weight: 600;")
         self.hint.setToolTip(
@@ -365,8 +384,11 @@ class VisualizationWorkspace(QWidget):
 
         ray_page = QWidget()
         ray_layout = QVBoxLayout(ray_page)
-        ray_layout.addLayout(title_row)
-        ray_layout.addLayout(navigation_row)
+        ray_layout.addLayout(heading_row)
+        ray_layout.addLayout(projection_row)
+        ray_layout.addLayout(option_grid)
+        ray_layout.addWidget(navigation_hint)
+        ray_layout.addLayout(navigation_controls)
         ray_layout.addWidget(self.plot, 1)
         ray_layout.addWidget(self.stop_detail)
         ray_layout.addWidget(self.hint)

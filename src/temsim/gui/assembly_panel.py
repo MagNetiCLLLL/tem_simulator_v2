@@ -9,7 +9,9 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QPushButton,
+    QScrollArea,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -41,6 +43,13 @@ class AssemblyPanel(QWidget):
         self.gun = QComboBox()
         self.column = QComboBox()
         self.recording = QComboBox()
+        for selector in (self.gun, self.column, self.recording):
+            # Do not let the longest catalog label dictate the dock width.
+            # The popup still displays the complete option text.
+            selector.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            selector.setMinimumContentsLength(18)
         self.gun.addItems([option.name for option in catalog.guns])
         self.column.addItems([option.name for option in catalog.columns])
         self.recording.addItems(
@@ -62,6 +71,11 @@ class AssemblyPanel(QWidget):
         self.probe_mode.setObjectName("probeModeSelector")
         self.projector_mode = QComboBox()
         self.projector_mode.setObjectName("projectorModeSelector")
+        for selector in (self.probe_mode, self.projector_mode):
+            selector.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            selector.setMinimumContentsLength(18)
         mode_form.addRow("Probe / illumination", self.probe_mode)
         mode_form.addRow("Projection", self.projector_mode)
         self.apply_operating_mode_button = QPushButton(
@@ -129,10 +143,28 @@ class AssemblyPanel(QWidget):
             self.direct_alignment_panel, "Direct Alignment"
         )
 
+        setup_content = QWidget()
+        setup_content.setObjectName("assemblySetupScrollContent")
+        setup_layout = QVBoxLayout(setup_content)
+        setup_layout.setContentsMargins(0, 0, 0, 0)
+        setup_layout.setSizeConstraint(
+            QLayout.SizeConstraint.SetMinAndMaxSize
+        )
+        setup_layout.addWidget(box)
+        setup_layout.addWidget(mode_box)
+
+        self.setup_scroll_area = QScrollArea()
+        self.setup_scroll_area.setObjectName("assemblySetupScrollArea")
+        self.setup_scroll_area.setWidgetResizable(True)
+        self.setup_scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.setup_scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.setup_scroll_area.setWidget(setup_content)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(box)
-        layout.addWidget(mode_box)
+        layout.addWidget(self.setup_scroll_area, 1)
         layout.addWidget(self.component_pages, 1)
 
         self.optical_filter.currentIndexChanged.connect(

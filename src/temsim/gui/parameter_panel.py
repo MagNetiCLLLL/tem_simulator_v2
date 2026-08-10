@@ -11,7 +11,9 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -200,12 +202,36 @@ class ParameterPanel(QWidget):
 
         self.runtime_table.itemChanged.connect(self._runtime_item_changed)
 
+        # The controls above the tables are populated dynamically.  In
+        # particular, the Sample page is taller than the lower half of the
+        # instrument splitter on many displays.  Keep their natural size in a
+        # scrollable content widget instead of allowing that size hint to make
+        # the splitter (and eventually the main window) larger than the
+        # available screen.
+        self.scroll_content = QWidget()
+        self.scroll_content.setObjectName("parameterScrollContent")
+        content_layout = QVBoxLayout(self.scroll_content)
+        content_layout.setSizeConstraint(
+            QLayout.SizeConstraint.SetMinAndMaxSize
+        )
+        content_layout.addWidget(self.title)
+        content_layout.addWidget(self.lens_box)
+        content_layout.addWidget(self.quick_box)
+        content_layout.addWidget(self.energy_filter_box)
+        content_layout.addWidget(self.tabs, 1)
+
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setObjectName("parameterScrollArea")
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.scroll_area.setWidget(self.scroll_content)
+
         layout = QVBoxLayout(self)
-        layout.addWidget(self.title)
-        layout.addWidget(self.lens_box)
-        layout.addWidget(self.quick_box)
-        layout.addWidget(self.energy_filter_box)
-        layout.addWidget(self.tabs, 1)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.scroll_area)
 
     def set_lens_diagnostics(self, text: str) -> None:
         self.lens_diagnostics.setText(
@@ -243,6 +269,13 @@ class ParameterPanel(QWidget):
             self._load_energy_filter_controls()
         finally:
             self._updating = False
+        # Visibility and row-count changes alter the content height.  Activate
+        # the layout now so the scrollbar is correct immediately; previously
+        # a window-state change was often the first event that forced this
+        # recalculation.
+        self.scroll_content.layout().activate()
+        self.scroll_content.updateGeometry()
+        self.scroll_area.verticalScrollBar().setValue(0)
 
     def _clear_quick_controls(self) -> None:
         while self.quick_form.rowCount():
