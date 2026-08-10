@@ -220,7 +220,7 @@ def load_operating_mode_catalog() -> OperatingModeCatalog:
             "condenser_lens_2", "condenser_lens_3",
         ),
         "image_magnification": (
-            "diffraction_lens", "intermediate_lens",
+            "objective_lens", "diffraction_lens", "intermediate_lens",
             "projector_lens_1", "projector_lens_2",
         ),
         "diffraction_camera_length": (

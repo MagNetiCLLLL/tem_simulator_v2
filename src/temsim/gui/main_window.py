@@ -44,6 +44,7 @@ from temsim.manifest_editor import ManifestEditor, ManifestTarget
 from temsim.optics.column import default_state
 from temsim.operating_modes import (
     apply_operating_mode_pair,
+    compatible_modes,
     direct_alignment_by_key,
 )
 from temsim.profile_io import apply_profile_values, read_profile, save_profile
@@ -75,6 +76,12 @@ class MainWindow(QMainWindow):
         self.selection = self.catalog.default_selection()
         self.state = default_state()
         self.assembly = self.catalog.apply(self.state, self.selection)
+        if self._apply_state_operating_modes(
+            self.state, self.selection
+        ) is None:
+            raise ValueError(
+                "The default assembly has no compatible operating-mode pair"
+            )
         self.manifest_editor = ManifestEditor()
         catalog_audit = self.manifest_editor.validate_catalog()
         self._runtime_targets = {}
@@ -319,15 +326,8 @@ class MainWindow(QMainWindow):
         self.assembly_panel.load_assembly(
             self.assembly, self._runtime_targets
         )
-        condenser_key = (
-            "micro_probe"
-            if str(self.state.illumination_mode).upper() == "TEM"
-            else "nano_probe"
-        )
-        projector_key = (
-            "imaging"
-            if str(self.state.projector_mode).lower() == "image"
-            else "diffraction"
+        condenser_key, projector_key = self._state_operating_mode_keys(
+            self.state
         )
         self.assembly_panel.load_operating_modes(
             self.selection, condenser_key, projector_key
@@ -337,6 +337,51 @@ class MainWindow(QMainWindow):
             f"Assembly validated: {len(self.assembly.parts)} parts, "
             f"{len(anchors)} confirmed anchors."
         )
+
+    @staticmethod
+    def _state_operating_mode_keys(state) -> tuple[str, str]:
+        condenser_key = (
+            "micro_probe"
+            if str(state.illumination_mode).upper() == "TEM"
+            else "nano_probe"
+        )
+        projector_key = (
+            "imaging"
+            if str(state.projector_mode).lower() == "image"
+            else "diffraction"
+        )
+        return condenser_key, projector_key
+
+    def _apply_state_operating_modes(self, state, selection):
+        """Apply the live mode labels only when the assembly supports them."""
+
+        condenser_key, projector_key = self._state_operating_mode_keys(state)
+        available_condenser = {
+            mode.key
+            for mode in compatible_modes(
+                "condenser", selection.column, selection.recording
+            )
+        }
+        available_projector = {
+            mode.key
+            for mode in compatible_modes(
+                "projector", selection.column, selection.recording
+            )
+        }
+        if (
+            condenser_key not in available_condenser
+            or projector_key not in available_projector
+        ):
+            return None
+        result = apply_operating_mode_pair(
+            state,
+            condenser_key,
+            projector_key,
+            column_name=selection.column,
+            recording_name=selection.recording,
+        )
+        apply_physical_layout_to_state(state)
+        return result
 
     def _select_tree_item(self, selection) -> None:
         self._selected_component_key = selection.key
@@ -409,6 +454,7 @@ class MainWindow(QMainWindow):
         try:
             candidate_state = type(self.state).from_dict(self.state.to_dict())
             candidate_assembly = self.catalog.apply(candidate_state, selection)
+            self._apply_state_operating_modes(candidate_state, selection)
             self.selection = selection
             self.state = candidate_state
             self.assembly = candidate_assembly
@@ -563,13 +609,23 @@ class MainWindow(QMainWindow):
 
         if result.success:
             previous = [(lens, float(lens.percent)) for lens, _ in updates]
+            previous_equivalent_image_lenses = bool(
+                getattr(
+                    self.state, "equivalent_image_lenses_enabled", False
+                )
+            )
             try:
                 for lens, numeric in updates:
                     lens.percent = numeric
+                if key == "image_magnification":
+                    self.state.equivalent_image_lenses_enabled = True
                 self._refresh_assembly_views()
             except Exception as exc:
                 for lens, numeric in previous:
                     lens.percent = numeric
+                self.state.equivalent_image_lenses_enabled = (
+                    previous_equivalent_image_lenses
+                )
                 result = replace(
                     result,
                     success=False,
@@ -781,6 +837,9 @@ class MainWindow(QMainWindow):
                 candidate_assembly = self.catalog.apply(
                     candidate_state, self.selection
                 )
+                self._apply_state_operating_modes(
+                    candidate_state, self.selection
+                )
             except Exception:
                 from temsim import module_manifest
 
@@ -859,6 +918,9 @@ class MainWindow(QMainWindow):
             audit = self.manifest_editor.validate_catalog()
             candidate_state = type(self.state).from_dict(self.state.to_dict())
             assembly = catalog.apply(candidate_state, self.selection)
+            self._apply_state_operating_modes(
+                candidate_state, self.selection
+            )
             self.catalog = catalog
             self.state = candidate_state
             self.assembly = assembly

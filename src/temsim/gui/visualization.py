@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QSlider,
     QTabWidget,
     QVBoxLayout,
@@ -170,13 +170,13 @@ class VisualizationWorkspace(QWidget):
     RAY_LEGEND_PT = 10
     OPTION_BUTTON_STYLE = """
         QPushButton {
-            min-height: 28px;
-            padding: 4px 12px;
+            min-height: 24px;
+            padding: 2px 7px;
             border: 1px solid #64748b;
             border-radius: 6px;
             background: #f8fafc;
             color: #0f172a;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
         }
         QPushButton:hover {
@@ -205,7 +205,19 @@ class VisualizationWorkspace(QWidget):
 
         self._projection_angle_deg = 0.0
         self._projection_syncing = False
-        self.projection_label = QLabel("View angle")
+        self._projection_redraw_timer = QTimer(self)
+        self._projection_redraw_timer.setSingleShot(True)
+        self._projection_redraw_timer.setInterval(16)
+        self._projection_redraw_timer.timeout.connect(
+            self._redraw_projection_items
+        )
+        self._projection_finalize_timer = QTimer(self)
+        self._projection_finalize_timer.setSingleShot(True)
+        self._projection_finalize_timer.setInterval(150)
+        self._projection_finalize_timer.timeout.connect(
+            self._redraw_last_result
+        )
+        self.projection_label = QLabel("Angle")
         self.projection_label.setToolTip(
             "Rotate the displayed transverse axis continuously about Z; "
             "this reprojects the existing X/Y result without retracing rays"
@@ -217,6 +229,11 @@ class VisualizationWorkspace(QWidget):
         self.projection_yz = QPushButton("Y-Z")
         self.projection_yz.setObjectName("projectionYZButton")
         self.projection_yz.setCheckable(True)
+        for projection_button in (self.projection_xz, self.projection_yz):
+            projection_button.setSizePolicy(
+                QSizePolicy.Policy.Fixed,
+                QSizePolicy.Policy.Fixed,
+            )
         self.projection_slider = QSlider(Qt.Orientation.Horizontal)
         self.projection_slider.setObjectName("projectionAngleSlider")
         self.projection_slider.setRange(0, 3600)
@@ -227,41 +244,31 @@ class VisualizationWorkspace(QWidget):
         self.projection_slider.setToolTip(
             "Transverse projection angle, in tenths of a degree"
         )
-        self.projection_angle = QDoubleSpinBox()
-        self.projection_angle.setObjectName("projectionAngleSpin")
-        self.projection_angle.setRange(0.0, 360.0)
-        self.projection_angle.setDecimals(2)
-        self.projection_angle.setSingleStep(1.0)
-        self.projection_angle.setSuffix(" deg")
-        self.projection_angle.setWrapping(True)
-        self.projection_angle.setToolTip(
-            "0 deg = X-Z, 90 deg = Y-Z; intermediate angles show "
-            "U = X cos(angle) + Y sin(angle)"
-        )
-
-        self.component_centres = QPushButton("Component centres")
+        self.component_centres = QPushButton("Centres")
         self.component_centres.setObjectName("componentCentresToggle")
         self.component_centres.setCheckable(True)
         self.component_centres.setChecked(True)
+        self.component_centres.setToolTip("Show component centre markers")
         self.crossovers = QPushButton("Crossovers")
         self.crossovers.setObjectName("crossoversToggle")
         self.crossovers.setCheckable(True)
         self.crossovers.setChecked(True)
-        self.auto_zoom = QPushButton("Auto zoom")
+        self.crossovers.setToolTip("Show detected ray crossovers")
+        self.auto_zoom = QPushButton("Auto")
         self.auto_zoom.setObjectName("autoZoomToggle")
         self.auto_zoom.setCheckable(True)
         self.auto_zoom.setToolTip(
             "Automatically zoom to the selected assembly component"
         )
         self.auto_zoom.setChecked(False)
-        self.column_walls = QPushButton("Vacuum walls")
+        self.column_walls = QPushButton("Walls")
         self.column_walls.setObjectName("columnWallsToggle")
         self.column_walls.setCheckable(True)
         self.column_walls.setChecked(True)
         self.column_walls.setToolTip(
             "Show the position-dependent circular vacuum inner diameter"
         )
-        self.fit_column = QPushButton("Fit vacuum")
+        self.fit_column = QPushButton("Fit")
         self.fit_column.setObjectName("fitColumnButton")
         self.fit_column.setToolTip(
             "Fit the complete axial range and column inner diameter"
@@ -293,24 +300,19 @@ class VisualizationWorkspace(QWidget):
         ):
             option_button.setStyleSheet(self.OPTION_BUTTON_STYLE)
 
-        # Keep the ray controls responsive when the instrument dock is wide or
-        # display scaling is high.  A single horizontal row gave the central
-        # widget a very large minimum width, placing the buttons at its right
-        # edge outside the visible window until a maximise/restore relayout.
+        # Keep the view controls responsive without allowing overlay buttons to
+        # expand into oversized grid cells or wrap across multiple rows.
         heading_row = QHBoxLayout()
         heading_row.addWidget(self.heading)
         heading_row.addStretch(1)
 
-        projection_row = QHBoxLayout()
-        projection_row.addWidget(self.projection_label)
-        projection_row.addWidget(self.projection_xz)
-        projection_row.addWidget(self.projection_yz)
-        projection_row.addWidget(self.projection_slider, 1)
-        projection_row.addWidget(self.projection_angle)
-
-        option_grid = QGridLayout()
-        option_grid.setHorizontalSpacing(6)
-        option_grid.setVerticalSpacing(6)
+        view_controls = QHBoxLayout()
+        view_controls.setSpacing(3)
+        view_controls.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        view_controls.addWidget(self.projection_label)
+        view_controls.addWidget(self.projection_xz)
+        view_controls.addWidget(self.projection_yz)
+        view_controls.addWidget(self.projection_slider)
         option_buttons = (
             self.auto_zoom,
             self.fit_column,
@@ -318,10 +320,13 @@ class VisualizationWorkspace(QWidget):
             self.component_centres,
             self.crossovers,
         )
-        for index, button in enumerate(option_buttons):
-            option_grid.addWidget(button, index // 3, index % 3)
-        for column in range(3):
-            option_grid.setColumnStretch(column, 1)
+        for button in option_buttons:
+            button.setSizePolicy(
+                QSizePolicy.Policy.Fixed,
+                QSizePolicy.Policy.Fixed,
+            )
+            view_controls.addWidget(button)
+        view_controls.addStretch(1)
 
         navigation_hint = QLabel(
             "Double-click an axial position in Ray Diagram, Physical Layout, "
@@ -356,11 +361,16 @@ class VisualizationWorkspace(QWidget):
         self.aperture_optical_plane_items = []
         self.aperture_stop_segment_items = []
         self._aperture_span_records = []
+        self._aperture_projection_records = []
         self._aperture_stops_by_key = {}
         self.deflector_pair_items = []
         self.crossover_marker_items = []
         self.column_wall_items = []
         self.stop_marker_items = []
+        self._stop_projection_records = []
+        self._ray_bundle_records = []
+        self._crossover_count = 0
+        self._wall_stop_count = 0
         self.axial_cursor_item = None
         self._selected_z_mm = None
         self._last_result = None
@@ -385,8 +395,7 @@ class VisualizationWorkspace(QWidget):
         ray_page = QWidget()
         ray_layout = QVBoxLayout(ray_page)
         ray_layout.addLayout(heading_row)
-        ray_layout.addLayout(projection_row)
-        ray_layout.addLayout(option_grid)
+        ray_layout.addLayout(view_controls)
         ray_layout.addWidget(navigation_hint)
         ray_layout.addLayout(navigation_controls)
         ray_layout.addWidget(self.plot, 1)
@@ -432,9 +441,6 @@ class VisualizationWorkspace(QWidget):
         )
         self.projection_slider.valueChanged.connect(
             self._projection_slider_changed
-        )
-        self.projection_angle.valueChanged.connect(
-            self._projection_spin_changed
         )
         self.plot.getViewBox().sigXRangeChanged.connect(
             self._update_component_label_visibility
@@ -532,13 +538,87 @@ class VisualizationWorkspace(QWidget):
             return np.array([], dtype=float), np.array([], dtype=float)
         return np.concatenate(x_segments), np.concatenate(y_segments)
 
+    def _display_bundle_lines(self, branch) -> tuple[np.ndarray, np.ndarray]:
+        """Project only the deterministic ray subset that is actually drawn."""
+
+        ray_count = int(branch.x.shape[1])
+        display_count = min(self.MAX_DISPLAY_RAYS, ray_count)
+        indices = np.unique(
+            np.linspace(0, ray_count - 1, display_count, dtype=int)
+        )
+        projected = self._project_transverse(
+            np.asarray(branch.x)[:, indices],
+            np.asarray(branch.y)[:, indices],
+        )
+        blocked_z = np.asarray(branch.blocked_z, dtype=float)[indices]
+        return self._bundle_lines(
+            branch.z,
+            projected,
+            len(indices),
+            blocked_z,
+        )
+
     def _redraw_last_result(self) -> None:
+        self._projection_redraw_timer.stop()
+        self._projection_finalize_timer.stop()
         if self._last_result is not None:
             self._draw_ray_diagram(
                 self._last_result,
                 self._last_quality,
                 preserve_view=True,
             )
+
+    def _update_projection_text(self) -> None:
+        self.heading.setText(
+            f"Electron ray paths — {self._last_quality} | "
+            f"{self._projection_axis_name()} projection at "
+            f"{self._format_angle(self._projection_angle_deg)}° | "
+            f"{self._crossover_count} crossovers | "
+            f"{self._wall_stop_count} column-wall stops"
+        )
+        if self._selected_z_mm is None:
+            self.stop_detail.setText(
+                f"Projection: {self._projection_axis_name()} = "
+                "X cos(angle) + Y sin(angle) | "
+                "click a stop marker for exact X/Y diagnostics"
+            )
+
+    def _redraw_projection_items(self) -> None:
+        """Update angle-dependent graphics without rebuilding static markers."""
+
+        if self._last_result is None:
+            return
+        for item, branch in self._ray_bundle_records:
+            z, transverse = self._display_bundle_lines(branch)
+            item.setData(z, transverse, connect="finite")
+        for item, group, records in self._stop_projection_records:
+            projected_mm = self._project_transverse(
+                [record.x_mm for record in records],
+                [record.y_mm for record in records],
+            )
+            item.setData(
+                x=[record.z_mm for record in records],
+                y=projected_mm,
+                data=records,
+            )
+            item.setToolTip(
+                f"{group}: projected on {self._projection_axis_name()}; "
+                "click a marker for exact X/Y diagnostics"
+            )
+        updated_spans = []
+        for lower, upper, offset_x_mm, offset_y_mm, radius_mm in (
+            self._aperture_projection_records
+        ):
+            centre_u_mm = float(
+                self._project_transverse(offset_x_mm, offset_y_mm)
+            )
+            updated_spans.append(
+                (lower, upper, centre_u_mm, radius_mm)
+            )
+        if updated_spans:
+            self._aperture_span_records = updated_spans
+            self._update_aperture_spans()
+        self._update_projection_text()
 
     @staticmethod
     def _ray_geometry_signature(result) -> tuple | None:
@@ -594,13 +674,14 @@ class VisualizationWorkspace(QWidget):
 
     def _projection_slider_changed(self, value: int) -> None:
         if not self._projection_syncing:
-            self._set_projection_angle(float(value) / 10.0)
+            self._set_projection_angle(
+                float(value) / 10.0,
+                defer_redraw=True,
+            )
 
-    def _projection_spin_changed(self, value: float) -> None:
-        if not self._projection_syncing:
-            self._set_projection_angle(value)
-
-    def _set_projection_angle(self, angle_deg: float) -> None:
+    def _set_projection_angle(
+        self, angle_deg: float, *, defer_redraw: bool = False
+    ) -> None:
         angle = float(np.clip(angle_deg, 0.0, 360.0))
         changed = not np.isclose(
             angle, self._projection_angle_deg, atol=1.0e-12
@@ -611,7 +692,6 @@ class VisualizationWorkspace(QWidget):
             self.projection_slider.setValue(
                 int(np.floor(angle * 10.0 + 0.5))
             )
-            self.projection_angle.setValue(angle)
             normalized = angle % 360.0
             self.projection_xz.setChecked(
                 bool(np.isclose(normalized, 0.0, atol=0.05))
@@ -622,11 +702,14 @@ class VisualizationWorkspace(QWidget):
         finally:
             self._projection_syncing = False
         if changed and self._last_result is not None:
-            self._draw_ray_diagram(
-                self._last_result,
-                self._last_quality,
-                preserve_view=True,
-            )
+            if defer_redraw:
+                if not self._projection_redraw_timer.isActive():
+                    self._projection_redraw_timer.start()
+                self._projection_finalize_timer.start()
+            else:
+                self._projection_redraw_timer.stop()
+                self._projection_finalize_timer.stop()
+                self._redraw_last_result()
 
     def _auto_zoom_toggled(self, checked: bool) -> None:
         if checked and self._focused_part is not None:
@@ -845,6 +928,9 @@ class VisualizationWorkspace(QWidget):
             item.sigClicked.connect(self._stop_marker_clicked)
             self.plot.addItem(item)
             self.stop_marker_items.append(item)
+            self._stop_projection_records.append(
+                (item, group, tuple(group_records))
+            )
 
     def _stop_marker_clicked(self, _item, points, _event=None) -> None:
         if not points:
@@ -1188,6 +1274,15 @@ class VisualizationWorkspace(QWidget):
             self._aperture_span_records.append(
                 (lower, upper, centre_u_mm, radius_mm)
             )
+            self._aperture_projection_records.append(
+                (
+                    lower,
+                    upper,
+                    offset_x_mm,
+                    offset_y_mm,
+                    radius_mm,
+                )
+            )
             lines = (lower, upper)
             representative = upper
 
@@ -1516,6 +1611,8 @@ class VisualizationWorkspace(QWidget):
     def _draw_ray_diagram(
         self, result, quality: str, preserve_view: bool = False
     ) -> None:
+        self._projection_redraw_timer.stop()
+        self._projection_finalize_timer.stop()
         preserved_range = (
             self.plot.getViewBox().viewRange() if preserve_view else None
         )
@@ -1532,6 +1629,7 @@ class VisualizationWorkspace(QWidget):
         self.aperture_optical_plane_items = []
         self.aperture_stop_segment_items = []
         self._aperture_span_records = []
+        self._aperture_projection_records = []
         self._aperture_stops_by_key = {
             str(record["key"]): dict(record)
             for record in getattr(result, "aperture_stops", ())
@@ -1540,6 +1638,8 @@ class VisualizationWorkspace(QWidget):
         self.crossover_marker_items = []
         self.column_wall_items = []
         self.stop_marker_items = []
+        self._stop_projection_records = []
+        self._ray_bundle_records = []
         self.axial_cursor_item = None
         limits = self._simulation_x_limits()
         if limits is not None:
@@ -1552,27 +1652,21 @@ class VisualizationWorkspace(QWidget):
             (branch, branch.name) for branch in simulation.branches.values()
         )
         for branch, label in bundles:
-            display_count = min(self.MAX_DISPLAY_RAYS, branch.x.shape[1])
-            projected = self._project_transverse(branch.x, branch.y)
-            z, transverse = self._bundle_lines(
-                branch.z,
-                projected,
-                display_count,
-                branch.blocked_z,
-            )
+            z, transverse = self._display_bundle_lines(branch)
             colour = (
                 "#7dd3fc"
                 if label == "Incident"
                 else tuple(max(64, int(255 * value)) for value in branch.colour)
             )
             if z.size:
-                self.plot.plot(
+                item = self.plot.plot(
                     z,
                     transverse,
                     pen=pg.mkPen(colour, width=1.35),
                     name=label,
                     connect="finite",
                 )
+                self._ray_bundle_records.append((item, branch))
 
         self.plot.plot(
             [], [], pen=pg.mkPen("#ffb000", width=2.0), name="Aperture"
@@ -1614,21 +1708,9 @@ class VisualizationWorkspace(QWidget):
                 self._update_component_label_visibility()
         self._update_aperture_spans()
         self._update_scale_notice()
-        if self._selected_z_mm is None:
-            self.stop_detail.setText(
-                f"Projection: {self._projection_axis_name()} = "
-                "X cos(angle) + Y sin(angle) | "
-                "click a stop marker for exact X/Y diagnostics"
-            )
-        crossover_count = len(self._all_crossovers(result))
-        wall_stop_count = self._column_wall_stop_count(simulation)
-        self.heading.setText(
-            f"Electron ray paths — {quality} | "
-            f"{self._projection_axis_name()} projection at "
-            f"{self._format_angle(self._projection_angle_deg)}° | "
-            f"{crossover_count} crossovers | "
-            f"{wall_stop_count} column-wall stops"
-        )
+        self._crossover_count = len(self._all_crossovers(result))
+        self._wall_stop_count = self._column_wall_stop_count(simulation)
+        self._update_projection_text()
 
     def display_result(self, result, quality: str) -> None:
         preserve_ray_view = (

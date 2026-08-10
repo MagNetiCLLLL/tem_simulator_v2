@@ -212,6 +212,15 @@ def test_optical_transfer_records_expose_signed_j_img_and_j_diff_blocks():
     assert result.simulation.metrics["image_handedness"] in {
         "preserved", "mirrored"
     }
+    assert result.simulation.metrics["image_inversion"] in {
+        "upright", "inverted"
+    }
+    assert np.isfinite(
+        result.simulation.metrics["signed_image_magnification"]
+    )
+    assert np.isfinite(
+        result.simulation.metrics["image_larmor_rotation_deg"]
+    )
     assert result.simulation.metrics["diffraction_handedness"] in {
         "preserved", "mirrored"
     }

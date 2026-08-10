@@ -1,6 +1,6 @@
 # TEM Simulator v2 — Project Handoff
 
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 
 ## Purpose
 
@@ -20,7 +20,7 @@ the next concrete work. `README.md` remains the user/developer overview and
   the existing Pydantic `json_encoders` deprecation warning and a small-grid
   Numba CUDA occupancy warning.
 
-## Latest Direct Alignment checkpoint (2026-08-09)
+## Latest Direct Alignment checkpoint (2026-08-10)
 
 - The left assembly navigator now has Optical, Mechanical and Direct Alignment
   pages. Direct Alignment exposes four TOML-defined operator controls:
@@ -31,13 +31,23 @@ the next concrete work. `README.md` remains the user/developer overview and
   constrains the waist to the sample. Microprobe targets the 95%-current sample
   diameter while constraining radial wavefront curvature and a 0.5 mrad maximum
   semi-angle. Common Larmor rotation cannot change these radial metrics.
-- Image and Diffraction dynamically solve D/I/P1/P2 together against the active
-  recording stop. They use the complete coupled laboratory-frame 4x4 transfer:
-  Image targets the sample-position scale while relaying the live Objective
-  image plane; Diffraction targets the sample-angle scale while relaying the
-  live Objective back focal plane. Objective plane Z coordinates use the
-  axisymmetric canonical (Larmor-rotating) transfer convention, while reported
-  scales and orientation use the complete laboratory X-Y map.
+- Image dynamically solves Objective/D/I/P1/P2 as one preset against the active
+  recording stop. It no longer fixes an Objective intermediate image or assigns
+  equal/independent per-lens magnifications. The total sample-to-recording ABCD
+  condition is `B=0`, and displayed magnification is `|A|`. Diffraction remains
+  a separate distributed-field D/I/P1/P2 solve which relays the live Objective
+  back focal plane and reports effective camera length.
+- `src/temsim/optics/equivalent_image_lenses.py` derives a non-OEM thin-lens
+  power from each isolated post-sample `integral(Bz**2 dz)` and retains its
+  signed Larmor rotation as a separate event. The same exact-Z events drive the
+  optimiser, production first-order trace and ordinary ray diagram; this is not
+  a display-only multiplier. Simulation metrics separately expose signed
+  magnification, upright/inverted state and Larmor rotation.
+- Image has distinct TOML seed branches. LM covers 10x through 1,000x with the
+  Objective nearly bypassed. Normal/HM covers targets above 1,000x with the
+  Objective active. Seeds at 10/100/1,000/10,000/100,000/1,000,000x are merely
+  deterministic starting currents; arbitrary values such as 65.7x, 333x,
+  2,500x, 25,000x, 250,000x and 750,000x were also live-solved successfully.
 - The old unused I/P1/P2, X-only magnification prototype is now only a
   compatibility facade over the single Direct Alignment implementation. It can
   no longer write a failed local solution into live state.
@@ -46,13 +56,20 @@ the next concrete work. `README.md` remains the user/developer overview and
   unchanged; manual edits, assembly/mode changes, failed targets and stale
   background results leave every lens unchanged.
 - The regression working points include 30 mrad Nanoprobe, 2.0 um Microprobe,
-  10x/100x/300x Image and 0.05/0.1 m Diffraction. Microprobe is validated over
-  0.5-2.2 um.
-  The requested 10x-1M and 0.05-30 m projector ranges remain visible, but the
-  current non-OEM fields do not cover every request. Uniform 1.5-12x peak-field
-  inflation did not produce a physically acceptable 1M conjugate solution, so
-  no false projector rating was committed; unreachable solves explicitly
-  restore prior values.
+  the complete decade grid from 10x through 1,000,000x Image, and
+  0.01/0.05/0.1/0.5/1/2 m Diffraction. Microprobe is validated over 0.5-2.2 um.
+  Fine-grid diagnosis rejected the earlier apparent 1M distributed-field
+  solution as a 0.1 mm integration artefact: it failed at 0.05/0.025 mm. No
+  implausible multi-tesla projector rating was committed. The equivalent focal
+  model is an engineering calibration, not a Talos OEM current table.
+- On 2026-08-10 the GUI startup and compatible-assembly reload paths were fixed
+  to apply the active TOML operating-mode pair instead of trusting only the
+  `State` mode labels. Projector Direct Alignment now uses bounded logarithmic
+  continuation plus validation-grid refinement. This removes the false
+  approximately 0.10865 m camera-length plateau without changing field ratings.
+  The current 5 m request reaches approximately 2.59 m with a small BFP relay
+  residual but saturates P2 at its existing 100% limit; 5 m therefore remains
+  an explicit field/geometry calibration task, not a claimed working point.
 - Optimisation uses a 0.1 mm grid and 0.05 mm validation for the condenser and
   Image controls. The cancellation-sensitive Diffraction relay is optimised at
   0.05 mm and validated at 0.025 mm. The 0.05 m working point has a 6.19 um BFP

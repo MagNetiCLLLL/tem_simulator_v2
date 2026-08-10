@@ -10,7 +10,7 @@ import numpy as np, math
 
 from temsim.physics.chromatic import objective_chromatic_kick
 
-from temsim.physics.core import propagate,electron
+from temsim.physics.core import propagate,electron,fields
 from temsim.physics.first_order import (
     linear_map_properties,
     trace_transverse_transfer,
@@ -27,6 +27,38 @@ from temsim.physics.recording_clipping import clip_recording_planes
 from temsim.component_keys import CONDENSER_LENS_2, CONDENSER_LENS_3
 
 COLOURS={'000':(1.,.9,.2),'+g':(1.,.15,.1),'-g':(.1,.7,1.)}
+
+
+def _sample_to_stop_larmor_rotation_rad(state, stop_z_mm):
+    from temsim.optics.equivalent_image_lenses import (
+        equivalent_image_events,
+        equivalent_image_lenses_enabled,
+    )
+
+    sample_z_mm = float(state.sample.z_mm)
+    stop_z_mm = float(stop_z_mm)
+    if equivalent_image_lenses_enabled(state):
+        return float(sum(
+            event.rotation_rad
+            for event in equivalent_image_events(
+                state, sample_z_mm, stop_z_mm
+            )
+        ))
+    count = max(
+        2,
+        int(math.ceil(
+            (stop_z_mm - sample_z_mm)
+            / max(min(float(state.step_mm), 0.25), 0.01)
+        )) + 1,
+    )
+    z_mm = np.linspace(sample_z_mm, stop_z_mm, count)
+    magnetic_t = fields(z_mm, state)[0]
+    charge_c, momentum, _ = electron(state)
+    return float(
+        -charge_c
+        * np.trapezoid(magnetic_t, z_mm * 1.0e-3)
+        / (2.0 * momentum)
+    )
 
 @dataclass
 
@@ -195,6 +227,16 @@ def run(s, *, resolved_layout=None):
     diffraction_properties=linear_map_properties(
         sample_transfer.j_diff_m_per_rad
     )
+    image_larmor_rotation_rad = _sample_to_stop_larmor_rotation_rad(
+        s, recording_stop_z
+    )
+    cosine = math.cos(-image_larmor_rotation_rad)
+    sine = math.sin(-image_larmor_rotation_rad)
+    derotation = np.array(((cosine, -sine), (sine, cosine)))
+    derotated_image = derotation @ sample_transfer.j_img
+    signed_image_magnification = float(
+        0.5 * np.trace(derotated_image)
+    )
     half=s.camera.width_mm/2
 
     if s.projector_mode=='image':
@@ -253,6 +295,13 @@ def run(s, *, resolved_layout=None):
         'j_img':sample_transfer.j_img.tolist(),
         'j_diff_m_per_rad':sample_transfer.j_diff_m_per_rad.tolist(),
         'image_rotation_deg':image_properties.orientation_deg,
+        'image_larmor_rotation_deg':math.degrees(
+            image_larmor_rotation_rad
+        ),
+        'signed_image_magnification':signed_image_magnification,
+        'image_inversion':(
+            'inverted' if signed_image_magnification < 0.0 else 'upright'
+        ),
         'diffraction_rotation_deg':diffraction_properties.orientation_deg,
         'image_handedness':(
             'mirrored' if image_properties.mirrored else 'preserved'

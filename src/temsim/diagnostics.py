@@ -398,6 +398,17 @@ def _sample_to_plane_larmor_rotation_deg(state, plane_z_mm: float) -> float:
     plane_z_mm = float(plane_z_mm)
     if plane_z_mm <= sample_z_mm:
         return 0.0
+    from temsim.optics.equivalent_image_lenses import (
+        equivalent_image_events,
+        equivalent_image_lenses_enabled,
+    )
+    if equivalent_image_lenses_enabled(state):
+        return float(np.degrees(sum(
+            event.rotation_rad
+            for event in equivalent_image_events(
+                state, sample_z_mm, plane_z_mm
+            )
+        )))
     step_mm = max(min(float(getattr(state, "step_mm", 0.1)), 0.25), 0.01)
     count = max(2, int(math.ceil((plane_z_mm - sample_z_mm) / step_mm)) + 1)
     z_mm = np.linspace(sample_z_mm, plane_z_mm, count)
@@ -435,24 +446,28 @@ def optical_transfer_records(state) -> tuple[OpticalTransferRecord, ...]:
     """
 
     sample_z_mm = float(state.sample.z_mm)
-    candidates: list[tuple[str, str, float, str, bool | None, object]] = [
+    candidates: list[
+        tuple[str, str, float, str, bool | None, object]
+    ] = []
+    objective_planes = (
         (
             "objective_back_focal_plane",
             "Objective back focal plane",
-            float(state.objective_back_focal_plane_z_mm),
+            state.objective_back_focal_plane_z_mm,
             "diffraction_reference",
-            None,
-            None,
         ),
         (
             "objective_image_plane",
             "Objective image plane",
-            float(state.objective_image_plane_z_mm),
+            state.objective_image_plane_z_mm,
             "image_reference",
-            None,
-            None,
         ),
-    ]
+    )
+    for key, name, value, role in objective_planes:
+        if value is not None and math.isfinite(float(value)):
+            candidates.append(
+                (key, name, float(value), role, None, None)
+            )
     if bool(getattr(state, "image_corrector_installed", False)):
         sad = state.image_corrector_system.sad_plane
         candidates.append((
@@ -528,13 +543,16 @@ def image_plane_rotation_records(state) -> tuple[ImagePlaneRotationRecord, ...]:
     presented as exact.
     """
 
-    candidates = [
-        (
+    candidates = []
+    objective_image_z_mm = state.objective_image_plane_z_mm
+    if objective_image_z_mm is not None and math.isfinite(
+        float(objective_image_z_mm)
+    ):
+        candidates.append((
             "objective_image_plane",
             "Objective image plane",
-            float(state.objective_image_plane_z_mm),
-        )
-    ]
+            float(objective_image_z_mm),
+        ))
     if bool(getattr(state, "image_corrector_installed", False)):
         sad = state.image_corrector_system.sad_plane
         candidates.append((str(sad.key), str(sad.name), float(sad.z_mm)))

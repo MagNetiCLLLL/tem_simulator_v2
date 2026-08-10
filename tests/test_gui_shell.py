@@ -2,7 +2,7 @@ import numpy as np
 import threading
 from types import SimpleNamespace
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtWidgets import QDockWidget
+from PySide6.QtWidgets import QDockWidget, QDoubleSpinBox
 import pyqtgraph as pg
 import pytest
 
@@ -14,7 +14,10 @@ from temsim.gui.main_window import MainWindow
 from temsim.gui.visualization import VisualizationWorkspace
 from temsim.optics.column import default_state
 from temsim.optics.direct_alignment import DirectAlignmentResult
-from temsim.operating_modes import apply_operating_mode_pair
+from temsim.operating_modes import (
+    apply_operating_mode_pair,
+    direct_alignment_by_key,
+)
 from temsim.diagnostics import optical_transfer_records
 from temsim.physics.core import electron
 from temsim.physics.all_lens_crossovers import detect_all_lens_crossovers
@@ -77,6 +80,79 @@ def test_transverse_projection_supports_arbitrary_view_angles():
     ) == pytest.approx((x + y) / np.sqrt(2.0))
 
 
+def test_ray_diagram_projects_only_the_visible_high_accuracy_rays(
+    qtbot, monkeypatch
+):
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+    row_count = 7
+    ray_count = 15_000
+    x = np.arange(row_count * ray_count, dtype=np.float32).reshape(
+        row_count, ray_count
+    )
+    y = np.flip(x, axis=1).copy()
+    branch = SimpleNamespace(
+        z=np.linspace(0.0, 6.0, row_count),
+        x=x,
+        y=y,
+        blocked_z=np.full(ray_count, np.nan),
+    )
+    workspace._projection_angle_deg = 37.0
+    full_projection = workspace._project_transverse(x, y)
+    expected = workspace._bundle_lines(
+        branch.z,
+        full_projection,
+        workspace.MAX_DISPLAY_RAYS,
+        branch.blocked_z,
+    )
+    projected_shapes = []
+    original_projection = workspace._project_transverse
+
+    def observe_projection(display_x, display_y):
+        projected_shapes.append(display_x.shape)
+        return original_projection(display_x, display_y)
+
+    monkeypatch.setattr(
+        workspace, "_project_transverse", observe_projection
+    )
+    actual = workspace._display_bundle_lines(branch)
+
+    assert projected_shapes == [(row_count, workspace.MAX_DISPLAY_RAYS)]
+    assert actual[0] == pytest.approx(expected[0], nan_ok=True)
+    assert actual[1] == pytest.approx(expected[1], nan_ok=True)
+
+
+def test_projection_slider_coalesces_continuous_redraws(qtbot, monkeypatch):
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+    sentinel_result = object()
+    workspace._last_result = sentinel_result
+    workspace._last_quality = "High accuracy"
+    fast_redraw_angles = []
+    redraw_angles = []
+
+    def observe_redraw(result, quality, preserve_view=False):
+        assert result is sentinel_result
+        assert quality == "High accuracy"
+        assert preserve_view
+        redraw_angles.append(workspace._projection_angle_deg)
+
+    monkeypatch.setattr(workspace, "_draw_ray_diagram", observe_redraw)
+    workspace._projection_redraw_timer.timeout.connect(
+        lambda: fast_redraw_angles.append(workspace._projection_angle_deg)
+    )
+    for slider_value in (100, 200, 300, 400):
+        workspace._projection_slider_changed(slider_value)
+
+    assert workspace._projection_redraw_timer.isActive()
+    assert redraw_angles == []
+    qtbot.waitUntil(lambda: len(fast_redraw_angles) == 1, timeout=100)
+    assert fast_redraw_angles == [pytest.approx(40.0)]
+    assert redraw_angles == []
+    qtbot.waitUntil(lambda: len(redraw_angles) == 1, timeout=500)
+    assert redraw_angles == [pytest.approx(40.0)]
+
+
 def _find_tree_item(tree, key):
     for root_index in range(tree.topLevelItemCount()):
         root = tree.topLevelItem(root_index)
@@ -133,10 +209,36 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
     assert window.assembly_panel.tree.topLevelItemCount() >= 3
     assert window.assembly_panel.probe_mode.currentData() == "nano_probe"
     assert window.assembly_panel.projector_mode.currentData() == "diffraction"
+    by_key = {lens.key: lens for lens in window.state.lenses}
+    assert by_key["objective_lens"].percent == pytest.approx(70.0)
+    assert by_key["diffraction_lens"].percent == pytest.approx(
+        17.4982940301
+    )
+    camera_length = direct_alignment.controls["diffraction_camera_length"]
+    assert camera_length.target.minimum() == pytest.approx(0.01)
+    assert camera_length.target.maximum() == pytest.approx(5.0)
     assert window.compute_backend.objectName() == "computeBackend"
     assert window.compute_backend.currentData() == "Auto"
     assert "C2 + C3 + C2 aperture" in (
         window.assembly_panel.operating_mode_status.text()
+    )
+
+
+def test_loading_a_compatible_assembly_reapplies_the_active_modes(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.preview_timer.stop()
+    by_key = {lens.key: lens for lens in window.state.lenses}
+    by_key["objective_lens"].percent = 10.0
+    by_key["diffraction_lens"].percent = 10.0
+
+    window.load_assembly(window.selection)
+    window.preview_timer.stop()
+
+    by_key = {lens.key: lens for lens in window.state.lenses}
+    assert by_key["objective_lens"].percent == pytest.approx(70.0)
+    assert by_key["diffraction_lens"].percent == pytest.approx(
+        17.4982940301
     )
 
 
@@ -148,14 +250,40 @@ def test_workspace_action_buttons_fit_without_a_window_state_change(qtbot):
     qtbot.wait(20)
 
     assert workspace.minimumSizeHint().width() < 900
-    for button in (
+    label_right = workspace.projection_label.mapTo(
+        workspace, workspace.projection_label.rect().topRight()
+    ).x()
+    xz_left = workspace.projection_xz.mapTo(
+        workspace, workspace.projection_xz.rect().topLeft()
+    ).x()
+    assert workspace.projection_label.text() == "Angle"
+    assert xz_left - label_right <= 4
+    for projection_button in (workspace.projection_xz, workspace.projection_yz):
+        assert projection_button.width() == projection_button.sizeHint().width()
+        assert projection_button.width() <= 60
+    view_buttons = (
+        workspace.projection_xz,
+        workspace.projection_yz,
         workspace.auto_zoom,
         workspace.fit_column,
         workspace.column_walls,
         workspace.component_centres,
         workspace.crossovers,
-        workspace.jump_to_position,
-    ):
+    )
+    button_rows = {
+        button.mapTo(workspace, button.rect().topLeft()).y()
+        for button in view_buttons
+    }
+    assert len(button_rows) == 1
+    assert all(button.sizeHint().height() <= 32 for button in view_buttons)
+    assert workspace.findChild(QDoubleSpinBox, "projectionAngleSpin") is None
+    workspace.resize(1400, 700)
+    qtbot.wait(20)
+    wide_xz_left = workspace.projection_xz.mapTo(
+        workspace, workspace.projection_xz.rect().topLeft()
+    ).x()
+    assert wide_xz_left == xz_left
+    for button in (*view_buttons, workspace.jump_to_position):
         top_left = button.mapTo(workspace, button.rect().topLeft())
         bottom_right = button.mapTo(workspace, button.rect().bottomRight())
         assert button.isVisible()
@@ -247,6 +375,40 @@ def test_main_window_commits_a_current_background_alignment_atomically(
     } == {"condenser_lens_2", "condenser_lens_3"}
     assert "Direct Alignment applied" in window.status_label.text()
     assert not window.progress.isVisible()
+
+
+def test_main_window_image_commit_enables_equivalent_five_lens_model(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.preview_timer.stop()
+    apply_operating_mode_pair(window.state, "nano_probe", "imaging")
+    definition = direct_alignment_by_key("image_magnification")
+    values = (24.75, 29.12, 10.02, 64.48, 31.96)
+    strengths = dict(zip(definition.devices, values))
+    result = DirectAlignmentResult(
+        key=definition.key,
+        success=True,
+        requested=10_000.0,
+        achieved=10_000.0,
+        unit="x",
+        constraint_value=0.0,
+        constraint_unit="um",
+        strengths=strengths,
+        iterations=1,
+        validation_step_mm=0.05,
+        numerical_spread=0.0,
+        message="Five-lens test solve passed.",
+    )
+    window._direct_alignment_state_token = repr(window.state.to_dict())
+
+    window._direct_alignment_ready(definition.key, result, 0.01)
+    window.preview_timer.stop()
+
+    assert window.state.equivalent_image_lenses_enabled is True
+    lenses = {lens.key: lens for lens in window.state.lenses}
+    assert {
+        key: lenses[key].percent for key in definition.devices
+    } == pytest.approx(strengths)
 
 
 def test_main_window_discards_a_stale_background_alignment(
@@ -1229,7 +1391,7 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert "angles not to scale" in window.workspace.hint.text()
     assert "Blocked rays stop at first intercept" in window.workspace.hint.text()
     assert all(
-        button.sizeHint().height() >= 36
+        button.sizeHint().height() <= 32
         for button in (
             window.workspace.auto_zoom,
             window.workspace.component_centres,
@@ -1243,7 +1405,7 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     window.workspace._set_projection_angle(90.0)
     assert window.workspace._last_result is traced_result
     assert window.workspace.projection_slider.value() == 900
-    assert window.workspace.projection_angle.value() == pytest.approx(90.0)
+    assert window.workspace._projection_angle_deg == pytest.approx(90.0)
     assert window.workspace.projection_yz.isChecked()
     assert window.workspace.plot.getAxis("left").labelText == (
         "Projected displacement"
@@ -1252,7 +1414,7 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
 
     window.workspace._set_projection_angle(37.25)
     assert window.workspace._last_result is traced_result
-    assert window.workspace.projection_angle.value() == pytest.approx(37.25)
+    assert window.workspace._projection_angle_deg == pytest.approx(37.25)
     assert window.workspace.projection_slider.value() == 373
     assert "Projected displacement" == (
         window.workspace.plot.getAxis("left").labelText

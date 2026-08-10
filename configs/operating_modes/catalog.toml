@@ -109,12 +109,12 @@ unit = "x"
 minimum = 10.0
 maximum = 1000000.0
 default_value = 65.7
-devices = ["diffraction_lens", "intermediate_lens", "projector_lens_1", "projector_lens_2"]
+devices = ["objective_lens", "diffraction_lens", "intermediate_lens", "projector_lens_1", "projector_lens_2"]
 observable = "sample_to_active_recording_plane_isotropic_magnification"
-constraint = "objective_image_plane_relay"
-calibration_status = "requested_range_live_coupled_solve_full_transfer_validation_non_oem"
-calibration_reference = "D/I/P1/P2 are solved together. This is the physical sample-to-active-recording-plane scale, not an unproven manufacturer nominal-magnification table. The request range follows the GUI requirement; current non-OEM fields may not reach every target while preserving the objective-image-plane conjugate."
-targets = { maximum_relative_error = 0.03, maximum_relay_error_um = 20.0, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.1, validation_step_mm = 0.05 }
+constraint = "sample_to_recording_plane_B_zero"
+calibration_status = "five_lens_live_abcd_solve_full_transfer_validation_non_oem"
+calibration_reference = "Objective/D/I/P1/P2 are solved as one preset. The observable is the physical sample-to-active-recording-plane |A| under the full-matrix B=0 image condition; no independent per-lens magnifications are assigned. LM and normal imaging require separate solution branches. This is an engineering calibration, not an OEM lens-current table."
+targets = { maximum_relative_error = 0.03, maximum_relay_error_um = 20.0, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.1, validation_step_mm = 0.05, maximum_continuation_ratio = 2.0, maximum_continuation_stages = 8, lm_maximum_magnification = 1000.0, lm_objective_max_percent = 0.001, normal_objective_min_percent = 5.0, preset_magnifications = [10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0], preset_vectors = [[0.0, 14.01257768, 4.28015163, 30.97264506, 4.32756939], [0.00043282365609445983, 13.423630084108808, 0.1867789267629405, 94.14235148467097, 10.762156464164768], [0.00005063418201089, 17.272292632305287, 40.25268921043, 66.04255765371036, 62.538011134163156], [24.75306561309765, 29.117123743024422, 10.022417643995297, 64.47894335554084, 31.964194166194847], [24.738733549476926, 33.55531594364167, 0.17506507786181658, 79.10405198628884, 47.98821019307529], [24.743813294547095, 33.62896274978043, 41.011996353719525, 92.22927965735596, 76.20941599186783]] }
 
 [[direct_alignments]]
 key = "diffraction_camera_length"
@@ -122,12 +122,12 @@ name = "Effective camera length"
 family = "projector"
 mode_key = "diffraction"
 unit = "m"
-minimum = 0.05
-maximum = 30.0
+minimum = 0.01
+maximum = 5.0
 default_value = 0.05
 devices = ["diffraction_lens", "intermediate_lens", "projector_lens_1", "projector_lens_2"]
 observable = "sample_angle_to_active_recording_plane_isotropic_scale"
 constraint = "objective_back_focal_plane_relay"
 calibration_status = "requested_range_live_coupled_solve_full_transfer_validation_non_oem"
 calibration_reference = "D/I/P1/P2 are solved together. Effective camera length is the full laboratory-frame transverse angular-to-position scale; the Objective BFP Z is defined by the axisymmetric canonical (Larmor-rotating) transfer, and current non-OEM fields may not reach every requested value while preserving that conjugate."
-targets = { maximum_relative_error = 0.03, maximum_relay_error_um = 30.0, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.05, validation_step_mm = 0.025 }
+targets = { maximum_relative_error = 0.03, maximum_relay_error_um = 30.0, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.05, validation_step_mm = 0.025, maximum_continuation_ratio = 2.0, maximum_continuation_stages = 8 }

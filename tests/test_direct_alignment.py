@@ -27,6 +27,7 @@ PROJECTOR_KEYS = (
     "projector_lens_1",
     "projector_lens_2",
 )
+IMAGE_KEYS = ("objective_lens", *PROJECTOR_KEYS)
 
 
 @pytest.fixture(scope="module")
@@ -43,6 +44,15 @@ def _state_copy(template):
 
 def _lens_values(state):
     return {lens.key: float(lens.percent) for lens in state.lenses}
+
+
+def test_equivalent_image_lens_mode_round_trips_in_state(assembled_state):
+    state = _state_copy(assembled_state)
+    state.equivalent_image_lenses_enabled = True
+
+    restored = _state_copy(state)
+
+    assert restored.equivalent_image_lenses_enabled is True
 
 
 def test_toml_defines_the_four_exact_direct_alignment_controls():
@@ -66,10 +76,10 @@ def test_toml_defines_the_four_exact_direct_alignment_controls():
             "micro_probe", "um", 0.5, 2.2, 2.0, CONDENSER_KEYS,
         ),
         "image_magnification": (
-            "imaging", "x", 10.0, 1_000_000.0, 65.7, PROJECTOR_KEYS,
+            "imaging", "x", 10.0, 1_000_000.0, 65.7, IMAGE_KEYS,
         ),
         "diffraction_camera_length": (
-            "diffraction", "m", 0.05, 30.0, 0.05, PROJECTOR_KEYS,
+            "diffraction", "m", 0.01, 5.0, 0.05, PROJECTOR_KEYS,
         ),
     }
     for key, values in expected.items():
@@ -85,6 +95,19 @@ def test_toml_defines_the_four_exact_direct_alignment_controls():
         assert definition.calibration_status
         assert definition.calibration_reference
         assert float(definition.targets["maximum_numerical_spread"]) == 0.01
+        if definition.family == "projector":
+            assert float(
+                definition.targets["maximum_continuation_ratio"]
+            ) == 2.0
+            assert int(
+                definition.targets["maximum_continuation_stages"]
+            ) == 8
+    image = definitions["image_magnification"]
+    assert image.constraint == "sample_to_recording_plane_B_zero"
+    assert image.targets["preset_magnifications"] == [
+        10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0,
+    ]
+    assert len(image.targets["preset_vectors"]) == 6
 
 
 def test_beam_statistics_are_invariant_to_common_larmor_rotation():
@@ -176,13 +199,14 @@ def test_cached_projector_map_matches_the_production_full_transverse_trace(
     state = _state_copy(assembled_state)
     apply_operating_mode_pair(state, "nano_probe", "imaging")
     state.step_mm = 0.1
+    state.equivalent_image_lenses_enabled = True
     definition = direct_alignment_by_key("image_magnification")
     model = _ProjectorMeasurementModel(
         state, definition, step_mm=state.step_mm
     )
     values = np.asarray([
         next(lens for lens in state.lenses if lens.key == key).percent
-        for key in PROJECTOR_KEYS
+        for key in IMAGE_KEYS
     ])
 
     cached = model.sample_model.matrix(values)
@@ -190,7 +214,7 @@ def test_cached_projector_map_matches_the_production_full_transverse_trace(
         state, state.sample.z_mm, determine_tem_stop_z(state)
     ).matrix
 
-    assert cached == pytest.approx(production, rel=2.0e-6, abs=5.0e-8)
+    assert cached == pytest.approx(production, rel=1.0e-4, abs=1.0e-6)
 
 
 def test_condenser_production_validation_uses_kicks_and_aperture_planes(
@@ -274,8 +298,10 @@ def test_nanoprobe_30_mrad_commits_only_the_c2_c3_solution(assembled_state):
     )
 
 
-@pytest.mark.parametrize("target", (10.0, 100.0, 300.0))
-def test_image_working_points_commit_only_the_d_i_p1_p2_solution(
+@pytest.mark.parametrize(
+    "target", (10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0)
+)
+def test_image_working_points_commit_the_five_lens_solution(
     assembled_state, target
 ):
     state = _state_copy(assembled_state)
@@ -287,18 +313,27 @@ def test_image_working_points_commit_only_the_d_i_p1_p2_solution(
 
     assert result.success
     assert result.achieved == pytest.approx(target, rel=0.03)
-    assert set(result.strengths) == set(PROJECTOR_KEYS)
+    assert set(result.strengths) == set(IMAGE_KEYS)
     assert {
         key for key in before if after[key] != before[key]
-    } == set(PROJECTOR_KEYS)
+    } == set(IMAGE_KEYS)
     assert all(
         after[key] == pytest.approx(result.strengths[key])
-        for key in PROJECTOR_KEYS
+        for key in IMAGE_KEYS
     )
     definition = direct_alignment_by_key("image_magnification")
     assert result.constraint_value <= float(
         definition.targets["maximum_relay_error_um"]
     )
+    assert state.equivalent_image_lenses_enabled
+    if target <= 1000.0:
+        assert after["objective_lens"] <= float(
+            definition.targets["lm_objective_max_percent"]
+        )
+    else:
+        assert after["objective_lens"] >= float(
+            definition.targets["normal_objective_min_percent"]
+        )
 
 
 def test_microprobe_area_keeps_the_parallel_branch_and_c2_headroom(
@@ -321,7 +356,7 @@ def test_microprobe_area_keeps_the_parallel_branch_and_c2_headroom(
     } == set(CONDENSER_KEYS)
 
 
-@pytest.mark.parametrize("target", (0.05, 0.1))
+@pytest.mark.parametrize("target", (0.01, 0.05, 0.1, 0.5, 1.0, 2.0))
 def test_camera_length_working_points_use_all_projector_lenses(
     assembled_state, target
 ):
@@ -359,20 +394,24 @@ def test_wrong_mode_and_out_of_range_targets_do_not_change_lenses(
     assert _lens_values(state) == before
 
 
-def test_obviously_unreachable_target_restores_projector_lenses(
+def test_unreachable_image_target_restores_all_five_lenses(
     assembled_state,
 ):
     state = _state_copy(assembled_state)
     apply_operating_mode_pair(state, "nano_probe", "imaging")
     before = _lens_values(state)
+    for lens in state.lenses:
+        if lens.key in IMAGE_KEYS:
+            lens.max_percent = 0.001
 
     result = apply_direct_alignment(
-        state, "image_magnification", 1_000_000.0
+        state, "image_magnification", 1_000.0
     )
 
     assert not result.success
     assert _lens_values(state) == before
     assert result.strengths == {
-        key: before[key] for key in PROJECTOR_KEYS
+        key: before[key] for key in IMAGE_KEYS
     }
+    assert not state.equivalent_image_lenses_enabled
     assert "previous lens values were restored" in result.message

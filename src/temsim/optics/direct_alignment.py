@@ -20,6 +20,7 @@ from temsim.component_keys import (
     CONDENSER_LENS_3,
     DIFFRACTION_LENS,
     INTERMEDIATE_LENS,
+    OBJECTIVE_LENS,
     PROJECTOR_LENS_1,
     PROJECTOR_LENS_2,
 )
@@ -36,6 +37,10 @@ from temsim.physics.column_wall import clip_column_wall
 from temsim.physics.core import E, fields, propagate
 from temsim.physics.first_order import trace_transverse_transfer
 from temsim.physics.recording_stop import determine_tem_stop_z
+from temsim.optics.equivalent_image_lenses import (
+    equivalent_image_calibrations,
+    equivalent_image_transfer_matrix,
+)
 
 try:
     from numba import njit
@@ -58,6 +63,7 @@ PROJECTOR_KEYS = (
     PROJECTOR_LENS_1,
     PROJECTOR_LENS_2,
 )
+IMAGE_KEYS = (OBJECTIVE_LENS, *PROJECTOR_KEYS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -435,6 +441,30 @@ class _CondenserMeasurementModel:
         )
 
 
+class _EquivalentImageFirstOrderModel:
+    """Fast D(z)/L(f) model used by coordinated five-lens image presets."""
+
+    def __init__(self, state, source_z_mm: float, target_z_mm: float) -> None:
+        self.source_z_mm = float(source_z_mm)
+        self.target_z_mm = float(target_z_mm)
+        self.calibrations = equivalent_image_calibrations(
+            state, self.source_z_mm, self.target_z_mm
+        )
+        if tuple(item.key for item in self.calibrations) != IMAGE_KEYS:
+            raise ValueError("Equivalent image-lens calibration order is invalid")
+        self.upper = np.asarray(
+            [item.maximum_percent for item in self.calibrations], dtype=float
+        )
+
+    def matrix(self, vector) -> np.ndarray:
+        return equivalent_image_transfer_matrix(
+            self.calibrations,
+            vector,
+            self.source_z_mm,
+            self.target_z_mm,
+        )
+
+
 class _ProjectorMeasurementModel:
     def __init__(
         self, state, definition: DirectAlignmentDefinition, *, step_mm: float
@@ -442,26 +472,38 @@ class _ProjectorMeasurementModel:
         self.state = state
         self.definition = definition
         stop_z_mm = float(determine_tem_stop_z(state))
-        objective = state.objective_lens
         if definition.key == IMAGE_MAGNIFICATION:
-            plane_z_mm = objective.image_plane_z_mm(
-                state.beam_voltage_kv, state.sample
+            # Image presets are a coordinated five-lens solve.  There need
+            # not be an isolated real image between every pair of lenses, so
+            # the authoritative condition is the complete sample-to-recording
+            # transfer B=0, with total signed magnification in A.
+            self.plane_z_mm = None
+            self.variable_keys = IMAGE_KEYS
+            self.sample_model = _EquivalentImageFirstOrderModel(
+                state,
+                float(state.sample.z_mm),
+                stop_z_mm,
             )
         else:
+            objective = state.objective_lens
             plane_z_mm = objective.back_focal_plane_z_mm(
                 state.beam_voltage_kv, state.sample
             )
-        if plane_z_mm is None or not math.isfinite(float(plane_z_mm)):
-            raise ValueError("The active Objective conjugate plane is undefined")
-        self.sample_model = _LiveFirstOrderModel(
-            state,
-            float(state.sample.z_mm),
-            stop_z_mm,
-            PROJECTOR_KEYS,
-            step_mm=step_mm,
-            capture_z_mm=(float(plane_z_mm),),
-        )
-        self.plane_z_mm = float(plane_z_mm)
+            if plane_z_mm is None or not math.isfinite(float(plane_z_mm)):
+                raise ValueError(
+                    "The active Objective conjugate plane is undefined"
+                )
+            self.plane_z_mm = float(plane_z_mm)
+            self.variable_keys = PROJECTOR_KEYS
+            capture_z_mm = (self.plane_z_mm,)
+            self.sample_model = _LiveFirstOrderModel(
+                state,
+                float(state.sample.z_mm),
+                stop_z_mm,
+                self.variable_keys,
+                step_mm=step_mm,
+                capture_z_mm=capture_z_mm,
+            )
         self.upper = self.sample_model.upper
 
     @staticmethod
@@ -471,16 +513,30 @@ class _ProjectorMeasurementModel:
     def measure(
         self, vector
     ) -> tuple[DirectAlignmentMeasurement, np.ndarray]:
+        if self.definition.key == IMAGE_MAGNIFICATION:
+            sample_matrix = self.sample_model.matrix(vector)
+            value = self._isotropic_scale(sample_matrix[:2, :2])
+            relay_block = sample_matrix[:2, 2:]
+            relay_error_m = float(np.linalg.norm(relay_block, ord=2))
+            return (
+                DirectAlignmentMeasurement(
+                    key=self.definition.key,
+                    value=value,
+                    unit=self.definition.unit,
+                    constraint_value=relay_error_m * 1.0e6,
+                    constraint_unit="um",
+                    relay_error_um=relay_error_m * 1.0e6,
+                ),
+                relay_block,
+            )
+
         sample_to_plane, sample_matrix = self.sample_model.matrices_at(
             vector, (self.plane_z_mm, self.sample_model.z_mm[-1])
         )
         plane_matrix = np.linalg.solve(
             sample_to_plane.T, sample_matrix.T
         ).T
-        if self.definition.key == IMAGE_MAGNIFICATION:
-            value = self._isotropic_scale(sample_matrix[:2, :2])
-        else:
-            value = self._isotropic_scale(sample_matrix[:2, 2:])
+        value = self._isotropic_scale(sample_matrix[:2, 2:])
         relay_block = plane_matrix[:2, 2:]
         relay_error_m = float(np.linalg.norm(relay_block, ord=2))
         return (
@@ -523,6 +579,73 @@ def _target_number(
     definition: DirectAlignmentDefinition, name: str, default: float
 ) -> float:
     return float(definition.targets.get(name, default))
+
+
+def _image_preset_seeds(
+    definition: DirectAlignmentDefinition,
+    target: float,
+    lower: np.ndarray,
+    upper: np.ndarray,
+) -> list[np.ndarray]:
+    """Return same-branch TOML preset seeds, nearest target first."""
+
+    raw_targets = definition.targets.get("preset_magnifications", ())
+    raw_vectors = definition.targets.get("preset_vectors", ())
+    try:
+        targets = np.asarray(raw_targets, dtype=float)
+        vectors = np.asarray(raw_vectors, dtype=float)
+    except (TypeError, ValueError):
+        return []
+    if (
+        targets.ndim != 1
+        or vectors.shape != (targets.size, lower.size)
+        or targets.size == 0
+        or np.any(~np.isfinite(targets))
+        or np.any(targets <= 0.0)
+        or np.any(~np.isfinite(vectors))
+    ):
+        raise ValueError("Image preset seed table is invalid")
+    lm_maximum = _target_number(
+        definition, "lm_maximum_magnification", 1000.0
+    )
+    same_branch = (targets <= lm_maximum) == (float(target) <= lm_maximum)
+    indices = np.flatnonzero(same_branch)
+    indices = indices[
+        np.argsort(np.abs(np.log(targets[indices] / float(target))))
+    ]
+    return [
+        np.clip(vectors[index], lower, upper)
+        for index in indices
+    ]
+
+
+def _projector_bounds(
+    model: _ProjectorMeasurementModel,
+    definition: DirectAlignmentDefinition,
+    target: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    lower = np.zeros_like(model.upper)
+    upper = model.upper.copy()
+    if definition.key != IMAGE_MAGNIFICATION:
+        return lower, upper
+    lm_maximum = _target_number(
+        definition, "lm_maximum_magnification", 1000.0
+    )
+    if float(target) <= lm_maximum:
+        upper[0] = min(
+            upper[0],
+            _target_number(
+                definition, "lm_objective_max_percent", 0.001
+            ),
+        )
+    else:
+        lower[0] = min(
+            upper[0],
+            _target_number(
+                definition, "normal_objective_min_percent", 5.0
+            ),
+        )
+    return lower, upper
 
 
 def _condenser_measurement(
@@ -711,23 +834,68 @@ def _optimise_condenser(
     return best_vector, iterations
 
 
-def _optimise_projector(
-    state,
+def _projector_continuation_targets(
+    model: _ProjectorMeasurementModel,
+    initial: np.ndarray,
+    target: float,
+    definition: DirectAlignmentDefinition,
+) -> tuple[float, ...]:
+    """Split a large optical-scale jump into bounded logarithmic steps."""
+
+    current = float(model.measure(initial)[0].value)
+    requested = float(target)
+    if not (
+        math.isfinite(current)
+        and current > 0.0
+        and math.isfinite(requested)
+        and requested > 0.0
+    ):
+        return (requested,)
+    maximum_ratio = max(
+        1.1,
+        _target_number(definition, "maximum_continuation_ratio", 2.0),
+    )
+    maximum_stages = max(
+        1,
+        int(round(
+            _target_number(
+                definition, "maximum_continuation_stages", 8.0
+            )
+        )),
+    )
+    logarithmic_span = abs(math.log(requested / current))
+    stage_count = min(
+        maximum_stages,
+        max(1, int(math.ceil(logarithmic_span / math.log(maximum_ratio)))),
+    )
+    return tuple(
+        float(value)
+        for value in np.geomspace(current, requested, stage_count + 1)[1:]
+    )
+
+
+def _solve_projector_stage(
+    model: _ProjectorMeasurementModel,
     definition: DirectAlignmentDefinition,
     target: float,
+    initial: np.ndarray,
+    *,
+    allow_global_fallback: bool,
 ) -> tuple[np.ndarray, int]:
-    initial = _get_vector(state, PROJECTOR_KEYS)
-    optimiser_step = _target_number(
-        definition, "optimiser_step_mm", 0.1
-    )
-    model = _ProjectorMeasurementModel(
-        state, definition, step_mm=optimiser_step
-    )
+    """Solve one nearby target, falling back to deterministic global seeds."""
+
     relay_scale_m = _target_number(
         definition, "maximum_relay_error_um", 20.0
     ) * 1.0e-6
     maximum_relative_error = _target_number(
         definition, "maximum_relative_error", 0.03
+    )
+
+    lower, upper = _projector_bounds(
+        model, definition, float(target)
+    )
+    reference = np.clip(
+        np.asarray(initial, dtype=float), lower, upper
     )
 
     def residual(vector):
@@ -736,8 +904,8 @@ def _optimise_projector(
             math.log(max(measurement.value, 1.0e-15) / target)
             / maximum_relative_error
         )
-        regularisation = 1.0e-4 * (vector - initial) / np.maximum(
-            np.abs(initial), 25.0
+        regularisation = 1.0e-4 * (vector - reference) / np.maximum(
+            np.abs(reference), 25.0
         )
         return np.r_[
             primary,
@@ -745,19 +913,38 @@ def _optimise_projector(
             regularisation,
         ]
 
-    best_vector = initial.copy()
+    best_vector = reference.copy()
     best_cost = math.inf
     iterations = 0
-    for seed in _deterministic_seeds(initial, model.upper, projector=True):
+    seeds = [reference]
+    if allow_global_fallback:
+        if definition.key == IMAGE_MAGNIFICATION:
+            seeds.extend(
+                seed
+                for seed in _image_preset_seeds(
+                    definition, target, lower, upper
+                )
+                if not any(np.allclose(seed, item) for item in seeds)
+            )
+        seeds.extend(
+            np.clip(seed, lower, upper)
+            for seed in _deterministic_seeds(
+                reference, model.upper, projector=True
+            )[1:]
+            if not any(np.allclose(seed, item) for item in seeds)
+        )
+    for seed in seeds:
         solution = least_squares(
             residual,
             seed,
-            bounds=(np.zeros(initial.size), model.upper),
+            bounds=(lower, upper),
             max_nfev=100,
             diff_step=2.0e-3,
             x_scale="jac",
         )
         iterations += int(solution.nfev)
+        if not np.all(np.isfinite(solution.x)):
+            continue
         measurement, relay_block = model.measure(solution.x)
         relative_error = abs(
             math.log(max(measurement.value, 1.0e-15) / target)
@@ -771,8 +958,6 @@ def _optimise_projector(
         if cost < best_cost:
             best_cost = cost
             best_vector = solution.x.copy()
-        # Leave a coarse-grid relay margin for the finer transactional
-        # validation, which is especially important for the BFP cancellation.
         if (
             relative_error <= maximum_relative_error * 0.5
             and float(
@@ -784,6 +969,59 @@ def _optimise_projector(
         ):
             break
     return best_vector, iterations
+
+
+def _optimise_projector(
+    state,
+    definition: DirectAlignmentDefinition,
+    target: float,
+    *,
+    initial_vector: np.ndarray | None = None,
+    step_mm: float | None = None,
+    continuation: bool = True,
+    allow_global_fallback: bool = True,
+) -> tuple[np.ndarray, int]:
+    """Solve the mode-specific coupled lens set on a live transfer matrix."""
+
+    keys = (
+        IMAGE_KEYS
+        if definition.key == IMAGE_MAGNIFICATION
+        else PROJECTOR_KEYS
+    )
+    initial = (
+        _get_vector(state, keys)
+        if initial_vector is None
+        else np.asarray(initial_vector, dtype=float).copy()
+    )
+    optimiser_step = (
+        _target_number(definition, "optimiser_step_mm", 0.1)
+        if step_mm is None
+        else float(step_mm)
+    )
+    model = _ProjectorMeasurementModel(
+        state, definition, step_mm=optimiser_step
+    )
+    vector = np.clip(initial, 0.0, model.upper)
+    stage_targets = (
+        _projector_continuation_targets(
+            model, vector, float(target), definition
+        )
+        if continuation and definition.key != IMAGE_MAGNIFICATION
+        else (float(target),)
+    )
+    iterations = 0
+    for index, stage_target in enumerate(stage_targets):
+        vector, stage_iterations = _solve_projector_stage(
+            model,
+            definition,
+            stage_target,
+            vector,
+            allow_global_fallback=(
+                allow_global_fallback and index == len(stage_targets) - 1
+            ),
+        )
+        iterations += stage_iterations
+    return vector, iterations
 
 
 def _validate_condenser(
@@ -866,6 +1104,9 @@ def _production_validation_state(
     original_acceleration_enabled = bool(state.acceleration_enabled)
     original_acceleration_backend = str(state.acceleration_backend)
     original_active_backend = str(state.active_backend)
+    original_equivalent_image_lenses = bool(
+        getattr(state, "equivalent_image_lenses_enabled", False)
+    )
     had_used_backends = hasattr(state, "_active_backends_used")
     original_used_backends = set(
         getattr(state, "_active_backends_used", set())
@@ -876,6 +1117,8 @@ def _production_validation_state(
         state.acceleration_enabled = False
         state.acceleration_backend = "CPU"
         state.active_backend = "CPU"
+        if tuple(keys) == IMAGE_KEYS:
+            state.equivalent_image_lenses_enabled = True
         state._active_backends_used = set()
         yield
     finally:
@@ -884,6 +1127,9 @@ def _production_validation_state(
         state.acceleration_enabled = original_acceleration_enabled
         state.acceleration_backend = original_acceleration_backend
         state.active_backend = original_active_backend
+        state.equivalent_image_lenses_enabled = (
+            original_equivalent_image_lenses
+        )
         if had_used_backends:
             state._active_backends_used = original_used_backends
         elif hasattr(state, "_active_backends_used"):
@@ -964,34 +1210,41 @@ def _validate_projector_production(
 ) -> DirectAlignmentMeasurement:
     """Validate using the production full transverse-transfer tracer."""
 
+    keys = (
+        IMAGE_KEYS
+        if definition.key == IMAGE_MAGNIFICATION
+        else PROJECTOR_KEYS
+    )
     with _production_validation_state(
-        state, PROJECTOR_KEYS, vector, step_mm
+        state, keys, vector, step_mm
     ):
-        objective = state.objective_lens
         if definition.key == IMAGE_MAGNIFICATION:
-            plane_z_mm = objective.image_plane_z_mm(
-                state.beam_voltage_kv, state.sample
-            )
+            plane_z_mm = None
         else:
+            objective = state.objective_lens
             plane_z_mm = objective.back_focal_plane_z_mm(
                 state.beam_voltage_kv, state.sample
             )
-        if plane_z_mm is None or not math.isfinite(float(plane_z_mm)):
-            raise ValueError("The active Objective conjugate plane is undefined")
+            if plane_z_mm is None or not math.isfinite(float(plane_z_mm)):
+                raise ValueError(
+                    "The active Objective conjugate plane is undefined"
+                )
         stop_z_mm = float(determine_tem_stop_z(state))
         sample_transfer = trace_transverse_transfer(
             state, float(state.sample.z_mm), stop_z_mm
         )
-        plane_transfer = trace_transverse_transfer(
-            state, float(plane_z_mm), stop_z_mm
-        )
         if definition.key == IMAGE_MAGNIFICATION:
             block = sample_transfer.j_img
+            relay_block = sample_transfer.j_diff_m_per_rad
         else:
             block = sample_transfer.j_diff_m_per_rad
+            plane_transfer = trace_transverse_transfer(
+                state, float(plane_z_mm), stop_z_mm
+            )
+            relay_block = plane_transfer.j_diff_m_per_rad
         value = math.sqrt(abs(float(np.linalg.det(block))))
         relay_error_um = float(
-            np.linalg.norm(plane_transfer.j_diff_m_per_rad, ord=2)
+            np.linalg.norm(relay_block, ord=2)
         ) * 1.0e6
     return DirectAlignmentMeasurement(
         key=definition.key,
@@ -1028,8 +1281,16 @@ def apply_direct_alignment(
             f"{definition.name} is only active in {definition.mode_key} mode"
         )
 
-    keys = CONDENSER_KEYS if definition.family == "condenser" else PROJECTOR_KEYS
+    if definition.family == "condenser":
+        keys = CONDENSER_KEYS
+    elif definition.key == IMAGE_MAGNIFICATION:
+        keys = IMAGE_KEYS
+    else:
+        keys = PROJECTOR_KEYS
     initial = _get_vector(state, keys)
+    initial_equivalent_image_lenses = bool(
+        getattr(state, "equivalent_image_lenses_enabled", False)
+    )
     validation_step = _target_number(
         definition, "validation_step_mm", 0.05
     )
@@ -1051,6 +1312,22 @@ def apply_direct_alignment(
             candidate, iterations = _optimise_projector(
                 state, definition, requested
             )
+            if not math.isclose(
+                optimiser_step,
+                validation_step,
+                rel_tol=0.0,
+                abs_tol=1.0e-12,
+            ):
+                candidate, refinement_iterations = _optimise_projector(
+                    state,
+                    definition,
+                    requested,
+                    initial_vector=candidate,
+                    step_mm=validation_step,
+                    continuation=False,
+                    allow_global_fallback=False,
+                )
+                iterations += refinement_iterations
             coarse = _validate_projector(
                 state, definition, candidate, optimiser_step
             )
@@ -1107,9 +1384,14 @@ def apply_direct_alignment(
         )
         if success:
             _set_vector(state, keys, candidate)
+            if definition.key == IMAGE_MAGNIFICATION:
+                state.equivalent_image_lenses_enabled = True
             committed = candidate
         else:
             _set_vector(state, keys, initial)
+            state.equivalent_image_lenses_enabled = (
+                initial_equivalent_image_lenses
+            )
             committed = initial
         strengths = {
             lens_key: float(value)
@@ -1118,7 +1400,7 @@ def apply_direct_alignment(
         constraint_label = {
             NANOPROBE_CONVERGENCE: "waist offset",
             MICROPROBE_ILLUMINATION: "wavefront curvature",
-            IMAGE_MAGNIFICATION: "image-plane relay residual",
+            IMAGE_MAGNIFICATION: "sample-image residual",
             DIFFRACTION_CAMERA_LENGTH: "BFP relay residual",
         }[definition.key]
         message = (
@@ -1132,6 +1414,24 @@ def apply_direct_alignment(
                 " Target is not reachable with the current field limits and "
                 "conjugate constraint; previous lens values were restored."
             )
+            lenses = _lens_map(state)
+            active_limits = []
+            for lens_key, value in zip(keys, candidate):
+                upper = float(lenses[lens_key].max_percent)
+                tolerance = max(1.0e-3, upper * 1.0e-5)
+                if float(value) <= tolerance:
+                    active_limits.append(
+                        f"{lens_key}=lower limit ({float(value):.6g}%)"
+                    )
+                elif upper - float(value) <= tolerance:
+                    active_limits.append(
+                        f"{lens_key}=upper limit "
+                        f"({float(value):.6g}/{upper:.6g}%)"
+                    )
+            if active_limits:
+                message += " Limiting candidate: " + ", ".join(
+                    active_limits
+                ) + "."
             if not numerically_stable:
                 message += (
                     " The optimiser/validation observable spread exceeded "
@@ -1158,4 +1458,7 @@ def apply_direct_alignment(
         )
     except Exception:
         _set_vector(state, keys, initial)
+        state.equivalent_image_lenses_enabled = (
+            initial_equivalent_image_lenses
+        )
         raise

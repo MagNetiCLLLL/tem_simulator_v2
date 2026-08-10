@@ -1,5 +1,10 @@
 from temsim.physics.acceleration import momentum_profile
 from temsim.component_keys import CONDENSER_LENS_KEYS
+from temsim.optics.equivalent_image_lenses import (
+    IMAGE_LENS_KEYS,
+    equivalent_image_events,
+    equivalent_image_lenses_enabled,
+)
 """Parallel ray propagator with downsampled history.
 
 Uses Numba across rays when available. The three-Gaussian fields and physical-axis
@@ -50,6 +55,14 @@ def fields(z,state):
     magnetic=np.zeros_like(z)
     sx=np.zeros_like(z)
     sy=np.zeros_like(z)
+    equivalent_image = bool(
+        getattr(state, "_using_equivalent_image_propagation", False)
+    )
+    post_sample_only = (
+        equivalent_image
+        and z.size > 0
+        and float(z[0]) >= float(state.sample.z_mm)
+    )
     for lens in state.lenses:
         if not getattr(lens,"enabled",True): continue
         polarity = int(getattr(lens, "polarity", 1))
@@ -61,7 +74,14 @@ def fields(z,state):
             magnetic += state.condenser_system[lens.key].magnetic_field_t(z)
             continue
         if hasattr(lens, "magnetic_field_t"):
-            magnetic += lens.magnetic_field_t(z)
+            contribution = lens.magnetic_field_t(z)
+            if equivalent_image and lens.key in IMAGE_LENS_KEYS:
+                if post_sample_only:
+                    continue
+                contribution = np.where(
+                    z < float(state.sample.z_mm), contribution, 0.0
+                )
+            magnetic += contribution
             continue
         for g in lens.gaussian:
             magnetic += lens.scale()*g.amplitude*np.exp(-0.5*((z-(lens.z_mm+g.offset*lens.a_mm))/(g.sigma*lens.a_mm))**2)
@@ -183,7 +203,8 @@ def spherical_aberration_kick_m3(z_mm, state):
 
 @njit(cache=True,parallel=True,fastmath=True)
 def _parallel_rk4(
-    kx, ky, hex_normal, hex_skew, larmor_g, larmor_gradient, cs_kick, step_m,
+    kx, ky, hex_normal, hex_skew, larmor_g, larmor_gradient, cs_kick,
+    thin_power, thin_rotation, step_m,
     x0, tx0, y0, ty0,
     kickx, kicky, save_index, es_alpha, es_beta,
     gun_index, gun_focal_m,
@@ -197,6 +218,17 @@ def _parallel_rk4(
     for ray in prange(nr):
         x=x0[ray];tx=tx0[ray];y=y0[ray];ty=ty0[ray];s=0
         for j in range(kx.shape[0]):
+            if thin_power[j] != 0.0:
+                tx -= thin_power[j]*x
+                ty -= thin_power[j]*y
+            if thin_rotation[j] != 0.0:
+                cosine=math.cos(thin_rotation[j])
+                sine=math.sin(thin_rotation[j])
+                rotated_x=cosine*x-sine*y
+                rotated_y=sine*x+cosine*y
+                rotated_tx=cosine*tx-sine*ty
+                rotated_ty=sine*tx+cosine*ty
+                x=rotated_x;y=rotated_y;tx=rotated_tx;ty=rotated_ty
             tx += kickx[j];ty += kicky[j]
             if cs_kick[j] != 0.0:
                 radius_sq=x*x+y*y
@@ -240,7 +272,8 @@ def _parallel_rk4(
     return X,TX,Y,TY
 
 def _vectorised_rk4(
-    kx, ky, hex_normal, hex_skew, larmor_g, larmor_gradient, cs_kick, step_m,
+    kx, ky, hex_normal, hex_skew, larmor_g, larmor_gradient, cs_kick,
+    thin_power, thin_rotation, step_m,
     x, tx, y, ty,
     kickx, kicky, save_index, es_alpha, es_beta,
     gun_index, gun_focal_m,
@@ -248,6 +281,16 @@ def _vectorised_rk4(
     nr=x.size;ns=save_index.size
     X=np.empty((ns,nr),np.float32);TX=np.empty_like(X);Y=np.empty_like(X);TY=np.empty_like(X);s=0
     for j in range(kx.shape[0]):
+        if thin_power[j] != 0.0:
+            tx = tx-thin_power[j]*x
+            ty = ty-thin_power[j]*y
+        if thin_rotation[j] != 0.0:
+            cosine=math.cos(thin_rotation[j]);sine=math.sin(thin_rotation[j])
+            rotated_x=cosine*x-sine*y
+            rotated_y=sine*x+cosine*y
+            rotated_tx=cosine*tx-sine*ty
+            rotated_ty=sine*tx+cosine*ty
+            x=rotated_x;y=rotated_y;tx=rotated_tx;ty=rotated_ty
         tx += kickx[j];ty += kicky[j]
         if cs_kick[j] != 0.0:
             radius_sq=x*x+y*y
@@ -292,7 +335,8 @@ if NUMBA_AVAILABLE:
     @cuda.jit
     def _cuda_rk4_kernel(
         kx_axis, ky_axis, hex_normal, hex_skew, larmor_axis,
-        larmor_gradient_axis, inverse_momentum, cs_kick, step_m,
+        larmor_gradient_axis, inverse_momentum, cs_kick,
+        thin_power, thin_rotation, step_m,
         x0, tx0, y0, ty0, kickx, kicky, save_index, es_alpha, es_beta,
         X, TX, Y, TY,
     ):
@@ -307,6 +351,20 @@ if NUMBA_AVAILABLE:
         save_count = save_index.size
         step_count = kx_axis.size
         for j in range(step_count):
+            if thin_power[j] != 0.0:
+                tx -= thin_power[j] * x
+                ty -= thin_power[j] * y
+            if thin_rotation[j] != 0.0:
+                cosine = math.cos(thin_rotation[j])
+                sine = math.sin(thin_rotation[j])
+                rotated_x = cosine * x - sine * y
+                rotated_y = sine * x + cosine * y
+                rotated_tx = cosine * tx - sine * ty
+                rotated_ty = sine * tx + cosine * ty
+                x = rotated_x
+                y = rotated_y
+                tx = rotated_tx
+                ty = rotated_ty
             tx += kickx[j]
             ty += kicky[j]
             if cs_kick[j] != 0.0:
@@ -420,7 +478,8 @@ else:
 
 def _cuda_rk4(
     kx_axis, ky_axis, hex_normal, hex_skew, larmor_axis,
-    larmor_gradient_axis, inverse_momentum, cs_kick, step_m,
+    larmor_gradient_axis, inverse_momentum, cs_kick,
+    thin_power, thin_rotation, step_m,
     x0, tx0, y0, ty0, kickx, kicky, save_index, es_alpha, es_beta,
 ):
     """Run the independent-ray RK4 integration on a CUDA device."""
@@ -429,7 +488,8 @@ def _cuda_rk4(
     device_inputs = [
         cuda.to_device(value) for value in (
             kx_axis, ky_axis, hex_normal, hex_skew, larmor_axis,
-            larmor_gradient_axis, inverse_momentum, cs_kick, step_m,
+            larmor_gradient_axis, inverse_momentum, cs_kick,
+            thin_power, thin_rotation, step_m,
             x0, tx0, y0, ty0, kickx, kicky, save_index, es_alpha, es_beta,
         )
     ]
@@ -538,16 +598,65 @@ def _nearest_axial_grid_index(value, grid):
         return np.int64(lower)
     return np.int64(upper)
 
+
+def _piecewise_endpoint_exact_axial_grid(
+    z0, z1, maximum_step_mm, interior_z_mm=()
+):
+    """Build a step-bounded grid containing every optical event plane."""
+
+    start = float(z0)
+    stop = float(z1)
+    boundaries = [
+        start,
+        *sorted({
+            float(value)
+            for value in interior_z_mm
+            if start < float(value) < stop
+        }),
+        stop,
+    ]
+    segments = [
+        _endpoint_exact_axial_grid(left, right, maximum_step_mm)[0]
+        for left, right in zip(boundaries[:-1], boundaries[1:])
+    ]
+    grid = np.concatenate([
+        segment if index == 0 else segment[1:]
+        for index, segment in enumerate(segments)
+    ])
+    return grid, np.diff(grid)
+
 def propagate(
     state,z0,z1,x,tx,y,ty,events=(),energy_offset_ev=None,
     *,include_spherical_aberration=True,include_hexapole=True,
     save_z_mm=(),
 ):
     requested_step=float(state.step_mm)
-    zfull,step_mm=_endpoint_exact_axial_grid(z0,z1,requested_step)
+    image_lens_events=equivalent_image_events(state,float(z0),float(z1))
+    zfull,step_mm=_piecewise_endpoint_exact_axial_grid(
+        z0,z1,requested_step,
+        (event.z_mm for event in image_lens_events),
+    )
     step_m=np.ascontiguousarray(step_mm*1e-3,np.float64)
     grid_start=float(zfull[0])
-    magnetic,sx,sy=fields(zfull,state)
+    had_equivalent_propagation_flag = hasattr(
+        state, "_using_equivalent_image_propagation"
+    )
+    previous_equivalent_propagation_flag = bool(
+        getattr(state, "_using_equivalent_image_propagation", False)
+    )
+    state._using_equivalent_image_propagation = (
+        equivalent_image_lenses_enabled(state)
+        and float(zfull[0]) >= float(state.sample.z_mm)
+    )
+    try:
+        magnetic,sx,sy=fields(zfull,state)
+    finally:
+        if had_equivalent_propagation_flag:
+            state._using_equivalent_image_propagation = (
+                previous_equivalent_propagation_flag
+            )
+        else:
+            delattr(state, "_using_equivalent_image_propagation")
     if include_hexapole:
         hex_normal, hex_skew = hexapole_field_components(zfull, state)
     else:
@@ -561,6 +670,14 @@ def propagate(
         if include_spherical_aberration else np.zeros(len(zfull)),
         np.float64,
     )
+    thin_power=np.zeros(len(zfull),np.float64)
+    thin_rotation=np.zeros(len(zfull),np.float64)
+    for lens_event in image_lens_events:
+        index=_nearest_axial_grid_index(lens_event.z_mm,zfull)
+        thin_power[index]+=float(lens_event.power_m1)
+        thin_rotation[index]+=float(lens_event.rotation_rad)
+    thin_power=np.ascontiguousarray(thin_power,np.float64)
+    thin_rotation=np.ascontiguousarray(thin_rotation,np.float64)
     kickx=np.zeros(len(zfull),np.float64);kicky=np.zeros(len(zfull),np.float64)
     for ze,dx,dy in sorted(events):
         idx=_nearest_axial_grid_index(ze,zfull);kickx[idx]+=dx;kicky[idx]+=dy
@@ -640,7 +757,8 @@ def propagate(
                 np.ascontiguousarray(sx, np.float64),
                 np.ascontiguousarray(sy, np.float64),
                 hex_normal,hex_skew,larmor_axis,larmor_gradient_axis,
-                inverse_momentum,cs_kick,step_m,*arrays,kickx,kicky,
+                inverse_momentum,cs_kick,thin_power,thin_rotation,
+                step_m,*arrays,kickx,kicky,
                 save,es_alpha,es_beta,
             )
             _record_active_backend(state, backend, fallback_reason)
@@ -651,16 +769,16 @@ def propagate(
             _record_active_backend(state, backend, f"CUDA error: {exc}")
             kx, ky, larmor_g, larmor_gradient = cpu_coefficients()
             if backend == BACKEND_NUMBA:
-                X,TX,Y,TY=_parallel_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,step_m,*arrays,kickx,kicky,save,es_alpha,es_beta,gun_index,gun_focal_m)
+                X,TX,Y,TY=_parallel_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,es_alpha,es_beta,gun_index,gun_focal_m)
             else:
-                X,TX,Y,TY=_vectorised_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,step_m,*arrays,kickx,kicky,save,es_alpha,es_beta,gun_index,gun_focal_m)
+                X,TX,Y,TY=_vectorised_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,es_alpha,es_beta,gun_index,gun_focal_m)
     elif backend == BACKEND_NUMBA:
         kx, ky, larmor_g, larmor_gradient = cpu_coefficients()
-        X,TX,Y,TY=_parallel_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,step_m,*arrays,kickx,kicky,save,es_alpha,es_beta,gun_index,gun_focal_m)
+        X,TX,Y,TY=_parallel_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,es_alpha,es_beta,gun_index,gun_focal_m)
         _record_active_backend(state, backend, fallback_reason)
     else:
         kx, ky, larmor_g, larmor_gradient = cpu_coefficients()
-        X,TX,Y,TY=_vectorised_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,step_m,*arrays,kickx,kicky,save,es_alpha,es_beta,gun_index,gun_focal_m)
+        X,TX,Y,TY=_vectorised_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,es_alpha,es_beta,gun_index,gun_focal_m)
         _record_active_backend(state, backend, fallback_reason)
     return zfull[save],X,TX,Y,TY
 

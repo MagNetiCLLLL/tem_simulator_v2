@@ -266,6 +266,11 @@ class State:
 
     projector_mode: str = "diffraction"
 
+    # Enabled after applying a five-lens image-magnification preset.  The
+    # engineering model uses field-integral focal lengths plus separate
+    # Larmor rotations; diffraction mode always retains distributed fields.
+    equivalent_image_lenses_enabled: bool = False
+
     step_mm: float = 0.5
 
     history_step_mm: float = 2.0
@@ -1361,7 +1366,11 @@ class State:
                 if key not in TOML_OWNED_GEOMETRY_KEYS
             },
 
-            "projector_mode":self.projector_mode, "step_mm":self.step_mm,
+            "projector_mode":self.projector_mode,
+            "equivalent_image_lenses_enabled":(
+                self.equivalent_image_lenses_enabled
+            ),
+            "step_mm":self.step_mm,
 
             "history_step_mm":self.history_step_mm,"acceleration_enabled":self.acceleration_enabled,"acceleration_backend":self.acceleration_backend,
             "active_backend":self.active_backend,
@@ -2287,6 +2296,9 @@ class State:
             sample=Sample(**sample_data), camera=None,
             component_placements=component_placements,
             illumination_mode=d.get("illumination_mode","STEM"), projector_mode=d.get("projector_mode","diffraction"),
+            equivalent_image_lenses_enabled=bool(
+                d.get("equivalent_image_lenses_enabled", False)
+            ),
             step_mm=d.get("step_mm",0.5),
             history_step_mm=d.get("history_step_mm",2.0), acceleration_enabled=d.get("acceleration_enabled",True),
             acceleration_backend=d.get("acceleration_backend","Auto"), active_backend=d.get("active_backend","CPU"),

@@ -64,8 +64,10 @@ recalculation preserves a user's runtime direction override.
   TOML.
 - Adds a left-side **Direct Alignment** page with four user-level coupled
   controls. Nanoprobe convergence and Microprobe illuminated diameter solve
-  C2/C3 together; Image magnification and Diffraction camera length solve
-  D/I/P1/P2 together. The individual low-level lens controls remain editable.
+  C2/C3 together. Image magnification solves Objective/D/I/P1/P2 as one preset;
+  Diffraction camera length independently solves D/I/P1/P2 against the
+  Objective back-focal plane. The individual low-level controls remain
+  editable.
 - Defines Direct Alignment targets, ranges, coupled-device lists, tolerances
   and calibration provenance only in `configs/operating_modes/catalog.toml`.
   Solves run on a background state snapshot and commit all coupled values only
@@ -205,26 +207,47 @@ tests.
 
 The current 300 kV C3 + Probe Corrector non-OEM model has regression-validated
 working points at 30 mrad Nanoprobe convergence, 2.0 um quasi-parallel
-Microprobe diameter, 10x/100x/300x physical Image magnification and 0.05/0.1 m
-effective camera length. The validated Microprobe area range is 0.5-2.2 um
+Microprobe diameter, 10x/100x/1,000x/10,000x/100,000x/1,000,000x physical
+Image magnification and
+0.01/0.05/0.1/0.5/1/2 m effective camera length. The validated Microprobe area
+range is 0.5-2.2 um
 while retaining its parallel constraint and keeping the default C2 solution in
 the 30-70% window.
 
-The requested Image and Diffraction input ranges remain 10x-1,000,000x and
-0.05-30 m. Those are request ranges, not a claim that the present reconstructed
-field ratings cover every value. The solver uses the active recording stop and
-the complete laboratory-frame transverse map: Image constrains the Objective
-image-plane relay, while Diffraction constrains the Objective back-focal-plane
-relay. The Objective plane Z coordinates follow the axisymmetric canonical
-(Larmor-rotating) transfer convention; the reported magnification, camera
-length and orientation still come from the full laboratory X-Y map. If no
-solution satisfies the target and relay tolerance, the GUI reports the reached
-candidate for diagnosis and restores the exact previous lens values. Extending
-the verified range requires a separate evidence-backed projector field/geometry
-calibration; uniformly inflating peak fields is not treated as a valid shortcut.
-The physical sample-to-recording-plane magnification used by the solver is not
-silently relabelled as a manufacturer-calibrated nominal magnification. A future
-nominal 10x-1M table requires detector/display calibration and provenance.
+Image now covers the complete requested 10x-1,000,000x interval, including
+non-table values validated by local solves. It does not assign five independent
+"lens magnifications." Instead, each magnetic lens is reduced to an engineering
+thin-lens focal event derived from its isolated `integral(Bz**2 dz)`, with its
+signed Larmor rotation retained separately. The five events are composed as
+one ABCD transfer from sample to the active recording stop: `B=0` is the image
+condition and `|A|` is the displayed magnification. LM targets through 1,000x
+use a separate branch with Objective nearly bypassed; Normal/HM targets switch
+to an Objective-on five-lens branch. The TOML preset table supplies only
+deterministic starting currents; every requested value is still solved and
+validated against the production ray tracer.
+
+This focal-event calibration is explicitly non-OEM. It avoids the numerically
+unstable and physically implausible alternative of inflating Gaussian peak
+fields into multi-tesla oscillatory branches. Simulation metrics retain
+`signed_image_magnification`, `image_inversion` and
+`image_larmor_rotation_deg`, while the user-facing magnitude remains `|A|`.
+Diffraction remains a separate distributed-field/BFP calculation and never
+uses a fictitious Diffraction-lens image magnification.
+
+The Diffraction input range remains 0.01-5 m. It is a request range, not a claim
+that every current non-OEM field setting is reachable. If any solve fails its
+target or conjugate tolerance, the GUI reports the candidate and restores the
+exact previous state.
+The desktop window applies the selected TOML operating-mode pair at startup and
+after a compatible assembly reload. Large projector changes use bounded
+logarithmic continuation followed by a validation-grid refinement, preventing
+the previous false camera-length plateau near 0.10865 m. With the current
+non-OEM P2 rating, the 5 m request follows the continuous solution branch to
+about 2.59 m and reaches the P2 upper excitation limit, so 5 m is not yet a
+validated working point.
+The physical sample-to-recording-plane magnification is not relabelled as a
+manufacturer-calibrated nominal magnification. Absolute detector/display scale
+still requires an evidence-backed detector calibration.
 
 ## Image/diffraction orientation calibration
 
