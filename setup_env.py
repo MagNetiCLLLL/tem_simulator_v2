@@ -25,6 +25,12 @@ DEPENDENCIES = (
     # verified before upgrading it.
     "PySide6==6.8.3",
     "pyqtgraph",
+    "PyOpenGL>=3.1.7,<4",
+    "ase>=3.29,<4",
+    "abtem==1.0.10",
+    "imageio>=2.37,<3",
+    "pillow>=11,<13",
+    "tifffile>=2025,<2027",
     "pytest",
     "pytest-qt",
     "tomli-w",

@@ -7,6 +7,7 @@ from temsim.optics.column import default_state
 from temsim.physics import compute_backend
 from temsim.physics.wave_imaging import (
     _weighted_ray_statistics,
+    effective_sample_thickness_nm,
     simulate_wave_image,
 )
 from temsim.physics.stem_wave_imaging import (
@@ -25,6 +26,37 @@ def _incident_bundle(tx_rad, ty_rad, weights):
         tx=np.asarray(tx_rad, dtype=float)[None, :],
         ty=np.asarray(ty_rad, dtype=float)[None, :],
     )
+
+
+def test_retracted_sample_has_zero_interacting_wave_thickness():
+    state = default_state()
+    state.sample.thickness_nm = 250.0
+
+    assert effective_sample_thickness_nm(state) == pytest.approx(250.0)
+    state.sample.inserted = False
+    assert effective_sample_thickness_nm(state) == 0.0
+
+
+def test_retracted_sample_ignores_dormant_custom_cif_settings(tmp_path):
+    state = default_state()
+    state.sample.inserted = False
+    state.sample.cif_path = str(tmp_path / "missing.cif")
+    state.sample.wave_atomistic_enabled = False
+    state.sample.wave_multislice_enabled = False
+    state.sample.wave_grid_pixels = 32
+    state.sample.wave_field_of_view_angstrom = 16.0
+    incident = _incident_bundle(
+        [0.0, 1.0e-4, -1.0e-4],
+        [0.0, 0.0, 0.0],
+        [0.8, 0.1, 0.1],
+    )
+
+    result = simulate_wave_image(state, SimpleNamespace(incident=incident))
+
+    assert result.preset_key == "vacuum"
+    assert result.metrics["specimen_sample_inserted"] is False
+    assert result.metrics["specimen_sample_interaction_applied"] is False
+    assert result.metrics["specimen_total_thickness_angstrom"] == 0.0
 
 
 def test_weighted_convergence_uses_chief_ray_and_99_percent_semiangle():

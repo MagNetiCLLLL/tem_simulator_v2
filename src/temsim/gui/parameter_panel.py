@@ -7,10 +7,12 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QLayout,
     QPushButton,
     QScrollArea,
@@ -29,6 +31,7 @@ from temsim.runtime_parameters import (
     editable_parameters,
     validate_runtime_assignment,
 )
+from temsim.specimen.presets import available_specimen_presets
 
 
 class ParameterPanel(QWidget):
@@ -102,6 +105,7 @@ class ParameterPanel(QWidget):
         self.quick_box = QGroupBox("Device quick controls")
         self.quick_form = QFormLayout(self.quick_box)
         self._quick_widgets = {}
+        self._quick_aux_widgets = {}
         self.quick_box.hide()
 
         self.energy_filter_box = QGroupBox(
@@ -281,6 +285,7 @@ class ParameterPanel(QWidget):
         while self.quick_form.rowCount():
             self.quick_form.removeRow(0)
         self._quick_widgets = {}
+        self._quick_aux_widgets = {}
 
     def _load_energy_filter_controls(self) -> None:
         target = self._runtime_target
@@ -446,7 +451,10 @@ class ParameterPanel(QWidget):
                 ("lower_x_mrad", "Lower X", 1.0, " mrad"),
                 ("lower_y_mrad", "Lower Y", 1.0, " mrad"),
             )
-        if hasattr(obj, "inserted"):
+        if (
+            hasattr(obj, "inserted")
+            and getattr(target, "key", None) != "sample"
+        ):
             specs = [("inserted", "Inserted", 1.0, "")]
             if hasattr(obj, "readout_enabled"):
                 specs.append(("readout_enabled", "Readout", 1.0, ""))
@@ -477,6 +485,28 @@ class ParameterPanel(QWidget):
             )
         if getattr(target, "key", None) == "sample":
             return (
+                ("inserted", "Sample inserted", 1.0, ""),
+                ("specimen_mode", "Specimen mode", 1.0, ""),
+                ("specimen_preset_key", "Atomic preset", 1.0, ""),
+                ("cif_path", "Custom CIF", 1.0, ""),
+                (
+                    "specimen_rotation_x_deg",
+                    "CIF rotation X",
+                    1.0,
+                    " deg",
+                ),
+                (
+                    "specimen_rotation_y_deg",
+                    "CIF rotation Y",
+                    1.0,
+                    " deg",
+                ),
+                (
+                    "specimen_rotation_z_deg",
+                    "CIF rotation Z",
+                    1.0,
+                    " deg",
+                ),
                 ("diffraction_enabled", "Diffraction", 1.0, ""),
                 (
                     "wave_enabled",
@@ -526,7 +556,50 @@ class ParameterPanel(QWidget):
                     1.0,
                     " Å",
                 ),
+                ("wave_grid_pixels", "Wave grid pixels", 1.0, ""),
+                (
+                    "wave_field_of_view_angstrom",
+                    "Lateral simulation width",
+                    1.0,
+                    " Å",
+                ),
                 ("thickness_nm", "Thickness", 1.0, " nm"),
+                (
+                    "virtual_diffraction_angle_mrad",
+                    "Virtual diffraction angle",
+                    1.0,
+                    " mrad",
+                ),
+                (
+                    "virtual_diffraction_azimuth_deg",
+                    "Virtual diffraction azimuth",
+                    1.0,
+                    " deg",
+                ),
+                (
+                    "virtual_diffraction_relative_weight",
+                    "Virtual diffraction relative weight",
+                    1.0,
+                    "",
+                ),
+                (
+                    "virtual_scattering_angle_mrad",
+                    "Virtual isotropic scattering angle",
+                    1.0,
+                    " mrad",
+                ),
+                (
+                    "virtual_scattering_relative_weight",
+                    "Virtual scattering relative weight",
+                    1.0,
+                    "",
+                ),
+                (
+                    "virtual_scattering_azimuth_samples",
+                    "Virtual ring azimuth samples",
+                    1.0,
+                    "",
+                ),
                 ("g_inv_nm", "g", 1.0, " 1/nm"),
                 (
                     "excitation_error_inv_nm",
@@ -548,7 +621,63 @@ class ParameterPanel(QWidget):
             if not hasattr(obj, name):
                 continue
             value = getattr(obj, name)
-            if isinstance(value, bool):
+            row_widget = None
+            if name == "specimen_mode":
+                widget = QComboBox()
+                widget.addItem("Real sample (CIF / crystal)", "atomic")
+                widget.addItem("Virtual sample", "virtual")
+                index = widget.findData(str(value).lower())
+                widget.setCurrentIndex(max(index, 0))
+                widget.currentIndexChanged.connect(
+                    lambda _index, field=name, control=widget: (
+                        self._quick_changed(
+                            field,
+                            str(control.currentData()),
+                            1.0,
+                        )
+                    )
+                )
+            elif name == "specimen_preset_key":
+                widget = QComboBox()
+                widget.addItem("Default TOML preset", "")
+                for key, preset_name in available_specimen_presets():
+                    widget.addItem(preset_name, key)
+                index = widget.findData(str(value))
+                widget.setCurrentIndex(index if index >= 0 else 0)
+                widget.currentIndexChanged.connect(
+                    lambda _index, field=name, control=widget: (
+                        self._quick_changed(
+                            field,
+                            str(control.currentData()),
+                            1.0,
+                        )
+                    )
+                )
+            elif isinstance(value, str):
+                widget = QLineEdit()
+                widget.setText(value)
+                widget.editingFinished.connect(
+                    lambda field=name, control=widget: self._quick_changed(
+                        field,
+                        control.text(),
+                        1.0,
+                    )
+                )
+                if name == "cif_path":
+                    row_widget = QWidget()
+                    row_layout = QHBoxLayout(row_widget)
+                    row_layout.setContentsMargins(0, 0, 0, 0)
+                    row_layout.addWidget(widget, 1)
+                    browse = QPushButton("Browse...")
+                    browse.setObjectName("sampleCifBrowse")
+                    browse.clicked.connect(
+                        lambda _checked=False, control=widget: (
+                            self._browse_cif_path(control)
+                        )
+                    )
+                    row_layout.addWidget(browse)
+                    self._quick_aux_widgets[name] = (row_widget, browse)
+            elif isinstance(value, bool):
                 widget = QCheckBox()
                 widget.setChecked(value)
                 widget.toggled.connect(
@@ -562,6 +691,10 @@ class ParameterPanel(QWidget):
                     widget.setRange(1, 64)
                 elif name == "wave_frozen_phonon_seed":
                     widget.setRange(0, 2_147_483_647)
+                elif name == "virtual_scattering_azimuth_samples":
+                    widget.setRange(4, 128)
+                elif name == "wave_grid_pixels":
+                    widget.setRange(0, 8192)
                 else:
                     widget.setRange(-1_000_000_000, 1_000_000_000)
                 widget.setKeyboardTracking(False)
@@ -581,6 +714,11 @@ class ParameterPanel(QWidget):
                     "rocking_width_inv_nm",
                     "wave_slice_thickness_angstrom",
                     "wave_frozen_phonon_sigma_angstrom",
+                    "wave_field_of_view_angstrom",
+                    "virtual_diffraction_angle_mrad",
+                    "virtual_diffraction_relative_weight",
+                    "virtual_scattering_angle_mrad",
+                    "virtual_scattering_relative_weight",
                     "requested_width_ev",
                 }:
                     widget.setMinimum(0.0)
@@ -620,19 +758,49 @@ class ParameterPanel(QWidget):
                 "wave_frozen_phonon_seed": (
                     "Seed for reproducible independent atomic displacements."
                 ),
+                "specimen_mode": (
+                    "Atomic uses a TOML crystal or custom CIF in IAM / "
+                    "multislice. Virtual uses explicit user-defined angular "
+                    "channels and does not infer a material cross-section."
+                ),
+                "cif_path": (
+                    "Optional CIF/MCIF source. A custom CIF requires the "
+                    "Atomistic IAM and multislice options."
+                ),
+                "virtual_scattering_angle_mrad": (
+                    "Phenomenological isotropic scattering ring angle. This "
+                    "is not a calculated Rutherford cross-section."
+                ),
             }
             if name in tooltips:
                 widget.setToolTip(tooltips[name])
-            self.quick_form.addRow(label, widget)
+            self.quick_form.addRow(label, row_widget or widget)
             self._quick_widgets[name] = widget
         self._update_sample_wave_control_states()
         self.quick_box.setVisible(bool(self._quick_widgets))
+
+    def _browse_cif_path(self, control: QLineEdit) -> None:
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Import atomic structure",
+            control.text(),
+            "Crystallographic files (*.cif *.mcif);;All files (*)",
+        )
+        if not path:
+            return
+        control.setText(path)
+        self._quick_changed("cif_path", path, 1.0)
 
     def _update_sample_wave_control_states(self) -> None:
         widgets = self._quick_widgets
         if "wave_multislice_enabled" not in widgets:
             return
-        multislice = bool(
+        mode_control = widgets.get("specimen_mode")
+        atomic_mode = bool(
+            mode_control is None
+            or str(mode_control.currentData()).lower() == "atomic"
+        )
+        multislice = atomic_mode and bool(
             widgets["wave_multislice_enabled"].isChecked()
         )
         atomistic = multislice and bool(
@@ -641,6 +809,37 @@ class ParameterPanel(QWidget):
         frozen = atomistic and bool(
             widgets["wave_frozen_phonon_enabled"].isChecked()
         )
+        for name in (
+            "wave_enabled",
+            "wave_multislice_enabled",
+            "wave_grid_pixels",
+            "wave_field_of_view_angstrom",
+            "wave_slice_thickness_angstrom",
+            "wave_defocus_nm",
+            "specimen_preset_key",
+            "cif_path",
+            "specimen_rotation_x_deg",
+            "specimen_rotation_y_deg",
+            "specimen_rotation_z_deg",
+            "g_inv_nm",
+            "excitation_error_inv_nm",
+            "rocking_width_inv_nm",
+            "diffuse_broadening_mrad",
+        ):
+            if name in widgets:
+                widgets[name].setEnabled(atomic_mode)
+        for name in (
+            "virtual_diffraction_angle_mrad",
+            "virtual_diffraction_azimuth_deg",
+            "virtual_diffraction_relative_weight",
+            "virtual_scattering_angle_mrad",
+            "virtual_scattering_relative_weight",
+            "virtual_scattering_azimuth_samples",
+        ):
+            if name in widgets:
+                widgets[name].setEnabled(not atomic_mode)
+        for auxiliary in self._quick_aux_widgets.get("cif_path", ()):
+            auxiliary.setEnabled(atomic_mode)
         widgets["wave_atomistic_enabled"].setEnabled(multislice)
         widgets["wave_frozen_phonon_enabled"].setEnabled(atomistic)
         for name in (
@@ -658,6 +857,8 @@ class ParameterPanel(QWidget):
         try:
             if isinstance(value, bool):
                 converted = value
+            elif isinstance(old_value, str):
+                converted = str(value)
             elif isinstance(old_value, int):
                 converted = int(value)
             else:
@@ -685,6 +886,28 @@ class ParameterPanel(QWidget):
                 obj.configure_energy_window(centre_loss_ev, width_ev)
             else:
                 setattr(obj, name, converted)
+                if name in {
+                    "specimen_rotation_x_deg",
+                    "specimen_rotation_y_deg",
+                    "specimen_rotation_z_deg",
+                }:
+                    from temsim.specimen.geometry import (
+                        quaternion_from_euler_xyz_deg,
+                        set_sample_orientation,
+                    )
+
+                    angles = [
+                        float(getattr(obj, field))
+                        for field in (
+                            "specimen_rotation_x_deg",
+                            "specimen_rotation_y_deg",
+                            "specimen_rotation_z_deg",
+                        )
+                    ]
+                    set_sample_orientation(
+                        obj,
+                        quaternion_from_euler_xyz_deg(angles),
+                    )
             self._update_sample_wave_control_states()
             self.runtime_changed.emit(name)
             self._updating = True
@@ -694,6 +917,11 @@ class ParameterPanel(QWidget):
             widget = self._quick_widgets.get(name)
             if isinstance(widget, QCheckBox):
                 widget.setChecked(bool(old_value))
+            elif isinstance(widget, QComboBox):
+                index = widget.findData(str(old_value))
+                widget.setCurrentIndex(index if index >= 0 else 0)
+            elif isinstance(widget, QLineEdit):
+                widget.setText(str(old_value))
             elif widget is not None:
                 widget.setValue(float(old_value) * scale)
             self.error.emit(str(exc))

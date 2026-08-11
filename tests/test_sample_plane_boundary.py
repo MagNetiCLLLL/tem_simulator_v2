@@ -111,3 +111,39 @@ def test_preview_incident_and_outgoing_bundles_meet_only_at_sample_plane():
     assert np.all(outgoing.z >= sample_z_mm)
     assert np.array_equal(incident.x[-1], outgoing.x[0])
     assert np.array_equal(incident.y[-1], outgoing.y[0])
+
+
+def test_retracted_sample_keeps_probe_plane_but_removes_scattering_branches():
+    catalog = AssemblyCatalog()
+    state = default_state()
+    catalog.apply(state, catalog.default_selection())
+    layout = apply_physical_layout_to_state(state)
+    state.step_mm = 5.0
+    state.history_step_mm = 5.0
+    state.acceleration_enabled = False
+    state.acceleration_backend = "CPU"
+    state.sample.inserted = False
+    state.sample.diffraction_enabled = True
+    state.sample.diffuse_broadening_mrad = 25.0
+    state.electron_gun.emitter.ray_count = 9
+
+    simulation = run(state, resolved_layout=layout)
+
+    assert tuple(simulation.branches) == ("000",)
+    assert simulation.metrics["sample_inserted"] is False
+    assert simulation.metrics["sample_scattering_applied"] is False
+    assert simulation.incident.z[-1] == pytest.approx(state.sample.z_mm)
+    assert simulation.branches["000"].z[0] == pytest.approx(
+        state.sample.z_mm
+    )
+
+
+def test_sample_inserted_state_round_trips_without_owning_sample_geometry():
+    state = default_state()
+    state.sample.inserted = False
+
+    payload = state.to_dict()
+    restored = type(state).from_dict(payload)
+
+    assert payload["sample"]["inserted"] is False
+    assert restored.sample.inserted is False

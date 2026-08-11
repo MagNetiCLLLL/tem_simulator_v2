@@ -27,6 +27,7 @@ from temsim.gui.diagnostic_tabs import (
     TransverseBeamView,
 )
 from temsim.gui.scan_panel import ScanControlView
+from temsim.gui.sample_panel import SamplePage
 
 
 class WaveImagingView(QWidget):
@@ -208,6 +209,10 @@ class VisualizationWorkspace(QWidget):
 
         self._projection_angle_deg = 0.0
         self._projection_syncing = False
+        self._scan_ray_paths = None
+        self._scan_ray_offsets_m: dict[str, np.ndarray] = {}
+        self._scan_playback_active = False
+        self._scan_playback_time_s: float | None = None
         self._projection_redraw_timer = QTimer(self)
         self._projection_redraw_timer.setSingleShot(True)
         self._projection_redraw_timer.setInterval(16)
@@ -411,16 +416,18 @@ class VisualizationWorkspace(QWidget):
         self.energy_filter = EnergyFilterView()
         self.transverse_beam = TransverseBeamView()
         self.scan_control = ScanControlView()
+        self.sample_page = SamplePage()
         self.wave_imaging = WaveImagingView()
         self.tabs = QTabWidget()
         self.tabs.setObjectName("visualizationTabs")
         self.tabs.addTab(ray_page, "Ray Diagram")
+        self.tabs.addTab(self.sample_page, "Sample")
         self.tabs.addTab(self.physical_layout, "Physical Layout")
         self.tabs.addTab(self.magnetic_field, "Magnetic Field")
         self.tabs.addTab(self.optical_transfer, "Optical Transfer")
         self.tabs.addTab(self.energy_filter, "Energy Filter")
         self.tabs.addTab(self.transverse_beam, "Transverse X-Y")
-        self.tabs.addTab(self.scan_control, "Scan / Descan")
+        self.tabs.addTab(self.scan_control, "STEM")
         self.tabs.addTab(self.wave_imaging, "TEM Wave Image")
 
         layout = QVBoxLayout(self)
@@ -472,6 +479,16 @@ class VisualizationWorkspace(QWidget):
             self.scan_parameters_changed.emit
         )
         self.scan_control.error.connect(self.scan_error.emit)
+        self.sample_page.parameters_changed.connect(
+            self.scan_parameters_changed.emit
+        )
+        self.sample_page.error.connect(self.scan_error.emit)
+        self.scan_control.playback_time_changed.connect(
+            self._scan_playback_time_changed
+        )
+        self.scan_control.playback_active_changed.connect(
+            self._scan_playback_active_changed
+        )
         self.physical_layout.axial_position_selected.connect(
             self.jump_to_ray_position
         )
@@ -555,10 +572,17 @@ class VisualizationWorkspace(QWidget):
         indices = np.unique(
             np.linspace(0, ray_count - 1, display_count, dtype=int)
         )
-        projected = self._project_transverse(
-            np.asarray(branch.x)[:, indices],
-            np.asarray(branch.y)[:, indices],
+        x_values = np.asarray(branch.x)[:, indices]
+        y_values = np.asarray(branch.y)[:, indices]
+        scan_offset = self._scan_ray_offsets_m.get(
+            str(getattr(branch, "name", ""))
         )
+        if scan_offset is not None:
+            scan_offset = np.asarray(scan_offset, dtype=float)
+            if scan_offset.shape == (x_values.shape[0], 2):
+                x_values = x_values + scan_offset[:, 0, None]
+                y_values = y_values + scan_offset[:, 1, None]
+        projected = self._project_transverse(x_values, y_values)
         blocked_z = np.asarray(branch.blocked_z, dtype=float)[indices]
         return self._bundle_lines(
             branch.z,
@@ -578,12 +602,39 @@ class VisualizationWorkspace(QWidget):
             )
 
     def _update_projection_text(self) -> None:
+        scan_text = ""
+        if self._scan_ray_paths is not None:
+            if self._scan_playback_time_s is None:
+                scan_text = " | scan frame cached"
+            else:
+                period_s = max(
+                    float(self._scan_ray_paths.frame_period_s),
+                    1.0e-12,
+                )
+                phase = (self._scan_playback_time_s / period_s) % 1.0
+                line_position = phase * int(self._scan_ray_paths.pixels_y)
+                line = min(
+                    int(line_position),
+                    int(self._scan_ray_paths.pixels_y) - 1,
+                )
+                column = min(
+                    int(
+                        (line_position - line)
+                        * int(self._scan_ray_paths.pixels_x)
+                    ),
+                    int(self._scan_ray_paths.pixels_x) - 1,
+                )
+                status = "playing" if self._scan_playback_active else "held"
+                scan_text = (
+                    f" | scan {status} pixel {column + 1}, line {line + 1}"
+                )
         self.heading.setText(
             f"Electron ray paths — {self._last_quality} | "
             f"{self._projection_axis_name()} projection at "
             f"{self._format_angle(self._projection_angle_deg)}° | "
             f"{self._crossover_count} crossovers | "
             f"{self._wall_stop_count} column-wall stops"
+            f"{scan_text}"
         )
         if self._selected_z_mm is None:
             self.stop_detail.setText(
@@ -627,6 +678,64 @@ class VisualizationWorkspace(QWidget):
         if updated_spans:
             self._aperture_span_records = updated_spans
             self._update_aperture_spans()
+        self._update_projection_text()
+
+    def _prepare_scan_ray_playback(self, result) -> None:
+        self._scan_ray_paths = getattr(result, "scan_ray_paths", None)
+        self._scan_ray_offsets_m = {}
+        self._scan_playback_active = False
+        self._scan_playback_time_s = None
+
+    def _scan_playback_active_changed(self, active: bool) -> None:
+        self._scan_playback_active = bool(active)
+        self._update_projection_text()
+
+    def _scan_playback_time_changed(self, time_s: float) -> None:
+        paths = self._scan_ray_paths
+        result = self._last_result
+        if paths is None or result is None:
+            return
+        state = getattr(result, "state_snapshot", None)
+        if state is None:
+            return
+        ac_command_mrad = np.asarray(
+            state.ac_deflector.scan_kick_mrad(float(time_s)),
+            dtype=float,
+        )
+        descan = state.descan_deflector
+        descan_command_mrad = np.asarray(
+            (
+                descan.scan_kick_mrad(float(time_s))
+                if bool(descan.enabled and descan.scan_enabled)
+                else (0.0, 0.0)
+            ),
+            dtype=float,
+        )
+        delta_ac_rad = (
+            ac_command_mrad
+            - np.asarray(paths.baseline_ac_command_mrad, dtype=float)
+        ) * 1.0e-3
+        delta_descan_rad = (
+            descan_command_mrad
+            - np.asarray(paths.baseline_descan_command_mrad, dtype=float)
+        ) * 1.0e-3
+        self._scan_ray_offsets_m = {
+            str(name): (
+                np.einsum("zij,j->zi", ac_response, delta_ac_rad)
+                + np.einsum(
+                    "zij,j->zi",
+                    descan_response,
+                    delta_descan_rad,
+                )
+            )
+            for name, (ac_response, descan_response) in (
+                paths.responses_m_per_rad.items()
+            )
+        }
+        self._scan_playback_time_s = float(time_s)
+        for item, branch in self._ray_bundle_records:
+            z_values, transverse = self._display_bundle_lines(branch)
+            item.setData(z_values, transverse, connect="finite")
         self._update_projection_text()
 
     @staticmethod
@@ -1490,22 +1599,49 @@ class VisualizationWorkspace(QWidget):
             if sample_part is not None
             else float(result.simulation.incident.z[-1])
         )
-        label = f"SAMPLE / SPECIMEN  Z={sample_z_mm:.6g} mm"
-        tooltip = (
-            "Sample / specimen plane\n"
-            f"Exact axial position Z = {sample_z_mm:.9g} mm\n"
-            "The blue incident bundle terminates here and every "
-            "post-specimen branch starts here. Their overlap at this plane "
-            "is the continuous ray boundary, not a second optical element."
-        )
+        state_snapshot = getattr(result, "state_snapshot", None)
+        sample_state = getattr(state_snapshot, "sample", None)
+        inserted = bool(getattr(sample_state, "inserted", True))
+        if inserted:
+            label = f"SAMPLE / SPECIMEN  Z={sample_z_mm:.6g} mm"
+            tooltip = (
+                "Sample / specimen plane (inserted)\n"
+                f"Exact axial position Z = {sample_z_mm:.9g} mm\n"
+                "The blue incident bundle terminates here and every "
+                "post-specimen branch starts here. Their overlap at this "
+                "plane is the continuous ray boundary, not a second optical "
+                "element."
+            )
+            colour = "#ffffff"
+            marker_brush = pg.mkBrush("#ef4444")
+            line_style = Qt.PenStyle.SolidLine
+        else:
+            label = (
+                "SAMPLE RETRACTED / REFERENCE PLANE  "
+                f"Z={sample_z_mm:.6g} mm"
+            )
+            tooltip = (
+                "Sample holder retracted\n"
+                f"Optical probe-reference position Z = {sample_z_mm:.9g} mm\n"
+                "No specimen diffraction, diffuse scattering, or atomistic "
+                "potential is applied. The incident/outgoing split is only a "
+                "continuous computational boundary."
+            )
+            colour = "#94a3b8"
+            marker_brush = pg.mkBrush(0, 0, 0, 0)
+            line_style = Qt.PenStyle.DashLine
         line = pg.InfiniteLine(
             pos=sample_z_mm,
             angle=90,
-            pen=pg.mkPen("#ffffff", width=2.6),
+            pen=pg.mkPen(
+                colour,
+                width=2.6 if inserted else 1.6,
+                style=line_style,
+            ),
             label=label,
             labelOpts={
                 "position": 0.94,
-                "color": "#ffffff",
+                "color": colour,
                 "rotateAxis": (1, 0),
             },
         )
@@ -1520,8 +1656,8 @@ class VisualizationWorkspace(QWidget):
             y=[0.0],
             symbol="s",
             size=11,
-            pen=pg.mkPen("#ffffff", width=2.0),
-            brush=pg.mkBrush("#ef4444"),
+            pen=pg.mkPen(colour, width=2.0),
+            brush=marker_brush,
         )
         axis_marker.setZValue(41)
         axis_marker.setToolTip(tooltip)
@@ -1729,6 +1865,7 @@ class VisualizationWorkspace(QWidget):
         )
         self._last_result = result
         self._last_quality = quality
+        self._prepare_scan_ray_playback(result)
         self._draw_ray_diagram(
             result,
             quality,
@@ -1741,6 +1878,10 @@ class VisualizationWorkspace(QWidget):
         self.transverse_beam.display_result(result)
         self.scan_control.display_result(
             getattr(result, "scan_geometry", None),
+            getattr(result, "stem_scan", None),
+        )
+        self.sample_page.display_result(
+            result,
             getattr(result, "stem_scan", None),
         )
         self.wave_imaging.display_result(getattr(result, "wave_imaging", None))

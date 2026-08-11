@@ -94,7 +94,7 @@ def test_v62_state_migration_preserves_fields_while_adding_headroom():
     restored = type(state).from_dict(payload)
     restored_by_key = {lens.key: lens for lens in restored.lenses}
 
-    assert restored.schema_version == 63
+    assert restored.schema_version == default_state().schema_version
     for key, expected_field_t in expected_fields.items():
         lens = restored_by_key[key]
         assert lens.b0_t * lens.percent / 100.0 == pytest.approx(

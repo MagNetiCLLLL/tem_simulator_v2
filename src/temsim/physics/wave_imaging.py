@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from dataclasses import asdict
 import math
+from pathlib import Path
 
 import numpy as np
 
@@ -31,6 +32,10 @@ from temsim.specimen.presets import (
     SpecimenPreset,
     default_specimen_preset_key,
     load_specimen_preset,
+)
+from temsim.specimen.geometry import (
+    quaternion_to_matrix,
+    sample_orientation_quaternion,
 )
 
 
@@ -56,6 +61,18 @@ class PreparedSpecimen:
     mean_projected_potential_v_angstrom: np.ndarray
     slice_thicknesses_angstrom: np.ndarray | None
     metrics: dict
+
+
+def effective_sample_thickness_nm(state) -> float:
+    """Return interacting specimen thickness, preserving the reference plane."""
+
+    if (
+        not bool(getattr(state.sample, "inserted", True))
+        or str(getattr(state.sample, "specimen_mode", "atomic")).lower()
+        != "atomic"
+    ):
+        return 0.0
+    return max(float(state.sample.thickness_nm), 0.0)
 
 
 def _normalise_image(values: np.ndarray) -> np.ndarray:
@@ -103,6 +120,10 @@ def projected_potential(
 def prepare_specimen_potentials(
     state,
     preset: SpecimenPreset,
+    *,
+    field_of_view_angstrom_override: float | None = None,
+    calculation_roi_centre_nm=(0.0, 0.0),
+    calculation_roi_bounds_nm=None,
 ) -> PreparedSpecimen:
     """Build the selected qualitative or atomistic specimen representation."""
 
@@ -112,9 +133,16 @@ def prepare_specimen_potentials(
     )
     pixels = pixels_override if pixels_override > 0 else preset.pixels
     requested_fov = (
-        fov_override if fov_override > 0.0 else preset.field_of_view_angstrom
+        float(field_of_view_angstrom_override)
+        if field_of_view_angstrom_override is not None
+        else fov_override
+        if fov_override > 0.0
+        else preset.field_of_view_angstrom
     )
-    total_thickness = max(float(state.sample.thickness_nm), 0.0) * 10.0
+    if not math.isfinite(requested_fov) or requested_fov <= 0.0:
+        raise ValueError("Wave calculation FOV must be finite and positive.")
+    thickness_nm = effective_sample_thickness_nm(state)
+    total_thickness = thickness_nm * 10.0
     target_slice = float(
         getattr(state.sample, "wave_slice_thickness_angstrom", 2.0)
     )
@@ -124,10 +152,97 @@ def prepare_specimen_potentials(
     atomistic_requested = bool(
         getattr(state.sample, "wave_atomistic_enabled", True)
     )
+    configured_cif_path = str(
+        getattr(state.sample, "cif_path", "")
+    ).strip()
+    # A parked holder, virtual specimen, or zero-thickness specimen is an
+    # interaction-free reference plane.  Dormant CIF settings must therefore
+    # neither load a file nor make a vacuum calculation fail validation.
+    cif_path = configured_cif_path if thickness_nm > 0.0 else ""
+    rotation_deg_xyz = (
+        float(getattr(state.sample, "specimen_rotation_x_deg", 0.0)),
+        float(getattr(state.sample, "specimen_rotation_y_deg", 0.0)),
+        float(getattr(state.sample, "specimen_rotation_z_deg", 0.0)),
+    )
+    orientation_quaternion = sample_orientation_quaternion(state.sample)
+    orientation_matrix = quaternion_to_matrix(orientation_quaternion)
+    roi_centre_nm = tuple(float(value) for value in calculation_roi_centre_nm)
+    if len(roi_centre_nm) != 2 or not all(
+        math.isfinite(value) for value in roi_centre_nm
+    ):
+        raise ValueError("Calculation ROI centre must contain two finite values.")
     frozen_requested = bool(
         getattr(state.sample, "wave_frozen_phonon_enabled", False)
     )
     atomistic_fallback_reason = None
+    if cif_path and not atomistic_requested:
+        raise ValueError(
+            "A custom CIF requires the Atomistic IAM potential option."
+        )
+    if cif_path and not multislice_enabled:
+        raise ValueError(
+            "A custom CIF requires multislice specimen propagation."
+        )
+
+    if calculation_roi_bounds_nm is not None and total_thickness > 0.0:
+        roi_x0, roi_x1, roi_y0, roi_y1 = (
+            float(value) for value in calculation_roi_bounds_nm
+        )
+        sample_x0 = float(getattr(state.sample, "centre_x_nm", 0.0)) - 0.5 * float(
+            getattr(state.sample, "size_x_nm", 0.0)
+        )
+        sample_x1 = float(getattr(state.sample, "centre_x_nm", 0.0)) + 0.5 * float(
+            getattr(state.sample, "size_x_nm", 0.0)
+        )
+        sample_y0 = float(getattr(state.sample, "centre_y_nm", 0.0)) - 0.5 * float(
+            getattr(state.sample, "size_y_nm", 0.0)
+        )
+        sample_y1 = float(getattr(state.sample, "centre_y_nm", 0.0)) + 0.5 * float(
+            getattr(state.sample, "size_y_nm", 0.0)
+        )
+        overlaps = not (
+            roi_x1 < sample_x0
+            or roi_x0 > sample_x1
+            or roi_y1 < sample_y0
+            or roi_y0 > sample_y1
+        )
+        if not overlaps:
+            spacing = requested_fov / pixels
+            axis = (np.arange(pixels, dtype=float) - pixels // 2) * spacing
+            vacuum = np.zeros((pixels, pixels), dtype=float)
+            return PreparedSpecimen(
+                x_angstrom=axis,
+                y_angstrom=axis.copy(),
+                potential_configurations_v_angstrom=(vacuum,),
+                mean_projected_potential_v_angstrom=vacuum,
+                slice_thicknesses_angstrom=None,
+                metrics={
+                    "potential_model": "finite_sample_vacuum_outside",
+                    "atomistic_requested": atomistic_requested,
+                    "atomistic_applied": False,
+                    "atomistic_fallback_reason": None,
+                    "atom_count": 0,
+                    "configuration_count": 1,
+                    "frozen_phonon_requested": frozen_requested,
+                    "frozen_phonon_applied": False,
+                    "calculation_roi_centre_nm": roi_centre_nm,
+                    "calculation_roi_bounds_nm": tuple(
+                        float(value) for value in calculation_roi_bounds_nm
+                    ),
+                    "finite_specimen_size_nm": (
+                        float(getattr(state.sample, "size_x_nm", 0.0)),
+                        float(getattr(state.sample, "size_y_nm", 0.0)),
+                        thickness_nm,
+                    ),
+                    "specimen_orientation_quaternion_wxyz": (
+                        orientation_quaternion
+                    ),
+                    "requested_field_of_view_angstrom": requested_fov,
+                    "requested_thickness_angstrom": total_thickness,
+                    "maximum_relative_intensity_change": 0.0,
+                    "bonding_charge_included": False,
+                },
+            )
 
     if atomistic_requested and multislice_enabled and total_thickness > 0.0:
         try:
@@ -155,8 +270,33 @@ def prepare_specimen_potentials(
                 thermal_seed=int(
                     getattr(state.sample, "wave_frozen_phonon_seed", 100)
                 ),
+                cif_path=cif_path,
+                rotation_deg_xyz=rotation_deg_xyz,
+                rotation_matrix=orientation_matrix,
+                specimen_size_xy_angstrom=(
+                    float(getattr(state.sample, "size_x_nm", 0.0)) * 10.0,
+                    float(getattr(state.sample, "size_y_nm", 0.0)) * 10.0,
+                ),
+                specimen_centre_xy_angstrom=(
+                    float(getattr(state.sample, "centre_x_nm", 0.0)) * 10.0,
+                    float(getattr(state.sample, "centre_y_nm", 0.0)) * 10.0,
+                ),
+                calculation_roi_centre_xy_angstrom=(
+                    roi_centre_nm[0] * 10.0,
+                    roi_centre_nm[1] * 10.0,
+                ),
+                thermal_sigma_by_element_angstrom=dict(
+                    getattr(
+                        state.sample,
+                        "wave_frozen_phonon_sigma_by_element_angstrom",
+                        {},
+                    )
+                    or {}
+                ),
             )
         except AtomisticBackendUnavailable as exc:
+            if cif_path:
+                raise
             atomistic_fallback_reason = str(exc)
         else:
             spacing_x, spacing_y = ensemble.sampling_angstrom_xy
@@ -198,6 +338,20 @@ def prepare_specimen_potentials(
                     "potential_storage_bytes": (
                         ensemble.potential_storage_bytes
                     ),
+                    "atomistic_source_kind": ensemble.source_kind,
+                    "atomistic_source_path": ensemble.source_path,
+                    "specimen_rotation_deg_xyz": (
+                        ensemble.rotation_deg_xyz
+                    ),
+                    "specimen_orientation_quaternion_wxyz": (
+                        orientation_quaternion
+                    ),
+                    "calculation_roi_centre_nm": roi_centre_nm,
+                    "finite_specimen_size_nm": (
+                        float(getattr(state.sample, "size_x_nm", 0.0)),
+                        float(getattr(state.sample, "size_y_nm", 0.0)),
+                        thickness_nm,
+                    ),
                     "lateral_cell_commensurate": (
                         ensemble.lateral_cell_commensurate
                     ),
@@ -232,10 +386,20 @@ def prepare_specimen_potentials(
 
     x_axis, y_axis, potential = projected_potential(
         preset,
-        state.sample.thickness_nm,
+        thickness_nm,
         pixels=pixels,
         field_of_view_angstrom=requested_fov,
     )
+    if calculation_roi_bounds_nm is not None and thickness_nm > 0.0:
+        lab_x_nm = x_axis * 0.1 + roi_centre_nm[0]
+        lab_y_nm = y_axis * 0.1 + roi_centre_nm[1]
+        inside_x = np.abs(
+            lab_x_nm - float(getattr(state.sample, "centre_x_nm", 0.0))
+        ) <= 0.5 * float(getattr(state.sample, "size_x_nm", 0.0))
+        inside_y = np.abs(
+            lab_y_nm - float(getattr(state.sample, "centre_y_nm", 0.0))
+        ) <= 0.5 * float(getattr(state.sample, "size_y_nm", 0.0))
+        potential = potential * (inside_y[:, None] & inside_x[None, :])
     return PreparedSpecimen(
         x_angstrom=x_axis,
         y_angstrom=y_axis,
@@ -268,6 +432,13 @@ def prepare_specimen_potentials(
                 requested_fov,
             ),
             "requested_field_of_view_angstrom": requested_fov,
+            "calculation_roi_centre_nm": roi_centre_nm,
+            "finite_specimen_size_nm": (
+                float(getattr(state.sample, "size_x_nm", 0.0)),
+                float(getattr(state.sample, "size_y_nm", 0.0)),
+                thickness_nm,
+            ),
+            "specimen_orientation_quaternion_wxyz": orientation_quaternion,
             "requested_thickness_mismatch_angstrom": 0.0,
             "requested_thickness_angstrom": total_thickness,
             "intensity_ensemble_average": False,
@@ -298,6 +469,8 @@ def _weighted_ray_statistics(incident) -> dict:
         "convergence_99_rad": statistics.convergence_99_rad,
         "convergence_edge_rad": statistics.convergence_edge_rad,
         "convergence_semiangle_rad": statistics.convergence_99_rad,
+        "radius_rms_m": statistics.radius_rms_m,
+        "radius_99_m": statistics.radius_99_m,
         "surviving_rays": statistics.surviving_rays,
     }
 
@@ -376,9 +549,19 @@ def _objective_defocus_angstrom(state) -> tuple[float, float]:
 
 
 def simulate_wave_image(state, simulation) -> WaveImagingResult:
+    sample_inserted = bool(getattr(state.sample, "inserted", True))
+    atomic_interaction = (
+        sample_inserted
+        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
+        == "atomic"
+    )
     preset_key = (
-        str(state.sample.specimen_preset_key).strip()
-        or default_specimen_preset_key()
+        (
+            str(state.sample.specimen_preset_key).strip()
+            or default_specimen_preset_key()
+        )
+        if atomic_interaction
+        else "vacuum"
     )
     preset = load_specimen_preset(preset_key)
     prepared = prepare_specimen_potentials(state, preset)
@@ -407,9 +590,8 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
     multislice_enabled = bool(
         getattr(state.sample, "wave_multislice_enabled", True)
     )
-    total_thickness_angstrom = max(
-        float(state.sample.thickness_nm), 0.0
-    ) * 10.0
+    total_thickness_nm = effective_sample_thickness_nm(state)
+    total_thickness_angstrom = total_thickness_nm * 10.0
     target_slice_angstrom = float(
         getattr(state.sample, "wave_slice_thickness_angstrom", 2.0)
     )
@@ -532,13 +714,9 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         )
         specimen_metrics = {
             "model": "projected_phase_object",
-            "slice_count": 1 if state.sample.thickness_nm > 0.0 else 0,
-            "total_thickness_angstrom": max(
-                float(state.sample.thickness_nm), 0.0
-            ) * 10.0,
-            "slice_thickness_angstrom": max(
-                float(state.sample.thickness_nm), 0.0
-            ) * 10.0,
+            "slice_count": 1 if total_thickness_nm > 0.0 else 0,
+            "total_thickness_angstrom": total_thickness_angstrom,
+            "slice_thickness_angstrom": total_thickness_angstrom,
             "bandwidth_fraction": 1.0,
             "maximum_isotropic_angle_mrad": math.asin(
                 min(wavelength_angstrom * isotropic_nyquist, 1.0)
@@ -561,6 +739,8 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         }
 
     specimen_metrics.update(prepared.metrics)
+    specimen_metrics["sample_inserted"] = sample_inserted
+    specimen_metrics["sample_interaction_applied"] = atomic_interaction
 
     defocus_angstrom, focal_mm = _objective_defocus_angstrom(state)
     cs_mm = float(getattr(state.objective_lens, "cs_mm", 0.0) or 0.0)
@@ -694,9 +874,20 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
             <= 1.0e-3
         ),
     }
+    custom_cif_path = specimen_metrics.get("atomistic_source_path")
+    display_key = (
+        f"cif:{Path(custom_cif_path).name}"
+        if custom_cif_path
+        else preset.key
+    )
+    display_name = (
+        f"Custom CIF: {Path(custom_cif_path).name}"
+        if custom_cif_path
+        else preset.name
+    )
     return WaveImagingResult(
-        preset_key=preset.key,
-        preset_name=preset.name,
+        preset_key=display_key,
+        preset_name=display_name,
         x_angstrom=x_axis,
         y_angstrom=y_axis,
         projected_potential_v_angstrom=potential,

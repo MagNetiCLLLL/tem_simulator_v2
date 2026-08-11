@@ -118,11 +118,20 @@ def test_projector_modes_relay_the_selected_objective_plane(
     source_z = getattr(state.objective_lens, plane_attribute)(
         state.beam_voltage_kv, state.sample
     )
+    cached_source_z = getattr(
+        state,
+        (
+            "objective_image_plane_z_mm"
+            if plane_attribute == "image_plane_z_mm"
+            else "objective_back_focal_plane_z_mm"
+        ),
+    )
 
     matrix = complex_transfer(
         state, source_z, determine_tem_stop_z(state)
     )
 
     assert source_z is not None
+    assert cached_source_z == pytest.approx(source_z)
     assert abs(matrix[0, 1]) < maximum_residual_m
     assert abs(matrix[0, 0]) > 1.0

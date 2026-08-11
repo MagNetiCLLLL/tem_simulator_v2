@@ -15,6 +15,31 @@ from temsim.manifest_editor import ManifestEditor
 from temsim.optics.column import default_state
 
 
+def test_scan_and_descan_are_mirrored_about_sample_in_every_column_toml():
+    root = Path(__file__).parents[1] / "configs" / "instruments" / "column"
+    checked = 0
+    for path in sorted(root.glob("*.toml")):
+        with path.open("rb") as handle:
+            values = tomllib.load(handle)
+        parts = {part["key"]: part for part in values.get("parts", ())}
+        if not {"sample", "ac_deflector", "descan_deflector"} <= set(parts):
+            continue
+        sample_z = float(parts["sample"]["local_center_z_mm"])
+        ac_z = float(parts["ac_deflector"]["local_center_z_mm"])
+        descan_z = float(parts["descan_deflector"]["local_center_z_mm"])
+        assert sample_z - ac_z == pytest.approx(descan_z - sample_z)
+        assert (
+            float(parts["objective_stigmator"]["local_start_z_mm"])
+            - float(parts["descan_deflector"]["local_end_z_mm"])
+        ) == pytest.approx(5.0)
+        assert (
+            float(parts["image_diffraction_deflector"]["local_start_z_mm"])
+            - float(parts["objective_stigmator"]["local_end_z_mm"])
+        ) == pytest.approx(5.0)
+        checked += 1
+    assert checked == 5
+
+
 def test_catalog_reports_variant_scope_and_unique_active_authorities():
     audit = ManifestEditor().validate_catalog()
 

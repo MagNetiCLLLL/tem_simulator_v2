@@ -632,9 +632,11 @@ def propagate(
 ):
     requested_step=float(state.step_mm)
     image_lens_events=equivalent_image_events(state,float(z0),float(z1))
+    exact_z_mm = [event.z_mm for event in image_lens_events]
+    exact_z_mm.extend(float(value) for value in save_z_mm)
     zfull,step_mm=_piecewise_endpoint_exact_axial_grid(
         z0,z1,requested_step,
-        (event.z_mm for event in image_lens_events),
+        exact_z_mm,
     )
     step_m=np.ascontiguousarray(step_mm*1e-3,np.float64)
     grid_start=float(zfull[0])

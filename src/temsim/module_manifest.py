@@ -1385,6 +1385,51 @@ def _validate_objective_assembly(parts):
             "Objective TOML planes must be ordered BFP, image inside assembly"
         )
 
+    if {"ac_deflector", "descan_deflector"}.issubset(by_key):
+        ac_scan = by_key["ac_deflector"]
+        descan = by_key["descan_deflector"]
+        ac_distance = sample_center - float(
+            ac_scan["local_center_z_mm"]
+        )
+        descan_distance = float(descan["local_center_z_mm"]) - sample_center
+        if (
+            ac_distance <= 0.0
+            or descan_distance <= 0.0
+            or abs(ac_distance - descan_distance) > tolerance
+        ):
+            raise ValueError(
+                "AC Scan and Descan centres must mirror about the sample"
+            )
+        for field in (
+            "length_mm",
+            "mechanical_coil_length_mm",
+            "mechanical_inter_coil_gap_mm",
+            "effective_thickness_mm",
+        ):
+            if abs(float(ac_scan[field]) - float(descan[field])) > tolerance:
+                raise ValueError(
+                    f"AC Scan and Descan must match in {field}"
+                )
+        ac_interactions = tuple(
+            float(value)
+            for value in ac_scan["interaction_centers_local_z_mm"]
+        )
+        descan_interactions = tuple(
+            float(value)
+            for value in descan["interaction_centers_local_z_mm"]
+        )
+        if (
+            len(ac_interactions) != 2
+            or len(descan_interactions) != 2
+            or abs(
+                (ac_interactions[1] - ac_interactions[0])
+                - (descan_interactions[1] - descan_interactions[0])
+            ) > tolerance
+        ):
+            raise ValueError(
+                "AC Scan and Descan optical-plane separations must match"
+            )
+
 
 def _expected_column_order(parts):
     keys = {str(part["key"]) for part in parts}

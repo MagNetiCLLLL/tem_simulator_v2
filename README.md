@@ -29,12 +29,16 @@ The status bar, wave-image summary and calculation log report the backends
 actually used. Tiny previews stay on CPU in Auto mode because accelerator
 launch and transfer overhead is larger than the useful work.
 
-The optional atomistic specimen backend is installed with
-`.venv\Scripts\python.exe -m pip install -e ".[atomistic]"`. Silicon and gold
-then use commensurate ASE supercells and abTEM finite-projection Lobato--Van
-Dyck independent-atom potentials. If the extra is unavailable, or a preset has
-no atomistic crystal definition, the result explicitly reports its fallback
-to the qualitative TOML projected-column potential.
+The standard project environment includes ASE and abTEM for finite-projection
+Lobato--Van Dyck independent-atom potentials. Silicon and gold use
+commensurate crystal builders, while a user CIF/MCIF is orthogonalised and
+cropped directly to the scan ROI plus probe padding inside the finite X/Y/Z
+sample envelope. A macroscopic sample therefore does not create a macroscopic
+supercell. The canonical orientation is a unit quaternion; zone-axis `[uvw]`,
+an independent in-plane direction and numeric/mouse rotations all update that
+same physical state. A custom CIF never silently falls back to a different
+material model. IAM includes sampled elastic diffraction but not bonding
+charge, inelastic absorption, magnetic scattering or a full Mott treatment.
 Magnetic-lens excitation is consistently expressed on a 0–100% scale; lenses
 that require stronger fields own correspondingly higher 100% field
 calibrations instead of using over-100% excitation values.
@@ -131,12 +135,72 @@ recalculation preserves a user's runtime direction override.
   integration step.
 - Runs the optional TEM wave-imaging backend during a high-accuracy calculation
   and displays the image and diffraction pattern on a dedicated page.
-- Couples the physical upper/lower AC Scan foils through the active signed
-  first-order optics for a pure sample shift, calculates one HAADF/DF/BF frame
-  from the signal intercepted at every probe position, and loops that cached
-  frame in the Scan / Descan page until scanning is stopped. Preview uses the
-  fast geometric detector approximation; High accuracy can use wave/multislice
+- Provides a central **Sample** page with insert/retract and Real/Virtual mode
+  controls, finite sample/scan/ROI overlays, +Z beam, zone-axis alignment and
+  dual mouse behaviour. It contains specimen state and structure only;
+  detector images live only on the STEM page. A custom CIF is orthogonalised
+  with abTEM and periodically expanded through the finite-sample/current-ROI
+  intersection. ASE covalent neighbours form the sticks, ASE/Jmol colours and
+  reduced covalent radii form the element-specific balls, and a legend beside
+  the view names every displayed element. A user-adjustable soft atom limit
+  crops only an explicitly reported rendering window for macroscopic volumes;
+  it never reduces the calculation ROI. Mouse drag orbits the camera by
+  default; explicit edit mode changes a draft physical orientation which must
+  be applied. PyQtGraph OpenGL/PyOpenGL is used when supported and a labelled
+  two-dimensional ball-stick projection is used safely otherwise.
+- Gives AC Scan and AC Descan the same raster and two-foil controls because
+  they are the same deflector principle at different axial positions. Their
+  TOML geometries mirror one another about the sample. The active signed
+  first-order optics calibrate AC for a pure sample shift; Descan receives the
+  exact opposite 2x2 scan command and derives its lower-foil coupling so that
+  the scanned chief ray is stationary at the Selected Area Aperture
+  image-reference station. Pixel count and a square pixel pitch from 0.001 nm
+  to 1 mm define `FOV = count x pitch`; unreachable coil demands fail
+  explicitly. One HAADF/DF/BF frame is calculated from the signal intercepted
+  at every probe position and then replayed from cache. The same within-frame
+  scan position animates the Ray Diagram without rerunning ray physics, and
+  the diagram remains freely rotatable during playback. Preview uses the fast
+  geometric detector approximation; High accuracy can use wave/multislice
   detector integration with first-order descan acceptance shifts.
+- Treats Objective Aperture and Selected Area Aperture as physical
+  diffraction- and image-reference stations, respectively, rather than
+  asserting that their current optical state is ideal. Sample-to-plane
+  position and angle Jacobians classify every reported station as `image`,
+  `diffraction`, or `mixed`; objective first-image and first-diffraction
+  locations are recomputed whenever sample, voltage, or objective excitation
+  changes. Exact requested observation Z values are included in propagation,
+  avoiding display-grid interpolation errors at these planes.
+- Names the scan workspace **STEM**, with separate **Geometry** and **Images**
+  subtabs. BF/DF/HAADF images use physical scan coordinates, keep one X unit
+  equal to one Y unit, and retain unrestricted interactive pan/zoom. The image
+  notice distinguishes geometric detector clipping from virtual-sample and
+  CIF/multislice signals. It also warns when the FOV leaves the finite sample
+  or the pixel pitch is coarser than half the shortest periodic CIF atom
+  spacing. Polygon/wedge patterns from `geometric_detector_interception` are
+  therefore identified as preview acceptance boundaries, not atomic contrast.
+- Keeps the optical sample Z as a probe-reference plane when **Sample
+  inserted** is cleared. Retracting the holder removes diffraction, diffuse
+  ray broadening and atomistic/wave interaction; retained CIF settings are
+  dormant until the specimen is inserted again.
+- Supports two explicit specimen modes. **Real sample (CIF / crystal)** uses a
+  TOML crystal or custom CIF for high-accuracy finite IAM/multislice, while its
+  fast ray view remains a labelled qualitative preview. **Virtual sample** has
+  extensible diffraction-spot/ring, Gaussian/diffuse, arbitrary-angle,
+  user-screened-power-law, physical screened-relativistic-Rutherford and
+  absorption rows. Probabilities are absolute, are never normalised, and must
+  sum to at most one; the remainder is direct beam. Rectangles, ellipses and
+  NPY/PNG/TIFF grayscale maps define local density inside the finite slab,
+  with vacuum outside and optional convolution by the calculated probe.
+- Reports each installed BF/DF/HAADF detector's TOML-authoritative axial
+  position, inner/outer active size and collection angle. Collection angle is
+  calculated through the active signed sample-to-detector transfer, including
+  rotation or anisotropy rather than assuming angle = radius / axial distance.
+- Integrates wave and virtual angular intensity through each detector's actual
+  `hit_mask` after the complete signed 2x2 sample-to-detector transfer, in
+  axial order so upstream interception cannot be double counted. A STEM frame
+  reports source fractions, pA, expected electrons per dwell, optional seeded
+  Poisson counts, uncollected/absorbed/truncated fractions and a separately
+  identified optional high-angle tail; it does not retain a full 4D cube.
 - Provides a complex128 CPU-reference symmetric split-operator multislice
   engine and an optional complex64 CuPy CUDA path with safe CPU fallback,
   explicit angstrom/inverse-angstrom FFT conventions, 2/3 anti-alias
@@ -158,8 +222,11 @@ recalculation preserves a user's runtime direction override.
 - Treats the atomistic potential as a neutral-atom IAM and the thermal motion
   as independent isotropic Gaussian (Einstein) displacements. Bonding charge,
   correlated phonons, absorptive/inelastic potentials and magnetic specimen
-  fields are not included. The wave detector path does not add a separate
-  Rutherford/TDS tail, avoiding double counting the frozen-phonon scattering.
+  fields are not included. Strict multislice angular support is the default
+  and omitted intensity is not renormalised. An optional screened relativistic
+  Rutherford approximation can complete only angles beyond that support; it
+  uses explicit Z/areal-density/screening inputs, is reported separately, and
+  is not described as Mott or silently blended into the wave-supported range.
 - Defines the STEM probe semi-angle as the weighted 99% angular containment
   about the three-dimensional chief ray and reports RMS/95%/edge angles
   separately instead of using RMS convergence as a hard pupil radius.

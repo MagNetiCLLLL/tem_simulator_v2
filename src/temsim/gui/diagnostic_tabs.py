@@ -1384,6 +1384,10 @@ class PhysicalLayoutView(QWidget):
         gap_start, gap_end = gap
         gap_width = gap_end - gap_start
         sample_z = float(sample.center_z_mm)
+        state_snapshot = getattr(self._result, "state_snapshot", None)
+        sample_state = getattr(state_snapshot, "sample", None)
+        inserted = bool(getattr(sample_state, "inserted", True))
+        sample_status = "INSERTED" if inserted else "RETRACTED"
         outer_radius = 0.5 * float(objective.outer_diameter_mm)
         pole_tip_radius = max(
             0.5 * float(
@@ -1443,19 +1447,30 @@ class PhysicalLayoutView(QWidget):
         holder_half_width = min(0.55, 0.16 * gap_width)
         holder_end = 1.14 * outer_radius
         holder_tooltip = (
-            "Sample Holder (schematic)\n"
-            "Inserted through the stage from the positive-radius side. "
-            f"The holder tip terminates at the current sample plane: "
-            f"Z = {sample_z:.6g} mm."
+            f"Sample Holder (schematic; {sample_status.lower()})\n"
+            "The holder enters through the positive-radius side. "
+            + (
+                "Its tip terminates on the optical sample reference plane. "
+                if inserted
+                else "Its tip is parked outside the Objective pole gap. "
+            )
+            + f"Reference-plane Z = {sample_z:.6g} mm."
         )
+        holder_tip_y = 0.0 if inserted else stage_body_start
         shaft = QGraphicsRectItem(
             sample_z - holder_half_width,
-            0.0,
+            holder_tip_y,
             2.0 * holder_half_width,
-            holder_end,
+            max(holder_end - holder_tip_y, 0.5),
         )
-        shaft.setPen(pg.mkPen("#f59e0b", width=1.0))
-        shaft.setBrush(pg.mkBrush(245, 158, 11, 205))
+        holder_alpha = 205 if inserted else 92
+        holder_style = (
+            Qt.PenStyle.SolidLine if inserted else Qt.PenStyle.DashLine
+        )
+        shaft.setPen(
+            pg.mkPen("#f59e0b", width=1.0, style=holder_style)
+        )
+        shaft.setBrush(pg.mkBrush(245, 158, 11, holder_alpha))
         shaft.setToolTip(holder_tooltip)
         shaft.setZValue(29)
         self.plot.addItem(shaft)
@@ -1467,13 +1482,19 @@ class PhysicalLayoutView(QWidget):
         )
 
         tip_half_width = min(0.9, 0.3 * gap_width)
+        tip_depth = min(
+            pole_tip_radius,
+            max(holder_end - holder_tip_y, 0.5),
+        )
         tip = QGraphicsPolygonItem(QPolygonF([
-            QPointF(sample_z, 0.0),
-            QPointF(sample_z - tip_half_width, pole_tip_radius),
-            QPointF(sample_z + tip_half_width, pole_tip_radius),
+            QPointF(sample_z, holder_tip_y),
+            QPointF(sample_z - tip_half_width, holder_tip_y + tip_depth),
+            QPointF(sample_z + tip_half_width, holder_tip_y + tip_depth),
         ]))
-        tip.setPen(pg.mkPen("#fbbf24", width=1.0))
-        tip.setBrush(pg.mkBrush(251, 191, 36, 225))
+        tip.setPen(pg.mkPen("#fbbf24", width=1.0, style=holder_style))
+        tip.setBrush(
+            pg.mkBrush(251, 191, 36, 225 if inserted else 105)
+        )
         tip.setToolTip(holder_tooltip)
         tip.setZValue(30)
         self.plot.addItem(tip)
@@ -1503,14 +1524,23 @@ class PhysicalLayoutView(QWidget):
         )
 
         sample_radius = max(0.5 * float(sample.outer_diameter_mm), 1.5)
+        sample_colour = "#fb7185" if inserted else "#94a3b8"
+        sample_pen_style = (
+            Qt.PenStyle.SolidLine if inserted else Qt.PenStyle.DashLine
+        )
         sample_line = self.plot.plot(
             [sample_z, sample_z],
             [-sample_radius, sample_radius],
-            pen=pg.mkPen("#fb7185", width=3.0),
+            pen=pg.mkPen(
+                sample_colour,
+                width=3.0 if inserted else 1.5,
+                style=sample_pen_style,
+            ),
         )
         sample_line.setZValue(34)
         sample_line.setToolTip(
-            f"Sample plane / holder tip\nZ = {sample_z:.6g} mm"
+            f"Sample {sample_status.lower()} / optical reference plane\n"
+            f"Z = {sample_z:.6g} mm"
         )
         sample_marker = QGraphicsEllipseItem(
             sample_z - 0.32,
@@ -1518,10 +1548,15 @@ class PhysicalLayoutView(QWidget):
             0.64,
             0.64,
         )
-        sample_marker.setPen(pg.mkPen("#fecdd3", width=1.0))
-        sample_marker.setBrush(pg.mkBrush(251, 113, 133, 235))
+        sample_marker.setPen(pg.mkPen(sample_colour, width=1.2))
+        sample_marker.setBrush(
+            pg.mkBrush(251, 113, 133, 235)
+            if inserted
+            else pg.mkBrush(0, 0, 0, 0)
+        )
         sample_marker.setToolTip(
-            f"Sample at the end of the holder\nZ = {sample_z:.6g} mm"
+            f"Sample {sample_status.lower()}\n"
+            f"Optical reference-plane Z = {sample_z:.6g} mm"
         )
         sample_marker.setZValue(35)
         self.plot.addItem(sample_marker)
@@ -1538,15 +1573,20 @@ class PhysicalLayoutView(QWidget):
         )
 
         sample_label = pg.TextItem(
-            "SAMPLE / SPECIMEN",
-            color="#fecdd3",
+            (
+                "SAMPLE / SPECIMEN"
+                if inserted
+                else "SAMPLE RETRACTED / REFERENCE PLANE"
+            ),
+            color="#fecdd3" if inserted else "#cbd5e1",
             anchor=(0.5, 0.5),
-            border=pg.mkPen("#fb7185", width=0.8),
+            border=pg.mkPen(sample_colour, width=0.8),
             fill=pg.mkBrush(5, 8, 22, 215),
         )
         sample_label.setZValue(46)
         sample_label.setToolTip(
-            f"Sample / specimen at the holder tip\nZ = {sample_z:.6g} mm"
+            f"Sample {sample_status.lower()}\n"
+            f"Optical reference-plane Z = {sample_z:.6g} mm"
         )
         self.plot.addItem(sample_label)
         self._sample_plane_labels.append(sample_label)
@@ -1555,7 +1595,7 @@ class PhysicalLayoutView(QWidget):
             label=sample_label,
             anchor_z_mm=sample_z,
             anchor_radius_mm=sample_radius,
-            colour="#fb7185",
+            colour=sample_colour,
             priority=-4,
             preferred_side=-1,
             component_key="sample",

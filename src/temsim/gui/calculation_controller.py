@@ -11,7 +11,10 @@ from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.physics.all_lens_crossovers import detect_all_lens_crossovers
 from temsim.physics.simulation import run as run_ray_simulation
 from temsim.physics.recording_stop import determine_tem_stop_z
-from temsim.physics.scan_geometry import calculate_scan_geometry
+from temsim.physics.scan_geometry import (
+    calculate_scan_geometry,
+    calculate_scan_ray_paths,
+)
 from temsim.simulation_pipeline import (
     CalculationResult,
     aperture_stop_records,
@@ -56,9 +59,18 @@ def estimate_calculation_memory_bytes(
     history_step = max(step, 2.0 if quality == "Preview" else 0.5)
     pre_history = int(math.ceil(pre_span / history_step)) + 2
     post_history = int(math.ceil(post_span / history_step)) + 2
-    branch_count = (
-        3 if bool(getattr(state.sample, "diffraction_enabled", True)) else 1
+    scattering_active = (
+        bool(getattr(state.sample, "inserted", True))
+        and bool(getattr(state.sample, "diffraction_enabled", True))
     )
+    if not scattering_active:
+        branch_count = 1
+    elif str(getattr(state.sample, "specimen_mode", "atomic")).lower() == "virtual":
+        from temsim.specimen.virtual import virtual_scattering_branches
+
+        branch_count = len(virtual_scattering_branches(state.sample))
+    else:
+        branch_count = 3
     # X/TX/Y/TY are retained as float32 histories for the incident bundle and
     # every post-specimen branch.
     history = (
@@ -99,13 +111,18 @@ class CalculationWorker(QRunnable):
                     [simulation.incident, *simulation.branches.values()],
                     self.state.lenses,
                 )
+                scan_geometry = calculate_scan_geometry(self.state)
                 result = CalculationResult(
                     simulation=simulation,
                     energy_filter=None,
                     state_snapshot=self.state,
                     layout=layout,
                     assembly=self.state._resolved_assembly,
-                    scan_geometry=calculate_scan_geometry(self.state),
+                    scan_geometry=scan_geometry,
+                    scan_ray_paths=calculate_scan_ray_paths(
+                        self.state,
+                        simulation,
+                    ),
                     stem_scan=calculate_stem_scan_frame(
                         self.state,
                         simulation,

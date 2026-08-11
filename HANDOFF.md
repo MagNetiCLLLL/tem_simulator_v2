@@ -1,6 +1,6 @@
 # TEM Simulator v2 — Project Handoff
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 ## Purpose
 
@@ -16,7 +16,7 @@ the next concrete work. `README.md` remains the user/developer overview and
 - Application entry point: `main.py`
 - Run: `.venv\Scripts\python.exe main.py`
 - Tests: `$env:PYTHONPATH='src'; .venv\Scripts\python.exe -m pytest -q`
-- Last full result: **208 passed** on 2026-08-09. The remaining messages are
+- Last full result: **269 passed** on 2026-08-11. The remaining messages are
   the existing Pydantic `json_encoders` deprecation warning and a small-grid
   Numba CUDA occupancy warning.
 
@@ -350,13 +350,45 @@ the next concrete work. `README.md` remains the user/developer overview and
 
 ## Scan / descan checkpoint (2026-08-11)
 
-- AC Scan is one shared command driving physical upper and lower foils.  The
+- Sample now has an explicit inserted/retracted state. Retraction preserves the
+  exact sample Z as the optical probe-reference plane but disables ray
+  diffraction/diffuse broadening and sets interacting wave thickness to zero.
+  A dormant or invalid CIF path is not touched while the holder is retracted.
+  Ray Diagram and Physical Layout both distinguish the parked holder from an
+  inserted specimen.
+- AC Scan is one shared command driving physical upper and lower foils. The
   lower-foil X/Y map is recalculated from the active signed first-order column
-  optics so the combined sample-plane angular response is zero.  A field-free
+  optics so the combined sample-plane angular response is zero. A field-free
   equal-and-opposite pair is used only if the lower response is singular.
-- Scan geometry and STEM acquisition use the same two physical foil planes and
-  the same signed 2x2 coupling; neither path substitutes one kick at the
-  mechanical centre.  Descan retains independent upper/lower strengths.
+- AC raster scale is now specified by X/Y pixel counts and one square
+  specimen-plane pixel pitch. The control domain is 0.001 nm through 1 mm and
+  the displayed FOV is exactly `count x pitch`; raster coordinates denote
+  pixel centres, so centre-to-centre span is `(count - 1) x pitch`. A second
+  signed 2x2 calibration maps those requested specimen axes through the active
+  optics to coil commands. Singular transfers and demands above the physical
+  coil limit fail explicitly instead of silently changing the FOV.
+- AC Scan and AC Descan now expose exactly the same raster and two-foil
+  controls. Shared pixel count, line count, pitch, and frame period are kept
+  synchronized; the derived lower-foil control is read-only for both pairs.
+  All five column TOMLs place their foil-pair centres at equal distances on
+  opposite sides of the sample and keep identical foil length, gap, and
+  effective thickness. Manifest validation rejects geometry that breaks this
+  symmetry.
+- Scan geometry and STEM acquisition use the same physical foil planes and
+  signed 2x2 response model; neither path substitutes one kick at a mechanical
+  centre. Descan receives the exact negative of the calibrated AC command.
+  Its lower-foil 2x2 coupling is solved through the current post-sample optics
+  so the combined AC plus Descan displacement vanishes at the Selected Area
+  Aperture image-reference station. Singular or unreachable solutions fail
+  transactionally and restore the previous state.
+- Objective Aperture and Selected Area Aperture are reported as physical
+  diffraction- and image-reference stations. They are not forced to carry
+  those ideal labels under arbitrary lens settings: the sample-to-plane
+  position and angle Jacobians classify each current plane as `image`,
+  `diffraction`, or `mixed` and expose both residuals. Objective first-image
+  and first-diffraction coordinates are refreshed after voltage, sample, or
+  objective-lens changes. Propagation grids include requested plane Z values
+  exactly instead of reading them from a coarser display-history sample.
 - One active AC raster produces exactly one HAADF, DF and BF frame by
   integrating the physical detector acceptance at every probe position.  The
   interactive Preview uses the geometric detector-interception approximation;
@@ -364,10 +396,88 @@ the next concrete work. `README.md` remains the user/developer overview and
 - Wave STEM applies descan as a first-order, per-probe shift of each physical
   detector's equivalent angular acceptance.  This is an explicit approximation
   and does not claim a full time-dependent post-specimen wave propagation.
-- The calculated frame is cached in the Scan / Descan page.  While AC Scan
+- The calculated frame is cached in the STEM page.  While AC Scan
   remains enabled, a GUI timer repeatedly plays its raster-line acquisition;
   stopping scan stops the timer and retains the last complete frame.  Playback
   never launches repeated physics calculations.
+- The calculation also caches AC/Descan first-order response bases on every
+  displayed branch Z grid. Each playback tick adds only the current scan
+  displacement to the cached rays. The View Angle projection remains live, so
+  the diagram can be rotated while a frame is playing without retracing the
+  column.
+- Each BF/DF/HAADF panel reports its instrument-TOML Z, inner/outer active size
+  and derived collection-angle interval. The angle uses the full active signed
+  sample-to-detector transfer and exposes anisotropic min/max ranges when the
+  two singular values differ materially.
+
+## Specimen-mode checkpoint (2026-08-11)
+
+- A central Sample tab now owns insert/retract, Real/Virtual mode, finite X/Y
+  size and thickness, sample centre and scan origin. Its immutable geometry
+  snapshot is shared by the renderer and STEM calculation and carries the
+  finite box, scan FOV, calculation ROI, current probe, orientation and region
+  state. OpenGL displays atoms/cell/box/+Z beam/FOV/ROI when supported; Qt
+  offscreen/minimal or missing OpenGL uses the safe 2-D view.
+- Sample owns specimen state/structure only and no longer duplicates the
+  BF/DF/HAADF images. A custom CIF is orthogonalised with abTEM and expanded
+  periodically through the finite-sample/current-ROI intersection. The view
+  uses ASE covalent-neighbour bonds, reduced covalent-radius balls, ASE/Jmol
+  colours and a beside-view element legend. Its default 2,500-atom soft limit
+  may reduce only a clearly reported display window; the multislice ROI is
+  unchanged. Above 3,000 user-selected atoms OpenGL uses point-sphere level of
+  detail; the safe 2-D fallback remains a coloured ball-stick projection.
+- The former Scan / Descan top-level tab is now STEM with exact Geometry and
+  Images subtabs. Detector images are placed on centre-derived physical pixel
+  edges in laboratory micrometres, their X/Y unit aspect is locked to one, and
+  normal PyQtGraph pan/zoom remains enabled. A model notice explains that
+  `geometric_detector_interception` polygons are detector-clipping boundaries,
+  not specimen contrast; CIF multislice requires High accuracy with wave/
+  multislice enabled. Sampling diagnostics compare FOV with the finite sample
+  and pixel pitch with half the shortest periodic CIF atom spacing.
+- `atomic` (UI: Real sample) accepts either an instrument-selected TOML preset
+  or a user CIF/MCIF. One canonical `(w,x,y,z)` unit quaternion controls the
+  physical orientation. A direct-lattice zone axis maps to laboratory +Z, a
+  non-collinear in-plane direction maps to +X, and numeric or explicit mouse
+  edit mode updates the same quaternion. Camera orbit remains the mouse
+  default and draft physical edits require Apply.
+- Custom CIF structures are loaded with ASE and orthogonalised with abTEM.
+  Potential construction generates only the periodic neighbourhood needed by
+  `scan ROI + probe padding` intersected with the finite specimen before exact
+  rotation/cropping. It never expands a macroscopic sample in full. Outside
+  the finite X/Y envelope is explicit vacuum; the 5,000,000-atom safety limit
+  applies to the ROI-local pre-crop structure.
+- A custom CIF requires atomistic IAM and multislice. It never borrows a TOML
+  preset's thermal displacement and never silently falls back to another
+  material. Frozen phonons accept a global user RMS or an explicit per-element
+  RMS table for a custom CIF.
+- The fast atomic Ray Diagram still uses the existing, explicitly labelled
+  qualitative two-beam branch model. High-accuracy TEM/STEM signals use the
+  actual CIF/TOML IAM multislice potential. Do not infer quantitative atomic
+  scattering from the three preview branches.
+- `virtual` mode owns extensible diffraction spot/ring, Gaussian diffuse,
+  arbitrary angular, user screened power-law, physical screened relativistic
+  Rutherford and absorption rows. All probabilities are absolute and are
+  rejected above one; they are not silently normalised. The direct beam is the
+  exact remainder. The physical row integrates `2*pi*sin(theta) dtheta` and
+  uses `P=1-exp(-N_areal*sigma)`; it is explicitly not a Mott calculation.
+- Virtual rectangles, ellipses and NPY/PNG/TIFF grayscale maps define density
+  inside the finite slab. Outside is vacuum. The per-pixel interaction
+  probability is convolved with the calculated probe when enabled.
+- High-accuracy wave intensity is integrated only over strict reciprocal-space
+  support and is not renormalised when a detector extends outside it. An
+  optional, separately reported Rutherford approximation begins strictly
+  beyond that support and scales the wave channel to preserve probability;
+  it is disabled by default. Bonding charge, absorptive/inelastic potentials,
+  magnetic scattering and full Mott elastic scattering remain out of scope.
+- Each STEM result now carries detector fraction images, pA, expected electrons
+  per pixel, optional reproducible Poisson counts, dwell, uncollected/absorbed/
+  truncated channels, separate high-angle-tail images, laboratory axis/order
+  metadata and the sample-plane ProbeState. Physical detector `hit_mask`
+  geometry is evaluated after the full signed 2x2 transfer in axial order.
+- Operating profiles are format v2 for quaternion/zone metadata, interaction
+  and region tables, map paths and per-element RMS values. Format v1 remains
+  readable and its two legacy relative-weight controls migrate once to
+  absolute-probability rows. Detector geometry remains instrument-TOML owned.
 
 ## Current validated state
 

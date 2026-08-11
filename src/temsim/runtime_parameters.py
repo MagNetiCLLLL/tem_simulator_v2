@@ -30,7 +30,6 @@ INTERNAL_FIELDS = frozenset({
     "monochromator_installed",
     "probe_corrector_installed",
     "schema_version",
-    "stem_wave_enabled",
     "zero_loss_offset_m",
 })
 TOML_OWNED_FIELDS = frozenset({
@@ -245,9 +244,23 @@ def validate_runtime_assignment(
         raise ValueError(f"{target.key}.{name} must be positive")
     if name == "polarity" and int(converted) not in (-1, 1):
         raise ValueError(f"{target.key}.{name} must be +1 or -1")
+    if name == "specimen_mode" and str(converted).lower() not in {
+        "atomic",
+        "virtual",
+    }:
+        raise ValueError("sample.specimen_mode must be atomic or virtual")
     if name in {"radius_mm", "thickness_nm", "rocking_width_inv_nm"}:
         if float(converted) < 0.0:
             raise ValueError(f"{target.key}.{name} cannot be negative")
+    if name in {"size_x_nm", "size_y_nm"} and float(converted) <= 0.0:
+        raise ValueError(f"{target.key}.{name} must be positive")
+    if name in {
+        "centre_x_nm",
+        "centre_y_nm",
+        "scan_origin_x_nm",
+        "scan_origin_y_nm",
+    } and not math.isfinite(float(converted)):
+        raise ValueError(f"{target.key}.{name} must be finite")
     if (
         name == "wave_grid_pixels"
         and int(converted) != 0
@@ -278,6 +291,37 @@ def validate_runtime_assignment(
         raise ValueError(f"{target.key}.{name} cannot be negative")
     if name == "wave_frozen_phonon_seed" and int(converted) < 0:
         raise ValueError(f"{target.key}.{name} cannot be negative")
+    if name == "stem_poisson_seed" and int(converted) < 0:
+        raise ValueError("sample.stem_poisson_seed cannot be negative")
+    if name == "wave_probe_padding_factor" and float(converted) < 0.0:
+        raise ValueError("sample.wave_probe_padding_factor cannot be negative")
+    if name == "real_tail_atomic_number" and not 1 <= int(converted) <= 118:
+        raise ValueError("sample.real_tail_atomic_number must be between 1 and 118")
+    if name == "real_tail_areal_density_atoms_nm2" and float(converted) < 0.0:
+        raise ValueError("sample.real_tail_areal_density_atoms_nm2 cannot be negative")
+    if name in {
+        "real_tail_screening_angle_mrad",
+        "real_tail_max_angle_mrad",
+    } and float(converted) <= 0.0:
+        raise ValueError(f"sample.{name} must be positive")
+    if name in {
+        "virtual_diffraction_angle_mrad",
+        "virtual_scattering_angle_mrad",
+    } and not 0.0 <= float(converted) <= 200.0:
+        raise ValueError(
+            f"{target.key}.{name} must be between 0 and 200 mrad"
+        )
+    if name in {
+        "virtual_diffraction_relative_weight",
+        "virtual_scattering_relative_weight",
+    } and float(converted) < 0.0:
+        raise ValueError(f"{target.key}.{name} cannot be negative")
+    if name == "virtual_scattering_azimuth_samples" and not (
+        4 <= int(converted) <= 128
+    ):
+        raise ValueError(
+            "sample.virtual_scattering_azimuth_samples must be between 4 and 128"
+        )
     if name == "percent":
         maximum = min(
             100.0,

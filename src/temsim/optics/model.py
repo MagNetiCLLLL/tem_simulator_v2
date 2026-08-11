@@ -184,7 +184,27 @@ class Sample:
 
     z_mm: float = _DEFAULT_SAMPLE_Z_MM
 
+    # The axial sample coordinate remains the probe-analysis reference plane
+    # when the holder is retracted.  ``inserted`` controls specimen
+    # interaction only; it never moves or removes that optical reference.
+    inserted: bool = True
+
     thickness_nm: float = 100.0
+
+    # Finite specimen envelope in the laboratory sample plane.  The beam
+    # travels along +Z; X/Y dimensions and the scan origin are independent of
+    # the instrument-owned axial sample position.
+    size_x_nm: float = 1000.0
+
+    size_y_nm: float = 1000.0
+
+    centre_x_nm: float = 0.0
+
+    centre_y_nm: float = 0.0
+
+    scan_origin_x_nm: float = 0.0
+
+    scan_origin_y_nm: float = 0.0
 
     g_inv_nm: float = 5.0
 
@@ -200,7 +220,27 @@ class Sample:
     # state stores only user choices and overrides, never material constants.
     wave_enabled: bool = False
 
+    # ``atomic`` uses a TOML crystal or user CIF in the wave/multislice path.
+    # ``virtual`` uses explicit angular channels in the ray detector model.
+    specimen_mode: str = "atomic"
+
     specimen_preset_key: str = ""
+
+    cif_path: str = ""
+
+    specimen_rotation_x_deg: float = 0.0
+
+    specimen_rotation_y_deg: float = 0.0
+
+    specimen_rotation_z_deg: float = 0.0
+
+    # Canonical physical orientation, stored as a unit quaternion (w,x,y,z).
+    # The Euler fields above remain compatibility views for pre-V64 states.
+    specimen_orientation_quaternion_wxyz: tuple = (1.0, 0.0, 0.0, 0.0)
+
+    zone_axis_uvw: tuple = (0, 0, 1)
+
+    in_plane_axis_uvw: tuple = (1, 0, 0)
 
     wave_defocus_nm: float = 0.0
 
@@ -225,11 +265,83 @@ class Sample:
     # Zero means use the material value and provenance in its specimen TOML.
     wave_frozen_phonon_sigma_angstrom: float = 0.0
 
+    # Custom CIF files do not carry a trustworthy displacement model.  This
+    # optional element->one-axis RMS table is therefore explicit and is never
+    # silently filled with invented values.
+    wave_frozen_phonon_sigma_by_element_angstrom: dict = field(
+        default_factory=dict
+    )
+
     wave_frozen_phonon_seed: int = 100
 
     # Angle-resolved STEM frames are acquired explicitly from the detector
     # panel and therefore never run during ordinary lens recalculation.
     stem_wave_enabled: bool = False
+
+    stem_poisson_enabled: bool = False
+
+    stem_poisson_seed: int = 0
+
+    wave_probe_padding_factor: float = 3.0
+
+    # A separately reported high-angle completion model.  It is disabled by
+    # default and is never blended into reciprocal-space angles already
+    # represented by multislice.
+    real_high_angle_tail_enabled: bool = False
+
+    real_tail_atomic_number: int = 14
+
+    real_tail_areal_density_atoms_nm2: float = 0.0
+
+    real_tail_screening_angle_mrad: float = 5.0
+
+    real_tail_max_angle_mrad: float = 250.0
+
+    # Explicit virtual-scatterer controls.  The symmetric diffraction spots
+    # and isotropic ring are user-defined angular channels, not calculated
+    # Rutherford cross-sections or a crystallographic structure factor.
+    virtual_diffraction_angle_mrad: float = 5.0
+
+    virtual_diffraction_azimuth_deg: float = 0.0
+
+    virtual_diffraction_relative_weight: float = 1.0
+
+    virtual_scattering_angle_mrad: float = 20.0
+
+    virtual_scattering_relative_weight: float = 0.2
+
+    virtual_scattering_azimuth_samples: int = 16
+
+    # Extensible absolute-probability interaction rows.  The unlisted
+    # probability is the direct-beam remainder; enabled rows must never sum
+    # above one.  These defaults preserve an inspectable virtual specimen
+    # without claiming a crystallographic or Rutherford calculation.
+    virtual_interactions: list = field(default_factory=lambda: [
+        {
+            "name": "Diffraction pair",
+            "kind": "diffraction_spots",
+            "enabled": True,
+            "probability": 0.20,
+            "angle_mrad": 5.0,
+            "azimuth_deg": 0.0,
+            "spot_count": 2,
+        },
+        {
+            "name": "Diffuse ring",
+            "kind": "diffuse_ring",
+            "enabled": True,
+            "probability": 0.05,
+            "angle_mrad": 20.0,
+            "width_mrad": 2.0,
+            "azimuth_samples": 32,
+        },
+    ])
+
+    # Empty means one uniform finite slab using size_x_nm/size_y_nm.  Region
+    # rows can be rectangles, ellipses, or imported grayscale density maps.
+    virtual_regions: list = field(default_factory=list)
+
+    virtual_probe_convolution_enabled: bool = True
 
     @property
     def upper_surface_z_mm(self):
@@ -323,7 +435,7 @@ class State:
     virtual_observation_z_mm: float = _DEFAULT_SAMPLE_Z_MM
     chromatic_aberration_enabled: bool = False
 
-    schema_version: int = 63
+    schema_version: int = 64
 
     def __post_init__(self):
         if self.electron_gun is None:
@@ -1220,9 +1332,37 @@ class State:
 
     def sync_objective(self):
         try:
-            self.objective_lens.validate()
+            objective = self.objective_lens.validate()
         except (StopIteration, AttributeError):
             return
+        signature = (
+            id(objective),
+            float(self.beam_voltage_kv),
+            float(self.sample.z_mm),
+            float(self.sample.thickness_nm),
+            float(objective.percent),
+            bool(objective.enabled),
+            int(getattr(objective, "polarity", 1)),
+        )
+        if (
+            getattr(self, "_objective_plane_signature", None) == signature
+            and hasattr(self, "objective_back_focal_plane_z_mm")
+            and hasattr(self, "objective_image_plane_z_mm")
+        ):
+            return
+        back_focal_z_mm = objective.back_focal_plane_z_mm(
+            self.beam_voltage_kv,
+            self.sample,
+        )
+        image_z_mm = objective.image_plane_z_mm(
+            self.beam_voltage_kv,
+            self.sample,
+        )
+        objective._back_focal_plane_z_mm = back_focal_z_mm
+        objective._image_plane_z_mm = image_z_mm
+        self.objective_back_focal_plane_z_mm = back_focal_z_mm
+        self.objective_image_plane_z_mm = image_z_mm
+        self._objective_plane_signature = signature
 
 
     def to_dict(self):
@@ -2393,8 +2533,30 @@ class State:
             chromatic_aberration_enabled=bool(
                 d.get("chromatic_aberration_enabled", False)
             ),
-            schema_version=63,
+            schema_version=64,
         )
+        if loaded_schema_version < 64:
+            from temsim.specimen.geometry import (
+                quaternion_from_euler_xyz_deg,
+                set_sample_orientation,
+            )
+            from temsim.specimen.virtual import (
+                legacy_virtual_interaction_rows,
+            )
+
+            set_sample_orientation(
+                state.sample,
+                quaternion_from_euler_xyz_deg(
+                    (
+                        state.sample.specimen_rotation_x_deg,
+                        state.sample.specimen_rotation_y_deg,
+                        state.sample.specimen_rotation_z_deg,
+                    )
+                ),
+            )
+            state.sample.virtual_interactions = (
+                legacy_virtual_interaction_rows(state.sample)
+            )
         state.probe_corrector_installed=d.get("probe_corrector_installed",True)
         state.image_corrector_installed=d.get("image_corrector_installed",False)
         if state.layout_c3_hardware == "two_condenser":

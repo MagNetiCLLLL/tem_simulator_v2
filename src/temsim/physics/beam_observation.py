@@ -117,7 +117,13 @@ def observation_slices(
     return tuple(result)
 
 
-def transverse_kick_response_path(state, start_z_mm, observation_z_mm):
+def transverse_kick_response_path(
+    state,
+    start_z_mm,
+    observation_z_mm,
+    *,
+    save_z_mm=(),
+):
     """Return position-response matrices along a downstream ray path."""
     start = float(start_z_mm)
     stop = float(observation_z_mm)
@@ -136,6 +142,7 @@ def transverse_kick_response_path(state, start_z_mm, observation_z_mm):
         np.array([probe_rad, 0.0]),
         zeros,
         np.array([0.0, probe_rad]),
+        save_z_mm=save_z_mm,
     )
     response = np.empty((len(z), 2, 2), dtype=float)
     response[:, 0, :] = x

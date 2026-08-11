@@ -106,6 +106,7 @@ class AcDeflectorDefinition:
             scan_frame_period_s=1.0,
             scan_pixels_x=32,
             scan_lines=32,
+            scan_pixel_size_nm=1.0,
             upper_coil_gain=0.5,
             lower_coil_gain=-0.5,
             active_installation="probe",
@@ -142,6 +143,9 @@ class AcDeflectorComponent:
     scan_frame_period_s: float = 1.0
     scan_pixels_x: int = 32
     scan_lines: int = 32
+    # Square specimen-plane pixel pitch.  The active column transfer matrix
+    # derives the two-axis coil command; this is not an angular calibration.
+    scan_pixel_size_nm: float = 1.0
     upper_coil_gain: float = 0.5
     lower_coil_gain: float = -0.5
     active_installation: str = "probe"
@@ -156,6 +160,16 @@ class AcDeflectorComponent:
         )
         object.__setattr__(self, "_pure_shift_angular_residual", 0.0)
         object.__setattr__(self, "_pure_shift_calibrated", False)
+        object.__setattr__(
+            self,
+            "_scan_command_matrix_mrad",
+            (
+                (float(self.scan_amplitude_x_mrad), 0.0),
+                (0.0, float(self.scan_amplitude_y_mrad)),
+            ),
+        )
+        object.__setattr__(self, "_scan_scale_residual", 0.0)
+        object.__setattr__(self, "_scan_scale_calibrated", False)
         object.__setattr__(
             self,
             "lower_coil_gain",
@@ -345,6 +359,13 @@ class AcDeflectorComponent:
             raise ValueError("AC wobble period must be positive.")
         if self.scan_frame_period_s <= 0.0:
             raise ValueError("AC scan frame period must be positive.")
+        if not (
+            isfinite(float(self.scan_pixel_size_nm))
+            and 1.0e-3 <= float(self.scan_pixel_size_nm) <= 1.0e6
+        ):
+            raise ValueError(
+                "AC scan pixel size must be between 0.001 nm and 1 mm."
+            )
         if int(self.scan_pixels_x) != self.scan_pixels_x or (
             self.scan_pixels_x < 2
         ):
@@ -364,6 +385,11 @@ class AcDeflectorComponent:
             self.wobble_amplitude_y_mrad,
             self.scan_amplitude_x_mrad,
             self.scan_amplitude_y_mrad,
+            *(
+                value
+                for row in self.scan_command_matrix_mrad
+                for value in row
+            ),
         )
         if max(abs(float(value)) for value in driven_values) > (
             self.maximum_kick_mrad
@@ -372,8 +398,9 @@ class AcDeflectorComponent:
         active_x_mrad = abs(float(self.kick_x_mrad))
         active_y_mrad = abs(float(self.kick_y_mrad))
         if self.scan_enabled:
-            active_x_mrad += abs(float(self.scan_amplitude_x_mrad))
-            active_y_mrad += abs(float(self.scan_amplitude_y_mrad))
+            scan_matrix = self.scan_command_matrix_mrad
+            active_x_mrad += sum(abs(float(value)) for value in scan_matrix[0])
+            active_y_mrad += sum(abs(float(value)) for value in scan_matrix[1])
         elif self.wobble_enabled:
             active_x_mrad += abs(float(self.wobble_amplitude_x_mrad))
             active_y_mrad += abs(float(self.wobble_amplitude_y_mrad))
@@ -418,15 +445,16 @@ class AcDeflectorComponent:
         within_line = line_position - line_index
         x_factor = 2.0 * within_line - 1.0
         y_factor = (
-            2.0 * line_index / (int(self.scan_lines) - 1) - 1.0
+            2.0 * (line_index + 0.5) / int(self.scan_lines) - 1.0
         )
         return x_factor, y_factor
 
     def scan_kick_mrad(self, time_s):
         x_factor, y_factor = self.scan_factors(time_s)
+        matrix = self.scan_command_matrix_mrad
         return (
-            self.scan_amplitude_x_mrad * x_factor,
-            self.scan_amplitude_y_mrad * y_factor,
+            matrix[0][0] * x_factor + matrix[0][1] * y_factor,
+            matrix[1][0] * x_factor + matrix[1][1] * y_factor,
         )
 
     def dynamic_kick_mrad(self, time_s=0.0):
@@ -500,6 +528,44 @@ class AcDeflectorComponent:
         self._sync_pure_shift_gain()
         return self
 
+    def set_scan_command_matrix_mrad(self, command_matrix, residual=0.0):
+        """Install the specimen-FOV calibration for raster X/Y factors."""
+
+        rows = tuple(
+            tuple(float(value) for value in row)
+            for row in command_matrix
+        )
+        if len(rows) != 2 or any(len(row) != 2 for row in rows):
+            raise ValueError("AC scan command calibration must be a 2x2 matrix.")
+        if not all(isfinite(value) for row in rows for value in row):
+            raise ValueError("AC scan command calibration must be finite.")
+        residual = float(residual)
+        if not isfinite(residual) or residual < 0.0:
+            raise ValueError("AC scan scale residual must be finite.")
+        object.__setattr__(self, "_scan_command_matrix_mrad", rows)
+        object.__setattr__(self, "_scan_scale_residual", residual)
+        object.__setattr__(self, "_scan_scale_calibrated", True)
+        return self
+
+    @property
+    def scan_command_matrix_mrad(self):
+        return tuple(
+            tuple(float(value) for value in row)
+            for row in self._scan_command_matrix_mrad
+        )
+
+    @property
+    def scan_scale_residual(self):
+        return float(self._scan_scale_residual)
+
+    @property
+    def scan_field_of_view_x_nm(self):
+        return float(self.scan_pixels_x) * float(self.scan_pixel_size_nm)
+
+    @property
+    def scan_field_of_view_y_nm(self):
+        return float(self.scan_lines) * float(self.scan_pixel_size_nm)
+
     @property
     def pure_shift_lower_ratio_matrix(self):
         return tuple(
@@ -566,6 +632,11 @@ class AcDeflectorComponent:
             "scan_enabled": self.scan_enabled,
             "scan_pixels_x": self.scan_pixels_x,
             "scan_lines": self.scan_lines,
+            "scan_pixel_size_nm": self.scan_pixel_size_nm,
+            "scan_field_of_view_x_nm": self.scan_field_of_view_x_nm,
+            "scan_field_of_view_y_nm": self.scan_field_of_view_y_nm,
+            "scan_command_matrix_mrad": self.scan_command_matrix_mrad,
+            "scan_scale_residual": self.scan_scale_residual,
             "upper_coil_gain": self.upper_coil_gain,
             "lower_coil_gain": self.lower_coil_gain,
             "pure_shift_lower_ratio_matrix": (
@@ -660,6 +731,7 @@ def ac_deflector_from_dict(data):
         "scan_frame_period_s",
         "scan_pixels_x",
         "scan_lines",
+        "scan_pixel_size_nm",
         "upper_coil_gain",
     ):
         if attribute in values:

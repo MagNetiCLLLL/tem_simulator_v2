@@ -13,6 +13,7 @@ from temsim.physics.simulation import Simulation, run
 from temsim.physics.scan_geometry import (
     ScanGeometryResult,
     calculate_scan_geometry,
+    calculate_scan_ray_paths,
 )
 from temsim.physics.wave_imaging import WaveImagingResult, simulate_wave_image
 
@@ -26,6 +27,7 @@ class CalculationResult:
     assembly: object = None
     wave_imaging: WaveImagingResult | None = None
     scan_geometry: ScanGeometryResult | None = None
+    scan_ray_paths: object | None = None
     stem_scan: StemScanResult | None = None
     lens_crossovers: tuple[dict[str, object], ...] = ()
     aperture_stops: tuple[dict[str, object], ...] = ()
@@ -92,6 +94,7 @@ def calculate(state):
     )
     energy_filter = simulate_energy_filter(state, simulation)
     scan_geometry = calculate_scan_geometry(state)
+    scan_ray_paths = calculate_scan_ray_paths(state, simulation)
     stem_scan = calculate_stem_scan_frame(state, simulation)
     state.energy_filter_result = energy_filter
     lens_crossovers = detect_all_lens_crossovers(
@@ -105,6 +108,7 @@ def calculate(state):
         assembly=state._resolved_assembly,
         wave_imaging=wave_imaging,
         scan_geometry=scan_geometry,
+        scan_ray_paths=scan_ray_paths,
         stem_scan=stem_scan,
         lens_crossovers=tuple(lens_crossovers),
         aperture_stops=aperture_stop_records(state),

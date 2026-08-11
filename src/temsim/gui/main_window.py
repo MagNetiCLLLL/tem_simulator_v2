@@ -338,6 +338,7 @@ class MainWindow(QMainWindow):
         )
         self.assembly_panel.set_direct_alignment_state(self.state)
         self.workspace.scan_control.set_state(self.state)
+        self.workspace.sample_page.set_state(self.state)
         self.log_output.appendPlainText(
             f"Assembly validated: {len(self.assembly.parts)} parts, "
             f"{len(anchors)} confirmed anchors."

@@ -130,27 +130,36 @@ def test_projection_slider_coalesces_continuous_redraws(qtbot, monkeypatch):
     workspace._last_quality = "High accuracy"
     fast_redraw_angles = []
     redraw_angles = []
+    redraw_events = []
 
     def observe_redraw(result, quality, preserve_view=False):
         assert result is sentinel_result
         assert quality == "High accuracy"
         assert preserve_view
         redraw_angles.append(workspace._projection_angle_deg)
+        redraw_events.append("final")
+
+    def observe_fast_redraw():
+        fast_redraw_angles.append(workspace._projection_angle_deg)
+        redraw_events.append("fast")
 
     monkeypatch.setattr(workspace, "_draw_ray_diagram", observe_redraw)
-    workspace._projection_redraw_timer.timeout.connect(
-        lambda: fast_redraw_angles.append(workspace._projection_angle_deg)
-    )
+    workspace._projection_redraw_timer.timeout.connect(observe_fast_redraw)
     for slider_value in (100, 200, 300, 400):
         workspace._projection_slider_changed(slider_value)
 
     assert workspace._projection_redraw_timer.isActive()
     assert redraw_angles == []
-    qtbot.waitUntil(lambda: len(fast_redraw_angles) == 1, timeout=100)
+    # QTimer promises event-loop ordering, not a hard real-time deadline.
+    # Leave headroom for Windows/offscreen runs after CIF/abTEM tests while
+    # still asserting that the 16 ms timer coalesces all slider changes once.
+    qtbot.waitUntil(
+        lambda: len(fast_redraw_angles) == 1 and len(redraw_angles) == 1,
+        timeout=1_000,
+    )
     assert fast_redraw_angles == [pytest.approx(40.0)]
-    assert redraw_angles == []
-    qtbot.waitUntil(lambda: len(redraw_angles) == 1, timeout=500)
     assert redraw_angles == [pytest.approx(40.0)]
+    assert redraw_events == ["fast", "final"]
 
 
 def _find_tree_item(tree, key):
@@ -950,6 +959,23 @@ def test_sample_selection_exposes_multislice_controls(qtbot):
     window.assembly_panel.tree.setCurrentItem(sample_item)
 
     widgets = window.parameter_panel._quick_widgets
+    assert "inserted" in widgets
+    assert widgets["inserted"].isChecked()
+    assert widgets["specimen_mode"].currentData() == "atomic"
+    assert "cif_path" in widgets
+    assert "specimen_rotation_x_deg" in widgets
+    assert "wave_field_of_view_angstrom" in widgets
+    assert not widgets["virtual_scattering_angle_mrad"].isEnabled()
+    widgets["specimen_mode"].setCurrentIndex(
+        widgets["specimen_mode"].findData("virtual")
+    )
+    assert window.state.sample.specimen_mode == "virtual"
+    assert widgets["virtual_scattering_angle_mrad"].isEnabled()
+    assert not widgets["wave_atomistic_enabled"].isEnabled()
+    widgets["specimen_mode"].setCurrentIndex(
+        widgets["specimen_mode"].findData("atomic")
+    )
+    assert window.state.sample.specimen_mode == "atomic"
     assert "wave_multislice_enabled" in widgets
     assert widgets["wave_multislice_enabled"].isChecked()
     assert "wave_atomistic_enabled" in widgets
@@ -1069,12 +1095,13 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert len(window.workspace.sample_marker_items) == 2
     assert window.workspace.sample_marker_items[0].isVisible()
     window.workspace.component_centres.setChecked(True)
-    assert window.workspace.tabs.count() == 8
+    assert window.workspace.tabs.count() == 9
+    assert window.workspace.tabs.tabText(1) == "Sample"
     assert "Energy Filter" in {
         window.workspace.tabs.tabText(index)
         for index in range(window.workspace.tabs.count())
     }
-    assert "Scan / Descan" in {
+    assert "STEM" in {
         window.workspace.tabs.tabText(index)
         for index in range(window.workspace.tabs.count())
     }

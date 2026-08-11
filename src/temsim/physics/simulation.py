@@ -29,6 +29,19 @@ from temsim.component_keys import CONDENSER_LENS_2, CONDENSER_LENS_3
 COLOURS={'000':(1.,.9,.2),'+g':(1.,.15,.1),'-g':(.1,.7,1.)}
 
 
+def _branch_colour(name, index):
+    if name in COLOURS:
+        return COLOURS[name]
+    palette = (
+        (0.95, 0.35, 0.65),
+        (0.35, 0.85, 0.55),
+        (0.75, 0.55, 1.0),
+        (1.0, 0.6, 0.25),
+        (0.25, 0.8, 0.95),
+    )
+    return palette[int(index) % len(palette)]
+
+
 def _sample_to_stop_larmor_rotation_rad(state, stop_z_mm):
     from temsim.optics.equivalent_image_lenses import (
         equivalent_image_events,
@@ -107,9 +120,9 @@ def run(s, *, resolved_layout=None):
         and bool(getattr(ac_scan, "enabled", False))
         and bool(getattr(ac_scan, "scan_enabled", False))
     ):
-        from temsim.physics.scan_geometry import calibrate_ac_pure_shift
+        from temsim.physics.scan_geometry import calibrate_scan_system
 
-        calibrate_ac_pure_shift(s)
+        calibrate_scan_system(s)
 
     gun=s.electron_gun.validate()
     gun_trace=gun.trace_to_exit()
@@ -131,7 +144,12 @@ def run(s, *, resolved_layout=None):
             continue
 
         if hasattr(d, "kick_events"):
-            pair = d.kick_events()
+            try:
+                pair = d.kick_events(
+                    time_s=float(getattr(s, "simulation_time_s", 0.0))
+                )
+            except TypeError:
+                pair = d.kick_events()
         else:
             pair=[(d.upper_z_mm,d.upper_x_mrad*1e-3,d.upper_y_mrad*1e-3),(d.lower_z_mm,d.lower_x_mrad*1e-3,d.lower_y_mrad*1e-3)]
 
@@ -183,7 +201,11 @@ def run(s, *, resolved_layout=None):
     )
     s.last_gun_waist_mm=float('nan') if gun_waist is None else gun_waist['z_mm']
 
-    _,_,lam=electron(s);theta=lam*s.sample.g_inv_nm;se=s.sample.excitation_error_inv_nm;sig=max(1e-9,s.sample.rocking_width_inv_nm);weight=math.exp(-.5*(se/sig)**2);diffuse=s.sample.diffuse_broadening_mrad*1e-3*min(1.,abs(se)/(3*sig));jitter=diffuse*np.sin(phi*1.73)
+    sample_inserted = bool(getattr(s.sample, 'inserted', True))
+    specimen_mode = str(getattr(s.sample, 'specimen_mode', 'atomic')).strip().lower()
+    if specimen_mode not in {'atomic', 'virtual'}:
+        raise ValueError("Sample specimen mode must be 'atomic' or 'virtual'.")
+    _,_,lam=electron(s);theta=lam*s.sample.g_inv_nm;se=s.sample.excitation_error_inv_nm;sig=max(1e-9,s.sample.rocking_width_inv_nm);weight=math.exp(-.5*(se/sig)**2);diffuse=(s.sample.diffuse_broadening_mrad*1e-3*min(1.,abs(se)/(3*sig)) if sample_inserted and specimen_mode == 'atomic' else 0.0);jitter=diffuse*np.sin(phi*1.73)
 
     branches={}
 
@@ -209,11 +231,49 @@ def run(s, *, resolved_layout=None):
             float(getattr(s.objective_lens,'cc_mm',2.0) or 2.0),fobj
         )
 
-    branch_specs=[('000',0.,1.)]+([('+g',theta,weight),('-g',-theta,weight)] if getattr(s.sample,'diffraction_enabled',True) else [])
+    sample_diffraction_applied = bool(
+        sample_inserted and getattr(s.sample, 'diffraction_enabled', True)
+    )
+    if not sample_inserted:
+        branch_specs = [('000', 0.0, 0.0, 1.0)]
+        scattering_model = 'vacuum_reference_plane'
+    elif not bool(getattr(s.sample, 'diffraction_enabled', True)):
+        branch_specs = [('000', 0.0, 0.0, 1.0)]
+        scattering_model = 'ray_scattering_disabled'
+    elif specimen_mode == 'virtual':
+        from temsim.specimen.virtual import (
+            uses_legacy_virtual_controls,
+            virtual_scattering_branches,
+        )
 
-    for name,kick,w in branch_specs:
+        virtual = virtual_scattering_branches(
+            s.sample,
+            beam_energy_kv=s.beam_voltage_kv,
+        )
+        branch_specs = [
+            (
+                branch.name,
+                branch.kick_x_rad,
+                branch.kick_y_rad,
+                branch.relative_weight,
+            )
+            for branch in virtual
+        ]
+        scattering_model = 'user_defined_virtual_angular_channels'
+        virtual_branch_weights_are_absolute = not uses_legacy_virtual_controls(
+            s.sample
+        )
+    else:
+        branch_specs = [
+            ('000', 0.0, 0.0, 1.0),
+            ('+g', theta, 0.0, weight),
+            ('-g', -theta, 0.0, weight),
+        ]
+        scattering_model = 'qualitative_two_beam_atomic_preview'
 
-        zp,XP,TP,YP,TYP=propagate(s,s.sample.z_mm,determine_tem_stop_z(s),X[-1],TX[-1]+kick+jitter+chromatic_tx,Y[-1],TY[-1]+chromatic_ty,post_events,dE)
+    for branch_index, (name,kick_x,kick_y,w) in enumerate(branch_specs):
+
+        zp,XP,TP,YP,TYP=propagate(s,s.sample.z_mm,determine_tem_stop_z(s),X[-1],TX[-1]+kick_x+jitter+chromatic_tx,Y[-1],TY[-1]+kick_y+chromatic_ty,post_events,dE)
 
         # Post-sample apertures and recording planes are resolved together
         # below so upstream stops always win over downstream stops.
@@ -227,7 +287,7 @@ def run(s, *, resolved_layout=None):
 
         al,bl,ks=clip_column_wall(s,zp,XP,YP,al,bl,ks)
 
-        branches[name]=Branch(name,COLOURS[name],zp,XP,YP,TP,TYP,al,bl,ks,w,dE,emitted.weight)
+        branches[name]=Branch(name,_branch_colour(name, branch_index),zp,XP,YP,TP,TYP,al,bl,ks,w,dE,emitted.weight)
 
     recording_stop_z=determine_tem_stop_z(s)
     sample_transfer=trace_transverse_transfer(
@@ -297,6 +357,16 @@ def run(s, *, resolved_layout=None):
         else None
     )
     metrics.update({
+        'sample_inserted': sample_inserted,
+        'sample_scattering_applied': sample_diffraction_applied,
+        'specimen_mode': specimen_mode,
+        'sample_scattering_model': scattering_model,
+        'branch_weights_are_absolute': bool(
+            sample_inserted
+            and specimen_mode == 'virtual'
+            and getattr(s.sample, 'diffraction_enabled', True)
+            and locals().get('virtual_branch_weights_are_absolute', False)
+        ),
         'lambda_nm':lam,
         'theta_g_mrad':theta*1e3,
         'diffraction_weight':weight,
