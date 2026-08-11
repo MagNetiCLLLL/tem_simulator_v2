@@ -348,6 +348,27 @@ the next concrete work. `README.md` remains the user/developer overview and
   arrays. This is likewise a local software benchmark rather than a hardware
   guarantee.
 
+## Scan / descan checkpoint (2026-08-11)
+
+- AC Scan is one shared command driving physical upper and lower foils.  The
+  lower-foil X/Y map is recalculated from the active signed first-order column
+  optics so the combined sample-plane angular response is zero.  A field-free
+  equal-and-opposite pair is used only if the lower response is singular.
+- Scan geometry and STEM acquisition use the same two physical foil planes and
+  the same signed 2x2 coupling; neither path substitutes one kick at the
+  mechanical centre.  Descan retains independent upper/lower strengths.
+- One active AC raster produces exactly one HAADF, DF and BF frame by
+  integrating the physical detector acceptance at every probe position.  The
+  interactive Preview uses the geometric detector-interception approximation;
+  High accuracy can use the wave/multislice specimen model.
+- Wave STEM applies descan as a first-order, per-probe shift of each physical
+  detector's equivalent angular acceptance.  This is an explicit approximation
+  and does not claim a full time-dependent post-specimen wave propagation.
+- The calculated frame is cached in the Scan / Descan page.  While AC Scan
+  remains enabled, a GUI timer repeatedly plays its raster-line acquisition;
+  stopping scan stops the timer and retains the last complete frame.  Playback
+  never launches repeated physics calculations.
+
 ## Current validated state
 
 - The instrument catalog contains 10 module TOMLs, 448 part definitions and 30

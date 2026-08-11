@@ -131,6 +131,12 @@ recalculation preserves a user's runtime direction override.
   integration step.
 - Runs the optional TEM wave-imaging backend during a high-accuracy calculation
   and displays the image and diffraction pattern on a dedicated page.
+- Couples the physical upper/lower AC Scan foils through the active signed
+  first-order optics for a pure sample shift, calculates one HAADF/DF/BF frame
+  from the signal intercepted at every probe position, and loops that cached
+  frame in the Scan / Descan page until scanning is stopped. Preview uses the
+  fast geometric detector approximation; High accuracy can use wave/multislice
+  detector integration with first-order descan acceptance shifts.
 - Provides a complex128 CPU-reference symmetric split-operator multislice
   engine and an optional complex64 CuPy CUDA path with safe CPU fallback,
   explicit angstrom/inverse-angstrom FFT conventions, 2/3 anti-alias

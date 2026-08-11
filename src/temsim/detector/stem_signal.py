@@ -8,6 +8,10 @@ import numpy as np
 
 from temsim.component_keys import STEM_DETECTOR_KEYS
 from temsim.physics.beam_observation import transverse_kick_response
+from temsim.physics.scan_geometry import (
+    paired_kick_response,
+    raster_sample_grid,
+)
 from temsim.physics.stem_wave_imaging import (
     AngularDetector,
     simulate_angle_resolved_stem,
@@ -290,16 +294,15 @@ def acquire_stem_scan(
     simulation,
     state,
     detector_keys=None,
-    pixels_x=32,
-    pixels_y=32,
+    pixels_x=None,
+    pixels_y=None,
 ):
     """Integrate selected detector signals over the current AC raster."""
-    pixels_x = max(2, int(pixels_x))
-    pixels_y = max(2, int(pixels_y))
     component = state.ac_deflector
-    if not bool(component.scan_enabled):
+    if not bool(component.enabled and component.scan_enabled):
         raise ValueError(
-            "AC raster Scan must be enabled before STEM signal acquisition."
+            "AC Scan Coil and its raster drive must both be enabled before "
+            "STEM signal acquisition."
         )
     selected = [
         detector
@@ -313,14 +316,22 @@ def acquire_stem_scan(
             and detector.key in set(detector_keys)
         )
     ]
-    x_factors = np.linspace(-1.0, 1.0, pixels_x)
-    y_factors = np.linspace(-1.0, 1.0, pixels_y)
+    pixels_x = int(
+        component.scan_pixels_x if pixels_x is None else pixels_x
+    )
+    pixels_y = int(component.scan_lines if pixels_y is None else pixels_y)
+    x_factors, y_factors, scan_times_s = raster_sample_grid(
+        component,
+        pixels_x=pixels_x,
+        pixels_y=pixels_y,
+        maximum_count=None,
+    )
     kick_grid_mrad = np.empty((pixels_y, pixels_x, 2), dtype=float)
     kick_grid_mrad[:, :, 0] = (
-        x_factors[None, :] * component.scan_amplitude_x_mrad
+        x_factors * component.scan_amplitude_x_mrad
     )
     kick_grid_mrad[:, :, 1] = (
-        y_factors[:, None] * component.scan_amplitude_y_mrad
+        y_factors * component.scan_amplitude_y_mrad
     )
     baseline_scan_mrad = np.asarray(
         component.scan_kick_mrad(
@@ -340,8 +351,10 @@ def acquire_stem_scan(
         dtype=float,
     )
 
-    sample_response = 1.0e3 * transverse_kick_response(
-        state, component.z_mm, state.sample.z_mm
+    sample_response = 1.0e3 * paired_kick_response(
+        state,
+        component,
+        state.sample.z_mm,
     )
     sample_offsets_mm = (
         (kick_grid_mrad * 1.0e-3) @ sample_response.T
@@ -349,7 +362,7 @@ def acquire_stem_scan(
     scan_x_um = sample_offsets_mm[:, :, 0] * 1.0e3
     scan_y_um = sample_offsets_mm[:, :, 1] * 1.0e3
 
-    if bool(getattr(state.sample, "stem_wave_enabled", False)):
+    if selected and bool(getattr(state.sample, "stem_wave_enabled", False)):
         ordered = sorted(selected, key=lambda detector: float(detector.z_mm))
         angular_detectors = []
         detector_angles = {}
@@ -373,6 +386,44 @@ def acquire_stem_scan(
         baseline_sample_offset_um = (
             (baseline_scan_mrad * 1.0e-3) @ sample_response.T
         ) * 1.0e3
+        detector_center_shifts_mrad = {}
+        if descan.enabled:
+            descan_commands_mrad = np.asarray(
+                [
+                    descan.instantaneous_kick_mrad(float(time_s))
+                    for time_s in scan_times_s.ravel()
+                ],
+                dtype=float,
+            ).reshape(*scan_times_s.shape, 2)
+            if np.any(np.abs(descan_commands_mrad) > 1.0e-15):
+                for detector in ordered:
+                    descan_response = paired_kick_response(
+                        state,
+                        descan,
+                        detector.z_mm,
+                    )
+                    detector_displacement_m = np.einsum(
+                        "ij,...j->...i",
+                        descan_response,
+                        descan_commands_mrad * 1.0e-3,
+                    )
+                    sample_angle_response = transverse_kick_response(
+                        state,
+                        state.sample.z_mm,
+                        detector.z_mm,
+                    )
+                    equivalent_angle_rad = np.einsum(
+                        "ij,...j->...i",
+                        np.linalg.pinv(sample_angle_response),
+                        detector_displacement_m,
+                    )
+                    # A positive descan displacement moves the detector
+                    # acceptance centre in the opposite specimen-scattering
+                    # direction.
+                    detector_center_shifts_mrad[detector.key] = (
+                        -equivalent_angle_rad[..., 0] * 1.0e3,
+                        -equivalent_angle_rad[..., 1] * 1.0e3,
+                    )
         wave = simulate_angle_resolved_stem(
             state,
             simulation,
@@ -380,6 +431,9 @@ def acquire_stem_scan(
             scan_x_um,
             scan_y_um,
             baseline_scan_offset_um=baseline_sample_offset_um,
+            detector_center_shifts_mrad=(
+                detector_center_shifts_mrad or None
+            ),
         )
         incident_fraction = measure_sample_current(
             simulation, state
@@ -405,6 +459,11 @@ def acquire_stem_scan(
             )
         metrics = dict(wave.metrics)
         metrics["incident_sample_fraction"] = incident_fraction
+        metrics["scan_frame_period_s"] = float(
+            component.scan_frame_period_s
+        )
+        metrics["scan_pixels_x"] = pixels_x
+        metrics["scan_pixels_y"] = pixels_y
         metrics["mean_uncollected_fraction"] = float(
             np.mean(wave.uncollected_fraction) * incident_fraction
         )
@@ -456,11 +515,15 @@ def acquire_stem_scan(
         plane_data[plane.key] = (
             np.vstack(positions),
             np.concatenate(physically_reaches),
-            1.0e3 * transverse_kick_response(
-                state, component.z_mm, plane.z_mm
+            1.0e3 * paired_kick_response(
+                state,
+                component,
+                plane.z_mm,
             ),
-            1.0e3 * transverse_kick_response(
-                state, descan.z_mm, plane.z_mm
+            1.0e3 * paired_kick_response(
+                state,
+                descan,
+                plane.z_mm,
             ),
         )
 
@@ -474,14 +537,7 @@ def acquire_stem_scan(
             delta_rad = (
                 kick_grid_mrad[row, column] - baseline_scan_mrad
             ) * 1.0e-3
-            scan_time_s = (
-                (
-                    row
-                    + column / max(float(pixels_x), 1.0)
-                )
-                / max(float(pixels_y), 1.0)
-                * float(component.scan_frame_period_s)
-            )
+            scan_time_s = float(scan_times_s[row, column])
             descan_delta_rad = (
                 np.asarray(
                     (
@@ -538,13 +594,32 @@ def acquire_stem_scan(
                     )
                 available[hit] = False
 
-    signals = measure_stem_detectors(
-        simulation, state, [detector.key for detector in selected]
-    )
+    signals = {}
+    for detector in selected:
+        fraction = float(np.mean(images[detector.key]))
+        simulated, current_pa, electrons_per_second = _current_values(
+            state,
+            fraction,
+        )
+        signals[detector.key] = DetectorSignal(
+            key=detector.key,
+            name=detector.name,
+            fraction=fraction,
+            simulated_electrons=simulated,
+            current_pa=current_pa,
+            electrons_per_second=electrons_per_second,
+            collection_angle=collection_angle(state, detector),
+        )
     return StemScanResult(
         scan_x_um,
         scan_y_um,
         images,
         signals,
-        {"model": "geometric_ray_preview"},
+        {
+            "model": "geometric_detector_interception",
+            "scan_frame_period_s": float(component.scan_frame_period_s),
+            "scan_pixels_x": pixels_x,
+            "scan_pixels_y": pixels_y,
+            "descan_applied": bool(descan.enabled and descan.scan_enabled),
+        },
     )

@@ -101,6 +101,16 @@ def run(s, *, resolved_layout=None):
         from temsim.column.state_layout import apply_physical_layout_to_state
         resolved_layout = apply_physical_layout_to_state(s)
 
+    ac_scan = getattr(s, "ac_deflector", None)
+    if (
+        ac_scan is not None
+        and bool(getattr(ac_scan, "enabled", False))
+        and bool(getattr(ac_scan, "scan_enabled", False))
+    ):
+        from temsim.physics.scan_geometry import calibrate_ac_pure_shift
+
+        calibrate_ac_pure_shift(s)
+
     gun=s.electron_gun.validate()
     gun_trace=gun.trace_to_exit()
     emitted=gun_trace.exit_bundle

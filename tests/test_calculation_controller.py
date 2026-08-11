@@ -56,6 +56,22 @@ def test_wave_imaging_is_disabled_only_for_preview():
     assert captured[1].state.sample.wave_enabled is False
 
 
+def test_scan_preview_keeps_diffraction_but_uses_fast_detector_model():
+    controller = CalculationController()
+    captured = []
+    controller.pool.start = captured.append
+    state = default_state()
+    state.ac_deflector.wobble_enabled = False
+    state.ac_deflector.scan_enabled = True
+    state.sample.stem_wave_enabled = True
+
+    controller.submit(state, "Preview", 25, 5.0)
+
+    snapshot = captured[0].state
+    assert snapshot.sample.diffraction_enabled is True
+    assert snapshot.sample.stem_wave_enabled is False
+
+
 def test_high_accuracy_preserves_selected_compute_backend():
     controller = CalculationController()
     captured = []

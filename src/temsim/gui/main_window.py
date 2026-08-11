@@ -146,6 +146,10 @@ class MainWindow(QMainWindow):
         self.workspace.component_selected.connect(
             self._select_component_from_workspace
         )
+        self.workspace.scan_parameters_changed.connect(
+            self._runtime_parameter_changed
+        )
+        self.workspace.scan_error.connect(self._show_error)
         self.parameter_panel.runtime_changed.connect(
             self._runtime_parameter_changed
         )
@@ -333,6 +337,7 @@ class MainWindow(QMainWindow):
             self.selection, condenser_key, projector_key
         )
         self.assembly_panel.set_direct_alignment_state(self.state)
+        self.workspace.scan_control.set_state(self.state)
         self.log_output.appendPlainText(
             f"Assembly validated: {len(self.assembly.parts)} parts, "
             f"{len(anchors)} confirmed anchors."

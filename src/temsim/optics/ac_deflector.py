@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import pi, sin
+from math import isfinite, pi, sin
 from typing import ClassVar
 
 from temsim import module_manifest
@@ -104,7 +104,10 @@ class AcDeflectorDefinition:
             scan_amplitude_x_mrad=0.1,
             scan_amplitude_y_mrad=0.1,
             scan_frame_period_s=1.0,
+            scan_pixels_x=32,
             scan_lines=32,
+            upper_coil_gain=0.5,
+            lower_coil_gain=-0.5,
             active_installation="probe",
         )
 
@@ -137,17 +140,52 @@ class AcDeflectorComponent:
     scan_amplitude_x_mrad: float = 0.1
     scan_amplitude_y_mrad: float = 0.1
     scan_frame_period_s: float = 1.0
+    scan_pixels_x: int = 32
     scan_lines: int = 32
+    upper_coil_gain: float = 0.5
+    lower_coil_gain: float = -0.5
     active_installation: str = "probe"
 
     EXPECTED_KEY: ClassVar[str] = AC_DEFLECTOR
 
     def __post_init__(self):
+        object.__setattr__(
+            self,
+            "_pure_shift_lower_ratio_matrix",
+            ((-1.0, 0.0), (0.0, -1.0)),
+        )
+        object.__setattr__(self, "_pure_shift_angular_residual", 0.0)
+        object.__setattr__(self, "_pure_shift_calibrated", False)
+        object.__setattr__(
+            self,
+            "lower_coil_gain",
+            -float(self.upper_coil_gain),
+        )
         object.__setattr__(self, "_geometry_ready", True)
         self._sync_mechanical_length()
 
     def __setattr__(self, name, value):
         ready = self.__dict__.get("_geometry_ready", False)
+        if ready and name == "upper_coil_gain":
+            object.__setattr__(self, name, float(value))
+            self._sync_pure_shift_gain()
+            return
+        if ready and name == "lower_coil_gain":
+            ratio = self._pure_shift_lower_ratio_matrix
+            representative = 0.5 * (
+                float(ratio[0][0]) + float(ratio[1][1])
+            )
+            if abs(representative) <= 1.0e-12:
+                raise ValueError(
+                    "AC lower foil gain is coupled to the upper foil gain."
+                )
+            object.__setattr__(
+                self,
+                "upper_coil_gain",
+                float(value) / representative,
+            )
+            self._sync_pure_shift_gain()
+            return
         if ready and name in {
             "mechanical_coil_length_mm",
             "mechanical_inter_coil_gap_mm",
@@ -307,8 +345,18 @@ class AcDeflectorComponent:
             raise ValueError("AC wobble period must be positive.")
         if self.scan_frame_period_s <= 0.0:
             raise ValueError("AC scan frame period must be positive.")
+        if int(self.scan_pixels_x) != self.scan_pixels_x or (
+            self.scan_pixels_x < 2
+        ):
+            raise ValueError("AC scan must contain at least two X pixels.")
         if int(self.scan_lines) != self.scan_lines or self.scan_lines < 2:
             raise ValueError("AC scan must contain at least two lines.")
+        coil_gains = (
+            float(self.upper_coil_gain),
+            float(self.lower_coil_gain),
+        )
+        if not all(isfinite(value) for value in coil_gains):
+            raise ValueError("AC Scan Coil gains must be finite.")
         driven_values = (
             self.kick_x_mrad,
             self.kick_y_mrad,
@@ -321,6 +369,26 @@ class AcDeflectorComponent:
             self.maximum_kick_mrad
         ):
             raise ValueError("AC Scan Coil drive exceeds its limit.")
+        active_x_mrad = abs(float(self.kick_x_mrad))
+        active_y_mrad = abs(float(self.kick_y_mrad))
+        if self.scan_enabled:
+            active_x_mrad += abs(float(self.scan_amplitude_x_mrad))
+            active_y_mrad += abs(float(self.scan_amplitude_y_mrad))
+        elif self.wobble_enabled:
+            active_x_mrad += abs(float(self.wobble_amplitude_x_mrad))
+            active_y_mrad += abs(float(self.wobble_amplitude_y_mrad))
+        maximum_foil_drives = tuple(
+            abs(float(matrix[row][0])) * active_x_mrad
+            + abs(float(matrix[row][1])) * active_y_mrad
+            for matrix in self.coil_kick_matrices()
+            for row in range(2)
+        )
+        if max(maximum_foil_drives, default=0.0) > float(
+            self.maximum_kick_mrad
+        ):
+            raise ValueError(
+                "AC upper/lower coil drive exceeds its individual limit."
+            )
         if self.active_installation not in {"probe", "standalone"}:
             raise ValueError("AC Scan Coil installation is invalid.")
         return self
@@ -380,12 +448,94 @@ class AcDeflectorComponent:
         if not self.enabled:
             return ()
         kick_x_mrad, kick_y_mrad = self.instantaneous_kick_mrad(time_s)
-        half_x_rad = kick_x_mrad * 0.5e-3
-        half_y_rad = kick_y_mrad * 0.5e-3
-        return (
-            (self.upper_z_mm, half_x_rad, half_y_rad),
-            (self.lower_z_mm, half_x_rad, half_y_rad),
+        upper_kick, lower_kick = self.coil_kicks_mrad(
+            kick_x_mrad,
+            kick_y_mrad,
         )
+        return (
+            (
+                self.upper_z_mm,
+                upper_kick[0] * 1.0e-3,
+                upper_kick[1] * 1.0e-3,
+            ),
+            (
+                self.lower_z_mm,
+                lower_kick[0] * 1.0e-3,
+                lower_kick[1] * 1.0e-3,
+            ),
+        )
+
+    def _sync_pure_shift_gain(self):
+        ratio = self._pure_shift_lower_ratio_matrix
+        representative = 0.5 * (
+            float(ratio[0][0]) + float(ratio[1][1])
+        )
+        object.__setattr__(
+            self,
+            "lower_coil_gain",
+            float(self.upper_coil_gain) * representative,
+        )
+
+    def set_pure_shift_coupling(
+        self,
+        lower_from_upper,
+        angular_residual=0.0,
+    ):
+        """Install the lower-foil map that cancels angle at the specimen."""
+
+        rows = tuple(
+            tuple(float(value) for value in row)
+            for row in lower_from_upper
+        )
+        if len(rows) != 2 or any(len(row) != 2 for row in rows):
+            raise ValueError("AC pure-shift coupling must be a 2x2 matrix.")
+        if not all(isfinite(value) for row in rows for value in row):
+            raise ValueError("AC pure-shift coupling must be finite.")
+        residual = float(angular_residual)
+        if not isfinite(residual) or residual < 0.0:
+            raise ValueError("AC pure-shift angular residual must be finite.")
+        object.__setattr__(self, "_pure_shift_lower_ratio_matrix", rows)
+        object.__setattr__(self, "_pure_shift_angular_residual", residual)
+        object.__setattr__(self, "_pure_shift_calibrated", True)
+        self._sync_pure_shift_gain()
+        return self
+
+    @property
+    def pure_shift_lower_ratio_matrix(self):
+        return tuple(
+            tuple(float(value) for value in row)
+            for row in self._pure_shift_lower_ratio_matrix
+        )
+
+    @property
+    def pure_shift_angular_residual(self):
+        return float(self._pure_shift_angular_residual)
+
+    def coil_kick_matrices(self):
+        """Return upper/lower maps from one shared command to both foils."""
+
+        gain = float(self.upper_coil_gain)
+        ratio = self._pure_shift_lower_ratio_matrix
+        return (
+            ((gain, 0.0), (0.0, gain)),
+            tuple(
+                tuple(gain * float(value) for value in row)
+                for row in ratio
+            ),
+        )
+
+    def coil_kicks_mrad(self, kick_x_mrad, kick_y_mrad):
+        command_x = float(kick_x_mrad)
+        command_y = float(kick_y_mrad)
+        upper, lower = self.coil_kick_matrices()
+
+        def apply(matrix):
+            return (
+                matrix[0][0] * command_x + matrix[0][1] * command_y,
+                matrix[1][0] * command_x + matrix[1][1] * command_y,
+            )
+
+        return apply(upper), apply(lower)
 
     def draw_layout(self):
         return {
@@ -414,6 +564,14 @@ class AcDeflectorComponent:
             "enabled": self.enabled,
             "wobble_enabled": self.wobble_enabled,
             "scan_enabled": self.scan_enabled,
+            "scan_pixels_x": self.scan_pixels_x,
+            "scan_lines": self.scan_lines,
+            "upper_coil_gain": self.upper_coil_gain,
+            "lower_coil_gain": self.lower_coil_gain,
+            "pure_shift_lower_ratio_matrix": (
+                self.pure_shift_lower_ratio_matrix
+            ),
+            "pure_shift_angular_residual": self.pure_shift_angular_residual,
         }
 
 
@@ -500,7 +658,9 @@ def ac_deflector_from_dict(data):
         "scan_amplitude_x_mrad",
         "scan_amplitude_y_mrad",
         "scan_frame_period_s",
+        "scan_pixels_x",
         "scan_lines",
+        "upper_coil_gain",
     ):
         if attribute in values:
             setattr(component, attribute, values[attribute])

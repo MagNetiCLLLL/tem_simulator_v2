@@ -153,6 +153,54 @@ def transverse_kick_response(state, start_z_mm, observation_z_mm):
     return response[-1]
 
 
+def transverse_kick_phase_space_response(
+    state,
+    start_z_mm,
+    observation_z_mm,
+):
+    """Return position and angle response matrices for a transverse kick.
+
+    The two columns correspond to unit laboratory X and Y angular kicks.  The
+    position matrix is in metres per radian and the angle matrix is in radians
+    per radian.  Keeping the signed 2x2 angle map is important for a scan pair:
+    magnetic lenses can rotate the lower-coil correction relative to the
+    upper-coil kick, so a scalar equal-and-opposite drive is not generally a
+    pure translation at the specimen.
+    """
+
+    start = float(start_z_mm)
+    stop = float(observation_z_mm)
+    if stop <= start:
+        zeros = np.zeros((2, 2), dtype=float)
+        return zeros, zeros.copy()
+    probe_rad = 1.0e-6
+    zeros = np.zeros(2, dtype=float)
+    _, x, tx, y, ty = propagate(
+        state,
+        start,
+        stop,
+        zeros,
+        np.array([probe_rad, 0.0]),
+        zeros,
+        np.array([0.0, probe_rad]),
+    )
+    position = np.array(
+        (
+            (x[-1, 0], x[-1, 1]),
+            (y[-1, 0], y[-1, 1]),
+        ),
+        dtype=float,
+    ) / probe_rad
+    angle = np.array(
+        (
+            (tx[-1, 0], tx[-1, 1]),
+            (ty[-1, 0], ty[-1, 1]),
+        ),
+        dtype=float,
+    ) / probe_rad
+    return position, angle
+
+
 def transverse_scan_outline(
     response_per_rad,
     amplitude_x_mrad,

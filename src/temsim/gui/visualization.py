@@ -26,6 +26,7 @@ from temsim.gui.diagnostic_tabs import (
     PhysicalLayoutView,
     TransverseBeamView,
 )
+from temsim.gui.scan_panel import ScanControlView
 
 
 class WaveImagingView(QWidget):
@@ -161,6 +162,8 @@ class WaveImagingView(QWidget):
 
 class VisualizationWorkspace(QWidget):
     component_selected = Signal(str)
+    scan_parameters_changed = Signal(str)
+    scan_error = Signal(str)
     MAX_DISPLAY_RAYS = 48
     MAX_RANGE_SAMPLE_RAYS = 256
     RAY_LABEL_BASE_PT = 10
@@ -407,6 +410,7 @@ class VisualizationWorkspace(QWidget):
         self.optical_transfer = OpticalTransferView()
         self.energy_filter = EnergyFilterView()
         self.transverse_beam = TransverseBeamView()
+        self.scan_control = ScanControlView()
         self.wave_imaging = WaveImagingView()
         self.tabs = QTabWidget()
         self.tabs.setObjectName("visualizationTabs")
@@ -416,6 +420,7 @@ class VisualizationWorkspace(QWidget):
         self.tabs.addTab(self.optical_transfer, "Optical Transfer")
         self.tabs.addTab(self.energy_filter, "Energy Filter")
         self.tabs.addTab(self.transverse_beam, "Transverse X-Y")
+        self.tabs.addTab(self.scan_control, "Scan / Descan")
         self.tabs.addTab(self.wave_imaging, "TEM Wave Image")
 
         layout = QVBoxLayout(self)
@@ -463,6 +468,10 @@ class VisualizationWorkspace(QWidget):
         self.energy_filter.component_selected.connect(
             self.component_selected.emit
         )
+        self.scan_control.parameters_changed.connect(
+            self.scan_parameters_changed.emit
+        )
+        self.scan_control.error.connect(self.scan_error.emit)
         self.physical_layout.axial_position_selected.connect(
             self.jump_to_ray_position
         )
@@ -1730,6 +1739,10 @@ class VisualizationWorkspace(QWidget):
         self.optical_transfer.display_result(result)
         self.energy_filter.display_result(result)
         self.transverse_beam.display_result(result)
+        self.scan_control.display_result(
+            getattr(result, "scan_geometry", None),
+            getattr(result, "stem_scan", None),
+        )
         self.wave_imaging.display_result(getattr(result, "wave_imaging", None))
         if self._focused_part is not None:
             self.physical_layout.focus_component(self._focused_part)

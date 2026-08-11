@@ -165,6 +165,7 @@ def simulate_angle_resolved_stem(
     scan_y_um,
     *,
     baseline_scan_offset_um=(0.0, 0.0),
+    detector_center_shifts_mrad=None,
 ):
     """Form STEM images by integrating detector-angle bands."""
     detectors = tuple(detector.validate() for detector in detectors)
@@ -262,6 +263,12 @@ def simulate_angle_resolved_stem(
     valid_reciprocal = (
         scattering_angle_mrad <= maximum_isotropic_angle_mrad
     )
+    angle_x_mrad = np.arcsin(
+        np.clip(wavelength_angstrom * fx, -1.0, 1.0)
+    ) * 1.0e3
+    angle_y_mrad = np.arcsin(
+        np.clip(wavelength_angstrom * fy, -1.0, 1.0)
+    ) * 1.0e3
 
     ray_stats = _weighted_ray_statistics(simulation.incident)
     base_spectrum = _probe_spectrum(
@@ -296,6 +303,36 @@ def simulate_angle_resolved_stem(
         detectors,
         valid_mask=valid_reciprocal,
     )
+    flat_detector_centers = None
+    if detector_center_shifts_mrad:
+        flat_detector_centers = {}
+        for detector in detectors:
+            values = detector_center_shifts_mrad.get(detector.key)
+            if values is None:
+                center_x = np.zeros(scan_x_um.shape, dtype=float)
+                center_y = np.zeros(scan_y_um.shape, dtype=float)
+            else:
+                center_x = np.asarray(values[0], dtype=float)
+                center_y = np.asarray(values[1], dtype=float)
+                if (
+                    center_x.shape != scan_x_um.shape
+                    or center_y.shape != scan_y_um.shape
+                ):
+                    raise ValueError(
+                        f"{detector.key}: detector-centre shift must match "
+                        "the STEM raster shape."
+                    )
+                if not (
+                    np.all(np.isfinite(center_x))
+                    and np.all(np.isfinite(center_y))
+                ):
+                    raise ValueError(
+                        f"{detector.key}: detector-centre shift must be finite."
+                    )
+            flat_detector_centers[detector.key] = (
+                center_x.ravel(),
+                center_y.ravel(),
+            )
     flat_x_angstrom = (origin_x_um + scan_x_um.ravel()) * 1.0e4
     flat_y_angstrom = (origin_y_um + scan_y_um.ravel()) * 1.0e4
     flat_fractions = {
@@ -310,7 +347,7 @@ def simulate_angle_resolved_stem(
         "cuda_resident_pipeline": False,
         "cuda_pipeline_fallback_reason": None,
     }
-    if wave_backend == WAVE_BACKEND_CUPY:
+    if wave_backend == WAVE_BACKEND_CUPY and flat_detector_centers is None:
         try:
             resident_cuda_result = run_resident_stem_cuda(
                 base_spectrum=base_spectrum,
@@ -396,6 +433,33 @@ def simulate_angle_resolved_stem(
         configuration_values = {
             detector.key: [] for detector in detectors
         }
+        batch_detector_masks = detector_masks
+        if flat_detector_centers is not None:
+            available = np.ones(
+                (stop - start, *valid_reciprocal.shape),
+                dtype=bool,
+            )
+            batch_detector_masks = {}
+            for detector in detectors:
+                center_x, center_y = flat_detector_centers[detector.key]
+                shifted_angle = np.hypot(
+                    angle_x_mrad[None, :, :]
+                    - center_x[start:stop, None, None],
+                    angle_y_mrad[None, :, :]
+                    - center_y[start:stop, None, None],
+                )
+                angular_band = (
+                    shifted_angle >= float(detector.inner_mrad)
+                ) & (
+                    shifted_angle <= float(detector.outer_mrad)
+                )
+                mask = (
+                    available
+                    & valid_reciprocal[None, :, :]
+                    & angular_band
+                )
+                batch_detector_masks[detector.key] = mask
+                available &= ~mask
         for configuration in prepared.potential_configurations_v_angstrom:
             if multislice_enabled:
                 explicit_slices = configuration.ndim == 3
@@ -444,9 +508,17 @@ def simulate_angle_resolved_stem(
                 fft_backend = fft_diagnostics.compute_backend
                 fft_fallback_reason = fft_diagnostics.fallback_reason
             for detector in detectors:
-                values = np.sum(
-                    diffraction[:, detector_masks[detector.key]], axis=1
-                )
+                if flat_detector_centers is None:
+                    values = np.sum(
+                        diffraction[:, batch_detector_masks[detector.key]],
+                        axis=1,
+                    )
+                else:
+                    values = np.sum(
+                        diffraction
+                        * batch_detector_masks[detector.key],
+                        axis=(-2, -1),
+                    )
                 configuration_values[detector.key].append(
                     np.clip(values, 0.0, 1.0)
                 )
@@ -655,6 +727,9 @@ def simulate_angle_resolved_stem(
             ),
             "multislice_enabled": multislice_enabled,
             "rutherford_tail_enabled": False,
+            "descan_detector_shift_applied": bool(
+                flat_detector_centers is not None
+            ),
             "displayed_intensity_average": (
                 "incoherent frozen-phonon intensity mean"
                 if configuration_count > 1

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from typing import ClassVar
 
 from temsim import module_manifest
@@ -103,7 +104,10 @@ class DescanDeflectorDefinition:
             scan_amplitude_x_mrad=-0.1,
             scan_amplitude_y_mrad=-0.1,
             scan_frame_period_s=1.0,
+            scan_pixels_x=32,
             scan_lines=32,
+            upper_coil_gain=0.5,
+            lower_coil_gain=0.5,
         )
 
 
@@ -131,7 +135,10 @@ class DescanDeflectorComponent:
     scan_amplitude_x_mrad: float = -0.1
     scan_amplitude_y_mrad: float = -0.1
     scan_frame_period_s: float = 1.0
+    scan_pixels_x: int = 32
     scan_lines: int = 32
+    upper_coil_gain: float = 0.5
+    lower_coil_gain: float = 0.5
 
     EXPECTED_KEY: ClassVar[str] = DESCAN_DEFLECTOR
     KIND: ClassVar[str] = "paired_deflector"
@@ -192,6 +199,14 @@ class DescanDeflectorComponent:
     def effective_aperture_radius_mm(self):
         return self.mechanical_clear_bore_diameter_mm / 2.0
 
+    @property
+    def upper_z_mm(self):
+        return self.z_mm - self.optical_plane_separation_mm / 2.0
+
+    @property
+    def lower_z_mm(self):
+        return self.z_mm + self.optical_plane_separation_mm / 2.0
+
     def validate(self):
         if self.key != self.EXPECTED_KEY:
             raise ValueError("Descan Deflector key is not canonical.")
@@ -240,16 +255,41 @@ class DescanDeflectorComponent:
             raise ValueError(
                 "Descan scan frame period must be positive."
             )
+        if int(self.scan_pixels_x) != self.scan_pixels_x or (
+            self.scan_pixels_x < 2
+        ):
+            raise ValueError(
+                "Descan scan must contain at least two X pixels."
+            )
         if int(self.scan_lines) != self.scan_lines or self.scan_lines < 2:
             raise ValueError(
                 "Descan scan must contain at least two lines."
             )
+        coil_gains = (
+            float(self.upper_coil_gain),
+            float(self.lower_coil_gain),
+        )
+        if not all(isfinite(value) for value in coil_gains):
+            raise ValueError("Descan upper/lower coil gains must be finite.")
         if max(
             abs(float(self.scan_amplitude_x_mrad)),
             abs(float(self.scan_amplitude_y_mrad)),
         ) > self.maximum_kick_mrad:
             raise ValueError(
                 "Descan scan amplitude exceeds its configured limit."
+            )
+        active_x_mrad = abs(float(self.kick_x_mrad))
+        active_y_mrad = abs(float(self.kick_y_mrad))
+        if self.scan_enabled:
+            active_x_mrad += abs(float(self.scan_amplitude_x_mrad))
+            active_y_mrad += abs(float(self.scan_amplitude_y_mrad))
+        if any(
+            abs(gain) * maximum > float(self.maximum_kick_mrad)
+            for gain in coil_gains
+            for maximum in (active_x_mrad, active_y_mrad)
+        ):
+            raise ValueError(
+                "Descan upper/lower coil drive exceeds its individual limit."
             )
         return self
 
@@ -289,25 +329,49 @@ class DescanDeflectorComponent:
             self.kick_y_mrad + scan_y_mrad,
         )
 
+    def coil_kick_matrices(self):
+        """Return the independent scalar maps for the two descan foils."""
+
+        upper = float(self.upper_coil_gain)
+        lower = float(self.lower_coil_gain)
+        return (
+            ((upper, 0.0), (0.0, upper)),
+            ((lower, 0.0), (0.0, lower)),
+        )
+
+    def coil_kicks_mrad(self, kick_x_mrad, kick_y_mrad):
+        command_x = float(kick_x_mrad)
+        command_y = float(kick_y_mrad)
+        upper, lower = self.coil_kick_matrices()
+
+        def apply(matrix):
+            return (
+                matrix[0][0] * command_x + matrix[0][1] * command_y,
+                matrix[1][0] * command_x + matrix[1][1] * command_y,
+            )
+
+        return apply(upper), apply(lower)
+
     def kick_events(self, time_s=0.0):
         if not self.enabled:
             return ()
         kick_x_mrad, kick_y_mrad = self.instantaneous_kick_mrad(
             time_s
         )
-        half_separation_mm = self.optical_plane_separation_mm / 2.0
-        half_x_rad = kick_x_mrad * 0.5e-3
-        half_y_rad = kick_y_mrad * 0.5e-3
+        upper_kick, lower_kick = self.coil_kicks_mrad(
+            kick_x_mrad,
+            kick_y_mrad,
+        )
         return (
             (
-                self.z_mm - half_separation_mm,
-                half_x_rad,
-                half_y_rad,
+                self.upper_z_mm,
+                upper_kick[0] * 1.0e-3,
+                upper_kick[1] * 1.0e-3,
             ),
             (
-                self.z_mm + half_separation_mm,
-                half_x_rad,
-                half_y_rad,
+                self.lower_z_mm,
+                lower_kick[0] * 1.0e-3,
+                lower_kick[1] * 1.0e-3,
             ),
         )
 
@@ -352,7 +416,10 @@ class DescanDeflectorComponent:
             "scan_amplitude_x_mrad": self.scan_amplitude_x_mrad,
             "scan_amplitude_y_mrad": self.scan_amplitude_y_mrad,
             "scan_frame_period_s": self.scan_frame_period_s,
+            "scan_pixels_x": self.scan_pixels_x,
             "scan_lines": self.scan_lines,
+            "upper_coil_gain": self.upper_coil_gain,
+            "lower_coil_gain": self.lower_coil_gain,
         }
 
 
@@ -379,7 +446,10 @@ def descan_deflector_from_dict(data):
         "scan_amplitude_x_mrad",
         "scan_amplitude_y_mrad",
         "scan_frame_period_s",
+        "scan_pixels_x",
         "scan_lines",
+        "upper_coil_gain",
+        "lower_coil_gain",
     ):
         if attribute in values:
             object.__setattr__(component, attribute, values[attribute])

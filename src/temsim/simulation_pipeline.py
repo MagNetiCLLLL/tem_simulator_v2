@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 
 from temsim.detector.recording_system import ensure_recording_system
+from temsim.detector.stem_signal import StemScanResult, acquire_stem_scan
 from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.component_names import normalise_component_names
 from temsim.optics.corrector_structure import ensure_corrector_structure
@@ -9,6 +10,10 @@ from temsim.optics.energy_filter import ensure_energy_filter
 from temsim.optics.energy_filter_raytrace import simulate_energy_filter
 from temsim.physics.all_lens_crossovers import detect_all_lens_crossovers
 from temsim.physics.simulation import Simulation, run
+from temsim.physics.scan_geometry import (
+    ScanGeometryResult,
+    calculate_scan_geometry,
+)
 from temsim.physics.wave_imaging import WaveImagingResult, simulate_wave_image
 
 
@@ -20,6 +25,8 @@ class CalculationResult:
     layout: object = None
     assembly: object = None
     wave_imaging: WaveImagingResult | None = None
+    scan_geometry: ScanGeometryResult | None = None
+    stem_scan: StemScanResult | None = None
     lens_crossovers: tuple[dict[str, object], ...] = ()
     aperture_stops: tuple[dict[str, object], ...] = ()
 
@@ -59,6 +66,15 @@ def aperture_stop_records(state) -> tuple[dict[str, object], ...]:
     return tuple(records)
 
 
+def calculate_stem_scan_frame(state, simulation):
+    """Calculate exactly one detector-signal frame when AC scan is active."""
+
+    component = state.ac_deflector
+    if not bool(component.enabled and component.scan_enabled):
+        return None
+    return acquire_stem_scan(simulation, state)
+
+
 def calculate(state):
     """Normalise editable state and calculate all non-visual simulation results."""
     ensure_recording_system(state)
@@ -75,6 +91,8 @@ def calculate(state):
         else None
     )
     energy_filter = simulate_energy_filter(state, simulation)
+    scan_geometry = calculate_scan_geometry(state)
+    stem_scan = calculate_stem_scan_frame(state, simulation)
     state.energy_filter_result = energy_filter
     lens_crossovers = detect_all_lens_crossovers(
         [simulation.incident, *simulation.branches.values()], state.lenses)
@@ -86,6 +104,8 @@ def calculate(state):
         layout=layout,
         assembly=state._resolved_assembly,
         wave_imaging=wave_imaging,
+        scan_geometry=scan_geometry,
+        stem_scan=stem_scan,
         lens_crossovers=tuple(lens_crossovers),
         aperture_stops=aperture_stop_records(state),
     )

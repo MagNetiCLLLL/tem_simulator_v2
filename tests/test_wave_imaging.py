@@ -127,6 +127,37 @@ def test_angle_resolved_stem_uses_the_same_multislice_specimen_model():
     assert 0.0 <= result.fractions["bf"][0, 0] <= 1.0
 
 
+def test_angle_resolved_stem_applies_per_probe_descan_detector_shift():
+    state = default_state()
+    state.illumination_mode = "STEM"
+    state.sample.specimen_preset_key = "vacuum"
+    state.sample.thickness_nm = 0.0
+    state.sample.wave_grid_pixels = 32
+    state.sample.wave_field_of_view_angstrom = 16.0
+    state.sample.wave_multislice_enabled = False
+    incident = _incident_bundle(
+        [0.0, 2.0e-3, -2.0e-3, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 2.0e-3, -2.0e-3],
+        [0.6, 0.1, 0.1, 0.1, 0.1],
+    )
+    scan_x = np.zeros((1, 2))
+    scan_y = np.zeros((1, 2))
+
+    result = simulate_angle_resolved_stem(
+        state,
+        SimpleNamespace(incident=incident),
+        (AngularDetector("bf", 0.0, 5.0),),
+        scan_x,
+        scan_y,
+        detector_center_shifts_mrad={
+            "bf": (np.array([[0.0, 20.0]]), np.zeros((1, 2))),
+        },
+    )
+
+    assert result.metrics["descan_detector_shift_applied"] is True
+    assert result.fractions["bf"][0, 0] > result.fractions["bf"][0, 1]
+
+
 def test_explicit_cuda_preference_reaches_tem_multislice_and_imaging_fft():
     if not compute_backend.cupy_capability().available:
         pytest.skip("CuPy CUDA backend unavailable")

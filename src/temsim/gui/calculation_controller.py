@@ -11,10 +11,12 @@ from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.physics.all_lens_crossovers import detect_all_lens_crossovers
 from temsim.physics.simulation import run as run_ray_simulation
 from temsim.physics.recording_stop import determine_tem_stop_z
+from temsim.physics.scan_geometry import calculate_scan_geometry
 from temsim.simulation_pipeline import (
     CalculationResult,
     aperture_stop_records,
     calculate,
+    calculate_stem_scan_frame,
 )
 
 
@@ -103,6 +105,11 @@ class CalculationWorker(QRunnable):
                     state_snapshot=self.state,
                     layout=layout,
                     assembly=self.state._resolved_assembly,
+                    scan_geometry=calculate_scan_geometry(self.state),
+                    stem_scan=calculate_stem_scan_frame(
+                        self.state,
+                        simulation,
+                    ),
                     lens_crossovers=tuple(lens_crossovers),
                     aperture_stops=aperture_stop_records(self.state),
                 )
@@ -169,9 +176,15 @@ class CalculationController(QObject):
         snapshot.history_step_mm = max(float(step_mm), 2.0 if quality == "Preview" else 0.5)
         if quality == "Preview":
             snapshot.sample.wave_enabled = False
+            snapshot.sample.stem_wave_enabled = False
             # The interactive path is a direct-beam optical schematic. Full
-            # diffraction branches remain part of the one-shot calculation.
-            snapshot.sample.diffraction_enabled = False
+            # diffraction branches are retained only while scanning because
+            # HAADF/DF/BF pixels must be based on detector interception rather
+            # than a display-only synthetic gradient.
+            ac_scan = snapshot.ac_deflector
+            snapshot.sample.diffraction_enabled = bool(
+                ac_scan.enabled and ac_scan.scan_enabled
+            )
         worker = CalculationWorker(generation, quality, snapshot)
         worker.signals.result.connect(self._accept_result)
         worker.signals.error.connect(self._accept_error)

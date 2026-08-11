@@ -1069,8 +1069,12 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert len(window.workspace.sample_marker_items) == 2
     assert window.workspace.sample_marker_items[0].isVisible()
     window.workspace.component_centres.setChecked(True)
-    assert window.workspace.tabs.count() == 7
+    assert window.workspace.tabs.count() == 8
     assert "Energy Filter" in {
+        window.workspace.tabs.tabText(index)
+        for index in range(window.workspace.tabs.count())
+    }
+    assert "Scan / Descan" in {
         window.workspace.tabs.tabText(index)
         for index in range(window.workspace.tabs.count())
     }
