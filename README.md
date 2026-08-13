@@ -37,8 +37,13 @@ sample envelope. A macroscopic sample therefore does not create a macroscopic
 supercell. The canonical orientation is a unit quaternion; zone-axis `[uvw]`,
 an independent in-plane direction and numeric/mouse rotations all update that
 same physical state. A custom CIF never silently falls back to a different
-material model. IAM includes sampled elastic diffraction but not bonding
-charge, inelastic absorption, magnetic scattering or a full Mott treatment.
+material model. IAM includes sampled coherent elastic diffraction but not
+bonding charge, magnetic scattering or a full Mott treatment. Real-specimen
+inelastic transport is a separate probability-conserving model: material IMFP
+anchors generate zero-loss, plasmon/low-loss, core-ionisation and plural-event
+populations, while optional effective absorption removes current from the
+tracked transmitted beam. It is not an absorptive multislice potential or a
+full energy-differential EELS/dielectric calculation.
 Magnetic-lens excitation is consistently expressed on a 0–100% scale; lenses
 that require stronger fields own correspondingly higher 100% field
 calibrations instead of using over-100% excitation values.
@@ -136,8 +141,11 @@ recalculation preserves a user's runtime direction override.
 - Runs the optional TEM wave-imaging backend during a high-accuracy calculation
   and displays the image and diffraction pattern on a dedicated page.
 - Provides a central **Sample** page with insert/retract and Real/Virtual mode
-  controls, finite sample/scan/ROI overlays, +Z beam, zone-axis alignment and
-  dual mouse behaviour. It contains specimen state and structure only;
+  controls, specimen presets, TEM/STEM wave and multislice settings, finite
+  sample/scan/ROI overlays, +Z beam, zone-axis alignment and dual mouse
+  behaviour. Sample parameters are not duplicated in the left instrument
+  tree; clicking the specimen in a layout opens this page directly. It
+  contains specimen state and structure only;
   detector images live only on the STEM page. A custom CIF is orthogonalised
   with abTEM and periodically expanded through the finite-sample/current-ROI
   intersection. ASE covalent neighbours form the sticks, ASE/Jmol colours and
@@ -183,14 +191,30 @@ recalculation preserves a user's runtime direction override.
   ray broadening and atomistic/wave interaction; retained CIF settings are
   dormant until the specimen is inserted again.
 - Supports two explicit specimen modes. **Real sample (CIF / crystal)** uses a
-  TOML crystal or custom CIF for high-accuracy finite IAM/multislice, while its
-  fast ray view remains a labelled qualitative preview. **Virtual sample** has
+  TOML crystal or custom CIF for high-accuracy finite IAM/multislice. It never
+  creates artificial `+g/-g` or diffuse diffraction beams. Instead, measured
+  material IMFP anchors and independent-event Poisson statistics create
+  absolute zero-loss, plasmon, core-ionisation and plural-inelastic ray
+  populations with representative energy loss and characteristic scattering
+  angle. User MFP/loss overrides support measured films and custom CIFs;
+  effective absorption is disabled unless explicitly supplied. **Virtual sample** has
   extensible diffraction-spot/ring, Gaussian/diffuse, arbitrary-angle,
   user-screened-power-law, physical screened-relativistic-Rutherford and
   absorption rows. Probabilities are absolute, are never normalised, and must
   sum to at most one; the remainder is direct beam. Rectangles, ellipses and
   NPY/PNG/TIFF grayscale maps define local density inside the finite slab,
   with vacuum outside and optional convolution by the calculated probe.
+- In Ray Diagram, hue denotes the interaction type: Real energy-loss state or
+  Virtual user channel, with neutral hues for incident/vacuum/zero-loss paths.
+  Five dark-to-bright shades denote each
+  ray's 3-D sample-plane convergence semi-angle relative to its branch's
+  weighted chief ray; the brightest shade is reached at the calculated
+  99%-current convergence angle. Real inelastic characteristic-angle kicks are
+  removed before calculating this brightness. Selecting any axial Z opens a
+  source-normalised table of sample interaction probability, fraction reaching
+  that Z, local composition, energy loss, absorption and hardware stops, with a
+  conservation check. The Transverse X-Y page retains its separate
+  spatial/quadrant colour encoding.
 - Reports each installed BF/DF/HAADF detector's TOML-authoritative axial
   position, inner/outer active size and collection angle. Collection angle is
   calculated through the active signed sample-to-detector transfer, including
@@ -221,8 +245,10 @@ recalculation preserves a user's runtime direction override.
   convergence without claiming a universal configuration count.
 - Treats the atomistic potential as a neutral-atom IAM and the thermal motion
   as independent isotropic Gaussian (Einstein) displacements. Bonding charge,
-  correlated phonons, absorptive/inelastic potentials and magnetic specimen
-  fields are not included. Strict multislice angular support is the default
+  correlated phonons, absorptive/inelastic *potentials* and magnetic specimen
+  fields are not included. Stochastic inelastic energy-loss populations are
+  transported separately from this conditional zero-loss coherent wave. Strict
+  multislice angular support is the default
   and omitted intensity is not renormalised. An optional screened relativistic
   Rutherford approximation can complete only angles beyond that support; it
   uses explicit Z/areal-density/screening inputs, is reported separately, and

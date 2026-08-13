@@ -1,6 +1,6 @@
 # TEM Simulator v2 — Project Handoff
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 ## Purpose
 
@@ -16,9 +16,8 @@ the next concrete work. `README.md` remains the user/developer overview and
 - Application entry point: `main.py`
 - Run: `.venv\Scripts\python.exe main.py`
 - Tests: `$env:PYTHONPATH='src'; .venv\Scripts\python.exe -m pytest -q`
-- Last full result: **269 passed** on 2026-08-11. The remaining messages are
-  the existing Pydantic `json_encoders` deprecation warning and a small-grid
-  Numba CUDA occupancy warning.
+- Last full result: **266 passed, 12 skipped** on 2026-08-12. The skipped
+  cases are optional-platform/backend coverage unavailable in this environment.
 
 ## Latest Direct Alignment checkpoint (2026-08-10)
 
@@ -410,7 +409,7 @@ the next concrete work. `README.md` remains the user/developer overview and
   sample-to-detector transfer and exposes anisotropic min/max ranges when the
   two singular values differ materially.
 
-## Specimen-mode checkpoint (2026-08-11)
+## Specimen-mode checkpoint (2026-08-12)
 
 - A central Sample tab now owns insert/retract, Real/Virtual mode, finite X/Y
   size and thickness, sample centre and scan origin. Its immutable geometry
@@ -418,6 +417,11 @@ the next concrete work. `README.md` remains the user/developer overview and
   finite box, scan FOV, calculation ROI, current probe, orientation and region
   state. OpenGL displays atoms/cell/box/+Z beam/FOV/ROI when supported; Qt
   offscreen/minimal or missing OpenGL uses the safe 2-D view.
+- The Sample tab is also the sole GUI owner of specimen presets, TEM/STEM wave,
+  multislice, frozen-phonon, Virtual interaction and probe-convolution
+  controls. The duplicate `sample` entry and quick controls were removed from
+  the left instrument tree; clicking the specimen in a diagnostic layout
+  activates the central Sample tab instead.
 - Sample owns specimen state/structure only and no longer duplicates the
   BF/DF/HAADF images. A custom CIF is orthogonalised with abTEM and expanded
   periodically through the finite-sample/current-ROI intersection. The view
@@ -450,10 +454,29 @@ the next concrete work. `README.md` remains the user/developer overview and
   preset's thermal displacement and never silently falls back to another
   material. Frozen phonons accept a global user RMS or an explicit per-element
   RMS table for a custom CIF.
-- The fast atomic Ray Diagram still uses the existing, explicitly labelled
-  qualitative two-beam branch model. High-accuracy TEM/STEM signals use the
-  actual CIF/TOML IAM multislice potential. Do not infer quantitative atomic
-  scattering from the three preview branches.
+- Real sample Ray Diagram calculations never synthesize `+g/-g` or diffuse
+  diffraction branches, even if legacy ray-preview fields remain in a loaded
+  profile. Coherent CIF/TOML elastic diffraction belongs to the high-accuracy
+  TEM/STEM wave/multislice calculation. Separate material-derived Real
+  populations represent zero-loss, plasmon/low-loss, core ionisation, optional
+  other inelastic loss and plural events. They use absolute Poisson
+  probabilities, representative energy offsets and characteristic-angle
+  quadrature; they are not user-authored diffraction beams. Only Virtual mode
+  can create user-defined angular interaction branches.
+- Ray Diagram hue is keyed to canonical interaction kind (incident, Real
+  zero-loss/plasmon/ionisation/plural, or Virtual direct/diffraction/diffuse/
+  arbitrary/Rutherford). Within each hue, five dark-to-bright
+  bins encode the exact 3-D sample-plane convergence semi-angle relative to
+  that branch's current-weighted chief ray. A common interaction kick is thus
+  not counted as convergence; brightness saturates at the incident bundle's
+  calculated 99%-current convergence semi-angle.
+- Selecting/dragging an axial Z cursor calculates a current-weighted plane
+  interaction budget using every ray weight (not the 48-ray display subset).
+  It reports sample-conditional probabilities, source fractions at Z,
+  composition at Z, effective absorption and pre/post-sample stops; these
+  categories close to source probability one. Elastic wave redistribution can
+  coexist with every inelastic energy state and is never presented as an
+  exclusive collision label.
 - `virtual` mode owns extensible diffraction spot/ring, Gaussian diffuse,
   arbitrary angular, user screened power-law, physical screened relativistic
   Rutherford and absorption rows. All probabilities are absolute and are
@@ -467,8 +490,10 @@ the next concrete work. `README.md` remains the user/developer overview and
   support and is not renormalised when a detector extends outside it. An
   optional, separately reported Rutherford approximation begins strictly
   beyond that support and scales the wave channel to preserve probability;
-  it is disabled by default. Bonding charge, absorptive/inelastic potentials,
-  magnetic scattering and full Mott elastic scattering remain out of scope.
+  it is disabled by default. Bonding charge, absorptive/inelastic multislice
+  potentials, energy-differential dielectric/EELS spectra, magnetic scattering
+  and full Mott elastic scattering remain out of scope. Stochastic inelastic
+  populations are instead transported by the separate IMFP model.
 - Each STEM result now carries detector fraction images, pA, expected electrons
   per pixel, optional reproducible Poisson counts, dwell, uncollected/absorbed/
   truncated channels, separate high-angle-tail images, laboratory axis/order

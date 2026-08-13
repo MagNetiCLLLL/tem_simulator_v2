@@ -206,6 +206,9 @@ class Sample:
 
     scan_origin_y_nm: float = 0.0
 
+    # Legacy qualitative Real-sample ray-preview values are retained only so
+    # older profiles round-trip. They no longer generate atomic diffraction or
+    # diffuse branches; Real scattering is owned by wave/multislice.
     g_inv_nm: float = 5.0
 
     excitation_error_inv_nm: float = 0.0
@@ -214,6 +217,7 @@ class Sample:
 
     diffuse_broadening_mrad: float = 2.0
 
+    # Enables explicit user-defined channels in Virtual sample mode only.
     diffraction_enabled: bool = True
 
     # Empty/zero values mean "use the default from the specimen TOML".  The
@@ -283,6 +287,26 @@ class Sample:
     stem_poisson_seed: int = 0
 
     wave_probe_padding_factor: float = 3.0
+
+    # Real-specimen inelastic transport.  Zero-valued plasmon/ionisation MFP
+    # and loss-energy fields select the material values in the specimen TOML.
+    # The optional "other" and effective-absorption channels are disabled at
+    # zero because no universal material-independent value is defensible.
+    real_inelastic_enabled: bool = True
+
+    real_plasmon_mean_free_path_nm: float = 0.0
+
+    real_ionisation_mean_free_path_nm: float = 0.0
+
+    real_other_inelastic_mean_free_path_nm: float = 0.0
+
+    real_absorption_mean_free_path_nm: float = 0.0
+
+    real_plasmon_energy_ev: float = 0.0
+
+    real_ionisation_energy_ev: float = 0.0
+
+    real_other_inelastic_energy_ev: float = 50.0
 
     # A separately reported high-angle completion model.  It is disabled by
     # default and is never blended into reciprocal-space angles already

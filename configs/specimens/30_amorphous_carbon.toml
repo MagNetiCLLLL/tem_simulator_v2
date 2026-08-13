@@ -13,6 +13,16 @@ y_angstrom = 13.0
 field_of_view_angstrom = 40.0
 pixels = 256
 
+[inelastic]
+reference_energy_kev = 200.0
+total_mean_free_path_nm = 150.0
+plasmon_mean_free_path_nm = 154.0
+plasmon_energy_ev = 25.0
+ionisation_energy_ev = 284.2
+collection_semiangle_mrad = 20.0
+reference = "Density-scaled model based on the diamond values in Iakoubovskii et al., Phys. Rev. B 77, 104102 (2008), Table I (112 nm total, 116 nm plasmon component at 200 keV); 25 eV is an approximate amorphous-carbon representative loss."
+applicability = "Approximate amorphous-carbon transport anchor; density/bonding and the low-loss spectrum vary between carbon films. Use the UI MFP overrides for a measured film."
+
 [[columns]]
 x_fraction = 0.080
 y_fraction = 0.130

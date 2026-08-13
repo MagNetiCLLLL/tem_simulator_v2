@@ -13,6 +13,16 @@ y_angstrom = 4.078
 field_of_view_angstrom = 40.0
 pixels = 256
 
+[inelastic]
+reference_energy_kev = 200.0
+total_mean_free_path_nm = 84.0
+plasmon_mean_free_path_nm = 120.0
+plasmon_energy_ev = 9.0
+ionisation_energy_ev = 84.0
+collection_semiangle_mrad = 20.0
+reference = "Iakoubovskii et al., Phys. Rev. B 77, 104102 (2008), DOI 10.1103/PhysRevB.77.104102: Table I total/plasmon-component IMFP at 200 keV and Figs. 3/6 energy-loss context."
+applicability = "Elemental Au; low-loss/core-loss separation is explicitly approximate for filled-d-band metals. The representative ionisation loss is an aggregate transport energy, not an EELS line shape."
+
 [atomistic]
 generator = "ase_bulk_surface"
 chemical_symbol = "Au"

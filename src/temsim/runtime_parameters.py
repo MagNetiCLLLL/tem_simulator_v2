@@ -295,6 +295,20 @@ def validate_runtime_assignment(
         raise ValueError("sample.stem_poisson_seed cannot be negative")
     if name == "wave_probe_padding_factor" and float(converted) < 0.0:
         raise ValueError("sample.wave_probe_padding_factor cannot be negative")
+    if name in {
+        "real_plasmon_mean_free_path_nm",
+        "real_ionisation_mean_free_path_nm",
+        "real_other_inelastic_mean_free_path_nm",
+        "real_absorption_mean_free_path_nm",
+        "real_plasmon_energy_ev",
+        "real_ionisation_energy_ev",
+    } and float(converted) < 0.0:
+        raise ValueError(f"sample.{name} cannot be negative")
+    if (
+        name == "real_other_inelastic_energy_ev"
+        and float(converted) <= 0.0
+    ):
+        raise ValueError("sample.real_other_inelastic_energy_ev must be positive")
     if name == "real_tail_atomic_number" and not 1 <= int(converted) <= 118:
         raise ValueError("sample.real_tail_atomic_number must be between 1 and 118")
     if name == "real_tail_areal_density_atoms_nm2" and float(converted) < 0.0:

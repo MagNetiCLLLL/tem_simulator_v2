@@ -47,9 +47,11 @@ class WaveImagingResult:
     y_angstrom: np.ndarray
     projected_potential_v_angstrom: np.ndarray
     exit_wave: np.ndarray
+    linear_diffraction_probability: np.ndarray
     diffraction_intensity: np.ndarray
     image_intensity: np.ndarray
     spatial_frequency_inv_angstrom: np.ndarray
+    spatial_frequency_y_inv_angstrom: np.ndarray
     metrics: dict
 
 
@@ -61,6 +63,120 @@ class PreparedSpecimen:
     mean_projected_potential_v_angstrom: np.ndarray
     slice_thicknesses_angstrom: np.ndarray | None
     metrics: dict
+
+
+# Conservative host allocations retained or created while forming one TEM
+# image.  This covers real-valued coordinate/frequency/phase grids and the
+# complex incident, exit, transfer and FFT work arrays.  Stored atomistic
+# potentials and frozen-phonon exit waves are estimated separately below.
+_TEM_WAVE_WORKING_BYTES_PER_PIXEL = 224
+_ATOMISTIC_POTENTIAL_BYTES_PER_VOXEL = np.dtype(np.float32).itemsize
+_COMPLEX_EXIT_WAVE_BYTES_PER_PIXEL = np.dtype(np.complex128).itemsize
+
+
+def tem_wave_imaging_enabled(state) -> bool:
+    """Return whether this state requests the local TEM wave observable.
+
+    The separate STEM wave path owns raster detector images.  Virtual samples
+    have explicit ray/detector interaction channels and do not define a
+    specimen potential for this TEM image-forming calculation.
+    """
+
+    return bool(
+        getattr(state.sample, "wave_enabled", False)
+        and str(getattr(state, "illumination_mode", "TEM")).upper() == "TEM"
+        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
+        == "atomic"
+    )
+
+
+def estimate_tem_wave_memory_bytes(state) -> int:
+    """Estimate incremental peak host memory for optional TEM wave imaging.
+
+    The estimate deliberately does not import or construct an atomistic
+    backend.  It uses the requested grid, thickness, slice target and
+    frozen-phonon count so the application-wide memory guard can reject an
+    unsafe calculation before ray tracing begins.
+    """
+
+    if not tem_wave_imaging_enabled(state):
+        return 0
+
+    sample = state.sample
+    preset_key = (
+        (
+            str(getattr(sample, "specimen_preset_key", "")).strip()
+            or default_specimen_preset_key()
+        )
+        if bool(getattr(sample, "inserted", True))
+        else "vacuum"
+    )
+    preset = load_specimen_preset(preset_key)
+    pixels_override = int(getattr(sample, "wave_grid_pixels", 0))
+    pixels = pixels_override if pixels_override > 0 else int(preset.pixels)
+    if pixels < 32:
+        raise ValueError("Wave grid must contain at least 32 pixels.")
+
+    grid_points = pixels * pixels
+    working_bytes = grid_points * _TEM_WAVE_WORKING_BYTES_PER_PIXEL
+    projected_potential_bytes = grid_points * np.dtype(np.float64).itemsize
+
+    thickness_angstrom = effective_sample_thickness_nm(state) * 10.0
+    multislice_enabled = bool(
+        getattr(sample, "wave_multislice_enabled", True)
+    )
+    atomistic_requested = bool(
+        getattr(sample, "wave_atomistic_enabled", True)
+    )
+    atomistic_source_available = bool(
+        str(getattr(sample, "cif_path", "")).strip()
+        or preset.atomistic is not None
+    )
+    atomistic_applies = bool(
+        multislice_enabled
+        and atomistic_requested
+        and atomistic_source_available
+        and thickness_angstrom > 0.0
+    )
+
+    configuration_count = 1
+    potential_bytes = projected_potential_bytes
+    if atomistic_applies:
+        target_slice = float(
+            getattr(sample, "wave_slice_thickness_angstrom", 2.0)
+        )
+        if not math.isfinite(target_slice) or target_slice <= 0.0:
+            raise ValueError("Wave slice thickness must be finite and positive.")
+        slice_count = max(1, int(math.ceil(thickness_angstrom / target_slice)))
+        if bool(getattr(sample, "wave_frozen_phonon_enabled", False)):
+            configuration_count = int(
+                getattr(sample, "wave_frozen_phonon_configurations", 4)
+            )
+            if not 1 <= configuration_count <= 64:
+                raise ValueError(
+                    "Frozen-phonon configurations must be between 1 and 64."
+                )
+
+        # A commensurate periodic cell can be slightly larger than the
+        # requested square FOV.  Reserve 25% extra grid points, plus one extra
+        # copy for atomistic-potential construction/transposition.
+        atomistic_grid_points = int(math.ceil(grid_points * 1.25))
+        stored_potential_bytes = (
+            configuration_count
+            * slice_count
+            * atomistic_grid_points
+            * _ATOMISTIC_POTENTIAL_BYTES_PER_VOXEL
+        )
+        potential_bytes = (
+            2 * stored_potential_bytes + projected_potential_bytes
+        )
+
+    retained_exit_waves = (
+        configuration_count
+        * grid_points
+        * _COMPLEX_EXIT_WAVE_BYTES_PER_PIXEL
+    )
+    return int(working_bytes + potential_bytes + retained_exit_waves)
 
 
 def effective_sample_thickness_nm(state) -> float:
@@ -793,6 +909,28 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
             fft_fallback_seed = fft_diagnostics.fallback_reason
     raw_diffraction /= len(exit_waves)
     exit_wave = coherent_exit_wave / len(exit_waves)
+    linear_diffraction = raw_diffraction / max(
+        float(np.sum(raw_diffraction)), 1.0e-30
+    )
+    incident_spectrum = np.fft.fftshift(np.fft.fft2(incident_wave))
+    incident_diffraction = np.abs(incident_spectrum) ** 2
+    incident_diffraction /= max(
+        float(np.sum(incident_diffraction)), 1.0e-30
+    )
+    incident_cone_rad = max(
+        float(ray_stats["convergence_semiangle_rad"]), 0.0
+    )
+    incident_cone_mask = (
+        frequency_squared
+        <= (incident_cone_rad / wavelength_angstrom) ** 2
+        + np.finfo(float).eps
+    )
+    exit_outside_cone = float(
+        np.sum(linear_diffraction[~incident_cone_mask])
+    )
+    incident_outside_cone = float(
+        np.sum(incident_diffraction[~incident_cone_mask])
+    )
     fft_backends = {record.compute_backend for record in fft_records}
     fft_precisions = {record.numeric_precision for record in fft_records}
     fft_reasons = tuple(
@@ -833,6 +971,26 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         else "Mixed (NumPy CPU + CuPy CUDA)"
     )
 
+    real_interactions = getattr(simulation, "real_interactions", None)
+    zero_loss_probability = 1.0
+    absorbed_probability = 0.0
+    mean_inelastic_events = 0.0
+    if real_interactions is not None:
+        absorbed_probability = float(
+            real_interactions.absorbed_probability
+        )
+        mean_inelastic_events = float(
+            real_interactions.mean_inelastic_events
+        )
+        zero_loss_probability = next(
+            (
+                float(channel.probability)
+                for channel in real_interactions.channels
+                if channel.key == "real_zero_loss"
+            ),
+            0.0,
+        )
+
     metrics = {
         **ray_stats,
         **{
@@ -856,11 +1014,37 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         "fft_numeric_precision": fft_numeric_precision,
         "fft_fallback_reason": fft_fallback_reason,
         "wave_compute_backend": wave_compute_backend,
+        "image_display_scaling": "0.5-99.5 percentile clipped to [0, 1]",
+        "diffraction_display_scaling": "log1p contrast, normalised to [0, 1]",
+        "image_formation_scope": "specimen to objective CTF",
         "exit_wave_representation": "coherent ensemble mean",
         "displayed_intensity_average": (
             "incoherent frozen-phonon intensity mean"
             if len(exit_waves) > 1
             else "single configuration"
+        ),
+        "wave_energy_loss_scope": (
+            "conditional zero-loss coherent elastic image; inelastic event "
+            "probabilities are transported separately as ray populations"
+        ),
+        "zero_loss_probability_per_sample_incident": zero_loss_probability,
+        "sample_absorbed_probability_per_sample_incident": (
+            absorbed_probability
+        ),
+        "mean_inelastic_events_per_sample_incident": mean_inelastic_events,
+        "elastic_wave_observable": (
+            "conditional zero-loss exit-wave intensity outside the incident "
+            "99%-current convergence cone; coherent/non-exclusive"
+        ),
+        "elastic_incident_cone_mrad": incident_cone_rad * 1.0e3,
+        "elastic_exit_intensity_outside_incident_cone_fraction": (
+            exit_outside_cone
+        ),
+        "elastic_incident_baseline_outside_cone_fraction": (
+            incident_outside_cone
+        ),
+        "elastic_outside_cone_redistribution_delta": (
+            exit_outside_cone - incident_outside_cone
         ),
         "image_configuration_relative_standard_error": (
             image_relative_standard_error
@@ -892,10 +1076,12 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         y_angstrom=y_axis,
         projected_potential_v_angstrom=potential,
         exit_wave=exit_wave,
+        linear_diffraction_probability=linear_diffraction,
         diffraction_intensity=(
             diffraction / max(float(diffraction.max()), 1.0e-30)
         ),
         image_intensity=_normalise_image(raw_image),
         spatial_frequency_inv_angstrom=frequencies_x,
+        spatial_frequency_y_inv_angstrom=frequencies_y,
         metrics=metrics,
     )

@@ -26,20 +26,48 @@ from temsim.physics.recording_stop import determine_tem_stop_z
 from temsim.physics.recording_clipping import clip_recording_planes
 from temsim.component_keys import CONDENSER_LENS_2, CONDENSER_LENS_3
 
-COLOURS={'000':(1.,.9,.2),'+g':(1.,.15,.1),'-g':(.1,.7,1.)}
+RAY_INTERACTION_COLOURS = {
+    # Colour carries interaction semantics.  Per-ray convergence is encoded
+    # later by changing only the brightness of this base colour.
+    'incident': (0.22, 0.74, 0.97),
+    'vacuum': (0.58, 0.64, 0.72),
+    'real_sample_reference': (0.58, 0.64, 0.72),
+    'real_zero_loss': (0.72, 0.76, 0.82),
+    'real_plasmon': (0.16, 0.82, 0.96),
+    'real_ionisation': (0.98, 0.35, 0.24),
+    'real_other_inelastic': (0.96, 0.73, 0.12),
+    'real_plural_inelastic': (0.78, 0.36, 0.96),
+    'virtual_interactions_disabled': (0.58, 0.64, 0.72),
+    'transmitted': (0.29, 0.87, 0.50),
+    'diffraction_spots': (0.66, 0.55, 0.98),
+    'diffuse_ring': (0.96, 0.62, 0.04),
+    'gaussian_diffuse': (0.98, 0.80, 0.08),
+    'arbitrary_angular': (0.18, 0.83, 0.75),
+    'user_screened_power_law': (0.96, 0.45, 0.71),
+    'physical_rutherford': (0.98, 0.31, 0.38),
+    'unknown': (0.89, 0.91, 0.94),
+}
+
+# Small ray bundles benefit greatly from tracing all interaction quadrature
+# branches together.  Large production bundles are batched to keep the
+# (axial steps x rays) momentum/Larmor work arrays within a bounded peak.
+MAX_VECTORIZED_POST_RAYS = 4096
 
 
-def _branch_colour(name, index):
-    if name in COLOURS:
-        return COLOURS[name]
-    palette = (
-        (0.95, 0.35, 0.65),
-        (0.35, 0.85, 0.55),
-        (0.75, 0.55, 1.0),
-        (1.0, 0.6, 0.25),
-        (0.25, 0.8, 0.95),
+def _canonical_interaction_kind(kind):
+    aliases = {
+        'diffraction_spot': 'diffraction_spots',
+        'isotropic_ring': 'diffuse_ring',
+    }
+    value = str(kind or 'unknown').strip().lower()
+    return aliases.get(value, value)
+
+
+def _interaction_colour(kind):
+    return RAY_INTERACTION_COLOURS.get(
+        _canonical_interaction_kind(kind),
+        RAY_INTERACTION_COLOURS['unknown'],
     )
-    return palette[int(index) % len(palette)]
 
 
 def _sample_to_stop_larmor_rotation_rad(state, stop_z_mm):
@@ -76,13 +104,13 @@ def _sample_to_stop_larmor_rotation_rad(state, stop_z_mm):
 @dataclass
 
 class Branch:
-    name:str; colour:tuple; z:np.ndarray; x:np.ndarray; y:np.ndarray; tx:np.ndarray; ty:np.ndarray; alive:np.ndarray; blocked_z:np.ndarray; blocked_key:list; weight:float; energy_offset_ev:np.ndarray; ray_weight:np.ndarray|None=None
+    name:str; colour:tuple; z:np.ndarray; x:np.ndarray; y:np.ndarray; tx:np.ndarray; ty:np.ndarray; alive:np.ndarray; blocked_z:np.ndarray; blocked_key:list; weight:float; energy_offset_ev:np.ndarray; ray_weight:np.ndarray|None=None; interaction_kind:str='unknown'; interaction_kick_x_rad:np.ndarray|None=None; interaction_kick_y_rad:np.ndarray|None=None
 
 @dataclass
 
 class Simulation:
 
-    incident:Branch; branches:dict; metrics:dict; gun_waist:dict|None=None; c2c3_crossover:dict|None=None; corrector_crossovers:list|None=None; gun_trace:object|None=None; sample_to_analysis_transfer:object|None=None; optical_transfers:tuple=()
+    incident:Branch; branches:dict; metrics:dict; gun_waist:dict|None=None; c2c3_crossover:dict|None=None; corrector_crossovers:list|None=None; gun_trace:object|None=None; sample_to_analysis_transfer:object|None=None; optical_transfers:tuple=(); real_interactions:object|None=None
 
 
 def _legacy_clip_unused(s,z,X,Y):
@@ -131,8 +159,6 @@ def run(s, *, resolved_layout=None):
     tx,ty=emitted.tx_rad,emitted.ty_rad
     dE=emitted.energy_offset_ev
     n=x.size
-    phi=np.arctan2(y,x)
-
     pre_events=[]
 
     post_events=[]
@@ -193,7 +219,12 @@ def run(s, *, resolved_layout=None):
 
     alive,blocked,keys=clip_column_wall(s,z,X,Y,alive,blocked,keys)
 
-    incident=Branch('incident',(.2,.4,1.),z,X,Y,TX,TY,alive,blocked,keys,1.,dE,emitted.weight)
+    incident_kind = 'incident'
+    incident=Branch(
+        'incident',_interaction_colour(incident_kind),z,X,Y,TX,TY,alive,
+        blocked,keys,1.,dE,emitted.weight,
+        interaction_kind=incident_kind,
+    )
 
     gun_field_end,gun_diagnostic_end=gun.diagnostic_waist_region_mm
     gun_waist=detect_beam_waist(
@@ -205,42 +236,70 @@ def run(s, *, resolved_layout=None):
     specimen_mode = str(getattr(s.sample, 'specimen_mode', 'atomic')).strip().lower()
     if specimen_mode not in {'atomic', 'virtual'}:
         raise ValueError("Sample specimen mode must be 'atomic' or 'virtual'.")
-    _,_,lam=electron(s);theta=lam*s.sample.g_inv_nm;se=s.sample.excitation_error_inv_nm;sig=max(1e-9,s.sample.rocking_width_inv_nm);weight=math.exp(-.5*(se/sig)**2);diffuse=(s.sample.diffuse_broadening_mrad*1e-3*min(1.,abs(se)/(3*sig)) if sample_inserted and specimen_mode == 'atomic' else 0.0);jitter=diffuse*np.sin(phi*1.73)
+    _,_,lam=electron(s)
 
     branches={}
 
-    chromatic_tx=np.zeros(n);chromatic_ty=np.zeros(n)
-
     if getattr(s,'chromatic_aberration_enabled',False):
-
-
         try:
-
             from temsim.optics.lens_focal_length import focal_length_mm
-
-            obj=s.objective_lens
-
-            fobj=focal_length_mm(obj,s.beam_voltage_kv)
-
+            fobj=focal_length_mm(s.objective_lens,s.beam_voltage_kv)
         except Exception:
-
             fobj=2.5
+    else:
+        fobj=None
 
-        chromatic_tx,chromatic_ty=objective_chromatic_kick(
-            X[-1],Y[-1],dE,s.beam_voltage_kv*1000.0,
+    def branch_chromatic_kick(energy_offset_ev):
+        if fobj is None:
+            return np.zeros(n),np.zeros(n)
+        return objective_chromatic_kick(
+            X[-1],Y[-1],energy_offset_ev,s.beam_voltage_kv*1000.0,
             float(getattr(s.objective_lens,'cc_mm',2.0) or 2.0),fobj
         )
 
+    virtual_branch_weights_are_absolute = False
+    real_branch_weights_are_absolute = False
+    real_interactions = None
     sample_diffraction_applied = bool(
-        sample_inserted and getattr(s.sample, 'diffraction_enabled', True)
+        sample_inserted
+        and specimen_mode == 'virtual'
+        and getattr(s.sample, 'diffraction_enabled', True)
     )
     if not sample_inserted:
-        branch_specs = [('000', 0.0, 0.0, 1.0)]
+        branch_specs = [('000', 0.0, 0.0, 1.0, 'vacuum', 0.0)]
         scattering_model = 'vacuum_reference_plane'
+    elif specimen_mode == 'atomic':
+        # Coherent elastic diffraction remains exclusively in multislice.
+        # These branches are instead a material-derived, probability-
+        # conserving quadrature of real stochastic energy-loss events.
+        from temsim.specimen.inelastic import (
+            real_inelastic_distribution,
+            real_inelastic_ray_branches,
+        )
+
+        real_interactions = real_inelastic_distribution(s)
+        real_branches = real_inelastic_ray_branches(
+            real_interactions, ray_count=n
+        )
+        branch_specs = [
+            (
+                branch.name,
+                branch.kick_x_rad,
+                branch.kick_y_rad,
+                branch.probability,
+                branch.interaction_kind,
+                branch.energy_loss_ev,
+            )
+            for branch in real_branches
+        ]
+        real_branch_weights_are_absolute = True
+        scattering_model = 'real_material_inelastic_poisson_plus_elastic_wave'
     elif not bool(getattr(s.sample, 'diffraction_enabled', True)):
-        branch_specs = [('000', 0.0, 0.0, 1.0)]
-        scattering_model = 'ray_scattering_disabled'
-    elif specimen_mode == 'virtual':
+        branch_specs = [
+            ('000', 0.0, 0.0, 1.0, 'virtual_interactions_disabled', 0.0)
+        ]
+        scattering_model = 'virtual_interactions_disabled'
+    else:
         from temsim.specimen.virtual import (
             uses_legacy_virtual_controls,
             virtual_scattering_branches,
@@ -256,6 +315,8 @@ def run(s, *, resolved_layout=None):
                 branch.kick_x_rad,
                 branch.kick_y_rad,
                 branch.relative_weight,
+                _canonical_interaction_kind(branch.kind),
+                0.0,
             )
             for branch in virtual
         ]
@@ -263,31 +324,68 @@ def run(s, *, resolved_layout=None):
         virtual_branch_weights_are_absolute = not uses_legacy_virtual_controls(
             s.sample
         )
-    else:
-        branch_specs = [
-            ('000', 0.0, 0.0, 1.0),
-            ('+g', theta, 0.0, weight),
-            ('-g', -theta, 0.0, weight),
+
+    # Trace compact batches.  This retains energy-dependent Larmor/chromatic
+    # transport, accelerates GUI-sized bundles, and bounds peak memory for
+    # high-accuracy production ray counts.
+    branches_per_batch=max(
+        1,MAX_VECTORIZED_POST_RAYS//max(n,1)
+    )
+    for batch_start in range(0,len(branch_specs),branches_per_batch):
+        batch_specs=branch_specs[
+            batch_start:batch_start+branches_per_batch
         ]
-        scattering_model = 'qualitative_two_beam_atomic_preview'
+        post_payloads=[]
+        post_x=[];post_tx=[];post_y=[];post_ty=[];post_energy=[]
+        for name,kick_x,kick_y,w,interaction_kind,energy_loss_ev in batch_specs:
+            branch_energy_offset=dE-float(energy_loss_ev)
+            chromatic_tx,chromatic_ty=branch_chromatic_kick(
+                branch_energy_offset
+            )
+            kick_x_array=np.broadcast_to(
+                np.asarray(kick_x,dtype=float),(n,)
+            ).copy()
+            kick_y_array=np.broadcast_to(
+                np.asarray(kick_y,dtype=float),(n,)
+            ).copy()
+            post_payloads.append((
+                name,w,interaction_kind,branch_energy_offset,
+                kick_x_array,kick_y_array,
+            ))
+            post_x.append(X[-1])
+            post_tx.append(TX[-1]+kick_x+chromatic_tx)
+            post_y.append(Y[-1])
+            post_ty.append(TY[-1]+kick_y+chromatic_ty)
+            post_energy.append(branch_energy_offset)
 
-    for branch_index, (name,kick_x,kick_y,w) in enumerate(branch_specs):
+        zp,XP_all,TP_all,YP_all,TYP_all=propagate(
+            s,s.sample.z_mm,determine_tem_stop_z(s),
+            np.concatenate(post_x),np.concatenate(post_tx),
+            np.concatenate(post_y),np.concatenate(post_ty),
+            post_events,np.concatenate(post_energy)
+        )
 
-        zp,XP,TP,YP,TYP=propagate(s,s.sample.z_mm,determine_tem_stop_z(s),X[-1],TX[-1]+kick_x+jitter+chromatic_tx,Y[-1],TY[-1]+kick_y+chromatic_ty,post_events,dE)
+        for branch_index,(name,w,interaction_kind,branch_energy_offset,kick_x_array,kick_y_array) in enumerate(post_payloads):
+            branch_slice=slice(branch_index*n,(branch_index+1)*n)
+            XP=XP_all[:,branch_slice];TP=TP_all[:,branch_slice]
+            YP=YP_all[:,branch_slice];TYP=TYP_all[:,branch_slice]
 
-        # Post-sample apertures and recording planes are resolved together
-        # below so upstream stops always win over downstream stops.
+            # Post-sample apertures and recording planes are resolved together
+            # below so upstream stops always win over downstream stops.
+            al=alive.copy();bl=blocked.copy();ks=list(keys)
 
-        al=alive.copy();bl=blocked.copy();ks=list(keys)
+            # Resolve detector and wall candidates, then keep the earliest
+            # axial intercept. A later wall cannot hide an earlier detector.
+            al,bl,ks=clip_recording_planes(s,zp,XP,YP,al,bl,ks)
+            al,bl,ks=clip_column_wall(s,zp,XP,YP,al,bl,ks)
 
-        # Resolve detector and wall candidates, then keep the earliest axial
-        # intercept.  Column-wall clipping compares against an existing stop,
-        # so a later wall cannot hide an earlier detector and vice versa.
-        al,bl,ks=clip_recording_planes(s,zp,XP,YP,al,bl,ks)
-
-        al,bl,ks=clip_column_wall(s,zp,XP,YP,al,bl,ks)
-
-        branches[name]=Branch(name,_branch_colour(name, branch_index),zp,XP,YP,TP,TYP,al,bl,ks,w,dE,emitted.weight)
+            branches[name]=Branch(
+                name,_interaction_colour(interaction_kind),zp,XP,YP,TP,TYP,al,
+                bl,ks,w,branch_energy_offset,emitted.weight,
+                interaction_kind=interaction_kind,
+                interaction_kick_x_rad=kick_x_array,
+                interaction_kick_y_rad=kick_y_array,
+            )
 
     recording_stop_z=determine_tem_stop_z(s)
     sample_transfer=trace_transverse_transfer(
@@ -358,18 +456,40 @@ def run(s, *, resolved_layout=None):
     )
     metrics.update({
         'sample_inserted': sample_inserted,
-        'sample_scattering_applied': sample_diffraction_applied,
+        'sample_scattering_applied': bool(
+            sample_diffraction_applied
+            or (
+                real_interactions is not None
+                and (
+                    real_interactions.mean_inelastic_events > 0.0
+                    or real_interactions.absorbed_probability > 0.0
+                )
+            )
+        ),
         'specimen_mode': specimen_mode,
         'sample_scattering_model': scattering_model,
         'branch_weights_are_absolute': bool(
-            sample_inserted
-            and specimen_mode == 'virtual'
-            and getattr(s.sample, 'diffraction_enabled', True)
-            and locals().get('virtual_branch_weights_are_absolute', False)
+            sample_inserted and (
+                (specimen_mode == 'atomic' and real_branch_weights_are_absolute)
+                or (
+                    specimen_mode == 'virtual'
+                    and getattr(s.sample, 'diffraction_enabled', True)
+                    and virtual_branch_weights_are_absolute
+                )
+            )
         ),
+        'sample_absorbed_probability': (
+            float(real_interactions.absorbed_probability)
+            if real_interactions is not None else 0.0
+        ),
+        'real_inelastic_interactions': (
+            real_interactions.metrics()
+            if real_interactions is not None else None
+        ),
+        'ray_interaction_types': tuple(dict.fromkeys(
+            branch.interaction_kind for branch in branches.values()
+        )),
         'lambda_nm':lam,
-        'theta_g_mrad':theta*1e3,
-        'diffraction_weight':weight,
         'transfer_coordinate_order':('x','y','theta_x','theta_y'),
         'transfer_analysis_plane_z_mm':recording_stop_z,
         'j_img':sample_transfer.j_img.tolist(),
@@ -452,6 +572,7 @@ def run(s, *, resolved_layout=None):
         gun_trace=gun_trace,
         sample_to_analysis_transfer=sample_transfer,
         optical_transfers=optical_transfer_records(s),
+        real_interactions=real_interactions,
     )
 
     return result

@@ -43,6 +43,7 @@ from temsim.specimen.geometry import (
     sample_orientation_quaternion,
     set_sample_orientation,
 )
+from temsim.specimen.presets import available_specimen_presets
 from temsim.specimen.virtual import resolve_virtual_interactions
 
 
@@ -307,10 +308,14 @@ class SampleSceneView(QWidget):
                 self.opengl_detail = f"OpenGL initialisation failed: {exc}"
                 self.view = self._fallback_plot()
         else:
-            if gl is not None and not platform_supports_gl:
+            if not platform_supports_gl:
                 self.opengl_detail = (
                     f"Qt platform {platform_name!r} has no supported OpenGL widget"
                 )
+                if OPENGL_IMPORT_ERROR:
+                    self.opengl_detail += (
+                        f"; OpenGL import unavailable: {OPENGL_IMPORT_ERROR}"
+                    )
             self.view = self._fallback_plot()
         layout.addWidget(self.view, 1)
         self._items = []
@@ -626,6 +631,38 @@ class SamplePage(QWidget):
     parameters_changed = Signal(str)
     error = Signal(str)
 
+    @staticmethod
+    def _double_control(
+        object_name: str,
+        minimum: float,
+        maximum: float,
+        *,
+        decimals: int = 6,
+        suffix: str = "",
+    ) -> QDoubleSpinBox:
+        control = QDoubleSpinBox()
+        control.setObjectName(object_name)
+        control.setDecimals(decimals)
+        control.setRange(minimum, maximum)
+        control.setSuffix(suffix)
+        control.setKeyboardTracking(False)
+        return control
+
+    @staticmethod
+    def _integer_control(
+        object_name: str,
+        minimum: int,
+        maximum: int,
+        *,
+        step: int = 1,
+    ) -> QSpinBox:
+        control = QSpinBox()
+        control.setObjectName(object_name)
+        control.setRange(minimum, maximum)
+        control.setSingleStep(step)
+        control.setKeyboardTracking(False)
+        return control
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("samplePage")
@@ -641,6 +678,9 @@ class SamplePage(QWidget):
 
         identity = QGroupBox("Sample state and finite envelope")
         identity_form = QFormLayout(identity)
+        identity_form.setRowWrapPolicy(
+            QFormLayout.RowWrapPolicy.WrapLongRows
+        )
         self.inserted = QCheckBox("Inserted (interactions enabled)")
         self.inserted.setObjectName("sampleInsertedControl")
         self.mode = QComboBox()
@@ -675,6 +715,13 @@ class SamplePage(QWidget):
         real = QGroupBox("Real sample structure and orientation")
         real.setObjectName("realSampleControls")
         real_layout = QVBoxLayout(real)
+        source_form = QFormLayout()
+        source_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.preset = QComboBox()
+        self.preset.setObjectName("samplePresetControl")
+        self.preset.addItem("Default TOML preset", "")
+        for key, preset_name in available_specimen_presets():
+            self.preset.addItem(preset_name, key)
         path_row = QHBoxLayout()
         self.cif_path = QLineEdit()
         self.cif_path.setObjectName("sampleCifPath")
@@ -684,9 +731,14 @@ class SamplePage(QWidget):
         self.cif_path.editingFinished.connect(self._cif_edited)
         path_row.addWidget(self.cif_path, 1)
         path_row.addWidget(browse)
-        real_layout.addLayout(path_row)
+        path_widget = QWidget()
+        path_widget.setLayout(path_row)
+        source_form.addRow("TOML preset", self.preset)
+        source_form.addRow("Custom CIF / MCIF", path_widget)
+        real_layout.addLayout(source_form)
 
         axes_form = QFormLayout()
+        axes_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.zone_controls = self._axis_row("zoneAxis", (0, 0, 1))
         self.in_plane_controls = self._axis_row("inPlaneAxis", (1, 0, 0))
         axes_form.addRow("Zone axis [uvw] -> +Z", self.zone_controls[0])
@@ -726,7 +778,7 @@ class SamplePage(QWidget):
         tilt_row.addWidget(apply_tilt)
         real_layout.addLayout(tilt_row)
 
-        self.edit_orientation = QCheckBox("Edit physical orientation by mouse drag")
+        self.edit_orientation = QCheckBox("Mouse-drag edits sample orientation")
         self.edit_orientation.setObjectName("sampleEditOrientation")
         self.edit_orientation.setToolTip(
             "Off: mouse orbits the camera. On: left-drag edits a draft sample orientation; Apply commits it."
@@ -739,11 +791,141 @@ class SamplePage(QWidget):
         draft_row.addWidget(self.apply_draft)
         real_layout.addLayout(draft_row)
 
-        wave_form = QFormLayout()
-        self.wave_enabled = QCheckBox("Wave / multislice STEM")
-        self.atomistic_enabled = QCheckBox("Lobato IAM finite-slice potential")
+        inelastic = QGroupBox("Real inelastic collisions")
+        inelastic.setObjectName("sampleRealInelasticControls")
+        inelastic_form = QFormLayout(inelastic)
+        inelastic_form.setRowWrapPolicy(
+            QFormLayout.RowWrapPolicy.WrapLongRows
+        )
+        self.real_inelastic_enabled = QCheckBox(
+            "Material IMFP + Poisson event transport"
+        )
+        self.real_inelastic_enabled.setObjectName(
+            "sampleRealInelasticEnabled"
+        )
+        self.real_inelastic_enabled.setToolTip(
+            "Adds physical energy-loss populations (zero loss, plasmon, "
+            "core ionisation and plural scattering) without inventing "
+            "elastic diffraction beams."
+        )
+        self.inelastic_scalar_controls = {
+            "real_plasmon_mean_free_path_nm": self._double_control(
+                "sampleRealPlasmonMfp", 0.0, 1.0e9, suffix=" nm"
+            ),
+            "real_ionisation_mean_free_path_nm": self._double_control(
+                "sampleRealIonisationMfp", 0.0, 1.0e9, suffix=" nm"
+            ),
+            "real_other_inelastic_mean_free_path_nm": self._double_control(
+                "sampleRealOtherInelasticMfp", 0.0, 1.0e9, suffix=" nm"
+            ),
+            "real_absorption_mean_free_path_nm": self._double_control(
+                "sampleRealAbsorptionMfp", 0.0, 1.0e9, suffix=" nm"
+            ),
+            "real_plasmon_energy_ev": self._double_control(
+                "sampleRealPlasmonEnergy", 0.0, 1.0e9, suffix=" eV"
+            ),
+            "real_ionisation_energy_ev": self._double_control(
+                "sampleRealIonisationEnergy", 0.0, 1.0e9, suffix=" eV"
+            ),
+            "real_other_inelastic_energy_ev": self._double_control(
+                "sampleRealOtherInelasticEnergy", 1.0e-6, 1.0e9, suffix=" eV"
+            ),
+        }
+        for field in (
+            "real_plasmon_mean_free_path_nm",
+            "real_ionisation_mean_free_path_nm",
+            "real_plasmon_energy_ev",
+            "real_ionisation_energy_ev",
+        ):
+            self.inelastic_scalar_controls[field].setSpecialValueText(
+                "Material default"
+            )
+        for field in (
+            "real_other_inelastic_mean_free_path_nm",
+            "real_absorption_mean_free_path_nm",
+        ):
+            self.inelastic_scalar_controls[field].setSpecialValueText(
+                "Disabled"
+            )
+        self.inelastic_scalar_controls[
+            "real_absorption_mean_free_path_nm"
+        ].setToolTip(
+            "Effective removal from the tracked transmitted beam. This is "
+            "not literal surface adsorption of a 60-300 keV TEM electron."
+        )
+        inelastic_form.addRow("Calculate", self.real_inelastic_enabled)
+        for label, field in (
+            ("Plasmon / low-loss MFP", "real_plasmon_mean_free_path_nm"),
+            ("Core-ionisation MFP", "real_ionisation_mean_free_path_nm"),
+            ("Other inelastic MFP", "real_other_inelastic_mean_free_path_nm"),
+            ("Effective absorption MFP", "real_absorption_mean_free_path_nm"),
+            ("Plasmon loss", "real_plasmon_energy_ev"),
+            ("Ionisation loss", "real_ionisation_energy_ev"),
+            ("Other representative loss", "real_other_inelastic_energy_ev"),
+        ):
+            inelastic_form.addRow(
+                label, self.inelastic_scalar_controls[field]
+            )
+        self.inelastic_summary = QLabel(
+            "Material inelastic probabilities appear after state binding."
+        )
+        self.inelastic_summary.setObjectName(
+            "sampleRealInelasticSummary"
+        )
+        self.inelastic_summary.setWordWrap(True)
+        self.inelastic_summary.setStyleSheet(
+            "color: #64748b; font-weight: 600;"
+        )
+        inelastic_form.addRow("Resolved model", self.inelastic_summary)
+        real_layout.addWidget(inelastic)
+
+        wave = QGroupBox("High-accuracy wave calculation")
+        wave.setObjectName("sampleWaveControls")
+        wave_form = QFormLayout(wave)
+        wave_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.tem_wave_enabled = QCheckBox("TEM image / diffraction")
+        self.tem_wave_enabled.setObjectName("sampleTemWaveEnabled")
+        self.stem_wave_enabled = QCheckBox("STEM detector images")
+        self.stem_wave_enabled.setObjectName("sampleStemWaveEnabled")
+        self.multislice_enabled = QCheckBox("Multislice propagation")
+        self.multislice_enabled.setObjectName("sampleMultisliceEnabled")
+        self.atomistic_enabled = QCheckBox("Lobato IAM potential")
         self.frozen_enabled = QCheckBox("Frozen-phonon ensemble")
-        self.tail_enabled = QCheckBox("Approximate high-angle Rutherford tail")
+        self.frozen_configurations = self._integer_control(
+            "sampleFrozenPhononConfigurations", 1, 64
+        )
+        self.frozen_sigma = self._double_control(
+            "sampleFrozenPhononSigma", 0.0, 1.0e6, suffix=" Å"
+        )
+        self.frozen_sigma.setSpecialValueText("Preset value")
+        self.frozen_seed = self._integer_control(
+            "sampleFrozenPhononSeed", 0, 2_147_483_647
+        )
+        self.wave_grid = self._integer_control(
+            "sampleWaveGridPixels", 0, 8192, step=32
+        )
+        self.wave_grid.setSpecialValueText("Preset default")
+        self.wave_scalar_controls = {
+            "wave_field_of_view_angstrom": self._double_control(
+                "sampleWaveFieldOfView", 0.0, 1.0e9, suffix=" Å"
+            ),
+            "wave_slice_thickness_angstrom": self._double_control(
+                "sampleWaveSliceThickness", 1.0e-6, 1.0e9, suffix=" Å"
+            ),
+            "wave_defocus_nm": self._double_control(
+                "sampleWaveDefocus", -1.0e9, 1.0e9, suffix=" nm"
+            ),
+            "wave_bandwidth_fraction": self._double_control(
+                "sampleWaveBandwidth", 1.0e-6, 1.0, decimals=5
+            ),
+            "wave_probe_padding_factor": self._double_control(
+                "sampleWaveProbePadding", 0.0, 1.0e6, decimals=4
+            ),
+        }
+        self.wave_scalar_controls[
+            "wave_field_of_view_angstrom"
+        ].setSpecialValueText("Preset default")
+        self.tail_enabled = QCheckBox("Approximate Rutherford high-angle tail")
         self.element_sigma = QLineEdit()
         self.element_sigma.setObjectName("sampleElementThermalRms")
         self.element_sigma.setPlaceholderText('{"Si": 0.075, "O": 0.09}')
@@ -764,22 +946,60 @@ class SamplePage(QWidget):
         self.tail_maximum.setRange(1.0e-6, 500.0)
         self.tail_maximum.setDecimals(6)
         self.tail_maximum.setSuffix(" mrad")
-        wave_form.addRow(self.wave_enabled)
+        wave_form.addRow("Calculate", self.tem_wave_enabled)
+        wave_form.addRow("", self.stem_wave_enabled)
+        wave_form.addRow(self.multislice_enabled)
         wave_form.addRow(self.atomistic_enabled)
+        wave_form.addRow("Grid", self.wave_grid)
+        wave_form.addRow(
+            "Field of view",
+            self.wave_scalar_controls["wave_field_of_view_angstrom"],
+        )
+        wave_form.addRow(
+            "Target slice thickness",
+            self.wave_scalar_controls["wave_slice_thickness_angstrom"],
+        )
+        wave_form.addRow(
+            "Additional defocus",
+            self.wave_scalar_controls["wave_defocus_nm"],
+        )
+        wave_form.addRow(
+            "Bandwidth fraction",
+            self.wave_scalar_controls["wave_bandwidth_fraction"],
+        )
+        wave_form.addRow(
+            "Probe padding factor",
+            self.wave_scalar_controls["wave_probe_padding_factor"],
+        )
         wave_form.addRow(self.frozen_enabled)
+        wave_form.addRow("Configurations", self.frozen_configurations)
+        wave_form.addRow("Global RMS sigma", self.frozen_sigma)
+        wave_form.addRow("Random seed", self.frozen_seed)
         wave_form.addRow("Per-element RMS JSON", self.element_sigma)
         wave_form.addRow(self.tail_enabled)
         wave_form.addRow("Tail atomic number Z", self.tail_atomic_number)
         wave_form.addRow("Tail areal density", self.tail_density)
         wave_form.addRow("Tail screening angle", self.tail_screening)
         wave_form.addRow("Tail maximum angle", self.tail_maximum)
-        real_layout.addLayout(wave_form)
+        real_layout.addWidget(wave)
         controls_layout.addWidget(real)
         self.real_group = real
 
         virtual = QGroupBox("Virtual interaction channels (absolute probabilities)")
         virtual.setObjectName("virtualSampleControls")
         virtual_layout = QVBoxLayout(virtual)
+        self.diffraction_enabled = QCheckBox(
+            "Plot enabled virtual interaction channels in Ray Diagram"
+        )
+        self.diffraction_enabled.setObjectName(
+            "sampleVirtualInteractionsEnabled"
+        )
+        self.diffraction_enabled.setToolTip(
+            "Applies only to Virtual sample mode. Real-sample diffraction "
+            "and scattering are calculated by the high-accuracy wave model, "
+            "not by manually defined ray branches."
+        )
+        virtual_layout.addWidget(self.diffraction_enabled)
         self.interaction_table = self._table(
             ("On", "Name", "Kind", "Probability", "Parameters (JSON)")
         )
@@ -816,15 +1036,26 @@ class SamplePage(QWidget):
         for button in (add_region, remove_region, apply_regions):
             region_buttons.addWidget(button)
         virtual_layout.addLayout(region_buttons)
+        self.virtual_probe_convolution = QCheckBox(
+            "Convolve density with the calculated probe"
+        )
+        self.virtual_probe_convolution.setObjectName(
+            "sampleVirtualProbeConvolution"
+        )
+        virtual_layout.addWidget(self.virtual_probe_convolution)
         controls_layout.addWidget(virtual)
         self.virtual_group = virtual
 
         controls_layout.addStretch(1)
 
-        controls_scroll = QScrollArea()
-        controls_scroll.setWidgetResizable(True)
-        controls_scroll.setMinimumWidth(390)
-        controls_scroll.setWidget(controls)
+        self.controls_scroll = QScrollArea()
+        self.controls_scroll.setObjectName("sampleControlsScrollArea")
+        self.controls_scroll.setWidgetResizable(True)
+        self.controls_scroll.setMinimumWidth(390)
+        self.controls_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.controls_scroll.setWidget(controls)
 
         self.scene = SampleSceneView()
         self.scene.orientation_dragged.connect(self._orientation_dragged)
@@ -842,7 +1073,7 @@ class SamplePage(QWidget):
         structure_row.addWidget(self.element_legend)
         scene_layout.addLayout(structure_row, 1)
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(controls_scroll)
+        splitter.addWidget(self.controls_scroll)
         splitter.addWidget(scene_page)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -854,14 +1085,49 @@ class SamplePage(QWidget):
 
         self.inserted.toggled.connect(lambda value: self._set_bool("inserted", value))
         self.mode.currentIndexChanged.connect(self._mode_changed)
+        self.preset.currentIndexChanged.connect(self._preset_changed)
+        self.diffraction_enabled.toggled.connect(
+            lambda value: self._set_bool("diffraction_enabled", value)
+        )
         for control, field in (
-            (self.wave_enabled, "stem_wave_enabled"),
+            (self.tem_wave_enabled, "wave_enabled"),
+            (self.stem_wave_enabled, "stem_wave_enabled"),
+            (self.multislice_enabled, "wave_multislice_enabled"),
             (self.atomistic_enabled, "wave_atomistic_enabled"),
             (self.frozen_enabled, "wave_frozen_phonon_enabled"),
+            (self.real_inelastic_enabled, "real_inelastic_enabled"),
             (self.tail_enabled, "real_high_angle_tail_enabled"),
+            (
+                self.virtual_probe_convolution,
+                "virtual_probe_convolution_enabled",
+            ),
         ):
             control.toggled.connect(
                 lambda value, name=field: self._set_bool(name, value)
+            )
+        self.wave_grid.valueChanged.connect(
+            lambda value: self._set_integer("wave_grid_pixels", value)
+        )
+        self.frozen_configurations.valueChanged.connect(
+            lambda value: self._set_integer(
+                "wave_frozen_phonon_configurations", value
+            )
+        )
+        self.frozen_seed.valueChanged.connect(
+            lambda value: self._set_integer("wave_frozen_phonon_seed", value)
+        )
+        self.frozen_sigma.valueChanged.connect(
+            lambda value: self._set_scalar(
+                "wave_frozen_phonon_sigma_angstrom", value
+            )
+        )
+        for field, control in self.wave_scalar_controls.items():
+            control.valueChanged.connect(
+                lambda value, name=field: self._set_scalar(name, value)
+            )
+        for field, control in self.inelastic_scalar_controls.items():
+            control.valueChanged.connect(
+                lambda value, name=field: self._set_scalar(name, value)
             )
         self.element_sigma.editingFinished.connect(
             self._element_sigma_edited
@@ -915,6 +1181,12 @@ class SamplePage(QWidget):
             self.mode.setCurrentIndex(max(index, 0))
             for field, control in self.scalar_controls.items():
                 control.setValue(float(getattr(sample, field)))
+            preset_index = self.preset.findData(
+                str(sample.specimen_preset_key)
+            )
+            self.preset.setCurrentIndex(
+                preset_index if preset_index >= 0 else 0
+            )
             self.cif_path.setText(str(sample.cif_path))
             for controls, values in (
                 (self.zone_controls[1], sample.zone_axis_uvw),
@@ -922,10 +1194,35 @@ class SamplePage(QWidget):
             ):
                 for control, value in zip(controls, values):
                     control.setValue(int(value))
-            self.wave_enabled.setChecked(bool(sample.stem_wave_enabled))
+            self.diffraction_enabled.setChecked(
+                bool(sample.diffraction_enabled)
+            )
+            self.tem_wave_enabled.setChecked(bool(sample.wave_enabled))
+            self.stem_wave_enabled.setChecked(bool(sample.stem_wave_enabled))
+            self.multislice_enabled.setChecked(
+                bool(sample.wave_multislice_enabled)
+            )
             self.atomistic_enabled.setChecked(bool(sample.wave_atomistic_enabled))
             self.frozen_enabled.setChecked(bool(sample.wave_frozen_phonon_enabled))
+            self.wave_grid.setValue(int(sample.wave_grid_pixels))
+            for field, control in self.wave_scalar_controls.items():
+                control.setValue(float(getattr(sample, field)))
+            self.frozen_configurations.setValue(
+                int(sample.wave_frozen_phonon_configurations)
+            )
+            self.frozen_sigma.setValue(
+                float(sample.wave_frozen_phonon_sigma_angstrom)
+            )
+            self.frozen_seed.setValue(int(sample.wave_frozen_phonon_seed))
+            self.real_inelastic_enabled.setChecked(
+                bool(sample.real_inelastic_enabled)
+            )
+            for field, control in self.inelastic_scalar_controls.items():
+                control.setValue(float(getattr(sample, field)))
             self.tail_enabled.setChecked(bool(sample.real_high_angle_tail_enabled))
+            self.virtual_probe_convolution.setChecked(
+                bool(sample.virtual_probe_convolution_enabled)
+            )
             self.element_sigma.setText(
                 json.dumps(
                     sample.wave_frozen_phonon_sigma_by_element_angstrom,
@@ -941,6 +1238,8 @@ class SamplePage(QWidget):
             self._draft_quaternion = sample_orientation_quaternion(sample)
             self.apply_draft.setEnabled(False)
             self._update_mode_controls()
+            self._update_wave_controls()
+            self._refresh_inelastic_summary()
         finally:
             self._updating = False
         self.refresh_snapshot()
@@ -958,13 +1257,40 @@ class SamplePage(QWidget):
         if self._updating or self._state is None:
             return
         setattr(self._state.sample, name, bool(value))
+        if name in {
+            "wave_enabled",
+            "stem_wave_enabled",
+            "wave_multislice_enabled",
+            "wave_atomistic_enabled",
+            "wave_frozen_phonon_enabled",
+            "real_inelastic_enabled",
+        }:
+            self._update_wave_controls()
         self._changed(f"sample.{name}")
 
     def _set_integer(self, name, value):
         if self._updating or self._state is None:
             return
+        if name == "wave_grid_pixels" and 0 < int(value) < 32:
+            self.error.emit("wave_grid_pixels must be 0 or at least 32.")
+            self._updating = True
+            try:
+                self.wave_grid.setValue(
+                    int(self._state.sample.wave_grid_pixels)
+                )
+            finally:
+                self._updating = False
+            return
         setattr(self._state.sample, name, int(value))
         self._changed(f"sample.{name}")
+
+    def _preset_changed(self):
+        if self._updating or self._state is None:
+            return
+        self._state.sample.specimen_preset_key = str(
+            self.preset.currentData() or ""
+        )
+        self._changed("sample.specimen_preset_key")
 
     def _element_sigma_edited(self):
         if self._updating or self._state is None:
@@ -994,6 +1320,7 @@ class SamplePage(QWidget):
             return
         self._state.sample.specimen_mode = str(self.mode.currentData())
         self._update_mode_controls()
+        self._update_wave_controls()
         self._changed("sample.specimen_mode")
 
     def _update_mode_controls(self):
@@ -1001,7 +1328,96 @@ class SamplePage(QWidget):
         self.real_group.setVisible(atomic)
         self.virtual_group.setVisible(not atomic)
 
+    def _update_wave_controls(self):
+        atomic = str(self.mode.currentData()) == "atomic"
+        illumination = str(
+            getattr(self._state, "illumination_mode", "TEM")
+            if self._state is not None
+            else "TEM"
+        ).upper()
+        tem_available = atomic and illumination == "TEM"
+        stem_available = atomic and illumination == "STEM"
+        self.tem_wave_enabled.setEnabled(tem_available)
+        self.stem_wave_enabled.setEnabled(stem_available)
+        self.tem_wave_enabled.setToolTip(
+            "Calculate the local specimen-to-Objective image and exit-wave "
+            "diffraction diagnostic."
+            if tem_available
+            else "TEM wave imaging requires Real sample mode and Microprobe "
+            "(TEM) illumination."
+        )
+        self.stem_wave_enabled.setToolTip(
+            "Calculate raster detector images with the STEM wave model."
+            if stem_available
+            else "STEM wave detector imaging requires Real sample mode and "
+            "Nanoprobe (STEM) illumination."
+        )
+
+        inelastic_enabled = (
+            atomic and self.real_inelastic_enabled.isChecked()
+        )
+        self.real_inelastic_enabled.setEnabled(atomic)
+        for control in self.inelastic_scalar_controls.values():
+            control.setEnabled(inelastic_enabled)
+
+        multislice = atomic and self.multislice_enabled.isChecked()
+        atomistic = multislice and self.atomistic_enabled.isChecked()
+        frozen = atomistic and self.frozen_enabled.isChecked()
+        self.multislice_enabled.setEnabled(atomic)
+        self.atomistic_enabled.setEnabled(multislice)
+        self.frozen_enabled.setEnabled(atomistic)
+        for control in (
+            self.frozen_configurations,
+            self.frozen_sigma,
+            self.frozen_seed,
+            self.element_sigma,
+        ):
+            control.setEnabled(frozen)
+
+    def _refresh_inelastic_summary(self):
+        if self._state is None:
+            return
+        try:
+            from temsim.specimen.inelastic import real_inelastic_distribution
+
+            distribution = real_inelastic_distribution(self._state)
+
+            def mfp(value):
+                return (
+                    f"{float(value):.6g} nm"
+                    if math.isfinite(float(value)) else "disabled"
+                )
+
+            channel_text = ", ".join(
+                f"{channel.label} {100.0 * channel.probability:.5g}%"
+                for channel in distribution.channels
+            )
+            self.inelastic_summary.setText(
+                f"{distribution.material_name}; total λ {mfp(distribution.total_inelastic_mean_free_path_nm)}, "
+                f"plasmon λ {mfp(distribution.plasmon_mean_free_path_nm)}, "
+                f"ionisation λ {mfp(distribution.ionisation_mean_free_path_nm)}; "
+                f"t/λ {distribution.mean_inelastic_events:.6g}. "
+                f"{channel_text}; effective absorption "
+                f"{100.0 * distribution.absorbed_probability:.5g}%."
+            )
+            self.inelastic_summary.setToolTip(
+                "\n".join(
+                    (
+                        f"Model: {distribution.model}",
+                        f"Reference: {distribution.reference}",
+                        f"Applicability: {distribution.applicability}",
+                        *distribution.warnings,
+                    )
+                )
+            )
+        except Exception as exc:
+            self.inelastic_summary.setText(
+                f"Inelastic model unavailable: {exc}"
+            )
+            self.inelastic_summary.setToolTip(str(exc))
+
     def _changed(self, name):
+        self._refresh_inelastic_summary()
         self.refresh_snapshot()
         self.parameters_changed.emit(name)
 

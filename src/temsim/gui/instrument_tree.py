@@ -22,7 +22,7 @@ OPTICAL_FILTERS = (
     ("stigmator", "Stigmators"),
     ("corrector", "Correctors"),
     ("energy_filter", "Energy Filter"),
-    ("other", "Source / sample / detectors"),
+    ("other", "Source / detectors"),
 )
 OPTICAL_CATEGORY_LABELS = {
     "lens": "Lenses",
@@ -31,11 +31,12 @@ OPTICAL_CATEGORY_LABELS = {
     "stigmator": "Stigmators",
     "corrector": "Correctors",
     "energy_filter": "Energy Filter",
-    "other": "Source / sample / detectors",
+    "other": "Source / detectors",
 }
 OPTICAL_CATEGORY_ORDER = tuple(OPTICAL_CATEGORY_LABELS)
 CORRECTOR_KEYS = frozenset((*PROBE_CORRECTOR_KEYS, *IMAGE_CORRECTOR_KEYS))
 GLOBAL_RUNTIME_KEYS = ("simulation", "electron_gun")
+CENTRAL_WORKSPACE_KEYS = frozenset({"sample"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +77,8 @@ class InstrumentTree(QTreeWidget):
     @staticmethod
     def _is_optical_part(part, runtime_targets) -> bool:
         return (
-            part.key in runtime_targets
+            part.key not in CENTRAL_WORKSPACE_KEYS
+            and part.key in runtime_targets
             and not bool(part.data.get("mechanical_only", False))
         )
 
@@ -228,6 +230,7 @@ class InstrumentTree(QTreeWidget):
                 part
                 for part in assembly.parts
                 if part.module_key == module.key
+                and part.key not in CENTRAL_WORKSPACE_KEYS
                 and part.key not in ENERGY_FILTER_INTERNAL_KEYS
                 and not self._is_optical_part(part, targets)
             ]

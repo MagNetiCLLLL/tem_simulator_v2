@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from html import escape
+
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QTimer, Qt, Signal
@@ -14,6 +16,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QTabWidget,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -36,17 +39,31 @@ class WaveImagingView(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.summary = QLabel(
-            "Enable TEM wave imaging on the Sample and run High accuracy."
+            "Optional local specimen-to-Objective wave diagnostic. Enable TEM "
+            "wave imaging on the Sample and run High accuracy."
         )
         self.summary.setWordWrap(True)
         self.summary.setStyleSheet("color: #94a3b8; font-weight: 600;")
-        self.image = pg.ImageView()
+        self.image_plot = pg.PlotItem()
+        self.image = pg.ImageView(view=self.image_plot)
         self.image.setObjectName("waveImageView")
-        self.diffraction = pg.ImageView()
+        self.diffraction_plot = pg.PlotItem()
+        self.diffraction = pg.ImageView(view=self.diffraction_plot)
         self.diffraction.setObjectName("waveDiffractionView")
         for view in (self.image, self.diffraction):
             view.ui.roiBtn.hide()
             view.ui.menuBtn.hide()
+            view.getView().setAspectLocked(True)
+        self.image.getView().setTitle(
+            "Objective CTF image (display-normalised)"
+        )
+        self.image.getView().setLabel("bottom", "x", units="Å")
+        self.image.getView().setLabel("left", "y", units="Å")
+        self.diffraction.getView().setTitle(
+            "Exit-wave diffraction (log display)"
+        )
+        self.diffraction.getView().setLabel("bottom", "qₓ", units="Å⁻¹")
+        self.diffraction.getView().setLabel("left", "qᵧ", units="Å⁻¹")
         panels = QHBoxLayout()
         panels.addWidget(self.image, 1)
         panels.addWidget(self.diffraction, 1)
@@ -54,25 +71,102 @@ class WaveImagingView(QWidget):
         layout.addWidget(self.summary)
         layout.addLayout(panels, 1)
 
-    def display_result(self, wave_result) -> None:
+    @staticmethod
+    def _axis_transform(x_axis, y_axis):
+        x_values = np.asarray(x_axis, dtype=float)
+        y_values = np.asarray(y_axis, dtype=float)
+        if x_values.size < 2 or y_values.size < 2:
+            raise ValueError("Wave-image axes need at least two samples.")
+        step_x = float(x_values[1] - x_values[0])
+        step_y = float(y_values[1] - y_values[0])
+        if (
+            not np.isfinite(step_x)
+            or not np.isfinite(step_y)
+            or step_x <= 0.0
+            or step_y <= 0.0
+        ):
+            raise ValueError("Wave-image axes must be finite and increasing.")
+        return (
+            (
+                float(x_values[0] - 0.5 * step_x),
+                float(y_values[0] - 0.5 * step_y),
+            ),
+            (step_x, step_y),
+        )
+
+    def display_result(self, wave_result, state=None, quality: str = "") -> None:
         if wave_result is None:
             self.image.clear()
             self.diffraction.clear()
             self.summary.setToolTip("")
-            self.summary.setText(
-                "No wave image in this result. Enable TEM wave imaging on "
-                "the Sample and run High accuracy."
+            illumination = str(
+                getattr(state, "illumination_mode", "") if state is not None else ""
+            ).upper()
+            specimen_mode = str(
+                getattr(getattr(state, "sample", None), "specimen_mode", "")
+                if state is not None
+                else ""
+            ).lower()
+            requested = bool(
+                getattr(getattr(state, "sample", None), "wave_enabled", False)
+                if state is not None
+                else False
             )
+            if quality == "Preview":
+                message = (
+                    "Preview omits TEM wave imaging. Run High accuracy to "
+                    "calculate the local Objective image and diffraction."
+                )
+            elif requested and illumination != "TEM":
+                message = (
+                    "TEM wave imaging is inactive in Nanoprobe (STEM) mode; "
+                    "use STEM detector imaging or switch to Microprobe (TEM)."
+                )
+            elif requested and specimen_mode != "atomic":
+                message = (
+                    "TEM wave imaging requires Real sample mode; Virtual "
+                    "interaction channels use the ray/detector model."
+                )
+            else:
+                message = (
+                    "No TEM wave image in this result. Enable TEM image / "
+                    "diffraction on the Sample and run High accuracy."
+                )
+            self.summary.setText(message)
             return
+        image_pos, image_scale = self._axis_transform(
+            wave_result.x_angstrom,
+            wave_result.y_angstrom,
+        )
         self.image.setImage(
             np.asarray(wave_result.image_intensity, dtype=float).T,
             autoRange=True,
             autoLevels=True,
+            pos=image_pos,
+            scale=image_scale,
+        )
+        frequency_x = np.asarray(
+            wave_result.spatial_frequency_inv_angstrom,
+            dtype=float,
+        )
+        frequency_y = np.asarray(
+            getattr(
+                wave_result,
+                "spatial_frequency_y_inv_angstrom",
+                frequency_x,
+            ),
+            dtype=float,
+        )
+        diffraction_pos, diffraction_scale = self._axis_transform(
+            frequency_x,
+            frequency_y,
         )
         self.diffraction.setImage(
             np.asarray(wave_result.diffraction_intensity, dtype=float).T,
             autoRange=True,
             autoLevels=True,
+            pos=diffraction_pos,
+            scale=diffraction_scale,
         )
         metrics = wave_result.metrics
         model = str(metrics.get("specimen_model", "unknown"))
@@ -127,12 +221,23 @@ class WaveImagingView(QWidget):
             f"compute {backend} | "
             f"FOV {float(metrics['field_of_view_angstrom']):.5g} Å | "
             f"pixel {float(metrics['pixel_size_angstrom']):.5g} Å | "
-            f"surviving rays {int(metrics['surviving_rays'])}"
+            f"surviving rays {int(metrics['surviving_rays'])} | "
+            "local Objective CTF, display-normalised"
             f"{warning_text}"
         )
         details = [
+            "Scope: specimen to Objective CTF only; this is not the final "
+            "projector/camera or energy-filter recording plane.",
+            "Energy-loss scope: "
+            f"{metrics.get('wave_energy_loss_scope', 'not reported')}",
+            "Zero-loss probability per sample-incident electron: "
+            f"{float(metrics.get('zero_loss_probability_per_sample_incident', 1.0)):.6g}",
             "Intensity treatment: "
             f"{metrics.get('displayed_intensity_average', 'unknown')}",
+            "Image display: "
+            f"{metrics.get('image_display_scaling', 'unknown')}",
+            "Diffraction display: "
+            f"{metrics.get('diffraction_display_scaling', 'unknown')}",
             "Potential builder: "
             f"{metrics.get('specimen_potential_builder_backend', 'unknown')}",
         ]
@@ -172,6 +277,26 @@ class VisualizationWorkspace(QWidget):
     RAY_AXIS_TICK_PT = 10
     RAY_AXIS_LABEL_PT = 11
     RAY_LEGEND_PT = 10
+    CONVERGENCE_SHADE_BINS = 5
+    INTERACTION_LABELS = {
+        "incident": "Incident (pre-sample)",
+        "vacuum": "Vacuum continuation",
+        "real_sample_reference": "Real sample: reference ray only",
+        "real_zero_loss": "Real: zero loss / elastic coherent",
+        "real_plasmon": "Real: plasmon / low loss",
+        "real_ionisation": "Real: core ionisation",
+        "real_other_inelastic": "Real: other inelastic",
+        "real_plural_inelastic": "Real: plural inelastic",
+        "virtual_interactions_disabled": "Virtual interactions disabled",
+        "transmitted": "Transmitted / direct",
+        "diffraction_spots": "Diffraction spots",
+        "diffuse_ring": "Diffuse ring",
+        "gaussian_diffuse": "Gaussian diffuse",
+        "arbitrary_angular": "Arbitrary angular",
+        "user_screened_power_law": "User screened power law",
+        "physical_rutherford": "Physical Rutherford approximation",
+        "unknown": "Unknown interaction",
+    }
     OPTION_BUTTON_STYLE = """
         QPushButton {
             min-height: 24px;
@@ -213,6 +338,7 @@ class VisualizationWorkspace(QWidget):
         self._scan_ray_offsets_m: dict[str, np.ndarray] = {}
         self._scan_playback_active = False
         self._scan_playback_time_s: float | None = None
+        self._convergence_colour_reference_mrad = 0.0
         self._projection_redraw_timer = QTimer(self)
         self._projection_redraw_timer.setSingleShot(True)
         self._projection_redraw_timer.setInterval(16)
@@ -391,6 +517,21 @@ class VisualizationWorkspace(QWidget):
         )
         self.stop_detail.setWordWrap(True)
         self.stop_detail.setStyleSheet("color: #fbbf24; font-weight: 600;")
+        self.interaction_detail = QTextBrowser()
+        self.interaction_detail.setObjectName(
+            "rayPlaneInteractionSummary"
+        )
+        self.interaction_detail.setMaximumHeight(190)
+        self.interaction_detail.setOpenExternalLinks(False)
+        self.interaction_detail.setStyleSheet(
+            "QTextBrowser { background: #0b1020; color: #cbd5e1; "
+            "border: 1px solid #334155; border-radius: 5px; padding: 4px; }"
+        )
+        self.interaction_detail.setHtml(
+            "<b>Selected-plane interaction budget</b><br>"
+            "Choose an axial Z position to calculate source-normalised "
+            "interaction fractions."
+        )
         self.hint = QLabel("Angle and display-scale diagnostics appear here")
         self.hint.setWordWrap(True)
         self.hint.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -408,6 +549,7 @@ class VisualizationWorkspace(QWidget):
         ray_layout.addLayout(navigation_controls)
         ray_layout.addWidget(self.plot, 1)
         ray_layout.addWidget(self.stop_detail)
+        ray_layout.addWidget(self.interaction_detail)
         ray_layout.addWidget(self.hint)
 
         self.physical_layout = PhysicalLayoutView()
@@ -496,6 +638,14 @@ class VisualizationWorkspace(QWidget):
             self.jump_to_ray_position
         )
 
+    def show_sample_page(self) -> None:
+        """Activate the central owner of all specimen parameters."""
+
+        index = self.tabs.indexOf(self.sample_page)
+        if index >= 0:
+            self.tabs.setCurrentIndex(index)
+            self.sample_page.setFocus(Qt.FocusReason.OtherFocusReason)
+
     def _show_notice(self, text: str) -> None:
         self.plot.clear()
         notice = pg.TextItem(text, color="#94a3b8", anchor=(0.5, 0.5))
@@ -536,6 +686,9 @@ class VisualizationWorkspace(QWidget):
         z = np.asarray(z, dtype=float)
         values = np.asarray(values, dtype=float)
         ray_count = values.shape[1]
+        if ray_count <= 0 or int(count) <= 0:
+            return np.array([], dtype=float), np.array([], dtype=float)
+        count = min(int(count), ray_count)
         indices = np.unique(np.linspace(0, ray_count - 1, count, dtype=int))
         x_segments = []
         y_segments = []
@@ -564,14 +717,26 @@ class VisualizationWorkspace(QWidget):
             return np.array([], dtype=float), np.array([], dtype=float)
         return np.concatenate(x_segments), np.concatenate(y_segments)
 
-    def _display_bundle_lines(self, branch) -> tuple[np.ndarray, np.ndarray]:
-        """Project only the deterministic ray subset that is actually drawn."""
-
+    def _display_ray_indices(self, branch) -> np.ndarray:
         ray_count = int(branch.x.shape[1])
+        if ray_count <= 0:
+            return np.array([], dtype=int)
         display_count = min(self.MAX_DISPLAY_RAYS, ray_count)
-        indices = np.unique(
+        return np.unique(
             np.linspace(0, ray_count - 1, display_count, dtype=int)
         )
+
+    def _display_bundle_lines(
+        self, branch, indices=None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Project only the deterministic ray subset that is actually drawn."""
+
+        if indices is None:
+            indices = self._display_ray_indices(branch)
+        else:
+            indices = np.asarray(indices, dtype=int)
+        if indices.size == 0:
+            return np.array([], dtype=float), np.array([], dtype=float)
         x_values = np.asarray(branch.x)[:, indices]
         y_values = np.asarray(branch.y)[:, indices]
         scan_offset = self._scan_ray_offsets_m.get(
@@ -590,6 +755,213 @@ class VisualizationWorkspace(QWidget):
             len(indices),
             blocked_z,
         )
+
+    @staticmethod
+    def _canonical_interaction_kind(kind: str) -> str:
+        aliases = {
+            "diffraction_spot": "diffraction_spots",
+            "isotropic_ring": "diffuse_ring",
+        }
+        value = str(kind or "unknown").strip().lower()
+        return aliases.get(value, value)
+
+    def _branch_interaction_kind(self, branch) -> str:
+        kind = self._canonical_interaction_kind(
+            getattr(branch, "interaction_kind", "unknown")
+        )
+        if kind != "unknown":
+            return kind
+        name = str(getattr(branch, "name", "")).strip().lower()
+        if name == "incident":
+            return "incident"
+        if name == "000":
+            return "transmitted"
+        if name in {"+g", "-g", "virtual_+g", "virtual_-g"}:
+            return "diffraction_spots"
+        return "unknown"
+
+    def _sample_convergence_semiangles_mrad(
+        self, branch, indices=None
+    ) -> np.ndarray:
+        """Return each ray's 3-D angle to its branch chief ray at sample Z.
+
+        The common interaction kick is removed by measuring every outgoing
+        branch relative to its own weighted chief ray.  Hue can therefore
+        encode interaction type independently of convergence brightness.
+        """
+
+        tx_history = np.asarray(getattr(branch, "tx", ()), dtype=float)
+        ty_history = np.asarray(getattr(branch, "ty", ()), dtype=float)
+        if (
+            tx_history.ndim != 2
+            or ty_history.shape != tx_history.shape
+            or tx_history.shape[1] == 0
+        ):
+            size = 0 if indices is None else np.asarray(indices).size
+            return np.full(size, np.nan, dtype=float)
+        row = -1 if self._branch_interaction_kind(branch) == "incident" else 0
+        tx = tx_history[row].copy()
+        ty = ty_history[row].copy()
+        # Real inelastic populations sample an azimuthal characteristic-angle
+        # ring within one branch. Remove that recorded interaction kick before
+        # encoding illumination convergence as brightness.
+        if row == 0:
+            interaction_kick_x = getattr(
+                branch, "interaction_kick_x_rad", None
+            )
+            interaction_kick_y = getattr(
+                branch, "interaction_kick_y_rad", None
+            )
+            if interaction_kick_x is not None:
+                kick_x = np.asarray(interaction_kick_x, dtype=float)
+                if kick_x.shape == tx.shape:
+                    tx -= kick_x
+            if interaction_kick_y is not None:
+                kick_y = np.asarray(interaction_kick_y, dtype=float)
+                if kick_y.shape == ty.shape:
+                    ty -= kick_y
+        directions = np.stack((tx, ty, np.ones_like(tx)), axis=1)
+        norms = np.linalg.norm(directions, axis=1)
+        valid = np.isfinite(directions).all(axis=1) & (norms > 0.0)
+        z_history = np.asarray(getattr(branch, "z", ()), dtype=float)
+        blocked_z = np.asarray(
+            getattr(branch, "blocked_z", ()), dtype=float
+        )
+        if (
+            z_history.ndim == 1
+            and z_history.size
+            and blocked_z.shape == tx.shape
+        ):
+            sample_z = float(z_history[row])
+            # Rays stopped upstream have no sample-plane convergence. Rays
+            # stopped later did reach the sample and remain valid here.
+            valid &= np.isnan(blocked_z) | (
+                blocked_z >= sample_z - 1.0e-9
+            )
+        result = np.full(tx.size, np.nan, dtype=float)
+        if np.any(valid):
+            directions = directions[valid] / norms[valid, None]
+            raw_weights = np.asarray(
+                getattr(branch, "ray_weight", np.ones(tx.size)),
+                dtype=float,
+            )
+            if raw_weights.shape != tx.shape:
+                raw_weights = np.ones(tx.size, dtype=float)
+            weights = raw_weights[valid]
+            weights = np.where(
+                np.isfinite(weights) & (weights >= 0.0), weights, 0.0
+            )
+            if float(np.sum(weights)) <= 0.0:
+                weights = np.ones_like(weights)
+            weights /= np.sum(weights)
+            chief = np.sum(weights[:, None] * directions, axis=0)
+            chief_norm = float(np.linalg.norm(chief))
+            if chief_norm > 0.0 and np.isfinite(chief_norm):
+                chief /= chief_norm
+                dot = np.clip(directions @ chief, -1.0, 1.0)
+                cross = np.linalg.norm(
+                    np.cross(directions, chief[None, :]), axis=1
+                )
+                result[valid] = np.arctan2(cross, dot) * 1.0e3
+        if indices is None:
+            return result
+        return result[np.asarray(indices, dtype=int)]
+
+    def _convergence_reference_mrad(self, simulation) -> float:
+        metric = float(
+            getattr(simulation, "metrics", {}).get(
+                "sample_convergence_99_mrad", float("nan")
+            )
+        )
+        if np.isfinite(metric) and metric > 0.0:
+            return metric
+        angles = self._sample_convergence_semiangles_mrad(
+            simulation.incident
+        )
+        finite = angles[np.isfinite(angles)]
+        if finite.size == 0:
+            return 0.0
+        fallback = float(np.percentile(finite, 99.0))
+        return fallback if np.isfinite(fallback) and fallback > 0.0 else 0.0
+
+    @staticmethod
+    def _shade_colour(base_colour, normalised_angle: float) -> tuple[int, int, int]:
+        """Keep hue fixed while mapping low-to-high convergence dark-to-light."""
+
+        channels = np.asarray(base_colour, dtype=float).reshape(-1)[:3]
+        if channels.size != 3 or not np.all(np.isfinite(channels)):
+            channels = np.asarray((0.89, 0.91, 0.94), dtype=float)
+        if float(np.max(channels)) <= 1.0:
+            channels = channels * 255.0
+        level = float(np.clip(normalised_angle, 0.0, 1.0))
+        brightness = 0.42 + 0.58 * level
+        return tuple(
+            int(round(value))
+            for value in np.clip(channels * brightness, 0.0, 255.0)
+        )
+
+    def _ray_colour_groups(self, bundles, reference_mrad: float):
+        """Group displayed rays by interaction hue and convergence shade."""
+
+        groups = {}
+        kind_order = []
+        base_colours = {}
+        bin_count = self.CONVERGENCE_SHADE_BINS
+        for branch in bundles:
+            indices = self._display_ray_indices(branch)
+            if indices.size == 0:
+                continue
+            kind = self._branch_interaction_kind(branch)
+            if kind not in base_colours:
+                kind_order.append(kind)
+                base_colours[kind] = getattr(
+                    branch, "colour", (0.89, 0.91, 0.94)
+                )
+            angles = self._sample_convergence_semiangles_mrad(
+                branch, indices
+            )
+            if reference_mrad > 0.0:
+                normalised = np.clip(
+                    np.nan_to_num(
+                        angles / reference_mrad,
+                        nan=0.0,
+                        posinf=1.0,
+                        neginf=0.0,
+                    ),
+                    0.0,
+                    1.0,
+                )
+            else:
+                normalised = np.zeros(indices.size, dtype=float)
+            bins = np.minimum(
+                np.floor(normalised * bin_count).astype(int),
+                bin_count - 1,
+            )
+            for bin_index in np.unique(bins):
+                selected = indices[bins == bin_index]
+                groups.setdefault((kind, int(bin_index)), []).append(
+                    (branch, selected)
+                )
+        return kind_order, base_colours, groups
+
+    def _ray_record_lines(self, payload) -> tuple[np.ndarray, np.ndarray]:
+        """Rebuild one grouped plot item after projection or scan changes."""
+
+        segments = (
+            ((payload, None),)
+            if hasattr(payload, "x")
+            else tuple(payload)
+        )
+        z_parts = []
+        transverse_parts = []
+        for branch, indices in segments:
+            z, transverse = self._display_bundle_lines(branch, indices)
+            if z.size:
+                z_parts.append(z)
+                transverse_parts.append(transverse)
+        if not z_parts:
+            return np.array([], dtype=float), np.array([], dtype=float)
+        return np.concatenate(z_parts), np.concatenate(transverse_parts)
 
     def _redraw_last_result(self) -> None:
         self._projection_redraw_timer.stop()
@@ -648,8 +1020,8 @@ class VisualizationWorkspace(QWidget):
 
         if self._last_result is None:
             return
-        for item, branch in self._ray_bundle_records:
-            z, transverse = self._display_bundle_lines(branch)
+        for item, payload in self._ray_bundle_records:
+            z, transverse = self._ray_record_lines(payload)
             item.setData(z, transverse, connect="finite")
         for item, group, records in self._stop_projection_records:
             projected_mm = self._project_transverse(
@@ -733,8 +1105,8 @@ class VisualizationWorkspace(QWidget):
             )
         }
         self._scan_playback_time_s = float(time_s)
-        for item, branch in self._ray_bundle_records:
-            z_values, transverse = self._display_bundle_lines(branch)
+        for item, payload in self._ray_bundle_records:
+            z_values, transverse = self._ray_record_lines(payload)
             item.setData(z_values, transverse, connect="finite")
         self._update_projection_text()
 
@@ -912,6 +1284,143 @@ class VisualizationWorkspace(QWidget):
     def _axial_cursor_move_finished(self, cursor) -> None:
         self.jump_to_ray_position(float(cursor.value()))
 
+    @staticmethod
+    def _interaction_percent(value: float) -> str:
+        percentage = max(float(value), 0.0) * 100.0
+        if percentage == 0.0:
+            return "0"
+        if percentage < 0.001:
+            return f"{percentage:.3e}"
+        return f"{percentage:.6g}"
+
+    def _update_interaction_detail(self) -> None:
+        if self._last_result is None or self._selected_z_mm is None:
+            self.interaction_detail.setHtml(
+                "<b>Selected-plane interaction budget</b><br>"
+                "Choose an axial Z position to calculate source-normalised "
+                "interaction fractions."
+            )
+            self.interaction_detail.setToolTip("")
+            return
+        try:
+            from temsim.physics.interaction_budget import (
+                plane_interaction_budget,
+            )
+
+            budget = plane_interaction_budget(
+                self._last_result, self._selected_z_mm
+            )
+        except Exception as exc:
+            self.interaction_detail.setHtml(
+                "<b>Selected-plane interaction budget unavailable</b><br>"
+                f"<span style='color:#fca5a5'>{escape(str(exc))}</span>"
+            )
+            self.interaction_detail.setToolTip(str(exc))
+            return
+
+        rows = []
+        for channel in budget.channels:
+            loss = channel.representative_loss_ev
+            loss_text = (
+                "—"
+                if loss is None
+                else "0 (zero loss)"
+                if abs(float(loss)) <= 1.0e-15
+                else f"{float(loss):.6g} eV"
+            )
+            rows.append(
+                "<tr>"
+                f"<td>{escape(channel.label)}</td>"
+                f"<td align='right'>{self._interaction_percent(channel.probability_at_sample)}%</td>"
+                f"<td align='right'>{self._interaction_percent(channel.source_fraction_at_plane)}%</td>"
+                f"<td align='right'>{self._interaction_percent(channel.composition_at_plane)}%</td>"
+                f"<td align='right'>{escape(loss_text)}</td>"
+                "</tr>"
+            )
+        material = (
+            f" | material {escape(budget.material_name)}"
+            if budget.material_name else ""
+        )
+        physics = ""
+        if budget.mean_inelastic_events is not None:
+            mfp = budget.total_inelastic_mean_free_path_nm
+            mfp_text = (
+                f"{float(mfp):.6g} nm"
+                if mfp is not None and np.isfinite(mfp)
+                else "∞"
+            )
+            physics = (
+                "<br><span style='color:#94a3b8'>"
+                f"Mean inelastic events t/λ = {float(budget.mean_inelastic_events):.6g}; "
+                f"combined inelastic λ = {mfp_text}. "
+                "Elastic diffraction is a coexisting coherent multislice "
+                "intensity, not another exclusive row.</span>"
+            )
+        elastic_wave = ""
+        wave_result = getattr(self._last_result, "wave_imaging", None)
+        if wave_result is not None and budget.z_mm >= budget.sample_z_mm - 1.0e-9:
+            wave_metrics = wave_result.metrics
+            outside = float(
+                wave_metrics.get(
+                    "elastic_exit_intensity_outside_incident_cone_fraction",
+                    0.0,
+                )
+            )
+            baseline = float(
+                wave_metrics.get(
+                    "elastic_incident_baseline_outside_cone_fraction",
+                    0.0,
+                )
+            )
+            cone = float(
+                wave_metrics.get("elastic_incident_cone_mrad", 0.0)
+            )
+            elastic_wave = (
+                "<br><span style='color:#7dd3fc'>Elastic wave observable "
+                "(non-exclusive, conditional zero-loss): exit intensity "
+                f"outside incident α99={cone:.6g} mrad cone "
+                f"{self._interaction_percent(outside)}%; incident-wave "
+                f"baseline {self._interaction_percent(baseline)}%; "
+                f"redistribution Δ {(outside - baseline) * 100.0:+.6g}%.</span>"
+            )
+        warnings = ""
+        if budget.warnings:
+            warnings = (
+                "<br><span style='color:#fbbf24'>Model note: "
+                f"{escape(budget.warnings[0])}</span>"
+            )
+        self.interaction_detail.setHtml(
+            "<b>Selected-plane interaction budget</b> — "
+            f"Z {budget.z_mm:.9g} mm ({escape(budget.location)}){material}<br>"
+            f"Current reaching Z: <b>{self._interaction_percent(budget.source_fraction_at_plane)}% of source</b> | "
+            f"sample incident {self._interaction_percent(budget.sample_incident_source_fraction)}%<br>"
+            "<table cellspacing='2' cellpadding='2' width='100%'>"
+            "<tr style='color:#94a3b8'><th align='left'>Interaction state</th>"
+            "<th>at sample<br>% incident</th><th>at Z<br>% source</th>"
+            "<th>at Z<br>composition</th><th>representative loss</th></tr>"
+            + "".join(rows)
+            + "</table>"
+            "<span style='color:#94a3b8'>Not reaching this Z: pre-sample stops "
+            f"{self._interaction_percent(budget.pre_sample_stopped_source_fraction)}%, "
+            f"sample absorption/removal {self._interaction_percent(budget.sample_absorbed_source_fraction)}%, "
+            f"downstream stops {self._interaction_percent(budget.downstream_stopped_source_fraction)}%. "
+            f"Conservation error {budget.conservation_error:.3e}.</span>"
+            + physics
+            + elastic_wave
+            + warnings
+        )
+        tooltip = [f"Model: {budget.model}"]
+        real = getattr(
+            self._last_result.simulation, "real_interactions", None
+        )
+        if real is not None:
+            if real.reference:
+                tooltip.append(f"Reference: {real.reference}")
+            if real.applicability:
+                tooltip.append(f"Applicability: {real.applicability}")
+            tooltip.extend(real.warnings)
+        self.interaction_detail.setToolTip("\n".join(tooltip))
+
     def jump_to_ray_position(
         self,
         z_mm: float,
@@ -955,6 +1464,7 @@ class VisualizationWorkspace(QWidget):
             f"Selected axial position: Z {selected:.9g} mm | "
             "drag the cyan cursor or double-click another axial plot"
         )
+        self._update_interaction_detail()
 
     def _column_radius_mm(self) -> float | None:
         assembly = getattr(self._last_result, "assembly", None)
@@ -1198,11 +1708,22 @@ class VisualizationWorkspace(QWidget):
             magnification_text = f"{transverse_magnification:.0f}×"
         else:
             magnification_text = f"{transverse_magnification:.2f}×"
+        if self._convergence_colour_reference_mrad > 0.0:
+            colour_text = (
+                "Hue = interaction type | shade = sample convergence "
+                "(dark α≈0 → bright at/above α99 "
+                f"{self._convergence_colour_reference_mrad:.4g} mrad)"
+            )
+        else:
+            colour_text = (
+                "Hue = interaction type | convergence shade unavailable"
+            )
         self.hint.setText(
             f"Max physical {self._projection_axis_name()} angle: "
             f"{maximum_angle_deg:.3g}° | "
             f"Transverse display: {magnification_text} (angles not to scale) | "
-            "Blocked rays stop at first intercept | Column wall uses radial X/Y"
+            f"{colour_text} | Blocked rays stop at first intercept | "
+            "Column wall uses radial X/Y"
         )
 
     def _apply_component_zoom(self, part) -> None:
@@ -1602,16 +2123,33 @@ class VisualizationWorkspace(QWidget):
         state_snapshot = getattr(result, "state_snapshot", None)
         sample_state = getattr(state_snapshot, "sample", None)
         inserted = bool(getattr(sample_state, "inserted", True))
+        specimen_mode = str(
+            getattr(sample_state, "specimen_mode", "atomic")
+        ).strip().lower()
         if inserted:
             label = f"SAMPLE / SPECIMEN  Z={sample_z_mm:.6g} mm"
-            tooltip = (
-                "Sample / specimen plane (inserted)\n"
-                f"Exact axial position Z = {sample_z_mm:.9g} mm\n"
-                "The blue incident bundle terminates here and every "
-                "post-specimen branch starts here. Their overlap at this "
-                "plane is the continuous ray boundary, not a second optical "
-                "element."
-            )
+            if specimen_mode == "virtual":
+                tooltip = (
+                    "Virtual sample plane (inserted)\n"
+                    f"Exact axial position Z = {sample_z_mm:.9g} mm\n"
+                    "Explicit user-defined interaction channels start here. "
+                    "Ray hue identifies interaction type; brightness encodes "
+                    "the ray's convergence semi-angle relative to that "
+                    "branch's chief ray. Their common start is a continuous "
+                    "ray boundary, not a second optical element."
+                )
+            else:
+                tooltip = (
+                    "Real sample plane (inserted)\n"
+                    f"Exact axial position Z = {sample_z_mm:.9g} mm\n"
+                    "Ray Diagram adds no artificial +g/-g or diffuse "
+                    "diffraction branches. Coherent elastic scattering is "
+                    "calculated by wave/multislice; coloured energy-loss "
+                    "paths are material-IMFP/Poisson quadrature for plasmon, "
+                    "ionisation and plural inelastic transport. Brightness "
+                    "still encodes convergence semi-angle. Their common "
+                    "start remains a continuous ray boundary."
+                )
             colour = "#ffffff"
             marker_brush = pg.mkBrush("#ef4444")
             line_style = Qt.PenStyle.SolidLine
@@ -1792,26 +2330,64 @@ class VisualizationWorkspace(QWidget):
         legend = self.plot.addLegend(offset=(10, 10))
         self._style_ray_legend(legend)
 
-        bundles = [(simulation.incident, "Incident")]
-        bundles.extend(
-            (branch, branch.name) for branch in simulation.branches.values()
+        bundles = [simulation.incident, *simulation.branches.values()]
+        self._convergence_colour_reference_mrad = (
+            self._convergence_reference_mrad(simulation)
         )
-        for branch, label in bundles:
-            z, transverse = self._display_bundle_lines(branch)
-            colour = (
-                "#7dd3fc"
-                if label == "Incident"
-                else tuple(max(64, int(255 * value)) for value in branch.colour)
+        kind_order, base_colours, colour_groups = self._ray_colour_groups(
+            bundles,
+            self._convergence_colour_reference_mrad,
+        )
+        for kind in kind_order:
+            label = self.INTERACTION_LABELS.get(
+                kind, kind.replace("_", " ").title()
             )
+            self.plot.plot(
+                [],
+                [],
+                pen=pg.mkPen(
+                    self._shade_colour(base_colours[kind], 1.0),
+                    width=1.8,
+                ),
+                name=label,
+            )
+
+        for (kind, bin_index), segments in colour_groups.items():
+            payload = tuple(segments)
+            z, transverse = self._ray_record_lines(payload)
             if z.size:
+                shade_level = (
+                    bin_index / max(self.CONVERGENCE_SHADE_BINS - 1, 1)
+                )
                 item = self.plot.plot(
                     z,
                     transverse,
-                    pen=pg.mkPen(colour, width=1.35),
-                    name=label,
+                    pen=pg.mkPen(
+                        self._shade_colour(
+                            base_colours[kind], shade_level
+                        ),
+                        width=1.35,
+                    ),
                     connect="finite",
                 )
-                self._ray_bundle_records.append((item, branch))
+                label = self.INTERACTION_LABELS.get(
+                    kind, kind.replace("_", " ").title()
+                )
+                if self._convergence_colour_reference_mrad > 0.0:
+                    shade_detail = (
+                        f"Convergence shade {bin_index + 1}/"
+                        f"{self.CONVERGENCE_SHADE_BINS}; brightness "
+                        "saturates at α99 = "
+                        f"{self._convergence_colour_reference_mrad:.6g} mrad"
+                    )
+                else:
+                    shade_detail = "Convergence shade unavailable"
+                item.setToolTip(
+                    f"Interaction: {label}\n{shade_detail}\n"
+                    "Semi-angle is measured relative to this branch's "
+                    "weighted chief ray at the sample plane."
+                )
+                self._ray_bundle_records.append((item, payload))
 
         self.plot.plot(
             [], [], pen=pg.mkPen("#ffb000", width=2.0), name="Aperture"
@@ -1856,6 +2432,7 @@ class VisualizationWorkspace(QWidget):
         self._crossover_count = len(self._all_crossovers(result))
         self._wall_stop_count = self._column_wall_stop_count(simulation)
         self._update_projection_text()
+        self._update_interaction_detail()
 
     def display_result(self, result, quality: str) -> None:
         preserve_ray_view = (
@@ -1884,7 +2461,11 @@ class VisualizationWorkspace(QWidget):
             result,
             getattr(result, "stem_scan", None),
         )
-        self.wave_imaging.display_result(getattr(result, "wave_imaging", None))
+        self.wave_imaging.display_result(
+            getattr(result, "wave_imaging", None),
+            getattr(result, "state_snapshot", None),
+            quality,
+        )
         if self._focused_part is not None:
             self.physical_layout.focus_component(self._focused_part)
             self.magnetic_field.focus_component(self._focused_part)

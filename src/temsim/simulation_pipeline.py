@@ -15,7 +15,11 @@ from temsim.physics.scan_geometry import (
     calculate_scan_geometry,
     calculate_scan_ray_paths,
 )
-from temsim.physics.wave_imaging import WaveImagingResult, simulate_wave_image
+from temsim.physics.wave_imaging import (
+    WaveImagingResult,
+    simulate_wave_image,
+    tem_wave_imaging_enabled,
+)
 
 
 @dataclass
@@ -89,7 +93,7 @@ def calculate(state):
     simulation = run(state, resolved_layout=layout)
     wave_imaging = (
         simulate_wave_image(state, simulation)
-        if bool(getattr(state.sample, "wave_enabled", False))
+        if tem_wave_imaging_enabled(state)
         else None
     )
     energy_filter = simulate_energy_filter(state, simulation)

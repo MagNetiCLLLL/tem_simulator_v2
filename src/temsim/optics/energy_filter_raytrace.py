@@ -144,6 +144,19 @@ def _branch_probabilities(simulation):
         ],
         dtype=float,
     )
+    if bool(
+        getattr(simulation, "metrics", {}).get(
+            "branch_weights_are_absolute", False
+        )
+    ):
+        if float(raw.sum()) > 1.0 + 1.0e-10:
+            raise ValueError(
+                "Absolute simulation branch probabilities exceed one."
+            )
+        return {
+            id(branch): float(probability)
+            for branch, probability in zip(branches, raw)
+        }
     total = float(raw.sum())
     if total <= 0.0:
         raw[:] = 1.0

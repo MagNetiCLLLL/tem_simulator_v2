@@ -14,6 +14,16 @@ y_angstrom = 5.431
 field_of_view_angstrom = 40.0
 pixels = 256
 
+[inelastic]
+reference_energy_kev = 200.0
+total_mean_free_path_nm = 145.0
+plasmon_mean_free_path_nm = 168.0
+plasmon_energy_ev = 16.7
+ionisation_energy_ev = 99.2
+collection_semiangle_mrad = 20.0
+reference = "Iakoubovskii et al., Phys. Rev. B 77, 104102 (2008), DOI 10.1103/PhysRevB.77.104102: Table I total/plasmon-component IMFP at 200 keV and Fig. 3 energy-loss context."
+applicability = "Elemental crystalline Si; measured IMFP accuracy about 5-10%, plasmon-component accuracy about 10-30%. The representative ionisation loss is the Si L2,3 threshold and is not an EELS line shape."
+
 [atomistic]
 generator = "ase_bulk_surface"
 chemical_symbol = "Si"

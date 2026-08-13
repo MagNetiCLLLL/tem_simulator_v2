@@ -593,6 +593,10 @@ def test_operating_profile_round_trip_uses_toml(tmp_path: Path):
     state.sample.wave_frozen_phonon_configurations = 9
     state.sample.wave_frozen_phonon_sigma_angstrom = 0.072
     state.sample.wave_frozen_phonon_seed = 12345
+    state.sample.real_inelastic_enabled = True
+    state.sample.real_plasmon_mean_free_path_nm = 177.0
+    state.sample.real_ionisation_mean_free_path_nm = 999.0
+    state.sample.real_absorption_mean_free_path_nm = 2500.0
     path = tmp_path / "operating-profile.toml"
 
     save_profile(path, state, selection)
@@ -614,6 +618,10 @@ def test_operating_profile_round_trip_uses_toml(tmp_path: Path):
         0.072
     )
     assert restored.sample.wave_frozen_phonon_seed == 12345
+    assert restored.sample.real_inelastic_enabled is True
+    assert restored.sample.real_plasmon_mean_free_path_nm == pytest.approx(177.0)
+    assert restored.sample.real_ionisation_mean_free_path_nm == pytest.approx(999.0)
+    assert restored.sample.real_absorption_mean_free_path_nm == pytest.approx(2500.0)
 
 
 @pytest.mark.parametrize("gun", ("FEG", "FEG + Mono", "Thermionic"))
@@ -661,6 +669,12 @@ def test_profile_assignments_are_transactional_and_domain_checked():
         apply_profile_values(
             state,
             {"sample": {"wave_frozen_phonon_configurations": 65}},
+        )
+
+    with pytest.raises(ValueError, match="real_plasmon_mean_free_path_nm"):
+        apply_profile_values(
+            state,
+            {"sample": {"real_plasmon_mean_free_path_nm": -1.0}},
         )
 
 

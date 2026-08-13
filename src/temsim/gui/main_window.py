@@ -64,6 +64,8 @@ class MainWindow(QMainWindow):
     SETTINGS_STATE = "main_window/state"
     PREVIEW_RAYS = 49
     PREVIEW_STEP_MM = 2.5
+    INITIAL_PREVIEW_DELAY_MS = 50
+    PREVIEW_DEBOUNCE_MS = 250
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -131,7 +133,7 @@ class MainWindow(QMainWindow):
         self._progress_owners: set[str] = set()
         self.preview_timer = QTimer(self)
         self.preview_timer.setSingleShot(True)
-        self.preview_timer.setInterval(250)
+        self.preview_timer.setInterval(self.PREVIEW_DEBOUNCE_MS)
 
         self.assembly_panel.selection_requested.connect(self.load_assembly)
         self.assembly_panel.operating_mode_requested.connect(
@@ -183,7 +185,7 @@ class MainWindow(QMainWindow):
         self._create_status_bar()
         self._refresh_assembly_views()
         self._restore_workspace()
-        QTimer.singleShot(50, self.run_preview)
+        self.preview_timer.start(self.INITIAL_PREVIEW_DELAY_MS)
 
     def _create_dock(self, title, object_name, widget, area) -> QDockWidget:
         dock = QDockWidget(title, self)
@@ -426,6 +428,12 @@ class MainWindow(QMainWindow):
         """Open the left editor for a component clicked in a plot."""
 
         key = str(key)
+        if key == "sample":
+            self.workspace.show_sample_page()
+            self.status_label.setText(
+                "Sample parameters opened in the central Sample workspace"
+            )
+            return
         self.instrument_dock.show()
         self.instrument_dock.raise_()
         if not self.assembly_panel.select_key(key):
@@ -705,7 +713,7 @@ class MainWindow(QMainWindow):
             self._show_error(f"Unable to match Energy Filter: {exc}")
 
     def schedule_preview(self, _parameter: str = "") -> None:
-        self.preview_timer.start()
+        self.preview_timer.start(self.PREVIEW_DEBOUNCE_MS)
 
     def _runtime_parameter_changed(self, parameter: str = "") -> None:
         # A background coupled solution was calculated for the pre-edit state.

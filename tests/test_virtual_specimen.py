@@ -90,6 +90,14 @@ def test_ray_simulation_uses_virtual_channels_in_both_transverse_axes():
     } == set(simulation.branches)
     plus = simulation.branches["virtual_+g"]
     direct = simulation.branches["000"]
+    assert direct.interaction_kind == "transmitted"
+    assert plus.interaction_kind == "diffraction_spots"
+    assert plus.colour != direct.colour
+    assert simulation.metrics["ray_interaction_types"] == (
+        "transmitted",
+        "diffraction_spots",
+        "diffuse_ring",
+    )
     assert np.mean(plus.ty[0] - direct.ty[0]) == pytest.approx(
         5.0e-3,
         rel=1.0e-6,

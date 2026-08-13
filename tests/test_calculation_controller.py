@@ -20,7 +20,12 @@ def test_preview_runs_off_the_gui_thread(qtbot):
     quality, result, duration = blocker.args
     assert quality == "Preview"
     assert result.simulation.incident.x.shape[1] == 25
-    assert set(result.simulation.branches) == {"000"}
+    assert "000" in result.simulation.branches
+    assert {
+        branch.interaction_kind
+        for branch in result.simulation.branches.values()
+    } >= {"real_zero_loss", "real_plasmon", "real_ionisation"}
+    assert result.simulation.metrics["branch_weights_are_absolute"] is True
     assert result.lens_crossovers
     assert all(item["verified"] for item in result.lens_crossovers)
     assert result.aperture_stops
@@ -42,11 +47,29 @@ def test_high_accuracy_defaults_fit_32_gib_budget_and_extreme_request_is_rejecte
         controller.submit(state, "High accuracy", 1_000_000, 0.01)
 
 
+def test_high_accuracy_memory_guard_includes_tem_wave_grid():
+    state = default_state()
+    state.illumination_mode = "TEM"
+    state.sample.wave_enabled = True
+    state.sample.wave_multislice_enabled = False
+    state.sample.wave_grid_pixels = 8192
+
+    estimate = estimate_calculation_memory_bytes(
+        state, "High accuracy", 15_000, 0.1
+    )
+
+    assert estimate > HIGH_ACCURACY_MEMORY_BUDGET_BYTES
+    controller = CalculationController()
+    with pytest.raises(ValueError, match="TEM wave grid"):
+        controller.submit(state, "High accuracy", 15_000, 0.1)
+
+
 def test_wave_imaging_is_disabled_only_for_preview():
     controller = CalculationController()
     captured = []
     controller.pool.start = captured.append
     state = default_state()
+    state.illumination_mode = "TEM"
     state.sample.wave_enabled = True
 
     controller.submit(state, "High accuracy", 25, 5.0)
@@ -56,7 +79,7 @@ def test_wave_imaging_is_disabled_only_for_preview():
     assert captured[1].state.sample.wave_enabled is False
 
 
-def test_scan_preview_keeps_diffraction_but_uses_fast_detector_model():
+def test_real_sample_preview_disables_synthetic_ray_scattering():
     controller = CalculationController()
     captured = []
     controller.pool.start = captured.append
@@ -68,8 +91,21 @@ def test_scan_preview_keeps_diffraction_but_uses_fast_detector_model():
     controller.submit(state, "Preview", 25, 5.0)
 
     snapshot = captured[0].state
-    assert snapshot.sample.diffraction_enabled is True
+    assert snapshot.sample.diffraction_enabled is False
     assert snapshot.sample.stem_wave_enabled is False
+
+
+def test_virtual_sample_preview_keeps_explicit_interaction_channels():
+    controller = CalculationController()
+    captured = []
+    controller.pool.start = captured.append
+    state = default_state()
+    state.sample.specimen_mode = "virtual"
+    state.sample.diffraction_enabled = True
+
+    controller.submit(state, "Preview", 25, 5.0)
+
+    assert captured[0].state.sample.diffraction_enabled is True
 
 
 def test_high_accuracy_preserves_selected_compute_backend():

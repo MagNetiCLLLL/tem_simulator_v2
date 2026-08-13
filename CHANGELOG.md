@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- Added probability-conserving Real-sample inelastic transport without
+  restoring artificial diffraction beams. Specimen TOMLs now own measured
+  200-keV total/plasmon IMFP anchors and provenance for Si, Au and the carbon
+  model. Relativistic log-angle scaling handles plasmon voltage dependence;
+  BEB with the stated U=B approximation scales the measured residual
+  core-ionisation rate. Independent Poisson statistics produce zero-loss,
+  single plasmon, single ionisation, optional other loss and plural-event
+  populations. Optional effective absorption/removal defaults off.
+- Real energy-loss ray populations carry representative loss energies into
+  chromatic and Energy Filter transport and sample rotationally balanced
+  characteristic scattering angles. Ray hue identifies the energy-loss state;
+  the interaction kick is removed before convergence brightness is computed.
+  A new Ray Diagram panel reports, at any selected Z, sample probability,
+  source fraction reaching the plane, local composition, loss energy,
+  pre/post-sample stops, effective absorption and numerical conservation.
+- Removed the artificial `000/+g/-g` and diffuse-jitter branch model from Real
+  sample Ray Diagram calculations. Coherent elastic diffraction/scattering
+  remains a high-accuracy wave/multislice result. Manually defined ray interactions are
+  confined to Virtual sample mode. Ray hue now identifies the interaction
+  type, while five dark-to-bright levels encode each ray's sample-plane
+  convergence semi-angle relative to its branch's weighted chief ray, with
+  brightness saturating at the calculated 99%-current semi-angle.
+- Consolidated all specimen editing in the central **Sample** workspace. The
+  duplicate sample node and quick controls were removed from the left
+  instrument tree, layout clicks now open the central page, and previously
+  side-only preset, TEM/STEM wave, multislice, frozen-phonon and Virtual
+  interaction settings remain directly editable there. The startup preview
+  now uses the cancellable debounce timer so it cannot race a navigation click
+  and overwrite its status message.
 - Added a TOML-driven **Direct Alignment** page with four background,
   transactional coupled controls: C2/C3 Nanoprobe convergence, C2/C3
   quasi-parallel Microprobe area, D/I/P1/P2 Image magnification and D/I/P1/P2

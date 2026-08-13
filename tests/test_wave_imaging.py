@@ -8,7 +8,9 @@ from temsim.physics import compute_backend
 from temsim.physics.wave_imaging import (
     _weighted_ray_statistics,
     effective_sample_thickness_nm,
+    estimate_tem_wave_memory_bytes,
     simulate_wave_image,
+    tem_wave_imaging_enabled,
 )
 from temsim.physics.stem_wave_imaging import (
     AngularDetector,
@@ -35,6 +37,38 @@ def test_retracted_sample_has_zero_interacting_wave_thickness():
     assert effective_sample_thickness_nm(state) == pytest.approx(250.0)
     state.sample.inserted = False
     assert effective_sample_thickness_nm(state) == 0.0
+
+
+def test_tem_wave_observable_requires_tem_and_real_sample_modes():
+    state = default_state()
+    state.sample.wave_enabled = True
+    state.illumination_mode = "TEM"
+    state.sample.specimen_mode = "atomic"
+
+    assert tem_wave_imaging_enabled(state) is True
+
+    state.illumination_mode = "STEM"
+    assert tem_wave_imaging_enabled(state) is False
+
+    state.illumination_mode = "TEM"
+    state.sample.specimen_mode = "virtual"
+    assert tem_wave_imaging_enabled(state) is False
+
+    state.sample.specimen_mode = "atomic"
+    state.sample.inserted = False
+    assert tem_wave_imaging_enabled(state) is True
+
+
+def test_tem_wave_memory_estimate_accounts_for_large_fft_grid():
+    state = default_state()
+    state.illumination_mode = "TEM"
+    state.sample.wave_enabled = True
+    state.sample.wave_multislice_enabled = False
+    state.sample.wave_grid_pixels = 8192
+
+    estimate = estimate_tem_wave_memory_bytes(state)
+
+    assert estimate > 15 * 1024**3
 
 
 def test_retracted_sample_ignores_dormant_custom_cif_settings(tmp_path):
@@ -98,6 +132,10 @@ def test_tem_wave_image_reports_multislice_model_and_sampling_metrics():
 
     assert result.image_intensity.shape == (32, 32)
     assert result.exit_wave.shape == (32, 32)
+    assert result.linear_diffraction_probability.shape == (32, 32)
+    assert np.sum(result.linear_diffraction_probability) == pytest.approx(1.0)
+    assert result.spatial_frequency_inv_angstrom.shape == (32,)
+    assert result.spatial_frequency_y_inv_angstrom.shape == (32,)
     assert result.metrics["specimen_model"] == "continuous_column_multislice"
     assert result.metrics["specimen_slice_count"] == 10
     assert result.metrics["specimen_slice_thickness_angstrom"] == pytest.approx(2.0)
@@ -105,6 +143,12 @@ def test_tem_wave_image_reports_multislice_model_and_sampling_metrics():
     assert result.metrics["specimen_maximum_relative_intensity_change"] < 1.0e-10
     assert result.metrics["specimen_compute_backend"] == "NumPy CPU"
     assert result.metrics["fft_compute_backend"] == "NumPy CPU"
+    assert 0.0 <= result.metrics[
+        "elastic_exit_intensity_outside_incident_cone_fraction"
+    ] <= 1.0
+    assert 0.0 <= result.metrics[
+        "elastic_incident_baseline_outside_cone_fraction"
+    ] <= 1.0
 
 
 def test_projected_phase_object_remains_available_as_preview_model():

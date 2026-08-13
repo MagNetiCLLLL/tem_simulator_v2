@@ -138,6 +138,71 @@ def test_retracted_sample_keeps_probe_plane_but_removes_scattering_branches():
     )
 
 
+def test_real_sample_never_creates_user_invented_diffraction_branches():
+    catalog = AssemblyCatalog()
+    state = default_state()
+    catalog.apply(state, catalog.default_selection())
+    layout = apply_physical_layout_to_state(state)
+    state.step_mm = 5.0
+    state.history_step_mm = 5.0
+    state.acceleration_enabled = False
+    state.acceleration_backend = "CPU"
+    state.sample.inserted = True
+    state.sample.specimen_mode = "atomic"
+    state.sample.diffraction_enabled = True
+    # These persisted legacy values must be dormant in Real sample mode.
+    state.sample.g_inv_nm = 1.0e5
+    state.sample.excitation_error_inv_nm = 3.0
+    state.sample.rocking_width_inv_nm = 0.01
+    state.sample.diffuse_broadening_mrad = 100.0
+    state.electron_gun.emitter.ray_count = 9
+
+    simulation = run(state, resolved_layout=layout)
+
+    assert "000" in simulation.branches
+    assert not any(
+        "+g" in name or "-g" in name or "diffuse" in name
+        for name in simulation.branches
+    )
+    assert {
+        branch.interaction_kind
+        for branch in simulation.branches.values()
+    } == {
+        "real_zero_loss",
+        "real_plasmon",
+        "real_ionisation",
+        "real_plural_inelastic",
+    }
+    assert simulation.branches["000"].interaction_kind == "real_zero_loss"
+    assert sum(
+        branch.weight for branch in simulation.branches.values()
+    ) + simulation.metrics["sample_absorbed_probability"] == pytest.approx(1.0)
+    assert simulation.metrics["sample_scattering_applied"] is True
+    assert simulation.metrics["sample_scattering_model"] == (
+        "real_material_inelastic_poisson_plus_elastic_wave"
+    )
+    assert simulation.metrics["ray_interaction_types"] == (
+        "real_zero_loss",
+        "real_plasmon",
+        "real_ionisation",
+        "real_plural_inelastic",
+    )
+    plasmon = simulation.branches["real_plasmon"]
+    zero_loss = simulation.branches["000"]
+    assert plasmon.energy_offset_ev - zero_loss.energy_offset_ev == pytest.approx(
+        np.full(plasmon.energy_offset_ev.shape, -16.7)
+    )
+    assert np.hypot(
+        plasmon.interaction_kick_x_rad,
+        plasmon.interaction_kick_y_rad,
+    ) * 1.0e3 == pytest.approx(
+        np.full(
+            plasmon.energy_offset_ev.shape,
+            simulation.real_interactions.channels[1].characteristic_angle_mrad,
+        )
+    )
+
+
 def test_sample_inserted_state_round_trips_without_owning_sample_geometry():
     state = default_state()
     state.sample.inserted = False

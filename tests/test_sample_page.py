@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QDoubleSpinBox, QLabel
 
 from temsim.gui.sample_panel import SamplePage
 from temsim.optics.column import default_state
@@ -55,6 +55,80 @@ def test_sample_page_applies_extensible_interaction_table(qtbot):
             "probability": 0.2,
         }
     ]
+
+
+def test_sample_page_owns_real_wave_and_virtual_interaction_controls(qtbot):
+    state = default_state()
+    state.illumination_mode = "TEM"
+    page = SamplePage()
+    qtbot.addWidget(page)
+    page.set_state(state)
+    assert "total λ" in page.inelastic_summary.text()
+    assert "Silicon" in page.inelastic_summary.text()
+
+    preset_index = page.preset.findData("si_110")
+    assert preset_index >= 0
+    page.preset.setCurrentIndex(preset_index)
+    page.tem_wave_enabled.setChecked(True)
+    page.stem_wave_enabled.setChecked(True)
+    page.wave_grid.setValue(64)
+    page.wave_scalar_controls["wave_slice_thickness_angstrom"].setValue(1.5)
+    page.frozen_enabled.setChecked(True)
+    page.frozen_configurations.setValue(6)
+    page.frozen_sigma.setValue(0.075)
+    page.frozen_seed.setValue(42)
+    page.inelastic_scalar_controls[
+        "real_plasmon_mean_free_path_nm"
+    ].setValue(175.0)
+    page.inelastic_scalar_controls[
+        "real_absorption_mean_free_path_nm"
+    ].setValue(900.0)
+
+    assert state.sample.specimen_preset_key == "si_110"
+    assert state.sample.wave_enabled is True
+    assert state.sample.stem_wave_enabled is True
+    assert state.sample.wave_grid_pixels == 64
+    assert state.sample.wave_slice_thickness_angstrom == pytest.approx(1.5)
+    assert state.sample.wave_frozen_phonon_enabled is True
+    assert state.sample.wave_frozen_phonon_configurations == 6
+    assert state.sample.wave_frozen_phonon_sigma_angstrom == pytest.approx(
+        0.075
+    )
+    assert state.sample.wave_frozen_phonon_seed == 42
+    assert state.sample.real_inelastic_enabled is True
+    assert state.sample.real_plasmon_mean_free_path_nm == pytest.approx(175.0)
+    assert state.sample.real_absorption_mean_free_path_nm == pytest.approx(900.0)
+    assert page.findChild(QDoubleSpinBox, "sampleGVector") is None
+
+    page.mode.setCurrentIndex(page.mode.findData("virtual"))
+    page.diffraction_enabled.setChecked(False)
+
+    assert state.sample.specimen_mode == "virtual"
+    assert state.sample.diffraction_enabled is False
+    assert page.real_group.isHidden() is True
+    assert page.virtual_group.isHidden() is False
+
+
+def test_sample_page_gates_wave_controls_by_illumination_mode(qtbot):
+    state = default_state()
+    state.sample.specimen_mode = "atomic"
+    page = SamplePage()
+    qtbot.addWidget(page)
+
+    state.illumination_mode = "STEM"
+    page.set_state(state)
+    assert not page.tem_wave_enabled.isEnabled()
+    assert page.stem_wave_enabled.isEnabled()
+
+    state.illumination_mode = "TEM"
+    page.set_state(state)
+    assert page.tem_wave_enabled.isEnabled()
+    assert not page.stem_wave_enabled.isEnabled()
+
+    state.sample.specimen_mode = "virtual"
+    page.set_state(state)
+    assert not page.tem_wave_enabled.isEnabled()
+    assert not page.stem_wave_enabled.isEnabled()
 
 
 def test_sample_page_contains_only_structure_and_labels_ball_elements(

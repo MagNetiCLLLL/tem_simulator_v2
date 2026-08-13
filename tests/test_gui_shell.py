@@ -11,7 +11,7 @@ from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.gui.diagnostic_tabs import OpticalTransferView
 from temsim.gui.direct_alignment_panel import DirectAlignmentPanel
 from temsim.gui.main_window import MainWindow
-from temsim.gui.visualization import VisualizationWorkspace
+from temsim.gui.visualization import VisualizationWorkspace, WaveImagingView
 from temsim.optics.column import default_state
 from temsim.optics.direct_alignment import DirectAlignmentResult
 from temsim.operating_modes import (
@@ -30,6 +30,16 @@ from temsim.runtime_parameters import editable_parameters, runtime_targets
 
 
 DIRECT_CONDENSER_KEYS = ("condenser_lens_2", "condenser_lens_3")
+
+
+def test_wave_image_axes_use_pixel_edges_and_physical_sampling():
+    position, scale = WaveImagingView._axis_transform(
+        np.array([-1.0, 0.0, 1.0]),
+        np.array([-2.0, 0.0, 2.0]),
+    )
+
+    assert position == pytest.approx((-1.5, -3.0))
+    assert scale == pytest.approx((1.0, 2.0))
 
 
 class _SceneClick:
@@ -120,6 +130,56 @@ def test_ray_diagram_projects_only_the_visible_high_accuracy_rays(
     assert projected_shapes == [(row_count, workspace.MAX_DISPLAY_RAYS)]
     assert actual[0] == pytest.approx(expected[0], nan_ok=True)
     assert actual[1] == pytest.approx(expected[1], nan_ok=True)
+
+
+def test_ray_colour_shade_uses_convergence_relative_to_branch_chief(qtbot):
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+    # A 30 mrad common interaction kick must not be mistaken for convergence.
+    branch = SimpleNamespace(
+        name="virtual_001",
+        interaction_kind="diffraction_spots",
+        tx=np.asarray(((0.02, 0.03, 0.04),)),
+        ty=np.zeros((1, 3)),
+        ray_weight=np.ones(3),
+    )
+
+    angles = workspace._sample_convergence_semiangles_mrad(branch)
+    dark = workspace._shade_colour((0.66, 0.55, 0.98), 0.0)
+    bright = workspace._shade_colour((0.66, 0.55, 0.98), 1.0)
+
+    assert angles[[0, 2]] == pytest.approx((10.0, 10.0), rel=2.0e-3)
+    assert angles[1] < 0.01
+    assert all(high > low for low, high in zip(dark, bright))
+    assert workspace._canonical_interaction_kind("diffraction_spot") == (
+        "diffraction_spots"
+    )
+    assert workspace._canonical_interaction_kind("isotropic_ring") == (
+        "diffuse_ring"
+    )
+
+
+def test_real_interaction_angle_is_not_encoded_as_convergence_brightness(qtbot):
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+    kick_x = np.array((2.0e-3, 0.0, -2.0e-3))
+    kick_y = np.array((0.0, 2.0e-3, 0.0))
+    illumination_x = np.array((-1.0e-3, 0.0, 1.0e-3))
+    branch = SimpleNamespace(
+        name="real_plasmon",
+        interaction_kind="real_plasmon",
+        z=np.array((100.0,)),
+        tx=(illumination_x + kick_x)[None, :],
+        ty=kick_y[None, :],
+        interaction_kick_x_rad=kick_x,
+        interaction_kick_y_rad=kick_y,
+        blocked_z=np.full(3, np.nan),
+        ray_weight=np.ones(3),
+    )
+
+    angles = workspace._sample_convergence_semiangles_mrad(branch)
+
+    assert angles == pytest.approx((1.0, 0.0, 1.0), abs=1.0e-6)
 
 
 def test_projection_slider_coalesces_continuous_redraws(qtbot, monkeypatch):
@@ -950,80 +1010,67 @@ def test_source_selection_exposes_primary_emission_controls(qtbot):
     }.issubset(window.parameter_panel._quick_widgets)
 
 
-def test_sample_selection_exposes_multislice_controls(qtbot):
+def test_sample_parameters_are_owned_by_central_workspace(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.preview_timer.stop()
-    sample_item = _find_tree_item(window.assembly_panel.tree, "sample")
+    assert "sample" not in _tree_keys(window.assembly_panel.tree)
+    assert "sample" not in _tree_keys(window.assembly_panel.mechanical_tree)
+    assert "sample" not in window.assembly_panel.optical_filter.itemText(
+        window.assembly_panel.optical_filter.findData("other")
+    ).lower()
 
-    window.assembly_panel.tree.setCurrentItem(sample_item)
+    window.instrument_dock.hide()
+    window.workspace.component_selected.emit("sample")
 
-    widgets = window.parameter_panel._quick_widgets
-    assert "inserted" in widgets
-    assert widgets["inserted"].isChecked()
-    assert widgets["specimen_mode"].currentData() == "atomic"
-    assert "cif_path" in widgets
-    assert "specimen_rotation_x_deg" in widgets
-    assert "wave_field_of_view_angstrom" in widgets
-    assert not widgets["virtual_scattering_angle_mrad"].isEnabled()
-    widgets["specimen_mode"].setCurrentIndex(
-        widgets["specimen_mode"].findData("virtual")
+    page = window.workspace.sample_page
+    assert window.workspace.tabs.currentWidget() is page
+    assert window.instrument_dock.isHidden()
+    assert window.status_label.text() == (
+        "Sample parameters opened in the central Sample workspace"
     )
-    assert window.state.sample.specimen_mode == "virtual"
-    assert widgets["virtual_scattering_angle_mrad"].isEnabled()
-    assert not widgets["wave_atomistic_enabled"].isEnabled()
-    widgets["specimen_mode"].setCurrentIndex(
-        widgets["specimen_mode"].findData("atomic")
-    )
-    assert window.state.sample.specimen_mode == "atomic"
-    assert "wave_multislice_enabled" in widgets
-    assert widgets["wave_multislice_enabled"].isChecked()
-    assert "wave_atomistic_enabled" in widgets
-    assert widgets["wave_atomistic_enabled"].isChecked()
-    assert "wave_frozen_phonon_enabled" in widgets
-    assert not widgets["wave_frozen_phonon_enabled"].isChecked()
-    assert widgets["wave_frozen_phonon_configurations"].value() == 4
-    assert widgets["wave_frozen_phonon_seed"].value() == 100
-    assert widgets["wave_frozen_phonon_sigma_angstrom"].suffix() == " Å"
-    assert not widgets["wave_frozen_phonon_configurations"].isEnabled()
-    widgets["wave_frozen_phonon_enabled"].setChecked(True)
-    assert widgets["wave_frozen_phonon_configurations"].isEnabled()
-    assert widgets["wave_frozen_phonon_sigma_angstrom"].isEnabled()
-    assert widgets["wave_frozen_phonon_seed"].isEnabled()
-    widgets["wave_atomistic_enabled"].setChecked(False)
-    assert not widgets["wave_frozen_phonon_enabled"].isEnabled()
-    assert not widgets["wave_frozen_phonon_configurations"].isEnabled()
-    assert "wave_slice_thickness_angstrom" in widgets
-    assert widgets["wave_slice_thickness_angstrom"].value() == pytest.approx(2.0)
-    assert widgets["wave_slice_thickness_angstrom"].suffix() == " Å"
+    assert page.inserted.isChecked()
+    assert page.mode.currentData() == "atomic"
+    assert page.multislice_enabled.isChecked()
+    assert page.atomistic_enabled.isChecked()
+    assert not page.frozen_enabled.isChecked()
+    assert page.frozen_configurations.value() == 4
+    assert page.frozen_seed.value() == 100
+    assert page.frozen_sigma.suffix() == " Å"
+    assert not page.frozen_configurations.isEnabled()
+
+    page.tem_wave_enabled.setChecked(True)
+    page.wave_grid.setValue(64)
+    page.frozen_enabled.setChecked(True)
+    window.preview_timer.stop()
+
+    assert window.state.sample.wave_enabled is True
+    assert window.state.sample.wave_grid_pixels == 64
+    assert page.frozen_configurations.isEnabled()
+    assert page.frozen_sigma.isEnabled()
+    assert page.frozen_seed.isEnabled()
 
 
-def test_sample_parameters_are_immediately_scrollable_in_a_short_panel(qtbot):
+def test_central_sample_parameters_are_scrollable_in_a_short_window(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.resize(1100, 700)
     window.show()
     window.preview_timer.stop()
-    window.instrument_editor.setSizes([220, 220])
-    sample_item = _find_tree_item(window.assembly_panel.tree, "sample")
-
-    window.assembly_panel.tree.setCurrentItem(sample_item)
+    window.workspace.show_sample_page()
     qtbot.wait(20)
 
-    panel = window.parameter_panel
-    scroll_bar = panel.scroll_area.verticalScrollBar()
-    assert panel.minimumSizeHint().height() < (
-        panel.scroll_content.minimumSizeHint().height()
-    )
+    page = window.workspace.sample_page
+    scroll_bar = page.controls_scroll.verticalScrollBar()
     assert scroll_bar.maximum() > 0
 
-    last_control = panel._quick_widgets["wave_defocus_nm"]
-    panel.scroll_area.ensureWidgetVisible(last_control)
+    last_control = page.tail_maximum
+    page.controls_scroll.ensureWidgetVisible(last_control)
     qtbot.wait(20)
     bottom_right = last_control.mapTo(
-        panel.scroll_area.viewport(), last_control.rect().bottomRight()
+        page.controls_scroll.viewport(), last_control.rect().bottomRight()
     )
-    assert 0 <= bottom_right.y() < panel.scroll_area.viewport().height()
+    assert 0 <= bottom_right.y() < page.controls_scroll.viewport().height()
 
 
 def test_ray_plot_marks_every_component_centre_and_detected_crossover(
@@ -1472,6 +1519,10 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert window.workspace._selected_z_mm == pytest.approx(950.0)
 
     window.workspace.jump_to_ray_position(1200.0, window_mm=80.0)
+    interaction_text = window.workspace.interaction_detail.toPlainText()
+    assert "Selected-plane interaction budget" in interaction_text
+    assert "Current reaching Z" in interaction_text
+    assert "no specimen interaction yet" in interaction_text
     exact_range = window.workspace.plot.getViewBox().viewRange()[0]
     assert 0.5 * (exact_range[0] + exact_range[1]) == pytest.approx(1200.0)
     assert exact_range[1] - exact_range[0] == pytest.approx(80.0)

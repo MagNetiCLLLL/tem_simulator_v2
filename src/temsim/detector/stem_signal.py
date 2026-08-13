@@ -931,6 +931,19 @@ def acquire_stem_scan(
         incident_fraction = measure_sample_current(
             simulation, state
         ).fraction
+        real_interactions = getattr(simulation, "real_interactions", None)
+        tracked_sample_probability = (
+            float(real_interactions.tracked_probability)
+            if real_interactions is not None else 1.0
+        )
+        available_fraction = (
+            incident_fraction * tracked_sample_probability
+        )
+        absorbed_source = np.full_like(
+            scan_x_um,
+            incident_fraction * (1.0 - tracked_sample_probability),
+            dtype=float,
+        )
         (
             tail_images,
             tail_uncollected,
@@ -945,12 +958,24 @@ def acquire_stem_scan(
             detector_center_shifts_mrad,
             wave.maximum_isotropic_angle_mrad,
         )
+        tail_images = {
+            key: values * tracked_sample_probability
+            for key, values in tail_images.items()
+        }
+        tail_uncollected = (
+            tail_uncollected * tracked_sample_probability
+        )
+        tail_probability_source = (
+            tail_probability_source * tracked_sample_probability
+        )
         wave_scale = np.maximum(
-            1.0 - tail_probability_source / max(incident_fraction, 1.0e-30),
+            1.0
+            - tail_probability_source
+            / max(available_fraction, 1.0e-30),
             0.0,
         )
         images = {
-            key: values * incident_fraction * wave_scale + tail_images[key]
+            key: values * available_fraction * wave_scale + tail_images[key]
             for key, values in wave.fractions.items()
         }
         signals = {}
@@ -970,6 +995,14 @@ def acquire_stem_scan(
             )
         metrics = dict(wave.metrics)
         metrics["incident_sample_fraction"] = incident_fraction
+        metrics["tracked_probability_after_inelastic_absorption"] = (
+            tracked_sample_probability
+        )
+        metrics["inelastic_angular_transport_in_wave_scan"] = (
+            "energy-loss probabilities included; coherent elastic angular "
+            "distribution reused for tracked populations; compact inelastic "
+            "ray angles are reported in Ray Diagram/Energy Filter"
+        )
         metrics["scan_frame_period_s"] = float(
             component.scan_frame_period_s
         )
@@ -994,7 +1027,7 @@ def acquire_stem_scan(
             else None
         )
         uncollected = (
-            wave.uncollected_fraction * incident_fraction * wave_scale
+            wave.uncollected_fraction * available_fraction * wave_scale
             + tail_uncollected
             + max(1.0 - incident_fraction, 0.0)
         )
@@ -1005,6 +1038,18 @@ def acquire_stem_scan(
         metrics["mean_uncollected_fraction"] = float(
             np.mean(uncollected)
         )
+        real_total = uncollected + absorbed_source
+        for values in images.values():
+            real_total = real_total + values
+        real_conservation_error = float(
+            np.max(np.abs(real_total - 1.0))
+        )
+        metrics["maximum_probability_conservation_error"] = (
+            real_conservation_error
+        )
+        metrics["real_probability_conserved"] = (
+            real_conservation_error <= 5.0e-10
+        )
         return _stem_result(
             state,
             simulation,
@@ -1014,11 +1059,11 @@ def acquire_stem_scan(
             signals,
             metrics,
             uncollected_fraction=uncollected,
-            absorbed_fraction=np.zeros_like(uncollected),
+            absorbed_fraction=absorbed_source,
             truncated_fraction=(
                 None
                 if wave.truncated_fraction is None
-                else wave.truncated_fraction * incident_fraction * wave_scale
+                else wave.truncated_fraction * available_fraction * wave_scale
             ),
             high_angle_tail_fraction=tail_images,
         )
@@ -1162,6 +1207,16 @@ def acquire_stem_scan(
     for values in images.values():
         collected += values
     uncollected = np.maximum(1.0 - collected, 0.0)
+    real_interactions = getattr(simulation, "real_interactions", None)
+    real_absorbed_source = (
+        measure_sample_current(simulation, state).fraction
+        * float(real_interactions.absorbed_probability)
+        if real_interactions is not None else 0.0
+    )
+    absorbed = np.full_like(
+        uncollected, real_absorbed_source, dtype=float
+    )
+    uncollected = np.maximum(uncollected - absorbed, 0.0)
     return _stem_result(
         state,
         simulation,
@@ -1186,12 +1241,14 @@ def acquire_stem_scan(
             "sequential_detector_interception": True,
             "quantitative_model": False,
             "model_limitation": (
-                "Ray preview uses discrete qualitative atomic branches; enable "
-                "wave/multislice for quantitative specimen contrast."
+                "Ray preview transports material-derived inelastic event "
+                "populations but does not calculate quantitative coherent "
+                "elastic specimen contrast; enable wave/multislice for that."
             ),
+            "real_inelastic_absorbed_source_fraction": real_absorbed_source,
         },
         uncollected_fraction=uncollected,
-        absorbed_fraction=np.zeros_like(uncollected),
+        absorbed_fraction=absorbed,
         truncated_fraction=np.zeros_like(uncollected),
         high_angle_tail_fraction={
             detector.key: np.zeros_like(uncollected)

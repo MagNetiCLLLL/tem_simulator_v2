@@ -9,8 +9,12 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
 from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.physics.all_lens_crossovers import detect_all_lens_crossovers
-from temsim.physics.simulation import run as run_ray_simulation
+from temsim.physics.simulation import (
+    MAX_VECTORIZED_POST_RAYS,
+    run as run_ray_simulation,
+)
 from temsim.physics.recording_stop import determine_tem_stop_z
+from temsim.physics.wave_imaging import estimate_tem_wave_memory_bytes
 from temsim.physics.scan_geometry import (
     calculate_scan_geometry,
     calculate_scan_ray_paths,
@@ -33,7 +37,8 @@ def estimate_calculation_memory_bytes(
 
     A 24 GiB application budget leaves approximately 8 GiB for Qt, Python,
     the operating system and allocator overhead on the supported 32 GiB
-    workstation configuration.
+    workstation configuration. High-accuracy estimates include the optional
+    TEM wave grid, atomistic slices and frozen-phonon configurations.
     """
 
     rays = int(ray_count)
@@ -51,32 +56,60 @@ def estimate_calculation_memory_bytes(
     pre_nodes = int(math.ceil(pre_span / step)) + 2
     post_nodes = int(math.ceil(post_span / step)) + 2
 
-    # Momentum, Larmor rate/gradient, X/Y focusing and temporary ufunc output
-    # dominate the integration phase. Nine float64 matrices is deliberately
-    # conservative across both the NumPy and Numba paths.
-    working = max(pre_nodes, post_nodes) * rays * 8 * 9
-
     history_step = max(step, 2.0 if quality == "Preview" else 0.5)
     pre_history = int(math.ceil(pre_span / history_step)) + 2
     post_history = int(math.ceil(post_span / history_step)) + 2
+    specimen_mode = str(
+        getattr(state.sample, "specimen_mode", "atomic")
+    ).strip().lower()
     scattering_active = (
         bool(getattr(state.sample, "inserted", True))
         and bool(getattr(state.sample, "diffraction_enabled", True))
+        and specimen_mode == "virtual"
     )
-    if not scattering_active:
-        branch_count = 1
-    elif str(getattr(state.sample, "specimen_mode", "atomic")).lower() == "virtual":
+    if specimen_mode == "atomic" and bool(
+        getattr(state.sample, "inserted", True)
+    ):
+        from temsim.specimen.inelastic import (
+            real_inelastic_distribution,
+            real_inelastic_ray_branches,
+        )
+
+        branch_count = len(
+            real_inelastic_ray_branches(
+                real_inelastic_distribution(state), ray_count=rays
+            )
+        )
+    elif scattering_active:
         from temsim.specimen.virtual import virtual_scattering_branches
 
         branch_count = len(virtual_scattering_branches(state.sample))
     else:
-        branch_count = 3
+        branch_count = 1
+    vectorised_branches = min(
+        branch_count,
+        max(1, MAX_VECTORIZED_POST_RAYS // rays),
+    )
+    peak_post_rays = rays * vectorised_branches
+    # Momentum, Larmor rate/gradient, X/Y focusing and temporary ufunc output
+    # dominate integration. Nine float64 matrices is conservative across the
+    # CPU paths; post-specimen interaction branches use the same bounded
+    # vectorisation batch as the solver.
+    working = max(
+        pre_nodes * rays,
+        post_nodes * peak_post_rays,
+    ) * 8 * 9
     # X/TX/Y/TY are retained as float32 histories for the incident bundle and
     # every post-specimen branch.
     history = (
         pre_history + branch_count * post_history
     ) * rays * 4 * 4
-    return int(working + history + 512 * 1024**2)
+    wave_imaging = (
+        estimate_tem_wave_memory_bytes(state)
+        if quality != "Preview"
+        else 0
+    )
+    return int(working + history + wave_imaging + 512 * 1024**2)
 
 
 def format_memory_size(byte_count: int) -> str:
@@ -170,12 +203,21 @@ class CalculationController(QObject):
             quality != "Preview"
             and estimate > HIGH_ACCURACY_MEMORY_BUDGET_BYTES
         ):
+            wave_estimate = estimate_tem_wave_memory_bytes(state)
+            wave_detail = (
+                " Optional TEM wave imaging accounts for approximately "
+                f"{format_memory_size(wave_estimate)} of this estimate."
+                if wave_estimate > 0
+                else ""
+            )
             raise ValueError(
                 "Requested calculation needs approximately "
                 f"{format_memory_size(estimate)}, above the "
                 f"{format_memory_size(HIGH_ACCURACY_MEMORY_BUDGET_BYTES)} "
-                "application budget for a 32 GiB workstation. Increase the "
-                "integration step or reduce the ray count."
+                "application budget for a 32 GiB workstation."
+                f"{wave_detail} Increase the integration step, or reduce the "
+                "ray count, TEM wave grid, specimen thickness, or "
+                "frozen-phonon configuration count."
             )
         self._generation += 1
         generation = self._generation
@@ -194,14 +236,11 @@ class CalculationController(QObject):
         if quality == "Preview":
             snapshot.sample.wave_enabled = False
             snapshot.sample.stem_wave_enabled = False
-            # The interactive path is a direct-beam optical schematic. Full
-            # diffraction branches are retained only while scanning because
-            # HAADF/DF/BF pixels must be based on detector interception rather
-            # than a display-only synthetic gradient.
-            ac_scan = snapshot.ac_deflector
-            snapshot.sample.diffraction_enabled = bool(
-                ac_scan.enabled and ac_scan.scan_enabled
-            )
+            # Real specimens never receive display-only scattering branches.
+            # Explicit Virtual interaction channels remain visible in Preview
+            # as well as High accuracy when the user has enabled them.
+            if str(snapshot.sample.specimen_mode).strip().lower() != "virtual":
+                snapshot.sample.diffraction_enabled = False
         worker = CalculationWorker(generation, quality, snapshot)
         worker.signals.result.connect(self._accept_result)
         worker.signals.error.connect(self._accept_error)

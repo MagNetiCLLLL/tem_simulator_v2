@@ -41,6 +41,27 @@ class AtomisticCrystal:
 
 
 @dataclass(frozen=True)
+class InelasticMaterial:
+    """Material-owned inputs for the real-specimen energy-loss model.
+
+    The two mean free paths are experimental anchors at
+    ``reference_energy_kev``.  Their inverse difference is the non-plasmon
+    (predominantly core-loss/ionisation) rate.  A representative loss energy
+    is used for chromatic transport and for the compact ray-diagram
+    quadrature; it is not an EELS line-shape model.
+    """
+
+    reference_energy_kev: float
+    total_mean_free_path_nm: float
+    plasmon_mean_free_path_nm: float
+    plasmon_energy_ev: float
+    ionisation_energy_ev: float
+    collection_semiangle_mrad: float
+    reference: str
+    applicability: str
+
+
+@dataclass(frozen=True)
 class SpecimenPreset:
     key: str
     name: str
@@ -53,6 +74,7 @@ class SpecimenPreset:
     pixels: int
     columns: tuple[SpecimenColumn, ...]
     atomistic: AtomisticCrystal | None
+    inelastic: InelasticMaterial | None
     source_path: Path
 
 
@@ -131,6 +153,29 @@ def load_specimen_preset(key: str) -> SpecimenPreset:
                 atomistic_data.get("thermal_sigma_reference", "")
             ),
         )
+    inelastic_data = data.get("inelastic")
+    inelastic = None
+    if inelastic_data is not None:
+        inelastic = InelasticMaterial(
+            reference_energy_kev=float(
+                inelastic_data.get("reference_energy_kev", 200.0)
+            ),
+            total_mean_free_path_nm=float(
+                inelastic_data["total_mean_free_path_nm"]
+            ),
+            plasmon_mean_free_path_nm=float(
+                inelastic_data["plasmon_mean_free_path_nm"]
+            ),
+            plasmon_energy_ev=float(inelastic_data["plasmon_energy_ev"]),
+            ionisation_energy_ev=float(
+                inelastic_data["ionisation_energy_ev"]
+            ),
+            collection_semiangle_mrad=float(
+                inelastic_data.get("collection_semiangle_mrad", 20.0)
+            ),
+            reference=str(inelastic_data.get("reference", "")),
+            applicability=str(inelastic_data.get("applicability", "")),
+        )
     columns = tuple(
         SpecimenColumn(
             x_fraction=float(item["x_fraction"]),
@@ -156,6 +201,7 @@ def load_specimen_preset(key: str) -> SpecimenPreset:
         pixels=int(grid["pixels"]),
         columns=columns,
         atomistic=atomistic,
+        inelastic=inelastic,
         source_path=path,
     )
     if preset.reference_thickness_nm <= 0.0:
@@ -185,6 +231,27 @@ def load_specimen_preset(key: str) -> SpecimenPreset:
             raise ValueError(
                 f"{path}: a nonzero thermal sigma requires a source reference."
             )
+    if preset.inelastic is not None:
+        material = preset.inelastic
+        positive_values = (
+            material.reference_energy_kev,
+            material.total_mean_free_path_nm,
+            material.plasmon_mean_free_path_nm,
+            material.plasmon_energy_ev,
+            material.ionisation_energy_ev,
+            material.collection_semiangle_mrad,
+        )
+        if any(value <= 0.0 for value in positive_values):
+            raise ValueError(f"{path}: inelastic material values must be positive.")
+        if (
+            material.total_mean_free_path_nm
+            > material.plasmon_mean_free_path_nm + 1.0e-12
+        ):
+            raise ValueError(
+                f"{path}: total inelastic MFP cannot exceed the plasmon-component MFP."
+            )
+        if not material.reference.strip():
+            raise ValueError(f"{path}: inelastic material data need a reference.")
     for column in preset.columns:
         if not (0.0 <= column.x_fraction < 1.0):
             raise ValueError(f"{path}: column x_fraction must be in [0, 1).")
