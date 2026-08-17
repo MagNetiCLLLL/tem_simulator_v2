@@ -1,7 +1,6 @@
 # TEM Simulator v2
 
-Clean PySide6 reconstruction of the TEM simulator. The application UI and
-saved parameter names are English-only.
+Clean PySide6 reconstruction of the TEM simulator.
 
 ## Development setup
 
