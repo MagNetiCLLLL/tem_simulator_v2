@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Made the Iliad Energy Filter permanent hardware. Instrument Setup now
+  selects only the gun and column, the no-filter recording module is retained
+  only as validated historical geometry, and legacy no-filter selections are
+  normalised to the installed Energy Filter when applied or loaded.
 - Added probability-conserving Real-sample inelastic transport without
   restoring artificial diffraction beams. Specimen TOMLs now own measured
   200-keV total/plasmon IMFP anchors and provenance for Si, Au and the carbon
@@ -57,8 +61,8 @@
   stopped saved state from retaining manifest-owned structural fields.
 - Added catalog-wide uniqueness checks, required structural-field validation,
   TOML-derived Energy Filter/sample bootstrap geometry and regression coverage
-  that instantiates all 30 selectable assemblies without an override or
-  fallback path.
+  that instantiated all 30 recording-system variants supported at that stage
+  without an override or fallback path.
 - Rebuilt the D-I-P1-P2 mechanical geometry in both recording-system TOMLs
   from the supplied FEI public-reference engineering reconstruction.  Added
   independent yoke, coil, pole shoulder/bore/gap/nose and 0.75 mm liner

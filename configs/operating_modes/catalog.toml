@@ -37,7 +37,7 @@ family = "projector"
 calibration_status = "calibrated_300kv_energy_filter"
 calibration_reference = "Objective image plane relayed to the active recording stop; 0.1 mm integration step"
 compatible_columns = ["C2", "C3", "C3 + Probe Corrector"]
-compatible_recording_systems = ["No Energy Filter", "Energy Filter"]
+compatible_recording_systems = ["Energy Filter"]
 devices = { diffraction_lens = { percent = 16.0105466828 }, intermediate_lens = { percent = 40.0 }, projector_lens_1 = { percent = 30.0 }, projector_lens_2 = { percent = 30.0 } }
 apertures = {}
 targets = { conjugate_plane = "objective_image_plane", achieved_plane_magnification = 54.001809470, achieved_relay_error_um = 4.631175238 }
@@ -49,7 +49,7 @@ family = "projector"
 calibration_status = "calibrated_300kv_energy_filter"
 calibration_reference = "Objective back focal plane relayed to the active recording stop; 0.1 mm integration step"
 compatible_columns = ["C2", "C3", "C3 + Probe Corrector"]
-compatible_recording_systems = ["No Energy Filter", "Energy Filter"]
+compatible_recording_systems = ["Energy Filter"]
 devices = { diffraction_lens = { percent = 17.4982940301 }, intermediate_lens = { percent = 40.0 }, projector_lens_1 = { percent = 30.0 }, projector_lens_2 = { percent = 30.0 } }
 apertures = {}
 targets = { conjugate_plane = "objective_back_focal_plane", achieved_plane_magnification = 10.530105689, achieved_relay_error_um = 0.540565623 }

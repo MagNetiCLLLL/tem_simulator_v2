@@ -42,8 +42,7 @@ class AssemblyPanel(QWidget):
         form = QFormLayout(box)
         self.gun = QComboBox()
         self.column = QComboBox()
-        self.recording = QComboBox()
-        for selector in (self.gun, self.column, self.recording):
+        for selector in (self.gun, self.column):
             # Do not let the longest catalog label dictate the dock width.
             # The popup still displays the complete option text.
             selector.setSizeAdjustPolicy(
@@ -52,13 +51,9 @@ class AssemblyPanel(QWidget):
             selector.setMinimumContentsLength(18)
         self.gun.addItems([option.name for option in catalog.guns])
         self.column.addItems([option.name for option in catalog.columns])
-        self.recording.addItems(
-            [option.name for option in catalog.recording_systems]
-        )
         self.set_selection(selection)
         form.addRow("Gun", self.gun)
         form.addRow("Column", self.column)
-        form.addRow("Recording", self.recording)
         apply_button = QPushButton("Load assembly")
         apply_button.setObjectName("loadAssemblyButton")
         apply_button.clicked.connect(self._request_selection)
@@ -191,23 +186,23 @@ class AssemblyPanel(QWidget):
         )
 
     def current_selection(self) -> AssemblySelection:
-        return AssemblySelection(
+        selection = AssemblySelection(
             gun=self.gun.currentText(),
             column=self.column.currentText(),
-            recording=self.recording.currentText(),
+            recording=self.catalog.default_selection().recording,
         )
+        return self.catalog.normalise_selection(selection)
 
     def set_selection(self, selection: AssemblySelection) -> None:
+        selection = self.catalog.normalise_selection(selection)
         self.gun.setCurrentText(selection.gun)
         self.column.setCurrentText(selection.column)
-        self.recording.setCurrentText(selection.recording)
 
     def reload_catalog(self, catalog, selection: AssemblySelection) -> None:
         self.catalog = catalog
         for combo, options in (
             (self.gun, catalog.guns),
             (self.column, catalog.columns),
-            (self.recording, catalog.recording_systems),
         ):
             combo.clear()
             combo.addItems([option.name for option in options])
@@ -224,6 +219,7 @@ class AssemblyPanel(QWidget):
     ) -> None:
         """Populate only modes compatible with the selected assembly."""
 
+        selection = self.catalog.normalise_selection(selection)
         condenser_key = condenser_key or self.probe_mode.currentData()
         projector_key = projector_key or self.projector_mode.currentData()
         condenser_modes = compatible_modes(

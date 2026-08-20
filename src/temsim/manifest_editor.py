@@ -151,6 +151,8 @@ class ManifestEditor:
                 for recording in catalog[
                     "project_and_recording_system_variants"
                 ]:
+                    if not bool(recording.get("selectable", True)):
+                        continue
                     if column["probe_corrector"] and column["image_corrector"]:
                         corrector = "double_corrector"
                     elif column["probe_corrector"]:

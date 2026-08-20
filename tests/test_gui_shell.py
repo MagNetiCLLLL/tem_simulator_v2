@@ -275,6 +275,10 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
         "cameraLengthTarget",
     }
     assert window.assembly_panel.optical_filter.currentData() == "all"
+    assert not hasattr(window.assembly_panel, "recording")
+    assert window.assembly_panel.current_selection().recording == (
+        "Energy Filter"
+    )
     assert window.assembly_panel.tree.topLevelItemCount() >= 3
     assert window.assembly_panel.probe_mode.currentData() == "nano_probe"
     assert window.assembly_panel.projector_mode.currentData() == "diffraction"
@@ -291,6 +295,13 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
     assert "C2 + C3 + C2 aperture" in (
         window.assembly_panel.operating_mode_status.text()
     )
+
+    window.load_assembly(AssemblySelection(
+        "FEG", "C3 + Probe Corrector", "No Energy Filter"
+    ))
+    window.preview_timer.stop()
+    assert window.selection.recording == "Energy Filter"
+    assert window.state.energy_filter_installed is True
 
 
 def test_loading_a_compatible_assembly_reapplies_the_active_modes(qtbot):
@@ -794,7 +805,7 @@ def test_component_navigation_filters_only_the_active_assembly(qtbot):
     window.load_assembly(AssemblySelection(
         gun="FEG",
         column="C2",
-        recording="No Energy Filter",
+        recording="Energy Filter",
     ))
     window.preview_timer.stop()
     panel.optical_filter.setCurrentIndex(
@@ -808,7 +819,7 @@ def test_component_navigation_filters_only_the_active_assembly(qtbot):
     window.load_assembly(AssemblySelection(
         gun="FEG",
         column="C3 + Image Corrector",
-        recording="No Energy Filter",
+        recording="Energy Filter",
     ))
     window.preview_timer.stop()
     panel.optical_filter.setCurrentIndex(

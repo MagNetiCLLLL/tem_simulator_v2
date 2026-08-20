@@ -47,8 +47,8 @@ def test_catalog_reports_variant_scope_and_unique_active_authorities():
     assert audit.part_definition_count == 466
     assert audit.logical_part_key_count == 192
     assert audit.variant_scoped_duplicate_count == 274
-    assert audit.assembly_count == 30
-    assert audit.resolved_part_authority_count == 3638
+    assert audit.assembly_count == 15
+    assert audit.resolved_part_authority_count == 1969
 
 
 def test_selected_runtime_components_record_their_one_toml_authority():
@@ -240,7 +240,7 @@ def test_all_catalog_assemblies_apply_one_authority_per_runtime_part():
                             assert component.name == assembly.part(key).name
                 assembly_count += 1
 
-    assert assembly_count == 30
+    assert assembly_count == 15
 
 
 def test_saved_state_omits_every_manifest_owned_structural_attribute():

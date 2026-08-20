@@ -1,6 +1,6 @@
 # TEM Simulator v2 — Project Handoff
 
-Last updated: 2026-08-12
+Last updated: 2026-08-20
 
 ## Purpose
 
@@ -16,8 +16,18 @@ the next concrete work. `README.md` remains the user/developer overview and
 - Application entry point: `main.py`
 - Run: `.venv\Scripts\python.exe main.py`
 - Tests: `$env:PYTHONPATH='src'; .venv\Scripts\python.exe -m pytest -q`
-- Last full result: **266 passed, 12 skipped** on 2026-08-12. The skipped
+- Last full result: **270 passed, 12 skipped** on 2026-08-20. The skipped
   cases are optional-platform/backend coverage unavailable in this environment.
+
+## Permanent Energy Filter checkpoint (2026-08-20)
+
+- Instrument Setup selects only the gun and column. The Iliad Energy Filter is
+  permanent hardware and is the sole selectable recording system.
+- `NoEnergyFilter.toml` remains catalogued as non-selectable historical
+  geometry. Applying or loading a legacy no-filter selection normalises it to
+  `Energy Filter`, while the runtime optical branch can still be disabled.
+- The active catalog has 15 selectable gun/column assemblies; validation still
+  audits all 10 module TOMLs and 466 variant-scoped part definitions.
 
 ## Latest Direct Alignment checkpoint (2026-08-10)
 
@@ -654,7 +664,8 @@ material grade, permeability or saturation field.
   exclusive unless a validated coupling explicitly prevents double counting.
 - Never call the IAM result a bonded-charge, inelastic or magnetic specimen
   calculation.
-- Validate all 30 assemblies and run the full test suite after topology edits.
+- Validate all 15 selectable assemblies and run the full test suite after
+  topology edits; retain manifest validation for the historical no-filter TOML.
 - Update this file whenever a provisional assumption becomes measured or
   confirmed, or when the next-work ordering materially changes.
 

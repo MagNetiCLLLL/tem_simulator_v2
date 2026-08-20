@@ -58,9 +58,12 @@ recalculation preserves a user's runtime direction override.
 ## Current MVP
 
 - Loads the FEG, FEG + monochromator and thermionic gun TOMLs.
-- Loads five C2/C3/corrector column arrangements and both recording systems.
-- Validates all 10 module TOMLs, 448 part definitions and 30 catalog assembly
-  combinations at startup.
+- Loads five C2/C3/corrector column arrangements with the Energy Filter
+  recording system permanently installed; Instrument Setup no longer exposes
+  a recording-system selector.
+- Validates all 10 module TOMLs, 466 part definitions and 15 selectable catalog
+  assembly combinations at startup. The legacy no-filter TOML remains
+  validation-only historical geometry.
 - Rejects magnetic-lens manifests that omit a signed `field_polarity` or its
   provenance, and reports that provenance in Magnetic Field diagnostics.
 - Exposes the complete signed sample-to-plane `J_img` and `J_diff` 2x2
@@ -294,12 +297,13 @@ only after the complete catalog and active assembly validate.
   from TOML and is replaced by the already-resolved selected assembly; it is
   not a second authority.
 
-The 448 part rows contain 174 logical keys and 274 intentional repetitions
+The 466 part rows contain 192 logical keys and 274 intentional repetitions
 across mutually exclusive hardware variants. They are not applied as an
 override stack. Catalog validation rejects duplicate files, module keys,
 selection signatures, per-file part keys/orders, runtime keys and any active
-assembly collision, then applies all 30 selectable assemblies in regression
-tests.
+assembly collision, then applies all 15 selectable Energy Filter assemblies in
+regression tests. The no-filter module remains catalogued only so its historical
+geometry continues to be validated.
 
 ## Direct Alignment reachability
 

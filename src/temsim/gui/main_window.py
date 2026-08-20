@@ -363,6 +363,7 @@ class MainWindow(QMainWindow):
     def _apply_state_operating_modes(self, state, selection):
         """Apply the live mode labels only when the assembly supports them."""
 
+        selection = self.catalog.normalise_selection(selection)
         condenser_key, projector_key = self._state_operating_mode_keys(state)
         available_condenser = {
             mode.key
@@ -466,6 +467,7 @@ class MainWindow(QMainWindow):
     def load_assembly(self, selection) -> None:
         self._invalidate_direct_alignment()
         try:
+            selection = self.catalog.normalise_selection(selection)
             candidate_state = type(self.state).from_dict(self.state.to_dict())
             candidate_assembly = self.catalog.apply(candidate_state, selection)
             self._apply_state_operating_modes(candidate_state, selection)
@@ -901,6 +903,7 @@ class MainWindow(QMainWindow):
             return
         try:
             selection, values = read_profile(path)
+            selection = self.catalog.normalise_selection(selection)
             candidate_state = type(self.state).from_dict(self.state.to_dict())
             candidate_assembly = self.catalog.apply(
                 candidate_state, selection
@@ -930,15 +933,17 @@ class MainWindow(QMainWindow):
         try:
             catalog = AssemblyCatalog()
             audit = self.manifest_editor.validate_catalog()
+            selection = catalog.normalise_selection(self.selection)
             candidate_state = type(self.state).from_dict(self.state.to_dict())
-            assembly = catalog.apply(candidate_state, self.selection)
+            assembly = catalog.apply(candidate_state, selection)
             self._apply_state_operating_modes(
-                candidate_state, self.selection
+                candidate_state, selection
             )
             self.catalog = catalog
+            self.selection = selection
             self.state = candidate_state
             self.assembly = assembly
-            self.assembly_panel.reload_catalog(catalog, self.selection)
+            self.assembly_panel.reload_catalog(catalog, selection)
             self._refresh_assembly_views()
             self.status_label.setText(
                 f"TOML catalog valid: {audit.part_definition_count} "

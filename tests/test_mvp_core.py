@@ -85,7 +85,7 @@ def test_every_catalog_option_resolves_to_the_requested_toml():
         selection = catalog.default_selection().__class__(
             gun="FEG",
             column=column.name,
-            recording="No Energy Filter",
+            recording="Energy Filter",
         )
         assembly = catalog.apply(state, selection)
         assert dict(assembly.selected_module_paths)["column"] == column.file
@@ -175,7 +175,28 @@ def test_complete_catalog_and_every_assembly_combination_validate():
 
     assert audit.module_count == 10
     assert audit.part_definition_count == 466
-    assert audit.assembly_count == 30
+    assert audit.assembly_count == 15
+
+
+def test_energy_filter_is_the_only_selectable_recording_system():
+    catalog = AssemblyCatalog()
+
+    assert [option.name for option in catalog.recording_systems] == [
+        "Energy Filter"
+    ]
+
+    legacy_selection = AssemblySelection(
+        "FEG", "C3", "No Energy Filter"
+    )
+    state = default_state()
+    assembly = catalog.apply(state, legacy_selection)
+
+    assert dict(assembly.selected_module_paths)[
+        "project_and_recording_system"
+    ].endswith("EnergyFilter.toml")
+    assert state.energy_filter_installed is True
+    assert state.energy_filter_mode == "energy_filter"
+    assert state.energy_filter.enabled is True
 
 
 def test_magnetic_lens_mechanical_layers_are_required_and_radially_nested():
@@ -219,7 +240,7 @@ def test_objective_aperture_stop_is_co_located_in_the_pole_gap(column):
     state = default_state()
     assembly = AssemblyCatalog().apply(
         state,
-        AssemblySelection("FEG", column, "No Energy Filter"),
+        AssemblySelection("FEG", column, "Energy Filter"),
     )
     part = assembly.part("objective_aperture")
 
@@ -243,7 +264,7 @@ def test_standalone_selected_area_aperture_is_between_deflector_and_stigmator(
     state = default_state()
     assembly = AssemblyCatalog().apply(
         state,
-        AssemblySelection("FEG", column, "No Energy Filter"),
+        AssemblySelection("FEG", column, "Energy Filter"),
     )
     image_deflector = assembly.part("image_diffraction_deflector")
     aperture = assembly.part("selected_area_aperture")
@@ -267,7 +288,7 @@ def test_c1_c2_use_contiguous_sections_of_one_shared_housing(column):
     state = default_state()
     assembly = AssemblyCatalog().apply(
         state,
-        AssemblySelection("FEG", column, "No Energy Filter"),
+        AssemblySelection("FEG", column, "Energy Filter"),
     )
     c1 = assembly.part("condenser_lens_1_housing")
     c2 = assembly.part("condenser_lens_2_housing")
@@ -283,7 +304,7 @@ def test_monochromator_slit_has_a_separate_colocated_mechanical_envelope():
     state = default_state()
     assembly = AssemblyCatalog().apply(
         state,
-        AssemblySelection("FEG + Mono", "C3", "No Energy Filter"),
+        AssemblySelection("FEG + Mono", "C3", "Energy Filter"),
     )
     c1 = assembly.part("feg_c1_aperture")
     slit = assembly.part("feg_monochromator_slit")
@@ -293,12 +314,11 @@ def test_monochromator_slit_has_a_separate_colocated_mechanical_envelope():
     assert slit.data["mechanical_only"] is True
 
 
-@pytest.mark.parametrize("recording", ("No Energy Filter", "Energy Filter"))
-def test_recording_surfaces_are_thin_interaction_planes(recording):
+def test_recording_surfaces_are_thin_interaction_planes():
     state = default_state()
     assembly = AssemblyCatalog().apply(
         state,
-        AssemblySelection("FEG", "C3", recording),
+        AssemblySelection("FEG", "C3", "Energy Filter"),
     )
     for key in ("haadf", "flu_screen", "df", "bf", "camera"):
         part = assembly.part(key)
@@ -320,12 +340,12 @@ def test_energy_filter_uses_a_colocated_curvilinear_branch_interface():
     assert interface.data["path_coordinate"] == "curvilinear_s_mm"
 
 
-@pytest.mark.parametrize("recording", ("No Energy Filter", "Energy Filter"))
-def test_projector_lenses_have_non_overlapping_mechanical_envelopes(recording):
+def test_projector_lenses_have_non_overlapping_mechanical_envelopes():
     catalog = AssemblyCatalog()
     state = default_state()
     assembly = catalog.apply(
-        state, AssemblySelection("FEG", "C3 + Probe Corrector", recording)
+        state,
+        AssemblySelection("FEG", "C3 + Probe Corrector", "Energy Filter"),
     )
     keys = (
         "diffraction_lens",
@@ -625,12 +645,11 @@ def test_operating_profile_round_trip_uses_toml(tmp_path: Path):
 
 
 @pytest.mark.parametrize("gun", ("FEG", "FEG + Mono", "Thermionic"))
-@pytest.mark.parametrize("recording", ("No Energy Filter", "Energy Filter"))
-def test_every_c2_assembly_can_propagate_beyond_its_last_wall(gun, recording):
+def test_every_c2_assembly_can_propagate_beyond_its_last_wall(gun):
     catalog = AssemblyCatalog()
     state = default_state()
     assembly = catalog.apply(
-        state, AssemblySelection(gun, "C2", recording)
+        state, AssemblySelection(gun, "C2", "Energy Filter")
     )
     state.step_mm = 5.0
     state.history_step_mm = 5.0

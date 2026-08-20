@@ -34,8 +34,13 @@ class AssemblyCatalog:
         self._validate_document(document)
         self.guns = self._options(document["gun_variants"])
         self.columns = self._options(document["column_variants"])
-        self.recording_systems = self._options(
+        self._recording_system_modules = self._options(
             document["project_and_recording_system_variants"]
+        )
+        self.recording_systems = tuple(
+            option
+            for option in self._recording_system_modules
+            if bool(option.properties.get("selectable", True))
         )
 
     def _validate_document(self, document) -> None:
@@ -110,6 +115,28 @@ class AssemblyCatalog:
             raise ValueError("Instrument module file is listed more than once")
         if len(set(module_keys)) != len(module_keys):
             raise ValueError("Instrument module key is defined more than once")
+
+        selectable_recordings = tuple(
+            entry
+            for entry in document["project_and_recording_system_variants"]
+            if bool(entry.get("selectable", True))
+        )
+        if any(
+            not isinstance(entry.get("selectable", True), bool)
+            for entry in document["project_and_recording_system_variants"]
+        ):
+            raise ValueError(
+                "Instrument recording-system selectable flags must be Boolean"
+            )
+        if len(selectable_recordings) != 1:
+            raise ValueError(
+                "Instrument catalog must expose exactly one installed "
+                "recording system"
+            )
+        if not bool(selectable_recordings[0].get("energy_filter", False)):
+            raise ValueError(
+                "The installed recording system must include an Energy Filter"
+            )
         disk_files = {
             path.relative_to(self.root).as_posix()
             for path in self.root.rglob("*.toml")
@@ -149,10 +176,25 @@ class AssemblyCatalog:
         return AssemblySelection(
             gun="FEG",
             column="C3 + Probe Corrector",
-            recording="Energy Filter",
+            recording=self.recording_systems[0].name,
+        )
+
+    def normalise_selection(
+        self, selection: AssemblySelection
+    ) -> AssemblySelection:
+        """Return a selection using the permanently installed filter module."""
+
+        # Accept known legacy selections so saved profiles migrate cleanly,
+        # while retaining strict validation for malformed/unknown names.
+        self._by_name(self._recording_system_modules, selection.recording)
+        return AssemblySelection(
+            gun=selection.gun,
+            column=selection.column,
+            recording=self.recording_systems[0].name,
         )
 
     def selected_paths(self, selection: AssemblySelection) -> dict[str, str]:
+        selection = self.normalise_selection(selection)
         return {
             "gun": self._by_name(self.guns, selection.gun).file,
             "column": self._by_name(self.columns, selection.column).file,
@@ -162,6 +204,7 @@ class AssemblyCatalog:
         }
 
     def apply(self, state, selection: AssemblySelection):
+        selection = self.normalise_selection(selection)
         gun = self._by_name(self.guns, selection.gun)
         column = self._by_name(self.columns, selection.column)
         recording = self._by_name(self.recording_systems, selection.recording)

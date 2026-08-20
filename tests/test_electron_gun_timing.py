@@ -51,7 +51,7 @@ def test_gun_paths_use_one_strict_z_grid_and_preserve_equal_time_history():
     AssemblyCatalog().apply(
         state,
         AssemblySelection(
-            "FEG", "C3 + Probe Corrector", "No Energy Filter"
+            "FEG", "C3 + Probe Corrector", "Energy Filter"
         ),
     )
     state.electron_gun.emitter.ray_count = 25

@@ -19,11 +19,10 @@ def _camera_part(document):
     return next(part for part in document["parts"] if part["key"] == "camera")
 
 
-@pytest.mark.parametrize("recording", ("No Energy Filter", "Energy Filter"))
-def test_selected_recording_manifest_owns_camera_axis_calibration(recording):
+def test_selected_recording_manifest_owns_camera_axis_calibration():
     state = default_state()
     AssemblyCatalog().apply(state, AssemblySelection(
-        "FEG", "C3 + Probe Corrector", recording
+        "FEG", "C3 + Probe Corrector", "Energy Filter"
     ))
     camera_part = state._module_manifest_parts["camera"].data
 

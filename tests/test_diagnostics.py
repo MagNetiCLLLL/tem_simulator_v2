@@ -293,4 +293,4 @@ def test_all_catalog_assemblies_produce_layout_and_field_diagnostics():
                 assert total.shape == (24,)
                 assert len(lenses) == len(state.lenses)
                 checked += 1
-    assert checked == 30
+    assert checked == 15

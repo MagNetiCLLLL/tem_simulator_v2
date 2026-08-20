@@ -98,7 +98,7 @@ main.py
 |---|---|---|
 | 用户需求和功能语义 | 本文件 | 不得删除既有需求 |
 | 静态仪器结构、机械尺寸、部件隶属、光学参考面 | `configs/instruments/*.toml` | Python 不保存第二份结构权威 |
-| 装配选择 | `configs/instruments/catalog.toml` | 每次选择一个 gun、column 和 recording system |
+| 装配选择 | `configs/instruments/catalog.toml` | 每次选择一个 gun 和 column；Energy Filter recording system 固定安装 |
 | 工作模式和 Direct Alignment 目标 | `configs/operating_modes/catalog.toml` | 目标、范围、耦合设备、容差和来源均由 TOML 定义 |
 | 样品预设及材料锚点 | `configs/specimens/*.toml` | 自定义 CIF 不得静默借用另一材料的数据 |
 | 运行时可编辑值 | `State`及其组件 | 普通重算应保留用户运行值 |
@@ -107,7 +107,7 @@ main.py
 
 ### 3.3 当前装配目录
 
-代码审计值：**10 个模块 TOML、466 条变体级部件定义、192 个逻辑部件键、30 种无冲突装配组合**。
+代码审计值：**10 个模块 TOML、466 条变体级部件定义、192 个逻辑部件键、15 种可选无冲突装配组合**。
 
 Gun 选择：
 
@@ -123,12 +123,9 @@ Column 选择：
 - `C3 + Image Corrector`
 - `C3 + Probe Corrector + Image Corrector`
 
-Recording system 选择：
-
-- `No Energy Filter`
-- `Energy Filter`
-
-默认选择为 `FEG + C3 + Probe Corrector + Energy Filter`。
+Recording system 固定为 `Energy Filter`，不在 Instrument Setup 中显示安装选择；
+旧 `No Energy Filter` 模块只保留为历史几何资料，旧操作配置加载时自动迁移到
+`Energy Filter`。默认选择为 `FEG + C3 + Probe Corrector + Energy Filter`。
 
 ### 3.4 运行模式
 
@@ -658,8 +655,8 @@ sum(P_tracked_channel) + P_absorbed = 1
 
 ### 17.1 安装模式
 
-- Recording system可以没有Energy Filter，也可以安装Iliad模型。
-- 安装后支持enable、EELS/EFTEM operating mode、selected loss、energy window、optical integration、MultiEELS、alignment和ray tracing controls。
+- Iliad Energy Filter 视为永久安装，不提供无过滤器装配选择。
+- 硬件始终安装，但光学 branch 仍可独立 enable；并支持 EELS/EFTEM operating mode、selected loss、energy window、optical integration、MultiEELS、alignment 和 ray tracing controls。
 - 可按当前high tension匹配magnetic rigidity、sector field、M12和multipole scales。
 
 ### 17.2 当前拓扑
@@ -889,4 +886,4 @@ sum(P_tracked_channel) + P_absorbed = 1
 | 日期 | 修订 | 结果 |
 |---|---|---|
 | 2026-08-13 | 建立当前功能与需求活规范；整理启动、装配、GUI、ray、sample、Real/Virtual interaction、wave、STEM、Energy Filter、诊断、限制和测试；建立UR-001至UR-010永久需求台账。 | 文档建立，待以后持续追加 |
-
+| 2026-08-20 | Energy Filter 改为永久安装；移除 Instrument Setup 的 recording system 选择；旧无过滤器配置自动迁移。 | 15 种 gun/column 可选装配统一使用 Energy Filter；历史 TOML 保留验证。 |
