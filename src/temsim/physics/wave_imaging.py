@@ -24,6 +24,10 @@ from temsim.physics.compute_backend import (
 from temsim.physics.multislice import propagate_multislice
 from temsim.physics.beam_statistics import branch_sample_statistics
 from temsim.physics.wave_fft import form_tem_image
+from temsim.optics.aberrations import (
+    aberration_phase_rad,
+    active_effective_aberrations,
+)
 from temsim.specimen.atomistic import (
     AtomisticBackendUnavailable,
     build_atomistic_potential_ensemble,
@@ -859,11 +863,15 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
     specimen_metrics["sample_interaction_applied"] = atomic_interaction
 
     defocus_angstrom, focal_mm = _objective_defocus_angstrom(state)
-    cs_mm = float(getattr(state.objective_lens, "cs_mm", 0.0) or 0.0)
-    cs_angstrom = cs_mm * 1.0e7
+    effective_aberrations = active_effective_aberrations(state, "image")
+    cs_mm = effective_aberrations.c3_mm
     if math.isfinite(defocus_angstrom):
-        chi = math.pi * wavelength_angstrom * defocus_angstrom * frequency_squared
-        chi += 0.5 * math.pi * cs_angstrom * wavelength_angstrom**3 * frequency_squared**2
+        chi = aberration_phase_rad(
+            fx,
+            fy,
+            wavelength_angstrom,
+            effective_aberrations,
+        )
     else:
         # With the Objective disabled there is no focused Objective image;
         # return the aperture-limited exit-wave intensity without NaNs.
@@ -1003,6 +1011,13 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         "objective_defocus_nm": defocus_angstrom / 10.0,
         "objective_focused": math.isfinite(defocus_angstrom),
         "objective_cs_mm": cs_mm,
+        "effective_aberration_correction_state": (
+            effective_aberrations.correction_state
+        ),
+        "effective_aberrations": {
+            name: value
+            for name, value in effective_aberrations.__dict__.items()
+        },
         "objective_aperture_mrad": aperture_rad * 1.0e3,
         "pixel_size_angstrom": max(spacing_x, spacing_y),
         "pixel_size_x_angstrom": spacing_x,

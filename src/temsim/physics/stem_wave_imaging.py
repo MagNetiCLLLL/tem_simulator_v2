@@ -12,6 +12,11 @@ import math
 
 import numpy as np
 
+from temsim.optics.aberrations import (
+    aberration_phase_rad,
+    active_effective_aberrations,
+)
+
 from temsim.physics.compute_backend import (
     WAVE_BACKEND_CUPY,
     WAVE_BACKEND_NUMPY,
@@ -264,17 +269,12 @@ def _probe_spectrum(
         )
         aperture[nearest] = True
 
-    defocus_angstrom, _ = _objective_defocus_angstrom(state)
-    if not math.isfinite(defocus_angstrom):
-        defocus_angstrom = 0.0
-    cs_angstrom = float(getattr(state.objective_lens, "cs_mm", 0.0) or 0.0) * 1.0e7
-    chi = math.pi * wavelength_angstrom * defocus_angstrom * frequency_squared
-    chi += (
-        0.5
-        * math.pi
-        * cs_angstrom
-        * wavelength_angstrom**3
-        * frequency_squared**2
+    coefficients = active_effective_aberrations(state, "probe")
+    chi = aberration_phase_rad(
+        fx,
+        fy,
+        wavelength_angstrom,
+        coefficients,
     )
     return aperture.astype(complex) * np.exp(-1j * chi)
 

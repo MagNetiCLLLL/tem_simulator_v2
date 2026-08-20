@@ -20,6 +20,8 @@ from temsim.optics.selected_area_aperture import (
     SELECTED_AREA_APERTURE_DEFINITION,
 )
 from temsim.optics.selected_area_downstream import downstream_offset_mm
+from temsim.optics.selected_area_downstream import downstream_optical_offset_mm
+from temsim.detector.point_spread import validate_component_point_spread
 
 
 _DEFAULT_RECORDING_MODULE = (
@@ -46,6 +48,12 @@ class StemDetectorDefinition:
     outer_width_mm: float
     inner_diameter_mm: float
     colour: str
+    point_spread_model: str
+    point_spread_sigma_x_mm: float
+    point_spread_sigma_y_mm: float
+    point_spread_rotation_deg: float
+    point_spread_status: str
+    point_spread_source: str
     anchor_key: str = SELECTED_AREA_APERTURE
     owner: str = "detector"
     kind: str = "detector"
@@ -84,6 +92,12 @@ class StemDetectorDefinition:
             ),
             layout_length_mm=self.layout_length_mm,
             owner=self.owner,
+            point_spread_model=self.point_spread_model,
+            point_spread_sigma_x_mm=self.point_spread_sigma_x_mm,
+            point_spread_sigma_y_mm=self.point_spread_sigma_y_mm,
+            point_spread_rotation_deg=self.point_spread_rotation_deg,
+            point_spread_status=self.point_spread_status,
+            point_spread_source=self.point_spread_source,
         )
 
 
@@ -102,6 +116,14 @@ class StemDetectorComponent:
     layout_center_downstream_of_anchor_mm: float = 0.0
     layout_length_mm: float = 1.0
     owner: str = "detector"
+    point_spread_model: str = "gaussian"
+    point_spread_sigma_x_mm: float = 0.1
+    point_spread_sigma_y_mm: float = 0.1
+    point_spread_rotation_deg: float = 0.0
+    point_spread_status: str = "provisional_model_parameter"
+    point_spread_source: str = (
+        "adjustable_simulator_default_not_instrument_calibration"
+    )
 
     NON_BLOCKING: ClassVar[bool] = False
     INTERACTION_KIND: ClassVar[str] = "recording_plane_stop"
@@ -144,15 +166,13 @@ class StemDetectorComponent:
             )
         if self.layout_length_mm <= 0.0:
             raise ValueError("STEM detector layout length must be positive.")
+        validate_component_point_spread(self)
         return self
 
     def resolve_against(self, anchor_z_mm):
-        self.optical_reference_downstream_of_anchor_mm = float(
-            self.layout_center_downstream_of_anchor_mm
-        )
         self.z_mm = (
             float(anchor_z_mm)
-            + float(self.layout_center_downstream_of_anchor_mm)
+            + float(self.optical_reference_downstream_of_anchor_mm)
         )
         return self
 
@@ -160,7 +180,6 @@ class StemDetectorComponent:
         offset_mm = (
             float(z_mm) - float(anchor_z_mm)
         )
-        self.layout_center_downstream_of_anchor_mm = offset_mm
         self.optical_reference_downstream_of_anchor_mm = offset_mm
         return self.resolve_against(anchor_z_mm)
 
@@ -179,7 +198,7 @@ STEM_DETECTOR_DEFINITIONS = (
     StemDetectorDefinition(
         key=HAADF_DETECTOR,
         label=str(_DEFAULT_MANIFEST_PARTS[HAADF_DETECTOR]["name"]),
-        optical_reference_downstream_of_anchor_mm=downstream_offset_mm(
+        optical_reference_downstream_of_anchor_mm=downstream_optical_offset_mm(
             HAADF_DETECTOR
         ),
         layout_center_downstream_of_anchor_mm=downstream_offset_mm(
@@ -196,11 +215,29 @@ STEM_DETECTOR_DEFINITIONS = (
             _DEFAULT_MANIFEST_PARTS[HAADF_DETECTOR]["inner_diameter_mm"]
         ),
         colour="#d81b60",
+        point_spread_model=str(
+            _DEFAULT_MANIFEST_PARTS[HAADF_DETECTOR]["point_spread_model"]
+        ),
+        point_spread_sigma_x_mm=float(
+            _DEFAULT_MANIFEST_PARTS[HAADF_DETECTOR]["point_spread_sigma_x_mm"]
+        ),
+        point_spread_sigma_y_mm=float(
+            _DEFAULT_MANIFEST_PARTS[HAADF_DETECTOR]["point_spread_sigma_y_mm"]
+        ),
+        point_spread_rotation_deg=float(
+            _DEFAULT_MANIFEST_PARTS[HAADF_DETECTOR]["point_spread_rotation_deg"]
+        ),
+        point_spread_status=str(
+            _DEFAULT_MANIFEST_PARTS[HAADF_DETECTOR]["point_spread_status"]
+        ),
+        point_spread_source=str(
+            _DEFAULT_MANIFEST_PARTS[HAADF_DETECTOR]["point_spread_source"]
+        ),
     ),
     StemDetectorDefinition(
         key=DARK_FIELD_DETECTOR,
         label=str(_DEFAULT_MANIFEST_PARTS[DARK_FIELD_DETECTOR]["name"]),
-        optical_reference_downstream_of_anchor_mm=downstream_offset_mm(
+        optical_reference_downstream_of_anchor_mm=downstream_optical_offset_mm(
             DARK_FIELD_DETECTOR
         ),
         layout_center_downstream_of_anchor_mm=downstream_offset_mm(
@@ -217,11 +254,29 @@ STEM_DETECTOR_DEFINITIONS = (
             _DEFAULT_MANIFEST_PARTS[DARK_FIELD_DETECTOR]["inner_diameter_mm"]
         ),
         colour="#fb8c00",
+        point_spread_model=str(
+            _DEFAULT_MANIFEST_PARTS[DARK_FIELD_DETECTOR]["point_spread_model"]
+        ),
+        point_spread_sigma_x_mm=float(
+            _DEFAULT_MANIFEST_PARTS[DARK_FIELD_DETECTOR]["point_spread_sigma_x_mm"]
+        ),
+        point_spread_sigma_y_mm=float(
+            _DEFAULT_MANIFEST_PARTS[DARK_FIELD_DETECTOR]["point_spread_sigma_y_mm"]
+        ),
+        point_spread_rotation_deg=float(
+            _DEFAULT_MANIFEST_PARTS[DARK_FIELD_DETECTOR]["point_spread_rotation_deg"]
+        ),
+        point_spread_status=str(
+            _DEFAULT_MANIFEST_PARTS[DARK_FIELD_DETECTOR]["point_spread_status"]
+        ),
+        point_spread_source=str(
+            _DEFAULT_MANIFEST_PARTS[DARK_FIELD_DETECTOR]["point_spread_source"]
+        ),
     ),
     StemDetectorDefinition(
         key=BRIGHT_FIELD_DETECTOR,
         label=str(_DEFAULT_MANIFEST_PARTS[BRIGHT_FIELD_DETECTOR]["name"]),
-        optical_reference_downstream_of_anchor_mm=downstream_offset_mm(
+        optical_reference_downstream_of_anchor_mm=downstream_optical_offset_mm(
             BRIGHT_FIELD_DETECTOR
         ),
         layout_center_downstream_of_anchor_mm=downstream_offset_mm(
@@ -238,6 +293,24 @@ STEM_DETECTOR_DEFINITIONS = (
             _DEFAULT_MANIFEST_PARTS[BRIGHT_FIELD_DETECTOR]["inner_diameter_mm"]
         ),
         colour="#1e88e5",
+        point_spread_model=str(
+            _DEFAULT_MANIFEST_PARTS[BRIGHT_FIELD_DETECTOR]["point_spread_model"]
+        ),
+        point_spread_sigma_x_mm=float(
+            _DEFAULT_MANIFEST_PARTS[BRIGHT_FIELD_DETECTOR]["point_spread_sigma_x_mm"]
+        ),
+        point_spread_sigma_y_mm=float(
+            _DEFAULT_MANIFEST_PARTS[BRIGHT_FIELD_DETECTOR]["point_spread_sigma_y_mm"]
+        ),
+        point_spread_rotation_deg=float(
+            _DEFAULT_MANIFEST_PARTS[BRIGHT_FIELD_DETECTOR]["point_spread_rotation_deg"]
+        ),
+        point_spread_status=str(
+            _DEFAULT_MANIFEST_PARTS[BRIGHT_FIELD_DETECTOR]["point_spread_status"]
+        ),
+        point_spread_source=str(
+            _DEFAULT_MANIFEST_PARTS[BRIGHT_FIELD_DETECTOR]["point_spread_source"]
+        ),
     ),
 )
 
@@ -282,7 +355,10 @@ def stem_detector_from_dict(
     legacy_anchor = values.get("anchor_key") != SELECTED_AREA_APERTURE
     component.anchor_key = SELECTED_AREA_APERTURE
     if legacy_anchor:
-        offset = downstream_offset_mm(key)
-        component.optical_reference_downstream_of_anchor_mm = offset
-        component.layout_center_downstream_of_anchor_mm = offset
+        component.optical_reference_downstream_of_anchor_mm = (
+            downstream_optical_offset_mm(key)
+        )
+        component.layout_center_downstream_of_anchor_mm = downstream_offset_mm(
+            key
+        )
     return component.resolve_against(anchor_z_mm).validate()

@@ -35,6 +35,12 @@ DETECTOR_ORIENTATION_STATUSES = frozenset({
     "measured_calibration",
     "service_calibration",
 })
+DETECTOR_POINT_SPREAD_MODELS = frozenset({"none", "gaussian"})
+DETECTOR_POINT_SPREAD_STATUSES = frozenset({
+    "manufacturer_documented",
+    "measured_calibration",
+    "provisional_model_parameter",
+})
 PROJECTOR_LENS_KEYS = (
     "diffraction_lens",
     "intermediate_lens",
@@ -181,6 +187,15 @@ ENERGY_FILTER_ZEBRA_FIELDS = (
 RECORDING_PLANE_GEOMETRY_FIELDS = (
     "outer_width_mm",
     "inner_diameter_mm",
+)
+
+RECORDING_PLANE_POINT_SPREAD_FIELDS = (
+    "point_spread_model",
+    "point_spread_sigma_x_mm",
+    "point_spread_sigma_y_mm",
+    "point_spread_rotation_deg",
+    "point_spread_status",
+    "point_spread_source",
 )
 
 PROBE_CORRECTOR_COLUMN_KEYS = (
@@ -594,7 +609,7 @@ def validate_document(document):
         _validate_magnetic_lens_mechanical_parts(parts)
         _validate_shared_lens_housings(parts)
     if document.get("module", {}).get("type") == "project_and_recording_system":
-        _validate_projector_lens_clearances(parts)
+        _validate_projector_lens_clearances(parts, document["geometry"])
         _validate_projector_lens_geometry_provenance(parts)
         _validate_two_pole_lens_assemblies(parts)
         _validate_magnetic_lens_mechanical_parts(parts)
@@ -651,6 +666,66 @@ def _validate_recording_plane_geometry(parts):
             raise ValueError(f"{key} must be an interaction-plane row")
         if not 0.0 < float(part["length_mm"]) <= 1.0:
             raise ValueError(f"{key} active plane must remain axially thin")
+        if part.get("signal_collection_surface") != "upstream_top_surface":
+            raise ValueError(
+                f"{key} signal collection must use the upstream top surface"
+            )
+        if not math.isclose(
+            float(part["optical_reference_local_z_mm"]),
+            float(part["local_start_z_mm"]),
+            rel_tol=0.0,
+            abs_tol=1.0e-12,
+        ):
+            raise ValueError(
+                f"{key} signal plane must coincide with local_start_z_mm"
+            )
+        missing_point_spread = [
+            field
+            for field in RECORDING_PLANE_POINT_SPREAD_FIELDS
+            if field not in part
+        ]
+        if missing_point_spread:
+            raise ValueError(
+                f"Missing {key} TOML detector point spread: "
+                + ", ".join(missing_point_spread)
+            )
+        model = str(part["point_spread_model"]).strip().lower()
+        if model not in DETECTOR_POINT_SPREAD_MODELS:
+            raise ValueError(
+                f"{key}.point_spread_model must be one of "
+                f"{sorted(DETECTOR_POINT_SPREAD_MODELS)}"
+            )
+        sigma_values = []
+        for field in (
+            "point_spread_sigma_x_mm",
+            "point_spread_sigma_y_mm",
+            "point_spread_rotation_deg",
+        ):
+            value = part[field]
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(float(value))
+            ):
+                raise ValueError(f"{key}.{field} must be finite numeric")
+            if field != "point_spread_rotation_deg":
+                sigma_values.append(float(value))
+        if any(value < 0.0 for value in sigma_values):
+            raise ValueError(f"{key} point-spread sigma values cannot be negative")
+        if model == "gaussian" and any(
+            value <= 0.0 for value in sigma_values
+        ):
+            raise ValueError(
+                f"{key} Gaussian point spread requires positive sigma values"
+            )
+        status = str(part["point_spread_status"]).strip()
+        if status not in DETECTOR_POINT_SPREAD_STATUSES:
+            raise ValueError(
+                f"{key}.point_spread_status must be one of "
+                f"{sorted(DETECTOR_POINT_SPREAD_STATUSES)}"
+            )
+        if not str(part["point_spread_source"]).strip():
+            raise ValueError(f"{key}.point_spread_source must not be empty")
         if key != "camera":
             continue
         calibration_fields = (
@@ -1569,17 +1644,55 @@ def _validate_column_mechanical_overlaps(parts):
             )
 
 
-def _validate_projector_lens_clearances(parts):
-    """Reject serial projector-lens overlap in recording modules."""
+def _validate_projector_lens_clearances(parts, geometry):
+    """Require a compact, uniform-bore D-I-P1-P2 projector stack."""
+
     tolerance = 1.0e-9
     by_key = {str(part["key"]): part for part in parts}
+    required_geometry = (
+        "projector_stack_inter_lens_gap_mm",
+        "projector_stack_vacuum_inner_diameter_mm",
+        "projector_stack_geometry_status",
+        "projector_stack_geometry_source",
+    )
+    missing = [field for field in required_geometry if field not in geometry]
+    if missing:
+        raise ValueError(
+            "Missing projector-stack geometry: " + ", ".join(missing)
+        )
+    required_clearance = float(geometry["projector_stack_inter_lens_gap_mm"])
+    vacuum_diameter = float(
+        geometry["projector_stack_vacuum_inner_diameter_mm"]
+    )
+    if (
+        not math.isfinite(required_clearance)
+        or not 0.0 <= required_clearance <= 10.0
+    ):
+        raise ValueError(
+            "Projector-stack inter-lens gap must be between 0 and 10 mm"
+        )
+    if not math.isfinite(vacuum_diameter) or vacuum_diameter <= 0.0:
+        raise ValueError(
+            "Projector-stack vacuum inner diameter must be finite and positive"
+        )
+    if geometry["projector_stack_geometry_status"] != (
+        "user_defined_non_oem_principle_model"
+    ):
+        raise ValueError(
+            "Projector-stack geometry must remain explicitly non-OEM"
+        )
+    if not str(geometry["projector_stack_geometry_source"]).strip():
+        raise ValueError("Projector-stack geometry source must not be empty")
     sequence = (
         "diffraction_lens",
         "intermediate_lens",
         "projector_lens_1",
         "projector_lens_2",
     )
-    for upstream_key, downstream_key in zip(sequence, sequence[1:]):
+    envelope_sequence = tuple(f"{key}_housing" for key in sequence)
+    for upstream_key, downstream_key in zip(
+        envelope_sequence, envelope_sequence[1:]
+    ):
         if upstream_key not in by_key or downstream_key not in by_key:
             continue
         upstream = by_key[upstream_key]
@@ -1588,19 +1701,38 @@ def _validate_projector_lens_clearances(parts):
             float(downstream["local_start_z_mm"])
             - float(upstream["local_end_z_mm"])
         )
-        required_clearance = (
-            5.0
-            if (
-                upstream_key == "diffraction_lens"
-                and downstream_key == "intermediate_lens"
-            )
-            else 0.0
-        )
-        if clearance < required_clearance - tolerance:
+        if not math.isclose(
+            clearance,
+            required_clearance,
+            rel_tol=0.0,
+            abs_tol=tolerance,
+        ):
             raise ValueError(
-                f"Insufficient mechanical clearance between {upstream_key} "
+                f"Non-uniform mechanical clearance between {upstream_key} "
                 f"and {downstream_key}: {clearance:.9g} mm; "
-                f"requires at least {required_clearance:.9g} mm"
+                f"requires {required_clearance:.9g} mm"
+            )
+    stack_keys = set()
+    for lens_key in sequence:
+        if lens_key not in by_key:
+            continue
+        stack_keys.add(lens_key)
+        stack_keys.update((
+            f"{lens_key}_upper_pole",
+            f"{lens_key}_lower_pole",
+            *lens_mechanical_part_keys(lens_key),
+        ))
+    for key in sorted(stack_keys):
+        part = by_key.get(key)
+        if part is None:
+            continue
+        actual = float(part["vacuum_inner_diameter_mm"])
+        if not math.isclose(
+            actual, vacuum_diameter, rel_tol=0.0, abs_tol=tolerance
+        ):
+            raise ValueError(
+                f"{key} vacuum ID {actual:g} mm does not match projector "
+                f"stack {vacuum_diameter:g} mm"
             )
 
 
@@ -1746,17 +1878,26 @@ def _validate_two_pole_lens_assemblies(parts):
         expected_upper_end = lens_center - 0.5 * gap
         expected_lower_start = lens_center + 0.5 * gap
         checks = (
-            (float(upper["local_start_z_mm"]), lens_start),
             (float(upper["local_end_z_mm"]), expected_upper_end),
             (float(lower["local_start_z_mm"]), expected_lower_start),
-            (float(lower["local_end_z_mm"]), lens_end),
         )
-        if gap <= 0.0 or any(
-            abs(actual - expected) > tolerance
-            for actual, expected in checks
+        poles_inside_envelope = (
+            float(upper["local_start_z_mm"])
+            >= lens_start - tolerance
+            and float(lower["local_end_z_mm"])
+            <= lens_end + tolerance
+        )
+        if (
+            gap <= 0.0
+            or not poles_inside_envelope
+            or any(
+                abs(actual - expected) > tolerance
+                for actual, expected in checks
+            )
         ):
             raise ValueError(
-                f"{lens_key} pole pieces must bound its declared pole gap"
+                f"{lens_key} pole pieces must fit its envelope and bound "
+                "its declared pole gap"
             )
 
 

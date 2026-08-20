@@ -29,6 +29,7 @@ from temsim.runtime_parameters import (
     editable_parameters,
     validate_runtime_assignment,
 )
+from temsim.optics.aberrations import intrinsic_lens_aberration_profile
 
 
 class ParameterPanel(QWidget):
@@ -68,6 +69,25 @@ class ParameterPanel(QWidget):
             "Signed third-order spherical aberration coefficient. "
             "Zero disables the calibrated ray-direction correction."
         )
+        self.lens_cc = QDoubleSpinBox()
+        self.lens_cc.setDecimals(6)
+        self.lens_cc.setRange(0.0, 1.0e6)
+        self.lens_cc.setSuffix(" mm")
+        self.lens_cc.setToolTip(
+            "First-order chromatic coefficient used with Δf = Cc ΔE/E0."
+        )
+        self.lens_aberration_model = QComboBox()
+        self.lens_aberration_model.addItem(
+            "Focal-length estimate (provisional)", "estimate"
+        )
+        self.lens_aberration_model.addItem(
+            "Explicit component coefficients", "explicit"
+        )
+        self.lens_aberration_provenance = QLabel()
+        self.lens_aberration_provenance.setWordWrap(True)
+        self.lens_aberration_provenance.setStyleSheet(
+            "color: #64748b; font-weight: 600;"
+        )
         self.lens_field_direction = QComboBox()
         self.lens_field_direction.addItem("+Z", 1)
         self.lens_field_direction.addItem("-Z", -1)
@@ -87,6 +107,9 @@ class ParameterPanel(QWidget):
         lens_form.addRow(self.lens_enabled)
         lens_form.addRow("Excitation", self.lens_excitation)
         lens_form.addRow("Spherical aberration Cs", self.lens_cs)
+        lens_form.addRow("Chromatic aberration Cc", self.lens_cc)
+        lens_form.addRow("Coefficient model", self.lens_aberration_model)
+        lens_form.addRow(self.lens_aberration_provenance)
         lens_form.addRow(
             "Effective axial field direction", self.lens_field_direction
         )
@@ -94,6 +117,10 @@ class ParameterPanel(QWidget):
         self.lens_enabled.toggled.connect(self._lens_enabled_changed)
         self.lens_excitation.valueChanged.connect(self._lens_excitation_changed)
         self.lens_cs.valueChanged.connect(self._lens_cs_changed)
+        self.lens_cc.valueChanged.connect(self._lens_cc_changed)
+        self.lens_aberration_model.currentIndexChanged.connect(
+            self._lens_aberration_model_changed
+        )
         self.lens_field_direction.currentIndexChanged.connect(
             self._lens_field_direction_changed
         )
@@ -652,7 +679,27 @@ class ParameterPanel(QWidget):
         self.lens_enabled.setChecked(bool(getattr(obj, "enabled", True)))
         self.lens_excitation.setMaximum(float(getattr(obj, "max_percent", 1000.0)))
         self.lens_excitation.setValue(float(obj.percent))
-        self.lens_cs.setValue(float(getattr(obj, "cs_mm", 0.0) or 0.0))
+        parent_state = getattr(self.parent(), "state", None)
+        voltage_kv = float(getattr(parent_state, "beam_voltage_kv", 300.0))
+        profile = intrinsic_lens_aberration_profile(obj, voltage_kv)
+        explicit = (
+            getattr(obj, "cs_mm", None) is not None
+            or getattr(obj, "cc_mm", None) is not None
+        )
+        model_index = self.lens_aberration_model.findData(
+            "explicit" if explicit else "estimate"
+        )
+        self.lens_aberration_model.setCurrentIndex(max(model_index, 0))
+        coefficients_available = (
+            profile.cs_mm is not None and profile.cc_mm is not None
+        )
+        self.lens_cs.setEnabled(explicit and coefficients_available)
+        self.lens_cc.setEnabled(explicit and coefficients_available)
+        self.lens_cs.setValue(float(profile.cs_mm or 0.0))
+        self.lens_cc.setValue(float(profile.cc_mm or 0.0))
+        self.lens_aberration_provenance.setText(
+            f"{profile.status}: {profile.model}. {profile.source}."
+        )
         polarity = int(getattr(obj, "polarity", 1))
         direction_index = self.lens_field_direction.findData(
             -1 if polarity < 0 else 1
@@ -730,6 +777,45 @@ class ParameterPanel(QWidget):
         self._load_runtime()
         self._updating = False
         self.runtime_changed.emit("cs_mm")
+
+    def _lens_cc_changed(self, value: float) -> None:
+        if self._updating or self._runtime_target is None:
+            return
+        self._runtime_target.obj.cc_mm = float(value)
+        self._updating = True
+        self._load_runtime()
+        self._load_lens_controls()
+        self._updating = False
+        self.runtime_changed.emit("cc_mm")
+
+    def _lens_aberration_model_changed(self, index: int) -> None:
+        if self._updating or self._runtime_target is None or index < 0:
+            return
+        obj = self._runtime_target.obj
+        mode = str(self.lens_aberration_model.itemData(index))
+        if mode == "estimate":
+            obj.cs_mm = None
+            obj.cc_mm = None
+        else:
+            parent_state = getattr(self.parent(), "state", None)
+            voltage_kv = float(getattr(parent_state, "beam_voltage_kv", 300.0))
+            profile = intrinsic_lens_aberration_profile(obj, voltage_kv)
+            if profile.cs_mm is None or profile.cc_mm is None:
+                self.error.emit(
+                    "Cannot create explicit coefficients because this lens has no "
+                    "resolvable focal-length scale."
+                )
+                self._updating = True
+                self._load_lens_controls()
+                self._updating = False
+                return
+            obj.cs_mm = float(profile.cs_mm)
+            obj.cc_mm = float(profile.cc_mm)
+        self._updating = True
+        self._load_runtime()
+        self._load_lens_controls()
+        self._updating = False
+        self.runtime_changed.emit("aberration_model")
 
     def _lens_field_direction_changed(self, index: int) -> None:
         if self._updating or self._runtime_target is None or index < 0:

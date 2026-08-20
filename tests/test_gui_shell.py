@@ -8,7 +8,11 @@ import pytest
 
 from temsim.assembly_catalog import AssemblyCatalog, AssemblySelection
 from temsim.column.state_layout import apply_physical_layout_to_state
-from temsim.gui.diagnostic_tabs import OpticalTransferView
+from temsim.gui.diagnostic_tabs import (
+    InitialDirectionColourWheel,
+    OpticalTransferView,
+    TransverseBeamView,
+)
 from temsim.gui.direct_alignment_panel import DirectAlignmentPanel
 from temsim.gui.main_window import MainWindow
 from temsim.gui.visualization import VisualizationWorkspace, WaveImagingView
@@ -88,6 +92,107 @@ def test_transverse_projection_supports_arbitrary_view_angles():
     assert VisualizationWorkspace._project_transverse_values(
         x, y, 45.0
     ) == pytest.approx((x + y) / np.sqrt(2.0))
+
+
+def test_transverse_direction_colour_wheel_is_continuous_and_cyclic(qtbot):
+    wheel = InitialDirectionColourWheel()
+    qtbot.addWidget(wheel)
+    view = TransverseBeamView()
+    qtbot.addWidget(view)
+
+    cardinal_angles = np.deg2rad((0.0, 90.0, 180.0, 270.0, 360.0))
+    colours = [wheel.colour_for_angle(value) for value in cardinal_angles]
+    hues = [colour.getHsvF()[0] for colour in colours]
+
+    assert colours[0].rgba() == colours[-1].rgba()
+    assert hues[:4] == pytest.approx((0.0, 0.25, 0.5, 0.75), abs=1.0e-3)
+    assert len({
+        wheel.colour_for_angle(value).rgba()
+        for value in np.linspace(0.0, 2.0 * np.pi, 25, endpoint=False)
+    }) == 25
+    assert view.angle_colour_wheel.objectName() == (
+        "initialDirectionColourWheel"
+    )
+    assert "counter-clockwise" in view.angle_colour_note.text()
+
+
+def test_transverse_ray_colours_follow_angle_about_offset_bundle_centroid(
+    qtbot,
+):
+    view = TransverseBeamView()
+    qtbot.addWidget(view)
+    angles = np.linspace(0.0, 2.0 * np.pi, 12, endpoint=False)
+    start_x = 0.01 + 1.0e-4 * np.cos(angles)
+    start_y = -0.02 + 1.0e-4 * np.sin(angles)
+    branch = SimpleNamespace(
+        name="incident",
+        z=np.array((0.0, 1.0)),
+        x=np.vstack((start_x, start_x)),
+        y=np.vstack((start_y, start_y)),
+        blocked_z=np.full(angles.size, np.nan),
+    )
+
+    view.display_result(SimpleNamespace(
+        simulation=SimpleNamespace(incident=branch, branches={})
+    ))
+
+    brushes = view._scatter.data["brush"]
+    assert len({brush.color().rgba() for brush in brushes}) == angles.size
+    assert "bundle centroid" in view.summary.text()
+
+
+def test_transverse_selected_detector_shows_psf_and_arbitrary_z_clears_it(
+    qtbot, monkeypatch
+):
+    view = TransverseBeamView()
+    qtbot.addWidget(view)
+    start_x = np.array((-1.0e-4, 0.0, 1.0e-4))
+    start_y = np.array((0.0, 0.0, 0.0))
+    branch = SimpleNamespace(
+        name="incident",
+        z=np.array((0.0, 1.0)),
+        x=np.vstack((start_x, start_x)),
+        y=np.vstack((start_y, start_y)),
+        blocked_z=np.full(3, np.nan),
+    )
+    point_spread = SimpleNamespace(
+        model="gaussian",
+        sigma_x_mm=0.1,
+        sigma_y_mm=0.2,
+        rotation_deg=15.0,
+        status="provisional_model_parameter",
+    )
+    response = SimpleNamespace(
+        intensity=np.eye(7),
+        extent=(-1.0, 1.0, -1.0, 1.0),
+        retained_fraction=0.875,
+        point_spread=point_spread,
+    )
+    monkeypatch.setattr(
+        "temsim.gui.diagnostic_tabs.detector_response_image",
+        lambda *_args, **_kwargs: response,
+    )
+    state = SimpleNamespace(
+        recording_planes=[SimpleNamespace(key="camera", z_mm=0.75)]
+    )
+    view.display_result(SimpleNamespace(
+        simulation=SimpleNamespace(incident=branch, branches={}),
+        state_snapshot=state,
+    ))
+
+    view.focus_component(SimpleNamespace(key="camera", center_z_mm=1.0))
+
+    assert view._point_spread_image is not None
+    assert view._point_spread_response is response
+    assert view._plane_z_mm == pytest.approx(0.75)
+    assert "detector PSF gaussian" in view.summary.text()
+    assert "87.5%" in view.summary.text()
+
+    view.focus_z(0.5)
+
+    assert view._focused_component_key is None
+    assert view._point_spread_image is None
+    assert "detector PSF" not in view.summary.text()
 
 
 def test_ray_diagram_projects_only_the_visible_high_accuracy_rays(
@@ -1128,6 +1233,18 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         for part in assembly.parts
     )
     assert len(window.workspace.component_marker_items) == axial_part_count
+    camera_signal_marker = next(
+        item
+        for item in window.workspace.component_marker_items
+        if hasattr(item, "label")
+        and "Camera [TOP SIGNAL SURFACE]" in item.label.toPlainText()
+    )
+    assert camera_signal_marker.value() == pytest.approx(
+        assembly.part("camera").start_z_mm
+    )
+    assert "Upstream top-surface signal Z" in (
+        camera_signal_marker.toolTip()
+    )
     assert len(window.workspace.sample_marker_items) == 2
     sample_line, sample_axis_marker = window.workspace.sample_marker_items
     assert sample_line.value() == pytest.approx(
@@ -1153,7 +1270,7 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert len(window.workspace.sample_marker_items) == 2
     assert window.workspace.sample_marker_items[0].isVisible()
     window.workspace.component_centres.setChecked(True)
-    assert window.workspace.tabs.count() == 9
+    assert window.workspace.tabs.count() == 10
     assert window.workspace.tabs.tabText(1) == "Sample"
     assert "Energy Filter" in {
         window.workspace.tabs.tabText(index)
@@ -1256,13 +1373,13 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     ) == 5
     haadf_head = recording_items["haadf"][0].rect()
     assert haadf_head.center().x() == pytest.approx(
-        assembly.part("haadf").center_z_mm
+        assembly.part("haadf").start_z_mm
     )
     screen_bounds = recording_items["flu_screen"][0].polygon().boundingRect()
     assert screen_bounds.top() > 0.0 or screen_bounds.bottom() < 0.0
     camera_sensor = recording_items["camera"][0].rect()
     assert camera_sensor.center().x() == pytest.approx(
-        assembly.part("camera").center_z_mm
+        assembly.part("camera").start_z_mm
     )
 
     component_labels = (
@@ -1515,6 +1632,8 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert window.workspace.tabs.currentIndex() == 0
     assert window.workspace._last_result is traced_result
     assert window.workspace._selected_z_mm == pytest.approx(910.0)
+    assert window.workspace.transverse_beam._plane_z_mm == pytest.approx(910.0)
+    assert "Z = 910" in window.workspace.transverse_beam.heading.text()
     assert window.workspace.axial_position.value() == pytest.approx(910.0)
     assert window.workspace.axial_cursor_item is not None
     assert float(window.workspace.axial_cursor_item.value()) == pytest.approx(
@@ -1528,8 +1647,17 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     window.workspace.magnetic_field.axial_position_selected.emit(950.0)
     assert window.workspace.tabs.currentIndex() == 0
     assert window.workspace._selected_z_mm == pytest.approx(950.0)
+    assert window.workspace.transverse_beam._plane_z_mm == pytest.approx(950.0)
 
     window.workspace.jump_to_ray_position(1200.0, window_mm=80.0)
+    assert window.workspace.transverse_beam._plane_z_mm == pytest.approx(
+        1200.0
+    )
+    window.workspace.axial_cursor_item.setValue(1195.0)
+    assert window.workspace.transverse_beam._plane_z_mm == pytest.approx(
+        1195.0
+    )
+    window.workspace.axial_cursor_item.setValue(1200.0)
     interaction_text = window.workspace.interaction_detail.toPlainText()
     assert "Selected-plane interaction budget" in interaction_text
     assert "Current reaching Z" in interaction_text
@@ -1581,6 +1709,9 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     )
     window.workspace.display_result(result, "Preview update")
     qtbot.wait(10)
+    assert window.workspace.transverse_beam._plane_z_mm == pytest.approx(
+        1200.0
+    )
     view_after_recalculation = (
         window.workspace.plot.getViewBox().viewRange()
     )
@@ -1619,6 +1750,12 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     )
     window.assembly_panel.tree.setCurrentItem(objective_item)
     objective = assembly.part("objective_lens")
+    assert window.workspace.transverse_beam._plane_z_mm == pytest.approx(
+        objective.center_z_mm
+    )
+    assert f"Z = {objective.center_z_mm:.6g}" in (
+        window.workspace.transverse_beam.heading.text()
+    )
     focused_range = window.workspace.plot.getViewBox().viewRange()[0]
     assert focused_range[0] < objective.center_z_mm < focused_range[1]
     assert focused_range[1] - focused_range[0] <= 520.0

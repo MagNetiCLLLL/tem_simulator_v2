@@ -549,8 +549,16 @@ def _endpoint_exact_axial_grid(z0, z1, maximum_step_mm):
 
     quotient = span / maximum_step
     nearest_integer = int(round(quotient))
-    quotient_tolerance = (
-        8.0 * np.finfo(np.float64).eps * max(1.0, abs(quotient))
+    # Subtracting two large absolute Z coordinates can leave an exact
+    # step-multiple a few ulps away from its integer quotient.  Scale the
+    # tolerance with the absolute coordinate magnitudes as well as the span;
+    # otherwise a spurious ~1e-13 mm terminal interval makes np.gradient
+    # numerically singular at an exact optical plane.
+    quotient_tolerance = 64.0 * np.finfo(np.float64).eps * max(
+        1.0,
+        abs(quotient),
+        abs(start) / maximum_step,
+        abs(stop) / maximum_step,
     )
     if (
         nearest_integer >= 1

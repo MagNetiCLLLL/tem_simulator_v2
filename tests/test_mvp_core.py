@@ -17,60 +17,64 @@ from temsim import presets
 PROJECTOR_RECONSTRUCTION = {
     "diffraction_lens": {
         "center": 82.5,
-        "length": 68.0,
+        "length": 100.0,
+        "envelope_length": 100.0,
         "housing_od": 168.0,
         "yoke_od": 162.0,
         "yoke_id": 143.0,
         "coil_id": 56.0,
         "coil_od": 140.0,
         "coil_length": 44.0,
-        "pole_bore": 10.0,
-        "clear_bore": 8.5,
+        "pole_bore": 21.5,
+        "clear_bore": 20.0,
         "pole_gap": 4.0,
         "pole_shoulder_od": 54.0,
         "pole_nose": 12.0,
     },
     "intermediate_lens": {
         "center": 252.5,
-        "length": 60.0,
+        "length": 230.0,
+        "envelope_length": 230.0,
         "housing_od": 164.0,
         "yoke_od": 158.0,
         "yoke_id": 141.0,
         "coil_id": 60.0,
         "coil_od": 138.0,
         "coil_length": 38.0,
-        "pole_bore": 12.0,
-        "clear_bore": 10.5,
+        "pole_bore": 21.5,
+        "clear_bore": 20.0,
         "pole_gap": 6.0,
         "pole_shoulder_od": 55.0,
         "pole_nose": 12.0,
     },
     "projector_lens_1": {
         "center": 432.5,
-        "length": 62.0,
+        "length": 120.0,
+        "envelope_length": 120.0,
         "housing_od": 164.0,
         "yoke_od": 158.0,
         "yoke_id": 141.0,
         "coil_id": 58.0,
         "coil_od": 138.0,
         "coil_length": 40.0,
-        "pole_bore": 10.0,
-        "clear_bore": 8.5,
+        "pole_bore": 21.5,
+        "clear_bore": 20.0,
         "pole_gap": 5.0,
         "pole_shoulder_od": 54.0,
         "pole_nose": 13.0,
     },
     "projector_lens_2": {
         "center": 635.0,
-        "length": 70.0,
+        "length": 275.0,
+        "envelope_length": 275.0,
         "housing_od": 171.0,
         "yoke_od": 165.0,
         "yoke_id": 148.0,
         "coil_id": 66.0,
         "coil_od": 145.0,
         "coil_length": 45.0,
-        "pole_bore": 15.0,
-        "clear_bore": 13.5,
+        "pole_bore": 21.5,
+        "clear_bore": 20.0,
         "pole_gap": 7.0,
         "pole_shoulder_od": 62.0,
         "pole_nose": 14.0,
@@ -340,7 +344,7 @@ def test_energy_filter_uses_a_colocated_curvilinear_branch_interface():
     assert interface.data["path_coordinate"] == "curvilinear_s_mm"
 
 
-def test_projector_lenses_have_non_overlapping_mechanical_envelopes():
+def test_projector_lenses_form_a_compact_uniform_gap_stack():
     catalog = AssemblyCatalog()
     state = default_state()
     assembly = catalog.apply(
@@ -354,21 +358,23 @@ def test_projector_lenses_have_non_overlapping_mechanical_envelopes():
         "projector_lens_2",
     )
     parts = [assembly.part(key) for key in keys]
+    envelopes = [assembly.part(f"{key}_housing") for key in keys]
     clearances = [
         downstream.start_z_mm - upstream.end_z_mm
-        for upstream, downstream in zip(parts, parts[1:])
+        for upstream, downstream in zip(envelopes, envelopes[1:])
     ]
 
-    assert clearances == pytest.approx((106.0, 119.0, 136.5))
+    assert clearances == pytest.approx((5.0, 5.0, 5.0))
     lens_by_key = {lens.key: lens for lens in state.lenses}
     for part in parts:
         assert lens_by_key[part.key].z_mm == pytest.approx(part.center_z_mm)
         upper = assembly.part(f"{part.key}_upper_pole")
         lower = assembly.part(f"{part.key}_lower_pole")
+        housing = assembly.part(f"{part.key}_housing")
         assert upper.parent_key == part.key
         assert lower.parent_key == part.key
-        assert upper.start_z_mm == pytest.approx(part.start_z_mm)
-        assert lower.end_z_mm == pytest.approx(part.end_z_mm)
+        assert housing.start_z_mm <= part.start_z_mm
+        assert part.end_z_mm <= housing.end_z_mm
         assert lower.start_z_mm - upper.end_z_mm == pytest.approx(
             PROJECTOR_RECONSTRUCTION[part.key]["pole_gap"]
         )
@@ -378,7 +384,7 @@ def test_projector_lenses_have_non_overlapping_mechanical_envelopes():
     "NoEnergyFilter.toml",
     "EnergyFilter.toml",
 ))
-def test_projector_manifests_use_public_reference_engineering_dimensions(
+def test_projector_manifests_use_compact_user_defined_envelopes(
     manifest_name,
 ):
     path = (
@@ -393,6 +399,15 @@ def test_projector_manifests_use_public_reference_engineering_dimensions(
     assert document["geometry"]["vacuum_liner_wall_thickness_mm"] == (
         pytest.approx(0.75)
     )
+    assert document["geometry"]["projector_stack_inter_lens_gap_mm"] == (
+        pytest.approx(5.0)
+    )
+    assert document["geometry"][
+        "projector_stack_vacuum_inner_diameter_mm"
+    ] == pytest.approx(20.0)
+    assert document["geometry"]["projector_stack_geometry_status"] == (
+        "user_defined_non_oem_principle_model"
+    )
     by_key = {part["key"]: part for part in document["parts"]}
 
     for key, expected in PROJECTOR_RECONSTRUCTION.items():
@@ -405,6 +420,11 @@ def test_projector_manifests_use_public_reference_engineering_dimensions(
             by_key[f"{key}_lower_pole"],
         )
 
+        for stack_part in (lens, housing, yoke, coil, *poles):
+            assert stack_part["vacuum_inner_diameter_mm"] == pytest.approx(
+                20.0
+            )
+
         assert lens["local_center_z_mm"] == pytest.approx(expected["center"])
         assert lens["optical_reference_local_z_mm"] == pytest.approx(
             expected["center"]
@@ -415,6 +435,12 @@ def test_projector_manifests_use_public_reference_engineering_dimensions(
         )
         assert lens["local_end_z_mm"] == pytest.approx(
             expected["center"] + 0.5 * expected["length"]
+        )
+        assert housing["length_mm"] == pytest.approx(
+            expected["envelope_length"]
+        )
+        assert yoke["length_mm"] == pytest.approx(
+            expected["envelope_length"]
         )
         assert lens["mechanical_outer_diameter_mm"] == pytest.approx(
             expected["housing_od"]
@@ -469,7 +495,7 @@ def test_projector_manifests_use_public_reference_engineering_dimensions(
             )
 
 
-def test_recording_manifest_rejects_future_projector_lens_overlap():
+def test_recording_manifest_rejects_nonuniform_projector_lens_gap():
     path = (
         Path(__file__).parents[1]
         / "configs"
@@ -481,16 +507,15 @@ def test_recording_manifest_rejects_future_projector_lens_overlap():
     intermediate = next(
         part
         for part in document["parts"]
-        if part["key"] == "intermediate_lens"
+        if part["key"] == "intermediate_lens_housing"
     )
     intermediate.update({
-        "local_start_z_mm": 120.0,
-        "local_center_z_mm": 150.0,
-        "local_end_z_mm": 180.0,
-        "optical_reference_local_z_mm": 150.0,
+        "local_start_z_mm": 136.5,
+        "local_center_z_mm": 251.5,
+        "local_end_z_mm": 366.5,
     })
 
-    with pytest.raises(ValueError, match="requires at least 5 mm"):
+    with pytest.raises(ValueError, match="requires 5 mm"):
         validate_document(document)
 
 

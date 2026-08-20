@@ -16,8 +16,61 @@ the next concrete work. `README.md` remains the user/developer overview and
 - Application entry point: `main.py`
 - Run: `.venv\Scripts\python.exe main.py`
 - Tests: `$env:PYTHONPATH='src'; .venv\Scripts\python.exe -m pytest -q`
-- Last full result: **270 passed, 12 skipped** on 2026-08-20. The skipped
-  cases are optional-platform/backend coverage unavailable in this environment.
+- Last full result: **311 passed** on 2026-08-20 in 427.3 seconds, with CUDA
+  available and no skipped tests. Serial `compileall`, `pip check`, `main.py`
+  import and the offscreen `MainWindow` smoke check passed.
+
+## Layered aberration checkpoint (2026-08-20)
+
+- `optics/aberrations.py` is the shared intrinsic/system aberration authority.
+  Round-lens missing Cs/Cc values resolve to labelled provisional focal-scale
+  estimates; explicit values remain authoritative and no unavailable value is
+  presented as a physical zero.
+- Full effective coefficients live only at probe/specimen and Objective/image:
+  C1, A1, B2, A2, C3, S3, A3, C5 and Cc. Non-axisymmetric terms carry an
+  azimuth. State schema 65 persists probe/image overrides.
+- The Aberrations page compares identical relay optics with nonlinear
+  hexapoles disabled/enabled. TEM CTF and STEM probe phase use the same active
+  effective set through fifth order. Cc remains a first-order energy-dependent
+  defocus term rather than an incorrect single-energy coherent phase.
+- This is a principle-correct, non-OEM model. No real instrument calibration
+  or energy-filter aberration curve is claimed.
+
+## Transverse X-Y direction-colour checkpoint (2026-08-20)
+
+- The former four discrete initial-quadrant colours are replaced by a
+  continuous cyclic HSV direction map, with +X = 0 degrees and angle increasing
+  counter-clockwise toward +Y = 90 degrees.
+- An on-page DPC-style colour wheel uses the exact ray colour mapping and labels
+  all four signed cardinal axes. Colour represents initial polar direction
+  only, not radius, energy, intensity or survival state.
+- Initial angles are measured about the ray bundle's own start-plane centroid,
+  so off-axis translation does not corrupt the rotation diagnostic. A ray
+  exactly at that centroid has undefined direction and is shown in neutral
+  grey.
+- Component selection displays its centre Z, except recording devices, which
+  display their upstream top-surface signal Z. Go to Z, axial-plot selection
+  and the movable cyan cursor display an arbitrary Z; cursor movement refreshes
+  the transverse slice live, and whichever source was selected last remains
+  authoritative across recalculation.
+
+## Detector point-spread checkpoint (2026-08-20)
+
+- Camera, Fluorescent Screen and BF/DF/HAADF now carry TOML-authoritative
+  `point_spread_*` fields: model, sigma X/Y in detector-plane mm, principal-axis
+  rotation, status and source. Current values are deliberately labelled
+  `provisional_model_parameter`, not real-instrument calibration.
+- `detector/point_spread.py` performs only forward convolution with a unit-sum,
+  rotatable anisotropic Gaussian. `detector_response_image()` accepts rays with
+  the component's square/disk/annulus hit mask, applies the PSF, reapplies the
+  finite sensitive-area mask and exposes accepted, response and retained
+  weights. Zero padding permits physically meaningful edge loss.
+- Selecting one of those recording devices overlays its response beneath the
+  original direction-coloured points in Transverse X-Y. Selecting an arbitrary
+  Z or a non-recording component clears the response, so an ordinary geometric
+  slice is never presented as a detector image.
+- This stage does not alter ray trajectories or the specimen-to-Objective CTF,
+  and it does not yet connect Zebra/EELS or EFTEM output readout PSFs.
 
 ## Permanent Energy Filter checkpoint (2026-08-20)
 
@@ -116,7 +169,26 @@ the next concrete work. `README.md` remains the user/developer overview and
   diameter and stage envelope are TOML-derived. Python continues to own
   algorithms and runtime operating controls, not a second structural model.
 
-## Latest projector-lens mechanical checkpoint (2026-08-09)
+## Latest compact projector and recording-surface checkpoint (2026-08-20)
+
+- D, I, P1 and P2 retain the validated optical centres at local Z = 82.5,
+  252.5, 432.5 and 635.0 mm. Their complete housing/yoke envelopes are now
+  32.5-132.5, 137.5-367.5, 372.5-492.5 and 497.5-772.5 mm, leaving exactly
+  5 mm between neighbouring physical assemblies.
+- The whole projector stack uses a 20 mm electron-accessible vacuum ID. Pole
+  mechanical bores are 21.5 mm so the declared 0.75 mm liner remains outside
+  the electron path. Geometry is tagged as a user-defined non-OEM principle
+  model; do not present it as a production drawing.
+- Camera, Fluorescent Screen and BF/DF/HAADF collect signal on the upstream
+  top surface. Their optical reference equals `local_start_z_mm`; runtime
+  detector Z, Physical Layout callouts, Ray Diagram markers and Transverse X-Y
+  selection all point to this signal surface, while body centres remain
+  available as mechanical geometry.
+- The exact axial grid now merges coordinate-rounding-sized terminal
+  intervals. This prevents a near-zero RK4 interval and singular gradient
+  when a restored optical centre lies an ulp away from a regular grid point.
+
+## Historical projector-lens mechanical checkpoint (2026-08-09)
 
 - Both recording-system TOMLs now use the same D-I-P1-P2 Titan/Talos-class
   engineering reconstruction supplied by the user.  Each lens is explicitly
@@ -516,8 +588,8 @@ the next concrete work. `README.md` remains the user/developer overview and
 
 ## Current validated state
 
-- The instrument catalog contains 10 module TOMLs, 448 part definitions and 30
-  selectable assembly combinations.
+- The instrument catalog contains 10 module TOMLs, 466 part definitions and 15
+  selectable Energy Filter assembly combinations.
 - High-accuracy defaults target a 32 GiB workstation and use a conservative
   24 GiB application-memory preflight limit.
 - Magnetic-lens excitation is limited to 0–100%. A lens needing a stronger

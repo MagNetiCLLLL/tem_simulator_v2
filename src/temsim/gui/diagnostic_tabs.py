@@ -7,8 +7,8 @@ import math
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QPolygonF
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPolygonF
 from PySide6.QtWidgets import (
     QComboBox,
     QGraphicsEllipseItem,
@@ -46,6 +46,7 @@ from temsim.diagnostics import (
     physical_layout_records,
     vacuum_bore_plot_points,
 )
+from temsim.detector.plane_image import detector_response_image
 from temsim.physics.first_order import (
     linear_map_properties,
     relative_image_diffraction_orientation,
@@ -1662,6 +1663,16 @@ class PhysicalLayoutView(QWidget):
             key,
         )
 
+    @staticmethod
+    def _recording_signal_z(record) -> float:
+        """Return the detector's single TOML signal-reference plane."""
+
+        if len(record.optical_references_mm) != 1:
+            raise ValueError(
+                f"Recording device {record.key} requires one signal plane"
+            )
+        return float(record.optical_references_mm[0])
+
     def _add_recording_label(
         self,
         record,
@@ -1687,7 +1698,7 @@ class PhysicalLayoutView(QWidget):
         self._register_label_callout(
             key=f"recording:{record.key}",
             label=label,
-            anchor_z_mm=record.center_z_mm,
+            anchor_z_mm=float(z_mm),
             anchor_radius_mm=max(
                 0.5 * float(record.outer_diameter_mm),
                 0.5 * float(record.bore_diameter_mm),
@@ -1701,7 +1712,7 @@ class PhysicalLayoutView(QWidget):
     def _add_retractable_probe_schematic(self, record, colour) -> None:
         component = self._recording_plane_component(record.key)
         inserted = bool(getattr(component, "inserted", True))
-        center_z = float(record.center_z_mm)
+        signal_z = self._recording_signal_z(record)
         outer_radius = 0.5 * float(record.outer_diameter_mm)
         inner_radius = min(
             0.5 * float(record.bore_diameter_mm), outer_radius
@@ -1719,7 +1730,7 @@ class PhysicalLayoutView(QWidget):
         )
         tooltip = (
             f"{record.name} / retractable probe ({status.lower()})\n"
-            f"Active plane Z = {center_z:.6g} mm\n"
+            f"Upstream top-surface signal Z = {signal_z:.6g} mm\n"
             f"active OD {record.outer_diameter_mm:.6g} mm | "
             f"central ID {record.bore_diameter_mm:.6g} mm\n"
             "The side actuator and housing are a Physical Layout schematic; "
@@ -1735,7 +1746,7 @@ class PhysicalLayoutView(QWidget):
             if end_y <= start_y:
                 continue
             head = QGraphicsRectItem(
-                center_z - 0.5 * plane_width,
+                signal_z - 0.5 * plane_width,
                 start_y,
                 plane_width,
                 end_y - start_y,
@@ -1757,7 +1768,7 @@ class PhysicalLayoutView(QWidget):
         arm_end = housing_end - 3.0
         if arm_end > arm_start:
             arm = QGraphicsRectItem(
-                center_z - 0.9,
+                signal_z - 0.9,
                 arm_start,
                 1.8,
                 arm_end - arm_start,
@@ -1770,7 +1781,7 @@ class PhysicalLayoutView(QWidget):
             self._remember_recording_item(record.key, arm)
 
         housing = QGraphicsRectItem(
-            center_z - 6.0,
+            signal_z - 6.0,
             housing_start,
             12.0,
             housing_depth,
@@ -1785,7 +1796,7 @@ class PhysicalLayoutView(QWidget):
         self._add_recording_label(
             record,
             f"{record.name.upper()}  [{status}]",
-            center_z + 7.0,
+            signal_z + 7.0,
             housing_end,
             colour,
             tooltip,
@@ -1794,7 +1805,7 @@ class PhysicalLayoutView(QWidget):
     def _add_fluorescent_screen_schematic(self, record, colour) -> None:
         component = self._recording_plane_component(record.key)
         inserted = bool(getattr(component, "inserted", True))
-        center_z = float(record.center_z_mm)
+        signal_z = self._recording_signal_z(record)
         screen_radius = 0.5 * float(record.outer_diameter_mm)
         vacuum_radius = 0.5 * float(record.vacuum_inner_diameter_mm)
         housing_start = max(vacuum_radius + 8.0, screen_radius + 5.0)
@@ -1805,29 +1816,29 @@ class PhysicalLayoutView(QWidget):
         rgb = pg.mkColor(colour)
         tooltip = (
             f"{record.name} / hinged viewing screen ({status.lower()})\n"
-            f"Interaction plane Z = {center_z:.6g} mm\n"
+            f"Upstream top-surface signal Z = {signal_z:.6g} mm\n"
             f"screen diameter {record.outer_diameter_mm:.6g} mm\n"
             "The hinge, arm and parked position are schematic and remain "
             "outside the axial mechanical model."
         )
         if inserted:
             points = QPolygonF([
-                QPointF(center_z - tilt - half_thickness, -screen_radius),
-                QPointF(center_z - tilt + half_thickness, -screen_radius),
-                QPointF(center_z + tilt + half_thickness, screen_radius),
-                QPointF(center_z + tilt - half_thickness, screen_radius),
+                QPointF(signal_z - tilt - half_thickness, -screen_radius),
+                QPointF(signal_z - tilt + half_thickness, -screen_radius),
+                QPointF(signal_z + tilt + half_thickness, screen_radius),
+                QPointF(signal_z + tilt - half_thickness, screen_radius),
             ])
-            pivot_z = center_z + tilt
+            pivot_z = signal_z + tilt
             pivot_y = screen_radius
         else:
             parked_center_y = housing_start + 0.5 * screen_radius
             points = QPolygonF([
-                QPointF(center_z - half_thickness, parked_center_y - screen_radius),
-                QPointF(center_z + half_thickness, parked_center_y - screen_radius),
-                QPointF(center_z + half_thickness, parked_center_y + screen_radius),
-                QPointF(center_z - half_thickness, parked_center_y + screen_radius),
+                QPointF(signal_z - half_thickness, parked_center_y - screen_radius),
+                QPointF(signal_z + half_thickness, parked_center_y - screen_radius),
+                QPointF(signal_z + half_thickness, parked_center_y + screen_radius),
+                QPointF(signal_z - half_thickness, parked_center_y + screen_radius),
             ])
-            pivot_z = center_z
+            pivot_z = signal_z
             pivot_y = parked_center_y + screen_radius
         screen = QGraphicsPolygonItem(points)
         screen.setPen(pg.mkPen(
@@ -1861,7 +1872,7 @@ class PhysicalLayoutView(QWidget):
         self._remember_recording_item(record.key, arm)
 
         housing = QGraphicsRectItem(
-            center_z - 6.0,
+            signal_z - 6.0,
             housing_start,
             12.0,
             housing_end - housing_start,
@@ -1876,7 +1887,7 @@ class PhysicalLayoutView(QWidget):
         self._add_recording_label(
             record,
             f"FLUORESCENT SCREEN  [{status}]",
-            center_z + 7.0,
+            signal_z + 7.0,
             max(housing_end, arm_end),
             colour,
             tooltip,
@@ -1885,23 +1896,23 @@ class PhysicalLayoutView(QWidget):
     def _add_camera_schematic(self, record, colour) -> None:
         component = self._recording_plane_component(record.key)
         active = bool(getattr(component, "inserted", True))
-        center_z = float(record.center_z_mm)
+        signal_z = self._recording_signal_z(record)
         sensor_half = 0.5 * float(record.outer_diameter_mm)
         body_half = max(sensor_half + 9.0, 38.0)
         body_length = max(40.0, 0.72 * float(record.outer_diameter_mm))
-        body_start = center_z - 4.0
-        body_end = center_z + body_length
+        body_start = signal_z - 4.0
+        body_end = signal_z + body_length
         status = "ACTIVE" if active else "INACTIVE"
         rgb = pg.mkColor(colour)
         tooltip = (
             f"{record.name} / fixed on-axis camera ({status.lower()})\n"
-            f"Sensor plane Z = {center_z:.6g} mm\n"
+            f"Upstream top-surface signal Z = {signal_z:.6g} mm\n"
             f"sensor width {record.outer_diameter_mm:.6g} mm\n"
             "The sensor plane participates in recording. The downstream "
             "camera body is a schematic external envelope only."
         )
         sensor = QGraphicsRectItem(
-            center_z - 0.7,
+            signal_z - 0.7,
             -sensor_half,
             1.4,
             2.0 * sensor_half,
@@ -1944,7 +1955,7 @@ class PhysicalLayoutView(QWidget):
         self._add_recording_label(
             record,
             f"CAMERA / SENSOR  [{status}]",
-            center_z + 2.0,
+            signal_z + 2.0,
             body_half + 4.0,
             colour,
             tooltip,
@@ -2430,8 +2441,13 @@ class PhysicalLayoutView(QWidget):
                     reference_item,
                     record.key,
                 )
+            marker_z = (
+                self._recording_signal_z(record)
+                if record.profile in self.RECORDING_SURFACE_PROFILES
+                else float(record.center_z_mm)
+            )
             spots.append({
-                "pos": (record.center_z_mm, 0.0),
+                "pos": (marker_z, 0.0),
                 "data": record.key,
                 "brush": pg.mkBrush(colour),
                 "pen": pg.mkPen("#ffffff", width=0.8),
@@ -2471,7 +2487,10 @@ class PhysicalLayoutView(QWidget):
 
         centres = pg.ScatterPlotItem(spots=spots, pxMode=True)
         centres.setZValue(40)
-        centres.setToolTip("Click a component centre to select it")
+        centres.setToolTip(
+            "Click a component marker; detector markers use the upstream "
+            "top-surface signal plane"
+        )
         centres.sigClicked.connect(self._centre_clicked)
         self.plot.addItem(centres)
         self.plot.autoRange()
@@ -2517,20 +2536,98 @@ class PhysicalLayoutView(QWidget):
             f"OD {record.outer_diameter_mm:.6g} mm | hardware bore {record.bore_diameter_mm:.6g} mm | "
             f"vacuum ID {record.vacuum_inner_diameter_mm:.6g} mm | "
             f"optical references: {', '.join(f'{value:.6g}' for value in record.optical_references_mm) or 'none'} mm"
+            + (
+                " | signal collection: upstream top surface at "
+                f"{self._recording_signal_z(record):.6g} mm"
+                if record.profile in self.RECORDING_SURFACE_PROFILES
+                else ""
+            )
         )
+
+
+class InitialDirectionColourWheel(QWidget):
+    """DPC-style cyclic legend for initial transverse ray direction."""
+
+    NEUTRAL_COLOUR = QColor("#94a3b8")
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("initialDirectionColourWheel")
+        self.setFixedSize(184, 184)
+        self.setAccessibleName("Initial ray direction colour wheel")
+        self.setToolTip(
+            "Continuous initial ray direction: +X is 0 degrees and the "
+            "angle increases counter-clockwise toward +Y. Colour does not "
+            "encode radius, energy or intensity."
+        )
+
+    @staticmethod
+    def colour_for_angle(angle_rad: float) -> QColor:
+        """Return the cyclic display colour for one CCW angle from +X."""
+
+        hue = float(np.mod(float(angle_rad), 2.0 * math.pi) / (2.0 * math.pi))
+        return QColor.fromHsvF(hue, 0.88, 1.0)
+
+    def paintEvent(self, event) -> None:
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        wheel_rect = QRectF(31.0, 31.0, 122.0, 122.0)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for degree in range(360):
+            painter.setBrush(self.colour_for_angle(math.radians(degree)))
+            # The one-unit overlap avoids hairline gaps after rasterisation.
+            painter.drawPie(wheel_rect, degree * 16, 17)
+
+        inner_rect = wheel_rect.adjusted(32.0, 32.0, -32.0, -32.0)
+        painter.setBrush(QColor("#050816"))
+        painter.drawEllipse(inner_rect)
+        painter.setPen(QColor("#e5e7eb"))
+        painter.drawText(
+            inner_rect,
+            Qt.AlignmentFlag.AlignCenter,
+            "initial\nangle",
+        )
+
+        painter.setPen(QColor("#cbd5e1"))
+        painter.drawText(
+            QRectF(151.0, 70.0, 33.0, 42.0),
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            "+X\n0°",
+        )
+        painter.drawText(
+            QRectF(66.0, 0.0, 52.0, 31.0),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom,
+            "+Y 90°",
+        )
+        painter.drawText(
+            QRectF(0.0, 70.0, 31.0, 42.0),
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
+            "-X\n180°",
+        )
+        painter.drawText(
+            QRectF(55.0, 153.0, 74.0, 31.0),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+            "-Y 270°",
+        )
+        painter.end()
 
 
 class TransverseBeamView(QWidget):
     """X-Y beam slice that makes round-lens image rotation observable."""
 
     MAX_DISPLAY_RAYS = 2_000
-    _RAY_COLOURS = ("#ff453a", "#34c759", "#0a84ff", "#ffb000")
+    CENTRE_DIRECTION_TOLERANCE_M = 1.0e-15
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._result = None
         self._plane_z_mm = None
         self._scatter = None
+        self._focused_component_key = None
+        self._point_spread_image = None
+        self._point_spread_response = None
 
         self.heading = QLabel("Transverse beam X-Y")
         self.summary = QLabel(
@@ -2555,10 +2652,39 @@ class TransverseBeamView(QWidget):
         self.plot.showGrid(x=True, y=True, alpha=0.18)
         self.plot.setAspectLocked(True)
 
+        self.angle_colour_wheel = InitialDirectionColourWheel()
+        self.angle_colour_note = QLabel(
+            "Continuous colour = initial polar angle about the bundle "
+            "centroid. Angle increases counter-clockwise from +X.\n\n"
+            "Colour tracks direction only; it does not represent ray "
+            "radius, energy, intensity or survival state.\n\n"
+            "At a selected detector, the greyscale underlay is the "
+            "peak-normalized forward PSF response; coloured dots remain "
+            "the original rays."
+        )
+        self.angle_colour_note.setObjectName("initialDirectionColourNote")
+        self.angle_colour_note.setWordWrap(True)
+        self.angle_colour_note.setMaximumWidth(184)
+        self.angle_colour_note.setAlignment(
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
+        )
+        self.angle_colour_note.setStyleSheet(
+            "color: #94a3b8; font-weight: 600;"
+        )
+        legend_layout = QVBoxLayout()
+        legend_layout.setContentsMargins(0, 0, 0, 0)
+        legend_layout.addWidget(self.angle_colour_wheel, 0)
+        legend_layout.addWidget(self.angle_colour_note, 0)
+        legend_layout.addStretch(1)
+
+        plot_row = QHBoxLayout()
+        plot_row.addWidget(self.plot, 1)
+        plot_row.addLayout(legend_layout, 0)
+
         layout = QVBoxLayout(self)
         layout.addLayout(heading_row)
         layout.addLayout(action_row)
-        layout.addWidget(self.plot, 1)
+        layout.addLayout(plot_row, 1)
         layout.addWidget(self.summary)
         self.fit_beam.clicked.connect(self.plot.autoRange)
 
@@ -2595,13 +2721,76 @@ class TransverseBeamView(QWidget):
         self._redraw()
 
     def focus_component(self, part) -> None:
-        self._plane_z_mm = float(part.center_z_mm)
+        key = str(part.key)
+        self._focused_component_key = key
+        plane_z = float(part.center_z_mm)
+        state = getattr(self._result, "state_snapshot", None)
+        detector = next(
+            (
+                item for item in getattr(state, "recording_planes", ())
+                if str(item.key) == key
+            ),
+            None,
+        )
+        if detector is not None:
+            plane_z = float(detector.z_mm)
+        self._set_plane_z(plane_z)
+
+    def focus_z(self, z_mm: float) -> None:
+        """Display an arbitrary finite axial plane without retracing rays."""
+
+        self._focused_component_key = None
+        self._set_plane_z(z_mm)
+
+    def _set_plane_z(self, z_mm: float) -> None:
+        if not math.isfinite(float(z_mm)):
+            return
+        self._plane_z_mm = float(z_mm)
         if self._result is not None:
             self._redraw()
+
+    def _add_point_spread_response(self):
+        """Overlay detector response only for a selected recording device."""
+
+        state = getattr(self._result, "state_snapshot", None)
+        if state is None or self._focused_component_key is None:
+            return None
+        plane_keys = {
+            str(item.key) for item in getattr(state, "recording_planes", ())
+        }
+        if self._focused_component_key not in plane_keys:
+            return None
+        response = detector_response_image(
+            self._result.simulation,
+            state,
+            self._focused_component_key,
+        )
+        self._point_spread_response = response
+        if not np.any(response.intensity > 0.0):
+            return response
+        x0, x1, y0, y1 = response.extent
+        image = pg.ImageItem()
+        image.setImage(
+            response.intensity.T,
+            autoLevels=False,
+            levels=(0.0, 1.0),
+        )
+        image.setRect(QRectF(x0, y0, x1 - x0, y1 - y0))
+        image.setOpacity(0.62)
+        image.setZValue(-20.0)
+        image.setToolTip(
+            "Peak-normalized forward detector PSF response; original rays "
+            "remain as the coloured point overlay."
+        )
+        self.plot.addItem(image)
+        self._point_spread_image = image
+        return response
 
     def _redraw(self) -> None:
         self.plot.clear()
         self._scatter = None
+        self._point_spread_image = None
+        self._point_spread_response = None
         if self._result is None or self._plane_z_mm is None:
             return
         simulation = self._result.simulation
@@ -2623,14 +2812,34 @@ class TransverseBeamView(QWidget):
             )
             return
 
+        point_spread_response = self._add_point_spread_response()
+
         start_x = np.asarray(branch.x[0], dtype=float)
         start_y = np.asarray(branch.y[0], dtype=float)
-        initial_angle = np.mod(np.arctan2(start_y, start_x), 2.0 * math.pi)
-        colour_index = np.floor(initial_angle / (0.5 * math.pi)).astype(int) % 4
-        brushes = [
-            pg.mkBrush(self._RAY_COLOURS[value])
-            for value in colour_index[indices]
-        ]
+        branch_start = float(z_values[0])
+        reference_mask = np.isnan(blocked) | (
+            blocked >= branch_start - 1.0e-9
+        )
+        reference_x = start_x[reference_mask]
+        reference_y = start_y[reference_mask]
+        centre_x = float(np.mean(reference_x)) if reference_x.size else 0.0
+        centre_y = float(np.mean(reference_y)) if reference_y.size else 0.0
+        relative_x = start_x - centre_x
+        relative_y = start_y - centre_y
+        initial_angle = np.mod(
+            np.arctan2(relative_y, relative_x), 2.0 * math.pi
+        )
+        initial_radius = np.hypot(relative_x, relative_y)
+        brushes = []
+        for index in indices:
+            colour = (
+                InitialDirectionColourWheel.NEUTRAL_COLOUR
+                if initial_radius[index] <= self.CENTRE_DIRECTION_TOLERANCE_M
+                else InitialDirectionColourWheel.colour_for_angle(
+                    initial_angle[index]
+                )
+            )
+            brushes.append(pg.mkBrush(colour))
         self._scatter = pg.ScatterPlotItem(
             x=x_m[indices] * 1.0e3,
             y=y_m[indices] * 1.0e3,
@@ -2665,12 +2874,30 @@ class TransverseBeamView(QWidget):
             f"{relative_rotation:+.6g} deg"
             if math.isfinite(relative_rotation) else "unavailable"
         )
+        point_spread_text = ""
+        if point_spread_response is not None:
+            retained_text = (
+                f"{100.0 * point_spread_response.retained_fraction:.6g}%"
+                if math.isfinite(point_spread_response.retained_fraction)
+                else "unavailable (no accepted hits)"
+            )
+            point_spread = point_spread_response.point_spread
+            point_spread_text = (
+                f" | detector PSF {point_spread.model}, sigma(X,Y)="
+                f"({point_spread.sigma_x_mm:.6g}, "
+                f"{point_spread.sigma_y_mm:.6g}) mm, "
+                f"rotation {point_spread.rotation_deg:.6g} deg, "
+                f"finite-area retained weight {retained_text} "
+                f"[{point_spread.status}]"
+            )
         self.heading.setText(f"Transverse beam X-Y at Z = {plane:.6g} mm")
         self.summary.setText(
             f"{branch.name} | {indices.size} surviving rays | "
             f"RMS radius {rms_radius_mm:.6g} mm | "
             f"orientation relative to bundle start {rotation_text} | "
-            "colour identifies the initial X-Y quadrant"
+            "continuous colour identifies initial direction about the "
+            "bundle centroid"
+            + point_spread_text
         )
 
 

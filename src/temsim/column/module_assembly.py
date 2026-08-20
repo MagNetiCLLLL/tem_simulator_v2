@@ -1068,6 +1068,23 @@ def _apply_detector_orientation_calibration(item, part):
         validate()
 
 
+def _apply_detector_point_spread(item, part):
+    """Apply the TOML-owned detector response without changing ray optics."""
+
+    fields = module_manifest.RECORDING_PLANE_POINT_SPREAD_FIELDS
+    if not any(field in part.data for field in fields):
+        return
+    for field in fields:
+        if field not in part.data or not hasattr(item, field):
+            raise ValueError(
+                f"Detector {part.key} cannot apply TOML point-spread field {field}"
+            )
+        object.__setattr__(item, field, part.data[field])
+    validate = getattr(item, "validate", None)
+    if callable(validate):
+        validate()
+
+
 def _apply_objective_manifest_geometry(state, parts):
     component = getattr(state, "objective_lens", None)
     part = parts.get(OBJECTIVE_LENS)
@@ -1369,6 +1386,7 @@ def _apply_manifest_runtime_geometry(state, parts, assembly):
         _set_mechanical_geometry(item, part, parts)
         _apply_manifest_field_polarity(item, part)
         _apply_detector_orientation_calibration(item, part)
+        _apply_detector_point_spread(item, part)
         if "interaction_centers_local_z_mm" in part.data:
             positions = tuple(
                 float(part.center_z_mm)

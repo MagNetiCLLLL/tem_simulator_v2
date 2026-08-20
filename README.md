@@ -122,6 +122,13 @@ recalculation preserves a user's runtime direction override.
   leaders to the corresponding hardware; the field page plots solver-identical
   total and per-lens Bz, field support, peak field and focal length with
   tree/plot selection linking.
+- Provides an **Aberrations** page for the probe/specimen and Objective/image
+  systems. It lists C1, A1, B2, A2, C3, S3, A3, C5 and Cc, including azimuths
+  for non-axisymmetric terms, and compares the same first-order relay with
+  nonlinear corrector fields off/on. Missing per-lens Cs/Cc values are shown
+  as provisional focal-length-scaled estimates, never silently as zero. These
+  are principle-model, non-OEM coefficients until replaced by traceable
+  calibration.
 - Provides a separate **Optical Transfer** page with this plain-text mapping:
   `r_plane = J_img @ r_sample + J_diff @ theta_sample`. It reports both
   matrices, conjugacy residuals, equivalent magnification/camera length,
@@ -215,12 +222,23 @@ recalculation preserves a user's runtime direction override.
   removed before calculating this brightness. Selecting any axial Z opens a
   source-normalised table of sample interaction probability, fraction reaching
   that Z, local composition, energy loss, absorption and hardware stops, with a
-  conservation check. The Transverse X-Y page retains its separate
-  spatial/quadrant colour encoding.
+  conservation check. The Transverse X-Y page retains its separate spatial
+  encoding: a DPC-style 360-degree colour wheel continuously labels each
+  ray's initial polar direction about the bundle centroid. Selecting a
+  component displays its centre plane; Go to Z, axial-plot selection and the
+  movable Z cursor display an arbitrary plane, with the last choice retained
+  across recalculation.
 - Reports each installed BF/DF/HAADF detector's TOML-authoritative axial
   position, inner/outer active size and collection angle. Collection angle is
   calculated through the active signed sample-to-detector transfer, including
   rotation or anisotropy rather than assuming angle = radius / axial distance.
+- Models Camera, Fluorescent Screen and BF/DF/HAADF readout point spread as a
+  TOML-owned, forward-only anisotropic Gaussian in detector-plane millimetres.
+  Selecting one of these devices in Transverse X-Y overlays the finite-area
+  response beneath the unchanged direction-coloured ray points and reports
+  retained response weight. The supplied widths are adjustable provisional
+  simulator defaults, not measured instrument calibration; arbitrary Z and the
+  specimen-to-Objective CTF are not convolved.
 - Integrates wave and virtual angular intensity through each detector's actual
   `hit_mask` after the complete signed 2x2 sample-to-detector transfer, in
   axial order so upstream interception cannot be double counted. A STEM frame
@@ -296,6 +314,19 @@ only after the complete catalog and active assembly validate.
   algorithms. Any bootstrap geometry needed to instantiate a class is read
   from TOML and is replaced by the already-resolved selected assembly; it is
   not a second authority.
+
+The projector assembly separates its optical centres from its complete
+mechanical envelopes. D, I, P1 and P2 retain the regression-validated field
+centres, while their TOML housing/yoke envelopes form a compact stack with
+5 mm service gaps and a uniform 20 mm electron-accessible vacuum ID. These are
+explicit user-defined non-OEM principle-model dimensions, not production
+drawings.
+
+Every Camera, Fluorescent Screen and BF/DF/HAADF row defines
+`signal_collection_surface = "upstream_top_surface"`. Its optical reference
+and signal-collection Z are therefore `local_start_z_mm`; the finite body
+centre remains mechanical geometry only. Physical Layout, Ray Diagram and
+Transverse X-Y use the top-surface marker consistently.
 
 The 466 part rows contain 192 logical keys and 274 intentional repetitions
 across mutually exclusive hardware variants. They are not applied as an

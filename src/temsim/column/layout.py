@@ -2011,7 +2011,7 @@ def _base_specs(configuration):
             optical_reference_plane_mm=(
                 selected_area_geometry.optical_reference_z_mm
                 + stem_detectors[HAADF_DETECTOR]
-                .layout_center_downstream_of_anchor_mm
+                .optical_reference_downstream_of_anchor_mm
             ),
         ),
         FLUORESCENT_SCREEN: _LayoutSpec(
@@ -2031,7 +2031,7 @@ def _base_specs(configuration):
             optical_reference_plane_mm=(
                 selected_area_geometry.optical_reference_z_mm
                 + fluorescent_screen
-                .layout_center_downstream_of_anchor_mm
+                .optical_reference_downstream_of_anchor_mm
             ),
         ),
         DARK_FIELD_DETECTOR: _LayoutSpec(
@@ -2052,7 +2052,7 @@ def _base_specs(configuration):
             optical_reference_plane_mm=(
                 selected_area_geometry.optical_reference_z_mm
                 + stem_detectors[DARK_FIELD_DETECTOR]
-                .layout_center_downstream_of_anchor_mm
+                .optical_reference_downstream_of_anchor_mm
             ),
         ),
         BRIGHT_FIELD_DETECTOR: _LayoutSpec(
@@ -2073,7 +2073,7 @@ def _base_specs(configuration):
             optical_reference_plane_mm=(
                 selected_area_geometry.optical_reference_z_mm
                 + stem_detectors[BRIGHT_FIELD_DETECTOR]
-                .layout_center_downstream_of_anchor_mm
+                .optical_reference_downstream_of_anchor_mm
             ),
         ),
         CAMERA: _LayoutSpec(
@@ -2091,7 +2091,7 @@ def _base_specs(configuration):
             active_diameter_mm=camera.active_width_mm,
             optical_reference_plane_mm=(
                 selected_area_geometry.optical_reference_z_mm
-                + camera.layout_center_downstream_of_anchor_mm
+                + camera.optical_reference_downstream_of_anchor_mm
             ),
         ),
         ENERGY_FILTER_ENTRANCE_APERTURE: _LayoutSpec(

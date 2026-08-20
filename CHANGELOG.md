@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- Added a layered aberration model. Every round magnetic lens now resolves an
+  intrinsic Cs/Cc profile with explicit provisional/configured provenance;
+  missing values no longer appear as zero. Probe/specimen and Objective/image
+  systems expose C1, A1, B2, A2, C3, S3, A3, C5 and Cc with azimuths, persist
+  user coefficients, compare nonlinear corrector fields off/on while retaining
+  relay optics, and use the same effective coefficients in TEM and STEM wave
+  phase calculations. Values remain clearly labelled non-OEM principle-model
+  parameters.
+- Closed the large visible gaps in the D-I-P1-P2 projector stack without
+  collapsing its validated optical centres. The user-defined non-OEM
+  housing/yoke envelopes now leave uniform 5 mm service gaps and carry one
+  20 mm vacuum ID through every lens, pole, housing, yoke and coil. Camera,
+  Fluorescent Screen and BF/DF/HAADF now collect at their upstream top surface;
+  Physical Layout, Ray Diagram and Transverse X-Y mark that signal Z rather
+  than the mechanical centre. Axial-grid construction also coalesces
+  round-off-sized terminal intervals exposed by exact optical planes.
+- Added TOML-owned, detector-plane point-spread response for Camera,
+  Fluorescent Screen and BF/DF/HAADF. The first-stage model forward-convolves
+  accepted ray weight with a rotatable anisotropic Gaussian in physical mm,
+  applies the finite square/disk/annulus sensitive area, and reports retained
+  response weight. Transverse X-Y keeps its original direction-coloured ray
+  points and overlays the response only when a physical recording device is
+  selected; arbitrary Z and the specimen-to-Objective CTF remain PSF-free.
+- Replaced the Transverse X-Y page's four discrete initial-quadrant colours
+  with a continuous DPC-style 360-degree direction map. An on-page colour
+  wheel defines +X as 0 degrees and counter-clockwise +Y as 90 degrees; ray
+  colours are anchored to initial direction about the bundle centroid so an
+  off-axis beam retains a stable rotation diagnostic. Component selection now
+  opens its centre plane, while Go to Z, axial-plot selection and live cursor
+  dragging update an arbitrary transverse plane; the last selection persists
+  across recalculation.
 - Made the Iliad Energy Filter permanent hardware. Instrument Setup now
   selects only the gun and column, the no-filter recording module is retained
   only as validated historical geometry, and legacy no-filter selections are

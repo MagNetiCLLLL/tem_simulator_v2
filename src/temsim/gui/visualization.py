@@ -31,6 +31,7 @@ from temsim.gui.diagnostic_tabs import (
 )
 from temsim.gui.scan_panel import ScanControlView
 from temsim.gui.sample_panel import SamplePage
+from temsim.gui.aberration_view import AberrationComparisonView
 
 
 class WaveImagingView(QWidget):
@@ -554,6 +555,7 @@ class VisualizationWorkspace(QWidget):
 
         self.physical_layout = PhysicalLayoutView()
         self.magnetic_field = MagneticFieldView()
+        self.aberrations = AberrationComparisonView()
         self.optical_transfer = OpticalTransferView()
         self.energy_filter = EnergyFilterView()
         self.transverse_beam = TransverseBeamView()
@@ -566,6 +568,7 @@ class VisualizationWorkspace(QWidget):
         self.tabs.addTab(self.sample_page, "Sample")
         self.tabs.addTab(self.physical_layout, "Physical Layout")
         self.tabs.addTab(self.magnetic_field, "Magnetic Field")
+        self.tabs.addTab(self.aberrations, "Aberrations")
         self.tabs.addTab(self.optical_transfer, "Optical Transfer")
         self.tabs.addTab(self.energy_filter, "Energy Filter")
         self.tabs.addTab(self.transverse_beam, "Transverse X-Y")
@@ -1278,8 +1281,14 @@ class VisualizationWorkspace(QWidget):
         cursor.sigPositionChangeFinished.connect(
             self._axial_cursor_move_finished
         )
+        cursor.sigPositionChanged.connect(self._axial_cursor_moved)
         self.plot.addItem(cursor)
         self.axial_cursor_item = cursor
+
+    def _axial_cursor_moved(self, cursor) -> None:
+        """Preview the transverse slice continuously while the cursor moves."""
+
+        self.transverse_beam.focus_z(float(cursor.value()))
 
     def _axial_cursor_move_finished(self, cursor) -> None:
         self.jump_to_ray_position(float(cursor.value()))
@@ -1434,6 +1443,7 @@ class VisualizationWorkspace(QWidget):
         lower_limit, upper_limit = limits
         selected = float(np.clip(z_mm, lower_limit, upper_limit))
         self._selected_z_mm = selected
+        self.transverse_beam.focus_z(selected)
         self.axial_position.setRange(lower_limit, upper_limit)
         self.axial_position.setValue(selected)
         if activate_tab:
@@ -2045,6 +2055,42 @@ class VisualizationWorkspace(QWidget):
             if is_aperture:
                 self._add_aperture_component(part, index)
                 continue
+            is_recording_surface = part.data.get("mechanical_profile") in {
+                "retractable_detector_plane",
+                "camera_sensor_plane",
+            }
+            if is_recording_surface:
+                signal_z_mm = self._aperture_optical_plane(part)
+                line = pg.InfiniteLine(
+                    pos=signal_z_mm,
+                    angle=90,
+                    pen=pg.mkPen(
+                        "#facc15",
+                        width=1.5,
+                        style=Qt.PenStyle.DashLine,
+                    ),
+                    label=f"{part.name} [TOP SIGNAL SURFACE]",
+                    labelOpts={
+                        "position": 0.76 + 0.07 * (index % 4),
+                        "color": "#fde68a",
+                        "rotateAxis": (1, 0),
+                    },
+                )
+                tooltip = (
+                    f"{part.name}\nMechanical centre Z = "
+                    f"{part.center_z_mm:.6g} mm\nUpstream top-surface "
+                    f"signal Z = {signal_z_mm:.6g} mm"
+                )
+                line.setZValue(8)
+                line.setToolTip(tooltip)
+                self._register_ray_label(line.label)
+                line.label.setToolTip(tooltip)
+                self.plot.addItem(line)
+                self.component_marker_items.append(line)
+                self._component_labels.append(
+                    (line.label, signal_z_mm, False)
+                )
+                continue
             planes = self._deflector_planes(part)
             is_deflector = bool(planes)
             if is_deflector:
@@ -2450,6 +2496,7 @@ class VisualizationWorkspace(QWidget):
         )
         self.physical_layout.display_result(result)
         self.magnetic_field.display_result(result)
+        self.aberrations.display_result(result)
         self.optical_transfer.display_result(result)
         self.energy_filter.display_result(result)
         self.transverse_beam.display_result(result)
@@ -2469,4 +2516,3 @@ class VisualizationWorkspace(QWidget):
         if self._focused_part is not None:
             self.physical_layout.focus_component(self._focused_part)
             self.magnetic_field.focus_component(self._focused_part)
-            self.transverse_beam.focus_component(self._focused_part)

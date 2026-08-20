@@ -459,7 +459,13 @@ class State:
     virtual_observation_z_mm: float = _DEFAULT_SAMPLE_Z_MM
     chromatic_aberration_enabled: bool = False
 
-    schema_version: int = 64
+    # Effective system coefficients at the probe/specimen and Objective-image
+    # reference planes.  Empty dictionaries retain the principle-model
+    # defaults derived from the active Objective and corrector fields.
+    probe_aberrations: dict = field(default_factory=dict)
+    image_aberrations: dict = field(default_factory=dict)
+
+    schema_version: int = 65
 
     def __post_init__(self):
         if self.electron_gun is None:
@@ -1539,6 +1545,8 @@ class State:
             "history_step_mm":self.history_step_mm,"acceleration_enabled":self.acceleration_enabled,"acceleration_backend":self.acceleration_backend,
             "active_backend":self.active_backend,
             "chromatic_aberration_enabled":self.chromatic_aberration_enabled,
+            "probe_aberrations":dict(self.probe_aberrations),
+            "image_aberrations":dict(self.image_aberrations),
             "corrector_mode":corrector_mode,
             "energy_filter_mode":self.energy_filter_mode,
             "c2c3_crossover_required":self.c2c3_crossover_required,
@@ -2557,7 +2565,9 @@ class State:
             chromatic_aberration_enabled=bool(
                 d.get("chromatic_aberration_enabled", False)
             ),
-            schema_version=64,
+            probe_aberrations=dict(d.get("probe_aberrations", {})),
+            image_aberrations=dict(d.get("image_aberrations", {})),
+            schema_version=65,
         )
         if loaded_schema_version < 64:
             from temsim.specimen.geometry import (

@@ -61,7 +61,7 @@
 | 编号 | 保留后的需求表述 | 当前状态 | 当前落实位置 |
 |---|---|---|---|
 | UR-001 | 明确 TEM Wave Image 的用途，并使其作为真实样品高精度波成像结果，而不是装饰性图片。 | 已实现 | `physics/wave_imaging.py`、GUI `TEM Wave Image` 页 |
-| UR-002 | 明确 Transverse X-Y 显示当前轴向平面的电子束横截面，并解释其颜色含义。 | 已实现 | `diagnostic_tabs.TransverseBeamView`；颜色表示初始 X-Y 象限 |
+| UR-002 | 明确 Transverse X-Y 显示当前轴向平面的电子束横截面，并解释其颜色含义。 | 已实现 | `diagnostic_tabs.TransverseBeamView`；颜色连续表示相对束流质心的初始极角 |
 | UR-003 | Real sample 模式不得生成人为定义的衍射束；只有 Virtual sample 可以配置人为衍射、散射和吸收通道。 | 已实现，约束 | `physics/simulation.py`、`specimen/virtual.py` |
 | UR-004 | Ray Diagram 支持两种互补颜色语义：不同 convergence semi-angle 用同一色相的深浅表示；不同 interaction 类型用不同色相表示。 | 已实现 | `physics/simulation.py`、`gui/visualization.py` |
 | UR-005 | 用户选择任意轴向平面后，显示该平面各种 interaction 电子的比例，并依据物理概率而不是任意显示权重计算。 | 已实现 | `physics/interaction_budget.py`、Ray Diagram 选定平面表格 |
@@ -70,6 +70,11 @@
 | UR-008 | 在项目仍能正常启动时，不主动处理假设性的兼容性问题；只有出现实际兼容性错误时才针对错误处理。 | 约束 | 后续开发策略；不因警告或推测改动兼容层 |
 | UR-009 | 把当前所有功能详细整理到一个 Markdown 文件；以后用户可大量修改该文件，实施方读取、比较、修改项目并回写文件。 | 已实现 | 本文件 |
 | UR-010 | 用户需求可以重新排版和重写，但不允许删除。 | 约束 | 本文件第 1.2 节及本台账 |
+| UR-011 | Transverse X-Y 不使用简单的四象限离散颜色；必须使用类似 DPC 的连续 360 度旋转色盘，并在页面内直观显示原始方向图例。 | 已实现 | `InitialDirectionColourWheel`、`TransverseBeamView`；+X 为 0°，朝 +Y 逆时针增加 |
+| UR-012 | Transverse X-Y 必须允许选择某个配件的中心 Z，也必须允许选择任意 Z；最后一次选择立即更新图谱并在重新计算后保持。 | 已实现 | `VisualizationWorkspace.jump_to_ray_position`、`TransverseBeamView.focus_component/focus_z`、可移动 Z 游标 |
+| UR-013 | 在 Camera、荧光屏和 BF/DF/HAADF 等物理记录面加入 point-spread response；保留原始射线，不把任意 Z 或物镜 CTF 错当成探测器 PSF。 | 已实现首阶段 | TOML `point_spread_*`、`detector/point_spread.py`、`detector_response_image`、Transverse X-Y 响应叠层；Zebra/EFTEM 输出仍待后续接入 |
+| UR-014 | D、I、P1、P2 的实体包络之间不得保留大段空白，真空通道内径必须一致；所有 detector/camera 使用上游上表面作为信号收集平面，所有标记必须落在该表面。 | 已实现 | recording TOML 的 5 mm 包络间隙与 20 mm vacuum ID；`signal_collection_surface = upstream_top_surface`；Physical Layout、Ray Diagram、Transverse X-Y |
+| UR-015 | 所有真实圆磁透镜必须显示可追溯的本征 Cs/Cc；只在 probe/sample 与 Objective/image 系统维护完整有效像差列表，并真实比较校正前后，不为校正器四极/六极重复添加 Cs。 | 已实现原理模型 | `optics/aberrations.py`、GUI `Aberrations` 页、TEM/STEM wave phase；未提供实机/OEM 标定 |
 
 ## 3. 系统范围与总体结构
 
@@ -186,17 +191,18 @@ View：
 
 ## 5. 主界面页面
 
-中央工作区包含九个页面：
+中央工作区包含十个页面：
 
 1. `Ray Diagram`
 2. `Sample`
 3. `Physical Layout`
 4. `Magnetic Field`
-5. `Optical Transfer`
-6. `Energy Filter`
-7. `Transverse X-Y`
-8. `STEM`
-9. `TEM Wave Image`
+5. `Aberrations`
+6. `Optical Transfer`
+7. `Energy Filter`
+8. `Transverse X-Y`
+9. `STEM`
+10. `TEM Wave Image`
 
 左侧 instrument dock 包含：
 
@@ -551,7 +557,13 @@ sum(P_tracked_channel) + P_absorbed = 1
 - 选择 sample之前的平面时使用 incident branch；sample之后使用 `000`或第一个可用 outgoing branch。
 - 排除在该平面上游已被拦截的 rays。
 - 最多显示2,000条 rays，但统计以 surviving selected rays计算。
-- 红、绿、蓝、黄颜色表示每条 ray在 bundle起始面所属的四个 X-Y象限，用于观察 round-lens image rotation。
+- 每条 ray 的颜色连续表示其在 bundle 起始面相对束流质心的极角；+X 为 0°，朝 +Y 逆时针增加到 360°，用于观察 round-lens image rotation。
+- 页面内显示与 ray 完全相同映射的 DPC 风格 360° 环形色盘，并明确标注 +X/+Y/-X/-Y 与 0°/90°/180°/270°；不再使用四象限离散颜色。
+- 恰好位于 bundle 起始质心、因而没有可定义方位角的 ray 使用中性灰色。
+- 选择配件时显示该配件 centre Z；Go to Z、轴向图选择或拖动青色 Z 游标时显示任意 Z。游标拖动期间实时更新，最后一次选择在重新计算后保持。
+- 选择 Camera、Fluorescent Screen、BF、DF 或 HAADF 时，在原始方向着色 ray 点下方叠加峰值归一化的灰度记录面响应。先按实际 disk/annulus/square `hit_mask` 接受电子，再做正向二维 Gaussian PSF 卷积，最后再次应用有限敏感区边界；进入孔区或越过外缘的扩散响应会丢失并报告 retained weight。
+- PSF 使用记录面物理单位 mm；TOML 分别管理 `sigma_x`、`sigma_y` 和主轴逆时针 rotation。当前数值明确标为 `provisional_model_parameter`，可编辑但不是仪器测量标定。
+- 任意 Z 和非记录面配件只显示几何 ray 截面，不显示 PSF。PSF 不修改 ray trajectory，也不卷积 specimen-to-Objective CTF 的 TEM Wave Image。
 - Summary报告 branch、surviving ray数、RMS radius和相对 bundle起点的 orientation rotation。
 - Transverse X-Y颜色与 Ray Diagram interaction/convergence颜色是不同体系，不得混用解释。
 
@@ -842,14 +854,14 @@ sum(P_tracked_channel) + P_absorbed = 1
 - Scan/STEM：`test_scan_system.py`, `test_stem_observables_v2.py`, `test_stem_cuda_pipeline.py`。
 - CUDA/FFT：`test_compute_backend.py`, `test_cuda_multislice_plan.py`, `test_wave_fft.py`。
 - TOML/layout：`test_toml_authority.py`, `test_manifest_editing.py`, `test_column_wall.py`, `test_field_polarity_manifest.py`。
-- Detector/Energy Filter：`test_detector_orientation_manifest.py`, `test_energy_filter_physical_layout.py`。
+- Detector/Energy Filter：`test_detector_orientation_manifest.py`, `test_detector_point_spread.py`, `test_energy_filter_physical_layout.py`。
 - Gun/timing：`test_electron_gun_timing.py`。
 
 ### 24.2 最近验证
 
-- 完整测试：`275 passed, 12 skipped`，无失败，耗时约11分46秒。
-- 文档建立前的关键定向测试：77个用例中76通过、1个按环境条件跳过。
-- Python 3.12.4环境中`pip check`无依赖冲突。
+- 完整测试：`304 passed`，无失败或跳过，耗时361.6秒。
+- Projector 包络、detector 上表面、PSF、orientation 与 GUI 定向测试全部通过。
+- Python 3.12.3环境中`pip check`无依赖冲突。
 - `main.py`导入成功。
 - Offscreen环境中主窗口成功构建、显示并关闭。
 - `compileall`成功。
@@ -887,3 +899,8 @@ sum(P_tracked_channel) + P_absorbed = 1
 |---|---|---|
 | 2026-08-13 | 建立当前功能与需求活规范；整理启动、装配、GUI、ray、sample、Real/Virtual interaction、wave、STEM、Energy Filter、诊断、限制和测试；建立UR-001至UR-010永久需求台账。 | 文档建立，待以后持续追加 |
 | 2026-08-20 | Energy Filter 改为永久安装；移除 Instrument Setup 的 recording system 选择；旧无过滤器配置自动迁移。 | 15 种 gun/column 可选装配统一使用 Energy Filter；历史 TOML 保留验证。 |
+| 2026-08-20 | Transverse X-Y 初始方向颜色由四象限离散编码改为 DPC 风格连续 360° 色盘，并在页面内加入方向图例。 | 离轴束以自身起始质心为颜色圆心；方向、半径、能量和强度含义保持分离。 |
+| 2026-08-20 | 接通配件中心与任意 Z 到 Transverse X-Y 的统一选择链。 | 最后一次配件或任意 Z 选择立即生效、游标拖动实时更新，并跨重新计算保持。 |
+| 2026-08-20 | 为 Camera、荧光屏和 BF/DF/HAADF 记录面加入 TOML 权威的二维 point-spread response。 | 原始射线保持不变；Transverse X-Y 仅在选择物理记录面时叠加有限敏感区 PSF 响应并报告保留权重；参数明确为非实机标定的可调默认值。 |
+| 2026-08-20 | 收紧 D-I-P1-P2 实体包络并统一真空管，同时把所有 detector/camera 的信号面固定到上游上表面。 | 外壳/磁轭相邻间隙均为 5 mm、全栈 vacuum ID 为 20 mm；保留已验证磁场中心；Physical Layout、Ray Diagram、Transverse X-Y 标记统一使用信号面。 |
+| 2026-08-20 | 加入分层混合像差模型。 | 所有圆透镜显示本征 Cs/Cc 及来源；probe/image 系统使用 C1/A1/B2/A2/C3/S3/A3/C5/Cc，有向项带方位角；校正比较只切换非线性六极场，TEM/STEM 波相位使用同一有效系数。 |

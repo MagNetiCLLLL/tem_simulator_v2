@@ -1,9 +1,8 @@
-"""TOML-backed bootstrap stations downstream of the Selected Area Aperture.
+"""TOML-backed stations downstream of the Selected Area Aperture.
 
-Every value is a positive centre-to-centre distance in the beam direction
-from the mechanical centre of the Selected Area Aperture.  The same offsets
-also place the components on the ray-tracing axis, so no independent optical
-position can drift away from its mechanical station.
+Mechanical centres and optical/signal reference planes are separate. Magnetic
+lenses currently use an internal optical reference, while recording devices
+collect signal at their upstream top surface.
 """
 
 from temsim import module_manifest
@@ -36,6 +35,14 @@ def _manifest_center(module_path, key):
     )
 
 
+def _manifest_optical_reference(module_path, key):
+    part = module_manifest.part_data(module_path, key)
+    return float(part.get(
+        "optical_reference_local_z_mm",
+        part["local_center_z_mm"],
+    ))
+
+
 _DEFAULT_SELECTED_AREA_CENTER_MM = _manifest_center(
     _DEFAULT_RECORDING_MODULE, "selected_area_aperture"
 )
@@ -44,6 +51,13 @@ _DEFAULT_SELECTED_AREA_CENTER_MM = _manifest_center(
 def _manifest_downstream_offset(module_path, key):
     return (
         _manifest_center(module_path, key)
+        - _DEFAULT_SELECTED_AREA_CENTER_MM
+    )
+
+
+def _manifest_optical_downstream_offset(module_path, key):
+    return (
+        _manifest_optical_reference(module_path, key)
         - _DEFAULT_SELECTED_AREA_CENTER_MM
     )
 
@@ -71,6 +85,17 @@ SELECTED_AREA_DOWNSTREAM_OFFSETS_MM[
     _ENERGY_FILTER_RECORDING_MODULE,
     ENERGY_FILTER_ENTRANCE_APERTURE,
 )
+SELECTED_AREA_OPTICAL_DOWNSTREAM_OFFSETS_MM = {
+    key: _manifest_optical_downstream_offset(_DEFAULT_RECORDING_MODULE, key)
+    for key in SELECTED_AREA_DOWNSTREAM_OFFSETS_MM
+    if key != ENERGY_FILTER_ENTRANCE_APERTURE
+}
+SELECTED_AREA_OPTICAL_DOWNSTREAM_OFFSETS_MM[
+    ENERGY_FILTER_ENTRANCE_APERTURE
+] = _manifest_optical_downstream_offset(
+    _ENERGY_FILTER_RECORDING_MODULE,
+    ENERGY_FILTER_ENTRANCE_APERTURE,
+)
 
 SELECTED_AREA_DOWNSTREAM_KEYS = tuple(
     SELECTED_AREA_DOWNSTREAM_OFFSETS_MM
@@ -83,6 +108,12 @@ def downstream_offset_mm(component_key):
     return float(SELECTED_AREA_DOWNSTREAM_OFFSETS_MM[component_key])
 
 
+def downstream_optical_offset_mm(component_key):
+    """Return the optical/signal-plane offset from the SAA centre."""
+
+    return float(SELECTED_AREA_OPTICAL_DOWNSTREAM_OFFSETS_MM[component_key])
+
+
 def downstream_mechanical_center_mm(selected_area_geometry, component_key):
     """Resolve a below-sample mechanical centre from the active SAA station."""
 
@@ -93,9 +124,9 @@ def downstream_mechanical_center_mm(selected_area_geometry, component_key):
 
 
 def downstream_optical_reference_mm(selected_area_geometry, component_key):
-    """Resolve the ray-axis position from the same mechanical relationship."""
+    """Resolve the TOML optical/signal reference independently of mechanics."""
 
     return (
         float(selected_area_geometry.optical_reference_z_mm)
-        + downstream_offset_mm(component_key)
+        + downstream_optical_offset_mm(component_key)
     )

@@ -5,7 +5,11 @@ from temsim.assembly_catalog import AssemblyCatalog
 from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.optics.column import default_state
 from temsim.physics import compute_backend
-from temsim.physics.core import _endpoint_exact_axial_grid, propagate
+from temsim.physics.core import (
+    _endpoint_exact_axial_grid,
+    _piecewise_endpoint_exact_axial_grid,
+    propagate,
+)
 from temsim.physics.simulation import run
 
 
@@ -51,6 +55,20 @@ def test_propagate_hits_non_divisible_endpoint_exactly(stop_z_mm, step_mm):
         assert intervals[:-1] == pytest.approx(
             np.full(intervals.size - 1, step_mm), rel=0.0, abs=1.0e-12
         )
+
+
+def test_piecewise_grid_does_not_insert_sub_ulp_optical_intervals():
+    grid, intervals = _piecewise_endpoint_exact_axial_grid(
+        1599.2,
+        3026.3999999999996,
+        0.1,
+        (1965.9, 2031.9000000000003),
+    )
+
+    assert grid[0] == 1599.2
+    assert grid[-1] == 3026.3999999999996
+    assert np.min(intervals) > 0.099999999
+    assert np.max(intervals) <= 0.100000001
 
 
 def test_numba_and_cpu_match_on_endpoint_exact_grid():
