@@ -435,3 +435,7 @@ electrostatic envelopes, labels unknown external packages instead of inventing
 them, and keeps X/Z scaling independent. Clicking a label, centre marker or
 drawn body opens the same component in the left editor. Runtime controls use
 **Operating**; structural values and evidence status use **TOML**.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).

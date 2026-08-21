@@ -1,11 +1,13 @@
 [build-system]
-requires = ["setuptools>=75", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "tem-simulator-v2"
 version = "0.1.0"
 description = "Transmission electron microscope simulation and control GUI"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "abtem==1.0.10",
