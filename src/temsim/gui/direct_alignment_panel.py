@@ -103,6 +103,29 @@ class DirectAlignmentPanel(QWidget):
         introduction.setWordWrap(True)
         introduction.setStyleSheet("color: #475569; font-weight: 600;")
 
+        target_group = QGroupBox("Projector diffraction calibration")
+        target_form = QFormLayout(target_group)
+        target_notice = QLabel(
+            "Camera length is one independent D/I/P1/P2 projector setting. "
+            "It is calibrated at the TOML-owned main-screen reference plane. "
+            "The axially ordered HAADF, DF and BF detectors retain distinct Z "
+            "positions and collection-angle transfers; detector insertion and "
+            "readout do not select a projector preset."
+        )
+        target_notice.setWordWrap(True)
+        target_notice.setStyleSheet("color: #64748b;")
+        target_form.addRow(target_notice)
+        self.projector_field_calibration = QLabel()
+        self.projector_field_calibration.setObjectName(
+            "projectorFieldCalibrationSummary"
+        )
+        self.projector_field_calibration.setWordWrap(True)
+        self.projector_field_calibration.setStyleSheet(
+            "color: #92400e; background: #fffbeb; "
+            "border: 1px solid #f59e0b; padding: 5px;"
+        )
+        target_form.addRow(self.projector_field_calibration)
+
         self.result_status = QLabel("Select an active operating mode and target.")
         self.result_status.setObjectName("directAlignmentStatus")
         self.result_status.setWordWrap(True)
@@ -125,6 +148,7 @@ class DirectAlignmentPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(introduction)
+        layout.addWidget(target_group)
         layout.addWidget(scroll, 1)
         layout.addWidget(self.result_status)
 
@@ -253,6 +277,23 @@ class DirectAlignmentPanel(QWidget):
             if available_mode_keys is None
             else {str(value) for value in available_mode_keys}
         )
+        from temsim.optics.direct_alignment import (
+            projector_field_calibration_rows,
+        )
+        rows = projector_field_calibration_rows(state)
+        self.projector_field_calibration.setText(
+            "Projector field calibration: "
+            + "; ".join(
+                f"{row['key']} {row['maximum_peak_field_t']:.4g} T, "
+                f"half-width {row['field_half_width_mm']:.4g} mm, "
+                f"limit {row['maximum_excitation_percent']:.4g}%, "
+                f"{row['status']}"
+                for row in rows
+            )
+        )
+        self.projector_field_calibration.setToolTip("\n".join(
+            f"{row['key']}: {row['source']}" for row in rows
+        ))
         self._update_mode_gating()
 
     @staticmethod
@@ -444,7 +485,29 @@ class DirectAlignmentPanel(QWidget):
                     f"{value:.6g} x."
                 )
             else:
-                text = f"Current effective camera length: {value:.6g} m."
+                residual = self._finite_value(
+                    self._metrics, "diffraction_conjugacy_residual"
+                )
+                depth = self._finite_value(
+                    self._metrics, "diffraction_focus_depth_mm"
+                )
+                target_key = self._metrics.get(
+                    "transfer_analysis_plane_key"
+                )
+                details = []
+                if target_key:
+                    details.append(f"target {str(target_key).upper()}")
+                if residual is not None:
+                    details.append(f"||A||2 {residual:.6g}")
+                if depth is not None:
+                    details.append(
+                        f"local conjugacy depth {depth:.6g} mm"
+                    )
+                suffix = f"; {', '.join(details)}" if details else ""
+                text = (
+                    f"Current effective camera length: {value:.6g} m"
+                    f"{suffix}."
+                )
             control.current.setText(text)
 
     @staticmethod

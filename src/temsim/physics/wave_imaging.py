@@ -1,16 +1,18 @@
-"""Local coherent wave optics from the specimen to the Objective image.
+"""Gun-conditioned TEM wave propagation through specimen and physical Camera.
 
-The full microscope remains a ray model.  This module converts the surviving
-ray bundle at the specimen into an incident complex wave, propagates through a
-TOML-owned specimen definition, and transfers the exit wave through an
-Objective CTF.  The specimen step can use finite-slice atomistic IAM
-potentials, frozen phonons, continuous projected columns, or a fast projected
-phase object.  It is not a bonded-charge or first-principles potential model.
+The complete source-to-specimen ray bundle defines the incident coherent mode,
+including clipping, focusing, affine steering, Larmor rotation and enabled
+stigmators/correctors.  The specimen uses the selected multislice or phase
+object model.  Its exit wave is then transferred through the Objective pupil
+and higher-order image aberrations and through the complete post-specimen
+projector Jacobian to the physical Camera and detector PSF.
+
+This is a non-OEM paraxial/multislice model, not a bonded-charge,
+first-principles-potential or full Maxwell field solution.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, replace
 import math
 from pathlib import Path
 
@@ -23,7 +25,8 @@ from temsim.physics.compute_backend import (
 )
 from temsim.physics.multislice import propagate_multislice
 from temsim.physics.beam_statistics import branch_sample_statistics
-from temsim.physics.wave_fft import form_tem_image
+from temsim.physics.wave_fft import apply_coherent_transfer
+from temsim.physics.camera_wave import project_wave_to_camera
 from temsim.optics.aberrations import (
     aberration_phase_rad,
     active_effective_aberrations,
@@ -54,6 +57,9 @@ class WaveImagingResult:
     linear_diffraction_probability: np.ndarray
     diffraction_intensity: np.ndarray
     image_intensity: np.ndarray
+    camera_electron_optical_intensity: np.ndarray
+    camera_x_mm: np.ndarray
+    camera_y_mm: np.ndarray
     spatial_frequency_inv_angstrom: np.ndarray
     spatial_frequency_y_inv_angstrom: np.ndarray
     metrics: dict
@@ -91,6 +97,7 @@ def tem_wave_imaging_enabled(state) -> bool:
         and str(getattr(state, "illumination_mode", "TEM")).upper() == "TEM"
         and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
         == "atomic"
+        and bool(getattr(getattr(state, "camera", None), "inserted", True))
     )
 
 
@@ -579,6 +586,21 @@ def interaction_constant_rad_per_v_angstrom(voltage_kv: float) -> float:
 
 def _weighted_ray_statistics(incident) -> dict:
     statistics = branch_sample_statistics(incident)
+    alive = np.asarray(incident.alive, dtype=bool)
+    weights = np.asarray(incident.ray_weight, dtype=float)[alive]
+    weights /= max(float(weights.sum()), 1.0e-30)
+    phase_space = np.stack(
+        (
+            np.asarray(incident.x[-1], dtype=float)[alive],
+            np.asarray(incident.y[-1], dtype=float)[alive],
+            np.asarray(incident.tx[-1], dtype=float)[alive],
+            np.asarray(incident.ty[-1], dtype=float)[alive],
+        ),
+        axis=1,
+    )
+    centre = np.sum(weights[:, None] * phase_space, axis=0)
+    centred = phase_space - centre
+    covariance = (centred * weights[:, None]).T @ centred
     return {
         "mean_x_m": statistics.mean_x_m,
         "mean_y_m": statistics.mean_y_m,
@@ -591,7 +613,15 @@ def _weighted_ray_statistics(incident) -> dict:
         "convergence_semiangle_rad": statistics.convergence_99_rad,
         "radius_rms_m": statistics.radius_rms_m,
         "radius_99_m": statistics.radius_99_m,
+        "radial_position_angle_covariance_m_rad": (
+            statistics.radial_position_angle_covariance_m_rad
+        ),
+        "radial_wavefront_curvature_per_m": (
+            statistics.radial_wavefront_curvature_per_m
+        ),
+        "waist_offset_m": statistics.waist_offset_m,
         "surviving_rays": statistics.surviving_rays,
+        "phase_space_covariance": covariance.tolist(),
     }
 
 
@@ -617,7 +647,50 @@ def _incident_wave(
         axis_x = (np.arange(nx, dtype=float) - nx // 2) * spacing_x
         axis_y = (np.arange(ny, dtype=float) - ny // 2) * spacing_y
         xx, yy = np.meshgrid(axis_x, axis_y, indexing="xy")
-        return np.exp(2j * math.pi * (tilt_fx * xx + tilt_fy * yy))
+        xx_m = xx * 1.0e-10
+        yy_m = yy * 1.0e-10
+        delta_x = xx_m - float(ray_stats["mean_x_m"])
+        delta_y = yy_m - float(ray_stats["mean_y_m"])
+        covariance = np.asarray(
+            ray_stats["phase_space_covariance"], dtype=float
+        )
+        position_covariance = covariance[:2, :2]
+        eigenvalues = np.linalg.eigvalsh(position_covariance)
+        if float(eigenvalues[-1]) <= 1.0e-30:
+            amplitude = np.ones_like(xx_m)
+            curvature = np.zeros((2, 2), dtype=float)
+        else:
+            floor = max(
+                (max(abs(spacing_x), abs(spacing_y)) * 1.0e-10) ** 2,
+                float(eigenvalues[-1]) * 1.0e-12,
+            )
+            regularised = position_covariance + np.eye(2) * floor
+            inverse_position = np.linalg.inv(regularised)
+            radius_squared = (
+                inverse_position[0, 0] * delta_x**2
+                + 2.0 * inverse_position[0, 1] * delta_x * delta_y
+                + inverse_position[1, 1] * delta_y**2
+            )
+            amplitude = np.exp(-0.25 * np.maximum(radius_squared, 0.0))
+            curvature = covariance[2:, :2] @ inverse_position
+            curvature = 0.5 * (curvature + curvature.T)
+        phase_path_m = (
+            float(ray_stats["mean_tx_rad"]) * delta_x
+            + float(ray_stats["mean_ty_rad"]) * delta_y
+            + 0.5
+            * (
+                curvature[0, 0] * delta_x**2
+                + 2.0 * curvature[0, 1] * delta_x * delta_y
+                + curvature[1, 1] * delta_y**2
+            )
+        )
+        phase = 2.0 * math.pi * phase_path_m / (
+            wavelength_angstrom * 1.0e-10
+        )
+        wave = amplitude * np.exp(1j * phase)
+        return wave / math.sqrt(
+            max(float(np.mean(np.abs(wave) ** 2)), 1.0e-30)
+        )
 
     frequency_step = max(
         abs(frequencies_x[1] - frequencies_x[0]),
@@ -862,10 +935,25 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
     specimen_metrics["sample_inserted"] = sample_inserted
     specimen_metrics["sample_interaction_applied"] = atomic_interaction
 
-    defocus_angstrom, focal_mm = _objective_defocus_angstrom(state)
+    objective = state.objective_lens
+    focal_mm = float(
+        objective.focal_length_for_voltage_mm(state.beam_voltage_kv)
+    )
     effective_aberrations = active_effective_aberrations(state, "image")
+    configured_image_defocus_mm = float(
+        (getattr(state, "image_aberrations", {}) or {}).get(
+            "c1_mm",
+            float(getattr(state.sample, "wave_defocus_nm", 0.0)) * 1.0e-6,
+        )
+    )
+    # Objective/D/I/P1/P2 first-order focus is already present in the complete
+    # sample-to-camera transfer.  Retain only an explicit specimen-referenced
+    # image-defocus request in the residual pupil phase to avoid double count.
+    effective_aberrations = replace(
+        effective_aberrations, c1_mm=configured_image_defocus_mm
+    )
     cs_mm = effective_aberrations.c3_mm
-    if math.isfinite(defocus_angstrom):
+    if math.isfinite(focal_mm):
         chi = aberration_phase_rad(
             fx,
             fy,
@@ -891,6 +979,7 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         specimen_metrics.get("fallback_reason") or wave_fallback_reason
     )
     raw_image = np.zeros((ny, nx), dtype=np.float64)
+    raw_electron_optical_image = np.zeros((ny, nx), dtype=np.float64)
     image_m2 = np.zeros((ny, nx), dtype=np.float64)
     raw_diffraction = np.zeros((ny, nx), dtype=np.float64)
     coherent_exit_wave = np.zeros((ny, nx), dtype=np.complex128)
@@ -898,17 +987,34 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
     for configuration_index, exit_configuration in enumerate(
         exit_waves, start=1
     ):
-        image_configuration, diffraction_configuration, fft_diagnostics = (
-            form_tem_image(
+        objective_image_wave, diffraction_configuration, fft_diagnostics = (
+            apply_coherent_transfer(
                 exit_configuration,
                 transfer,
                 compute_backend=fft_backend,
                 fallback_reason=fft_fallback_seed,
             )
         )
+        camera_projection = project_wave_to_camera(
+            state,
+            objective_image_wave,
+            x_axis,
+            y_axis,
+            wavelength_angstrom,
+            convergence_semiangle_rad=float(
+                ray_stats["convergence_semiangle_rad"]
+            ),
+        )
+        image_configuration = camera_projection.intensity
+        electron_optical_configuration = (
+            camera_projection.electron_optical_intensity
+        )
         image_delta = image_configuration - raw_image
         raw_image += image_delta / configuration_index
         image_m2 += image_delta * (image_configuration - raw_image)
+        raw_electron_optical_image += (
+            electron_optical_configuration - raw_electron_optical_image
+        ) / configuration_index
         raw_diffraction += diffraction_configuration
         coherent_exit_wave += exit_configuration
         fft_records.append(fft_diagnostics)
@@ -1008,8 +1114,8 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         "wavelength_angstrom": wavelength_angstrom,
         "interaction_constant_rad_per_v_angstrom": sigma,
         "objective_focal_length_mm": focal_mm,
-        "objective_defocus_nm": defocus_angstrom / 10.0,
-        "objective_focused": math.isfinite(defocus_angstrom),
+        "objective_defocus_nm": configured_image_defocus_mm * 1.0e6,
+        "objective_focused": math.isfinite(focal_mm),
         "objective_cs_mm": cs_mm,
         "effective_aberration_correction_state": (
             effective_aberrations.correction_state
@@ -1031,7 +1137,11 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         "wave_compute_backend": wave_compute_backend,
         "image_display_scaling": "0.5-99.5 percentile clipped to [0, 1]",
         "diffraction_display_scaling": "log1p contrast, normalised to [0, 1]",
-        "image_formation_scope": "specimen to objective CTF",
+        "image_formation_scope": (
+            "electron gun through complete illumination column to specimen; "
+            "multislice interaction; Objective pupil and complete projector "
+            "system to physical Camera with detector PSF"
+        ),
         "exit_wave_representation": "coherent ensemble mean",
         "displayed_intensity_average": (
             "incoherent frozen-phonon intensity mean"
@@ -1072,6 +1182,7 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
             float(specimen_metrics["maximum_relative_intensity_change"])
             <= 1.0e-3
         ),
+        **camera_projection.metrics,
     }
     custom_cif_path = specimen_metrics.get("atomistic_source_path")
     display_key = (
@@ -1096,6 +1207,9 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
             diffraction / max(float(diffraction.max()), 1.0e-30)
         ),
         image_intensity=_normalise_image(raw_image),
+        camera_electron_optical_intensity=raw_electron_optical_image,
+        camera_x_mm=camera_projection.x_mm,
+        camera_y_mm=camera_projection.y_mm,
         spatial_frequency_inv_angstrom=frequencies_x,
         spatial_frequency_y_inv_angstrom=frequencies_y,
         metrics=metrics,

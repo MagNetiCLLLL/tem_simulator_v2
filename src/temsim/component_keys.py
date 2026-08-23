@@ -74,6 +74,10 @@ IMAGE_CORRECTOR_DSH_DEFLECTOR = "image_dsh_deflector"
 IMAGE_CORRECTOR_DSTG_QUADRUPOLE = "image_dstg_quadrupole"
 IMAGE_CORRECTOR_SAD_PLANE = "image_sad_plane"
 
+# Logical optical plane shared by the concentric STEM detector bank.  This is
+# not an independently selectable detector and does not add a recording stop.
+STEM_DIFFRACTION_REFERENCE_PLANE = "stem_diffraction_reference_plane"
+
 IMAGE_CORRECTOR_LENS_KEYS = (
     IMAGE_CORRECTOR_OL_POST_LENS,
     IMAGE_CORRECTOR_TL11_LENS,

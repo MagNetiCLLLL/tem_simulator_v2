@@ -76,8 +76,9 @@ class ContinuousApertureDefinition:
 class ContinuousApertureComponent:
     """One continuously adjustable circular aperture.
 
-    ``radius_mm`` is a continuous floating-point control. There is deliberately
-    no discrete aperture list or selected-index state.
+    User-facing controls and operating-mode files use ``diameter_mm``.  The
+    stored ``radius_mm`` field is retained as an internal/legacy compatibility
+    representation for hard-edge clipping and old state files.
     """
 
     name: str
@@ -183,6 +184,26 @@ class ContinuousApertureComponent:
         self.radius_mm = float(value) / 1000.0
 
     @property
+    def diameter_mm(self):
+        return 2.0 * self.radius_mm
+
+    @diameter_mm.setter
+    def diameter_mm(self, value):
+        self.radius_mm = 0.5 * float(value)
+
+    @property
+    def diameter_um(self):
+        return 2.0 * self.radius_mm * 1000.0
+
+    @diameter_um.setter
+    def diameter_um(self, value):
+        self.radius_mm = 0.5 * float(value) / 1000.0
+
+    @property
+    def maximum_diameter_mm(self):
+        return 2.0 * self.maximum_radius_mm
+
+    @property
     def offset_x_um(self):
         return self.offset_x_mm * 1000.0
 
@@ -261,6 +282,9 @@ class ContinuousApertureComponent:
         return {
             "key": self.key,
             "optical_reference_z_mm": self.z_mm,
+            "diameter_mm": self.diameter_mm,
+            # Legacy renderer compatibility; new UI/configuration code must
+            # use diameter_mm.
             "radius_mm": self.radius_mm,
             "offset_x_mm": self.offset_x_mm,
             "offset_y_mm": self.offset_y_mm,

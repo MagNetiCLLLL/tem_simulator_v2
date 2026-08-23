@@ -52,16 +52,24 @@ def aperture_stop_records(state) -> tuple[dict[str, object], ...]:
         if aperture.key in seen:
             continue
         seen.add(aperture.key)
-        radius = getattr(
-            aperture,
-            "radius_mm",
-            getattr(aperture, "effective_aperture_radius_mm", 0.0),
-        )
+        diameter = getattr(aperture, "diameter_mm", None)
+        if diameter is None:
+            radius = getattr(
+                aperture,
+                "radius_mm",
+                getattr(aperture, "effective_aperture_radius_mm", 0.0),
+            )
+            diameter = 2.0 * float(radius)
+        else:
+            radius = 0.5 * float(diameter)
         records.append(
             {
                 "key": str(aperture.key),
                 "name": str(aperture.name),
                 "z_mm": float(aperture.z_mm),
+                "diameter_mm": max(0.0, float(diameter)),
+                # Kept for legacy ray-diagram readers.  Diameter is the public
+                # aperture-size convention.
                 "radius_mm": max(0.0, float(radius)),
                 "offset_x_mm": float(getattr(aperture, "offset_x_mm", 0.0)),
                 "offset_y_mm": float(getattr(aperture, "offset_y_mm", 0.0)),

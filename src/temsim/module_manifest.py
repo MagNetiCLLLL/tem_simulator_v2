@@ -16,6 +16,7 @@ from temsim.mechanical_profiles import (
     MAGNETIC_LENS_HOUSING,
     MAGNETIC_LENS_MECHANICAL_PROFILES,
     MAGNETIC_LENS_YOKE,
+    MAGNETIC_POLE_PIECE,
     lens_mechanical_part_keys,
 )
 
@@ -29,6 +30,11 @@ FIELD_POLARITY_STATUSES = frozenset({
     "manufacturer_documented",
     "measured_calibration",
     "provisional_model_assumption",
+})
+PROJECTOR_FIELD_CALIBRATION_STATUSES = frozenset({
+    "manufacturer_documented",
+    "measured_calibration",
+    "provisional_non_oem_principle_model",
 })
 DETECTOR_ORIENTATION_STATUSES = frozenset({
     "uncalibrated_identity",
@@ -46,6 +52,15 @@ PROJECTOR_LENS_KEYS = (
     "intermediate_lens",
     "projector_lens_1",
     "projector_lens_2",
+)
+PROJECTOR_FIELD_CALIBRATION_FIELDS = (
+    "maximum_peak_field_t",
+    "field_half_width_mm",
+    "default_excitation_percent",
+    "maximum_excitation_percent",
+    "field_profile_terms",
+    "field_calibration_status",
+    "field_calibration_source",
 )
 MECHANICAL_GEOMETRY_STATUSES = frozenset({
     "manufacturer_documented",
@@ -603,16 +618,21 @@ def validate_document(document):
         _validate_gun_mechanical_relationships(parts)
     if document.get("module", {}).get("type") == "column":
         _validate_column_order(parts)
-        _validate_column_mechanical_overlaps(parts)
         _validate_objective_assembly(parts)
         _validate_two_pole_lens_assemblies(parts)
-        _validate_magnetic_lens_mechanical_parts(parts)
+        _validate_magnetic_lens_mechanical_parts(
+            parts, document["geometry"]
+        )
         _validate_shared_lens_housings(parts)
+        _validate_column_mechanical_overlaps(parts)
     if document.get("module", {}).get("type") == "project_and_recording_system":
         _validate_projector_lens_clearances(parts, document["geometry"])
         _validate_projector_lens_geometry_provenance(parts)
+        _validate_projector_field_calibrations(parts)
         _validate_two_pole_lens_assemblies(parts)
-        _validate_magnetic_lens_mechanical_parts(parts)
+        _validate_magnetic_lens_mechanical_parts(
+            parts, document["geometry"]
+        )
         _validate_recording_plane_geometry(parts)
         _validate_energy_filter_geometry(parts)
     entrance = float(document["ports"]["entrance"]["local_z_mm"])
@@ -634,6 +654,72 @@ def part_requires_field_polarity(part):
         and part.get("mechanical_profile")
         in MAGNETIC_FIELD_POLARITY_PROFILES
     )
+
+
+def _validate_projector_field_calibrations(parts):
+    by_key = {str(part["key"]): part for part in parts}
+    for key in PROJECTOR_LENS_KEYS:
+        part = by_key.get(key)
+        if part is None:
+            raise ValueError(f"Missing projector field source {key}")
+        missing = [
+            field for field in PROJECTOR_FIELD_CALIBRATION_FIELDS
+            if field not in part
+        ]
+        if missing:
+            raise ValueError(
+                f"Missing {key} TOML field calibration: "
+                + ", ".join(missing)
+            )
+        peak_t = float(part["maximum_peak_field_t"])
+        half_width_mm = float(part["field_half_width_mm"])
+        default_percent = float(part["default_excitation_percent"])
+        maximum_percent = float(part["maximum_excitation_percent"])
+        if not math.isfinite(peak_t) or peak_t <= 0.0:
+            raise ValueError(
+                f"{key}.maximum_peak_field_t must be finite and positive"
+            )
+        if not math.isfinite(half_width_mm) or half_width_mm <= 0.0:
+            raise ValueError(
+                f"{key}.field_half_width_mm must be finite and positive"
+            )
+        if (
+            not math.isfinite(maximum_percent)
+            or not 0.0 < maximum_percent <= 100.0
+            or not math.isfinite(default_percent)
+            or not 0.0 <= default_percent <= maximum_percent
+        ):
+            raise ValueError(
+                f"{key} excitation percentages must satisfy "
+                "0 <= default <= maximum <= 100"
+            )
+        terms = part["field_profile_terms"]
+        if not isinstance(terms, list) or not terms:
+            raise ValueError(f"{key}.field_profile_terms must be a non-empty list")
+        amplitude_sum = 0.0
+        for index, term in enumerate(terms):
+            if not isinstance(term, list) or len(term) != 3:
+                raise ValueError(
+                    f"{key}.field_profile_terms[{index}] must contain "
+                    "amplitude, offset and sigma"
+                )
+            amplitude, offset, sigma = (float(value) for value in term)
+            if not all(math.isfinite(value) for value in (amplitude, offset, sigma)):
+                raise ValueError(f"{key}.field_profile_terms must be finite")
+            if sigma <= 0.0:
+                raise ValueError(f"{key} field-profile sigma must be positive")
+            amplitude_sum += amplitude
+        if amplitude_sum <= 0.0:
+            raise ValueError(f"{key} field-profile amplitude sum must be positive")
+        status = str(part["field_calibration_status"]).strip()
+        source = str(part["field_calibration_source"]).strip()
+        if status not in PROJECTOR_FIELD_CALIBRATION_STATUSES:
+            raise ValueError(
+                f"{key}.field_calibration_status must be one of "
+                f"{sorted(PROJECTOR_FIELD_CALIBRATION_STATUSES)}"
+            )
+        if not source:
+            raise ValueError(f"{key}.field_calibration_source must not be empty")
 
 
 def _validate_recording_plane_geometry(parts):
@@ -774,6 +860,48 @@ def _validate_recording_plane_geometry(parts):
             raise ValueError(
                 "camera.detector_orientation_source must not be empty"
             )
+
+    stem_keys = ("haadf", "df", "bf")
+    if all(key in by_key for key in stem_keys):
+        positions = tuple(
+            float(by_key[key]["optical_reference_local_z_mm"])
+            for key in stem_keys
+        )
+        if not positions[0] < positions[1] < positions[2]:
+            raise ValueError(
+                "STEM detector order must remain HAADF upstream of DF "
+                "upstream of BF"
+            )
+        if "flu_screen" in by_key:
+            screen_z_mm = float(
+                by_key["flu_screen"]["optical_reference_local_z_mm"]
+            )
+            if not positions[0] < screen_z_mm < positions[1]:
+                raise ValueError(
+                    "The main screen must remain between HAADF and DF"
+                )
+        for index, key in enumerate(stem_keys, start=1):
+            part = by_key[key]
+            if int(part.get("axial_order_index", 0)) != index:
+                raise ValueError(f"{key}.axial_order_index must be {index}")
+            if part.get("axial_order_status") != (
+                "evidence_backed_relative_order_absolute_z_provisional_non_oem"
+            ):
+                raise ValueError(f"{key} axial-order status is missing")
+            if not str(part.get("axial_order_source", "")).strip():
+                raise ValueError(f"{key} axial-order source is missing")
+            source_urls = part.get("axial_order_source_urls", ())
+            if (
+                not isinstance(source_urls, list)
+                or len(source_urls) < 2
+                or any(
+                    not str(url).startswith("https://")
+                    for url in source_urls
+                )
+            ):
+                raise ValueError(
+                    f"{key} axial-order source URLs are missing"
+                )
 
 
 def _validate_gun_mechanical_relationships(parts):
@@ -1574,21 +1702,152 @@ def _validate_column_mechanical_overlaps(parts):
             parent_key = parent.get("parent_key") if parent else None
         return False
 
-    def radial_annuli_are_disjoint(first, second):
-        required = (
-            "mechanical_inner_diameter_mm",
-            "mechanical_outer_diameter_mm",
-        )
-        if not all(field in first and field in second for field in required):
+    def radial_annulus(part, overlap_start, overlap_end):
+        if part.get("pole_piece_geometry_style") == (
+            "objective_vertical_back_inserted_shank_tapered_nose"
+        ):
+            start = float(part["local_start_z_mm"])
+            end = float(part["local_end_z_mm"])
+            length = float(part["pole_mounting_shank_axial_length_mm"])
+            if str(part["key"]) == "objective_upper_pole":
+                shank_start, shank_end = start, start + length
+            else:
+                shank_start, shank_end = end - length, end
+            if (
+                overlap_start >= shank_start - tolerance
+                and overlap_end <= shank_end + tolerance
+            ):
+                return (
+                    float(part["pole_mounting_shank_inner_diameter_mm"]),
+                    float(part["pole_stem_outer_diameter_mm"]),
+                )
+        if (
+            "mechanical_inner_diameter_mm" in part
+            and "mechanical_outer_diameter_mm" in part
+        ):
+            return (
+                float(part["mechanical_inner_diameter_mm"]),
+                float(part["mechanical_outer_diameter_mm"]),
+            )
+        if (
+            part.get("mechanical_profile") == MAGNETIC_POLE_PIECE
+            and "mechanical_bore_diameter_mm" in part
+            and "mechanical_outer_diameter_mm" in part
+        ):
+            return (
+                float(part["mechanical_bore_diameter_mm"]),
+                float(part["mechanical_outer_diameter_mm"]),
+            )
+        if "mechanical_outer_diameter_mm" in part:
+            for bore_field in (
+                "mechanical_clear_bore_diameter_mm",
+                "mechanical_bore_diameter_mm",
+            ):
+                if bore_field in part:
+                    return (
+                        float(part[bore_field]),
+                        float(part["mechanical_outer_diameter_mm"]),
+                    )
+        return None
+
+    def radial_annuli_are_disjoint(
+        first, second, overlap_start, overlap_end
+    ):
+        first_annulus = radial_annulus(first, overlap_start, overlap_end)
+        second_annulus = radial_annulus(second, overlap_start, overlap_end)
+        if first_annulus is None or second_annulus is None:
             return False
-        first_inner = float(first[required[0]])
-        first_outer = float(first[required[1]])
-        second_inner = float(second[required[0]])
-        second_outer = float(second[required[1]])
+        first_inner, first_outer = first_annulus
+        second_inner, second_outer = second_annulus
         return (
             first_outer <= second_inner + tolerance
             or second_outer <= first_inner + tolerance
         )
+
+    def objective_coil_active_intervals(part):
+        if part.get("mechanical_profile") != MAGNETIC_EXCITATION_COIL:
+            return None
+        parent = by_key.get(str(part.get("parent_key", "")))
+        if not parent or str(parent.get("key")) != "objective_lens":
+            return None
+        inset = float(parent["mechanical_coil_axial_inset_mm"])
+        return (
+            (
+                float(parent["upper_yoke_start_local_z_mm"]) + inset,
+                float(parent["upper_yoke_end_local_z_mm"]) - inset,
+            ),
+            (
+                float(parent["lower_yoke_start_local_z_mm"]) + inset,
+                float(parent["lower_yoke_end_local_z_mm"]) - inset,
+            ),
+        )
+
+    def material_axial_intervals(part, overlap_start, overlap_end):
+        active_intervals = objective_coil_active_intervals(part)
+        if active_intervals is None:
+            return ((overlap_start, overlap_end),)
+        return tuple(
+            (start, end)
+            for active_start, active_end in active_intervals
+            for start, end in ((
+                max(active_start, overlap_start),
+                min(active_end, overlap_end),
+            ),)
+            if end - start > tolerance
+        )
+
+    def axial_envelope(part):
+        active_intervals = objective_coil_active_intervals(part)
+        if active_intervals is not None:
+            return active_intervals[0][0], active_intervals[-1][1]
+        return (
+            float(part["local_start_z_mm"]),
+            float(part["local_end_z_mm"]),
+        )
+
+    def materials_intersect_axially(
+        first, second, overlap_start, overlap_end
+    ):
+        return any(
+            min(first_end, second_end) - max(first_start, second_start)
+            > tolerance
+            for first_start, first_end in material_axial_intervals(
+                first, overlap_start, overlap_end
+            )
+            for second_start, second_end in material_axial_intervals(
+                second, overlap_start, overlap_end
+            )
+        )
+
+    def excitation_coil_materials_overlap(
+        first, second, overlap_start, overlap_end
+    ):
+        for first_start, first_end in material_axial_intervals(
+            first, overlap_start, overlap_end
+        ):
+            for second_start, second_end in material_axial_intervals(
+                second, overlap_start, overlap_end
+            ):
+                material_start = max(first_start, second_start)
+                material_end = min(first_end, second_end)
+                if material_end - material_start <= tolerance:
+                    continue
+                first_annulus = radial_annulus(
+                    first, material_start, material_end
+                )
+                second_annulus = radial_annulus(
+                    second, material_start, material_end
+                )
+                if first_annulus is None or second_annulus is None:
+                    continue
+                first_inner, first_outer = first_annulus
+                second_inner, second_outer = second_annulus
+                if (
+                    first_outer > second_inner + tolerance
+                    and second_outer > first_inner + tolerance
+                ):
+                    return True
+        return False
 
     for part in parts:
         group = part.get("mechanical_overlap_group")
@@ -1605,23 +1864,54 @@ def _validate_column_mechanical_overlaps(parts):
         if float(part["length_mm"]) > tolerance
     ]
     for index, first in enumerate(physical):
-        first_start = float(first["local_start_z_mm"])
-        first_end = float(first["local_end_z_mm"])
+        first_start, first_end = axial_envelope(first)
         for second in physical[index + 1:]:
-            second_start = float(second["local_start_z_mm"])
-            second_end = float(second["local_end_z_mm"])
+            second_start, second_end = axial_envelope(second)
             overlap = (
                 min(first_end, second_end)
                 - max(first_start, second_start)
             )
+            overlap_start = max(first_start, second_start)
+            overlap_end = min(first_end, second_end)
             if overlap <= tolerance:
+                continue
+            first_is_coil = (
+                first.get("mechanical_profile")
+                == MAGNETIC_EXCITATION_COIL
+            )
+            second_is_coil = (
+                second.get("mechanical_profile")
+                == MAGNETIC_EXCITATION_COIL
+            )
+            if (
+                (first_is_coil or second_is_coil)
+                and first.get("mechanical_profile")
+                != MAGNETIC_LENS_ASSEMBLY
+                and second.get("mechanical_profile")
+                != MAGNETIC_LENS_ASSEMBLY
+                and excitation_coil_materials_overlap(
+                    first, second, overlap_start, overlap_end
+                )
+            ):
+                raise ValueError(
+                    "Excitation-coil material overlap between "
+                    f"{first['key']} and {second['key']}"
+                )
+            if (
+                (first_is_coil or second_is_coil)
+                and not materials_intersect_axially(
+                    first, second, overlap_start, overlap_end
+                )
+            ):
                 continue
             if (
                 is_ancestor(str(first["key"]), second)
                 or is_ancestor(str(second["key"]), first)
             ):
                 continue
-            if radial_annuli_are_disjoint(first, second):
+            if radial_annuli_are_disjoint(
+                first, second, overlap_start, overlap_end
+            ):
                 continue
             same_group = (
                 first.get("mechanical_overlap_group")
@@ -1636,7 +1926,16 @@ def _validate_column_mechanical_overlaps(parts):
                 bool(first.get("mechanical_only", False))
                 or bool(second.get("mechanical_only", False))
             )
-            if same_group and (container_overlap or mechanical_layer_overlap):
+            optical_parent_overlap = (
+                first.get("mechanical_profile") == MAGNETIC_LENS_ASSEMBLY
+                or second.get("mechanical_profile")
+                == MAGNETIC_LENS_ASSEMBLY
+            )
+            if same_group and (
+                container_overlap
+                or mechanical_layer_overlap
+                or optical_parent_overlap
+            ):
                 continue
             raise ValueError(
                 f"Undeclared mechanical overlap between {first['key']} "
@@ -1824,6 +2123,8 @@ def _validate_two_pole_lens_assemblies(parts):
                     "fit inside both pole bores"
                 )
         detail_fields = (
+            "pole_mounting_shank_inner_diameter_mm",
+            "pole_mounting_shank_axial_length_mm",
             "pole_nose_axial_length_mm",
             "pole_cone_angle_to_axis_deg",
             "pole_face_land_axial_thickness_mm",
@@ -1862,7 +2163,10 @@ def _validate_two_pole_lens_assemblies(parts):
                 )
             if field == "pole_cone_angle_to_axis_deg":
                 valid = 0.0 < upper_scalar < 90.0
-            elif field == "pole_nose_axial_length_mm":
+            elif field in {
+                "pole_mounting_shank_axial_length_mm",
+                "pole_nose_axial_length_mm",
+            }:
                 valid = (
                     0.0 < upper_scalar <= float(upper["length_mm"])
                     and upper_scalar <= float(lower["length_mm"])
@@ -1901,10 +2205,53 @@ def _validate_two_pole_lens_assemblies(parts):
             )
 
 
-def _validate_magnetic_lens_mechanical_parts(parts):
-    """Validate the independent housing/yoke/coil geometry of each lens."""
+def _validate_magnetic_lens_mechanical_parts(parts, geometry):
+    """Validate the non-OEM, constant-OD magnetic-lens reconstruction."""
 
     tolerance = 1.0e-9
+    required_geometry = (
+        "magnetic_lens_external_diameter_mm",
+        "magnetic_lens_coil_axial_fraction",
+        "magnetic_lens_coil_radial_thickness_base_mm",
+        "magnetic_lens_coil_radial_thickness_per_t_mm",
+        "magnetic_lens_design_peak_fields_t",
+        "magnetic_lens_geometry_status",
+        "magnetic_lens_geometry_source",
+    )
+    missing_geometry = [
+        field for field in required_geometry if field not in geometry
+    ]
+    if missing_geometry:
+        raise ValueError(
+            "Missing magnetic-lens geometry metadata: "
+            f"{missing_geometry}"
+        )
+    external_diameter = float(
+        geometry["magnetic_lens_external_diameter_mm"]
+    )
+    axial_fraction = float(geometry["magnetic_lens_coil_axial_fraction"])
+    coil_thickness_base = float(
+        geometry["magnetic_lens_coil_radial_thickness_base_mm"]
+    )
+    coil_thickness_per_t = float(
+        geometry["magnetic_lens_coil_radial_thickness_per_t_mm"]
+    )
+    peak_fields = geometry["magnetic_lens_design_peak_fields_t"]
+    if (
+        not math.isfinite(external_diameter)
+        or external_diameter <= 0.0
+        or not math.isfinite(axial_fraction)
+        or not 0.0 < axial_fraction < 1.0
+        or not math.isfinite(coil_thickness_base)
+        or coil_thickness_base <= 0.0
+        or not math.isfinite(coil_thickness_per_t)
+        or coil_thickness_per_t <= 0.0
+        or not isinstance(peak_fields, dict)
+        or geometry["magnetic_lens_geometry_status"]
+        != "engineering_reconstruction_not_oem"
+        or not str(geometry["magnetic_lens_geometry_source"]).strip()
+    ):
+        raise ValueError("Invalid magnetic-lens geometry metadata")
     by_key = {str(part["key"]): part for part in parts}
     lens_keys = tuple(
         key for key, part in by_key.items()
@@ -1915,8 +2262,30 @@ def _validate_magnetic_lens_mechanical_parts(parts):
         ("yoke", MAGNETIC_LENS_YOKE),
         ("excitation_coil", MAGNETIC_EXCITATION_COIL),
     )
+    objective_pole_diameters = []
+    condenser_pole_diameters = []
+    nested_lenses = []
+    shared_peak_fields = {}
     for lens_key in lens_keys:
         lens = by_key[lens_key]
+        shared_key = lens.get("shared_housing_key")
+        if shared_key:
+            shared_peak_fields[str(shared_key)] = max(
+                shared_peak_fields.get(str(shared_key), 0.0),
+                float(peak_fields[lens_key]),
+            )
+    for lens_key in lens_keys:
+        lens = by_key[lens_key]
+        try:
+            design_peak_field = float(peak_fields[lens_key])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Missing design peak field for {lens_key}"
+            ) from exc
+        if not math.isfinite(design_peak_field) or design_peak_field <= 0.0:
+            raise ValueError(
+                f"Design peak field for {lens_key} must be positive"
+            )
         child_keys = lens_mechanical_part_keys(lens_key)
         missing = set(child_keys) - by_key.keys()
         if missing:
@@ -1927,9 +2296,19 @@ def _validate_magnetic_lens_mechanical_parts(parts):
         lens_start = float(lens["local_start_z_mm"])
         lens_end = float(lens["local_end_z_mm"])
         parent_outer = float(lens["mechanical_outer_diameter_mm"])
+        nested_parent_key = str(lens.get("nested_lens_parent_key", ""))
+        if nested_parent_key:
+            nested_lenses.append((lens_key, nested_parent_key))
+        elif abs(parent_outer - external_diameter) > tolerance:
+            raise ValueError(
+                f"{lens_key} mechanical outer diameter must equal the "
+                "common column diameter"
+            )
         radial_ranges = []
+        children_by_profile = {}
         for child_key, (role, profile) in zip(child_keys, expected):
             child = by_key[child_key]
+            children_by_profile[profile] = child
             if (
                 child.get("parent_key") != lens_key
                 or not bool(child.get("mechanical_only", False))
@@ -1953,6 +2332,14 @@ def _validate_magnetic_lens_mechanical_parts(parts):
                 )
             if not str(child.get("material_class", "")).strip():
                 raise ValueError(f"Missing material_class for {child_key}")
+            if (
+                profile == MAGNETIC_LENS_HOUSING
+                and abs(outer - parent_outer) > tolerance
+            ):
+                raise ValueError(
+                    f"{child_key} outer diameter must equal its parent "
+                    "lens envelope"
+                )
             radial_ranges.append((inner, outer, child_key))
         for first, second in zip(radial_ranges, radial_ranges[1:]):
             if second[1] > first[0] + tolerance:
@@ -1960,6 +2347,196 @@ def _validate_magnetic_lens_mechanical_parts(parts):
                     f"Magnetic-lens radial layers overlap: "
                     f"{first[2]} and {second[2]}"
                 )
+
+        coil = children_by_profile[MAGNETIC_EXCITATION_COIL]
+        coil_length = (
+            float(coil["local_end_z_mm"])
+            - float(coil["local_start_z_mm"])
+        )
+        poles = [
+            part for part in parts
+            if part.get("parent_key") == lens_key
+            and part.get("mechanical_profile") == MAGNETIC_POLE_PIECE
+        ]
+        if not poles:
+            raise ValueError(f"Missing pole pieces for {lens_key}")
+        longest_pole = max(
+            float(pole["local_end_z_mm"])
+            - float(pole["local_start_z_mm"])
+            for pole in poles
+        )
+        if lens_key == "objective_lens":
+            try:
+                coil_inset = float(
+                    lens["mechanical_coil_axial_inset_mm"]
+                )
+                upper_body_length = (
+                    float(lens["upper_yoke_end_local_z_mm"])
+                    - float(lens["upper_yoke_start_local_z_mm"])
+                )
+                lower_body_length = (
+                    float(lens["lower_yoke_end_local_z_mm"])
+                    - float(lens["lower_yoke_start_local_z_mm"])
+                )
+            except KeyError as exc:
+                raise ValueError(
+                    "Objective lens is missing split-body geometry"
+                ) from exc
+            active_coil_lengths = (
+                upper_body_length - 2.0 * coil_inset,
+                lower_body_length - 2.0 * coil_inset,
+            )
+            if (
+                coil_inset <= 0.0
+                or any(
+                    not longest_pole < length < external_diameter
+                    for length in active_coil_lengths
+                )
+            ):
+                raise ValueError(
+                    "Objective active coil halves must be longer than each "
+                    "pole piece and shorter than the column diameter"
+                )
+        else:
+            expected_coil_length = axial_fraction * min(
+                lens_end - lens_start, external_diameter
+            )
+            if (
+                abs(coil_length - expected_coil_length) > tolerance
+                or not longest_pole < coil_length < external_diameter
+            ):
+                raise ValueError(
+                    f"{coil['key']} axial length must be the configured "
+                    "fraction of the smaller lens envelope/column diameter, "
+                    "longer than each pole piece, and shorter than the column "
+                    "diameter"
+                )
+        coil_thickness = 0.5 * (
+            float(coil["mechanical_outer_diameter_mm"])
+            - float(coil["mechanical_inner_diameter_mm"])
+        )
+        effective_peak_field = shared_peak_fields.get(
+            str(lens.get("shared_housing_key", "")),
+            design_peak_field,
+        )
+        declared_coil_thickness = lens.get(
+            "mechanical_coil_radial_thickness_mm"
+        )
+        expected_coil_thickness = (
+            float(declared_coil_thickness)
+            if declared_coil_thickness is not None
+            else coil_thickness_base
+            + coil_thickness_per_t * effective_peak_field
+        )
+        if abs(coil_thickness - expected_coil_thickness) > tolerance:
+            raise ValueError(
+                f"{coil['key']} radial thickness must follow the declared "
+                "per-lens reconstruction or design-peak-field fallback"
+            )
+        expected_style = (
+            "objective_vertical_back_inserted_shank_tapered_nose"
+            if lens_key == "objective_lens"
+            else "embedded_hourglass_bore"
+            if lens_key.startswith("condenser_lens_")
+            or lens_key == "mini_condenser"
+            else "tapered_bore_pole"
+        )
+        for pole in poles:
+            if pole.get("pole_piece_geometry_style") != expected_style:
+                raise ValueError(
+                    f"{pole['key']} must use pole-piece style "
+                    f"{expected_style}"
+                )
+            outer = float(pole["mechanical_outer_diameter_mm"])
+            if lens_key == "objective_lens":
+                stem = float(pole.get("pole_stem_outer_diameter_mm", 0.0))
+                bore = float(pole["mechanical_bore_diameter_mm"])
+                tip = float(pole["mechanical_tip_diameter_mm"])
+                coil_inner = float(coil["mechanical_inner_diameter_mm"])
+                shank_inner = float(
+                    pole.get("pole_mounting_shank_inner_diameter_mm", 0.0)
+                )
+                shank_length = float(
+                    pole.get("pole_mounting_shank_axial_length_mm", 0.0)
+                )
+                root_clearance = 0.5 * (coil_inner - stem)
+                if (
+                    not bore < stem <= outer
+                    or not bore <= shank_inner < stem
+                    or not 0.0 < shank_length < longest_pole
+                    or not tip < outer
+                    or abs(root_clearance) > tolerance
+                ):
+                    raise ValueError(
+                        f"{pole['key']} objective mounting-shank OD must "
+                        "equal the excitation-coil ID and its head/bore "
+                        "geometry must remain valid"
+                    )
+                objective_pole_diameters.append(outer)
+            elif (
+                lens_key.startswith("condenser_lens_")
+                or lens_key == "mini_condenser"
+            ):
+                condenser_pole_diameters.append(outer)
+
+        if lens_key == "objective_lens":
+            upper, lower = sorted(poles, key=lambda part: float(
+                part["local_center_z_mm"]
+            ))
+            shank_length = float(
+                upper["pole_mounting_shank_axial_length_mm"]
+            )
+            if (
+                abs(
+                    float(lens["upper_yoke_end_local_z_mm"])
+                    - float(upper["local_start_z_mm"])
+                    - shank_length
+                ) > tolerance
+                or abs(
+                    float(lower["local_end_z_mm"])
+                    - float(lens["lower_yoke_start_local_z_mm"])
+                    - shank_length
+                ) > tolerance
+            ):
+                raise ValueError(
+                    "Objective mounting shanks must extend into the upper "
+                    "and lower yokes by their declared axial length"
+                )
+    for nested_key, parent_key in nested_lenses:
+        nested_housing = by_key[f"{nested_key}_housing"]
+        parent_coil = by_key[f"{parent_key}_excitation_coil"]
+        radial_clearance = 0.5 * (
+            float(parent_coil["mechanical_inner_diameter_mm"])
+            - float(nested_housing["mechanical_outer_diameter_mm"])
+        )
+        if radial_clearance <= 0.0:
+            raise ValueError(
+                f"{nested_key} housing must fit radially inside the "
+                f"{parent_key} excitation-coil bore"
+            )
+        if parent_key == "objective_lens":
+            upper = by_key["objective_upper_pole"]
+            nested_lens = by_key[nested_key]
+            axial_clearance = (
+                float(upper["local_start_z_mm"])
+                - float(nested_lens["local_end_z_mm"])
+            )
+            if axial_clearance <= 0.0:
+                raise ValueError(
+                    "The nested lens must end upstream of the Objective "
+                    "mounting shank"
+                )
+
+    if (
+        objective_pole_diameters
+        and condenser_pole_diameters
+        and min(objective_pole_diameters)
+        <= max(condenser_pole_diameters) + tolerance
+    ):
+        raise ValueError(
+            "Objective pole-piece head must be larger than condenser "
+            "pole pieces"
+        )
 
 
 def _validate_shared_lens_housings(parts):
@@ -2018,6 +2595,42 @@ def _validate_shared_lens_housings(parts):
             ):
                 raise ValueError(
                     f"{shared_key} sections must be mechanical housing rows"
+                )
+        c1_poles = [
+            part for part in parts
+            if part.get("parent_key") == "condenser_lens_1"
+            and part.get("mechanical_profile") == MAGNETIC_POLE_PIECE
+        ]
+        c2_poles = [
+            part for part in parts
+            if part.get("parent_key") == "condenser_lens_2"
+            and part.get("mechanical_profile") == MAGNETIC_POLE_PIECE
+        ]
+        if len(c1_poles) != 1 or len(c2_poles) != 1:
+            raise ValueError(
+                f"{shared_key} requires one C1/C2 interface pole apiece"
+            )
+        for field in (
+            "mechanical_bore_diameter_mm",
+            "mechanical_tip_diameter_mm",
+            "mechanical_outer_diameter_mm",
+        ):
+            if abs(
+                float(c1_poles[0][field]) - float(c2_poles[0][field])
+            ) > 1.0e-9:
+                raise ValueError(
+                    f"{shared_key} C1/C2 interface poles must match in "
+                    f"{field}"
+                )
+        c1_coil = by_key["condenser_lens_1_excitation_coil"]
+        c2_coil = by_key["condenser_lens_2_excitation_coil"]
+        for field in (
+            "mechanical_inner_diameter_mm",
+            "mechanical_outer_diameter_mm",
+        ):
+            if abs(float(c1_coil[field]) - float(c2_coil[field])) > 1.0e-9:
+                raise ValueError(
+                    f"{shared_key} C1/C2 coils must match in {field}"
                 )
 
 

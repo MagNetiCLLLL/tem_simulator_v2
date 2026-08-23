@@ -36,6 +36,10 @@ class PhysicalLayoutRecord:
     vacuum_inner_diameter_mm: float
     pole_gap_mm: float
     pole_tip_diameter_mm: float
+    pole_piece_geometry_style: str
+    pole_stem_outer_diameter_mm: float
+    pole_mounting_shank_inner_diameter_mm: float
+    pole_mounting_shank_axial_length_mm: float
     pole_nose_axial_length_mm: float
     pole_cone_angle_to_axis_deg: float
     pole_face_land_axial_thickness_mm: float
@@ -212,6 +216,18 @@ def physical_layout_records(result) -> tuple[PhysicalLayoutRecord, ...]:
             pole_tip_diameter_mm=max(float(part.data.get(
                 "mechanical_tip_diameter_mm",
                 part.data.get("pole_piece_tip_diameter_mm", 0.0),
+            )), 0.0),
+            pole_piece_geometry_style=str(part.data.get(
+                "pole_piece_geometry_style", "",
+            )),
+            pole_stem_outer_diameter_mm=max(float(part.data.get(
+                "pole_stem_outer_diameter_mm", 0.0,
+            )), 0.0),
+            pole_mounting_shank_inner_diameter_mm=max(float(part.data.get(
+                "pole_mounting_shank_inner_diameter_mm", 0.0,
+            )), 0.0),
+            pole_mounting_shank_axial_length_mm=max(float(part.data.get(
+                "pole_mounting_shank_axial_length_mm", 0.0,
             )), 0.0),
             pole_nose_axial_length_mm=max(float(part.data.get(
                 "pole_nose_axial_length_mm", 0.0,

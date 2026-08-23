@@ -10,49 +10,49 @@ description = "Calculated FEI-style Microprobe/Nanoprobe and Image/Diffraction o
 key = "micro_probe"
 name = "Microprobe (TEM)"
 family = "condenser"
-calibration_status = "calibrated_300kv_c3_probe_corrector"
-calibration_reference = "300 kV FEG, C3 + Probe Corrector; 0.1 mm integration step; no mechanical coordinates changed"
+calibration_status = "computed_300kv_non_oem_c3_probe_corrector"
+calibration_reference = "300 kV FEG, C3 + Probe Corrector; 100 um-diameter C2 aperture at reconstructed local Z 295 mm; 0.05 mm production-ray validation; non-OEM engineering calibration"
 compatible_columns = ["C3 + Probe Corrector"]
 compatible_recording_systems = ["*"]
-devices = { condenser_lens_1 = { percent = 60.0 }, condenser_lens_2 = { percent = 70.0 }, condenser_lens_3 = { percent = 33.7460694622 }, adapter_lens = { percent = 42.0 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 35.0, field_polarity = 1 }, objective_lens = { percent = 70.0 } }
-apertures = { condenser_aperture_2 = { enabled = true, radius_mm = 0.05 } }
-targets = { beam_character = "quasi_parallel", maximum_convergence_sem_angle_mrad = 0.5, achieved_convergence_sem_angle_mrad = 0.410863492, achieved_convergence_rms_mrad = 0.190149843, achieved_sample_rms_radius_nm = 611.613394, c2_aperture_radius_um = 50.0 }
+devices = { condenser_lens_1 = { percent = 20.0 }, condenser_lens_2 = { percent = 18.056071153550306 }, condenser_lens_3 = { percent = 35.27747456110945 }, adapter_lens = { percent = 42.0 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 35.0, field_polarity = 1 }, objective_lens = { percent = 68.9801 } }
+apertures = { condenser_aperture_2 = { enabled = true, diameter_mm = 0.10 } }
+targets = { beam_character = "quasi_parallel", maximum_convergence_sem_angle_mrad = 0.5, achieved_convergence_sem_angle_mrad = 0.265559512, achieved_illumination_diameter_95_um = 2.001829069, achieved_wavefront_curvature_per_m = -2.916329607, c2_aperture_diameter_um = 100.0 }
 
 [[modes]]
 key = "nano_probe"
 name = "Nanoprobe (STEM)"
 family = "condenser"
-calibration_status = "calibrated_300kv_c3_probe_corrector"
-calibration_reference = "300 kV FEG, C3 + Probe Corrector; 0.1 mm integration step; no mechanical coordinates changed"
+calibration_status = "computed_300kv_non_oem_c3_probe_corrector"
+calibration_reference = "300 kV FEG, C3 + Probe Corrector; C2 aperture optical plane at reconstructed local Z 295 mm. The fixed-lens 10-200 um diameter sweep is calibrated to approximately 0.3 mrad/um with 0.75 mrad RMS and 1.30 mrad maximum absolute deviation on the dense 10 um grid; each aperture may be refocused by the live C2/C3 solve. 0.1 mm production-ray validation; non-OEM engineering calibration"
 compatible_columns = ["C3 + Probe Corrector"]
 compatible_recording_systems = ["*"]
-devices = { condenser_lens_1 = { percent = 86.2438509176 }, condenser_lens_2 = { percent = 39.06875040761 }, condenser_lens_3 = { percent = 22.3926301538 }, adapter_lens = { percent = 86.0039434207 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 41.5570797718, field_polarity = -1 }, objective_lens = { percent = 70.0 } }
-apertures = { condenser_aperture_2 = { enabled = true, radius_mm = 0.10 } }
-targets = { beam_character = "convergent_probe", target_convergence_sem_angle_mrad = 30.0, minimum_convergence_sem_angle_mrad = 20.0, maximum_convergence_sem_angle_mrad = 40.0, achieved_convergence_sem_angle_mrad = 29.547791354, achieved_convergence_rms_mrad = 13.703816118, achieved_sample_rms_radius_nm = 0.919961, c2_aperture_radius_um = 100.0 }
+devices = { condenser_lens_1 = { percent = 51.666666666666664 }, condenser_lens_2 = { percent = 60.90870909 }, condenser_lens_3 = { percent = 21.38966042 }, adapter_lens = { percent = 86.0039434207 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 41.5570797718, field_polarity = -1 }, objective_lens = { percent = 68.9801 } }
+apertures = { condenser_aperture_2 = { enabled = true, diameter_mm = 0.10 } }
+targets = { beam_character = "convergent_probe", target_convergence_sem_angle_mrad = 30.0, minimum_convergence_sem_angle_mrad = 3.0, maximum_convergence_sem_angle_mrad = 60.0, achieved_convergence_sem_angle_mrad = 30.372547660, achieved_waist_offset_nm = 0.000014286, c2_aperture_diameter_um = 100.0, aperture_scaling_reference_mrad_per_um = 0.3, aperture_scaling_diameter_range_um = [10.0, 200.0], aperture_scaling_rms_error_mrad = 0.75, aperture_scaling_maximum_absolute_error_mrad = 1.30 }
 
 [[modes]]
 key = "imaging"
 name = "Image (objective image plane)"
 family = "projector"
-calibration_status = "calibrated_300kv_energy_filter"
-calibration_reference = "Objective image plane relayed to the active recording stop; 0.1 mm integration step"
+calibration_status = "computed_300kv_non_oem_energy_filter"
+calibration_reference = "Objective image plane relayed to the active recording stop with Nanoprobe Objective fixed at 68.9801%; 0.1 mm integration step; non-OEM engineering calibration"
 compatible_columns = ["C2", "C3", "C3 + Probe Corrector"]
 compatible_recording_systems = ["Energy Filter"]
-devices = { diffraction_lens = { percent = 16.0105466828 }, intermediate_lens = { percent = 40.0 }, projector_lens_1 = { percent = 30.0 }, projector_lens_2 = { percent = 30.0 } }
+devices = { diffraction_lens = { percent = 15.99002277 }, intermediate_lens = { percent = 25.87979594 }, projector_lens_1 = { percent = 31.42820723 }, projector_lens_2 = { percent = 30.39754696 } }
 apertures = {}
-targets = { conjugate_plane = "objective_image_plane", achieved_plane_magnification = 54.001809470, achieved_relay_error_um = 4.631175238 }
+targets = { conjugate_plane = "objective_image_plane", achieved_plane_magnification = 18.922310421, achieved_relay_error_um = 2.076374781 }
 
 [[modes]]
 key = "diffraction"
 name = "Diffraction (objective back focal plane)"
 family = "projector"
-calibration_status = "calibrated_300kv_energy_filter"
-calibration_reference = "Objective back focal plane relayed to the active recording stop; 0.1 mm integration step"
+calibration_status = "computed_300kv_non_oem_mode_dependent_diffraction_reference"
+calibration_reference = "Computed 300 kV non-OEM principle-model calibration. The stored projector default is the 0.05 m STEM main-screen branch. Live Direct Alignment uses the main fluorescent screen in STEM and the active recording stop in TEM; the TEM D/I/P1/P2 full canonical 4x4 solve is validated from 0.005 to 2.5 m at 0.025 mm. Detector insertion and readout remain independent of the projector state."
 compatible_columns = ["C2", "C3", "C3 + Probe Corrector"]
 compatible_recording_systems = ["Energy Filter"]
-devices = { diffraction_lens = { percent = 17.4982940301 }, intermediate_lens = { percent = 40.0 }, projector_lens_1 = { percent = 30.0 }, projector_lens_2 = { percent = 30.0 } }
+devices = { diffraction_lens = { percent = 14.577617197168571 }, intermediate_lens = { percent = 0.035082657259397326 }, projector_lens_1 = { percent = 32.1132572718703 }, projector_lens_2 = { percent = 9.826874422815507 } }
 apertures = {}
-targets = { conjugate_plane = "objective_back_focal_plane", achieved_plane_magnification = 10.530105689, achieved_relay_error_um = 0.540565623 }
+targets = { conjugate_plane = "mode_dependent_diffraction_reference_plane", reference_surface = "stem_main_screen_or_tem_active_recording_stop", achieved_effective_camera_length_m = 0.0499981286, achieved_diffraction_conjugacy_residual = 0.0000003973, validation_step_mm = 0.025 }
 
 [[crossover_constraints]]
 key = "c1_c2_interlens"
@@ -74,15 +74,15 @@ name = "Nanoprobe convergence semi-angle"
 family = "condenser"
 mode_key = "nano_probe"
 unit = "mrad"
-minimum = 20.0
-maximum = 40.0
+minimum = 3.0
+maximum = 60.0
 default_value = 30.0
 devices = ["condenser_lens_2", "condenser_lens_3"]
 observable = "sample_current_weighted_95_percent_semi_angle"
 constraint = "probe_waist_at_sample"
 calibration_status = "live_coupled_solve_full_ray_validation_non_oem"
-calibration_reference = "C2/C3 are solved together at the active sample plane; the 95%-current radial angle is measured relative to the chief ray and is invariant to Larmor rotation."
-targets = { maximum_relative_error = 0.03, maximum_waist_offset_mm = 0.002, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.1, validation_step_mm = 0.05 }
+calibration_reference = "C2/C3 are solved together at the active sample plane using the currently inserted C2 aperture diameter. The stored 100 um Nanoprobe reference gives approximately 30 mrad and the calibrated 10-200 um fixed-lens sweep follows 0.3 mrad/um within the stated finite-ray tolerance. The 95%-current radial angle is measured relative to the chief ray and is invariant to Larmor rotation."
+targets = { reference_c2_aperture_diameter_um = 100.0, aperture_scaling_reference_mrad_per_um = 0.3, aperture_scaling_diameter_range_um = [10.0, 200.0], aperture_scaling_rms_error_mrad = 0.75, aperture_scaling_maximum_absolute_error_mrad = 1.30, maximum_relative_error = 0.08, maximum_waist_offset_mm = 0.00001, optimiser_waist_scale_mm = 0.002, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.1, validation_step_mm = 0.1, precalculation_interpolation = "linear_target_and_aperture_path_seed_full_validation", precalculation_aperture_match_relative_tolerance = 0.02, precalculation_aperture_diameters_um = [10.0, 20.0, 40.0, 60.0, 80.0, 100.0, 120.0, 140.0, 160.0, 180.0, 200.0], precalculation_convergence_mrad = [3.0, 6.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0, 48.0, 54.0, 60.0], precalculation_vectors = [[65.13607724990183, 21.259163758465217], [65.13607724990183, 21.259163758465217], [65.13607724990183, 21.259163758465217], [65.13607724990183, 21.259163758465217], [65.13607724990183, 21.259163758465217], [65.09902474559826, 21.259014202139006], [65.09902474559826, 21.259014202139006], [65.09902474559826, 21.259014202139006], [63.89329921320699, 21.298750534615472], [63.89329921320699, 21.298750534615472], [64.5480208116275, 21.27377425094879]] }
 
 [[direct_alignments]]
 key = "microprobe_illumination"
@@ -114,7 +114,7 @@ observable = "sample_to_active_recording_plane_isotropic_magnification"
 constraint = "sample_to_recording_plane_B_zero"
 calibration_status = "five_lens_live_abcd_solve_full_transfer_validation_non_oem"
 calibration_reference = "Objective/D/I/P1/P2 are solved as one preset. The observable is the physical sample-to-active-recording-plane |A| under the full-matrix B=0 image condition; no independent per-lens magnifications are assigned. LM and normal imaging require separate solution branches. This is an engineering calibration, not an OEM lens-current table."
-targets = { maximum_relative_error = 0.03, maximum_relay_error_um = 20.0, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.1, validation_step_mm = 0.05, maximum_continuation_ratio = 2.0, maximum_continuation_stages = 8, lm_maximum_magnification = 1000.0, lm_objective_max_percent = 0.001, normal_objective_min_percent = 5.0, preset_magnifications = [10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0], preset_vectors = [[0.0, 14.01257768, 4.28015163, 30.97264506, 4.32756939], [0.00043282365609445983, 13.423630084108808, 0.1867789267629405, 94.14235148467097, 10.762156464164768], [0.00005063418201089, 17.272292632305287, 40.25268921043, 66.04255765371036, 62.538011134163156], [24.75306561309765, 29.117123743024422, 10.022417643995297, 64.47894335554084, 31.964194166194847], [24.738733549476926, 33.55531594364167, 0.17506507786181658, 79.10405198628884, 47.98821019307529], [24.743813294547095, 33.62896274978043, 41.011996353719525, 92.22927965735596, 76.20941599186783]] }
+targets = { maximum_relative_error = 0.03, maximum_relay_error_um = 20.0, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.1, validation_step_mm = 0.05, maximum_continuation_ratio = 2.0, maximum_continuation_stages = 8, lm_maximum_magnification = 1000.0, lm_objective_max_percent = 0.001, normal_objective_min_percent = 5.0, precalculation_interpolation = "log_target_linear_strength_seed_full_validation", preset_magnifications = [10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0], preset_branch_ids = ["lm", "lm", "lm", "normal", "normal", "normal"], preset_vectors = [[0.0, 14.01257768, 2.98901286561065, 30.97264506, 4.32756939], [0.00043282365609445983, 13.423630084108808, 0.13043570961512, 94.14235148467097, 10.762156464164768], [0.00005063418201089, 17.272292632305287, 28.11017373358856, 66.04255765371036, 62.538011134163156], [24.75306561309765, 29.117123743024422, 6.99908271297041, 64.47894335554084, 31.964194166194847], [24.738733549476926, 33.55531594364167, 0.12225542814428, 79.10405198628884, 47.98821019307529], [24.743813294547095, 33.62896274978043, 28.64043037317458, 92.22927965735596, 76.20941599186783]] }
 
 [[direct_alignments]]
 key = "diffraction_camera_length"
@@ -122,12 +122,12 @@ name = "Effective camera length"
 family = "projector"
 mode_key = "diffraction"
 unit = "m"
-minimum = 0.01
-maximum = 5.0
+minimum = 0.005
+maximum = 2.5
 default_value = 0.05
 devices = ["diffraction_lens", "intermediate_lens", "projector_lens_1", "projector_lens_2"]
-observable = "sample_angle_to_active_recording_plane_isotropic_scale"
-constraint = "objective_back_focal_plane_relay"
-calibration_status = "requested_range_live_coupled_solve_full_transfer_validation_non_oem"
-calibration_reference = "D/I/P1/P2 are solved together. Effective camera length is the full laboratory-frame transverse angular-to-position scale; the Objective BFP Z is defined by the axisymmetric canonical (Larmor-rotating) transfer, and current non-OEM fields may not reach every requested value while preserving that conjugate."
-targets = { maximum_relative_error = 0.03, maximum_relay_error_um = 30.0, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.05, validation_step_mm = 0.025, maximum_continuation_ratio = 2.0, maximum_continuation_stages = 8 }
+observable = "sample_angle_to_main_screen_isotropic_scale"
+constraint = "sample_to_main_screen_A_zero"
+calibration_status = "canonical_larmor_live_coupled_solve_full_transfer_validation_non_oem"
+calibration_reference = "D/I/P1/P2 are solved together for one camera length at the mode reference plane: the TOML-owned main fluorescent screen in STEM and the active recording stop in TEM. The optimiser and production validator both use the full specimen-canonical laboratory-frame 4x4 transfer at 0.025 mm; the deterministic TEM branch seeds cover 0.005-2.5 m. Axially ordered HAADF, DF and BF retain distinct physical Z transfers. This is an engineering model, not an OEM lens-current table."
+targets = { maximum_relative_error = 0.03, maximum_diffraction_conjugacy_residual = 0.001, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.025, validation_step_mm = 0.025, maximum_continuation_ratio = 2.0, maximum_continuation_stages = 10, precalculation_interpolation = "log_target_linear_strength_seed_full_validation", preset_camera_lengths = [0.005, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5], preset_branch_ids = ["camera_length", "camera_length", "camera_length", "camera_length", "camera_length", "camera_length", "camera_length"], preset_vectors = [[16.32115954, 98.38564830, 48.82683138, 24.62908381], [14.64526109578748, 0.01586898291823792, 27.179426927557408, 14.987915959343525], [14.4149455, 0.00120650723, 34.0234814, 9.88514595], [19.63904162, 19.63010251, 0.77162651, 46.12967606], [19.4676207, 19.9226047, 0.0153893906, 65.2384486], [13.50512151, 5.63031688, 63.99418341, 50.20615765], [13.48846756, 5.68013548, 64.05715196, 88.74046240]] }

@@ -18,12 +18,13 @@ from temsim.optics.direct_alignment import (
     PROJECTOR_KEYS as KEYS,
     DirectAlignmentResult as Result,
     apply_direct_alignment,
+    diffraction_reference_plane,
 )
 from temsim.physics.first_order import (
     linear_map_properties,
     trace_transverse_transfer,
 )
-from temsim.physics.recording_stop import determine_tem_stop_z
+from temsim.physics.recording_stop import tem_camera_plane_z
 
 
 def _alignment_key(state) -> str:
@@ -37,10 +38,15 @@ def _alignment_key(state) -> str:
 def actual_value(state) -> float:
     """Return the full transverse sample-to-recording-plane observable."""
 
+    target_z_mm = (
+        float(tem_camera_plane_z(state))
+        if _alignment_key(state) == IMAGE_MAGNIFICATION
+        else float(diffraction_reference_plane(state)[1])
+    )
     transfer = trace_transverse_transfer(
         state,
         float(state.sample.z_mm),
-        float(determine_tem_stop_z(state)),
+        target_z_mm,
     )
     block = (
         transfer.j_img

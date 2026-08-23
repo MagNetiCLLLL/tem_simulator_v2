@@ -349,14 +349,18 @@ def test_scan_view_exposes_pixel_pitch_and_derived_fov(qtbot):
 
 
 def test_detector_position_and_size_define_collection_angle(monkeypatch):
+    import temsim.optics.direct_alignment as direct_alignment
+
     response_m_per_rad = np.diag((2.0, 1.0))
     monkeypatch.setattr(
-        stem_signal,
-        "transverse_kick_response",
-        lambda _state, sample_z, detector_z: (
-            response_m_per_rad
-            if (sample_z, detector_z) == (100.0, 300.0)
-            else np.zeros((2, 2))
+        direct_alignment,
+        "diffraction_transfer",
+        lambda _state, detector_z: SimpleNamespace(
+            j_diff_m_per_rad=(
+                response_m_per_rad
+                if detector_z == 300.0
+                else np.zeros((2, 2))
+            )
         ),
     )
     state = SimpleNamespace(sample=SimpleNamespace(z_mm=100.0))

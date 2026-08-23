@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import ClassVar
 
 import numpy as np
@@ -82,6 +83,7 @@ class StemDetectorDefinition:
             outer_width_mm=self.outer_width_mm,
             inner_diameter_mm=self.inner_diameter_mm,
             inserted=True,
+            readout_enabled=True,
             colour=self.colour,
             anchor_key=self.anchor_key,
             optical_reference_downstream_of_anchor_mm=(
@@ -110,6 +112,9 @@ class StemDetectorComponent:
     outer_width_mm: float
     inner_diameter_mm: float = 0.0
     inserted: bool = True
+    readout_enabled: bool = True
+    centre_offset_x_mm: float = 0.0
+    centre_offset_y_mm: float = 0.0
     colour: str = "#455a64"
     anchor_key: str = SELECTED_AREA_APERTURE
     optical_reference_downstream_of_anchor_mm: float = 0.0
@@ -131,14 +136,6 @@ class StemDetectorComponent:
     @property
     def outer_diameter_mm(self):
         return self.outer_width_mm
-
-    @property
-    def readout_enabled(self):
-        return bool(self.inserted)
-
-    @readout_enabled.setter
-    def readout_enabled(self, value):
-        self.inserted = bool(value)
 
     def validate(self):
         self.key = canonical_recording_plane_key(self.key)
@@ -166,6 +163,13 @@ class StemDetectorComponent:
             )
         if self.layout_length_mm <= 0.0:
             raise ValueError("STEM detector layout length must be positive.")
+        for name in ("centre_offset_x_mm", "centre_offset_y_mm"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value):
+                raise ValueError("STEM detector centre offsets must be finite.")
+            setattr(self, name, value)
+        self.inserted = bool(self.inserted)
+        self.readout_enabled = bool(self.readout_enabled)
         validate_component_point_spread(self)
         return self
 
@@ -186,7 +190,10 @@ class StemDetectorComponent:
     def hit_mask(self, x_mm, y_mm):
         x_mm = np.asarray(x_mm, dtype=float)
         y_mm = np.asarray(y_mm, dtype=float)
-        radius = np.hypot(x_mm, y_mm)
+        radius = np.hypot(
+            x_mm - float(self.centre_offset_x_mm),
+            y_mm - float(self.centre_offset_y_mm),
+        )
         outer = float(self.outer_width_mm) / 2.0
         if self.geometry == "annulus":
             inner = float(self.inner_diameter_mm) / 2.0
@@ -344,12 +351,20 @@ def stem_detector_from_dict(
     definition = STEM_DETECTOR_DEFINITION_BY_KEY[key]
     component = definition.create_component(anchor_z_mm)
     known = component.__dataclass_fields__
+    has_explicit_readout = "readout_enabled" in values
     for field, value in values.items():
         if field in known and field in {
             "inserted",
+            "readout_enabled",
+            "centre_offset_x_mm",
+            "centre_offset_y_mm",
             "colour",
         }:
             setattr(component, field, value)
+    # Before this split, ``readout_enabled`` was an alias of ``inserted``.
+    # Preserve that behaviour when loading an older payload.
+    if not has_explicit_readout:
+        component.readout_enabled = bool(component.inserted)
     component.key = key
     component.name = definition.label
     legacy_anchor = values.get("anchor_key") != SELECTED_AREA_APERTURE

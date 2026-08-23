@@ -168,7 +168,7 @@ CONDENSER_LENS_1_DEFINITION = CondenserLensDefinition(
     optical_reference_from_tip_mm=_default_c1_absolute(
         "optical_reference_local_z_mm"
     ),
-    maximum_peak_field_t=0.28,
+    maximum_peak_field_t=1.5,
     field_scale_half_width_mm=10.0,
     default_excitation_percent=90.0,
     maximum_excitation_percent=100.0,
@@ -195,9 +195,9 @@ CONDENSER_LENS_2_DEFINITION = CondenserLensDefinition(
     optical_reference_from_tip_mm=_default_column_absolute(
         _C2_MANIFEST, "optical_reference_local_z_mm"
     ),
-    # The calibrated microprobe solution previously occupied 100%.  Rebase
-    # the rating so the same 0.726 T field is produced at 70% with headroom.
-    maximum_peak_field_t=1.0371428571428571,
+    # Shared C1/C2 yoke reconstruction: use the same non-OEM design limit and
+    # keep the calibrated physical working fields in the operating presets.
+    maximum_peak_field_t=1.5,
     field_scale_half_width_mm=10.0,
     default_excitation_percent=35.0,
     maximum_excitation_percent=100.0,

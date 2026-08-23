@@ -1025,6 +1025,7 @@ class PhysicalLayoutView(QWidget):
         self._c1_c2_pole_gap = None
         self._objective_lens_half_items = []
         self._objective_lens_labels = []
+        self._lens_excitation_coil_items = {}
         self._sample_stage_items = []
         self._sample_holder_items = []
         self._sample_plane_items = []
@@ -1128,7 +1129,7 @@ class PhysicalLayoutView(QWidget):
         self.plot.setYRange(-0.58 * diameter, 0.58 * diameter, padding=0.0)
 
     def _add_pole_piece_projection(self, record, colour) -> None:
-        """Draw the axial projection of a hollow, tapered pole piece."""
+        """Draw one hollow pole piece without treating its bore as a tube."""
 
         start = float(record.start_z_mm)
         end = float(record.end_z_mm)
@@ -1151,14 +1152,36 @@ class PhysicalLayoutView(QWidget):
             outside_z = end
             shoulder_z = start + taper_length
             face_z = start
+        style = str(record.pole_piece_geometry_style)
+        if style == "objective_vertical_back_inserted_shank_tapered_nose":
+            shape_name = (
+                "Objective pole piece: inserted mounting shank / shoulder / "
+                "tapered nose"
+            )
+        elif style == "objective_mushroom_bore_stem":
+            shape_name = "Objective mushroom/arrow pole-piece projection"
+        elif style == "embedded_hourglass_bore":
+            shape_name = "Embedded condenser hourglass pole-piece projection"
+        else:
+            shape_name = "Hollow tapered pole-piece projection"
         tooltip = (
-            f"{record.name}\nHollow pole-piece projection\n"
+            f"{record.name}\n{shape_name}\n"
             f"Z {start:.6g}–{end:.6g} mm\n"
-            f"vacuum ID {record.vacuum_inner_diameter_mm:.6g} mm | "
+            f"beam-path bore ID {record.bore_diameter_mm:.6g} mm | "
             f"tip OD {2.0 * tip:.6g} mm"
+            "\nThe bore is open vacuum space; a separately drawn thin "
+            "sleeve is the non-magnetic vacuum liner tube."
         )
         if configured_nose > 0.0:
             tooltip += f"\nNose axial length {configured_nose:.6g} mm"
+        if record.pole_mounting_shank_axial_length_mm > 0.0:
+            tooltip += (
+                "\nMounting shank "
+                f"ID {record.pole_mounting_shank_inner_diameter_mm:.6g} mm | "
+                f"OD {record.pole_stem_outer_diameter_mm:.6g} mm | "
+                "axial insertion "
+                f"{record.pole_mounting_shank_axial_length_mm:.6g} mm"
+            )
         if record.pole_cone_angle_to_axis_deg > 0.0:
             tooltip += (
                 "\nNominal cone angle metadata "
@@ -1171,13 +1194,53 @@ class PhysicalLayoutView(QWidget):
             )
         rgb = pg.mkColor(colour)
         for sign in (-1.0, 1.0):
-            points = QPolygonF([
-                QPointF(outside_z, sign * bore),
-                QPointF(outside_z, sign * outer),
-                QPointF(shoulder_z, sign * outer),
-                QPointF(face_z, sign * tip),
-                QPointF(face_z, sign * bore),
-            ])
+            if style == "objective_vertical_back_inserted_shank_tapered_nose":
+                shank_outer = 0.5 * float(
+                    record.pole_stem_outer_diameter_mm
+                )
+                shank_inner = 0.5 * float(
+                    record.pole_mounting_shank_inner_diameter_mm
+                )
+                insertion = min(
+                    float(record.pole_mounting_shank_axial_length_mm),
+                    max(length - taper_length - 0.001, 0.0),
+                )
+                direction = 1.0 if face_at_end else -1.0
+                mounting_end_z = outside_z + direction * insertion
+                points = QPolygonF([
+                    QPointF(outside_z, sign * shank_inner),
+                    QPointF(outside_z, sign * shank_outer),
+                    QPointF(mounting_end_z, sign * shank_outer),
+                    QPointF(mounting_end_z, sign * outer),
+                    QPointF(shoulder_z, sign * outer),
+                    QPointF(face_z, sign * tip),
+                    QPointF(face_z, sign * bore),
+                    QPointF(mounting_end_z, sign * bore),
+                    QPointF(mounting_end_z, sign * shank_inner),
+                ])
+            elif style == "objective_mushroom_bore_stem":
+                stem = 0.5 * float(record.pole_stem_outer_diameter_mm)
+                stem = min(max(stem, bore), outer)
+                direction = 1.0 if face_at_end else -1.0
+                neck_z = outside_z + direction * 0.46 * length
+                head_z = outside_z + direction * 0.56 * length
+                points = QPolygonF([
+                    QPointF(outside_z, sign * bore),
+                    QPointF(outside_z, sign * stem),
+                    QPointF(neck_z, sign * stem),
+                    QPointF(head_z, sign * outer),
+                    QPointF(shoulder_z, sign * outer),
+                    QPointF(face_z, sign * tip),
+                    QPointF(face_z, sign * bore),
+                ])
+            else:
+                points = QPolygonF([
+                    QPointF(outside_z, sign * bore),
+                    QPointF(outside_z, sign * outer),
+                    QPointF(shoulder_z, sign * outer),
+                    QPointF(face_z, sign * tip),
+                    QPointF(face_z, sign * bore),
+                ])
             polygon = QGraphicsPolygonItem(points)
             polygon.setPen(pg.mkPen(colour, width=0.9))
             polygon.setBrush(pg.mkBrush(
@@ -1214,25 +1277,58 @@ class PhysicalLayoutView(QWidget):
             return None
         return gap_start, gap_end
 
+    def _objective_lens_active_intervals(self, record):
+        """Return the two material intervals of the split Objective body."""
+
+        objective = self._record_by_key.get("objective_lens")
+        objective_part = self._part_by_key.get("objective_lens")
+        if objective is None or objective_part is None:
+            return ()
+        data = objective_part.data
+        required = (
+            "local_start_z_mm",
+            "upper_yoke_start_local_z_mm",
+            "upper_yoke_end_local_z_mm",
+            "lower_yoke_start_local_z_mm",
+            "lower_yoke_end_local_z_mm",
+        )
+        if any(field not in data for field in required):
+            return ()
+        origin = (
+            float(objective.start_z_mm)
+            - float(data["local_start_z_mm"])
+        )
+        intervals = [
+            [
+                origin + float(data["upper_yoke_start_local_z_mm"]),
+                origin + float(data["upper_yoke_end_local_z_mm"]),
+            ],
+            [
+                origin + float(data["lower_yoke_start_local_z_mm"]),
+                origin + float(data["lower_yoke_end_local_z_mm"]),
+            ],
+        ]
+        if record.profile == "magnetic_excitation_coil":
+            inset = float(data.get("mechanical_coil_axial_inset_mm", 0.0))
+            intervals[0][0] += inset
+            intervals[0][1] -= inset
+            intervals[1][0] += inset
+            intervals[1][1] -= inset
+        return tuple(
+            (name, start, end)
+            for name, (start, end) in zip(
+                ("Upper Objective Lens", "Lower Objective Lens"),
+                intervals,
+            )
+            if end > start
+        )
+
     def _add_split_objective_lens_layer(self, record, colour) -> None:
         """Draw one Objective layer as separate upper and lower bodies."""
 
-        gap = self._objective_pole_gap()
-        if gap is None:
+        intervals = self._objective_lens_active_intervals(record)
+        if not intervals:
             return
-        gap_start, gap_end = gap
-        intervals = (
-            (
-                "Upper Objective Lens",
-                float(record.start_z_mm),
-                min(float(record.end_z_mm), gap_start),
-            ),
-            (
-                "Lower Objective Lens",
-                max(float(record.start_z_mm), gap_end),
-                float(record.end_z_mm),
-            ),
-        )
         outer_half = 0.5 * float(record.outer_diameter_mm)
         bore_half = min(0.5 * float(record.bore_diameter_mm), outer_half)
         material_height = outer_half - bore_half
@@ -1246,9 +1342,25 @@ class PhysicalLayoutView(QWidget):
                 f"Z {start:.6g}-{end:.6g} mm\n"
                 f"OD {record.outer_diameter_mm:.6g} mm | "
                 f"hardware bore {record.bore_diameter_mm:.6g} mm\n"
-                "The upper and lower Objective Lens mechanics are separated "
-                "at the physical pole-piece gap."
+                "This active upper/lower body interval comes from the "
+                "separate Objective yoke ranges in the column TOML; the "
+                "central region is reserved for pole pieces, stage, holder, "
+                "cold trap and analytical-detector access."
             )
+            if record.profile == "magnetic_excitation_coil":
+                radial_thickness = 0.5 * (
+                    float(record.outer_diameter_mm)
+                    - float(record.bore_diameter_mm)
+                )
+                tooltip += (
+                    f"\nAxial winding length "
+                    f"{end - start:.6g} mm; radial "
+                    f"winding thickness {radial_thickness:.6g} mm."
+                    "\nProvisional non-OEM geometry: each Objective coil "
+                    "half is inset from its yoke body; the thick radial "
+                    "winding is an explicit Thermo/FEI-directed engineering "
+                    "reconstruction, not an OEM measurement."
+                )
             for lower_y in (-outer_half, bore_half):
                 rect = QGraphicsRectItem(
                     start,
@@ -1263,6 +1375,10 @@ class PhysicalLayoutView(QWidget):
                 rect.setToolTip(tooltip)
                 self.plot.addItem(rect)
                 self._objective_lens_half_items.append(rect)
+                if record.profile == "magnetic_excitation_coil":
+                    self._lens_excitation_coil_items.setdefault(
+                        record.key, []
+                    ).append(rect)
                 _register_selectable_graphics_item(
                     self._selectable_item_keys,
                     rect,
@@ -1418,7 +1534,7 @@ class PhysicalLayoutView(QWidget):
         sleeve.setPen(pg.mkPen("#94a3b8", width=1.5))
         sleeve.setBrush(pg.mkBrush(100, 116, 139, 38))
         sleeve.setToolTip(stage_tooltip)
-        sleeve.setZValue(25)
+        sleeve.setZValue(47)
         self.plot.addItem(sleeve)
         self._sample_stage_items.append(sleeve)
         _register_selectable_graphics_item(
@@ -1436,7 +1552,7 @@ class PhysicalLayoutView(QWidget):
         body.setPen(pg.mkPen("#cbd5e1", width=1.2))
         body.setBrush(pg.mkBrush(100, 116, 139, 150))
         body.setToolTip(stage_tooltip)
-        body.setZValue(26)
+        body.setZValue(47)
         self.plot.addItem(body)
         self._sample_stage_items.append(body)
         _register_selectable_graphics_item(
@@ -1473,7 +1589,7 @@ class PhysicalLayoutView(QWidget):
         )
         shaft.setBrush(pg.mkBrush(245, 158, 11, holder_alpha))
         shaft.setToolTip(holder_tooltip)
-        shaft.setZValue(29)
+        shaft.setZValue(48)
         self.plot.addItem(shaft)
         self._sample_holder_items.append(shaft)
         _register_selectable_graphics_item(
@@ -1497,7 +1613,7 @@ class PhysicalLayoutView(QWidget):
             pg.mkBrush(251, 191, 36, 225 if inserted else 105)
         )
         tip.setToolTip(holder_tooltip)
-        tip.setZValue(30)
+        tip.setZValue(49)
         self.plot.addItem(tip)
         self._sample_holder_items.append(tip)
         _register_selectable_graphics_item(
@@ -1515,7 +1631,7 @@ class PhysicalLayoutView(QWidget):
         grip.setPen(pg.mkPen("#fbbf24", width=1.0))
         grip.setBrush(pg.mkBrush(180, 83, 9, 220))
         grip.setToolTip(holder_tooltip)
-        grip.setZValue(30)
+        grip.setZValue(49)
         self.plot.addItem(grip)
         self._sample_holder_items.append(grip)
         _register_selectable_graphics_item(
@@ -1730,7 +1846,7 @@ class PhysicalLayoutView(QWidget):
         )
         tooltip = (
             f"{record.name} / retractable probe ({status.lower()})\n"
-            f"Upstream top-surface signal Z = {signal_z:.6g} mm\n"
+            f"Active detection plane Z = {signal_z:.6g} mm\n"
             f"active OD {record.outer_diameter_mm:.6g} mm | "
             f"central ID {record.bore_diameter_mm:.6g} mm\n"
             "The side actuator and housing are a Physical Layout schematic; "
@@ -1816,7 +1932,7 @@ class PhysicalLayoutView(QWidget):
         rgb = pg.mkColor(colour)
         tooltip = (
             f"{record.name} / hinged viewing screen ({status.lower()})\n"
-            f"Upstream top-surface signal Z = {signal_z:.6g} mm\n"
+            f"Active detection plane Z = {signal_z:.6g} mm\n"
             f"screen diameter {record.outer_diameter_mm:.6g} mm\n"
             "The hinge, arm and parked position are schematic and remain "
             "outside the axial mechanical model."
@@ -1906,7 +2022,7 @@ class PhysicalLayoutView(QWidget):
         rgb = pg.mkColor(colour)
         tooltip = (
             f"{record.name} / fixed on-axis camera ({status.lower()})\n"
-            f"Upstream top-surface signal Z = {signal_z:.6g} mm\n"
+            f"Active detection plane Z = {signal_z:.6g} mm\n"
             f"sensor width {record.outer_diameter_mm:.6g} mm\n"
             "The sensor plane participates in recording. The downstream "
             "camera body is a schematic external envelope only."
@@ -2348,6 +2464,7 @@ class PhysicalLayoutView(QWidget):
         self._c1_c2_pole_gap = None
         self._objective_lens_half_items = []
         self._objective_lens_labels = []
+        self._lens_excitation_coil_items = {}
         self._sample_stage_items = []
         self._sample_holder_items = []
         self._sample_plane_items = []
@@ -2423,8 +2540,25 @@ class PhysicalLayoutView(QWidget):
                         f"{record.name}\nZ {record.start_z_mm:.6g}–{record.end_z_mm:.6g} mm\n"
                         f"OD {record.outer_diameter_mm:.6g} mm | hardware bore {record.bore_diameter_mm:.6g} mm | "
                         f"vacuum ID {record.vacuum_inner_diameter_mm:.6g} mm"
+                        + (
+                            f"\nAxial winding length "
+                            f"{record.end_z_mm - record.start_z_mm:.6g} mm; "
+                            f"radial winding thickness "
+                            f"{0.5 * (record.outer_diameter_mm - record.bore_diameter_mm):.6g} mm."
+                            "\nProvisional non-OEM geometry: axial length is "
+                            "90% of the smaller lens envelope/column OD; "
+                            "radial thickness uses an explicit per-lens "
+                            "mechanical reconstruction when declared, with "
+                            "the model design-peak-field rule as fallback."
+                            if record.profile == "magnetic_excitation_coil"
+                            else ""
+                        )
                     )
                     self.plot.addItem(rect)
+                    if record.profile == "magnetic_excitation_coil":
+                        self._lens_excitation_coil_items.setdefault(
+                            record.key, []
+                        ).append(rect)
                     _register_selectable_graphics_item(
                         self._selectable_item_keys,
                         rect,
@@ -2468,9 +2602,11 @@ class PhysicalLayoutView(QWidget):
                 rect.setPen(pg.mkPen("#94a3b8", width=0.7))
                 rect.setBrush(pg.mkBrush(148, 163, 184, 150))
                 rect.setToolTip(
-                    f"{segment.name}\nVacuum liner\n"
+                    f"{segment.name}\nNon-magnetic vacuum liner tube\n"
                     f"ID {segment.inner_diameter_mm:.6g} mm | "
                     f"OD {segment.outer_diameter_mm:.6g} mm"
+                    "\nThis is a physical sleeve around the open beam-path "
+                    "bore, not the bore itself."
                 )
                 self.plot.addItem(rect)
                 self._vacuum_liner_items.append(rect)
@@ -2488,8 +2624,8 @@ class PhysicalLayoutView(QWidget):
         centres = pg.ScatterPlotItem(spots=spots, pxMode=True)
         centres.setZValue(40)
         centres.setToolTip(
-            "Click a component marker; detector markers use the upstream "
-            "top-surface signal plane"
+            "Click a component marker; detector markers use their active "
+            "detection plane"
         )
         centres.sigClicked.connect(self._centre_clicked)
         self.plot.addItem(centres)
@@ -2500,9 +2636,33 @@ class PhysicalLayoutView(QWidget):
             f"vacuum ID {minimum_diameter:.6g}–{maximum_diameter:.6g} mm"
         )
 
+        lens_housing_diameters = {
+            float(record.outer_diameter_mm)
+            for record in self._records
+            if record.profile == "magnetic_lens_housing"
+            and not str(
+                self._part_by_key[
+                    str(self._part_by_key[record.key].parent_key)
+                ].data.get("nested_lens_parent_key", "")
+            )
+        }
+        column_od_text = (
+            f"{next(iter(lens_housing_diameters)):.6g} mm"
+            if len(lens_housing_diameters) == 1
+            else "nonuniform"
+        )
         self.summary.setText(
-            "Objective mechanics are split into upper/lower lenses at the "
-            "pole gap. The transverse stage and nested sample holder are "
+            "External magnetic-lens housings use the provisional "
+            f"{column_od_text} column OD; the Mini Condenser is an explicit "
+            "radially nested internal-lens exception. Objective pole pieces "
+            "use a thin straight mounting shank whose outer boundary "
+            "coincides with the Objective coil bore, followed by a wider "
+            "shoulder and tapered nose; condenser pole pieces form an embedded "
+            "hourglass around the beam-path bore. The white bore boundary is "
+            "open vacuum space; the thin grey sleeve is the separate "
+            "non-magnetic vacuum liner tube. Objective mechanics are split "
+            "into upper/lower lenses at the pole gap. The transverse stage "
+            "and nested sample holder are "
             "schematic; the holder tip marks the current sample plane. "
             "Recording-device actuators and housings are schematic while "
             "their thin active planes retain the calculated coordinates. "
@@ -2537,7 +2697,7 @@ class PhysicalLayoutView(QWidget):
             f"vacuum ID {record.vacuum_inner_diameter_mm:.6g} mm | "
             f"optical references: {', '.join(f'{value:.6g}' for value in record.optical_references_mm) or 'none'} mm"
             + (
-                " | signal collection: upstream top surface at "
+                " | active detection plane: "
                 f"{self._recording_signal_z(record):.6g} mm"
                 if record.profile in self.RECORDING_SURFACE_PROFILES
                 else ""

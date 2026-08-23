@@ -7,7 +7,7 @@ ensembles, and a fast projected phase object.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import math
 
 import numpy as np
@@ -15,6 +15,7 @@ import numpy as np
 from temsim.optics.aberrations import (
     aberration_phase_rad,
     active_effective_aberrations,
+    configured_probe_defocus_mm,
 )
 
 from temsim.physics.compute_backend import (
@@ -30,7 +31,6 @@ from temsim.physics.stem_cuda_pipeline import (
 )
 from temsim.physics.wave_fft import stem_diffraction_intensity
 from temsim.physics.wave_imaging import (
-    _objective_defocus_angstrom,
     _weighted_ray_statistics,
     effective_sample_thickness_nm,
     interaction_constant_rad_per_v_angstrom,
@@ -110,6 +110,23 @@ class AngleResolvedStemResult:
     metrics: dict
 
 
+@dataclass(frozen=True)
+class ProbeFocusState:
+    """Signed sample-plane focus terms used by the coherent STEM probe."""
+
+    ray_waist_offset_m: float
+    ray_defocus_mm: float
+    configured_defocus_mm: float
+    effective_defocus_mm: float
+    source: str
+
+
+def _coherent_probe_semiangle_rad(ray_stats) -> float:
+    """Use the same current-robust aperture observable as Nanoprobe alignment."""
+
+    return max(float(ray_stats["convergence_95_rad"]), 0.0)
+
+
 def _detector_mask(detector, angles, angle_x_mrad=None, angle_y_mrad=None):
     if isinstance(detector, PhysicalAngularDetector):
         if angle_x_mrad is None or angle_y_mrad is None:
@@ -183,7 +200,25 @@ def _wave_grid(state, simulation, scan_x_um, scan_y_um):
     )
     preset = load_specimen_preset(preset_key)
     ray_stats = _weighted_ray_statistics(simulation.incident)
-    probe_radius_99_nm = float(ray_stats["radius_99_m"]) * 1.0e9
+    # The coherent STEM probe is formed from the angular aperture below.  The
+    # finite-source geometric ray radius is a source-size diagnostic, not the
+    # support radius of that coherent wave; using it here can inflate the FOV
+    # by orders of magnitude and remove the HAADF band from the FFT grid.
+    # Use a diffraction/defocus support estimate in the same sample plane.
+    _, _, wavelength_nm = electron(state)
+    convergence_rad = max(_coherent_probe_semiangle_rad(ray_stats), 1.0e-12)
+    configured_defocus_nm = configured_probe_defocus_mm(state) * 1.0e6
+    effective_defocus_nm = (
+        configured_defocus_nm
+        - float(ray_stats["waist_offset_m"]) * 1.0e9
+    )
+    diffraction_support_nm = 1.22 * wavelength_nm / convergence_rad
+    defocus_support_nm = abs(effective_defocus_nm) * math.tan(convergence_rad)
+    probe_radius_99_nm = max(
+        diffraction_support_nm,
+        defocus_support_nm,
+        1.0e-6,
+    )
     padding_factor = float(
         getattr(state.sample, "wave_probe_padding_factor", 3.0)
     )
@@ -235,7 +270,47 @@ def _wave_grid(state, simulation, scan_x_um, scan_y_um):
             geometry.calculation_roi_bounds_nm
         ),
     }
+    prepared.metrics["wave_probe_padding_model"] = (
+        "max(1.22 lambda/alpha, abs(effective C1) tan(alpha)); "
+        "finite-source ray radius excluded from coherent-wave support"
+    )
+    prepared.metrics["wave_probe_padding_radius_nm"] = probe_radius_99_nm
+    prepared.metrics["wave_probe_geometric_ray_radius_99_nm"] = (
+        float(ray_stats["radius_99_m"]) * 1.0e9
+    )
     return preset, prepared
+
+
+def probe_focus_aberrations(state, ray_stats):
+    """Combine traced first-order focus with additional coherent aberrations.
+
+    ``waist_offset_m`` is positive when the ray waist lies downstream of the
+    sample.  With the Fresnel sign convention used by multislice, the wave C1
+    at the sample is the negative of that offset.  Lens excitation is not
+    added separately, because it is already encoded by the traced ray bundle.
+    """
+
+    waist_offset_m = float(ray_stats.get("waist_offset_m", 0.0))
+    if not math.isfinite(waist_offset_m):
+        raise ValueError("Probe waist offset must be finite.")
+    ray_defocus_mm = -waist_offset_m * 1.0e3
+    configured_defocus_mm = configured_probe_defocus_mm(state)
+    effective_defocus_mm = ray_defocus_mm + configured_defocus_mm
+    coefficients = replace(
+        active_effective_aberrations(state, "probe"),
+        c1_mm=effective_defocus_mm,
+    ).validate()
+    focus = ProbeFocusState(
+        ray_waist_offset_m=waist_offset_m,
+        ray_defocus_mm=ray_defocus_mm,
+        configured_defocus_mm=configured_defocus_mm,
+        effective_defocus_mm=effective_defocus_mm,
+        source=(
+            "sample-plane ray covariance plus additional probe C1; "
+            "lens excitation is included once through the traced ray bundle"
+        ),
+    )
+    return coefficients, focus
 
 
 def _probe_spectrum(
@@ -252,7 +327,7 @@ def _probe_spectrum(
         abs(float(frequencies_y[1] - frequencies_y[0])),
     )
     convergence_rad = max(
-        float(ray_stats["convergence_semiangle_rad"]),
+        _coherent_probe_semiangle_rad(ray_stats),
         frequency_step * wavelength_angstrom,
     )
     centre_fx = math.sin(float(ray_stats["mean_tx_rad"])) / wavelength_angstrom
@@ -269,7 +344,7 @@ def _probe_spectrum(
         )
         aperture[nearest] = True
 
-    coefficients = active_effective_aberrations(state, "probe")
+    coefficients, _focus = probe_focus_aberrations(state, ray_stats)
     chi = aberration_phase_rad(
         fx,
         fy,
@@ -397,6 +472,7 @@ def simulate_angle_resolved_stem(
     ) * 1.0e3
 
     ray_stats = _weighted_ray_statistics(simulation.incident)
+    probe_aberrations, probe_focus = probe_focus_aberrations(state, ray_stats)
     base_spectrum = _probe_spectrum(
         state,
         ray_stats,
@@ -876,6 +952,27 @@ def simulate_angle_resolved_stem(
             },
             "preset_key": preset.key,
             "wavelength_angstrom": wavelength_angstrom,
+            "probe_ray_waist_offset_nm": (
+                probe_focus.ray_waist_offset_m * 1.0e9
+            ),
+            "probe_ray_defocus_nm": probe_focus.ray_defocus_mm * 1.0e6,
+            "probe_configured_defocus_nm": (
+                probe_focus.configured_defocus_mm * 1.0e6
+            ),
+            "probe_effective_defocus_nm": (
+                probe_focus.effective_defocus_mm * 1.0e6
+            ),
+            "probe_radial_wavefront_curvature_per_m": (
+                ray_stats["radial_wavefront_curvature_per_m"]
+            ),
+            "probe_focus_source": probe_focus.source,
+            "probe_effective_c1_mm": probe_aberrations.c1_mm,
+            "probe_aperture_semiangle_mrad": (
+                _coherent_probe_semiangle_rad(ray_stats) * 1.0e3
+            ),
+            "probe_aperture_observable": (
+                "sample current-weighted 95 percent semi-angle"
+            ),
             "grid_pixels": max(nx, ny),
             "grid_pixels_x": nx,
             "grid_pixels_y": ny,
@@ -906,7 +1003,7 @@ def simulate_angle_resolved_stem(
                 else float(np.mean(truncated_fraction))
             ),
             "wave_sampling_truncates_illumination": bool(
-                ray_stats["convergence_semiangle_rad"] * 1.0e3
+                _coherent_probe_semiangle_rad(ray_stats) * 1.0e3
                 > maximum_isotropic_angle_mrad
             ),
             "wave_intensity_conservation_within_0_1_percent": bool(

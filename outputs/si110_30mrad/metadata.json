@@ -1,0 +1,58 @@
+{
+  "specimen": "Silicon [110]",
+  "model": "atomistic_static_multislice",
+  "potential_model": "atomistic_lobato_iam",
+  "atomistic_applied": true,
+  "atom_count": 7280,
+  "beam_energy_kv": 300.0,
+  "thickness_nm": 10.0,
+  "probe_convergence_95_mrad_before_imposed_calibration": 24.07687637212994,
+  "probe_convergence_95_mrad": 29.999999999999314,
+  "probe_waist_offset_nm": -0.0,
+  "configured_defocus_nm": 0.0,
+  "effective_defocus_nm": 0.0,
+  "scan_shape_yx": [
+    64,
+    64
+  ],
+  "scan_pixel_size_nm": 0.025,
+  "scan_fov_x_nm": 1.5750000000000002,
+  "scan_fov_y_nm": 1.5750000000000002,
+  "wave_grid_pixels": 512,
+  "wave_field_of_view_angstrom": 38.40296928624075,
+  "maximum_isotropic_angle_mrad": 125.93317128543465,
+  "physical_detector_ranges_mrad": {
+    "haadf": [
+      96.1171720319844,
+      528.6444461759143
+    ],
+    "bf": [
+      0.0,
+      8.434286867031325
+    ]
+  },
+  "represented_detector_ranges_mrad": {
+    "haadf": [
+      96.1171720319844,
+      125.93317128543465
+    ],
+    "bf": [
+      0.0,
+      8.434286867031325
+    ]
+  },
+  "truncated_detector_keys": [
+    "haadf"
+  ],
+  "haadf_mean_fraction": 0.007223303620675053,
+  "haadf_min_fraction": 0.006278210465757229,
+  "haadf_max_fraction": 0.00852460720264662,
+  "bf_mean_fraction": 0.07501068327092364,
+  "bf_min_fraction": 0.06923441778108952,
+  "bf_max_fraction": 0.0798263765211118,
+  "maximum_probability_conservation_error": 1.1102230246251565e-16,
+  "real_probability_conserved": true,
+  "wave_compute_backend": "CuPy CUDA",
+  "elapsed_s": 15.324702199999592,
+  "scope": "qualitative static atomistic projected-phase Si[110]; physical detector masks; no frozen phonons/channeling; HAADF outer angle truncated by reciprocal-grid angular support"
+}

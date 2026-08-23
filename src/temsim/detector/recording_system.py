@@ -55,13 +55,18 @@ class RecordingPlane:
 
 
 def energy_filter_recording_plane_insertions(recording_planes, energy_filter_enabled):
-    """Return recording-plane insertion states compatible with the filter branch."""
+    """Return solid-screen states compatible with the filter branch.
+
+    BF is the centre channel of the independently controlled STEM detector
+    bank.  It is intentionally not retracted merely because an energy filter
+    is installed; users retract BF when they need the central beam to continue
+    into that post-column branch.
+    """
     return {
         plane.key: False
         if energy_filter_enabled
         and plane.key in {
             FLUORESCENT_SCREEN,
-            BRIGHT_FIELD_DETECTOR,
             CAMERA,
         }
         else bool(plane.inserted)
@@ -200,6 +205,12 @@ def serialise_recording_system(state):
             "key": plane.key,
             "inserted": bool(plane.inserted),
         }
+        if isinstance(plane, StemDetectorComponent):
+            values.update({
+                "readout_enabled": bool(plane.readout_enabled),
+                "centre_offset_x_mm": float(plane.centre_offset_x_mm),
+                "centre_offset_y_mm": float(plane.centre_offset_y_mm),
+            })
         if plane.key == CAMERA:
             values["pixels"] = int(plane.pixels)
         payload.append(values)

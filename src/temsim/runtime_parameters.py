@@ -256,7 +256,9 @@ def validate_runtime_assignment(
         "virtual",
     }:
         raise ValueError("sample.specimen_mode must be atomic or virtual")
-    if name in {"radius_mm", "thickness_nm", "rocking_width_inv_nm"}:
+    if name in {
+        "diameter_mm", "radius_mm", "thickness_nm", "rocking_width_inv_nm"
+    }:
         if float(converted) < 0.0:
             raise ValueError(f"{target.key}.{name} cannot be negative")
     if name in {"size_x_nm", "size_y_nm"} and float(converted) <= 0.0:

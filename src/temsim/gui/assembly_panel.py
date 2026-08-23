@@ -325,13 +325,16 @@ class AssemblyPanel(QWidget):
         c2 = float(devices["condenser_lens_2"]["percent"])
         c3 = float(devices["condenser_lens_3"]["percent"])
         objective = float(devices["objective_lens"]["percent"])
-        aperture_um = float(
-            condenser.apertures["condenser_aperture_2"]["radius_mm"]
-        ) * 1000.0
+        aperture_values = condenser.apertures["condenser_aperture_2"]
+        if "diameter_mm" in aperture_values:
+            aperture_um = float(aperture_values["diameter_mm"]) * 1000.0
+        else:
+            # Read-only compatibility for an external pre-diameter catalog.
+            aperture_um = float(aperture_values["radius_mm"]) * 2000.0
         self.operating_mode_status.setText(
             f"Preset reference sample semi-angle: {float(angle):.3f} mrad. "
             f"C2 {c2:.2f}%, C3 {c3:.2f}%, C2 aperture "
-            f"{aperture_um:.0f} µm, Objective focus {objective:.1f}%. "
+            f"diameter {aperture_um:.0f} µm, Objective focus {objective:.1f}%. "
             f"{illumination_note} Projection conjugate: {plane_label}. "
             "Apply the preset, use Direct Alignment for coupled user-level "
             "adjustments, or edit individual values under Optical > "

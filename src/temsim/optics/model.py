@@ -102,6 +102,34 @@ class Aperture:
 
     @property
 
+    def diameter_mm(self):
+
+        return 2.0 * self.radius_mm
+
+
+    @diameter_mm.setter
+
+    def diameter_mm(self, value):
+
+        self.radius_mm = 0.5 * float(value)
+
+
+    @property
+
+    def diameter_um(self):
+
+        return 2.0 * self.radius_mm * 1000.0
+
+
+    @diameter_um.setter
+
+    def diameter_um(self, value):
+
+        self.radius_mm = 0.5 * float(value) / 1000.0
+
+
+    @property
+
     def offset_x_um(self):
 
         return self.offset_x_mm * 1000.0
@@ -465,7 +493,7 @@ class State:
     probe_aberrations: dict = field(default_factory=dict)
     image_aberrations: dict = field(default_factory=dict)
 
-    schema_version: int = 65
+    schema_version: int = 66
 
     def __post_init__(self):
         if self.electron_gun is None:
@@ -1443,6 +1471,14 @@ class State:
                     payload.pop(key, None)
             for attribute in STRUCTURAL_FIELD_SOURCES:
                 payload.pop(attribute, None)
+            if str(component_key) in module_manifest.PROJECTOR_LENS_KEYS:
+                for attribute in (
+                    "b0_t",
+                    "a_mm",
+                    "max_percent",
+                    "gaussian",
+                ):
+                    payload.pop(attribute, None)
             if str(component_key) == OBJECTIVE_LENS:
                 for attribute in (
                     "assembly_outer_diameter_mm",
@@ -2567,7 +2603,7 @@ class State:
             ),
             probe_aberrations=dict(d.get("probe_aberrations", {})),
             image_aberrations=dict(d.get("image_aberrations", {})),
-            schema_version=65,
+            schema_version=66,
         )
         if loaded_schema_version < 64:
             from temsim.specimen.geometry import (

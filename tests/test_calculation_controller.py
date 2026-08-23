@@ -31,7 +31,7 @@ def test_preview_runs_off_the_gui_thread(qtbot):
     assert result.aperture_stops
     assert result.state_snapshot.objective_lens.cs_mm == 0.85
     assert result.state_snapshot.objective_lens.polarity == -1
-    assert all("radius_mm" in item for item in result.aperture_stops)
+    assert all("diameter_mm" in item for item in result.aperture_stops)
     assert duration > 0.0
 
 

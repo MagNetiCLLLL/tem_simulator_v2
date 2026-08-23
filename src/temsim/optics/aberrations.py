@@ -172,6 +172,26 @@ def _objective_defocus_mm(state) -> float:
     return user_defocus + current - nominal if math.isfinite(current) else user_defocus
 
 
+def configured_probe_defocus_mm(state) -> float:
+    """Return the additional coherent-probe C1 requested by the user.
+
+    The condenser and Objective excitations are deliberately excluded here:
+    their first-order focus is already present in the sample-plane ray bundle
+    and is converted to a wave-aberration term by the STEM probe builder.
+    ``wave_defocus_nm`` is therefore an additional specimen-referenced offset;
+    an explicit probe C1 override replaces that offset.
+    """
+
+    sample = getattr(state, "sample", None)
+    value = float(getattr(sample, "wave_defocus_nm", 0.0)) * 1.0e-6
+    overrides = getattr(state, "probe_aberrations", {}) or {}
+    if "c1_mm" in overrides:
+        value = float(overrides["c1_mm"])
+    if not math.isfinite(value):
+        raise ValueError("Configured probe defocus must be finite.")
+    return value
+
+
 def _configured_system_set(state, system: str) -> EffectiveAberrationSet:
     system = str(system).lower()
     if system not in {"probe", "image"}:
@@ -185,7 +205,11 @@ def _configured_system_set(state, system: str) -> EffectiveAberrationSet:
     values = {
         "reference_plane": "sample/probe" if system == "probe" else "objective image",
         "correction_state": "uncorrected",
-        "c1_mm": _objective_defocus_mm(state),
+        "c1_mm": (
+            configured_probe_defocus_mm(state)
+            if system == "probe"
+            else _objective_defocus_mm(state)
+        ),
         "c3_mm": float(profile.cs_mm or 0.0),
         "cc_mm": float(profile.cc_mm or 0.0),
     }

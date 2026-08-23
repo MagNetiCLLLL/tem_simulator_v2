@@ -109,7 +109,7 @@ def test_effective_coefficients_persist_and_inactive_corrector_is_identity():
     }
     payload = state.to_dict()
     restored = type(state).from_dict(payload)
-    assert restored.schema_version == 65
+    assert restored.schema_version == 66
     assert restored.image_aberrations == state.image_aberrations
     before, after, diagnostics = effective_aberration_comparison(
         restored, "image"
@@ -134,6 +134,22 @@ def test_active_probe_corrector_reduces_c3_ray_error():
     assert diagnostics["ray_error_rms_after"] < (
         0.2 * diagnostics["ray_error_rms_before"]
     )
+
+
+def test_configured_probe_c1_excludes_lens_focus_already_carried_by_rays():
+    state = default_state()
+    state.sample.wave_defocus_nm = 7.0
+    state.objective_lens.percent *= 0.9
+
+    probe_before, _probe_after, _diagnostics = (
+        effective_aberration_comparison(state, "probe")
+    )
+    image_before, _image_after, _diagnostics = (
+        effective_aberration_comparison(state, "image")
+    )
+
+    assert probe_before.c1_mm == pytest.approx(7.0e-6)
+    assert image_before.c1_mm != pytest.approx(7.0e-6)
 
 
 def test_lens_panel_shows_estimate_instead_of_none_as_zero(qtbot):

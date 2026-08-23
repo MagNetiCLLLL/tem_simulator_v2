@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
 import numpy as np
 
 from temsim.component_keys import STEM_DETECTOR_KEYS
-from temsim.physics.beam_observation import transverse_kick_response
 from temsim.physics.scan_geometry import (
     calibrate_scan_system,
     paired_kick_response,
@@ -70,6 +69,48 @@ class StemScanResult:
     probe_state: ProbeState | None = None
     axis_units: tuple[str, str] = ("um", "um")
     orientation: str = "array[y, x]; laboratory +X right, +Y up"
+
+
+def _readout_view(
+    result: StemScanResult,
+    *,
+    inserted_keys,
+    readout_keys,
+) -> StemScanResult:
+    """Hide disabled electronic channels without changing physical losses."""
+
+    inserted = tuple(str(key) for key in inserted_keys)
+    requested = tuple(str(key) for key in readout_keys)
+    requested_set = set(requested)
+    hidden = tuple(key for key in inserted if key not in requested_set)
+    metrics = dict(result.metrics or {})
+    metrics["physically_inserted_detector_keys"] = inserted
+    metrics["readout_detector_keys"] = requested
+    metrics["unreadout_detector_keys"] = hidden
+    metrics["unreadout_intercepted_mean_fraction"] = {
+        key: float(np.mean(result.fractions[key]))
+        for key in hidden
+        if key in result.fractions
+    }
+
+    def subset(mapping):
+        if mapping is None:
+            return None
+        return {
+            key: value for key, value in mapping.items()
+            if key in requested_set
+        }
+
+    return replace(
+        result,
+        fractions=subset(result.fractions),
+        detector_signals=subset(result.detector_signals),
+        metrics=metrics,
+        current_pa=subset(result.current_pa),
+        expected_electrons=subset(result.expected_electrons),
+        poisson_counts=subset(result.poisson_counts),
+        high_angle_tail_fraction=subset(result.high_angle_tail_fraction),
+    )
 
 
 def square_scan_limits(scan_x_um, scan_y_um):
@@ -359,9 +400,15 @@ def measure_aperture_transmitted_current(
 
 
 def collection_angle(state, detector):
-    response = transverse_kick_response(
-        state, state.sample.z_mm, detector.z_mm
-    )
+    # The sample lies inside the objective field.  The diffraction transfer
+    # uses the stable Larmor-frame integration; its angle block is identical
+    # to a mechanical kick at zero sample displacement, while avoiding the
+    # large coarse-step error of the general laboratory-frame propagator.
+    from temsim.optics.direct_alignment import diffraction_transfer
+
+    response = diffraction_transfer(
+        state, detector.z_mm
+    ).j_diff_m_per_rad
     singular = np.linalg.svd(response, compute_uv=False)
     singular = np.sort(np.abs(singular))
     if singular[0] <= 1.0e-15:
@@ -415,11 +462,11 @@ def physical_angular_detectors(state, detectors):
             and np.isfinite(angle.outer_mrad)
         ):
             raise ValueError(f"{detector.name}: collection angle is unavailable.")
-        transfer = transverse_kick_response(
-            state,
-            state.sample.z_mm,
-            detector.z_mm,
-        )
+        from temsim.optics.direct_alignment import diffraction_transfer
+
+        transfer = diffraction_transfer(
+            state, detector.z_mm
+        ).j_diff_m_per_rad
         resolved.append(
             PhysicalAngularDetector(
                 key=detector.key,
@@ -513,11 +560,11 @@ def _detector_center_shifts_mrad(
                 paired_kick_response(state, descan, detector.z_mm),
                 descan_delta_rad,
             )
-        sample_angle_response = transverse_kick_response(
-            state,
-            state.sample.z_mm,
-            detector.z_mm,
-        )
+        from temsim.optics.direct_alignment import diffraction_transfer
+
+        sample_angle_response = diffraction_transfer(
+            state, detector.z_mm
+        ).j_diff_m_per_rad
         equivalent_angle_rad = np.einsum(
             "ij,...j->...i",
             np.linalg.pinv(sample_angle_response),
@@ -817,17 +864,28 @@ def acquire_stem_scan(
             "AC Scan Coil and its raster drive must both be enabled before "
             "STEM signal acquisition."
         )
+    inserted = [
+        detector for detector in state.stem_detectors
+        if bool(detector.inserted)
+    ]
+    inserted_by_key = {detector.key: detector for detector in inserted}
+    requested_keys = (
+        {
+            detector.key for detector in inserted
+            if bool(detector.readout_enabled)
+        }
+        if detector_keys is None
+        else {str(key) for key in detector_keys}
+    )
+    missing = requested_keys - set(inserted_by_key)
+    if missing:
+        raise ValueError(
+            "STEM readout requires physically inserted detector(s): "
+            + ", ".join(sorted(missing))
+        )
     selected = [
-        detector
-        for detector in state.stem_detectors
-        if (
-            detector_keys is None
-            and detector.readout_enabled
-        )
-        or (
-            detector_keys is not None
-            and detector.key in set(detector_keys)
-        )
+        detector for detector in inserted
+        if detector.key in requested_keys
     ]
     pixels_x = int(
         component.scan_pixels_x if pixels_x is None else pixels_x
@@ -883,7 +941,7 @@ def acquire_stem_scan(
 
     physical_detectors, detector_angles = physical_angular_detectors(
         state,
-        selected,
+        inserted,
     )
     detector_center_shifts_mrad = _detector_center_shifts_mrad(
         simulation,
@@ -900,7 +958,7 @@ def acquire_stem_scan(
         and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
         == "virtual"
     ):
-        return _virtual_stem_scan(
+        result = _virtual_stem_scan(
             simulation,
             state,
             physical_detectors,
@@ -908,6 +966,11 @@ def acquire_stem_scan(
             scan_x_um,
             scan_y_um,
             detector_center_shifts_mrad,
+        )
+        return _readout_view(
+            result,
+            inserted_keys=[detector.key for detector in inserted],
+            readout_keys=[detector.key for detector in selected],
         )
 
     if (
@@ -1050,7 +1113,7 @@ def acquire_stem_scan(
         metrics["real_probability_conserved"] = (
             real_conservation_error <= 5.0e-10
         )
-        return _stem_result(
+        result = _stem_result(
             state,
             simulation,
             wave.scan_x_um,
@@ -1066,6 +1129,11 @@ def acquire_stem_scan(
                 else wave.truncated_fraction * available_fraction * wave_scale
             ),
             high_angle_tail_fraction=tail_images,
+        )
+        return _readout_view(
+            result,
+            inserted_keys=[detector.key for detector in inserted],
+            readout_keys=[detector.key for detector in selected],
         )
 
     branches, probabilities = _branch_probabilities(simulation)
@@ -1122,7 +1190,7 @@ def acquire_stem_scan(
 
     images = {
         detector.key: np.zeros((pixels_y, pixels_x), dtype=float)
-        for detector in selected
+        for detector in inserted
     }
     selected_keys = set(images)
     for row in range(pixels_y):
@@ -1188,7 +1256,7 @@ def acquire_stem_scan(
                 available[hit] = False
 
     signals = {}
-    for detector in selected:
+    for detector in inserted:
         fraction = float(np.mean(images[detector.key]))
         simulated, current_pa, electrons_per_second = _current_values(
             state,
@@ -1217,7 +1285,7 @@ def acquire_stem_scan(
         uncollected, real_absorbed_source, dtype=float
     )
     uncollected = np.maximum(uncollected - absorbed, 0.0)
-    return _stem_result(
+    result = _stem_result(
         state,
         simulation,
         scan_x_um,
@@ -1252,6 +1320,11 @@ def acquire_stem_scan(
         truncated_fraction=np.zeros_like(uncollected),
         high_angle_tail_fraction={
             detector.key: np.zeros_like(uncollected)
-            for detector in selected
+            for detector in inserted
         },
+    )
+    return _readout_view(
+        result,
+        inserted_keys=[detector.key for detector in inserted],
+        readout_keys=[detector.key for detector in selected],
     )

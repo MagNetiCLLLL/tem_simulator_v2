@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import math
 
 import numpy as np
-from scipy.optimize import least_squares
+from scipy.optimize import brentq, least_squares
 
 from temsim.component_keys import (
     CONDENSER_LENS_2,
@@ -23,6 +23,7 @@ from temsim.component_keys import (
     OBJECTIVE_LENS,
     PROJECTOR_LENS_1,
     PROJECTOR_LENS_2,
+    STEM_DIFFRACTION_REFERENCE_PLANE,
 )
 from temsim.operating_modes import (
     DirectAlignmentDefinition,
@@ -35,11 +36,19 @@ from temsim.physics.beam_statistics import (
 from temsim.physics.aperture_clipping import clip_segment
 from temsim.physics.column_wall import clip_column_wall
 from temsim.physics.core import E, fields, propagate
-from temsim.physics.first_order import trace_transverse_transfer
-from temsim.physics.recording_stop import determine_tem_stop_z
+from temsim.physics.first_order import (
+    TransverseTransfer,
+    trace_transverse_transfer,
+)
+from temsim.physics.recording_stop import tem_camera_plane_z
 from temsim.optics.equivalent_image_lenses import (
     equivalent_image_calibrations,
     equivalent_image_transfer_matrix,
+)
+from temsim.optics.direct_alignment_precalibration import (
+    interpolated_precalculated_seed,
+    interpolated_nanoprobe_seed,
+    precalculated_alignment_points,
 )
 
 try:
@@ -76,6 +85,7 @@ class DirectAlignmentMeasurement:
     convergence_95_mrad: float | None = None
     illumination_diameter_95_um: float | None = None
     relay_error_um: float | None = None
+    diffraction_conjugacy_residual: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +105,222 @@ class DirectAlignmentResult:
     convergence_95_mrad: float | None = None
     illumination_diameter_95_um: float | None = None
     relay_error_um: float | None = None
+    diffraction_conjugacy_residual: float | None = None
+    target_plane_key: str | None = None
+    target_plane_z_mm: float | None = None
+    field_calibration_statuses: tuple[str, ...] = ()
+    candidate_strengths: dict[str, float] | None = None
+    candidate_limit_fractions: dict[str, float] | None = None
+
+
+def diffraction_reference_plane(state):
+    """Return the detector-independent camera-length calibration plane.
+
+    Camera length belongs to the coupled projector system and is calibrated at
+    the TOML-owned main fluorescent-screen plane.  Axially ordered HAADF, DF
+    and BF detectors keep their own physical Z and full transfer; their
+    insertion/readout state must never choose or alter the projector setting.
+    """
+
+    if str(getattr(state, "illumination_mode", "")).upper() != "STEM":
+        return STEM_DIFFRACTION_REFERENCE_PLANE, float(
+            tem_camera_plane_z(state)
+        )
+    screen = getattr(state, "fluorescent_screen", None)
+    if screen is None or not math.isfinite(float(screen.z_mm)):
+        raise ValueError("The main-screen camera-length reference is absent")
+    reference_z_mm = float(screen.z_mm)
+    return STEM_DIFFRACTION_REFERENCE_PLANE, reference_z_mm
+
+
+def _canonical_source_basis(larmor_rate_m1: float) -> np.ndarray:
+    """Map canonical/Larmor specimen slopes to mechanical ray slopes.
+
+    The specimen lies inside the objective axial field.  At such a plane the
+    independent diffraction coordinate is the canonical (Larmor-frame)
+    slope, not a mechanical slope with position held fixed.  For
+    ``w = x + i y`` and ``g = q Bz / (2 p)``, ``u' = w' + i g w``; therefore a
+    pure specimen-position basis has ``theta_x = g y`` and
+    ``theta_y = -g x``.  Omitting this basis change makes exact diffraction
+    conjugacy mathematically unreachable whenever ``g != 0``.
+    """
+
+    g = float(larmor_rate_m1)
+    basis = np.eye(4, dtype=float)
+    basis[2, 1] = g
+    basis[3, 0] = -g
+    return basis
+
+
+def diffraction_transfer(
+    state, target_z_mm: float, *, stable_axisymmetric: bool = True
+) -> TransverseTransfer:
+    """Return the stable specimen-canonical diffraction transfer.
+
+    Post-specimen projector optics are axisymmetric in the configured model,
+    so the Larmor-frame scalar equation avoids the severe step-size error of
+    integrating fast magnetic rotation and ``dBz/dz`` separately.  A future
+    deliberately enabled post-specimen quadrupole falls back to the general
+    laboratory-frame tracer plus the same canonical input-basis transform.
+    """
+
+    source_z_mm = float(state.sample.z_mm)
+    target_z_mm = float(target_z_mm)
+    if not stable_axisymmetric:
+        raw = trace_transverse_transfer(state, source_z_mm, target_z_mm)
+        source_field_t = float(
+            fields(np.asarray((source_z_mm,)), state)[0][0]
+        )
+        momentum = _electron_momentum_kg_m_s(state.beam_voltage_kv)
+        source_g_m1 = -E * source_field_t / (2.0 * momentum)
+        matrix = raw.matrix @ _canonical_source_basis(source_g_m1)
+        return TransverseTransfer(
+            source_z_mm=source_z_mm,
+            target_z_mm=target_z_mm,
+            j_img=matrix[:2, :2],
+            j_diff_m_per_rad=matrix[:2, 2:],
+            k_img_rad_per_m=matrix[2:, :2],
+            k_diff=matrix[2:, 2:],
+        )
+    # Match the independently required production-validation resolution so
+    # GUI diagnostics cannot regress to a visibly different coarse-step plane.
+    step_mm = min(max(float(state.step_mm), 1.0e-6), 0.025)
+    z_mm = _piecewise_endpoint_exact_grid(
+        source_z_mm, target_z_mm, step_mm
+    )
+    magnetic_t, sx_m2, sy_m2 = fields(z_mm, state)
+    momentum = _electron_momentum_kg_m_s(state.beam_voltage_kv)
+    g = np.ascontiguousarray(-E * magnetic_t / (2.0 * momentum))
+    if (
+        np.max(np.abs(sx_m2), initial=0.0) > 1.0e-15
+        or np.max(np.abs(sy_m2), initial=0.0) > 1.0e-15
+    ):
+        raw = trace_transverse_transfer(state, source_z_mm, target_z_mm)
+        matrix = raw.matrix @ _canonical_source_basis(g[0])
+    else:
+        z_m = np.ascontiguousarray(z_mm * 1.0e-3)
+        radial = _rk4_axisymmetric_larmor_matrix(g, z_m)
+        phase = float(np.sum(
+            0.5 * (g[1:] + g[:-1]) * np.diff(z_m)
+        ))
+        target_g = float(g[-1])
+
+        def complex_map(value: complex) -> np.ndarray:
+            return np.asarray((
+                (value.real, -value.imag),
+                (value.imag, value.real),
+            ))
+
+        rotation = complex(math.cos(-phase), math.sin(-phase))
+        a, b = float(radial[0, 0]), float(radial[0, 1])
+        c, d = float(radial[1, 0]), float(radial[1, 1])
+        matrix = np.block([
+            [
+                complex_map(rotation * a),
+                complex_map(rotation * b),
+            ],
+            [
+                complex_map(rotation * complex(c, -target_g * a)),
+                complex_map(rotation * complex(d, -target_g * b)),
+            ],
+        ])
+    return TransverseTransfer(
+        source_z_mm=source_z_mm,
+        target_z_mm=target_z_mm,
+        j_img=matrix[:2, :2],
+        j_diff_m_per_rad=matrix[:2, 2:],
+        k_img_rad_per_m=matrix[2:, :2],
+        k_diff=matrix[2:, 2:],
+    )
+
+
+def projector_field_calibration_rows(state):
+    """Return inspectable D/I/P1/P2 field calibration and provenance."""
+
+    lenses = _lens_map(state)
+    return tuple({
+        "key": key,
+        "maximum_peak_field_t": float(lenses[key].b0_t),
+        "field_half_width_mm": float(lenses[key].a_mm),
+        "maximum_excitation_percent": float(lenses[key].max_percent),
+        "status": str(getattr(
+            lenses[key], "field_calibration_status", "untracked"
+        )),
+        "source": str(getattr(
+            lenses[key], "field_calibration_source", ""
+        )),
+    } for key in PROJECTOR_KEYS)
+
+
+def diffraction_focus_depth_diagnostic(
+    state,
+    *,
+    tolerance: float = 1.0e-3,
+):
+    """Estimate the local axial interval satisfying the A-block tolerance.
+
+    The estimate propagates the target-plane transfer through a field-free
+    local drift, ``A(dz) = A + dz K_img``. It is therefore a conjugacy depth,
+    not specimen depth of field and not an OEM focus specification.
+    """
+
+    reference_key, target_z_mm = diffraction_reference_plane(state)
+    transfer = diffraction_transfer(state, target_z_mm)
+    a_block = np.asarray(transfer.j_img, dtype=float)
+    derivative_per_m = np.asarray(transfer.k_img_rad_per_m, dtype=float)
+    denominator = float(np.sum(derivative_per_m * derivative_per_m))
+    if denominator <= 1.0e-30:
+        return {
+            "reference_plane_key": reference_key,
+            "target_z_mm": target_z_mm,
+            "tolerance": float(tolerance),
+            "best_focus_offset_mm": math.nan,
+            "best_residual": float(np.linalg.norm(a_block, ord=2)),
+            "full_depth_mm": 0.0,
+            "model": "local_field_free_first_order_drift",
+        }
+    best_m = -float(np.sum(a_block * derivative_per_m)) / denominator
+
+    def residual(dz_m: float) -> float:
+        return float(np.linalg.norm(
+            a_block + float(dz_m) * derivative_per_m, ord=2
+        ))
+
+    best_residual = residual(best_m)
+    full_depth_m = 0.0
+    tolerance = float(tolerance)
+    if best_residual <= tolerance:
+        initial = max(
+            tolerance
+            / max(float(np.linalg.norm(derivative_per_m, ord=2)), 1.0e-30),
+            1.0e-12,
+        )
+
+        def find_edge(direction: float) -> float:
+            step = initial
+            for _ in range(80):
+                candidate = best_m + direction * step
+                if residual(candidate) > tolerance:
+                    return brentq(
+                        lambda value: residual(value) - tolerance,
+                        best_m,
+                        candidate,
+                    )
+                step *= 2.0
+            return best_m
+
+        lower = find_edge(-1.0)
+        upper = find_edge(1.0)
+        full_depth_m = max(upper - lower, 0.0)
+    return {
+        "reference_plane_key": reference_key,
+        "target_z_mm": target_z_mm,
+        "tolerance": tolerance,
+        "best_focus_offset_mm": best_m * 1.0e3,
+        "best_residual": best_residual,
+        "full_depth_mm": full_depth_m * 1.0e3,
+        "model": "local_field_free_first_order_drift",
+    }
 
 
 def _endpoint_exact_grid(
@@ -240,6 +466,48 @@ def _rk4_transfer_matrices(g, dg, sx, sy, z_m, capture_indices):
     return captured
 
 
+@njit(cache=True)
+def _rk4_axisymmetric_larmor_matrix(g, z_m):
+    """Integrate ``u'' + g**2 u = 0`` for an axisymmetric magnetic field.
+
+    Working in the Larmor frame removes the axial-field derivative and the
+    fast laboratory-frame rotation.  This is both the physically natural
+    canonical basis at a specimen inside the objective field and a much more
+    stable optimiser model for strongly overlapping projector fields.
+    """
+
+    a, b, c, d = 1.0, 0.0, 0.0, 1.0
+    for index in range(z_m.size - 1):
+        h = z_m[index + 1] - z_m[index]
+        q0 = g[index] * g[index]
+        midpoint_g = 0.5 * (g[index] + g[index + 1])
+        qm = midpoint_g * midpoint_g
+        q1 = g[index + 1] * g[index + 1]
+
+        a1, b1, c1, d1 = c, d, -q0 * a, -q0 * b
+        aa = a + 0.5 * h * a1
+        bb = b + 0.5 * h * b1
+        cc = c + 0.5 * h * c1
+        dd = d + 0.5 * h * d1
+        a2, b2, c2, d2 = cc, dd, -qm * aa, -qm * bb
+        aa = a + 0.5 * h * a2
+        bb = b + 0.5 * h * b2
+        cc = c + 0.5 * h * c2
+        dd = d + 0.5 * h * d2
+        a3, b3, c3, d3 = cc, dd, -qm * aa, -qm * bb
+        aa = a + h * a3
+        bb = b + h * b3
+        cc = c + h * c3
+        dd = d + h * d3
+        a4, b4, c4, d4 = cc, dd, -q1 * aa, -q1 * bb
+
+        a += h * (a1 + 2.0 * a2 + 2.0 * a3 + a4) / 6.0
+        b += h * (b1 + 2.0 * b2 + 2.0 * b3 + b4) / 6.0
+        c += h * (c1 + 2.0 * c2 + 2.0 * c3 + c4) / 6.0
+        d += h * (d1 + 2.0 * d2 + 2.0 * d3 + d4) / 6.0
+    return np.asarray(((a, b), (c, d)), dtype=np.float64)
+
+
 def _electron_momentum_kg_m_s(voltage_kv: float) -> float:
     electron_mass_kg = 9.1093837015e-31
     speed_of_light_m_s = 299792458.0
@@ -319,6 +587,9 @@ class _LiveFirstOrderModel:
             np.zeros(2), np.zeros(2), np.zeros(2), np.zeros(2),
             np.array((0.0, 1.0)), np.array((1,), dtype=np.int64),
         )
+        _rk4_axisymmetric_larmor_matrix(
+            np.zeros(2), np.array((0.0, 1.0))
+        )
 
     def _field_arrays(self, vector) -> tuple[np.ndarray, np.ndarray]:
         values = np.asarray(vector, dtype=float)
@@ -340,6 +611,24 @@ class _LiveFirstOrderModel:
         return _rk4_transfer_matrix(
             g, dg, self.sx_m2, self.sy_m2, self.z_m
         )
+
+    def canonical_position_blocks(
+        self, vector
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return specimen-canonical A/B blocks from the full float64 map.
+
+        Wide camera-length searches contain narrow, strongly rotating
+        branches.  The scalar Larmor reduction is useful diagnostically, but
+        on those branches its discretised A block can select a different root
+        from the production laboratory-frame 4x4 transfer.  Direct Alignment
+        therefore optimises the same complete canonical map that production
+        validation checks.
+        """
+
+        g, _dg = self._field_arrays(vector)
+        matrix = self.matrix(vector)
+        canonical = matrix @ _canonical_source_basis(g[0])
+        return canonical[:2, :2], canonical[:2, 2:]
 
     def matrices_at(self, vector, z_mm) -> np.ndarray:
         """Return source-to-plane maps without reintegrating the column."""
@@ -471,7 +760,7 @@ class _ProjectorMeasurementModel:
     ) -> None:
         self.state = state
         self.definition = definition
-        stop_z_mm = float(determine_tem_stop_z(state))
+        stop_z_mm = float(tem_camera_plane_z(state))
         if definition.key == IMAGE_MAGNIFICATION:
             # Image presets are a coordinated five-lens solve.  There need
             # not be an isolated real image between every pair of lenses, so
@@ -485,24 +774,17 @@ class _ProjectorMeasurementModel:
                 stop_z_mm,
             )
         else:
-            objective = state.objective_lens
-            plane_z_mm = objective.back_focal_plane_z_mm(
-                state.beam_voltage_kv, state.sample
+            self.reference_plane_key, target_z_mm = (
+                diffraction_reference_plane(state)
             )
-            if plane_z_mm is None or not math.isfinite(float(plane_z_mm)):
-                raise ValueError(
-                    "The active Objective conjugate plane is undefined"
-                )
-            self.plane_z_mm = float(plane_z_mm)
+            self.plane_z_mm = float(target_z_mm)
             self.variable_keys = PROJECTOR_KEYS
-            capture_z_mm = (self.plane_z_mm,)
             self.sample_model = _LiveFirstOrderModel(
                 state,
                 float(state.sample.z_mm),
-                stop_z_mm,
+                self.plane_z_mm,
                 self.variable_keys,
                 step_mm=step_mm,
-                capture_z_mm=capture_z_mm,
             )
         self.upper = self.sample_model.upper
 
@@ -530,25 +812,23 @@ class _ProjectorMeasurementModel:
                 relay_block,
             )
 
-        sample_to_plane, sample_matrix = self.sample_model.matrices_at(
-            vector, (self.plane_z_mm, self.sample_model.z_mm[-1])
+        conjugacy_block, diffraction_block = (
+            self.sample_model.canonical_position_blocks(vector)
         )
-        plane_matrix = np.linalg.solve(
-            sample_to_plane.T, sample_matrix.T
-        ).T
-        value = self._isotropic_scale(sample_matrix[:2, 2:])
-        relay_block = plane_matrix[:2, 2:]
-        relay_error_m = float(np.linalg.norm(relay_block, ord=2))
+        value = self._isotropic_scale(diffraction_block)
+        conjugacy_residual = float(
+            np.linalg.norm(conjugacy_block, ord=2)
+        )
         return (
             DirectAlignmentMeasurement(
                 key=self.definition.key,
                 value=value,
                 unit=self.definition.unit,
-                constraint_value=relay_error_m * 1.0e6,
-                constraint_unit="um",
-                relay_error_um=relay_error_m * 1.0e6,
+                constraint_value=conjugacy_residual,
+                constraint_unit="dimensionless",
+                diffraction_conjugacy_residual=conjugacy_residual,
             ),
-            relay_block,
+            conjugacy_block,
         )
 
 
@@ -589,34 +869,53 @@ def _image_preset_seeds(
 ) -> list[np.ndarray]:
     """Return same-branch TOML preset seeds, nearest target first."""
 
-    raw_targets = definition.targets.get("preset_magnifications", ())
-    raw_vectors = definition.targets.get("preset_vectors", ())
-    try:
-        targets = np.asarray(raw_targets, dtype=float)
-        vectors = np.asarray(raw_vectors, dtype=float)
-    except (TypeError, ValueError):
-        return []
-    if (
-        targets.ndim != 1
-        or vectors.shape != (targets.size, lower.size)
-        or targets.size == 0
-        or np.any(~np.isfinite(targets))
-        or np.any(targets <= 0.0)
-        or np.any(~np.isfinite(vectors))
-    ):
-        raise ValueError("Image preset seed table is invalid")
+    points = precalculated_alignment_points(definition)
     lm_maximum = _target_number(
         definition, "lm_maximum_magnification", 1000.0
     )
-    same_branch = (targets <= lm_maximum) == (float(target) <= lm_maximum)
-    indices = np.flatnonzero(same_branch)
-    indices = indices[
-        np.argsort(np.abs(np.log(targets[indices] / float(target))))
-    ]
-    return [
-        np.clip(vectors[index], lower, upper)
-        for index in indices
-    ]
+    branch = "lm" if float(target) <= lm_maximum else "normal"
+    points = tuple(point for point in points if point.branch == branch)
+    points = tuple(sorted(
+        points,
+        key=lambda point: abs(math.log(point.target / float(target))),
+    ))
+    seeds = []
+    interpolated = interpolated_precalculated_seed(
+        definition, target, lower, upper
+    )
+    if interpolated is not None:
+        seeds.append(interpolated)
+    for point in points:
+        vector = np.clip(np.asarray(point.strengths), lower, upper)
+        if not any(np.allclose(vector, seed) for seed in seeds):
+            seeds.append(vector)
+    return seeds
+
+
+def _diffraction_preset_seeds(
+    definition: DirectAlignmentDefinition,
+    target: float,
+    lower: np.ndarray,
+    upper: np.ndarray,
+) -> list[np.ndarray]:
+    """Return detector-independent camera-length seeds for the projector."""
+
+    points = precalculated_alignment_points(definition)
+    points = tuple(sorted(
+        points,
+        key=lambda point: abs(math.log(point.target / float(target))),
+    ))
+    seeds = []
+    interpolated = interpolated_precalculated_seed(
+        definition, target, lower, upper
+    )
+    if interpolated is not None:
+        seeds.append(interpolated)
+    for point in points:
+        vector = np.clip(np.asarray(point.strengths), lower, upper)
+        if not any(np.allclose(vector, seed) for seed in seeds):
+            seeds.append(vector)
+    return seeds
 
 
 def _projector_bounds(
@@ -708,7 +1007,9 @@ def _optimise_condenser(
     optimisation_upper = model.upper.copy()
     if definition.key == NANOPROBE_CONVERGENCE:
         constraint_scale = _target_number(
-            definition, "maximum_waist_offset_mm", 0.002
+            definition,
+            "optimiser_waist_scale_mm",
+            _target_number(definition, "maximum_waist_offset_mm", 0.002),
         )
     else:
         constraint_scale = _target_number(
@@ -744,6 +1045,20 @@ def _optimise_condenser(
         optimisation_upper,
         projector=False,
     )
+    if definition.key == NANOPROBE_CONVERGENCE:
+        warm_seed = interpolated_nanoprobe_seed(
+            definition,
+            target,
+            float(state.condenser_aperture_2.diameter_um),
+            np.zeros_like(initial),
+            optimisation_upper,
+        )
+        if warm_seed is not None:
+            candidate_seeds = [warm_seed] + [
+                seed
+                for seed in candidate_seeds
+                if not np.allclose(seed, warm_seed)
+            ]
     # Microprobe illuminated area has a much wider C2 solution curve than the
     # local preset neighbourhood.  Rank a small deterministic coarse grid and
     # refine only its best points; this keeps the GUI solve both global enough
@@ -884,9 +1199,15 @@ def _solve_projector_stage(
 ) -> tuple[np.ndarray, int]:
     """Solve one nearby target, falling back to deterministic global seeds."""
 
-    relay_scale_m = _target_number(
-        definition, "maximum_relay_error_um", 20.0
-    ) * 1.0e-6
+    constraint_scale = (
+        _target_number(
+            definition, "maximum_diffraction_conjugacy_residual", 1.0e-3
+        )
+        if definition.key == DIFFRACTION_CAMERA_LENGTH
+        else _target_number(
+            definition, "maximum_relay_error_um", 20.0
+        ) * 1.0e-6
+    )
     maximum_relative_error = _target_number(
         definition, "maximum_relative_error", 0.03
     )
@@ -909,7 +1230,7 @@ def _solve_projector_stage(
         )
         return np.r_[
             primary,
-            np.asarray(relay_block, dtype=float).ravel() / relay_scale_m,
+            np.asarray(relay_block, dtype=float).ravel() / constraint_scale,
             regularisation,
         ]
 
@@ -922,6 +1243,14 @@ def _solve_projector_stage(
             seeds.extend(
                 seed
                 for seed in _image_preset_seeds(
+                    definition, target, lower, upper
+                )
+                if not any(np.allclose(seed, item) for item in seeds)
+            )
+        elif definition.key == DIFFRACTION_CAMERA_LENGTH:
+            seeds.extend(
+                seed
+                for seed in _diffraction_preset_seeds(
                     definition, target, lower, upper
                 )
                 if not any(np.allclose(seed, item) for item in seeds)
@@ -952,7 +1281,7 @@ def _solve_projector_stage(
         cost = (
             (relative_error / maximum_relative_error) ** 2
             + (
-                float(np.linalg.norm(relay_block, ord=2)) / relay_scale_m
+                float(np.linalg.norm(relay_block, ord=2)) / constraint_scale
             ) ** 2
         )
         if cost < best_cost:
@@ -960,12 +1289,8 @@ def _solve_projector_stage(
             best_vector = solution.x.copy()
         if (
             relative_error <= maximum_relative_error * 0.5
-            and float(
-                math.inf
-                if measurement.relay_error_um is None
-                else measurement.relay_error_um
-            )
-            <= relay_scale_m * 1.0e6 * 0.25
+            and float(np.linalg.norm(relay_block, ord=2))
+            <= constraint_scale * 0.25
         ):
             break
     return best_vector, iterations
@@ -1001,7 +1326,37 @@ def _optimise_projector(
     model = _ProjectorMeasurementModel(
         state, definition, step_mm=optimiser_step
     )
-    vector = np.clip(initial, 0.0, model.upper)
+    lower, upper = _projector_bounds(model, definition, float(target))
+    vector = np.clip(initial, lower, upper)
+    if initial_vector is None and allow_global_fallback:
+        warm_seed = interpolated_precalculated_seed(
+            definition, target, lower, upper
+        )
+        if warm_seed is not None:
+            constraint_scale = (
+                _target_number(
+                    definition,
+                    "maximum_diffraction_conjugacy_residual",
+                    1.0e-3,
+                )
+                if definition.key == DIFFRACTION_CAMERA_LENGTH
+                else _target_number(
+                    definition, "maximum_relay_error_um", 20.0
+                ) * 1.0e-6
+            )
+
+            def warm_start_score(candidate: np.ndarray) -> float:
+                measurement, constraint = model.measure(candidate)
+                primary = abs(math.log(
+                    max(measurement.value, 1.0e-15) / float(target)
+                ))
+                conjugacy = float(
+                    np.linalg.norm(constraint, ord=2)
+                ) / max(constraint_scale, 1.0e-15)
+                return primary * primary + conjugacy * conjugacy
+
+            if warm_start_score(warm_seed) < warm_start_score(vector):
+                vector = warm_seed
     stage_targets = (
         _projector_continuation_targets(
             model, vector, float(target), definition
@@ -1202,6 +1557,112 @@ def _validate_condenser_production(
     return _condenser_measurement(definition, statistics)
 
 
+def _refine_nanoprobe_production_focus(
+    state,
+    definition: DirectAlignmentDefinition,
+    target: float,
+    vector: np.ndarray,
+    step_mm: float,
+) -> tuple[np.ndarray, int]:
+    """Apply one bounded Newton correction using the production ray model.
+
+    The fast first-order solve supplies the basin.  Distributed spherical and
+    corrector fields shift the current-weighted waist slightly, so three full
+    traces measure the local 2-by-2 Jacobian of convergence and waist.  One
+    correction is sufficient at the calibrated nanoprobe working points and
+    avoids pretending that the paraxial candidate is already the final focus.
+    """
+
+    if definition.key != NANOPROBE_CONVERGENCE:
+        return np.asarray(vector, dtype=float), 0
+    candidate = np.asarray(vector, dtype=float).copy()
+    lenses = _lens_map(state)
+    upper = np.asarray(
+        [float(lenses[key].max_percent) for key in CONDENSER_KEYS],
+        dtype=float,
+    )
+    base = _validate_condenser_production(
+        state, definition, candidate, step_mm
+    )
+    residual = np.asarray(
+        (
+            math.log(max(base.value, 1.0e-15) / float(target)),
+            base.constraint_value,
+        ),
+        dtype=float,
+    )
+    perturbation = 1.0e-3  # percentage points, above solver noise
+    jacobian = np.empty((2, 2), dtype=float)
+    for index in range(2):
+        shifted = candidate.copy()
+        shifted[index] = min(shifted[index] + perturbation, upper[index])
+        actual_step = shifted[index] - candidate[index]
+        if actual_step <= 0.0:
+            return candidate, index + 1
+        measured = _validate_condenser_production(
+            state, definition, shifted, step_mm
+        )
+        shifted_residual = np.asarray(
+            (
+                math.log(max(measured.value, 1.0e-15) / float(target)),
+                measured.constraint_value,
+            ),
+            dtype=float,
+        )
+        jacobian[:, index] = (shifted_residual - residual) / actual_step
+    try:
+        correction = np.linalg.solve(jacobian, -residual)
+    except np.linalg.LinAlgError:
+        return candidate, 3
+    if not np.all(np.isfinite(correction)):
+        return candidate, 3
+    # A large step means the local production Jacobian is not trustworthy.
+    correction = np.clip(correction, -2.0, 2.0)
+    candidate = np.clip(candidate + correction, 0.0, upper)
+
+    # The current-weighted angular quantile is mildly non-smooth when an
+    # aperture clips individual weighted rays.  The two-variable Newton step
+    # can therefore leave a small (10-20 nm) waist residual even though the
+    # C3 focus root is well behaved.  Polish only that physical conjugate with
+    # a bracketed C3 solve; do not weaken the sample-focus acceptance gate.
+    evaluations = 3
+
+    def waist_at_c3(c3_percent: float) -> float:
+        nonlocal evaluations
+        probe = candidate.copy()
+        probe[1] = float(c3_percent)
+        evaluations += 1
+        return _validate_condenser_production(
+            state, definition, probe, step_mm
+        ).constraint_value
+
+    centre = float(candidate[1])
+    centre_waist = waist_at_c3(centre)
+    if abs(centre_waist) <= 1.0e-12:
+        return candidate, evaluations
+    for half_width in (0.02, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0):
+        lower_c3 = max(0.0, centre - half_width)
+        upper_c3 = min(float(upper[1]), centre + half_width)
+        lower_waist = waist_at_c3(lower_c3)
+        upper_waist = waist_at_c3(upper_c3)
+        if lower_waist == 0.0:
+            candidate[1] = lower_c3
+            return candidate, evaluations
+        if upper_waist == 0.0:
+            candidate[1] = upper_c3
+            return candidate, evaluations
+        if lower_waist * upper_waist < 0.0:
+            candidate[1] = brentq(
+                waist_at_c3,
+                lower_c3,
+                upper_c3,
+                xtol=1.0e-7,
+                rtol=1.0e-10,
+            )
+            return candidate, evaluations
+    return candidate, evaluations
+
+
 def _validate_projector_production(
     state,
     definition: DirectAlignmentDefinition,
@@ -1218,41 +1679,47 @@ def _validate_projector_production(
     with _production_validation_state(
         state, keys, vector, step_mm
     ):
-        if definition.key == IMAGE_MAGNIFICATION:
-            plane_z_mm = None
-        else:
-            objective = state.objective_lens
-            plane_z_mm = objective.back_focal_plane_z_mm(
-                state.beam_voltage_kv, state.sample
+        target_z_mm = (
+            float(tem_camera_plane_z(state))
+            if definition.key == IMAGE_MAGNIFICATION
+            else diffraction_reference_plane(state)[1]
+        )
+        sample_transfer = (
+            trace_transverse_transfer(
+                state, float(state.sample.z_mm), target_z_mm
             )
-            if plane_z_mm is None or not math.isfinite(float(plane_z_mm)):
-                raise ValueError(
-                    "The active Objective conjugate plane is undefined"
-                )
-        stop_z_mm = float(determine_tem_stop_z(state))
-        sample_transfer = trace_transverse_transfer(
-            state, float(state.sample.z_mm), stop_z_mm
+            if definition.key == IMAGE_MAGNIFICATION
+            else diffraction_transfer(
+                state, target_z_mm, stable_axisymmetric=False
+            )
         )
         if definition.key == IMAGE_MAGNIFICATION:
             block = sample_transfer.j_img
-            relay_block = sample_transfer.j_diff_m_per_rad
+            constraint_block = sample_transfer.j_diff_m_per_rad
+            constraint_value = float(
+                np.linalg.norm(constraint_block, ord=2)
+            ) * 1.0e6
+            constraint_unit = "um"
+            relay_error_um = constraint_value
+            conjugacy_residual = None
         else:
             block = sample_transfer.j_diff_m_per_rad
-            plane_transfer = trace_transverse_transfer(
-                state, float(plane_z_mm), stop_z_mm
+            constraint_block = sample_transfer.j_img
+            constraint_value = float(
+                np.linalg.norm(constraint_block, ord=2)
             )
-            relay_block = plane_transfer.j_diff_m_per_rad
+            constraint_unit = "dimensionless"
+            relay_error_um = None
+            conjugacy_residual = constraint_value
         value = math.sqrt(abs(float(np.linalg.det(block))))
-        relay_error_um = float(
-            np.linalg.norm(relay_block, ord=2)
-        ) * 1.0e6
     return DirectAlignmentMeasurement(
         key=definition.key,
         value=value,
         unit=definition.unit,
-        constraint_value=relay_error_um,
-        constraint_unit="um",
+        constraint_value=constraint_value,
+        constraint_unit=constraint_unit,
         relay_error_um=relay_error_um,
+        diffraction_conjugacy_residual=conjugacy_residual,
     )
 
 
@@ -1299,15 +1766,60 @@ def apply_direct_alignment(
     )
     try:
         if definition.family == "condenser":
-            candidate, iterations = _optimise_condenser(
-                state, definition, requested
-            )
-            coarse = _validate_condenser(
-                state, definition, candidate, optimiser_step
-            )
-            fine = _validate_condenser_production(
-                state, definition, candidate, validation_step
-            )
+            current_is_acceptable = False
+            if definition.key == NANOPROBE_CONVERGENCE:
+                coarse = _validate_condenser_production(
+                    state, definition, initial, optimiser_step
+                )
+                fine = _validate_condenser_production(
+                    state, definition, initial, validation_step
+                )
+                current_relative_error = abs(math.log(
+                    max(fine.value, 1.0e-15) / requested
+                ))
+                current_spread = abs(fine.value - coarse.value) / max(
+                    abs(fine.value), 1.0e-15
+                )
+                current_is_acceptable = (
+                    current_relative_error
+                    <= _target_number(
+                        definition, "maximum_relative_error", 0.03
+                    )
+                    and abs(fine.constraint_value)
+                    <= _target_number(
+                        definition, "maximum_waist_offset_mm", 0.002
+                    )
+                    and current_spread
+                    <= _target_number(
+                        definition, "maximum_numerical_spread", 0.01
+                    )
+                )
+            if current_is_acceptable:
+                candidate = initial.copy()
+                iterations = 0
+            else:
+                candidate, iterations = _optimise_condenser(
+                    state, definition, requested
+                )
+                candidate, refinement_iterations = (
+                    _refine_nanoprobe_production_focus(
+                        state,
+                        definition,
+                        requested,
+                        candidate,
+                        validation_step,
+                    )
+                )
+                iterations += refinement_iterations
+                # Compare integration resolutions with the same production
+                # ray model. A paraxial-vs-production discrepancy is model
+                # error, not numerical spread after aperture clipping.
+                coarse = _validate_condenser_production(
+                    state, definition, candidate, optimiser_step
+                )
+                fine = _validate_condenser_production(
+                    state, definition, candidate, validation_step
+                )
         else:
             candidate, iterations = _optimise_projector(
                 state, definition, requested
@@ -1359,7 +1871,7 @@ def apply_direct_alignment(
                     definition, "maximum_convergence_mrad", 0.5
                 )
             )
-        else:
+        elif definition.key == IMAGE_MAGNIFICATION:
             constraint_ok = (
                 float(
                     math.inf
@@ -1368,6 +1880,19 @@ def apply_direct_alignment(
                 )
                 <= _target_number(
                     definition, "maximum_relay_error_um", 20.0
+                )
+            )
+        else:
+            constraint_ok = (
+                float(
+                    math.inf
+                    if fine.diffraction_conjugacy_residual is None
+                    else fine.diffraction_conjugacy_residual
+                )
+                <= _target_number(
+                    definition,
+                    "maximum_diffraction_conjugacy_residual",
+                    1.0e-3,
                 )
             )
         numerical_spread = abs(fine.value - coarse.value) / max(
@@ -1401,8 +1926,13 @@ def apply_direct_alignment(
             NANOPROBE_CONVERGENCE: "waist offset",
             MICROPROBE_ILLUMINATION: "wavefront curvature",
             IMAGE_MAGNIFICATION: "sample-image residual",
-            DIFFRACTION_CAMERA_LENGTH: "BFP relay residual",
+            DIFFRACTION_CAMERA_LENGTH: "sample-diffraction residual",
         }[definition.key]
+        if definition.key == DIFFRACTION_CAMERA_LENGTH:
+            target_plane_key, _target_z_mm = diffraction_reference_plane(state)
+        else:
+            target_plane_key = None
+            _target_z_mm = None
         message = (
             f"Requested {requested:.6g} {definition.unit}; achieved "
             f"{fine.value:.6g} {definition.unit}; {constraint_label} "
@@ -1437,6 +1967,17 @@ def apply_direct_alignment(
                     " The optimiser/validation observable spread exceeded "
                     f"{maximum_numerical_spread:.3g}."
                 )
+            if definition.key == DIFFRACTION_CAMERA_LENGTH:
+                statuses = sorted({
+                    row["status"]
+                    for row in projector_field_calibration_rows(state)
+                })
+                message += (
+                    " Projector field calibration status: "
+                    + ", ".join(statuses)
+                    + "; update the recording-system TOML from measured or "
+                    "manufacturer field calibration before expanding limits."
+                )
         return DirectAlignmentResult(
             key=definition.key,
             success=success,
@@ -1455,6 +1996,28 @@ def apply_direct_alignment(
                 fine.illumination_diameter_95_um
             ),
             relay_error_um=fine.relay_error_um,
+            diffraction_conjugacy_residual=(
+                fine.diffraction_conjugacy_residual
+            ),
+            target_plane_key=(
+                target_plane_key
+            ),
+            target_plane_z_mm=(
+                float(_target_z_mm) if _target_z_mm is not None else None
+            ),
+            field_calibration_statuses=tuple(sorted({
+                row["status"]
+                for row in projector_field_calibration_rows(state)
+            })) if definition.family == "projector" else (),
+            candidate_strengths={
+                lens_key: float(value)
+                for lens_key, value in zip(keys, candidate)
+            },
+            candidate_limit_fractions={
+                lens_key: float(value)
+                / max(float(_lens_map(state)[lens_key].max_percent), 1.0e-15)
+                for lens_key, value in zip(keys, candidate)
+            },
         )
     except Exception:
         _set_vector(state, keys, initial)

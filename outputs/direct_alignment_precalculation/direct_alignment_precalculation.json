@@ -1,0 +1,1297 @@
+{
+  "format_version": 1,
+  "calibration_status": "provisional_non_oem_engineering_model",
+  "source_fingerprint_sha256": "abc88a8520e33d7343cb65e056e9c280096d9fd7dc33aa9cf3226e465527b67f",
+  "tables": {
+    "nanoprobe_aperture_scaling": {
+      "key": "nanoprobe_convergence",
+      "mode": "nano_probe+imaging",
+      "interpolation": "linear in aperture diameter at fixed C2/C3",
+      "commit_policy": "calibration relation only; aperture is not silently changed by the C2/C3 Direct Alignment control",
+      "devices": [
+        "condenser_lens_2",
+        "condenser_lens_3"
+      ],
+      "dense_grid_summary": {
+        "rms_error_mrad": 0.7482438442057623,
+        "maximum_absolute_error_mrad": 1.2986159468531184,
+        "minimum_angle_per_aperture_mrad_per_um": 0.2945770278011897,
+        "maximum_angle_per_aperture_mrad_per_um": 0.33469965163856125
+      },
+      "points": [
+        {
+          "aperture_diameter_um": 10.0,
+          "nominal_target_mrad": 3.0,
+          "achieved_mrad": 3.3469965163856124,
+          "angle_per_aperture_mrad_per_um": 0.33469965163856125,
+          "waist_offset_mm": 9.01864126697171e-06,
+          "scaling_valid": true,
+          "focus_valid": true,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 20.0,
+          "nominal_target_mrad": 6.0,
+          "achieved_mrad": 6.278789622273466,
+          "angle_per_aperture_mrad_per_um": 0.3139394811136733,
+          "waist_offset_mm": 1.2632830205810838e-05,
+          "scaling_valid": true,
+          "focus_valid": false,
+          "valid": false,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 30.0,
+          "nominal_target_mrad": 9.0,
+          "achieved_mrad": 9.541116475775942,
+          "angle_per_aperture_mrad_per_um": 0.3180372158591981,
+          "waist_offset_mm": 9.668601491824602e-06,
+          "scaling_valid": true,
+          "focus_valid": true,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 40.0,
+          "nominal_target_mrad": 12.0,
+          "achieved_mrad": 12.76846976977263,
+          "angle_per_aperture_mrad_per_um": 0.31921174424431575,
+          "waist_offset_mm": 9.366248077978717e-06,
+          "scaling_valid": true,
+          "focus_valid": true,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 50.0,
+          "nominal_target_mrad": 15.0,
+          "achieved_mrad": 16.14829181508688,
+          "angle_per_aperture_mrad_per_um": 0.3229658363017376,
+          "waist_offset_mm": 8.994131221514436e-06,
+          "scaling_valid": true,
+          "focus_valid": true,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 60.0,
+          "nominal_target_mrad": 18.0,
+          "achieved_mrad": 18.70280174776808,
+          "angle_per_aperture_mrad_per_um": 0.31171336246280135,
+          "waist_offset_mm": 5.669906548919385e-06,
+          "scaling_valid": true,
+          "focus_valid": true,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 70.0,
+          "nominal_target_mrad": 21.0,
+          "achieved_mrad": 21.835438616754068,
+          "angle_per_aperture_mrad_per_um": 0.31193483738220096,
+          "waist_offset_mm": 3.7065474348314314e-06,
+          "scaling_valid": true,
+          "focus_valid": true,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 80.0,
+          "nominal_target_mrad": 24.0,
+          "achieved_mrad": 24.80356247619149,
+          "angle_per_aperture_mrad_per_um": 0.31004453095239365,
+          "waist_offset_mm": 4.3866050382671994e-06,
+          "scaling_valid": true,
+          "focus_valid": true,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 90.0,
+          "nominal_target_mrad": 27.0,
+          "achieved_mrad": 28.202911529761046,
+          "angle_per_aperture_mrad_per_um": 0.31336568366401163,
+          "waist_offset_mm": 2.2896486894822086e-06,
+          "scaling_valid": true,
+          "focus_valid": true,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 100.0,
+          "nominal_target_mrad": 30.0,
+          "achieved_mrad": 30.37254765969045,
+          "angle_per_aperture_mrad_per_um": 0.3037254765969045,
+          "waist_offset_mm": 1.428581916109959e-11,
+          "scaling_valid": true,
+          "focus_valid": true,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 110.0,
+          "nominal_target_mrad": 33.0,
+          "achieved_mrad": 34.29861594685312,
+          "angle_per_aperture_mrad_per_um": 0.31180559951684655,
+          "waist_offset_mm": -4.105560409896118e-06,
+          "scaling_valid": true,
+          "focus_valid": true,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 120.0,
+          "nominal_target_mrad": 36.0,
+          "achieved_mrad": 37.096757811380854,
+          "angle_per_aperture_mrad_per_um": 0.30913964842817376,
+          "waist_offset_mm": -6.667300179147978e-06,
+          "scaling_valid": true,
+          "focus_valid": true,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 130.0,
+          "nominal_target_mrad": 39.0,
+          "achieved_mrad": 39.23504670382849,
+          "angle_per_aperture_mrad_per_um": 0.30180805156791146,
+          "waist_offset_mm": -9.389930767213834e-06,
+          "scaling_valid": true,
+          "focus_valid": true,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 140.0,
+          "nominal_target_mrad": 42.0,
+          "achieved_mrad": 42.10826672574816,
+          "angle_per_aperture_mrad_per_um": 0.300773333755344,
+          "waist_offset_mm": -1.3254785817817855e-05,
+          "scaling_valid": true,
+          "focus_valid": false,
+          "valid": false,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 150.0,
+          "nominal_target_mrad": 45.0,
+          "achieved_mrad": 45.241611563259106,
+          "angle_per_aperture_mrad_per_um": 0.3016107437550607,
+          "waist_offset_mm": -1.638812312746996e-05,
+          "scaling_valid": true,
+          "focus_valid": false,
+          "valid": false,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 160.0,
+          "nominal_target_mrad": 48.0,
+          "achieved_mrad": 47.43637276953109,
+          "angle_per_aperture_mrad_per_um": 0.2964773298095693,
+          "waist_offset_mm": -1.7614774428028623e-05,
+          "scaling_valid": true,
+          "focus_valid": false,
+          "valid": false,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 170.0,
+          "nominal_target_mrad": 51.0,
+          "achieved_mrad": 50.740302105969214,
+          "angle_per_aperture_mrad_per_um": 0.29847236532923066,
+          "waist_offset_mm": -2.2438765434463938e-05,
+          "scaling_valid": true,
+          "focus_valid": false,
+          "valid": false,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 180.0,
+          "nominal_target_mrad": 54.0,
+          "achieved_mrad": 53.02386500421415,
+          "angle_per_aperture_mrad_per_um": 0.2945770278011897,
+          "waist_offset_mm": -2.3849525384742877e-05,
+          "scaling_valid": true,
+          "focus_valid": false,
+          "valid": false,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 190.0,
+          "nominal_target_mrad": 57.0,
+          "achieved_mrad": 56.00418956663497,
+          "angle_per_aperture_mrad_per_um": 0.29475889245597353,
+          "waist_offset_mm": -2.8654952466165837e-05,
+          "scaling_valid": true,
+          "focus_valid": false,
+          "valid": false,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        },
+        {
+          "aperture_diameter_um": 200.0,
+          "nominal_target_mrad": 60.0,
+          "achieved_mrad": 60.17236256465753,
+          "angle_per_aperture_mrad_per_um": 0.30086181282328767,
+          "waist_offset_mm": -3.4562621691337386e-05,
+          "scaling_valid": true,
+          "focus_valid": false,
+          "valid": false,
+          "strengths_percent": {
+            "condenser_lens_2": 60.90870909,
+            "condenser_lens_3": 21.38966042
+          }
+        }
+      ],
+      "ratios": [
+        {
+          "lower_aperture_diameter_um": 10.0,
+          "upper_aperture_diameter_um": 20.0,
+          "aperture_ratio": 2.0,
+          "achieved_angle_ratio": 1.875947462608616,
+          "local_slope_mrad_per_um": 0.2931793105887854
+        },
+        {
+          "lower_aperture_diameter_um": 20.0,
+          "upper_aperture_diameter_um": 30.0,
+          "aperture_ratio": 1.5,
+          "achieved_angle_ratio": 1.5195789395347237,
+          "local_slope_mrad_per_um": 0.3262326853502476
+        },
+        {
+          "lower_aperture_diameter_um": 30.0,
+          "upper_aperture_diameter_um": 40.0,
+          "aperture_ratio": 1.3333333333333333,
+          "achieved_angle_ratio": 1.3382574043814113,
+          "local_slope_mrad_per_um": 0.32273532939966876
+        },
+        {
+          "lower_aperture_diameter_um": 40.0,
+          "upper_aperture_diameter_um": 50.0,
+          "aperture_ratio": 1.25,
+          "achieved_angle_ratio": 1.2647006341602072,
+          "local_slope_mrad_per_um": 0.3379822045314249
+        },
+        {
+          "lower_aperture_diameter_um": 50.0,
+          "upper_aperture_diameter_um": 60.0,
+          "aperture_ratio": 1.2,
+          "achieved_angle_ratio": 1.1581907214665639,
+          "local_slope_mrad_per_um": 0.25545099326812026
+        },
+        {
+          "lower_aperture_diameter_um": 60.0,
+          "upper_aperture_diameter_um": 70.0,
+          "aperture_ratio": 1.1666666666666667,
+          "achieved_angle_ratio": 1.167495592972311,
+          "local_slope_mrad_per_um": 0.3132636868985987
+        },
+        {
+          "lower_aperture_diameter_um": 70.0,
+          "upper_aperture_diameter_um": 80.0,
+          "aperture_ratio": 1.1428571428571428,
+          "achieved_angle_ratio": 1.1359314970279561,
+          "local_slope_mrad_per_um": 0.29681238594374226
+        },
+        {
+          "lower_aperture_diameter_um": 80.0,
+          "upper_aperture_diameter_um": 90.0,
+          "aperture_ratio": 1.125,
+          "achieved_angle_ratio": 1.1370508392426504,
+          "local_slope_mrad_per_um": 0.3399349053569555
+        },
+        {
+          "lower_aperture_diameter_um": 90.0,
+          "upper_aperture_diameter_um": 100.0,
+          "aperture_ratio": 1.1111111111111112,
+          "achieved_angle_ratio": 1.076929508772167,
+          "local_slope_mrad_per_um": 0.21696361299294048
+        },
+        {
+          "lower_aperture_diameter_um": 100.0,
+          "upper_aperture_diameter_um": 110.0,
+          "aperture_ratio": 1.1,
+          "achieved_angle_ratio": 1.1292637131119965,
+          "local_slope_mrad_per_um": 0.3926068287162668
+        },
+        {
+          "lower_aperture_diameter_um": 110.0,
+          "upper_aperture_diameter_um": 120.0,
+          "aperture_ratio": 1.0909090909090908,
+          "achieved_angle_ratio": 1.0815817719544005,
+          "local_slope_mrad_per_um": 0.27981418645277356
+        },
+        {
+          "lower_aperture_diameter_um": 120.0,
+          "upper_aperture_diameter_um": 130.0,
+          "aperture_ratio": 1.0833333333333333,
+          "achieved_angle_ratio": 1.0576408564683686,
+          "local_slope_mrad_per_um": 0.21382888924476334
+        },
+        {
+          "lower_aperture_diameter_um": 130.0,
+          "upper_aperture_diameter_um": 140.0,
+          "aperture_ratio": 1.0769230769230769,
+          "achieved_angle_ratio": 1.073230957098346,
+          "local_slope_mrad_per_um": 0.28732200219196713
+        },
+        {
+          "lower_aperture_diameter_um": 140.0,
+          "upper_aperture_diameter_um": 150.0,
+          "aperture_ratio": 1.0714285714285714,
+          "achieved_angle_ratio": 1.0744116317567396,
+          "local_slope_mrad_per_um": 0.3133344837510947
+        },
+        {
+          "lower_aperture_diameter_um": 150.0,
+          "upper_aperture_diameter_um": 160.0,
+          "aperture_ratio": 1.0666666666666667,
+          "achieved_angle_ratio": 1.048512003229663,
+          "local_slope_mrad_per_um": 0.2194761206271984
+        },
+        {
+          "lower_aperture_diameter_um": 160.0,
+          "upper_aperture_diameter_um": 170.0,
+          "aperture_ratio": 1.0625,
+          "achieved_angle_ratio": 1.069649704299488,
+          "local_slope_mrad_per_um": 0.3303929336438124
+        },
+        {
+          "lower_aperture_diameter_um": 170.0,
+          "upper_aperture_diameter_um": 180.0,
+          "aperture_ratio": 1.0588235294117647,
+          "achieved_angle_ratio": 1.0450049133226642,
+          "local_slope_mrad_per_um": 0.2283562898244938
+        },
+        {
+          "lower_aperture_diameter_um": 180.0,
+          "upper_aperture_diameter_um": 190.0,
+          "aperture_ratio": 1.0555555555555556,
+          "achieved_angle_ratio": 1.056207229748038,
+          "local_slope_mrad_per_um": 0.29803245624208186
+        },
+        {
+          "lower_aperture_diameter_um": 190.0,
+          "upper_aperture_diameter_um": 200.0,
+          "aperture_ratio": 1.0526315789473684,
+          "achieved_angle_ratio": 1.0744260925883622,
+          "local_slope_mrad_per_um": 0.41681729980225624
+        }
+      ]
+    },
+    "nanoprobe_solved_continuation": {
+      "key": "nanoprobe_convergence",
+      "mode": "nano_probe+imaging",
+      "interpolation": "bilinear path coordinate: aperture diameter and target angle; seed only",
+      "commit_policy": "full production focus validation required",
+      "devices": [
+        "condenser_lens_2",
+        "condenser_lens_3"
+      ],
+      "solve_summary": {
+        "valid_points": 11,
+        "total_points": 11,
+        "total_solve_seconds": 145.37463500000013
+      },
+      "points": [
+        {
+          "aperture_diameter_um": 10.0,
+          "target_mrad": 3.0,
+          "achieved_mrad": 2.9999999299102877,
+          "relative_log_error": 2.336323772869617e-08,
+          "waist_offset_mm": -1.3748815786026014e-12,
+          "numerical_spread": 0.0,
+          "iterations": 15,
+          "solve_seconds": 30.17127430000255,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 65.13607725033765,
+            "condenser_lens_3": 21.25916375844555
+          }
+        },
+        {
+          "aperture_diameter_um": 20.0,
+          "target_mrad": 6.0,
+          "achieved_mrad": 6.206203472075918,
+          "relative_log_error": 0.03378988260871007,
+          "waist_offset_mm": 2.7383004865472603e-06,
+          "numerical_spread": 0.0,
+          "iterations": 0,
+          "solve_seconds": 3.9363315000009607,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 65.13607725033765,
+            "condenser_lens_3": 21.25916375844555
+          }
+        },
+        {
+          "aperture_diameter_um": 40.0,
+          "target_mrad": 12.0,
+          "achieved_mrad": 11.722998099114731,
+          "relative_log_error": 0.023354087848392126,
+          "waist_offset_mm": 1.6707068715988165e-06,
+          "numerical_spread": 0.0,
+          "iterations": 0,
+          "solve_seconds": 3.8808284000042477,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 65.13607725033765,
+            "condenser_lens_3": 21.25916375844555
+          }
+        },
+        {
+          "aperture_diameter_um": 60.0,
+          "target_mrad": 18.0,
+          "achieved_mrad": 18.390126582117727,
+          "relative_log_error": 0.021442163900167555,
+          "waist_offset_mm": -3.109126757385057e-06,
+          "numerical_spread": 0.0,
+          "iterations": 0,
+          "solve_seconds": 3.8419352999990224,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 65.13607725033765,
+            "condenser_lens_3": 21.25916375844555
+          }
+        },
+        {
+          "aperture_diameter_um": 80.0,
+          "target_mrad": 24.0,
+          "achieved_mrad": 24.614076249551665,
+          "relative_log_error": 0.02526465420968936,
+          "waist_offset_mm": -4.1348981036162245e-06,
+          "numerical_spread": 0.0,
+          "iterations": 0,
+          "solve_seconds": 3.8843382999984897,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 65.13607725033765,
+            "condenser_lens_3": 21.25916375844555
+          }
+        },
+        {
+          "aperture_diameter_um": 100.0,
+          "target_mrad": 30.0,
+          "achieved_mrad": 30.58157961631757,
+          "relative_log_error": 0.01920047271453817,
+          "waist_offset_mm": -9.071165120642104e-13,
+          "numerical_spread": 0.0,
+          "iterations": 24,
+          "solve_seconds": 29.745260000003327,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 64.91085380775604,
+            "condenser_lens_3": 21.266047034889244
+          }
+        },
+        {
+          "aperture_diameter_um": 120.0,
+          "target_mrad": 36.0,
+          "achieved_mrad": 35.336801144258494,
+          "relative_log_error": 0.018593992235894502,
+          "waist_offset_mm": -3.6054144071142517e-06,
+          "numerical_spread": 0.0,
+          "iterations": 0,
+          "solve_seconds": 3.82523869999568,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 64.91085380775604,
+            "condenser_lens_3": 21.266047034889244
+          }
+        },
+        {
+          "aperture_diameter_um": 140.0,
+          "target_mrad": 42.0,
+          "achieved_mrad": 40.29238618918265,
+          "relative_log_error": 0.041507095488054764,
+          "waist_offset_mm": -7.411260190473132e-06,
+          "numerical_spread": 0.0,
+          "iterations": 0,
+          "solve_seconds": 3.9453343999994104,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 64.91085380775604,
+            "condenser_lens_3": 21.266047034889244
+          }
+        },
+        {
+          "aperture_diameter_um": 160.0,
+          "target_mrad": 48.0,
+          "achieved_mrad": 47.79810766661937,
+          "relative_log_error": 0.0042149607585768014,
+          "waist_offset_mm": -1.4116143045062307e-12,
+          "numerical_spread": 0.0,
+          "iterations": 33,
+          "solve_seconds": 29.090465100001893,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 63.89329988054725,
+            "condenser_lens_3": 21.298750512782505
+          }
+        },
+        {
+          "aperture_diameter_um": 180.0,
+          "target_mrad": 54.0,
+          "achieved_mrad": 52.33638651396406,
+          "relative_log_error": 0.03129219055468743,
+          "waist_offset_mm": -5.380344231573102e-06,
+          "numerical_spread": 0.0,
+          "iterations": 0,
+          "solve_seconds": 3.8755527999965125,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 63.89329988054725,
+            "condenser_lens_3": 21.298750512782505
+          }
+        },
+        {
+          "aperture_diameter_um": 200.0,
+          "target_mrad": 60.0,
+          "achieved_mrad": 59.999976795895044,
+          "relative_log_error": 3.867351574067986e-07,
+          "waist_offset_mm": -8.891597896335746e-13,
+          "numerical_spread": 0.0,
+          "iterations": 33,
+          "solve_seconds": 29.17807619999803,
+          "valid": true,
+          "strengths_percent": {
+            "condenser_lens_2": 61.96841353634666,
+            "condenser_lens_3": 21.35551459009997
+          }
+        }
+      ],
+      "ratios": [
+        {
+          "lower_aperture_diameter_um": 10.0,
+          "upper_aperture_diameter_um": 20.0,
+          "lower_target_mrad": 3.0,
+          "upper_target_mrad": 6.0,
+          "aperture_ratio": 2.0,
+          "target_ratio": 2.0,
+          "achieved_angle_ratio": 2.068734539024309,
+          "strength_ratios": {
+            "condenser_lens_2": 1.0,
+            "condenser_lens_3": 1.0
+          },
+          "strength_delta_percent_per_mrad": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          },
+          "strength_delta_percent_per_aperture_um": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          }
+        },
+        {
+          "lower_aperture_diameter_um": 20.0,
+          "upper_aperture_diameter_um": 40.0,
+          "lower_target_mrad": 6.0,
+          "upper_target_mrad": 12.0,
+          "aperture_ratio": 2.0,
+          "target_ratio": 2.0,
+          "achieved_angle_ratio": 1.8889161710312885,
+          "strength_ratios": {
+            "condenser_lens_2": 1.0,
+            "condenser_lens_3": 1.0
+          },
+          "strength_delta_percent_per_mrad": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          },
+          "strength_delta_percent_per_aperture_um": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          }
+        },
+        {
+          "lower_aperture_diameter_um": 40.0,
+          "upper_aperture_diameter_um": 60.0,
+          "lower_target_mrad": 12.0,
+          "upper_target_mrad": 18.0,
+          "aperture_ratio": 1.5,
+          "target_ratio": 1.5,
+          "achieved_angle_ratio": 1.5687221329078325,
+          "strength_ratios": {
+            "condenser_lens_2": 1.0,
+            "condenser_lens_3": 1.0
+          },
+          "strength_delta_percent_per_mrad": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          },
+          "strength_delta_percent_per_aperture_um": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          }
+        },
+        {
+          "lower_aperture_diameter_um": 60.0,
+          "upper_aperture_diameter_um": 80.0,
+          "lower_target_mrad": 18.0,
+          "upper_target_mrad": 24.0,
+          "aperture_ratio": 1.3333333333333333,
+          "target_ratio": 1.3333333333333333,
+          "achieved_angle_ratio": 1.3384397404575785,
+          "strength_ratios": {
+            "condenser_lens_2": 1.0,
+            "condenser_lens_3": 1.0
+          },
+          "strength_delta_percent_per_mrad": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          },
+          "strength_delta_percent_per_aperture_um": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          }
+        },
+        {
+          "lower_aperture_diameter_um": 80.0,
+          "upper_aperture_diameter_um": 100.0,
+          "lower_target_mrad": 24.0,
+          "upper_target_mrad": 30.0,
+          "aperture_ratio": 1.25,
+          "target_ratio": 1.25,
+          "achieved_angle_ratio": 1.2424427106775782,
+          "strength_ratios": {
+            "condenser_lens_2": 0.9965422627199976,
+            "condenser_lens_3": 1.0003237792662922
+          },
+          "strength_delta_percent_per_mrad": {
+            "condenser_lens_2": -0.03753724043026807,
+            "condenser_lens_3": 0.0011472127406157995
+          },
+          "strength_delta_percent_per_aperture_um": {
+            "condenser_lens_2": -0.011261172129080422,
+            "condenser_lens_3": 0.00034416382218473986
+          }
+        },
+        {
+          "lower_aperture_diameter_um": 100.0,
+          "upper_aperture_diameter_um": 120.0,
+          "lower_target_mrad": 30.0,
+          "upper_target_mrad": 36.0,
+          "aperture_ratio": 1.2,
+          "target_ratio": 1.2,
+          "achieved_angle_ratio": 1.155492998975228,
+          "strength_ratios": {
+            "condenser_lens_2": 1.0,
+            "condenser_lens_3": 1.0
+          },
+          "strength_delta_percent_per_mrad": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          },
+          "strength_delta_percent_per_aperture_um": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          }
+        },
+        {
+          "lower_aperture_diameter_um": 120.0,
+          "upper_aperture_diameter_um": 140.0,
+          "lower_target_mrad": 36.0,
+          "upper_target_mrad": 42.0,
+          "aperture_ratio": 1.1666666666666667,
+          "target_ratio": 1.1666666666666667,
+          "achieved_angle_ratio": 1.1402386431271336,
+          "strength_ratios": {
+            "condenser_lens_2": 1.0,
+            "condenser_lens_3": 1.0
+          },
+          "strength_delta_percent_per_mrad": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          },
+          "strength_delta_percent_per_aperture_um": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          }
+        },
+        {
+          "lower_aperture_diameter_um": 140.0,
+          "upper_aperture_diameter_um": 160.0,
+          "lower_target_mrad": 42.0,
+          "upper_target_mrad": 48.0,
+          "aperture_ratio": 1.1428571428571428,
+          "target_ratio": 1.1428571428571428,
+          "achieved_angle_ratio": 1.1862813843338917,
+          "strength_ratios": {
+            "condenser_lens_2": 0.9843238246376724,
+            "condenser_lens_3": 1.0015378258987018
+          },
+          "strength_delta_percent_per_mrad": {
+            "condenser_lens_2": -0.16959232120146575,
+            "condenser_lens_3": 0.005450579648876778
+          },
+          "strength_delta_percent_per_aperture_um": {
+            "condenser_lens_2": -0.05087769636043973,
+            "condenser_lens_3": 0.0016351738946630335
+          }
+        },
+        {
+          "lower_aperture_diameter_um": 160.0,
+          "upper_aperture_diameter_um": 180.0,
+          "lower_target_mrad": 48.0,
+          "upper_target_mrad": 54.0,
+          "aperture_ratio": 1.125,
+          "target_ratio": 1.125,
+          "achieved_angle_ratio": 1.094946830928917,
+          "strength_ratios": {
+            "condenser_lens_2": 1.0,
+            "condenser_lens_3": 1.0
+          },
+          "strength_delta_percent_per_mrad": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          },
+          "strength_delta_percent_per_aperture_um": {
+            "condenser_lens_2": 0.0,
+            "condenser_lens_3": 0.0
+          }
+        },
+        {
+          "lower_aperture_diameter_um": 180.0,
+          "upper_aperture_diameter_um": 200.0,
+          "lower_target_mrad": 54.0,
+          "upper_target_mrad": 60.0,
+          "aperture_ratio": 1.1111111111111112,
+          "target_ratio": 1.1111111111111112,
+          "achieved_angle_ratio": 1.1464294880176,
+          "strength_ratios": {
+            "condenser_lens_2": 0.9698734241649861,
+            "condenser_lens_3": 1.0026651364963122
+          },
+          "strength_delta_percent_per_mrad": {
+            "condenser_lens_2": -0.3208143907000978,
+            "condenser_lens_3": 0.009460679552910634
+          },
+          "strength_delta_percent_per_aperture_um": {
+            "condenser_lens_2": -0.09624431721002935,
+            "condenser_lens_3": 0.00283820386587319
+          }
+        }
+      ]
+    },
+    "image_magnification": {
+      "key": "image_magnification",
+      "mode": "micro_probe+imaging",
+      "reference_plane": null,
+      "interpolation": "linear lens strength in log10(target)",
+      "commit_policy": "seed only; full production validation required",
+      "devices": [
+        "objective_lens",
+        "diffraction_lens",
+        "intermediate_lens",
+        "projector_lens_1",
+        "projector_lens_2"
+      ],
+      "points": [
+        {
+          "target": 10.0,
+          "achieved": 10.000000240055199,
+          "unit": "x",
+          "branch": "lm",
+          "relative_log_error": 2.4005519506068806e-08,
+          "constraint_value": 0.004051036171022892,
+          "constraint_unit": "um",
+          "numerical_spread": 2.521708594688239e-08,
+          "valid": true,
+          "strengths_percent": {
+            "objective_lens": 0.0,
+            "diffraction_lens": 14.01257768,
+            "intermediate_lens": 2.98901286561065,
+            "projector_lens_1": 30.97264506,
+            "projector_lens_2": 4.32756939
+          }
+        },
+        {
+          "target": 100.0,
+          "achieved": 99.99999818334088,
+          "unit": "x",
+          "branch": "lm",
+          "relative_log_error": 1.816659139634032e-08,
+          "constraint_value": 4.0422287187770273e-07,
+          "constraint_unit": "um",
+          "numerical_spread": 1.8166657628505792e-08,
+          "valid": true,
+          "strengths_percent": {
+            "objective_lens": 0.00043282365609445983,
+            "diffraction_lens": 13.423630084108808,
+            "intermediate_lens": 0.13043570961512,
+            "projector_lens_1": 94.14235148467097,
+            "projector_lens_2": 10.762156464164768
+          }
+        },
+        {
+          "target": 1000.0,
+          "achieved": 999.9999923797327,
+          "unit": "x",
+          "branch": "lm",
+          "relative_log_error": 7.620267335086378e-09,
+          "constraint_value": 2.89496646744959e-05,
+          "constraint_unit": "um",
+          "numerical_spread": 7.61887628308187e-09,
+          "valid": true,
+          "strengths_percent": {
+            "objective_lens": 5.063418201089e-05,
+            "diffraction_lens": 17.272292632305287,
+            "intermediate_lens": 28.11017373358856,
+            "projector_lens_1": 66.04255765371036,
+            "projector_lens_2": 62.538011134163156
+          }
+        },
+        {
+          "target": 10000.0,
+          "achieved": 9999.999644243808,
+          "unit": "x",
+          "branch": "normal",
+          "relative_log_error": 3.557561986110203e-08,
+          "constraint_value": 6.84477960541599e-08,
+          "constraint_unit": "um",
+          "numerical_spread": 3.557570834488846e-08,
+          "valid": true,
+          "strengths_percent": {
+            "objective_lens": 24.75306561309765,
+            "diffraction_lens": 29.117123743024422,
+            "intermediate_lens": 6.99908271297041,
+            "projector_lens_1": 64.47894335554084,
+            "projector_lens_2": 31.964194166194847
+          }
+        },
+        {
+          "target": 100000.0,
+          "achieved": 100000.00152099953,
+          "unit": "x",
+          "branch": "normal",
+          "relative_log_error": 1.5209995147604733e-08,
+          "constraint_value": 5.639418022125801e-07,
+          "constraint_unit": "um",
+          "numerical_spread": 1.5210142360621985e-08,
+          "valid": true,
+          "strengths_percent": {
+            "objective_lens": 24.738733549476926,
+            "diffraction_lens": 33.55531594364167,
+            "intermediate_lens": 0.12225542814428,
+            "projector_lens_1": 79.10405198628884,
+            "projector_lens_2": 47.98821019307529
+          }
+        },
+        {
+          "target": 1000000.0,
+          "achieved": 1000000.013915908,
+          "unit": "x",
+          "branch": "normal",
+          "relative_log_error": 1.391590788467253e-08,
+          "constraint_value": 6.203419350437117e-06,
+          "constraint_unit": "um",
+          "numerical_spread": 1.3918245948881173e-08,
+          "valid": true,
+          "strengths_percent": {
+            "objective_lens": 24.743813294547095,
+            "diffraction_lens": 33.62896274978043,
+            "intermediate_lens": 28.64043037317458,
+            "projector_lens_1": 92.22927965735596,
+            "projector_lens_2": 76.20941599186783
+          }
+        }
+      ],
+      "ratios": [
+        {
+          "branch": "lm",
+          "lower_target": 10.0,
+          "upper_target": 100.0,
+          "target_ratio": 10.0,
+          "log10_span": 1.0,
+          "strength_ratios": {
+            "objective_lens": null,
+            "diffraction_lens": 0.9579700745044368,
+            "intermediate_lens": 0.043638390157438214,
+            "projector_lens_1": 3.039532184038497,
+            "projector_lens_2": 2.486882472418257
+          },
+          "strength_delta_percent_per_target_decade": {
+            "objective_lens": 0.00043282365609445983,
+            "diffraction_lens": -0.5889475958911916,
+            "intermediate_lens": -2.85857715599553,
+            "projector_lens_1": 63.16970642467096,
+            "projector_lens_2": 6.434587074164768
+          }
+        },
+        {
+          "branch": "lm",
+          "lower_target": 100.0,
+          "upper_target": 1000.0,
+          "target_ratio": 10.0,
+          "log10_span": 1.0,
+          "strength_ratios": {
+            "objective_lens": 0.11698570837782385,
+            "diffraction_lens": 1.2867080308442507,
+            "intermediate_lens": 215.50980031874687,
+            "projector_lens_1": 0.701518037442096,
+            "projector_lens_2": 5.810918224651236
+          },
+          "strength_delta_percent_per_target_decade": {
+            "objective_lens": -0.00038218947408356983,
+            "diffraction_lens": 3.8486625481964793,
+            "intermediate_lens": 27.97973802397344,
+            "projector_lens_1": -28.099793830960607,
+            "projector_lens_2": 51.77585466999839
+          }
+        },
+        {
+          "branch": "normal",
+          "lower_target": 10000.0,
+          "upper_target": 100000.0,
+          "target_ratio": 10.0,
+          "log10_span": 1.0,
+          "strength_ratios": {
+            "objective_lens": 0.9994209984393553,
+            "diffraction_lens": 1.1524255019069494,
+            "intermediate_lens": 0.017467350102567197,
+            "projector_lens_1": 1.2268199177846986,
+            "projector_lens_2": 1.5013114343995366
+          },
+          "strength_delta_percent_per_target_decade": {
+            "objective_lens": -0.014332063620724256,
+            "diffraction_lens": 4.438192200617252,
+            "intermediate_lens": -6.87682728482613,
+            "projector_lens_1": 14.625108630748002,
+            "projector_lens_2": 16.024016026880442
+          }
+        },
+        {
+          "branch": "normal",
+          "lower_target": 100000.0,
+          "upper_target": 1000000.0,
+          "target_ratio": 10.0,
+          "log10_span": 1.0,
+          "strength_ratios": {
+            "objective_lens": 1.0002053356959446,
+            "diffraction_lens": 1.0021947880408115,
+            "intermediate_lens": 234.26714713537723,
+            "projector_lens_1": 1.165923582186942,
+            "projector_lens_2": 1.5880862337905002
+          },
+          "strength_delta_percent_per_target_decade": {
+            "objective_lens": 0.005079745070169395,
+            "diffraction_lens": 0.07364680613875407,
+            "intermediate_lens": 28.518174945030303,
+            "projector_lens_1": 13.125227671067123,
+            "projector_lens_2": 28.22120579879254
+          }
+        }
+      ]
+    },
+    "tem_diffraction_camera_length": {
+      "key": "diffraction_camera_length",
+      "mode": "micro_probe+diffraction",
+      "reference_plane": {
+        "key": "stem_diffraction_reference_plane",
+        "z_mm": 3026.3999999999996
+      },
+      "interpolation": "linear lens strength in log10(target)",
+      "commit_policy": "seed only; full production validation required",
+      "devices": [
+        "diffraction_lens",
+        "intermediate_lens",
+        "projector_lens_1",
+        "projector_lens_2"
+      ],
+      "points": [
+        {
+          "target": 0.005,
+          "achieved": 0.005000599591091719,
+          "unit": "m",
+          "branch": "camera_length",
+          "relative_log_error": 0.00011991102872901022,
+          "constraint_value": 0.0007537267670516359,
+          "constraint_unit": "dimensionless",
+          "numerical_spread": 2.0141132652033274e-08,
+          "valid": true,
+          "strengths_percent": {
+            "diffraction_lens": 16.32115954,
+            "intermediate_lens": 98.3856483,
+            "projector_lens_1": 48.82683138,
+            "projector_lens_2": 24.62908381
+          }
+        },
+        {
+          "target": 0.05,
+          "achieved": 0.050000001414412486,
+          "unit": "m",
+          "branch": "camera_length",
+          "relative_log_error": 2.8288249342545893e-08,
+          "constraint_value": 4.563088646871699e-06,
+          "constraint_unit": "dimensionless",
+          "numerical_spread": 2.8264049883694952e-08,
+          "valid": true,
+          "strengths_percent": {
+            "diffraction_lens": 14.64526109578748,
+            "intermediate_lens": 0.01586898291823792,
+            "projector_lens_1": 27.179426927557408,
+            "projector_lens_2": 14.987915959343525
+          }
+        },
+        {
+          "target": 0.1,
+          "achieved": 0.09998635115666146,
+          "unit": "m",
+          "branch": "camera_length",
+          "relative_log_error": 0.00013649774877929146,
+          "constraint_value": 7.1662772113978394e-06,
+          "constraint_unit": "dimensionless",
+          "numerical_spread": 4.529751882436614e-08,
+          "valid": true,
+          "strengths_percent": {
+            "diffraction_lens": 14.4149455,
+            "intermediate_lens": 0.00120650723,
+            "projector_lens_1": 34.0234814,
+            "projector_lens_2": 9.88514595
+          }
+        },
+        {
+          "target": 0.25,
+          "achieved": 0.2500002981600551,
+          "unit": "m",
+          "branch": "camera_length",
+          "relative_log_error": 1.1926395091651374e-06,
+          "constraint_value": 1.0883916515705698e-06,
+          "constraint_unit": "dimensionless",
+          "numerical_spread": 2.0493170255789933e-08,
+          "valid": true,
+          "strengths_percent": {
+            "diffraction_lens": 19.63904162,
+            "intermediate_lens": 19.63010251,
+            "projector_lens_1": 0.77162651,
+            "projector_lens_2": 46.12967606
+          }
+        },
+        {
+          "target": 0.5,
+          "achieved": 0.5000038897627509,
+          "unit": "m",
+          "branch": "camera_length",
+          "relative_log_error": 7.779495241442707e-06,
+          "constraint_value": 1.0758402051302775e-05,
+          "constraint_unit": "dimensionless",
+          "numerical_spread": 3.3469893157719596e-08,
+          "valid": true,
+          "strengths_percent": {
+            "diffraction_lens": 19.4676207,
+            "intermediate_lens": 19.9226047,
+            "projector_lens_1": 0.0153893906,
+            "projector_lens_2": 65.2384486
+          }
+        },
+        {
+          "target": 1.0,
+          "achieved": 1.0000218585715703,
+          "unit": "m",
+          "branch": "camera_length",
+          "relative_log_error": 2.1858332675238048e-05,
+          "constraint_value": 3.229613311366385e-05,
+          "constraint_unit": "dimensionless",
+          "numerical_spread": 2.458807746168778e-08,
+          "valid": true,
+          "strengths_percent": {
+            "diffraction_lens": 13.50512151,
+            "intermediate_lens": 5.63031688,
+            "projector_lens_1": 63.99418341,
+            "projector_lens_2": 50.20615765
+          }
+        },
+        {
+          "target": 2.5,
+          "achieved": 2.491624591469462,
+          "unit": "m",
+          "branch": "camera_length",
+          "relative_log_error": 0.003355787774862001,
+          "constraint_value": 4.8435064011802375e-05,
+          "constraint_unit": "dimensionless",
+          "numerical_spread": 1.971487443918592e-08,
+          "valid": true,
+          "strengths_percent": {
+            "diffraction_lens": 13.48846756,
+            "intermediate_lens": 5.68013548,
+            "projector_lens_1": 64.05715196,
+            "projector_lens_2": 88.7404624
+          }
+        }
+      ],
+      "ratios": [
+        {
+          "branch": "camera_length",
+          "lower_target": 0.005,
+          "upper_target": 0.05,
+          "target_ratio": 10.0,
+          "log10_span": 1.0,
+          "strength_ratios": {
+            "diffraction_lens": 0.8973174399707805,
+            "intermediate_lens": 0.0001612936763891601,
+            "projector_lens_1": 0.5566494109771456,
+            "projector_lens_2": 0.6085454122031966
+          },
+          "strength_delta_percent_per_target_decade": {
+            "diffraction_lens": -1.6758984442125193,
+            "intermediate_lens": -98.36977931708176,
+            "projector_lens_1": -21.647404452442593,
+            "projector_lens_2": -9.641167850656476
+          }
+        },
+        {
+          "branch": "camera_length",
+          "lower_target": 0.05,
+          "upper_target": 0.1,
+          "target_ratio": 2.0,
+          "log10_span": 0.3010299956639812,
+          "strength_ratios": {
+            "diffraction_lens": 0.984273711866173,
+            "intermediate_lens": 0.07602927271497559,
+            "projector_lens_1": 1.2518101095613374,
+            "projector_lens_2": 0.6595410580640173
+          },
+          "strength_delta_percent_per_target_decade": {
+            "diffraction_lens": -0.7650918483371537,
+            "intermediate_lens": -0.048707689929360455,
+            "projector_lens_1": 22.735456834946557,
+            "projector_lens_2": -16.951035055786903
+          }
+        },
+        {
+          "branch": "camera_length",
+          "lower_target": 0.1,
+          "upper_target": 0.25,
+          "target_ratio": 2.5,
+          "log10_span": 0.3979400086720376,
+          "strength_ratios": {
+            "diffraction_lens": 1.3624083157303648,
+            "intermediate_lens": 16270.190531721886,
+            "projector_lens_1": 0.022679234406623658,
+            "projector_lens_2": 4.666564994925543
+          },
+          "strength_delta_percent_per_target_decade": {
+            "diffraction_lens": 13.127848434826369,
+            "intermediate_lens": 49.32626922403061,
+            "projector_lens_1": -83.55996925507566,
+            "projector_lens_2": 91.08038729493757
+          }
+        },
+        {
+          "branch": "camera_length",
+          "lower_target": 0.25,
+          "upper_target": 0.5,
+          "target_ratio": 2.0,
+          "log10_span": 0.3010299956639812,
+          "strength_ratios": {
+            "diffraction_lens": 0.9912714213189798,
+            "intermediate_lens": 1.0149006960025295,
+            "projector_lens_1": 0.019944092641399788,
+            "projector_lens_2": 1.4142403366359126
+          },
+          "strength_delta_percent_per_target_decade": {
+            "diffraction_lens": -0.5694479701994363,
+            "intermediate_lens": 0.9716712427770827,
+            "projector_lens_1": -2.512165333331549,
+            "projector_lens_2": 63.47796835943813
+          }
+        },
+        {
+          "branch": "camera_length",
+          "lower_target": 0.5,
+          "upper_target": 1.0,
+          "target_ratio": 2.0,
+          "log10_span": 0.3010299956639812,
+          "strength_ratios": {
+            "diffraction_lens": 0.6937222436227145,
+            "intermediate_lens": 0.28260947625989885,
+            "projector_lens_1": 4158.331221380527,
+            "projector_lens_2": 0.7695792700073497
+          },
+          "strength_delta_percent_per_target_decade": {
+            "diffraction_lens": -19.806993575004142,
+            "intermediate_lens": -47.47795244947446,
+            "projector_lens_1": 212.53295333005642,
+            "projector_lens_2": -49.936189637326024
+          }
+        },
+        {
+          "branch": "camera_length",
+          "lower_target": 1.0,
+          "upper_target": 2.5,
+          "target_ratio": 2.5,
+          "log10_span": 0.3979400086720376,
+          "strength_ratios": {
+            "diffraction_lens": 0.9987668418986332,
+            "intermediate_lens": 1.008848276404649,
+            "projector_lens_1": 1.0009839730213694,
+            "projector_lens_2": 1.7675214864804536
+          },
+          "strength_delta_percent_per_target_decade": {
+            "diffraction_lens": -0.04185040367158862,
+            "intermediate_lens": 0.12519123213131872,
+            "projector_lens_1": 0.15823628845496746,
+            "projector_lens_2": 96.8344572303562
+          }
+        }
+      ]
+    }
+  }
+}

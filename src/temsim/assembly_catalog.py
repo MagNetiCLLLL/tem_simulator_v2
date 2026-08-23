@@ -251,7 +251,6 @@ class AssemblyCatalog:
             assembly_root=self.root,
         )
         from temsim.component_keys import (
-            BRIGHT_FIELD_DETECTOR,
             CAMERA,
             FLUORESCENT_SCREEN,
         )
@@ -260,11 +259,11 @@ class AssemblyCatalog:
         for plane in state.recording_planes:
             if plane.key in {
                 FLUORESCENT_SCREEN,
-                BRIGHT_FIELD_DETECTOR,
                 CAMERA,
             }:
-                # These solid on-axis recording surfaces must retract before
-                # rays can enter the post-column Energy Filter branch.
+                # Solid display/camera surfaces retract before the post-column
+                # Energy Filter branch. BF remains an independently controlled
+                # channel in the shared STEM detector bank.
                 plane.inserted = not has_filter
         state.condenser_aperture_3.radius_mm = (
             0.05

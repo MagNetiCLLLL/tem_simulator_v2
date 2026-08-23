@@ -9,6 +9,7 @@ import numpy as np
 
 from temsim.physics.beam_statistics import branch_sample_statistics
 from temsim.physics.core import electron
+from temsim.optics.aberrations import configured_probe_defocus_mm
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +36,9 @@ class ProbeState:
     cs_mm: float
     cc_mm: float
     energy_bins: tuple[ProbeEnergyBin, ...]
+    ray_waist_offset_nm: float = 0.0
+    configured_defocus_nm: float = 0.0
+    defocus_source: str = "sample-plane ray covariance plus additional probe C1"
 
 
 def _ray_weights(branch) -> np.ndarray:
@@ -105,7 +109,11 @@ def probe_state_from_simulation(state, simulation) -> ProbeState:
     _charge, _momentum, wavelength_nm = electron(state)
     emitted_current_a = max(float(state.electron_gun.emitted_current_a), 0.0)
     objective = state.objective_lens
-    defocus_nm = float(getattr(state.sample, "wave_defocus_nm", 0.0))
+    configured_defocus_nm = configured_probe_defocus_mm(state) * 1.0e6
+    ray_waist_offset_nm = statistics.waist_offset_m * 1.0e9
+    # Positive waist offset means the focus is downstream.  The coherent
+    # sample-plane C1 has the opposite sign with our Fresnel convention.
+    defocus_nm = configured_defocus_nm - ray_waist_offset_nm
     # A circular Gaussian with this sigma has the same RMS radius as the ray
     # bundle. It is used only for virtual-density convolution, not as a claim
     # that the coherent probe itself is Gaussian.
@@ -126,5 +134,6 @@ def probe_state_from_simulation(state, simulation) -> ProbeState:
         cs_mm=float(getattr(objective, "cs_mm", 0.0) or 0.0),
         cc_mm=float(getattr(objective, "cc_mm", 0.0) or 0.0),
         energy_bins=_energy_bins(branch, alive, weights),
+        ray_waist_offset_nm=ray_waist_offset_nm,
+        configured_defocus_nm=configured_defocus_nm,
     )
-

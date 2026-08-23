@@ -9,7 +9,7 @@ from temsim.operating_modes import apply_operating_mode_pair
 from temsim.physics.aperture_clipping import clip_segment
 from temsim.physics.column_wall import clip_column_wall
 from temsim.physics.core import complex_transfer, propagate
-from temsim.physics.recording_stop import determine_tem_stop_z
+from temsim.physics.recording_stop import tem_camera_plane_z
 
 
 def _state():
@@ -63,14 +63,14 @@ def _sample_statistics(state):
 
 
 @pytest.mark.parametrize(
-    ("mode_key", "minimum_mrad", "maximum_mrad", "aperture_um"),
+    ("mode_key", "minimum_mrad", "maximum_mrad", "diameter_um"),
     (
-        ("micro_probe", 0.0, 0.5, 50.0),
-        ("nano_probe", 20.0, 40.0, 100.0),
+        ("micro_probe", 0.0, 0.5, 100.0),
+        ("nano_probe", 3.0, 60.0, 100.0),
     ),
 )
 def test_probe_modes_reach_the_sample_angle_with_real_aperture_clipping(
-    mode_key, minimum_mrad, maximum_mrad, aperture_um
+    mode_key, minimum_mrad, maximum_mrad, diameter_um
 ):
     state = _state()
     apply_operating_mode_pair(state, mode_key, "imaging")
@@ -78,8 +78,8 @@ def test_probe_modes_reach_the_sample_angle_with_real_aperture_clipping(
     statistics = _sample_statistics(state)
 
     assert minimum_mrad <= statistics["semi_angle_mrad"] <= maximum_mrad
-    assert state.condenser_aperture_2.radius_um == pytest.approx(aperture_um)
-    assert state.condenser_aperture_3.radius_um == pytest.approx(2000.0)
+    assert state.condenser_aperture_2.diameter_um == pytest.approx(diameter_um)
+    assert state.condenser_aperture_3.diameter_um == pytest.approx(4000.0)
     transfer_lenses = {
         lens.key: lens.percent
         for lens in state.lenses
@@ -102,36 +102,32 @@ def test_probe_modes_reach_the_sample_angle_with_real_aperture_clipping(
         assert statistics["rms_radius_nm"] < 2.0
 
 
-@pytest.mark.parametrize(
-    ("projector_key", "plane_attribute", "maximum_residual_m"),
-    (
-        ("imaging", "image_plane_z_mm", 1.0e-5),
-        ("diffraction", "back_focal_plane_z_mm", 2.0e-6),
-    ),
-)
-def test_projector_modes_relay_the_selected_objective_plane(
-    projector_key, plane_attribute, maximum_residual_m
-):
+def test_imaging_mode_relays_the_selected_objective_image_plane():
     state = _state()
-    apply_operating_mode_pair(state, "nano_probe", projector_key)
+    apply_operating_mode_pair(state, "nano_probe", "imaging")
     state.step_mm = 0.1
-    source_z = getattr(state.objective_lens, plane_attribute)(
+    source_z = state.objective_lens.image_plane_z_mm(
         state.beam_voltage_kv, state.sample
-    )
-    cached_source_z = getattr(
-        state,
-        (
-            "objective_image_plane_z_mm"
-            if plane_attribute == "image_plane_z_mm"
-            else "objective_back_focal_plane_z_mm"
-        ),
     )
 
     matrix = complex_transfer(
-        state, source_z, determine_tem_stop_z(state)
+        state, source_z, tem_camera_plane_z(state)
     )
 
     assert source_z is not None
-    assert cached_source_z == pytest.approx(source_z)
-    assert abs(matrix[0, 1]) < maximum_residual_m
+    assert state.objective_image_plane_z_mm == pytest.approx(source_z)
+    assert abs(matrix[0, 1]) < 1.0e-5
     assert abs(matrix[0, 0]) > 1.0
+
+
+def test_diffraction_mode_targets_the_main_screen_reference_plane():
+    from temsim.optics.direct_alignment import diffraction_transfer
+
+    state = _state()
+    apply_operating_mode_pair(state, "nano_probe", "diffraction")
+    transfer = diffraction_transfer(state, state.fluorescent_screen.z_mm)
+
+    assert np.linalg.norm(transfer.j_img, ord=2) < 1.0e-3
+    assert np.sqrt(abs(np.linalg.det(transfer.j_diff_m_per_rad))) == (
+        pytest.approx(0.05, rel=3.0e-2)
+    )

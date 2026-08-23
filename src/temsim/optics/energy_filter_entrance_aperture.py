@@ -178,6 +178,26 @@ class EnergyFilterEntranceApertureComponent:
         self.radius_mm = float(value) / 1000.0
 
     @property
+    def diameter_mm(self):
+        return 2.0 * self.radius_mm
+
+    @diameter_mm.setter
+    def diameter_mm(self, value):
+        self.radius_mm = 0.5 * float(value)
+
+    @property
+    def diameter_um(self):
+        return 2.0 * self.radius_mm * 1000.0
+
+    @diameter_um.setter
+    def diameter_um(self, value):
+        self.radius_mm = 0.5 * float(value) / 1000.0
+
+    @property
+    def maximum_diameter_mm(self):
+        return 2.0 * self.maximum_radius_mm
+
+    @property
     def offset_x_um(self):
         return self.offset_x_mm * 1000.0
 

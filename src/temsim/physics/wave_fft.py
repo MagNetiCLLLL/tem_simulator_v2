@@ -42,6 +42,28 @@ def form_tem_image(
 ) -> tuple[np.ndarray, np.ndarray, WaveFftDiagnostics]:
     """Return raw image and shifted diffraction intensities on the host."""
 
+    image_wave, raw_diffraction, diagnostics = apply_coherent_transfer(
+        exit_wave,
+        transfer,
+        compute_backend=compute_backend,
+        fallback_reason=fallback_reason,
+    )
+    return np.abs(image_wave) ** 2, raw_diffraction, diagnostics
+
+
+def apply_coherent_transfer(
+    exit_wave: np.ndarray,
+    transfer: np.ndarray,
+    *,
+    compute_backend: str = WAVE_BACKEND_NUMPY,
+    fallback_reason: str | None = None,
+) -> tuple[np.ndarray, np.ndarray, WaveFftDiagnostics]:
+    """Apply one coherent pupil/aberration transfer and retain its wave.
+
+    The returned complex wave remains on the specimen-referenced image grid;
+    callers can subsequently pass it through a physical projector/camera LCT.
+    """
+
     if str(compute_backend) == WAVE_BACKEND_CUPY:
         cp = None
         try:
@@ -52,9 +74,9 @@ def form_tem_image(
             image_wave = cp.fft.ifft2(
                 cp.fft.ifftshift(spectrum * device_transfer)
             )
-            raw_image = cp.asnumpy(cp.abs(image_wave) ** 2)
+            host_image_wave = cp.asnumpy(image_wave)
             raw_diffraction = cp.asnumpy(cp.abs(spectrum) ** 2)
-            return raw_image, raw_diffraction, WaveFftDiagnostics(
+            return host_image_wave, raw_diffraction, WaveFftDiagnostics(
                 compute_backend=WAVE_BACKEND_CUPY,
                 numeric_precision="complex64 / float32",
                 fallback_reason=fallback_reason,
@@ -72,7 +94,7 @@ def form_tem_image(
     spectrum = np.fft.fftshift(np.fft.fft2(host_wave))
     image_wave = np.fft.ifft2(np.fft.ifftshift(spectrum * host_transfer))
     return (
-        np.abs(image_wave) ** 2,
+        image_wave,
         np.abs(spectrum) ** 2,
         WaveFftDiagnostics(
             compute_backend=WAVE_BACKEND_NUMPY,

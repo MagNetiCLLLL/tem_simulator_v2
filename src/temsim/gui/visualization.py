@@ -40,8 +40,8 @@ class WaveImagingView(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.summary = QLabel(
-            "Optional local specimen-to-Objective wave diagnostic. Enable TEM "
-            "wave imaging on the Sample and run High accuracy."
+            "Optional full-column TEM Camera calculation. Enable TEM wave "
+            "imaging on the Sample and run High accuracy."
         )
         self.summary.setWordWrap(True)
         self.summary.setStyleSheet("color: #94a3b8; font-weight: 600;")
@@ -56,10 +56,10 @@ class WaveImagingView(QWidget):
             view.ui.menuBtn.hide()
             view.getView().setAspectLocked(True)
         self.image.getView().setTitle(
-            "Objective CTF image (display-normalised)"
+            "Physical Camera image (display-normalised)"
         )
-        self.image.getView().setLabel("bottom", "x", units="Å")
-        self.image.getView().setLabel("left", "y", units="Å")
+        self.image.getView().setLabel("bottom", "camera x", units="mm")
+        self.image.getView().setLabel("left", "camera y", units="mm")
         self.diffraction.getView().setTitle(
             "Exit-wave diffraction (log display)"
         )
@@ -113,10 +113,15 @@ class WaveImagingView(QWidget):
                 if state is not None
                 else False
             )
+            camera_inserted = bool(
+                getattr(getattr(state, "camera", None), "inserted", False)
+                if state is not None
+                else False
+            )
             if quality == "Preview":
                 message = (
                     "Preview omits TEM wave imaging. Run High accuracy to "
-                    "calculate the local Objective image and diffraction."
+                    "calculate the physical Camera image and diffraction."
                 )
             elif requested and illumination != "TEM":
                 message = (
@@ -128,6 +133,11 @@ class WaveImagingView(QWidget):
                     "TEM wave imaging requires Real sample mode; Virtual "
                     "interaction channels use the ray/detector model."
                 )
+            elif requested and not camera_inserted:
+                message = (
+                    "TEM Camera imaging is inactive because the Camera is "
+                    "retracted. Insert Camera and run High accuracy."
+                )
             else:
                 message = (
                     "No TEM wave image in this result. Enable TEM image / "
@@ -135,10 +145,15 @@ class WaveImagingView(QWidget):
                 )
             self.summary.setText(message)
             return
-        image_pos, image_scale = self._axis_transform(
-            wave_result.x_angstrom,
-            wave_result.y_angstrom,
+        image_x = np.asarray(
+            getattr(wave_result, "camera_x_mm", wave_result.x_angstrom),
+            dtype=float,
         )
+        image_y = np.asarray(
+            getattr(wave_result, "camera_y_mm", wave_result.y_angstrom),
+            dtype=float,
+        )
+        image_pos, image_scale = self._axis_transform(image_x, image_y)
         self.image.setImage(
             np.asarray(wave_result.image_intensity, dtype=float).T,
             autoRange=True,
@@ -220,15 +235,21 @@ class WaveImagingView(QWidget):
             f"{potential_model}, {configurations} configuration(s)"
             f"{thermal_text} | "
             f"compute {backend} | "
-            f"FOV {float(metrics['field_of_view_angstrom']):.5g} Å | "
-            f"pixel {float(metrics['pixel_size_angstrom']):.5g} Å | "
+            f"Camera {float(metrics.get('camera_width_mm', 0.0)):.5g} mm | "
+            "M "
+            f"{float(metrics.get('projector_magnification', 0.0)):.5g}x | "
             f"surviving rays {int(metrics['surviving_rays'])} | "
-            "local Objective CTF, display-normalised"
+            "full-column Camera image, display-normalised"
             f"{warning_text}"
         )
         details = [
-            "Scope: specimen to Objective CTF only; this is not the final "
-            "projector/camera or energy-filter recording plane.",
+            "Scope: gun-conditioned illumination, specimen interaction, "
+            "complete projector transfer and physical Camera response.",
+            "Camera propagation: "
+            f"{metrics.get('camera_wave_propagation_method', 'unknown')}",
+            "Camera sampling: "
+            f"{metrics.get('camera_calculation_pixels_xy', 'unknown')} pixels; "
+            f"binning {metrics.get('camera_binning_xy', 'unknown')}.",
             "Energy-loss scope: "
             f"{metrics.get('wave_energy_loss_scope', 'not reported')}",
             "Zero-loss probability per sample-incident electron: "
@@ -495,6 +516,7 @@ class VisualizationWorkspace(QWidget):
         self.aperture_marker_items = []
         self.aperture_optical_plane_items = []
         self.aperture_stop_segment_items = []
+        self.recording_surface_range_items = []
         self._aperture_span_records = []
         self._aperture_projection_records = []
         self._aperture_stops_by_key = {}
@@ -1883,7 +1905,13 @@ class VisualizationWorkspace(QWidget):
             lines = (line,)
             representative = line
         else:
-            radius_mm = max(0.0, float(record["radius_mm"]))
+            if "diameter_mm" in record:
+                radius_mm = 0.5 * max(
+                    0.0, float(record["diameter_mm"])
+                )
+            else:
+                # Compatibility with pre-diameter calculation records.
+                radius_mm = max(0.0, float(record["radius_mm"]))
             offset_x_mm = float(record["offset_x_mm"])
             offset_y_mm = float(record["offset_y_mm"])
             centre_u_mm = float(
@@ -2040,7 +2068,145 @@ class VisualizationWorkspace(QWidget):
             self.plot.addItem(line)
             self.deflector_pair_items.append(line)
 
-    def _add_component_markers(self, assembly) -> None:
+    @staticmethod
+    def _recording_plane_component(result, key: str):
+        state = getattr(result, "state_snapshot", None)
+        return next(
+            (
+                component
+                for component in getattr(state, "recording_planes", ())
+                if str(component.key) == str(key)
+            ),
+            None,
+        )
+
+    def _add_recording_surface_range(self, result, part, index: int) -> None:
+        """Draw the finite detector acceptance in its physical Z plane."""
+
+        component = self._recording_plane_component(result, part.key)
+        signal_z_mm = (
+            float(component.z_mm)
+            if component is not None
+            else self._aperture_optical_plane(part)
+        )
+        inserted = bool(getattr(component, "inserted", True))
+        readout_enabled = getattr(component, "readout_enabled", None)
+        outer_radius_mm = 0.5 * float(
+            getattr(
+                component,
+                "outer_width_mm",
+                part.data.get(
+                    "outer_width_mm",
+                    part.data.get("mechanical_outer_diameter_mm", 0.0),
+                ),
+            )
+        )
+        inner_radius_mm = 0.5 * float(
+            getattr(
+                component,
+                "inner_diameter_mm",
+                part.data.get("inner_diameter_mm", 0.0),
+            )
+        )
+        centre_u_mm = float(
+            self._project_transverse(
+                getattr(component, "centre_offset_x_mm", 0.0),
+                getattr(component, "centre_offset_y_mm", 0.0),
+            )
+        )
+        if inner_radius_mm > 0.0:
+            x_values = np.array(
+                [signal_z_mm, signal_z_mm, np.nan, signal_z_mm, signal_z_mm]
+            )
+            y_values = np.array(
+                [
+                    centre_u_mm - outer_radius_mm,
+                    centre_u_mm - inner_radius_mm,
+                    np.nan,
+                    centre_u_mm + inner_radius_mm,
+                    centre_u_mm + outer_radius_mm,
+                ]
+            )
+            radial_text = (
+                f"{inner_radius_mm:.6g} to {outer_radius_mm:.6g} mm "
+                "on both sides of the detector axis"
+            )
+        else:
+            x_values = np.array([signal_z_mm, signal_z_mm])
+            y_values = np.array(
+                [
+                    centre_u_mm - outer_radius_mm,
+                    centre_u_mm + outer_radius_mm,
+                ]
+            )
+            radial_text = (
+                f"0 to {outer_radius_mm:.6g} mm about the detector axis"
+            )
+
+        colour = str(getattr(component, "colour", "#facc15"))
+        range_pen = pg.mkPen(
+            colour,
+            width=3.0 if inserted else 1.5,
+            style=(
+                Qt.PenStyle.SolidLine
+                if inserted
+                else Qt.PenStyle.DashLine
+            ),
+        )
+        status = "INSERTED" if inserted else "RETRACTED"
+        if readout_enabled is not None:
+            status += " / READOUT ON" if readout_enabled else " / READOUT OFF"
+        range_kind = "Active range" if inserted else "Parked reference range"
+        tooltip = (
+            f"{part.name} ({status.lower()})\n"
+            f"Detection plane Z = {signal_z_mm:.6g} mm\n"
+            f"{range_kind}: {radial_text}"
+        )
+        range_item = self.plot.plot(
+            x_values,
+            y_values,
+            pen=range_pen,
+            connect="finite",
+        )
+        range_item.setZValue(16 if inserted else 7)
+        range_item.setToolTip(tooltip)
+        # These attributes make the physical drawing semantics inspectable in
+        # GUI regression tests without coupling them to pyqtgraph internals.
+        range_item.recording_plane_key = str(part.key)
+        range_item.recording_plane_inserted = inserted
+        range_item.active_intervals_mm = tuple(
+            (float(y_values[start]), float(y_values[start + 1]))
+            for start in (
+                (0, 3) if inner_radius_mm > 0.0 else (0,)
+            )
+        )
+        self.recording_surface_range_items.append(range_item)
+
+        # Use an invisible axial carrier for a view-anchored label. The only
+        # visible detector geometry is the finite solid/dashed range above.
+        label_anchor = pg.InfiniteLine(
+            pos=signal_z_mm,
+            angle=90,
+            pen=pg.mkPen(None),
+            label=f"{part.name} [{status}]",
+            labelOpts={
+                "position": 0.76 + 0.07 * (index % 4),
+                "color": colour,
+                "rotateAxis": (1, 0),
+            },
+        )
+        label_anchor.setZValue(17)
+        label_anchor.setToolTip(tooltip)
+        self._register_ray_label(label_anchor.label)
+        label_anchor.label.setToolTip(tooltip)
+        self.plot.addItem(label_anchor)
+        self.component_marker_items.append(label_anchor)
+        self._component_labels.append(
+            (label_anchor.label, signal_z_mm, False)
+        )
+
+    def _add_component_markers(self, result) -> None:
+        assembly = getattr(result, "assembly", None)
         if assembly is None or not self.component_centres.isChecked():
             return
         for index, part in enumerate(assembly.parts):
@@ -2060,36 +2226,7 @@ class VisualizationWorkspace(QWidget):
                 "camera_sensor_plane",
             }
             if is_recording_surface:
-                signal_z_mm = self._aperture_optical_plane(part)
-                line = pg.InfiniteLine(
-                    pos=signal_z_mm,
-                    angle=90,
-                    pen=pg.mkPen(
-                        "#facc15",
-                        width=1.5,
-                        style=Qt.PenStyle.DashLine,
-                    ),
-                    label=f"{part.name} [TOP SIGNAL SURFACE]",
-                    labelOpts={
-                        "position": 0.76 + 0.07 * (index % 4),
-                        "color": "#fde68a",
-                        "rotateAxis": (1, 0),
-                    },
-                )
-                tooltip = (
-                    f"{part.name}\nMechanical centre Z = "
-                    f"{part.center_z_mm:.6g} mm\nUpstream top-surface "
-                    f"signal Z = {signal_z_mm:.6g} mm"
-                )
-                line.setZValue(8)
-                line.setToolTip(tooltip)
-                self._register_ray_label(line.label)
-                line.label.setToolTip(tooltip)
-                self.plot.addItem(line)
-                self.component_marker_items.append(line)
-                self._component_labels.append(
-                    (line.label, signal_z_mm, False)
-                )
+                self._add_recording_surface_range(result, part, index)
                 continue
             planes = self._deflector_planes(part)
             is_deflector = bool(planes)
@@ -2357,6 +2494,7 @@ class VisualizationWorkspace(QWidget):
         self.aperture_marker_items = []
         self.aperture_optical_plane_items = []
         self.aperture_stop_segment_items = []
+        self.recording_surface_range_items = []
         self._aperture_span_records = []
         self._aperture_projection_records = []
         self._aperture_stops_by_key = {
@@ -2447,7 +2585,7 @@ class VisualizationWorkspace(QWidget):
 
         self._add_column_walls(result)
         self._add_stop_markers(simulation)
-        self._add_component_markers(result.assembly)
+        self._add_component_markers(result)
         self._add_sample_marker(result)
         self._add_crossover_markers(result)
         self._add_axial_position_cursor()

@@ -32,7 +32,12 @@ def clip_recording_planes(state,z,x,y,alive,blocked_z,blocked_key):
         for plane in getattr(state, "recording_planes", [])
         if bool(getattr(plane, "inserted", False))
     )
-    for plane_z_mm, kind_order, plane in sorted(candidates):
+    # The three concentric STEM detector channels intentionally share one Z.
+    # Python must not fall through to comparing component objects on that tie;
+    # stable input order defines the negligible shared-boundary precedence.
+    for plane_z_mm, kind_order, plane in sorted(
+        candidates, key=lambda item: (item[0], item[1])
+    ):
         if plane_z_mm<z[0]-1e-9 or plane_z_mm>z[-1]+1e-9:continue
         hi=int(np.searchsorted(z,plane_z_mm,'left'));hi=min(max(hi,1),len(z)-1);lo=hi-1
         f=(plane_z_mm-z[lo])/max(z[hi]-z[lo],1e-12)

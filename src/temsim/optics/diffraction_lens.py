@@ -83,10 +83,12 @@ class DiffractionLensDefinition:
         .image_corrected_optical_reference_z_mm
         + downstream_offset_mm(DIFFRACTION_LENS)
     )
-    b0_t: float = 0.75
-    a_mm: float = 12.0
-    percent: float = 26.495
-    maximum_percent: float = 100.0
+    b0_t: float = float(_DEFAULT_MANIFEST_PART["maximum_peak_field_t"])
+    a_mm: float = float(_DEFAULT_MANIFEST_PART["field_half_width_mm"])
+    percent: float = float(_DEFAULT_MANIFEST_PART["default_excitation_percent"])
+    maximum_percent: float = float(
+        _DEFAULT_MANIFEST_PART["maximum_excitation_percent"]
+    )
     colour: str = "#f57c00"
     owner: str = "projector"
     kind: str = "round_lens"
@@ -138,11 +140,9 @@ class DiffractionLensDefinition:
             percent=self.percent,
             max_percent=self.maximum_percent,
             colour=self.colour,
-            gaussian=[
-                Gaussian(0.09, -1.0, 0.90),
-                Gaussian(0.82, 0.0, 0.55),
-                Gaussian(0.09, 1.0, 0.90),
-            ],
+            gaussian=[Gaussian(*term) for term in _DEFAULT_MANIFEST_PART[
+                "field_profile_terms"
+            ]],
             enabled=True,
             cs_mm=None,
             cc_mm=None,
@@ -511,7 +511,14 @@ DIFFRACTION_LENS_DEFINITION = DiffractionLensDefinition()
 
 
 def create_diffraction_lens():
-    return DIFFRACTION_LENS_DEFINITION.create_component().validate()
+    component = DIFFRACTION_LENS_DEFINITION.create_component().validate()
+    component.field_calibration_status = str(
+        _DEFAULT_MANIFEST_PART["field_calibration_status"]
+    )
+    component.field_calibration_source = str(
+        _DEFAULT_MANIFEST_PART["field_calibration_source"]
+    )
+    return component
 
 
 def diffraction_lens_from_dict(

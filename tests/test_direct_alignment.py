@@ -17,7 +17,7 @@ from temsim.optics.direct_alignment import (
 )
 from temsim.physics.beam_statistics import transverse_beam_statistics
 from temsim.physics.first_order import trace_transverse_transfer
-from temsim.physics.recording_stop import determine_tem_stop_z
+from temsim.physics.recording_stop import tem_camera_plane_z
 
 
 CONDENSER_KEYS = ("condenser_lens_2", "condenser_lens_3")
@@ -70,7 +70,7 @@ def test_toml_defines_the_four_exact_direct_alignment_controls():
     }
     expected = {
         "nanoprobe_convergence": (
-            "nano_probe", "mrad", 20.0, 40.0, 30.0, CONDENSER_KEYS,
+            "nano_probe", "mrad", 3.0, 60.0, 30.0, CONDENSER_KEYS,
         ),
         "microprobe_illumination": (
             "micro_probe", "um", 0.5, 2.2, 2.0, CONDENSER_KEYS,
@@ -79,7 +79,7 @@ def test_toml_defines_the_four_exact_direct_alignment_controls():
             "imaging", "x", 10.0, 1_000_000.0, 65.7, IMAGE_KEYS,
         ),
         "diffraction_camera_length": (
-            "diffraction", "m", 0.01, 5.0, 0.05, PROJECTOR_KEYS,
+            "diffraction", "m", 0.005, 2.5, 0.05, PROJECTOR_KEYS,
         ),
     }
     for key, values in expected.items():
@@ -101,13 +101,20 @@ def test_toml_defines_the_four_exact_direct_alignment_controls():
             ) == 2.0
             assert int(
                 definition.targets["maximum_continuation_stages"]
-            ) == 8
+            ) == (10 if key == "diffraction_camera_length" else 8)
     image = definitions["image_magnification"]
     assert image.constraint == "sample_to_recording_plane_B_zero"
     assert image.targets["preset_magnifications"] == [
         10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0,
     ]
     assert len(image.targets["preset_vectors"]) == 6
+    diffraction = definitions["diffraction_camera_length"]
+    assert diffraction.targets["preset_camera_lengths"] == [
+        0.005, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5,
+    ]
+    assert np.asarray(
+        diffraction.targets["preset_vectors"], dtype=float
+    ).shape == (7, 4)
 
 
 def test_beam_statistics_are_invariant_to_common_larmor_rotation():
@@ -211,7 +218,7 @@ def test_cached_projector_map_matches_the_production_full_transverse_trace(
 
     cached = model.sample_model.matrix(values)
     production = trace_transverse_transfer(
-        state, state.sample.z_mm, determine_tem_stop_z(state)
+        state, state.sample.z_mm, tem_camera_plane_z(state)
     ).matrix
 
     assert cached == pytest.approx(production, rel=1.0e-4, abs=1.0e-6)
@@ -274,20 +281,28 @@ def test_condenser_production_validation_uses_kicks_and_aperture_planes(
     ) == before
 
 
-def test_nanoprobe_30_mrad_commits_only_the_c2_c3_solution(assembled_state):
+@pytest.mark.parametrize(
+    ("diameter_um", "target"),
+    ((10.0, 3.0), (100.0, 30.0), (200.0, 60.0)),
+)
+def test_nanoprobe_range_commits_only_the_c2_c3_solution(
+    assembled_state, diameter_um, target
+):
     state = _state_copy(assembled_state)
     apply_operating_mode_pair(state, "nano_probe", "imaging")
+    state.condenser_aperture_2.diameter_um = diameter_um
     before = _lens_values(state)
 
-    result = apply_direct_alignment(state, "nanoprobe_convergence", 30.0)
+    result = apply_direct_alignment(state, "nanoprobe_convergence", target)
     after = _lens_values(state)
 
     assert result.success
-    assert result.achieved == pytest.approx(30.0, rel=0.03)
+    assert result.achieved == pytest.approx(target, rel=0.08)
+    assert state.condenser_aperture_2.diameter_um == pytest.approx(diameter_um)
     assert set(result.strengths) == set(CONDENSER_KEYS)
     assert {
         key for key in before if after[key] != before[key]
-    } == set(CONDENSER_KEYS)
+    }.issubset(set(CONDENSER_KEYS))
     assert all(
         after[key] == pytest.approx(result.strengths[key])
         for key in CONDENSER_KEYS
@@ -296,6 +311,63 @@ def test_nanoprobe_30_mrad_commits_only_the_c2_c3_solution(assembled_state):
     assert abs(result.constraint_value) <= float(
         definition.targets["maximum_waist_offset_mm"]
     )
+
+
+@pytest.mark.parametrize("diameter_um", (20.0, 60.0, 140.0))
+def test_nanoprobe_solve_uses_the_current_c2_aperture_diameter(
+    assembled_state, diameter_um
+):
+    state = _state_copy(assembled_state)
+    apply_operating_mode_pair(state, "nano_probe", "imaging")
+    state.condenser_aperture_2.diameter_um = diameter_um
+
+    target_mrad = 0.3 * diameter_um
+    result = apply_direct_alignment(
+        state, "nanoprobe_convergence", target_mrad
+    )
+
+    assert result.success
+    assert result.achieved == pytest.approx(target_mrad, rel=0.08)
+    assert state.condenser_aperture_2.diameter_um == pytest.approx(diameter_um)
+
+
+def test_fixed_lens_aperture_scaling_is_nearly_linear_from_10_to_200_um(
+    assembled_state,
+):
+    state = _state_copy(assembled_state)
+    apply_operating_mode_pair(state, "nano_probe", "imaging")
+    definition = direct_alignment_by_key("nanoprobe_convergence")
+    lenses = {lens.key: lens for lens in state.lenses}
+    vector = np.asarray([
+        lenses[key].percent for key in CONDENSER_KEYS
+    ])
+    angles = []
+    diameters_um = (10.0, 20.0, 40.0, 60.0, 80.0, 100.0,
+                    120.0, 140.0, 160.0, 180.0, 200.0)
+    for diameter_um in diameters_um:
+        state.condenser_aperture_2.diameter_um = diameter_um
+        measurement = _validate_condenser_production(
+            state, definition, vector, step_mm=0.1
+        )
+        angles.append(measurement.value)
+
+    assert np.all(np.diff(angles) > 0.0)
+    errors_mrad = np.asarray(angles) - 0.3 * np.asarray(diameters_um)
+    assert np.sqrt(np.mean(errors_mrad**2)) <= 0.70
+    assert np.max(np.abs(errors_mrad)) <= 1.15
+
+
+def test_c2_aperture_plane_is_reconstructed_inside_c2_bore_before_c3(
+    assembled_state,
+):
+    state = _state_copy(assembled_state)
+    apply_operating_mode_pair(state, "nano_probe", "imaging")
+
+    assert state.condenser_aperture_2.z_mm == pytest.approx(745.0)
+    lenses = {lens.key: lens for lens in state.lenses}
+    assert lenses["condenser_lens_2"].z_mm < state.condenser_aperture_2.z_mm
+    assert state.condenser_aperture_2.z_mm < lenses["condenser_lens_3"].z_mm
+    assert state.condenser_aperture_2.diameter_um == pytest.approx(100.0)
 
 
 @pytest.mark.parametrize(
@@ -350,32 +422,195 @@ def test_microprobe_area_keeps_the_parallel_branch_and_c2_headroom(
     assert result.achieved == pytest.approx(2.0, rel=0.05)
     assert abs(result.constraint_value) <= 25.0
     assert result.convergence_95_mrad <= 0.5
-    assert 30.0 <= after["condenser_lens_2"] <= 70.0
+    assert 0.0 < after["condenser_lens_2"] <= 70.0
     assert {
         key for key in before if after[key] != before[key]
     } == set(CONDENSER_KEYS)
 
 
-@pytest.mark.parametrize("target", (0.01, 0.05, 0.1, 0.5, 1.0, 2.0))
-def test_camera_length_working_points_use_all_projector_lenses(
-    assembled_state, target
+def test_camera_length_uses_main_screen_reference_and_commits(
+    assembled_state,
 ):
     state = _state_copy(assembled_state)
     apply_operating_mode_pair(state, "nano_probe", "diffraction")
     before = _lens_values(state)
-
     result = apply_direct_alignment(
-        state, "diffraction_camera_length", target
+        state, "diffraction_camera_length", 0.05
     )
     after = _lens_values(state)
 
     assert result.success
-    assert result.achieved == pytest.approx(target, rel=0.03)
-    assert result.relay_error_um <= 30.0
+    assert result.relay_error_um is None
+    assert result.achieved == pytest.approx(0.05, rel=3.0e-2)
+    assert result.diffraction_conjugacy_residual <= 1.0e-3
+    assert result.target_plane_key == "stem_diffraction_reference_plane"
+    assert result.target_plane_z_mm == pytest.approx(
+        state.fluorescent_screen.z_mm
+    )
+    assert (
+        state.haadf_detector.z_mm
+        < state.dark_field_detector.z_mm
+        < state.bright_field_detector.z_mm
+    )
+    assert result.field_calibration_statuses == (
+        "provisional_non_oem_principle_model",
+    )
+    assert set(result.candidate_strengths) == set(PROJECTOR_KEYS)
+    assert all(
+        0.0 <= fraction <= 1.0
+        for fraction in result.candidate_limit_fractions.values()
+    )
     assert result.validation_step_mm == pytest.approx(0.025)
+    assert after != before
     assert {
-        key for key in before if after[key] != before[key]
-    } == set(PROJECTOR_KEYS)
+        key: after[key] for key in PROJECTOR_KEYS
+    } == pytest.approx(result.strengths)
+    assert "validated at 0.025 mm" in result.message
+
+
+@pytest.mark.parametrize("target_m", (0.005, 2.5))
+def test_microprobe_diffraction_camera_length_endpoints_commit(
+    assembled_state, target_m
+):
+    state = _state_copy(assembled_state)
+    apply_operating_mode_pair(state, "micro_probe", "diffraction")
+
+    result = apply_direct_alignment(
+        state, "diffraction_camera_length", target_m
+    )
+
+    assert result.success
+    assert result.achieved == pytest.approx(target_m, rel=0.03)
+    assert result.diffraction_conjugacy_residual <= 1.0e-3
+    assert result.validation_step_mm == pytest.approx(0.025)
+
+
+def test_canonical_diffraction_basis_removes_objective_field_position_term(
+    assembled_state,
+):
+    from temsim.optics.direct_alignment import diffraction_transfer
+    from temsim.physics.first_order import trace_transverse_transfer
+
+    state = _state_copy(assembled_state)
+    apply_operating_mode_pair(state, "nano_probe", "diffraction")
+    result = apply_direct_alignment(
+        state, "diffraction_camera_length", 0.05
+    )
+    assert result.success
+    state.step_mm = 0.025
+
+    raw = trace_transverse_transfer(
+        state, state.sample.z_mm, state.fluorescent_screen.z_mm
+    )
+    canonical = diffraction_transfer(
+        state,
+        state.fluorescent_screen.z_mm,
+        stable_axisymmetric=False,
+    )
+
+    assert np.linalg.norm(raw.j_img, ord=2) > 1.0
+    assert np.linalg.norm(canonical.j_img, ord=2) <= 1.0e-3
+    assert np.sqrt(abs(np.linalg.det(canonical.j_diff_m_per_rad))) == (
+        pytest.approx(0.05, rel=3.0e-2)
+    )
+
+
+def test_axially_ordered_stem_channels_use_one_projector_state(assembled_state):
+    from temsim.optics.direct_alignment import diffraction_transfer
+
+    state = _state_copy(assembled_state)
+    apply_operating_mode_pair(state, "nano_probe", "diffraction")
+    result = apply_direct_alignment(
+        state, "diffraction_camera_length", 0.05
+    )
+
+    assert result.success
+    assert result.target_plane_key == "stem_diffraction_reference_plane"
+    assert result.achieved == pytest.approx(0.05, rel=3.0e-2)
+    assert result.diffraction_conjugacy_residual <= 1.0e-3
+    positions = [detector.z_mm for detector in state.stem_detectors]
+    assert positions == sorted(positions)
+    assert len(set(positions)) == 3
+    detector_lengths = []
+    for detector in state.stem_detectors:
+        transfer = diffraction_transfer(state, detector.z_mm)
+        detector_lengths.append(
+            np.sqrt(abs(np.linalg.det(transfer.j_diff_m_per_rad)))
+        )
+        assert np.all(np.isfinite(transfer.matrix))
+    assert len(set(np.round(detector_lengths, 9))) == 3
+
+
+def test_stem_channel_state_does_not_select_camera_length(assembled_state):
+    from temsim.detector.stem_signal import collection_angle
+    from temsim.optics.direct_alignment import (
+        diffraction_reference_plane,
+        diffraction_transfer,
+    )
+
+    state = _state_copy(assembled_state)
+    apply_operating_mode_pair(state, "nano_probe", "diffraction")
+    result = apply_direct_alignment(
+        state, "diffraction_camera_length", 0.05
+    )
+    assert result.success
+
+    expected_ranges = {
+        "bf": (0.0, 10.3738),
+        "df": (15.9894, 111.9256),
+        "haadf": (60.1078, 330.5927),
+    }
+    assert all(
+        detector.inserted and detector.readout_enabled
+        for detector in state.stem_detectors
+    )
+    for detector in state.stem_detectors:
+        angle = collection_angle(state, detector)
+        assert angle.inner_mrad == pytest.approx(
+            expected_ranges[detector.key][0], rel=3.0e-2, abs=0.05
+        )
+        assert angle.outer_mrad == pytest.approx(
+            expected_ranges[detector.key][1], rel=3.0e-2, abs=0.05
+        )
+
+    reference_key, reference_z_mm = diffraction_reference_plane(state)
+    reference_transfer = diffraction_transfer(state, reference_z_mm)
+    for detector in state.stem_detectors:
+        detector.inserted = False
+        detector.readout_enabled = False
+    toggled_key, toggled_z_mm = diffraction_reference_plane(state)
+    toggled_transfer = diffraction_transfer(state, toggled_z_mm)
+
+    assert toggled_key == reference_key
+    assert toggled_z_mm == pytest.approx(reference_z_mm)
+    assert toggled_transfer.j_img == pytest.approx(reference_transfer.j_img)
+    assert toggled_transfer.j_diff_m_per_rad == pytest.approx(
+        reference_transfer.j_diff_m_per_rad
+    )
+
+
+def test_diffraction_model_uses_the_main_screen_reference_plane(
+    assembled_state,
+):
+    state = _state_copy(assembled_state)
+    apply_operating_mode_pair(state, "nano_probe", "diffraction")
+    model = _ProjectorMeasurementModel(
+        state,
+        direct_alignment_by_key("diffraction_camera_length"),
+        step_mm=0.1,
+    )
+
+    assert model.reference_plane_key == "stem_diffraction_reference_plane"
+    assert model.plane_z_mm == pytest.approx(state.fluorescent_screen.z_mm)
+    vector = np.asarray([
+        next(lens for lens in state.lenses if lens.key == key).percent
+        for key in PROJECTOR_KEYS
+    ])
+    measurement, constraint = model.measure(vector)
+    assert measurement.constraint_unit == "dimensionless"
+    assert measurement.diffraction_conjugacy_residual == pytest.approx(
+        np.linalg.norm(constraint, ord=2)
+    )
 
 
 def test_wrong_mode_and_out_of_range_targets_do_not_change_lenses(
@@ -389,8 +624,8 @@ def test_wrong_mode_and_out_of_range_targets_do_not_change_lenses(
         apply_direct_alignment(state, "microprobe_illumination", 2.0)
     assert _lens_values(state) == before
 
-    with pytest.raises(ValueError, match="must be between 20 and 40 mrad"):
-        apply_direct_alignment(state, "nanoprobe_convergence", 40.01)
+    with pytest.raises(ValueError, match="must be between 3 and 60 mrad"):
+        apply_direct_alignment(state, "nanoprobe_convergence", 60.01)
     assert _lens_values(state) == before
 
 

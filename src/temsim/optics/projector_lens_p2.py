@@ -48,10 +48,12 @@ class ProjectorLensP2Definition:
         _DEFAULT_MANIFEST_PART["mechanical_clear_bore_diameter_mm"]
     )
     pole_gap_mm: float = float(_DEFAULT_MANIFEST_PART["pole_gap_mm"])
-    b0_t: float = 0.36
-    a_mm: float = 20.0
-    percent: float = 30.0
-    maximum_percent: float = 100.0
+    b0_t: float = float(_DEFAULT_MANIFEST_PART["maximum_peak_field_t"])
+    a_mm: float = float(_DEFAULT_MANIFEST_PART["field_half_width_mm"])
+    percent: float = float(_DEFAULT_MANIFEST_PART["default_excitation_percent"])
+    maximum_percent: float = float(
+        _DEFAULT_MANIFEST_PART["maximum_excitation_percent"]
+    )
     colour: str = "#5d4037"
     owner: str = "projector"
     kind: str = "round_lens"
@@ -100,11 +102,9 @@ class ProjectorLensP2Definition:
             percent=self.percent,
             max_percent=self.maximum_percent,
             colour=self.colour,
-            gaussian=[
-                Gaussian(0.09, -1.0, 0.90),
-                Gaussian(0.82, 0.0, 0.55),
-                Gaussian(0.09, 1.0, 0.90),
-            ],
+            gaussian=[Gaussian(*term) for term in _DEFAULT_MANIFEST_PART[
+                "field_profile_terms"
+            ]],
             enabled=True,
             cs_mm=None,
             cc_mm=None,
@@ -139,7 +139,14 @@ PROJECTOR_LENS_P2_DEFINITION = ProjectorLensP2Definition()
 
 
 def create_projector_lens_p2():
-    return PROJECTOR_LENS_P2_DEFINITION.create_component().validate()
+    component = PROJECTOR_LENS_P2_DEFINITION.create_component().validate()
+    component.field_calibration_status = str(
+        _DEFAULT_MANIFEST_PART["field_calibration_status"]
+    )
+    component.field_calibration_source = str(
+        _DEFAULT_MANIFEST_PART["field_calibration_source"]
+    )
+    return component
 
 
 def projector_lens_p2_from_dict(

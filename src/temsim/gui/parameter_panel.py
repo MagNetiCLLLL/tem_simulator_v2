@@ -449,10 +449,10 @@ class ParameterPanel(QWidget):
                     " eV",
                 ),
             )
-        if hasattr(obj, "radius_mm"):
+        if hasattr(obj, "diameter_mm"):
             return (
                 ("enabled", "Inserted", 1.0, ""),
-                ("radius_mm", "Opening radius", 1_000.0, " µm"),
+                ("diameter_mm", "Opening diameter", 1_000.0, " µm"),
                 ("offset_x_mm", "X offset", 1_000.0, " µm"),
                 ("offset_y_mm", "Y offset", 1_000.0, " µm"),
             )
@@ -474,6 +474,11 @@ class ParameterPanel(QWidget):
             specs = [("inserted", "Inserted", 1.0, "")]
             if hasattr(obj, "readout_enabled"):
                 specs.append(("readout_enabled", "Readout", 1.0, ""))
+            if hasattr(obj, "centre_offset_x_mm"):
+                specs.extend((
+                    ("centre_offset_x_mm", "Detector centre X", 1_000.0, " µm"),
+                    ("centre_offset_y_mm", "Detector centre Y", 1_000.0, " µm"),
+                ))
             return tuple(specs)
         if hasattr(obj, "ray_count"):
             source_fields = (
@@ -542,15 +547,17 @@ class ParameterPanel(QWidget):
                 widget.setDecimals(6)
                 widget.setRange(-1.0e9, 1.0e9)
                 if name in {
-                    "radius_mm",
+                    "diameter_mm",
                     "requested_width_ev",
                 }:
                     widget.setMinimum(0.0)
                 if name.endswith("_mrad") and hasattr(obj, "maximum_kick_mrad"):
                     maximum = abs(float(obj.maximum_kick_mrad))
                     widget.setRange(-maximum, maximum)
-                if name == "radius_mm" and hasattr(obj, "maximum_radius_mm"):
-                    widget.setMaximum(float(obj.maximum_radius_mm) * scale)
+                if name == "diameter_mm" and hasattr(
+                    obj, "maximum_diameter_mm"
+                ):
+                    widget.setMaximum(float(obj.maximum_diameter_mm) * scale)
                 widget.setSuffix(suffix)
                 widget.setKeyboardTracking(False)
                 widget.setValue(float(value) * scale)

@@ -148,11 +148,19 @@ def load_operating_mode_catalog() -> OperatingModeCatalog:
                         "the 30-70% operating window"
                     )
         for key, values in mode.apertures.items():
-            for field in ("diameter_mm", "radius_mm"):
-                if field in values and float(values[field]) <= 0.0:
-                    raise ValueError(
-                        f"{path}: {mode.key}.{key}.{field} must be positive"
-                    )
+            if "radius_mm" in values:
+                raise ValueError(
+                    f"{path}: {mode.key}.{key} must use diameter_mm; "
+                    "radius_mm is an internal legacy representation"
+                )
+            if "diameter_mm" not in values:
+                raise ValueError(
+                    f"{path}: {mode.key}.{key} must define diameter_mm"
+                )
+            if float(values["diameter_mm"]) <= 0.0:
+                raise ValueError(
+                    f"{path}: {mode.key}.{key}.diameter_mm must be positive"
+                )
 
     constraints = tuple(
         CrossoverConstraint(

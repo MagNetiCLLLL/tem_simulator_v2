@@ -81,6 +81,26 @@ class GunAperture:
         self.radius_mm = float(value) / 1000.0
 
     @property
+    def diameter_mm(self):
+        return 2.0 * self.radius_mm
+
+    @diameter_mm.setter
+    def diameter_mm(self, value):
+        self.radius_mm = 0.5 * float(value)
+
+    @property
+    def diameter_um(self):
+        return 2.0 * self.radius_mm * 1000.0
+
+    @diameter_um.setter
+    def diameter_um(self, value):
+        self.radius_mm = 0.5 * float(value) / 1000.0
+
+    @property
+    def maximum_diameter_mm(self):
+        return 2.0 * self.maximum_radius_mm
+
+    @property
     def offset_x_um(self):
         return self.offset_x_mm * 1000.0
 
@@ -168,6 +188,7 @@ class GunAperture:
         return {
             "key": self.key,
             "optical_reference_z_mm": self.z_mm,
+            "diameter_mm": self.diameter_mm,
             "radius_mm": self.radius_mm,
             "offset_x_mm": self.offset_x_mm,
             "offset_y_mm": self.offset_y_mm,

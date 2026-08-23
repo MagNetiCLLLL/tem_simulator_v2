@@ -388,13 +388,13 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
     assert window.assembly_panel.probe_mode.currentData() == "nano_probe"
     assert window.assembly_panel.projector_mode.currentData() == "diffraction"
     by_key = {lens.key: lens for lens in window.state.lenses}
-    assert by_key["objective_lens"].percent == pytest.approx(70.0)
+    assert by_key["objective_lens"].percent == pytest.approx(68.9801)
     assert by_key["diffraction_lens"].percent == pytest.approx(
-        17.4982940301
+        14.577617197168571
     )
     camera_length = direct_alignment.controls["diffraction_camera_length"]
-    assert camera_length.target.minimum() == pytest.approx(0.01)
-    assert camera_length.target.maximum() == pytest.approx(5.0)
+    assert camera_length.target.minimum() == pytest.approx(0.005)
+    assert camera_length.target.maximum() == pytest.approx(2.5)
     assert window.compute_backend.objectName() == "computeBackend"
     assert window.compute_backend.currentData() == "Auto"
     assert "C2 + C3 + C2 aperture" in (
@@ -421,9 +421,9 @@ def test_loading_a_compatible_assembly_reapplies_the_active_modes(qtbot):
     window.preview_timer.stop()
 
     by_key = {lens.key: lens for lens in window.state.lenses}
-    assert by_key["objective_lens"].percent == pytest.approx(70.0)
+    assert by_key["objective_lens"].percent == pytest.approx(68.9801)
     assert by_key["diffraction_lens"].percent == pytest.approx(
-        17.4982940301
+        14.577617197168571
     )
 
 
@@ -822,17 +822,19 @@ def test_gui_applies_calculated_probe_and_projection_modes(qtbot):
     by_key = {lens.key: lens for lens in window.state.lenses}
     assert window.state.illumination_mode == "TEM"
     assert window.state.projector_mode == "image"
-    assert window.state.condenser_aperture_2.radius_um == pytest.approx(50.0)
-    assert window.state.condenser_aperture_3.radius_um == pytest.approx(2000.0)
-    assert by_key["condenser_lens_2"].percent == pytest.approx(70.0)
+    assert window.state.condenser_aperture_2.diameter_um == pytest.approx(100.0)
+    assert window.state.condenser_aperture_3.diameter_um == pytest.approx(4000.0)
+    assert by_key["condenser_lens_2"].percent == pytest.approx(
+        54.80319718306794
+    )
     assert by_key["condenser_lens_3"].percent == pytest.approx(
-        33.7460694622
+        33.96325112642942
     )
-    assert by_key["objective_lens"].percent == pytest.approx(70.0)
+    assert by_key["objective_lens"].percent == pytest.approx(68.9801)
     assert by_key["diffraction_lens"].percent == pytest.approx(
-        16.0105466828
+        15.99002277
     )
-    assert "sample semi-angle 0.411 mrad" in panel.operating_mode_status.text()
+    assert "sample semi-angle 0.265 mrad" in panel.operating_mode_status.text()
 
 
 def test_component_navigation_filters_only_the_active_assembly(qtbot):
@@ -1069,18 +1071,19 @@ def test_aperture_selection_exposes_unit_aware_quick_controls(qtbot):
 
     assert window.parameter_panel.quick_box.isHidden() is False
     assert set(window.parameter_panel._quick_widgets) == {
-        "enabled", "radius_mm", "offset_x_mm", "offset_y_mm"
+        "enabled", "diameter_mm", "offset_x_mm", "offset_y_mm"
     }
-    radius = window.parameter_panel._quick_widgets["radius_mm"]
+    diameter = window.parameter_panel._quick_widgets["diameter_mm"]
     assert (
         window.parameter_panel.quick_form.labelForField(
             window.parameter_panel._quick_widgets["enabled"]
         ).text()
         == "Inserted"
     )
-    assert radius.suffix() == " µm"
-    radius.setValue(75.0)
-    assert window.state.condenser_aperture_2.radius_mm == pytest.approx(0.075)
+    assert diameter.suffix() == " µm"
+    diameter.setValue(75.0)
+    assert window.state.condenser_aperture_2.diameter_mm == pytest.approx(0.075)
+    assert window.state.condenser_aperture_2.radius_mm == pytest.approx(0.0375)
 
 
 def test_toml_geometry_is_not_exposed_as_a_runtime_value():
@@ -1237,13 +1240,32 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         item
         for item in window.workspace.component_marker_items
         if hasattr(item, "label")
-        and "Camera [TOP SIGNAL SURFACE]" in item.label.toPlainText()
+        and "Camera [RETRACTED]" in item.label.toPlainText()
     )
     assert camera_signal_marker.value() == pytest.approx(
         assembly.part("camera").start_z_mm
     )
-    assert "Upstream top-surface signal Z" in (
-        camera_signal_marker.toolTip()
+    assert "Detection plane Z" in camera_signal_marker.toolTip()
+    assert "top surface" not in camera_signal_marker.toolTip().lower()
+    detector_ranges = {
+        item.recording_plane_key: item
+        for item in window.workspace.recording_surface_range_items
+    }
+    for key in ("haadf", "df", "bf"):
+        item = detector_ranges[key]
+        assert item.recording_plane_inserted is True
+        assert item.opts["pen"].style() == Qt.PenStyle.SolidLine
+        assert item.opts["pen"].widthF() == pytest.approx(3.0)
+        assert "Active range" in item.toolTip()
+    assert detector_ranges["camera"].recording_plane_inserted is False
+    assert (
+        detector_ranges["camera"].opts["pen"].style()
+        == Qt.PenStyle.DashLine
+    )
+    assert len(detector_ranges["haadf"].active_intervals_mm) == 2
+    assert len(detector_ranges["df"].active_intervals_mm) == 2
+    assert detector_ranges["bf"].active_intervals_mm[0] == pytest.approx(
+        (-0.75, 0.75)
     )
     assert len(window.workspace.sample_marker_items) == 2
     sample_line, sample_axis_marker = window.workspace.sample_marker_items
@@ -1336,6 +1358,55 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         )
     assert len(window.workspace.physical_layout._objective_lens_labels) == 2
 
+    coil_items = (
+        window.workspace.physical_layout._lens_excitation_coil_items
+    )
+    coil_records = {
+        key: record
+        for key, record in window.workspace.physical_layout._record_by_key.items()
+        if record.profile == "magnetic_excitation_coil"
+    }
+    assert set(coil_items) == set(coil_records)
+    for coil_key, items in coil_items.items():
+        parent_key = coil_key.removesuffix("_excitation_coil")
+        coil = coil_records[coil_key]
+        housing = window.workspace.physical_layout._record_by_key[
+            f"{parent_key}_housing"
+        ]
+        expected_housing_od = 59.0 if parent_key == "mini_condenser" else 180.0
+        assert housing.outer_diameter_mm == pytest.approx(expected_housing_od)
+        if parent_key == "objective_lens":
+            active = (
+                window.workspace.physical_layout
+                ._objective_lens_active_intervals(coil)
+            )
+            assert min(item.rect().left() for item in items) == pytest.approx(
+                min(interval[1] for interval in active)
+            )
+            assert max(item.rect().right() for item in items) == pytest.approx(
+                max(interval[2] for interval in active)
+            )
+        else:
+            assert min(item.rect().left() for item in items) == pytest.approx(
+                coil.start_z_mm
+            )
+            assert max(item.rect().right() for item in items) == pytest.approx(
+                coil.end_z_mm
+            )
+        assert all("radial winding thickness" in item.toolTip() for item in items)
+        if parent_key == "objective_lens":
+            assert all(
+                "Thermo/FEI-directed engineering reconstruction"
+                in item.toolTip()
+                for item in items
+            )
+        else:
+            assert all(
+                "explicit per-lens mechanical reconstruction"
+                in item.toolTip()
+                for item in items
+            )
+
     stage_items = window.workspace.physical_layout._sample_stage_items
     holder_items = window.workspace.physical_layout._sample_holder_items
     sample_plane_items = window.workspace.physical_layout._sample_plane_items
@@ -1368,6 +1439,16 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         "bf": 5,
         "camera": 5,
     }
+    for items in recording_items.values():
+        assert all(
+            "top surface" not in item.toolTip().lower()
+            and "top-surface" not in item.toolTip().lower()
+            for item in items
+        )
+        assert any(
+            "Active detection plane Z" in item.toolTip()
+            for item in items
+        )
     assert len(
         window.workspace.physical_layout._recording_device_labels
     ) == 5

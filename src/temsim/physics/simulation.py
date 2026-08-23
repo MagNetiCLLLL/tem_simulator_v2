@@ -22,7 +22,7 @@ from temsim.physics.beam_statistics import branch_sample_statistics
 
 from temsim.physics.corrector_crossovers import detect_corrector_crossovers
 
-from temsim.physics.recording_stop import determine_tem_stop_z
+from temsim.physics.recording_stop import determine_tem_stop_z, tem_camera_plane_z
 from temsim.physics.recording_clipping import clip_recording_planes
 from temsim.component_keys import CONDENSER_LENS_2, CONDENSER_LENS_3
 
@@ -388,15 +388,33 @@ def run(s, *, resolved_layout=None):
             )
 
     recording_stop_z=determine_tem_stop_z(s)
-    sample_transfer=trace_transverse_transfer(
-        s,s.sample.z_mm,recording_stop_z
+    analysis_stop_z=(
+        tem_camera_plane_z(s)
+        if s.projector_mode == 'image'
+        else recording_stop_z
+    )
+    analysis_reference_key=None
+    if (
+        s.projector_mode != 'image'
+        and str(getattr(s,'illumination_mode','')).upper() == 'STEM'
+    ):
+        from temsim.optics.direct_alignment import (
+            diffraction_focus_depth_diagnostic,
+            diffraction_reference_plane,
+            diffraction_transfer,
+        )
+        analysis_reference_key,analysis_stop_z=diffraction_reference_plane(s)
+    sample_transfer=(
+        diffraction_transfer(s,analysis_stop_z)
+        if analysis_reference_key is not None
+        else trace_transverse_transfer(s,s.sample.z_mm,analysis_stop_z)
     )
     image_properties=linear_map_properties(sample_transfer.j_img)
     diffraction_properties=linear_map_properties(
         sample_transfer.j_diff_m_per_rad
     )
     image_larmor_rotation_rad = _sample_to_stop_larmor_rotation_rad(
-        s, recording_stop_z
+        s, analysis_stop_z
     )
     cosine = math.cos(-image_larmor_rotation_rad)
     sine = math.sin(-image_larmor_rotation_rad)
@@ -405,14 +423,18 @@ def run(s, *, resolved_layout=None):
     signed_image_magnification = float(
         0.5 * np.trace(derotated_image)
     )
-    half=s.camera.width_mm/2
+    half=(
+        float(s.fluorescent_screen.outer_width_mm)/2
+        if analysis_reference_key is not None
+        else s.camera.width_mm/2
+    )
 
     if s.projector_mode=='image':
 
         plane_name='objective_image_plane'
         plane_z=s.objective_image_plane_z_mm
         plane_map=(
-            trace_transverse_transfer(s,plane_z,recording_stop_z)
+            trace_transverse_transfer(s,plane_z,analysis_stop_z)
             if plane_z is not None else None
         )
         relay_error=(
@@ -427,22 +449,30 @@ def run(s, *, resolved_layout=None):
         metrics={'mode':'image','magnification':magnification,'object_full_m':s.camera.width_mm*1e-3/magnification,'relay_error':relay_error,'conjugate_plane':plane_name,'conjugate_plane_z_mm':plane_z,'conjugate_plane_magnification':plane_magnification}
 
     else:
-
-        plane_name='objective_back_focal_plane'
-        plane_z=s.objective_back_focal_plane_z_mm
-        plane_map=(
-            trace_transverse_transfer(s,plane_z,recording_stop_z)
-            if plane_z is not None else None
+        from temsim.optics.direct_alignment import (
+            projector_field_calibration_rows,
         )
-        relay_error=(
-            float(np.linalg.norm(plane_map.j_diff_m_per_rad,ord=2))
-            if plane_map is not None else math.inf
+        plane_name=(
+            analysis_reference_key
+            if analysis_reference_key is not None
+            else 'active_recording_plane'
         )
-        plane_magnification=(
-            linear_map_properties(plane_map.j_img).isotropic_scale
-            if plane_map is not None else 0.0
-        )
+        plane_z=analysis_stop_z
+        relay_error=float(np.linalg.norm(sample_transfer.j_img,ord=2))
+        plane_magnification=image_properties.isotropic_scale
         L=max(diffraction_properties.isotropic_scale,1e-15);mrad_half=half/L;metrics={'mode':'diffraction','effective_camera_length_m':L,'mrad_half':mrad_half,'g_half_inv_nm':mrad_half*1e-3/lam,'relay_error':relay_error,'conjugate_plane':plane_name,'conjugate_plane_z_mm':plane_z,'conjugate_plane_magnification':plane_magnification}
+        metrics['projector_field_calibration']=(
+            projector_field_calibration_rows(s)
+        )
+        if analysis_reference_key is not None:
+            focus_depth=diffraction_focus_depth_diagnostic(s)
+            metrics.update({
+                'diffraction_focus_depth_mm':focus_depth['full_depth_mm'],
+                'diffraction_best_focus_offset_mm':focus_depth['best_focus_offset_mm'],
+                'diffraction_best_focus_residual':focus_depth['best_residual'],
+                'diffraction_focus_tolerance':focus_depth['tolerance'],
+                'diffraction_focus_depth_model':focus_depth['model'],
+            })
 
     # A mechanically valid trace may still lose every ray before the sample
     # (for example a deliberately coarse diagnostic trace through a small
@@ -491,7 +521,10 @@ def run(s, *, resolved_layout=None):
         )),
         'lambda_nm':lam,
         'transfer_coordinate_order':('x','y','theta_x','theta_y'),
-        'transfer_analysis_plane_z_mm':recording_stop_z,
+        'transfer_analysis_plane_z_mm':analysis_stop_z,
+        'transfer_analysis_plane_key':(
+            analysis_reference_key
+        ),
         'j_img':sample_transfer.j_img.tolist(),
         'j_diff_m_per_rad':sample_transfer.j_diff_m_per_rad.tolist(),
         'image_rotation_deg':image_properties.orientation_deg,

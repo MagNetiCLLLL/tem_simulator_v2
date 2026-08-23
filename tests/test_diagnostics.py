@@ -90,6 +90,119 @@ def test_physical_layout_records_use_resolved_geometry_and_optical_references():
         "magnetic_excitation_coil",
     }
     by_key = {item.key: item for item in records}
+    lens_keys = {item.key for item in magnetic_lenses}
+    housings = [
+        item for item in mechanical_layers
+        if item.profile == "magnetic_lens_housing"
+    ]
+    assert {
+        item.outer_diameter_mm
+        for item in magnetic_lenses
+        if item.key != "mini_condenser"
+    } == {180.0}
+    assert by_key["mini_condenser"].outer_diameter_mm == pytest.approx(59.0)
+    assert {
+        item.outer_diameter_mm
+        for item in housings
+        if item.key != "mini_condenser_housing"
+    } == {180.0}
+    assert by_key[
+        "mini_condenser_housing"
+    ].outer_diameter_mm == pytest.approx(59.0)
+    assert by_key[
+        "mini_condenser_housing"
+    ].outer_diameter_mm < by_key[
+        "objective_lens_excitation_coil"
+    ].bore_diameter_mm
+
+    expected_radial_thickness = {}
+    for module in result.assembly.modules:
+        module_fields = module.geometry.get(
+            "magnetic_lens_design_peak_fields_t", {}
+        )
+        base = module.geometry.get(
+            "magnetic_lens_coil_radial_thickness_base_mm"
+        )
+        per_t = module.geometry.get(
+            "magnetic_lens_coil_radial_thickness_per_t_mm"
+        )
+        if base is None or per_t is None:
+            continue
+        shared_peak = max(
+            (
+                float(module_fields[key])
+                for key in (
+                    "condenser_lens_1",
+                    "condenser_lens_2",
+                )
+                if key in module_fields
+            ),
+            default=0.0,
+        )
+        for key, field_t in module_fields.items():
+            effective_field = (
+                shared_peak
+                if key in {"condenser_lens_1", "condenser_lens_2"}
+                else float(field_t)
+            )
+            expected_radial_thickness[key] = (
+                float(base) + float(per_t) * effective_field
+            )
+    for lens_key in lens_keys:
+        coil = by_key[f"{lens_key}_excitation_coil"]
+        lens = by_key[lens_key]
+        poles = [
+            item for item in records
+            if result.assembly.part(item.key).parent_key == lens_key
+            and item.profile == "magnetic_pole_piece"
+        ]
+        assert coil.end_z_mm - coil.start_z_mm == pytest.approx(
+            0.9 * min(lens.end_z_mm - lens.start_z_mm, 180.0)
+        )
+        assert coil.end_z_mm - coil.start_z_mm > max(
+            item.end_z_mm - item.start_z_mm for item in poles
+        )
+        assert 0.5 * (
+            coil.outer_diameter_mm - coil.bore_diameter_mm
+        ) == pytest.approx(
+            result.assembly.part(lens_key).data.get(
+                "mechanical_coil_radial_thickness_mm",
+                expected_radial_thickness[lens_key],
+            )
+        )
+
+    objective_poles = [
+        item for item in records
+        if result.assembly.part(item.key).parent_key == "objective_lens"
+        and item.profile == "magnetic_pole_piece"
+    ]
+    condenser_poles = [
+        item for item in records
+        if result.assembly.part(item.key).parent_key in {
+            "condenser_lens_1",
+            "condenser_lens_2",
+            "condenser_lens_3",
+            "mini_condenser",
+        }
+        and item.profile == "magnetic_pole_piece"
+    ]
+    assert {
+        item.pole_piece_geometry_style for item in objective_poles
+    } == {"objective_vertical_back_inserted_shank_tapered_nose"}
+    assert all(
+        item.pole_stem_outer_diameter_mm == pytest.approx(60.0)
+        and item.pole_mounting_shank_inner_diameter_mm
+        == pytest.approx(2.0)
+        and item.pole_mounting_shank_axial_length_mm
+        == pytest.approx(12.0)
+        for item in objective_poles
+    )
+    assert {
+        item.pole_piece_geometry_style for item in condenser_poles
+    } == {"embedded_hourglass_bore"}
+    assert min(item.outer_diameter_mm for item in objective_poles) > max(
+        item.outer_diameter_mm for item in condenser_poles
+    )
     assert (
         by_key["haadf"].outer_diameter_mm,
         by_key["haadf"].bore_diameter_mm,
@@ -257,6 +370,7 @@ def test_all_catalog_assemblies_produce_layout_and_field_diagnostics():
                 layout = apply_physical_layout_to_state(state)
                 result = SimpleNamespace(assembly=assembly, layout=layout)
                 records = physical_layout_records(result)
+                record_by_key = {record.key: record for record in records}
                 child_keys = {
                     component.key: tuple(
                         part.key for part in assembly.parts
@@ -278,6 +392,27 @@ def test_all_catalog_assemblies_produce_layout_and_field_diagnostics():
                         else 2
                     )
                     assert len(child_keys[component.key]) == expected_poles
+                for lens in (
+                    part for part in assembly.parts
+                    if part.data.get("mechanical_profile")
+                    == "magnetic_lens_assembly"
+                ):
+                    housing = record_by_key[f"{lens.key}_housing"]
+                    coil = record_by_key[f"{lens.key}_excitation_coil"]
+                    assert coil.start_z_mm >= housing.start_z_mm
+                    assert coil.center_z_mm == pytest.approx(
+                        housing.center_z_mm
+                    )
+                    assert coil.end_z_mm <= housing.end_z_mm
+                    pole_lengths = [
+                        record_by_key[key].end_z_mm
+                        - record_by_key[key].start_z_mm
+                        for key in child_keys[lens.key]
+                    ]
+                    assert all(
+                        coil.end_z_mm - coil.start_z_mm >= pole_length
+                        for pole_length in pole_lengths
+                    )
                 total, lenses = lens_field_records(
                     state,
                     np.linspace(

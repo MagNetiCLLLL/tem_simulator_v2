@@ -19,64 +19,64 @@ PROJECTOR_RECONSTRUCTION = {
         "center": 82.5,
         "length": 100.0,
         "envelope_length": 100.0,
-        "housing_od": 168.0,
-        "yoke_od": 162.0,
-        "yoke_id": 143.0,
-        "coil_id": 56.0,
-        "coil_od": 140.0,
-        "coil_length": 44.0,
+        "housing_od": 180.0,
+        "yoke_od": 170.0,
+        "yoke_id": 99.5,
+        "coil_id": 75.0,
+        "coil_od": 91.5,
+        "coil_length": 90.0,
         "pole_bore": 21.5,
         "clear_bore": 20.0,
         "pole_gap": 4.0,
-        "pole_shoulder_od": 54.0,
+        "pole_shoulder_od": 52.0,
         "pole_nose": 12.0,
     },
     "intermediate_lens": {
         "center": 252.5,
         "length": 230.0,
         "envelope_length": 230.0,
-        "housing_od": 164.0,
-        "yoke_od": 158.0,
-        "yoke_id": 141.0,
-        "coil_id": 60.0,
-        "coil_od": 138.0,
-        "coil_length": 38.0,
+        "housing_od": 180.0,
+        "yoke_od": 170.0,
+        "yoke_id": 99.98322635,
+        "coil_id": 75.0,
+        "coil_od": 91.98322635,
+        "coil_length": 162.0,
         "pole_bore": 21.5,
         "clear_bore": 20.0,
         "pole_gap": 6.0,
-        "pole_shoulder_od": 55.0,
+        "pole_shoulder_od": 52.0,
         "pole_nose": 12.0,
     },
     "projector_lens_1": {
         "center": 432.5,
         "length": 120.0,
         "envelope_length": 120.0,
-        "housing_od": 164.0,
-        "yoke_od": 158.0,
-        "yoke_id": 141.0,
-        "coil_id": 58.0,
-        "coil_od": 138.0,
-        "coil_length": 40.0,
+        "housing_od": 180.0,
+        "yoke_od": 170.0,
+        "yoke_id": 97.52,
+        "coil_id": 75.0,
+        "coil_od": 89.52,
+        "coil_length": 108.0,
         "pole_bore": 21.5,
         "clear_bore": 20.0,
         "pole_gap": 5.0,
-        "pole_shoulder_od": 54.0,
+        "pole_shoulder_od": 52.0,
         "pole_nose": 13.0,
     },
     "projector_lens_2": {
         "center": 635.0,
         "length": 275.0,
         "envelope_length": 275.0,
-        "housing_od": 171.0,
-        "yoke_od": 165.0,
-        "yoke_id": 148.0,
-        "coil_id": 66.0,
-        "coil_od": 145.0,
-        "coil_length": 45.0,
+        "housing_od": 180.0,
+        "yoke_od": 170.0,
+        "yoke_id": 97.16,
+        "coil_id": 75.0,
+        "coil_od": 89.16,
+        "coil_length": 162.0,
         "pole_bore": 21.5,
         "clear_bore": 20.0,
         "pole_gap": 7.0,
-        "pole_shoulder_od": 62.0,
+        "pole_shoulder_od": 52.0,
         "pole_nose": 14.0,
     },
 }
@@ -229,6 +229,130 @@ def test_magnetic_lens_mechanical_layers_are_required_and_radially_nested():
     with pytest.raises(ValueError, match="radial layers overlap"):
         validate_document(document)
 
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    by_key = {part["key"]: part for part in document["parts"]}
+    by_key["mini_condenser"]["mechanical_outer_diameter_mm"] = 101.0
+    by_key["mini_condenser_housing"][
+        "mechanical_outer_diameter_mm"
+    ] = 101.0
+    with pytest.raises(
+        ValueError,
+        match="housing must fit radially inside.*excitation-coil bore",
+    ):
+        validate_document(document)
+
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    by_key = {part["key"]: part for part in document["parts"]}
+    by_key["objective_upper_pole"]["pole_stem_outer_diameter_mm"] = 59.0
+    by_key["objective_lower_pole"]["pole_stem_outer_diameter_mm"] = 59.0
+    with pytest.raises(
+        ValueError,
+        match="mounting-shank OD must equal the excitation-coil ID",
+    ):
+        validate_document(document)
+
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    by_key = {part["key"]: part for part in document["parts"]}
+    by_key["condenser_lens_3_housing"][
+        "mechanical_outer_diameter_mm"
+    ] -= 1.0
+    with pytest.raises(
+        ValueError,
+        match="outer diameter must equal its parent lens envelope",
+    ):
+        validate_document(document)
+
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    by_key = {part["key"]: part for part in document["parts"]}
+    by_key["condenser_lens_3_excitation_coil"][
+        "mechanical_outer_diameter_mm"
+    ] += 1.0
+    with pytest.raises(
+        ValueError,
+        match="radial thickness must follow.*per-lens reconstruction",
+    ):
+        validate_document(document)
+
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    by_key = {part["key"]: part for part in document["parts"]}
+    by_key["condenser_lens_3_excitation_coil"][
+        "mechanical_inner_diameter_mm"
+    ] = 90.0
+    by_key["condenser_lens_3_excitation_coil"][
+        "mechanical_outer_diameter_mm"
+    ] = 150.0
+    with pytest.raises(
+        ValueError,
+        match="Excitation-coil material overlap.*condenser_lens_3_upper_pole",
+    ):
+        validate_document(document)
+
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    by_key = {part["key"]: part for part in document["parts"]}
+    by_key["condenser_lens_1_lower_pole"][
+        "mechanical_outer_diameter_mm"
+    ] -= 1.0
+    with pytest.raises(
+        ValueError,
+        match="C1/C2 interface poles must match",
+    ):
+        validate_document(document)
+
+
+@pytest.mark.parametrize(
+    "column_file",
+    (
+        "C2.toml",
+        "C3.toml",
+        "C3_ImageCorrector.toml",
+        "C3_ProbeCorrector.toml",
+        "C3_ProbeCorrector_ImageCorrector.toml",
+    ),
+)
+def test_objective_nested_accessories_clear_the_split_coil_bore(column_file):
+    path = (
+        Path(__file__).parents[1]
+        / "configs"
+        / "instruments"
+        / "column"
+        / column_file
+    )
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    by_key = {part["key"]: part for part in document["parts"]}
+    coil_inner = by_key["objective_lens_excitation_coil"][
+        "mechanical_inner_diameter_mm"
+    ]
+    expected_outer = {
+        "condenser_stigmator": 56.0,
+        "ac_deflector": 54.0,
+        "descan_deflector": 54.0,
+        "objective_stigmator": 56.0,
+        "image_diffraction_deflector": 54.0,
+    }
+    for key, outer in expected_outer.items():
+        assert by_key[key]["mechanical_outer_diameter_mm"] == pytest.approx(
+            outer
+        )
+        assert 0.5 * (coil_inner - outer) >= 2.0 - 1.0e-9
+
+
+def test_objective_split_coil_rejects_nested_accessory_material_overlap():
+    path = (
+        Path(__file__).parents[1]
+        / "configs"
+        / "instruments"
+        / "column"
+        / "C3.toml"
+    )
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    by_key = {part["key"]: part for part in document["parts"]}
+    by_key["ac_deflector"]["mechanical_outer_diameter_mm"] = 61.0
+    with pytest.raises(
+        ValueError,
+        match="Excitation-coil material overlap.*ac_deflector",
+    ):
+        validate_document(document)
+
 
 @pytest.mark.parametrize(
     "column",
@@ -296,12 +420,27 @@ def test_c1_c2_use_contiguous_sections_of_one_shared_housing(column):
     )
     c1 = assembly.part("condenser_lens_1_housing")
     c2 = assembly.part("condenser_lens_2_housing")
+    c1_pole = assembly.part("condenser_lens_1_lower_pole")
+    c2_pole = assembly.part("condenser_lens_2_upper_pole")
+    c1_coil = assembly.part("condenser_lens_1_excitation_coil")
+    c2_coil = assembly.part("condenser_lens_2_excitation_coil")
 
     assert c1.data["shared_housing_key"] == (
         "condenser_c1_c2_shared_housing"
     )
     assert c2.data["shared_housing_key"] == c1.data["shared_housing_key"]
     assert c1.end_z_mm == pytest.approx(c2.start_z_mm)
+    for field in (
+        "mechanical_bore_diameter_mm",
+        "mechanical_tip_diameter_mm",
+        "mechanical_outer_diameter_mm",
+    ):
+        assert c1_pole.data[field] == pytest.approx(c2_pole.data[field])
+    for field in (
+        "mechanical_inner_diameter_mm",
+        "mechanical_outer_diameter_mm",
+    ):
+        assert c1_coil.data[field] == pytest.approx(c2_coil.data[field])
 
 
 def test_monochromator_slit_has_a_separate_colocated_mechanical_envelope():
@@ -554,9 +693,10 @@ def test_operating_mode_storage_contains_calculated_optical_values():
     }
     assert all(mode.devices for mode in catalog.modes)
     assert all(
-        mode.calibration_status.startswith("calibrated_")
+        mode.calibration_status.startswith(("calibrated_", "computed_"))
         for mode in catalog.modes
     )
+    assert "non_oem" in by_key["diffraction"].calibration_status
     assert by_key["micro_probe"].targets[
         "achieved_convergence_sem_angle_mrad"
     ] < 0.5
@@ -565,10 +705,15 @@ def test_operating_mode_storage_contains_calculated_optical_values():
     ] <= 40.0
     assert by_key["micro_probe"].apertures[
         "condenser_aperture_2"
-    ]["radius_mm"] == pytest.approx(0.05)
+    ]["diameter_mm"] == pytest.approx(0.10)
     assert by_key["nano_probe"].apertures[
         "condenser_aperture_2"
-    ]["radius_mm"] == pytest.approx(0.10)
+    ]["diameter_mm"] == pytest.approx(0.10)
+    assert all(
+        "radius_mm" not in values
+        for mode in by_key.values()
+        for values in mode.apertures.values()
+    )
     for mode_key in ("micro_probe", "nano_probe"):
         assert by_key[mode_key].devices["probe_tl22_lens"][
             "percent"
@@ -583,8 +728,11 @@ def test_operating_mode_storage_contains_calculated_optical_values():
         "objective_image_plane"
     )
     assert by_key["diffraction"].targets["conjugate_plane"] == (
-        "objective_back_focal_plane"
+        "stem_diffraction_reference_plane"
     )
+    assert by_key["diffraction"].targets[
+        "achieved_effective_camera_length_m"
+    ] == pytest.approx(0.05, rel=3.0e-2)
     constraint = next(
         item
         for item in catalog.crossover_constraints

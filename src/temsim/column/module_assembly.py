@@ -1044,6 +1044,44 @@ def _apply_manifest_field_polarity(item, part):
     )
 
 
+def _apply_manifest_projector_field_calibration(item, part):
+    """Apply TOML-owned non-OEM or measured projector field calibration."""
+
+    if str(part.key) not in module_manifest.PROJECTOR_LENS_KEYS:
+        return
+    from temsim.optics.model import Gaussian
+
+    object.__setattr__(item, "b0_t", float(part.data["maximum_peak_field_t"]))
+    object.__setattr__(item, "a_mm", float(part.data["field_half_width_mm"]))
+    object.__setattr__(
+        item,
+        "max_percent",
+        float(part.data["maximum_excitation_percent"]),
+    )
+    object.__setattr__(
+        item,
+        "gaussian",
+        [
+            Gaussian(
+                amplitude=float(term[0]),
+                offset=float(term[1]),
+                sigma=float(term[2]),
+            )
+            for term in part.data["field_profile_terms"]
+        ],
+    )
+    object.__setattr__(
+        item,
+        "field_calibration_status",
+        str(part.data["field_calibration_status"]),
+    )
+    object.__setattr__(
+        item,
+        "field_calibration_source",
+        str(part.data["field_calibration_source"]),
+    )
+
+
 def _apply_detector_orientation_calibration(item, part):
     """Apply TOML-owned detector/display axes without changing geometry."""
 
@@ -1385,6 +1423,7 @@ def _apply_manifest_runtime_geometry(state, parts, assembly):
             continue
         _set_mechanical_geometry(item, part, parts)
         _apply_manifest_field_polarity(item, part)
+        _apply_manifest_projector_field_calibration(item, part)
         _apply_detector_orientation_calibration(item, part)
         _apply_detector_point_spread(item, part)
         if "interaction_centers_local_z_mm" in part.data:
