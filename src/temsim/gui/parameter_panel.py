@@ -62,7 +62,7 @@ class ParameterPanel(QWidget):
         self.lens_excitation.setRange(0.0, 1000.0)
         self.lens_excitation.setSuffix(" %")
         self.lens_cs = QDoubleSpinBox()
-        self.lens_cs.setDecimals(6)
+        self.lens_cs.setDecimals(9)
         self.lens_cs.setRange(-1.0e6, 1.0e6)
         self.lens_cs.setSuffix(" mm")
         self.lens_cs.setToolTip(
@@ -70,7 +70,7 @@ class ParameterPanel(QWidget):
             "Zero disables the calibrated ray-direction correction."
         )
         self.lens_cc = QDoubleSpinBox()
-        self.lens_cc.setDecimals(6)
+        self.lens_cc.setDecimals(9)
         self.lens_cc.setRange(0.0, 1.0e6)
         self.lens_cc.setSuffix(" mm")
         self.lens_cc.setToolTip(

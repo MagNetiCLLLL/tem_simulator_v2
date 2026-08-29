@@ -35,12 +35,12 @@ key = "imaging"
 name = "Image (objective image plane)"
 family = "projector"
 calibration_status = "computed_300kv_non_oem_energy_filter"
-calibration_reference = "Objective image plane relayed to the active recording stop with Nanoprobe Objective fixed at 68.9801%; 0.1 mm integration step; non-OEM engineering calibration"
+calibration_reference = "Objective image plane relayed to the active recording stop with the Objective fixed at 68.9801%. D/I were jointly recalculated on the full distributed-field Larmor-coupled transfer while P1/P2 retained their stored values; 0.00625 mm validation step; non-OEM engineering calibration."
 compatible_columns = ["C2", "C3", "C3 + Probe Corrector"]
 compatible_recording_systems = ["Energy Filter"]
-devices = { diffraction_lens = { percent = 15.99002277 }, intermediate_lens = { percent = 25.87979594 }, projector_lens_1 = { percent = 31.42820723 }, projector_lens_2 = { percent = 30.39754696 } }
+devices = { diffraction_lens = { percent = 16.061396154844676 }, intermediate_lens = { percent = 27.241859334290446 }, projector_lens_1 = { percent = 31.42820723 }, projector_lens_2 = { percent = 30.39754696 } }
 apertures = {}
-targets = { conjugate_plane = "objective_image_plane", achieved_plane_magnification = 18.922310421, achieved_relay_error_um = 2.076374781 }
+targets = { conjugate_plane = "objective_image_plane", achieved_plane_magnification = 18.922310733, achieved_relay_error_um = 0.007311414, validation_step_mm = 0.00625 }
 
 [[modes]]
 key = "diffraction"

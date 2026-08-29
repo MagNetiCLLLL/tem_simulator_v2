@@ -1022,6 +1022,7 @@ class PhysicalLayoutView(QWidget):
         self._highlight = None
         self._design_reference_items = []
         self._vacuum_liner_items = []
+        self._c1_c2_pole_piece_cartridge_items = []
         self._c1_c2_pole_gap = None
         self._objective_lens_half_items = []
         self._objective_lens_labels = []
@@ -1182,6 +1183,14 @@ class PhysicalLayoutView(QWidget):
                 "axial insertion "
                 f"{record.pole_mounting_shank_axial_length_mm:.6g} mm"
             )
+        if record.pole_vacuum_connector_axial_length_mm > 0.0:
+            tooltip += (
+                "\nVacuum connector tail "
+                f"ID {record.bore_diameter_mm:.6g} mm | "
+                f"OD {record.pole_vacuum_connector_outer_diameter_mm:.6g} "
+                "mm | axial length "
+                f"{record.pole_vacuum_connector_axial_length_mm:.6g} mm"
+            )
         if record.pole_cone_angle_to_axis_deg > 0.0:
             tooltip += (
                 "\nNominal cone angle metadata "
@@ -1207,9 +1216,25 @@ class PhysicalLayoutView(QWidget):
                 )
                 direction = 1.0 if face_at_end else -1.0
                 mounting_end_z = outside_z + direction * insertion
+                connector_outer = min(
+                    0.5 * float(
+                        record.pole_vacuum_connector_outer_diameter_mm
+                    ),
+                    shank_outer,
+                )
+                connector_length = min(
+                    float(record.pole_vacuum_connector_axial_length_mm),
+                    max(insertion - 0.001, 0.0),
+                )
+                connector_end_z = outside_z + direction * connector_length
+                if connector_outer <= shank_inner or connector_length <= 0.0:
+                    connector_outer = shank_outer
+                    connector_end_z = outside_z
                 points = QPolygonF([
                     QPointF(outside_z, sign * shank_inner),
-                    QPointF(outside_z, sign * shank_outer),
+                    QPointF(outside_z, sign * connector_outer),
+                    QPointF(connector_end_z, sign * connector_outer),
+                    QPointF(connector_end_z, sign * shank_outer),
                     QPointF(mounting_end_z, sign * shank_outer),
                     QPointF(mounting_end_z, sign * outer),
                     QPointF(shoulder_z, sign * outer),
@@ -1217,6 +1242,7 @@ class PhysicalLayoutView(QWidget):
                     QPointF(face_z, sign * bore),
                     QPointF(mounting_end_z, sign * bore),
                     QPointF(mounting_end_z, sign * shank_inner),
+                    QPointF(connector_end_z, sign * shank_inner),
                 ])
             elif style == "objective_mushroom_bore_stem":
                 stem = 0.5 * float(record.pole_stem_outer_diameter_mm)
@@ -2139,7 +2165,11 @@ class PhysicalLayoutView(QWidget):
             return False
         role = str(part.data.get("mechanical_part_role", ""))
         if bool(part.data.get("mechanical_only", False)):
-            return role in {"slit_blade_carrier", "branch_interface"}
+            return role in {
+                "slit_blade_carrier",
+                "branch_interface",
+                "pole_piece_cartridge",
+            }
         if record.profile in {
             "magnetic_pole_piece",
             "magnetic_lens_housing",
@@ -2461,6 +2491,7 @@ class PhysicalLayoutView(QWidget):
         self._highlight = None
         self._design_reference_items = []
         self._vacuum_liner_items = []
+        self._c1_c2_pole_piece_cartridge_items = []
         self._c1_c2_pole_gap = None
         self._objective_lens_half_items = []
         self._objective_lens_labels = []
@@ -2555,6 +2586,8 @@ class PhysicalLayoutView(QWidget):
                         )
                     )
                     self.plot.addItem(rect)
+                    if record.profile == "c1_c2_pole_piece_cartridge":
+                        self._c1_c2_pole_piece_cartridge_items.append(rect)
                     if record.profile == "magnetic_excitation_coil":
                         self._lens_excitation_coil_items.setdefault(
                             record.key, []
@@ -2607,6 +2640,14 @@ class PhysicalLayoutView(QWidget):
                     f"OD {segment.outer_diameter_mm:.6g} mm"
                     "\nThis is a physical sleeve around the open beam-path "
                     "bore, not the bore itself."
+                    + (
+                        "\nPhoto-scaled continuous tube; it terminates at "
+                        "the upper Objective pole connector tail. The metal "
+                        "vacuum seal is user-identified as iridium."
+                        if segment.key
+                        == "@vacuum_liner:c1_c2_to_upper_objective"
+                        else ""
+                    )
                 )
                 self.plot.addItem(rect)
                 self._vacuum_liner_items.append(rect)

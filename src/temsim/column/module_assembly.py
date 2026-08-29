@@ -152,7 +152,7 @@ class VacuumBoreSegment:
 
 @dataclass(frozen=True)
 class VacuumLinerSegment:
-    """Thin non-magnetic tube surrounding one vacuum-bore segment."""
+    """One non-magnetic tube surrounding an electron-accessible bore."""
 
     key: str
     name: str
@@ -206,6 +206,24 @@ class ResolvedAssembly(ModuleAssembly):
         )
 
 
+def _module_continuous_vacuum_tube(module, origin):
+    """Return the photo-scaled C1/C2-to-objective tube, when declared."""
+
+    required = (
+        "c1_c2_objective_vacuum_tube_start_z_mm",
+        "c1_c2_objective_vacuum_tube_end_z_mm",
+        "c1_c2_objective_vacuum_tube_inner_diameter_mm",
+        "c1_c2_objective_vacuum_tube_outer_diameter_mm",
+    )
+    if not all(field in module.geometry for field in required):
+        return None
+    start = origin + float(module.geometry[required[0]])
+    end = origin + float(module.geometry[required[1]])
+    inner = float(module.geometry[required[2]])
+    outer = float(module.geometry[required[3]])
+    return start, end, inner, outer
+
+
 def _module_vacuum_segments(module, origin, resolved_parts):
     """Resolve overlaps by keeping the narrowest electron-accessible bore."""
 
@@ -213,6 +231,10 @@ def _module_vacuum_segments(module, origin, resolved_parts):
     module_end = origin + module.exit_z_mm
     parts = [part for part in resolved_parts if part.module_key == module.key]
     breakpoints = {float(module_start), float(module_end)}
+    continuous_tube = _module_continuous_vacuum_tube(module, origin)
+    if continuous_tube is not None:
+        tube_start, tube_end, _tube_inner, _tube_outer = continuous_tube
+        breakpoints.update((tube_start, tube_end))
     for part in parts:
         if part.end_z_mm > part.start_z_mm:
             breakpoints.add(max(float(part.start_z_mm), float(module_start)))
@@ -249,6 +271,12 @@ def _module_vacuum_segments(module, origin, resolved_parts):
             diameter = drift_diameter
             key = f"@vacuum_drift:{module.key}"
             name = f"{module.key} vacuum drift"
+        if continuous_tube is not None:
+            tube_start, tube_end, tube_inner, _tube_outer = continuous_tube
+            if tube_start <= midpoint <= tube_end and tube_inner < diameter:
+                diameter = tube_inner
+                key = "@vacuum_tube:c1_c2_to_upper_objective"
+                name = "C1/C2 to upper objective continuous vacuum tube"
         segment = VacuumBoreSegment(key, name, start, end, diameter)
         previous = segments[-1] if segments else None
         if (
@@ -476,6 +504,18 @@ def resolve_module_assembly(configuration, root=None):
         module_segments = _module_vacuum_segments(module, origin, parts)
         wall = float(module.geometry["vacuum_liner_wall_thickness_mm"])
         vacuum_bore_segments.extend(module_segments)
+        continuous_tube = _module_continuous_vacuum_tube(module, origin)
+        if continuous_tube is not None:
+            tube_start, tube_end, tube_inner, tube_outer = continuous_tube
+            vacuum_liner_segments.append(VacuumLinerSegment(
+                key="@vacuum_liner:c1_c2_to_upper_objective",
+                name="C1/C2 to upper objective continuous vacuum tube",
+                start_z_mm=tube_start,
+                end_z_mm=tube_end,
+                inner_diameter_mm=tube_inner,
+                outer_diameter_mm=tube_outer,
+                wall_thickness_mm=0.5 * (tube_outer - tube_inner),
+            ))
         vacuum_liner_segments.extend(
             VacuumLinerSegment(
                 key=f"@vacuum_liner:{segment.key}",
@@ -489,6 +529,11 @@ def resolve_module_assembly(configuration, root=None):
                 wall_thickness_mm=wall,
             )
             for segment in module_segments
+            if (
+                continuous_tube is None
+                or segment.end_z_mm <= continuous_tube[0]
+                or segment.start_z_mm >= continuous_tube[1]
+            )
         )
     return ResolvedAssembly(
         modules=modules,

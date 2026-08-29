@@ -21,6 +21,7 @@ from temsim.optics.direct_alignment import DirectAlignmentResult
 from temsim.operating_modes import (
     apply_operating_mode_pair,
     direct_alignment_by_key,
+    mode_by_key,
 )
 from temsim.diagnostics import optical_transfer_records
 from temsim.physics.core import electron
@@ -820,21 +821,31 @@ def test_gui_applies_calculated_probe_and_projection_modes(qtbot):
     window.preview_timer.stop()
 
     by_key = {lens.key: lens for lens in window.state.lenses}
+    microprobe = mode_by_key("micro_probe")
+    imaging = mode_by_key("imaging")
     assert window.state.illumination_mode == "TEM"
     assert window.state.projector_mode == "image"
     assert window.state.condenser_aperture_2.diameter_um == pytest.approx(100.0)
     assert window.state.condenser_aperture_3.diameter_um == pytest.approx(4000.0)
     assert by_key["condenser_lens_2"].percent == pytest.approx(
-        54.80319718306794
+        microprobe.devices["condenser_lens_2"]["percent"]
     )
     assert by_key["condenser_lens_3"].percent == pytest.approx(
-        33.96325112642942
+        microprobe.devices["condenser_lens_3"]["percent"]
     )
-    assert by_key["objective_lens"].percent == pytest.approx(68.9801)
+    assert by_key["objective_lens"].percent == pytest.approx(
+        microprobe.devices["objective_lens"]["percent"]
+    )
     assert by_key["diffraction_lens"].percent == pytest.approx(
-        15.99002277
+        imaging.devices["diffraction_lens"]["percent"]
     )
-    assert "sample semi-angle 0.265 mrad" in panel.operating_mode_status.text()
+    expected_angle = float(
+        microprobe.targets["achieved_convergence_sem_angle_mrad"]
+    )
+    assert (
+        f"sample semi-angle {expected_angle:.3f} mrad"
+        in panel.operating_mode_status.text()
+    )
 
 
 def test_component_navigation_filters_only_the_active_assembly(qtbot):
@@ -1334,6 +1345,9 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert len(window.workspace.physical_layout._vacuum_liner_items) == (
         2 * len(assembly.vacuum_liner_segments)
     )
+    assert len(
+        window.workspace.physical_layout._c1_c2_pole_piece_cartridge_items
+    ) == 2
     assert window.workspace.physical_layout._pole_face_at_end(
         "condenser_lens_1_lower_pole"
     )

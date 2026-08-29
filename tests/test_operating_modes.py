@@ -3,9 +3,9 @@ import math
 import numpy as np
 import pytest
 
-from temsim.assembly_catalog import AssemblyCatalog
+from temsim.assembly_catalog import AssemblyCatalog, AssemblySelection
 from temsim.optics.column import default_state
-from temsim.operating_modes import apply_operating_mode_pair
+from temsim.operating_modes import apply_operating_mode_pair, mode_by_key
 from temsim.physics.aperture_clipping import clip_segment
 from temsim.physics.column_wall import clip_column_wall
 from temsim.physics.core import complex_transfer, propagate
@@ -118,6 +118,39 @@ def test_imaging_mode_relays_the_selected_objective_image_plane():
     assert state.objective_image_plane_z_mm == pytest.approx(source_z)
     assert abs(matrix[0, 1]) < 1.0e-5
     assert abs(matrix[0, 0]) > 1.0
+
+
+@pytest.mark.parametrize(
+    "column",
+    ("C2", "C3", "C3 + Probe Corrector"),
+)
+def test_stored_imaging_relay_is_valid_for_each_declared_column(column):
+    state = default_state()
+    AssemblyCatalog().apply(
+        state,
+        AssemblySelection("FEG", column, "Energy Filter"),
+    )
+    imaging = mode_by_key("imaging")
+    lenses = {lens.key: lens for lens in state.lenses}
+    lenses["objective_lens"].percent = 68.9801
+    for key, values in imaging.devices.items():
+        lenses[key].percent = float(values["percent"])
+    state.sync_objective()
+    state.step_mm = 0.1
+    source_z = state.objective_lens.image_plane_z_mm(
+        state.beam_voltage_kv, state.sample
+    )
+
+    matrix = complex_transfer(
+        state, source_z, tem_camera_plane_z(state)
+    )
+
+    assert source_z is not None
+    assert abs(matrix[0, 1]) < 1.0e-5
+    assert abs(matrix[0, 0]) == pytest.approx(
+        imaging.targets["achieved_plane_magnification"],
+        rel=5.0e-4,
+    )
 
 
 def test_diffraction_mode_targets_the_main_screen_reference_plane():

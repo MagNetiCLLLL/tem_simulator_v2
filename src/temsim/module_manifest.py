@@ -11,6 +11,7 @@ import tomllib
 
 from temsim.paths import INSTRUMENT_CONFIG_ROOT
 from temsim.mechanical_profiles import (
+    C1_C2_POLE_PIECE_CARTRIDGE,
     MAGNETIC_EXCITATION_COIL,
     MAGNETIC_LENS_ASSEMBLY,
     MAGNETIC_LENS_HOUSING,
@@ -80,6 +81,7 @@ PAIRED_INTERACTION_PART_KEYS = frozenset({
 })
 
 REFERENCE_FREE_PART_KEYS = frozenset({
+    C1_C2_POLE_PIECE_CARTRIDGE,
     "feg_accelerator",
     "thermionic_accelerator",
     "sample_stage",
@@ -551,6 +553,19 @@ def validate_document(document):
             raise ValueError(
                 f"Missing optical_reference_local_z_mm for {key}"
             ) from exc
+        if (
+            part.get("signal_collection_surface")
+            == "upstream_top_surface"
+            and not math.isclose(
+                reference,
+                start,
+                rel_tol=0.0,
+                abs_tol=1.0e-12,
+            )
+        ):
+            raise ValueError(
+                f"{key} signal plane must coincide with local_start_z_mm"
+            )
         if not start <= reference <= end:
             raise ValueError(
                 f"Optical reference for {key} lies outside its "
@@ -624,6 +639,9 @@ def validate_document(document):
             parts, document["geometry"]
         )
         _validate_shared_lens_housings(parts)
+        _validate_c1_c2_cartridge_and_vacuum_tube(
+            parts, document["geometry"]
+        )
         _validate_column_mechanical_overlaps(parts)
     if document.get("module", {}).get("type") == "project_and_recording_system":
         _validate_projector_lens_clearances(parts, document["geometry"])
@@ -2632,6 +2650,187 @@ def _validate_shared_lens_housings(parts):
                 raise ValueError(
                     f"{shared_key} C1/C2 coils must match in {field}"
                 )
+
+
+def _validate_c1_c2_cartridge_and_vacuum_tube(parts, geometry):
+    """Validate the photo-scaled shared pole cartridge and vacuum tube."""
+
+    tolerance = 1.0e-9
+    by_key = {str(part["key"]): part for part in parts}
+    required_parts = {
+        "condenser_lens_1",
+        "condenser_lens_2",
+        "condenser_lens_1_lower_pole",
+        "condenser_lens_2_upper_pole",
+        "c1_c2_pole_piece_cartridge",
+        "objective_upper_pole",
+        "objective_lower_pole",
+    }
+    missing_parts = required_parts - by_key.keys()
+    if missing_parts:
+        raise ValueError(
+            "Missing C1/C2 cartridge structure: "
+            + ", ".join(sorted(missing_parts))
+        )
+    required_geometry = (
+        "c1_c2_objective_vacuum_tube_start_z_mm",
+        "c1_c2_objective_vacuum_tube_end_z_mm",
+        "c1_c2_objective_vacuum_tube_inner_diameter_mm",
+        "c1_c2_objective_vacuum_tube_outer_diameter_mm",
+        "c1_c2_objective_vacuum_tube_inner_to_outer_ratio",
+        "c1_c2_objective_vacuum_tube_outer_to_objective_pole_ratio",
+        "c1_c2_objective_vacuum_tube_seal_material",
+        "c1_c2_objective_vacuum_tube_geometry_status",
+        "c1_c2_objective_vacuum_tube_geometry_source",
+    )
+    missing_geometry = [
+        field for field in required_geometry if field not in geometry
+    ]
+    if missing_geometry:
+        raise ValueError(
+            "Missing C1/C2-to-objective vacuum-tube geometry: "
+            + ", ".join(missing_geometry)
+        )
+
+    c1 = by_key["condenser_lens_1"]
+    c2 = by_key["condenser_lens_2"]
+    c1_pole = by_key["condenser_lens_1_lower_pole"]
+    c2_pole = by_key["condenser_lens_2_upper_pole"]
+    cartridge = by_key["c1_c2_pole_piece_cartridge"]
+    upper_objective = by_key["objective_upper_pole"]
+    lower_objective = by_key["objective_lower_pole"]
+
+    if (
+        not bool(cartridge.get("mechanical_only", False))
+        or cartridge.get("mechanical_profile")
+        != C1_C2_POLE_PIECE_CARTRIDGE
+        or cartridge.get("mechanical_part_role")
+        != "pole_piece_cartridge"
+    ):
+        raise ValueError(
+            "c1_c2_pole_piece_cartridge must be one mechanical cartridge"
+        )
+    if (
+        abs(
+            float(cartridge["local_start_z_mm"])
+            - float(c1["local_start_z_mm"])
+        ) > tolerance
+        or abs(
+            float(cartridge["local_end_z_mm"])
+            - float(c2["local_end_z_mm"])
+        ) > tolerance
+    ):
+        raise ValueError(
+            "The C1/C2 pole-piece cartridge must span both lens bores"
+        )
+    cartridge_inner = float(cartridge["mechanical_inner_diameter_mm"])
+    cartridge_outer = float(cartridge["mechanical_outer_diameter_mm"])
+    if not 0.0 < cartridge_inner < cartridge_outer:
+        raise ValueError("The C1/C2 cartridge diameters are invalid")
+
+    tube_start = float(
+        geometry["c1_c2_objective_vacuum_tube_start_z_mm"]
+    )
+    tube_end = float(geometry["c1_c2_objective_vacuum_tube_end_z_mm"])
+    tube_inner = float(
+        geometry["c1_c2_objective_vacuum_tube_inner_diameter_mm"]
+    )
+    tube_outer = float(
+        geometry["c1_c2_objective_vacuum_tube_outer_diameter_mm"]
+    )
+    inner_ratio = float(
+        geometry["c1_c2_objective_vacuum_tube_inner_to_outer_ratio"]
+    )
+    objective_ratio = float(
+        geometry[
+            "c1_c2_objective_vacuum_tube_outer_to_objective_pole_ratio"
+        ]
+    )
+    if not 0.0 < tube_inner < tube_outer < cartridge_inner:
+        raise ValueError(
+            "The continuous vacuum tube must fit inside the C1/C2 cartridge"
+        )
+    if (
+        abs(tube_start - float(cartridge["local_start_z_mm"])) > tolerance
+        or abs(tube_end - float(upper_objective["local_start_z_mm"]))
+        > tolerance
+    ):
+        raise ValueError(
+            "The continuous vacuum tube must run from the C1/C2 cartridge "
+            "entrance to the upper Objective pole tail"
+        )
+    if (
+        abs(tube_inner - inner_ratio * tube_outer) > tolerance
+        or abs(inner_ratio - 0.30) > tolerance
+    ):
+        raise ValueError(
+            "The continuous vacuum-tube ID must be 30% of its OD"
+        )
+    if abs(
+        tube_outer
+        - objective_ratio
+        * float(upper_objective["mechanical_outer_diameter_mm"])
+    ) > tolerance:
+        raise ValueError(
+            "The vacuum-tube OD must follow the photo-scaled Objective-pole "
+            "outer-diameter reference"
+        )
+
+    for pole in (c1_pole, c2_pole):
+        if (
+            abs(float(pole["mechanical_outer_diameter_mm"]) - cartridge_inner)
+            > tolerance
+            or abs(float(pole["mechanical_bore_diameter_mm"]) - tube_outer)
+            > tolerance
+            or abs(float(pole["vacuum_inner_diameter_mm"]) - tube_inner)
+            > tolerance
+        ):
+            raise ValueError(
+                "C1/C2 internal poles must fit the shared cartridge and "
+                "surround the continuous vacuum tube"
+            )
+        if pole.get("mechanical_container_key") != cartridge["key"]:
+            raise ValueError(
+                f"{pole['key']} must identify the shared cartridge container"
+            )
+
+    for pole in (upper_objective, lower_objective):
+        connector_outer = float(
+            pole["pole_vacuum_connector_outer_diameter_mm"]
+        )
+        connector_length = float(
+            pole["pole_vacuum_connector_axial_length_mm"]
+        )
+        if (
+            abs(connector_outer - tube_outer) > tolerance
+            or abs(float(pole["mechanical_bore_diameter_mm"]) - tube_inner)
+            > tolerance
+            or abs(
+                float(pole["pole_mounting_shank_inner_diameter_mm"])
+                - tube_inner
+            ) > tolerance
+            or not 0.0 < connector_length < float(
+                pole["pole_mounting_shank_axial_length_mm"]
+            )
+        ):
+            raise ValueError(
+                "Objective pole vacuum connectors must match the continuous "
+                "tube OD/ID and fit inside their mounting shanks"
+            )
+
+    if (
+        not str(
+            geometry["c1_c2_objective_vacuum_tube_seal_material"]
+        ).strip()
+        or geometry["c1_c2_objective_vacuum_tube_geometry_status"]
+        != "engineering_reconstruction_not_oem"
+        or not str(
+            geometry["c1_c2_objective_vacuum_tube_geometry_source"]
+        ).strip()
+    ):
+        raise ValueError(
+            "The C1/C2-to-objective tube requires seal and photo provenance"
+        )
 
 
 def _atomic_write_text(path, text):

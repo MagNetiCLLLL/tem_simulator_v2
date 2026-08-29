@@ -178,7 +178,7 @@ def test_complete_catalog_and_every_assembly_combination_validate():
     audit = ManifestEditor().validate_catalog()
 
     assert audit.module_count == 10
-    assert audit.part_definition_count == 466
+    assert audit.part_definition_count == 471
     assert audit.assembly_count == 15
 
 
@@ -295,6 +295,33 @@ def test_magnetic_lens_mechanical_layers_are_required_and_radially_nested():
     with pytest.raises(
         ValueError,
         match="C1/C2 interface poles must match",
+    ):
+        validate_document(document)
+
+
+def test_c1_c2_objective_vacuum_tube_ratio_and_interface_are_required():
+    path = (
+        Path(__file__).parents[1]
+        / "configs"
+        / "instruments"
+        / "column"
+        / "C3.toml"
+    )
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    document["geometry"][
+        "c1_c2_objective_vacuum_tube_inner_diameter_mm"
+    ] = 6.0
+    with pytest.raises(ValueError, match="ID must be 30% of its OD"):
+        validate_document(document)
+
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    by_key = {part["key"]: part for part in document["parts"]}
+    by_key["objective_upper_pole"][
+        "pole_vacuum_connector_outer_diameter_mm"
+    ] = 18.0
+    with pytest.raises(
+        ValueError,
+        match="Objective pole vacuum connectors must match",
     ):
         validate_document(document)
 
@@ -422,20 +449,51 @@ def test_c1_c2_use_contiguous_sections_of_one_shared_housing(column):
     c2 = assembly.part("condenser_lens_2_housing")
     c1_pole = assembly.part("condenser_lens_1_lower_pole")
     c2_pole = assembly.part("condenser_lens_2_upper_pole")
+    cartridge = assembly.part("c1_c2_pole_piece_cartridge")
     c1_coil = assembly.part("condenser_lens_1_excitation_coil")
     c2_coil = assembly.part("condenser_lens_2_excitation_coil")
+    objective_upper_pole = assembly.part("objective_upper_pole")
+    continuous_tube = next(
+        segment
+        for segment in assembly.vacuum_liner_segments
+        if segment.key == "@vacuum_liner:c1_c2_to_upper_objective"
+    )
 
     assert c1.data["shared_housing_key"] == (
         "condenser_c1_c2_shared_housing"
     )
     assert c2.data["shared_housing_key"] == c1.data["shared_housing_key"]
     assert c1.end_z_mm == pytest.approx(c2.start_z_mm)
+    assert cartridge.start_z_mm == pytest.approx(c1.start_z_mm)
+    assert cartridge.end_z_mm == pytest.approx(c2.end_z_mm)
+    assert cartridge.data["mechanical_inner_diameter_mm"] == pytest.approx(
+        60.0
+    )
+    assert cartridge.data["mechanical_outer_diameter_mm"] == pytest.approx(
+        90.75
+    )
+    assert cartridge.data["mechanical_only"] is True
+    assert continuous_tube.start_z_mm == pytest.approx(cartridge.start_z_mm)
+    assert continuous_tube.end_z_mm == pytest.approx(
+        objective_upper_pole.start_z_mm
+    )
+    assert continuous_tube.outer_diameter_mm == pytest.approx(19.2)
+    assert continuous_tube.inner_diameter_mm == pytest.approx(5.76)
+    assert (
+        continuous_tube.inner_diameter_mm
+        / continuous_tube.outer_diameter_mm
+    ) == pytest.approx(0.30)
+    assert objective_upper_pole.data[
+        "pole_vacuum_connector_outer_diameter_mm"
+    ] == pytest.approx(continuous_tube.outer_diameter_mm)
     for field in (
         "mechanical_bore_diameter_mm",
         "mechanical_tip_diameter_mm",
         "mechanical_outer_diameter_mm",
     ):
         assert c1_pole.data[field] == pytest.approx(c2_pole.data[field])
+    assert c1_pole.data["mechanical_container_key"] == cartridge.key
+    assert c2_pole.data["mechanical_container_key"] == cartridge.key
     for field in (
         "mechanical_inner_diameter_mm",
         "mechanical_outer_diameter_mm",
@@ -728,8 +786,17 @@ def test_operating_mode_storage_contains_calculated_optical_values():
         "objective_image_plane"
     )
     assert by_key["diffraction"].targets["conjugate_plane"] == (
-        "stem_diffraction_reference_plane"
+        "mode_dependent_diffraction_reference_plane"
     )
+    assert by_key["diffraction"].targets["reference_surface"] == (
+        "stem_main_screen_or_tem_active_recording_stop"
+    )
+    assert by_key["imaging"].targets[
+        "achieved_relay_error_um"
+    ] < 0.01
+    assert by_key["imaging"].targets[
+        "validation_step_mm"
+    ] == pytest.approx(0.00625)
     assert by_key["diffraction"].targets[
         "achieved_effective_camera_length_m"
     ] == pytest.approx(0.05, rel=3.0e-2)

@@ -192,10 +192,20 @@ def test_physical_layout_records_use_resolved_geometry_and_optical_references():
     assert all(
         item.pole_stem_outer_diameter_mm == pytest.approx(60.0)
         and item.pole_mounting_shank_inner_diameter_mm
-        == pytest.approx(2.0)
+        == pytest.approx(5.76)
         and item.pole_mounting_shank_axial_length_mm
         == pytest.approx(12.0)
+        and item.pole_vacuum_connector_outer_diameter_mm
+        == pytest.approx(19.2)
+        and item.pole_vacuum_connector_axial_length_mm
+        == pytest.approx(6.0)
         for item in objective_poles
+    )
+    cartridge = by_key["c1_c2_pole_piece_cartridge"]
+    assert cartridge.profile == "c1_c2_pole_piece_cartridge"
+    assert (cartridge.outer_diameter_mm, cartridge.bore_diameter_mm) == (
+        pytest.approx(90.75),
+        pytest.approx(60.0),
     )
     assert {
         item.pole_piece_geometry_style for item in condenser_poles
@@ -218,6 +228,18 @@ def test_physical_layout_records_use_resolved_geometry_and_optical_references():
     assert by_key["flu_screen"].outer_diameter_mm == pytest.approx(80.0)
     assert by_key["camera"].outer_diameter_mm == pytest.approx(57.344)
     assert result.assembly.vacuum_liner_segments
+    continuous_tube = next(
+        segment
+        for segment in result.assembly.vacuum_liner_segments
+        if segment.key == "@vacuum_liner:c1_c2_to_upper_objective"
+    )
+    assert (
+        continuous_tube.inner_diameter_mm,
+        continuous_tube.outer_diameter_mm,
+    ) == pytest.approx((5.76, 19.2))
+    assert continuous_tube.end_z_mm == pytest.approx(
+        result.assembly.part("objective_upper_pole").start_z_mm
+    )
     assert all(
         segment.outer_diameter_mm > segment.inner_diameter_mm
         for segment in result.assembly.vacuum_liner_segments
