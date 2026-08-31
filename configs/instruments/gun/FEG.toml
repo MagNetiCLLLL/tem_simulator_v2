@@ -86,6 +86,9 @@ stage_centers_z_mm = [
     219.77777777777777, 255.33333333333334,
     290.8888888888889, 326.44444444444446, 362.0,
 ]
+accelerator_electrode_stack_form = "repeated_annular_electrode_stages"
+accelerator_electrode_stack_evidence_status = "user_supplied_side_view_topology_not_dimensionally_calibrated"
+accelerator_electrode_stack_evidence_source = "User-supplied accelerator side-view photograph, 2026-08-30; confirms repeated external ring-stage appearance without an OEM scale or material calibration."
 
 [[parts]]
 order = 5
@@ -101,6 +104,11 @@ optical_reference_local_z_mm = 120.0
 outer_diameter_mm = 35.0
 bore_diameter_mm = 6.0
 active_length_mm = 0.2
+aperture_plate_material = "platinum_user_identified_unverified"
+aperture_plate_form = "perforated_strip"
+aperture_plate_attachment = "screw_to_single_connection_rod"
+aperture_mechanism_evidence_status = "user_identified_photo_topology_not_dimensionally_calibrated"
+aperture_mechanism_evidence_source = "User identification and user-supplied Objective Aperture top-view photograph, 2026-08-30; shared topology only, without OEM dimensions."
 parent_key = "feg_accelerator"
 
 [[parts]]
@@ -148,3 +156,8 @@ optical_reference_local_z_mm = 445.0
 outer_diameter_mm = 45.0
 bore_diameter_mm = 6.0
 active_length_mm = 0.2
+aperture_plate_material = "platinum_user_identified_unverified"
+aperture_plate_form = "perforated_strip"
+aperture_plate_attachment = "screw_to_single_connection_rod"
+aperture_mechanism_evidence_status = "user_identified_photo_topology_not_dimensionally_calibrated"
+aperture_mechanism_evidence_source = "User identification and user-supplied Objective Aperture top-view photograph, 2026-08-30; shared topology only, without OEM dimensions."

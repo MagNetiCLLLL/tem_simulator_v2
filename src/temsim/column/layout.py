@@ -1074,6 +1074,9 @@ def _base_specs(configuration):
 
     def gun_spec(key):
         component = gun[key]
+        round_aperture = (
+            component.shape_profile == "adjustable_circular_aperture"
+        )
         nominal_center = (
             gun_anchor_z_mm - component.mechanical_center_from_tip_mm
         )
@@ -1101,8 +1104,17 @@ def _base_specs(configuration):
                 if key in (FEG_ACCELERATOR, THERMIONIC_ACCELERATOR)
                 else ""
             ),
+            excitation_enabled=getattr(component, "enabled", None),
             shape_profile=component.shape_profile,
             outer_diameter_mm=component.mechanical_outer_diameter_mm,
+            active_diameter_mm=(
+                2.0 * component.effective_aperture_radius_mm
+                if round_aperture else None
+            ),
+            active_length_mm=(
+                component.plate_thickness_mm
+                if round_aperture else None
+            ),
             optical_reference_offset_mm=(
                 component.optical_reference_from_tip_mm - nominal_center
             ),
@@ -1367,6 +1379,9 @@ def _base_specs(configuration):
                 - condenser_aperture_2.mechanical_center_from_tip_mm
             ),
             condenser_aperture_2.mechanical_length_mm,
+            excitation_enabled=getattr(
+                condenser_aperture_2, "enabled", True
+            ),
             shape_profile=condenser_aperture_2.shape_profile,
             outer_diameter_mm=(
                 condenser_aperture_2.mechanical_outer_diameter_mm
@@ -1446,6 +1461,9 @@ def _base_specs(configuration):
             ),
             condenser_aperture_3.mechanical_length_mm,
             installed_if=("three_condenser",),
+            excitation_enabled=getattr(
+                condenser_aperture_3, "enabled", True
+            ),
             shape_profile=condenser_aperture_3.shape_profile,
             outer_diameter_mm=(
                 condenser_aperture_3.mechanical_outer_diameter_mm
@@ -1801,6 +1819,9 @@ def _base_specs(configuration):
             objective_aperture.owner,
             -objective_aperture.mechanical_center_below_sample_mm,
             objective_aperture.mechanical_length_mm,
+            excitation_enabled=getattr(
+                objective_aperture, "enabled", False
+            ),
             shape_profile=objective_aperture.shape_profile,
             outer_diameter_mm=(
                 objective_aperture.mechanical_outer_diameter_mm
@@ -1836,6 +1857,9 @@ def _base_specs(configuration):
             selected_area_aperture.owner,
             -selected_area_geometry.mechanical_center_below_sample_mm,
             selected_area_geometry.mechanical_length_mm,
+            excitation_enabled=getattr(
+                selected_area_aperture, "enabled", False
+            ),
             shape_profile=selected_area_aperture.shape_profile,
             outer_diameter_mm=(
                 selected_area_geometry.mechanical_outer_diameter_mm
@@ -2106,6 +2130,12 @@ def _base_specs(configuration):
             energy_filter_entrance_aperture.mechanical_length_mm,
             Branch.ENERGY_FILTER,
             installed_if=("energy_filter",),
+            excitation_enabled=(
+                getattr(energy_filter_entrance_aperture, "enabled", True)
+                and getattr(
+                    energy_filter_entrance_aperture, "installed", True
+                )
+            ),
             shape_profile=(
                 energy_filter_entrance_aperture.shape_profile
             ),

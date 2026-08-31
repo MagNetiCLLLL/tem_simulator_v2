@@ -23,6 +23,7 @@ dependencies = [
     "scipy",
     "tomli-w",
     "tifffile>=2025,<2027",
+    "xraylib==4.3.0",
 ]
 
 [project.optional-dependencies]
@@ -51,7 +52,10 @@ where = ["src"]
 "configs/instruments/project_and_recording_system" = [
     "configs/instruments/project_and_recording_system/*.toml",
 ]
+"configs/detectors/eds" = ["configs/detectors/eds/*.toml"]
+"configs/physics/eds" = ["configs/physics/eds/*.json"]
 "configs/specimens" = ["configs/specimens/*.toml"]
+"configs/specimen_supports" = ["configs/specimen_supports/*.toml"]
 "configs/operating_modes" = ["configs/operating_modes/*.toml"]
 
 [tool.pytest.ini_options]

@@ -153,6 +153,17 @@ def _default_column_absolute(part, local_key):
     return _DEFAULT_COLUMN_ORIGIN_Z_MM + float(part[local_key])
 
 
+def _manifest_gaussian_terms(part):
+    return tuple(
+        GaussianTermDefinition(
+            amplitude=float(term[0]),
+            offset=float(term[1]),
+            sigma=float(term[2]),
+        )
+        for term in part["field_profile_terms"]
+    )
+
+
 CONDENSER_LENS_1_DEFINITION = CondenserLensDefinition(
     key=CONDENSER_LENS_1,
     label=str(_C1_MANIFEST["name"]),
@@ -168,16 +179,23 @@ CONDENSER_LENS_1_DEFINITION = CondenserLensDefinition(
     optical_reference_from_tip_mm=_default_c1_absolute(
         "optical_reference_local_z_mm"
     ),
-    maximum_peak_field_t=1.5,
-    field_scale_half_width_mm=10.0,
-    default_excitation_percent=90.0,
-    maximum_excitation_percent=100.0,
+    maximum_peak_field_t=float(_C1_MANIFEST["maximum_peak_field_t"]),
+    field_scale_half_width_mm=float(_C1_MANIFEST["field_half_width_mm"]),
+    default_excitation_percent=float(
+        _C1_MANIFEST["default_excitation_percent"]
+    ),
+    maximum_excitation_percent=float(
+        _C1_MANIFEST["maximum_excitation_percent"]
+    ),
     colour="#1565c0",
+    gaussian_terms=_manifest_gaussian_terms(_C1_MANIFEST),
     polarity=int(_C1_MANIFEST["field_polarity"]),
     effective_aperture_radius_mm=float(
         _C1_MANIFEST["effective_aperture_radius_mm"]
     ),
-    normalise_profile_peak=True,
+    normalise_profile_peak=bool(
+        _C1_MANIFEST["normalise_field_profile_peak"]
+    ),
 )
 
 CONDENSER_LENS_2_DEFINITION = CondenserLensDefinition(
@@ -195,16 +213,22 @@ CONDENSER_LENS_2_DEFINITION = CondenserLensDefinition(
     optical_reference_from_tip_mm=_default_column_absolute(
         _C2_MANIFEST, "optical_reference_local_z_mm"
     ),
-    # Shared C1/C2 yoke reconstruction: use the same non-OEM design limit and
-    # keep the calibrated physical working fields in the operating presets.
-    maximum_peak_field_t=1.5,
-    field_scale_half_width_mm=10.0,
-    default_excitation_percent=35.0,
-    maximum_excitation_percent=100.0,
+    maximum_peak_field_t=float(_C2_MANIFEST["maximum_peak_field_t"]),
+    field_scale_half_width_mm=float(_C2_MANIFEST["field_half_width_mm"]),
+    default_excitation_percent=float(
+        _C2_MANIFEST["default_excitation_percent"]
+    ),
+    maximum_excitation_percent=float(
+        _C2_MANIFEST["maximum_excitation_percent"]
+    ),
     colour="#1976d2",
+    gaussian_terms=_manifest_gaussian_terms(_C2_MANIFEST),
     polarity=int(_C2_MANIFEST["field_polarity"]),
     effective_aperture_radius_mm=(
         0.5 * float(_C2_MANIFEST["bore_diameter_mm"])
+    ),
+    normalise_profile_peak=bool(
+        _C2_MANIFEST["normalise_field_profile_peak"]
     ),
 )
 

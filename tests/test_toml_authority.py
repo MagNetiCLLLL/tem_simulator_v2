@@ -44,11 +44,11 @@ def test_catalog_reports_variant_scope_and_unique_active_authorities():
     audit = ManifestEditor().validate_catalog()
 
     assert audit.module_count == 10
-    assert audit.part_definition_count == 471
-    assert audit.logical_part_key_count == 193
-    assert audit.variant_scoped_duplicate_count == 278
+    assert audit.part_definition_count == 480
+    assert audit.logical_part_key_count == 196
+    assert audit.variant_scoped_duplicate_count == 284
     assert audit.assembly_count == 15
-    assert audit.resolved_part_authority_count == 1984
+    assert audit.resolved_part_authority_count == 2029
 
 
 def test_selected_runtime_components_record_their_one_toml_authority():

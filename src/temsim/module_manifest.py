@@ -9,17 +9,27 @@ import re
 import tempfile
 import tomllib
 
-from temsim.paths import INSTRUMENT_CONFIG_ROOT
+from temsim.component_keys import PROJECTION_CHAMBER_DPA_APERTURE
+from temsim.detector.eds_geometry import (
+    EDS_DETECTOR_DEFINITION_FIELD,
+    EDS_DETECTOR_DEFINITION_FIELDS,
+    EDSDetectorArrayGeometry,
+    resolve_eds_detector_part_data,
+)
 from temsim.mechanical_profiles import (
     C1_C2_POLE_PIECE_CARTRIDGE,
+    FIXED_DIFFERENTIAL_PUMPING_APERTURE,
     MAGNETIC_EXCITATION_COIL,
     MAGNETIC_LENS_ASSEMBLY,
     MAGNETIC_LENS_HOUSING,
     MAGNETIC_LENS_MECHANICAL_PROFILES,
     MAGNETIC_LENS_YOKE,
     MAGNETIC_POLE_PIECE,
+    POST_PROJECTOR_DETECTOR_CHAMBER,
+    TRANSVERSE_EDS_DETECTOR_ARRAY,
     lens_mechanical_part_keys,
 )
+from temsim.paths import INSTRUMENT_CONFIG_ROOT
 
 MODULE_ROOT = INSTRUMENT_CONFIG_ROOT
 
@@ -54,6 +64,10 @@ PROJECTOR_LENS_KEYS = (
     "projector_lens_1",
     "projector_lens_2",
 )
+CONDENSER_FIELD_CALIBRATION_KEYS = (
+    "condenser_lens_1",
+    "condenser_lens_2",
+)
 PROJECTOR_FIELD_CALIBRATION_FIELDS = (
     "maximum_peak_field_t",
     "field_half_width_mm",
@@ -63,11 +77,48 @@ PROJECTOR_FIELD_CALIBRATION_FIELDS = (
     "field_calibration_status",
     "field_calibration_source",
 )
+CONDENSER_FIELD_CALIBRATION_FIELDS = (
+    *PROJECTOR_FIELD_CALIBRATION_FIELDS,
+    "normalise_field_profile_peak",
+)
 MECHANICAL_GEOMETRY_STATUSES = frozenset({
     "manufacturer_documented",
     "measured_calibration",
     "engineering_reconstruction_not_oem",
 })
+
+APERTURE_MECHANISM_PART_KEYS = frozenset({
+    "feg_dpa_aperture",
+    "feg_c1_aperture",
+    "thermionic_anode_aperture",
+    "thermionic_c1_aperture",
+    "condenser_aperture_2",
+    "condenser_aperture_3",
+    "objective_aperture",
+    "selected_area_aperture",
+    "energy_filter_entrance_aperture",
+})
+APERTURE_MECHANISM_METADATA = {
+    "aperture_plate_material": "platinum_user_identified_unverified",
+    "aperture_plate_form": "perforated_strip",
+    "aperture_plate_attachment": "screw_to_single_connection_rod",
+    "aperture_mechanism_evidence_status": (
+        "user_identified_photo_topology_not_dimensionally_calibrated"
+    ),
+}
+
+ACCELERATOR_STACK_PART_KEYS = frozenset({
+    "feg_accelerator",
+    "thermionic_accelerator",
+})
+ACCELERATOR_STACK_METADATA = {
+    "accelerator_electrode_stack_form": (
+        "repeated_annular_electrode_stages"
+    ),
+    "accelerator_electrode_stack_evidence_status": (
+        "user_supplied_side_view_topology_not_dimensionally_calibrated"
+    ),
+}
 
 PAIRED_INTERACTION_PART_KEYS = frozenset({
     "feg_deflector",
@@ -82,6 +133,9 @@ PAIRED_INTERACTION_PART_KEYS = frozenset({
 
 REFERENCE_FREE_PART_KEYS = frozenset({
     C1_C2_POLE_PIECE_CARTRIDGE,
+    PROJECTION_CHAMBER_DPA_APERTURE,
+    "post_projector_detector_chamber",
+    "eds_detector_system",
     "feg_accelerator",
     "thermionic_accelerator",
     "sample_stage",
@@ -459,6 +513,15 @@ def stage_manifest_text(text, updates):
 
 
 def validate_document(document):
+    document = dict(document)
+    document["parts"] = [
+        (
+            resolve_eds_detector_part_data(part)
+            if str(part.get("key", "")) == "eds_detector_system"
+            else part
+        )
+        for part in document.get("parts", ())
+    ]
     if document.get("coordinate_system") != "module_local_z_mm":
         raise ValueError("Invalid module coordinate system")
     parts = tuple(document.get("parts", ()))
@@ -629,12 +692,18 @@ def validate_document(document):
         ) from exc
     if not math.isfinite(liner_wall) or liner_wall <= 0.0:
         raise ValueError("Vacuum liner wall thickness must be positive")
+    _validate_aperture_mechanism_metadata(parts)
+    _validate_accelerator_stack_metadata(parts)
     if document.get("module", {}).get("type") == "gun":
         _validate_gun_mechanical_relationships(parts)
     if document.get("module", {}).get("type") == "column":
         _validate_column_order(parts)
         _validate_objective_assembly(parts)
+        _validate_eds_detector_geometry(parts)
         _validate_two_pole_lens_assemblies(parts)
+        _validate_condenser_field_calibrations(
+            parts, document["geometry"]
+        )
         _validate_magnetic_lens_mechanical_parts(
             parts, document["geometry"]
         )
@@ -652,6 +721,7 @@ def validate_document(document):
             parts, document["geometry"]
         )
         _validate_recording_plane_geometry(parts)
+        _validate_post_projector_detector_chamber(parts)
         _validate_energy_filter_geometry(parts)
     entrance = float(document["ports"]["entrance"]["local_z_mm"])
     exit_z = float(document["ports"]["exit"]["local_z_mm"])
@@ -674,70 +744,208 @@ def part_requires_field_polarity(part):
     )
 
 
+def _validate_aperture_mechanism_metadata(parts):
+    """Require provenance without inventing dimensions for aperture rods."""
+
+    for part in parts:
+        key = str(part["key"])
+        if key not in APERTURE_MECHANISM_PART_KEYS:
+            continue
+        missing = [
+            field
+            for field in (
+                *APERTURE_MECHANISM_METADATA,
+                "aperture_mechanism_evidence_source",
+            )
+            if field not in part
+        ]
+        if missing:
+            raise ValueError(
+                f"Missing {key} aperture mechanism metadata: "
+                + ", ".join(missing)
+            )
+        for field, expected in APERTURE_MECHANISM_METADATA.items():
+            actual = str(part[field]).strip()
+            if actual != expected:
+                raise ValueError(
+                    f"{key}.{field} must be {expected!r}, got {actual!r}"
+                )
+        if not str(part["aperture_mechanism_evidence_source"]).strip():
+            raise ValueError(
+                f"{key}.aperture_mechanism_evidence_source must not be empty"
+            )
+        thickness_field = (
+            "plate_thickness_mm"
+            if "plate_thickness_mm" in part
+            else "active_length_mm"
+        )
+        thickness = float(part[thickness_field])
+        if (
+            not math.isfinite(thickness)
+            or thickness <= 0.0
+            or thickness > float(part["length_mm"])
+        ):
+            raise ValueError(
+                f"{key}.{thickness_field} must be positive and no greater "
+                "than its mechanical envelope"
+            )
+
+
+def _validate_accelerator_stack_metadata(parts):
+    """Validate configured stage locations and photo-topology provenance."""
+
+    for part in parts:
+        key = str(part["key"])
+        if key not in ACCELERATOR_STACK_PART_KEYS:
+            continue
+        missing = [
+            field
+            for field in (
+                "stage_centers_z_mm",
+                *ACCELERATOR_STACK_METADATA,
+                "accelerator_electrode_stack_evidence_source",
+            )
+            if field not in part
+        ]
+        if missing:
+            raise ValueError(
+                f"Missing {key} accelerator-stack metadata: "
+                + ", ".join(missing)
+            )
+        for field, expected in ACCELERATOR_STACK_METADATA.items():
+            actual = str(part[field]).strip()
+            if actual != expected:
+                raise ValueError(
+                    f"{key}.{field} must be {expected!r}, got {actual!r}"
+                )
+        if not str(
+            part["accelerator_electrode_stack_evidence_source"]
+        ).strip():
+            raise ValueError(
+                f"{key}.accelerator_electrode_stack_evidence_source must "
+                "not be empty"
+            )
+        centers = tuple(float(value) for value in part["stage_centers_z_mm"])
+        start = float(part["local_start_z_mm"])
+        end = float(part["local_end_z_mm"])
+        if (
+            len(centers) < 2
+            or not all(math.isfinite(value) for value in centers)
+            or any(
+                downstream <= upstream
+                for upstream, downstream in zip(centers, centers[1:])
+            )
+            or not all(start <= value <= end for value in centers)
+        ):
+            raise ValueError(
+                f"{key}.stage_centers_z_mm must contain at least two "
+                "ordered finite positions inside the accelerator envelope"
+            )
+
+
+def _validate_round_lens_field_calibration(part, key, required_fields):
+    missing = [field for field in required_fields if field not in part]
+    if missing:
+        raise ValueError(
+            f"Missing {key} TOML field calibration: "
+            + ", ".join(missing)
+        )
+    peak_t = float(part["maximum_peak_field_t"])
+    half_width_mm = float(part["field_half_width_mm"])
+    default_percent = float(part["default_excitation_percent"])
+    maximum_percent = float(part["maximum_excitation_percent"])
+    if not math.isfinite(peak_t) or peak_t <= 0.0:
+        raise ValueError(
+            f"{key}.maximum_peak_field_t must be finite and positive"
+        )
+    if not math.isfinite(half_width_mm) or half_width_mm <= 0.0:
+        raise ValueError(
+            f"{key}.field_half_width_mm must be finite and positive"
+        )
+    if (
+        not math.isfinite(maximum_percent)
+        or not 0.0 < maximum_percent <= 100.0
+        or not math.isfinite(default_percent)
+        or not 0.0 <= default_percent <= maximum_percent
+    ):
+        raise ValueError(
+            f"{key} excitation percentages must satisfy "
+            "0 <= default <= maximum <= 100"
+        )
+    terms = part["field_profile_terms"]
+    if not isinstance(terms, list) or not terms:
+        raise ValueError(
+            f"{key}.field_profile_terms must be a non-empty list"
+        )
+    amplitude_sum = 0.0
+    for index, term in enumerate(terms):
+        if not isinstance(term, list) or len(term) != 3:
+            raise ValueError(
+                f"{key}.field_profile_terms[{index}] must contain "
+                "amplitude, offset and sigma"
+            )
+        amplitude, offset, sigma = (float(value) for value in term)
+        if not all(
+            math.isfinite(value) for value in (amplitude, offset, sigma)
+        ):
+            raise ValueError(f"{key}.field_profile_terms must be finite")
+        if sigma <= 0.0:
+            raise ValueError(f"{key} field-profile sigma must be positive")
+        amplitude_sum += amplitude
+    if amplitude_sum <= 0.0:
+        raise ValueError(
+            f"{key} field-profile amplitude sum must be positive"
+        )
+    status = str(part["field_calibration_status"]).strip()
+    source = str(part["field_calibration_source"]).strip()
+    if status not in PROJECTOR_FIELD_CALIBRATION_STATUSES:
+        raise ValueError(
+            f"{key}.field_calibration_status must be one of "
+            f"{sorted(PROJECTOR_FIELD_CALIBRATION_STATUSES)}"
+        )
+    if not source:
+        raise ValueError(f"{key}.field_calibration_source must not be empty")
+
+
 def _validate_projector_field_calibrations(parts):
     by_key = {str(part["key"]): part for part in parts}
     for key in PROJECTOR_LENS_KEYS:
         part = by_key.get(key)
         if part is None:
             raise ValueError(f"Missing projector field source {key}")
-        missing = [
-            field for field in PROJECTOR_FIELD_CALIBRATION_FIELDS
-            if field not in part
-        ]
-        if missing:
+        _validate_round_lens_field_calibration(
+            part, key, PROJECTOR_FIELD_CALIBRATION_FIELDS
+        )
+
+
+def _validate_condenser_field_calibrations(parts, geometry):
+    by_key = {str(part["key"]): part for part in parts}
+    design_peak_fields = geometry.get(
+        "magnetic_lens_design_peak_fields_t", {}
+    )
+    for key in CONDENSER_FIELD_CALIBRATION_KEYS:
+        part = by_key.get(key)
+        if part is None:
+            raise ValueError(f"Missing condenser field source {key}")
+        _validate_round_lens_field_calibration(
+            part, key, CONDENSER_FIELD_CALIBRATION_FIELDS
+        )
+        if not isinstance(part["normalise_field_profile_peak"], bool):
             raise ValueError(
-                f"Missing {key} TOML field calibration: "
-                + ", ".join(missing)
+                f"{key}.normalise_field_profile_peak must be boolean"
             )
-        peak_t = float(part["maximum_peak_field_t"])
-        half_width_mm = float(part["field_half_width_mm"])
-        default_percent = float(part["default_excitation_percent"])
-        maximum_percent = float(part["maximum_excitation_percent"])
-        if not math.isfinite(peak_t) or peak_t <= 0.0:
+        try:
+            design_peak_t = float(design_peak_fields[key])
+        except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(
-                f"{key}.maximum_peak_field_t must be finite and positive"
-            )
-        if not math.isfinite(half_width_mm) or half_width_mm <= 0.0:
+                f"Missing design peak field for {key}"
+            ) from exc
+        if abs(
+            float(part["maximum_peak_field_t"]) - design_peak_t
+        ) > 1.0e-12:
             raise ValueError(
-                f"{key}.field_half_width_mm must be finite and positive"
+                f"{key} runtime and mechanical design peak fields must match"
             )
-        if (
-            not math.isfinite(maximum_percent)
-            or not 0.0 < maximum_percent <= 100.0
-            or not math.isfinite(default_percent)
-            or not 0.0 <= default_percent <= maximum_percent
-        ):
-            raise ValueError(
-                f"{key} excitation percentages must satisfy "
-                "0 <= default <= maximum <= 100"
-            )
-        terms = part["field_profile_terms"]
-        if not isinstance(terms, list) or not terms:
-            raise ValueError(f"{key}.field_profile_terms must be a non-empty list")
-        amplitude_sum = 0.0
-        for index, term in enumerate(terms):
-            if not isinstance(term, list) or len(term) != 3:
-                raise ValueError(
-                    f"{key}.field_profile_terms[{index}] must contain "
-                    "amplitude, offset and sigma"
-                )
-            amplitude, offset, sigma = (float(value) for value in term)
-            if not all(math.isfinite(value) for value in (amplitude, offset, sigma)):
-                raise ValueError(f"{key}.field_profile_terms must be finite")
-            if sigma <= 0.0:
-                raise ValueError(f"{key} field-profile sigma must be positive")
-            amplitude_sum += amplitude
-        if amplitude_sum <= 0.0:
-            raise ValueError(f"{key} field-profile amplitude sum must be positive")
-        status = str(part["field_calibration_status"]).strip()
-        source = str(part["field_calibration_source"]).strip()
-        if status not in PROJECTOR_FIELD_CALIBRATION_STATUSES:
-            raise ValueError(
-                f"{key}.field_calibration_status must be one of "
-                f"{sorted(PROJECTOR_FIELD_CALIBRATION_STATUSES)}"
-            )
-        if not source:
-            raise ValueError(f"{key}.field_calibration_source must not be empty")
 
 
 def _validate_recording_plane_geometry(parts):
@@ -920,6 +1128,249 @@ def _validate_recording_plane_geometry(parts):
                 raise ValueError(
                     f"{key} axial-order source URLs are missing"
                 )
+
+
+def _validate_post_projector_detector_chamber(parts):
+    """Require a mechanical-only chamber around the post-P2 detector bank."""
+
+    by_key = {str(part["key"]): part for part in parts}
+    chamber = by_key.get("post_projector_detector_chamber")
+    if chamber is None:
+        raise ValueError("Missing post-projector detector chamber")
+    required_fields = (
+        "mechanical_inner_diameter_mm",
+        "mechanical_outer_diameter_mm",
+        "mechanical_geometry_status",
+        "mechanical_geometry_source",
+        "mechanical_geometry_source_urls",
+        "contained_recording_plane_keys",
+        "upstream_boundary_aperture_key",
+    )
+    missing = [field for field in required_fields if field not in chamber]
+    if missing:
+        raise ValueError(
+            "Missing post-projector detector-chamber metadata: "
+            + ", ".join(missing)
+        )
+    if (
+        chamber.get("mechanical_profile")
+        != POST_PROJECTOR_DETECTOR_CHAMBER
+        or chamber.get("mechanical_part_role")
+        != "detector_chamber_housing"
+        or not bool(chamber.get("mechanical_only", False))
+        or not bool(chamber.get("axial_vacuum_context_only", False))
+    ):
+        raise ValueError(
+            "Post-projector detector chamber must be a mechanical-only "
+            "axial-vacuum-context housing"
+        )
+    if chamber["mechanical_geometry_status"] != (
+        "public_titan_topology_absolute_dimensions_provisional_non_oem"
+    ):
+        raise ValueError(
+            "Post-projector detector chamber must remain explicitly non-OEM"
+        )
+    if not str(chamber["mechanical_geometry_source"]).strip():
+        raise ValueError(
+            "Post-projector detector-chamber source must not be empty"
+        )
+    source_urls = chamber["mechanical_geometry_source_urls"]
+    if (
+        not isinstance(source_urls, list)
+        or len(source_urls) < 2
+        or any(not str(url).startswith("https://") for url in source_urls)
+    ):
+        raise ValueError(
+            "Post-projector detector-chamber source URLs are missing"
+        )
+
+    p2 = by_key.get("projector_lens_2_housing")
+    if p2 is None:
+        raise ValueError(
+            "Post-projector detector chamber requires the P2 housing"
+        )
+    tolerance = 1.0e-9
+    start = float(chamber["local_start_z_mm"])
+    end = float(chamber["local_end_z_mm"])
+    inner = float(chamber["mechanical_inner_diameter_mm"])
+    outer = float(chamber["mechanical_outer_diameter_mm"])
+    if not math.isclose(
+        start,
+        float(p2["local_end_z_mm"]),
+        rel_tol=0.0,
+        abs_tol=tolerance,
+    ):
+        raise ValueError(
+            "Post-projector detector chamber must start at the P2 housing end"
+        )
+    if not (
+        math.isfinite(inner)
+        and math.isfinite(outer)
+        and inner >= float(p2["mechanical_outer_diameter_mm"])
+        and outer > inner
+    ):
+        raise ValueError(
+            "Post-projector detector-chamber diameters must clear the P2 "
+            "housing and satisfy outer > inner"
+        )
+    if not math.isclose(
+        float(chamber["vacuum_inner_diameter_mm"]),
+        float(p2["vacuum_inner_diameter_mm"]),
+        rel_tol=0.0,
+        abs_tol=tolerance,
+    ):
+        raise ValueError(
+            "Post-projector detector chamber must retain the projector "
+            "vacuum-path diameter"
+        )
+
+    if chamber["upstream_boundary_aperture_key"] != (
+        PROJECTION_CHAMBER_DPA_APERTURE
+    ):
+        raise ValueError(
+            "Post-projector detector chamber must identify its "
+            "projection-chamber DPA boundary"
+        )
+    dpa = by_key.get(PROJECTION_CHAMBER_DPA_APERTURE)
+    if dpa is None:
+        raise ValueError(
+            "Missing projection-chamber differential-pumping aperture"
+        )
+    required_dpa_fields = (
+        "mechanical_outer_diameter_mm",
+        "mechanical_bore_diameter_mm",
+        "reference_bore_diameter_mm",
+        "reference_bore_status",
+        "aperture_adjustability",
+        "mechanical_axial_thickness_status",
+        "conjugate_plane_status",
+        "optical_constraint_policy",
+        "mechanical_geometry_status",
+        "mechanical_geometry_source",
+        "mechanical_geometry_source_urls",
+    )
+    missing_dpa = [
+        field for field in required_dpa_fields if field not in dpa
+    ]
+    if missing_dpa:
+        raise ValueError(
+            "Missing projection-chamber DPA metadata: "
+            + ", ".join(missing_dpa)
+        )
+    if (
+        dpa.get("mechanical_profile")
+        != FIXED_DIFFERENTIAL_PUMPING_APERTURE
+        or dpa.get("mechanical_part_role")
+        != "fixed_vacuum_restriction"
+        or not bool(dpa.get("mechanical_only", False))
+        or str(dpa.get("branch")) != "common"
+    ):
+        raise ValueError(
+            "Projection-chamber DPA must be a common, fixed, "
+            "mechanical-only vacuum restriction"
+        )
+    if "optical_reference_local_z_mm" in dpa:
+        raise ValueError(
+            "Mechanical-only projection-chamber DPA must not impose an "
+            "optical reference plane"
+        )
+    for field in (
+        "local_start_z_mm",
+        "local_center_z_mm",
+        "local_end_z_mm",
+    ):
+        if not math.isclose(
+            float(dpa[field]),
+            start,
+            rel_tol=0.0,
+            abs_tol=tolerance,
+        ):
+            raise ValueError(
+                "Projection-chamber DPA must remain at the P2/chamber boundary"
+            )
+    dpa_bore = float(dpa["mechanical_bore_diameter_mm"])
+    reference_bore = float(dpa["reference_bore_diameter_mm"])
+    dpa_outer = float(dpa["mechanical_outer_diameter_mm"])
+    if not (
+        math.isfinite(dpa_bore)
+        and math.isfinite(reference_bore)
+        and math.isfinite(dpa_outer)
+        and 0.0 < dpa_bore < dpa_outer
+        and math.isclose(
+            dpa_bore,
+            reference_bore,
+            rel_tol=0.0,
+            abs_tol=tolerance,
+        )
+        and dpa_outer <= inner
+    ):
+        raise ValueError(
+            "Projection-chamber DPA diameters must define one finite "
+            "restriction inside the detector chamber"
+        )
+    if not math.isclose(
+        float(dpa["vacuum_inner_diameter_mm"]),
+        float(p2["vacuum_inner_diameter_mm"]),
+        rel_tol=0.0,
+        abs_tol=tolerance,
+    ):
+        raise ValueError(
+            "Projection-chamber DPA must retain the surrounding nominal "
+            "vacuum-path diameter"
+        )
+    if (
+        dpa["aperture_adjustability"]
+        != "fixed_non_retractable_hardware_toml_design_variable"
+        or dpa["conjugate_plane_status"]
+        != "operating_mode_dependent_not_imposed_by_mechanical_layout"
+        or dpa["optical_constraint_policy"]
+        != "mechanical_only_no_clipping_or_preset_recalculation"
+    ):
+        raise ValueError(
+            "Projection-chamber DPA must not impose runtime optical "
+            "constraints or preset recalculation"
+        )
+    dpa_urls = dpa["mechanical_geometry_source_urls"]
+    if (
+        not str(dpa["reference_bore_status"]).strip()
+        or not str(dpa["mechanical_axial_thickness_status"]).strip()
+        or not str(dpa["mechanical_geometry_status"]).strip()
+        or not str(dpa["mechanical_geometry_source"]).strip()
+        or not isinstance(dpa_urls, list)
+        or len(dpa_urls) < 2
+        or any(not str(url).startswith("https://") for url in dpa_urls)
+    ):
+        raise ValueError(
+            "Projection-chamber DPA provenance metadata is incomplete"
+        )
+
+    contained = tuple(chamber["contained_recording_plane_keys"])
+    expected = ("haadf", "flu_screen", "df", "bf")
+    if contained != expected:
+        raise ValueError(
+            "Post-projector detector chamber must contain HAADF, main "
+            "screen, DF and BF in axial order"
+        )
+    for key in contained:
+        part = by_key.get(key)
+        if part is None:
+            raise ValueError(
+                f"Post-projector detector chamber is missing {key}"
+            )
+        reference = float(part["optical_reference_local_z_mm"])
+        if not start < reference < end:
+            raise ValueError(
+                f"{key} active plane must lie inside the post-projector "
+                "detector chamber"
+            )
+    camera = by_key.get("camera")
+    if camera is None or not (
+        float(camera["optical_reference_local_z_mm"]) > end
+    ):
+        raise ValueError(
+            "Camera active plane must remain downstream of the schematic "
+            "viewing/STEM-detector chamber"
+        )
 
 
 def _validate_gun_mechanical_relationships(parts):
@@ -1403,6 +1854,167 @@ def _validate_energy_filter_geometry(parts):
             "Iliad post-prism multipoles, XO/slit, dynamic-focus element, "
             "MultiEELS electrostatics, output plane and Zebra must be ordered"
         )
+
+
+def _validate_eds_detector_geometry(parts):
+    """Validate the installed off-axis EDS array without inventing its size."""
+
+    by_key = {str(part["key"]): part for part in parts}
+    detector = by_key.get("eds_detector_system")
+    sample = by_key.get("sample")
+    if detector is None:
+        raise ValueError("Column TOML is missing eds_detector_system")
+    if sample is None:
+        raise ValueError("EDS detector geometry requires the sample part")
+
+    required_fields = (
+        EDS_DETECTOR_DEFINITION_FIELD,
+        *EDS_DETECTOR_DEFINITION_FIELDS,
+    )
+    missing = [field for field in required_fields if field not in detector]
+    if missing:
+        raise ValueError(
+            "Missing installed EDS geometry metadata: " + ", ".join(missing)
+        )
+
+    if (
+        detector.get("mechanical_profile")
+        != TRANSVERSE_EDS_DETECTOR_ARRAY
+        or detector.get("mechanical_part_role")
+        != "sample_adjacent_x_ray_detector_array"
+        or not bool(detector.get("mechanical_only", False))
+        or detector.get("branch") != "detection"
+        or detector.get("parent_key") != "objective_lens"
+        or detector.get("mechanical_overlap_group") != "objective_assembly"
+        or detector.get("mechanical_overlap_role") != "member"
+        or not bool(detector.get("axial_vacuum_context_only", False))
+    ):
+        raise ValueError(
+            "EDS must be a transverse mechanical child of the "
+            "Objective assembly"
+        )
+    if detector[EDS_DETECTOR_DEFINITION_FIELD] != "EDS.toml":
+        raise ValueError(
+            "The installed EDS system must use the single EDS.toml "
+            "definition"
+        )
+
+    tolerance = 1.0e-9
+    sample_z = float(sample["local_center_z_mm"])
+    detector_positions = tuple(
+        float(detector[field])
+        for field in (
+            "local_start_z_mm",
+            "local_center_z_mm",
+            "local_end_z_mm",
+        )
+    )
+    if (
+        abs(float(detector["length_mm"])) > tolerance
+        or any(abs(value - sample_z) > tolerance for value in detector_positions)
+    ):
+        raise ValueError(
+            "EDS aggregate must remain a zero-thickness off-axis "
+            "marker at the sample plane"
+        )
+
+    geometry = EDSDetectorArrayGeometry.from_part_data(detector)
+    if (
+        geometry.system_key != "eds"
+        or geometry.segment_count != 6
+        or not geometry.windowless
+        or detector["detector_technology"]
+        != "windowless_silicon_drift_detector_array"
+    ):
+        raise ValueError(
+            "The installed EDS configuration must identify a six-segment "
+            "windowless array"
+        )
+    if not math.isclose(
+        geometry.minimum_unshadowed_solid_angle_sr,
+        4.45,
+        abs_tol=1.0e-12,
+    ) or not math.isclose(
+        geometry.analytical_holder_solid_angle_sr,
+        4.04,
+        abs_tol=1.0e-12,
+    ):
+        raise ValueError(
+            "The installed EDS reference must retain the documented 4.45 sr lower "
+            "bound and 4.04 sr analytical-holder solid angle"
+        )
+    if not math.isclose(
+        geometry.takeoff_angle_deg, 32.06, abs_tol=0.01
+    ):
+        raise ValueError(
+            "The EDS reference take-off angle must retain the 32.06 degree "
+            "single-dataset metadata value"
+        )
+
+    expected_statuses = {
+        "segment_count_status": (
+            "published_instrument_report_and_user_dataset_supported_"
+            "not_oem_datasheet"
+        ),
+        "azimuth_status": "symmetric_engineering_reconstruction_not_oem",
+        "takeoff_angle_status": (
+            "single_user_dataset_metadata_not_universal_oem"
+        ),
+        "solid_angle_status": (
+            "manufacturer_documented_minimum_and_holder_configuration"
+        ),
+        "active_area_status": "not_public",
+        "sample_to_sensor_distance_status": "not_public",
+        "mechanical_envelope_status": (
+            "not_public_pending_user_cross_sections"
+        ),
+        "mounting_topology_status": (
+            "patent_family_supported_product_detail_unconfirmed"
+        ),
+    }
+    for field, expected in expected_statuses.items():
+        if str(detector[field]).strip() != expected:
+            raise ValueError(
+                f"eds_detector_system.{field} must be {expected!r}"
+            )
+    if detector["mounting_topology"] != (
+        "within_objective_lens_around_sample"
+    ):
+        raise ValueError("EDS mounting topology must remain explicit")
+    expected_azimuth_centers = tuple(float(index * 60) for index in range(6))
+    if geometry.azimuth_centers_deg != expected_azimuth_centers:
+        raise ValueError(
+            "EDS provisional azimuth centers must retain the symmetric "
+            "60 degree engineering reconstruction"
+        )
+
+    unknown_physical_dimensions = (
+        "active_area_per_segment_mm2",
+        "sample_to_sensor_distance_mm",
+        "mechanical_outer_diameter_mm",
+        "sensor_face_width_mm",
+        "sensor_face_height_mm",
+        "detector_package_length_mm",
+    )
+    invented = [
+        field for field in unknown_physical_dimensions if field in detector
+    ]
+    if invented:
+        raise ValueError(
+            "EDS public sources do not support these physical dimensions: "
+            + ", ".join(invented)
+        )
+    if (
+        not str(detector["takeoff_angle_source"]).strip()
+        or not str(detector["eds_geometry_source"]).strip()
+        or not isinstance(detector["eds_geometry_source_urls"], list)
+        or not detector["eds_geometry_source_urls"]
+        or not all(
+            isinstance(url, str) and url.startswith(("https://", "http://"))
+            for url in detector["eds_geometry_source_urls"]
+        )
+    ):
+        raise ValueError("EDS geometry requires non-empty provenance")
 
 
 def _validate_objective_assembly(parts):
@@ -2663,6 +3275,7 @@ def _validate_c1_c2_cartridge_and_vacuum_tube(parts, geometry):
         "condenser_lens_1_lower_pole",
         "condenser_lens_2_upper_pole",
         "c1_c2_pole_piece_cartridge",
+        "condenser_aperture_2",
         "objective_upper_pole",
         "objective_lower_pole",
     }
@@ -2675,6 +3288,9 @@ def _validate_c1_c2_cartridge_and_vacuum_tube(parts, geometry):
     required_geometry = (
         "c1_c2_objective_vacuum_tube_start_z_mm",
         "c1_c2_objective_vacuum_tube_end_z_mm",
+        "c1_c2_total_lens_length_mm",
+        "c1_c2_lens_length_ratio_c2_to_c1",
+        "c2_aperture_service_clearance_after_cartridge_mm",
         "c1_c2_objective_vacuum_tube_inner_diameter_mm",
         "c1_c2_objective_vacuum_tube_outer_diameter_mm",
         "c1_c2_objective_vacuum_tube_inner_to_outer_ratio",
@@ -2697,8 +3313,33 @@ def _validate_c1_c2_cartridge_and_vacuum_tube(parts, geometry):
     c1_pole = by_key["condenser_lens_1_lower_pole"]
     c2_pole = by_key["condenser_lens_2_upper_pole"]
     cartridge = by_key["c1_c2_pole_piece_cartridge"]
+    c2_aperture = by_key["condenser_aperture_2"]
     upper_objective = by_key["objective_upper_pole"]
     lower_objective = by_key["objective_lower_pole"]
+
+    c1_length = (
+        float(c1["local_end_z_mm"]) - float(c1["local_start_z_mm"])
+    )
+    c2_length = (
+        float(c2["local_end_z_mm"]) - float(c2["local_start_z_mm"])
+    )
+    configured_total = float(geometry["c1_c2_total_lens_length_mm"])
+    configured_ratio = float(
+        geometry["c1_c2_lens_length_ratio_c2_to_c1"]
+    )
+    if (
+        not math.isfinite(configured_total)
+        or configured_total <= 0.0
+        or not math.isfinite(configured_ratio)
+        or configured_ratio <= 0.0
+        or c1_length <= 0.0
+        or c2_length <= 0.0
+        or abs(c1_length + c2_length - configured_total) > tolerance
+        or abs(c2_length / c1_length - configured_ratio) > tolerance
+    ):
+        raise ValueError(
+            "C1/C2 lens lengths must retain the declared total and ratio"
+        )
 
     if (
         not bool(cartridge.get("mechanical_only", False))
@@ -2727,6 +3368,35 @@ def _validate_c1_c2_cartridge_and_vacuum_tube(parts, geometry):
     cartridge_outer = float(cartridge["mechanical_outer_diameter_mm"])
     if not 0.0 < cartridge_inner < cartridge_outer:
         raise ValueError("The C1/C2 cartridge diameters are invalid")
+
+    aperture_clearance = float(
+        geometry["c2_aperture_service_clearance_after_cartridge_mm"]
+    )
+    actual_aperture_clearance = (
+        float(c2_aperture["local_start_z_mm"])
+        - float(cartridge["local_end_z_mm"])
+    )
+    if (
+        not math.isfinite(aperture_clearance)
+        or aperture_clearance <= 0.0
+        or abs(actual_aperture_clearance - aperture_clearance) > tolerance
+    ):
+        raise ValueError(
+            "The C2 aperture must retain its declared service clearance "
+            "after the C1/C2 pole-piece cartridge"
+        )
+    if any(
+        field in c2_aperture
+        for field in (
+            "parent_key",
+            "mechanical_overlap_group",
+            "mechanical_overlap_role",
+            "mechanical_overlap_reason",
+        )
+    ):
+        raise ValueError(
+            "The downstream C2 aperture must be a standalone mechanism"
+        )
 
     tube_start = float(
         geometry["c1_c2_objective_vacuum_tube_start_z_mm"]

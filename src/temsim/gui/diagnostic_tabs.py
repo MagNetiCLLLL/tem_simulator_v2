@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -30,7 +31,9 @@ from temsim.component_keys import (
     ENERGY_FILTER_EFTEM_OUTPUT_PLANE,
     ENERGY_FILTER_ENTRANCE_APERTURE,
     ENERGY_FILTER_TAPERED_PRISM,
+    EDS_DETECTOR_SYSTEM,
     FLUORESCENT_SCREEN,
+    POST_PROJECTOR_DETECTOR_CHAMBER,
     STEM_DETECTOR_KEYS,
 )
 from temsim.component_names import (
@@ -47,6 +50,15 @@ from temsim.diagnostics import (
     vacuum_bore_plot_points,
 )
 from temsim.detector.plane_image import detector_response_image
+from temsim.detector.eds_geometry import (
+    EDSDetectorArrayGeometry,
+    assess_axisymmetric_pole_centerline,
+)
+from temsim.mechanical_profiles import (
+    FIXED_DIFFERENTIAL_PUMPING_APERTURE,
+    POST_PROJECTOR_DETECTOR_CHAMBER as POST_PROJECTOR_DETECTOR_CHAMBER_PROFILE,
+    TRANSVERSE_EDS_DETECTOR_ARRAY,
+)
 from temsim.physics.first_order import (
     linear_map_properties,
     relative_image_diffraction_orientation,
@@ -990,6 +1002,28 @@ class PhysicalLayoutView(QWidget):
         "retractable_detector_plane",
         "camera_sensor_plane",
     })
+    APERTURE_MECHANISM_PROFILE = "adjustable_circular_aperture"
+    APERTURE_PLATE_COLOUR = "#e2e8f0"
+    APERTURE_ROD_COLOUR = "#f59e0b"
+    APERTURE_SCREW_COLOUR = "#f8fafc"
+    APERTURE_COLUMN_WALL_PROFILES = frozenset({
+        "accelerator_stack",
+        "magnetic_lens_housing",
+    })
+    APERTURE_COLUMN_WALL_SEARCH_DISTANCE_MM = 25.0
+    APERTURE_ROD_OVERHANG_MM = 5.0
+    ACCELERATOR_STACK_PROFILE = "accelerator_stack"
+    ACCELERATOR_STAGE_COLOURS = ("#cbd5e1", "#94a3b8")
+    ACCELERATOR_SEPARATOR_COLOUR = "#f59e0b"
+    EDS_DETECTOR_ARRAY_PROFILE = TRANSVERSE_EDS_DETECTOR_ARRAY
+    EDS_ACTIVE_FACE_COLOUR = "#22d3ee"
+    EDS_HOUSING_COLOUR = "#0e7490"
+    EDS_ACCEPTANCE_COLOUR = "#67e8f9"
+    # Display-only separation for unpublished EDS head dimensions. It is
+    # deliberately not stored as product geometry in TOML.
+    EDS_POLE_DISPLAY_CLEARANCE_MM = 1.0
+    DETECTOR_CHAMBER_PROFILE = POST_PROJECTOR_DETECTOR_CHAMBER_PROFILE
+    FIXED_DPA_PROFILE = FIXED_DIFFERENTIAL_PUMPING_APERTURE
     LABEL_MIN_ROWS_PER_SIDE = 6
     LABEL_MAX_ROWS_PER_SIDE = 18
     LABEL_ROW_GAP_PX = 5.0
@@ -1009,6 +1043,7 @@ class PhysicalLayoutView(QWidget):
         "objective_lower_pole",
         "sample_stage",
         "sample",
+        EDS_DETECTOR_SYSTEM,
         CAMERA,
         FLUORESCENT_SCREEN,
         *STEM_DETECTOR_KEYS,
@@ -1031,6 +1066,11 @@ class PhysicalLayoutView(QWidget):
         self._sample_holder_items = []
         self._sample_plane_items = []
         self._sample_plane_labels = []
+        self._eds_detector_items = {}
+        self._eds_detector_labels = []
+        self._detector_chamber_items = []
+        self._accelerator_stack_items = {}
+        self._aperture_mechanism_items = {}
         self._recording_device_items = {}
         self._recording_device_labels = []
         self._part_by_key = {}
@@ -1048,6 +1088,51 @@ class PhysicalLayoutView(QWidget):
         )
         self.summary.setWordWrap(True)
         self.summary.setStyleSheet("color: #64748b; font-weight: 600;")
+        self.aperture_legend = QLabel(
+            "Apertures: "
+            "<span style='color:#64748b'>[Pt perforated strip]</span> "
+            "<span style='color:#334155'>[screw joint]</span> "
+            "<span style='color:#b45309'>[rear connecting rod]</span> "
+            "(rod ends 5 mm beyond the local shown column wall; schematic)"
+        )
+        self.aperture_legend.setTextFormat(Qt.TextFormat.RichText)
+        self.aperture_legend.setWordWrap(True)
+        self.aperture_legend.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Preferred,
+        )
+        self.aperture_legend.setStyleSheet(
+            "color: #64748b; font-weight: 600;"
+        )
+        self.accelerator_legend = QLabel(
+            "Accelerator: "
+            "<span style='color:#64748b'>[repeated metal rings]</span> "
+            "electrostatic electrode stages, not magnetic coils "
+            "(stage thickness and separators are schematic)"
+        )
+        self.accelerator_legend.setTextFormat(Qt.TextFormat.RichText)
+        self.accelerator_legend.setWordWrap(True)
+        self.accelerator_legend.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Preferred,
+        )
+        self.accelerator_legend.setStyleSheet(
+            "color: #64748b; font-weight: 600;"
+        )
+        self.eds_legend = QLabel(
+            "EDS detector array: six windowless sample-facing segments; two "
+            "azimuthal projections and their angular acceptance are shown. "
+            "Crystal/package size is not public, so drawn head dimensions "
+            "are schematic (>=4.45 sr unshadowed; 4.04 sr with holder)."
+        )
+        self.eds_legend.setWordWrap(True)
+        self.eds_legend.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Preferred,
+        )
+        self.eds_legend.setStyleSheet(
+            "color: #64748b; font-weight: 600;"
+        )
         self.fit_all = QPushButton("Fit all hardware")
         self.fit_bore = QPushButton("Fit vacuum bore")
         for button in (self.fit_all, self.fit_bore):
@@ -1073,6 +1158,9 @@ class PhysicalLayoutView(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(heading_row)
         layout.addLayout(action_row)
+        layout.addWidget(self.aperture_legend)
+        layout.addWidget(self.accelerator_legend)
+        layout.addWidget(self.eds_legend)
         layout.addWidget(self.plot, 1)
         layout.addWidget(self.summary)
 
@@ -1790,6 +1878,730 @@ class PhysicalLayoutView(QWidget):
             component_key="sample_stage",
         )
 
+    def _remember_eds_detector_item(self, role: str, item) -> None:
+        self._eds_detector_items.setdefault(role, []).append(item)
+        # PlotDataItem hit shapes can span the whole line bounding rectangle,
+        # so registering acceptance/centre lines would steal clicks from the
+        # sample stage.  The exact-shape housing polygons and label remain
+        # selectable entry points for the EDS aggregate.
+        if role == "housing":
+            _register_selectable_graphics_item(
+                self._selectable_item_keys,
+                item,
+                EDS_DETECTOR_SYSTEM,
+            )
+
+    def _eds_pole_centerline_assessment(self, geometry):
+        upper = self._record_by_key.get("objective_upper_pole")
+        lower = self._record_by_key.get("objective_lower_pole")
+        if upper is None or lower is None:
+            return None
+        noses = []
+        for pole in (upper, lower):
+            configured = float(pole.pole_nose_axial_length_mm)
+            noses.append(
+                configured
+                if configured > 0.0
+                else 0.38 * max(float(pole.end_z_mm - pole.start_z_mm), 0.0)
+            )
+        return assess_axisymmetric_pole_centerline(
+            takeoff_angle_deg=geometry.takeoff_angle_deg,
+            pole_gap_mm=float(lower.start_z_mm - upper.end_z_mm),
+            pole_bore_diameter_mm=max(
+                float(upper.bore_diameter_mm),
+                float(lower.bore_diameter_mm),
+            ),
+            pole_tip_diameter_mm=max(
+                float(upper.pole_tip_diameter_mm),
+                float(lower.pole_tip_diameter_mm),
+            ),
+            pole_outer_diameter_mm=max(
+                float(upper.outer_diameter_mm),
+                float(lower.outer_diameter_mm),
+            ),
+            pole_nose_axial_length_mm=min(noses),
+        )
+
+    def _add_eds_detector_array_schematic(self) -> None:
+        """Draw angular acceptance without claiming unpublished head sizes."""
+
+        record = self._record_by_key.get(EDS_DETECTOR_SYSTEM)
+        part = self._part_by_key.get(EDS_DETECTOR_SYSTEM)
+        objective = self._record_by_key.get("objective_lens")
+        upper_pole = self._record_by_key.get("objective_upper_pole")
+        lower_pole = self._record_by_key.get("objective_lower_pole")
+        if any(
+            item is None
+            for item in (record, part, objective, upper_pole, lower_pole)
+        ):
+            return
+
+        geometry = EDSDetectorArrayGeometry.from_part_data(part.data)
+        sample_z = float(record.center_z_mm)
+        takeoff_rad = math.radians(geometry.takeoff_angle_deg)
+        cone_half_angle_deg = (
+            geometry.equivalent_circular_cone_half_angle_deg()
+        )
+        holder_cone_half_angle_deg = (
+            geometry.equivalent_circular_cone_half_angle_deg(
+                analytical_holder=True
+            )
+        )
+        pole_assessment = self._eds_pole_centerline_assessment(geometry)
+        pole_tip_radius = max(
+            0.5 * float(upper_pole.pole_tip_diameter_mm),
+            0.5 * float(lower_pole.pole_tip_diameter_mm),
+            2.5,
+        )
+        objective_radius = 0.5 * float(objective.outer_diameter_mm)
+
+        # Display-only placement. Public reference material does not provide
+        # head/package dimensions, so keep a small fixed schematic head and
+        # solve its distance so every solid vertex clears the largest resolved
+        # upper/lower pole-piece radius.  The configured centre line is
+        # checked against the pole profile below.  Equivalent-acceptance
+        # boundaries may still cross the axisymmetric projection because they
+        # are aggregate angular metadata, not literal solid apertures.
+        face_half_width = max(
+            0.45 * pole_tip_radius,
+            0.025 * objective_radius,
+        )
+        housing_length = max(
+            0.8 * pole_tip_radius,
+            0.05 * objective_radius,
+        )
+        inner_half_width = 1.25 * face_half_width
+        outer_half_width = 0.82 * face_half_width
+        pole_outer_radius = max(
+            0.5 * float(upper_pole.outer_diameter_mm),
+            0.5 * float(lower_pole.outer_diameter_mm),
+        )
+        drawing_distance = (
+            pole_outer_radius
+            + self.EDS_POLE_DISPLAY_CLEARANCE_MM
+            + inner_half_width * math.sin(takeoff_rad)
+        ) / math.cos(takeoff_rad)
+        if pole_assessment is None:
+            pole_clearance_text = ""
+        else:
+            pole_clearance_text = (
+                "Configured non-OEM pole profile: reference centre-ray "
+                f"minimum radial clearance {pole_assessment.minimum_radial_clearance_mm:.4g} "
+                "mm in the axisymmetric meridional model ("
+                f"{pole_assessment.face_radial_clearance_mm:.4g} mm at the "
+                "flat face; "
+                f"{pole_assessment.shoulder_radial_clearance_mm:.4g} mm at "
+                "the cone shoulder). At the retained gap and pole OD, zero "
+                "clearance requires tip OD <= "
+                f"{pole_assessment.maximum_tip_diameter_mm_for_margin:.4g} "
+                "mm and nose length >= "
+                f"{pole_assessment.minimum_nose_axial_length_mm_for_margin:.4g} "
+                "mm. Translating a detector along the same take-off ray "
+                "does not change these intersections.\n"
+            )
+        tooltip = (
+            "EDS detector array\n"
+            f"{geometry.segment_count} windowless SDD segments around the "
+            "sample; this meridional view projects two opposing azimuths.\n"
+            f"Reference take-off angle {geometry.takeoff_angle_deg:.4g} deg "
+            "(single user dataset; not a universal OEM value).\n"
+            f"Unshadowed solid angle >= "
+            f"{geometry.minimum_unshadowed_solid_angle_sr:.4g} sr total / "
+            f">= {geometry.minimum_unshadowed_solid_angle_per_segment_sr:.4g} "
+            "sr per equal-segment summary.\n"
+            f"Analytical double-tilt holder: "
+            f"{geometry.analytical_holder_solid_angle_sr:.4g} sr total.\n"
+            f"Equivalent circular-cone half-angle: "
+            f"{cone_half_angle_deg:.3g} deg unshadowed / "
+            f"{holder_cone_half_angle_deg:.3g} deg with holder.\n"
+            f"The configured segment axes are only "
+            f"{geometry.minimum_axis_separation_deg:.3g} deg apart, less "
+            f"than the {2.0 * cone_half_angle_deg:.3g} deg equivalent-cone "
+            "diameter, so six such circular cones overlap. They summarize "
+            "aggregate angular acceptance and are not literal, disjoint "
+            "sensor or collimator apertures.\n"
+            + pole_clearance_text
+            + "Active "
+            "area, sensor distance, crystal shape and external package "
+            "dimensions are not public; the drawn heads and distance are "
+            "explicitly non-dimensional schematics pending user cross-sections.\n"
+            f"Solid head polygons use a {self.EDS_POLE_DISPLAY_CLEARANCE_MM:g} mm "
+            "display-only clearance outside the resolved pole-piece OD. This "
+            "prevents a false 2D material overlap but is not an OEM product "
+            "clearance or a validated 3D collimator/shadowing model.\n"
+            "This off-axis X-ray array does not intercept the axial electron "
+            "beam and is not an electron recording plane."
+        )
+
+        for sign in (-1.0, 1.0):
+            direction_z = -math.sin(takeoff_rad)
+            direction_y = sign * math.cos(takeoff_rad)
+            perpendicular_z = math.cos(takeoff_rad)
+            perpendicular_y = sign * math.sin(takeoff_rad)
+            face_center_z = sample_z + drawing_distance * direction_z
+            face_center_y = drawing_distance * direction_y
+
+            centerline = self.plot.plot(
+                [sample_z, face_center_z],
+                [0.0, face_center_y],
+                pen=pg.mkPen(
+                    self.EDS_ACTIVE_FACE_COLOUR,
+                    width=1.1,
+                    style=Qt.PenStyle.DashDotLine,
+                ),
+            )
+            centerline.setZValue(51)
+            centerline.setToolTip(tooltip)
+            self._remember_eds_detector_item("centerline", centerline)
+
+            for boundary_angle_deg in (
+                max(0.1, geometry.takeoff_angle_deg - cone_half_angle_deg),
+                min(89.9, geometry.takeoff_angle_deg + cone_half_angle_deg),
+            ):
+                boundary_angle = math.radians(boundary_angle_deg)
+                boundary = self.plot.plot(
+                    [sample_z, sample_z - drawing_distance * math.sin(
+                        boundary_angle
+                    )],
+                    [0.0, sign * drawing_distance * math.cos(
+                        boundary_angle
+                    )],
+                    pen=pg.mkPen(
+                        self.EDS_ACCEPTANCE_COLOUR,
+                        width=0.8,
+                        style=Qt.PenStyle.DotLine,
+                    ),
+                )
+                boundary.setZValue(50)
+                boundary.setOpacity(0.58)
+                boundary.setToolTip(tooltip)
+                self._remember_eds_detector_item("acceptance", boundary)
+
+            face_z = (
+                face_center_z - face_half_width * perpendicular_z,
+                face_center_z + face_half_width * perpendicular_z,
+            )
+            face_y = (
+                face_center_y - face_half_width * perpendicular_y,
+                face_center_y + face_half_width * perpendicular_y,
+            )
+            face = self.plot.plot(
+                face_z,
+                face_y,
+                pen=pg.mkPen(self.EDS_ACTIVE_FACE_COLOUR, width=4.0),
+            )
+            face.setZValue(53)
+            face.setToolTip(tooltip)
+            self._remember_eds_detector_item("active_face", face)
+
+            outer_center_z = face_center_z + housing_length * direction_z
+            outer_center_y = face_center_y + housing_length * direction_y
+            housing = QGraphicsPolygonItem(QPolygonF([
+                QPointF(
+                    face_center_z - inner_half_width * perpendicular_z,
+                    face_center_y - inner_half_width * perpendicular_y,
+                ),
+                QPointF(
+                    face_center_z + inner_half_width * perpendicular_z,
+                    face_center_y + inner_half_width * perpendicular_y,
+                ),
+                QPointF(
+                    outer_center_z + outer_half_width * perpendicular_z,
+                    outer_center_y + outer_half_width * perpendicular_y,
+                ),
+                QPointF(
+                    outer_center_z - outer_half_width * perpendicular_z,
+                    outer_center_y - outer_half_width * perpendicular_y,
+                ),
+            ]))
+            housing_colour = pg.mkColor(self.EDS_HOUSING_COLOUR)
+            housing.setPen(pg.mkPen(self.EDS_ACTIVE_FACE_COLOUR, width=0.9))
+            housing.setBrush(pg.mkBrush(
+                housing_colour.red(),
+                housing_colour.green(),
+                housing_colour.blue(),
+                150,
+            ))
+            housing.setZValue(52)
+            housing.setToolTip(tooltip)
+            self.plot.addItem(housing)
+            self._remember_eds_detector_item("housing", housing)
+
+        label = pg.TextItem(
+            "ULTRA-X EDS\n6 segments; 2 projected",
+            color="#cffafe",
+            anchor=(0.5, 0.5),
+            border=pg.mkPen(self.EDS_ACTIVE_FACE_COLOUR, width=0.8),
+            fill=pg.mkBrush(5, 8, 22, 220),
+        )
+        # Use the same stacking level as the existing component callouts so a
+        # packed EDS label cannot steal clicks from visible stage mechanics.
+        label.setZValue(46)
+        label.setToolTip(tooltip)
+        self.plot.addItem(label)
+        self._eds_detector_labels.append(label)
+        self._register_label_callout(
+            key="eds:detector_array",
+            label=label,
+            anchor_z_mm=sample_z + drawing_distance * (-math.sin(takeoff_rad)),
+            anchor_radius_mm=drawing_distance * math.cos(takeoff_rad),
+            colour=self.EDS_ACTIVE_FACE_COLOUR,
+            priority=-5,
+            preferred_side=-1,
+            component_key=EDS_DETECTOR_SYSTEM,
+        )
+
+    def _add_post_projector_detector_chamber_schematic(
+        self, record, colour
+    ) -> None:
+        """Draw the non-OEM Titan-topology viewing/detector chamber walls."""
+
+        part = self._part_by_key.get(record.key)
+        if part is None:
+            return
+        width = float(record.end_z_mm - record.start_z_mm)
+        inner_radius = 0.5 * float(record.bore_diameter_mm)
+        outer_radius = 0.5 * float(record.outer_diameter_mm)
+        if width <= 0.0 or outer_radius <= inner_radius:
+            return
+        p2 = self._record_by_key.get("projector_lens_2")
+        haadf = self._record_by_key.get("haadf")
+        gap_text = "unknown"
+        if p2 is not None and haadf is not None:
+            gap_text = (
+                f"{self._recording_signal_z(haadf) - p2.end_z_mm:.6g} mm"
+            )
+        source = str(part.data.get("mechanical_geometry_source", "")).strip()
+        tooltip = (
+            f"{record.name}\n"
+            f"Z = [{record.start_z_mm:.6g}, {record.end_z_mm:.6g}] mm\n"
+            f"schematic chamber ID/OD = "
+            f"{record.bore_diameter_mm:.6g}/{record.outer_diameter_mm:.6g} mm\n"
+            f"P2-end to HAADF active-plane gap = {gap_text}\n"
+            "Titan public diagrams support the post-P2 viewing/detector "
+            "chamber topology and detector order, not these absolute "
+            "dimensions. The chamber is mechanical-only; all active detector "
+            "planes retain their existing TOML coordinates and optical "
+            "behaviour."
+            + (f"\nSource/status: {source}" if source else "")
+        )
+        rgb = pg.mkColor(colour)
+        for lower_radius in (-outer_radius, inner_radius):
+            wall = QGraphicsRectItem(
+                record.start_z_mm,
+                lower_radius,
+                width,
+                outer_radius - inner_radius,
+            )
+            wall.setPen(pg.mkPen(colour, width=1.0))
+            wall.setBrush(pg.mkBrush(
+                rgb.red(), rgb.green(), rgb.blue(), 58
+            ))
+            wall.setToolTip(tooltip)
+            wall.setZValue(8)
+            self.plot.addItem(wall)
+            self._detector_chamber_items.append(wall)
+            _register_selectable_graphics_item(
+                self._selectable_item_keys,
+                wall,
+                POST_PROJECTOR_DETECTOR_CHAMBER,
+            )
+
+    def _remember_accelerator_item(self, key: str, role: str, item) -> None:
+        roles = self._accelerator_stack_items.setdefault(key, {})
+        roles.setdefault(role, []).append(item)
+        _register_selectable_graphics_item(
+            self._selectable_item_keys,
+            item,
+            key,
+        )
+
+    @staticmethod
+    def _accelerator_stage_drawing_width(record, index: int) -> float:
+        """Return an explicitly schematic width derived from stage spacing."""
+
+        centers = tuple(record.accelerator_stage_centers_mm)
+        center = float(centers[index])
+        limits = [
+            2.0 * max(center - float(record.start_z_mm), 0.001),
+            2.0 * max(float(record.end_z_mm) - center, 0.001),
+        ]
+        if index > 0:
+            limits.append(0.46 * (center - float(centers[index - 1])))
+        if index + 1 < len(centers):
+            limits.append(0.46 * (float(centers[index + 1]) - center))
+        return max(min(limits), 0.25)
+
+    def _add_accelerator_stack_schematic(self, record) -> None:
+        """Draw photo-informed repeated electrostatic electrode stages."""
+
+        centers = tuple(float(value) for value in (
+            record.accelerator_stage_centers_mm
+        ))
+        if len(centers) < 2:
+            raise ValueError(
+                f"Accelerator stack {record.key} requires at least two stages"
+            )
+        outer_radius = 0.5 * float(record.outer_diameter_mm)
+        bore_radius = min(
+            0.5 * float(record.mechanical_bore_diameter_mm),
+            outer_radius,
+        )
+        stage_outer_radius = max(
+            bore_radius,
+            0.91 * outer_radius,
+        )
+        source = (
+            record.accelerator_electrode_stack_evidence_source
+            or "Accelerator ring-stack source is not declared."
+        )
+        common = (
+            f"{record.name}\n"
+            f"{len(centers)} configured electrostatic accelerator stages\n"
+            f"Evidence: {source}\n"
+            "The repeated rings are accelerator electrodes, not magnetic "
+            "excitation coils."
+        )
+
+        envelope = QGraphicsRectItem(
+            record.start_z_mm,
+            -outer_radius,
+            max(float(record.end_z_mm - record.start_z_mm), 0.001),
+            2.0 * outer_radius,
+        )
+        envelope.setPen(pg.mkPen(
+            "#64748b", width=0.9, style=Qt.PenStyle.DotLine
+        ))
+        envelope.setBrush(pg.mkBrush(0, 0, 0, 0))
+        envelope.setToolTip(
+            common
+            + f"\nDashed TOML envelope OD {record.outer_diameter_mm:.6g} "
+            f"mm | clear bore {record.mechanical_bore_diameter_mm:.6g} mm."
+            " The envelope is not a solid cylinder."
+        )
+        envelope.setZValue(19)
+        self.plot.addItem(envelope)
+        self._remember_accelerator_item(record.key, "envelope", envelope)
+
+        for index, center in enumerate(centers):
+            drawing_width = self._accelerator_stage_drawing_width(
+                record, index
+            )
+            colour = self.ACCELERATOR_STAGE_COLOURS[index % 2]
+            rgb = pg.mkColor(colour)
+            tooltip = (
+                common
+                + f"\nElectrostatic electrode stage {index + 1}/"
+                f"{len(centers)} | configured center Z = {center:.6g} mm."
+                f"\nDisplayed axial ring thickness {drawing_width:.6g} mm "
+                "is derived only from stage spacing for visibility; it is "
+                "not an OEM electrode thickness. Alternating shades separate "
+                "stages visually and do not encode material or voltage."
+            )
+            for lower_y in (-stage_outer_radius, bore_radius):
+                stage = QGraphicsRectItem(
+                    center - 0.5 * drawing_width,
+                    lower_y,
+                    drawing_width,
+                    stage_outer_radius - bore_radius,
+                )
+                stage.setPen(pg.mkPen("#e2e8f0", width=0.9))
+                stage.setBrush(pg.mkBrush(
+                    rgb.red(), rgb.green(), rgb.blue(), 172
+                ))
+                stage.setToolTip(tooltip)
+                stage.setZValue(26)
+                self.plot.addItem(stage)
+                self._remember_accelerator_item(
+                    record.key, "stage", stage
+                )
+
+        separator_height = max(0.08 * stage_outer_radius, 1.0)
+        for upstream, downstream in zip(centers, centers[1:]):
+            midpoint = 0.5 * (upstream + downstream)
+            gap = downstream - upstream
+            separator_width = min(1.6, 0.06 * gap)
+            tooltip = (
+                common
+                + f"\nStage-separation marker at Z = {midpoint:.6g} mm."
+                "\nThe narrow amber outer collars reproduce the visible "
+                "stack rhythm only; their dimensions and material are not "
+                "identified by the unscaled photograph."
+            )
+            for lower_y in (
+                -stage_outer_radius,
+                stage_outer_radius - separator_height,
+            ):
+                separator = QGraphicsRectItem(
+                    midpoint - 0.5 * separator_width,
+                    lower_y,
+                    separator_width,
+                    separator_height,
+                )
+                separator.setPen(pg.mkPen(
+                    self.ACCELERATOR_SEPARATOR_COLOUR, width=0.8
+                ))
+                separator.setBrush(pg.mkBrush(245, 158, 11, 130))
+                separator.setToolTip(tooltip)
+                separator.setZValue(27)
+                self.plot.addItem(separator)
+                self._remember_accelerator_item(
+                    record.key, "separator", separator
+                )
+
+    def _remember_aperture_item(self, key: str, role: str, item) -> None:
+        roles = self._aperture_mechanism_items.setdefault(key, {})
+        roles.setdefault(role, []).append(item)
+        _register_selectable_graphics_item(
+            self._selectable_item_keys,
+            item,
+            key,
+        )
+
+    @staticmethod
+    def _aperture_plane_z(record) -> float:
+        if len(record.optical_references_mm) != 1:
+            raise ValueError(
+                f"Aperture mechanism {record.key} requires one optical plane"
+            )
+        return float(record.optical_references_mm[0])
+
+    @staticmethod
+    def _axial_distance_to_record(z_mm: float, record) -> float:
+        if record.start_z_mm <= z_mm <= record.end_z_mm:
+            return 0.0
+        return min(
+            abs(z_mm - float(record.start_z_mm)),
+            abs(z_mm - float(record.end_z_mm)),
+        )
+
+    def _aperture_column_wall_reference(self, record):
+        """Resolve the local drawn column wall around one aperture.
+
+        Nearby accelerator or magnetic-lens housings are explicit outer-wall
+        geometry.  Where no such structure is locally adjacent (currently the
+        Energy Filter entrance), the aperture mechanism's own TOML envelope
+        remains the conservative local wall reference.
+        """
+
+        plate_z = self._aperture_plane_z(record)
+        envelope_radius = max(
+            0.5 * float(record.outer_diameter_mm),
+            0.5 * float(record.vacuum_inner_diameter_mm) + 1.0,
+        )
+        candidates = []
+        for candidate in self._records:
+            if candidate.profile not in self.APERTURE_COLUMN_WALL_PROFILES:
+                continue
+            distance = self._axial_distance_to_record(plate_z, candidate)
+            if distance > self.APERTURE_COLUMN_WALL_SEARCH_DISTANCE_MM:
+                continue
+            radius = 0.5 * float(candidate.outer_diameter_mm)
+            if radius < envelope_radius:
+                continue
+            candidates.append((
+                distance,
+                -radius,
+                str(candidate.key),
+                candidate,
+            ))
+        if not candidates:
+            return envelope_radius, record, 0.0
+        distance, negative_radius, _key, source = min(candidates)
+        return -negative_radius, source, distance
+
+    def _add_aperture_mechanism_schematic(self, record) -> None:
+        """Separate the real thin plate from its schematic radial carrier."""
+
+        plate_z = self._aperture_plane_z(record)
+        plate_thickness = float(record.active_length_mm)
+        if plate_thickness <= 0.0:
+            raise ValueError(
+                f"Aperture mechanism {record.key} requires positive plate "
+                "thickness metadata"
+            )
+        inserted = record.excitation_enabled is not False
+        status = "INSERTED" if inserted else "RETRACTED"
+        pen_style = (
+            Qt.PenStyle.SolidLine
+            if inserted else Qt.PenStyle.DashLine
+        )
+        plate_alpha = 225 if inserted else 76
+        rod_alpha = 185 if inserted else 64
+
+        opening_radius = 0.5 * float(record.bore_diameter_mm)
+        hardware_bore_radius = 0.5 * float(
+            record.mechanical_bore_diameter_mm
+        )
+        vacuum_radius = 0.5 * float(record.vacuum_inner_diameter_mm)
+        envelope_radius = max(
+            0.5 * float(record.outer_diameter_mm),
+            vacuum_radius + 1.0,
+        )
+        margin = max(0.75, 0.15 * max(vacuum_radius, 1.0))
+        negative_reach = max(
+            vacuum_radius + margin,
+            hardware_bore_radius + margin,
+        )
+        joint_local_y = max(
+            negative_reach,
+            min(0.60 * envelope_radius, vacuum_radius + 12.0),
+        )
+        plate_center_y = (
+            0.0
+            if inserted
+            else vacuum_radius + negative_reach + margin
+        )
+        joint_y = plate_center_y + joint_local_y
+        wall_radius, wall_source, wall_distance = (
+            self._aperture_column_wall_reference(record)
+        )
+        rod_end_y = max(
+            joint_y + 6.0,
+            wall_radius + self.APERTURE_ROD_OVERHANG_MM,
+        )
+
+        axial_envelope = max(
+            float(record.end_z_mm - record.start_z_mm), 0.001
+        )
+        rod_width = max(1.0, min(3.0, 0.18 * axial_envelope))
+        screw_width = max(1.2, 1.25 * rod_width)
+        screw_height = max(1.5, min(3.5, 1.35 * rod_width))
+        source = (
+            record.aperture_mechanism_evidence_source
+            or "Aperture topology source is not declared."
+        )
+        common = (
+            f"{record.name} [{status}]\n"
+            f"Optical aperture plane Z = {plate_z:.6g} mm\n"
+            f"Evidence: {source}"
+        )
+
+        envelope = QGraphicsRectItem(
+            record.start_z_mm,
+            -envelope_radius,
+            axial_envelope,
+            2.0 * envelope_radius,
+        )
+        envelope.setPen(pg.mkPen(
+            "#64748b", width=0.8, style=Qt.PenStyle.DotLine
+        ))
+        envelope.setBrush(pg.mkBrush(0, 0, 0, 0))
+        envelope.setToolTip(
+            common
+            + "\nDashed unfilled outline: TOML mechanism/cartridge envelope."
+            " It is not a solid aperture plate."
+        )
+        envelope.setZValue(19)
+        self.plot.addItem(envelope)
+        self._remember_aperture_item(record.key, "envelope", envelope)
+
+        plate_tooltip = (
+            common
+            + "\nPt perforated aperture strip (material user-identified; "
+            "not independently verified)."
+            f"\nConfigured TOML plate thickness {plate_thickness:.6g} mm | "
+            "current "
+            f"hard-edge opening {record.bore_diameter_mm:.6g} mm | carrier "
+            f"bore {record.mechanical_bore_diameter_mm:.6g} mm."
+            "\nThe transverse strip extent is schematic because the photo "
+            "has no calibrated OEM scale. The photograph's additional holes "
+            "are not assigned invented diameters or spacing; the displayed "
+            "opening remains the simulator's continuous operating value. "
+            "Only this thin plane clips rays."
+        )
+        plate_colour = pg.mkColor(self.APERTURE_PLATE_COLOUR)
+        plate_intervals = (
+            (
+                plate_center_y - negative_reach,
+                plate_center_y - opening_radius,
+            ),
+            (
+                plate_center_y + opening_radius,
+                joint_y,
+            ),
+        )
+        for lower_y, upper_y in plate_intervals:
+            if upper_y <= lower_y:
+                continue
+            plate = QGraphicsRectItem(
+                plate_z - 0.5 * plate_thickness,
+                lower_y,
+                plate_thickness,
+                upper_y - lower_y,
+            )
+            plate.setPen(pg.mkPen(
+                self.APERTURE_PLATE_COLOUR,
+                width=1.25,
+                style=pen_style,
+            ))
+            plate.setBrush(pg.mkBrush(
+                plate_colour.red(),
+                plate_colour.green(),
+                plate_colour.blue(),
+                plate_alpha,
+            ))
+            plate.setToolTip(plate_tooltip)
+            plate.setZValue(31)
+            self.plot.addItem(plate)
+            self._remember_aperture_item(record.key, "plate", plate)
+
+        rod = QGraphicsRectItem(
+            plate_z - 0.5 * rod_width,
+            joint_y,
+            rod_width,
+            rod_end_y - joint_y,
+        )
+        rod.setPen(pg.mkPen(
+            self.APERTURE_ROD_COLOUR,
+            width=1.1,
+            style=pen_style,
+        ))
+        rod_colour = pg.mkColor(self.APERTURE_ROD_COLOUR)
+        rod.setBrush(pg.mkBrush(
+            rod_colour.red(),
+            rod_colour.green(),
+            rod_colour.blue(),
+            rod_alpha,
+        ))
+        rod.setToolTip(
+            common
+            + "\nSingle rear connecting/insertion rod; its material is "
+            "unspecified."
+            "\nThe rod is drawn on the positive mechanical-radius side and "
+            f"ends {rod_end_y - wall_radius:.6g} mm beyond the local shown "
+            f"column wall (radius {wall_radius:.6g} mm), resolved from "
+            f"{wall_source.name} at an axial separation of "
+            f"{wall_distance:.6g} mm."
+            "\nIts width and reach are a photo-informed schematic, not an "
+            "OEM rod-length measurement, and do not participate in ray "
+            "clipping."
+        )
+        rod.setZValue(28)
+        self.plot.addItem(rod)
+        self._remember_aperture_item(record.key, "rod", rod)
+
+        screw = QGraphicsEllipseItem(
+            plate_z - 0.5 * screw_width,
+            joint_y - 0.5 * screw_height,
+            screw_width,
+            screw_height,
+        )
+        screw.setPen(pg.mkPen(
+            self.APERTURE_SCREW_COLOUR,
+            width=1.2,
+            style=pen_style,
+        ))
+        screw.setBrush(pg.mkBrush(248, 250, 252, 205 if inserted else 70))
+        screw.setToolTip(
+            common
+            + "\nScrew joint between the Pt perforated strip and the "
+            "single connecting rod. Screw dimensions are schematic."
+        )
+        screw.setZValue(33)
+        self.plot.addItem(screw)
+        self._remember_aperture_item(record.key, "screw", screw)
+
     def _recording_plane_component(self, key: str):
         state = getattr(self._result, "state_snapshot", None)
         for component in getattr(state, "recording_planes", ()):
@@ -2169,6 +2981,8 @@ class PhysicalLayoutView(QWidget):
                 "slit_blade_carrier",
                 "branch_interface",
                 "pole_piece_cartridge",
+                "detector_chamber_housing",
+                "fixed_vacuum_restriction",
             }
         if record.profile in {
             "magnetic_pole_piece",
@@ -2500,6 +3314,11 @@ class PhysicalLayoutView(QWidget):
         self._sample_holder_items = []
         self._sample_plane_items = []
         self._sample_plane_labels = []
+        self._eds_detector_items = {}
+        self._eds_detector_labels = []
+        self._detector_chamber_items = []
+        self._accelerator_stack_items = {}
+        self._aperture_mechanism_items = {}
         self._recording_device_items = {}
         self._recording_device_labels = []
         self._component_label_items = {}
@@ -2540,6 +3359,19 @@ class PhysicalLayoutView(QWidget):
                 # Their insertion direction is transverse. Drawing an axial
                 # annulus here would imply the wrong mechanical topology.
                 pass
+            elif record.profile == self.EDS_DETECTOR_ARRAY_PROFILE:
+                # The array is transverse and is drawn after the Objective
+                # and specimen schematics so it is not mistaken for an axial
+                # electron-intercepting annulus.
+                pass
+            elif record.profile == self.DETECTOR_CHAMBER_PROFILE:
+                self._add_post_projector_detector_chamber_schematic(
+                    record, colour
+                )
+            elif record.profile == self.ACCELERATOR_STACK_PROFILE:
+                self._add_accelerator_stack_schematic(record)
+            elif record.profile == self.APERTURE_MECHANISM_PROFILE:
+                self._add_aperture_mechanism_schematic(record)
             elif record.profile in self.RECORDING_SURFACE_PROFILES:
                 self._add_recording_device_schematic(record, colour)
             elif record.profile == "reference_plane" or outer_half <= bore_half:
@@ -2584,6 +3416,14 @@ class PhysicalLayoutView(QWidget):
                             if record.profile == "magnetic_excitation_coil"
                             else ""
                         )
+                        + (
+                            "\nFixed differential-pumping restriction at "
+                            "the column/projection-chamber boundary."
+                            "\nMechanical-layout accessory only: no ray "
+                            "clipping or preset recalculation is imposed."
+                            if record.profile == self.FIXED_DPA_PROFILE
+                            else ""
+                        )
                     )
                     self.plot.addItem(rect)
                     if record.profile == "c1_c2_pole_piece_cartridge":
@@ -2613,13 +3453,14 @@ class PhysicalLayoutView(QWidget):
                 if record.profile in self.RECORDING_SURFACE_PROFILES
                 else float(record.center_z_mm)
             )
-            spots.append({
-                "pos": (marker_z, 0.0),
-                "data": record.key,
-                "brush": pg.mkBrush(colour),
-                "pen": pg.mkPen("#ffffff", width=0.8),
-                "size": 7,
-            })
+            if record.profile != self.EDS_DETECTOR_ARRAY_PROFILE:
+                spots.append({
+                    "pos": (marker_z, 0.0),
+                    "data": record.key,
+                    "brush": pg.mkBrush(colour),
+                    "pen": pg.mkPen("#ffffff", width=0.8),
+                    "size": 7,
+                })
 
         for segment in result.assembly.vacuum_liner_segments:
             width = segment.end_z_mm - segment.start_z_mm
@@ -2659,6 +3500,7 @@ class PhysicalLayoutView(QWidget):
 
         self._add_objective_lens_labels()
         self._add_sample_stage_and_holder_schematic()
+        self._add_eds_detector_array_schematic()
         self._add_c1_c2_pole_gap_reference()
         self._add_component_labels()
 
@@ -2705,6 +3547,39 @@ class PhysicalLayoutView(QWidget):
             "into upper/lower lenses at the pole gap. The transverse stage "
             "and nested sample holder are "
             "schematic; the holder tip marks the current sample plane. "
+            "Apertures separate the silver Pt perforated strip, white screw "
+            "joint and amber rear connecting rod. Plate thickness and the "
+            "optical plane are drawn at their TOML values; the transverse "
+            "strip extent and screw size are photo-informed schematics. Each "
+            "rod now extends 5 mm beyond the locally resolved shown column "
+            "wall; this reach remains schematic because "
+            "the supplied top view has no calibrated OEM scale. Other holes "
+            "seen on the strip are not given invented spacing or diameters; "
+            "the current continuous opening is shown. Retracted "
+            "plates are parked on the positive-radius side and do not cross "
+            "the beam. "
+            "The accelerator is drawn as its configured sequence of annular "
+            "electrostatic electrode stages, matching the repeated-ring "
+            "appearance in the supplied side view. These are not magnetic "
+            "coils; individual ring thickness, outer collars and material "
+            "remain schematic because the photograph has no OEM scale. "
+            "EDS is shown as a transverse six-segment X-ray array aimed "
+            "at the sample. Its >=4.45 sr / 4.04 sr angular acceptance is "
+            "physical metadata; the two projected detector heads are "
+            "schematic because active area, sensor distance and package "
+            "dimensions are not public. Their solid polygons are placed with "
+            "a 1 mm display-only clearance outside the resolved Objective "
+            "pole-piece OD; this removes a false 2D overlap but does not claim "
+            "an OEM installation clearance or validate 3D shadowing. "
+            "The constraint-derived 8.0 mm tip / 27.5584 mm taper clears only "
+            "the 32.06 deg reference centre line by about 0.3109 mm; the "
+            "overlapping equivalent-cone boundaries do not prove full "
+            "4.45 sr mechanical clearance. It is not an axial electron stop. "
+            "The translucent post-P2 enclosure is "
+            "a non-OEM Titan-topology viewing/STEM-detector chamber. It makes "
+            "the HAADF-first detector section explicit without moving any "
+            "active plane; its absolute dimensions and the 7.25 mm P2-to-HAADF "
+            "gap remain provisional. "
             "Recording-device actuators and housings are schematic while "
             "their thin active planes retain the calculated coordinates. "
             "Names are packed into multiple screen-space rows; dashed leaders "
@@ -2732,11 +3607,59 @@ class PhysicalLayoutView(QWidget):
         )
         self._highlight.setZValue(35)
         self.plot.addItem(self._highlight)
+        if record.profile == self.EDS_DETECTOR_ARRAY_PROFILE:
+            geometry = EDSDetectorArrayGeometry.from_part_data(part.data)
+            cone_half_angle = (
+                geometry.equivalent_circular_cone_half_angle_deg()
+            )
+            pole_assessment = self._eds_pole_centerline_assessment(geometry)
+            clearance_summary = (
+                ""
+                if pole_assessment is None
+                else " | provisional pole-profile centre-ray clearance "
+                f"{pole_assessment.minimum_radial_clearance_mm:.4g} mm"
+            )
+            self.summary.setText(
+                f"Selected: {record.name} | sample-plane aggregate at "
+                f"{record.center_z_mm:.6g} mm | {geometry.segment_count} "
+                "windowless SDD segments | reference take-off angle "
+                f"{geometry.takeoff_angle_deg:.4g} deg (single dataset) | "
+                f"solid angle >= "
+                f"{geometry.minimum_unshadowed_solid_angle_sr:.4g} sr "
+                "unshadowed and "
+                f"{geometry.analytical_holder_solid_angle_sr:.4g} sr with "
+                "the analytical holder | equal-segment equivalent-cone "
+                f"half-angle {cone_half_angle:.3g} deg (overlapping angular "
+                "summary, not a literal segment aperture)"
+                + clearance_summary
+                + ". Active area, "
+                "sensor distance and mechanical envelope are not public; "
+                "the displayed heads are non-dimensional schematics."
+            )
+            return
         self.summary.setText(
             f"Selected: {record.name} | centre {record.center_z_mm:.6g} mm | "
-            f"OD {record.outer_diameter_mm:.6g} mm | hardware bore {record.bore_diameter_mm:.6g} mm | "
+            f"OD {record.outer_diameter_mm:.6g} mm | hardware bore "
+            f"{record.mechanical_bore_diameter_mm:.6g} mm | "
             f"vacuum ID {record.vacuum_inner_diameter_mm:.6g} mm | "
             f"optical references: {', '.join(f'{value:.6g}' for value in record.optical_references_mm) or 'none'} mm"
+            + (
+                " | Pt perforated strip thickness: "
+                f"{record.active_length_mm:.6g} mm | single screw-connected "
+                f"rear rod: schematic, non-optical | current opening: "
+                f"{record.bore_diameter_mm:.6g} mm | state: "
+                f"{'inserted' if record.excitation_enabled is not False else 'retracted'}"
+                if record.profile == self.APERTURE_MECHANISM_PROFILE
+                else ""
+            )
+            + (
+                " | electrostatic stages: "
+                f"{len(record.accelerator_stage_centers_mm)} at configured "
+                "TOML centers | repeated-ring thickness/separators: "
+                "photo-informed schematic, not magnetic coils"
+                if record.profile == self.ACCELERATOR_STACK_PROFILE
+                else ""
+            )
             + (
                 " | active detection plane: "
                 f"{self._recording_signal_z(record):.6g} mm"

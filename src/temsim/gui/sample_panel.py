@@ -44,6 +44,10 @@ from temsim.specimen.geometry import (
     set_sample_orientation,
 )
 from temsim.specimen.presets import available_specimen_presets
+from temsim.specimen.support import (
+    available_support_materials,
+    available_support_meshes,
+)
 from temsim.specimen.virtual import resolve_virtual_interactions
 
 
@@ -669,6 +673,8 @@ class SamplePage(QWidget):
         self._state = None
         self._result = None
         self._snapshot = None
+        self._eds_result = None
+        self._elastic_result = None
         self._updating = False
         self._draft_quaternion = IDENTITY_QUATERNION_WXYZ
 
@@ -1046,6 +1052,187 @@ class SamplePage(QWidget):
         controls_layout.addWidget(virtual)
         self.virtual_group = virtual
 
+        eds = QGroupBox("EDS signal and specimen support")
+        eds.setObjectName("sampleEdsControls")
+        eds_form = QFormLayout(eds)
+        eds_form.setRowWrapPolicy(
+            QFormLayout.RowWrapPolicy.WrapLongRows
+        )
+        self.eds_enabled = QCheckBox("Enable explicit EDS acquisition")
+        self.eds_enabled.setObjectName("sampleEdsEnabled")
+        self.eds_support_material = QComboBox()
+        self.eds_support_material.setObjectName(
+            "sampleEdsSupportMaterial"
+        )
+        for key, name in available_support_materials():
+            self.eds_support_material.addItem(name, key)
+        self.eds_support_mesh = QComboBox()
+        self.eds_support_mesh.setObjectName("sampleEdsSupportMesh")
+        for key, name in available_support_meshes():
+            self.eds_support_mesh.addItem(name, key)
+        self.eds_solid_angle = QComboBox()
+        self.eds_solid_angle.setObjectName("sampleEdsSolidAngle")
+        self.eds_solid_angle.addItem(
+            "Installed holder-conditioned acceptance",
+            "installed_holder",
+        )
+        self.eds_solid_angle.addItem(
+            "Unshadowed reference acceptance", "unshadowed"
+        )
+        self.eds_transport = QComboBox()
+        self.eds_transport.setObjectName("sampleEdsTransportMode")
+        self.eds_transport.addItem(
+            "Elastic Monte Carlo (finite 3-D geometry)",
+            "elastic_monte_carlo",
+        )
+        self.eds_transport.addItem(
+            "Straight primary reference", "straight_primary"
+        )
+        self.eds_transport.setToolTip(
+            "Elastic mode traces seeded event-by-event 3-D paths through the "
+            "finite sample and grid. The current screened-Rutherford provider "
+            "is provisional for Z>30 and does not model crystal channeling."
+        )
+        self.eds_scalar_controls = {
+            "eds_support_offset_x_um": self._double_control(
+                "sampleEdsSupportOffsetX",
+                -1.0e6,
+                1.0e6,
+                suffix=" um",
+            ),
+            "eds_support_offset_y_um": self._double_control(
+                "sampleEdsSupportOffsetY",
+                -1.0e6,
+                1.0e6,
+                suffix=" um",
+            ),
+            "eds_support_rotation_deg": self._double_control(
+                "sampleEdsSupportRotation",
+                -360.0,
+                360.0,
+                suffix=" deg",
+            ),
+            "eds_detector_efficiency": self._double_control(
+                "sampleEdsDetectorEfficiency",
+                0.0,
+                1.0,
+                decimals=5,
+            ),
+            "eds_spectrum_max_energy_ev": self._double_control(
+                "sampleEdsMaximumEnergy",
+                1.0,
+                1.0e7,
+                suffix=" eV",
+            ),
+            "eds_spectrum_bin_width_ev": self._double_control(
+                "sampleEdsBinWidth",
+                1.0e-3,
+                1.0e6,
+                suffix=" eV",
+            ),
+            "eds_energy_resolution_fwhm_ev": self._double_control(
+                "sampleEdsEnergyResolution",
+                0.0,
+                1.0e6,
+                suffix=" eV FWHM",
+            ),
+        }
+        self.eds_scalar_controls[
+            "eds_energy_resolution_fwhm_ev"
+        ].setSpecialValueText("Ideal line spectrum")
+        self.eds_poisson_enabled = QCheckBox("Sample Poisson counts")
+        self.eds_poisson_enabled.setObjectName("sampleEdsPoissonEnabled")
+        self.eds_poisson_seed = self._integer_control(
+            "sampleEdsPoissonSeed", 0, 2_147_483_647
+        )
+        self.eds_elastic_trajectory_count = self._integer_control(
+            "sampleEdsElasticTrajectoryCount", 1, 100_000
+        )
+        self.eds_elastic_seed = self._integer_control(
+            "sampleEdsElasticSeed", 0, 2_147_483_647
+        )
+        self.eds_elastic_max_events = self._integer_control(
+            "sampleEdsElasticMaximumEvents", 1, 1_000_000
+        )
+        self.eds_elastic_trajectory_count.setToolTip(
+            "Monte Carlo histories used for the path expectation. Up to 32 "
+            "representative histories are retained for the plot."
+        )
+        self.eds_elastic_max_events.setToolTip(
+            "Safety guard only. A nonzero event-limit fraction is reported "
+            "and means the transport result is truncated."
+        )
+        self.eds_acquire = QPushButton("Calculate point EDS")
+        self.eds_acquire.setObjectName("sampleEdsAcquirePoint")
+        self.eds_acquire.setToolTip(
+            "Runs only on this button. Editing a support or mechanical "
+            "component does not automatically recalculate the EDS spectrum."
+        )
+        self.eds_summary = QLabel(
+            "No EDS point acquisition has been calculated."
+        )
+        self.eds_summary.setObjectName("sampleEdsSummary")
+        self.eds_summary.setWordWrap(True)
+        self.eds_summary.setStyleSheet(
+            "color: #64748b; font-weight: 600;"
+        )
+        self.eds_lines = self._table(
+            ("Source", "Element", "Transition", "Energy / counts")
+        )
+        self.eds_lines.setObjectName("sampleEdsLineTable")
+        self.eds_lines.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        eds_form.addRow("Calculate", self.eds_enabled)
+        eds_form.addRow("Support material", self.eds_support_material)
+        eds_form.addRow("Grid mesh", self.eds_support_mesh)
+        eds_form.addRow(
+            "Grid offset X",
+            self.eds_scalar_controls["eds_support_offset_x_um"],
+        )
+        eds_form.addRow(
+            "Grid offset Y",
+            self.eds_scalar_controls["eds_support_offset_y_um"],
+        )
+        eds_form.addRow(
+            "Grid rotation",
+            self.eds_scalar_controls["eds_support_rotation_deg"],
+        )
+        eds_form.addRow("Acceptance", self.eds_solid_angle)
+        eds_form.addRow("Electron paths", self.eds_transport)
+        eds_form.addRow(
+            "Elastic trajectories", self.eds_elastic_trajectory_count
+        )
+        eds_form.addRow("Elastic seed", self.eds_elastic_seed)
+        eds_form.addRow(
+            "Maximum events / trajectory", self.eds_elastic_max_events
+        )
+        eds_form.addRow(
+            "Ideal scalar efficiency",
+            self.eds_scalar_controls["eds_detector_efficiency"],
+        )
+        eds_form.addRow(
+            "Spectrum maximum",
+            self.eds_scalar_controls["eds_spectrum_max_energy_ev"],
+        )
+        eds_form.addRow(
+            "Bin width",
+            self.eds_scalar_controls["eds_spectrum_bin_width_ev"],
+        )
+        eds_form.addRow(
+            "Energy resolution",
+            self.eds_scalar_controls[
+                "eds_energy_resolution_fwhm_ev"
+            ],
+        )
+        eds_form.addRow("Shot noise", self.eds_poisson_enabled)
+        eds_form.addRow("Poisson seed", self.eds_poisson_seed)
+        eds_form.addRow(self.eds_acquire)
+        eds_form.addRow("Result", self.eds_summary)
+        eds_form.addRow(self.eds_lines)
+        controls_layout.addWidget(eds)
+        self.eds_group = eds
+
         controls_layout.addStretch(1)
 
         self.controls_scroll = QScrollArea()
@@ -1072,6 +1259,22 @@ class SamplePage(QWidget):
         self.element_legend = ElementLegend()
         structure_row.addWidget(self.element_legend)
         scene_layout.addLayout(structure_row, 1)
+        self.eds_trajectory_plot = pg.PlotWidget()
+        self.eds_trajectory_plot.setObjectName("sampleEdsElasticTrajectoryPlot")
+        self.eds_trajectory_plot.setMinimumHeight(220)
+        self.eds_trajectory_plot.setTitle(
+            "Elastic trajectories: X-Z projection (+Z downward)"
+        )
+        self.eds_trajectory_plot.setLabel("bottom", "X displacement", units="nm")
+        self.eds_trajectory_plot.setLabel("left", "Z", units="nm")
+        self.eds_trajectory_plot.showGrid(x=True, y=True, alpha=0.22)
+        self.eds_trajectory_plot.getViewBox().invertY(True)
+        self.eds_trajectory_plot.setToolTip(
+            "Representative elastic histories projected onto X-Z. Red points "
+            "are elastic collisions. Green: forward; orange: reverse; blue: "
+            "lateral; red/purple: event/path safety limit."
+        )
+        scene_layout.addWidget(self.eds_trajectory_plot)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.controls_scroll)
         splitter.addWidget(scene_page)
@@ -1101,6 +1304,8 @@ class SamplePage(QWidget):
                 self.virtual_probe_convolution,
                 "virtual_probe_convolution_enabled",
             ),
+            (self.eds_enabled, "eds_enabled"),
+            (self.eds_poisson_enabled, "eds_poisson_enabled"),
         ):
             control.toggled.connect(
                 lambda value, name=field: self._set_bool(name, value)
@@ -1129,6 +1334,48 @@ class SamplePage(QWidget):
             control.valueChanged.connect(
                 lambda value, name=field: self._set_scalar(name, value)
             )
+        for field, control in self.eds_scalar_controls.items():
+            control.valueChanged.connect(
+                lambda value, name=field: self._set_scalar(name, value)
+            )
+        self.eds_support_material.currentIndexChanged.connect(
+            lambda _index: self._set_eds_choice(
+                "eds_support_material_key",
+                self.eds_support_material.currentData(),
+            )
+        )
+        self.eds_support_mesh.currentIndexChanged.connect(
+            lambda _index: self._set_eds_choice(
+                "eds_support_mesh_key",
+                self.eds_support_mesh.currentData(),
+            )
+        )
+        self.eds_solid_angle.currentIndexChanged.connect(
+            lambda _index: self._set_eds_choice(
+                "eds_solid_angle_mode",
+                self.eds_solid_angle.currentData(),
+            )
+        )
+        self.eds_transport.currentIndexChanged.connect(
+            lambda _index: self._set_eds_choice(
+                "eds_transport_mode", self.eds_transport.currentData()
+            )
+        )
+        self.eds_poisson_seed.valueChanged.connect(
+            lambda value: self._set_integer("eds_poisson_seed", value)
+        )
+        self.eds_elastic_trajectory_count.valueChanged.connect(
+            lambda value: self._set_integer(
+                "eds_elastic_trajectory_count", value
+            )
+        )
+        self.eds_elastic_seed.valueChanged.connect(
+            lambda value: self._set_integer("eds_elastic_seed", value)
+        )
+        self.eds_elastic_max_events.valueChanged.connect(
+            lambda value: self._set_integer("eds_elastic_max_events", value)
+        )
+        self.eds_acquire.clicked.connect(self._calculate_eds_point)
         self.element_sigma.editingFinished.connect(
             self._element_sigma_edited
         )
@@ -1223,6 +1470,35 @@ class SamplePage(QWidget):
             self.virtual_probe_convolution.setChecked(
                 bool(sample.virtual_probe_convolution_enabled)
             )
+            self.eds_enabled.setChecked(bool(sample.eds_enabled))
+            self.eds_poisson_enabled.setChecked(
+                bool(sample.eds_poisson_enabled)
+            )
+            self.eds_poisson_seed.setValue(
+                int(sample.eds_poisson_seed)
+            )
+            self.eds_elastic_trajectory_count.setValue(
+                int(sample.eds_elastic_trajectory_count)
+            )
+            self.eds_elastic_seed.setValue(int(sample.eds_elastic_seed))
+            self.eds_elastic_max_events.setValue(
+                int(sample.eds_elastic_max_events)
+            )
+            for field, control in self.eds_scalar_controls.items():
+                control.setValue(float(getattr(sample, field)))
+            for combo, value in (
+                (
+                    self.eds_support_material,
+                    sample.eds_support_material_key,
+                ),
+                (self.eds_support_mesh, sample.eds_support_mesh_key),
+                (self.eds_solid_angle, sample.eds_solid_angle_mode),
+                (self.eds_transport, sample.eds_transport_mode),
+            ):
+                combo_index = combo.findData(str(value))
+                combo.setCurrentIndex(
+                    combo_index if combo_index >= 0 else 0
+                )
             self.element_sigma.setText(
                 json.dumps(
                     sample.wave_frozen_phonon_sigma_by_element_angstrom,
@@ -1239,6 +1515,7 @@ class SamplePage(QWidget):
             self.apply_draft.setEnabled(False)
             self._update_mode_controls()
             self._update_wave_controls()
+            self._update_eds_controls()
             self._refresh_inelastic_summary()
         finally:
             self._updating = False
@@ -1264,8 +1541,11 @@ class SamplePage(QWidget):
             "wave_atomistic_enabled",
             "wave_frozen_phonon_enabled",
             "real_inelastic_enabled",
+            "eds_enabled",
+            "eds_poisson_enabled",
         }:
             self._update_wave_controls()
+            self._update_eds_controls()
         self._changed(f"sample.{name}")
 
     def _set_integer(self, name, value):
@@ -1282,6 +1562,13 @@ class SamplePage(QWidget):
                 self._updating = False
             return
         setattr(self._state.sample, name, int(value))
+        self._changed(f"sample.{name}")
+
+    def _set_eds_choice(self, name, value):
+        if self._updating or self._state is None:
+            return
+        setattr(self._state.sample, name, str(value))
+        self._update_eds_controls()
         self._changed(f"sample.{name}")
 
     def _preset_changed(self):
@@ -1374,6 +1661,175 @@ class SamplePage(QWidget):
         ):
             control.setEnabled(frozen)
 
+    def _update_eds_controls(self):
+        enabled = (
+            self._state is not None and self.eds_enabled.isChecked()
+        )
+        material_is_vacuum = (
+            str(self.eds_support_material.currentData()) == "vacuum"
+        )
+        elastic = (
+            str(self.eds_transport.currentData()) == "elastic_monte_carlo"
+        )
+        for control in (
+            self.eds_support_material,
+            self.eds_solid_angle,
+            self.eds_transport,
+            self.eds_poisson_enabled,
+            self.eds_acquire,
+            *self.eds_scalar_controls.values(),
+        ):
+            control.setEnabled(enabled)
+        self.eds_support_mesh.setEnabled(
+            enabled and not material_is_vacuum
+        )
+        self.eds_poisson_seed.setEnabled(
+            enabled and self.eds_poisson_enabled.isChecked()
+        )
+        for control in (
+            self.eds_elastic_trajectory_count,
+            self.eds_elastic_seed,
+            self.eds_elastic_max_events,
+        ):
+            control.setEnabled(enabled and elastic)
+
+    def _calculate_eds_point(self):
+        if self._state is None or self._result is None:
+            self.error.emit(
+                "Run a column calculation before the explicit EDS acquisition."
+            )
+            return
+        if not self.eds_enabled.isChecked():
+            self.eds_summary.setText("EDS acquisition is disabled.")
+            return
+        try:
+            from temsim.component_keys import EDS_DETECTOR_SYSTEM
+            from temsim.detector.eds_geometry import (
+                EDSDetectorArrayGeometry,
+            )
+            from temsim.detector.eds_signal import simulate_eds_point
+
+            assembly = getattr(self._result, "assembly", None)
+            if assembly is None:
+                raise ValueError(
+                    "The current result has no installed EDS geometry."
+                )
+            part = assembly.part(EDS_DETECTOR_SYSTEM)
+            geometry = EDSDetectorArrayGeometry.from_part_data(part.data)
+            spectrum = simulate_eds_point(self._state, geometry)
+        except Exception as exc:
+            self.error.emit(str(exc))
+            self.eds_summary.setText(f"EDS calculation failed: {exc}")
+            return
+        self._eds_result = spectrum
+        self._elastic_result = spectrum.elastic_transport
+        self._plot_elastic_trajectories(self._elastic_result)
+        ordered = sorted(
+            spectrum.lines,
+            key=lambda line: line.expected_detected_counts,
+            reverse=True,
+        )[:24]
+        self.eds_lines.setRowCount(len(ordered))
+        from ase.data import chemical_symbols
+
+        for row, line in enumerate(ordered):
+            values = (
+                line.source_key,
+                chemical_symbols[line.atomic_number],
+                f"{line.subshell} / {line.transition}",
+                (
+                    f"{line.energy_ev * 1.0e-3:.6g} keV | "
+                    f"{line.expected_detected_counts:.6g}"
+                ),
+            )
+            for column, value in enumerate(values):
+                self.eds_lines.setItem(
+                    row, column, QTableWidgetItem(str(value))
+                )
+        sampled_text = ""
+        if spectrum.sampled_counts is not None:
+            sampled_text = (
+                f"; sampled {int(np.sum(spectrum.sampled_counts))} counts"
+            )
+        source_names = ", ".join(
+            dict.fromkeys(line.source_key for line in spectrum.lines)
+        ) or "vacuum only"
+        if self._elastic_result is None:
+            transport_text = (
+                "Straight-primary reference; no elastic trajectory generation."
+            )
+        else:
+            metrics = self._elastic_result.metrics
+            transport_text = (
+                f"Elastic MC: {metrics['trajectory_count']} trajectories, "
+                f"{metrics['mean_elastic_events_per_trajectory']:.6g} mean "
+                "events/trajectory, "
+                f"{100.0 * metrics['transmitted_fraction']:.5g}% forward, "
+                f"{100.0 * metrics['backscattered_fraction']:.5g}% reverse. "
+                "Relativistic screened-Rutherford fallback; elastic energy "
+                "loss and inelastic angular deflection are not included."
+            )
+            if metrics["rutherford_heavy_element_warning"]:
+                transport_text += (
+                    " Z>30 was encountered, where ELSEPA cross sections are "
+                    "recommended for quantitative work."
+                )
+        self.eds_summary.setText(
+            f"EDS point: {spectrum.total_expected_counts:.6g} expected "
+            f"counts{sampled_text}; {len(spectrum.lines)} characteristic "
+            f"transitions; sources: {source_names}. {transport_text} "
+            "Bremsstrahlung is not yet included."
+        )
+        self.eds_summary.setToolTip(
+            "\n".join(
+                f"{key}: {value}"
+                for key, value in spectrum.metrics.items()
+            )
+        )
+
+    def _plot_elastic_trajectories(self, transport):
+        self.eds_trajectory_plot.clear()
+        if transport is None or not transport.trajectories:
+            return
+        colours = {
+            "transmitted": (34, 197, 94, 150),
+            "backscattered": (249, 115, 22, 180),
+            "lateral_escape": (59, 130, 246, 170),
+            "event_limit": (239, 68, 68, 200),
+            "path_limit": (168, 85, 247, 200),
+        }
+        event_x = []
+        event_z = []
+        for trajectory in transport.trajectories:
+            points = trajectory.points_nm
+            if points.shape[0] < 2:
+                continue
+            x_displacement = points[:, 0] - points[0, 0]
+            self.eds_trajectory_plot.plot(
+                x_displacement,
+                points[:, 2],
+                pen=pg.mkPen(
+                    colours.get(trajectory.outcome, (100, 116, 139, 150)),
+                    width=1.15,
+                ),
+            )
+            event_x.extend(
+                event.position_nm[0] - points[0, 0]
+                for event in trajectory.events
+            )
+            event_z.extend(event.position_nm[2] for event in trajectory.events)
+        if event_x:
+            self.eds_trajectory_plot.plot(
+                event_x,
+                event_z,
+                pen=None,
+                symbol="o",
+                symbolSize=3.5,
+                symbolPen=None,
+                symbolBrush=pg.mkBrush(239, 68, 68, 155),
+            )
+        self.eds_trajectory_plot.enableAutoRange()
+
     def _refresh_inelastic_summary(self):
         if self._state is None:
             return
@@ -1417,6 +1873,13 @@ class SamplePage(QWidget):
             self.inelastic_summary.setToolTip(str(exc))
 
     def _changed(self, name):
+        self._eds_result = None
+        self._elastic_result = None
+        self.eds_summary.setText(
+            "EDS settings or specimen state changed; press Calculate point EDS."
+        )
+        self.eds_lines.setRowCount(0)
+        self.eds_trajectory_plot.clear()
         self._refresh_inelastic_summary()
         self.refresh_snapshot()
         self.parameters_changed.emit(name)

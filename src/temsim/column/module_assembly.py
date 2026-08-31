@@ -254,6 +254,9 @@ def _module_vacuum_segments(module, origin, resolved_parts):
             if (
                 part.start_z_mm <= midpoint <= part.end_z_mm
                 and "vacuum_inner_diameter_mm" in part.data
+                and not bool(
+                    part.data.get("axial_vacuum_context_only", False)
+                )
             )
         ]
         if active:
@@ -668,18 +671,25 @@ def apply_module_assembly(
                 if part is not None and field in part.data:
                     shape_updates["outer_diameter_mm"] = float(part.data[field])
                     break
-            for field in (
-                "mechanical_clear_bore_diameter_mm",
-                "mechanical_bore_diameter_mm",
-                "bore_diameter_mm",
+            if not (
+                shape.profile == "adjustable_circular_aperture"
+                and shape.active_diameter_mm is not None
             ):
-                if part is not None and field in part.data:
-                    shape_updates["active_diameter_mm"] = float(part.data[field])
-                    break
+                for field in (
+                    "mechanical_clear_bore_diameter_mm",
+                    "mechanical_bore_diameter_mm",
+                    "bore_diameter_mm",
+                ):
+                    if part is not None and field in part.data:
+                        shape_updates["active_diameter_mm"] = float(
+                            part.data[field]
+                        )
+                        break
             for field in (
                 "mechanical_tip_diameter_mm",
                 "pole_piece_tip_diameter_mm",
                 "plate_thickness_mm",
+                "active_length_mm",
                 "effective_length_mm",
                 "effective_thickness_mm",
             ):
@@ -1089,6 +1099,49 @@ def _apply_manifest_field_polarity(item, part):
     )
 
 
+def _apply_manifest_condenser_field_calibration(item, part):
+    """Apply the selected TOML's C1/C2 axial-field calibration."""
+
+    if str(part.key) not in module_manifest.CONDENSER_FIELD_CALIBRATION_KEYS:
+        return
+    from temsim.optics.condenser_lens import AxialFieldTerm
+
+    object.__setattr__(item, "b0_t", float(part.data["maximum_peak_field_t"]))
+    object.__setattr__(item, "a_mm", float(part.data["field_half_width_mm"]))
+    object.__setattr__(
+        item,
+        "max_percent",
+        float(part.data["maximum_excitation_percent"]),
+    )
+    object.__setattr__(
+        item,
+        "gaussian",
+        [
+            AxialFieldTerm(
+                amplitude=float(term[0]),
+                offset=float(term[1]),
+                sigma=float(term[2]),
+            )
+            for term in part.data["field_profile_terms"]
+        ],
+    )
+    object.__setattr__(
+        item,
+        "normalise_profile_peak",
+        bool(part.data["normalise_field_profile_peak"]),
+    )
+    object.__setattr__(
+        item,
+        "field_calibration_status",
+        str(part.data["field_calibration_status"]),
+    )
+    object.__setattr__(
+        item,
+        "field_calibration_source",
+        str(part.data["field_calibration_source"]),
+    )
+
+
 def _apply_manifest_projector_field_calibration(item, part):
     """Apply TOML-owned non-OEM or measured projector field calibration."""
 
@@ -1468,6 +1521,7 @@ def _apply_manifest_runtime_geometry(state, parts, assembly):
             continue
         _set_mechanical_geometry(item, part, parts)
         _apply_manifest_field_polarity(item, part)
+        _apply_manifest_condenser_field_calibration(item, part)
         _apply_manifest_projector_field_calibration(item, part)
         _apply_detector_orientation_calibration(item, part)
         _apply_detector_point_spread(item, part)

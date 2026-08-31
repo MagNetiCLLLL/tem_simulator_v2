@@ -43,6 +43,18 @@ anchors generate zero-loss, plasmon/low-loss, core-ionisation and plural-event
 populations, while optional effective absorption removes current from the
 tracked transmitted beam. It is not an absorptive multislice potential or a
 full energy-differential EELS/dielectric calculation.
+The generic EDS subsystem is separate from that aggregate core-loss model. It
+uses Bote--Salvat K/L/M shell ionisation and xraylib relaxation data, supports
+Cu/Au 3.05 mm commercial support grids or a virtual-vacuum support, and runs
+an explicit point spectrum only when requested. Its default seeded transport
+traces event-by-event three-dimensional elastic paths through the finite
+sample, mesh openings/sidewalls, bars and rim, then integrates EDS production
+along those paths. The present relativistic screened-Rutherford fallback is
+not an ELSEPA/full-Mott or crystal-channeling model and carries an explicit
+`Z > 30` accuracy warning. A straight-primary reference remains selectable;
+editing sample, support or mechanical state never launches the calculation.
+The model scope and absolute-count limitations are recorded in
+[`docs/EDS_SIGNAL_MODEL.md`](docs/EDS_SIGNAL_MODEL.md).
 Magnetic-lens excitation is consistently expressed on a 0–100% scale; lenses
 that require stronger fields own correspondingly higher 100% field
 calibrations instead of using over-100% excitation values.
@@ -61,7 +73,7 @@ recalculation preserves a user's runtime direction override.
 - Loads five C2/C3/corrector column arrangements with the Energy Filter
   recording system permanently installed; Instrument Setup no longer exposes
   a recording-system selector.
-- Validates all 10 module TOMLs, 466 part definitions and 15 selectable catalog
+- Validates all 10 module TOMLs, 480 part definitions and 15 selectable catalog
   assembly combinations at startup. The legacy no-filter TOML remains
   validation-only historical geometry.
 - Rejects magnetic-lens manifests that omit a signed `field_polarity` or its
@@ -322,13 +334,49 @@ centres, while their TOML housing/yoke envelopes form a compact stack with
 explicit user-defined non-OEM principle-model dimensions, not production
 drawings.
 
+The active column also contains one TOML-authoritative generic EDS aggregate
+at the sample plane. Its installed reference geometry is defined in
+`configs/detectors/eds/EDS.toml`; each column TOML contains only its local
+sample-plane placement and a reference to that file. It represents a
+transverse six-segment windowless SDD array inside the Objective region, not
+an axial electron detector or ray stop. No second EDS system or product
+selector is installed.
+The documented `>4.45 sr` unshadowed and `4.04 sr` analytical-holder
+solid angles are retained. Segment count and the 32.06 degree reference
+take-off angle have explicitly weaker evidence status; active crystal area,
+sample distance and package dimensions remain unknown and are drawn only as
+non-dimensional schematics. Solid display polygons are solved to remain 1 mm
+outside the resolved Objective pole-piece OD, solely to prevent a false 2-D
+material overlap; this is not a product clearance or a validated 3-D
+shadowing model. See
+`docs/TEM_PROJECTOR_AND_EDS_GEOMETRY_RESEARCH_2026-08-30.md` and
+`docs/EDS_SIGNAL_MODEL.md`.
+
+Both recording TOMLs also define one mechanical-only post-P2 viewing/STEM
+detector chamber. Public Titan diagrams support this section and the relative
+HAADF -> main screen -> DF -> BF -> camera order, but not absolute dimensions.
+The current P2-end gaps are 7.25, 127.25, 217.25, 287.25 and 399.75 mm,
+respectively: only HAADF is unusually close. The chamber envelope and the
+7.25 mm value remain adjustable non-OEM geometry; no active detector plane or
+optical preset is moved by the drawing.
+
+At the common P2/projection-chamber boundary, both recording TOMLs now also
+define a separate `projection_chamber_dpa_aperture`. It is displayed as the
+fixed **Projection-Chamber Differential-Pumping Aperture**, upstream of HAADF
+and distinct from the downstream Iliad spectrometer entrance aperture. The
+configured 0.2 mm bore is a documented Tecnai/Talos-family reference, not a
+confirmed Titan production dimension; the unavailable plate thickness remains
+a zero-length mechanical reference with schematic display thickness. This
+accessory is intentionally mechanical-only: it adds no ray clipping, optical
+reference plane, conjugacy constraint or preset-lens recalculation.
+
 Every Camera, Fluorescent Screen and BF/DF/HAADF row defines
 `signal_collection_surface = "upstream_top_surface"`. Its optical reference
 and signal-collection Z are therefore `local_start_z_mm`; the finite body
 centre remains mechanical geometry only. Physical Layout, Ray Diagram and
 Transverse X-Y use the top-surface marker consistently.
 
-The 466 part rows contain 192 logical keys and 274 intentional repetitions
+The 480 part rows contain 196 logical keys and 284 intentional repetitions
 across mutually exclusive hardware variants. They are not applied as an
 override stack. Catalog validation rejects duplicate files, module keys,
 selection signatures, per-file part keys/orders, runtime keys and any active

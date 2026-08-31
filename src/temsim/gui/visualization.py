@@ -2217,7 +2217,14 @@ class VisualizationWorkspace(QWidget):
             if part.key == "sample":
                 continue
             is_lens = "lens" in part.key
-            is_aperture = "aperture" in part.key
+            # A hardware name can contain "aperture" without defining a
+            # runtime electron-optical stop.  In particular, the fixed
+            # projection-chamber DPA is currently a mechanical vacuum
+            # accessory only and deliberately carries no optical reference.
+            is_aperture = (
+                "aperture" in part.key
+                and not bool(part.data.get("mechanical_only", False))
+            )
             if is_aperture:
                 self._add_aperture_component(part, index)
                 continue

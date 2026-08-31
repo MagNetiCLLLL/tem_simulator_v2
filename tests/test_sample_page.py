@@ -1,8 +1,10 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 from PySide6.QtWidgets import QDoubleSpinBox, QLabel
 
+from temsim.assembly_catalog import AssemblyCatalog
 from temsim.gui.sample_panel import SamplePage
 from temsim.optics.column import default_state
 from temsim.specimen.atomistic import atomistic_capability
@@ -129,6 +131,40 @@ def test_sample_page_gates_wave_controls_by_illumination_mode(qtbot):
     page.set_state(state)
     assert not page.tem_wave_enabled.isEnabled()
     assert not page.stem_wave_enabled.isEnabled()
+
+
+def test_sample_page_exposes_generic_explicit_eds_acquisition(qtbot):
+    state = default_state()
+    state.sample.eds_elastic_trajectory_count = 2
+    page = SamplePage()
+    qtbot.addWidget(page)
+    page.set_state(state)
+
+    material_index = page.eds_support_material.findData("copper")
+    page.eds_support_material.setCurrentIndex(material_index)
+    page.eds_scalar_controls["eds_support_offset_x_um"].setValue(-60.0)
+
+    assert state.sample.eds_support_material_key == "copper"
+    assert state.sample.eds_support_offset_x_um == pytest.approx(-60.0)
+    assert page._eds_result is None
+    assert "press Calculate point EDS" in page.eds_summary.text()
+    assert "Ultra" not in page.eds_group.title()
+
+    catalog = AssemblyCatalog()
+    assembly = catalog.apply(state, catalog.default_selection())
+    page.display_result(SimpleNamespace(assembly=assembly))
+    page.eds_acquire.click()
+
+    assert page._eds_result is not None
+    assert page._eds_result.metrics["system_name"] == "EDS"
+    assert page._eds_result.metrics["elastic_trajectory_generation"] is True
+    assert page._elastic_result is page._eds_result.elastic_transport
+    assert page.eds_trajectory_plot.listDataItems()
+    assert {
+        line.source_key for line in page._eds_result.lines
+    } >= {"sample", "support:bar"}
+    assert "EDS point:" in page.eds_summary.text()
+    assert "Ultra" not in page.eds_summary.text()
 
 
 def test_sample_page_contains_only_structure_and_labels_ball_elements(

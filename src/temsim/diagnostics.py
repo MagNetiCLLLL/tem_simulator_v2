@@ -33,6 +33,8 @@ class PhysicalLayoutRecord:
     end_z_mm: float
     outer_diameter_mm: float
     bore_diameter_mm: float
+    mechanical_bore_diameter_mm: float
+    active_length_mm: float
     vacuum_inner_diameter_mm: float
     pole_gap_mm: float
     pole_tip_diameter_mm: float
@@ -45,6 +47,15 @@ class PhysicalLayoutRecord:
     pole_nose_axial_length_mm: float
     pole_cone_angle_to_axis_deg: float
     pole_face_land_axial_thickness_mm: float
+    aperture_plate_material: str
+    aperture_plate_form: str
+    aperture_plate_attachment: str
+    aperture_mechanism_evidence_status: str
+    aperture_mechanism_evidence_source: str
+    accelerator_stage_centers_mm: tuple[float, ...]
+    accelerator_electrode_stack_form: str
+    accelerator_electrode_stack_evidence_status: str
+    accelerator_electrode_stack_evidence_source: str
     optical_references_mm: tuple[float, ...]
     excitation_enabled: bool | None
 
@@ -169,10 +180,21 @@ def physical_layout_records(result) -> tuple[PhysicalLayoutRecord, ...]:
                 getattr(shape, "active_diameter_mm", outer),
             )
         active = getattr(shape, "active_diameter_mm", None)
+        active_length = getattr(shape, "active_length_mm", None)
+        if active_length is None:
+            active_length = part.data.get(
+                "plate_thickness_mm",
+                part.data.get("active_length_mm", 0.0),
+            )
         effective_radius = getattr(
             component, "effective_aperture_radius_mm", None
         )
-        if recording_surface:
+        if (
+            profile == "adjustable_circular_aperture"
+            and effective_radius is not None
+        ):
+            bore = max(2.0 * float(effective_radius), 0.0)
+        elif recording_surface:
             bore = float(part.data.get("inner_diameter_mm", 0.0))
         elif active is not None and float(active) > 0.0:
             bore = float(active)
@@ -211,6 +233,14 @@ def physical_layout_records(result) -> tuple[PhysicalLayoutRecord, ...]:
             end_z_mm=float(part.end_z_mm),
             outer_diameter_mm=max(float(outer), 0.001),
             bore_diameter_mm=max(min(float(bore), float(outer)), 0.0),
+            mechanical_bore_diameter_mm=max(min(float(part.data.get(
+                "mechanical_bore_diameter_mm",
+                part.data.get(
+                    "mechanical_clear_bore_diameter_mm",
+                    part.data.get("bore_diameter_mm", bore),
+                ),
+            )), float(outer)), 0.0),
+            active_length_mm=max(float(active_length), 0.0),
             vacuum_inner_diameter_mm=float(
                 part.data["vacuum_inner_diameter_mm"]
             ),
@@ -246,6 +276,36 @@ def physical_layout_records(result) -> tuple[PhysicalLayoutRecord, ...]:
             pole_face_land_axial_thickness_mm=max(float(part.data.get(
                 "pole_face_land_axial_thickness_mm", 0.0,
             )), 0.0),
+            aperture_plate_material=str(part.data.get(
+                "aperture_plate_material", "",
+            )),
+            aperture_plate_form=str(part.data.get(
+                "aperture_plate_form", "",
+            )),
+            aperture_plate_attachment=str(part.data.get(
+                "aperture_plate_attachment", "",
+            )),
+            aperture_mechanism_evidence_status=str(part.data.get(
+                "aperture_mechanism_evidence_status", "",
+            )),
+            aperture_mechanism_evidence_source=str(part.data.get(
+                "aperture_mechanism_evidence_source", "",
+            )),
+            accelerator_stage_centers_mm=tuple(
+                float(part.center_z_mm)
+                + float(value)
+                - float(part.data["local_center_z_mm"])
+                for value in part.data.get("stage_centers_z_mm", ())
+            ),
+            accelerator_electrode_stack_form=str(part.data.get(
+                "accelerator_electrode_stack_form", "",
+            )),
+            accelerator_electrode_stack_evidence_status=str(part.data.get(
+                "accelerator_electrode_stack_evidence_status", "",
+            )),
+            accelerator_electrode_stack_evidence_source=str(part.data.get(
+                "accelerator_electrode_stack_evidence_source", "",
+            )),
             optical_references_mm=_optical_references(part),
             excitation_enabled=getattr(
                 excitation_source, "excitation_enabled", None

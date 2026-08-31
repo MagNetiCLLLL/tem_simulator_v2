@@ -72,15 +72,27 @@ class AppliedOperatingModes:
 
     @property
     def summary(self) -> str:
+        condenser_is_retained = self.condenser.calibration_status.startswith(
+            "retained_not_recomputed_"
+        )
         convergence = self.condenser.targets.get(
             "achieved_convergence_sem_angle_mrad"
         )
         relay_um = self.projector.targets.get("achieved_relay_error_um")
         details = []
         if convergence is not None:
-            details.append(f"sample semi-angle {float(convergence):.3f} mrad")
+            label = (
+                "stored reference semi-angle"
+                if condenser_is_retained
+                else "sample semi-angle"
+            )
+            details.append(f"{label} {float(convergence):.3f} mrad")
         if relay_um is not None:
             details.append(f"conjugate residual {float(relay_um):.3f} µm")
+        if condenser_is_retained:
+            details.append(
+                "condenser preset not recalculated for current geometry"
+            )
         suffix = "; ".join(details)
         return (
             f"{self.condenser.name} + {self.projector.name}"

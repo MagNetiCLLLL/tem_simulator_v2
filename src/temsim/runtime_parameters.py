@@ -302,6 +302,67 @@ def validate_runtime_assignment(
         raise ValueError(f"{target.key}.{name} cannot be negative")
     if name == "stem_poisson_seed" and int(converted) < 0:
         raise ValueError("sample.stem_poisson_seed cannot be negative")
+    if name == "eds_poisson_seed" and int(converted) < 0:
+        raise ValueError("sample.eds_poisson_seed cannot be negative")
+    if name == "eds_transport_mode" and str(converted) not in {
+        "elastic_monte_carlo",
+        "straight_primary",
+    }:
+        raise ValueError(
+            "sample.eds_transport_mode must be elastic_monte_carlo or "
+            "straight_primary"
+        )
+    if name == "eds_elastic_trajectory_count" and not (
+        1 <= int(converted) <= 100_000
+    ):
+        raise ValueError(
+            "sample.eds_elastic_trajectory_count must be between 1 and 100000"
+        )
+    if name == "eds_elastic_seed" and int(converted) < 0:
+        raise ValueError("sample.eds_elastic_seed cannot be negative")
+    if name == "eds_elastic_max_events" and not (
+        1 <= int(converted) <= 1_000_000
+    ):
+        raise ValueError(
+            "sample.eds_elastic_max_events must be between 1 and 1000000"
+        )
+    if name == "eds_support_material_key":
+        from temsim.specimen.support import load_support_catalog
+
+        if str(converted) not in load_support_catalog().materials:
+            raise ValueError(
+                "sample.eds_support_material_key is not in the support catalog"
+            )
+    if name == "eds_support_mesh_key":
+        from temsim.specimen.support import load_support_catalog
+
+        if str(converted) not in load_support_catalog().meshes:
+            raise ValueError(
+                "sample.eds_support_mesh_key is not in the support catalog"
+            )
+    if name == "eds_solid_angle_mode" and str(converted) not in {
+        "installed_holder",
+        "unshadowed",
+    }:
+        raise ValueError(
+            "sample.eds_solid_angle_mode must be installed_holder or unshadowed"
+        )
+    if name == "eds_detector_efficiency" and not (
+        0.0 <= float(converted) <= 1.0
+    ):
+        raise ValueError("sample.eds_detector_efficiency must be in [0, 1]")
+    if name in {
+        "eds_spectrum_max_energy_ev",
+        "eds_spectrum_bin_width_ev",
+    } and float(converted) <= 0.0:
+        raise ValueError(f"sample.{name} must be positive")
+    if (
+        name == "eds_energy_resolution_fwhm_ev"
+        and float(converted) < 0.0
+    ):
+        raise ValueError(
+            "sample.eds_energy_resolution_fwhm_ev cannot be negative"
+        )
     if name == "wave_probe_padding_factor" and float(converted) < 0.0:
         raise ValueError("sample.wave_probe_padding_factor cannot be negative")
     if name in {

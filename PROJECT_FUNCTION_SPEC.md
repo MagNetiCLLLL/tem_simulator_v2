@@ -2,9 +2,46 @@
 
 > 文档用途：本文件是后续大规模功能修改的唯一“活规范”入口。
 >
-> 当前状态：与工作区代码同步（2026-08-13）。
+> 当前状态：持续与工作区代码同步；总体建模原则更新于 2026-08-30。
 >
 > 程序入口：`main.py`；项目版本：`0.1.0`。
+
+## 0. 项目总体目标与建模原则
+
+TEM Simulator v2 的目标不是复制某一台现有仪器的固定操作档位，而是建立一个**以真实 TEM 为结构和物理基线、以理想连续设计变量探索新型 TEM 的研究模拟器**。
+
+### 0.1 真实基线与理想设计自由度
+
+- **真实基线**：在有照片、公开资料、可追溯参数或可靠物理模型时，尽量保留真实 TEM 的部件顺序、机械拓扑、相对比例、真空通道、光学作用、电子传播、孔径截断、像差、样品相互作用和探测过程。
+- **理想设计自由度**：真实仪器因加工、档位、行程、电源、发热、磁饱和、磁场溢出或其他工程因素而受限的参数，在模拟器中可以作为连续设计变量开放，用于探索现有硬件不能直接实现的新型 TEM 方案。
+- 理想化只移除明确声明的工程限制，不得把一个仅改变标签、却不进入传播或成像模型的控件称为“可调”。参数改变后，所有已实现且相关的物理计算仍必须使用该值。
+- 新增或修改 `mechanical_only` 配件时，先依据结构证据、装配关系和机械间隙建立实体；已有光路、共轭面、aperture stop 或 preset lens strength 不得成为添加条件，也不得因此自动重算。只有用户明确要求计算光路，或该配件被显式升级为参与电子传播的光学组件时，才建立相应光学约束。
+- 真实证据、非 OEM 工程重建和理想设计变量必须分别标注；不得把照片比例、暂定值或理想可调范围描述成制造商标定或现实可达性能。
+
+### 0.2 连续 aperture 与理想 lens 参数
+
+- 所有圆形 aperture 的有效开口直径或半径均保持连续可调，不量化、吸附或限制为真实 holder 上的若干固定孔位。Insert/retract 可以保留为独立机械状态，但不能改变开口尺寸连续可调的原则。
+- C2 aperture holder 照片中的四个机械选择位置只用于理解 holder、带孔片、螺钉和连接杆的真实结构；它们不是模拟器的四档 aperture 运行状态，也不要求按照四个位置重建当前模型。
+- Lens strength、lens axial position 及同类设计参数应能作为连续变量探索。理想设计模式不把线圈温升、磁饱和、磁场溢出、电源额定值、机械行程或现有仪器档位当作不可越过的物理上限，除非用户明确启用相应的真实硬件约束模型。
+- “无限可调”表示不受已知实机工程额定范围限制，并不表示向数值算法传入数学上的 `inf`。有限浮点范围、求解器收敛、内存和防止无效状态所需的数值保护仍然有效，但必须标记为数值边界，而不是现实 TEM 的性能边界。
+- 如果以后加入真实硬件约束模式，它必须是显式、可识别且可关闭的模型；不得在理想设计模式中静默 clamp、snap 或恢复到现有仪器的离散档位。
+
+### 0.3 EDS 证据与理想化边界
+
+- EDS detector 是样品附近的离轴 X-ray collection system，不是轴上电子记录面，也不应因 Physical Layout 绘图而成为 electron propagation stop。
+- 当前机器只安装一套通用名称的 EDS detector array：角接受参数由 `configs/detectors/eds/EDS.toml` 单点定义，五种 column TOML 只保存样品平面安装位置引用。产品资料只作为几何来源和 provenance，不把 Ultra-X 作为新信号系统、GUI 或结果的名称，也不添加第二套 EDS 或型号切换器。
+- 其他产品的公开晶片数据不得移植到当前 EDS。当前仅使用可追溯的 windowless、六段支持证据、立体角和单台仪器参考取出角；active area、sensor distance、crystal shape 和 package envelope 保持 unknown，等待用户横截面/组件图。
+- Solid angle 及由其派生的 equivalent-cone angle 属于物理接受量；为看清结构而选取的探头头部大小和绘图距离属于 display-only geometry，两者不得混用。
+- EDS 实体示意不得与已解析的 Objective pole-piece 材料轮廓重叠；当前 1 mm 仅为 display-only separation，不是产品间隙、真实 collimator clearance 或无阴影证明。角中心线/接受边界不是实体，可在轴对称二维截面上穿过磁极投影。
+- EDS 信号计算必须与 detector 品牌身份分离。样品和支架中 primary 或 elastically-scattered electron track segment 都可以产生 K/L/M 壳层空位。默认显式点计算必须由有限三维几何中的逐事件弹性 Monte Carlo 生成路径；总 core-loss MFP 不得代替元素弹性或 EDS 电离截面。直线路径只能作为清楚标记的参考模式。
+- 当前离线弹性 provider 是 100–300 keV 的 relativistic screened-Rutherford 暂定模型，不是 ELSEPA/full-Mott 或晶体 channeling 模型。遇到 `Z > 30` 必须报告精度警告；未来高精度 provider 应使用有合法来源的 ELSEPA differential cross section，不得直接打包受再分发限制的 NIST SRD 64 数据表。
+
+### 0.4 P2 后方探测区及机械修改边界
+
+- Titan 公开资料可约束 P2 后方 viewing/detector section 和 HAADF、主屏、DF、BF、Camera 的相对顺序，不能把示意图比例转换成 OEM 绝对轴向尺寸。
+- 当前 P2 下端到 HAADF、主屏、DF、BF、Camera 有效面的距离分别为 7.25、127.25、217.25、287.25、399.75 mm。只有 HAADF 极近；7.25 mm 与 chamber 尺寸均保持明确的非 OEM 暂定值。
+- `post_projector_detector_chamber` 只是 TOML 权威的机械上下文，不拥有新光学面或真空 cutoff。单个机械组件的新增、移动或外形修改不得自动重算 preset lens strength；只有用户明确要求计算光路或机械改动实际改变光学约束时才进入相应光学求解任务。
+- column 与 projection chamber 的边界必须单独显示固定的 `projection_chamber_dpa_aperture`，位于 P2 后、HAADF 前；它不能与下游 `energy_filter_entrance_aperture` 合并。当前新增阶段只建立机械真空限流孔及证据，不要求满足既有光学共轭约束、不加入 ray clipping，也不触发 preset lens-strength 重算。
 
 ## 1. 文档管理规则
 
@@ -75,6 +112,15 @@
 | UR-013 | 在 Camera、荧光屏和 BF/DF/HAADF 等物理记录面加入 point-spread response；保留原始射线，不把任意 Z 或物镜 CTF 错当成探测器 PSF。 | 已实现首阶段 | TOML `point_spread_*`、`detector/point_spread.py`、`detector_response_image`、Transverse X-Y 响应叠层；Zebra/EFTEM 输出仍待后续接入 |
 | UR-014 | D、I、P1、P2 的实体包络之间不得保留大段空白，真空通道内径必须一致；所有 detector/camera 使用上游上表面作为信号收集平面，所有标记必须落在该表面。 | 已实现 | recording TOML 的 5 mm 包络间隙与 20 mm vacuum ID；`signal_collection_surface = upstream_top_surface`；Physical Layout、Ray Diagram、Transverse X-Y |
 | UR-015 | 所有真实圆磁透镜必须显示可追溯的本征 Cs/Cc；只在 probe/sample 与 Objective/image 系统维护完整有效像差列表，并真实比较校正前后，不为校正器四极/六极重复添加 Cs。 | 已实现原理模型 | `optics/aberrations.py`、GUI `Aberrations` 页、TEM/STEM wave phase；未提供实机/OEM 标定 |
+| UR-016 | 项目必须以真实 TEM 的结构和物理为基线，同时把现实中仅受工程条件限制的参数开放为理想连续设计变量，用于未来新型 TEM 设计；两类信息必须明确区分来源和适用边界。 | 约束 | 本文件第 0 节；后续所有 GUI、状态、配置、求解器和验证设计 |
+| UR-017 | 所有圆形 aperture 的有效开口尺寸必须连续可调；C2 holder 照片中的四个机械位置只作结构参考，不得成为四档选择、尺寸吸附或运行时量化依据。 | 已实现，约束 | Aperture 浮点 radius/diameter 控件与 clipping；Physical Layout 的 Pt 带孔片、螺钉和连接杆仅作结构示意 |
+| UR-018 | Lens strength、lens position 及同类设计参数应支持不受实机温升、磁饱和、磁场溢出、电源额定值、机械行程或离散档位限制的连续设计探索；只保留明确标注的数值安全边界，真实硬件限制只能作为显式可选模型。 | 部分实现，约束 | 当前 lens/position 使用连续数值；现有 0–100% excitation、Direct Alignment 范围和部分位置编辑仍是待解耦的实现边界 |
+
+| UR-019 | 在 Objective/sample 区域加入一套离轴 EDS 探测阵列；系统、GUI 和结果统一使用通用 EDS 名称，不以 Ultra-X 标记新系统。制造商立体角、论文/实测段数与单台仪器取出角仍须分级记录，未公开的晶片面积、距离和外壳尺寸不得由其他产品参数或专利范围代替。 | 已实现机械/角接受阶段 | `configs/detectors/eds/EDS.toml` 单一几何定义、column 安装位置引用、Physical Layout 两方位投影、`detector/eds_geometry.py`；产品名只可留在 provenance |
+| UR-020 | EDS 的实体 Physical Layout 示意必须与 Objective pole-piece 轮廓无材料重叠，但不得为了适配未知 detector 外壳而擅改磁极形状或伪造产品尺寸。 | 已实现，保持证据边界 | EDS solid polygon 由解析磁极最大外半径加 1 mm display-only separation 定位；测试检查全部 active-face/housing 顶点，真实 3D clearance/shadowing 待横截面 |
+| UR-021 | 核查 Titan 中 P2 到 HAADF 及后续探测器的合理距离；Physical Layout 应显示独立 viewing/detector chamber，并把相对拓扑证据与绝对暂定尺寸分开。 | 已实现非 OEM 机械阶段 | 两套 recording TOML 的 `post_projector_detector_chamber`、manifest 包含/边界验证、Physical Layout chamber；保留全部 active plane 和 preset |
+| UR-022 | 在 P2 与 projection chamber 的边界加入独立 differential-pumping aperture；使用正确名称并与 Iliad spectrometer entrance aperture 分离。新增机械配件时不受当前光学共轭约束阻止，也不自动计算 preset 透镜强度。 | 已实现机械阶段，光学耦合待显式需求 | 两套 recording TOML 的 `projection_chamber_dpa_aperture`、manifest 边界/证据验证、Physical Layout；0.2 mm 仅为 Tecnai/Talos 系列参考，Titan 尺寸未确认；无 clipping/optical reference/preset 重算 |
+| UR-023 | 引入通用 EDS 信号模拟：支持 3.05 mm 圆形 Cu/Au 商业方孔网和真空虚拟支架、不同 mesh 数；样品与支架中的 primary 及弹性散射后电子均可产生 X-ray，元素/壳层产额必须来自物理截面和原子数据库。 | 已实现弹性轨迹与特征线阶段 | `specimen/elastic_transport.py` 在有限样品、连续方孔/侧壁、网杆、rim 中按指数自由程逐事件生成 3-D 路径，默认 32 条 seeded 轨迹并保留 straight reference；`detector/eds_atomic.py` 与 `detector/eds_signal.py` 计算 Bote–Salvat K/L/M 特征线、自吸收、立体角、理想效率与 Poisson。当前 screened-Rutherford 对 Z>30 仅为暂定近似；bremsstrahlung、电子减速、跨层吸收、vacancy cascade、secondary fluorescence、ELSEPA 和晶体 channeling 尚未实现。 |
 
 ## 3. 系统范围与总体结构
 
@@ -112,7 +158,7 @@ main.py
 
 ### 3.3 当前装配目录
 
-代码审计值：**10 个模块 TOML、466 条变体级部件定义、192 个逻辑部件键、15 种可选无冲突装配组合**。
+代码审计值：**10 个模块 TOML、480 条变体级部件定义、196 个逻辑部件键、15 种可选无冲突装配组合**。
 
 Gun 选择：
 
@@ -296,6 +342,7 @@ View：
 
 - Round lens 场由各 lens 的 Bz profile、excitation、校准场强和 `field_polarity`计算。
 - excitation 始终为非负 0–100%；Bz 正负由独立 polarity 决定。
+- 当前 0–100% 是现有实现使用的归一化校准坐标，不是项目对未来理想 lens strength 的实机硬上限；后续扩展必须遵守 UR-018，并把数值安全范围与真实硬件额定范围分开。
 - 每个 lens TOML保存 polarity、status 和 source。
 - 支持 focal length、Cs、Cc、Larmor rotation、signed field integral、field support 和 peak field diagnostics。
 - 机械 housing/yoke/coil/pole 不产生重复光学元件，也不截断数学磁场支持。
@@ -316,6 +363,8 @@ View：
 ### 8.5 Apertures、recording devices 和 walls
 
 - Aperture 使用圆形 hard edge、半径、X/Y offset、enable 和 installed 状态。
+- 所有圆形 aperture 的有效半径/直径是连续浮点设计变量；真实 holder 的离散孔位数量不进入尺寸量化、吸附或 preset 选择。
+- C2 aperture holder 的四个位置仅证明真实机械 carrier 拥有多个可选孔位。模拟器继续使用单个连续可调 opening，并保留照片支持的 holder、Pt 带孔片、螺钉和连接杆拓扑。
 - 图中区分机械 body centre 和实际 optical stop plane。
 - 启用的 aperture 绘制两段实体阻挡区域及中间开口；禁用时保留非阻挡参考。
 - Vacuum wall 使用 position-dependent circular X/Y cutoff。
@@ -786,6 +835,8 @@ sum(P_tracked_channel) + P_absorbed = 1
 - Real inelastic ray angle和energy loss是compact representative quadrature，不是完整line shape。
 - High-accuracy STEM对tracked inelastic populations复用zero-loss coherent angular distribution。
 - Screened Rutherford不是full Mott elastic scattering。
+- 当前 EDS 弹性轨迹按 bulk density/mass fraction 处理为 independent-atom、amorphous-style transport；没有晶体 channeling/coherent diffraction，也没有从 multislice wave 提取经典路径。
+- 当前 EDS 初始电子是沿 laboratory `+Z` 的单点平行束；尚未采样 probe convergence、source size 或像差相空间。弹性碰撞不改变 kinetic energy，也没有 nuclear recoil 或 inelastic angular kick。
 - Amorphous carbon inelastic preset是density-scaled approximate model，不代表所有carbon film。
 - Current atomistic potential是neutral-atom IAM。
 - TEM Wave Image只到Objective CTF，不是最终camera image。
@@ -798,6 +849,7 @@ sum(P_tracked_channel) + P_absorbed = 1
 - Mechanical pole geometry目前不反向重塑analytic Bz profile。
 - Geometric STEM Preview不是样品原子对比。
 - 请求范围不代表Direct Alignment每个目标都一定可达。
+- 当前 0–100% lens excitation、Direct Alignment 目标范围、aperture maximum radius 和部分静态位置编辑仍是实现/校准边界；它们不得被解释为本项目最终接受的实机物理上限，UR-018 所述理想连续设计模式尚未完整实现。
 
 ## 22. 错误处理与安全行为
 
@@ -854,13 +906,18 @@ sum(P_tracked_channel) + P_absorbed = 1
 - Scan/STEM：`test_scan_system.py`, `test_stem_observables_v2.py`, `test_stem_cuda_pipeline.py`。
 - CUDA/FFT：`test_compute_backend.py`, `test_cuda_multislice_plan.py`, `test_wave_fft.py`。
 - TOML/layout：`test_toml_authority.py`, `test_manifest_editing.py`, `test_column_wall.py`, `test_field_polarity_manifest.py`。
-- Detector/Energy Filter：`test_detector_orientation_manifest.py`, `test_detector_point_spread.py`, `test_energy_filter_physical_layout.py`。
+- Detector/Energy Filter：`test_detector_orientation_manifest.py`, `test_detector_point_spread.py`, `test_energy_filter_physical_layout.py`, `test_eds_detector_geometry.py`, `test_post_projector_detector_chamber.py`。
+- EDS/弹性轨迹：`test_eds_signal.py`, `test_elastic_transport.py`, `test_specimen_support.py`。
 - Gun/timing：`test_electron_gun_timing.py`。
 
 ### 24.2 最近验证
 
-- 完整测试：`304 passed`，无失败或跳过，耗时361.6秒。
-- Projector 包络、detector 上表面、PSF、orientation 与 GUI 定向测试全部通过。
+- 2026-08-31 弹性轨迹阶段新增/更新的截面、CDF、几何、输运、EDS、profile 与 GUI 定向测试全部通过。随后运行非 Nanoprobe 重标定全套：`405 passed, 1 skipped, 6 deselected`，零失败；六个 deselection 仍是按用户要求不重算的两组 C2/C3 Nanoprobe 标定 family。`compileall`、`main.py` import smoke、`pip check` 与 `git diff --check` 通过。
+- 2026-08-30 projection-chamber DPA 机械实现完成后共收集 386 项测试；按“不为机械修改重算光路”的要求，运行非 Nanoprobe 重标定集合，合计 `379 passed, 1 skipped, 6 deselected`。六个隔离参数点未重跑；其最近一次结果仍为 `2 passed, 4 failed`。
+- 四个已知失败均属于 C2 长度/场标定和 aperture 位置改变后、按用户要求尚未重算的 Nanoprobe live-solve 参数点：100 µm→30 mrad、200 µm→60 mrad、60 µm→18 mrad、140 µm→42 mrad。本次 EDS 机械修改不改写这些 preset 或 warm starts。
+- Ultra-X 五种 column TOML、证据边界、角接受派生量、Physical Layout、窄窗口和“非轴向真空壁/非光学组件”测试全部通过。
+- EDS solid polygon 对 Objective pole-piece 最大外半径的 1 mm display-only separation、两套 recording TOML 的 post-P2 chamber 边界/包含关系、P2 到五个有效面的距离和离屏渲染测试通过；相关组合回归 `142 passed`。
+- Projector 包络、detector 上表面、PSF、orientation 与其余 GUI 定向测试通过。
 - Python 3.12.3环境中`pip check`无依赖冲突。
 - `main.py`导入成功。
 - Offscreen环境中主窗口成功构建、显示并关闭。
@@ -904,3 +961,10 @@ sum(P_tracked_channel) + P_absorbed = 1
 | 2026-08-20 | 为 Camera、荧光屏和 BF/DF/HAADF 记录面加入 TOML 权威的二维 point-spread response。 | 原始射线保持不变；Transverse X-Y 仅在选择物理记录面时叠加有限敏感区 PSF 响应并报告保留权重；参数明确为非实机标定的可调默认值。 |
 | 2026-08-20 | 收紧 D-I-P1-P2 实体包络并统一真空管，同时把所有 detector/camera 的信号面固定到上游上表面。 | 外壳/磁轭相邻间隙均为 5 mm、全栈 vacuum ID 为 20 mm；保留已验证磁场中心；Physical Layout、Ray Diagram、Transverse X-Y 标记统一使用信号面。 |
 | 2026-08-20 | 加入分层混合像差模型。 | 所有圆透镜显示本征 Cs/Cc 及来源；probe/image 系统使用 C1/A1/B2/A2/C3/S3/A3/C5/Cc，有向项带方位角；校正比较只切换非线性六极场，TEM/STEM 波相位使用同一有效系数。 |
+| 2026-08-30 | 确立“真实 TEM 基线 + 理想连续设计变量”的总体目标，并记录 C2 aperture holder 的解释边界。 | 新增 UR-016 至 UR-018；四个真实 holder 位置仅作结构证据，所有圆形 aperture 保持连续可调；lens strength/position 的实机工程限制不得成为未来理想设计模式的静默硬上限。 |
+| 2026-08-30 | 记录 projector 磁极拓扑研究，并在 Objective/sample 区域加入 Ultra-X EDS。 | D/I/P1/P2 的独立双磁极结构继续标为 provisional；Ultra-X 以离轴六段 aggregate 和证据分级角接受模型加入 Physical Layout，未知晶片/距离/外壳尺寸不作伪造；机械修改未重算 preset 透镜强度。 |
+| 2026-08-30 | 将 EDS 配置收敛为单一型号 TOML。 | 新增 `configs/detectors/eds/UltraX.toml`；五种 column 只引用这一产品定义，Physical Layout 只显示一套 Ultra-X，不建立 Super-X 实例或切换器。 |
+| 2026-08-30 | 消除 EDS 实体示意与 Objective pole-piece 的二维材料重叠，并核查 P2 后方探测器距离。 | Ultra-X 实体 polygon 使用 1 mm display-only separation，未改磁极或产品参数；两套 recording TOML 新增非 OEM post-P2 viewing/STEM-detector chamber。Titan 资料支持 HAADF-first 拓扑，不支持把当前 7.25 mm 写成 OEM 尺寸；全部 active plane 与 preset 保持不变。 |
+| 2026-08-30 | 在 P2/projection-chamber 边界加入独立 differential-pumping aperture，并明确机械新增不受当前光学约束阻止。 | 新增 UR-022；两套 recording TOML 和 Physical Layout 使用 `projection_chamber_dpa_aperture`，与 Iliad entrance aperture 分离。0.2 mm 只标记为 Tecnai/Talos 系列参考；无 ray clipping、optical reference 或 preset 重算。 |
+| 2026-08-30 | 开始引入通用 EDS 信号系统，并取消新系统的 Ultra-X 品牌标记。 | 修订 UR-019/UR-020，新增 UR-023；几何定义改为 `EDS.toml`、所有用户界面和结果使用 EDS。加入 Cu/Au/真空支架与 50–500 mesh catalog、Bote–Salvat K/L/M 电离、xraylib 直接空位弛豫、特征线/自吸收/立体角/Poisson 点谱；弹性轨迹生成与连续谱仍明确待实现。 |
+| 2026-08-31 | 将 EDS 下一阶段重点转为真实弹性散射轨迹。 | 新增有限样品/连续方孔网几何中的事件驱动 3-D Monte Carlo、指数自由程、元素散射体抽样、屏蔽 Rutherford 偏转、可复现 seed、终态/截断统计、EDS 路径汇总及 X-Z 代表轨迹图。保留 straight reference；明确 Z>30/ELSEPA、晶体 channeling、能损与连续谱边界；未重算任何 preset 透镜强度。 |

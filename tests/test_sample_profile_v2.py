@@ -40,6 +40,18 @@ def test_profile_v2_round_trips_sample_tables_and_quaternion(tmp_path: Path):
     state.sample.wave_frozen_phonon_sigma_by_element_angstrom = {
         "Si": 0.075
     }
+    state.sample.eds_support_material_key = "gold"
+    state.sample.eds_support_mesh_key = "square_400_eoa"
+    state.sample.eds_support_offset_x_um = 12.5
+    state.sample.eds_support_rotation_deg = 17.0
+    state.sample.eds_detector_efficiency = 0.83
+    state.sample.eds_energy_resolution_fwhm_ev = 125.0
+    state.sample.eds_poisson_enabled = True
+    state.sample.eds_poisson_seed = 44
+    state.sample.eds_transport_mode = "elastic_monte_carlo"
+    state.sample.eds_elastic_trajectory_count = 19
+    state.sample.eds_elastic_seed = 45
+    state.sample.eds_elastic_max_events = 1234
     path = tmp_path / "sample-v2.toml"
 
     save_profile(path, state, selection)
@@ -59,6 +71,20 @@ def test_profile_v2_round_trips_sample_tables_and_quaternion(tmp_path: Path):
     assert restored.sample.wave_frozen_phonon_sigma_by_element_angstrom == {
         "Si": 0.075
     }
+    assert restored.sample.eds_support_material_key == "gold"
+    assert restored.sample.eds_support_mesh_key == "square_400_eoa"
+    assert restored.sample.eds_support_offset_x_um == pytest.approx(12.5)
+    assert restored.sample.eds_support_rotation_deg == pytest.approx(17.0)
+    assert restored.sample.eds_detector_efficiency == pytest.approx(0.83)
+    assert restored.sample.eds_energy_resolution_fwhm_ev == pytest.approx(
+        125.0
+    )
+    assert restored.sample.eds_poisson_enabled is True
+    assert restored.sample.eds_poisson_seed == 44
+    assert restored.sample.eds_transport_mode == "elastic_monte_carlo"
+    assert restored.sample.eds_elastic_trajectory_count == 19
+    assert restored.sample.eds_elastic_seed == 45
+    assert restored.sample.eds_elastic_max_events == 1234
     assert "format_version = 2" in path.read_text(encoding="utf-8")
 
 
@@ -93,4 +119,3 @@ def test_profile_v1_is_read_and_legacy_virtual_weights_are_migrated(tmp_path: Pa
     ]
     assert sum(probabilities) < 1.0
     assert all(value >= 0.0 for value in probabilities)
-

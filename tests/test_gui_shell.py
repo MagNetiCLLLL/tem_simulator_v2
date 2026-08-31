@@ -11,6 +11,7 @@ from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.gui.diagnostic_tabs import (
     InitialDirectionColourWheel,
     OpticalTransferView,
+    PhysicalLayoutView,
     TransverseBeamView,
 )
 from temsim.gui.direct_alignment_panel import DirectAlignmentPanel
@@ -805,7 +806,7 @@ def test_optical_transfer_view_pairs_image_and_diffraction_captures(qtbot):
     )
 
 
-def test_gui_applies_calculated_probe_and_projection_modes(qtbot):
+def test_gui_applies_retained_probe_and_calculated_projection_modes(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.preview_timer.stop()
@@ -843,8 +844,11 @@ def test_gui_applies_calculated_probe_and_projection_modes(qtbot):
         microprobe.targets["achieved_convergence_sem_angle_mrad"]
     )
     assert (
-        f"sample semi-angle {expected_angle:.3f} mrad"
+        f"stored reference semi-angle {expected_angle:.3f} mrad"
         in panel.operating_mode_status.text()
+    )
+    assert "condenser preset not recalculated for current geometry" in (
+        panel.operating_mode_status.text()
     )
 
 
@@ -1201,6 +1205,220 @@ def test_central_sample_parameters_are_scrollable_in_a_short_window(qtbot):
         page.controls_scroll.viewport(), last_control.rect().bottomRight()
     )
     assert 0 <= bottom_right.y() < page.controls_scroll.viewport().height()
+
+
+def test_physical_layout_separates_aperture_plate_screw_and_rear_rod(qtbot):
+    state = default_state()
+    catalog = AssemblyCatalog()
+    assembly = catalog.apply(state, catalog.default_selection())
+    resolved_layout = apply_physical_layout_to_state(state)
+    result = SimpleNamespace(assembly=assembly, layout=resolved_layout)
+    view = PhysicalLayoutView()
+    qtbot.addWidget(view)
+
+    view.display_result(result)
+
+    records = {
+        record.key: record
+        for record in view._records
+        if record.profile == view.APERTURE_MECHANISM_PROFILE
+    }
+    assert set(view._aperture_mechanism_items) == set(records)
+    assert "Pt perforated strip" in view.aperture_legend.text()
+    assert "rear connecting rod" in view.aperture_legend.text()
+    assert "5 mm beyond the local shown column wall" in (
+        view.aperture_legend.text()
+    )
+    expected_wall_source_keys = {
+        "feg_dpa_aperture": "feg_accelerator",
+        "feg_c1_aperture": "condenser_lens_1_housing",
+        "condenser_aperture_2": "condenser_lens_2_housing",
+        "condenser_aperture_3": "condenser_lens_3_housing",
+        "objective_aperture": "objective_lens_housing",
+        "selected_area_aperture": "objective_lens_housing",
+        "energy_filter_entrance_aperture": (
+            "energy_filter_entrance_aperture"
+        ),
+    }
+    for key, record in records.items():
+        roles = view._aperture_mechanism_items[key]
+        assert {role: len(items) for role, items in roles.items()} == {
+            "envelope": 1,
+            "plate": 2,
+            "rod": 1,
+            "screw": 1,
+        }
+        part = assembly.part(key)
+        expected_thickness = float(part.data.get(
+            "plate_thickness_mm",
+            part.data.get("active_length_mm"),
+        ))
+        assert record.active_length_mm == pytest.approx(expected_thickness)
+        runtime_aperture = next(
+            component
+            for component in resolved_layout
+            if component.key == key
+        )
+        assert record.bore_diameter_mm == pytest.approx(
+            2.0 * runtime_aperture.effective_aperture_radius_mm
+        )
+        assert record.mechanical_bore_diameter_mm == pytest.approx(float(
+            part.data.get(
+                "mechanical_bore_diameter_mm",
+                part.data.get("bore_diameter_mm"),
+            )
+        ))
+        assert all(
+            item.rect().width() == pytest.approx(expected_thickness)
+            for item in roles["plate"]
+        )
+        assert all(
+            "Pt perforated aperture strip" in item.toolTip()
+            and "Only this thin plane clips rays" in item.toolTip()
+            for item in roles["plate"]
+        )
+        assert "material is unspecified" in roles["rod"][0].toolTip()
+        assert "do not participate in ray clipping" in (
+            roles["rod"][0].toolTip()
+        )
+        wall_radius, wall_source, _distance = (
+            view._aperture_column_wall_reference(record)
+        )
+        assert wall_source.key == expected_wall_source_keys[key]
+        assert roles["rod"][0].rect().bottom() == pytest.approx(
+            wall_radius + view.APERTURE_ROD_OVERHANG_MM
+        )
+        assert roles["rod"][0].rect().bottom() > wall_radius
+        assert "ends 5 mm beyond the local shown column wall" in (
+            roles["rod"][0].toolTip()
+        )
+        assert "not an OEM rod-length measurement" in (
+            roles["rod"][0].toolTip()
+        )
+        assert "Screw joint" in roles["screw"][0].toolTip()
+        assert "not a solid aperture plate" in (
+            roles["envelope"][0].toolTip()
+        )
+        assert (
+            roles["plate"][0].brush().color()
+            != roles["rod"][0].brush().color()
+        )
+        optical_z = record.optical_references_mm[0]
+        assert roles["rod"][0].rect().center().x() == pytest.approx(
+            optical_z
+        )
+        assert roles["screw"][0].rect().center().y() == pytest.approx(
+            roles["rod"][0].rect().top()
+        )
+        assert record.aperture_plate_material == (
+            "platinum_user_identified_unverified"
+        )
+        assert record.aperture_plate_form == "perforated_strip"
+        assert record.aperture_plate_attachment == (
+            "screw_to_single_connection_rod"
+        )
+        assert "without OEM dimensions" in (
+            record.aperture_mechanism_evidence_source
+        )
+
+    c2_record = records["condenser_aperture_2"]
+    c2_plates = view._aperture_mechanism_items[
+        "condenser_aperture_2"
+    ]["plate"]
+    opening_radius = 0.5 * c2_record.bore_diameter_mm
+    assert min(item.rect().top() for item in c2_plates) < 0.0
+    assert c2_plates[0].rect().bottom() == pytest.approx(-opening_radius)
+    assert c2_plates[1].rect().top() == pytest.approx(opening_radius)
+
+    objective_record = records["objective_aperture"]
+    objective_plates = view._aperture_mechanism_items[
+        "objective_aperture"
+    ]["plate"]
+    assert objective_record.excitation_enabled is False
+    assert all(
+        item.rect().top()
+        > 0.5 * objective_record.vacuum_inner_diameter_mm
+        for item in objective_plates
+    )
+
+
+@pytest.mark.parametrize(
+    ("gun_name", "accelerator_key"),
+    (
+        ("FEG", "feg_accelerator"),
+        ("FEG + Mono", "feg_accelerator"),
+        ("Thermionic", "thermionic_accelerator"),
+    ),
+)
+def test_physical_layout_draws_multistage_accelerator_electrodes(
+    qtbot, gun_name, accelerator_key
+):
+    state = default_state()
+    catalog = AssemblyCatalog()
+    default = catalog.default_selection()
+    assembly = catalog.apply(state, AssemblySelection(
+        gun=gun_name,
+        column=default.column,
+        recording=default.recording,
+    ))
+    resolved_layout = apply_physical_layout_to_state(state)
+    view = PhysicalLayoutView()
+    qtbot.addWidget(view)
+
+    view.display_result(SimpleNamespace(
+        assembly=assembly,
+        layout=resolved_layout,
+    ))
+
+    record = view._record_by_key[accelerator_key]
+    part = assembly.part(accelerator_key)
+    centers = tuple(
+        part.center_z_mm
+        + float(value)
+        - float(part.data["local_center_z_mm"])
+        for value in part.data["stage_centers_z_mm"]
+    )
+    assert record.profile == view.ACCELERATOR_STACK_PROFILE
+    assert record.accelerator_stage_centers_mm == pytest.approx(centers)
+    assert record.accelerator_electrode_stack_form == (
+        "repeated_annular_electrode_stages"
+    )
+    assert "without an OEM scale" in (
+        record.accelerator_electrode_stack_evidence_source
+    )
+    assert "not magnetic coils" in view.accelerator_legend.text()
+
+    roles = view._accelerator_stack_items[accelerator_key]
+    assert {role: len(items) for role, items in roles.items()} == {
+        "envelope": 1,
+        "stage": 2 * len(centers),
+        "separator": 2 * (len(centers) - 1),
+    }
+    assert "not a solid cylinder" in roles["envelope"][0].toolTip()
+    stage_items = roles["stage"]
+    bore_radius = 0.5 * record.mechanical_bore_diameter_mm
+    for index, center in enumerate(centers):
+        pair = stage_items[2 * index:2 * index + 2]
+        assert all(
+            item.rect().center().x() == pytest.approx(center)
+            for item in pair
+        )
+        assert pair[0].rect().bottom() == pytest.approx(-bore_radius)
+        assert pair[1].rect().top() == pytest.approx(bore_radius)
+        assert all(
+            "Electrostatic electrode stage" in item.toolTip()
+            and "not an OEM electrode thickness" in item.toolTip()
+            and "not magnetic" in item.toolTip()
+            for item in pair
+        )
+    assert (
+        stage_items[0].brush().color()
+        != stage_items[2].brush().color()
+    )
+    assert all(
+        "dimensions and material are not identified" in item.toolTip()
+        for item in roles["separator"]
+    )
 
 
 def test_ray_plot_marks_every_component_centre_and_detected_crossover(
@@ -1588,7 +1806,12 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         if np.isfinite(value)
     })
     aperture_parts = [
-        part for part in assembly.parts if "aperture" in part.key
+        part
+        for part in assembly.parts
+        if (
+            "aperture" in part.key
+            and not bool(part.data.get("mechanical_only", False))
+        )
     ]
     aperture_count = len(aperture_parts)
     assert len(window.workspace.aperture_marker_items) == aperture_count

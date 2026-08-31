@@ -23,6 +23,9 @@ def project_root() -> Path:
 
 
 CONFIG_ROOT = project_root() / "configs"
+EDS_DETECTOR_CONFIG_ROOT = CONFIG_ROOT / "detectors" / "eds"
+EDS_PHYSICS_CONFIG_ROOT = CONFIG_ROOT / "physics" / "eds"
 INSTRUMENT_CONFIG_ROOT = CONFIG_ROOT / "instruments"
 SPECIMEN_CONFIG_ROOT = CONFIG_ROOT / "specimens"
+SPECIMEN_SUPPORT_CONFIG_ROOT = CONFIG_ROOT / "specimen_supports"
 OPERATING_MODE_CONFIG_ROOT = CONFIG_ROOT / "operating_modes"

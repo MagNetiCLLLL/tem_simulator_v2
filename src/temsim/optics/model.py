@@ -314,6 +314,47 @@ class Sample:
 
     stem_poisson_seed: int = 0
 
+    # Generic EDS acquisition controls. Detector placement/solid angle remain
+    # instrument-owned; these fields select the specimen support and explicit
+    # signal calculation settings. Zero resolution is the intentional ideal
+    # detector limit, not a claim about installed SDD performance.
+    eds_enabled: bool = True
+
+    eds_support_material_key: str = "vacuum"
+
+    eds_support_mesh_key: str = "square_200"
+
+    eds_support_offset_x_um: float = 0.0
+
+    eds_support_offset_y_um: float = 0.0
+
+    eds_support_rotation_deg: float = 0.0
+
+    eds_solid_angle_mode: str = "installed_holder"
+
+    eds_detector_efficiency: float = 1.0
+
+    eds_spectrum_max_energy_ev: float = 40_000.0
+
+    eds_spectrum_bin_width_ev: float = 10.0
+
+    eds_energy_resolution_fwhm_ev: float = 0.0
+
+    eds_poisson_enabled: bool = False
+
+    eds_poisson_seed: int = 0
+
+    # Electron transport is evaluated only by an explicit EDS acquisition.
+    # The deterministic straight path is retained as a diagnostic reference;
+    # the default event-driven mode traces finite-geometry elastic scattering.
+    eds_transport_mode: str = "elastic_monte_carlo"
+
+    eds_elastic_trajectory_count: int = 32
+
+    eds_elastic_seed: int = 0
+
+    eds_elastic_max_events: int = 10_000
+
     wave_probe_padding_factor: float = 3.0
 
     # Real-specimen inelastic transport.  Zero-valued plasmon/ionisation MFP
@@ -493,7 +534,7 @@ class State:
     probe_aberrations: dict = field(default_factory=dict)
     image_aberrations: dict = field(default_factory=dict)
 
-    schema_version: int = 66
+    schema_version: int = 68
 
     def __post_init__(self):
         if self.electron_gun is None:
@@ -2603,7 +2644,7 @@ class State:
             ),
             probe_aberrations=dict(d.get("probe_aberrations", {})),
             image_aberrations=dict(d.get("image_aberrations", {})),
-            schema_version=66,
+            schema_version=68,
         )
         if loaded_schema_version < 64:
             from temsim.specimen.geometry import (

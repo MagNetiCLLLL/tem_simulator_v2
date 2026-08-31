@@ -1,6 +1,6 @@
 # TEM Simulator v2 — Project Handoff
 
-Last updated: 2026-08-20
+Last updated: 2026-08-31
 
 ## Purpose
 
@@ -9,6 +9,89 @@ on current behaviour, confirmed design decisions, provisional assumptions and
 the next concrete work. `README.md` remains the user/developer overview and
 `CHANGELOG.md` remains the release history.
 
+## Generic EDS elastic-trajectory checkpoint (2026-08-31)
+
+- The subsystem, GUI, state and results are named **EDS**, not Ultra-X.
+  Installed angular geometry now resolves through
+  `configs/detectors/eds/EDS.toml` with `eds_system_key = "eds"`. Product
+  names remain provenance only.
+- `configs/specimen_supports/catalog.toml` and `specimen/support.py` add a
+  3.05 mm circular grid model with Cu, Au or virtual vacuum and ten commercial
+  50–500 square meshes. Offset and rotation are continuous; zero offset is a
+  mesh-opening centre.
+- `specimen/elastic_transport.py` now generates seeded, event-driven 3-D
+  trajectories in the finite sample and continuous square-grid geometry. It
+  resolves specimen faces, mesh openings/sidewalls, bars, annular rim and
+  circular outside boundary; samples exponential flights and scattering atoms;
+  and records forward, reverse, lateral and safety-limit outcomes.
+- The current offline provider uses the Demers et al. relativistic
+  screened-Rutherford total/differential cross section for 100–300 keV. It is
+  explicitly provisional for Z>30 and is not called ELSEPA, full Mott or
+  crystal channeling. A future legally sourced ELSEPA provider can replace the
+  public cross-section functions without changing the transport geometry.
+- `detector/eds_atomic.py` evaluates the checked-in NIST Bote–Salvat K/L/M
+  fits for Z=1–99. `detector/eds_signal.py` converts Monte Carlo-averaged or
+  caller-supplied elastically scattered material segments into direct shell
+  vacancies, xraylib characteristic lines, emitting-layer self absorption,
+  configured solid-angle collection, ideal scalar efficiency, energy
+  broadening and optional Poisson counts.
+- The Sample page owns support, path-mode, trajectory-count, seed and event
+  controls plus a representative X-Z trajectory/collision plot. **Calculate
+  point EDS** is explicit and synchronous; editing a mechanical/support
+  component never auto-runs a spectrum or recomputes a lens preset. Default is
+  32 elastic trajectories; a straight-primary reference remains selectable.
+- This is not yet a complete coupled electron/photon Monte Carlo. The initial
+  beam is one point direction along +Z; the bulk-density transport has no
+  crystallographic channeling/coherent diffraction and is not derived from
+  multislice. It also omits electron slowing, elastic recoil, inelastic angular
+  deflection, bremsstrahlung, vacancy cascades, cross-layer photon
+  absorption, secondary fluorescence, full 3-D holder/pole shadowing and a
+  measured energy-dependent detector efficiency. Absolute counts remain
+  provisional.
+- Validation on 2026-08-31: the focused elastic/EDS/sample tests passed, then
+  the non-recalibrating full suite completed as `405 passed, 1 skipped,
+  6 deselected`. The six deselections are the two known Nanoprobe C2/C3
+  calibration families intentionally not rerun. `compileall`, import smoke,
+  `pip check` and `git diff --check` also passed.
+
+## Projection-chamber differential-pumping aperture checkpoint (2026-08-30)
+
+- Both recording TOMLs now contain a distinct
+  `projection_chamber_dpa_aperture` at local Z 772.5 mm, exactly at the P2
+  housing / projection-chamber boundary and 7.25 mm upstream of the HAADF
+  active surface. The display name is **Projection-Chamber
+  Differential-Pumping Aperture**; the downstream
+  `energy_filter_entrance_aperture` remains a separate Iliad component.
+- The configured 0.2 mm bore is documented only as a Tecnai/Talos-family
+  reference. Titan-specific bore, material and axial plate thickness remain
+  unverified; the TOML therefore stores a zero-length physical boundary and
+  Physical Layout supplies only schematic drawing thickness.
+- This DPA is fixed, non-retractable mechanical hardware whose diameter can be
+  edited as a TOML design variable. It is not in runtime `APERTURE_KEYS`, has
+  no optical-reference coordinate, does not clip rays, does not assert a
+  conjugate-plane class and does not recalculate any preset lens strength.
+
+## EDS clearance and post-P2 detector-section checkpoint (2026-08-30)
+
+- The EDS active-face/housing polygons no longer intersect the resolved
+  Objective pole-piece silhouette. Their position is solved from the larger
+  upper/lower pole OD plus a 1 mm display-only clearance. This is not an OEM
+  detector dimension or a validated 3-D collimator/shadowing model; angular
+  centre/acceptance lines remain metadata and may cross the axisymmetric view.
+- Both recording TOMLs contain a mechanical-only
+  `post_projector_detector_chamber` from the P2 housing end at local Z 772.5 mm
+  through the HAADF, main screen, DF and BF active planes. Its 1100 mm end and
+  180/200 mm ID/OD are adjustable non-OEM drawing dimensions. Camera remains
+  downstream.
+- Current P2-end to active-plane gaps are HAADF 7.25 mm, screen 127.25 mm,
+  DF 217.25 mm, BF 287.25 mm and camera 399.75 mm. Public Titan diagrams
+  support HAADF being first in the viewing/detector section but do not publish
+  the 7.25 mm absolute spacing.
+- No detector active plane, Objective/projector geometry, magnetic field,
+  optical preset or warm start was changed or recalculated. Manifest and GUI
+  regressions enforce the chamber boundary/order and EDS solid-polygon
+  clearance.
+
 ## Start and verify
 
 - Workspace: `F:\tem_simulator_v2`
@@ -16,9 +99,11 @@ the next concrete work. `README.md` remains the user/developer overview and
 - Application entry point: `main.py`
 - Run: `.venv\Scripts\python.exe main.py`
 - Tests: `$env:PYTHONPATH='src'; .venv\Scripts\python.exe -m pytest -q`
-- Last full result: **311 passed** on 2026-08-20 in 427.3 seconds, with CUDA
-  available and no skipped tests. Serial `compileall`, `pip check`, `main.py`
-  import and the offscreen `MainWindow` smoke check passed.
+- Latest non-recalibration result: **394 passed, 1 skipped, 6 deselected** from
+  **401 collected** on 2026-08-30. The six deselected cases are the explicitly
+  retained Nanoprobe live-solve points whose C2 calibration was not recomputed
+  after mechanical changes. Serial `compileall`, `pip check`, `main.py` import
+  and the offscreen `MainWindow` show/close smoke check passed.
 
 ## Layered aberration checkpoint (2026-08-20)
 
@@ -80,7 +165,7 @@ the next concrete work. `README.md` remains the user/developer overview and
   geometry. Applying or loading a legacy no-filter selection normalises it to
   `Energy Filter`, while the runtime optical branch can still be disabled.
 - The active catalog has 15 selectable gun/column assemblies; validation still
-  audits all 10 module TOMLs and 466 variant-scoped part definitions.
+  audits all 10 module TOMLs and 480 variant-scoped part definitions.
 
 ## Latest Direct Alignment checkpoint (2026-08-10)
 
@@ -158,8 +243,8 @@ the next concrete work. `README.md` remains the user/developer overview and
   signatures; module validation rejects duplicate part keys/orders. Runtime
   layout/state key collisions and missing structural TOML fields fail instead
   of silently taking the last Python object or a class default.
-- There are 10 module TOMLs, 466 variant-scoped definitions, 192 logical part
-  keys, 274 intentional cross-variant repetitions and 30 collision-free
+- There are 10 module TOMLs, 480 variant-scoped definitions, 196 logical part
+  keys, 284 intentional cross-variant repetitions and 30 collision-free
   selectable assemblies. Cross-variant repetitions are mutually exclusive,
   never an override order.
 - Saved profiles omit all TOML-owned positions and structural attributes. The
@@ -588,7 +673,7 @@ the next concrete work. `README.md` remains the user/developer overview and
 
 ## Current validated state
 
-- The instrument catalog contains 10 module TOMLs, 466 part definitions and 15
+- The instrument catalog contains 10 module TOMLs, 480 part definitions and 15
   selectable Energy Filter assembly combinations.
 - High-accuracy defaults target a 32 GiB workstation and use a conservative
   24 GiB application-memory preflight limit.
@@ -674,6 +759,30 @@ Provisional:
 
 Do not label provisional projector topology as an exact FEI/Titan mechanical
 reconstruction without a service drawing, section drawing or measured part.
+
+## Ultra-X EDS geometry checkpoint
+
+Every selectable column now includes one `eds_detector_system` aggregate at
+the sample plane. It is a transverse, mechanical-only child of the Objective
+assembly and is explicitly excluded from axial vacuum-wall ownership and the
+electron-optical layout. Physical Layout projects two opposing azimuths of the
+six-segment array and draws its angular acceptance; the head size and distance
+are display-only schematics.
+
+There is exactly one installed product definition:
+`configs/detectors/eds/UltraX.toml`. Each of the five column TOMLs owns only
+the local placement row and references that definition. There is no Super-X
+TOML, second EDS aggregate or detector selector; Super-X remains research
+context only.
+
+The retained evidence-bearing values are `>4.45 sr` unshadowed and `4.04 sr`
+with the analytical double-tilt holder. Six segments are supported by a
+published instrument report and the previously inspected six-stream user EMD,
+not by the current OEM datasheet. The 32.06 degree take-off value is likewise
+single-instrument user metadata. Ultra-X active area, sensor distance, crystal
+shape and package dimensions remain `not_public` and must not inherit the
+Super-X 30 mm2 value. Full sources and the projector-lens research record are
+in `docs/TEM_PROJECTOR_AND_EDS_GEOMETRY_RESEARCH_2026-08-30.md`.
 
 ## Real-part photo intake
 

@@ -7,6 +7,11 @@ MAGNETIC_EXCITATION_COIL = "magnetic_excitation_coil"
 MAGNETIC_POLE_PIECE = "magnetic_pole_piece"
 C1_C2_POLE_PIECE_CARTRIDGE = "c1_c2_pole_piece_cartridge"
 ELECTROSTATIC_ELECTRODE_STACK = "electrostatic_electrode_stack"
+TRANSVERSE_EDS_DETECTOR_ARRAY = "transverse_eds_detector_array"
+POST_PROJECTOR_DETECTOR_CHAMBER = "post_projector_detector_chamber"
+FIXED_DIFFERENTIAL_PUMPING_APERTURE = (
+    "fixed_differential_pumping_aperture"
+)
 VACUUM_LINER = "vacuum_liner"
 VACUUM_BORE = "vacuum_bore"
 

@@ -237,6 +237,11 @@ PROJECTOR_SYSTEM_POLE_PIECE_KEYS = (
 HAADF_DETECTOR = "haadf"
 DARK_FIELD_DETECTOR = "df"
 BRIGHT_FIELD_DETECTOR = "bf"
+EDS_DETECTOR_SYSTEM = "eds_detector_system"
+POST_PROJECTOR_DETECTOR_CHAMBER = "post_projector_detector_chamber"
+PROJECTION_CHAMBER_DPA_APERTURE = (
+    "projection_chamber_dpa_aperture"
+)
 FLUORESCENT_SCREEN = "flu_screen"
 CAMERA = "camera"
 EELS_PLANE = "eels_plane"

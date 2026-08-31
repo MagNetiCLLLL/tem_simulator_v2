@@ -61,6 +61,11 @@ optical_reference_local_z_mm = 10.0
 mechanical_outer_diameter_mm = 80.0
 mechanical_bore_diameter_mm = 2.0
 plate_thickness_mm = 0.2
+aperture_plate_material = "platinum_user_identified_unverified"
+aperture_plate_form = "perforated_strip"
+aperture_plate_attachment = "screw_to_single_connection_rod"
+aperture_mechanism_evidence_status = "user_identified_photo_topology_not_dimensionally_calibrated"
+aperture_mechanism_evidence_source = "User identification and user-supplied Objective Aperture top-view photograph, 2026-08-30; shared topology only, without OEM dimensions."
 maximum_radius_mm = 1.0
 
 [[parts]]
@@ -805,3 +810,52 @@ mechanical_overlap_role = "member"
 mechanical_overlap_reason = "Concentric independent mechanical layer inside the Projector Lens P2 assembly."
 parent_key = "projector_lens_2"
 field_source_key = "projector_lens_2"
+
+[[parts]]
+order = 32
+key = "post_projector_detector_chamber"
+name = "Post-P2 Viewing / STEM Detector Chamber"
+branch = "detection"
+local_start_z_mm = 772.5
+local_center_z_mm = 936.25
+local_end_z_mm = 1100.0
+length_mm = 327.5
+vacuum_inner_diameter_mm = 20.0
+mechanical_inner_diameter_mm = 180.0
+mechanical_outer_diameter_mm = 200.0
+mechanical_profile = "post_projector_detector_chamber"
+mechanical_part_role = "detector_chamber_housing"
+material_class = "non_magnetic_structural"
+mechanical_only = true
+axial_vacuum_context_only = true
+contained_recording_plane_keys = ["haadf", "flu_screen", "df", "bf"]
+upstream_boundary_aperture_key = "projection_chamber_dpa_aperture"
+mechanical_geometry_status = "public_titan_topology_absolute_dimensions_provisional_non_oem"
+mechanical_geometry_source = "Public Titan column diagrams place a distinct viewing/detector section immediately below P2 and show HAADF before the main screen and BF/DF stack. The configured 772.5-1100 mm envelope and 180/200 mm ID/OD are an adjustable simulator drawing, not an OEM production dimension."
+mechanical_geometry_source_urls = ["https://repository.uantwerpen.be/docman/irua/6e3afa/130499.pdf", "https://scholarsbank.uoregon.edu//bitstreams/d56b2b6e-e2d1-4fbe-abe0-eafe58bfee67/download", "https://sfilev2.f-static.com/image/users/390742/ftp/my_files/PB3000.pdf?id=26921072"]
+
+[[parts]]
+order = 33
+key = "projection_chamber_dpa_aperture"
+name = "Projection-Chamber Differential-Pumping Aperture"
+branch = "common"
+local_start_z_mm = 772.5
+local_center_z_mm = 772.5
+local_end_z_mm = 772.5
+length_mm = 0.0
+vacuum_inner_diameter_mm = 20.0
+mechanical_outer_diameter_mm = 20.0
+mechanical_bore_diameter_mm = 0.2
+reference_bore_diameter_mm = 0.2
+reference_bore_status = "documented_tecnai_talos_family_reference_not_titan_oem_measurement"
+mechanical_profile = "fixed_differential_pumping_aperture"
+mechanical_part_role = "fixed_vacuum_restriction"
+material_class = "vacuum_boundary_aperture_material_not_public"
+mechanical_only = true
+aperture_adjustability = "fixed_non_retractable_hardware_toml_design_variable"
+mechanical_axial_thickness_status = "not_public_zero_length_reference_with_schematic_display_thickness"
+conjugate_plane_status = "operating_mode_dependent_not_imposed_by_mechanical_layout"
+optical_constraint_policy = "mechanical_only_no_clipping_or_preset_recalculation"
+mechanical_geometry_status = "documented_family_topology_titan_specific_dimensions_unverified"
+mechanical_geometry_source = "FEI/Thermo Fisher manuals place a differential-pumping aperture between the column and projection chamber and document a 200 micrometre aperture for Tecnai/Talos-family instruments. The Titan-specific plate thickness and bore are not established by a production drawing; the zero-length axial row preserves the interface without inventing thickness."
+mechanical_geometry_source_urls = ["https://imf.ucmerced.edu/sites/g/files/ufvvjh1081/f/documents/tem_talosbasicguide_1.pdf", "https://www.dartmouth.edu/emlab/docs/fei_tecnai_f20_column_description_doc.pdf"]

@@ -178,8 +178,113 @@ def test_complete_catalog_and_every_assembly_combination_validate():
     audit = ManifestEditor().validate_catalog()
 
     assert audit.module_count == 10
-    assert audit.part_definition_count == 471
+    assert audit.part_definition_count == 480
     assert audit.assembly_count == 15
+
+
+def test_all_apertures_declare_photo_informed_pt_strip_and_single_rod():
+    root = Path(__file__).parents[1] / "configs" / "instruments"
+    aperture_keys = {
+        "feg_dpa_aperture",
+        "feg_c1_aperture",
+        "thermionic_anode_aperture",
+        "thermionic_c1_aperture",
+        "condenser_aperture_2",
+        "condenser_aperture_3",
+        "objective_aperture",
+        "selected_area_aperture",
+        "energy_filter_entrance_aperture",
+    }
+    seen = set()
+    for path in root.rglob("*.toml"):
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
+        if "module" not in document:
+            continue
+        validate_document(document)
+        for part in document["parts"]:
+            if part["key"] not in aperture_keys:
+                continue
+            seen.add(part["key"])
+            assert part["aperture_plate_material"] == (
+                "platinum_user_identified_unverified"
+            )
+            assert part["aperture_plate_form"] == "perforated_strip"
+            assert part["aperture_plate_attachment"] == (
+                "screw_to_single_connection_rod"
+            )
+            assert part["aperture_mechanism_evidence_status"] == (
+                "user_identified_photo_topology_not_dimensionally_calibrated"
+            )
+            assert "without OEM dimensions" in (
+                part["aperture_mechanism_evidence_source"]
+            )
+    assert seen == aperture_keys
+
+    document = tomllib.loads(
+        (root / "column" / "C3.toml").read_text(encoding="utf-8")
+    )
+    by_key = {part["key"]: part for part in document["parts"]}
+    del by_key["objective_aperture"]["aperture_plate_attachment"]
+    with pytest.raises(
+        ValueError,
+        match="Missing objective_aperture aperture mechanism metadata",
+    ):
+        validate_document(document)
+
+
+@pytest.mark.parametrize(
+    ("gun_file", "accelerator_key"),
+    (
+        ("FEG.toml", "feg_accelerator"),
+        ("FEG_Mono.toml", "feg_accelerator"),
+        ("Thermionic.toml", "thermionic_accelerator"),
+    ),
+)
+def test_accelerator_ring_stack_topology_has_photo_provenance(
+    gun_file, accelerator_key
+):
+    path = (
+        Path(__file__).parents[1]
+        / "configs"
+        / "instruments"
+        / "gun"
+        / gun_file
+    )
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    validate_document(document)
+    part = next(
+        item for item in document["parts"]
+        if item["key"] == accelerator_key
+    )
+
+    assert part["accelerator_electrode_stack_form"] == (
+        "repeated_annular_electrode_stages"
+    )
+    assert part["accelerator_electrode_stack_evidence_status"] == (
+        "user_supplied_side_view_topology_not_dimensionally_calibrated"
+    )
+    assert "without an OEM scale" in (
+        part["accelerator_electrode_stack_evidence_source"]
+    )
+    centers = tuple(float(value) for value in part["stage_centers_z_mm"])
+    assert len(centers) == 10
+    assert all(
+        downstream > upstream
+        for upstream, downstream in zip(centers, centers[1:])
+    )
+    assert all(
+        float(part["local_start_z_mm"])
+        <= center
+        <= float(part["local_end_z_mm"])
+        for center in centers
+    )
+
+    del part["accelerator_electrode_stack_form"]
+    with pytest.raises(
+        ValueError,
+        match=f"Missing {accelerator_key} accelerator-stack metadata",
+    ):
+        validate_document(document)
 
 
 def test_energy_filter_is_the_only_selectable_recording_system():
@@ -325,6 +430,25 @@ def test_c1_c2_objective_vacuum_tube_ratio_and_interface_are_required():
     ):
         validate_document(document)
 
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    document["geometry"][
+        "c2_aperture_service_clearance_after_cartridge_mm"
+    ] = 4.0
+    with pytest.raises(
+        ValueError,
+        match="C2 aperture must retain its declared service clearance",
+    ):
+        validate_document(document)
+
+    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    by_key = {part["key"]: part for part in document["parts"]}
+    by_key["condenser_aperture_2"]["parent_key"] = "condenser_lens_2"
+    with pytest.raises(
+        ValueError,
+        match="C2 aperture must be a standalone mechanism",
+    ):
+        validate_document(document)
+
 
 @pytest.mark.parametrize(
     "column_file",
@@ -447,9 +571,15 @@ def test_c1_c2_use_contiguous_sections_of_one_shared_housing(column):
     )
     c1 = assembly.part("condenser_lens_1_housing")
     c2 = assembly.part("condenser_lens_2_housing")
+    c1_lens = assembly.part("condenser_lens_1")
+    c2_lens = assembly.part("condenser_lens_2")
     c1_pole = assembly.part("condenser_lens_1_lower_pole")
     c2_pole = assembly.part("condenser_lens_2_upper_pole")
     cartridge = assembly.part("c1_c2_pole_piece_cartridge")
+    c2_aperture = assembly.part("condenser_aperture_2")
+    downstream = assembly.part(
+        "beam_deflector" if column == "C2" else "condenser_deflector"
+    )
     c1_coil = assembly.part("condenser_lens_1_excitation_coil")
     c2_coil = assembly.part("condenser_lens_2_excitation_coil")
     objective_upper_pole = assembly.part("objective_upper_pole")
@@ -464,6 +594,14 @@ def test_c1_c2_use_contiguous_sections_of_one_shared_housing(column):
     )
     assert c2.data["shared_housing_key"] == c1.data["shared_housing_key"]
     assert c1.end_z_mm == pytest.approx(c2.start_z_mm)
+    assert c1_lens.length_mm == pytest.approx(100.0)
+    assert c2_lens.length_mm == pytest.approx(200.0)
+    assert c2_lens.length_mm == pytest.approx(2.0 * c1_lens.length_mm)
+    assert c1_lens.length_mm + c2_lens.length_mm == pytest.approx(300.0)
+    assert c1.length_mm == pytest.approx(c1_lens.length_mm)
+    assert c2.length_mm == pytest.approx(c2_lens.length_mm)
+    assert c1_coil.length_mm == pytest.approx(90.0)
+    assert c2_coil.length_mm == pytest.approx(162.0)
     assert cartridge.start_z_mm == pytest.approx(c1.start_z_mm)
     assert cartridge.end_z_mm == pytest.approx(c2.end_z_mm)
     assert cartridge.data["mechanical_inner_diameter_mm"] == pytest.approx(
@@ -473,6 +611,22 @@ def test_c1_c2_use_contiguous_sections_of_one_shared_housing(column):
         90.75
     )
     assert cartridge.data["mechanical_only"] is True
+    assert c2_aperture.start_z_mm - cartridge.end_z_mm == pytest.approx(5.0)
+    assert c2_aperture.length_mm == pytest.approx(20.0)
+    assert c2_aperture.center_z_mm == pytest.approx(
+        cartridge.end_z_mm + 15.0
+    )
+    assert downstream.start_z_mm - c2_aperture.end_z_mm == pytest.approx(
+        0.0 if column == "C2" else 15.0
+    )
+    assert c2_aperture.parent_key is None
+    assert "mechanical_overlap_group" not in c2_aperture.data
+    if column == "C2":
+        objective = assembly.part("objective_lens")
+        assert downstream.end_z_mm == pytest.approx(objective.start_z_mm)
+        assert state.beam_deflector.z_mm == pytest.approx(
+            downstream.center_z_mm
+        )
     assert continuous_tube.start_z_mm == pytest.approx(cartridge.start_z_mm)
     assert continuous_tube.end_z_mm == pytest.approx(
         objective_upper_pole.start_z_mm
@@ -494,6 +648,9 @@ def test_c1_c2_use_contiguous_sections_of_one_shared_housing(column):
         assert c1_pole.data[field] == pytest.approx(c2_pole.data[field])
     assert c1_pole.data["mechanical_container_key"] == cartridge.key
     assert c2_pole.data["mechanical_container_key"] == cartridge.key
+    pole_gap_midpoint = 0.5 * (c1_pole.end_z_mm + c2_pole.start_z_mm)
+    assert c2_pole.start_z_mm - c1_pole.end_z_mm == pytest.approx(20.0)
+    assert pole_gap_midpoint == pytest.approx(c1_lens.end_z_mm)
     for field in (
         "mechanical_inner_diameter_mm",
         "mechanical_outer_diameter_mm",
@@ -739,7 +896,7 @@ def test_recording_manifest_requires_projector_geometry_provenance():
         validate_document(document)
 
 
-def test_operating_mode_storage_contains_calculated_optical_values():
+def test_operating_mode_storage_tracks_calculated_and_retained_values():
     catalog = load_operating_mode_catalog()
     by_key = {mode.key: mode for mode in catalog.modes}
 
@@ -751,8 +908,16 @@ def test_operating_mode_storage_contains_calculated_optical_values():
     }
     assert all(mode.devices for mode in catalog.modes)
     assert all(
-        mode.calibration_status.startswith(("calibrated_", "computed_"))
+        mode.calibration_status.startswith(
+            ("calibrated_", "computed_", "retained_not_recomputed_")
+        )
         for mode in catalog.modes
+    )
+    assert by_key["micro_probe"].calibration_status.startswith(
+        "retained_not_recomputed_"
+    )
+    assert by_key["nano_probe"].calibration_status.startswith(
+        "retained_not_recomputed_"
     )
     assert "non_oem" in by_key["diffraction"].calibration_status
     assert by_key["micro_probe"].targets[
