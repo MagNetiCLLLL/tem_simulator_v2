@@ -6,12 +6,17 @@ from temsim.assembly_catalog import AssemblyCatalog
 from temsim.optics.column import default_state
 from temsim.profile_io import apply_profile_values, read_profile, save_profile
 from temsim.specimen.geometry import quaternion_from_euler_xyz_deg
+from temsim.specimen.source import (
+    active_cif_path,
+    selected_reference_preset_key,
+)
 
 
 def test_profile_v2_round_trips_sample_tables_and_quaternion(tmp_path: Path):
     catalog = AssemblyCatalog()
     selection = catalog.default_selection()
     state = default_state()
+    state.sample.envelope_shape = "rectangle"
     state.sample.specimen_orientation_quaternion_wxyz = (
         quaternion_from_euler_xyz_deg((12.0, -4.0, 33.0))
     )
@@ -49,9 +54,13 @@ def test_profile_v2_round_trips_sample_tables_and_quaternion(tmp_path: Path):
     state.sample.eds_poisson_enabled = True
     state.sample.eds_poisson_seed = 44
     state.sample.eds_transport_mode = "elastic_monte_carlo"
-    state.sample.eds_elastic_trajectory_count = 19
     state.sample.eds_elastic_seed = 45
     state.sample.eds_elastic_max_events = 1234
+    state.sample.sample_region_upstream_distance_um = 72.5
+    state.sample.sample_region_downstream_distance_um = 88.0
+    state.sample.sample_region_photon_path_count = 77
+    state.sample.sample_region_secondary_path_count = 19
+    state.sample.sample_region_seed = 46
     path = tmp_path / "sample-v2.toml"
 
     save_profile(path, state, selection)
@@ -61,6 +70,7 @@ def test_profile_v2_round_trips_sample_tables_and_quaternion(tmp_path: Path):
 
     assert loaded_selection == selection
     assert skipped == []
+    assert restored.sample.envelope_shape == "rectangle"
     assert restored.sample.specimen_orientation_quaternion_wxyz == pytest.approx(
         state.sample.specimen_orientation_quaternion_wxyz
     )
@@ -82,10 +92,88 @@ def test_profile_v2_round_trips_sample_tables_and_quaternion(tmp_path: Path):
     assert restored.sample.eds_poisson_enabled is True
     assert restored.sample.eds_poisson_seed == 44
     assert restored.sample.eds_transport_mode == "elastic_monte_carlo"
-    assert restored.sample.eds_elastic_trajectory_count == 19
     assert restored.sample.eds_elastic_seed == 45
     assert restored.sample.eds_elastic_max_events == 1234
+    assert restored.sample.sample_region_upstream_distance_um == pytest.approx(
+        72.5
+    )
+    assert restored.sample.sample_region_downstream_distance_um == pytest.approx(
+        88.0
+    )
+    assert restored.sample.sample_region_photon_path_count == 77
+    assert restored.sample.sample_region_secondary_path_count == 19
+    assert restored.sample.sample_region_seed == 46
     assert "format_version = 2" in path.read_text(encoding="utf-8")
+
+
+def test_retired_eds_trajectory_count_is_a_clean_profile_no_op():
+    state = default_state()
+
+    skipped = apply_profile_values(
+        state,
+        {
+            "sample": {
+                "eds_elastic_trajectory_count": 19,
+                "eds_elastic_seed": 73,
+            }
+        },
+    )
+
+    assert skipped == []
+    assert not hasattr(state.sample, "eds_elastic_trajectory_count")
+    assert state.sample.eds_elastic_seed == 73
+
+
+def test_profile_round_trips_mode_owned_structure_sources(tmp_path: Path):
+    catalog = AssemblyCatalog()
+    selection = catalog.default_selection()
+    state = default_state()
+    state.sample.specimen_mode = "atomic"
+    state.sample.specimen_preset_key = "si_110"
+    state.sample.cif_path = "ideal-sample.cif"
+    path = tmp_path / "cif-source.toml"
+
+    save_profile(path, state, selection)
+    _loaded_selection, values = read_profile(path)
+    restored = default_state()
+    skipped = apply_profile_values(restored, values)
+
+    assert skipped == []
+    assert restored.sample.specimen_mode == "atomic"
+    assert not hasattr(restored.sample, "atomic_structure_source")
+    assert restored.sample.specimen_preset_key == "si_110"
+    assert restored.sample.cif_path == "ideal-sample.cif"
+    assert active_cif_path(restored.sample) == "ideal-sample.cif"
+    assert selected_reference_preset_key(restored.sample) == ""
+
+
+def test_legacy_profile_with_cif_migrates_to_real_mode():
+    state = default_state()
+
+    skipped = apply_profile_values(
+        state,
+        {
+            "sample": {
+                "specimen_preset_key": "si_110",
+                "cif_path": "legacy-sample.cif",
+            }
+        },
+    )
+
+    assert skipped == []
+    assert state.sample.specimen_mode == "atomic"
+    assert state.sample.specimen_preset_key == "si_110"
+    assert state.sample.cif_path == "legacy-sample.cif"
+
+
+def test_profile_rejects_unknown_retired_atomic_structure_source():
+    state = default_state()
+
+    with pytest.raises(ValueError, match="must be preset or cif"):
+        apply_profile_values(
+            state,
+            {"sample": {"atomic_structure_source": "both"}},
+        )
 
 
 def test_profile_v1_is_read_and_legacy_virtual_weights_are_migrated(tmp_path: Path):

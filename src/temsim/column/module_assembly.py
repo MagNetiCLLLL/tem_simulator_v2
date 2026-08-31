@@ -744,27 +744,6 @@ def apply_module_assembly(
     return type(layout)(resolved)
 
 
-def module_coordinate_offsets(configuration, layout):
-    from temsim.column.layout import _build_optics_layout_metadata
-
-    reference = _build_optics_layout_metadata(configuration)
-    reference_positions = {
-        component.key: (
-            reference.source_to_sample_mm - component.local_s_center_mm
-        )
-        for component in reference
-    }
-    return {
-        component.key: (
-            layout.source_to_sample_mm
-            - component.local_s_center_mm
-            - reference_positions[component.key]
-        )
-        for component in layout
-        if component.key in reference_positions
-    }
-
-
 def _absolute_part_value(part, local_key):
     return (
         float(part.center_z_mm)
@@ -1823,26 +1802,6 @@ def _apply_energy_filter_manifest_geometry(state, parts):
         float(energy_filter.sector_reference_field_t)
         * rigidity_scale(matched_voltage, reference_voltage)
     )
-
-
-def _shift_target(target, shift):
-    kind, item = target
-    if kind == "pair":
-        upper_descriptor = getattr(type(item), "upper_z_mm", None)
-        lower_descriptor = getattr(type(item), "lower_z_mm", None)
-        read_only_pair = (
-            isinstance(upper_descriptor, property)
-            and upper_descriptor.fset is None
-            and isinstance(lower_descriptor, property)
-            and lower_descriptor.fset is None
-        )
-        if read_only_pair and hasattr(item, "z_mm"):
-            item.z_mm = float(item.z_mm) + shift
-        else:
-            item.upper_z_mm = float(item.upper_z_mm) + shift
-            item.lower_z_mm = float(item.lower_z_mm) + shift
-    else:
-        item.z_mm = float(item.z_mm) + shift
 
 
 def clear_module_state_offsets(state):

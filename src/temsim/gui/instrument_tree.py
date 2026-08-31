@@ -21,7 +21,6 @@ OPTICAL_FILTERS = (
     ("aperture", "Apertures"),
     ("stigmator", "Stigmators"),
     ("corrector", "Correctors"),
-    ("energy_filter", "Energy Filter"),
     ("other", "Source / detectors"),
 )
 OPTICAL_CATEGORY_LABELS = {
@@ -30,13 +29,16 @@ OPTICAL_CATEGORY_LABELS = {
     "aperture": "Apertures",
     "stigmator": "Stigmators",
     "corrector": "Correctors",
-    "energy_filter": "Energy Filter",
     "other": "Source / detectors",
 }
 OPTICAL_CATEGORY_ORDER = tuple(OPTICAL_CATEGORY_LABELS)
 CORRECTOR_KEYS = frozenset((*PROBE_CORRECTOR_KEYS, *IMAGE_CORRECTOR_KEYS))
 GLOBAL_RUNTIME_KEYS = ("simulation", "electron_gun")
-CENTRAL_WORKSPACE_KEYS = frozenset({"sample"})
+CENTRAL_WORKSPACE_KEYS = frozenset({
+    "sample",
+    "energy_filter",
+    *ENERGY_FILTER_INTERNAL_KEYS,
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,27 +124,6 @@ class InstrumentTree(QTreeWidget):
                 continue
             grouped[part_category].append(part)
 
-        # Curvilinear Energy Filter internals are runtime optical targets,
-        # not fictitious axial column parts.  Show them in their own group
-        # without flattening their branch geometry into the main assembly.
-        energy_filter_keys = (
-            "energy_filter",
-            *ENERGY_FILTER_INTERNAL_KEYS,
-        )
-        parts_by_key = {part.key: part for part in assembly.parts}
-        energy_filter_entries = []
-        for key in energy_filter_keys:
-            target = targets.get(key)
-            part = parts_by_key.get(key)
-            if target is None and part is None:
-                continue
-            label = part.name if part is not None else target.label
-            module_path = (
-                module_paths[part.module_key]
-                if part is not None else None
-            )
-            energy_filter_entries.append((key, label, module_path))
-
         if category in {"all", "other"}:
             controls = [
                 targets[key]
@@ -161,28 +142,6 @@ class InstrumentTree(QTreeWidget):
                 ))
 
         for part_category in OPTICAL_CATEGORY_ORDER:
-            if part_category == "energy_filter":
-                if (
-                    category in {"all", "energy_filter"}
-                    and energy_filter_entries
-                ):
-                    root = QTreeWidgetItem([
-                        f"Energy Filter ({len(energy_filter_entries)})"
-                    ])
-                    root.setData(
-                        0,
-                        Qt.ItemDataRole.UserRole + 1,
-                        "energy_filter",
-                    )
-                    self.addTopLevelItem(root)
-                    for key, label, module_path in energy_filter_entries:
-                        root.addChild(self._selection_item(
-                            label,
-                            TreeSelection(
-                                key, label, module_path
-                            ),
-                        ))
-                continue
             parts = grouped[part_category]
             if not parts:
                 continue

@@ -433,6 +433,67 @@ def test_scan_view_replays_one_cached_detector_frame_until_stopped(qtbot):
     assert "last frame retained" in view.detector_playback_summary.text()
 
 
+def test_scan_image_pause_keeps_previous_complete_frame_while_playback_continues(
+    qtbot,
+):
+    view = ScanControlView()
+    qtbot.addWidget(view)
+    view._state = SimpleNamespace(
+        ac_deflector=SimpleNamespace(scan_frame_period_s=10.0)
+    )
+    images = {
+        key: np.arange(12, dtype=float).reshape(3, 4) + offset
+        for key, offset in (("haadf", 0.0), ("df", 20.0), ("bf", 40.0))
+    }
+    signals = {
+        key: DetectorSignal(key, key.upper(), 0.25, 1.0, 2.0, 3.0, None)
+        for key in images
+    }
+    frame = StemScanResult(
+        scan_x_um=np.zeros((3, 4)),
+        scan_y_um=np.zeros((3, 4)),
+        fractions=images,
+        detector_signals=signals,
+        metrics={"model": "test", "scan_frame_period_s": 10.0},
+    )
+    view._set_stem_frame(frame)
+    view._set_playback_active(True)
+    view._render_stem_rows(1)
+    assert np.isnan(view.detector_image_items["haadf"].image).any()
+
+    view.pause_image_refresh.setChecked(True)
+
+    assert view._playback_timer.isActive()
+    np.testing.assert_allclose(
+        view.detector_image_items["haadf"].image,
+        images["haadf"].T,
+    )
+    assert "previous complete frame displayed" in (
+        view.detector_playback_summary.text()
+    )
+
+    replacement = StemScanResult(
+        scan_x_um=np.zeros((3, 4)),
+        scan_y_um=np.zeros((3, 4)),
+        fractions={key: values + 100.0 for key, values in images.items()},
+        detector_signals=signals,
+        metrics={"model": "replacement", "scan_frame_period_s": 10.0},
+    )
+    view._set_stem_frame(replacement)
+    view._playback_tick()
+    np.testing.assert_allclose(
+        view.detector_image_items["haadf"].image,
+        images["haadf"].T,
+    )
+
+    view._playback_timer.stop()
+    view.pause_image_refresh.setChecked(False)
+    np.testing.assert_allclose(
+        view.detector_image_items["haadf"].image,
+        (images["haadf"] + 100.0).T,
+    )
+
+
 def test_stem_images_use_physical_pixel_edges_and_explain_geometry_preview(
     qtbot,
     tmp_path,
@@ -453,8 +514,9 @@ def test_stem_images_use_physical_pixel_edges_and_explain_geometry_preview(
     view = ScanControlView()
     qtbot.addWidget(view)
     view._state = SimpleNamespace(
-        sample=SimpleNamespace(
-            cif_path=str(cif_path),
+            sample=SimpleNamespace(
+                specimen_mode="atomic",
+                cif_path=str(cif_path),
             size_x_nm=2.0,
             size_y_nm=2.0,
         ),

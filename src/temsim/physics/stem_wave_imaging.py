@@ -7,6 +7,7 @@ ensembles, and a fast projected phase object.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 import math
 
@@ -37,10 +38,16 @@ from temsim.physics.wave_imaging import (
     prepare_specimen_potentials,
 )
 from temsim.specimen.presets import (
-    default_specimen_preset_key,
     load_specimen_preset,
 )
+from temsim.specimen.source import (
+    specimen_structure_available,
+    wave_template_preset_key,
+)
 from temsim.specimen.geometry import build_sample_geometry_snapshot
+
+
+ProgressCallback = Callable[[int, int, str], None]
 
 
 @dataclass(frozen=True)
@@ -185,18 +192,9 @@ def integrate_angular_intensity(
 
 def _wave_grid(state, simulation, scan_x_um, scan_y_um):
     sample_inserted = bool(getattr(state.sample, "inserted", True))
-    atomic_interaction = (
-        sample_inserted
-        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
-        == "atomic"
-    )
-    preset_key = (
-        (
-            str(state.sample.specimen_preset_key).strip()
-            or default_specimen_preset_key()
-        )
-        if atomic_interaction
-        else "vacuum"
+    preset_key = wave_template_preset_key(
+        state.sample,
+        inserted=sample_inserted,
     )
     preset = load_specimen_preset(preset_key)
     ray_stats = _weighted_ray_statistics(simulation.incident)
@@ -363,8 +361,29 @@ def simulate_angle_resolved_stem(
     *,
     baseline_scan_offset_um=(0.0, 0.0),
     detector_center_shifts_mrad=None,
+    progress_callback: ProgressCallback | None = None,
 ):
     """Form STEM images by integrating detector-angle bands."""
+    last_progress_fraction = 0.0
+
+    def report_progress(completed: int, total: int, label: str) -> None:
+        nonlocal last_progress_fraction
+        if progress_callback is None or int(total) <= 0:
+            return
+        bounded = min(max(int(completed), 0), int(total))
+        fraction = bounded / int(total)
+        # A failed CUDA attempt can increase the amount of work by requiring
+        # a complete CPU retry. Keep the visible bar monotonic while the label
+        # reports the fallback explicitly.
+        fraction = max(fraction, last_progress_fraction)
+        last_progress_fraction = fraction
+        progress_callback(
+            min(round(fraction * int(total)), int(total)),
+            int(total),
+            label,
+        )
+
+    report_progress(0, 1, "Preparing STEM specimen potential")
     detectors = tuple(detector.validate() for detector in detectors)
     if not detectors:
         raise ValueError("At least one angular STEM detector is required.")
@@ -560,6 +579,10 @@ def simulate_angle_resolved_stem(
     detector_sem_numerator = {detector.key: 0.0 for detector in detectors}
     detector_sem_denominator = {detector.key: 0.0 for detector in detectors}
     batch_size = min(8, flat_x_angstrom.size)
+    batch_count = int(math.ceil(flat_x_angstrom.size / batch_size))
+    cpu_work_units = batch_count * configuration_count
+    cpu_total_work = cpu_work_units + 2
+    report_progress(1, cpu_total_work, "STEM specimen potential ready")
     resident_cuda_result = None
     resident_pipeline_metrics = {
         "cuda_resident_pipeline": False,
@@ -583,6 +606,7 @@ def simulate_angle_resolved_stem(
         )
     if wave_backend == WAVE_BACKEND_CUPY and flat_detector_centers is None:
         try:
+            cuda_total_work = batch_count + 2
             resident_cuda_result = run_resident_stem_cuda(
                 base_spectrum=base_spectrum,
                 frequencies_x=frequencies_x,
@@ -611,6 +635,15 @@ def simulate_angle_resolved_stem(
                 ),
                 batch_size=batch_size,
                 fallback_reason=wave_fallback_reason,
+                progress_callback=(
+                    None
+                    if progress_callback is None
+                    else lambda completed, total, label: report_progress(
+                        1 + completed,
+                        total + 2,
+                        label,
+                    )
+                ),
             )
         except Exception as exc:
             cuda_failure = (
@@ -630,6 +663,11 @@ def simulate_angle_resolved_stem(
             resident_pipeline_metrics[
                 "cuda_pipeline_fallback_reason"
             ] = cuda_failure
+            report_progress(
+                round(last_progress_fraction * cpu_total_work),
+                cpu_total_work,
+                "STEM GPU failed; restarting the detector frame on CPU",
+            )
             release_cupy_memory_pools()
         else:
             for key, values in resident_cuda_result.fractions_flat.items():
@@ -649,7 +687,7 @@ def simulate_angle_resolved_stem(
         if resident_cuda_result is not None
         else range(0, flat_x_angstrom.size, batch_size)
     )
-    for start in batch_starts:
+    for batch_index, start in enumerate(batch_starts):
         stop = min(start + batch_size, flat_x_angstrom.size)
         x0 = flat_x_angstrom[start:stop, None, None]
         y0 = flat_y_angstrom[start:stop, None, None]
@@ -699,7 +737,9 @@ def simulate_angle_resolved_stem(
                 )
                 batch_detector_masks[detector.key] = mask
                 available &= ~mask
-        for configuration in prepared.potential_configurations_v_angstrom:
+        for configuration_index, configuration in enumerate(
+            prepared.potential_configurations_v_angstrom
+        ):
             if multislice_enabled:
                 explicit_slices = configuration.ndim == 3
                 exit_wave, diagnostics = propagate_multislice(
@@ -768,6 +808,20 @@ def simulate_angle_resolved_stem(
                     np.clip(values, 0.0, 1.0)
                 )
 
+            completed_units = (
+                batch_index * configuration_count + configuration_index + 1
+            )
+            phonon_detail = (
+                f" · phonon {configuration_index + 1}/{configuration_count}"
+                if configuration_count > 1
+                else ""
+            )
+            report_progress(
+                1 + completed_units,
+                cpu_total_work,
+                f"STEM probes {stop}/{flat_x_angstrom.size}{phonon_detail}",
+            )
+
         collected = np.zeros(stop - start, dtype=float)
         for detector in detectors:
             samples = np.stack(
@@ -792,6 +846,17 @@ def simulate_angle_resolved_stem(
             np.stack(configuration_truncated, axis=0),
             axis=0,
         )
+
+    final_progress_total = (
+        cuda_total_work
+        if resident_cuda_result is not None
+        else cpu_total_work
+    )
+    report_progress(
+        final_progress_total - 1,
+        final_progress_total,
+        "Finalising STEM detector signals",
+    )
 
     detector_ranges = {
         detector.key: (detector.inner_mrad, detector.outer_mrad)
@@ -881,8 +946,7 @@ def simulate_angle_resolved_stem(
     )
     specimen_metrics["sample_interaction_applied"] = bool(
         getattr(state.sample, "inserted", True)
-        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
-        == "atomic"
+        and specimen_structure_available(state.sample)
     )
 
     fft_backends = {record.compute_backend for record in fft_records}
@@ -931,7 +995,7 @@ def simulate_angle_resolved_stem(
             )
             for detector in detectors
         }
-    return AngleResolvedStemResult(
+    result = AngleResolvedStemResult(
         scan_x_um=scan_x_um,
         scan_y_um=scan_y_um,
         fractions=fractions,
@@ -1031,3 +1095,9 @@ def simulate_angle_resolved_stem(
             **resident_pipeline_metrics,
         },
     )
+    report_progress(
+        final_progress_total,
+        final_progress_total,
+        "STEM detector frame complete",
+    )
+    return result

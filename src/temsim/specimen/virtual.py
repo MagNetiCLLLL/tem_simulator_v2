@@ -15,6 +15,8 @@ from pathlib import Path
 
 import numpy as np
 
+from temsim.specimen.envelope import sample_envelope_contains_xy
+
 
 PARAXIAL_VIRTUAL_MAX_MRAD = 500.0
 CLASSICAL_ELECTRON_RADIUS_M = 2.8179403262e-15
@@ -610,13 +612,11 @@ def virtual_density_at_scan(
     y = np.asarray(scan_y_um, dtype=float) * 1.0e3
     if x.shape != y.shape or x.ndim != 2 or x.size == 0:
         raise ValueError("Virtual density needs matching non-empty 2-D scan coordinates.")
-    sample_x = x - float(getattr(sample, "centre_x_nm", 0.0))
-    sample_y = y - float(getattr(sample, "centre_y_nm", 0.0))
     size_x = float(getattr(sample, "size_x_nm", 0.0))
     size_y = float(getattr(sample, "size_y_nm", 0.0))
     if not all(math.isfinite(value) and value > 0.0 for value in (size_x, size_y)):
         raise ValueError("Virtual sample X/Y sizes must be finite and positive.")
-    finite_sample = (np.abs(sample_x) <= 0.5 * size_x) & (np.abs(sample_y) <= 0.5 * size_y)
+    finite_sample = sample_envelope_contains_xy(sample, x, y)
     regions = list(getattr(sample, "virtual_regions", ()) or ())
     if not regions:
         density = finite_sample.astype(float)

@@ -1,5 +1,6 @@
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -16,6 +17,7 @@ from temsim.detector.eds_signal import (
     EDSMaterial,
     ElectronTrackSegment,
     elemental_material,
+    material_from_sample,
     point_track_segments,
     simulate_eds_point,
     simulate_eds_tracks,
@@ -28,6 +30,24 @@ from temsim.runtime_parameters import (
 
 
 PROJECT_ROOT = Path(__file__).parents[1]
+
+
+def _sample_plane_simulation(ray_count=8):
+    x = np.zeros((1, ray_count), dtype=float)
+    y = np.zeros((1, ray_count), dtype=float)
+    tx = np.linspace(-1.0e-3, 1.0e-3, ray_count)[None, :]
+    ty = np.linspace(0.5e-3, -0.5e-3, ray_count)[None, :]
+    return SimpleNamespace(
+        incident=SimpleNamespace(
+            alive=np.ones(ray_count, dtype=bool),
+            x=x,
+            y=y,
+            tx=tx,
+            ty=ty,
+            energy_offset_ev=np.linspace(-0.2, 0.2, ray_count),
+            ray_weight=np.full(ray_count, 1.0 / ray_count),
+        )
+    )
 
 
 @pytest.fixture(scope="module")
@@ -58,6 +78,39 @@ def test_bote_salvat_table_covers_k_l_m_for_z_1_to_99():
         "M4",
         "M5",
     )
+
+
+def test_eds_material_follows_the_mode_owned_structure_source():
+    state = default_state()
+    state.sample.specimen_mode = "virtual"
+    state.sample.specimen_preset_key = "si_110"
+    state.sample.cif_path = "dormant-missing.cif"
+
+    material = material_from_sample(state)
+
+    assert material is not None
+    assert material.key == "specimen:si_110"
+
+    state.sample.specimen_mode = "atomic"
+    state.sample.cif_path = ""
+    assert material_from_sample(state) is None
+
+    state.sample.specimen_mode = "virtual"
+    state.sample.specimen_preset_key = "vacuum"
+    assert material_from_sample(state) is None
+
+
+def test_straight_eds_path_respects_circular_sample_edge():
+    state = default_state()
+    centre_tracks = point_track_segments(state, x_nm=0.0, y_nm=0.0)
+    corner_tracks = point_track_segments(
+        state,
+        x_nm=1_400_000.0,
+        y_nm=1_400_000.0,
+    )
+
+    assert [track.source_key for track in centre_tracks] == ["sample"]
+    assert corner_tracks == ()
 
 
 def test_bote_salvat_threshold_units_and_reference_values():
@@ -191,9 +244,12 @@ def test_support_grid_adds_copper_only_when_track_intersects_material():
     bar = point_track_segments(state, x_nm=60_000.0, y_nm=0.0)
 
     assert [segment.source_key for segment in opening] == ["sample"]
-    assert [segment.source_key for segment in bar] == ["support:bar"]
-    assert bar[0].material.mass_fractions == ((29, 1.0),)
-    assert bar[0].path_length_nm == pytest.approx(25_000.0)
+    assert [segment.source_key for segment in bar] == [
+        "sample",
+        "support:bar",
+    ]
+    assert bar[-1].material.mass_fractions == ((29, 1.0),)
+    assert bar[-1].path_length_nm == pytest.approx(25_000.0)
 
 
 def test_point_spectrum_uses_generic_name_and_reproducible_poisson(
@@ -203,20 +259,25 @@ def test_point_spectrum_uses_generic_name_and_reproducible_poisson(
     state.sample.eds_poisson_enabled = True
     state.sample.eds_poisson_seed = 123
     state.sample.eds_energy_resolution_fwhm_ev = 125.0
-    state.sample.eds_elastic_trajectory_count = 8
 
     first = simulate_eds_point(
-        state, installed_geometry, incident_electrons=1.0e6
+        state,
+        installed_geometry,
+        simulation=_sample_plane_simulation(),
+        incident_electrons=1.0e6,
     )
     second = simulate_eds_point(
-        state, installed_geometry, incident_electrons=1.0e6
+        state,
+        installed_geometry,
+        simulation=_sample_plane_simulation(),
+        incident_electrons=1.0e6,
     )
 
     assert first.metrics["system_name"] == "EDS"
     assert first.metrics["elastic_trajectory_generation"] is True
     assert first.elastic_transport is not None
     assert first.metrics["incident_electron_reference"] == (
-        "explicit argument"
+        "explicit source-electron argument"
     )
     assert np.array_equal(first.sampled_counts, second.sampled_counts)
     assert first.expected_counts.shape == first.sampled_counts.shape
@@ -275,7 +336,3 @@ def test_runtime_rejects_unknown_support_and_nonphysical_detector_values():
         )
     with pytest.raises(ValueError, match="transport_mode"):
         validate_runtime_assignment(target, "eds_transport_mode", "fake")
-    with pytest.raises(ValueError, match="between 1 and 100000"):
-        validate_runtime_assignment(
-            target, "eds_elastic_trajectory_count", 0
-        )

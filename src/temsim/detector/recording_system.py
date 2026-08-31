@@ -54,24 +54,6 @@ class RecordingPlane:
         return self.outer_width_mm
 
 
-def energy_filter_recording_plane_insertions(recording_planes, energy_filter_enabled):
-    """Return solid-screen states compatible with the filter branch.
-
-    BF is the centre channel of the independently controlled STEM detector
-    bank.  It is intentionally not retracted merely because an energy filter
-    is installed; users retract BF when they need the central beam to continue
-    into that post-column branch.
-    """
-    return {
-        plane.key: False
-        if energy_filter_enabled
-        and plane.key in {
-            FLUORESCENT_SCREEN,
-            CAMERA,
-        }
-        else bool(plane.inserted)
-        for plane in recording_planes
-    }
 def default_recording_planes(state):
 
     anchor_z = float(state.selected_area_aperture.z_mm)

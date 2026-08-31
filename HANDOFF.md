@@ -35,13 +35,52 @@ the next concrete work. `README.md` remains the user/developer overview and
   vacancies, xraylib characteristic lines, emitting-layer self absorption,
   configured solid-angle collection, ideal scalar efficiency, energy
   broadening and optional Poisson counts.
-- The Sample page owns support, path-mode, trajectory-count, seed and event
-  controls plus a representative X-Z trajectory/collision plot. **Calculate
-  point EDS** is explicit and synchronous; editing a mechanical/support
-  component never auto-runs a spectrum or recomputes a lens preset. Default is
-  32 elastic trajectories; a straight-primary reference remains selectable.
+- EDS is now a dedicated top-level page immediately right of Sample. It owns
+  support, path mode, seed/event guard, rotatable orthogonal U-Z/V-Z
+  trajectory projections and the
+  spectrum/line view. **Calculate point EDS** is explicit and synchronous;
+  editing a mechanical/support component never auto-runs a spectrum or
+  recomputes a lens preset. A straight-primary reference remains selectable.
+- There is no independent elastic trajectory count. Each point acquisition
+  uses every upstream ray that survives to the physical sample plane, carrying
+  its X/Y, tx/ty (including accumulated rotation), energy offset and
+  source-current weight. Emitted-current counts are multiplied by the upstream
+  survival fraction, then conditional ray weights are applied once.
+- EDS trajectory projection angle is bidirectionally synchronized with Ray
+  Diagram. It uses the identical `U = X cos(phi) + Y sin(phi)` convention plus
+  the orthogonal V axis, and reprojects stored histories without rerunning the
+  Monte Carlo calculation.
+- Scanning Image is a fixed horizontal split, not a nested full ScanControlView
+  tab. Its left pane owns Scanning Parameters / Probe Aberrations; its right
+  pane owns Geometry / Images. The existing scan controller still owns all
+  signals, plots and image data, while only its panels are reparented.
+- The Images pane has **Pause refresh**. It freezes HAADF/DF/BF on the previous
+  complete frame, including across a newly calculated replacement frame, but
+  does not stop the scan clock or Ray Diagram playback. Resuming switches to
+  the current cached frame and line progress.
+- Sample `Mode` is now the only structure-source selector. Real sample exposes
+  only user-imported CIF/MCIF; Virtual sample owns the simulator TOML reference
+  list (Silicon [110], Gold [001], etc.) plus idealised ray-interaction rows.
+  The duplicate Real structure-source combo and `atomic_structure_source` state
+  field were removed in schema 71. Schema/profile migration maps retired CIF
+  ownership to Real and retired preset ownership to Virtual. Dormant values may
+  be retained for non-destructive mode switching, but every calculation uses
+  only the source owned by the active mode.
+- Current-change validation: all 392 collected tests outside
+  `tests/test_direct_alignment.py` pass offscreen. The 34-test Direct Alignment
+  module has 30 passes and four existing Nanoprobe convergence-range failures
+  after the earlier condenser geometry changes; this specimen-source change
+  does not modify that solver or relax its optical thresholds. Targeted
+  Sample/profile/wave/EDS/scan/GUI groups pass. `compileall` and
+  `git diff --check` pass.
+- Checkbox indicators are now global theme assets rather than Fusion defaults.
+  Unchecked, checked, partial, hover and disabled states use nine packaged SVGs
+  under `src/temsim/gui/assets`; `pyproject.toml` includes them as package data.
+  The checked state is cyan with a white tick and the unchecked state is a
+  bright outline on the dark background.
 - This is not yet a complete coupled electron/photon Monte Carlo. The initial
-  beam is one point direction along +Z; the bulk-density transport has no
+  beam is the calculated geometrical sample-plane phase space; it does not
+  convert a coherent probe wave into unique classical paths. Bulk-density transport has no
   crystallographic channeling/coherent diffraction and is not derived from
   multislice. It also omits electron slowing, elastic recoil, inelastic angular
   deflection, bremsstrahlung, vacancy cascades, cross-layer photon
@@ -49,7 +88,7 @@ the next concrete work. `README.md` remains the user/developer overview and
   measured energy-dependent detector efficiency. Absolute counts remain
   provisional.
 - Validation on 2026-08-31: the focused elastic/EDS/sample tests passed, then
-  the non-recalibrating full suite completed as `405 passed, 1 skipped,
+  the non-recalibrating full suite completed as `408 passed, 1 skipped,
   6 deselected`. The six deselections are the two known Nanoprobe C2/C3
   calibration families intentionally not rerun. `compileall`, import smoke,
   `pip check` and `git diff --check` also passed.
@@ -566,6 +605,9 @@ the next concrete work. `README.md` remains the user/developer overview and
   remains enabled, a GUI timer repeatedly plays its raster-line acquisition;
   stopping scan stops the timer and retains the last complete frame.  Playback
   never launches repeated physics calculations.
+- Pausing image refresh is distinct from stopping scan: HAADF/DF/BF retain the
+  previous complete frame while the timer and Ray Diagram continue. A newly
+  calculated frame remains hidden until refresh resumes.
 - The calculation also caches AC/Descan first-order response bases on every
   displayed branch Z grid. Each playback tick adds only the current scan
   displacement to the cached rays. The View Angle projection remains live, so
@@ -605,8 +647,9 @@ the next concrete work. `README.md` remains the user/developer overview and
   not specimen contrast; CIF multislice requires High accuracy with wave/
   multislice enabled. Sampling diagnostics compare FOV with the finite sample
   and pixel pitch with half the shortest periodic CIF atom spacing.
-- `atomic` (UI: Real sample) accepts either an instrument-selected TOML preset
-  or a user CIF/MCIF. One canonical `(w,x,y,z)` unit quaternion controls the
+- `atomic` (UI: Real sample) accepts only a user CIF/MCIF. `virtual` owns one
+  instrument TOML reference specimen and the separately configured idealised
+  angular channels. One canonical `(w,x,y,z)` unit quaternion controls the
   physical orientation. A direct-lattice zone axis maps to laboratory +Z, a
   non-collinear in-plane direction maps to +X, and numeric or explicit mouse
   edit mode updates the same quaternion. Camera orbit remains the mouse
@@ -617,14 +660,14 @@ the next concrete work. `README.md` remains the user/developer overview and
   rotation/cropping. It never expands a macroscopic sample in full. Outside
   the finite X/Y envelope is explicit vacuum; the 5,000,000-atom safety limit
   applies to the ROI-local pre-crop structure.
-- A custom CIF requires atomistic IAM and multislice. It never borrows a TOML
-  preset's thermal displacement and never silently falls back to another
-  material. Frozen phonons accept a global user RMS or an explicit per-element
-  RMS table for a custom CIF.
+- A Real custom CIF requires atomistic IAM and multislice. It never borrows the
+  dormant Virtual TOML reference's atoms, material constants or thermal
+  displacement and never silently falls back to another material. Frozen
+  phonons accept a global user RMS or an explicit per-element RMS table.
 - Real sample Ray Diagram calculations never synthesize `+g/-g` or diffuse
   diffraction branches, even if legacy ray-preview fields remain in a loaded
-  profile. Coherent CIF/TOML elastic diffraction belongs to the high-accuracy
-  TEM/STEM wave/multislice calculation. Separate material-derived Real
+  profile. Coherent CIF or Virtual-TOML elastic diffraction belongs to the
+  high-accuracy TEM/STEM wave/multislice calculation. Separate Real-CIF
   populations represent zero-loss, plasmon/low-loss, core ionisation, optional
   other inelastic loss and plural events. They use absolute Poisson
   probabilities, representative energy offsets and characteristic-angle

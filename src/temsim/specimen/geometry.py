@@ -14,6 +14,12 @@ from pathlib import Path
 
 import numpy as np
 
+from temsim.specimen.envelope import (
+    envelope_contains_bounds,
+    sample_envelope_shape,
+)
+from temsim.specimen.source import active_cif_path
+
 
 IDENTITY_QUATERNION_WXYZ = (1.0, 0.0, 0.0, 0.0)
 
@@ -36,6 +42,7 @@ class SampleGeometrySnapshot:
 
     mode: str
     inserted: bool
+    envelope_shape: str
     centre_nm: tuple[float, float, float]
     size_nm: tuple[float, float, float]
     orientation_quaternion_wxyz: tuple[float, float, float, float]
@@ -499,6 +506,7 @@ def build_sample_geometry_snapshot(
     )
     if not all(math.isfinite(value) for value in centre):
         raise ValueError("Sample centre must be finite.")
+    envelope_shape = sample_envelope_shape(sample)
     quaternion = sample_orientation_quaternion(sample)
     orientation = quaternion_to_matrix(quaternion)
     zone = tuple(int(value) for value in getattr(sample, "zone_axis_uvw", (0, 0, 1)))
@@ -511,7 +519,7 @@ def build_sample_geometry_snapshot(
         probe_padding_nm=probe_padding_nm,
     )
     warnings: list[str] = []
-    cif = str(getattr(sample, "cif_path", "")).strip() or None
+    cif = active_cif_path(sample) or None
     atom_positions = np.empty((0, 3), dtype=float)
     atomic_numbers = np.empty(0, dtype=int)
     atom_bonds = np.empty((0, 2), dtype=int)
@@ -574,19 +582,20 @@ def build_sample_geometry_snapshot(
         array.setflags(write=False)
     if mode == "atomic" and not cif:
         warnings.append(
-            "No CIF is selected; the active TOML specimen preset supplies the calculation structure."
+            "Real sample has no imported CIF/MCIF; specimen interactions are "
+            "disabled until a crystallographic file is selected."
         )
     if not bool(getattr(sample, "inserted", True)):
         warnings.append(
             "Sample is retracted: this page retains geometry, but electron-sample interaction is disabled."
         )
     if roi is not None:
-        x0, x1, y0, y1 = roi
-        sx0 = centre[0] - 0.5 * size[0]
-        sx1 = centre[0] + 0.5 * size[0]
-        sy0 = centre[1] - 0.5 * size[1]
-        sy1 = centre[1] + 0.5 * size[1]
-        if x0 < sx0 or x1 > sx1 or y0 < sy0 or y1 > sy1:
+        if not envelope_contains_bounds(
+            envelope_shape,
+            roi,
+            centre_xy_nm=centre[:2],
+            size_xy_nm=size[:2],
+        ):
             warnings.append(
                 "The calculation ROI extends outside the finite sample; those probe positions are vacuum."
             )
@@ -594,6 +603,7 @@ def build_sample_geometry_snapshot(
     return SampleGeometrySnapshot(
         mode=mode,
         inserted=bool(getattr(sample, "inserted", True)),
+        envelope_shape=envelope_shape,
         centre_nm=centre,
         size_nm=size,
         orientation_quaternion_wxyz=quaternion,

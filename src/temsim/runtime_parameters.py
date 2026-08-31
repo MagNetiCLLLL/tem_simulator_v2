@@ -256,6 +256,10 @@ def validate_runtime_assignment(
         "virtual",
     }:
         raise ValueError("sample.specimen_mode must be atomic or virtual")
+    if name == "envelope_shape":
+        from temsim.specimen.envelope import canonical_sample_envelope_shape
+
+        canonical_sample_envelope_shape(converted)
     if name in {
         "diameter_mm", "radius_mm", "thickness_nm", "rocking_width_inv_nm"
     }:
@@ -312,12 +316,6 @@ def validate_runtime_assignment(
             "sample.eds_transport_mode must be elastic_monte_carlo or "
             "straight_primary"
         )
-    if name == "eds_elastic_trajectory_count" and not (
-        1 <= int(converted) <= 100_000
-    ):
-        raise ValueError(
-            "sample.eds_elastic_trajectory_count must be between 1 and 100000"
-        )
     if name == "eds_elastic_seed" and int(converted) < 0:
         raise ValueError("sample.eds_elastic_seed cannot be negative")
     if name == "eds_elastic_max_events" and not (
@@ -326,6 +324,18 @@ def validate_runtime_assignment(
         raise ValueError(
             "sample.eds_elastic_max_events must be between 1 and 1000000"
         )
+    if name in {
+        "sample_region_upstream_distance_um",
+        "sample_region_downstream_distance_um",
+    } and not (math.isfinite(float(converted)) and float(converted) > 0.0):
+        raise ValueError(f"sample.{name} must be finite and positive")
+    if name in {
+        "sample_region_photon_path_count",
+        "sample_region_secondary_path_count",
+    } and not 0 <= int(converted) <= 10_000:
+        raise ValueError(f"sample.{name} must be between 0 and 10000")
+    if name == "sample_region_seed" and int(converted) < 0:
+        raise ValueError("sample.sample_region_seed cannot be negative")
     if name == "eds_support_material_key":
         from temsim.specimen.support import load_support_catalog
 

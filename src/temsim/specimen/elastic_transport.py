@@ -26,6 +26,10 @@ from temsim.detector.eds_signal import (
     material_from_sample,
     material_from_support_grid,
 )
+from temsim.specimen.envelope import (
+    canonical_sample_envelope_shape,
+    envelope_contains_xy,
+)
 from temsim.specimen.support import SupportGrid, resolve_support_grid
 
 
@@ -206,11 +210,66 @@ class ElasticScatterEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class IncidentElectronRay:
+    """One electron history sampled by the upstream column calculation.
+
+    ``position_xy_nm`` is the position at the physical sample plane. The
+    direction is a unit vector in the column coordinate system and therefore
+    retains both incident tilt and accumulated Larmor rotation. ``weight`` is
+    conditional on the electron having reached the sample plane.
+    """
+
+    source_ray_index: int
+    position_xy_nm: tuple[float, float]
+    direction: tuple[float, float, float]
+    kinetic_energy_ev: float
+    weight: float
+
+    def __post_init__(self) -> None:
+        position = np.asarray(self.position_xy_nm, dtype=float)
+        direction = np.asarray(self.direction, dtype=float)
+        if position.shape != (2,) or not np.all(np.isfinite(position)):
+            raise ValueError("Incident electron position must be a finite 2-vector")
+        if direction.shape != (3,) or not np.all(np.isfinite(direction)):
+            raise ValueError("Incident electron direction must be a finite 3-vector")
+        norm = float(np.linalg.norm(direction))
+        if norm <= 0.0 or not math.isclose(norm, 1.0, rel_tol=1.0e-10):
+            raise ValueError("Incident electron direction must be a unit vector")
+        if (
+            int(self.source_ray_index) < 0
+            or not math.isfinite(float(self.kinetic_energy_ev))
+            or float(self.kinetic_energy_ev) <= 0.0
+            or not math.isfinite(float(self.weight))
+            or float(self.weight) < 0.0
+        ):
+            raise ValueError("Incident electron index, energy or weight is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class IncidentRayBundle:
+    """The exact upstream ray histories that survive to the sample plane."""
+
+    rays: tuple[IncidentElectronRay, ...]
+    emitted_ray_count: int
+    reaching_ray_count: int
+    surviving_fraction: float
+    original_centroid_nm: tuple[float, float]
+    target_centroid_nm: tuple[float, float]
+    chief_angle_mrad: tuple[float, float]
+    energy_range_ev: tuple[float, float]
+    boundary_z_mm: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ElasticTrajectory:
     points_nm: np.ndarray
     events: tuple[ElasticScatterEvent, ...]
     outcome: str
     total_material_path_nm: float
+    source_ray_index: int = 0
+    incident_weight: float = 1.0
+    initial_direction: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    initial_energy_ev: float = 0.0
 
     def __post_init__(self) -> None:
         points = np.asarray(self.points_nm, dtype=float)
@@ -224,11 +283,259 @@ class ElasticTrajectory:
         object.__setattr__(self, "points_nm", points)
 
 
+def incident_rays_from_simulation(
+    state,
+    simulation,
+    *,
+    target_x_nm: float | None = None,
+    target_y_nm: float | None = None,
+    boundary_z_mm: float | None = None,
+) -> IncidentRayBundle:
+    """Extract weighted phase space at one upstream/sample boundary.
+
+    Every ray that survives the gun, apertures and column wall to the physical
+    sample plane is used once. A point acquisition translates the weighted
+    beam centroid to its requested scan coordinate without changing the
+    calculated spread, direction, rotation, energy or current weight.
+    """
+
+    if simulation is None or getattr(simulation, "incident", None) is None:
+        raise ValueError(
+            "Elastic EDS transport requires a completed column calculation."
+        )
+    branch = simulation.incident
+    final_alive = np.asarray(branch.alive, dtype=bool)
+    if final_alive.ndim != 1:
+        raise ValueError("Incident sample-plane survival mask must be one-dimensional")
+    emitted_count = int(final_alive.size)
+    has_axial_history = hasattr(branch, "z")
+    branch_z = np.asarray(
+        branch.z if has_axial_history else (float(state.sample.z_mm),),
+        dtype=float,
+    )
+    requested_z = (
+        float(state.sample.z_mm)
+        if boundary_z_mm is None
+        else float(boundary_z_mm)
+    )
+    if (
+        branch_z.ndim != 1
+        or branch_z.size < 1
+        or not np.all(np.isfinite(branch_z))
+        or np.any(np.diff(branch_z) < 0.0)
+        or not math.isfinite(requested_z)
+        or requested_z < float(branch_z[0]) - 1.0e-9
+        or requested_z > float(branch_z[-1]) + 1.0e-9
+    ):
+        raise ValueError("Requested incident boundary is outside the ray history")
+    requested_z = min(max(requested_z, float(branch_z[0])), float(branch_z[-1]))
+    if hasattr(branch, "blocked_z"):
+        blocked_z = np.asarray(branch.blocked_z, dtype=float)
+        if blocked_z.shape != final_alive.shape:
+            raise ValueError(
+                "Incident blocking coordinates do not match the ray bundle"
+            )
+        reaches_boundary = np.isnan(blocked_z) | (
+            blocked_z > requested_z + 1.0e-9
+        )
+    elif boundary_z_mm is None:
+        # Compact synthetic/test bundles historically expose only their final
+        # sample-plane mask and one phase-space row.
+        reaches_boundary = final_alive.copy()
+    else:
+        raise ValueError(
+            "An upstream incident boundary requires axial history and block Z data"
+        )
+    indices = np.flatnonzero(reaches_boundary)
+    if indices.size == 0:
+        raise ValueError("No electron rays reach the requested incident boundary.")
+
+    def sample_row(values, label: str) -> np.ndarray:
+        array = np.asarray(values, dtype=float)
+        if array.ndim != 2 or array.shape[1] != emitted_count:
+            raise ValueError(f"Incident {label} array does not match the ray bundle")
+        if branch_z.size == 1 or math.isclose(
+            requested_z, float(branch_z[-1]), abs_tol=1.0e-12
+        ):
+            row = np.asarray(array[-1, indices], dtype=float)
+        else:
+            hi = int(np.searchsorted(branch_z, requested_z, side="left"))
+            if hi == 0:
+                row = np.asarray(array[0, indices], dtype=float)
+            elif math.isclose(
+                requested_z, float(branch_z[hi]), abs_tol=1.0e-12
+            ):
+                row = np.asarray(array[hi, indices], dtype=float)
+            else:
+                lo = hi - 1
+                fraction = (requested_z - branch_z[lo]) / (
+                    branch_z[hi] - branch_z[lo]
+                )
+                row = np.asarray(
+                    array[lo, indices]
+                    + fraction * (array[hi, indices] - array[lo, indices]),
+                    dtype=float,
+                )
+        if not np.all(np.isfinite(row)):
+            raise ValueError(f"Incident {label} contains NaN or infinity")
+        return row
+
+    x_nm = sample_row(branch.x, "X position") * 1.0e9
+    y_nm = sample_row(branch.y, "Y position") * 1.0e9
+    tx = sample_row(branch.tx, "X slope")
+    ty = sample_row(branch.ty, "Y slope")
+    energy_offset = np.asarray(branch.energy_offset_ev, dtype=float)
+    if energy_offset.shape != final_alive.shape or not np.all(
+        np.isfinite(energy_offset[indices])
+    ):
+        raise ValueError("Incident energy offsets do not match the ray bundle")
+
+    raw_weight = getattr(branch, "ray_weight", None)
+    if raw_weight is None:
+        weights = np.full(emitted_count, 1.0 / emitted_count, dtype=float)
+    else:
+        weights = np.asarray(raw_weight, dtype=float)
+        if (
+            weights.shape != final_alive.shape
+            or not np.all(np.isfinite(weights))
+            or np.any(weights < 0.0)
+            or float(weights.sum()) <= 0.0
+        ):
+            raise ValueError("Incident ray weights must be finite and non-negative")
+        weights = weights / float(weights.sum())
+    surviving_fraction = float(weights[indices].sum())
+    if surviving_fraction <= 0.0:
+        raise ValueError("No positive source current reaches the sample plane")
+    conditional = weights[indices] / surviving_fraction
+
+    original_centroid = (
+        float(np.sum(conditional * x_nm)),
+        float(np.sum(conditional * y_nm)),
+    )
+    target_centroid = (
+        original_centroid[0] if target_x_nm is None else float(target_x_nm),
+        original_centroid[1] if target_y_nm is None else float(target_y_nm),
+    )
+    if not all(math.isfinite(value) for value in target_centroid):
+        raise ValueError("EDS target coordinate must be finite")
+    x_nm = x_nm + target_centroid[0] - original_centroid[0]
+    y_nm = y_nm + target_centroid[1] - original_centroid[1]
+
+    energy_ev = float(state.beam_voltage_kv) * 1000.0 + energy_offset[indices]
+    if not np.all(np.isfinite(energy_ev)) or np.any(energy_ev <= 0.0):
+        raise ValueError("Incident kinetic energies must be finite and positive")
+    direction_rows = np.column_stack((tx, ty, np.ones_like(tx)))
+    direction_rows /= np.linalg.norm(direction_rows, axis=1)[:, None]
+    rays = tuple(
+        IncidentElectronRay(
+            source_ray_index=int(source_index),
+            position_xy_nm=(float(x_value), float(y_value)),
+            direction=tuple(float(value) for value in direction),
+            kinetic_energy_ev=float(energy),
+            weight=float(weight),
+        )
+        for source_index, x_value, y_value, direction, energy, weight in zip(
+            indices,
+            x_nm,
+            y_nm,
+            direction_rows,
+            energy_ev,
+            conditional,
+            strict=True,
+        )
+    )
+    return IncidentRayBundle(
+        rays=rays,
+        emitted_ray_count=emitted_count,
+        reaching_ray_count=len(rays),
+        surviving_fraction=surviving_fraction,
+        original_centroid_nm=original_centroid,
+        target_centroid_nm=target_centroid,
+        chief_angle_mrad=(
+            float(np.sum(conditional * tx) * 1.0e3),
+            float(np.sum(conditional * ty) * 1.0e3),
+        ),
+        energy_range_ev=(float(np.min(energy_ev)), float(np.max(energy_ev))),
+        boundary_z_mm=requested_z,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ElasticMaterialFlight:
+    """One stored straight flight that is known to be inside material."""
+
+    start_nm: tuple[float, float, float]
+    end_nm: tuple[float, float, float]
+    source_key: str
+    material_key: str
+    history: str
+    source_ray_index: int
+    electron_energy_ev: float
+    electron_weight: float
+
+
+@dataclass(frozen=True, slots=True)
+class ElasticTerminalBundle:
+    """Terminal state of every simulated electron history."""
+
+    source_ray_index: np.ndarray
+    position_nm: np.ndarray
+    direction: np.ndarray
+    kinetic_energy_ev: np.ndarray
+    weight: np.ndarray
+    outcome: tuple[str, ...]
+    event_count: np.ndarray
+    has_scattered: np.ndarray
+
+    def __post_init__(self) -> None:
+        count = len(self.outcome)
+        arrays = {
+            "source_ray_index": np.asarray(self.source_ray_index, dtype=np.int64),
+            "position_nm": np.asarray(self.position_nm, dtype=float),
+            "direction": np.asarray(self.direction, dtype=float),
+            "kinetic_energy_ev": np.asarray(self.kinetic_energy_ev, dtype=float),
+            "weight": np.asarray(self.weight, dtype=float),
+            "event_count": np.asarray(self.event_count, dtype=np.int64),
+            "has_scattered": np.asarray(self.has_scattered, dtype=bool),
+        }
+        expected_shapes = {
+            "source_ray_index": (count,),
+            "position_nm": (count, 3),
+            "direction": (count, 3),
+            "kinetic_energy_ev": (count,),
+            "weight": (count,),
+            "event_count": (count,),
+            "has_scattered": (count,),
+        }
+        for name, array in arrays.items():
+            if array.shape != expected_shapes[name]:
+                raise ValueError(f"Elastic terminal {name} has an invalid shape")
+            if array.dtype.kind in "fc" and not np.all(np.isfinite(array)):
+                raise ValueError(f"Elastic terminal {name} contains NaN or infinity")
+            array.setflags(write=False)
+            object.__setattr__(self, name, array)
+        if (
+            np.any(arrays["source_ray_index"] < 0)
+            or np.any(arrays["kinetic_energy_ev"] <= 0.0)
+            or np.any(arrays["weight"] < 0.0)
+            or np.any(arrays["event_count"] < 0)
+            or not np.allclose(
+                np.linalg.norm(arrays["direction"], axis=1),
+                1.0,
+                rtol=1.0e-10,
+                atol=1.0e-12,
+            )
+        ):
+            raise ValueError("Elastic terminal electron values are invalid")
+
+
 @dataclass(frozen=True, slots=True)
 class ElasticTransportResult:
     eds_tracks: tuple[ElectronTrackSegment, ...]
     trajectories: tuple[ElasticTrajectory, ...]
     metrics: dict[str, object]
+    material_flights: tuple[ElasticMaterialFlight, ...] = ()
+    terminal_electrons: ElasticTerminalBundle | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,6 +566,7 @@ class ElasticTransportGeometry:
         support_material: EDSMaterial | None,
         support_offset_xy_um: tuple[float, float],
         support_rotation_deg: float,
+        sample_envelope_shape: str = "rectangle",
     ) -> None:
         self.inserted = bool(inserted)
         self.sample_material = sample_material if self.inserted else None
@@ -266,6 +574,9 @@ class ElasticTransportGeometry:
             float(value) for value in sample_centre_xy_nm
         )
         self.sample_size_xy_nm = tuple(float(value) for value in sample_size_xy_nm)
+        self.sample_envelope_shape = canonical_sample_envelope_shape(
+            sample_envelope_shape
+        )
         self.sample_thickness_nm = max(float(sample_thickness_nm), 0.0)
         self.support_grid = support_grid
         self.support_material = support_material if self.inserted else None
@@ -313,6 +624,9 @@ class ElasticTransportGeometry:
             support_rotation_deg=float(
                 getattr(sample, "eds_support_rotation_deg", 0.0)
             ),
+            sample_envelope_shape=str(
+                getattr(sample, "envelope_shape", "rectangle")
+            ),
         )
 
     @property
@@ -338,13 +652,16 @@ class ElasticTransportGeometry:
             raise ValueError("Transport position must be a finite 3-vector")
         x_nm, y_nm, z_nm = (float(value) for value in position)
         centre_x, centre_y = self.sample_centre_xy_nm
-        half_x = 0.5 * self.sample_size_xy_nm[0]
-        half_y = 0.5 * self.sample_size_xy_nm[1]
         if (
             self.sample_material is not None
             and 0.0 <= z_nm <= self.sample_thickness_nm
-            and abs(x_nm - centre_x) <= half_x
-            and abs(y_nm - centre_y) <= half_y
+            and envelope_contains_xy(
+                self.sample_envelope_shape,
+                x_nm,
+                y_nm,
+                centre_xy_nm=(centre_x, centre_y),
+                size_xy_nm=self.sample_size_xy_nm,
+            )
         ):
             return _MaterialRegion(
                 "sample",
@@ -396,12 +713,43 @@ class ElasticTransportGeometry:
 
         if self.sample_material is not None:
             centre_x, centre_y = self.sample_centre_xy_nm
-            half_x = 0.5 * self.sample_size_xy_nm[0]
-            half_y = 0.5 * self.sample_size_xy_nm[1]
-            for value in (centre_x - half_x, centre_x + half_x):
-                add_plane(0, value)
-            for value in (centre_y - half_y, centre_y + half_y):
-                add_plane(1, value)
+            if self.sample_envelope_shape == "rectangle":
+                half_x = 0.5 * self.sample_size_xy_nm[0]
+                half_y = 0.5 * self.sample_size_xy_nm[1]
+                for value in (centre_x - half_x, centre_x + half_x):
+                    add_plane(0, value)
+                for value in (centre_y - half_y, centre_y + half_y):
+                    add_plane(1, value)
+            else:
+                radius_x = 0.5 * self.sample_size_xy_nm[0]
+                radius_y = 0.5 * self.sample_size_xy_nm[1]
+                relative_x = float(position[0]) - centre_x
+                relative_y = float(position[1]) - centre_y
+                direction_x = float(direction[0])
+                direction_y = float(direction[1])
+                quadratic = (
+                    (direction_x / radius_x) ** 2
+                    + (direction_y / radius_y) ** 2
+                )
+                if quadratic > 1.0e-30:
+                    linear = 2.0 * (
+                        relative_x * direction_x / radius_x**2
+                        + relative_y * direction_y / radius_y**2
+                    )
+                    constant = (
+                        (relative_x / radius_x) ** 2
+                        + (relative_y / radius_y) ** 2
+                        - 1.0
+                    )
+                    discriminant = linear**2 - 4.0 * quadratic * constant
+                    if discriminant >= 0.0:
+                        root = math.sqrt(max(discriminant, 0.0))
+                        for distance in (
+                            (-linear - root) / (2.0 * quadratic),
+                            (-linear + root) / (2.0 * quadratic),
+                        ):
+                            if epsilon < distance <= maximum + epsilon:
+                                candidates.append(distance)
             add_plane(2, 0.0)
             add_plane(2, self.sample_thickness_nm)
 
@@ -567,26 +915,22 @@ def _terminal_outcome(direction: np.ndarray) -> str:
 def simulate_elastic_point_transport(
     state,
     *,
-    x_nm: float,
-    y_nm: float,
-    trajectory_count: int | None = None,
+    incident_rays: Iterable[IncidentElectronRay],
     seed: int | None = None,
     maximum_events_per_trajectory: int | None = None,
-    stored_trajectory_count: int = 32,
+    stored_trajectory_count: int = 256,
 ) -> ElasticTransportResult:
-    """Trace mono-directional +Z electrons through sample and support.
+    """Trace the calculated incident ray bundle through sample and support.
 
     Elastic collisions change direction but not kinetic energy.  The returned
-    EDS tracks are Monte Carlo averages: each trajectory represents 1/N of the
-    incident electron population, and paths are aggregated by source/history.
+    EDS tracks preserve each source ray's conditional current weight and
+    kinetic energy. The history count equals the number of upstream rays that
+    actually reached the physical sample plane.
     """
 
     sample = state.sample
-    count = int(
-        getattr(sample, "eds_elastic_trajectory_count", 32)
-        if trajectory_count is None
-        else trajectory_count
-    )
+    rays = tuple(incident_rays)
+    count = len(rays)
     random_seed = int(
         getattr(sample, "eds_elastic_seed", 0) if seed is None else seed
     )
@@ -597,22 +941,25 @@ def simulate_elastic_point_transport(
     )
     stored_count = int(stored_trajectory_count)
     if count <= 0:
-        raise ValueError("Elastic trajectory count must be positive")
+        raise ValueError("Elastic transport requires at least one incident ray")
     if random_seed < 0:
         raise ValueError("Elastic trajectory seed cannot be negative")
     if maximum_events <= 0:
         raise ValueError("Elastic maximum event count must be positive")
     if stored_count < 0:
         raise ValueError("Stored elastic trajectory count cannot be negative")
-    energy_ev = float(state.beam_voltage_kv) * 1000.0
-    if not math.isfinite(energy_ev) or energy_ev <= 0.0:
-        raise ValueError("Elastic transport requires positive beam energy")
+    input_weights = np.asarray([ray.weight for ray in rays], dtype=float)
+    if (
+        not np.all(np.isfinite(input_weights))
+        or np.any(input_weights < 0.0)
+        or float(input_weights.sum()) <= 0.0
+    ):
+        raise ValueError("Incident ray weights must be finite and positive in total")
+    input_weights /= float(input_weights.sum())
     geometry = ElasticTransportGeometry.from_state(state)
     rng = np.random.default_rng(random_seed)
     maximum_path_nm = 8.0 * geometry.transport_span_nm
-    path_sums: dict[
-        tuple[str, str, str, float], tuple[EDSMaterial, float]
-    ] = {}
+    tracks: list[ElectronTrackSegment] = []
     outcome_counts = {
         "transmitted": 0,
         "backscattered": 0,
@@ -621,17 +968,35 @@ def simulate_elastic_point_transport(
         "path_limit": 0,
     }
     total_events = 0
-    total_material_path = 0.0
+    weighted_total_events = 0.0
+    weighted_total_material_path = 0.0
     source_path_sums: dict[str, float] = {}
     stored_trajectories: list[ElasticTrajectory] = []
+    stored_material_flights: list[ElasticMaterialFlight] = []
+    terminal_source_indices: list[int] = []
+    terminal_positions: list[np.ndarray] = []
+    terminal_directions: list[np.ndarray] = []
+    terminal_energies: list[float] = []
+    terminal_weights: list[float] = []
+    terminal_outcomes: list[str] = []
+    terminal_event_counts: list[int] = []
+    terminal_scattered: list[bool] = []
     encountered_atomic_numbers: set[int] = set()
+    outcome_weights = {key: 0.0 for key in outcome_counts}
 
-    for trajectory_index in range(count):
-        direction = np.asarray((0.0, 0.0, 1.0), dtype=float)
+    for trajectory_index, (ray, ray_weight) in enumerate(
+        zip(rays, input_weights, strict=True)
+    ):
+        direction = np.asarray(ray.direction, dtype=float)
         position = np.asarray(
-            (float(x_nm), float(y_nm), -8.0 * geometry.epsilon_nm),
+            (
+                float(ray.position_xy_nm[0]),
+                float(ray.position_xy_nm[1]),
+                -8.0 * geometry.epsilon_nm,
+            ),
             dtype=float,
         )
+        energy_ev = float(ray.kinetic_energy_ev)
         points = [position.copy()] if trajectory_index < stored_count else None
         events: list[ElasticScatterEvent] | None = (
             [] if trajectory_index < stored_count else None
@@ -639,6 +1004,9 @@ def simulate_elastic_point_transport(
         event_count = 0
         travelled_path = 0.0
         trajectory_material_path = 0.0
+        trajectory_paths: dict[
+            tuple[str, str, str, float], tuple[EDSMaterial, float]
+        ] = {}
         has_scattered = False
         outcome = "path_limit"
         while travelled_path < maximum_path_nm:
@@ -684,16 +1052,30 @@ def simulate_elastic_point_transport(
                 history,
                 region.emitting_layer_thickness_nm,
             )
-            old_material, old_path = path_sums.get(
+            old_material, old_path = trajectory_paths.get(
                 key, (region.material, 0.0)
             )
-            path_sums[key] = (old_material, old_path + distance)
-            total_material_path += distance
+            trajectory_paths[key] = (old_material, old_path + distance)
             trajectory_material_path += distance
             source_path_sums[region.source_key] = (
-                source_path_sums.get(region.source_key, 0.0) + distance
+                source_path_sums.get(region.source_key, 0.0)
+                + float(ray_weight) * distance
             )
+            flight_start = position.copy()
             endpoint = position + direction * distance
+            if points is not None and distance > 0.0:
+                stored_material_flights.append(
+                    ElasticMaterialFlight(
+                        start_nm=tuple(float(value) for value in flight_start),
+                        end_nm=tuple(float(value) for value in endpoint),
+                        source_key=region.source_key,
+                        material_key=region.material.key,
+                        history=history,
+                        source_ray_index=int(ray.source_ray_index),
+                        electron_energy_ev=energy_ev,
+                        electron_weight=float(ray_weight),
+                    )
+                )
             travelled_path += distance
             if points is not None:
                 points.append(endpoint.copy())
@@ -728,6 +1110,38 @@ def simulate_elastic_point_transport(
                 outcome = "event_limit"
                 break
         outcome_counts[outcome] += 1
+        outcome_weights[outcome] += float(ray_weight)
+        terminal_source_indices.append(int(ray.source_ray_index))
+        terminal_positions.append(position.copy())
+        terminal_directions.append(direction.copy())
+        terminal_energies.append(energy_ev)
+        terminal_weights.append(float(ray_weight))
+        terminal_outcomes.append(outcome)
+        terminal_event_counts.append(event_count)
+        terminal_scattered.append(has_scattered)
+        weighted_total_events += float(ray_weight) * event_count
+        weighted_total_material_path += (
+            float(ray_weight) * trajectory_material_path
+        )
+        for (
+            source_key,
+            _material_key,
+            history,
+            layer_thickness,
+        ), (material, path_length) in trajectory_paths.items():
+            if path_length <= 0.0 or ray_weight <= 0.0:
+                continue
+            tracks.append(
+                ElectronTrackSegment(
+                    source_key=source_key,
+                    material=material,
+                    path_length_nm=path_length,
+                    electron_energy_ev=energy_ev,
+                    electron_weight=float(ray_weight),
+                    emitting_layer_thickness_nm=layer_thickness,
+                    history=history,
+                )
+            )
         if points is not None and events is not None:
             stored_trajectories.append(
                 ElasticTrajectory(
@@ -735,30 +1149,17 @@ def simulate_elastic_point_transport(
                     events=tuple(events),
                     outcome=outcome,
                     total_material_path_nm=trajectory_material_path,
+                    source_ray_index=int(ray.source_ray_index),
+                    incident_weight=float(ray_weight),
+                    initial_direction=tuple(
+                        float(value) for value in ray.direction
+                    ),
+                    initial_energy_ev=energy_ev,
                 )
             )
 
-    tracks = []
-    for (
-        source_key,
-        _material_key,
-        history,
-        layer_thickness,
-    ), (material, summed_path) in sorted(path_sums.items()):
-        average_path = summed_path / count
-        if average_path <= 0.0:
-            continue
-        tracks.append(
-            ElectronTrackSegment(
-                source_key=source_key,
-                material=material,
-                path_length_nm=average_path,
-                electron_energy_ev=energy_ev,
-                electron_weight=1.0,
-                emitting_layer_thickness_nm=layer_thickness,
-                history=history,
-            )
-        )
+    energies = np.asarray([ray.kinetic_energy_ev for ray in rays], dtype=float)
+    directions = np.asarray([ray.direction for ray in rays], dtype=float)
     metrics: dict[str, object] = {
         "elastic_trajectory_generation": True,
         "electron_transport_model": RUTHERFORD_MODEL_NAME,
@@ -770,18 +1171,28 @@ def simulate_elastic_point_transport(
         "stored_trajectory_count": len(stored_trajectories),
         "maximum_events_per_trajectory": maximum_events,
         "total_elastic_events": total_events,
-        "mean_elastic_events_per_trajectory": total_events / count,
-        "mean_material_path_nm": total_material_path / count,
+        "mean_elastic_events_per_trajectory": weighted_total_events,
+        "unweighted_mean_elastic_events_per_trajectory": total_events / count,
+        "mean_material_path_nm": weighted_total_material_path,
         "mean_material_path_by_source_nm": {
-            key: value / count for key, value in sorted(source_path_sums.items())
+            key: value for key, value in sorted(source_path_sums.items())
         },
         "outcome_counts": dict(outcome_counts),
-        "transmitted_fraction": outcome_counts["transmitted"] / count,
-        "backscattered_fraction": outcome_counts["backscattered"] / count,
-        "lateral_escape_fraction": outcome_counts["lateral_escape"] / count,
-        "event_limit_fraction": outcome_counts["event_limit"] / count,
-        "path_limit_fraction": outcome_counts["path_limit"] / count,
-        "initial_beam_model": "mono_directional_point_ray_plus_z",
+        "outcome_weight_fractions": dict(outcome_weights),
+        "transmitted_fraction": outcome_weights["transmitted"],
+        "backscattered_fraction": outcome_weights["backscattered"],
+        "lateral_escape_fraction": outcome_weights["lateral_escape"],
+        "event_limit_fraction": outcome_weights["event_limit"],
+        "path_limit_fraction": outcome_weights["path_limit"],
+        "initial_beam_model": "calculated_surviving_sample_plane_phase_space",
+        "incident_energy_range_ev": (
+            float(np.min(energies)), float(np.max(energies))
+        ),
+        "incident_chief_direction": tuple(
+            float(value)
+            for value in np.sum(input_weights[:, None] * directions, axis=0)
+        ),
+        "incident_weights_normalised": True,
         "elastic_energy_loss_included": False,
         "nuclear_recoil_included": False,
         "inelastic_angular_deflection_included": False,
@@ -789,15 +1200,29 @@ def simulate_elastic_point_transport(
             "support grid begins at specimen downstream face"
         ),
         "finite_sample_envelope": True,
+        "sample_envelope_shape": geometry.sample_envelope_shape,
         "continuous_square_mesh_sidewalls": True,
         "rutherford_heavy_element_warning": any(
             atomic_number > 30 for atomic_number in encountered_atomic_numbers
         ),
         "rutherford_stated_energy_range_kev": (100.0, 300.0),
-        "energy_within_stated_range": 100_000.0 <= energy_ev <= 300_000.0,
+        "energy_within_stated_range": bool(
+            np.all((energies >= 100_000.0) & (energies <= 300_000.0))
+        ),
     }
     return ElasticTransportResult(
         eds_tracks=tuple(tracks),
         trajectories=tuple(stored_trajectories),
         metrics=metrics,
+        material_flights=tuple(stored_material_flights),
+        terminal_electrons=ElasticTerminalBundle(
+            source_ray_index=np.asarray(terminal_source_indices, dtype=np.int64),
+            position_nm=np.asarray(terminal_positions, dtype=float),
+            direction=np.asarray(terminal_directions, dtype=float),
+            kinetic_energy_ev=np.asarray(terminal_energies, dtype=float),
+            weight=np.asarray(terminal_weights, dtype=float),
+            outcome=tuple(terminal_outcomes),
+            event_count=np.asarray(terminal_event_counts, dtype=np.int64),
+            has_scattered=np.asarray(terminal_scattered, dtype=bool),
+        ),
     )

@@ -1,11 +1,13 @@
 import json
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from PySide6.QtWidgets import QDoubleSpinBox, QLabel
 
 from temsim.assembly_catalog import AssemblyCatalog
 from temsim.gui.sample_panel import SamplePage
+from temsim.gui.eds_panel import EDSPage
 from temsim.optics.column import default_state
 from temsim.specimen.atomistic import atomistic_capability
 
@@ -16,12 +18,18 @@ def test_sample_page_binds_modes_envelope_and_safe_offscreen_view(qtbot):
     qtbot.addWidget(page)
 
     page.set_state(state)
+    assert page.envelope_shape.currentData() == "disk"
+    assert page.scalar_controls["size_x_nm"].value() == pytest.approx(
+        3_000_000.0
+    )
+    assert page.scalar_controls["size_y_nm"].isHidden()
     page.mode.setCurrentIndex(page.mode.findData("virtual"))
     page.scalar_controls["size_x_nm"].setValue(250.0)
     page.inserted.setChecked(False)
 
     assert state.sample.specimen_mode == "virtual"
     assert state.sample.size_x_nm == 250.0
+    assert state.sample.size_y_nm == 250.0
     assert state.sample.inserted is False
     assert page.real_group.isHidden() is True
     assert page.virtual_group.isHidden() is False
@@ -111,9 +119,46 @@ def test_sample_page_owns_real_wave_and_virtual_interaction_controls(qtbot):
     assert page.virtual_group.isHidden() is False
 
 
+def test_mode_is_the_only_structure_source_selector(qtbot):
+    state = default_state()
+    state.sample.specimen_preset_key = "si_110"
+    state.sample.cif_path = "remembered-real-sample.cif"
+    page = SamplePage()
+    qtbot.addWidget(page)
+    page.set_state(state)
+
+    assert not hasattr(page, "structure_source")
+    assert page.mode.currentData() == "virtual"
+    assert page.virtual_group.isAncestorOf(page.preset)
+    assert page.preset.isEnabled()
+    assert page.virtual_group.isHidden() is False
+    assert page.real_group.isHidden() is True
+    assert page.preset.currentData() == "si_110"
+
+    page.mode.setCurrentIndex(
+        page.mode.findData("atomic")
+    )
+    page.cif_path.setText("ideal-sample.cif")
+    page._cif_edited()
+
+    assert state.sample.specimen_mode == "atomic"
+    assert state.sample.cif_path == "ideal-sample.cif"
+    assert state.sample.specimen_preset_key == "si_110"
+    assert page.real_group.isHidden() is False
+    assert page.virtual_group.isHidden() is True
+    assert page.real_group.isAncestorOf(page.cif_path)
+
+    page.mode.setCurrentIndex(
+        page.mode.findData("virtual")
+    )
+
+    assert state.sample.specimen_mode == "virtual"
+    assert state.sample.specimen_preset_key == "si_110"
+    assert state.sample.cif_path == "ideal-sample.cif"
+
+
 def test_sample_page_gates_wave_controls_by_illumination_mode(qtbot):
     state = default_state()
-    state.sample.specimen_mode = "atomic"
     page = SamplePage()
     qtbot.addWidget(page)
 
@@ -127,16 +172,21 @@ def test_sample_page_gates_wave_controls_by_illumination_mode(qtbot):
     assert page.tem_wave_enabled.isEnabled()
     assert not page.stem_wave_enabled.isEnabled()
 
-    state.sample.specimen_mode = "virtual"
+    state.sample.specimen_mode = "atomic"
+    state.sample.cif_path = ""
     page.set_state(state)
     assert not page.tem_wave_enabled.isEnabled()
     assert not page.stem_wave_enabled.isEnabled()
 
+    state.sample.cif_path = "real-sample.cif"
+    page.set_state(state)
+    assert page.tem_wave_enabled.isEnabled()
+    assert not page.stem_wave_enabled.isEnabled()
 
-def test_sample_page_exposes_generic_explicit_eds_acquisition(qtbot):
+
+def test_dedicated_eds_page_uses_calculated_sample_plane_rays(qtbot):
     state = default_state()
-    state.sample.eds_elastic_trajectory_count = 2
-    page = SamplePage()
+    page = EDSPage()
     qtbot.addWidget(page)
     page.set_state(state)
 
@@ -152,19 +202,56 @@ def test_sample_page_exposes_generic_explicit_eds_acquisition(qtbot):
 
     catalog = AssemblyCatalog()
     assembly = catalog.apply(state, catalog.default_selection())
-    page.display_result(SimpleNamespace(assembly=assembly))
+    ray_count = 2
+    simulation = SimpleNamespace(
+        incident=SimpleNamespace(
+            alive=np.ones(ray_count, dtype=bool),
+            x=np.zeros((1, ray_count)),
+            y=np.zeros((1, ray_count)),
+            tx=np.asarray(((-1.0e-3, 1.0e-3),)),
+            ty=np.asarray(((0.5e-3, -0.5e-3),)),
+            energy_offset_ev=np.asarray((-0.1, 0.1)),
+            ray_weight=np.asarray((0.4, 0.6)),
+        )
+    )
+    page.display_result(
+        SimpleNamespace(assembly=assembly, simulation=simulation)
+    )
     page.eds_acquire.click()
 
     assert page._eds_result is not None
     assert page._eds_result.metrics["system_name"] == "EDS"
     assert page._eds_result.metrics["elastic_trajectory_generation"] is True
+    assert page._eds_result.metrics["trajectory_count"] == ray_count
+    assert page._eds_result.metrics["reaching_sample_ray_count"] == ray_count
     assert page._elastic_result is page._eds_result.elastic_transport
     assert page.eds_trajectory_plot.listDataItems()
+    assert page.eds_trajectory_yz_plot.listDataItems()
+    first_points = page._elastic_result.trajectories[0].points_nm
+    page.set_projection_angle(90.0, emit_signal=True)
+    assert page._projection_angle_deg == pytest.approx(90.0)
+    assert page.projection_slider.value() == 900
+    assert page.projection_yz.isChecked()
+    assert page.eds_trajectory_plot.listDataItems()[0].xData == pytest.approx(
+        first_points[:, 1]
+    )
+    assert page.eds_trajectory_yz_plot.listDataItems()[0].xData == pytest.approx(
+        -first_points[:, 0]
+    )
     assert {
         line.source_key for line in page._eds_result.lines
     } >= {"sample", "support:bar"}
     assert "EDS point:" in page.eds_summary.text()
     assert "Ultra" not in page.eds_summary.text()
+
+
+def test_sample_page_does_not_show_eds_controls_or_trajectory_plot(qtbot):
+    page = SamplePage()
+    qtbot.addWidget(page)
+    page.set_state(default_state())
+
+    assert page.eds_group.isHidden()
+    assert page.eds_trajectory_plot.isHidden()
 
 
 def test_sample_page_contains_only_structure_and_labels_ball_elements(
@@ -179,6 +266,7 @@ def test_sample_page_contains_only_structure_and_labels_ball_elements(
     path = tmp_path / "nacl.cif"
     write(path, bulk("NaCl", "rocksalt", a=5.64))
     state = default_state()
+    state.sample.specimen_mode = "atomic"
     state.sample.cif_path = str(path)
     state.sample.size_x_nm = 1.2
     state.sample.size_y_nm = 1.2

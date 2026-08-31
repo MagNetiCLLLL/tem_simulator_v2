@@ -181,28 +181,6 @@ def _gaussian_like_quantiles(u, sigma):
     return x*float(sigma)
 
 
-def deterministic_energy_offsets(count, fwhm_ev):
-
-    """Deterministic Gaussian-like source-energy samples, FWHM in eV."""
-
-    n=max(int(count),1);f=max(float(fwhm_ev),0.0)
-
-    if f==0:return np.zeros(n)
-
-    # Symmetric quantiles without scipy; bounded approximation is stable in GUI.
-
-    u=(np.arange(n,dtype=float)+0.5)/n
-
-    x=np.log(u/(1.0-u))/1.813799364
-
-    x-=x.mean();x/=max(x.std(),1e-15)
-
-    sigma=f/2.354820045
-
-    return x*sigma
-
-
-
 def objective_chromatic_kick(x_m,y_m,energy_offset_ev,kinetic_energy_ev,cc_mm,focal_mm):
 
     """First-order objective chromatic focal-spread kick.

@@ -8,6 +8,7 @@ import pytest
 
 from temsim.assembly_catalog import AssemblyCatalog, AssemblySelection
 from temsim.column.state_layout import apply_physical_layout_to_state
+from temsim.component_keys import ENERGY_FILTER_INTERNAL_KEYS
 from temsim.gui.diagnostic_tabs import (
     InitialDirectionColourWheel,
     OpticalTransferView,
@@ -96,6 +97,116 @@ def test_transverse_projection_supports_arbitrary_view_angles():
     ) == pytest.approx((x + y) / np.sqrt(2.0))
 
 
+def test_ray_and_eds_projection_angles_remain_synchronised(qtbot):
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+
+    workspace._set_projection_angle(37.25)
+
+    assert workspace._projection_angle_deg == pytest.approx(37.25)
+    assert workspace.eds_page._projection_angle_deg == pytest.approx(37.25)
+    assert workspace.eds_page.projection_slider.value() == 373
+    assert workspace.eds_page.trajectory_tabs.tabText(0).startswith("U(37.25")
+    assert workspace.eds_page.trajectory_tabs.tabText(1).startswith("V(37.25")
+
+    workspace.eds_page.projection_slider.setValue(1234)
+
+    assert workspace.eds_page._projection_angle_deg == pytest.approx(123.4)
+    assert workspace._projection_angle_deg == pytest.approx(123.4)
+    assert workspace.projection_slider.value() == 1234
+
+
+def test_ray_diagram_sections_are_user_resizable_and_keep_ray_priority(qtbot):
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+    workspace.resize(1_200, 850)
+    workspace.show()
+    workspace.magnetic_field_toggle.setChecked(True)
+    qtbot.wait(20)
+
+    splitter = workspace.ray_vertical_splitter
+    assert splitter.count() == 3
+    assert splitter.widget(0) is workspace.ray_primary_panel
+    assert splitter.widget(1) is workspace.interaction_detail
+    assert splitter.widget(2) is workspace.magnetic_field
+    assert splitter.handleWidth() >= 7
+    initial_sizes = splitter.sizes()
+    assert initial_sizes[0] > initial_sizes[1]
+    assert initial_sizes[0] > initial_sizes[2]
+
+    splitter.setSizes((300, 220, 280))
+    qtbot.wait(20)
+    adjusted_sizes = splitter.sizes()
+    assert adjusted_sizes[1] > initial_sizes[1]
+    assert adjusted_sizes[0] < initial_sizes[0]
+
+    workspace.magnetic_field_toggle.setChecked(False)
+    workspace.magnetic_field_toggle.setChecked(True)
+    qtbot.wait(20)
+    assert splitter.sizes() == adjusted_sizes
+
+
+def test_transverse_view_is_embedded_right_of_ray_diagram_and_stacked(qtbot):
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+    workspace.resize(1_400, 900)
+    workspace.show()
+    qtbot.wait(20)
+
+    workspace_splitter = workspace.ray_workspace_splitter
+    assert workspace_splitter.orientation() == Qt.Orientation.Horizontal
+    assert workspace_splitter.count() == 2
+    assert workspace_splitter.widget(0) is workspace.ray_vertical_splitter
+    assert workspace_splitter.widget(1) is workspace.transverse_beam
+    assert workspace_splitter.handleWidth() >= 7
+
+    transverse_layout = workspace.transverse_beam.layout()
+    assert transverse_layout.itemAt(0).widget() is (
+        workspace.transverse_beam.initial_beam_panel
+    )
+    assert transverse_layout.itemAt(1).widget() is (
+        workspace.transverse_beam.section_beam_panel
+    )
+    assert transverse_layout.itemAt(2).spacerItem() is not None
+    assert workspace.transverse_beam.plot.maximumHeight() == 360
+
+    tab_names = [
+        workspace.tabs.tabText(index)
+        for index in range(workspace.tabs.count())
+    ]
+    assert "Transverse X-Y" not in tab_names
+
+
+def test_magnetic_field_and_ray_diagram_share_the_axial_axis(qtbot):
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+    workspace.resize(1_200, 850)
+    workspace.show()
+    workspace.magnetic_field_toggle.setChecked(True)
+
+    workspace.plot.setXRange(100.0, 260.0, padding=0.0)
+    qtbot.wait(20)
+    assert workspace.magnetic_field.plot.viewRange()[0] == pytest.approx(
+        workspace.plot.viewRange()[0]
+    )
+
+    workspace.magnetic_field.plot.setXRange(700.0, 910.0, padding=0.0)
+    qtbot.wait(20)
+    assert workspace.plot.viewRange()[0] == pytest.approx(
+        workspace.magnetic_field.plot.viewRange()[0]
+    )
+    assert workspace.magnetic_field.plot.getAxis("left").width() == (
+        workspace.plot.getAxis("left").width()
+    )
+    margins = workspace.magnetic_field.layout().contentsMargins()
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (
+        0,
+        0,
+        0,
+        0,
+    )
+
+
 def test_transverse_direction_colour_wheel_is_continuous_and_cyclic(qtbot):
     wheel = InitialDirectionColourWheel()
     qtbot.addWidget(wheel)
@@ -115,7 +226,35 @@ def test_transverse_direction_colour_wheel_is_continuous_and_cyclic(qtbot):
     assert view.angle_colour_wheel.objectName() == (
         "initialDirectionColourWheel"
     )
-    assert "counter-clockwise" in view.angle_colour_note.text()
+    assert not hasattr(view, "angle_colour_note")
+    assert "counter-clockwise" in view.angle_colour_wheel.toolTip()
+    assert "survival state" in view.angle_colour_wheel.toolTip()
+    for axis_name in ("bottom", "left"):
+        axis = view.plot.getAxis(axis_name)
+        assert axis.labelUnits == "µm"
+        assert axis.autoSIPrefix is False
+
+
+def test_transverse_coordinates_are_displayed_in_micrometres(qtbot):
+    view = TransverseBeamView()
+    qtbot.addWidget(view)
+    x_m = np.array((-2.0e-6, 3.0e-6))
+    y_m = np.array((1.0e-6, -4.0e-6))
+    branch = SimpleNamespace(
+        name="incident",
+        z=np.array((0.0, 1.0)),
+        x=np.vstack((x_m, x_m)),
+        y=np.vstack((y_m, y_m)),
+        blocked_z=np.full(2, np.nan),
+    )
+
+    view.display_result(SimpleNamespace(
+        simulation=SimpleNamespace(incident=branch, branches={})
+    ))
+
+    assert view._scatter.data["x"] == pytest.approx((-2.0, 3.0))
+    assert view._scatter.data["y"] == pytest.approx((1.0, -4.0))
+    assert "µm" in view.summary.text()
 
 
 def test_transverse_ray_colours_follow_angle_about_offset_bundle_centroid(
@@ -382,6 +521,22 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
         "cameraLengthTarget",
     }
     assert window.assembly_panel.optical_filter.currentData() == "all"
+    assert window.assembly_panel.optical_filter.findData(
+        "energy_filter"
+    ) == -1
+    assert window.workspace.energy_filter_page.count() == 2
+    assert window.workspace.energy_filter_page.widget(0) is (
+        window.workspace.energy_filter_parameter_tabs
+    )
+    assert window.workspace.energy_filter_page.widget(1) is (
+        window.workspace.energy_filter
+    )
+    assert [
+        window.workspace.energy_filter_parameter_tabs.tabText(index)
+        for index in range(
+            window.workspace.energy_filter_parameter_tabs.count()
+        )
+    ] == ["Parameters"]
     assert not hasattr(window.assembly_panel, "recording")
     assert window.assembly_panel.current_selection().recording == (
         "Energy Filter"
@@ -409,6 +564,34 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
     window.preview_timer.stop()
     assert window.selection.recording == "Energy Filter"
     assert window.state.energy_filter_installed is True
+
+
+def test_energy_filter_page_owns_iliad_navigation_and_eels_controls(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.preview_timer.stop()
+
+    selector = window.workspace.energy_filter_component_selector
+    selector_keys = {
+        selector.itemData(index) for index in range(selector.count())
+    }
+    assert selector_keys == {"energy_filter", *ENERGY_FILTER_INTERNAL_KEYS}
+    assert selector_keys.isdisjoint(_tree_keys(window.assembly_panel.tree))
+
+    window.workspace.component_selected.emit("energy_filter")
+    qtbot.wait(20)
+    window.preview_timer.stop()
+
+    parameters = window.workspace.energy_filter_parameters
+    assert window.workspace.tabs.currentWidget() is (
+        window.workspace.energy_filter_page
+    )
+    assert parameters.energy_filter_box.isHidden() is False
+    assert window.parameter_panel.energy_filter_box.isHidden()
+    requested = not bool(window.state.energy_filter.multi_eels_enabled)
+    parameters.energy_filter_multi_eels.setChecked(requested)
+    window.preview_timer.stop()
+    assert window.state.energy_filter.multi_eels_enabled is requested
 
 
 def test_loading_a_compatible_assembly_reapplies_the_active_modes(qtbot):
@@ -464,6 +647,9 @@ def test_workspace_action_buttons_fit_without_a_window_state_change(qtbot):
     assert len(button_rows) == 1
     assert all(button.sizeHint().height() <= 32 for button in view_buttons)
     assert workspace.findChild(QDoubleSpinBox, "projectionAngleSpin") is None
+    assert workspace.sample_region_toggle.isEnabled() is False
+    assert workspace.sample_region_xrays.isEnabled() is False
+    assert workspace.fit_sample_region.isEnabled() is False
     workspace.resize(1400, 700)
     qtbot.wait(20)
     wide_xz_left = workspace.projection_xz.mapTo(
@@ -476,6 +662,105 @@ def test_workspace_action_buttons_fit_without_a_window_state_change(qtbot):
         assert button.isVisible()
         assert top_left.x() >= 0
         assert bottom_right.x() < workspace.width()
+    sample_controls = (
+        workspace.crossovers,
+        workspace.manual_sample_result_label,
+        workspace.sample_region_toggle,
+        workspace.sample_region_xrays,
+        workspace.fit_sample_region,
+    )
+    control_layout = workspace.view_controls_panel.layout()
+    assert [control_layout.indexOf(control) for control in sample_controls] == (
+        sorted(control_layout.indexOf(control) for control in sample_controls)
+    )
+    control_centres_y = {
+        control.mapTo(workspace, control.rect().center()).y()
+        for control in sample_controls
+    }
+    assert max(control_centres_y) - min(control_centres_y) <= 1
+    assert not hasattr(workspace, "sample_region_secondaries")
+    assert not hasattr(workspace.eds_page, "sample_region_secondaries")
+
+
+def test_sample_region_controls_are_manual_and_do_not_request_column_preview(qtbot):
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+    state = default_state()
+    workspace.eds_page.set_state(state)
+    changed = []
+    workspace.eds_page.parameters_changed.connect(changed.append)
+
+    workspace.eds_page.sample_region_upstream.setValue(
+        workspace.eds_page.sample_region_upstream.value() + 1.0
+    )
+    workspace.eds_page.sample_region_photons.setValue(
+        workspace.eds_page.sample_region_photons.value() + 1
+    )
+
+    assert changed == []
+    assert state.sample.sample_region_upstream_distance_um == pytest.approx(51.0)
+    assert state.sample.sample_region_photon_path_count == 129
+
+
+def test_ray_xray_button_explicitly_requests_uncached_sample_region_result(
+    qtbot, monkeypatch
+):
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+    state = default_state()
+    assert state.sample.specimen_mode == "virtual"
+    assert state.sample.specimen_preset_key == "si_110"
+    workspace.eds_page.set_state(state)
+    workspace.eds_page.display_result(SimpleNamespace(simulation=None))
+    workspace._update_sample_region_control_availability()
+
+    assert workspace.sample_region_xrays.isEnabled()
+    assert workspace._sample_region_result is None
+
+    requested = []
+    sample_result = object()
+
+    def calculate_sample_region():
+        requested.append(True)
+        workspace.eds_page.sample_region_result_ready.emit(sample_result)
+        return True
+
+    monkeypatch.setattr(
+        workspace.eds_page,
+        "calculate_sample_region",
+        calculate_sample_region,
+    )
+
+    # The buttons start checked so that a completed manual result shows all
+    # overlays. The first click used to merely toggle the invisible X-rays
+    # off; it must now be interpreted as the explicit calculation request.
+    workspace.sample_region_xrays.click()
+
+    assert requested == [True]
+    assert workspace._sample_region_result is sample_result
+    assert workspace.sample_region_xrays.isChecked()
+    assert workspace.fit_sample_region.isEnabled()
+
+
+def test_ray_diagram_does_not_draw_secondary_candidate_paths(qtbot):
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+    secondary = SimpleNamespace(
+        kind="secondary_candidate",
+        positions_mm=np.array(((0.0, 0.0, 1.0), (1.0, 0.0, 2.0))),
+    )
+    workspace._sample_region_result = SimpleNamespace(
+        electron_paths=(secondary,),
+        photon_paths=(),
+        metrics={},
+        entry_z_mm=1.0,
+        exit_z_mm=2.0,
+    )
+    workspace._sample_region_path_records = []
+
+    workspace._draw_sample_region_overlay()
+
+    assert workspace._sample_region_path_records == []
 
 
 def test_direct_alignment_gui_gates_modes_and_emits_the_requested_target(qtbot):
@@ -759,6 +1044,33 @@ def test_direct_alignment_and_calculation_progress_are_mutually_guarded(
     assert window.progress.isHidden()
 
 
+def test_high_accuracy_progress_bar_shows_completion_and_current_stage(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.preview_timer.stop()
+
+    window._calculation_started("High accuracy")
+    assert window.progress.minimum() == 0
+    assert window.progress.maximum() == 1
+    assert window.progress.value() == 0
+
+    window._calculation_progress(
+        "High accuracy",
+        3,
+        8,
+        "Tracing the energy filter",
+    )
+
+    assert window.progress.maximum() == 8
+    assert window.progress.value() == 3
+    assert window.progress.text().startswith("37.5%")
+    assert "Tracing the energy filter" in window.progress.text()
+    assert "Tracing the energy filter" in window.status_label.text()
+
+    window._calculation_finished("High accuracy")
+    assert window.progress.isHidden()
+
+
 def test_optical_transfer_view_pairs_image_and_diffraction_captures(qtbot):
     state = default_state()
     catalog = AssemblyCatalog()
@@ -970,31 +1282,35 @@ def test_layout_selection_opens_energy_slit_editor_and_updates_window(qtbot):
     qtbot.wait(20)
     window.preview_timer.stop()
 
-    assert not window.instrument_dock.isHidden()
-    assert panel.component_pages.currentIndex() == 0
-    assert panel.optical_filter.currentData() == "energy_filter"
-    assert panel.tree.current_key() == "energy_filter_slit"
-    assert window.parameter_panel.title.text() == (
+    parameters = window.workspace.energy_filter_parameters
+    assert window.instrument_dock.isHidden()
+    assert window.workspace.tabs.currentWidget() is (
+        window.workspace.energy_filter_page
+    )
+    assert window.workspace.energy_filter_component_selector.currentData() == (
+        "energy_filter_slit"
+    )
+    assert parameters.title.text() == (
         "Iliad XO Crossover / Optional EFTEM Energy-slit Assembly"
     )
-    assert window.parameter_panel._runtime_target.obj is (
+    assert parameters._runtime_target.obj is (
         window.state.energy_filter.energy_slit
     )
-    assert window.parameter_panel._manifest_target.part_key == (
+    assert parameters._manifest_target.part_key == (
         "energy_filter_slit"
     )
     assert {
-        field.label for field in window.parameter_panel._manifest_fields
+        field.label for field in parameters._manifest_fields
     } >= {"path_center_mm", "clear_height_mm", "maximum_gap_mm"}
-    assert window.parameter_panel.tabs.currentIndex() == 0
-    assert set(window.parameter_panel._quick_widgets) == {
+    assert parameters.tabs.currentIndex() == 0
+    assert set(parameters._quick_widgets) == {
         "inserted",
         "requested_centre_loss_ev",
         "requested_width_ev",
     }
     runtime_names = {
-        window.parameter_panel.runtime_table.item(row, 0).text()
-        for row in range(window.parameter_panel.runtime_table.rowCount())
+        parameters.runtime_table.item(row, 0).text()
+        for row in range(parameters.runtime_table.rowCount())
     }
     assert runtime_names == {
         "inserted",
@@ -1004,7 +1320,7 @@ def test_layout_selection_opens_energy_slit_editor_and_updates_window(qtbot):
 
     slit = window.state.energy_filter.energy_slit
     requested_width = float(slit.requested_width_ev) + 5.0
-    window.parameter_panel._quick_widgets[
+    parameters._quick_widgets[
         "requested_width_ev"
     ].setValue(requested_width)
     window.preview_timer.stop()
@@ -1016,7 +1332,7 @@ def test_layout_selection_opens_energy_slit_editor_and_updates_window(qtbot):
     )
     assert window.status_label.text() == (
         "Selected Iliad XO Crossover / Optional EFTEM Energy-slit "
-        "Assembly from layout"
+        "Assembly in Energy Filter Parameters"
     )
 
 
@@ -1031,17 +1347,17 @@ def test_layout_selection_opens_unmodelled_iliad_component_toml(qtbot):
     qtbot.wait(20)
     window.preview_timer.stop()
 
-    assert window.assembly_panel.component_pages.currentIndex() == 0
-    assert window.assembly_panel.optical_filter.currentData() == (
-        "energy_filter"
+    parameters = window.workspace.energy_filter_parameters
+    assert window.workspace.tabs.currentWidget() is (
+        window.workspace.energy_filter_page
     )
-    assert window.assembly_panel.tree.current_key() == key
-    assert window.parameter_panel._runtime_target is None
-    assert window.parameter_panel._manifest_target.part_key == key
-    assert window.parameter_panel.tabs.currentIndex() == 1
+    assert window.workspace.energy_filter_component_selector.currentData() == key
+    assert parameters._runtime_target is None
+    assert parameters._manifest_target.part_key == key
+    assert parameters.tabs.currentIndex() == 1
     fields = {
         field.label: field.value
-        for field in window.parameter_panel._manifest_fields
+        for field in parameters._manifest_fields
     }
     assert fields["electrode_count"] == 4
     assert fields["mechanical_only"] is True
@@ -1164,7 +1480,7 @@ def test_sample_parameters_are_owned_by_central_workspace(qtbot):
         "Sample parameters opened in the central Sample workspace"
     )
     assert page.inserted.isChecked()
-    assert page.mode.currentData() == "atomic"
+    assert page.mode.currentData() == "virtual"
     assert page.multislice_enabled.isChecked()
     assert page.atomistic_enabled.isChecked()
     assert not page.frozen_enabled.isChecked()
@@ -1521,16 +1837,47 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert len(window.workspace.sample_marker_items) == 2
     assert window.workspace.sample_marker_items[0].isVisible()
     window.workspace.component_centres.setChecked(True)
-    assert window.workspace.tabs.count() == 10
-    assert window.workspace.tabs.tabText(1) == "Sample"
-    assert "Energy Filter" in {
+    assert [
         window.workspace.tabs.tabText(index)
         for index in range(window.workspace.tabs.count())
-    }
-    assert "STEM" in {
-        window.workspace.tabs.tabText(index)
-        for index in range(window.workspace.tabs.count())
-    }
+    ] == [
+        "Ray Diagram",
+        "Physical Layout",
+        "Energy Filter",
+        "Sample",
+        "EDS",
+        "Scanning Image",
+        "Illuminating Image",
+        "Optical Transfer",
+    ]
+    assert window.workspace.scanning_page.count() == 2
+    assert window.workspace.scanning_page.widget(0) is (
+        window.workspace.scanning_controls_tabs
+    )
+    assert window.workspace.scanning_page.widget(1) is (
+        window.workspace.scanning_results_tabs
+    )
+    assert [
+        window.workspace.scanning_controls_tabs.tabText(index)
+        for index in range(window.workspace.scanning_controls_tabs.count())
+    ] == ["Scanning Parameters", "Probe Aberrations"]
+    assert [
+        window.workspace.scanning_results_tabs.tabText(index)
+        for index in range(window.workspace.scanning_results_tabs.count())
+    ] == ["Geometry", "Images"]
+    assert window.workspace.scanning_controls_tabs.widget(0) is (
+        window.workspace.scan_control.parameters_page
+    )
+    assert window.workspace.scanning_results_tabs is (
+        window.workspace.scan_control.result_tabs
+    )
+    assert [
+        window.workspace.illuminating_page.tabText(index)
+        for index in range(window.workspace.illuminating_page.count())
+    ] == ["Illuminating Image", "Image Aberrations"]
+    assert window.workspace.magnetic_field.isHidden()
+    window.workspace.magnetic_field_toggle.setChecked(True)
+    assert not window.workspace.magnetic_field.isHidden()
     assert len(window.workspace.physical_layout._records) == sum(
         not bool(part.data.get("branch_path_only", False))
         for part in assembly.parts
@@ -1856,6 +2203,9 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     x_min, x_max = window.workspace.plot.getViewBox().viewRange()[0]
     assert x_min == pytest.approx(objective_stop - 10.0)
     assert x_max == pytest.approx(objective_stop + 10.0)
+    assert window.workspace.magnetic_field.plot.viewRange()[0] == (
+        pytest.approx([x_min, x_max])
+    )
     zoomed_label_size = (
         window.workspace.sample_marker_items[0]
         .label.textItem.font()

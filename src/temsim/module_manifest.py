@@ -22,7 +22,6 @@ from temsim.mechanical_profiles import (
     MAGNETIC_EXCITATION_COIL,
     MAGNETIC_LENS_ASSEMBLY,
     MAGNETIC_LENS_HOUSING,
-    MAGNETIC_LENS_MECHANICAL_PROFILES,
     MAGNETIC_LENS_YOKE,
     MAGNETIC_POLE_PIECE,
     POST_PROJECTOR_DETECTOR_CHAMBER,
@@ -3523,14 +3522,6 @@ def _atomic_write_text(path, text):
         except FileNotFoundError:
             pass
         raise
-
-
-def snapshot_manifest_texts(module_paths, root=None):
-    root = Path(root) if root is not None else MODULE_ROOT
-    return {
-        str(module_path): (root / module_path).read_text(encoding="utf-8")
-        for module_path in module_paths
-    }
 
 
 def restore_manifest_texts(snapshot, root=None):

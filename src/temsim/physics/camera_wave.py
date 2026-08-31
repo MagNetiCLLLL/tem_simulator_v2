@@ -141,30 +141,6 @@ def _sample_complex_grid(
     return (real + 1j * imaginary).reshape(query_x.shape)
 
 
-def _geometric_image_wave(
-    wave: np.ndarray,
-    x_m: np.ndarray,
-    y_m: np.ndarray,
-    camera_x_m: np.ndarray,
-    camera_y_m: np.ndarray,
-    a_block: np.ndarray,
-    offset_m: np.ndarray,
-) -> np.ndarray:
-    """Evaluate the B=0 LCT (coherent magnified image) on camera pixels."""
-
-    determinant = float(np.linalg.det(a_block))
-    if abs(determinant) <= 1.0e-30:
-        raise ValueError("Camera image A block is singular.")
-    inverse_a = np.linalg.inv(a_block)
-    uu, vv = np.meshgrid(camera_x_m, camera_y_m, indexing="xy")
-    centred = np.stack((uu - offset_m[0], vv - offset_m[1]), axis=0)
-    source = np.einsum("ij,jyx->iyx", inverse_a, centred)
-    sampled = _sample_complex_grid(
-        wave, x_m, y_m, source[0], source[1]
-    )
-    return sampled / math.sqrt(abs(determinant))
-
-
 def _geometric_image_intensity(
     wave: np.ndarray,
     x_m: np.ndarray,

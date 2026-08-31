@@ -167,6 +167,11 @@ def test_real_sample_never_creates_user_invented_diffraction_branches():
     state.acceleration_backend = "CPU"
     state.sample.inserted = True
     state.sample.specimen_mode = "atomic"
+    state.sample.cif_path = "explicit-real-sample.cif"
+    state.sample.real_plasmon_mean_free_path_nm = 168.0
+    state.sample.real_ionisation_mean_free_path_nm = 1059.1304347826087
+    state.sample.real_plasmon_energy_ev = 16.7
+    state.sample.real_ionisation_energy_ev = 99.2
     state.sample.diffraction_enabled = True
     # These persisted legacy values must be dormant in Real sample mode.
     state.sample.g_inv_nm = 1.0e5

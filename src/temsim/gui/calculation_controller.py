@@ -119,6 +119,7 @@ def format_memory_size(byte_count: int) -> str:
 class WorkerSignals(QObject):
     result = Signal(int, str, object, float)
     error = Signal(int, str, str)
+    progress = Signal(int, str, int, int, str)
     finished = Signal(int, str)
 
 
@@ -164,7 +165,10 @@ class CalculationWorker(QRunnable):
                     aperture_stops=aperture_stop_records(self.state),
                 )
             else:
-                result = calculate(self.state)
+                result = calculate(
+                    self.state,
+                    progress_callback=self._report_progress,
+                )
             self.signals.result.emit(
                 self.generation,
                 self.quality,
@@ -176,11 +180,23 @@ class CalculationWorker(QRunnable):
         finally:
             self.signals.finished.emit(self.generation, self.quality)
 
+    def _report_progress(
+        self, completed: int, total: int, stage: str
+    ) -> None:
+        self.signals.progress.emit(
+            self.generation,
+            self.quality,
+            int(completed),
+            int(total),
+            str(stage),
+        )
+
 
 class CalculationController(QObject):
     started = Signal(str)
     result_ready = Signal(str, object, float)
     failed = Signal(str, str)
+    progress_changed = Signal(str, int, int, str)
     finished = Signal(str)
 
     def __init__(self, parent=None) -> None:
@@ -244,6 +260,7 @@ class CalculationController(QObject):
         worker = CalculationWorker(generation, quality, snapshot)
         worker.signals.result.connect(self._accept_result)
         worker.signals.error.connect(self._accept_error)
+        worker.signals.progress.connect(self._accept_progress)
         worker.signals.finished.connect(self._accept_finished)
         self.started.emit(quality)
         self.pool.start(worker)
@@ -261,6 +278,22 @@ class CalculationController(QObject):
     def _accept_error(self, generation, quality, message) -> None:
         if generation == self._generation:
             self.failed.emit(quality, message)
+
+    def _accept_progress(
+        self,
+        generation: int,
+        quality: str,
+        completed: int,
+        total: int,
+        stage: str,
+    ) -> None:
+        if generation == self._generation:
+            self.progress_changed.emit(
+                quality,
+                int(completed),
+                int(total),
+                str(stage),
+            )
 
     def _accept_finished(self, generation, quality) -> None:
         if generation == self._generation:

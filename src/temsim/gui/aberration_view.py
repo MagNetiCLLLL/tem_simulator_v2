@@ -23,14 +23,20 @@ from temsim.optics.aberrations import (
 class AberrationComparisonView(QWidget):
     """Display effective coefficients before and after active correction."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, *, fixed_system: str | None = None) -> None:
         super().__init__(parent)
+        if fixed_system not in {None, "probe", "image"}:
+            raise ValueError("fixed_system must be probe, image or None")
+        self.fixed_system = fixed_system
         self._state = None
         self._stale = False
         self.system = QComboBox()
         self.system.setObjectName("aberrationSystemSelector")
         self.system.addItem("Probe / specimen", "probe")
         self.system.addItem("Objective / image", "image")
+        if fixed_system is not None:
+            self.system.setCurrentIndex(self.system.findData(fixed_system))
+            self.system.setEnabled(False)
         self.system.currentIndexChanged.connect(self._refresh)
         self.summary = QLabel(
             "Run a calculation to evaluate the active round-lens and "
@@ -94,7 +100,7 @@ class AberrationComparisonView(QWidget):
         try:
             before, after, diagnostics = effective_aberration_comparison(
                 self._state,
-                str(self.system.currentData()),
+                str(self.fixed_system or self.system.currentData()),
             )
         except Exception as exc:
             self.summary.setText(f"Aberration comparison unavailable: {exc}")

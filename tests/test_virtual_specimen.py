@@ -108,6 +108,7 @@ def test_ray_simulation_uses_virtual_channels_in_both_transverse_axes():
 def test_specimen_mode_and_cif_path_round_trip():
     state = default_state()
     state.sample.specimen_mode = "atomic"
+    state.sample.specimen_preset_key = "si_110"
     state.sample.cif_path = "example.cif"
     state.sample.specimen_rotation_x_deg = 12.5
     state.sample.specimen_rotation_y_deg = -3.25
@@ -116,12 +117,59 @@ def test_specimen_mode_and_cif_path_round_trip():
     restored = type(state).from_dict(state.to_dict())
 
     assert restored.sample.specimen_mode == "atomic"
+    assert not hasattr(restored.sample, "atomic_structure_source")
+    assert restored.sample.specimen_preset_key == "si_110"
     assert restored.sample.cif_path == "example.cif"
     assert (
         restored.sample.specimen_rotation_x_deg,
         restored.sample.specimen_rotation_y_deg,
         restored.sample.specimen_rotation_z_deg,
     ) == pytest.approx((12.5, -3.25, 91.0))
+
+
+def test_schema_69_cif_state_migrates_to_real_mode():
+    state = default_state()
+    payload = state.to_dict()
+    payload["schema_version"] = 69
+    payload["sample"]["specimen_mode"] = "atomic"
+    payload["sample"]["specimen_preset_key"] = "si_110"
+    payload["sample"]["cif_path"] = "legacy-example.cif"
+
+    restored = type(state).from_dict(payload)
+
+    assert restored.schema_version == 73
+    assert restored.sample.specimen_mode == "atomic"
+    assert restored.sample.specimen_preset_key == "si_110"
+    assert restored.sample.cif_path == "legacy-example.cif"
+
+
+def test_schema_70_real_preset_state_migrates_to_virtual_reference_mode():
+    state = default_state()
+    payload = state.to_dict()
+    payload["schema_version"] = 70
+    payload["sample"]["specimen_mode"] = "atomic"
+    payload["sample"]["atomic_structure_source"] = "preset"
+    payload["sample"]["specimen_preset_key"] = "au_001"
+    payload["sample"]["cif_path"] = ""
+
+    restored = type(state).from_dict(payload)
+
+    assert restored.schema_version == 73
+    assert restored.sample.specimen_mode == "virtual"
+    assert restored.sample.specimen_preset_key == "au_001"
+    assert not hasattr(restored.sample, "atomic_structure_source")
+
+
+def test_pre_73_state_without_shape_retains_rectangular_envelope():
+    state = default_state()
+    payload = state.to_dict()
+    payload["schema_version"] = 72
+    payload["sample"].pop("envelope_shape")
+
+    restored = type(state).from_dict(payload)
+
+    assert restored.schema_version == 73
+    assert restored.sample.envelope_shape == "rectangle"
 
 
 def test_cif_import_builds_exact_finite_rotated_specimen_box(tmp_path):

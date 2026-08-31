@@ -132,6 +132,37 @@ def _box_lines(centre, size):
     return np.asarray(points, dtype=float)
 
 
+def _disk_lines(centre, size, *, samples=96):
+    """Return line pairs for a finite elliptical disk/cylinder envelope."""
+
+    cx, cy, cz = centre
+    radius_x = 0.5 * float(size[0])
+    radius_y = 0.5 * float(size[1])
+    half_z = 0.5 * float(size[2])
+    phase = np.linspace(0.0, 2.0 * math.pi, int(samples) + 1)
+    rings = []
+    for z in (cz - half_z, cz + half_z):
+        ring = np.column_stack(
+            (
+                cx + radius_x * np.cos(phase),
+                cy + radius_y * np.sin(phase),
+                np.full(phase.size, z),
+            )
+        )
+        rings.extend(np.column_stack((ring[:-1], ring[1:])).reshape(-1, 3))
+    for angle in np.linspace(0.0, 2.0 * math.pi, 8, endpoint=False):
+        x = cx + radius_x * math.cos(float(angle))
+        y = cy + radius_y * math.sin(float(angle))
+        rings.extend(((x, y, cz - half_z), (x, y, cz + half_z)))
+    return np.asarray(rings, dtype=float)
+
+
+def _sample_envelope_lines(snapshot):
+    if snapshot.envelope_shape == "disk":
+        return _disk_lines((0.0, 0.0, 0.0), snapshot.size_nm)
+    return _box_lines((0.0, 0.0, 0.0), snapshot.size_nm)
+
+
 def _cell_lines(vectors):
     vectors = np.asarray(vectors, dtype=float)
     corners = np.asarray(
@@ -438,7 +469,7 @@ class SampleSceneView(QWidget):
             display_centre = np.asarray((cx, cy, cz), dtype=float)
         scale = max(float(np.max(display_size)), 1.0e-3)
         if max(sx, sy, sz) <= 16.0 * scale:
-            box = _box_lines((0.0, 0.0, 0.0), (sx, sy, sz))
+            box = _sample_envelope_lines(snapshot)
             box = box @ np.asarray(target_rotation, dtype=float).T
             box += np.asarray((cx, cy, cz))
             self._add_gl_line(
@@ -540,7 +571,7 @@ class SampleSceneView(QWidget):
             display_centre = np.asarray((cx, cy, 0.0), dtype=float)
         scale = max(float(np.max(display_size[:2])), 1.0e-3)
         if max(sx, sy) <= 16.0 * scale:
-            box = _box_lines((0.0, 0.0, 0.0), snapshot.size_nm)
+            box = _sample_envelope_lines(snapshot)
             box = box @ np.asarray(target_rotation, dtype=float).T
             self.view.plot(
                 box[:, 0] + cx,
@@ -693,9 +724,15 @@ class SamplePage(QWidget):
         self.mode.setObjectName("sampleModeControl")
         self.mode.addItem("Real sample (CIF / crystal)", "atomic")
         self.mode.addItem("Virtual sample", "virtual")
+        self.envelope_shape = QComboBox()
+        self.envelope_shape.setObjectName("sampleEnvelopeShapeControl")
+        self.envelope_shape.addItem("Circular disk", "disk")
+        self.envelope_shape.addItem("Rectangle", "rectangle")
         identity_form.addRow("Holder", self.inserted)
         identity_form.addRow("Mode", self.mode)
+        identity_form.addRow("Envelope", self.envelope_shape)
         self.scalar_controls = {}
+        self.scalar_labels = {}
         for field, label, suffix, minimum, maximum in (
             ("size_x_nm", "Size X", " nm", 1.0e-6, 1.0e9),
             ("size_y_nm", "Size Y", " nm", 1.0e-6, 1.0e9),
@@ -714,18 +751,27 @@ class SamplePage(QWidget):
             control.valueChanged.connect(
                 lambda value, name=field: self._set_scalar(name, value)
             )
-            identity_form.addRow(label, control)
+            label_widget = QLabel(label)
+            identity_form.addRow(label_widget, control)
             self.scalar_controls[field] = control
+            self.scalar_labels[field] = label_widget
         controls_layout.addWidget(identity)
 
-        real = QGroupBox("Real sample structure and orientation")
+        real = QGroupBox("Real sample — imported CIF / MCIF")
         real.setObjectName("realSampleControls")
         real_layout = QVBoxLayout(real)
         source_form = QFormLayout()
         source_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        real_note = QLabel(
+            "Real sample mode accepts only a user-imported crystallographic "
+            "structure. Simulator TOML references belong to Virtual sample."
+        )
+        real_note.setWordWrap(True)
+        real_note.setObjectName("sampleRealSourceNote")
+        real_layout.addWidget(real_note)
         self.preset = QComboBox()
         self.preset.setObjectName("samplePresetControl")
-        self.preset.addItem("Default TOML preset", "")
+        self.preset.addItem("Default TOML reference", "")
         for key, preset_name in available_specimen_presets():
             self.preset.addItem(preset_name, key)
         path_row = QHBoxLayout()
@@ -734,13 +780,14 @@ class SamplePage(QWidget):
         browse = QPushButton("Import CIF...")
         browse.setObjectName("sampleImportCif")
         browse.clicked.connect(self._browse_cif)
+        self.cif_browse = browse
         self.cif_path.editingFinished.connect(self._cif_edited)
         path_row.addWidget(self.cif_path, 1)
         path_row.addWidget(browse)
         path_widget = QWidget()
         path_widget.setLayout(path_row)
-        source_form.addRow("TOML preset", self.preset)
-        source_form.addRow("Custom CIF / MCIF", path_widget)
+        self.cif_source_widget = path_widget
+        source_form.addRow("Imported CIF / MCIF", path_widget)
         real_layout.addLayout(source_form)
 
         axes_form = QFormLayout()
@@ -763,9 +810,10 @@ class SamplePage(QWidget):
         )
         axes_form.addRow("Structure display limit", self.structure_atom_limit)
         real_layout.addLayout(axes_form)
-        apply_zone = QPushButton("Align zone axis")
+        apply_zone = QPushButton("Align imported CIF zone axis")
         apply_zone.setObjectName("sampleApplyZoneAxis")
         apply_zone.clicked.connect(self._apply_zone_axis)
+        self.apply_zone = apply_zone
         real_layout.addWidget(apply_zone)
 
         tilt_row = QHBoxLayout()
@@ -987,13 +1035,27 @@ class SamplePage(QWidget):
         wave_form.addRow("Tail areal density", self.tail_density)
         wave_form.addRow("Tail screening angle", self.tail_screening)
         wave_form.addRow("Tail maximum angle", self.tail_maximum)
-        real_layout.addWidget(wave)
         controls_layout.addWidget(real)
         self.real_group = real
 
-        virtual = QGroupBox("Virtual interaction channels (absolute probabilities)")
+        virtual = QGroupBox(
+            "Virtual reference sample and idealised interactions"
+        )
         virtual.setObjectName("virtualSampleControls")
         virtual_layout = QVBoxLayout(virtual)
+        reference_form = QFormLayout()
+        reference_form.setRowWrapPolicy(
+            QFormLayout.RowWrapPolicy.WrapLongRows
+        )
+        reference_form.addRow("Reference sample (TOML)", self.preset)
+        virtual_layout.addLayout(reference_form)
+        reference_note = QLabel(
+            "Ideal simulator reference samples such as Silicon [110] and "
+            "Gold [001] are TOML-defined. They are not imported real samples."
+        )
+        reference_note.setWordWrap(True)
+        reference_note.setObjectName("sampleVirtualReferenceNote")
+        virtual_layout.addWidget(reference_note)
         self.diffraction_enabled = QCheckBox(
             "Plot enabled virtual interaction channels in Ray Diagram"
         )
@@ -1051,6 +1113,8 @@ class SamplePage(QWidget):
         virtual_layout.addWidget(self.virtual_probe_convolution)
         controls_layout.addWidget(virtual)
         self.virtual_group = virtual
+        controls_layout.addWidget(wave)
+        self.wave_group = wave
 
         eds = QGroupBox("EDS signal and specimen support")
         eds.setObjectName("sampleEdsControls")
@@ -1145,18 +1209,11 @@ class SamplePage(QWidget):
         self.eds_poisson_seed = self._integer_control(
             "sampleEdsPoissonSeed", 0, 2_147_483_647
         )
-        self.eds_elastic_trajectory_count = self._integer_control(
-            "sampleEdsElasticTrajectoryCount", 1, 100_000
-        )
         self.eds_elastic_seed = self._integer_control(
             "sampleEdsElasticSeed", 0, 2_147_483_647
         )
         self.eds_elastic_max_events = self._integer_control(
             "sampleEdsElasticMaximumEvents", 1, 1_000_000
-        )
-        self.eds_elastic_trajectory_count.setToolTip(
-            "Monte Carlo histories used for the path expectation. Up to 32 "
-            "representative histories are retained for the plot."
         )
         self.eds_elastic_max_events.setToolTip(
             "Safety guard only. A nonzero event-limit fraction is reported "
@@ -1200,9 +1257,6 @@ class SamplePage(QWidget):
         )
         eds_form.addRow("Acceptance", self.eds_solid_angle)
         eds_form.addRow("Electron paths", self.eds_transport)
-        eds_form.addRow(
-            "Elastic trajectories", self.eds_elastic_trajectory_count
-        )
         eds_form.addRow("Elastic seed", self.eds_elastic_seed)
         eds_form.addRow(
             "Maximum events / trajectory", self.eds_elastic_max_events
@@ -1230,8 +1284,11 @@ class SamplePage(QWidget):
         eds_form.addRow(self.eds_acquire)
         eds_form.addRow("Result", self.eds_summary)
         eds_form.addRow(self.eds_lines)
-        controls_layout.addWidget(eds)
         self.eds_group = eds
+        # EDS has a dedicated top-level page. Keep this legacy construction
+        # temporarily for saved UI-object compatibility, but never display it
+        # inside the central Sample editor.
+        self.eds_group.hide()
 
         controls_layout.addStretch(1)
 
@@ -1274,7 +1331,7 @@ class SamplePage(QWidget):
             "are elastic collisions. Green: forward; orange: reverse; blue: "
             "lateral; red/purple: event/path safety limit."
         )
-        scene_layout.addWidget(self.eds_trajectory_plot)
+        self.eds_trajectory_plot.hide()
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.controls_scroll)
         splitter.addWidget(scene_page)
@@ -1288,6 +1345,9 @@ class SamplePage(QWidget):
 
         self.inserted.toggled.connect(lambda value: self._set_bool("inserted", value))
         self.mode.currentIndexChanged.connect(self._mode_changed)
+        self.envelope_shape.currentIndexChanged.connect(
+            self._envelope_shape_changed
+        )
         self.preset.currentIndexChanged.connect(self._preset_changed)
         self.diffraction_enabled.toggled.connect(
             lambda value: self._set_bool("diffraction_enabled", value)
@@ -1364,11 +1424,6 @@ class SamplePage(QWidget):
         self.eds_poisson_seed.valueChanged.connect(
             lambda value: self._set_integer("eds_poisson_seed", value)
         )
-        self.eds_elastic_trajectory_count.valueChanged.connect(
-            lambda value: self._set_integer(
-                "eds_elastic_trajectory_count", value
-            )
-        )
         self.eds_elastic_seed.valueChanged.connect(
             lambda value: self._set_integer("eds_elastic_seed", value)
         )
@@ -1426,6 +1481,10 @@ class SamplePage(QWidget):
             self.inserted.setChecked(bool(sample.inserted))
             index = self.mode.findData(str(sample.specimen_mode).lower())
             self.mode.setCurrentIndex(max(index, 0))
+            shape_index = self.envelope_shape.findData(
+                str(getattr(sample, "envelope_shape", "rectangle")).lower()
+            )
+            self.envelope_shape.setCurrentIndex(max(shape_index, 0))
             for field, control in self.scalar_controls.items():
                 control.setValue(float(getattr(sample, field)))
             preset_index = self.preset.findData(
@@ -1477,9 +1536,6 @@ class SamplePage(QWidget):
             self.eds_poisson_seed.setValue(
                 int(sample.eds_poisson_seed)
             )
-            self.eds_elastic_trajectory_count.setValue(
-                int(sample.eds_elastic_trajectory_count)
-            )
             self.eds_elastic_seed.setValue(int(sample.eds_elastic_seed))
             self.eds_elastic_max_events.setValue(
                 int(sample.eds_elastic_max_events)
@@ -1514,6 +1570,7 @@ class SamplePage(QWidget):
             self._draft_quaternion = sample_orientation_quaternion(sample)
             self.apply_draft.setEnabled(False)
             self._update_mode_controls()
+            self._update_envelope_controls()
             self._update_wave_controls()
             self._update_eds_controls()
             self._refresh_inelastic_summary()
@@ -1528,7 +1585,42 @@ class SamplePage(QWidget):
             self.error.emit(f"{name} must be positive.")
             return
         setattr(self._state.sample, name, float(value))
+        if (
+            name == "size_x_nm"
+            and str(getattr(self._state.sample, "envelope_shape", ""))
+            == "disk"
+        ):
+            self._state.sample.size_y_nm = float(value)
+            self._updating = True
+            try:
+                self.scalar_controls["size_y_nm"].setValue(float(value))
+            finally:
+                self._updating = False
         self._changed(f"sample.{name}")
+
+    def _envelope_shape_changed(self):
+        if self._updating or self._state is None:
+            return
+        shape = str(self.envelope_shape.currentData())
+        self._state.sample.envelope_shape = shape
+        if shape == "disk":
+            diameter = float(self._state.sample.size_x_nm)
+            self._state.sample.size_y_nm = diameter
+            self._updating = True
+            try:
+                self.scalar_controls["size_y_nm"].setValue(diameter)
+            finally:
+                self._updating = False
+        self._update_envelope_controls()
+        self._changed("sample.envelope_shape")
+
+    def _update_envelope_controls(self):
+        disk = str(self.envelope_shape.currentData()) == "disk"
+        self.scalar_labels["size_x_nm"].setText(
+            "Diameter" if disk else "Size X"
+        )
+        self.scalar_labels["size_y_nm"].setVisible(not disk)
+        self.scalar_controls["size_y_nm"].setVisible(not disk)
 
     def _set_bool(self, name, value):
         if self._updating or self._state is None:
@@ -1577,6 +1669,7 @@ class SamplePage(QWidget):
         self._state.sample.specimen_preset_key = str(
             self.preset.currentData() or ""
         )
+        self._update_wave_controls()
         self._changed("sample.specimen_preset_key")
 
     def _element_sigma_edited(self):
@@ -1614,6 +1707,9 @@ class SamplePage(QWidget):
         atomic = str(self.mode.currentData()) == "atomic"
         self.real_group.setVisible(atomic)
         self.virtual_group.setVisible(not atomic)
+        self.apply_zone.setEnabled(
+            atomic and bool(self.cif_path.text().strip())
+        )
 
     def _update_wave_controls(self):
         atomic = str(self.mode.currentData()) == "atomic"
@@ -1622,22 +1718,27 @@ class SamplePage(QWidget):
             if self._state is not None
             else "TEM"
         ).upper()
-        tem_available = atomic and illumination == "TEM"
-        stem_available = atomic and illumination == "STEM"
+        structure_available = bool(
+            self.preset.currentIndex() >= 0
+            if not atomic
+            else self.cif_path.text().strip()
+        )
+        tem_available = structure_available and illumination == "TEM"
+        stem_available = structure_available and illumination == "STEM"
         self.tem_wave_enabled.setEnabled(tem_available)
         self.stem_wave_enabled.setEnabled(stem_available)
         self.tem_wave_enabled.setToolTip(
             "Calculate the local specimen-to-Objective image and exit-wave "
             "diffraction diagnostic."
             if tem_available
-            else "TEM wave imaging requires Real sample mode and Microprobe "
-            "(TEM) illumination."
+            else "TEM wave imaging requires an imported Real CIF or a Virtual "
+            "TOML reference, plus Microprobe (TEM) illumination."
         )
         self.stem_wave_enabled.setToolTip(
             "Calculate raster detector images with the STEM wave model."
             if stem_available
-            else "STEM wave detector imaging requires Real sample mode and "
-            "Nanoprobe (STEM) illumination."
+            else "STEM wave detector imaging requires an imported Real CIF or "
+            "a Virtual TOML reference, plus Nanoprobe (STEM) illumination."
         )
 
         inelastic_enabled = (
@@ -1647,10 +1748,12 @@ class SamplePage(QWidget):
         for control in self.inelastic_scalar_controls.values():
             control.setEnabled(inelastic_enabled)
 
-        multislice = atomic and self.multislice_enabled.isChecked()
+        multislice = (
+            structure_available and self.multislice_enabled.isChecked()
+        )
         atomistic = multislice and self.atomistic_enabled.isChecked()
         frozen = atomistic and self.frozen_enabled.isChecked()
-        self.multislice_enabled.setEnabled(atomic)
+        self.multislice_enabled.setEnabled(structure_available)
         self.atomistic_enabled.setEnabled(multislice)
         self.frozen_enabled.setEnabled(atomistic)
         for control in (
@@ -1687,7 +1790,6 @@ class SamplePage(QWidget):
             enabled and self.eds_poisson_enabled.isChecked()
         )
         for control in (
-            self.eds_elastic_trajectory_count,
             self.eds_elastic_seed,
             self.eds_elastic_max_events,
         ):
@@ -1716,7 +1818,11 @@ class SamplePage(QWidget):
                 )
             part = assembly.part(EDS_DETECTOR_SYSTEM)
             geometry = EDSDetectorArrayGeometry.from_part_data(part.data)
-            spectrum = simulate_eds_point(self._state, geometry)
+            spectrum = simulate_eds_point(
+                self._state,
+                geometry,
+                simulation=getattr(self._result, "simulation", None),
+            )
         except Exception as exc:
             self.error.emit(str(exc))
             self.eds_summary.setText(f"EDS calculation failed: {exc}")
@@ -1898,7 +2004,10 @@ class SamplePage(QWidget):
     def _cif_edited(self):
         if self._updating or self._state is None:
             return
-        self._state.sample.cif_path = self.cif_path.text().strip()
+        path = self.cif_path.text().strip()
+        self._state.sample.cif_path = path
+        self._update_mode_controls()
+        self._update_wave_controls()
         self._changed("sample.cif_path")
 
     def _apply_zone_axis(self):

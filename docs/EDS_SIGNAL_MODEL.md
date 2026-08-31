@@ -9,11 +9,32 @@ The simulator names this subsystem **EDS**. The currently installed six-segment 
 - `temsim.detector.eds_atomic` evaluates the Bote–Salvat K, L1–L3 and M1–M5 electron-impact ionisation fits for Z=1–99.
 - `temsim.detector.eds_signal` accepts weighted electron track segments in any material. A segment can explicitly identify a primary or elastically scattered history; the vacancy and photon calculation is identical.
 - `temsim.specimen.elastic_transport` generates event-by-event three-dimensional elastic trajectories through the finite rectangular specimen and the downstream support. It resolves square-mesh openings and vertical sidewalls, crossed bars, the annular rim, the circular outside boundary and all upstream/downstream faces.
-- The explicit point calculation defaults to 32 seeded elastic trajectories. The GUI exposes trajectory count, seed and maximum events; **Straight primary reference** remains available as a deterministic diagnostic. Up to 32 complete representative trajectories and collision points are retained for the X-Z display, while all trajectories contribute to the EDS path average.
+- The explicit point calculation takes its history count directly from the upstream column result: every weighted ray surviving to the physical sample plane is transported once. There is no independent EDS trajectory-count input. Sample-plane X/Y, both incident slopes (including calculated rotation), source energy offset and source-current weight are retained. The point coordinate translates only the weighted beam centroid; it does not replace the calculated phase-space spread.
+- **Straight primary reference** remains available as a deterministic diagnostic. Up to 256 complete histories and collision points are retained for two orthogonal U-Z/V-Z displays, while every reaching ray contributes to the EDS calculation. Their transverse angle is synchronized bidirectionally with Ray Diagram and only reprojects stored X/Y coordinates; it never reruns transport.
 - Direct-vacancy fluorescence yield, radiative transition probability, line energy, atomic weight, elemental density and photon mass attenuation come from xraylib 4.3.0.
 - The installed angular acceptance supplies the collection fraction. The user can select the holder-conditioned or unshadowed aggregate solid angle.
 - The detector response currently supports an explicit ideal scalar efficiency, optional Gaussian energy broadening and reproducible Poisson counting.
 - Point EDS is run only by the **Calculate point EDS** button. Changing one support or mechanical component does not automatically calculate a spectrum or lens preset.
+- **Run sample-region high accuracy** is a second, manual calculation. Its
+  adjustable entry plane samples the cached upstream column phase space; the
+  finite material kernel runs about the sample; forward terminal electrons are
+  reinjected at the sample reference and propagated through the actual
+  objective/downstream lenses, apertures, recording planes and column wall. The
+  configured exit plane is saved as an explicit handoff diagnostic. Editing a
+  relevant parameter invalidates this cached result instead of silently
+  recalculating it.
+- The bounded result draws stored material electron paths, backscatter and the
+  downstream continuation in the main Ray Diagram. Rutherford is not presented
+  as a separate particle species: it is the current approximation used for the
+  elastic events. Channeling remains owned by the coherent wave/multislice
+  result and is never double-counted as an additional stochastic branch.
+- Representative characteristic photons are sampled uniformly on the sphere
+  (`cos(theta)` uniform in `[-1,1]`, azimuth uniform in `[0,2 pi)`) and travel in
+  straight lines. Public data do not provide a sensor face or distance, so the
+  displayed endpoint is schematic. Detection uses an azimuth-partitioned
+  elevation band whose aggregate spherical area exactly equals the selected
+  holder-conditioned or unshadowed solid angle. This is explicitly an angular
+  acceptance surrogate, not an invented detector intersection.
 
 For element Z and path segment length ds, the mean shell-vacancy count is
 
@@ -53,7 +74,7 @@ With `u = sin^2(theta/2)`, its normalized angular density and inverse sampler ar
 
 The direction rotation is performed in a local orthonormal frame and is tested to preserve unit norm and the requested polar angle. Elastic collision energy loss/nuclear recoil is currently zero, so kinetic energy remains constant along one trajectory. EDS path segments before the first collision are marked `straight_primary` (or `straight_primary_after_sample` in the grid); later segments are marked `elastic_scattered`.
 
-Every simulated electron represents `1/N` of the incident population. Paths are averaged by source, material and history before the linear EDS vacancy calculation, avoiding a potentially enormous list of support-grid segments without changing the integrated path expectation.
+Each simulated history carries its conditional sample-plane current weight. Source electrons are first multiplied by the calculated upstream survival fraction; the surviving histories are then normalized conditionally, so aperture/column losses are applied exactly once. Material paths retain the individual incident energy for the EDS vacancy calculation.
 
 ## Explicit current limits
 
@@ -62,9 +83,9 @@ This phase is an elastic electron-trajectory and characteristic-line engine, not
 - The point EDS calculation now defaults to the event-driven elastic Monte Carlo; a straight primary path remains an explicit selectable reference.
 - The present screened-Rutherford model is stated for 100--300 keV and the cited work warns that it is imprecise for `Z > 30`. Results that encounter heavier elements carry a warning. Quantitative work should replace the provider with ELSEPA/Dirac partial-wave differential cross sections; the project does not redistribute the restricted NIST SRD 64 tables.
 - The specimen kernel uses bulk density and elemental mass fractions (independent-atom, amorphous-style transport). It does not reproduce crystallographic channeling or coherent diffraction. A crystalline multislice wave has no unique classical path, and this EDS calculation is not derived from or added to the multislice intensity.
-- The initial trajectory ensemble is currently a mono-directional point ray along laboratory `+Z`; probe convergence, source size and optical aberrations are not yet sampled into the EDS electron phase space.
+- The initial trajectory ensemble is the geometrical-ray phase space calculated at the physical sample plane. It includes source position/angle sampling, lens/deflector transport, aperture and wall survival, Larmor-rotated X/Y slopes, energy offsets and source weights. It is still a classical ray ensemble: coherent aberrated probe-wave intensity and crystallographic channeling are not converted into unique classical paths.
 - The support is explicitly assumed to begin at the specimen downstream face. The crystal-orientation quaternion does not tilt the macroscopic rectangular foil envelope.
-- Electron slowing, multiple ionisation event sampling, secondary electrons, bremsstrahlung, vacancy cascades/Coster–Kronig transfer, secondary fluorescence, cross-layer absorption, holder/pole-piece photon shadowing and an energy-dependent measured SDD efficiency remain unimplemented.
+- Electron slowing, quantitative secondary-electron yield/energy transport, multiple ionisation event sampling, bremsstrahlung, vacancy cascades/Coster–Kronig transfer, secondary fluorescence, cross-layer absorption, holder/pole-piece photon shadowing and an energy-dependent measured SDD efficiency remain unimplemented. The Ray Diagram can show zero-weight, local, isotropic secondary candidates, but these qualitative markers never enter the downstream electron/current budget.
 - The current geometry lacks published active area, sensor distance, crystal thickness, dead layer and window/contamination data. Absolute counts therefore remain a provisional model even though the shell cross sections, atomic relaxation data and configured aggregate solid angle are traceable.
 - The existing aggregate core-ionisation mean free path is not used to scale element-specific EDS production.
 

@@ -72,12 +72,16 @@ def test_explicit_cuda_keeps_stem_arrays_resident_until_one_bulk_transfer(
 
     monkeypatch.setattr(cp, "asnumpy", counted_asnumpy)
     scan_x, scan_y = _scan()
+    progress = []
     result = simulate_angle_resolved_stem(
         _state("CUDA GPU"),
         SimpleNamespace(incident=_incident_bundle()),
         _detectors(),
         scan_x,
         scan_y,
+        progress_callback=lambda completed, total, stage: progress.append(
+            (completed, total, stage)
+        ),
     )
 
     assert transfer_count == 1
@@ -94,6 +98,10 @@ def test_explicit_cuda_keeps_stem_arrays_resident_until_one_bulk_transfer(
     assert result.metrics["cuda_potential_phase_scan_count"] == 1
     assert result.metrics["wave_compute_backend"] == "CuPy CUDA"
     assert result.metrics["cuda_pipeline_fallback_reason"] is None
+    assert any("STEM GPU probes 4/4" in stage for _, _, stage in progress)
+    assert progress[-1][2] == "STEM detector frame complete"
+    fractions = [completed / total for completed, total, _stage in progress]
+    assert fractions == sorted(fractions)
 
 
 def test_resident_cuda_frozen_phonon_detector_signals_match_cpu_reference():

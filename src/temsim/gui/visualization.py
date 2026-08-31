@@ -6,15 +6,19 @@ from html import escape
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QSignalBlocker, QTimer, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
+    QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
+    QSplitter,
     QTabWidget,
     QTextBrowser,
     QVBoxLayout,
@@ -31,7 +35,10 @@ from temsim.gui.diagnostic_tabs import (
 )
 from temsim.gui.scan_panel import ScanControlView
 from temsim.gui.sample_panel import SamplePage
+from temsim.gui.eds_panel import EDSPage
 from temsim.gui.aberration_view import AberrationComparisonView
+from temsim.gui.parameter_panel import ParameterPanel
+from temsim.specimen.source import specimen_structure_available
 
 
 class WaveImagingView(QWidget):
@@ -128,10 +135,10 @@ class WaveImagingView(QWidget):
                     "TEM wave imaging is inactive in Nanoprobe (STEM) mode; "
                     "use STEM detector imaging or switch to Microprobe (TEM)."
                 )
-            elif requested and specimen_mode != "atomic":
+            elif requested and not specimen_structure_available(state.sample):
                 message = (
-                    "TEM wave imaging requires Real sample mode; Virtual "
-                    "interaction channels use the ray/detector model."
+                    "TEM wave imaging requires an imported CIF/MCIF in Real "
+                    "mode or a TOML reference specimen in Virtual mode."
                 )
             elif requested and not camera_inserted:
                 message = (
@@ -317,6 +324,8 @@ class VisualizationWorkspace(QWidget):
         "arbitrary_angular": "Arbitrary angular",
         "user_screened_power_law": "User screened power law",
         "physical_rutherford": "Physical Rutherford approximation",
+        "sample_region_primary": "Manual sample result: primary downstream",
+        "sample_region_elastic": "Manual sample result: elastic downstream",
         "unknown": "Unknown interaction",
     }
     OPTION_BUTTON_STYLE = """
@@ -444,6 +453,41 @@ class VisualizationWorkspace(QWidget):
         self.jump_to_position.setToolTip(
             "Centre the Ray Diagram on the entered axial position"
         )
+        self.magnetic_field_toggle = QPushButton("Magnetic field")
+        self.magnetic_field_toggle.setObjectName("rayMagneticFieldToggle")
+        self.magnetic_field_toggle.setCheckable(True)
+        self.magnetic_field_toggle.setChecked(False)
+        self.magnetic_field_toggle.setToolTip(
+            "Show or hide the axial magnetic-field panel below the ray diagram"
+        )
+        self.sample_region_toggle = QPushButton("Sample transport")
+        self.sample_region_toggle.setObjectName("sampleRegionRayToggle")
+        self.sample_region_toggle.setCheckable(True)
+        self.sample_region_toggle.setChecked(True)
+        self.sample_region_toggle.setEnabled(False)
+        self.sample_region_toggle.setToolTip(
+            "Show sample-region electron paths and their downstream "
+            "continuation. If no result is cached, clicking runs one explicit "
+            "high-accuracy sample-region calculation."
+        )
+        self.sample_region_xrays = QPushButton("X-rays")
+        self.sample_region_xrays.setObjectName("sampleRegionXrayToggle")
+        self.sample_region_xrays.setCheckable(True)
+        self.sample_region_xrays.setChecked(True)
+        self.sample_region_xrays.setEnabled(False)
+        self.sample_region_xrays.setToolTip(
+            "Show isotropically sampled characteristic X-ray paths. If no "
+            "result is cached, clicking runs one explicit high-accuracy "
+            "sample-region calculation."
+        )
+        self.fit_sample_region = QPushButton("Fit sample")
+        self.fit_sample_region.setObjectName("fitSampleRegionButton")
+        self.fit_sample_region.setEnabled(False)
+        self.fit_sample_region.setToolTip(
+            "Zoom to the manual sample-region entry/exit boundaries. If no "
+            "result is cached, clicking runs one explicit high-accuracy "
+            "sample-region calculation first."
+        )
         for option_button in (
             self.projection_xz,
             self.projection_yz,
@@ -453,6 +497,10 @@ class VisualizationWorkspace(QWidget):
             self.column_walls,
             self.fit_column,
             self.jump_to_position,
+            self.magnetic_field_toggle,
+            self.sample_region_toggle,
+            self.sample_region_xrays,
+            self.fit_sample_region,
         ):
             option_button.setStyleSheet(self.OPTION_BUTTON_STYLE)
 
@@ -460,9 +508,13 @@ class VisualizationWorkspace(QWidget):
         # expand into oversized grid cells or wrap across multiple rows.
         heading_row = QHBoxLayout()
         heading_row.addWidget(self.heading)
+        heading_row.addWidget(self.magnetic_field_toggle)
         heading_row.addStretch(1)
 
-        view_controls = QHBoxLayout()
+        self.view_controls_panel = QWidget()
+        self.view_controls_panel.setObjectName("rayDiagramControlRow")
+        view_controls = QHBoxLayout(self.view_controls_panel)
+        view_controls.setContentsMargins(0, 0, 0, 0)
         view_controls.setSpacing(3)
         view_controls.setAlignment(Qt.AlignmentFlag.AlignLeft)
         view_controls.addWidget(self.projection_label)
@@ -482,11 +534,58 @@ class VisualizationWorkspace(QWidget):
                 QSizePolicy.Policy.Fixed,
             )
             view_controls.addWidget(button)
+        self.manual_sample_result_label = QLabel("Manual sample result")
+        self.manual_sample_result_label.setObjectName(
+            "manualSampleResultLabel"
+        )
+        self.manual_sample_result_label.setSizePolicy(
+            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Fixed,
+        )
+        view_controls.addWidget(self.manual_sample_result_label)
+        for button in (
+            self.sample_region_toggle,
+            self.sample_region_xrays,
+            self.fit_sample_region,
+        ):
+            button.setSizePolicy(
+                QSizePolicy.Policy.Fixed,
+                QSizePolicy.Policy.Fixed,
+            )
+            view_controls.addWidget(button)
         view_controls.addStretch(1)
+        self.view_controls_panel.adjustSize()
+        self.view_controls_scroll = QScrollArea()
+        self.view_controls_scroll.setObjectName("rayDiagramControlRowScroll")
+        self.view_controls_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.view_controls_scroll.setWidgetResizable(False)
+        self.view_controls_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.view_controls_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.view_controls_scroll.setWidget(self.view_controls_panel)
+        self.view_controls_scroll.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        self.view_controls_scroll.setFixedHeight(
+            self.view_controls_panel.sizeHint().height()
+            + self.view_controls_scroll.horizontalScrollBar().sizeHint().height()
+            + 2
+        )
+        self.view_controls_scroll.setStyleSheet(
+            "QScrollArea#rayDiagramControlRowScroll {"
+            " background: transparent; border: none; }"
+            "QScrollArea#rayDiagramControlRowScroll > QWidget > QWidget {"
+            " background: transparent; }"
+            "QScrollBar:horizontal { height: 12px; }"
+        )
 
         navigation_hint = QLabel(
             "Double-click an axial position in Ray Diagram, Physical Layout, "
-            "or Magnetic Field to open the same Z here"
+            "or Magnetic Field to update the Transverse X-Y panel on the right"
         )
         navigation_hint.setWordWrap(True)
         navigation_hint.setStyleSheet("color: #64748b; font-weight: 600;")
@@ -526,12 +625,14 @@ class VisualizationWorkspace(QWidget):
         self.stop_marker_items = []
         self._stop_projection_records = []
         self._ray_bundle_records = []
+        self._sample_region_path_records = []
         self._crossover_count = 0
         self._wall_stop_count = 0
         self.axial_cursor_item = None
         self._selected_z_mm = None
         self._last_result = None
         self._last_quality = ""
+        self._sample_region_result = None
         self._focused_part = None
         self._show_notice("Waiting for the first calculation")
 
@@ -544,7 +645,11 @@ class VisualizationWorkspace(QWidget):
         self.interaction_detail.setObjectName(
             "rayPlaneInteractionSummary"
         )
-        self.interaction_detail.setMaximumHeight(190)
+        self.interaction_detail.setMinimumHeight(64)
+        self.interaction_detail.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
+        )
         self.interaction_detail.setOpenExternalLinks(False)
         self.interaction_detail.setStyleSheet(
             "QTextBrowser { background: #0b1020; color: #cbd5e1; "
@@ -564,38 +669,218 @@ class VisualizationWorkspace(QWidget):
             "Drag: pan | Right click: plot menu"
         )
 
+        self.magnetic_field = MagneticFieldView()
+        self.magnetic_field.setObjectName("embeddedMagneticFieldView")
+        self.magnetic_field.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
+        )
+        self.magnetic_field.link_axial_axis(self.plot)
+
+        self.ray_primary_panel = QWidget()
+        self.ray_primary_panel.setObjectName("rayDiagramPrimaryPanel")
+        ray_primary_layout = QVBoxLayout(self.ray_primary_panel)
+        ray_primary_layout.setContentsMargins(0, 0, 0, 0)
+        ray_primary_layout.addLayout(heading_row)
+        ray_primary_layout.addWidget(self.view_controls_scroll)
+        ray_primary_layout.addWidget(navigation_hint)
+        ray_primary_layout.addLayout(navigation_controls)
+        ray_primary_layout.addWidget(self.plot, 1)
+        ray_primary_layout.addWidget(self.stop_detail)
+        ray_primary_layout.addWidget(self.hint)
+
+        self.ray_vertical_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.ray_vertical_splitter.setObjectName(
+            "rayDiagramVerticalSplitter"
+        )
+        self.ray_vertical_splitter.setChildrenCollapsible(False)
+        self.ray_vertical_splitter.setHandleWidth(7)
+        self.ray_vertical_splitter.setStyleSheet(
+            "QSplitter#rayDiagramVerticalSplitter::handle:vertical {"
+            " background: #334155; border-top: 1px solid #64748b;"
+            " border-bottom: 1px solid #0f172a; }"
+            "QSplitter#rayDiagramVerticalSplitter::handle:vertical:hover {"
+            " background: #2563eb; border-top-color: #60a5fa; }"
+        )
+        self.ray_vertical_splitter.setToolTip(
+            "Drag the horizontal separators to resize the Ray Diagram, "
+            "selected-plane interaction budget, and Magnetic Field panels."
+        )
+        self.ray_vertical_splitter.addWidget(self.ray_primary_panel)
+        self.ray_vertical_splitter.addWidget(self.interaction_detail)
+        self.ray_vertical_splitter.addWidget(self.magnetic_field)
+        self.ray_vertical_splitter.setStretchFactor(0, 6)
+        self.ray_vertical_splitter.setStretchFactor(1, 1)
+        self.ray_vertical_splitter.setStretchFactor(2, 3)
+        # Keep the electron-ray display dominant on first use.  These are
+        # relative weights; the user can freely drag both splitter handles.
+        self.ray_vertical_splitter.setSizes((650, 110, 260))
+        self.magnetic_field.setVisible(False)
+
         ray_page = QWidget()
         ray_layout = QVBoxLayout(ray_page)
-        ray_layout.addLayout(heading_row)
-        ray_layout.addLayout(view_controls)
-        ray_layout.addWidget(navigation_hint)
-        ray_layout.addLayout(navigation_controls)
-        ray_layout.addWidget(self.plot, 1)
-        ray_layout.addWidget(self.stop_detail)
-        ray_layout.addWidget(self.interaction_detail)
-        ray_layout.addWidget(self.hint)
+        ray_layout.setContentsMargins(0, 0, 0, 0)
 
         self.physical_layout = PhysicalLayoutView()
-        self.magnetic_field = MagneticFieldView()
-        self.aberrations = AberrationComparisonView()
+        self.probe_aberrations = AberrationComparisonView(
+            fixed_system="probe"
+        )
+        self.image_aberrations = AberrationComparisonView(
+            fixed_system="image"
+        )
+        # Compatibility alias for callers that previously inspected the
+        # single switchable aberration page.
+        self.aberrations = self.probe_aberrations
         self.optical_transfer = OpticalTransferView()
         self.energy_filter = EnergyFilterView()
+        self.energy_filter_parameters = ParameterPanel()
+        self.energy_filter_parameters.setObjectName(
+            "energyFilterParameterPanel"
+        )
+        self.energy_filter_parameters.setMinimumWidth(0)
+        self.energy_filter_component_selector = QComboBox()
+        self.energy_filter_component_selector.setObjectName(
+            "energyFilterComponentSelector"
+        )
+        self.energy_filter_component_selector.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.energy_filter_component_selector.setMinimumContentsLength(24)
+        energy_filter_selector_row = QHBoxLayout()
+        energy_filter_selector_row.addWidget(QLabel("Component"))
+        energy_filter_selector_row.addWidget(
+            self.energy_filter_component_selector, 1
+        )
+        energy_filter_parameter_page = QWidget()
+        energy_filter_parameter_layout = QVBoxLayout(
+            energy_filter_parameter_page
+        )
+        energy_filter_parameter_layout.setContentsMargins(0, 0, 0, 0)
+        energy_filter_parameter_layout.addLayout(
+            energy_filter_selector_row
+        )
+        energy_filter_parameter_layout.addWidget(
+            self.energy_filter_parameters, 1
+        )
+        self.energy_filter_parameter_tabs = QTabWidget()
+        self.energy_filter_parameter_tabs.setObjectName(
+            "energyFilterParameterTabs"
+        )
+        self.energy_filter_parameter_tabs.addTab(
+            energy_filter_parameter_page, "Parameters"
+        )
+        self.energy_filter_parameter_tabs.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
+        )
+        self.energy_filter_parameter_tabs.setMinimumWidth(320)
+        self.energy_filter.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
+        )
+        self.energy_filter.setMinimumWidth(360)
+        self.energy_filter_page = QSplitter(Qt.Orientation.Horizontal)
+        self.energy_filter_page.setObjectName("energyFilterSplitter")
+        self.energy_filter_page.setChildrenCollapsible(False)
+        self.energy_filter_page.addWidget(
+            self.energy_filter_parameter_tabs
+        )
+        self.energy_filter_page.addWidget(self.energy_filter)
+        self.energy_filter_page.setStretchFactor(0, 0)
+        self.energy_filter_page.setStretchFactor(1, 1)
+        self.energy_filter_page.setSizes((420, 1000))
         self.transverse_beam = TransverseBeamView()
+        self.transverse_beam.setMinimumWidth(340)
+        self.transverse_beam.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
+        )
+        # Preserve the compact ray-toolbar labels even at the workspace's
+        # minimum width; 540 px is still small enough to keep the complete
+        # two-column page below the existing 900 px shell threshold.
+        self.ray_vertical_splitter.setMinimumWidth(540)
+        self.ray_workspace_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.ray_workspace_splitter.setObjectName(
+            "rayDiagramWorkspaceSplitter"
+        )
+        self.ray_workspace_splitter.setChildrenCollapsible(False)
+        self.ray_workspace_splitter.setHandleWidth(7)
+        self.ray_workspace_splitter.setStyleSheet(
+            "QSplitter#rayDiagramWorkspaceSplitter::handle:horizontal {"
+            " background: #334155; border-left: 1px solid #64748b;"
+            " border-right: 1px solid #0f172a; }"
+            "QSplitter#rayDiagramWorkspaceSplitter::handle:horizontal:hover {"
+            " background: #2563eb; border-left-color: #60a5fa; }"
+        )
+        self.ray_workspace_splitter.setToolTip(
+            "Drag the vertical separator to resize Ray Diagram and "
+            "Transverse X-Y."
+        )
+        self.ray_workspace_splitter.addWidget(self.ray_vertical_splitter)
+        self.ray_workspace_splitter.addWidget(self.transverse_beam)
+        self.ray_workspace_splitter.setStretchFactor(0, 3)
+        self.ray_workspace_splitter.setStretchFactor(1, 1)
+        self.ray_workspace_splitter.setSizes((1350, 450))
+        ray_layout.addWidget(self.ray_workspace_splitter, 1)
         self.scan_control = ScanControlView()
         self.sample_page = SamplePage()
+        self.eds_page = EDSPage()
         self.wave_imaging = WaveImagingView()
+        scanning_parameters, scanning_results = (
+            self.scan_control.take_workspace_panels()
+        )
+        self.scanning_controls_tabs = QTabWidget()
+        self.scanning_controls_tabs.setObjectName("scanningControlTabs")
+        self.scanning_controls_tabs.addTab(
+            scanning_parameters, "Scanning Parameters"
+        )
+        self.scanning_controls_tabs.addTab(
+            self.probe_aberrations, "Probe Aberrations"
+        )
+        self.scanning_results_tabs = scanning_results
+        self.scanning_controls_tabs.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
+        )
+        self.scanning_controls_tabs.setMinimumWidth(260)
+        self.scanning_controls_tabs.tabBar().setExpanding(False)
+        self.scanning_controls_tabs.tabBar().setUsesScrollButtons(True)
+        self.scanning_controls_tabs.tabBar().setElideMode(
+            Qt.TextElideMode.ElideRight
+        )
+        self.scanning_results_tabs.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
+        )
+        self.scanning_results_tabs.setMinimumWidth(360)
+        self.scanning_page = QSplitter(Qt.Orientation.Horizontal)
+        self.scanning_page.setObjectName("scanningImageSplitter")
+        self.scanning_page.addWidget(self.scanning_controls_tabs)
+        self.scanning_page.addWidget(self.scanning_results_tabs)
+        self.scanning_page.setStretchFactor(0, 0)
+        self.scanning_page.setStretchFactor(1, 1)
+        self.scanning_page.setSizes((420, 1000))
+        self.illuminating_page = QTabWidget()
+        self.illuminating_page.setObjectName("illuminatingImageTabs")
+        self.illuminating_page.addTab(
+            self.wave_imaging, "Illuminating Image"
+        )
+        self.illuminating_page.addTab(
+            self.image_aberrations, "Image Aberrations"
+        )
         self.tabs = QTabWidget()
         self.tabs.setObjectName("visualizationTabs")
+        self.tabs.tabBar().setExpanding(False)
+        self.tabs.tabBar().setUsesScrollButtons(True)
+        self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideRight)
         self.tabs.addTab(ray_page, "Ray Diagram")
-        self.tabs.addTab(self.sample_page, "Sample")
         self.tabs.addTab(self.physical_layout, "Physical Layout")
-        self.tabs.addTab(self.magnetic_field, "Magnetic Field")
-        self.tabs.addTab(self.aberrations, "Aberrations")
+        self.tabs.addTab(self.energy_filter_page, "Energy Filter")
+        self.tabs.addTab(self.sample_page, "Sample")
+        self.tabs.addTab(self.eds_page, "EDS")
+        self.tabs.addTab(self.scanning_page, "Scanning Image")
+        self.tabs.addTab(self.illuminating_page, "Illuminating Image")
         self.tabs.addTab(self.optical_transfer, "Optical Transfer")
-        self.tabs.addTab(self.energy_filter, "Energy Filter")
-        self.tabs.addTab(self.transverse_beam, "Transverse X-Y")
-        self.tabs.addTab(self.scan_control, "STEM")
-        self.tabs.addTab(self.wave_imaging, "TEM Wave Image")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -604,6 +889,21 @@ class VisualizationWorkspace(QWidget):
         self.component_centres.toggled.connect(self._redraw_last_result)
         self.crossovers.toggled.connect(self._redraw_last_result)
         self.column_walls.toggled.connect(self._redraw_last_result)
+        self.sample_region_toggle.toggled.connect(self._redraw_last_result)
+        self.sample_region_xrays.toggled.connect(self._redraw_last_result)
+        for control in (
+            self.sample_region_toggle,
+            self.sample_region_xrays,
+        ):
+            control.clicked.connect(
+                lambda _checked=False, button=control: (
+                    self._sample_region_overlay_clicked(button)
+                )
+            )
+        self.fit_sample_region.clicked.connect(self._fit_sample_region_view)
+        self.magnetic_field_toggle.toggled.connect(
+            self.magnetic_field.setVisible
+        )
         self.fit_column.clicked.connect(self._fit_column_view)
         self.auto_zoom.toggled.connect(self._auto_zoom_toggled)
         self.jump_to_position.clicked.connect(
@@ -642,6 +942,9 @@ class VisualizationWorkspace(QWidget):
         self.energy_filter.component_selected.connect(
             self.component_selected.emit
         )
+        self.energy_filter_component_selector.currentIndexChanged.connect(
+            self._energy_filter_component_changed
+        )
         self.scan_control.parameters_changed.connect(
             self.scan_parameters_changed.emit
         )
@@ -650,6 +953,16 @@ class VisualizationWorkspace(QWidget):
             self.scan_parameters_changed.emit
         )
         self.sample_page.error.connect(self.scan_error.emit)
+        self.eds_page.parameters_changed.connect(
+            self.scan_parameters_changed.emit
+        )
+        self.eds_page.error.connect(self.scan_error.emit)
+        self.eds_page.projection_angle_changed.connect(
+            self._set_projection_angle
+        )
+        self.eds_page.sample_region_result_ready.connect(
+            self._set_sample_region_result
+        )
         self.scan_control.playback_time_changed.connect(
             self._scan_playback_time_changed
         )
@@ -670,6 +983,51 @@ class VisualizationWorkspace(QWidget):
         if index >= 0:
             self.tabs.setCurrentIndex(index)
             self.sample_page.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def set_energy_filter_components(
+        self,
+        components: tuple[tuple[str, str], ...],
+        current_key: str | None = None,
+    ) -> None:
+        """Populate the Energy Filter-local component navigator."""
+
+        blocker = QSignalBlocker(self.energy_filter_component_selector)
+        self.energy_filter_component_selector.clear()
+        for key, label in components:
+            self.energy_filter_component_selector.addItem(label, key)
+        if current_key is not None:
+            index = self.energy_filter_component_selector.findData(
+                str(current_key)
+            )
+            if index >= 0:
+                self.energy_filter_component_selector.setCurrentIndex(index)
+        del blocker
+
+    def select_energy_filter_component(self, key: str) -> bool:
+        """Select one Energy Filter-local component without recursion."""
+
+        index = self.energy_filter_component_selector.findData(str(key))
+        if index < 0:
+            return False
+        blocker = QSignalBlocker(self.energy_filter_component_selector)
+        self.energy_filter_component_selector.setCurrentIndex(index)
+        del blocker
+        return True
+
+    def show_energy_filter_page(self) -> None:
+        """Activate the Energy Filter-owned controls and branch view."""
+
+        index = self.tabs.indexOf(self.energy_filter_page)
+        if index >= 0:
+            self.tabs.setCurrentIndex(index)
+            self.energy_filter_component_selector.setFocus(
+                Qt.FocusReason.OtherFocusReason
+            )
+
+    def _energy_filter_component_changed(self, index: int) -> None:
+        key = self.energy_filter_component_selector.itemData(index)
+        if key is not None:
+            self.component_selected.emit(str(key))
 
     def _show_notice(self, text: str) -> None:
         self.plot.clear()
@@ -998,6 +1356,80 @@ class VisualizationWorkspace(QWidget):
                 preserve_view=True,
             )
 
+    def _set_sample_region_result(self, result) -> None:
+        self._sample_region_result = result
+        self._update_sample_region_control_availability()
+        if self._last_result is not None:
+            self._draw_ray_diagram(
+                self._last_result,
+                self._last_quality,
+                preserve_view=True,
+            )
+
+    def _update_sample_region_control_availability(self) -> None:
+        available = self._sample_region_result is not None
+        runnable = self.eds_page.sample_region_calculation_available()
+        for control in (
+            self.sample_region_toggle,
+            self.sample_region_xrays,
+        ):
+            control.setEnabled(available or runnable)
+        self.fit_sample_region.setEnabled(available or runnable)
+
+    def _ensure_sample_region_result(
+        self, requested_control: QPushButton | None = None
+    ) -> bool:
+        if self._sample_region_result is not None:
+            return True
+        if requested_control is not None and requested_control.isCheckable():
+            blocker = QSignalBlocker(requested_control)
+            requested_control.setChecked(True)
+            del blocker
+        calculated = self.eds_page.calculate_sample_region()
+        self._update_sample_region_control_availability()
+        return bool(calculated and self._sample_region_result is not None)
+
+    def _sample_region_overlay_clicked(self, control: QPushButton) -> None:
+        self._ensure_sample_region_result(control)
+
+    def _fit_sample_region_view(self) -> None:
+        if not self._ensure_sample_region_result():
+            return
+        result = self._sample_region_result
+        entry = float(result.entry_z_mm)
+        exit_z = float(result.exit_z_mm)
+        axial_padding = max(0.1 * (exit_z - entry), 1.0e-6)
+        transverse_values = []
+        for path in result.electron_paths:
+            positions = np.asarray(path.positions_mm, dtype=float)
+            transverse_values.extend(
+                np.asarray(
+                    self._project_transverse(positions[:, 0], positions[:, 1]),
+                    dtype=float,
+                ).tolist()
+            )
+        state = getattr(self._last_result, "state_snapshot", None)
+        sample = getattr(state, "sample", None)
+        envelope_half_mm = 0.0
+        if sample is not None:
+            envelope_half_mm = (
+                0.5
+                * max(float(sample.size_x_nm), float(sample.size_y_nm))
+                * 1.0e-6
+            )
+        transverse_half = max(
+            envelope_half_mm,
+            max((abs(value) for value in transverse_values), default=0.0),
+            1.0e-5,
+        )
+        self.plot.disableAutoRange()
+        self.plot.setXRange(
+            entry - axial_padding, exit_z + axial_padding, padding=0.0
+        )
+        self.plot.setYRange(
+            -1.2 * transverse_half, 1.2 * transverse_half, padding=0.0
+        )
+
     def _update_projection_text(self) -> None:
         scan_text = ""
         if self._scan_ray_paths is not None:
@@ -1025,13 +1457,18 @@ class VisualizationWorkspace(QWidget):
                 scan_text = (
                     f" | scan {status} pixel {column + 1}, line {line + 1}"
                 )
+        sample_region_text = (
+            " | sample transport cached"
+            if self._sample_region_result is not None
+            else ""
+        )
         self.heading.setText(
             f"Electron ray paths — {self._last_quality} | "
             f"{self._projection_axis_name()} projection at "
             f"{self._format_angle(self._projection_angle_deg)}° | "
             f"{self._crossover_count} crossovers | "
             f"{self._wall_stop_count} column-wall stops"
-            f"{scan_text}"
+            f"{scan_text}{sample_region_text}"
         )
         if self._selected_z_mm is None:
             self.stop_detail.setText(
@@ -1047,6 +1484,9 @@ class VisualizationWorkspace(QWidget):
             return
         for item, payload in self._ray_bundle_records:
             z, transverse = self._ray_record_lines(payload)
+            item.setData(z, transverse, connect="finite")
+        for item, paths in self._sample_region_path_records:
+            z, transverse = self._sample_region_path_lines(paths)
             item.setData(z, transverse, connect="finite")
         for item, group, records in self._stop_projection_records:
             projected_mm = self._project_transverse(
@@ -1216,6 +1656,11 @@ class VisualizationWorkspace(QWidget):
             )
         finally:
             self._projection_syncing = False
+        self.eds_page.set_projection_angle(
+            angle,
+            emit_signal=False,
+            defer_redraw=defer_redraw,
+        )
         if changed and self._last_result is not None:
             if defer_redraw:
                 if not self._projection_redraw_timer.isActive():
@@ -2322,7 +2767,9 @@ class VisualizationWorkspace(QWidget):
                 tooltip = (
                     "Virtual sample plane (inserted)\n"
                     f"Exact axial position Z = {sample_z_mm:.9g} mm\n"
-                    "Explicit user-defined interaction channels start here. "
+                    "The selected TOML reference supplies ideal wave/EDS "
+                    "material structure. Explicit user-defined interaction "
+                    "channels start here in the Ray Diagram. "
                     "Ray hue identifies interaction type; brightness encodes "
                     "the ray's convergence semi-angle relative to that "
                     "branch's chief ray. Their common start is a continuous "
@@ -2332,6 +2779,7 @@ class VisualizationWorkspace(QWidget):
                 tooltip = (
                     "Real sample plane (inserted)\n"
                     f"Exact axial position Z = {sample_z_mm:.9g} mm\n"
+                    "Only the imported CIF/MCIF supplies specimen structure. "
                     "Ray Diagram adds no artificial +g/-g or diffuse "
                     "diffraction branches. Coherent elastic scattering is "
                     "calculated by wave/multislice; coloured energy-loss "
@@ -2481,6 +2929,126 @@ class VisualizationWorkspace(QWidget):
             self.plot.addItem(marker)
             self.crossover_marker_items.append(marker)
 
+    def _sample_region_path_lines(self, paths):
+        z_parts = []
+        transverse_parts = []
+        for path in paths:
+            positions = np.asarray(path.positions_mm, dtype=float)
+            if positions.ndim != 2 or positions.shape[1:] != (3,):
+                continue
+            projected = np.asarray(
+                self._project_transverse(positions[:, 0], positions[:, 1]),
+                dtype=float,
+            )
+            z_parts.extend((positions[:, 2], np.array([np.nan])))
+            transverse_parts.extend((projected, np.array([np.nan])))
+        if not z_parts:
+            return np.array([], dtype=float), np.array([], dtype=float)
+        return np.concatenate(z_parts), np.concatenate(transverse_parts)
+
+    def _draw_sample_region_overlay(self) -> None:
+        result = self._sample_region_result
+        if result is None or not self.sample_region_toggle.isChecked():
+            return
+        electron_colours = {
+            "boundary_input": ("#67e8f9", "Sample entry phase space"),
+            "primary_material": ("#4ade80", "Primary in material"),
+            "elastic_rutherford": (
+                "#fb7185",
+                "Elastic / screened Rutherford",
+            ),
+            "backscattered": ("#f97316", "Backscattered electron"),
+        }
+        for kind, (colour, label) in electron_colours.items():
+            paths = tuple(
+                path for path in result.electron_paths if path.kind == kind
+            )
+            if not paths:
+                continue
+            self.plot.plot(
+                [], [], pen=pg.mkPen(colour, width=1.8), name=label
+            )
+            z, transverse = self._sample_region_path_lines(paths)
+            item = self.plot.plot(
+                z,
+                transverse,
+                pen=pg.mkPen(
+                    colour,
+                    width=1.15,
+                    style=Qt.PenStyle.SolidLine,
+                ),
+                connect="finite",
+            )
+            item.setZValue(12)
+            item.setToolTip(
+                f"{label}\nManual bounded specimen-region result; "
+                "hover the EDS result summary for model provenance."
+            )
+            self._sample_region_path_records.append((item, paths))
+
+        if str(result.metrics.get("channeling_model", "")).startswith(
+            "coherent wave"
+        ):
+            self.plot.plot(
+                [],
+                [],
+                pen=pg.mkPen("#a78bfa", width=1.8),
+                name="Channeling: coherent wave result (no classical path)",
+            )
+
+        if self.sample_region_xrays.isChecked():
+            for detected, colour, label in (
+                (False, "#f472b6", "Generated characteristic X-ray"),
+                (True, "#22d3ee", "X-ray within EDS acceptance"),
+            ):
+                paths = tuple(
+                    path
+                    for path in result.photon_paths
+                    if bool(path.detected) == detected
+                )
+                if not paths:
+                    continue
+                self.plot.plot(
+                    [],
+                    [],
+                    pen=pg.mkPen(colour, width=1.8),
+                    name=label,
+                )
+                z, transverse = self._sample_region_path_lines(paths)
+                item = self.plot.plot(
+                    z,
+                    transverse,
+                    pen=pg.mkPen(colour, width=1.0),
+                    connect="finite",
+                )
+                item.setZValue(11)
+                item.setToolTip(
+                    f"{label}\nStraight isotropic photon path. Endpoint is "
+                    "display-only; acceptance uses known take-off angle and "
+                    "aggregate solid angle, not an invented detector face."
+                )
+                self._sample_region_path_records.append((item, paths))
+
+        for z_mm, colour, label in (
+            (result.entry_z_mm, "#38bdf8", "Sample-region entry"),
+            (result.exit_z_mm, "#34d399", "Sample-region exit"),
+        ):
+            boundary = pg.InfiniteLine(
+                pos=float(z_mm),
+                angle=90,
+                pen=pg.mkPen(colour, width=1.6, style=Qt.PenStyle.DashLine),
+                label=label,
+                labelOpts={
+                    "position": 0.92,
+                    "color": colour,
+                    "rotateAxis": (1, 0),
+                },
+            )
+            boundary.setZValue(14)
+            boundary.setToolTip(f"{label}: Z = {float(z_mm):.9g} mm")
+            self._register_ray_label(boundary.label)
+            self.plot.addItem(boundary)
+
     def _draw_ray_diagram(
         self, result, quality: str, preserve_view: bool = False
     ) -> None:
@@ -2514,6 +3082,7 @@ class VisualizationWorkspace(QWidget):
         self.stop_marker_items = []
         self._stop_projection_records = []
         self._ray_bundle_records = []
+        self._sample_region_path_records = []
         self.axial_cursor_item = None
         limits = self._simulation_x_limits()
         if limits is not None:
@@ -2522,6 +3091,11 @@ class VisualizationWorkspace(QWidget):
         self._style_ray_legend(legend)
 
         bundles = [simulation.incident, *simulation.branches.values()]
+        if (
+            self._sample_region_result is not None
+            and self.sample_region_toggle.isChecked()
+        ):
+            bundles.extend(self._sample_region_result.downstream_branches)
         self._convergence_colour_reference_mrad = (
             self._convergence_reference_mrad(simulation)
         )
@@ -2590,6 +3164,8 @@ class VisualizationWorkspace(QWidget):
             [], [], pen=pg.mkPen("#ffffff", width=2.6), name="Sample plane"
         )
 
+        self._draw_sample_region_overlay()
+
         self._add_column_walls(result)
         self._add_stop_markers(simulation)
         self._add_component_markers(result)
@@ -2641,7 +3217,8 @@ class VisualizationWorkspace(QWidget):
         )
         self.physical_layout.display_result(result)
         self.magnetic_field.display_result(result)
-        self.aberrations.display_result(result)
+        self.probe_aberrations.display_result(result)
+        self.image_aberrations.display_result(result)
         self.optical_transfer.display_result(result)
         self.energy_filter.display_result(result)
         self.transverse_beam.display_result(result)
@@ -2653,6 +3230,8 @@ class VisualizationWorkspace(QWidget):
             result,
             getattr(result, "stem_scan", None),
         )
+        self.eds_page.display_result(result)
+        self._update_sample_region_control_availability()
         self.wave_imaging.display_result(
             getattr(result, "wave_imaging", None),
             getattr(result, "state_snapshot", None),

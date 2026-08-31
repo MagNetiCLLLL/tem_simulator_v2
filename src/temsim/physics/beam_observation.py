@@ -206,29 +206,3 @@ def transverse_kick_phase_space_response(
         dtype=float,
     ) / probe_rad
     return position, angle
-
-
-def transverse_scan_outline(
-    response_per_rad,
-    amplitude_x_mrad,
-    amplitude_y_mrad,
-    center=(0.0, 0.0),
-):
-    """Map angular half-ranges to a closed scan-field parallelogram."""
-
-    response = np.asarray(response_per_rad, dtype=float)
-    if response.shape != (2, 2):
-        raise ValueError("Scan response must be a 2x2 matrix.")
-    center = np.asarray(center, dtype=float)
-    if center.shape != (2,):
-        raise ValueError("Scan-field center must contain X and Y.")
-    ax_rad = abs(float(amplitude_x_mrad)) * 1.0e-3
-    ay_rad = abs(float(amplitude_y_mrad)) * 1.0e-3
-    corners_rad = np.array([
-        [-ax_rad, -ay_rad],
-        [ax_rad, -ay_rad],
-        [ax_rad, ay_rad],
-        [-ax_rad, ay_rad],
-        [-ax_rad, -ay_rad],
-    ])
-    return center + corners_rad @ response.T

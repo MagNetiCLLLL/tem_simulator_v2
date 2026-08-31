@@ -2,8 +2,6 @@ from temsim.optics.model import *
 
 from temsim.optics.corrector_structure import ensure_corrector_structure
 
-from temsim.optics.objective_station import normalise_objective_station
-
 from temsim.detector.recording_system import ensure_recording_system
 
 from temsim.component_names import normalise_component_names

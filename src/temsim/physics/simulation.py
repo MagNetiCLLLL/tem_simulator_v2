@@ -45,6 +45,8 @@ RAY_INTERACTION_COLOURS = {
     'arbitrary_angular': (0.18, 0.83, 0.75),
     'user_screened_power_law': (0.96, 0.45, 0.71),
     'physical_rutherford': (0.98, 0.31, 0.38),
+    'sample_region_primary': (0.18, 0.88, 0.72),
+    'sample_region_elastic': (1.00, 0.32, 0.48),
     'unknown': (0.89, 0.91, 0.94),
 }
 
@@ -111,27 +113,6 @@ class Branch:
 class Simulation:
 
     incident:Branch; branches:dict; metrics:dict; gun_waist:dict|None=None; c2c3_crossover:dict|None=None; corrector_crossovers:list|None=None; gun_trace:object|None=None; sample_to_analysis_transfer:object|None=None; optical_transfers:tuple=(); real_interactions:object|None=None
-
-
-def _legacy_clip_unused(s,z,X,Y):
-
-    n=X.shape[1]; alive=np.ones(n,bool); blocked=np.full(n,np.nan); keys=['']*n
-
-    for ap in sorted(s.apertures,key=lambda q:q.z_mm):
-
-        if not ap.enabled: continue
-
-        idx=int(np.argmin(abs(z-ap.z_mm)))
-
-        passed=np.hypot(X[idx]*1e3-ap.offset_x_mm,Y[idx]*1e3-ap.offset_y_mm)<=ap.radius_mm
-
-        new=alive&~passed;blocked[new]=ap.z_mm
-
-        for j in np.flatnonzero(new):keys[j]=ap.key
-
-        alive &= passed
-
-    return alive,blocked,keys
 
 
 def run(s, *, resolved_layout=None):

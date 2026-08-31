@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
@@ -23,8 +24,10 @@ from temsim.specimen.virtual import (
     build_virtual_angular_distribution,
     virtual_density_at_scan,
 )
+from temsim.specimen.source import specimen_structure_available
 
 ELEMENTARY_CHARGE_C = 1.602176634e-19
+ProgressCallback = Callable[[int, int, str], None]
 
 
 @dataclass(frozen=True)
@@ -110,33 +113,6 @@ def _readout_view(
         expected_electrons=subset(result.expected_electrons),
         poisson_counts=subset(result.poisson_counts),
         high_angle_tail_fraction=subset(result.high_angle_tail_fraction),
-    )
-
-
-def square_scan_limits(scan_x_um, scan_y_um):
-    """Return equal-span X/Y limits enclosing one raster coordinate grid."""
-    scan_x_um = np.asarray(scan_x_um, dtype=float)
-    scan_y_um = np.asarray(scan_y_um, dtype=float)
-    if scan_x_um.size == 0 or scan_y_um.size == 0:
-        raise ValueError("Raster coordinates cannot be empty.")
-    if not np.all(np.isfinite(scan_x_um)) or not np.all(
-        np.isfinite(scan_y_um)
-    ):
-        raise ValueError("Raster coordinates must be finite.")
-    x_min = float(scan_x_um.min())
-    x_max = float(scan_x_um.max())
-    y_min = float(scan_y_um.min())
-    y_max = float(scan_y_um.max())
-    x_center = 0.5 * (x_min + x_max)
-    y_center = 0.5 * (y_min + y_max)
-    half_span = 0.5 * max(
-        x_max - x_min,
-        y_max - y_min,
-        1.0e-12,
-    )
-    return (
-        (x_center - half_span, x_center + half_span),
-        (y_center - half_span, y_center + half_span),
     )
 
 
@@ -316,52 +292,6 @@ def measure_sample_current(simulation, state):
     )
 
 
-def _recorded_fraction(simulation, plane_key):
-    branches, probabilities = _branch_probabilities(simulation)
-    fraction = 0.0
-    for branch, probability in zip(branches, probabilities):
-        weights = _normalised_ray_weights(branch)
-        recorded = (
-            np.asarray(branch.blocked_key, dtype=object)
-            == str(plane_key)
-        )
-        fraction += float(probability) * float(weights[recorded].sum())
-    return fraction
-
-
-def _detector_signal(simulation, state, plane):
-    fraction = _recorded_fraction(simulation, plane.key)
-    simulated, current_pa, electrons_per_second = _current_values(
-        state, fraction
-    )
-    angle = (
-        collection_angle(state, plane)
-        if plane.key in STEM_DETECTOR_KEYS
-        else None
-    )
-    return DetectorSignal(
-        key=plane.key,
-        name=plane.name,
-        fraction=fraction,
-        simulated_electrons=simulated,
-        current_pa=current_pa,
-        electrons_per_second=electrons_per_second,
-        collection_angle=angle,
-    )
-
-
-def measure_recording_plane_currents(
-    simulation, state, *, include_stem=True
-):
-    """Return actual intercepted current for every inserted recording plane."""
-    return {
-        plane.key: _detector_signal(simulation, state, plane)
-        for plane in state.recording_planes
-        if bool(getattr(plane, "inserted", False))
-        and (include_stem or plane.key not in STEM_DETECTOR_KEYS)
-    }
-
-
 def measure_aperture_transmitted_current(
     simulation,
     state,
@@ -432,22 +362,6 @@ def collection_angle(state, detector):
         outer_range_mrad=outer_range,
         anisotropic=anisotropic,
     )
-
-
-def measure_stem_detectors(simulation, state, detector_keys=None):
-    selected = (
-        set(STEM_DETECTOR_KEYS)
-        if detector_keys is None
-        else set(detector_keys)
-    )
-    result = {}
-    for detector in state.stem_detectors:
-        if detector.key not in selected:
-            continue
-        result[detector.key] = _detector_signal(
-            simulation, state, detector
-        )
-    return result
 
 
 def physical_angular_detectors(state, detectors):
@@ -794,6 +708,9 @@ def _real_high_angle_tail(
     )
     probe = probe_state_from_simulation(state, simulation)
     finite_sample = SimpleNamespace(
+        envelope_shape=str(
+            getattr(state.sample, "envelope_shape", "rectangle")
+        ),
         size_x_nm=float(state.sample.size_x_nm),
         size_y_nm=float(state.sample.size_y_nm),
         centre_x_nm=float(state.sample.centre_x_nm),
@@ -856,8 +773,12 @@ def acquire_stem_scan(
     detector_keys=None,
     pixels_x=None,
     pixels_y=None,
+    *,
+    progress_callback: ProgressCallback | None = None,
 ):
     """Integrate selected detector signals over the current AC raster."""
+    if progress_callback is not None:
+        progress_callback(0, 1, "Preparing STEM scan and detector geometry")
     component = state.ac_deflector
     if not bool(component.enabled and component.scan_enabled):
         raise ValueError(
@@ -957,6 +878,7 @@ def acquire_stem_scan(
         physical_detectors
         and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
         == "virtual"
+        and not bool(getattr(state.sample, "stem_wave_enabled", False))
     ):
         result = _virtual_stem_scan(
             simulation,
@@ -976,8 +898,7 @@ def acquire_stem_scan(
     if (
         physical_detectors
         and bool(getattr(state.sample, "stem_wave_enabled", False))
-        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
-        == "atomic"
+        and specimen_structure_available(state.sample)
     ):
         baseline_sample_offset_um = (
             (baseline_scan_mrad * 1.0e-3) @ sample_response.T
@@ -990,6 +911,7 @@ def acquire_stem_scan(
             scan_y_um,
             baseline_scan_offset_um=baseline_sample_offset_um,
             detector_center_shifts_mrad=detector_center_shifts_mrad,
+            progress_callback=progress_callback,
         )
         incident_fraction = measure_sample_current(
             simulation, state
@@ -1136,6 +1058,26 @@ def acquire_stem_scan(
             readout_keys=[detector.key for detector in selected],
         )
 
+    if (
+        physical_detectors
+        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
+        == "virtual"
+    ):
+        result = _virtual_stem_scan(
+            simulation,
+            state,
+            physical_detectors,
+            detector_angles,
+            scan_x_um,
+            scan_y_um,
+            detector_center_shifts_mrad,
+        )
+        return _readout_view(
+            result,
+            inserted_keys=[detector.key for detector in inserted],
+            readout_keys=[detector.key for detector in selected],
+        )
+
     branches, probabilities = _branch_probabilities(simulation)
     recording_keys = {
         plane.key for plane in state.recording_planes
@@ -1193,6 +1135,8 @@ def acquire_stem_scan(
         for detector in inserted
     }
     selected_keys = set(images)
+    if progress_callback is not None:
+        progress_callback(0, pixels_y, "Tracing geometric STEM detector rows")
     for row in range(pixels_y):
         for column in range(pixels_x):
             delta_rad = (
@@ -1254,6 +1198,12 @@ def acquire_stem_scan(
                         weights[hit].sum()
                     )
                 available[hit] = False
+        if progress_callback is not None:
+            progress_callback(
+                row + 1,
+                pixels_y,
+                f"STEM detector row {row + 1}/{pixels_y}",
+            )
 
     signals = {}
     for detector in inserted:

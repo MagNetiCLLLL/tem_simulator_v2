@@ -46,7 +46,9 @@ full energy-differential EELS/dielectric calculation.
 The generic EDS subsystem is separate from that aggregate core-loss model. It
 uses Bote--Salvat K/L/M shell ionisation and xraylib relaxation data, supports
 Cu/Au 3.05 mm commercial support grids or a virtual-vacuum support, and runs
-an explicit point spectrum only when requested. Its default seeded transport
+an explicit point spectrum only when requested. Its seeded transport uses
+every weighted upstream ray that survives to the physical sample plane and
+retains its X/Y position, incident slopes/rotation and energy offset while it
 traces event-by-event three-dimensional elastic paths through the finite
 sample, mesh openings/sidewalls, bars and rim, then integrates EDS production
 along those paths. The present relativistic screened-Rutherford fallback is
@@ -128,20 +130,28 @@ recalculation preserves a user's runtime direction override.
   disabled apertures retain only a dotted, non-blocking reference.
 - Detects and labels gun and lens crossovers in both interactive previews and
   one-shot calculations, including their axial position and RMS beam radius.
-- Provides separate **Physical Layout** and **Magnetic Field** pages. The
+- Provides a separate **Physical Layout** page and a toggleable **Magnetic
+  Field** panel below **Ray Diagram**. The
   layout uses hollow-cylinder projections, resolved vacuum bores, optical
   references and dynamically packed multi-row name callouts with dashed
   leaders to the corresponding hardware; the field page plots solver-identical
   total and per-lens Bz, field support, peak field and focal length with
   tree/plot selection linking.
-- Provides an **Aberrations** page for the probe/specimen and Objective/image
-  systems. It lists C1, A1, B2, A2, C3, S3, A3, C5 and Cc, including azimuths
+- Splits **Scanning Image** into fixed left/right panes: the left pane contains
+  **Scanning Parameters** and **Probe Aberrations** tabs, while the right pane
+  contains **Geometry** and **Images** tabs. **Image Aberrations** remains
+  under **Illuminating Image**. Both aberration views
+  list C1, A1, B2, A2, C3, S3, A3, C5 and Cc, including azimuths
   for non-axisymmetric terms, and compares the same first-order relay with
   nonlinear corrector fields off/on. Missing per-lens Cs/Cc values are shown
   as provisional focal-length-scaled estimates, never silently as zero. These
   are principle-model, non-OEM coefficients until replaced by traceable
   calibration.
-- Provides a separate **Optical Transfer** page with this plain-text mapping:
+- Uses high-contrast, scalable checkbox indicators throughout the dark theme:
+  white-outline unchecked boxes, cyan checked boxes with a white tick, violet
+  partial-state boxes and separately legible hover/disabled states.
+- Places the separate **Optical Transfer** page immediately after
+  **Illuminating Image**, with this plain-text mapping:
   `r_plane = J_img @ r_sample + J_diff @ theta_sample`. It reports both
   matrices, conjugacy residuals, equivalent magnification/camera length,
   rotation, handedness and anisotropy at objective and recording planes.
@@ -162,7 +172,8 @@ recalculation preserves a user's runtime direction override.
 - Runs the optional TEM wave-imaging backend during a high-accuracy calculation
   and displays the image and diffraction pattern on a dedicated page.
 - Provides a central **Sample** page with insert/retract and Real/Virtual mode
-  controls, specimen presets, TEM/STEM wave and multislice settings, finite
+  controls, a mutually exclusive real-structure source selector, TEM/STEM wave
+  and multislice settings, finite
   sample/scan/ROI overlays, +Z beam, zone-axis alignment and dual mouse
   behaviour. Sample parameters are not duplicated in the left instrument
   tree; clicking the specimen in a layout opens this page directly. It
@@ -190,7 +201,10 @@ recalculation preserves a user's runtime direction override.
   scan position animates the Ray Diagram without rerunning ray physics, and
   the diagram remains freely rotatable during playback. Preview uses the fast
   geometric detector approximation; High accuracy can use wave/multislice
-  detector integration with first-order descan acceptance shifts.
+  detector integration with first-order descan acceptance shifts. **Pause
+  refresh** freezes only the three detector images on the previous complete
+  frame; it never leaves a half-written raster on screen, and scan/Ray Diagram
+  playback continues.
 - Treats Objective Aperture and Selected Area Aperture as physical
   diffraction- and image-reference stations, respectively, rather than
   asserting that their current optical state is ideal. Sample-to-plane
@@ -211,20 +225,26 @@ recalculation preserves a user's runtime direction override.
   inserted** is cleared. Retracting the holder removes diffraction, diffuse
   ray broadening and atomistic/wave interaction; retained CIF settings are
   dormant until the specimen is inserted again.
-- Supports two explicit specimen modes. **Real sample (CIF / crystal)** uses a
-  TOML crystal or custom CIF for high-accuracy finite IAM/multislice. It never
+- Supports two explicit, source-owning specimen modes. **Real sample (CIF /
+  crystal)** accepts only an imported CIF/MCIF and never falls back to a TOML
+  material when no file is selected. It never
   creates artificial `+g/-g` or diffuse diffraction beams. Instead, measured
   material IMFP anchors and independent-event Poisson statistics create
   absolute zero-loss, plasmon, core-ionisation and plural-inelastic ray
   populations with representative energy loss and characteristic scattering
   angle. User MFP/loss overrides support measured films and custom CIFs;
-  effective absorption is disabled unless explicitly supplied. **Virtual sample** has
+  effective absorption is disabled unless explicitly supplied. **Virtual
+  sample** owns simulator TOML reference specimens such as Silicon [110] and
+  Gold [001] for ideal high-accuracy wave/EDS calculations. It also has
   extensible diffraction-spot/ring, Gaussian/diffuse, arbitrary-angle,
   user-screened-power-law, physical screened-relativistic-Rutherford and
   absorption rows. Probabilities are absolute, are never normalised, and must
   sum to at most one; the remainder is direct beam. Rectangles, ellipses and
   NPY/PNG/TIFF grayscale maps define local density inside the finite slab,
-  with vacuum outside and optional convolution by the calculated probe.
+  with vacuum outside and optional convolution by the calculated probe. These
+  user-authored ray probabilities remain distinct from the TOML reference's
+  IAM/multislice calculation and are disabled by default until explicitly
+  enabled.
 - In Ray Diagram, hue denotes the interaction type: Real energy-loss state or
   Virtual user channel, with neutral hues for incident/vacuum/zero-loss paths.
   Five dark-to-bright shades denote each

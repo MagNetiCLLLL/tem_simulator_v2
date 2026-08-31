@@ -13,6 +13,7 @@ angstrom and each potential slice is in volt-angstrom.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 import math
 import time
@@ -140,6 +141,7 @@ def run_resident_stem_cuda(
     bandwidth_fraction: float,
     batch_size: int = 8,
     fallback_reason: str | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> ResidentStemCudaResult:
     """Calculate all STEM detector fractions with one bulk host transfer.
 
@@ -257,7 +259,9 @@ def run_resident_stem_cuda(
     diagnostic_count = 0
     effective_batch_size = min(int(batch_size), scan_count)
     batch_count = int(math.ceil(scan_count / effective_batch_size))
-    for start in range(0, scan_count, effective_batch_size):
+    for batch_index, start in enumerate(
+        range(0, scan_count, effective_batch_size)
+    ):
         stop = min(start + effective_batch_size, scan_count)
         x0 = device_scan_x[start:stop, None, None]
         y0 = device_scan_y[start:stop, None, None]
@@ -340,6 +344,15 @@ def run_resident_stem_cuda(
                 values = cp.clip(values, 0.0, 1.0)
                 detector_sums[key][start:stop] += values
                 detector_sums_squared[key][start:stop] += values**2
+        if progress_callback is not None:
+            # CuPy launches asynchronously. Synchronise only when a caller
+            # explicitly requests truthful completed-work progress.
+            cp.cuda.get_current_stream().synchronize()
+            progress_callback(
+                batch_index + 1,
+                batch_count,
+                f"STEM GPU probes {stop}/{scan_count}",
+            )
 
     if first_diagnostics is not None:
         multislice_diagnostics = replace(

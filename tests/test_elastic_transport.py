@@ -1,4 +1,5 @@
 import math
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -9,6 +10,8 @@ from temsim.detector.eds_signal import EDSMaterial, elemental_material
 from temsim.optics.column import default_state
 from temsim.specimen.elastic_transport import (
     ElasticTransportGeometry,
+    IncidentElectronRay,
+    incident_rays_from_simulation,
     elastic_mean_free_path_nm,
     rotate_direction_after_scatter,
     sample_screened_rutherford_angle,
@@ -18,6 +21,19 @@ from temsim.specimen.elastic_transport import (
     screened_rutherford_total_cross_section_cm2,
     simulate_elastic_point_transport,
 )
+
+
+def _incident_rays(count, *, x_nm=0.0, y_nm=0.0, energy_ev=300_000.0):
+    return tuple(
+        IncidentElectronRay(
+            source_ray_index=index,
+            position_xy_nm=(x_nm, y_nm),
+            direction=(0.0, 0.0, 1.0),
+            kinetic_energy_ev=energy_ev,
+            weight=1.0 / count,
+        )
+        for index in range(count)
+    )
 
 
 def test_screened_rutherford_reference_values_and_declared_units():
@@ -114,6 +130,70 @@ def test_scatter_rotation_preserves_norm_and_requested_polar_angle():
     )
 
 
+def test_incident_bundle_uses_only_survivors_and_preserves_phase_space():
+    state = default_state()
+    simulation = SimpleNamespace(
+        incident=SimpleNamespace(
+            alive=np.asarray((True, False, True)),
+            x=np.asarray(((1.0e-9, 99.0e-9, 3.0e-9),)),
+            y=np.asarray(((2.0e-9, 99.0e-9, 6.0e-9),)),
+            tx=np.asarray(((1.0e-3, 99.0, 3.0e-3),)),
+            ty=np.asarray(((2.0e-3, 99.0, -2.0e-3),)),
+            energy_offset_ev=np.asarray((-1.0, 88.0, 2.0)),
+            ray_weight=np.asarray((0.2, 0.5, 0.3)),
+        )
+    )
+
+    bundle = incident_rays_from_simulation(
+        state, simulation, target_x_nm=10.0, target_y_nm=-5.0
+    )
+
+    assert bundle.emitted_ray_count == 3
+    assert bundle.reaching_ray_count == 2
+    assert bundle.surviving_fraction == pytest.approx(0.5)
+    assert [ray.source_ray_index for ray in bundle.rays] == [0, 2]
+    assert [ray.weight for ray in bundle.rays] == pytest.approx((0.4, 0.6))
+    assert sum(
+        ray.weight * ray.position_xy_nm[0] for ray in bundle.rays
+    ) == pytest.approx(10.0)
+    assert sum(
+        ray.weight * ray.position_xy_nm[1] for ray in bundle.rays
+    ) == pytest.approx(-5.0)
+    assert bundle.chief_angle_mrad == pytest.approx((2.2, -0.4))
+    assert bundle.energy_range_ev == pytest.approx((299_999.0, 300_002.0))
+    assert bundle.rays[0].direction[0] > 0.0
+    assert bundle.rays[0].direction[1] > 0.0
+
+
+def test_incident_bundle_interpolates_an_upstream_boundary_before_later_stop():
+    state = default_state()
+    sample_z = float(state.sample.z_mm)
+    simulation = SimpleNamespace(
+        incident=SimpleNamespace(
+            z=np.asarray((sample_z - 10.0, sample_z)),
+            alive=np.asarray((True, False)),
+            blocked_z=np.asarray((np.nan, sample_z - 1.0)),
+            x=np.asarray(((0.0, 2.0e-9), (10.0e-9, 12.0e-9))),
+            y=np.zeros((2, 2)),
+            tx=np.asarray(((0.0, 2.0e-3), (1.0e-3, 3.0e-3))),
+            ty=np.zeros((2, 2)),
+            energy_offset_ev=np.zeros(2),
+            ray_weight=np.asarray((0.25, 0.75)),
+        )
+    )
+
+    bundle = incident_rays_from_simulation(
+        state, simulation, boundary_z_mm=sample_z - 5.0
+    )
+
+    assert bundle.boundary_z_mm == pytest.approx(sample_z - 5.0)
+    assert bundle.reaching_ray_count == 2
+    assert bundle.surviving_fraction == pytest.approx(1.0)
+    assert [ray.position_xy_nm[0] for ray in bundle.rays] == pytest.approx(
+        (5.0, 7.0)
+    )
+
+
 def test_finite_geometry_finds_sample_face_and_mesh_sidewall():
     state = default_state()
     geometry = ElasticTransportGeometry.from_state(state)
@@ -146,17 +226,37 @@ def test_finite_geometry_finds_sample_face_and_mesh_sidewall():
     assert after.source_key == "support:bar"
 
 
+def test_finite_geometry_uses_the_circular_disk_sidewall():
+    state = default_state()
+    geometry = ElasticTransportGeometry.from_state(state)
+    inside = np.asarray((0.0, 0.0, 0.5 * state.sample.thickness_nm))
+    region = geometry.region_at(inside)
+
+    assert region is not None
+    assert geometry.region_at((1_400_000.0, 1_400_000.0, 5.0)) is None
+    distance = geometry.next_region_boundary_distance_nm(
+        inside,
+        (1.0, 0.0, 0.0),
+        region,
+        maximum_distance_nm=2_000_000.0,
+    )
+    assert distance == pytest.approx(1_500_000.0)
+
+
 def test_point_transport_is_seeded_and_aggregates_real_material_paths():
     state = default_state()
-    state.sample.eds_elastic_trajectory_count = 12
     state.sample.eds_elastic_seed = 101
-    first = simulate_elastic_point_transport(state, x_nm=0.0, y_nm=0.0)
-    second = simulate_elastic_point_transport(state, x_nm=0.0, y_nm=0.0)
+    rays = _incident_rays(12)
+    first = simulate_elastic_point_transport(state, incident_rays=rays)
+    second = simulate_elastic_point_transport(state, incident_rays=rays)
 
     assert first.metrics["total_elastic_events"] > 0
     assert sum(first.metrics["outcome_counts"].values()) == 12
     assert first.metrics["event_limit_fraction"] == 0.0
-    assert sum(track.path_length_nm for track in first.eds_tracks) == pytest.approx(
+    assert sum(
+        track.electron_weight * track.path_length_nm
+        for track in first.eds_tracks
+    ) == pytest.approx(
         first.metrics["mean_material_path_nm"]
     )
     assert {track.history for track in first.eds_tracks} >= {
@@ -164,6 +264,18 @@ def test_point_transport_is_seeded_and_aggregates_real_material_paths():
         "elastic_scattered",
     }
     assert first.metrics == second.metrics
+    assert first.terminal_electrons is not None
+    assert first.terminal_electrons.position_nm.shape == (12, 3)
+    assert first.terminal_electrons.direction.shape == (12, 3)
+    assert len(first.terminal_electrons.outcome) == 12
+    assert first.material_flights
+    assert all(
+        np.linalg.norm(
+            np.asarray(flight.end_nm) - np.asarray(flight.start_nm)
+        )
+        > 0.0
+        for flight in first.material_flights
+    )
     for left, right in zip(
         first.trajectories, second.trajectories, strict=True
     ):
@@ -175,7 +287,7 @@ def test_retracted_holder_removes_sample_and_support_from_transport():
     state.sample.inserted = False
     state.sample.eds_support_material_key = "gold"
     result = simulate_elastic_point_transport(
-        state, x_nm=60_000.0, y_nm=0.0, trajectory_count=3
+        state, incident_rays=_incident_rays(3, x_nm=60_000.0)
     )
 
     assert result.eds_tracks == ()
@@ -190,9 +302,7 @@ def test_heavy_support_sets_accuracy_warning_and_event_guard():
     state.sample.eds_support_mesh_key = "square_200"
     result = simulate_elastic_point_transport(
         state,
-        x_nm=60_000.0,
-        y_nm=0.0,
-        trajectory_count=1,
+        incident_rays=_incident_rays(1, x_nm=60_000.0),
         maximum_events_per_trajectory=1,
     )
 
@@ -209,4 +319,3 @@ def test_elemental_mean_free_path_decreases_from_si_to_au_at_200_kev():
     assert elastic_mean_free_path_nm(gold, 200_000.0) < (
         elastic_mean_free_path_nm(silicon, 200_000.0)
     )
-

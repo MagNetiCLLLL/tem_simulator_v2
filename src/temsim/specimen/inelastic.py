@@ -26,8 +26,12 @@ import numpy as np
 
 from temsim.specimen.presets import (
     InelasticMaterial,
-    default_specimen_preset_key,
     load_specimen_preset,
+)
+from temsim.specimen.source import (
+    active_cif_path,
+    selected_reference_preset_key,
+    specimen_mode,
 )
 
 
@@ -138,14 +142,18 @@ def _positive_override(sample, field: str) -> float | None:
 def _material_for_state(state) -> tuple[str, str, InelasticMaterial | None, list[str]]:
     sample = state.sample
     warnings: list[str] = []
-    cif_value = str(getattr(sample, "cif_path", "")).strip()
-    if not cif_value:
-        key = (
-            str(getattr(sample, "specimen_preset_key", "")).strip()
-            or default_specimen_preset_key()
-        )
+    if specimen_mode(sample) == "virtual":
+        key = selected_reference_preset_key(sample)
         preset = load_specimen_preset(key)
         return key, preset.name, preset.inelastic, warnings
+
+    cif_value = active_cif_path(sample)
+    if not cif_value:
+        warnings.append(
+            "Real sample mode requires an imported CIF/MCIF and never "
+            "borrows material constants from a Virtual TOML reference."
+        )
+        return "real:unconfigured", "Real sample (no CIF)", None, warnings
 
     path = Path(cif_value).expanduser().resolve()
     warnings.append(
@@ -330,9 +338,15 @@ def real_inelastic_distribution(state) -> RealInteractionDistribution:
     thickness = _finite_nonnegative("Sample thickness", sample.thickness_nm)
     energy = float(state.beam_voltage_kv)
     material_key, material_name, material, warnings = _material_for_state(state)
+    mode = specimen_mode(sample)
+    structure_available = bool(
+        selected_reference_preset_key(sample)
+        if mode == "virtual"
+        else active_cif_path(sample)
+    )
     active = bool(
         getattr(sample, "inserted", True)
-        and str(getattr(sample, "specimen_mode", "atomic")).lower() == "atomic"
+        and structure_available
         and getattr(sample, "real_inelastic_enabled", True)
         and thickness > 0.0
     )
@@ -340,6 +354,8 @@ def real_inelastic_distribution(state) -> RealInteractionDistribution:
         reason = (
             "sample_not_interacting"
             if not bool(getattr(sample, "inserted", True)) or thickness <= 0.0
+            else "real_structure_unavailable"
+            if not structure_available
             else "real_inelastic_disabled"
         )
         return _disabled_distribution(

@@ -148,7 +148,9 @@ class EnergyFilterView(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.heading = QLabel("Energy Filter internal branch")
+        self.heading = QLabel(
+            "Energy Filter physical layout and ray diagram"
+        )
         self.summary = QLabel(
             "The branch is drawn in its own curvilinear X-Z frame; "
             "public topology is separated from adjustable non-OEM geometry."
@@ -3679,11 +3681,17 @@ class InitialDirectionColourWheel(QWidget):
         self.setObjectName("initialDirectionColourWheel")
         self.setFixedSize(184, 184)
         self.setAccessibleName("Initial ray direction colour wheel")
-        self.setToolTip(
-            "Continuous initial ray direction: +X is 0 degrees and the "
-            "angle increases counter-clockwise toward +Y. Colour does not "
-            "encode radius, energy or intensity."
+        description = (
+            "Continuous colour = initial polar angle about the starting "
+            "bundle centroid. +X is 0 degrees and the angle increases "
+            "counter-clockwise toward +Y. Colour tracks direction only; "
+            "it does not represent ray radius, energy, intensity or "
+            "survival state. At a selected detector, the greyscale underlay "
+            "is the peak-normalized forward PSF response; coloured dots "
+            "remain the original rays."
         )
+        self.setAccessibleDescription(description)
+        self.setToolTip(description)
 
     @staticmethod
     def colour_for_angle(angle_rad: float) -> QColor:
@@ -3743,6 +3751,9 @@ class TransverseBeamView(QWidget):
 
     MAX_DISPLAY_RAYS = 2_000
     CENTRE_DIRECTION_TOLERANCE_M = 1.0e-15
+    DISPLAY_UNIT = "µm"
+    METRES_TO_DISPLAY = 1.0e6
+    MILLIMETRES_TO_DISPLAY = 1.0e3
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -3765,51 +3776,69 @@ class TransverseBeamView(QWidget):
         heading_row = QHBoxLayout()
         heading_row.addWidget(self.heading)
         heading_row.addStretch(1)
-        action_row = QHBoxLayout()
-        action_row.addStretch(1)
-        action_row.addWidget(self.fit_beam)
 
         self.plot = pg.PlotWidget(background="#050816")
         self.plot.setObjectName("transverseBeamPlot")
-        self.plot.setLabel("bottom", "X displacement", units="mm")
-        self.plot.setLabel("left", "Y displacement", units="mm")
+        for axis_name, title in (
+            ("bottom", "X displacement"),
+            ("left", "Y displacement"),
+        ):
+            axis = self.plot.getAxis(axis_name)
+            axis.enableAutoSIPrefix(False)
+            axis.setLabel(title, units=self.DISPLAY_UNIT)
         self.plot.showGrid(x=True, y=True, alpha=0.18)
         self.plot.setAspectLocked(True)
+        self.plot.setMinimumHeight(250)
+        self.plot.setMaximumHeight(360)
 
         self.angle_colour_wheel = InitialDirectionColourWheel()
-        self.angle_colour_note = QLabel(
-            "Continuous colour = initial polar angle about the bundle "
-            "centroid. Angle increases counter-clockwise from +X.\n\n"
-            "Colour tracks direction only; it does not represent ray "
-            "radius, energy, intensity or survival state.\n\n"
-            "At a selected detector, the greyscale underlay is the "
-            "peak-normalized forward PSF response; coloured dots remain "
-            "the original rays."
+        self.initial_beam_heading = QLabel("Initial beam direction")
+        self.initial_beam_heading.setStyleSheet(
+            "color: #e2e8f0; font-weight: 700;"
         )
-        self.angle_colour_note.setObjectName("initialDirectionColourNote")
-        self.angle_colour_note.setWordWrap(True)
-        self.angle_colour_note.setMaximumWidth(184)
-        self.angle_colour_note.setAlignment(
-            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
+        self.initial_beam_panel = QWidget()
+        self.initial_beam_panel.setObjectName("transverseInitialBeamPanel")
+        self.initial_beam_panel.setMaximumWidth(520)
+        self.initial_beam_panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
         )
-        self.angle_colour_note.setStyleSheet(
-            "color: #94a3b8; font-weight: 600;"
+        initial_beam_layout = QVBoxLayout(self.initial_beam_panel)
+        initial_beam_layout.setContentsMargins(4, 4, 4, 4)
+        initial_beam_layout.addWidget(self.initial_beam_heading)
+        initial_beam_layout.addWidget(
+            self.angle_colour_wheel,
+            0,
+            Qt.AlignmentFlag.AlignHCenter,
         )
-        legend_layout = QVBoxLayout()
-        legend_layout.setContentsMargins(0, 0, 0, 0)
-        legend_layout.addWidget(self.angle_colour_wheel, 0)
-        legend_layout.addWidget(self.angle_colour_note, 0)
-        legend_layout.addStretch(1)
 
-        plot_row = QHBoxLayout()
-        plot_row.addWidget(self.plot, 1)
-        plot_row.addLayout(legend_layout, 0)
+        self.section_beam_panel = QWidget()
+        self.section_beam_panel.setObjectName("transverseSectionBeamPanel")
+        self.section_beam_panel.setMaximumWidth(520)
+        self.section_beam_panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        section_beam_layout = QVBoxLayout(self.section_beam_panel)
+        section_beam_layout.setContentsMargins(4, 4, 4, 4)
+        heading_row.addWidget(self.fit_beam)
+        section_beam_layout.addLayout(heading_row)
+        section_beam_layout.addWidget(self.plot, 1)
+        section_beam_layout.addWidget(self.summary)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(heading_row)
-        layout.addLayout(action_row)
-        layout.addLayout(plot_row, 1)
-        layout.addWidget(self.summary)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(
+            self.initial_beam_panel,
+            0,
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
+        )
+        layout.addWidget(
+            self.section_beam_panel,
+            0,
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
+        )
+        layout.addStretch(1)
         self.fit_beam.clicked.connect(self.plot.autoRange)
 
     @staticmethod
@@ -3893,13 +3922,19 @@ class TransverseBeamView(QWidget):
         if not np.any(response.intensity > 0.0):
             return response
         x0, x1, y0, y1 = response.extent
+        extent_scale = self.MILLIMETRES_TO_DISPLAY
         image = pg.ImageItem()
         image.setImage(
             response.intensity.T,
             autoLevels=False,
             levels=(0.0, 1.0),
         )
-        image.setRect(QRectF(x0, y0, x1 - x0, y1 - y0))
+        image.setRect(QRectF(
+            x0 * extent_scale,
+            y0 * extent_scale,
+            (x1 - x0) * extent_scale,
+            (y1 - y0) * extent_scale,
+        ))
         image.setOpacity(0.62)
         image.setZValue(-20.0)
         image.setToolTip(
@@ -3965,8 +4000,8 @@ class TransverseBeamView(QWidget):
             )
             brushes.append(pg.mkBrush(colour))
         self._scatter = pg.ScatterPlotItem(
-            x=x_m[indices] * 1.0e3,
-            y=y_m[indices] * 1.0e3,
+            x=x_m[indices] * self.METRES_TO_DISPLAY,
+            y=y_m[indices] * self.METRES_TO_DISPLAY,
             size=5,
             pen=pg.mkPen(None),
             brush=brushes,
@@ -3990,7 +4025,7 @@ class TransverseBeamView(QWidget):
             float(np.degrees(np.angle(correlation)))
             if abs(correlation) > 1.0e-30 else float("nan")
         )
-        rms_radius_mm = 1.0e3 * float(np.sqrt(np.mean(
+        rms_radius_display = self.METRES_TO_DISPLAY * float(np.sqrt(np.mean(
             (x_m[indices] - np.mean(x_m[indices])) ** 2
             + (y_m[indices] - np.mean(y_m[indices])) ** 2
         )))
@@ -4017,7 +4052,7 @@ class TransverseBeamView(QWidget):
         self.heading.setText(f"Transverse beam X-Y at Z = {plane:.6g} mm")
         self.summary.setText(
             f"{branch.name} | {indices.size} surviving rays | "
-            f"RMS radius {rms_radius_mm:.6g} mm | "
+            f"RMS radius {rms_radius_display:.6g} {self.DISPLAY_UNIT} | "
             f"orientation relative to bundle start {rotation_text} | "
             "continuous colour identifies initial direction about the "
             "bundle centroid"
@@ -4418,6 +4453,7 @@ class MagneticFieldView(QWidget):
         self.legend = self.plot.addLegend(offset=(10, 10))
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(heading_row)
         layout.addLayout(action_row)
         layout.addWidget(self.plot, 1)
@@ -4429,6 +4465,15 @@ class MagneticFieldView(QWidget):
         self.plot.scene().sigMouseClicked.connect(
             self._plot_position_clicked
         )
+
+    def link_axial_axis(self, source_plot) -> None:
+        """Share the Ray Diagram's axial range and plotting boundaries."""
+
+        self.plot.getAxis("left").setWidth(
+            source_plot.getAxis("left").minimumWidth()
+        )
+        self.plot.getViewBox().disableAutoRange(axis=pg.ViewBox.XAxis)
+        self.plot.setXLink(source_plot)
 
     def _plot_position_clicked(self, event) -> None:
         if (
@@ -4512,7 +4557,11 @@ class MagneticFieldView(QWidget):
             self.legend.addItem(sample, record.formula_label)
             self._formula_samples.append(sample)
         self._add_rotation_markers(total)
-        self.plot.autoRange()
+        view_box = self.plot.getViewBox()
+        view_box.disableAutoRange()
+        view_box.enableAutoRange(axis=pg.ViewBox.YAxis, enable=True)
+        view_box.updateAutoRange()
+        view_box.disableAutoRange(axis=pg.ViewBox.YAxis)
         peak = float(np.max(np.abs(total))) if total.size else 0.0
         total_rotation_deg = sum(
             record.larmor_rotation_deg for record in self._records

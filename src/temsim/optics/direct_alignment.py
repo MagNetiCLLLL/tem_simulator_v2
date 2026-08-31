@@ -1379,16 +1379,6 @@ def _optimise_projector(
     return vector, iterations
 
 
-def _validate_condenser(
-    state,
-    definition: DirectAlignmentDefinition,
-    vector: np.ndarray,
-    step_mm: float,
-) -> DirectAlignmentMeasurement:
-    model = _CondenserMeasurementModel(state, step_mm=step_mm)
-    return _condenser_measurement(definition, model.measure(vector))
-
-
 def _validate_projector(
     state,
     definition: DirectAlignmentDefinition,

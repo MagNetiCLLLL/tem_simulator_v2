@@ -756,15 +756,6 @@ def create_objective_lens(sample_z_mm=None, sample_thickness_nm=None):
     return _component_from_manifest()
 
 
-def _field_terms(values, key, fallback):
-    return [
-        term
-        if isinstance(term, AxialFieldTerm)
-        else AxialFieldTerm(**term)
-        for term in values.get(key, fallback)
-    ]
-
-
 def objective_lens_from_dict(data, sample_z_mm=None, sample_thickness_nm=None):
     del sample_z_mm, sample_thickness_nm
     values = dict(data)

@@ -45,6 +45,9 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"temsim.gui" = ["assets/*.svg"]
+
 [tool.setuptools.data-files]
 "configs/instruments" = ["configs/instruments/catalog.toml"]
 "configs/instruments/column" = ["configs/instruments/column/*.toml"]

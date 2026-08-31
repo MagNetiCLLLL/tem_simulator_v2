@@ -15,7 +15,6 @@ import numpy as np
 from temsim.optics.direct_alignment import (
     DIFFRACTION_CAMERA_LENGTH,
     IMAGE_MAGNIFICATION,
-    PROJECTOR_KEYS as KEYS,
     DirectAlignmentResult as Result,
     apply_direct_alignment,
     diffraction_reference_plane,

@@ -19,7 +19,6 @@ from temsim.optics.energy_filter_sector import (
 from temsim.physics.relativistic_lorentz import (
     RelativisticPhaseSpace,
     boris_step,
-    kinetic_energy_ev_from_momentum,
     momentum_from_kinetic_energy_ev,
     velocity_from_momentum_m_per_s,
 )

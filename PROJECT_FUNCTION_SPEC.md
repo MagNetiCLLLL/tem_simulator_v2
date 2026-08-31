@@ -120,7 +120,10 @@ TEM Simulator v2 的目标不是复制某一台现有仪器的固定操作档位
 | UR-020 | EDS 的实体 Physical Layout 示意必须与 Objective pole-piece 轮廓无材料重叠，但不得为了适配未知 detector 外壳而擅改磁极形状或伪造产品尺寸。 | 已实现，保持证据边界 | EDS solid polygon 由解析磁极最大外半径加 1 mm display-only separation 定位；测试检查全部 active-face/housing 顶点，真实 3D clearance/shadowing 待横截面 |
 | UR-021 | 核查 Titan 中 P2 到 HAADF 及后续探测器的合理距离；Physical Layout 应显示独立 viewing/detector chamber，并把相对拓扑证据与绝对暂定尺寸分开。 | 已实现非 OEM 机械阶段 | 两套 recording TOML 的 `post_projector_detector_chamber`、manifest 包含/边界验证、Physical Layout chamber；保留全部 active plane 和 preset |
 | UR-022 | 在 P2 与 projection chamber 的边界加入独立 differential-pumping aperture；使用正确名称并与 Iliad spectrometer entrance aperture 分离。新增机械配件时不受当前光学共轭约束阻止，也不自动计算 preset 透镜强度。 | 已实现机械阶段，光学耦合待显式需求 | 两套 recording TOML 的 `projection_chamber_dpa_aperture`、manifest 边界/证据验证、Physical Layout；0.2 mm 仅为 Tecnai/Talos 系列参考，Titan 尺寸未确认；无 clipping/optical reference/preset 重算 |
-| UR-023 | 引入通用 EDS 信号模拟：支持 3.05 mm 圆形 Cu/Au 商业方孔网和真空虚拟支架、不同 mesh 数；样品与支架中的 primary 及弹性散射后电子均可产生 X-ray，元素/壳层产额必须来自物理截面和原子数据库。 | 已实现弹性轨迹与特征线阶段 | `specimen/elastic_transport.py` 在有限样品、连续方孔/侧壁、网杆、rim 中按指数自由程逐事件生成 3-D 路径，默认 32 条 seeded 轨迹并保留 straight reference；`detector/eds_atomic.py` 与 `detector/eds_signal.py` 计算 Bote–Salvat K/L/M 特征线、自吸收、立体角、理想效率与 Poisson。当前 screened-Rutherford 对 Z>30 仅为暂定近似；bremsstrahlung、电子减速、跨层吸收、vacancy cascade、secondary fluorescence、ELSEPA 和晶体 channeling 尚未实现。 |
+| UR-023 | 引入通用 EDS 信号模拟：支持 3.05 mm 圆形 Cu/Au 商业方孔网和真空虚拟支架、不同 mesh 数；样品与支架中的 primary 及弹性散射后电子均可产生 X-ray，元素/壳层产额必须来自物理截面和原子数据库。 | 已实现弹性轨迹与特征线阶段 | `specimen/elastic_transport.py` 在有限样品、连续方孔/侧壁、网杆、rim 中按指数自由程逐事件生成 3-D 路径；历史数严格等于本次 column calculation 中实际到达 physical sample plane 的射线数，不再单独输入。每条射线的 X/Y、入射 tx/ty（含旋转）、能量偏移和权重均进入输运，并保留 straight reference。`detector/eds_atomic.py` 与 `detector/eds_signal.py` 计算 Bote–Salvat K/L/M 特征线、自吸收、立体角、理想效率与 Poisson。当前 screened-Rutherford 对 Z>30 仅为暂定近似；bremsstrahlung、电子减速、跨层吸收、vacancy cascade、secondary fluorescence、ELSEPA 和晶体 channeling 尚未实现。 |
+| UR-024 | Scanning Image 必须允许暂停图像刷新；暂停时固定显示上一幅完整 frame，而不是当前半幅 raster。扫描时钟和 Ray Diagram 播放继续运行。 | 已实现 | `gui/scan_panel.py` 的 `stemPauseImageRefresh`、独立 paused-display frame 缓存及回归测试 |
+| UR-025 | `Mode` 是样品结构来源的唯一开关：Real sample 只能导入 CIF/MCIF；Silicon [110] 等理想 TOML reference sample 必须属于 Virtual sample。不得在 Real 区域重复提供 TOML/CIF 来源选择。 | 已实现 | `Sample.specimen_mode`、`specimen/source.py`、Sample 模式专属控件、schema/profile 迁移与验证 |
+| UR-026 | 深色主题中的所有 checkbox 必须具有清楚可辨的选中状态，不能因系统默认 indicator 与背景颜色接近而难以识别。 | 已实现 | `app.APPLICATION_STYLE` 全局 indicator 样式；SVG 分别覆盖未选中、选中、半选、hover 和 disabled 状态 |
 
 ## 3. 系统范围与总体结构
 
@@ -237,18 +240,21 @@ View：
 
 ## 5. 主界面页面
 
-中央工作区包含十个页面：
+中央工作区包含九个顶层页面：
 
 1. `Ray Diagram`
-2. `Sample`
-3. `Physical Layout`
-4. `Magnetic Field`
-5. `Aberrations`
-6. `Optical Transfer`
-7. `Energy Filter`
-8. `Transverse X-Y`
-9. `STEM`
-10. `TEM Wave Image`
+2. `Physical Layout`
+3. `Energy Filter`
+4. `Transverse X-Y`
+5. `Sample`
+6. `EDS`
+7. `Scanning Image`
+8. `Illuminating Image`
+9. `Optical Transfer`
+
+`Magnetic Field` 是 `Ray Diagram` 下方可开关面板，不再占用顶层页。`Scanning Image` 使用固定水平左右分栏：左栏标签为 `Scanning Parameters` 与 `Probe Aberrations`，右栏标签为 `Geometry` 与 `Images`；不得把已经包含 Geometry/Images 的完整 ScanControlView 再嵌入 Scanning Parameters。`Illuminating Image` 内含成像结果与 `Image Aberrations` 子页。Optical Transfer 列表固定排在 Illuminating Image 之后。
+
+全局深色主题必须使用高对比 checkbox indicator：未选中是白边深色框，选中是青蓝底白色勾，半选是紫色底白色横线；hover 与 disabled 使用各自独立状态，不能依赖低对比的操作系统默认图形。
 
 左侧 instrument dock 包含：
 
@@ -403,25 +409,35 @@ View：
 
 ### 10.1 Finite sample envelope
 
-- 控制 inserted/retracted、mode、size X/Y、thickness、sample centre X/Y 和 scan origin X/Y。
+- 控制 inserted/retracted、mode、envelope shape、size/diameter、thickness、sample centre X/Y 和 scan origin X/Y。
+- 新建状态的默认样品是 Virtual `Silicon [110]`：直径 3 mm 的圆片、厚度 10 nm，zone axis `[110] -> +Z`，面内 `[1 -1 0] -> +X`（与预设横向晶胞轴一致）。3 mm 宏观包络不替代独立的 wave calculation FOV，因此不会为整张圆片构造原子超胞。
+- `disk` 圆边界真实参与直线路径、弹性 Monte Carlo、EDS、Virtual density 和 wave potential 的有限包络裁剪；不是把 3 mm 写入方形 X/Y 后仅改变标签。GUI 的单个 Diameter 控件同步 X/Y；需要设计型样品时仍可选择 Rectangle。
 - Sample Z 由活动 instrument TOML 决定。
 - Retracted 时仍保留 sample Z 作为 probe reference plane，但 sample interaction thickness 为零。
 - Retracted 时不访问 dormant/invalid CIF，也不执行 diffraction、inelastic 或 atomistic interaction。
-- Sample snapshot 同时携带 finite box、scan FOV、calculation ROI、probe、orientation 和 Virtual regions。
+- Sample snapshot 同时携带 finite disk/box、scan FOV、calculation ROI、probe、orientation 和 Virtual regions。
 
 ### 10.2 Real sample 结构与方向
 
-- 可选择 specimen TOML preset 或导入 CIF/MCIF。
-- 当前 preset：Vacuum、Silicon [110]、Gold [001]、Amorphous carbon (model)。
+- Real sample 只显示并使用 `Imported CIF / MCIF`，没有 TOML preset 或第二个 structure-source 控件。
+- 未选择 CIF/MCIF 时，Real sample 保留光学 sample reference plane，但样品波动、EDS 和非弹性材料交互不可用；不得回退到 Virtual preset。
+- 旧 profile/state 的 retired source 若为 CIF，迁移为 Real；若为 preset，迁移为 Virtual。
 - 一个规范化 `(w,x,y,z)` quaternion 是唯一物理方向状态。
 - Zone axis `[uvw]`映射到实验室 `+Z`，独立 non-collinear in-plane direction 映射到 `+X`。
 - 支持 zone-axis 对准、XYZ incremental tilt 和显式 mouse-drag draft orientation。
 - 默认 mouse drag 只旋转观察相机；只有启用 physical edit 后才修改 draft，且必须 Apply 才影响计算。
 
+### 10.2.1 Virtual reference sample
+
+- TOML reference sample 只位于 Virtual sample：Vacuum、Silicon [110]、Gold [001]、Amorphous carbon (model)。
+- 选中的 reference 为 high-accuracy TEM/STEM wave 与 EDS 提供理想结构/材料；Virtual Ray Diagram 的用户定义 angular channels 仍是独立的理想化概率模型，不伪称由 TOML 晶体自动推导。
+- 用户定义 angular channels 默认关闭并显式 opt-in，避免把 reference crystal 与人工概率表混为一体，也避免默认高精度任务为未请求的方位采样分配大量 ray history。
+- `specimen_preset_key` 与 `cif_path` 可作为切换模式时的休眠设置保留，但物理计算只能读取当前 mode 所拥有的一个来源。
+
 ### 10.3 Sample 结构显示
 
 - 支持 PyQtGraph OpenGL/PyOpenGL 3-D 显示；不支持时使用安全 2-D ball-stick 投影。
-- 显示 finite sample box、cell、atoms、bonds、`+Z` beam、scan FOV 和 calculation ROI。
+- 显示 finite sample disk/box、cell、atoms、bonds、`+Z` beam、scan FOV 和 calculation ROI。
 - ASE covalent neighbours 生成 bonds，ASE/Jmol colours 和缩小 covalent radii 生成 element balls。
 - 旁置 legend列出当前显示元素。
 - 默认 2,500 atom soft rendering limit只裁剪显示窗口，不改变 multislice ROI。
@@ -433,7 +449,7 @@ View：
 - Real sample 不允许人工 `+g/-g`、diffuse ring 或其他用户自定义 diffraction ray branches。
 - Real coherent elastic diffraction/scattering 只属于 high-accuracy wave/multislice。
 - Real ray branches只表示材料导出的 energy-loss populations及有效 removal。
-- Virtual sample 不调用真实样品 IAM/multislice diffraction；其 angular channels完全来自用户表。
+- Virtual sample 的 Ray Diagram angular channels 完全来自用户表；启用 high-accuracy wave 时，TEM/STEM 图像可独立使用所选 TOML reference 的 IAM/multislice，二者不得混称为同一个散射模型。
 - 旧 profile 中遗留的 Real qualitative diffraction 字段可继续 round-trip，但不得影响 Real ray calculation。
 
 ## 11. Real sample 非弹性输运
@@ -620,7 +636,7 @@ sum(P_tracked_channel) + P_absorbed = 1
 
 ### 15.1 TEM Wave Image 的作用
 
-- 只在 Real sample、Microprobe (TEM)、启用 `TEM image / diffraction`且运行 High accuracy时计算。
+- 在存在活动结构来源（Real CIF/MCIF 或 Virtual TOML reference）、Microprobe (TEM)、启用 `TEM image / diffraction`且运行 High accuracy时计算。
 - 左图是 specimen-to-Objective CTF的局部 TEM image，显示时做 percentile clipping和 `[0,1]`归一化。
 - 右图是 exit-wave diffraction intensity的 log display。
 - 它不是最终 projector/camera plane，也不包含 curved Energy Filter branch。
@@ -710,6 +726,7 @@ sum(P_tracked_channel) + P_absorbed = 1
 - 每次计算只生成一幅完整frame并缓存。
 - AC Scan启用时，GUI timer只按frame period逐行播放缓存，不反复运行物理计算。
 - 停止scan后保留最后完整frame。
+- `Pause refresh`只冻结HAADF/DF/BF图像刷新，并固定显示上一幅完整frame；不得冻结在半幅raster。扫描时钟与Ray Diagram playback继续运行，恢复刷新后显示当前frame进度。
 - Ray Diagram复用缓存的AC/Descan basis，随frame time移动scan position；用户仍可旋转view angle而不重算column。
 
 ## 17. Energy Filter
@@ -766,8 +783,9 @@ sum(P_tracked_channel) + P_absorbed = 1
 - Callout移动只改变显示，不改变TOML geometry。
 - 点击名称、marker或body可定位到对应Optical/Mechanical编辑器。
 
-### 18.2 Magnetic Field
+### 18.2 Magnetic Field（Ray Diagram 内嵌可开关面板）
 
+- Ray Diagram 主图、Selected-plane interaction budget 和 Magnetic Field 使用纵向 splitter；两个高对比度水平手柄均可拖动。首次显示以 Ray Diagram 为主要空间，开关 Magnetic Field 后保留用户本次调整的相对高度。
 - 绘制solver-identical total Bz和每个lens Bz。
 - 支持显示/隐藏individual lens curve和rotation labels。
 - Tooltip报告peak、excitation、formula、signed integral、polarity/status/source、single-lens和cumulative Larmor rotation。
@@ -785,11 +803,22 @@ sum(P_tracked_channel) + P_absorbed = 1
 - 结果保留完整signed 2x2 map，不用单一绝对X系数推断rotation或handedness。
 - Camera detector axes当前为`uncalibrated_identity` placeholder，不能据此声称绝对crystal orientation。
 
-### 18.4 TEM Wave Image
+### 18.4 Illuminating Image
 
 - 显示Objective CTF image与exit-wave diffraction。
 - Summary包含preset、model、slice count、potential model、configuration count、thermal sigma、backend、FOV、pixel和surviving rays。
 - Warning覆盖sampling truncation、intensity conservation、CUDA fallback、atomistic fallback和frozen-phonon uncertainty。
+
+### 18.5 EDS
+
+- EDS 是 Sample 右侧的独立顶层页；Sample 页只负责样品结构、包络、取向和相互作用模型。
+- 三维弹性 Monte Carlo 使用本次 column calculation 实际存活到 sample plane 的完整 ray bundle，不提供独立轨迹数输入。
+- 样品面 X/Y、tx/ty、累积旋转、energy offset 和 source-current weight 均参与输运；上游 survival fraction 只作用一次。
+- GUI 用同一批三维历史的 U-Z/V-Z 正交投影展示轨迹和碰撞；`U=X cosφ+Y sinφ`，`V=-X sinφ+Y cosφ`。φ 与 Ray Diagram 双向同步，旋转仅重投影已保存的 X/Y，不重跑输运。EDS spectrum/line list 位于单独子页。
+- EDS 仍由 `Calculate point EDS` 显式触发；单个机械参数修改不得自动重算 EDS 或 preset lens strength。
+- EDS 页另有 `Run sample-region high accuracy` 手动按钮。入口平面读取本次整柱计算缓存的上游相空间；样品/支架内部只运行有限几何弹性输运和 EDS；前向终态电子在 sample reference 重新注入真实 Objective/下游透镜、aperture、recording plane 与 column wall 传播，出口平面保存为显式交接诊断。相关参数变化必须使旧结果失效，不得自动运行。
+- 主 Ray Diagram 用独立颜色叠加样品区 primary、backscatter、screened-Rutherford 弹性事件、零权重定性 secondary marker、生成的 characteristic X-ray 和进入 EDS 角接受的 X-ray。X-ray 方向按球面均匀抽样；因 active face/distance 未公开，只能使用与已知 aggregate solid angle 面积严格相同的角接受 surrogate，路径显示端点不得伪称 sensor intersection。
+- Rutherford 是当前 elastic scattering provider，不是与 elastic 并列的独立粒子类别；channeling 属于 coherent multislice/wave，不能作为随机截面再次加入或与 MC 尾部重复计数。
 
 ## 19. 计算后端、性能和失败策略
 
@@ -836,7 +865,7 @@ sum(P_tracked_channel) + P_absorbed = 1
 - High-accuracy STEM对tracked inelastic populations复用zero-loss coherent angular distribution。
 - Screened Rutherford不是full Mott elastic scattering。
 - 当前 EDS 弹性轨迹按 bulk density/mass fraction 处理为 independent-atom、amorphous-style transport；没有晶体 channeling/coherent diffraction，也没有从 multislice wave 提取经典路径。
-- 当前 EDS 初始电子是沿 laboratory `+Z` 的单点平行束；尚未采样 probe convergence、source size 或像差相空间。弹性碰撞不改变 kinetic energy，也没有 nuclear recoil 或 inelastic angular kick。
+- 当前 EDS 初始电子来自 physical sample plane 的 geometrical ray phase space，包含 source sampling、probe convergence、X/Y tilt/rotation、energy offset 与权重；它不把 coherent aberrated probe wave 或晶体 channeling强行解释成唯一经典路径。弹性碰撞不改变单条历史的 kinetic energy，也没有 nuclear recoil 或 inelastic angular kick。
 - Amorphous carbon inelastic preset是density-scaled approximate model，不代表所有carbon film。
 - Current atomistic potential是neutral-atom IAM。
 - TEM Wave Image只到Objective CTF，不是最终camera image。
@@ -889,7 +918,7 @@ sum(P_tracked_channel) + P_absorbed = 1
 | STEM wave/CUDA | `physics/stem_wave_imaging.py`, `physics/stem_cuda_pipeline.py`, `physics/cuda_multislice_plan.py` |
 | STEM signal | `detector/stem_signal.py`, `gui/scan_panel.py` |
 | Recording devices | `detector/*` |
-| Energy Filter | `optics/energy_filter*.py`, `detector/eels_camera.py` |
+| Energy Filter | `optics/energy_filter*.py`, `optics/energy_filter_detector.py` |
 | 所有中央可视化 | `gui/visualization.py`, `gui/diagnostic_tabs.py` |
 | 统一计算结果 | `simulation_pipeline.py` |
 
@@ -912,7 +941,9 @@ sum(P_tracked_channel) + P_absorbed = 1
 
 ### 24.2 最近验证
 
+- 2026-08-31 Scanning Image pause-refresh 与 Real-sample 来源互斥完成后，分组离屏回归共 `196 passed`：41 项 scan/sample/profile/aberration、41 项完整 GUI shell、114 项 specimen/wave/EDS/core。既有 16 ms projection timer 测试单独通过；一次组合重负载运行超过其 1 s Qt event-loop timeout，未修改阈值。`compileall` 与 `git diff --check` 通过。
 - 2026-08-31 弹性轨迹阶段新增/更新的截面、CDF、几何、输运、EDS、profile 与 GUI 定向测试全部通过。随后运行非 Nanoprobe 重标定全套：`405 passed, 1 skipped, 6 deselected`，零失败；六个 deselection 仍是按用户要求不重算的两组 C2/C3 Nanoprobe 标定 family。`compileall`、`main.py` import smoke、`pip check` 与 `git diff --check` 通过。
+- 2026-08-31 样品面 ray-bundle EDS 与 GUI 重排完成后，最终非重标定全套为 `408 passed, 1 skipped, 6 deselected`，零失败；6 个 deselection 仍为同两组 Nanoprobe C2/C3 live-solve family。定向 EDS/profile/GUI 测试、串行 `compileall`、`pip check`、offscreen `MainWindow` 启动及精确主标签顺序 smoke、`git diff --check` 均通过。
 - 2026-08-30 projection-chamber DPA 机械实现完成后共收集 386 项测试；按“不为机械修改重算光路”的要求，运行非 Nanoprobe 重标定集合，合计 `379 passed, 1 skipped, 6 deselected`。六个隔离参数点未重跑；其最近一次结果仍为 `2 passed, 4 failed`。
 - 四个已知失败均属于 C2 长度/场标定和 aperture 位置改变后、按用户要求尚未重算的 Nanoprobe live-solve 参数点：100 µm→30 mrad、200 µm→60 mrad、60 µm→18 mrad、140 µm→42 mrad。本次 EDS 机械修改不改写这些 preset 或 warm starts。
 - Ultra-X 五种 column TOML、证据边界、角接受派生量、Physical Layout、窄窗口和“非轴向真空壁/非光学组件”测试全部通过。
@@ -968,3 +999,7 @@ sum(P_tracked_channel) + P_absorbed = 1
 | 2026-08-30 | 在 P2/projection-chamber 边界加入独立 differential-pumping aperture，并明确机械新增不受当前光学约束阻止。 | 新增 UR-022；两套 recording TOML 和 Physical Layout 使用 `projection_chamber_dpa_aperture`，与 Iliad entrance aperture 分离。0.2 mm 只标记为 Tecnai/Talos 系列参考；无 ray clipping、optical reference 或 preset 重算。 |
 | 2026-08-30 | 开始引入通用 EDS 信号系统，并取消新系统的 Ultra-X 品牌标记。 | 修订 UR-019/UR-020，新增 UR-023；几何定义改为 `EDS.toml`、所有用户界面和结果使用 EDS。加入 Cu/Au/真空支架与 50–500 mesh catalog、Bote–Salvat K/L/M 电离、xraylib 直接空位弛豫、特征线/自吸收/立体角/Poisson 点谱；弹性轨迹生成与连续谱仍明确待实现。 |
 | 2026-08-31 | 将 EDS 下一阶段重点转为真实弹性散射轨迹。 | 新增有限样品/连续方孔网几何中的事件驱动 3-D Monte Carlo、指数自由程、元素散射体抽样、屏蔽 Rutherford 偏转、可复现 seed、终态/截断统计、EDS 路径汇总及 X-Z 代表轨迹图。保留 straight reference；明确 Z>30/ELSEPA、晶体 channeling、能损与连续谱边界；未重算任何 preset 透镜强度。 |
+| 2026-08-31 | 让 EDS 使用真实样品面 ray bundle，并重组中央图像/诊断页。 | 移除 EDS 独立轨迹数；每条到达 sample plane 的射线携带 X/Y、tx/ty、旋转、能量与权重进入三维输运。EDS 从 Sample 拆为右侧独立页并显示 X-Z/Y-Z 投影和 spectrum。主标签重排为 Ray Diagram、Physical Layout、Energy Filter、Transverse X-Y、Sample、EDS、Scanning Image、Illuminating Image、Optical Transfer；Magnetic Field 内嵌可开关，probe/image aberrations 分别进入对应图像子页。未重算任何 preset 透镜强度。 |
+| 2026-08-31 | 加入手动样品局部高精度边界、X-ray 路径和下游电子交接。 | EDS 页增加入口/出口平面与手动运行按钮；材料 MC 返回真实 flight 与所有 terminal electron state，前向电子重新进入真实下游 column propagation。Ray Diagram 叠加球面均匀 characteristic X-ray、exact-aggregate-solid-angle 角接受、elastic/Rutherford/backscatter 和零权重 secondary marker；channeling 继续由 wave/multislice 独占，未伪造独立随机路径。未重算任何 preset 透镜强度。 |
+| 2026-08-31 | 将默认样品设为 3 mm disk、10 nm 厚的 Si `[110]`。 | 新状态显式选择 Virtual Silicon `[110]`、`[1 -1 0]` 面内方向和 3,000,000 nm 圆片直径；圆边界统一进入显示、Virtual density、wave 裁剪、直线 EDS 与弹性 Monte Carlo 侧壁求交。旧 schema 无 shape 的状态按原矩形语义迁移；未重算任何 preset 透镜强度。 |
+| 2026-08-31 | 允许调整 Ray Diagram 内部各栏目高度。 | 主 ray panel、selected-plane interaction budget 与可开关 Magnetic Field 改为三段纵向 splitter；主 ray 默认占最大比例，手柄使用深色主题高对比样式，隐藏并重新打开 Magnetic Field 时保留用户调整。未改变 ray、field 或 lens 计算。 |

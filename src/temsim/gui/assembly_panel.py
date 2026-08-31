@@ -403,7 +403,7 @@ class AssemblyPanel(QWidget):
 
     def _optical_category_for_key(self, key: str) -> str | None:
         if key == "energy_filter" or key in ENERGY_FILTER_INTERNAL_KEYS:
-            return "energy_filter"
+            return None
         if key in {"simulation", "electron_gun"}:
             return "other"
         if self._assembly is None:

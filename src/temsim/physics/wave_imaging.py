@@ -37,12 +37,21 @@ from temsim.specimen.atomistic import (
 )
 from temsim.specimen.presets import (
     SpecimenPreset,
-    default_specimen_preset_key,
     load_specimen_preset,
+)
+from temsim.specimen.source import (
+    active_cif_path,
+    specimen_structure_available,
+    wave_template_preset_key,
 )
 from temsim.specimen.geometry import (
     quaternion_to_matrix,
     sample_orientation_quaternion,
+)
+from temsim.specimen.envelope import (
+    envelope_intersects_bounds,
+    sample_envelope_contains_xy,
+    sample_envelope_shape,
 )
 
 
@@ -87,16 +96,15 @@ _COMPLEX_EXIT_WAVE_BYTES_PER_PIXEL = np.dtype(np.complex128).itemsize
 def tem_wave_imaging_enabled(state) -> bool:
     """Return whether this state requests the local TEM wave observable.
 
-    The separate STEM wave path owns raster detector images.  Virtual samples
-    have explicit ray/detector interaction channels and do not define a
-    specimen potential for this TEM image-forming calculation.
+    The separate STEM wave path owns raster detector images. Real mode obtains
+    its potential only from an imported CIF/MCIF; Virtual mode obtains it only
+    from the selected TOML reference specimen.
     """
 
     return bool(
         getattr(state.sample, "wave_enabled", False)
         and str(getattr(state, "illumination_mode", "TEM")).upper() == "TEM"
-        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
-        == "atomic"
+        and specimen_structure_available(state.sample)
         and bool(getattr(getattr(state, "camera", None), "inserted", True))
     )
 
@@ -114,13 +122,9 @@ def estimate_tem_wave_memory_bytes(state) -> int:
         return 0
 
     sample = state.sample
-    preset_key = (
-        (
-            str(getattr(sample, "specimen_preset_key", "")).strip()
-            or default_specimen_preset_key()
-        )
-        if bool(getattr(sample, "inserted", True))
-        else "vacuum"
+    preset_key = wave_template_preset_key(
+        sample,
+        inserted=bool(getattr(sample, "inserted", True)),
     )
     preset = load_specimen_preset(preset_key)
     pixels_override = int(getattr(sample, "wave_grid_pixels", 0))
@@ -140,7 +144,7 @@ def estimate_tem_wave_memory_bytes(state) -> int:
         getattr(sample, "wave_atomistic_enabled", True)
     )
     atomistic_source_available = bool(
-        str(getattr(sample, "cif_path", "")).strip()
+        active_cif_path(sample)
         or preset.atomistic is not None
     )
     atomistic_applies = bool(
@@ -195,8 +199,7 @@ def effective_sample_thickness_nm(state) -> float:
 
     if (
         not bool(getattr(state.sample, "inserted", True))
-        or str(getattr(state.sample, "specimen_mode", "atomic")).lower()
-        != "atomic"
+        or not specimen_structure_available(state.sample)
     ):
         return 0.0
     return max(float(state.sample.thickness_nm), 0.0)
@@ -279,12 +282,10 @@ def prepare_specimen_potentials(
     atomistic_requested = bool(
         getattr(state.sample, "wave_atomistic_enabled", True)
     )
-    configured_cif_path = str(
-        getattr(state.sample, "cif_path", "")
-    ).strip()
-    # A parked holder, virtual specimen, or zero-thickness specimen is an
-    # interaction-free reference plane.  Dormant CIF settings must therefore
-    # neither load a file nor make a vacuum calculation fail validation.
+    configured_cif_path = active_cif_path(state.sample)
+    # A parked holder, missing active structure, or zero-thickness specimen is
+    # an interaction-free reference plane. Dormant CIF settings must neither
+    # load a file nor make a Virtual-reference calculation fail validation.
     cif_path = configured_cif_path if thickness_nm > 0.0 else ""
     rotation_deg_xyz = (
         float(getattr(state.sample, "specimen_rotation_x_deg", 0.0)),
@@ -312,26 +313,17 @@ def prepare_specimen_potentials(
         )
 
     if calculation_roi_bounds_nm is not None and total_thickness > 0.0:
-        roi_x0, roi_x1, roi_y0, roi_y1 = (
-            float(value) for value in calculation_roi_bounds_nm
-        )
-        sample_x0 = float(getattr(state.sample, "centre_x_nm", 0.0)) - 0.5 * float(
-            getattr(state.sample, "size_x_nm", 0.0)
-        )
-        sample_x1 = float(getattr(state.sample, "centre_x_nm", 0.0)) + 0.5 * float(
-            getattr(state.sample, "size_x_nm", 0.0)
-        )
-        sample_y0 = float(getattr(state.sample, "centre_y_nm", 0.0)) - 0.5 * float(
-            getattr(state.sample, "size_y_nm", 0.0)
-        )
-        sample_y1 = float(getattr(state.sample, "centre_y_nm", 0.0)) + 0.5 * float(
-            getattr(state.sample, "size_y_nm", 0.0)
-        )
-        overlaps = not (
-            roi_x1 < sample_x0
-            or roi_x0 > sample_x1
-            or roi_y1 < sample_y0
-            or roi_y0 > sample_y1
+        overlaps = envelope_intersects_bounds(
+            sample_envelope_shape(state.sample),
+            tuple(float(value) for value in calculation_roi_bounds_nm),
+            centre_xy_nm=(
+                float(getattr(state.sample, "centre_x_nm", 0.0)),
+                float(getattr(state.sample, "centre_y_nm", 0.0)),
+            ),
+            size_xy_nm=(
+                float(getattr(state.sample, "size_x_nm", 0.0)),
+                float(getattr(state.sample, "size_y_nm", 0.0)),
+            ),
         )
         if not overlaps:
             spacing = requested_fov / pixels
@@ -360,6 +352,9 @@ def prepare_specimen_potentials(
                         float(getattr(state.sample, "size_x_nm", 0.0)),
                         float(getattr(state.sample, "size_y_nm", 0.0)),
                         thickness_nm,
+                    ),
+                    "finite_specimen_shape": sample_envelope_shape(
+                        state.sample
                     ),
                     "specimen_orientation_quaternion_wxyz": (
                         orientation_quaternion
@@ -430,14 +425,29 @@ def prepare_specimen_potentials(
             ny, nx = ensemble.grid_shape_yx
             x_axis = (np.arange(nx, dtype=float) - nx // 2) * spacing_x
             y_axis = (np.arange(ny, dtype=float) - ny // 2) * spacing_y
+            configurations = ensemble.configurations_v_angstrom
+            mean_projected = ensemble.mean_projected_potential_v_angstrom
+            if calculation_roi_bounds_nm is not None:
+                lab_x_nm = x_axis * 0.1 + roi_centre_nm[0]
+                lab_y_nm = y_axis * 0.1 + roi_centre_nm[1]
+                finite_mask = sample_envelope_contains_xy(
+                    state.sample,
+                    lab_x_nm[None, :],
+                    lab_y_nm[:, None],
+                )
+                configurations = tuple(
+                    np.asarray(configuration) * finite_mask[None, :, :]
+                    for configuration in configurations
+                )
+                mean_projected = np.asarray(mean_projected) * finite_mask
             return PreparedSpecimen(
                 x_angstrom=x_axis,
                 y_angstrom=y_axis,
                 potential_configurations_v_angstrom=(
-                    ensemble.configurations_v_angstrom
+                    configurations
                 ),
                 mean_projected_potential_v_angstrom=(
-                    ensemble.mean_projected_potential_v_angstrom
+                    mean_projected
                 ),
                 slice_thicknesses_angstrom=(
                     ensemble.slice_thicknesses_angstrom
@@ -478,6 +488,9 @@ def prepare_specimen_potentials(
                         float(getattr(state.sample, "size_x_nm", 0.0)),
                         float(getattr(state.sample, "size_y_nm", 0.0)),
                         thickness_nm,
+                    ),
+                    "finite_specimen_shape": sample_envelope_shape(
+                        state.sample
                     ),
                     "lateral_cell_commensurate": (
                         ensemble.lateral_cell_commensurate
@@ -520,13 +533,12 @@ def prepare_specimen_potentials(
     if calculation_roi_bounds_nm is not None and thickness_nm > 0.0:
         lab_x_nm = x_axis * 0.1 + roi_centre_nm[0]
         lab_y_nm = y_axis * 0.1 + roi_centre_nm[1]
-        inside_x = np.abs(
-            lab_x_nm - float(getattr(state.sample, "centre_x_nm", 0.0))
-        ) <= 0.5 * float(getattr(state.sample, "size_x_nm", 0.0))
-        inside_y = np.abs(
-            lab_y_nm - float(getattr(state.sample, "centre_y_nm", 0.0))
-        ) <= 0.5 * float(getattr(state.sample, "size_y_nm", 0.0))
-        potential = potential * (inside_y[:, None] & inside_x[None, :])
+        finite_mask = sample_envelope_contains_xy(
+            state.sample,
+            lab_x_nm[None, :],
+            lab_y_nm[:, None],
+        )
+        potential = potential * finite_mask
     return PreparedSpecimen(
         x_angstrom=x_axis,
         y_angstrom=y_axis,
@@ -565,6 +577,7 @@ def prepare_specimen_potentials(
                 float(getattr(state.sample, "size_y_nm", 0.0)),
                 thickness_nm,
             ),
+            "finite_specimen_shape": sample_envelope_shape(state.sample),
             "specimen_orientation_quaternion_wxyz": orientation_quaternion,
             "requested_thickness_mismatch_angstrom": 0.0,
             "requested_thickness_angstrom": total_thickness,
@@ -726,35 +739,14 @@ def _objective_aperture_rad(state) -> float:
     return max(float(aperture.radius_mm), 0.0) / distance_mm
 
 
-def _objective_defocus_angstrom(state) -> tuple[float, float]:
-    objective = state.objective_lens
-    current_focal_mm = float(
-        objective.focal_length_for_voltage_mm(state.beam_voltage_kv)
-    )
-    nominal_focal_mm = float(objective.nominal_focal_length_mm)
-    user_defocus_nm = float(getattr(state.sample, "wave_defocus_nm", 0.0))
-    # A changed Objective excitation changes its focal length.  Referencing the
-    # phase plate to the TOML nominal calibration makes this visible directly.
-    if not math.isfinite(current_focal_mm):
-        return math.inf, current_focal_mm
-    defocus_angstrom = user_defocus_nm * 10.0 + (current_focal_mm - nominal_focal_mm) * 1.0e7
-    return defocus_angstrom, current_focal_mm
-
-
 def simulate_wave_image(state, simulation) -> WaveImagingResult:
     sample_inserted = bool(getattr(state.sample, "inserted", True))
-    atomic_interaction = (
-        sample_inserted
-        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
-        == "atomic"
+    specimen_interaction = bool(
+        sample_inserted and specimen_structure_available(state.sample)
     )
-    preset_key = (
-        (
-            str(state.sample.specimen_preset_key).strip()
-            or default_specimen_preset_key()
-        )
-        if atomic_interaction
-        else "vacuum"
+    preset_key = wave_template_preset_key(
+        state.sample,
+        inserted=sample_inserted,
     )
     preset = load_specimen_preset(preset_key)
     prepared = prepare_specimen_potentials(state, preset)
@@ -933,7 +925,7 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
 
     specimen_metrics.update(prepared.metrics)
     specimen_metrics["sample_inserted"] = sample_inserted
-    specimen_metrics["sample_interaction_applied"] = atomic_interaction
+    specimen_metrics["sample_interaction_applied"] = specimen_interaction
 
     objective = state.objective_lens
     focal_mm = float(

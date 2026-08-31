@@ -21,6 +21,7 @@ from temsim.specimen.geometry import (
     sample_orientation_quaternion,
     set_sample_orientation,
 )
+from temsim.specimen.source import migrate_legacy_structure_source
 
 
 PROFILE_FORMAT_VERSION = 2
@@ -173,6 +174,10 @@ def apply_profile_values(state, values: dict) -> list[str]:
     targets = runtime_targets(state)
     skipped = []
     pending = []
+    legacy_sample_source = ""
+    sample_mode_was_explicit = False
+    sample_cif_was_explicit = False
+    sample_preset_was_explicit = False
     for key, attributes in values.items():
         target = targets.get(key)
         if target is None:
@@ -182,6 +187,26 @@ def apply_profile_values(state, values: dict) -> list[str]:
             raise ValueError(f"Operating profile device {key} must be a table")
         allowed = {parameter.name for parameter in editable_parameters(target)}
         for name, value in attributes.items():
+            if key == "sample" and name == "atomic_structure_source":
+                legacy_sample_source = str(value).strip().lower()
+                if legacy_sample_source not in {"preset", "cif"}:
+                    raise ValueError(
+                        "Legacy sample.atomic_structure_source must be "
+                        "preset or cif"
+                    )
+                continue
+            if key == "sample" and name == "specimen_mode":
+                sample_mode_was_explicit = True
+            if key == "sample" and name == "cif_path":
+                sample_cif_was_explicit = True
+            if key == "sample" and name == "specimen_preset_key":
+                sample_preset_was_explicit = True
+            if key == "sample" and name == "eds_elastic_trajectory_count":
+                # Retired in schema 69: EDS histories now come from the exact
+                # upstream ray bundle reaching the physical sample plane.
+                # Old profiles remain loadable without reporting this known
+                # no-op field as an unrelated unsupported parameter.
+                continue
             if name not in allowed:
                 skipped.append(f"{key}.{name}")
                 continue
@@ -189,6 +214,20 @@ def apply_profile_values(state, values: dict) -> list[str]:
             pending.append((target.obj, name, converted))
     for obj, name, value in pending:
         setattr(obj, name, value)
+    if legacy_sample_source:
+        migrated = migrate_legacy_structure_source(
+            {
+                "specimen_mode": state.sample.specimen_mode,
+                "cif_path": state.sample.cif_path,
+            },
+            legacy_source=legacy_sample_source,
+        )
+        state.sample.specimen_mode = migrated["specimen_mode"]
+    elif not sample_mode_was_explicit:
+        if sample_cif_was_explicit and str(state.sample.cif_path).strip():
+            state.sample.specimen_mode = "atomic"
+        elif sample_preset_was_explicit:
+            state.sample.specimen_mode = "virtual"
     if sample_model is not None:
         _apply_sample_model(state, sample_model)
     elif format_version == 1:

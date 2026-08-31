@@ -41,10 +41,27 @@ def test_zone_axis_and_in_plane_axis_share_one_right_handed_orientation():
     assert np.linalg.det(rotation) == pytest.approx(1.0)
 
 
+def test_default_sample_is_a_three_mm_ten_nm_si_110_disk():
+    sample = default_state().sample
+
+    assert sample.specimen_mode == "virtual"
+    assert sample.specimen_preset_key == "si_110"
+    assert sample.envelope_shape == "disk"
+    assert sample.size_x_nm == pytest.approx(3_000_000.0)
+    assert sample.size_y_nm == pytest.approx(3_000_000.0)
+    assert sample.thickness_nm == pytest.approx(10.0)
+    assert sample.zone_axis_uvw == (1, 1, 0)
+    assert sample.in_plane_axis_uvw == (1, -1, 0)
+    assert build_sample_geometry_snapshot(
+        sample, load_atoms=False
+    ).envelope_shape == "disk"
+
+
 def test_geometry_snapshot_reports_fov_roi_and_vacuum_outside_finite_sample():
     sample = default_state().sample
     sample.size_x_nm = 10.0
     sample.size_y_nm = 8.0
+    sample.envelope_shape = "rectangle"
     scan_x = np.asarray(((-7.0e-3, 7.0e-3), (-7.0e-3, 7.0e-3)))
     scan_y = np.asarray(((-2.0e-3, -2.0e-3), (2.0e-3, 2.0e-3)))
 
@@ -91,6 +108,21 @@ def test_virtual_regions_and_grayscale_map_leave_outside_as_vacuum(tmp_path):
     assert density[0, -1] == 0.0
     assert density[0, 1] < density[0, 2]
     assert density.max() <= 0.8
+
+
+def test_virtual_density_excludes_the_disk_bounding_box_corners():
+    sample = default_state().sample
+    sample.size_x_nm = 20.0
+    sample.size_y_nm = 20.0
+    sample.virtual_regions = []
+    sample.virtual_probe_convolution_enabled = False
+    scan_x = np.asarray(((9.0, 9.0),)) * 1.0e-3
+    scan_y = np.asarray(((0.0, 9.0),)) * 1.0e-3
+
+    density = virtual_density_at_scan(sample, scan_x, scan_y)
+
+    assert density[0, 0] == 1.0
+    assert density[0, 1] == 0.0
 
 
 def test_absolute_virtual_probabilities_conserve_and_reject_overbooking():
@@ -195,6 +227,23 @@ def test_atomic_roi_fully_outside_finite_sample_is_explicit_vacuum():
     assert np.count_nonzero(prepared.mean_projected_potential_v_angstrom) == 0
 
 
+def test_wave_roi_in_disk_bounding_box_corner_is_explicit_vacuum():
+    state = default_state()
+    state.sample.size_x_nm = 20.0
+    state.sample.size_y_nm = 20.0
+    prepared = prepare_specimen_potentials(
+        state,
+        load_specimen_preset("si_110"),
+        field_of_view_angstrom_override=10.0,
+        calculation_roi_centre_nm=(9.0, 9.0),
+        calculation_roi_bounds_nm=(8.5, 9.5, 8.5, 9.5),
+    )
+
+    assert prepared.metrics["potential_model"] == "finite_sample_vacuum_outside"
+    assert prepared.metrics["finite_specimen_shape"] == "disk"
+    assert np.count_nonzero(prepared.mean_projected_potential_v_angstrom) == 0
+
+
 def test_cif_builder_generates_only_roi_neighbourhood_for_macroscopic_sample(
     tmp_path,
 ):
@@ -240,6 +289,7 @@ def test_cif_structure_display_repeats_cell_builds_bonds_and_caps_only_rendering
     unit = bulk("NaCl", "rocksalt", a=5.64)
     write(path, unit)
     sample = default_state().sample
+    sample.specimen_mode = "atomic"
     sample.cif_path = str(path)
     sample.size_x_nm = 20.0
     sample.size_y_nm = 20.0

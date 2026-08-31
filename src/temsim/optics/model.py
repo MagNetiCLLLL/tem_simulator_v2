@@ -217,14 +217,17 @@ class Sample:
     # interaction only; it never moves or removes that optical reference.
     inserted: bool = True
 
-    thickness_nm: float = 100.0
+    thickness_nm: float = 10.0
 
     # Finite specimen envelope in the laboratory sample plane.  The beam
     # travels along +Z; X/Y dimensions and the scan origin are independent of
-    # the instrument-owned axial sample position.
-    size_x_nm: float = 1000.0
+    # the instrument-owned axial sample position.  The default is a standard
+    # 3 mm TEM specimen disk; rectangle remains available for designed samples.
+    envelope_shape: str = "disk"
 
-    size_y_nm: float = 1000.0
+    size_x_nm: float = 3_000_000.0
+
+    size_y_nm: float = 3_000_000.0
 
     centre_x_nm: float = 0.0
 
@@ -246,17 +249,22 @@ class Sample:
     diffuse_broadening_mrad: float = 2.0
 
     # Enables explicit user-defined channels in Virtual sample mode only.
-    diffraction_enabled: bool = True
+    # Idealised Virtual ray channels are opt-in. Keeping them disabled by
+    # default avoids conflating the selected TOML reference crystal with a
+    # manually authored angular probability table (and keeps the default
+    # high-accuracy ray allocation bounded).
+    diffraction_enabled: bool = False
 
     # Empty/zero values mean "use the default from the specimen TOML".  The
     # state stores only user choices and overrides, never material constants.
     wave_enabled: bool = False
 
-    # ``atomic`` uses a TOML crystal or user CIF in the wave/multislice path.
-    # ``virtual`` uses explicit angular channels in the ray detector model.
-    specimen_mode: str = "atomic"
+    # ``atomic`` (Real sample) uses an imported CIF/MCIF. ``virtual`` owns the
+    # simulator TOML reference specimen and its explicit idealised ray
+    # interaction channels. The mode is therefore the sole source selector.
+    specimen_mode: str = "virtual"
 
-    specimen_preset_key: str = ""
+    specimen_preset_key: str = "si_110"
 
     cif_path: str = ""
 
@@ -270,9 +278,9 @@ class Sample:
     # The Euler fields above remain compatibility views for pre-V64 states.
     specimen_orientation_quaternion_wxyz: tuple = (1.0, 0.0, 0.0, 0.0)
 
-    zone_axis_uvw: tuple = (0, 0, 1)
+    zone_axis_uvw: tuple = (1, 1, 0)
 
-    in_plane_axis_uvw: tuple = (1, 0, 0)
+    in_plane_axis_uvw: tuple = (1, -1, 0)
 
     wave_defocus_nm: float = 0.0
 
@@ -349,18 +357,29 @@ class Sample:
     # the default event-driven mode traces finite-geometry elastic scattering.
     eds_transport_mode: str = "elastic_monte_carlo"
 
-    eds_elastic_trajectory_count: int = 32
-
     eds_elastic_seed: int = 0
 
     eds_elastic_max_events: int = 10_000
 
+    # Manual bounded sample-region transport. These are computational boundary
+    # and display controls, not claims about specimen-holder hardware. The
+    # calculation is triggered explicitly from the EDS page and never joins
+    # ordinary lens/mechanical preview recalculation.
+    sample_region_upstream_distance_um: float = 50.0
+
+    sample_region_downstream_distance_um: float = 50.0
+
+    sample_region_photon_path_count: int = 128
+
+    sample_region_secondary_path_count: int = 48
+
+    sample_region_seed: int = 0
+
     wave_probe_padding_factor: float = 3.0
 
-    # Real-specimen inelastic transport.  Zero-valued plasmon/ionisation MFP
-    # and loss-energy fields select the material values in the specimen TOML.
-    # The optional "other" and effective-absorption channels are disabled at
-    # zero because no universal material-independent value is defensible.
+    # Real-CIF inelastic transport. Zero-valued material fields require an
+    # explicit validated override because a Real sample never borrows the
+    # inactive Virtual reference preset's material constants.
     real_inelastic_enabled: bool = True
 
     real_plasmon_mean_free_path_nm: float = 0.0
@@ -534,7 +553,7 @@ class State:
     probe_aberrations: dict = field(default_factory=dict)
     image_aberrations: dict = field(default_factory=dict)
 
-    schema_version: int = 68
+    schema_version: int = 73
 
     def __post_init__(self):
         if self.electron_gun is None:
@@ -1793,6 +1812,27 @@ class State:
         )
 
         sample_data = dict(d.get("sample", {}))
+        # Schema 73 adds an explicit finite-envelope shape.  Earlier states
+        # used an axis-aligned rectangle, so retain that geometry on load even
+        # though new instruments now start from a 3 mm circular disk.
+        if loaded_schema_version < 73:
+            sample_data.setdefault("envelope_shape", "rectangle")
+        # Schema 69 derives elastic EDS histories from the exact set of
+        # upstream rays reaching the sample plane. Keep older profiles
+        # loadable while discarding the retired independent count control.
+        sample_data.pop("eds_elastic_trajectory_count", None)
+        legacy_structure_source = str(
+            sample_data.pop("atomic_structure_source", "")
+        )
+        if loaded_schema_version < 71:
+            from temsim.specimen.source import (
+                migrate_legacy_structure_source,
+            )
+
+            sample_data = migrate_legacy_structure_source(
+                sample_data,
+                legacy_source=legacy_structure_source,
+            )
         # Saved sample Z is legacy geometry. The selected assembly TOML is
         # authoritative; only specimen properties survive deserialisation.
         sample_z_mm = _DEFAULT_SAMPLE_Z_MM
@@ -2644,7 +2684,7 @@ class State:
             ),
             probe_aberrations=dict(d.get("probe_aberrations", {})),
             image_aberrations=dict(d.get("image_aberrations", {})),
-            schema_version=68,
+            schema_version=73,
         )
         if loaded_schema_version < 64:
             from temsim.specimen.geometry import (

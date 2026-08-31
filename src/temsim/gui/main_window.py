@@ -29,6 +29,7 @@ from temsim.column.state_layout import (
     apply_physical_layout_to_state,
     layout_configuration_from_state,
 )
+from temsim.component_keys import ENERGY_FILTER_INTERNAL_KEYS
 from temsim.gui.assembly_panel import AssemblyPanel
 from temsim.gui.calculation_controller import (
     CalculationController,
@@ -39,6 +40,7 @@ from temsim.gui.direct_alignment_controller import (
     DirectAlignmentController,
 )
 from temsim.gui.parameter_panel import ParameterPanel
+from temsim.gui.instrument_tree import TreeSelection
 from temsim.gui.visualization import VisualizationWorkspace
 from temsim.manifest_editor import ManifestEditor, ManifestTarget
 from temsim.optics.column import default_state
@@ -89,6 +91,7 @@ class MainWindow(QMainWindow):
         self._runtime_targets = {}
         self._anchors_by_key = {}
         self._selected_component_key = None
+        self._selected_energy_filter_key = "energy_filter"
 
         self.workspace = VisualizationWorkspace(self)
         self.setCentralWidget(self.workspace)
@@ -162,8 +165,24 @@ class MainWindow(QMainWindow):
             self._save_manifest_updates
         )
         self.parameter_panel.error.connect(self._show_error)
+        energy_filter_parameters = self.workspace.energy_filter_parameters
+        energy_filter_parameters.runtime_changed.connect(
+            self._runtime_parameter_changed
+        )
+        energy_filter_parameters.energy_filter_match_requested.connect(
+            self.match_energy_filter_to_ht
+        )
+        energy_filter_parameters.manifest_save_requested.connect(
+            self._save_manifest_updates
+        )
+        energy_filter_parameters.error.connect(
+            self._show_error
+        )
         self.preview_timer.timeout.connect(self.run_preview)
         self.calculations.started.connect(self._calculation_started)
+        self.calculations.progress_changed.connect(
+            self._calculation_progress
+        )
         self.calculations.result_ready.connect(self._calculation_ready)
         self.calculations.failed.connect(self._calculation_failed)
         self.calculations.finished.connect(self._calculation_finished)
@@ -303,7 +322,9 @@ class MainWindow(QMainWindow):
         self.progress = QProgressBar()
         self.progress.setObjectName("calculationProgress")
         self.progress.setRange(0, 0)
-        self.progress.setMaximumWidth(220)
+        self.progress.setMinimumWidth(260)
+        self.progress.setMaximumWidth(420)
+        self.progress.setTextVisible(True)
         self.progress.hide()
         self.statusBar().addWidget(self.status_label, 1)
         self.statusBar().addPermanentWidget(self.progress)
@@ -339,8 +360,41 @@ class MainWindow(QMainWindow):
             self.selection, condenser_key, projector_key
         )
         self.assembly_panel.set_direct_alignment_state(self.state)
+        energy_filter_selections = self._energy_filter_selections()
+        available_energy_filter_keys = {
+            selection.key for selection in energy_filter_selections
+        }
+        selected_energy_filter_key = self._selected_energy_filter_key
+        if selected_energy_filter_key not in available_energy_filter_keys:
+            selected_energy_filter_key = (
+                "energy_filter"
+                if "energy_filter" in available_energy_filter_keys
+                else next(iter(available_energy_filter_keys), None)
+            )
+        self.workspace.set_energy_filter_components(
+            tuple(
+                (selection.key, selection.label)
+                for selection in energy_filter_selections
+            ),
+            selected_energy_filter_key,
+        )
+        if selected_energy_filter_key is not None:
+            self._select_energy_filter_component(
+                selected_energy_filter_key,
+                activate_page=False,
+                focus_editor=False,
+            )
+        else:
+            self.workspace.energy_filter_parameters.set_context(
+                "No Energy Filter in the active assembly",
+                None,
+                None,
+                (),
+                None,
+            )
         self.workspace.scan_control.set_state(self.state)
         self.workspace.sample_page.set_state(self.state)
+        self.workspace.eds_page.set_state(self.state)
         self.log_output.appendPlainText(
             f"Assembly validated: {len(self.assembly.parts)} parts, "
             f"{len(anchors)} confirmed anchors."
@@ -425,6 +479,101 @@ class MainWindow(QMainWindow):
             self.workspace.magnetic_field.diagnostic_text(selection.key)
         )
 
+    def _energy_filter_selections(self) -> tuple[TreeSelection, ...]:
+        """Return the devices owned by the central Energy Filter page."""
+
+        module_paths = dict(self.assembly.selected_module_paths)
+        module_types = {
+            module.key: module.type for module in self.assembly.modules
+        }
+        selections = []
+        for key in ("energy_filter", *ENERGY_FILTER_INTERNAL_KEYS):
+            runtime_target = self._runtime_targets.get(key)
+            try:
+                part = self.assembly.part(key)
+            except KeyError:
+                part = None
+            if runtime_target is None and part is None:
+                continue
+            if part is not None:
+                label = part.name
+                module_path = module_paths.get(
+                    module_types.get(part.module_key, "")
+                )
+            else:
+                label = runtime_target.label
+                module_path = None
+            selections.append(TreeSelection(
+                key=key,
+                label=label,
+                module_path=module_path,
+            ))
+        return tuple(selections)
+
+    def _select_energy_filter_component(
+        self,
+        key: str,
+        *,
+        activate_page: bool = True,
+        focus_editor: bool = True,
+    ) -> bool:
+        """Open one Iliad/EELS device in the Energy Filter-local editor."""
+
+        key = str(key)
+        selection = next(
+            (
+                candidate for candidate in self._energy_filter_selections()
+                if candidate.key == key
+            ),
+            None,
+        )
+        if selection is None:
+            self.status_label.setText(
+                f"No Energy Filter component is registered for {key}"
+            )
+            return False
+        runtime_target = self._runtime_targets.get(key)
+        manifest_target = None
+        fields = ()
+        if selection.module_path is not None:
+            manifest_target = ManifestTarget(
+                module_path=selection.module_path,
+                part_key=selection.key,
+            )
+            try:
+                fields = self.manifest_editor.fields(manifest_target)
+            except Exception as exc:
+                self._show_error(str(exc))
+        panel = self.workspace.energy_filter_parameters
+        panel.set_context(
+            selection.label,
+            runtime_target,
+            manifest_target,
+            fields,
+            self._anchors_by_key.get(key),
+        )
+        self.workspace.select_energy_filter_component(key)
+        self._selected_energy_filter_key = key
+        if activate_page:
+            self.workspace.show_energy_filter_page()
+        if runtime_target is not None:
+            panel.tabs.setCurrentIndex(0)
+            if focus_editor:
+                panel.runtime_table.setFocus(
+                    Qt.FocusReason.OtherFocusReason
+                )
+        else:
+            panel.tabs.setCurrentIndex(1)
+            if focus_editor:
+                panel.manifest_table.setFocus(
+                    Qt.FocusReason.OtherFocusReason
+                )
+        if activate_page:
+            self.status_label.setText(
+                f"Selected {selection.label} in Energy Filter Parameters"
+            )
+        return True
+
     def _select_component_from_workspace(self, key: str) -> None:
         """Open the left editor for a component clicked in a plot."""
 
@@ -434,6 +583,9 @@ class MainWindow(QMainWindow):
             self.status_label.setText(
                 "Sample parameters opened in the central Sample workspace"
             )
+            return
+        if key == "energy_filter" or key in ENERGY_FILTER_INTERNAL_KEYS:
+            self._select_energy_filter_component(key)
             return
         self.instrument_dock.show()
         self.instrument_dock.raise_()
@@ -534,6 +686,8 @@ class MainWindow(QMainWindow):
 
     def _direct_alignment_started(self, key: str, target: float) -> None:
         self.assembly_panel.set_direct_alignment_busy(key)
+        self.progress.setRange(0, 0)
+        self.progress.setFormat("Direct Alignment")
         self._set_progress_active("direct_alignment", True)
         self.status_label.setText(
             f"Direct Alignment solving {key}: {target:g}..."
@@ -698,7 +852,7 @@ class MainWindow(QMainWindow):
             )
             match = match_energy_filter_to_voltage(self.state)
             self._refresh_assembly_views()
-            self.assembly_panel.select_key("energy_filter")
+            self._select_energy_filter_component("energy_filter")
             detail = (
                 f", dispersion {match.slit_dispersion_um_per_ev:.6g} um/eV"
                 if match.slit_dispersion_um_per_ev is not None
@@ -795,8 +949,31 @@ class MainWindow(QMainWindow):
             self._show_error(str(exc))
 
     def _calculation_started(self, quality: str) -> None:
+        if quality == "High accuracy":
+            self.progress.setRange(0, 1)
+            self.progress.setValue(0)
+            self.progress.setFormat("0% · Preparing")
+        else:
+            self.progress.setRange(0, 0)
+            self.progress.setFormat("Preview")
         self._set_progress_active("calculation", True)
         self.status_label.setText(f"{quality} calculation running...")
+
+    def _calculation_progress(
+        self,
+        quality: str,
+        completed: int,
+        total: int,
+        stage: str,
+    ) -> None:
+        if quality != "High accuracy" or total <= 0:
+            return
+        bounded_completed = min(max(int(completed), 0), int(total))
+        self.progress.setRange(0, int(total))
+        self.progress.setValue(bounded_completed)
+        percentage = 100.0 * bounded_completed / int(total)
+        self.progress.setFormat(f"{percentage:.1f}% · {stage}")
+        self.status_label.setText(f"{quality}: {stage}...")
 
     def _calculation_ready(self, quality: str, result, duration: float) -> None:
         self.workspace.display_result(result, quality)

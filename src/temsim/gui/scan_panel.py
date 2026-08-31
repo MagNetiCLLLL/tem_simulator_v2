@@ -30,6 +30,7 @@ from temsim.physics.scan_geometry import (
     SHARED_RASTER_FIELDS,
     calibrate_scan_system,
 )
+from temsim.specimen.source import active_cif_path
 
 
 class ScanControlView(QWidget):
@@ -46,6 +47,7 @@ class ScanControlView(QWidget):
         self._state = None
         self._result = None
         self._stem_frame = None
+        self._paused_display_frame = None
         self._stem_auto_range_pending = True
         self._updating = False
         self._playback_started_s = 0.0
@@ -131,6 +133,15 @@ class ScanControlView(QWidget):
         controls_scroll.setWidgetResizable(True)
         controls_scroll.setMinimumWidth(280)
         controls_scroll.setWidget(controls_widget)
+        self.controls_scroll = controls_scroll
+
+        self.parameters_page = QWidget()
+        self.parameters_page.setObjectName("scanningParametersPage")
+        parameters_layout = QVBoxLayout(self.parameters_page)
+        parameters_layout.setContentsMargins(0, 0, 0, 0)
+        parameters_layout.addWidget(self.summary)
+        parameters_layout.addWidget(scope)
+        parameters_layout.addWidget(self.controls_scroll, 1)
 
         self.sample_plot = self._create_plot(
             "Sample scan position",
@@ -179,6 +190,21 @@ class ScanControlView(QWidget):
         detector_page = QWidget()
         detector_layout = QVBoxLayout(detector_page)
         detector_layout.setContentsMargins(0, 0, 0, 0)
+        self.pause_image_refresh = QCheckBox(
+            "Pause refresh (show previous complete frame)"
+        )
+        self.pause_image_refresh.setObjectName("stemPauseImageRefresh")
+        self.pause_image_refresh.setToolTip(
+            "Freeze HAADF / DF / BF image updates on the previous complete "
+            "frame. The scan clock and Ray Diagram playback continue."
+        )
+        self.pause_image_refresh.toggled.connect(
+            self._image_refresh_pause_changed
+        )
+        refresh_row = QHBoxLayout()
+        refresh_row.addWidget(self.pause_image_refresh)
+        refresh_row.addStretch(1)
+        detector_layout.addLayout(refresh_row)
         self.detector_playback_summary = QLabel(
             "Enable AC Scan to calculate one HAADF / DF / BF frame."
         )
@@ -258,18 +284,34 @@ class ScanControlView(QWidget):
         self.result_tabs.addTab(geometry_page, "Geometry")
         self.result_tabs.addTab(detector_page, "Images")
 
-        content_splitter = QSplitter(Qt.Orientation.Horizontal)
-        content_splitter.setObjectName("scanContentSplitter")
-        content_splitter.addWidget(controls_scroll)
-        content_splitter.addWidget(self.result_tabs)
-        content_splitter.setStretchFactor(0, 0)
-        content_splitter.setStretchFactor(1, 1)
-        content_splitter.setSizes([390, 900])
+        self.content_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.content_splitter.setObjectName("scanContentSplitter")
+        self.content_splitter.addWidget(self.parameters_page)
+        self.content_splitter.addWidget(self.result_tabs)
+        self.content_splitter.setStretchFactor(0, 0)
+        self.content_splitter.setStretchFactor(1, 1)
+        self.content_splitter.setSizes([390, 900])
+        self._workspace_panels_taken = False
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self.summary)
-        layout.addWidget(scope)
-        layout.addWidget(content_splitter, 1)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.content_splitter, 1)
+
+    def take_workspace_panels(self) -> tuple[QWidget, QTabWidget]:
+        """Detach the parameter and result panes for a composite workspace.
+
+        Standalone ``ScanControlView`` instances retain their original split
+        layout. The main Scanning Image page calls this once so it can place a
+        Probe Aberrations tab beside the parameter pane without nesting the
+        Geometry/Images result tabs inside Scanning Parameters.
+        """
+
+        if self._workspace_panels_taken:
+            raise RuntimeError("Scanning workspace panels were already taken")
+        self._workspace_panels_taken = True
+        self.parameters_page.setParent(None)
+        self.result_tabs.setParent(None)
+        return self.parameters_page, self.result_tabs
 
     def _add_component_controls(
         self,
@@ -425,6 +467,7 @@ class ScanControlView(QWidget):
         if state is not self._state:
             self._playback_timer.stop()
             self._stem_frame = None
+            self._paused_display_frame = None
             self._stem_auto_range_pending = True
             for item in self.detector_image_items.values():
                 item.clear()
@@ -714,11 +757,19 @@ class ScanControlView(QWidget):
                 )
             if not np.all(np.isfinite(array)):
                 raise ValueError(f"{key}: detector image must be finite.")
+        previous_frame = self._stem_frame
         self._stem_frame = frame
-        self._update_detector_geometry_labels(frame)
-        self._update_image_model_notice(frame)
+        if self.pause_image_refresh.isChecked():
+            if self._paused_display_frame is None:
+                self._paused_display_frame = previous_frame or frame
+            display_frame = self._paused_display_frame
+        else:
+            display_frame = frame
+        self._update_detector_geometry_labels(display_frame)
+        self._update_image_model_notice(display_frame)
         self._stem_auto_range_pending = True
-        self._render_stem_rows(shape[0])
+        display_rows = np.asarray(display_frame.scan_x_um).shape[0]
+        self._render_stem_rows(display_rows, frame=display_frame)
 
     def _update_image_model_notice(self, frame) -> None:
         if frame is None:
@@ -745,9 +796,8 @@ class ScanControlView(QWidget):
             fov_y_nm=fov_y_nm,
         )
         if model == "geometric_detector_interception":
-            cif_path = str(
-                getattr(getattr(self._state, "sample", None), "cif_path", "")
-            ).strip()
+            sample = getattr(self._state, "sample", None)
+            cif_path = active_cif_path(sample) if sample is not None else ""
             cif_note = (
                 f" The selected {Path(cif_path).name} structure is not used by this preview."
                 if cif_path
@@ -758,7 +808,8 @@ class ScanControlView(QWidget):
                 "and sharp wedges are detector-clipping boundaries produced by "
                 "scan/descan ray interception; they are not atoms or diffraction "
                 f"contrast.{cif_note} Enable wave/multislice and run High accuracy "
-                f"to calculate CIF-dependent elastic contrast.{scale}"
+                "to calculate TOML-reference or CIF-dependent elastic "
+                f"contrast.{scale}"
             )
             colour = (
                 "color: #92400e; background: #fffbeb; border: 1px solid #f59e0b;"
@@ -802,7 +853,7 @@ class ScanControlView(QWidget):
                 warnings.append(
                     "the scan FOV extends outside the finite sample, so those pixels are vacuum"
                 )
-        cif_path = str(getattr(sample, "cif_path", "")).strip()
+        cif_path = active_cif_path(sample)
         if cif_path and pixel_nm is not None:
             try:
                 from ase.io import read
@@ -884,6 +935,38 @@ class ScanControlView(QWidget):
             value = self._state.ac_deflector.scan_frame_period_s
         return max(float(value or 1.0), 1.0e-6)
 
+    def _image_refresh_pause_changed(self, paused: bool) -> None:
+        if paused:
+            self._paused_display_frame = self._stem_frame
+            if self._paused_display_frame is not None:
+                rows = np.asarray(
+                    self._paused_display_frame.scan_x_um
+                ).shape[0]
+                self._render_stem_rows(
+                    rows,
+                    frame=self._paused_display_frame,
+                )
+                self.detector_playback_summary.setText(
+                    self._stem_frame_summary(
+                        "Image refresh paused; previous complete frame displayed",
+                        frame=self._paused_display_frame,
+                    )
+                )
+            return
+        self._paused_display_frame = None
+        if self._stem_frame is None:
+            return
+        self._update_detector_geometry_labels(self._stem_frame)
+        self._update_image_model_notice(self._stem_frame)
+        if self._playback_timer.isActive():
+            self._playback_tick()
+        else:
+            rows = np.asarray(self._stem_frame.scan_x_um).shape[0]
+            self._render_stem_rows(rows)
+            self.detector_playback_summary.setText(
+                self._stem_frame_summary("Stopped; last frame retained")
+            )
+
     def _set_playback_active(self, active: bool) -> None:
         if active and self._stem_frame is not None:
             self._playback_started_s = perf_counter()
@@ -895,10 +978,21 @@ class ScanControlView(QWidget):
         self._playback_timer.stop()
         self.playback_active_changed.emit(False)
         if self._stem_frame is not None:
-            rows = np.asarray(self._stem_frame.scan_x_um).shape[0]
-            self._render_stem_rows(rows)
+            display_frame = (
+                self._paused_display_frame
+                if self.pause_image_refresh.isChecked()
+                and self._paused_display_frame is not None
+                else self._stem_frame
+            )
+            rows = np.asarray(display_frame.scan_x_um).shape[0]
+            self._render_stem_rows(rows, frame=display_frame)
+            status = (
+                "Image refresh paused; previous complete frame displayed"
+                if self.pause_image_refresh.isChecked()
+                else "Stopped; last frame retained"
+            )
             self.detector_playback_summary.setText(
-                self._stem_frame_summary("Stopped; last frame retained")
+                self._stem_frame_summary(status, frame=display_frame)
             )
         else:
             self.detector_playback_summary.setText(
@@ -921,16 +1015,27 @@ class ScanControlView(QWidget):
             phase = frame_time_s / period_s
             completed_rows = min(rows, max(1, int(phase * rows) + 1))
         self.playback_time_changed.emit(frame_time_s)
-        self._render_stem_rows(completed_rows)
-        self.detector_playback_summary.setText(
-            self._stem_frame_summary(
+        paused = self.pause_image_refresh.isChecked()
+        if not paused:
+            self._render_stem_rows(completed_rows)
+        playback = (
+            "Image refresh paused; previous complete frame displayed; "
+            f"scan continues at frame {frame_number}, line {completed_rows}/{rows}"
+            if paused
+            else (
                 f"Scanning continuously; frame {frame_number}, "
                 f"line {completed_rows}/{rows}"
             )
         )
+        self.detector_playback_summary.setText(
+            self._stem_frame_summary(
+                playback,
+                frame=(self._paused_display_frame if paused else None),
+            )
+        )
 
-    def _stem_frame_summary(self, playback: str) -> str:
-        frame = self._stem_frame
+    def _stem_frame_summary(self, playback: str, *, frame=None) -> str:
+        frame = self._stem_frame if frame is None else frame
         metrics = getattr(frame, "metrics", None) or {}
         model = str(metrics.get("model", "detector signal"))
         values = []
@@ -955,8 +1060,8 @@ class ScanControlView(QWidget):
             step = max(float(fallback_step_um), 1.0e-12)
         return lower - 0.5 * step, upper + 0.5 * step
 
-    def _stem_image_rect(self) -> QRectF:
-        frame = self._stem_frame
+    def _stem_image_rect(self, frame=None) -> QRectF:
+        frame = self._stem_frame if frame is None else frame
         scan_x = np.asarray(frame.scan_x_um, dtype=float)
         scan_y = np.asarray(frame.scan_y_um, dtype=float)
         rows, columns = scan_x.shape
@@ -966,14 +1071,15 @@ class ScanControlView(QWidget):
         y0, y1 = self._coordinate_edges(scan_y, rows, fallback_step_um)
         return QRectF(x0, y0, x1 - x0, y1 - y0)
 
-    def _render_stem_rows(self, completed_rows: int) -> None:
-        if self._stem_frame is None:
+    def _render_stem_rows(self, completed_rows: int, *, frame=None) -> None:
+        frame = self._stem_frame if frame is None else frame
+        if frame is None:
             return
         auto_range = self._stem_auto_range_pending
-        image_rect = self._stem_image_rect()
+        image_rect = self._stem_image_rect(frame)
         for key, view in self.detector_image_views.items():
             image_item = self.detector_image_items[key]
-            values = self._stem_frame.fractions.get(key)
+            values = frame.fractions.get(key)
             if values is None:
                 image_item.clear()
                 continue

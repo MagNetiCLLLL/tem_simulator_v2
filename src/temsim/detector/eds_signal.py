@@ -23,9 +23,14 @@ from temsim.detector.eds_atomic import (
     bote_ionisation_cross_section_cm2,
 )
 from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
+from temsim.specimen.envelope import sample_envelope_contains_xy
 from temsim.specimen.presets import (
-    default_specimen_preset_key,
     load_specimen_preset,
+)
+from temsim.specimen.source import (
+    active_cif_path,
+    selected_reference_preset_key,
+    specimen_mode,
 )
 from temsim.specimen.support import resolve_support_grid
 
@@ -242,24 +247,19 @@ def material_from_cif(cif_path: str | Path) -> EDSMaterial:
 
 def material_from_sample(state) -> EDSMaterial | None:
     sample = state.sample
-    if (
-        not bool(getattr(sample, "inserted", True))
-        or str(getattr(sample, "specimen_mode", "atomic")).lower()
-        != "atomic"
-    ):
+    if not bool(getattr(sample, "inserted", True)):
         return None
-    cif_path = str(getattr(sample, "cif_path", "")).strip()
-    if cif_path:
-        return material_from_cif(cif_path)
-    preset_key = (
-        str(getattr(sample, "specimen_preset_key", "")).strip()
-        or default_specimen_preset_key()
-    )
+    if specimen_mode(sample) == "atomic":
+        cif_path = active_cif_path(sample)
+        return material_from_cif(cif_path) if cif_path else None
+    preset_key = selected_reference_preset_key(sample)
     preset = load_specimen_preset(preset_key)
     if preset.atomistic is not None:
         z = preset.atomistic.atomic_number
     else:
         atomic_numbers = {column.atomic_number for column in preset.columns}
+        if not atomic_numbers:
+            return None
         if len(atomic_numbers) != 1:
             raise ValueError(
                 f"{preset.name} needs CIF or explicit EDS density/composition"
@@ -676,12 +676,7 @@ def point_track_segments(
     energy_ev = float(state.beam_voltage_kv) * 1000.0
     rows: list[ElectronTrackSegment] = []
     sample_material = material_from_sample(state)
-    half_x = 0.5 * float(sample.size_x_nm)
-    half_y = 0.5 * float(sample.size_y_nm)
-    within_sample = (
-        abs(float(x_nm) - float(sample.centre_x_nm)) <= half_x
-        and abs(float(y_nm) - float(sample.centre_y_nm)) <= half_y
-    )
+    within_sample = sample_envelope_contains_xy(sample, x_nm, y_nm)
     if (
         sample_material is not None
         and within_sample
@@ -750,6 +745,7 @@ def simulate_eds_point(
     state,
     detector_geometry: EDSDetectorArrayGeometry,
     *,
+    simulation=None,
     x_nm: float | None = None,
     y_nm: float | None = None,
     dwell_time_s: float | None = None,
@@ -771,7 +767,7 @@ def simulate_eds_point(
     )
     if not math.isfinite(dwell) or dwell <= 0.0:
         raise ValueError("EDS dwell time must be finite and positive")
-    electron_count = (
+    source_electron_count = (
         default_eds_incident_electrons(state, dwell)
         if incident_electrons is None
         else float(incident_electrons)
@@ -786,17 +782,50 @@ def simulate_eds_point(
         # ElectronTrackSegment, while only this explicit acquisition invokes
         # trajectory generation.
         from temsim.specimen.elastic_transport import (
+            incident_rays_from_simulation,
             simulate_elastic_point_transport,
         )
 
+        incident_bundle = incident_rays_from_simulation(
+            state,
+            simulation,
+            target_x_nm=x_value,
+            target_y_nm=y_value,
+        )
         elastic_transport = simulate_elastic_point_transport(
             state,
-            x_nm=x_value,
-            y_nm=y_value,
+            incident_rays=incident_bundle.rays,
         )
         tracks = elastic_transport.eds_tracks
+        electron_count = (
+            source_electron_count * incident_bundle.surviving_fraction
+        )
+        elastic_transport.metrics.update(
+            {
+                "emitted_ray_count": incident_bundle.emitted_ray_count,
+                "reaching_sample_ray_count": (
+                    incident_bundle.reaching_ray_count
+                ),
+                "sample_plane_surviving_fraction": (
+                    incident_bundle.surviving_fraction
+                ),
+                "sample_plane_original_centroid_nm": (
+                    incident_bundle.original_centroid_nm
+                ),
+                "sample_plane_target_centroid_nm": (
+                    incident_bundle.target_centroid_nm
+                ),
+                "sample_plane_chief_angle_mrad": (
+                    incident_bundle.chief_angle_mrad
+                ),
+                "sample_plane_energy_range_ev": (
+                    incident_bundle.energy_range_ev
+                ),
+            }
+        )
     elif transport_mode == "straight_primary":
         tracks = point_track_segments(state, x_nm=x_value, y_nm=y_value)
+        electron_count = source_electron_count
     else:
         raise ValueError(
             "EDS transport mode must be elastic_monte_carlo or straight_primary"
@@ -840,10 +869,12 @@ def simulate_eds_point(
             "sample_y_nm": y_value,
             "dwell_time_s": dwell,
             "incident_electron_reference": (
-                "explicit argument"
+                "explicit source-electron argument"
                 if incident_electrons is not None
-                else "emitted source current; pre-sample losses not yet applied"
+                else "emitted source current"
             ),
+            "source_electrons_before_column_losses": source_electron_count,
+            "electrons_reaching_sample_plane": electron_count,
             "requested_transport_mode": transport_mode,
         }
     )

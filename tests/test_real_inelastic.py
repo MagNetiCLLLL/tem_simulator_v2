@@ -93,6 +93,7 @@ def test_material_presets_keep_inelastic_provenance_out_of_python_constants():
 
 def test_custom_cif_never_silently_borrows_selected_preset_inelastic_data():
     state = default_state()
+    state.sample.specimen_mode = "atomic"
     state.sample.specimen_preset_key = "si_110"
     state.sample.cif_path = "custom-silicon.cif"
 
@@ -106,6 +107,7 @@ def test_custom_cif_never_silently_borrows_selected_preset_inelastic_data():
 
 def test_custom_cif_accepts_one_complete_explicit_channel_pair():
     state = default_state()
+    state.sample.specimen_mode = "atomic"
     state.sample.specimen_preset_key = "si_110"
     state.sample.cif_path = "custom-silicon.cif"
     state.sample.thickness_nm = 25.0

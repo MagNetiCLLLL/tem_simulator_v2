@@ -9,9 +9,6 @@ from temsim.column.layout import (
     ObjectiveLayout,
     build_optics_layout,
 )
-from temsim.column.effective_axis import (
-    topology_signature,
-)
 from temsim.configuration import corrector_mode_for_hardware
 from temsim.optics.selected_area_aperture import (
     IMAGE_CORRECTED_INSTALLATION,
@@ -407,16 +404,6 @@ def layout_configuration_from_state(
 
 def _by_key(items):
     return {item.key: item for item in items}
-
-
-def _set_center(item, z_mm):
-    item.z_mm = float(z_mm)
-
-
-def _set_pair(pair, component, scale):
-    start, end = component.rendered_z_range_mm
-    pair.upper_z_mm = float(start * scale)
-    pair.lower_z_mm = float(end * scale)
 
 
 def _set_topology_installation(state, item, binding_key, installed):
@@ -817,56 +804,3 @@ def apply_physical_layout_to_state(
     state._resolved_optics_layout = layout
     state._resolved_layout_configuration = configuration
     return layout
-
-
-def state_topology_signature(state):
-    """Return the canonical signature used by GUI view invalidation."""
-
-    hardware = C3Hardware(getattr(
-        state,
-        "layout_c3_hardware",
-        "three_condenser",
-    ))
-    corrector = _CORRECTORS.get(
-        corrector_mode_for_hardware(
-            getattr(state, "corrector_mode", "probe_corrector"),
-            hardware.value,
-        ),
-        CorrectorAssembly.PROBE_CORRECTOR,
-    )
-    c3_excited = bool(getattr(
-        state,
-        "layout_c3_excited",
-        getattr(state, "column_mode", "three_lens") == "three_lens",
-    ))
-    if hardware is C3Hardware.TWO_CONDENSER:
-        c3_excited = False
-    energy_filter = getattr(state, "energy_filter", None)
-    configuration = LayoutConfiguration(
-        corrector=corrector,
-        electron_gun_type=state.electron_gun.type_key,
-        c3_hardware=hardware,
-        c3_excited=c3_excited,
-        monochromator_installed=bool(
-            state.electron_gun.type_key == "cold_feg"
-            and getattr(state, "monochromator_installed", False)
-        ),
-        objective=ObjectiveLayout(
-            inner_face_gap_mm=state.objective_lens.inner_face_gap_mm,
-            sample_axial_offset_mm=getattr(
-                state.objective_lens,
-                "sample_axial_offset_mm",
-                0.0,
-            ),
-            specimen_thickness_mm=state.sample.thickness_nm * 1.0e-6,
-        ),
-        energy_filter_selected=bool(
-            getattr(energy_filter, "enabled", False)
-            or getattr(
-                state,
-                "energy_filter_mode",
-                "no_energy_filter",
-            ) == "energy_filter"
-        ),
-    )
-    return topology_signature(configuration)

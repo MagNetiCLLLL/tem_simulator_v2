@@ -57,11 +57,10 @@ def test_retracted_sample_has_zero_interacting_wave_thickness():
     assert effective_sample_thickness_nm(state) == 0.0
 
 
-def test_tem_wave_observable_requires_tem_and_real_sample_modes():
+def test_tem_wave_observable_accepts_virtual_reference_or_real_cif():
     state = default_state()
     state.sample.wave_enabled = True
     state.illumination_mode = "TEM"
-    state.sample.specimen_mode = "atomic"
 
     assert tem_wave_imaging_enabled(state) is True
 
@@ -69,10 +68,13 @@ def test_tem_wave_observable_requires_tem_and_real_sample_modes():
     assert tem_wave_imaging_enabled(state) is False
 
     state.illumination_mode = "TEM"
-    state.sample.specimen_mode = "virtual"
+    state.sample.specimen_mode = "atomic"
+    state.sample.cif_path = ""
     assert tem_wave_imaging_enabled(state) is False
 
-    state.sample.specimen_mode = "atomic"
+    state.sample.cif_path = "real-sample.cif"
+    assert tem_wave_imaging_enabled(state) is True
+
     state.sample.inserted = False
     assert tem_wave_imaging_enabled(state) is True
 
@@ -284,6 +286,45 @@ def test_angle_resolved_stem_uses_the_same_multislice_specimen_model():
     assert result.metrics["specimen_slice_count"] == 2
     assert result.fractions["bf"].shape == (1, 1)
     assert 0.0 <= result.fractions["bf"][0, 0] <= 1.0
+
+
+def test_angle_resolved_stem_reports_completed_cpu_probe_batches():
+    state = default_state()
+    state.acceleration_enabled = False
+    state.illumination_mode = "STEM"
+    state.sample.specimen_preset_key = "vacuum"
+    state.sample.thickness_nm = 0.0
+    state.sample.wave_grid_pixels = 32
+    state.sample.wave_field_of_view_angstrom = 16.0
+    state.sample.wave_multislice_enabled = False
+    state.sample.wave_atomistic_enabled = False
+    incident = _incident_bundle(
+        [0.0, 2.0e-3, -2.0e-3, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 2.0e-3, -2.0e-3],
+        [0.6, 0.1, 0.1, 0.1, 0.1],
+    )
+    scan_x = np.zeros((1, 9))
+    scan_y = np.zeros((1, 9))
+    progress = []
+
+    simulate_angle_resolved_stem(
+        state,
+        SimpleNamespace(incident=incident),
+        (AngularDetector("bf", 0.0, 10.0),),
+        scan_x,
+        scan_y,
+        progress_callback=lambda completed, total, stage: progress.append(
+            (completed, total, stage)
+        ),
+    )
+
+    assert progress[0] == (0, 1, "Preparing STEM specimen potential")
+    assert progress[1] == (1, 4, "STEM specimen potential ready")
+    assert progress[2][:2] == (2, 4)
+    assert "8/9" in progress[2][2]
+    assert progress[3][:2] == (3, 4)
+    assert "9/9" in progress[3][2]
+    assert progress[-1] == (4, 4, "STEM detector frame complete")
 
 
 def test_angle_resolved_stem_applies_per_probe_descan_detector_shift():
