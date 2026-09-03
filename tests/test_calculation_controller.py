@@ -86,6 +86,8 @@ def test_high_accuracy_pipeline_reports_completed_real_stages(monkeypatch):
     )
 
     assert result.simulation is simulation
+    assert result.specimen_interactions is not None
+    assert not result.specimen_interactions.completed_observables
     assert progress == [
         (0, 6, "Preparing state and physical layout"),
         (1, 6, "Tracing the electron column"),
@@ -95,6 +97,25 @@ def test_high_accuracy_pipeline_reports_completed_real_stages(monkeypatch):
         (5, 6, "Finalising optical diagnostics"),
         (6, 6, "Complete"),
     ]
+
+
+def test_geometric_real_sample_requests_finite_specimen_transport():
+    state = default_state()
+    state.sample.specimen_mode = "atomic"
+    state.sample.cif_path = "configured.cif"
+    state.sample.inserted = True
+    state.sample.stem_wave_enabled = False
+    state.ac_deflector.enabled = True
+    state.ac_deflector.scan_enabled = True
+
+    assert simulation_pipeline._geometric_specimen_transport_requested(state)
+
+    state.sample.stem_wave_enabled = True
+    assert not simulation_pipeline._geometric_specimen_transport_requested(state)
+
+    state.sample.stem_wave_enabled = False
+    state.sample.specimen_mode = "virtual"
+    assert not simulation_pipeline._geometric_specimen_transport_requested(state)
 
 
 def test_high_accuracy_pipeline_maps_stem_batches_inside_stage(monkeypatch):
@@ -146,7 +167,16 @@ def test_high_accuracy_pipeline_maps_stem_batches_inside_stage(monkeypatch):
         lambda _state, _simulation: "scan-rays",
     )
 
-    def fake_stem(_state, _simulation, *, progress_callback):
+    received_specimen_interactions = []
+
+    def fake_stem(
+        _state,
+        _simulation,
+        *,
+        specimen_interactions,
+        progress_callback,
+    ):
+        received_specimen_interactions.append(specimen_interactions)
         progress_callback(0, 4, "Preparing STEM")
         progress_callback(2, 4, "STEM probes 16/32")
         progress_callback(4, 4, "STEM detector frame complete")
@@ -173,6 +203,7 @@ def test_high_accuracy_pipeline_maps_stem_batches_inside_stage(monkeypatch):
     )
 
     assert result.stem_scan == "stem-frame"
+    assert received_specimen_interactions == [result.specimen_interactions]
     nested = [item for item in progress if item[1] == 1_340_000]
     assert nested == [
         (50_000, 1_340_000, "Preparing STEM"),

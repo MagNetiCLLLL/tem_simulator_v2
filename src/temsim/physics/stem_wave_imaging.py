@@ -41,6 +41,7 @@ from temsim.specimen.presets import (
     load_specimen_preset,
 )
 from temsim.specimen.source import (
+    specimen_is_vacuum,
     specimen_structure_available,
     wave_template_preset_key,
 )
@@ -945,7 +946,7 @@ def simulate_angle_resolved_stem(
         getattr(state.sample, "inserted", True)
     )
     specimen_metrics["sample_interaction_applied"] = bool(
-        getattr(state.sample, "inserted", True)
+        not specimen_is_vacuum(state.sample)
         and specimen_structure_available(state.sample)
     )
 

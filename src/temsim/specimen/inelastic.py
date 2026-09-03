@@ -32,6 +32,7 @@ from temsim.specimen.source import (
     active_cif_path,
     selected_reference_preset_key,
     specimen_mode,
+    specimen_is_vacuum,
 )
 
 
@@ -345,7 +346,7 @@ def real_inelastic_distribution(state) -> RealInteractionDistribution:
         else active_cif_path(sample)
     )
     active = bool(
-        getattr(sample, "inserted", True)
+        not specimen_is_vacuum(sample)
         and structure_available
         and getattr(sample, "real_inelastic_enabled", True)
         and thickness > 0.0
@@ -353,7 +354,7 @@ def real_inelastic_distribution(state) -> RealInteractionDistribution:
     if not active:
         reason = (
             "sample_not_interacting"
-            if not bool(getattr(sample, "inserted", True)) or thickness <= 0.0
+            if specimen_is_vacuum(sample)
             else "real_structure_unavailable"
             if not structure_available
             else "real_inelastic_disabled"

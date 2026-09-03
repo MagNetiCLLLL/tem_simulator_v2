@@ -18,9 +18,14 @@ from temsim.physics.scan_geometry import (
 )
 from temsim.physics.wave_imaging import (
     WaveImagingResult,
-    simulate_wave_image,
     tem_wave_imaging_enabled,
 )
+from temsim.specimen.interaction_engine import run_specimen_interactions
+from temsim.specimen.interaction_types import (
+    SpecimenInteractionRequest,
+    SpecimenInteractionResult,
+)
+from temsim.specimen.source import specimen_structure_available
 
 
 @dataclass
@@ -30,6 +35,7 @@ class CalculationResult:
     state_snapshot: object = None
     layout: object = None
     assembly: object = None
+    specimen_interactions: SpecimenInteractionResult | None = None
     wave_imaging: WaveImagingResult | None = None
     scan_geometry: ScanGeometryResult | None = None
     scan_ray_paths: object | None = None
@@ -107,10 +113,30 @@ def _stem_frame_work_weight(state) -> int:
     return max(batch_count * configuration_count, 1)
 
 
+def _geometric_specimen_transport_requested(state) -> bool:
+    """Return whether geometric STEM needs finite-specimen exit particles."""
+
+    sample = state.sample
+    return bool(
+        state.ac_deflector.enabled
+        and state.ac_deflector.scan_enabled
+        and getattr(sample, "inserted", False)
+        and str(getattr(sample, "specimen_mode", "atomic")).strip().lower()
+        == "atomic"
+        and not bool(getattr(sample, "stem_wave_enabled", False))
+        and specimen_structure_available(sample)
+        and any(
+            bool(getattr(detector, "inserted", False))
+            for detector in state.stem_detectors
+        )
+    )
+
+
 def calculate_stem_scan_frame(
     state,
     simulation,
     *,
+    specimen_interactions: SpecimenInteractionResult | None = None,
     progress_callback: ProgressCallback | None = None,
 ):
     """Calculate exactly one detector-signal frame when AC scan is active."""
@@ -121,6 +147,7 @@ def calculate_stem_scan_frame(
     return acquire_stem_scan(
         simulation,
         state,
+        specimen_interactions=specimen_interactions,
         progress_callback=progress_callback,
     )
 
@@ -136,12 +163,22 @@ def calculate(
     stem_frame_requested = bool(
         state.ac_deflector.enabled and state.ac_deflector.scan_enabled
     )
+    geometric_specimen_transport_requested = (
+        _geometric_specimen_transport_requested(state)
+    )
     stages = [
         ("Preparing state and physical layout", 1),
         ("Tracing the electron column", 1),
     ]
     if tem_wave_requested:
         stages.append(("Calculating the TEM wave image", 1))
+    if geometric_specimen_transport_requested:
+        stages.append(
+            (
+                "Transporting electrons through the specimen",
+                max(int(state.electron_gun.ray_count), 1),
+            )
+        )
     stages.extend(
         (
             ("Tracing the energy filter", 1),
@@ -173,6 +210,29 @@ def calculate(
         next_stage += 1
         report_stage()
 
+    stage_subdivisions = 10_000
+
+    def report_current_stage_progress(
+        completed: int,
+        total: int,
+        label: str,
+    ) -> None:
+        if progress_callback is None or int(total) <= 0:
+            return
+        bounded = min(max(int(completed), 0), int(total))
+        stage_weight = stages[next_stage][1]
+        progress_callback(
+            completed_work * stage_subdivisions
+            + round(
+                stage_weight
+                * stage_subdivisions
+                * bounded
+                / int(total)
+            ),
+            total_work * stage_subdivisions,
+            label,
+        )
+
     report_stage()
     ensure_recording_system(state)
     ensure_energy_filter(state)
@@ -184,10 +244,32 @@ def calculate(
     advance_stage()
     simulation = run(state, resolved_layout=layout)
     advance_stage()
-    wave_imaging = None
+    specimen_interactions = None
     if tem_wave_requested:
-        wave_imaging = simulate_wave_image(state, simulation)
+        specimen_interactions = run_specimen_interactions(
+            state,
+            simulation,
+            SpecimenInteractionRequest.tem_wave(),
+        )
+        wave_imaging = specimen_interactions.wave_imaging
         advance_stage()
+    else:
+        wave_imaging = None
+    if geometric_specimen_transport_requested:
+        specimen_interactions = run_specimen_interactions(
+            state,
+            simulation,
+            SpecimenInteractionRequest.elastic_point(),
+            existing_result=specimen_interactions,
+            progress_callback=report_current_stage_progress,
+        )
+        advance_stage()
+    if specimen_interactions is None:
+        specimen_interactions = run_specimen_interactions(
+            state,
+            simulation,
+            SpecimenInteractionRequest(),
+        )
     energy_filter = simulate_energy_filter(state, simulation)
     advance_stage()
     scan_geometry = calculate_scan_geometry(state)
@@ -196,33 +278,11 @@ def calculate(
     advance_stage()
     stem_scan = None
     if stem_frame_requested:
-        stage_subdivisions = 10_000
-
-        def report_stem_progress(
-            completed: int,
-            total: int,
-            label: str,
-        ) -> None:
-            if progress_callback is None or int(total) <= 0:
-                return
-            bounded = min(max(int(completed), 0), int(total))
-            stem_weight = stages[next_stage][1]
-            progress_callback(
-                completed_work * stage_subdivisions
-                + round(
-                    stem_weight
-                    * stage_subdivisions
-                    * bounded
-                    / int(total)
-                ),
-                total_work * stage_subdivisions,
-                label,
-            )
-
         stem_scan = calculate_stem_scan_frame(
             state,
             simulation,
-            progress_callback=report_stem_progress,
+            specimen_interactions=specimen_interactions,
+            progress_callback=report_current_stage_progress,
         )
         advance_stage()
     state.energy_filter_result = energy_filter
@@ -235,6 +295,7 @@ def calculate(
         state_snapshot=state,
         layout=layout,
         assembly=state._resolved_assembly,
+        specimen_interactions=specimen_interactions,
         wave_imaging=wave_imaging,
         scan_geometry=scan_geometry,
         scan_ray_paths=scan_ray_paths,

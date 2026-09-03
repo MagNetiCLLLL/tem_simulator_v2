@@ -11,9 +11,22 @@ from temsim.specimen.source import (
     active_cif_path,
     active_specimen_source,
     selected_reference_preset_key,
+    specimen_is_vacuum,
     specimen_structure_available,
     wave_template_preset_key,
 )
+from temsim.specimen.interaction_types import (
+    ConservationCheck,
+    IncidentElectronRay,
+    IncidentRayBundle,
+    InteractionEvent,
+    InteractionProcess,
+    SpecimenInteractionRequest,
+    SpecimenInteractionResult,
+    SpecimenModelCoupling,
+    SpecimenObservable,
+)
+from temsim.specimen.scene import SceneMaterialRegion, SpecimenScene
 
 __all__ = [
     "SpecimenColumn",
@@ -24,6 +37,18 @@ __all__ = [
     "active_cif_path",
     "active_specimen_source",
     "selected_reference_preset_key",
+    "specimen_is_vacuum",
     "specimen_structure_available",
     "wave_template_preset_key",
+    "ConservationCheck",
+    "IncidentElectronRay",
+    "IncidentRayBundle",
+    "InteractionEvent",
+    "InteractionProcess",
+    "SpecimenInteractionRequest",
+    "SpecimenInteractionResult",
+    "SpecimenModelCoupling",
+    "SpecimenObservable",
+    "SceneMaterialRegion",
+    "SpecimenScene",
 ]

@@ -129,3 +129,27 @@ def test_unspecified_round_lens_cs_uses_positive_physical_estimate():
     assert spherical_aberration_mm(lens, 300.0) == pytest.approx(
         DEFAULT_CS_TO_FOCAL_LENGTH_RATIO * 10.0
     )
+
+
+def test_split_trace_does_not_repeat_shared_plane_spherical_kick():
+    lens = _RoundLens(peak_t=0.0, focal_mm=10.0)
+    lens.cs_mm = 1.0
+    state = _state(lens)
+    initial_x = np.asarray((1.0e-3,))
+    zeros = np.zeros(1)
+
+    full = propagate(state, -1.0, 1.0, initial_x, zeros, zeros, zeros)
+    first = propagate(state, -1.0, 0.0, initial_x, zeros, zeros, zeros)
+    second = propagate(
+        state,
+        0.0,
+        1.0,
+        first[1][-1],
+        first[2][-1],
+        first[3][-1],
+        first[4][-1],
+        include_initial_plane_kicks=False,
+    )
+
+    assert second[1][-1, 0] == pytest.approx(full[1][-1, 0], rel=1.0e-6)
+    assert second[2][-1, 0] == pytest.approx(full[2][-1, 0], rel=1.0e-6)

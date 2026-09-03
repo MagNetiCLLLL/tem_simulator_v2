@@ -39,20 +39,10 @@ from temsim.specimen.presets import (
     SpecimenPreset,
     load_specimen_preset,
 )
-from temsim.specimen.source import (
-    active_cif_path,
-    specimen_structure_available,
-    wave_template_preset_key,
-)
 from temsim.specimen.geometry import (
     quaternion_to_matrix,
-    sample_orientation_quaternion,
 )
-from temsim.specimen.envelope import (
-    envelope_intersects_bounds,
-    sample_envelope_contains_xy,
-    sample_envelope_shape,
-)
+from temsim.specimen.scene import SpecimenScene
 
 
 @dataclass(frozen=True)
@@ -101,10 +91,11 @@ def tem_wave_imaging_enabled(state) -> bool:
     from the selected TOML reference specimen.
     """
 
+    scene = SpecimenScene.from_state(state)
     return bool(
         getattr(state.sample, "wave_enabled", False)
         and str(getattr(state, "illumination_mode", "TEM")).upper() == "TEM"
-        and specimen_structure_available(state.sample)
+        and scene.structure_available
         and bool(getattr(getattr(state, "camera", None), "inserted", True))
     )
 
@@ -122,11 +113,8 @@ def estimate_tem_wave_memory_bytes(state) -> int:
         return 0
 
     sample = state.sample
-    preset_key = wave_template_preset_key(
-        sample,
-        inserted=bool(getattr(sample, "inserted", True)),
-    )
-    preset = load_specimen_preset(preset_key)
+    scene = SpecimenScene.from_state(state)
+    preset = load_specimen_preset(scene.wave_template_key)
     pixels_override = int(getattr(sample, "wave_grid_pixels", 0))
     pixels = pixels_override if pixels_override > 0 else int(preset.pixels)
     if pixels < 32:
@@ -144,7 +132,7 @@ def estimate_tem_wave_memory_bytes(state) -> int:
         getattr(sample, "wave_atomistic_enabled", True)
     )
     atomistic_source_available = bool(
-        active_cif_path(sample)
+        scene.cif_path
         or preset.atomistic is not None
     )
     atomistic_applies = bool(
@@ -197,12 +185,7 @@ def estimate_tem_wave_memory_bytes(state) -> int:
 def effective_sample_thickness_nm(state) -> float:
     """Return interacting specimen thickness, preserving the reference plane."""
 
-    if (
-        not bool(getattr(state.sample, "inserted", True))
-        or not specimen_structure_available(state.sample)
-    ):
-        return 0.0
-    return max(float(state.sample.thickness_nm), 0.0)
+    return SpecimenScene.from_state(state).interacting_thickness_nm
 
 
 def _normalise_image(values: np.ndarray) -> np.ndarray:
@@ -257,6 +240,7 @@ def prepare_specimen_potentials(
 ) -> PreparedSpecimen:
     """Build the selected qualitative or atomistic specimen representation."""
 
+    scene = SpecimenScene.from_state(state)
     pixels_override = int(getattr(state.sample, "wave_grid_pixels", 0))
     fov_override = float(
         getattr(state.sample, "wave_field_of_view_angstrom", 0.0)
@@ -271,7 +255,7 @@ def prepare_specimen_potentials(
     )
     if not math.isfinite(requested_fov) or requested_fov <= 0.0:
         raise ValueError("Wave calculation FOV must be finite and positive.")
-    thickness_nm = effective_sample_thickness_nm(state)
+    thickness_nm = scene.interacting_thickness_nm
     total_thickness = thickness_nm * 10.0
     target_slice = float(
         getattr(state.sample, "wave_slice_thickness_angstrom", 2.0)
@@ -282,7 +266,7 @@ def prepare_specimen_potentials(
     atomistic_requested = bool(
         getattr(state.sample, "wave_atomistic_enabled", True)
     )
-    configured_cif_path = active_cif_path(state.sample)
+    configured_cif_path = scene.cif_path
     # A parked holder, missing active structure, or zero-thickness specimen is
     # an interaction-free reference plane. Dormant CIF settings must neither
     # load a file nor make a Virtual-reference calculation fail validation.
@@ -292,7 +276,7 @@ def prepare_specimen_potentials(
         float(getattr(state.sample, "specimen_rotation_y_deg", 0.0)),
         float(getattr(state.sample, "specimen_rotation_z_deg", 0.0)),
     )
-    orientation_quaternion = sample_orientation_quaternion(state.sample)
+    orientation_quaternion = scene.orientation_quaternion_wxyz
     orientation_matrix = quaternion_to_matrix(orientation_quaternion)
     roi_centre_nm = tuple(float(value) for value in calculation_roi_centre_nm)
     if len(roi_centre_nm) != 2 or not all(
@@ -313,17 +297,8 @@ def prepare_specimen_potentials(
         )
 
     if calculation_roi_bounds_nm is not None and total_thickness > 0.0:
-        overlaps = envelope_intersects_bounds(
-            sample_envelope_shape(state.sample),
-            tuple(float(value) for value in calculation_roi_bounds_nm),
-            centre_xy_nm=(
-                float(getattr(state.sample, "centre_x_nm", 0.0)),
-                float(getattr(state.sample, "centre_y_nm", 0.0)),
-            ),
-            size_xy_nm=(
-                float(getattr(state.sample, "size_x_nm", 0.0)),
-                float(getattr(state.sample, "size_y_nm", 0.0)),
-            ),
+        overlaps = scene.sample_intersects_bounds(
+            tuple(float(value) for value in calculation_roi_bounds_nm)
         )
         if not overlaps:
             spacing = requested_fov / pixels
@@ -349,13 +324,10 @@ def prepare_specimen_potentials(
                         float(value) for value in calculation_roi_bounds_nm
                     ),
                     "finite_specimen_size_nm": (
-                        float(getattr(state.sample, "size_x_nm", 0.0)),
-                        float(getattr(state.sample, "size_y_nm", 0.0)),
+                        *scene.size_xy_nm,
                         thickness_nm,
                     ),
-                    "finite_specimen_shape": sample_envelope_shape(
-                        state.sample
-                    ),
+                    "finite_specimen_shape": scene.envelope_shape,
                     "specimen_orientation_quaternion_wxyz": (
                         orientation_quaternion
                     ),
@@ -396,12 +368,12 @@ def prepare_specimen_potentials(
                 rotation_deg_xyz=rotation_deg_xyz,
                 rotation_matrix=orientation_matrix,
                 specimen_size_xy_angstrom=(
-                    float(getattr(state.sample, "size_x_nm", 0.0)) * 10.0,
-                    float(getattr(state.sample, "size_y_nm", 0.0)) * 10.0,
+                    scene.size_xy_nm[0] * 10.0,
+                    scene.size_xy_nm[1] * 10.0,
                 ),
                 specimen_centre_xy_angstrom=(
-                    float(getattr(state.sample, "centre_x_nm", 0.0)) * 10.0,
-                    float(getattr(state.sample, "centre_y_nm", 0.0)) * 10.0,
+                    scene.centre_xy_nm[0] * 10.0,
+                    scene.centre_xy_nm[1] * 10.0,
                 ),
                 calculation_roi_centre_xy_angstrom=(
                     roi_centre_nm[0] * 10.0,
@@ -430,8 +402,7 @@ def prepare_specimen_potentials(
             if calculation_roi_bounds_nm is not None:
                 lab_x_nm = x_axis * 0.1 + roi_centre_nm[0]
                 lab_y_nm = y_axis * 0.1 + roi_centre_nm[1]
-                finite_mask = sample_envelope_contains_xy(
-                    state.sample,
+                finite_mask = scene.sample_contains_xy(
                     lab_x_nm[None, :],
                     lab_y_nm[:, None],
                 )
@@ -485,13 +456,10 @@ def prepare_specimen_potentials(
                     ),
                     "calculation_roi_centre_nm": roi_centre_nm,
                     "finite_specimen_size_nm": (
-                        float(getattr(state.sample, "size_x_nm", 0.0)),
-                        float(getattr(state.sample, "size_y_nm", 0.0)),
+                        *scene.size_xy_nm,
                         thickness_nm,
                     ),
-                    "finite_specimen_shape": sample_envelope_shape(
-                        state.sample
-                    ),
+                    "finite_specimen_shape": scene.envelope_shape,
                     "lateral_cell_commensurate": (
                         ensemble.lateral_cell_commensurate
                     ),
@@ -533,8 +501,7 @@ def prepare_specimen_potentials(
     if calculation_roi_bounds_nm is not None and thickness_nm > 0.0:
         lab_x_nm = x_axis * 0.1 + roi_centre_nm[0]
         lab_y_nm = y_axis * 0.1 + roi_centre_nm[1]
-        finite_mask = sample_envelope_contains_xy(
-            state.sample,
+        finite_mask = scene.sample_contains_xy(
             lab_x_nm[None, :],
             lab_y_nm[:, None],
         )
@@ -573,11 +540,10 @@ def prepare_specimen_potentials(
             "requested_field_of_view_angstrom": requested_fov,
             "calculation_roi_centre_nm": roi_centre_nm,
             "finite_specimen_size_nm": (
-                float(getattr(state.sample, "size_x_nm", 0.0)),
-                float(getattr(state.sample, "size_y_nm", 0.0)),
+                *scene.size_xy_nm,
                 thickness_nm,
             ),
-            "finite_specimen_shape": sample_envelope_shape(state.sample),
+            "finite_specimen_shape": scene.envelope_shape,
             "specimen_orientation_quaternion_wxyz": orientation_quaternion,
             "requested_thickness_mismatch_angstrom": 0.0,
             "requested_thickness_angstrom": total_thickness,
@@ -740,14 +706,11 @@ def _objective_aperture_rad(state) -> float:
 
 
 def simulate_wave_image(state, simulation) -> WaveImagingResult:
-    sample_inserted = bool(getattr(state.sample, "inserted", True))
+    scene = SpecimenScene.from_state(state)
     specimen_interaction = bool(
-        sample_inserted and specimen_structure_available(state.sample)
+        not scene.is_vacuum and scene.structure_available
     )
-    preset_key = wave_template_preset_key(
-        state.sample,
-        inserted=sample_inserted,
-    )
+    preset_key = scene.wave_template_key
     preset = load_specimen_preset(preset_key)
     prepared = prepare_specimen_potentials(state, preset)
     x_axis = prepared.x_angstrom
@@ -924,7 +887,7 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         }
 
     specimen_metrics.update(prepared.metrics)
-    specimen_metrics["sample_inserted"] = sample_inserted
+    specimen_metrics["sample_inserted"] = scene.inserted
     specimen_metrics["sample_interaction_applied"] = specimen_interaction
 
     objective = state.objective_lens

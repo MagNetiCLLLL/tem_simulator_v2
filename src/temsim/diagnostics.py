@@ -79,6 +79,11 @@ class LensFieldRecord:
     field_t: np.ndarray
     peak_t: float
     support_mm: tuple[float, float]
+    support_definition: str
+    field_model_status: str
+    geometry_material_coupling: str
+    field_at_sample_t: float
+    sample_inside_numerical_support: bool
     focal_length_mm: float
     signed_field_integral_t_m: float
     larmor_rotation_deg: float
@@ -397,6 +402,26 @@ def _field_formula(lens, provider):
     return key, label, expression, colour
 
 
+def _field_model_semantics(formula_key: str) -> tuple[str, str, str]:
+    if "gaussian" in str(formula_key):
+        support = (
+            "numerical 7-sigma Gaussian-tail cutoff; the analytic field has "
+            "no hard axial edge"
+        )
+        status = "parameterised on-axis Bz principle model; not FEM or measured map"
+    elif formula_key == "no_field_provider":
+        support = "no active axial field"
+        status = "no axial-field provider"
+    else:
+        support = "provider-declared numerical evaluation support"
+        status = "solver-provider axial Bz; inspect provider provenance"
+    coupling = (
+        "pole-tip/yoke/coil geometry and magnetic material are not solved or "
+        "automatically coupled to this axial profile"
+    )
+    return support, status, coupling
+
+
 def lens_field_records(
     state, z_mm: np.ndarray
 ) -> tuple[np.ndarray, tuple[LensFieldRecord, ...]]:
@@ -410,6 +435,9 @@ def lens_field_records(
         provider = _lens_provider(state, lens)
         formula_key, formula_label, formula_expression, formula_colour = (
             _field_formula(lens, provider)
+        )
+        support_definition, field_model_status, geometry_material_coupling = (
+            _field_model_semantics(formula_key)
         )
         if hasattr(provider, "magnetic_field_t"):
             field_t = np.asarray(provider.magnetic_field_t(z_mm), dtype=float)
@@ -433,6 +461,12 @@ def lens_field_records(
         )
         rotation_rad = -charge_c * integral / (2.0 * momentum)
         cs_value = spherical_aberration_mm(lens, state.beam_voltage_kv)
+        sample_z_mm = float(state.sample.z_mm)
+        field_at_sample_t = (
+            float(np.asarray(provider.magnetic_field_t((sample_z_mm,)))[0])
+            if hasattr(provider, "magnetic_field_t")
+            else 0.0
+        )
         records.append(LensFieldRecord(
             key=str(lens.key),
             name=str(lens.name),
@@ -457,6 +491,13 @@ def lens_field_records(
             field_t=field_t,
             peak_t=float(np.max(np.abs(field_t))) if field_t.size else 0.0,
             support_mm=(float(support[0]), float(support[1])),
+            support_definition=support_definition,
+            field_model_status=field_model_status,
+            geometry_material_coupling=geometry_material_coupling,
+            field_at_sample_t=field_at_sample_t,
+            sample_inside_numerical_support=bool(
+                float(support[0]) <= sample_z_mm <= float(support[1])
+            ),
             focal_length_mm=focal,
             signed_field_integral_t_m=integral,
             larmor_rotation_deg=float(np.degrees(rotation_rad)),

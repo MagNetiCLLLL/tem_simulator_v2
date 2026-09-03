@@ -1,0 +1,1133 @@
+"""Interactive 3-D view of cached specimen-local interactions.
+
+This module is deliberately a renderer.  It never launches electron transport,
+multislice, EDS generation, or downstream column propagation.  The page consumes
+the shared :class:`SpecimenInteractionResult` produced by High accuracy and, when
+the user explicitly requests it, the already bounded ``SampleRegionResult``.
+
+Electron paths on this page end at a specimen-region boundary.  They are not
+detector counts: electron detector signals are assigned only after the same
+sample-exit states have passed through the downstream column and physically
+intersected an inserted detector.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import math
+import os
+
+import numpy as np
+import pyqtgraph as pg
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QGuiApplication, QVector3D
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
+
+from temsim.specimen.scene import SpecimenScene
+from temsim.specimen.axial_field_transport import (
+    axial_field_polyline,
+    axial_rotation_rate_rad_per_nm,
+    sample_axial_field_diagnostic,
+)
+
+
+try:
+    if os.environ.get("TEMSIM_DISABLE_OPENGL", "").strip() == "1":
+        raise ImportError("OpenGL disabled by TEMSIM_DISABLE_OPENGL")
+    import pyqtgraph.opengl as gl
+except Exception as _opengl_import_error:  # pragma: no cover - platform dependent
+    gl = None
+    OPENGL_IMPORT_ERROR = str(_opengl_import_error)
+else:
+    OPENGL_IMPORT_ERROR = None
+
+
+PATH_STYLES = {
+    "incident": ("Incident electrons", "#67e8f9"),
+    "primary": ("Unscattered / primary electrons", "#4ade80"),
+    "elastic": ("Elastically scattered electrons", "#fb7185"),
+    "backscattered": ("Backscattered electrons", "#f97316"),
+    "downstream_primary": ("Primary electrons leaving the sample", "#a3e635"),
+    "downstream_elastic": ("Scattered electrons leaving the sample", "#facc15"),
+    "xray_generated": ("Generated characteristic X-rays", "#f472b6"),
+    "xray_detected": ("X-rays inside EDS acceptance", "#22d3ee"),
+}
+
+EVENT_STYLES = {
+    "elastic_event": ("Elastic-scattering sites", "#fda4af"),
+    "inelastic_event": ("Inelastic / vacancy sites", "#c084fc"),
+    "relaxation_event": ("Relaxation / X-ray sites", "#fde047"),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ScenePath:
+    """One immutable path in specimen-local nanometres."""
+
+    positions_nm: np.ndarray
+    category: str
+    provenance: str = ""
+
+    def __post_init__(self) -> None:
+        positions = np.asarray(self.positions_nm, dtype=float)
+        if (
+            positions.ndim != 2
+            or positions.shape[1:] != (3,)
+            or positions.shape[0] < 2
+            or not np.all(np.isfinite(positions))
+        ):
+            raise ValueError("A 3-D scene path must be a finite N by 3 array")
+        positions.setflags(write=False)
+        object.__setattr__(self, "positions_nm", positions)
+
+
+@dataclass(frozen=True, slots=True)
+class SceneEvents:
+    """One category of specimen-local event markers."""
+
+    positions_nm: np.ndarray
+    category: str
+
+    def __post_init__(self) -> None:
+        positions = np.asarray(self.positions_nm, dtype=float)
+        if (
+            positions.ndim != 2
+            or positions.shape[1:] != (3,)
+            or not np.all(np.isfinite(positions))
+        ):
+            raise ValueError("3-D event positions must be a finite N by 3 array")
+        positions.setflags(write=False)
+        object.__setattr__(self, "positions_nm", positions)
+
+
+@dataclass(frozen=True, slots=True)
+class SampleInteractionScene:
+    """Render-ready, calculation-free snapshot of specimen interactions."""
+
+    paths: tuple[ScenePath, ...]
+    events: tuple[SceneEvents, ...]
+    material_bounds_nm: tuple[np.ndarray, np.ndarray]
+    region_bounds_nm: tuple[np.ndarray, np.ndarray]
+    sample_thickness_nm: float
+    coherent_wave_available: bool
+    has_bounded_result: bool
+    specimen_mode: str
+    specimen_source_key: str
+    specimen_is_vacuum: bool
+    sample_envelope_shape: str
+    sample_centre_xy_nm: tuple[float, float]
+    sample_size_xy_nm: tuple[float, float]
+    sample_bounds_nm: tuple[np.ndarray, np.ndarray]
+    virtual_region_outlines_nm: tuple[np.ndarray, ...]
+    sample_axial_field_t: float
+    sample_objective_field_t: float
+    sample_field_face_variation_t: float
+    sample_field_transport_model: str
+    sample_field_geometry_material_coupled: bool
+
+
+def _bounds(points, fallback_half_nm: float) -> tuple[np.ndarray, np.ndarray]:
+    arrays = [np.asarray(value, dtype=float) for value in points if np.size(value)]
+    if arrays:
+        joined = np.concatenate(arrays, axis=0)
+        lower = np.min(joined, axis=0)
+        upper = np.max(joined, axis=0)
+    else:
+        half = max(float(fallback_half_nm), 1.0)
+        lower = np.array((-half, -half, -half), dtype=float)
+        upper = np.array((half, half, half), dtype=float)
+    span = np.maximum(upper - lower, 1.0e-6)
+    padding = np.maximum(0.08 * span, 0.5)
+    return lower - padding, upper + padding
+
+
+def _global_mm_to_local_nm(positions_mm, sample_z_mm: float) -> np.ndarray:
+    values = np.asarray(positions_mm, dtype=float)
+    local = values.copy()
+    local[:, :2] *= 1.0e6
+    local[:, 2] = (local[:, 2] - float(sample_z_mm)) * 1.0e6
+    return local
+
+
+def _clip_photon_path(
+    positions_nm: np.ndarray,
+    maximum_length_nm: float,
+) -> np.ndarray:
+    """Clip only the schematic photon endpoint; preserve origin/direction."""
+
+    start = np.asarray(positions_nm[0], dtype=float)
+    vector = np.asarray(positions_nm[-1], dtype=float) - start
+    length = float(np.linalg.norm(vector))
+    if length <= 0.0 or length <= maximum_length_nm:
+        return np.asarray((start, positions_nm[-1]), dtype=float)
+    return np.asarray((start, start + vector * (maximum_length_nm / length)))
+
+
+def _event_category(process) -> str:
+    key = str(getattr(process, "value", process))
+    if key == "elastic_scatter":
+        return "elastic_event"
+    if key in {
+        "radiative_relaxation",
+        "characteristic_x_ray",
+        "auger_relaxation",
+        "unresolved_relaxation",
+    }:
+        return "relaxation_event"
+    return "inelastic_event"
+
+
+def _downstream_scene_paths(
+    sample_region_result,
+    sample_z_mm: float,
+    *,
+    maximum_paths: int = 192,
+) -> list[ScenePath]:
+    """Extract exact cached branch histories only as far as the chosen exit."""
+
+    candidates: list[tuple[object, int]] = []
+    for branch in tuple(getattr(sample_region_result, "downstream_branches", ())):
+        x = np.asarray(getattr(branch, "x", ()), dtype=float)
+        if x.ndim != 2:
+            continue
+        candidates.extend((branch, index) for index in range(x.shape[1]))
+    if len(candidates) > int(maximum_paths):
+        indices = np.linspace(
+            0, len(candidates) - 1, int(maximum_paths), dtype=int
+        )
+        candidates = [candidates[index] for index in indices]
+
+    exit_z_mm = float(sample_region_result.exit_z_mm)
+    rows: list[ScenePath] = []
+    for branch, ray_index in candidates:
+        z = np.asarray(branch.z, dtype=float)
+        x = np.asarray(branch.x, dtype=float)[:, ray_index]
+        y = np.asarray(branch.y, dtype=float)[:, ray_index]
+        mask = (
+            (z >= float(sample_z_mm) - 1.0e-12)
+            & (z <= exit_z_mm + 1.0e-12)
+            & np.isfinite(x)
+            & np.isfinite(y)
+        )
+        if np.count_nonzero(mask) < 2:
+            continue
+        points = np.column_stack(
+            (
+                x[mask] * 1.0e9,
+                y[mask] * 1.0e9,
+                (z[mask] - float(sample_z_mm)) * 1.0e6,
+            )
+        )
+        kind = str(getattr(branch, "interaction_kind", ""))
+        category = (
+            "downstream_elastic"
+            if kind == "sample_region_elastic"
+            else "downstream_primary"
+        )
+        rows.append(ScenePath(points, category, "cached downstream branch"))
+    return rows
+
+
+def _sample_model_bounds(
+    scene: SpecimenScene,
+) -> tuple[np.ndarray, np.ndarray]:
+    centre_x, centre_y = scene.centre_xy_nm
+    size_x, size_y = scene.size_xy_nm
+    half_z = 0.5 * scene.interacting_thickness_nm
+    lower = np.asarray(
+        (centre_x - 0.5 * size_x, centre_y - 0.5 * size_y, -half_z),
+        dtype=float,
+    )
+    upper = np.asarray(
+        (centre_x + 0.5 * size_x, centre_y + 0.5 * size_y, half_z),
+        dtype=float,
+    )
+    return lower, upper
+
+
+def _sample_model_outline(scene: SampleInteractionScene) -> np.ndarray:
+    centre_x, centre_y = scene.sample_centre_xy_nm
+    size_x, size_y = scene.sample_size_xy_nm
+    if scene.sample_envelope_shape == "disk":
+        angle = np.linspace(0.0, 2.0 * math.pi, 129)
+        return np.column_stack(
+            (
+                centre_x + 0.5 * size_x * np.cos(angle),
+                centre_y + 0.5 * size_y * np.sin(angle),
+                np.zeros_like(angle),
+            )
+        )
+    return np.asarray(
+        (
+            (centre_x - 0.5 * size_x, centre_y - 0.5 * size_y, 0.0),
+            (centre_x + 0.5 * size_x, centre_y - 0.5 * size_y, 0.0),
+            (centre_x + 0.5 * size_x, centre_y + 0.5 * size_y, 0.0),
+            (centre_x - 0.5 * size_x, centre_y + 0.5 * size_y, 0.0),
+            (centre_x - 0.5 * size_x, centre_y - 0.5 * size_y, 0.0),
+        ),
+        dtype=float,
+    )
+
+
+def _virtual_region_outlines(sample) -> tuple[np.ndarray, ...]:
+    rows = []
+    for raw in tuple(getattr(sample, "virtual_regions", ()) or ()):
+        if not isinstance(raw, dict) or not bool(raw.get("enabled", True)):
+            continue
+        kind = str(raw.get("kind", "rectangle")).strip().lower()
+        centre_x = float(raw.get("centre_x_nm", 0.0))
+        centre_y = float(raw.get("centre_y_nm", 0.0))
+        size_x = float(raw.get("size_x_nm", getattr(sample, "size_x_nm", 0.0)))
+        size_y = float(raw.get("size_y_nm", getattr(sample, "size_y_nm", 0.0)))
+        angle = math.radians(float(raw.get("rotation_deg", 0.0)))
+        if min(size_x, size_y) <= 0.0:
+            continue
+        if kind == "ellipse":
+            phase = np.linspace(0.0, 2.0 * math.pi, 97)
+            local = np.column_stack(
+                (0.5 * size_x * np.cos(phase), 0.5 * size_y * np.sin(phase))
+            )
+        else:
+            local = np.asarray(
+                (
+                    (-0.5 * size_x, -0.5 * size_y),
+                    (0.5 * size_x, -0.5 * size_y),
+                    (0.5 * size_x, 0.5 * size_y),
+                    (-0.5 * size_x, 0.5 * size_y),
+                    (-0.5 * size_x, -0.5 * size_y),
+                ),
+                dtype=float,
+            )
+        cosine, sine = math.cos(angle), math.sin(angle)
+        rotation = np.asarray(((cosine, -sine), (sine, cosine)))
+        xy = local @ rotation.T + np.asarray((centre_x, centre_y))
+        rows.append(np.column_stack((xy, np.zeros(xy.shape[0]))))
+    return tuple(rows)
+
+
+def _sample_boundary_paths(
+    calculation_result,
+    scene: SpecimenScene,
+    *,
+    maximum_paths: int = 160,
+) -> list[ScenePath]:
+    """Expose cached sample-input/output states without assigning detectors.
+
+    The low-level ray calculation has already propagated every output branch
+    through the downstream column.  For this specimen-local page we display
+    short helical segments generated from the exact cached sample-plane phase
+    space and the same local axial field as the global solver.
+    """
+
+    simulation = getattr(calculation_result, "simulation", None)
+    incident = getattr(simulation, "incident", None)
+    branches = tuple(getattr(simulation, "branches", {}).values())
+    if incident is None or not branches:
+        return []
+
+    state = getattr(calculation_result, "state_snapshot", None)
+    if state is None:
+        return []
+    field_diagnostic = sample_axial_field_diagnostic(state)
+    length_nm = max(4.0 * float(scene.interacting_thickness_nm), 100.0)
+    alive = np.asarray(getattr(incident, "alive", ()), dtype=bool)
+    ray_count = int(alive.size)
+    valid_indices = np.flatnonzero(alive)
+    if valid_indices.size == 0:
+        return []
+
+    incident_budget = min(max(int(maximum_paths) // 3, 1), valid_indices.size)
+    incident_indices = valid_indices[
+        np.linspace(0, valid_indices.size - 1, incident_budget, dtype=int)
+    ]
+    rows: list[ScenePath] = []
+    for index in incident_indices:
+        x_nm = float(incident.x[-1, index]) * 1.0e9
+        y_nm = float(incident.y[-1, index]) * 1.0e9
+        tx = float(incident.tx[-1, index])
+        ty = float(incident.ty[-1, index])
+        direction = np.asarray((tx, ty, 1.0), dtype=float)
+        direction /= np.linalg.norm(direction)
+        energy_ev = float(state.beam_voltage_kv) * 1000.0 + float(
+            incident.energy_offset_ev[index]
+        )
+        points, _ = axial_field_polyline(
+            (x_nm, y_nm, 0.0),
+            direction,
+            -length_nm / float(direction[2]),
+            rotation_rate_rad_per_nm=axial_rotation_rate_rad_per_nm(
+                field_diagnostic.total_field_t, energy_ev
+            ),
+        )
+        points = points[::-1]
+        if np.all(np.isfinite(points)):
+            rows.append(
+                ScenePath(
+                    points,
+                    "incident",
+                    "cached specimen-input state; local-uniform solver Bz",
+                )
+            )
+
+    remaining = max(int(maximum_paths) - len(rows), 1)
+    branch_indices = np.arange(len(branches), dtype=int)
+    if branch_indices.size > remaining:
+        branch_indices = branch_indices[
+            np.linspace(0, branch_indices.size - 1, remaining, dtype=int)
+        ]
+    per_branch = max(1, remaining // max(branch_indices.size, 1))
+    for branch_index in branch_indices:
+        branch = branches[int(branch_index)]
+        branch_x = np.asarray(getattr(branch, "x", ()), dtype=float)
+        if branch_x.ndim != 2 or branch_x.shape[1] != ray_count:
+            continue
+        candidates = valid_indices
+        if candidates.size > per_branch:
+            candidates = candidates[
+                np.linspace(0, candidates.size - 1, per_branch, dtype=int)
+            ]
+        kind = str(getattr(branch, "interaction_kind", "")).lower()
+        direct = kind in {
+            "transmitted",
+            "vacuum",
+            "virtual_interactions_disabled",
+        } or str(getattr(branch, "name", "")) == "000"
+        category = "downstream_primary" if direct else "downstream_elastic"
+        for index in candidates:
+            x_nm = float(branch.x[0, index]) * 1.0e9
+            y_nm = float(branch.y[0, index]) * 1.0e9
+            tx = float(branch.tx[0, index])
+            ty = float(branch.ty[0, index])
+            direction = np.asarray((tx, ty, 1.0), dtype=float)
+            direction /= np.linalg.norm(direction)
+            energy_ev = float(state.beam_voltage_kv) * 1000.0 + float(
+                branch.energy_offset_ev[index]
+            )
+            points, _ = axial_field_polyline(
+                (x_nm, y_nm, 0.0),
+                direction,
+                length_nm / float(direction[2]),
+                rotation_rate_rad_per_nm=axial_rotation_rate_rad_per_nm(
+                    field_diagnostic.total_field_t, energy_ev
+                ),
+            )
+            if np.all(np.isfinite(points)):
+                rows.append(
+                    ScenePath(
+                        points,
+                        category,
+                        "cached specimen-exit state; local-uniform solver Bz; "
+                        "detector not assigned",
+                    )
+                )
+    return rows
+
+
+def build_sample_interaction_scene(
+    calculation_result,
+    sample_region_result=None,
+) -> SampleInteractionScene:
+    """Convert cached solver outputs into a physically scaled 3-D scene."""
+
+    state = getattr(calculation_result, "state_snapshot", None)
+    sample = getattr(state, "sample", None)
+    sample_z_mm = float(getattr(sample, "z_mm", 0.0))
+    if sample is None and sample_region_result is not None:
+        sample_z_mm = 0.5 * (
+            float(sample_region_result.entry_z_mm)
+            + float(sample_region_result.exit_z_mm)
+        )
+    thickness_nm = max(float(getattr(sample, "thickness_nm", 0.0)), 0.0)
+    interactions = getattr(calculation_result, "specimen_interactions", None)
+    if sample_region_result is not None:
+        interactions = getattr(sample_region_result, "interactions", interactions)
+    specimen_scene = getattr(interactions, "scene", None)
+    if specimen_scene is None:
+        if state is None or sample is None:
+            raise ValueError(
+                "A cached state snapshot is required for the sample view."
+            )
+        specimen_scene = SpecimenScene.from_state(state)
+    field_diagnostic = sample_axial_field_diagnostic(state)
+
+    paths: list[ScenePath] = []
+    if sample_region_result is not None:
+        category_by_kind = {
+            "boundary_input": "incident",
+            "primary_material": "primary",
+            "elastic_rutherford": "elastic",
+            "backscattered": "backscattered",
+        }
+        for path in tuple(getattr(sample_region_result, "electron_paths", ())):
+            category = category_by_kind.get(str(getattr(path, "kind", "")))
+            # Secondary electrons are intentionally absent: the project has no
+            # validated secondary yield/energy/escape model.
+            if category is None:
+                continue
+            paths.append(
+                ScenePath(
+                    _global_mm_to_local_nm(path.positions_mm, sample_z_mm),
+                    category,
+                    str(getattr(path, "provenance", "")),
+                )
+            )
+        paths.extend(
+            _downstream_scene_paths(sample_region_result, sample_z_mm)
+        )
+        boundary_length_nm = max(
+            abs(float(sample_region_result.entry_z_mm) - sample_z_mm),
+            abs(float(sample_region_result.exit_z_mm) - sample_z_mm),
+        ) * 1.0e6
+        photon_display_length_nm = max(boundary_length_nm, 100.0)
+        for path in tuple(getattr(sample_region_result, "photon_paths", ())):
+            local = _global_mm_to_local_nm(path.positions_mm, sample_z_mm)
+            local = _clip_photon_path(local, photon_display_length_nm)
+            category = "xray_detected" if bool(path.detected) else "xray_generated"
+            paths.append(
+                ScenePath(local, category, str(getattr(path, "provenance", "")))
+            )
+    elif interactions is not None:
+        elastic = getattr(interactions, "elastic_transport", None)
+        trajectories = tuple(getattr(elastic, "trajectories", ()))
+        for trajectory in trajectories:
+            points = np.asarray(trajectory.points_nm, dtype=float)
+            if points.shape[0] < 2:
+                continue
+            outcome = str(getattr(trajectory, "outcome", ""))
+            if outcome == "backscattered":
+                category = "backscattered"
+            elif tuple(getattr(trajectory, "events", ())):
+                category = "elastic"
+            else:
+                category = "primary"
+            paths.append(
+                ScenePath(points, category, "cached elastic Monte Carlo")
+            )
+
+        bundle = getattr(interactions, "incident_bundle", None)
+        rays = tuple(getattr(bundle, "rays", ()))
+        if len(rays) > 128:
+            indices = np.linspace(0, len(rays) - 1, 128, dtype=int)
+            rays = tuple(rays[index] for index in indices)
+        upstream_length_nm = max(4.0 * thickness_nm, 100.0)
+        top_z_nm = -0.5 * thickness_nm
+        for ray in rays:
+            direction = np.asarray(ray.direction, dtype=float)
+            if direction.shape != (3,) or direction[2] <= 1.0e-12:
+                continue
+            sample_xy = np.asarray(ray.position_xy_nm, dtype=float)
+            rate = axial_rotation_rate_rad_per_nm(
+                field_diagnostic.total_field_t,
+                ray.kinetic_energy_ev,
+            )
+            reference_to_top, top_direction = axial_field_polyline(
+                (*sample_xy, 0.0),
+                direction,
+                top_z_nm / float(direction[2]),
+                rotation_rate_rad_per_nm=rate,
+            )
+            top_position = reference_to_top[-1]
+            top_to_start, _ = axial_field_polyline(
+                top_position,
+                top_direction,
+                -upstream_length_nm / float(top_direction[2]),
+                rotation_rate_rad_per_nm=rate,
+            )
+            paths.append(
+                ScenePath(
+                    top_to_start[::-1],
+                    "incident",
+                    "cached sample-plane phase space; local-uniform solver Bz",
+                )
+            )
+
+    if not paths:
+        paths.extend(_sample_boundary_paths(calculation_result, specimen_scene))
+
+    event_groups: dict[str, list[tuple[float, float, float]]] = {
+        key: [] for key in EVENT_STYLES
+    }
+    for event in tuple(getattr(interactions, "events", ())):
+        position = tuple(float(value) for value in event.position_nm)
+        if len(position) == 3 and all(math.isfinite(value) for value in position):
+            event_groups[_event_category(event.process)].append(position)
+    events = tuple(
+        SceneEvents(np.asarray(values, dtype=float).reshape((-1, 3)), category)
+        for category, values in event_groups.items()
+        if values
+    )
+
+    material_categories = {"primary", "elastic", "backscattered"}
+    material_points = [
+        path.positions_nm for path in paths if path.category in material_categories
+    ] + [event.positions_nm for event in events]
+    if not material_points:
+        material_points = [
+            path.positions_nm
+            for path in paths
+            if path.category not in {"xray_generated", "xray_detected"}
+        ]
+    material_bounds = _bounds(
+        material_points,
+        max(0.5 * thickness_nm, 10.0),
+    )
+    region_bounds = _bounds(
+        [path.positions_nm for path in paths]
+        + [event.positions_nm for event in events],
+        max(0.5 * thickness_nm, 100.0),
+    )
+    sample_bounds = _sample_model_bounds(specimen_scene)
+    return SampleInteractionScene(
+        paths=tuple(paths),
+        events=events,
+        material_bounds_nm=material_bounds,
+        region_bounds_nm=region_bounds,
+        sample_thickness_nm=thickness_nm,
+        coherent_wave_available=getattr(calculation_result, "wave_imaging", None)
+        is not None,
+        has_bounded_result=sample_region_result is not None,
+        specimen_mode=specimen_scene.mode,
+        specimen_source_key=specimen_scene.source_key,
+        specimen_is_vacuum=specimen_scene.is_vacuum,
+        sample_envelope_shape=specimen_scene.envelope_shape,
+        sample_centre_xy_nm=specimen_scene.centre_xy_nm,
+        sample_size_xy_nm=specimen_scene.size_xy_nm,
+        sample_bounds_nm=sample_bounds,
+        virtual_region_outlines_nm=(
+            _virtual_region_outlines(sample)
+            if (
+                specimen_scene.mode == "virtual"
+                and not specimen_scene.is_vacuum
+                and sample is not None
+            )
+            else ()
+        ),
+        sample_axial_field_t=field_diagnostic.total_field_t,
+        sample_objective_field_t=field_diagnostic.objective_field_t,
+        sample_field_face_variation_t=field_diagnostic.face_variation_t,
+        sample_field_transport_model=field_diagnostic.transport_model,
+        sample_field_geometry_material_coupled=(
+            field_diagnostic.geometry_material_coupled
+        ),
+    )
+
+
+def _focus_diagnostic_text(calculation_result) -> str:
+    """Describe the already-calculated sample-plane focus without retracing."""
+
+    stem_scan = getattr(calculation_result, "stem_scan", None)
+    stem_metrics = getattr(stem_scan, "metrics", {}) or {}
+    if "probe_effective_defocus_nm" in stem_metrics:
+        effective = float(stem_metrics["probe_effective_defocus_nm"])
+        waist = float(stem_metrics.get("probe_ray_waist_offset_nm", 0.0))
+        configured = float(
+            stem_metrics.get("probe_configured_defocus_nm", 0.0)
+        )
+        return (
+            f"STEM effective probe defocus {effective:+.6g} nm "
+            f"(traced waist {waist:+.6g} nm; additional C1 "
+            f"{configured:+.6g} nm)."
+        )
+
+    wave = getattr(calculation_result, "wave_imaging", None)
+    wave_metrics = getattr(wave, "metrics", {}) or {}
+    if "waist_offset_m" in wave_metrics:
+        waist_nm = float(wave_metrics["waist_offset_m"]) * 1.0e9
+        curvature = float(
+            wave_metrics.get("radial_wavefront_curvature_per_m", 0.0)
+        )
+        return (
+            f"TEM illumination waist offset {waist_nm:+.6g} nm; "
+            f"sample-plane radial wavefront curvature {curvature:+.6g} m⁻¹."
+        )
+    return ""
+
+
+def _beam_model_diagnostic_text(calculation_result) -> str:
+    """Summarise cached beam coordinates without launching another trace."""
+
+    state = getattr(calculation_result, "state_snapshot", None)
+    simulation = getattr(calculation_result, "simulation", None)
+    incident = getattr(simulation, "incident", None)
+    if state is None or incident is None:
+        return ""
+    alive = np.asarray(getattr(incident, "alive", ()), dtype=bool)
+    energy_offsets = np.asarray(
+        getattr(incident, "energy_offset_ev", ()), dtype=float
+    )
+    energy_text = ""
+    if energy_offsets.size and np.all(np.isfinite(energy_offsets)):
+        energy_text = (
+            f"; ΔE {float(np.min(energy_offsets)):+.4g} to "
+            f"{float(np.max(energy_offsets)):+.4g} eV"
+        )
+    emitter = getattr(getattr(state, "electron_gun", None), "emitter", None)
+    source_parts = []
+    for attribute, label, unit in (
+        ("virtual_source_fwhm_nm", "source FWHM", "nm"),
+        ("angular_rms_mrad", "angular RMS", "mrad"),
+        ("angular_cutoff_mrad", "angular cutoff", "mrad"),
+        ("energy_spread_fwhm_ev", "energy FWHM", "eV"),
+    ):
+        value = getattr(emitter, attribute, None)
+        if value is not None and math.isfinite(float(value)):
+            source_parts.append(f"{label} {float(value):.4g} {unit}")
+    source_text = "; ".join(source_parts)
+    if source_text:
+        source_text = "; " + source_text
+    return (
+        f"Beam cache: {int(np.count_nonzero(alive)):,}/{alive.size:,} rays at "
+        f"{float(state.beam_voltage_kv):.6g} kV; each carries x, y, θx, θy, "
+        f"ΔE and current weight{energy_text}{source_text}."
+    )
+
+
+def _aberration_scope_text(calculation_result) -> str:
+    state = getattr(calculation_result, "state_snapshot", None)
+    if state is None:
+        return ""
+    chromatic = (
+        "enabled" if bool(getattr(state, "chromatic_aberration_enabled", False))
+        else "disabled"
+    )
+    return (
+        "Aberration scope: geometric rays include continuous round-lens, "
+        "stigmator/corrector multipole fields and each lens C3(Cs) once; "
+        f"objective Cc energy-dependent defocus is {chromatic}. Coherent "
+        "TEM/STEM wave imaging applies C1, A1, B2, A2, C3, S3, A3 and C5; "
+        "Cc is handled through energy-dependent defocus/temporal coherence, "
+        "not as a single-energy phase term."
+    )
+
+
+class SampleInteractions3DPage(QWidget):
+    """Rotate and inspect cached interactions near the active sample."""
+
+    sample_region_requested = Signal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("sampleInteractions3DPage")
+        self._calculation_result = None
+        self._sample_region_result = None
+        self._scene: SampleInteractionScene | None = None
+        self._items = []
+        self._fit_scope = "material"
+
+        self.summary = QLabel(
+            "Run High accuracy to populate cached specimen trajectories."
+        )
+        self.summary.setObjectName("sampleInteractions3DSummary")
+        self.summary.setWordWrap(True)
+        self.summary.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.summary.setStyleSheet("color: #94a3b8; font-weight: 600;")
+
+        self.electron_toggle = QCheckBox("Electron paths")
+        self.electron_toggle.setChecked(True)
+        self.event_toggle = QCheckBox("Interaction sites")
+        self.event_toggle.setChecked(True)
+        self.xray_toggle = QCheckBox("Characteristic X-rays")
+        self.xray_toggle.setChecked(True)
+        self.context_toggle = QCheckBox("Sample-plane context")
+        self.context_toggle.setChecked(True)
+        for control in (
+            self.electron_toggle,
+            self.event_toggle,
+            self.xray_toggle,
+            self.context_toggle,
+        ):
+            control.toggled.connect(self._redraw)
+
+        self.calculate_paths = QPushButton("Calculate detailed paths + X-rays")
+        self.calculate_paths.setObjectName("sampleInteractions3DCalculate")
+        self.calculate_paths.setEnabled(False)
+        self.calculate_paths.setToolTip(
+            "Explicitly calculate only missing bounded sample/EDS observables; "
+            "cached High-accuracy interactions are reused."
+        )
+        self.calculate_paths.clicked.connect(self.sample_region_requested.emit)
+        self.fit_material = QPushButton("Fit material")
+        self.fit_material.setToolTip(
+            "Fit the nanometre-scale material trajectories and event sites."
+        )
+        self.fit_region = QPushButton("Fit interaction region")
+        self.fit_region.setToolTip(
+            "Fit the complete cached entry/exit region and clipped display "
+            "length of X-ray direction lines."
+        )
+        self.fit_sample = QPushButton("Fit user sample")
+        self.fit_sample.setToolTip(
+            "Fit the complete user-defined sample envelope. This may be much "
+            "larger than the nanometre-scale interaction region."
+        )
+        self.fit_material.clicked.connect(lambda: self._fit("material"))
+        self.fit_region.clicked.connect(lambda: self._fit("region"))
+        self.fit_sample.clicked.connect(lambda: self._fit("sample"))
+
+        visibility_controls = QGridLayout()
+        for index, widget in enumerate((
+            self.electron_toggle,
+            self.event_toggle,
+            self.xray_toggle,
+            self.context_toggle,
+        )):
+            visibility_controls.addWidget(widget, index // 2, index % 2)
+        visibility_controls.setColumnStretch(2, 1)
+        action_controls = QGridLayout()
+        for index, widget in enumerate((
+            self.calculate_paths,
+            self.fit_material,
+            self.fit_region,
+            self.fit_sample,
+        )):
+            action_controls.addWidget(widget, index // 2, index % 2)
+        action_controls.setColumnStretch(2, 1)
+
+        self.legend = QLabel(self._legend_html())
+        self.legend.setObjectName("sampleInteractions3DLegend")
+        self.legend.setTextFormat(Qt.TextFormat.RichText)
+        self.legend.setWordWrap(True)
+        self.legend.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+
+        self.opengl_available = False
+        self.opengl_detail = OPENGL_IMPORT_ERROR
+        platform_name = str(QGuiApplication.platformName()).lower()
+        platform_supports_gl = platform_name not in {"offscreen", "minimal"}
+        if gl is not None and platform_supports_gl:
+            try:
+                self.view = gl.GLViewWidget(self)
+                self.view.setObjectName("sampleInteractionsOpenGlView")
+                self.view.setBackgroundColor(QColor("#050816"))
+                self.opengl_available = True
+                self.opengl_detail = "pyqtgraph.opengl / PyOpenGL"
+            except Exception as exc:  # pragma: no cover - driver dependent
+                self.opengl_detail = f"OpenGL initialisation failed: {exc}"
+                self.view = self._fallback_plot()
+        else:
+            if not platform_supports_gl:
+                self.opengl_detail = (
+                    f"Qt platform {platform_name!r} has no supported OpenGL widget"
+                )
+            self.view = self._fallback_plot()
+        self.view.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.summary)
+        layout.addLayout(visibility_controls)
+        layout.addLayout(action_controls)
+        layout.addWidget(self.legend)
+        layout.addWidget(self.view, 1)
+
+    @staticmethod
+    def _legend_html() -> str:
+        entries = [
+            f'<span style="color:{colour}">●</span> {label}'
+            for label, colour in (
+                *PATH_STYLES.values(),
+                *EVENT_STYLES.values(),
+            )
+        ]
+        return "&nbsp;&nbsp; ".join(entries)
+
+    @property
+    def scene_snapshot(self) -> SampleInteractionScene | None:
+        return self._scene
+
+    def _fallback_plot(self):
+        plot = pg.PlotWidget(background="#050816")
+        plot.setObjectName("sampleInteractionsFallback2DView")
+        plot.setLabel("bottom", "Local X", units="nm")
+        plot.setLabel("left", "Local Z (+ downstream)", units="nm")
+        plot.showGrid(x=True, y=True, alpha=0.2)
+        plot.getViewBox().setAspectLocked(True)
+        return plot
+
+    def display_result(self, calculation_result) -> None:
+        if calculation_result is not self._calculation_result:
+            self._sample_region_result = None
+        self._calculation_result = calculation_result
+        self._refresh_scene()
+
+    def set_sample_region_result(self, result) -> None:
+        self._sample_region_result = result
+        self._refresh_scene()
+
+    def _refresh_scene(self) -> None:
+        if self._calculation_result is None:
+            self._scene = None
+            self._clear_items()
+            self.summary.setText(
+                "Run High accuracy to populate cached specimen trajectories."
+            )
+            return
+        self._scene = build_sample_interaction_scene(
+            self._calculation_result,
+            self._sample_region_result,
+        )
+        scene = self._scene
+        state = getattr(self._calculation_result, "state_snapshot", None)
+        sample = getattr(state, "sample", None)
+        detailed_available = bool(
+            sample is not None
+            and not scene.specimen_is_vacuum
+            and bool(getattr(sample, "eds_enabled", False))
+        )
+        self.calculate_paths.setEnabled(detailed_available)
+        electron_count = sum(
+            path.category not in {"xray_generated", "xray_detected"}
+            for path in scene.paths
+        )
+        xray_count = sum(
+            path.category in {"xray_generated", "xray_detected"}
+            for path in scene.paths
+        )
+        event_count = sum(len(group.positions_nm) for group in scene.events)
+        parts = [
+            (
+                "Active specimen: "
+                + (
+                    "Vacuum reference"
+                    if scene.specimen_is_vacuum
+                    else "Virtual TOML sample"
+                    if scene.specimen_mode == "virtual"
+                    else "Real imported CIF sample"
+                )
+                + f" ({scene.specimen_source_key}); "
+                + f"{scene.sample_envelope_shape} "
+                + f"{scene.sample_size_xy_nm[0]:.6g} × "
+                + f"{scene.sample_size_xy_nm[1]:.6g} × "
+                + f"{scene.sample_thickness_nm:.6g} nm."
+            ),
+            f"Cached local view: {electron_count:,} electron paths, "
+            f"{event_count:,} interaction sites, {xray_count:,} X-ray paths."
+        ]
+        focus_text = _focus_diagnostic_text(self._calculation_result)
+        if focus_text:
+            parts.append(focus_text)
+        beam_text = _beam_model_diagnostic_text(self._calculation_result)
+        if beam_text:
+            parts.append(beam_text)
+        parts.append(
+            f"Specimen field: total Bz {scene.sample_axial_field_t:+.6g} T; "
+            f"Objective contribution {scene.sample_objective_field_t:+.6g} T; "
+            f"face-to-face ΔBz {scene.sample_field_face_variation_t:.3g} T. "
+            "Finite specimen flights use reversible local-uniform axial-field "
+            "helical transport with no magnetic energy change."
+        )
+        aberration_text = _aberration_scope_text(self._calculation_result)
+        if aberration_text:
+            parts.append(aberration_text)
+        if scene.coherent_wave_available:
+            parts.append(
+                "Coherent diffraction/channeling is retained as a wave result "
+                "and is not misdrawn as a classical particle track."
+            )
+        if scene.virtual_region_outlines_nm:
+            parts.append(
+                f"The view includes {len(scene.virtual_region_outlines_nm)} "
+                "enabled user-defined virtual-density region(s)."
+            )
+        if not scene.has_bounded_result and detailed_available:
+            parts.append(
+                "Use Calculate detailed paths + X-rays for the explicit "
+                "entry/exit region and EDS photon directions."
+            )
+        elif scene.specimen_is_vacuum:
+            parts.append(
+                "Vacuum preserves the user reference plane but generates no "
+                "sample scattering, ionisation, or characteristic X-rays."
+            )
+        parts.append(
+            "Electron lines here are specimen-input/output states, not "
+            "HAADF/DF/BF counts. Electron signal is counted only after "
+            "downstream lens transport and physical detector intersection."
+        )
+        parts.append(
+            "Coordinates are specimen-local nm (+Z downstream); rotating, "
+            "zooming, filtering, and fitting only redraw this cache."
+        )
+        self.summary.setText(" ".join(parts))
+        self.summary.setToolTip(
+            "The user-sample outline uses the configured finite envelope; use "
+            "Fit user sample to see its complete edge. X-ray display lines are "
+            "clipped to "
+            "the bounded sample-region scale; their source direction and EDS "
+            "acceptance are unchanged. X-rays are not deflected by magnetic "
+            "lenses. The plotted axial field is parameterised; displayed pole "
+            "geometry and material are not yet coupled to a FEM/measured field "
+            "map. Secondary-electron paths are not shown "
+            "because no validated yield/energy/escape model is implemented."
+        )
+        self._redraw()
+
+    def _clear_items(self) -> None:
+        if self.opengl_available:
+            for item in self._items:
+                try:
+                    self.view.removeItem(item)
+                except Exception:
+                    pass
+        else:
+            self.view.clear()
+        self._items = []
+
+    @staticmethod
+    def _rgba(colour: str, alpha: float = 1.0):
+        value = QColor(colour)
+        return (
+            value.redF(),
+            value.greenF(),
+            value.blueF(),
+            float(alpha),
+        )
+
+    def _redraw(self, _checked=False) -> None:
+        self._clear_items()
+        scene = self._scene
+        if scene is None:
+            return
+        if self.opengl_available:
+            self._draw_gl(scene)
+        else:
+            self._draw_2d(scene)
+        self._apply_fit()
+
+    def _path_visible(self, category: str) -> bool:
+        if category in {"xray_generated", "xray_detected"}:
+            return self.xray_toggle.isChecked()
+        return self.electron_toggle.isChecked()
+
+    def _draw_gl(self, scene: SampleInteractionScene) -> None:
+        for path in scene.paths:
+            if not self._path_visible(path.category):
+                continue
+            _label, colour = PATH_STYLES[path.category]
+            item = gl.GLLinePlotItem(
+                pos=np.asarray(path.positions_nm, dtype=float),
+                color=self._rgba(colour, 0.92),
+                width=1.5,
+                antialias=True,
+                mode="line_strip",
+            )
+            self.view.addItem(item)
+            self._items.append(item)
+        if self.event_toggle.isChecked():
+            for group in scene.events:
+                _label, colour = EVENT_STYLES[group.category]
+                item = gl.GLScatterPlotItem(
+                    pos=np.asarray(group.positions_nm, dtype=float),
+                    color=self._rgba(colour, 0.95),
+                    size=6.0,
+                    pxMode=True,
+                )
+                self.view.addItem(item)
+                self._items.append(item)
+        if self.context_toggle.isChecked():
+            plane = _sample_model_outline(scene)
+            item = gl.GLLinePlotItem(
+                pos=plane,
+                color=self._rgba("#ffffff", 0.55),
+                width=1.3,
+                antialias=True,
+                mode="line_strip",
+            )
+            self.view.addItem(item)
+            self._items.append(item)
+            for outline in scene.virtual_region_outlines_nm:
+                item = gl.GLLinePlotItem(
+                    pos=outline,
+                    color=self._rgba("#a78bfa", 0.75),
+                    width=1.2,
+                    antialias=True,
+                    mode="line_strip",
+                )
+                self.view.addItem(item)
+                self._items.append(item)
+
+    def _draw_2d(self, scene: SampleInteractionScene) -> None:
+        for path in scene.paths:
+            if not self._path_visible(path.category):
+                continue
+            _label, colour = PATH_STYLES[path.category]
+            self.view.plot(
+                path.positions_nm[:, 0],
+                path.positions_nm[:, 2],
+                pen=pg.mkPen(colour, width=1.4),
+            )
+        if self.event_toggle.isChecked():
+            for group in scene.events:
+                _label, colour = EVENT_STYLES[group.category]
+                item = pg.ScatterPlotItem(
+                    x=group.positions_nm[:, 0],
+                    y=group.positions_nm[:, 2],
+                    size=6,
+                    pen=pg.mkPen(colour),
+                    brush=pg.mkBrush(colour),
+                )
+                self.view.addItem(item)
+        if self.context_toggle.isChecked():
+            outline = _sample_model_outline(scene)
+            self.view.plot(
+                outline[:, 0],
+                outline[:, 2],
+                pen=pg.mkPen("#ffffff", width=1.2),
+            )
+            for region_outline in scene.virtual_region_outlines_nm:
+                self.view.plot(
+                    region_outline[:, 0],
+                    region_outline[:, 2],
+                    pen=pg.mkPen("#a78bfa", width=1.1),
+                )
+
+    def _active_bounds(self) -> tuple[np.ndarray, np.ndarray]:
+        if self._scene is None:
+            return _bounds((), 100.0)
+        if self._fit_scope == "sample":
+            return self._scene.sample_bounds_nm
+        if self._fit_scope == "region":
+            return self._scene.region_bounds_nm
+        return self._scene.material_bounds_nm
+
+    def _fit(self, scope: str) -> None:
+        self._fit_scope = (
+            scope
+            if scope in {"material", "region", "sample"}
+            else "material"
+        )
+        self._redraw()
+
+    def _apply_fit(self) -> None:
+        if self._scene is None:
+            return
+        lower, upper = self._active_bounds()
+        centre = 0.5 * (lower + upper)
+        span = max(float(np.max(upper - lower)), 1.0)
+        if self.opengl_available:
+            self.view.opts["center"] = QVector3D(*centre)
+            self.view.setCameraPosition(
+                distance=2.1 * span,
+                elevation=18.0,
+                azimuth=-45.0,
+            )
+            self.view.update()
+        else:
+            self.view.setRange(
+                xRange=(float(lower[0]), float(upper[0])),
+                yRange=(float(lower[2]), float(upper[2])),
+                padding=0.0,
+            )

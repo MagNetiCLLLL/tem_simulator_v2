@@ -6,6 +6,7 @@ import pytest
 from temsim.optics.column import default_state
 from temsim.physics import compute_backend
 from temsim.physics.wave_imaging import (
+    _incident_wave,
     _weighted_ray_statistics,
     effective_sample_thickness_nm,
     estimate_tem_wave_memory_bytes,
@@ -145,6 +146,31 @@ def test_probe_focus_uses_traced_waist_once_with_fresnel_sign():
     assert focus.configured_defocus_mm == pytest.approx(2.0e-6)
     assert focus.effective_defocus_mm == pytest.approx(-3.0e-6)
     assert coefficients.c1_mm == pytest.approx(-3.0e-6)
+
+
+def test_tem_incident_wave_uses_traced_condenser_focus_curvature():
+    state = default_state()
+    state.illumination_mode = "TEM"
+    frequencies = np.fft.fftshift(np.fft.fftfreq(32, d=0.5))
+    focused_stats = _weighted_ray_statistics(
+        _incident_bundle_with_waist(0.0)
+    )
+    defocused_stats = _weighted_ray_statistics(
+        _incident_bundle_with_waist(10.0)
+    )
+
+    focused = _incident_wave(
+        state, focused_stats, frequencies, frequencies, 0.025
+    )
+    defocused = _incident_wave(
+        state, defocused_stats, frequencies, frequencies, 0.025
+    )
+
+    assert focused_stats["radial_wavefront_curvature_per_m"] == pytest.approx(
+        0.0
+    )
+    assert abs(defocused_stats["radial_wavefront_curvature_per_m"]) > 0.0
+    assert not np.allclose(focused, defocused)
 
 
 def test_si_110_stem_detector_signals_respond_to_position_and_traced_defocus():

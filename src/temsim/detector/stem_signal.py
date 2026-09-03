@@ -25,6 +25,7 @@ from temsim.specimen.virtual import (
     virtual_density_at_scan,
 )
 from temsim.specimen.source import specimen_structure_available
+from temsim.specimen.downstream_transport import build_geometric_specimen_exit
 
 ELEMENTARY_CHARGE_C = 1.602176634e-19
 ProgressCallback = Callable[[int, int, str], None]
@@ -506,11 +507,27 @@ def _virtual_stem_scan(
     detector_angles,
     scan_x_um,
     scan_y_um,
-    detector_center_shifts_mrad,
+    kick_grid_mrad,
+    baseline_scan_mrad,
+    scan_times_s,
+    baseline_descan_scan_mrad,
 ):
+    """Transport virtual-sample exit branches to physical detector faces.
+
+    The virtual interaction remains a user-defined probability distribution at
+    the specimen plane.  Its compact angular quadrature branches are already
+    propagated through every downstream lens by ``physics.simulation.run``.
+    This routine applies the scan/descan displacement at each physical plane,
+    respects upstream aperture/wall/recording-plane stops, and records a signal
+    only for a branch that actually intersects an inserted detector.
+    """
+
+    from temsim.specimen.source import specimen_is_vacuum
+
     probe = probe_state_from_simulation(state, simulation)
+    sample_is_vacuum = specimen_is_vacuum(state.sample)
     interaction_enabled = bool(
-        getattr(state.sample, "inserted", True)
+        not sample_is_vacuum
         and getattr(state.sample, "diffraction_enabled", True)
     )
     if interaction_enabled:
@@ -524,9 +541,6 @@ def _virtual_stem_scan(
             scan_y_um,
             probe_sigma_nm=probe.probe_sigma_nm,
         )
-        angle_x = np.r_[0.0, distribution.angle_x_mrad]
-        angle_y = np.r_[0.0, distribution.angle_y_mrad]
-        scatter_probabilities = distribution.probabilities
         interacting_probability = (
             distribution.scattered_probability
             + distribution.absorbed_probability
@@ -541,46 +555,177 @@ def _virtual_stem_scan(
     else:
         distribution = None
         density = np.zeros_like(scan_x_um, dtype=float)
-        angle_x = np.asarray((0.0,))
-        angle_y = np.asarray((0.0,))
-        scatter_probabilities = np.empty(0)
         direct = np.ones_like(scan_x_um, dtype=float)
         absorbed = np.zeros_like(scan_x_um, dtype=float)
         approximations = ()
 
     incident_fraction = measure_sample_current(simulation, state).fraction
+    branches = tuple(simulation.branches.values())
+    if not branches:
+        raise ValueError("Virtual STEM transport has no post-sample branches.")
+    direct_flags = np.asarray(
+        [
+            str(getattr(branch, "interaction_kind", "")).lower()
+            in {
+                "transmitted",
+                "vacuum",
+                "virtual_interactions_disabled",
+            }
+            or str(getattr(branch, "name", "")) == "000"
+            for branch in branches
+        ],
+        dtype=bool,
+    )
+    if np.count_nonzero(direct_flags) != 1:
+        raise ValueError(
+            "Virtual STEM transport requires exactly one direct branch."
+        )
+    raw_scatter_weights = np.asarray(
+        [
+            0.0 if direct_flag else max(float(branch.weight), 0.0)
+            for branch, direct_flag in zip(branches, direct_flags, strict=True)
+        ],
+        dtype=float,
+    )
+    requested_scattered_probability = (
+        float(distribution.scattered_probability)
+        if distribution is not None
+        else 0.0
+    )
+    raw_scatter_total = float(np.sum(raw_scatter_weights))
+    if requested_scattered_probability > 0.0 and raw_scatter_total <= 0.0:
+        raise ValueError(
+            "Virtual sample requests scattering but produced no propagated branch."
+        )
+    scatter_scale = (
+        requested_scattered_probability / raw_scatter_total
+        if raw_scatter_total > 0.0
+        else 0.0
+    )
+    scatter_branch_probabilities = raw_scatter_weights * scatter_scale
+
+    component = state.ac_deflector
+    descan = state.descan_deflector
+    recording_keys = {plane.key for plane in state.recording_planes}
+    inserted_planes = tuple(
+        sorted(
+            (
+                plane
+                for plane in state.recording_planes
+                if bool(getattr(plane, "inserted", False))
+            ),
+            key=lambda plane: float(plane.z_mm),
+        )
+    )
+    branch_ray_weights = tuple(
+        _normalised_ray_weights(branch) for branch in branches
+    )
+    plane_data = {}
+    for plane in inserted_planes:
+        positions = []
+        physically_reaches = []
+        for branch in branches:
+            x_mm = 1.0e3 * _interpolate(branch.x, branch.z, plane.z_mm)
+            y_mm = 1.0e3 * _interpolate(branch.y, branch.z, plane.z_mm)
+            blocked_z = np.asarray(branch.blocked_z, dtype=float)
+            blocked_key = np.asarray(branch.blocked_key, dtype=object)
+            reaches = (
+                np.isnan(blocked_z)
+                | (blocked_z > float(plane.z_mm) + 1.0e-9)
+                | np.isin(blocked_key, tuple(recording_keys))
+            )
+            positions.append(np.column_stack((x_mm, y_mm)))
+            physically_reaches.append(reaches)
+        plane_data[plane.key] = (
+            np.vstack(positions),
+            np.concatenate(physically_reaches),
+            1.0e3 * paired_kick_response(state, component, plane.z_mm),
+            1.0e3 * paired_kick_response(state, descan, plane.z_mm),
+        )
+
     images = {
         detector.key: np.zeros(scan_x_um.shape, dtype=float)
         for detector in physical_detectors
     }
-    uncollected = np.zeros(scan_x_um.shape, dtype=float)
+    selected_keys = set(images)
     flat_density = density.ravel()
     flat_direct = direct.ravel()
     for flat_index in range(scan_x_um.size):
-        local = np.r_[
+        branch_probabilities = np.where(
+            direct_flags,
             flat_direct[flat_index],
-            flat_density[flat_index] * scatter_probabilities,
-        ]
-        available = np.ones(angle_x.size, dtype=bool)
-        for detector in physical_detectors:
-            if detector_center_shifts_mrad is None:
-                shifted_x = angle_x
-                shifted_y = angle_y
-            else:
-                centre_x, centre_y = detector_center_shifts_mrad[detector.key]
-                shifted_x = angle_x - centre_x.ravel()[flat_index]
-                shifted_y = angle_y - centre_y.ravel()[flat_index]
-            hit = available & detector.acceptance_mask(shifted_x, shifted_y)
-            images[detector.key].ravel()[flat_index] = (
-                float(np.sum(local[hit])) * incident_fraction
-            )
-            available[hit] = False
-        uncollected.ravel()[flat_index] = (
-            float(np.sum(local[available])) * incident_fraction
+            flat_density[flat_index] * scatter_branch_probabilities,
         )
+        weights = np.concatenate(
+            [
+                ray_weights * probability
+                for ray_weights, probability in zip(
+                    branch_ray_weights,
+                    branch_probabilities,
+                    strict=True,
+                )
+            ]
+        )
+        available = np.ones(weights.size, dtype=bool)
+        delta_rad = (
+            np.asarray(kick_grid_mrad).reshape((-1, 2))[flat_index]
+            - np.asarray(baseline_scan_mrad, dtype=float)
+        ) * 1.0e-3
+        scan_time_s = float(np.asarray(scan_times_s).ravel()[flat_index])
+        descan_delta_rad = (
+            np.asarray(
+                (
+                    descan.scan_kick_mrad(scan_time_s)
+                    if descan.enabled
+                    else (0.0, 0.0)
+                ),
+                dtype=float,
+            )
+            - np.asarray(baseline_descan_scan_mrad, dtype=float)
+        ) * 1.0e-3
+        for plane in inserted_planes:
+            (
+                positions,
+                reaches,
+                response_mm_per_rad,
+                descan_response_mm_per_rad,
+            ) = plane_data[plane.key]
+            shifted = (
+                positions
+                + np.einsum("ij,j->i", response_mm_per_rad, delta_rad)
+                + np.einsum(
+                    "ij,j->i", descan_response_mm_per_rad, descan_delta_rad
+                )
+            )
+            if hasattr(plane, "hit_mask"):
+                shape_hit = plane.hit_mask(shifted[:, 0], shifted[:, 1])
+            else:
+                radius = np.hypot(shifted[:, 0], shifted[:, 1])
+                outer = float(plane.outer_width_mm) / 2.0
+                inner = float(plane.inner_diameter_mm) / 2.0
+                geometry = str(plane.geometry).lower()
+                if geometry == "annulus":
+                    shape_hit = (radius >= inner) & (radius <= outer)
+                elif geometry in {"square", "rectangle", "camera"}:
+                    shape_hit = (
+                        (np.abs(shifted[:, 0]) <= outer)
+                        & (np.abs(shifted[:, 1]) <= outer)
+                    )
+                else:
+                    shape_hit = radius <= outer
+            hit = available & reaches & shape_hit
+            if plane.key in selected_keys:
+                images[plane.key].ravel()[flat_index] = float(
+                    np.sum(weights[hit])
+                )
+            available[hit] = False
+
     absorbed_source = absorbed * incident_fraction
     pre_sample_lost_fraction = max(1.0 - incident_fraction, 0.0)
-    uncollected += pre_sample_lost_fraction
+    collected = np.zeros_like(scan_x_um, dtype=float)
+    for values in images.values():
+        collected += values
+    uncollected = np.maximum(1.0 - absorbed_source - collected, 0.0)
     signals = {}
     for detector in physical_detectors:
         fraction = float(np.mean(images[detector.key]))
@@ -603,9 +748,11 @@ def _virtual_stem_scan(
     conservation_error = float(np.max(np.abs(total - 1.0)))
     metrics = {
         "model": (
-            "finite_virtual_absolute_probability"
+            "finite_virtual_post_column_detector_interception"
             if interaction_enabled
-            else "vacuum_direct_beam"
+            else "vacuum_post_column_detector_interception"
+            if sample_is_vacuum
+            else "virtual_interactions_disabled_post_column_detector_interception"
         ),
         "interaction_probability_normalised": False,
         "incident_sample_fraction": incident_fraction,
@@ -630,8 +777,14 @@ def _virtual_stem_scan(
         ),
         "physical_detector_masks": True,
         "sequential_detector_interception": True,
+        "post_sample_lens_transport_applied": True,
+        "detector_signal_requires_physical_intersection": True,
+        "virtual_angular_quadrature_branch_count": int(len(branches)),
+        "virtual_scatter_probability_represented": float(
+            np.sum(scatter_branch_probabilities)
+        ),
         "descan_detector_shift_applied": bool(
-            detector_center_shifts_mrad is not None
+            descan.enabled and descan.scan_enabled
         ),
     }
     return _stem_result(
@@ -774,9 +927,39 @@ def acquire_stem_scan(
     pixels_x=None,
     pixels_y=None,
     *,
+    specimen_interactions=None,
     progress_callback: ProgressCallback | None = None,
 ):
-    """Integrate selected detector signals over the current AC raster."""
+    """Integrate selected detector signals over the current AC raster.
+
+    A shared specimen-interaction envelope supplies the authoritative
+    inelastic population budget and, for the non-wave real-sample fallback,
+    the finite-geometry elastic terminal state. Coherent elastic propagation
+    and the non-overlapping high-angle tail remain owned by the STEM wave
+    solver, so the particle transport is never added to wave intensity a
+    second time.
+    """
+
+    simulation_inelastic = getattr(simulation, "real_interactions", None)
+    shared_inelastic = getattr(
+        specimen_interactions, "inelastic_distribution", None
+    )
+    if (
+        simulation_inelastic is not None
+        and shared_inelastic is not None
+        and simulation_inelastic is not shared_inelastic
+    ):
+        raise ValueError(
+            "STEM received a specimen interaction result from a different "
+            "global column calculation"
+        )
+    real_interactions = (
+        shared_inelastic
+        if shared_inelastic is not None
+        else simulation_inelastic
+    )
+    shared_interactions_used = specimen_interactions is not None
+
     if progress_callback is not None:
         progress_callback(0, 1, "Preparing STEM scan and detector geometry")
     component = state.ac_deflector
@@ -887,7 +1070,10 @@ def acquire_stem_scan(
             detector_angles,
             scan_x_um,
             scan_y_um,
-            detector_center_shifts_mrad,
+            kick_grid_mrad,
+            baseline_scan_mrad,
+            scan_times_s,
+            baseline_descan_scan_mrad,
         )
         return _readout_view(
             result,
@@ -916,7 +1102,6 @@ def acquire_stem_scan(
         incident_fraction = measure_sample_current(
             simulation, state
         ).fraction
-        real_interactions = getattr(simulation, "real_interactions", None)
         tracked_sample_probability = (
             float(real_interactions.tracked_probability)
             if real_interactions is not None else 1.0
@@ -988,6 +1173,10 @@ def acquire_stem_scan(
             "distribution reused for tracked populations; compact inelastic "
             "ray angles are reported in Ray Diagram/Energy Filter"
         )
+        metrics["shared_specimen_interactions_used"] = (
+            shared_interactions_used
+        )
+        metrics["manual_sample_paths_added_to_stem_signal"] = False
         metrics["scan_frame_period_s"] = float(
             component.scan_frame_period_s
         )
@@ -1004,6 +1193,11 @@ def acquire_stem_scan(
         )
         metrics["physical_detector_masks"] = True
         metrics["sequential_detector_interception"] = True
+        metrics["post_sample_lens_transport_applied"] = True
+        metrics["detector_signal_requires_physical_intersection"] = True
+        metrics["post_sample_transport_model"] = (
+            "full_signed_sample_to_detector_transfer"
+        )
         metrics["rutherford_tail_enabled"] = tail_metrics is not None
         metrics["rutherford_tail"] = tail_metrics
         metrics["hybrid_tail_nonoverlap_minimum_mrad"] = (
@@ -1070,7 +1264,10 @@ def acquire_stem_scan(
             detector_angles,
             scan_x_um,
             scan_y_um,
-            detector_center_shifts_mrad,
+            kick_grid_mrad,
+            baseline_scan_mrad,
+            scan_times_s,
+            baseline_descan_scan_mrad,
         )
         return _readout_view(
             result,
@@ -1078,7 +1275,30 @@ def acquire_stem_scan(
             readout_keys=[detector.key for detector in selected],
         )
 
-    branches, probabilities = _branch_probabilities(simulation)
+    geometric_specimen_exit = None
+    shared_elastic = getattr(
+        specimen_interactions, "elastic_transport", None
+    )
+    if (
+        physical_detectors
+        and shared_elastic is not None
+        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
+        == "atomic"
+        and not bool(getattr(state.sample, "stem_wave_enabled", False))
+    ):
+        geometric_specimen_exit = build_geometric_specimen_exit(
+            state,
+            simulation,
+            shared_elastic,
+            real_interactions,
+        )
+        branches = geometric_specimen_exit.branches
+        probabilities = np.asarray(
+            [float(branch.weight) for branch in branches],
+            dtype=float,
+        )
+    else:
+        branches, probabilities = _branch_probabilities(simulation)
     recording_keys = {
         plane.key for plane in state.recording_planes
     }
@@ -1093,7 +1313,7 @@ def acquire_stem_scan(
     for branch, probability in zip(branches, probabilities):
         branch_weight = _normalised_ray_weights(branch)
         weights.append(branch_weight * float(probability))
-    weights = np.concatenate(weights)
+    weights = np.concatenate(weights) if weights else np.empty(0, dtype=float)
 
     plane_data = {}
     for plane in inserted_planes:
@@ -1116,8 +1336,12 @@ def acquire_stem_scan(
             positions.append(np.column_stack((x_mm, y_mm)))
             physically_reaches.append(reaches)
         plane_data[plane.key] = (
-            np.vstack(positions),
-            np.concatenate(physically_reaches),
+            np.vstack(positions) if positions else np.empty((0, 2), dtype=float),
+            (
+                np.concatenate(physically_reaches)
+                if physically_reaches
+                else np.empty(0, dtype=bool)
+            ),
             1.0e3 * paired_kick_response(
                 state,
                 component,
@@ -1225,11 +1449,17 @@ def acquire_stem_scan(
     for values in images.values():
         collected += values
     uncollected = np.maximum(1.0 - collected, 0.0)
-    real_interactions = getattr(simulation, "real_interactions", None)
     real_absorbed_source = (
-        measure_sample_current(simulation, state).fraction
+        float(
+            geometric_specimen_exit.metrics[
+                "inelastic_absorbed_source_probability"
+            ]
+        )
+        if geometric_specimen_exit is not None
+        else measure_sample_current(simulation, state).fraction
         * float(real_interactions.absorbed_probability)
-        if real_interactions is not None else 0.0
+        if real_interactions is not None
+        else 0.0
     )
     absorbed = np.full_like(
         uncollected, real_absorbed_source, dtype=float
@@ -1244,6 +1474,14 @@ def acquire_stem_scan(
         signals,
         {
             "model": "geometric_detector_interception",
+            "shared_specimen_interactions_used": shared_interactions_used,
+            "manual_sample_paths_added_to_stem_signal": False,
+            "finite_specimen_exit_used": geometric_specimen_exit is not None,
+            "finite_specimen_exit": (
+                None
+                if geometric_specimen_exit is None
+                else geometric_specimen_exit.metrics
+            ),
             "scan_frame_period_s": float(component.scan_frame_period_s),
             "scan_pixels_x": pixels_x,
             "scan_pixels_y": pixels_y,
@@ -1257,9 +1495,19 @@ def acquire_stem_scan(
             "descan_applied": bool(descan.enabled and descan.scan_enabled),
             "physical_detector_masks": True,
             "sequential_detector_interception": True,
+            "post_sample_lens_transport_applied": True,
+            "detector_signal_requires_physical_intersection": True,
+            "post_sample_transport_model": (
+                "raywise_downstream_lenses_deflectors_stops_and_detectors"
+            ),
             "quantitative_model": False,
             "model_limitation": (
-                "Ray preview transports material-derived inelastic event "
+                "Finite-envelope screened-Rutherford exit directions and "
+                "material-derived inelastic populations are coupled at one "
+                "reference scan point; this does not calculate pixel-resolved "
+                "coherent or atomic contrast. Enable wave/multislice for that."
+                if geometric_specimen_exit is not None
+                else "Ray preview transports material-derived inelastic event "
                 "populations but does not calculate quantitative coherent "
                 "elastic specimen contrast; enable wave/multislice for that."
             ),

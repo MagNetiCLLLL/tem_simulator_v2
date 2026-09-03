@@ -267,6 +267,11 @@ def test_individual_lens_fields_sum_to_solver_total():
     assert c1.formula_key == "peak_normalised_three_gaussian"
     assert c2.formula_key == "three_gaussian"
     assert objective.formula_key == "dual_pole_gaussian"
+    assert "7-sigma" in objective.support_definition
+    assert "not FEM" in objective.field_model_status
+    assert "not solved" in objective.geometry_material_coupling
+    assert objective.sample_inside_numerical_support
+    assert objective.field_at_sample_t != 0.0
     assert len({c1.formula_colour, c2.formula_colour, objective.formula_colour}) == 3
     assert all(record.formula_expression for record in records)
     assert objective.spherical_aberration_mm == pytest.approx(1.2)

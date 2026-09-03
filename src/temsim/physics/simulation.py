@@ -8,7 +8,10 @@ from dataclasses import dataclass
 
 import numpy as np, math
 
-from temsim.physics.chromatic import objective_chromatic_kick
+from temsim.physics.chromatic import (
+    configured_objective_chromatic_focal_mm,
+    objective_chromatic_kick_from_state,
+)
 
 from temsim.physics.core import propagate,electron,fields
 from temsim.physics.first_order import (
@@ -220,35 +223,32 @@ def run(s, *, resolved_layout=None):
     _,_,lam=electron(s)
 
     branches={}
-
-    if getattr(s,'chromatic_aberration_enabled',False):
-        try:
-            from temsim.optics.lens_focal_length import focal_length_mm
-            fobj=focal_length_mm(s.objective_lens,s.beam_voltage_kv)
-        except Exception:
-            fobj=2.5
-    else:
-        fobj=None
+    chromatic_focal_mm = configured_objective_chromatic_focal_mm(s)
 
     def branch_chromatic_kick(energy_offset_ev):
-        if fobj is None:
-            return np.zeros(n),np.zeros(n)
-        return objective_chromatic_kick(
-            X[-1],Y[-1],energy_offset_ev,s.beam_voltage_kv*1000.0,
-            float(getattr(s.objective_lens,'cc_mm',2.0) or 2.0),fobj
+        return objective_chromatic_kick_from_state(
+            s,
+            X[-1],
+            Y[-1],
+            energy_offset_ev,
+            resolved_focal_mm=chromatic_focal_mm,
         )
 
     virtual_branch_weights_are_absolute = False
     real_branch_weights_are_absolute = False
     real_interactions = None
+    from temsim.specimen.source import specimen_is_vacuum
+
+    sample_is_vacuum = specimen_is_vacuum(s.sample)
     sample_diffraction_applied = bool(
-        sample_inserted
+        not sample_is_vacuum
         and specimen_mode == 'virtual'
         and getattr(s.sample, 'diffraction_enabled', True)
     )
-    if not sample_inserted:
+
+    if sample_is_vacuum:
         branch_specs = [('000', 0.0, 0.0, 1.0, 'vacuum', 0.0)]
-        scattering_model = 'vacuum_reference_plane'
+        scattering_model = 'user_selected_vacuum_reference_plane'
     elif specimen_mode == 'atomic':
         # Coherent elastic diffraction remains exclusively in multislice.
         # These branches are instead a material-derived, probability-
@@ -343,7 +343,8 @@ def run(s, *, resolved_layout=None):
             s,s.sample.z_mm,determine_tem_stop_z(s),
             np.concatenate(post_x),np.concatenate(post_tx),
             np.concatenate(post_y),np.concatenate(post_ty),
-            post_events,np.concatenate(post_energy)
+            post_events,np.concatenate(post_energy),
+            include_initial_plane_kicks=False,
         )
 
         for branch_index,(name,w,interaction_kind,branch_energy_offset,kick_x_array,kick_y_array) in enumerate(post_payloads):

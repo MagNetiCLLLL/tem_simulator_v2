@@ -706,6 +706,7 @@ class SamplePage(QWidget):
         self._snapshot = None
         self._eds_result = None
         self._elastic_result = None
+        self._specimen_interactions = None
         self._updating = False
         self._draft_quaternion = IDENTITY_QUATERNION_WXYZ
 
@@ -1809,7 +1810,12 @@ class SamplePage(QWidget):
             from temsim.detector.eds_geometry import (
                 EDSDetectorArrayGeometry,
             )
-            from temsim.detector.eds_signal import simulate_eds_point
+            from temsim.specimen.interaction_engine import (
+                run_specimen_interactions,
+            )
+            from temsim.specimen.interaction_types import (
+                SpecimenInteractionRequest,
+            )
 
             assembly = getattr(self._result, "assembly", None)
             if assembly is None:
@@ -1818,15 +1824,22 @@ class SamplePage(QWidget):
                 )
             part = assembly.part(EDS_DETECTOR_SYSTEM)
             geometry = EDSDetectorArrayGeometry.from_part_data(part.data)
-            spectrum = simulate_eds_point(
+            interactions = run_specimen_interactions(
                 self._state,
-                geometry,
-                simulation=getattr(self._result, "simulation", None),
+                getattr(self._result, "simulation", None),
+                SpecimenInteractionRequest.eds_point(),
+                detector_geometry=geometry,
             )
+            spectrum = interactions.eds_spectrum
+            if spectrum is None:
+                raise RuntimeError(
+                    "Specimen interaction engine returned no EDS spectrum"
+                )
         except Exception as exc:
             self.error.emit(str(exc))
             self.eds_summary.setText(f"EDS calculation failed: {exc}")
             return
+        self._specimen_interactions = interactions
         self._eds_result = spectrum
         self._elastic_result = spectrum.elastic_transport
         self._plot_elastic_trajectories(self._elastic_result)
@@ -1981,6 +1994,7 @@ class SamplePage(QWidget):
     def _changed(self, name):
         self._eds_result = None
         self._elastic_result = None
+        self._specimen_interactions = None
         self.eds_summary.setText(
             "EDS settings or specimen state changed; press Calculate point EDS."
         )

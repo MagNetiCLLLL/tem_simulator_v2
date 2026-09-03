@@ -169,6 +169,17 @@ def test_transverse_view_is_embedded_right_of_ray_diagram_and_stacked(qtbot):
     )
     assert transverse_layout.itemAt(2).spacerItem() is not None
     assert workspace.transverse_beam.plot.maximumHeight() == 360
+    assert workspace.transverse_beam_toggle.isChecked()
+    assert not workspace.transverse_beam.isHidden()
+
+    workspace.transverse_beam_toggle.setChecked(False)
+    qtbot.wait(20)
+    assert workspace.transverse_beam.isHidden()
+
+    workspace.transverse_beam_toggle.setChecked(True)
+    qtbot.wait(20)
+    assert not workspace.transverse_beam.isHidden()
+    assert workspace_splitter.sizes()[1] > 0
 
     tab_names = [
         workspace.tabs.tabText(index)
@@ -255,6 +266,52 @@ def test_transverse_coordinates_are_displayed_in_micrometres(qtbot):
     assert view._scatter.data["x"] == pytest.approx((-2.0, 3.0))
     assert view._scatter.data["y"] == pytest.approx((1.0, -4.0))
     assert "µm" in view.summary.text()
+
+
+def test_transverse_z_change_preserves_user_scale_and_zero_centre(qtbot):
+    view = TransverseBeamView()
+    qtbot.addWidget(view)
+    view.resize(480, 700)
+    view.show()
+    qtbot.wait(20)
+    branch = SimpleNamespace(
+        name="incident",
+        z=np.array((0.0, 1.0)),
+        x=np.array(((-1.0e-6, 1.0e-6), (-20.0e-6, 20.0e-6))),
+        y=np.array(((-0.5e-6, 0.5e-6), (-12.0e-6, 12.0e-6))),
+        blocked_z=np.full(2, np.nan),
+    )
+    view.display_result(SimpleNamespace(
+        simulation=SimpleNamespace(incident=branch, branches={})
+    ))
+
+    view.plot.getViewBox().setRange(
+        xRange=(3.0, 7.0),
+        yRange=(-5.0, -1.0),
+        padding=0.0,
+        disableAutoRange=True,
+    )
+    view._manual_view_range_changed((True, True))
+    user_ranges = view.plot.getViewBox().viewRange()
+    assert np.mean(user_ranges[0]) == pytest.approx(0.0)
+    assert np.mean(user_ranges[1]) == pytest.approx(0.0)
+
+    view.focus_z(0.0)
+    assert np.asarray(view.plot.getViewBox().viewRange()) == pytest.approx(
+        np.asarray(user_ranges)
+    )
+    view.focus_z(1.0)
+    assert np.asarray(view.plot.getViewBox().viewRange()) == pytest.approx(
+        np.asarray(user_ranges)
+    )
+    assert np.max(np.abs(view._scatter.data["x"])) > user_ranges[0][1]
+
+    view.fit_beam.click()
+    fitted_ranges = view.plot.getViewBox().viewRange()
+    assert np.mean(fitted_ranges[0]) == pytest.approx(0.0)
+    assert np.mean(fitted_ranges[1]) == pytest.approx(0.0)
+    assert fitted_ranges[0][1] >= np.max(np.abs(view._scatter.data["x"]))
+    assert fitted_ranges[1][1] >= np.max(np.abs(view._scatter.data["y"]))
 
 
 def test_transverse_ray_colours_follow_angle_about_offset_bundle_centroid(
@@ -687,6 +744,9 @@ def test_sample_region_controls_are_manual_and_do_not_request_column_preview(qtb
     qtbot.addWidget(workspace)
     state = default_state()
     workspace.eds_page.set_state(state)
+    shared_interactions = object()
+    workspace.eds_page._specimen_interactions = shared_interactions
+    workspace.eds_page._sample_region_result = object()
     changed = []
     workspace.eds_page.parameters_changed.connect(changed.append)
 
@@ -700,6 +760,28 @@ def test_sample_region_controls_are_manual_and_do_not_request_column_preview(qtb
     assert changed == []
     assert state.sample.sample_region_upstream_distance_um == pytest.approx(51.0)
     assert state.sample.sample_region_photon_path_count == 129
+    assert workspace.eds_page._specimen_interactions is shared_interactions
+    assert workspace.eds_page._sample_region_result is None
+
+
+def test_eds_page_adopts_shared_interactions_from_the_column_result(qtbot):
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+    state = default_state()
+    shared_interactions = object()
+    result = SimpleNamespace(
+        simulation=None,
+        specimen_interactions=shared_interactions,
+    )
+
+    workspace.eds_page.set_state(state)
+    workspace.eds_page.display_result(result)
+
+    assert workspace.eds_page._specimen_interactions is shared_interactions
+    enriched_interactions = object()
+    workspace.eds_page._store_specimen_interactions(enriched_interactions)
+    assert workspace.eds_page._specimen_interactions is enriched_interactions
+    assert result.specimen_interactions is enriched_interactions
 
 
 def test_ray_xray_button_explicitly_requests_uncached_sample_region_result(
@@ -1845,6 +1927,7 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         "Physical Layout",
         "Energy Filter",
         "Sample",
+        "Sample Interactions 3D",
         "EDS",
         "Scanning Image",
         "Illuminating Image",

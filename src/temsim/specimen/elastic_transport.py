@@ -23,14 +23,22 @@ import xraylib
 from temsim.detector.eds_signal import (
     EDSMaterial,
     ElectronTrackSegment,
-    material_from_sample,
-    material_from_support_grid,
 )
 from temsim.specimen.envelope import (
     canonical_sample_envelope_shape,
     envelope_contains_xy,
 )
-from temsim.specimen.support import SupportGrid, resolve_support_grid
+from temsim.specimen.interaction_types import (
+    IncidentElectronRay,
+    IncidentRayBundle,
+)
+from temsim.specimen.axial_field_transport import (
+    advance_in_uniform_axial_field,
+    axial_rotation_rate_rad_per_nm,
+    sample_axial_field_diagnostic,
+)
+from temsim.specimen.scene import SpecimenScene
+from temsim.specimen.support import SupportGrid
 
 
 RUTHERFORD_REFERENCE_URL = (
@@ -207,57 +215,6 @@ class ElasticScatterEvent:
     atomic_number: int
     theta_rad: float
     phi_rad: float
-
-
-@dataclass(frozen=True, slots=True)
-class IncidentElectronRay:
-    """One electron history sampled by the upstream column calculation.
-
-    ``position_xy_nm`` is the position at the physical sample plane. The
-    direction is a unit vector in the column coordinate system and therefore
-    retains both incident tilt and accumulated Larmor rotation. ``weight`` is
-    conditional on the electron having reached the sample plane.
-    """
-
-    source_ray_index: int
-    position_xy_nm: tuple[float, float]
-    direction: tuple[float, float, float]
-    kinetic_energy_ev: float
-    weight: float
-
-    def __post_init__(self) -> None:
-        position = np.asarray(self.position_xy_nm, dtype=float)
-        direction = np.asarray(self.direction, dtype=float)
-        if position.shape != (2,) or not np.all(np.isfinite(position)):
-            raise ValueError("Incident electron position must be a finite 2-vector")
-        if direction.shape != (3,) or not np.all(np.isfinite(direction)):
-            raise ValueError("Incident electron direction must be a finite 3-vector")
-        norm = float(np.linalg.norm(direction))
-        if norm <= 0.0 or not math.isclose(norm, 1.0, rel_tol=1.0e-10):
-            raise ValueError("Incident electron direction must be a unit vector")
-        if (
-            int(self.source_ray_index) < 0
-            or not math.isfinite(float(self.kinetic_energy_ev))
-            or float(self.kinetic_energy_ev) <= 0.0
-            or not math.isfinite(float(self.weight))
-            or float(self.weight) < 0.0
-        ):
-            raise ValueError("Incident electron index, energy or weight is invalid")
-
-
-@dataclass(frozen=True, slots=True)
-class IncidentRayBundle:
-    """The exact upstream ray histories that survive to the sample plane."""
-
-    rays: tuple[IncidentElectronRay, ...]
-    emitted_ray_count: int
-    reaching_ray_count: int
-    surviving_fraction: float
-    original_centroid_nm: tuple[float, float]
-    target_centroid_nm: tuple[float, float]
-    chief_angle_mrad: tuple[float, float]
-    energy_range_ev: tuple[float, float]
-    boundary_z_mm: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -546,7 +503,7 @@ class _MaterialRegion:
 
 
 class ElasticTransportGeometry:
-    """Finite rectangular specimen plus an immediately downstream grid.
+    """Finite specimen centred at local Z=0 plus a downstream support grid.
 
     The support-grid plane is placed in contact with the specimen's downstream
     face.  Its square openings, crossed bars, annular rim and circular outer
@@ -598,40 +555,36 @@ class ElasticTransportGeometry:
 
     @classmethod
     def from_state(cls, state) -> "ElasticTransportGeometry":
-        sample = state.sample
-        grid = resolve_support_grid(
-            str(getattr(sample, "eds_support_material_key", "vacuum")),
-            str(getattr(sample, "eds_support_mesh_key", "square_200")),
+        return cls.from_scene(
+            SpecimenScene.from_state(state, include_eds_materials=True)
         )
+
+    @classmethod
+    def from_scene(cls, scene: SpecimenScene) -> "ElasticTransportGeometry":
         return cls(
-            inserted=bool(getattr(sample, "inserted", True)),
-            sample_material=material_from_sample(state),
-            sample_centre_xy_nm=(
-                float(getattr(sample, "centre_x_nm", 0.0)),
-                float(getattr(sample, "centre_y_nm", 0.0)),
-            ),
-            sample_size_xy_nm=(
-                float(getattr(sample, "size_x_nm", 0.0)),
-                float(getattr(sample, "size_y_nm", 0.0)),
-            ),
-            sample_thickness_nm=float(getattr(sample, "thickness_nm", 0.0)),
-            support_grid=grid,
-            support_material=material_from_support_grid(grid),
-            support_offset_xy_um=(
-                float(getattr(sample, "eds_support_offset_x_um", 0.0)),
-                float(getattr(sample, "eds_support_offset_y_um", 0.0)),
-            ),
-            support_rotation_deg=float(
-                getattr(sample, "eds_support_rotation_deg", 0.0)
-            ),
-            sample_envelope_shape=str(
-                getattr(sample, "envelope_shape", "rectangle")
-            ),
+            inserted=scene.inserted,
+            sample_material=scene.sample_material,
+            sample_centre_xy_nm=scene.centre_xy_nm,
+            sample_size_xy_nm=scene.size_xy_nm,
+            sample_thickness_nm=scene.thickness_nm,
+            support_grid=scene.support_grid,
+            support_material=scene.support_material,
+            support_offset_xy_um=scene.support_offset_xy_um,
+            support_rotation_deg=scene.support_rotation_deg,
+            sample_envelope_shape=scene.envelope_shape,
         )
 
     @property
+    def sample_top_nm(self) -> float:
+        return -0.5 * self.sample_thickness_nm
+
+    @property
+    def sample_bottom_nm(self) -> float:
+        return 0.5 * self.sample_thickness_nm
+
+    @property
     def support_top_nm(self) -> float:
-        return self.sample_thickness_nm
+        return self.sample_bottom_nm
 
     @property
     def support_bottom_nm(self) -> float:
@@ -654,7 +607,8 @@ class ElasticTransportGeometry:
         centre_x, centre_y = self.sample_centre_xy_nm
         if (
             self.sample_material is not None
-            and 0.0 <= z_nm <= self.sample_thickness_nm
+            and self.sample_thickness_nm > 0.0
+            and self.sample_top_nm <= z_nm <= self.sample_bottom_nm
             and envelope_contains_xy(
                 self.sample_envelope_shape,
                 x_nm,
@@ -711,7 +665,7 @@ class ElasticTransportGeometry:
             if epsilon < distance <= maximum + epsilon:
                 candidates.append(distance)
 
-        if self.sample_material is not None:
+        if self.sample_material is not None and self.sample_thickness_nm > 0.0:
             centre_x, centre_y = self.sample_centre_xy_nm
             if self.sample_envelope_shape == "rectangle":
                 half_x = 0.5 * self.sample_size_xy_nm[0]
@@ -750,8 +704,8 @@ class ElasticTransportGeometry:
                         ):
                             if epsilon < distance <= maximum + epsilon:
                                 candidates.append(distance)
-            add_plane(2, 0.0)
-            add_plane(2, self.sample_thickness_nm)
+            add_plane(2, self.sample_top_nm)
+            add_plane(2, self.sample_bottom_nm)
 
         if self.support_material is None:
             return candidates
@@ -919,6 +873,7 @@ def simulate_elastic_point_transport(
     seed: int | None = None,
     maximum_events_per_trajectory: int | None = None,
     stored_trajectory_count: int = 256,
+    progress_callback=None,
 ) -> ElasticTransportResult:
     """Trace the calculated incident ray bundle through sample and support.
 
@@ -957,6 +912,7 @@ def simulate_elastic_point_transport(
         raise ValueError("Incident ray weights must be finite and positive in total")
     input_weights /= float(input_weights.sum())
     geometry = ElasticTransportGeometry.from_state(state)
+    field_diagnostic = sample_axial_field_diagnostic(state)
     rng = np.random.default_rng(random_seed)
     maximum_path_nm = 8.0 * geometry.transport_span_nm
     tracks: list[ElectronTrackSegment] = []
@@ -983,20 +939,33 @@ def simulate_elastic_point_transport(
     terminal_scattered: list[bool] = []
     encountered_atomic_numbers: set[int] = set()
     outcome_weights = {key: 0.0 for key in outcome_counts}
+    progress_stride = max(count // 100, 1)
+    if progress_callback is not None:
+        progress_callback(0, count, "Preparing elastic specimen histories")
 
     for trajectory_index, (ray, ray_weight) in enumerate(
         zip(rays, input_weights, strict=True)
     ):
         direction = np.asarray(ray.direction, dtype=float)
-        position = np.asarray(
-            (
-                float(ray.position_xy_nm[0]),
-                float(ray.position_xy_nm[1]),
-                -8.0 * geometry.epsilon_nm,
-            ),
-            dtype=float,
-        )
+        if float(direction[2]) <= 0.0:
+            raise ValueError(
+                "Incident elastic-transport rays must propagate along +Z"
+            )
         energy_ev = float(ray.kinetic_energy_ev)
+        rotation_rate = axial_rotation_rate_rad_per_nm(
+            field_diagnostic.total_field_t,
+            energy_ev,
+        )
+        start_z_nm = geometry.sample_top_nm - 8.0 * geometry.epsilon_nm
+        reference_position_nm = np.asarray(
+            (*ray.position_xy_nm, 0.0), dtype=float
+        )
+        position, direction = advance_in_uniform_axial_field(
+            reference_position_nm,
+            direction,
+            start_z_nm / float(direction[2]),
+            rotation_rate_rad_per_nm=rotation_rate,
+        )
         points = [position.copy()] if trajectory_index < stored_count else None
         events: list[ElasticScatterEvent] | None = (
             [] if trajectory_index < stored_count else None
@@ -1022,11 +991,21 @@ def simulate_elastic_point_transport(
                 if boundary is None:
                     outcome = _terminal_outcome(direction)
                     break
-                boundary_point = position + direction * boundary
+                boundary_point, direction = advance_in_uniform_axial_field(
+                    position,
+                    direction,
+                    boundary,
+                    rotation_rate_rad_per_nm=rotation_rate,
+                )
                 travelled_path += boundary
                 if points is not None:
                     points.append(boundary_point.copy())
-                position = boundary_point + direction * geometry.epsilon_nm
+                position, direction = advance_in_uniform_axial_field(
+                    boundary_point,
+                    direction,
+                    geometry.epsilon_nm,
+                    rotation_rate_rad_per_nm=rotation_rate,
+                )
                 continue
 
             rates = elastic_scattering_rates_nm_inverse(region.material, energy_ev)
@@ -1062,7 +1041,12 @@ def simulate_elastic_point_transport(
                 + float(ray_weight) * distance
             )
             flight_start = position.copy()
-            endpoint = position + direction * distance
+            endpoint, direction = advance_in_uniform_axial_field(
+                position,
+                direction,
+                distance,
+                rotation_rate_rad_per_nm=rotation_rate,
+            )
             if points is not None and distance > 0.0:
                 stored_material_flights.append(
                     ElasticMaterialFlight(
@@ -1081,7 +1065,12 @@ def simulate_elastic_point_transport(
                 points.append(endpoint.copy())
             position = endpoint
             if boundary is not None:
-                position = endpoint + direction * geometry.epsilon_nm
+                position, direction = advance_in_uniform_axial_field(
+                    endpoint,
+                    direction,
+                    geometry.epsilon_nm,
+                    rotation_rate_rad_per_nm=rotation_rate,
+                )
                 continue
             if free_path > remaining:
                 outcome = "path_limit"
@@ -1140,6 +1129,7 @@ def simulate_elastic_point_transport(
                     electron_weight=float(ray_weight),
                     emitting_layer_thickness_nm=layer_thickness,
                     history=history,
+                    source_ray_index=int(ray.source_ray_index),
                 )
             )
         if points is not None and events is not None:
@@ -1156,6 +1146,15 @@ def simulate_elastic_point_transport(
                     ),
                     initial_energy_ev=energy_ev,
                 )
+            )
+        completed = trajectory_index + 1
+        if progress_callback is not None and (
+            completed == count or completed % progress_stride == 0
+        ):
+            progress_callback(
+                completed,
+                count,
+                f"Elastic specimen history {completed}/{count}",
             )
 
     energies = np.asarray([ray.kinetic_energy_ev for ray in rays], dtype=float)
@@ -1185,14 +1184,37 @@ def simulate_elastic_point_transport(
         "event_limit_fraction": outcome_weights["event_limit"],
         "path_limit_fraction": outcome_weights["path_limit"],
         "initial_beam_model": "calculated_surviving_sample_plane_phase_space",
+        "sample_axial_field_t": field_diagnostic.total_field_t,
+        "sample_objective_field_t": field_diagnostic.objective_field_t,
+        "sample_face_fields_t": field_diagnostic.face_fields_t,
+        "sample_field_face_variation_t": field_diagnostic.face_variation_t,
+        "sample_field_active_lens_contributions_t": (
+            field_diagnostic.active_lens_contributions_t
+        ),
+        "sample_field_transport_model": field_diagnostic.transport_model,
+        "sample_field_source": field_diagnostic.field_source,
+        "sample_field_geometry_material_coupled": (
+            field_diagnostic.geometry_material_coupled
+        ),
+        "sample_field_energy_change_ev": 0.0,
         "incident_energy_range_ev": (
             float(np.min(energies)), float(np.max(energies))
+        ),
+        "incident_mean_energy_ev": float(np.sum(input_weights * energies)),
+        "terminal_mean_energy_ev": float(
+            np.sum(
+                np.asarray(terminal_weights, dtype=float)
+                * np.asarray(terminal_energies, dtype=float)
+            )
         ),
         "incident_chief_direction": tuple(
             float(value)
             for value in np.sum(input_weights[:, None] * directions, axis=0)
         ),
         "incident_weights_normalised": True,
+        "stored_elastic_event_count": sum(
+            len(trajectory.events) for trajectory in stored_trajectories
+        ),
         "elastic_energy_loss_included": False,
         "nuclear_recoil_included": False,
         "inelastic_angular_deflection_included": False,

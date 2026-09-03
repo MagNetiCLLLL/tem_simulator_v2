@@ -21,13 +21,22 @@ import math
 import numpy as np
 
 from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
-from temsim.detector.eds_signal import EDSSpectrum, simulate_eds_point
-from temsim.physics.column_wall import clip_column_wall
-from temsim.physics.core import propagate
-from temsim.physics.recording_clipping import clip_recording_planes
-from temsim.physics.recording_stop import determine_tem_stop_z
-from temsim.physics.simulation import Branch, RAY_INTERACTION_COLOURS
+from temsim.detector.eds_signal import EDSSpectrum
+from temsim.physics.simulation import Branch
+from temsim.specimen.downstream_transport import build_geometric_specimen_exit
 from temsim.specimen.elastic_transport import incident_rays_from_simulation
+from temsim.specimen.interaction_engine import run_specimen_interactions
+from temsim.specimen.interaction_types import (
+    SpecimenInteractionRequest,
+    SpecimenInteractionResult,
+)
+from temsim.specimen.scene import SpecimenScene
+from temsim.specimen.axial_field_transport import (
+    advance_in_uniform_axial_field,
+    axial_field_polyline,
+    axial_rotation_rate_rad_per_nm,
+    sample_axial_field_diagnostic,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +97,7 @@ class SampleRegionResult:
     photon_paths: tuple[SampleRegionPhotonPath, ...]
     downstream_branches: tuple[Branch, ...]
     spectrum: EDSSpectrum
+    interactions: SpecimenInteractionResult
     metrics: dict[str, object]
 
 
@@ -136,114 +146,6 @@ def _angular_acceptance(
         for centre in geometry.azimuth_centers_deg
     ]
     return True, int(np.argmin(separations)), math.degrees(half_width)
-
-
-def _post_sample_events(state) -> tuple[tuple[float, float, float], ...]:
-    events: list[tuple[float, float, float]] = []
-    for collection_name in ("deflectors", "corrector_elements"):
-        for component in getattr(state, collection_name, ()):
-            if not bool(getattr(component, "enabled", False)):
-                continue
-            if not hasattr(component, "kick_events"):
-                continue
-            try:
-                component_events = component.kick_events(
-                    time_s=float(getattr(state, "simulation_time_s", 0.0))
-                )
-            except TypeError:
-                component_events = component.kick_events()
-            events.extend(
-                (float(z), float(dx), float(dy))
-                for z, dx, dy in component_events
-                if float(z) > float(state.sample.z_mm)
-            )
-    return tuple(sorted(events))
-
-
-def _downstream_branches(state, elastic_result, exit_z_mm: float):
-    terminal = elastic_result.terminal_electrons
-    if terminal is None or len(terminal.outcome) == 0:
-        return (), {"downstream_forward_weight": 0.0, "exit_plane_weight": 0.0}
-    directions = np.asarray(terminal.direction, dtype=float)
-    outcomes = np.asarray(terminal.outcome, dtype=object)
-    eligible = (outcomes == "transmitted") & (directions[:, 2] > 1.0e-12)
-    if not np.any(eligible):
-        return (), {"downstream_forward_weight": 0.0, "exit_plane_weight": 0.0}
-
-    positions_nm = np.asarray(terminal.position_nm, dtype=float)[eligible]
-    direction = directions[eligible]
-    weights = np.asarray(terminal.weight, dtype=float)[eligible]
-    energies = np.asarray(terminal.kinetic_energy_ev, dtype=float)[eligible]
-    scattered = np.asarray(terminal.has_scattered, dtype=bool)[eligible]
-    source_indices = np.asarray(terminal.source_ray_index, dtype=np.int64)[eligible]
-
-    # The material kernel resolves nanometre-scale geometry about the axial
-    # sample reference.  Its terminal transverse state is reinjected at that
-    # reference plane; the ordinary propagator then supplies the deterministic
-    # objective field and every downstream optical element.
-    slopes = direction[:, :2] / direction[:, 2, None]
-    stop_z_mm = float(determine_tem_stop_z(state))
-    z, x, tx, y, ty = propagate(
-        state,
-        float(state.sample.z_mm),
-        stop_z_mm,
-        positions_nm[:, 0] * 1.0e-9,
-        slopes[:, 0],
-        positions_nm[:, 1] * 1.0e-9,
-        slopes[:, 1],
-        _post_sample_events(state),
-        energies - float(state.beam_voltage_kv) * 1000.0,
-        save_z_mm=(float(exit_z_mm),),
-    )
-    alive = np.ones(len(weights), dtype=bool)
-    blocked = np.full(len(weights), np.nan, dtype=float)
-    keys = [""] * len(weights)
-    alive, blocked, keys = clip_recording_planes(
-        state, z, x, y, alive, blocked, keys
-    )
-    alive, blocked, keys = clip_column_wall(state, z, x, y, alive, blocked, keys)
-    exit_reached = np.isnan(blocked) | (blocked > float(exit_z_mm) + 1.0e-9)
-
-    branches = []
-    for is_scattered, name, kind in (
-        (False, "sample_region_primary", "sample_region_primary"),
-        (True, "sample_region_elastic", "sample_region_elastic"),
-    ):
-        mask = scattered == is_scattered
-        if not np.any(mask):
-            continue
-        branch_weights = weights[mask]
-        weight_sum = float(np.sum(branch_weights))
-        ray_weight = (
-            branch_weights / weight_sum if weight_sum > 0.0 else branch_weights
-        )
-        branches.append(
-            Branch(
-                name=name,
-                colour=RAY_INTERACTION_COLOURS[kind],
-                z=z,
-                x=x[:, mask],
-                y=y[:, mask],
-                tx=tx[:, mask],
-                ty=ty[:, mask],
-                alive=alive[mask],
-                blocked_z=blocked[mask],
-                blocked_key=[key for key, keep in zip(keys, mask, strict=True) if keep],
-                weight=weight_sum,
-                energy_offset_ev=(
-                    energies[mask] - float(state.beam_voltage_kv) * 1000.0
-                ),
-                ray_weight=ray_weight,
-                interaction_kind=kind,
-            )
-        )
-    return tuple(branches), {
-        "downstream_forward_weight": float(np.sum(weights)),
-        "exit_plane_weight": float(np.sum(weights[exit_reached])),
-        "downstream_source_ray_count": int(source_indices.size),
-        "post_sample_reinjection_plane_z_mm": float(state.sample.z_mm),
-        "material_terminal_z_collapsed_to_reference_plane": True,
-    }
 
 
 def _material_origin_mm(flight, fraction: float, sample_z_mm: float) -> np.ndarray:
@@ -368,6 +270,7 @@ def _electron_paths(
     secondary_count: int,
     rng: np.random.Generator,
 ):
+    scene = SpecimenScene.from_state(state)
     target_x_nm = float(getattr(state.sample, "scan_origin_x_nm", 0.0))
     target_y_nm = float(getattr(state.sample, "scan_origin_y_nm", 0.0))
     sample_bundle = incident_rays_from_simulation(
@@ -381,38 +284,52 @@ def _electron_paths(
         simulation,
         boundary_z_mm=entry_z_mm,
     )
-    scan_translation_nm = (
-        sample_bundle.target_centroid_nm[0] - sample_bundle.original_centroid_nm[0],
-        sample_bundle.target_centroid_nm[1] - sample_bundle.original_centroid_nm[1],
-    )
-    sample_by_index = {ray.source_ray_index: ray for ray in sample_bundle.rays}
+    field_diagnostic = sample_axial_field_diagnostic(state)
     rows: list[SampleRegionElectronPath] = []
-    for ray in entry_bundle.rays:
-        sample_ray = sample_by_index.get(ray.source_ray_index)
-        if sample_ray is None:
-            continue
+    entry_local_z_nm = (
+        float(entry_z_mm) - float(state.sample.z_mm)
+    ) * 1.0e6
+    for sample_ray in sample_bundle.rays:
+        sample_direction = np.asarray(sample_ray.direction, dtype=float)
+        rotation_rate = axial_rotation_rate_rad_per_nm(
+            field_diagnostic.total_field_t,
+            sample_ray.kinetic_energy_ev,
+        )
+        reference_position = np.asarray(
+            (*sample_ray.position_xy_nm, 0.0), dtype=float
+        )
+        top_position, top_direction = advance_in_uniform_axial_field(
+            reference_position,
+            sample_direction,
+            scene.sample_top_nm / float(sample_direction[2]),
+            rotation_rate_rad_per_nm=rotation_rate,
+        )
+        top_to_entry_length = (
+            (entry_local_z_nm - scene.sample_top_nm)
+            / float(top_direction[2])
+        )
+        top_to_entry, _entry_direction = axial_field_polyline(
+            top_position,
+            top_direction,
+            top_to_entry_length,
+            rotation_rate_rad_per_nm=rotation_rate,
+        )
+        entry_to_top = top_to_entry[::-1]
+        global_mm = entry_to_top.copy()
+        global_mm[:, :2] *= 1.0e-6
+        global_mm[:, 2] = (
+            float(state.sample.z_mm) + entry_to_top[:, 2] * 1.0e-6
+        )
         rows.append(
             SampleRegionElectronPath(
-                positions_mm=np.array(
-                    (
-                        (
-                            (ray.position_xy_nm[0] + scan_translation_nm[0])
-                            * 1.0e-6,
-                            (ray.position_xy_nm[1] + scan_translation_nm[1])
-                            * 1.0e-6,
-                            entry_z_mm,
-                        ),
-                        (
-                            sample_ray.position_xy_nm[0] * 1.0e-6,
-                            sample_ray.position_xy_nm[1] * 1.0e-6,
-                            float(state.sample.z_mm),
-                        ),
-                    )
-                ),
+                positions_mm=global_mm,
                 kind="boundary_input",
                 weight=float(sample_ray.weight),
                 kinetic_energy_ev=float(sample_ray.kinetic_energy_ev),
-                provenance="cached global-column phase space",
+                provenance=(
+                    "cached sample-plane phase space; local-uniform solver Bz "
+                    "helical boundary transport"
+                ),
                 downstream_eligible=True,
             )
         )
@@ -481,8 +398,15 @@ def simulate_sample_region(
     photon_path_count: int = 128,
     secondary_path_count: int = 48,
     seed: int = 0,
+    existing_interactions: SpecimenInteractionResult | None = None,
 ) -> SampleRegionResult:
-    """Run one explicit sample-local calculation from the cached column result."""
+    """Build one explicit sample-local view from shared physical results.
+
+    EDS and elastic transport are enriched only when they are missing from the
+    compatible interaction envelope.  Boundary placement, path subsampling and
+    photon display directions remain view construction and never rerun the
+    underlying specimen physics.
+    """
 
     upstream_um = float(upstream_distance_um)
     downstream_um = float(downstream_distance_um)
@@ -501,9 +425,16 @@ def simulate_sample_region(
     exit_z_mm = float(state.sample.z_mm) + downstream_um * 1.0e-3
     rng = np.random.default_rng(int(seed))
 
-    spectrum = simulate_eds_point(
-        state, detector_geometry, simulation=simulation
+    interactions = run_specimen_interactions(
+        state,
+        simulation,
+        SpecimenInteractionRequest.eds_point(),
+        detector_geometry=detector_geometry,
+        existing_result=existing_interactions,
     )
+    spectrum = interactions.eds_spectrum
+    if spectrum is None:
+        raise RuntimeError("Specimen interaction engine returned no EDS spectrum")
     elastic = spectrum.elastic_transport
     if elastic is None:
         raise ValueError(
@@ -526,9 +457,15 @@ def simulate_sample_region(
         rng=rng,
         display_length_mm=max(10.0, 4.0 * downstream_um * 1.0e-3),
     )
-    downstream_branches, downstream_metrics = _downstream_branches(
-        state, elastic, exit_z_mm
+    downstream = build_geometric_specimen_exit(
+        state,
+        simulation,
+        elastic,
+        interactions.inelastic_distribution,
+        save_z_mm=(exit_z_mm,),
     )
+    downstream_branches = downstream.branches
+    downstream_metrics = downstream.metrics
     wave_result = getattr(calculation_result, "wave_imaging", None)
     metrics: dict[str, object] = {
         "entry_z_mm": entry_z_mm,
@@ -558,6 +495,22 @@ def simulate_sample_region(
         ),
         "channeling_double_counted_in_elastic_mc": False,
         "automatic_recalculation": False,
+        "sample_axial_field_t": elastic.metrics.get("sample_axial_field_t"),
+        "sample_objective_field_t": elastic.metrics.get(
+            "sample_objective_field_t"
+        ),
+        "sample_field_transport_model": elastic.metrics.get(
+            "sample_field_transport_model"
+        ),
+        "sample_field_geometry_material_coupled": elastic.metrics.get(
+            "sample_field_geometry_material_coupled"
+        ),
+        "shared_specimen_result_reused": bool(
+            interactions.metrics.get("existing_result_reused", False)
+        ),
+        "specimen_observables_calculated_for_this_view": tuple(
+            interactions.metrics.get("calculated_observables_this_call", ())
+        ),
         **downstream_metrics,
     }
     return SampleRegionResult(
@@ -567,5 +520,6 @@ def simulate_sample_region(
         photon_paths=photon_paths,
         downstream_branches=downstream_branches,
         spectrum=spectrum,
+        interactions=interactions,
         metrics=metrics,
     )

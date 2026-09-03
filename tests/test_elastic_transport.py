@@ -197,7 +197,9 @@ def test_incident_bundle_interpolates_an_upstream_boundary_before_later_stop():
 def test_finite_geometry_finds_sample_face_and_mesh_sidewall():
     state = default_state()
     geometry = ElasticTransportGeometry.from_state(state)
-    start = np.asarray((0.0, 0.0, -8.0 * geometry.epsilon_nm))
+    start = np.asarray(
+        (0.0, 0.0, geometry.sample_top_nm - 8.0 * geometry.epsilon_nm)
+    )
     distance = geometry.next_region_boundary_distance_nm(
         start,
         (0.0, 0.0, 1.0),
@@ -229,7 +231,7 @@ def test_finite_geometry_finds_sample_face_and_mesh_sidewall():
 def test_finite_geometry_uses_the_circular_disk_sidewall():
     state = default_state()
     geometry = ElasticTransportGeometry.from_state(state)
-    inside = np.asarray((0.0, 0.0, 0.5 * state.sample.thickness_nm))
+    inside = np.asarray((0.0, 0.0, 0.0))
     region = geometry.region_at(inside)
 
     assert region is not None
@@ -243,6 +245,33 @@ def test_finite_geometry_uses_the_circular_disk_sidewall():
     assert distance == pytest.approx(1_500_000.0)
 
 
+def test_tilted_incident_ray_is_back_projected_from_the_reference_plane():
+    state = default_state()
+    direction = np.asarray((0.1, -0.05, 1.0), dtype=float)
+    direction /= np.linalg.norm(direction)
+    ray = IncidentElectronRay(
+        source_ray_index=0,
+        position_xy_nm=(12.0, -7.0),
+        direction=tuple(float(value) for value in direction),
+        kinetic_energy_ev=300_000.0,
+        weight=1.0,
+    )
+
+    result = simulate_elastic_point_transport(
+        state,
+        incident_rays=(ray,),
+        seed=3,
+        stored_trajectory_count=1,
+    )
+
+    start = result.trajectories[0].points_nm[0]
+    projected_to_reference = start[:2] - (
+        start[2] / direction[2]
+    ) * direction[:2]
+    assert projected_to_reference == pytest.approx((12.0, -7.0))
+    assert start[2] < -0.5 * state.sample.thickness_nm
+
+
 def test_point_transport_is_seeded_and_aggregates_real_material_paths():
     state = default_state()
     state.sample.eds_elastic_seed = 101
@@ -251,6 +280,9 @@ def test_point_transport_is_seeded_and_aggregates_real_material_paths():
     second = simulate_elastic_point_transport(state, incident_rays=rays)
 
     assert first.metrics["total_elastic_events"] > 0
+    assert first.metrics["terminal_mean_energy_ev"] == pytest.approx(
+        first.metrics["incident_mean_energy_ev"]
+    )
     assert sum(first.metrics["outcome_counts"].values()) == 12
     assert first.metrics["event_limit_fraction"] == 0.0
     assert sum(
@@ -263,6 +295,9 @@ def test_point_transport_is_seeded_and_aggregates_real_material_paths():
         "straight_primary",
         "elastic_scattered",
     }
+    assert all(
+        track.source_ray_index is not None for track in first.eds_tracks
+    )
     assert first.metrics == second.metrics
     assert first.terminal_electrons is not None
     assert first.terminal_electrons.position_nm.shape == (12, 3)
@@ -280,6 +315,24 @@ def test_point_transport_is_seeded_and_aggregates_real_material_paths():
         first.trajectories, second.trajectories, strict=True
     ):
         assert np.array_equal(left.points_nm, right.points_nm)
+
+
+def test_point_transport_progress_reports_completed_histories():
+    state = default_state()
+    progress = []
+
+    simulate_elastic_point_transport(
+        state,
+        incident_rays=_incident_rays(3),
+        progress_callback=lambda completed, total, label: progress.append(
+            (completed, total, label)
+        ),
+    )
+
+    assert progress[0] == (0, 3, "Preparing elastic specimen histories")
+    assert [completed for completed, _total, _label in progress] == [0, 1, 2, 3]
+    assert all(total == 3 for _completed, total, _label in progress)
+    assert progress[-1][2] == "Elastic specimen history 3/3"
 
 
 def test_retracted_holder_removes_sample_and_support_from_transport():

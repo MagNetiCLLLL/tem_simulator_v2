@@ -61,6 +61,28 @@ def specimen_structure_available(sample) -> bool:
     return bool(selected_reference_preset_key(sample))
 
 
+def specimen_is_vacuum(sample) -> bool:
+    """Return whether the active user selection contains no specimen matter.
+
+    Vacuum is an explicit Virtual TOML reference.  Retraction and zero
+    physical thickness are also vacuum interaction states, while the optical
+    reference plane remains available to the rest of the column model.
+    """
+
+    if not bool(getattr(sample, "inserted", True)):
+        return True
+    try:
+        thickness_nm = float(getattr(sample, "thickness_nm", 0.0))
+    except (TypeError, ValueError):
+        return False
+    if thickness_nm <= 0.0:
+        return True
+    return bool(
+        specimen_mode(sample) == "virtual"
+        and selected_reference_preset_key(sample) == "vacuum"
+    )
+
+
 def wave_template_preset_key(sample, *, inserted: bool = True) -> str:
     """Return the TOML grid/potential template used by a wave calculation.
 

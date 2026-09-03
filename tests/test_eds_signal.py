@@ -149,17 +149,79 @@ def test_characteristic_si_counts_conserve_line_histogram(installed_geometry):
     assert result.metrics["system_name"] == "EDS"
     assert result.metrics["elastic_trajectory_generation"] is False
     assert result.metrics["bremsstrahlung_included"] is False
+    assert result.vacancies
+    assert result.metrics["duplicate_shell_ionisation_passes"] == 0
+    assert result.metrics["vacancy_contribution_count"] == len(
+        result.vacancies
+    )
+    assert all(
+        vacancy.relaxation_yield_sum == pytest.approx(1.0, abs=2.0e-12)
+        for vacancy in result.vacancies
+    )
+    assert (
+        result.metrics["total_expected_radiative_relaxations"]
+        + result.metrics["total_expected_auger_relaxations"]
+        + result.metrics["total_expected_unresolved_relaxations"]
+    ) == pytest.approx(result.metrics["total_expected_vacancies"])
+    si_l1 = next(
+        vacancy for vacancy in result.vacancies if vacancy.subshell == "L1"
+    )
+    assert si_l1.unresolved_relaxation_yield > 0.0
     assert result.total_expected_counts > 0.0
     assert np.sum(result.expected_counts) == pytest.approx(
         result.total_expected_counts
     )
     ka1 = next(line for line in result.lines if line.transition == "K-L3")
+    assert ka1.vacancy_id in {
+        vacancy.vacancy_id for vacancy in result.vacancies
+    }
     assert ka1.energy_ev == pytest.approx(1740.0)
     assert ka1.expected_detected_counts > 0.0
     assert len(ka1.expected_counts_per_segment) == 6
     assert sum(ka1.expected_counts_per_segment) == pytest.approx(
         ka1.expected_detected_counts
     )
+
+
+def test_shell_cross_sections_are_evaluated_once_then_reused(
+    installed_geometry, monkeypatch
+):
+    import temsim.detector.eds_signal as eds_signal
+
+    original = eds_signal.bote_ionisation_cross_section_cm2
+    calls = []
+
+    def counted_cross_section(*args, **kwargs):
+        calls.append((args, kwargs))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        eds_signal,
+        "bote_ionisation_cross_section_cm2",
+        counted_cross_section,
+    )
+    result = simulate_eds_tracks(
+        (
+            ElectronTrackSegment(
+                "sample",
+                elemental_material(14, density_g_cm3=2.33),
+                path_length_nm=20.0,
+                electron_energy_ev=200_000.0,
+                source_ray_index=4,
+            ),
+        ),
+        installed_geometry,
+        incident_electrons=1000.0,
+    )
+
+    assert len(calls) == result.metrics[
+        "shell_cross_section_evaluation_count"
+    ]
+    assert result.metrics["duplicate_shell_ionisation_passes"] == 0
+    assert all(vacancy.source_ray_index == 4 for vacancy in result.vacancies)
+    assert {line.vacancy_id for line in result.lines} <= {
+        vacancy.vacancy_id for vacancy in result.vacancies
+    }
 
 
 def test_counts_scale_with_track_weight_efficiency_and_solid_angle(

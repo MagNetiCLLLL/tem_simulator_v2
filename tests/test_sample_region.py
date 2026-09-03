@@ -1,12 +1,15 @@
 import math
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
+from temsim.optics.column import default_state
 from temsim.specimen.sample_region import (
     SampleRegionElectronPath,
     _angular_acceptance,
+    _electron_paths,
     _isotropic_directions,
 )
 
@@ -71,3 +74,42 @@ def test_secondary_marker_can_be_explicitly_zero_weight_and_local_only():
     assert marker.weight == 0.0
     assert marker.kinetic_energy_ev is None
     assert not marker.downstream_eligible
+
+
+def test_boundary_input_path_ends_at_the_centred_specimen_entrance_face():
+    state = default_state()
+    sample_z_mm = float(state.sample.z_mm)
+    entry_z_mm = sample_z_mm - 0.05
+    slope_x = 0.01
+    sample_x_m = 12.0e-9
+    entry_x_m = sample_x_m + (entry_z_mm - sample_z_mm) * 1.0e-3 * slope_x
+    simulation = SimpleNamespace(
+        incident=SimpleNamespace(
+            z=np.asarray((entry_z_mm, sample_z_mm)),
+            alive=np.asarray((True,)),
+            blocked_z=np.asarray((np.nan,)),
+            x=np.asarray(((entry_x_m,), (sample_x_m,))),
+            y=np.zeros((2, 1)),
+            tx=np.full((2, 1), slope_x),
+            ty=np.zeros((2, 1)),
+            energy_offset_ev=np.zeros(1),
+            ray_weight=np.ones(1),
+        )
+    )
+    elastic = SimpleNamespace(trajectories=(), material_flights=())
+
+    paths, _entry_bundle, _sample_bundle = _electron_paths(
+        state,
+        simulation,
+        elastic,
+        entry_z_mm=entry_z_mm,
+        secondary_count=0,
+        rng=np.random.default_rng(1),
+    )
+
+    endpoint = paths[0].positions_mm[-1]
+    expected_top_z_mm = sample_z_mm - 0.5 * state.sample.thickness_nm * 1.0e-6
+    assert endpoint[2] == pytest.approx(expected_top_z_mm)
+    assert endpoint[0] == pytest.approx(
+        -0.5 * state.sample.thickness_nm * slope_x * 1.0e-6
+    )

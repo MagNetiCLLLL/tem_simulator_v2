@@ -91,6 +91,22 @@ def test_material_presets_keep_inelastic_provenance_out_of_python_constants():
     assert vacuum is None
 
 
+def test_virtual_vacuum_ignores_dormant_inelastic_controls():
+    state = default_state()
+    state.sample.specimen_mode = "virtual"
+    state.sample.specimen_preset_key = "vacuum"
+    state.sample.thickness_nm = 100.0
+    state.sample.real_plasmon_mean_free_path_nm = 1.0
+    state.sample.real_ionisation_mean_free_path_nm = 1.0
+
+    distribution = real_inelastic_distribution(state)
+
+    assert distribution.model == "sample_not_interacting"
+    assert distribution.mean_inelastic_events == 0.0
+    assert distribution.absorbed_probability == 0.0
+    assert distribution.total_probability == pytest.approx(1.0)
+
+
 def test_custom_cif_never_silently_borrows_selected_preset_inelastic_data():
     state = default_state()
     state.sample.specimen_mode = "atomic"

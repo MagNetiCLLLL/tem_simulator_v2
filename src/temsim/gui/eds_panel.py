@@ -48,6 +48,7 @@ class EDSPage(QWidget):
         self._result = None
         self._eds_result = None
         self._elastic_result = None
+        self._specimen_interactions = None
         self._sample_region_result = None
         self._updating = False
         self._projection_angle_deg = 0.0
@@ -607,11 +608,16 @@ class EDSPage(QWidget):
         self._update_controls()
 
     def display_result(self, result):
-        if result is not self._result:
+        changed = result is not self._result
+        if changed:
             self._clear_result(
                 "Column result changed; press Calculate point EDS."
             )
         self._result = result
+        if changed:
+            self._specimen_interactions = getattr(
+                result, "specimen_interactions", None
+            )
         self._update_incident_summary()
         self._update_controls()
 
@@ -671,7 +677,7 @@ class EDSPage(QWidget):
         if self._updating or self._state is None:
             return
         setattr(self._state.sample, name, float(value))
-        self._clear_result(
+        self._clear_sample_region_result(
             "Sample-region settings changed; press the manual high-accuracy button."
         )
 
@@ -679,7 +685,7 @@ class EDSPage(QWidget):
         if self._updating or self._state is None:
             return
         setattr(self._state.sample, name, int(value))
-        self._clear_result(
+        self._clear_sample_region_result(
             "Sample-region settings changed; press the manual high-accuracy button."
         )
 
@@ -730,18 +736,31 @@ class EDSPage(QWidget):
         self._projection_redraw_timer.stop()
         self._eds_result = None
         self._elastic_result = None
-        had_sample_region = self._sample_region_result is not None
-        self._sample_region_result = None
+        self._specimen_interactions = None
         self.eds_summary.setText(text)
         self.eds_lines.setRowCount(0)
         self.eds_trajectory_plot.clear()
         self.eds_trajectory_yz_plot.clear()
         self.spectrum_plot.clear()
-        self.sample_region_summary.setText(
+        self._clear_sample_region_result(
             "Sample-region result is stale; run the manual calculation again."
         )
+
+    def _clear_sample_region_result(self, text: str) -> None:
+        """Invalidate display geometry without discarding shared EDS physics."""
+
+        had_sample_region = self._sample_region_result is not None
+        self._sample_region_result = None
+        self.sample_region_summary.setText(text)
         if had_sample_region:
             self.sample_region_result_ready.emit(None)
+
+    def _store_specimen_interactions(self, interactions) -> None:
+        """Share an enriched result with every view of this column result."""
+
+        self._specimen_interactions = interactions
+        if self._result is not None:
+            self._result.specimen_interactions = interactions
 
     def sample_region_calculation_available(self) -> bool:
         """Return whether an explicit bounded specimen calculation can run."""
@@ -797,12 +816,14 @@ class EDSPage(QWidget):
                 photon_path_count=self.sample_region_photons.value(),
                 secondary_path_count=0,
                 seed=self.sample_region_seed.value(),
+                existing_interactions=self._specimen_interactions,
             )
         except Exception as exc:
             self.error.emit(str(exc))
             self.sample_region_summary.setText(f"Calculation failed: {exc}")
             return False
         self._sample_region_result = result
+        self._store_specimen_interactions(result.interactions)
         self._eds_result = result.spectrum
         self._elastic_result = result.spectrum.elastic_transport
         self._plot_elastic_trajectories(self._elastic_result)
@@ -811,12 +832,20 @@ class EDSPage(QWidget):
         metrics = result.metrics
         forward = 100.0 * float(metrics.get("downstream_forward_weight", 0.0))
         exit_weight = 100.0 * float(metrics.get("exit_plane_weight", 0.0))
+        shared_text = (
+            " Reused the cached EDS and elastic specimen calculation."
+            if not metrics.get(
+                "specimen_observables_calculated_for_this_view", ()
+            )
+            else " Calculated the missing specimen signals once."
+        )
         self.sample_region_summary.setText(
             f"Entry {result.entry_z_mm:.6g} mm -> exit {result.exit_z_mm:.6g} mm; "
             f"{metrics['sample_ray_count']:,} specimen histories, "
             f"{len(result.photon_paths):,} isotropic X-ray representatives, "
-            f"Forward terminal weight {forward:.6g}%; {exit_weight:.6g}% reaches "
-            "the exit boundary before downstream clipping."
+            f"Forward elastic terminal weight {forward:.6g}%; "
+            f"{exit_weight:.6g}% tracked electron weight reaches the selected "
+            f"exit boundary after specimen losses.{shared_text}"
         )
         self.sample_region_summary.setToolTip(
             "\n".join(
@@ -846,7 +875,12 @@ class EDSPage(QWidget):
         try:
             from temsim.component_keys import EDS_DETECTOR_SYSTEM
             from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
-            from temsim.detector.eds_signal import simulate_eds_point
+            from temsim.specimen.interaction_engine import (
+                run_specimen_interactions,
+            )
+            from temsim.specimen.interaction_types import (
+                SpecimenInteractionRequest,
+            )
 
             assembly = getattr(self._result, "assembly", None)
             if assembly is None:
@@ -854,15 +888,23 @@ class EDSPage(QWidget):
             geometry = EDSDetectorArrayGeometry.from_part_data(
                 assembly.part(EDS_DETECTOR_SYSTEM).data
             )
-            spectrum = simulate_eds_point(
+            interactions = run_specimen_interactions(
                 self._state,
-                geometry,
-                simulation=getattr(self._result, "simulation", None),
+                getattr(self._result, "simulation", None),
+                SpecimenInteractionRequest.eds_point(),
+                detector_geometry=geometry,
+                existing_result=self._specimen_interactions,
             )
+            spectrum = interactions.eds_spectrum
+            if spectrum is None:
+                raise RuntimeError(
+                    "Specimen interaction engine returned no EDS spectrum"
+                )
         except Exception as exc:
             self.error.emit(str(exc))
             self.eds_summary.setText(f"EDS calculation failed: {exc}")
             return
+        self._store_specimen_interactions(interactions)
         self._eds_result = spectrum
         self._elastic_result = spectrum.elastic_transport
         self._plot_elastic_trajectories(self._elastic_result)
@@ -891,11 +933,20 @@ class EDSPage(QWidget):
             )
             if metrics["rutherford_heavy_element_warning"]:
                 transport_text += " Z>30 encountered; ELSEPA is recommended."
+        reused_text = (
+            " Cached specimen result reused."
+            if "characteristic_x_ray" not in set(
+                interactions.metrics.get(
+                    "calculated_observables_this_call", ()
+                )
+            )
+            else ""
+        )
         self.eds_summary.setText(
             f"EDS point: {spectrum.total_expected_counts:.6g} expected "
             f"counts{sampled_text}; {len(spectrum.lines)} characteristic "
             f"track-line contributions; sources: {source_names}. "
-            f"{transport_text} Bremsstrahlung is not yet included."
+            f"{transport_text} Bremsstrahlung is not yet included.{reused_text}"
         )
         self.eds_summary.setToolTip(
             "\n".join(f"{key}: {value}" for key, value in spectrum.metrics.items())

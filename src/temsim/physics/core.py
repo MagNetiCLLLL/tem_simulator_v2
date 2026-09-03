@@ -636,7 +636,7 @@ def _piecewise_endpoint_exact_axial_grid(
 def propagate(
     state,z0,z1,x,tx,y,ty,events=(),energy_offset_ev=None,
     *,include_spherical_aberration=True,include_hexapole=True,
-    save_z_mm=(),
+    save_z_mm=(),include_initial_plane_kicks=True,
 ):
     requested_step=float(state.step_mm)
     image_lens_events=equivalent_image_events(state,float(z0),float(z1))
@@ -691,6 +691,16 @@ def propagate(
     kickx=np.zeros(len(zfull),np.float64);kicky=np.zeros(len(zfull),np.float64)
     for ze,dx,dy in sorted(events):
         idx=_nearest_axial_grid_index(ze,zfull);kickx[idx]+=dx;kicky[idx]+=dy
+    if not bool(include_initial_plane_kicks):
+        # A column trace split at a material/reference plane has already
+        # applied every zero-thickness action at the preceding segment's final
+        # sample.  Continuous Bz, quadrupole and hexapole fields remain active
+        # on the new segment; only the shared-plane impulses are suppressed.
+        cs_kick[0]=0.0
+        thin_power[0]=0.0
+        thin_rotation[0]=0.0
+        kickx[0]=0.0
+        kicky[0]=0.0
     history_step=max(requested_step,float(getattr(state,"history_step_mm",2.0)))
     stride=max(1,int(round(history_step/requested_step)))
     save=np.arange(0,len(zfull),stride,dtype=np.int64)

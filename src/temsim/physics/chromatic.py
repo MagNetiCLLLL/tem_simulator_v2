@@ -197,3 +197,56 @@ def objective_chromatic_kick(x_m,y_m,energy_offset_ev,kinetic_energy_ev,cc_mm,fo
     df=float(cc_mm)*1e-3*np.asarray(energy_offset_ev,float)/E
 
     return np.asarray(x_m,float)*df/(f*f),np.asarray(y_m,float)*df/(f*f)
+
+
+_UNRESOLVED_FOCAL_LENGTH = object()
+
+
+def configured_objective_chromatic_focal_mm(state):
+    """Resolve the configured focal length once, or ``None`` when disabled."""
+
+    if not bool(getattr(state, "chromatic_aberration_enabled", False)):
+        return None
+    try:
+        from temsim.optics.lens_focal_length import focal_length_mm
+
+        return focal_length_mm(state.objective_lens, state.beam_voltage_kv)
+    except Exception:
+        # Preserve the established ideal-objective fallback used by the global
+        # ray solver when a focal-length calibration is unavailable.
+        return 2.5
+
+
+def objective_chromatic_kick_from_state(
+    state,
+    x_m,
+    y_m,
+    energy_offset_ev,
+    *,
+    resolved_focal_mm=_UNRESOLVED_FOCAL_LENGTH,
+):
+    """Return the configured objective chromatic kick for one phase space.
+
+    Both the ordinary column trace and specimen-exit reinjection use this
+    helper so a finite-geometry specimen path cannot silently apply a different
+    first-order chromatic model.  Disabled chromatic aberration is an exact
+    zero kick.
+    """
+
+    x = np.asarray(x_m, dtype=float)
+    y = np.asarray(y_m, dtype=float)
+    focal = (
+        configured_objective_chromatic_focal_mm(state)
+        if resolved_focal_mm is _UNRESOLVED_FOCAL_LENGTH
+        else resolved_focal_mm
+    )
+    if focal is None:
+        return np.zeros_like(x), np.zeros_like(y)
+    return objective_chromatic_kick(
+        x,
+        y,
+        energy_offset_ev,
+        float(state.beam_voltage_kv) * 1000.0,
+        float(getattr(state.objective_lens, "cc_mm", 2.0) or 2.0),
+        focal,
+    )

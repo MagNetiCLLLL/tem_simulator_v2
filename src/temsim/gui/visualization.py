@@ -35,6 +35,7 @@ from temsim.gui.diagnostic_tabs import (
 )
 from temsim.gui.scan_panel import ScanControlView
 from temsim.gui.sample_panel import SamplePage
+from temsim.gui.sample_interactions_3d import SampleInteractions3DPage
 from temsim.gui.eds_panel import EDSPage
 from temsim.gui.aberration_view import AberrationComparisonView
 from temsim.gui.parameter_panel import ParameterPanel
@@ -460,6 +461,14 @@ class VisualizationWorkspace(QWidget):
         self.magnetic_field_toggle.setToolTip(
             "Show or hide the axial magnetic-field panel below the ray diagram"
         )
+        self.transverse_beam_toggle = QPushButton("Transverse beam")
+        self.transverse_beam_toggle.setObjectName("rayTransverseBeamToggle")
+        self.transverse_beam_toggle.setCheckable(True)
+        self.transverse_beam_toggle.setChecked(True)
+        self.transverse_beam_toggle.setToolTip(
+            "Show or hide the origin-centred Transverse X-Y panel on the "
+            "right"
+        )
         self.sample_region_toggle = QPushButton("Sample transport")
         self.sample_region_toggle.setObjectName("sampleRegionRayToggle")
         self.sample_region_toggle.setCheckable(True)
@@ -498,6 +507,7 @@ class VisualizationWorkspace(QWidget):
             self.fit_column,
             self.jump_to_position,
             self.magnetic_field_toggle,
+            self.transverse_beam_toggle,
             self.sample_region_toggle,
             self.sample_region_xrays,
             self.fit_sample_region,
@@ -509,6 +519,7 @@ class VisualizationWorkspace(QWidget):
         heading_row = QHBoxLayout()
         heading_row.addWidget(self.heading)
         heading_row.addWidget(self.magnetic_field_toggle)
+        heading_row.addWidget(self.transverse_beam_toggle)
         heading_row.addStretch(1)
 
         self.view_controls_panel = QWidget()
@@ -824,6 +835,7 @@ class VisualizationWorkspace(QWidget):
         ray_layout.addWidget(self.ray_workspace_splitter, 1)
         self.scan_control = ScanControlView()
         self.sample_page = SamplePage()
+        self.sample_interactions_3d = SampleInteractions3DPage()
         self.eds_page = EDSPage()
         self.wave_imaging = WaveImagingView()
         scanning_parameters, scanning_results = (
@@ -877,6 +889,7 @@ class VisualizationWorkspace(QWidget):
         self.tabs.addTab(self.physical_layout, "Physical Layout")
         self.tabs.addTab(self.energy_filter_page, "Energy Filter")
         self.tabs.addTab(self.sample_page, "Sample")
+        self.tabs.addTab(self.sample_interactions_3d, "Sample Interactions 3D")
         self.tabs.addTab(self.eds_page, "EDS")
         self.tabs.addTab(self.scanning_page, "Scanning Image")
         self.tabs.addTab(self.illuminating_page, "Illuminating Image")
@@ -903,6 +916,9 @@ class VisualizationWorkspace(QWidget):
         self.fit_sample_region.clicked.connect(self._fit_sample_region_view)
         self.magnetic_field_toggle.toggled.connect(
             self.magnetic_field.setVisible
+        )
+        self.transverse_beam_toggle.toggled.connect(
+            self.transverse_beam.setVisible
         )
         self.fit_column.clicked.connect(self._fit_column_view)
         self.auto_zoom.toggled.connect(self._auto_zoom_toggled)
@@ -962,6 +978,9 @@ class VisualizationWorkspace(QWidget):
         )
         self.eds_page.sample_region_result_ready.connect(
             self._set_sample_region_result
+        )
+        self.sample_interactions_3d.sample_region_requested.connect(
+            self._ensure_sample_region_result
         )
         self.scan_control.playback_time_changed.connect(
             self._scan_playback_time_changed
@@ -1358,6 +1377,7 @@ class VisualizationWorkspace(QWidget):
 
     def _set_sample_region_result(self, result) -> None:
         self._sample_region_result = result
+        self.sample_interactions_3d.set_sample_region_result(result)
         self._update_sample_region_control_availability()
         if self._last_result is not None:
             self._draw_ray_diagram(
@@ -3231,6 +3251,7 @@ class VisualizationWorkspace(QWidget):
             getattr(result, "stem_scan", None),
         )
         self.eds_page.display_result(result)
+        self.sample_interactions_3d.display_result(result)
         self._update_sample_region_control_availability()
         self.wave_imaging.display_result(
             getattr(result, "wave_imaging", None),

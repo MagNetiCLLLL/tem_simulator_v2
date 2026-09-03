@@ -3751,6 +3751,9 @@ class TransverseBeamView(QWidget):
 
     MAX_DISPLAY_RAYS = 2_000
     CENTRE_DIRECTION_TOLERANCE_M = 1.0e-15
+    DEFAULT_HALF_RANGE_DISPLAY = 1.0
+    FIT_PADDING_FACTOR = 1.08
+    MIN_HALF_RANGE_DISPLAY = 1.0e-9
     DISPLAY_UNIT = "µm"
     METRES_TO_DISPLAY = 1.0e6
     MILLIMETRES_TO_DISPLAY = 1.0e3
@@ -3763,6 +3766,13 @@ class TransverseBeamView(QWidget):
         self._focused_component_key = None
         self._point_spread_image = None
         self._point_spread_response = None
+        self._fit_coordinates = None
+        self._view_scale_initialized = False
+        self._view_change_guard = False
+        self._view_ranges = (
+            (-self.DEFAULT_HALF_RANGE_DISPLAY, self.DEFAULT_HALF_RANGE_DISPLAY),
+            (-self.DEFAULT_HALF_RANGE_DISPLAY, self.DEFAULT_HALF_RANGE_DISPLAY),
+        )
 
         self.heading = QLabel("Transverse beam X-Y")
         self.summary = QLabel(
@@ -3772,6 +3782,10 @@ class TransverseBeamView(QWidget):
         self.summary.setStyleSheet("color: #64748b; font-weight: 600;")
         self.fit_beam = QPushButton("Fit beam")
         self.fit_beam.setStyleSheet(BUTTON_STYLE)
+        self.fit_beam.setToolTip(
+            "Fit all surviving rays while keeping beam (0, 0) at the plot "
+            "centre. This is the only automatic scale reset."
+        )
 
         heading_row = QHBoxLayout()
         heading_row.addWidget(self.heading)
@@ -3787,9 +3801,18 @@ class TransverseBeamView(QWidget):
             axis.enableAutoSIPrefix(False)
             axis.setLabel(title, units=self.DISPLAY_UNIT)
         self.plot.showGrid(x=True, y=True, alpha=0.18)
-        self.plot.setAspectLocked(True)
+        self.plot.setAspectLocked(True, ratio=1.0)
+        self.plot.setMenuEnabled(False)
         self.plot.setMinimumHeight(250)
         self.plot.setMaximumHeight(360)
+        self.plot.getViewBox().disableAutoRange()
+        self._apply_centered_view_ranges(
+            self.DEFAULT_HALF_RANGE_DISPLAY,
+            self.DEFAULT_HALF_RANGE_DISPLAY,
+        )
+        self.plot.getViewBox().sigRangeChangedManually.connect(
+            self._manual_view_range_changed
+        )
 
         self.angle_colour_wheel = InitialDirectionColourWheel()
         self.initial_beam_heading = QLabel("Initial beam direction")
@@ -3839,7 +3862,80 @@ class TransverseBeamView(QWidget):
             Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
         )
         layout.addStretch(1)
-        self.fit_beam.clicked.connect(self.plot.autoRange)
+        self.fit_beam.clicked.connect(self._fit_beam_view)
+
+    def _apply_centered_view_ranges(
+        self,
+        x_half_range: float,
+        y_half_range: float,
+    ) -> None:
+        """Apply a finite origin-centred X-Y view in display micrometres."""
+
+        x_half = max(float(x_half_range), self.MIN_HALF_RANGE_DISPLAY)
+        y_half = max(float(y_half_range), self.MIN_HALF_RANGE_DISPLAY)
+        if not (math.isfinite(x_half) and math.isfinite(y_half)):
+            return
+        self._view_change_guard = True
+        try:
+            self.plot.getViewBox().setRange(
+                xRange=(-x_half, x_half),
+                yRange=(-y_half, y_half),
+                padding=0.0,
+                disableAutoRange=True,
+            )
+        finally:
+            self._view_change_guard = False
+        ranges = self.plot.getViewBox().viewRange()
+        self._view_ranges = (
+            (float(ranges[0][0]), float(ranges[0][1])),
+            (float(ranges[1][0]), float(ranges[1][1])),
+        )
+
+    def _restore_centered_view_ranges(self) -> None:
+        x_range, y_range = self._view_ranges
+        self._apply_centered_view_ranges(
+            0.5 * (x_range[1] - x_range[0]),
+            0.5 * (y_range[1] - y_range[0]),
+        )
+
+    def _manual_view_range_changed(self, _axis_mask) -> None:
+        """Keep a user-selected scale but reject transverse panning."""
+
+        if self._view_change_guard:
+            return
+        x_range, y_range = self.plot.getViewBox().viewRange()
+        self._view_scale_initialized = True
+        self._apply_centered_view_ranges(
+            0.5 * float(x_range[1] - x_range[0]),
+            0.5 * float(y_range[1] - y_range[0]),
+        )
+
+    def _fit_beam_view(self) -> None:
+        """Fit current surviving rays symmetrically about physical zero."""
+
+        if self._fit_coordinates is None:
+            return
+        x_values, y_values = self._fit_coordinates
+        finite_x = np.asarray(x_values, dtype=float)
+        finite_y = np.asarray(y_values, dtype=float)
+        finite_x = finite_x[np.isfinite(finite_x)]
+        finite_y = finite_y[np.isfinite(finite_y)]
+        if finite_x.size == 0 or finite_y.size == 0:
+            return
+        x_half = max(
+            float(np.max(np.abs(finite_x))) * self.FIT_PADDING_FACTOR,
+            self.MIN_HALF_RANGE_DISPLAY,
+        )
+        y_half = max(
+            float(np.max(np.abs(finite_y))) * self.FIT_PADDING_FACTOR,
+            self.MIN_HALF_RANGE_DISPLAY,
+        )
+        if x_half <= self.MIN_HALF_RANGE_DISPLAY:
+            x_half = self.DEFAULT_HALF_RANGE_DISPLAY
+        if y_half <= self.MIN_HALF_RANGE_DISPLAY:
+            y_half = self.DEFAULT_HALF_RANGE_DISPLAY
+        self._view_scale_initialized = True
+        self._apply_centered_view_ranges(x_half, y_half)
 
     @staticmethod
     def _branch_at_plane(simulation, z_mm):
@@ -3950,6 +4046,7 @@ class TransverseBeamView(QWidget):
         self._scatter = None
         self._point_spread_image = None
         self._point_spread_response = None
+        self._fit_coordinates = None
         if self._result is None or self._plane_z_mm is None:
             return
         simulation = self._result.simulation
@@ -3969,6 +4066,7 @@ class TransverseBeamView(QWidget):
             self.summary.setText(
                 f"Z {plane:.6g} mm | no rays survive to this plane."
             )
+            self._restore_centered_view_ranges()
             return
 
         point_spread_response = self._add_point_spread_response()
@@ -3999,9 +4097,12 @@ class TransverseBeamView(QWidget):
                 )
             )
             brushes.append(pg.mkBrush(colour))
+        display_x = x_m[indices] * self.METRES_TO_DISPLAY
+        display_y = y_m[indices] * self.METRES_TO_DISPLAY
+        self._fit_coordinates = (display_x, display_y)
         self._scatter = pg.ScatterPlotItem(
-            x=x_m[indices] * self.METRES_TO_DISPLAY,
-            y=y_m[indices] * self.METRES_TO_DISPLAY,
+            x=display_x,
+            y=display_y,
             size=5,
             pen=pg.mkPen(None),
             brush=brushes,
@@ -4010,7 +4111,10 @@ class TransverseBeamView(QWidget):
         self.plot.addItem(self._scatter)
         self.plot.addLine(x=0.0, pen=pg.mkPen("#94a3b8", width=0.8))
         self.plot.addLine(y=0.0, pen=pg.mkPen("#94a3b8", width=0.8))
-        self.plot.autoRange()
+        if self._view_scale_initialized:
+            self._restore_centered_view_ranges()
+        else:
+            self._fit_beam_view()
 
         start = (
             start_x[indices] - float(np.mean(start_x[indices]))
@@ -4422,6 +4526,7 @@ class MagneticFieldView(QWidget):
         self._support_item = None
         self._formula_samples = []
         self._rotation_items = []
+        self._sample_field_items = []
         self._plane_records = ()
 
         self.heading = QLabel("Axial magnetic field Bz")
@@ -4502,6 +4607,7 @@ class MagneticFieldView(QWidget):
         self._support_item = None
         self._formula_samples = []
         self._rotation_items = []
+        self._sample_field_items = []
         self._plane_records = ()
         self.legend.clear()
         state = getattr(result, "state_snapshot", None)
@@ -4519,6 +4625,26 @@ class MagneticFieldView(QWidget):
             pen=pg.mkPen("#f8fafc", width=2.6),
         )
         self.legend.addItem(total_curve, "Total solver Bz")
+        sample_z_mm = float(state.sample.z_mm)
+        sample_field_t = float(sum(
+            record.field_at_sample_t for record in self._records
+        ))
+        sample_line = pg.InfiniteLine(
+            pos=sample_z_mm,
+            angle=90,
+            movable=False,
+            pen=pg.mkPen(
+                "#f97316", width=1.4, style=Qt.PenStyle.DashLine
+            ),
+        )
+        sample_line.setToolTip(
+            f"Specimen plane Z {sample_z_mm:.6g} mm\n"
+            f"Total solver Bz {sample_field_t:+.6g} T\n"
+            "The specimen-local electron model uses this field; X-rays remain "
+            "undeflected."
+        )
+        self.plot.addItem(sample_line)
+        self._sample_field_items.append(sample_line)
         for record in self._records:
             curve = self.plot.plot(
                 z_mm,
@@ -4530,6 +4656,10 @@ class MagneticFieldView(QWidget):
                 f"Excitation {record.excitation_percent:.6g}%\n"
                 f"Formula: {record.formula_label}\n"
                 f"{record.formula_expression}\n"
+                f"At specimen {record.field_at_sample_t:+.6g} T\n"
+                f"Numerical support: {record.support_definition}\n"
+                f"Model status: {record.field_model_status}\n"
+                f"Geometry/material coupling: {record.geometry_material_coupling}\n"
                 f"Signed field integral {record.signed_field_integral_t_m:.6g} T m\n"
                 f"Field direction {'+Z' if record.polarity > 0 else '-Z'}\n"
                 f"Polarity status {record.field_polarity_status}\n"
@@ -4567,7 +4697,8 @@ class MagneticFieldView(QWidget):
             record.larmor_rotation_deg for record in self._records
         )
         self.heading.setText(
-            f"Axial magnetic field Bz — {len(self._records)} lenses | total peak {peak:.6g} T"
+            f"Axial magnetic field Bz — {len(self._records)} lenses | "
+            f"total peak {peak:.6g} T | sample {sample_field_t:+.6g} T"
         )
         plane_text = "; ".join(
             f"{record.name} θsample "
@@ -4576,7 +4707,9 @@ class MagneticFieldView(QWidget):
         )
         self.summary.setText(
             "Positive rotation follows the right-hand rule about +Z | "
-            f"full-column signed Larmor rotation {total_rotation_deg:+.6g} deg"
+            f"full-column signed Larmor rotation {total_rotation_deg:+.6g} deg | "
+            "Gaussian ranges are numerical 7σ tail cutoffs, not physical hard edges; "
+            "pole geometry/material is not yet field-solver coupled"
             + (f" | {plane_text}" if plane_text else "")
         )
         self._apply_curve_styles()
@@ -4717,5 +4850,9 @@ class MagneticFieldView(QWidget):
             f"column cumulative ΣφL "
             f"{record.cumulative_column_rotation_deg:+.6g} deg | "
             f"Cs {cs_text} | "
-            f"field support {record.support_mm[0]:.6g}–{record.support_mm[1]:.6g} mm"
+            f"field at sample {record.field_at_sample_t:+.6g} T | "
+            f"numerical support {record.support_mm[0]:.6g}–"
+            f"{record.support_mm[1]:.6g} mm ({record.support_definition}) | "
+            f"model status {record.field_model_status} | "
+            f"geometry/material coupling {record.geometry_material_coupling}"
         )

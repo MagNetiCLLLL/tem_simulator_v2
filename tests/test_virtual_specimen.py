@@ -105,6 +105,39 @@ def test_ray_simulation_uses_virtual_channels_in_both_transverse_axes():
     )
 
 
+def test_vacuum_reference_disables_virtual_interaction_rows():
+    state = default_state()
+    catalog = AssemblyCatalog()
+    catalog.apply(state, catalog.default_selection())
+    layout = apply_physical_layout_to_state(state)
+    state.acceleration_enabled = False
+    state.step_mm = 5.0
+    state.history_step_mm = 5.0
+    state.electron_gun.emitter.ray_count = 9
+    state.sample.specimen_mode = "virtual"
+    state.sample.specimen_preset_key = "vacuum"
+    state.sample.diffraction_enabled = True
+    state.sample.virtual_interactions = [
+        {
+            "name": "must not run",
+            "kind": "diffraction_spots",
+            "enabled": True,
+            "probability": 0.9,
+            "angle_mrad": 10.0,
+            "azimuth_deg": 0.0,
+        }
+    ]
+
+    simulation = run(state, resolved_layout=layout)
+
+    assert tuple(simulation.branches) == ("000",)
+    assert simulation.branches["000"].interaction_kind == "vacuum"
+    assert simulation.metrics["sample_scattering_applied"] is False
+    assert simulation.metrics["sample_scattering_model"] == (
+        "user_selected_vacuum_reference_plane"
+    )
+
+
 def test_specimen_mode_and_cif_path_round_trip():
     state = default_state()
     state.sample.specimen_mode = "atomic"

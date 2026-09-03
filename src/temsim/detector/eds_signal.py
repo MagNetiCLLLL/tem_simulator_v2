@@ -23,16 +23,15 @@ from temsim.detector.eds_atomic import (
     bote_ionisation_cross_section_cm2,
 )
 from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
-from temsim.specimen.envelope import sample_envelope_contains_xy
 from temsim.specimen.presets import (
     load_specimen_preset,
 )
+from temsim.specimen.scene import SpecimenScene
 from temsim.specimen.source import (
     active_cif_path,
     selected_reference_preset_key,
     specimen_mode,
 )
-from temsim.specimen.support import resolve_support_grid
 
 
 AVOGADRO_PER_MOL = 6.02214076e23
@@ -112,6 +111,7 @@ class ElectronTrackSegment:
     electron_weight: float = 1.0
     emitting_layer_thickness_nm: float | None = None
     history: str = "primary"
+    source_ray_index: int | None = None
 
     def __post_init__(self) -> None:
         values = (
@@ -137,10 +137,105 @@ class ElectronTrackSegment:
             raise ValueError(
                 "EDS emitting-layer thickness must be non-negative"
             )
+        if self.source_ray_index is not None and int(
+            self.source_ray_index
+        ) < 0:
+            raise ValueError("EDS source-ray index cannot be negative")
+
+
+@dataclass(frozen=True, slots=True)
+class EDSVacancySignal:
+    """One shell-vacancy contribution calculated from one electron track.
+
+    This is the authoritative intermediate result for both radiative-line
+    generation and the specimen event ledger.  It deliberately stores the
+    already evaluated shell cross section so consumers never need a second
+    ionisation pass.
+    """
+
+    vacancy_id: str
+    track_index: int
+    source_ray_index: int | None
+    source_key: str
+    material_key: str
+    atomic_number: int
+    subshell: str
+    edge_energy_ev: float
+    electron_history: str
+    electron_energy_ev: float
+    electron_weight: float
+    path_length_nm: float
+    ionisation_cross_section_cm2: float
+    shell_optical_depth_per_electron: float
+    expected_vacancies: float
+    fluorescence_yield: float
+    auger_yield: float
+    unresolved_relaxation_yield: float
+
+    def __post_init__(self) -> None:
+        values = (
+            self.edge_energy_ev,
+            self.electron_energy_ev,
+            self.electron_weight,
+            self.path_length_nm,
+            self.ionisation_cross_section_cm2,
+            self.shell_optical_depth_per_electron,
+            self.expected_vacancies,
+            self.fluorescence_yield,
+            self.auger_yield,
+            self.unresolved_relaxation_yield,
+        )
+        if not str(self.vacancy_id).strip():
+            raise ValueError("EDS vacancy ID cannot be empty")
+        if int(self.track_index) < 0:
+            raise ValueError("EDS vacancy track index cannot be negative")
+        if self.source_ray_index is not None and int(
+            self.source_ray_index
+        ) < 0:
+            raise ValueError("EDS vacancy source-ray index cannot be negative")
+        if not 1 <= int(self.atomic_number) <= 99:
+            raise ValueError("EDS vacancy atomic number must be Z=1..99")
+        if not all(math.isfinite(float(value)) for value in values):
+            raise ValueError("EDS vacancy values must be finite")
+        if any(float(value) < 0.0 for value in values):
+            raise ValueError("EDS vacancy values cannot be negative")
+        if self.edge_energy_ev > self.electron_energy_ev:
+            raise ValueError("EDS vacancy edge exceeds the electron energy")
+        for name, value in (
+            ("fluorescence", self.fluorescence_yield),
+            ("Auger", self.auger_yield),
+            ("unresolved relaxation", self.unresolved_relaxation_yield),
+        ):
+            if not 0.0 <= float(value) <= 1.0:
+                raise ValueError(f"EDS {name} yield must be in [0, 1]")
+        if not math.isclose(
+            self.relaxation_yield_sum,
+            1.0,
+            rel_tol=0.0,
+            abs_tol=2.0e-12,
+        ):
+            raise ValueError("EDS direct vacancy relaxation yields must sum to one")
+
+    @property
+    def expected_occurrences_per_incident_electron(self) -> float:
+        """Vacancy rate per electron entering the sampled specimen plane."""
+
+        return float(
+            self.electron_weight * self.shell_optical_depth_per_electron
+        )
+
+    @property
+    def relaxation_yield_sum(self) -> float:
+        return float(
+            self.fluorescence_yield
+            + self.auger_yield
+            + self.unresolved_relaxation_yield
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class EDSLineSignal:
+    vacancy_id: str
     source_key: str
     material_key: str
     atomic_number: int
@@ -166,7 +261,24 @@ class EDSSpectrum:
     sampled_counts: np.ndarray | None
     lines: tuple[EDSLineSignal, ...]
     metrics: dict[str, object]
+    vacancies: tuple[EDSVacancySignal, ...] = ()
     elastic_transport: object | None = None
+
+    def __post_init__(self) -> None:
+        lines = tuple(self.lines)
+        vacancies = tuple(self.vacancies)
+        object.__setattr__(self, "lines", lines)
+        object.__setattr__(self, "vacancies", vacancies)
+        vacancy_ids = [row.vacancy_id for row in vacancies]
+        if len(vacancy_ids) != len(set(vacancy_ids)):
+            raise ValueError("EDS vacancy IDs must be unique")
+        missing = {
+            line.vacancy_id for line in lines
+        } - set(vacancy_ids)
+        if missing:
+            raise ValueError(
+                "Every EDS line must reference its calculated vacancy"
+            )
 
     @property
     def total_expected_counts(self) -> float:
@@ -397,6 +509,17 @@ def _empty_spectrum(
             "line_count": 0,
         }
     )
+    metrics.update(
+        {
+            "vacancy_contribution_count": 0,
+            "total_expected_vacancies": 0.0,
+            "total_expected_radiative_relaxations": 0.0,
+            "total_expected_auger_relaxations": 0.0,
+            "total_expected_unresolved_relaxations": 0.0,
+            "shell_cross_section_evaluation_count": 0,
+            "duplicate_shell_ionisation_passes": 0,
+        }
+    )
     return EDSSpectrum(centres, expected, None, (), metrics)
 
 
@@ -461,7 +584,16 @@ def simulate_eds_tracks(
         "detector_efficiency_model": "ideal_scalar",
         "ionisation_model": "Bote-Salvat K/L/M electron impact",
         "relaxation_database": f"xraylib {xraylib.__version__}",
-        "vacancy_cascade_model": "direct vacancy only",
+        "vacancy_cascade_model": (
+            "direct fluorescence/Auger yields with explicit unresolved "
+            "shell-transfer remainder; secondary vacancy cascades omitted"
+        ),
+        "auger_energy_model": (
+            "yield resolved; Auger kinetic energy and direction not assigned"
+        ),
+        "coster_kronig_model": (
+            "not propagated; retained in unresolved relaxation remainder"
+        ),
         "self_absorption_model": "uniform-depth emitting-layer average",
         "cross_layer_absorption": False,
         "electron_transport_model": "caller_supplied_weighted_track_segments",
@@ -481,9 +613,11 @@ def simulate_eds_tracks(
             metrics=metrics,
         )
 
+    vacancies: list[EDSVacancySignal] = []
     lines: list[EDSLineSignal] = []
     maximum_shell_optical_depth = 0.0
-    for track in track_rows:
+    shell_cross_section_evaluation_count = 0
+    for track_index, track in enumerate(track_rows):
         if track.path_length_nm == 0.0 or track.electron_weight == 0.0:
             continue
         path_cm = track.path_length_nm * 1.0e-7
@@ -501,6 +635,7 @@ def simulate_eds_tracks(
                 cross_section = bote_ionisation_cross_section_cm2(
                     z, subshell_index, track.electron_energy_ev
                 )
+                shell_cross_section_evaluation_count += 1
                 shell_optical_depth = (
                     number_density * cross_section * path_cm
                 )
@@ -519,15 +654,67 @@ def simulate_eds_tracks(
                         xraylib.FluorYield(z, subshell_index)
                     )
                 except ValueError:
-                    continue
-                if fluorescence_yield <= 0.0:
+                    fluorescence_yield = 0.0
+                try:
+                    auger_yield = float(
+                        xraylib.AugerYield(z, subshell_index)
+                    )
+                except ValueError:
+                    auger_yield = 0.0
+                direct_yield_sum = fluorescence_yield + auger_yield
+                if direct_yield_sum > 1.0:
+                    if direct_yield_sum > 1.0 + 2.0e-12:
+                        raise ValueError(
+                            "xraylib vacancy-relaxation yields exceed one"
+                        )
+                    fluorescence_yield /= direct_yield_sum
+                    auger_yield /= direct_yield_sum
+                unresolved_relaxation_yield = max(
+                    1.0 - fluorescence_yield - auger_yield,
+                    0.0,
+                )
+                ray_label = (
+                    track.source_ray_index
+                    if track.source_ray_index is not None
+                    else "none"
+                )
+                vacancy = EDSVacancySignal(
+                    vacancy_id=(
+                        f"vacancy:track{track_index}:"
+                        f"ray{ray_label}:"
+                        f"Z{z}:{subshell}"
+                    ),
+                    track_index=track_index,
+                    source_ray_index=track.source_ray_index,
+                    source_key=track.source_key,
+                    material_key=track.material.key,
+                    atomic_number=z,
+                    subshell=subshell,
+                    edge_energy_ev=float(
+                        element_data.edge_ev[subshell_index]
+                    ),
+                    electron_history=track.history,
+                    electron_energy_ev=track.electron_energy_ev,
+                    electron_weight=track.electron_weight,
+                    path_length_nm=track.path_length_nm,
+                    ionisation_cross_section_cm2=cross_section,
+                    shell_optical_depth_per_electron=shell_optical_depth,
+                    expected_vacancies=expected_vacancies,
+                    fluorescence_yield=fluorescence_yield,
+                    auger_yield=auger_yield,
+                    unresolved_relaxation_yield=(
+                        unresolved_relaxation_yield
+                    ),
+                )
+                vacancies.append(vacancy)
+                if vacancy.fluorescence_yield <= 0.0:
                     continue
                 for transition, line_energy_ev, radiative_rate in (
                     _radiative_lines(z, subshell_index)
                 ):
                     emitted = (
                         expected_vacancies
-                        * fluorescence_yield
+                        * vacancy.fluorescence_yield
                         * radiative_rate
                     )
                     transmission = _mean_self_absorption_transmission(
@@ -544,6 +731,7 @@ def simulate_eds_tracks(
                     )
                     lines.append(
                         EDSLineSignal(
+                            vacancy_id=vacancy.vacancy_id,
                             source_key=track.source_key,
                             material_key=track.material.key,
                             atomic_number=z,
@@ -555,7 +743,7 @@ def simulate_eds_tracks(
                                 shell_optical_depth
                             ),
                             expected_vacancies=expected_vacancies,
-                            fluorescence_yield=fluorescence_yield,
+                            fluorescence_yield=vacancy.fluorescence_yield,
                             radiative_rate=radiative_rate,
                             self_absorption_transmission=transmission,
                             expected_emitted_photons=emitted,
@@ -636,6 +824,13 @@ def simulate_eds_tracks(
             row.transition,
         )
     )
+    vacancies.sort(
+        key=lambda row: (
+            row.track_index,
+            row.atomic_number,
+            row.subshell,
+        )
+    )
     metrics.update(
         {
             "detector_segment_count": detector_geometry.segment_count,
@@ -653,6 +848,36 @@ def simulate_eds_tracks(
             ),
             "energy_resolution_fwhm_ev": spectrum_values[3],
             "energy_bin_width_ev": spectrum_values[2],
+            "vacancy_contribution_count": len(vacancies),
+            "total_expected_vacancies": float(
+                sum(row.expected_vacancies for row in vacancies)
+            ),
+            "total_expected_radiative_relaxations": float(
+                sum(
+                    row.expected_vacancies * row.fluorescence_yield
+                    for row in vacancies
+                )
+            ),
+            "total_expected_auger_relaxations": float(
+                sum(
+                    row.expected_vacancies * row.auger_yield
+                    for row in vacancies
+                )
+            ),
+            "total_expected_unresolved_relaxations": float(
+                sum(
+                    row.expected_vacancies
+                    * row.unresolved_relaxation_yield
+                    for row in vacancies
+                )
+            ),
+            "shell_cross_section_evaluation_count": (
+                shell_cross_section_evaluation_count
+            ),
+            "shell_cross_section_reuse": (
+                "single vacancy pass feeds radiative lines and event ledger"
+            ),
+            "duplicate_shell_ionisation_passes": 0,
         }
     )
     return EDSSpectrum(
@@ -661,6 +886,7 @@ def simulate_eds_tracks(
         sampled_counts=sampled,
         lines=tuple(lines),
         metrics=metrics,
+        vacancies=tuple(vacancies),
     )
 
 
@@ -672,55 +898,24 @@ def point_track_segments(
 ) -> tuple[ElectronTrackSegment, ...]:
     """Build the initial straight primary path through sample and support."""
 
-    sample = state.sample
     energy_ev = float(state.beam_voltage_kv) * 1000.0
+    scene = SpecimenScene.from_state(state, include_eds_materials=True)
     rows: list[ElectronTrackSegment] = []
-    sample_material = material_from_sample(state)
-    within_sample = sample_envelope_contains_xy(sample, x_nm, y_nm)
-    if (
-        sample_material is not None
-        and within_sample
-        and float(sample.thickness_nm) > 0.0
-    ):
+    for region in scene.axial_material_regions(x_nm, y_nm):
         rows.append(
             ElectronTrackSegment(
-                source_key="sample",
-                material=sample_material,
-                path_length_nm=float(sample.thickness_nm),
+                source_key=region.source_key,
+                material=region.material,
+                path_length_nm=region.path_length_nm,
                 electron_energy_ev=energy_ev,
-                emitting_layer_thickness_nm=float(sample.thickness_nm),
-                history="straight_primary",
-            )
-        )
-    grid = resolve_support_grid(
-        str(getattr(sample, "eds_support_material_key", "vacuum")),
-        str(getattr(sample, "eds_support_mesh_key", "square_200")),
-    )
-    region_kwargs = {
-        "offset_x_um": float(
-            getattr(sample, "eds_support_offset_x_um", 0.0)
-        ),
-        "offset_y_um": float(
-            getattr(sample, "eds_support_offset_y_um", 0.0)
-        ),
-        "rotation_deg": float(
-            getattr(sample, "eds_support_rotation_deg", 0.0)
-        ),
-    }
-    path_length_nm = grid.material_path_length_nm(
-        x_nm, y_nm, **region_kwargs
-    )
-    support_material = material_from_support_grid(grid)
-    if support_material is not None and path_length_nm > 0.0:
-        region = grid.region_at_nm(x_nm, y_nm, **region_kwargs)
-        rows.append(
-            ElectronTrackSegment(
-                source_key=f"support:{region}",
-                material=support_material,
-                path_length_nm=path_length_nm,
-                electron_energy_ev=energy_ev,
-                emitting_layer_thickness_nm=path_length_nm,
-                history="straight_primary_after_sample",
+                emitting_layer_thickness_nm=(
+                    region.emitting_layer_thickness_nm
+                ),
+                history=(
+                    "straight_primary"
+                    if region.source_key == "sample"
+                    else "straight_primary_after_sample"
+                ),
             )
         )
     return tuple(rows)
