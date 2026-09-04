@@ -555,10 +555,12 @@ def test_stem_images_use_physical_pixel_edges_and_explain_geometry_preview(
     assert rectangle.right() == pytest.approx(2.0e-3)
     assert rectangle.top() == pytest.approx(-1.5e-3)
     assert rectangle.bottom() == pytest.approx(1.5e-3)
-    assert "not a specimen STEM image" in view.image_model_notice.text()
-    assert "LaTi2O6.cif" in view.image_model_notice.text()
-    assert "atomic columns are undersampled" in view.image_model_notice.text()
-    assert "outside the finite sample" in view.image_model_notice.text()
+    assert "Geometry preview only" in view.image_model_notice.text()
+    assert len(view.image_model_notice.text()) < 180
+    assert "not a specimen STEM image" in view.image_model_notice.toolTip()
+    assert "LaTi2O6.cif" in view.image_model_notice.toolTip()
+    assert "atomic columns are undersampled" in view.image_model_notice.toolTip()
+    assert "outside the finite sample" in view.image_model_notice.toolTip()
 
 
 def test_ray_playback_reprojects_cached_scan_offset_without_retracing(qtbot):

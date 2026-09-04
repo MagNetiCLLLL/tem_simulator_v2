@@ -54,6 +54,12 @@ class DirectAlignmentDefinition:
     calibration_status: str
     calibration_reference: str
     targets: dict[str, object]
+    applies_to_modes: tuple[str, ...]
+    state_parameters: tuple[str, ...]
+
+    @property
+    def active_mode_keys(self) -> tuple[str, ...]:
+        return self.applies_to_modes or (self.mode_key,)
 
 
 @dataclass(frozen=True)
@@ -215,6 +221,14 @@ def load_operating_mode_catalog() -> OperatingModeCatalog:
                 str(key): value
                 for key, value in item.get("targets", {}).items()
             },
+            applies_to_modes=tuple(
+                str(value)
+                for value in item.get("applies_to_modes", ())
+            ),
+            state_parameters=tuple(
+                str(value)
+                for value in item.get("state_parameters", ())
+            ),
         )
         for item in document.get("direct_alignments", ())
     )
@@ -222,6 +236,7 @@ def load_operating_mode_catalog() -> OperatingModeCatalog:
     if len(set(direct_keys)) != len(direct_keys):
         raise ValueError(f"{path}: duplicate direct-alignment key")
     expected_direct_keys = {
+        "spot_size_current_limit",
         "nanoprobe_convergence",
         "microprobe_illumination",
         "image_magnification",
@@ -233,6 +248,7 @@ def load_operating_mode_catalog() -> OperatingModeCatalog:
             + ", ".join(sorted(expected_direct_keys))
         )
     expected_devices = {
+        "spot_size_current_limit": (),
         "nanoprobe_convergence": (
             "condenser_lens_2", "condenser_lens_3",
         ),
@@ -247,6 +263,13 @@ def load_operating_mode_catalog() -> OperatingModeCatalog:
             "diffraction_lens", "intermediate_lens",
             "projector_lens_1", "projector_lens_2",
         ),
+    }
+    expected_state_parameters = {
+        "spot_size_current_limit": ("column_current_limit_percent",),
+        "nanoprobe_convergence": (),
+        "microprobe_illumination": (),
+        "image_magnification": (),
+        "diffraction_camera_length": (),
     }
     for definition in direct_alignments:
         if definition.family not in {"condenser", "projector"}:
@@ -263,6 +286,19 @@ def load_operating_mode_catalog() -> OperatingModeCatalog:
             raise ValueError(
                 f"{path}: {definition.key} family does not match its mode"
             )
+        unknown_modes = set(definition.active_mode_keys) - known_modes
+        if unknown_modes:
+            raise ValueError(
+                f"{path}: {definition.key} references unknown active modes"
+            )
+        if any(
+            next(item for item in modes if item.key == mode_key).family
+            != definition.family
+            for mode_key in definition.active_mode_keys
+        ):
+            raise ValueError(
+                f"{path}: {definition.key} active modes do not match its family"
+            )
         if not (
             0.0 < definition.minimum
             <= definition.default_value
@@ -275,6 +311,13 @@ def load_operating_mode_catalog() -> OperatingModeCatalog:
             raise ValueError(
                 f"{path}: {definition.key} must couple "
                 + ", ".join(expected_devices[definition.key])
+            )
+        if (
+            definition.state_parameters
+            != expected_state_parameters[definition.key]
+        ):
+            raise ValueError(
+                f"{path}: {definition.key} has an invalid state parameter set"
             )
         if not definition.unit.strip():
             raise ValueError(f"{path}: {definition.key} unit is empty")
@@ -418,6 +461,29 @@ def apply_operating_mode_pair(
         "imaging": "image",
         "diffraction": "diffraction",
     }[projector.key]
+    # A physical TEM screen/camera path and the inserted STEM detector stack
+    # are mutually exclusive presets.  In TEM, retract annular/disk STEM
+    # detectors before wave propagation; in STEM, retract the fluorescent
+    # screen and Camera so they cannot stop rays between detector channels.
+    if state.illumination_mode == "TEM":
+        for detector in getattr(state, "stem_detectors", ()):
+            detector.inserted = False
+            detector.readout_enabled = False
+        if not (
+            bool(getattr(state.fluorescent_screen, "inserted", False))
+            or bool(getattr(state.camera, "inserted", False))
+        ):
+            # The Camera branch owns the complete configured camera-length
+            # range.  Keep a real recording target after a STEM -> TEM switch;
+            # users can insert the FluScreen instead and re-run alignment for
+            # that upstream plane.
+            state.camera.inserted = True
+    else:
+        for detector in getattr(state, "stem_detectors", ()):
+            detector.inserted = True
+            detector.readout_enabled = True
+        state.fluorescent_screen.inserted = False
+        state.camera.inserted = False
     changed = _apply_values(state, condenser) + _apply_values(state, projector)
     if not bool(getattr(state, "monochromator_installed", False)):
         state.condenser_aperture_3.radius_mm = (

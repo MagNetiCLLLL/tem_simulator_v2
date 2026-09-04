@@ -33,6 +33,7 @@ from temsim.physics.beam_statistics import (
     TransverseBeamStatistics,
     transverse_beam_statistics,
 )
+from temsim.physics.beam_current import effective_source_current_pa
 from temsim.physics.aperture_clipping import clip_segment
 from temsim.physics.column_wall import clip_column_wall
 from temsim.physics.core import E, fields, propagate
@@ -40,7 +41,7 @@ from temsim.physics.first_order import (
     TransverseTransfer,
     trace_transverse_transfer,
 )
-from temsim.physics.recording_stop import tem_camera_plane_z
+from temsim.physics.recording_stop import tem_projection_reference_plane
 from temsim.optics.equivalent_image_lenses import (
     equivalent_image_calibrations,
     equivalent_image_transfer_matrix,
@@ -62,6 +63,7 @@ except Exception:  # pragma: no cover - Numba is a required project dependency.
 
 NANOPROBE_CONVERGENCE = "nanoprobe_convergence"
 MICROPROBE_ILLUMINATION = "microprobe_illumination"
+SPOT_SIZE_CURRENT_LIMIT = "spot_size_current_limit"
 IMAGE_MAGNIFICATION = "image_magnification"
 DIFFRACTION_CAMERA_LENGTH = "diffraction_camera_length"
 
@@ -83,6 +85,7 @@ class DirectAlignmentMeasurement:
     constraint_value: float
     constraint_unit: str
     convergence_95_mrad: float | None = None
+    convergence_99_mrad: float | None = None
     illumination_diameter_95_um: float | None = None
     relay_error_um: float | None = None
     diffraction_conjugacy_residual: float | None = None
@@ -103,6 +106,7 @@ class DirectAlignmentResult:
     numerical_spread: float
     message: str
     convergence_95_mrad: float | None = None
+    convergence_99_mrad: float | None = None
     illumination_diameter_95_um: float | None = None
     relay_error_um: float | None = None
     diffraction_conjugacy_residual: float | None = None
@@ -111,6 +115,7 @@ class DirectAlignmentResult:
     field_calibration_statuses: tuple[str, ...] = ()
     candidate_strengths: dict[str, float] | None = None
     candidate_limit_fractions: dict[str, float] | None = None
+    state_updates: dict[str, float] | None = None
 
 
 def diffraction_reference_plane(state):
@@ -123,9 +128,8 @@ def diffraction_reference_plane(state):
     """
 
     if str(getattr(state, "illumination_mode", "")).upper() != "STEM":
-        return STEM_DIFFRACTION_REFERENCE_PLANE, float(
-            tem_camera_plane_z(state)
-        )
+        recording_plane = tem_projection_reference_plane(state)
+        return str(recording_plane.key), float(recording_plane.z_mm)
     screen = getattr(state, "fluorescent_screen", None)
     if screen is None or not math.isfinite(float(screen.z_mm)):
         raise ValueError("The main-screen camera-length reference is absent")
@@ -167,7 +171,12 @@ def diffraction_transfer(
     source_z_mm = float(state.sample.z_mm)
     target_z_mm = float(target_z_mm)
     if not stable_axisymmetric:
-        raw = trace_transverse_transfer(state, source_z_mm, target_z_mm)
+        raw = trace_transverse_transfer(
+            state,
+            source_z_mm,
+            target_z_mm,
+            maximum_step_mm=0.025,
+        )
         source_field_t = float(
             fields(np.asarray((source_z_mm,)), state)[0][0]
         )
@@ -195,7 +204,12 @@ def diffraction_transfer(
         np.max(np.abs(sx_m2), initial=0.0) > 1.0e-15
         or np.max(np.abs(sy_m2), initial=0.0) > 1.0e-15
     ):
-        raw = trace_transverse_transfer(state, source_z_mm, target_z_mm)
+        raw = trace_transverse_transfer(
+            state,
+            source_z_mm,
+            target_z_mm,
+            maximum_step_mm=0.025,
+        )
         matrix = raw.matrix @ _canonical_source_basis(g[0])
     else:
         z_m = np.ascontiguousarray(z_mm * 1.0e-3)
@@ -760,7 +774,7 @@ class _ProjectorMeasurementModel:
     ) -> None:
         self.state = state
         self.definition = definition
-        stop_z_mm = float(tem_camera_plane_z(state))
+        stop_z_mm = float(tem_projection_reference_plane(state).z_mm)
         if definition.key == IMAGE_MAGNIFICATION:
             # Image presets are a coordinated five-lens solve.  There need
             # not be an isolated real image between every pair of lenses, so
@@ -844,15 +858,18 @@ def _set_vector(state, keys: tuple[str, ...], vector) -> None:
 
 
 def _mode_matches(state, definition: DirectAlignmentDefinition) -> bool:
-    if definition.mode_key == "nano_probe":
-        return str(state.illumination_mode).upper() == "STEM"
-    if definition.mode_key == "micro_probe":
-        return str(state.illumination_mode).upper() == "TEM"
-    if definition.mode_key == "imaging":
-        return str(state.projector_mode).lower() == "image"
-    if definition.mode_key == "diffraction":
-        return str(state.projector_mode).lower() == "diffraction"
-    return False
+    active_modes = set()
+    illumination = str(state.illumination_mode).upper()
+    if illumination == "STEM":
+        active_modes.add("nano_probe")
+    elif illumination == "TEM":
+        active_modes.add("micro_probe")
+    projector = str(state.projector_mode).lower()
+    if projector in {"image", "imaging"}:
+        active_modes.add("imaging")
+    elif projector == "diffraction":
+        active_modes.add("diffraction")
+    return bool(active_modes.intersection(definition.active_mode_keys))
 
 
 def _target_number(
@@ -959,6 +976,7 @@ def _condenser_measurement(
             constraint_value=statistics.waist_offset_m * 1.0e3,
             constraint_unit="mm",
             convergence_95_mrad=statistics.convergence_95_mrad,
+            convergence_99_mrad=statistics.convergence_99_mrad,
             illumination_diameter_95_um=(
                 statistics.illumination_diameter_95_um
             ),
@@ -970,6 +988,7 @@ def _condenser_measurement(
         constraint_value=statistics.radial_wavefront_curvature_per_m,
         constraint_unit="1/m",
         convergence_95_mrad=statistics.convergence_95_mrad,
+        convergence_99_mrad=statistics.convergence_99_mrad,
         illumination_diameter_95_um=statistics.illumination_diameter_95_um,
     )
 
@@ -1004,6 +1023,7 @@ def _optimise_condenser(
         definition, "optimiser_step_mm", 0.1
     )
     model = _CondenserMeasurementModel(state, step_mm=optimiser_step)
+    optimisation_lower = np.zeros(initial.size, dtype=float)
     optimisation_upper = model.upper.copy()
     if definition.key == NANOPROBE_CONVERGENCE:
         constraint_scale = _target_number(
@@ -1022,7 +1042,22 @@ def _optimise_condenser(
         # without driving the default C2 setting above the requested 30-70%
         # operating window.  The underlying low-level control remains free to
         # use the full TOML-rated field.
-        optimisation_upper[0] = min(70.0, optimisation_upper[0])
+        optimisation_lower[0] = _target_number(
+            definition, "c2_minimum_percent", 0.0
+        )
+        optimisation_upper[0] = min(
+            _target_number(definition, "c2_maximum_percent", 70.0),
+            optimisation_upper[0],
+        )
+        optimisation_lower[1] = _target_number(
+            definition, "c3_minimum_percent", 0.0
+        )
+        optimisation_upper[1] = min(
+            _target_number(definition, "c3_maximum_percent", 100.0),
+            optimisation_upper[1],
+        )
+        if np.any(optimisation_lower >= optimisation_upper):
+            raise ValueError("Microprobe C2/C3 operating bounds are invalid")
 
     def residual(vector):
         statistics = model.measure(vector)
@@ -1041,7 +1076,7 @@ def _optimise_condenser(
         return np.r_[values, regularisation]
 
     candidate_seeds = _deterministic_seeds(
-        np.minimum(initial, optimisation_upper),
+        np.clip(initial, optimisation_lower, optimisation_upper),
         optimisation_upper,
         projector=False,
     )
@@ -1065,7 +1100,9 @@ def _optimise_condenser(
     # and interactive.
     if definition.key == MICROPROBE_ILLUMINATION:
         coarse = []
-        for c2 in np.linspace(20.0, optimisation_upper[0], 9):
+        for c2 in np.linspace(
+            optimisation_lower[0], optimisation_upper[0], 9
+        ):
             def curvature_residual(c3):
                 statistics = model.measure((c2, float(c3[0])))
                 return np.asarray((
@@ -1075,9 +1112,13 @@ def _optimise_condenser(
 
             c3_solution = least_squares(
                 curvature_residual,
-                np.asarray((initial[1],)),
+                np.asarray((np.clip(
+                    initial[1],
+                    optimisation_lower[1],
+                    optimisation_upper[1],
+                ),)),
                 bounds=(
-                    np.zeros(1),
+                    np.asarray((optimisation_lower[1],)),
                     np.asarray((optimisation_upper[1],)),
                 ),
                 max_nfev=30,
@@ -1098,6 +1139,11 @@ def _optimise_condenser(
             if len(candidate_seeds) == 6:
                 break
 
+        candidate_seeds = [
+            np.clip(seed, optimisation_lower, optimisation_upper)
+            for seed in candidate_seeds
+        ]
+
     best_vector = initial.copy()
     best_cost = math.inf
     iterations = 0
@@ -1105,7 +1151,7 @@ def _optimise_condenser(
         solution = least_squares(
             residual,
             seed,
-            bounds=(np.zeros(initial.size), optimisation_upper),
+            bounds=(optimisation_lower, optimisation_upper),
             max_nfev=70,
             diff_step=2.0e-3,
             x_scale="jac",
@@ -1139,6 +1185,14 @@ def _optimise_condenser(
                     else measurement.convergence_95_mrad
                 )
                 <= maximum_angle
+                and float(
+                    math.inf
+                    if measurement.convergence_99_mrad is None
+                    else measurement.convergence_99_mrad
+                )
+                <= _target_number(
+                    definition, "maximum_convergence_99_mrad", 0.5
+                )
             )
         if (
             relative_error
@@ -1670,7 +1724,7 @@ def _validate_projector_production(
         state, keys, vector, step_mm
     ):
         target_z_mm = (
-            float(tem_camera_plane_z(state))
+            float(tem_projection_reference_plane(state).z_mm)
             if definition.key == IMAGE_MAGNIFICATION
             else diffraction_reference_plane(state)[1]
         )
@@ -1734,8 +1788,43 @@ def apply_direct_alignment(
             f"{definition.maximum:g} {definition.unit}"
         )
     if not _mode_matches(state, definition):
+        active_modes = " or ".join(definition.active_mode_keys)
         raise ValueError(
-            f"{definition.name} is only active in {definition.mode_key} mode"
+            f"{definition.name} is only active in {active_modes} mode"
+        )
+
+    if definition.key == SPOT_SIZE_CURRENT_LIMIT:
+        previous = float(
+            getattr(state, "column_current_limit_percent", 100.0)
+        )
+        try:
+            state.column_current_limit_percent = requested
+            current_pa = effective_source_current_pa(state)
+        except Exception:
+            state.column_current_limit_percent = previous
+            raise
+        return DirectAlignmentResult(
+            key=definition.key,
+            success=True,
+            requested=requested,
+            achieved=requested,
+            unit=definition.unit,
+            constraint_value=current_pa,
+            constraint_unit="pA",
+            strengths={},
+            iterations=0,
+            validation_step_mm=0.0,
+            numerical_spread=0.0,
+            message=(
+                f"Column current capped at {requested:.6g}% of emitted "
+                f"current ({current_pa:.6g} pA). Numerical ray count and "
+                "C2/C3 optics are unchanged."
+            ),
+            state_updates={
+                "column_current_limit_percent": requested,
+            },
+            candidate_strengths={},
+            candidate_limit_fractions={},
         )
 
     if definition.family == "condenser":
@@ -1860,6 +1949,14 @@ def apply_direct_alignment(
                 <= _target_number(
                     definition, "maximum_convergence_mrad", 0.5
                 )
+                and float(
+                    math.inf
+                    if fine.convergence_99_mrad is None
+                    else fine.convergence_99_mrad
+                )
+                <= _target_number(
+                    definition, "maximum_convergence_99_mrad", 0.5
+                )
             )
         elif definition.key == IMAGE_MAGNIFICATION:
             constraint_ok = (
@@ -1982,6 +2079,7 @@ def apply_direct_alignment(
             numerical_spread=numerical_spread,
             message=message,
             convergence_95_mrad=fine.convergence_95_mrad,
+            convergence_99_mrad=fine.convergence_99_mrad,
             illumination_diameter_95_um=(
                 fine.illumination_diameter_95_um
             ),
@@ -2008,6 +2106,7 @@ def apply_direct_alignment(
                 / max(float(_lens_map(state)[lens_key].max_percent), 1.0e-15)
                 for lens_key, value in zip(keys, candidate)
             },
+            state_updates={},
         )
     except Exception:
         _set_vector(state, keys, initial)

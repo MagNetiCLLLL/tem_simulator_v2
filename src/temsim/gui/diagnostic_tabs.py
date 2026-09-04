@@ -8,7 +8,7 @@ import math
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPolygonF
+from PySide6.QtGui import QColor, QPainter, QPolygonF, QTransform
 from PySide6.QtWidgets import (
     QComboBox,
     QGraphicsEllipseItem,
@@ -62,6 +62,12 @@ from temsim.mechanical_profiles import (
 from temsim.physics.first_order import (
     linear_map_properties,
     relative_image_diffraction_orientation,
+)
+from temsim.gui.transverse_projection import (
+    format_projection_angle,
+    orthogonal_axis_name,
+    projection_axis_name,
+    transverse_view_coordinates,
 )
 
 
@@ -151,7 +157,8 @@ class EnergyFilterView(QWidget):
         self.heading = QLabel(
             "Energy Filter physical layout and ray diagram"
         )
-        self.summary = QLabel(
+        self.summary = QLabel("Curvilinear Energy Filter branch")
+        self.summary.setToolTip(
             "The branch is drawn in its own curvilinear X-Z frame; "
             "public topology is separated from adjustable non-OEM geometry."
         )
@@ -933,7 +940,7 @@ class EnergyFilterView(QWidget):
         )
         entrance_carrier = energy_filter.multipoles[0]
         exit_carrier = energy_filter.multipoles[3]
-        self.summary.setText(
+        detail_text = (
             "Public topology: one large tapered prism and ten independently "
             "powered multipoles (most publicly described as dodecapoles; "
             "M01-M10 are simulator indices, not published product labels). "
@@ -956,8 +963,26 @@ class EnergyFilterView(QWidget):
             + metric_text
             + result_text
         )
+        self.summary.setText(
+            "TOML layout: 1 prism + 10 multipoles | "
+            f"M01-M03 {entrance_carrier.housing_length_m * 1.0e3:g} mm | "
+            f"M04-M10 {exit_carrier.housing_length_m * 1.0e3:g} mm"
+            + metric_text
+            + result_text
+        )
+        self.summary.setToolTip(detail_text)
         self.plot.autoRange()
         self._layout_labels()
+
+    def mark_result_stale(self) -> None:
+        """Keep the last complete branch trace visible after input changes."""
+
+        self.summary.setText(
+            "Previous Energy Filter trace retained | inputs changed"
+        )
+        self.summary.setToolTip(
+            "Run High accuracy to update the branch ray trace for the current state."
+        )
 
 
 def _component_colour(record) -> str:
@@ -1092,10 +1117,15 @@ class PhysicalLayoutView(QWidget):
         self.summary.setStyleSheet("color: #64748b; font-weight: 600;")
         self.aperture_legend = QLabel(
             "Apertures: "
-            "<span style='color:#64748b'>[Pt perforated strip]</span> "
-            "<span style='color:#334155'>[screw joint]</span> "
-            "<span style='color:#b45309'>[rear connecting rod]</span> "
-            "(rod ends 5 mm beyond the local shown column wall; schematic)"
+            "<span style='color:#64748b'>Pt strip</span> · "
+            "<span style='color:#334155'>screw</span> · "
+            "<span style='color:#b45309'>rear rod</span>"
+        )
+        self.aperture_legend.setToolTip(
+            "The Pt perforated strip, screw joint and rear connecting rod are "
+            "drawn separately. The rod extends 5 mm beyond the locally shown "
+            "column wall; dimensions without a calibrated reference remain "
+            "schematic."
         )
         self.aperture_legend.setTextFormat(Qt.TextFormat.RichText)
         self.aperture_legend.setWordWrap(True)
@@ -1108,9 +1138,11 @@ class PhysicalLayoutView(QWidget):
         )
         self.accelerator_legend = QLabel(
             "Accelerator: "
-            "<span style='color:#64748b'>[repeated metal rings]</span> "
-            "electrostatic electrode stages, not magnetic coils "
-            "(stage thickness and separators are schematic)"
+            "<span style='color:#64748b'>electrostatic ring stages</span>"
+        )
+        self.accelerator_legend.setToolTip(
+            "Repeated metal rings represent electrostatic accelerator stages, "
+            "not magnetic coils. Ring thickness and separators are schematic."
         )
         self.accelerator_legend.setTextFormat(Qt.TextFormat.RichText)
         self.accelerator_legend.setWordWrap(True)
@@ -1122,10 +1154,14 @@ class PhysicalLayoutView(QWidget):
             "color: #64748b; font-weight: 600;"
         )
         self.eds_legend = QLabel(
-            "EDS detector array: six windowless sample-facing segments; two "
-            "azimuthal projections and their angular acceptance are shown. "
-            "Crystal/package size is not public, so drawn head dimensions "
-            "are schematic (>=4.45 sr unshadowed; 4.04 sr with holder)."
+            "EDS: six sample-facing segments · 4.04 sr with holder"
+        )
+        self.eds_legend.setToolTip(
+            "The two visible heads are azimuthal projections of a six-segment "
+            "windowless detector array. The >=4.45 sr unshadowed and 4.04 sr "
+            "holder-conditioned acceptances are physical metadata. Public "
+            "crystal and package dimensions are unavailable, so head sizes are "
+            "schematic."
         )
         self.eds_legend.setWordWrap(True)
         self.eds_legend.setSizePolicy(
@@ -3536,7 +3572,7 @@ class PhysicalLayoutView(QWidget):
             if len(lens_housing_diameters) == 1
             else "nonuniform"
         )
-        self.summary.setText(
+        layout_detail = (
             "External magnetic-lens housings use the provisional "
             f"{column_od_text} column OD; the Mini Condenser is an explicit "
             "radially nested internal-lens exception. Objective pole pieces "
@@ -3588,6 +3624,11 @@ class PhysicalLayoutView(QWidget):
             "connect each visible name to its physical component and relayout "
             "automatically while zooming."
         )
+        self.summary.setText(
+            f"TOML mechanical layout | {len(self._records)} components | "
+            f"column OD {column_od_text} | select or hover for details"
+        )
+        self.summary.setToolTip(layout_detail)
 
     def _centre_clicked(self, _item, points, _event=None) -> None:
         if points:
@@ -3621,7 +3662,7 @@ class PhysicalLayoutView(QWidget):
                 else " | provisional pole-profile centre-ray clearance "
                 f"{pole_assessment.minimum_radial_clearance_mm:.4g} mm"
             )
-            self.summary.setText(
+            detail_text = (
                 f"Selected: {record.name} | sample-plane aggregate at "
                 f"{record.center_z_mm:.6g} mm | {geometry.segment_count} "
                 "windowless SDD segments | reference take-off angle "
@@ -3638,8 +3679,14 @@ class PhysicalLayoutView(QWidget):
                 "sensor distance and mechanical envelope are not public; "
                 "the displayed heads are non-dimensional schematics."
             )
+            self.summary.setText(
+                f"Selected: {record.name} | Z {record.center_z_mm:.6g} mm | "
+                f"{geometry.segment_count} segments | "
+                f"{geometry.analytical_holder_solid_angle_sr:.4g} sr with holder"
+            )
+            self.summary.setToolTip(detail_text)
             return
-        self.summary.setText(
+        detail_text = (
             f"Selected: {record.name} | centre {record.center_z_mm:.6g} mm | "
             f"OD {record.outer_diameter_mm:.6g} mm | hardware bore "
             f"{record.mechanical_bore_diameter_mm:.6g} mm | "
@@ -3669,6 +3716,23 @@ class PhysicalLayoutView(QWidget):
                 else ""
             )
         )
+        extra = ""
+        if record.profile == self.APERTURE_MECHANISM_PROFILE:
+            extra = (
+                f" | opening {record.bore_diameter_mm:.6g} mm | "
+                f"{'inserted' if record.excitation_enabled is not False else 'retracted'}"
+            )
+        elif record.profile == self.ACCELERATOR_STACK_PROFILE:
+            extra = f" | {len(record.accelerator_stage_centers_mm)} stages"
+        elif record.profile in self.RECORDING_SURFACE_PROFILES:
+            extra = f" | active Z {self._recording_signal_z(record):.6g} mm"
+        self.summary.setText(
+            f"Selected: {record.name} | Z {record.center_z_mm:.6g} mm | "
+            f"OD {record.outer_diameter_mm:.6g} mm | "
+            f"bore {record.mechanical_bore_diameter_mm:.6g} mm"
+            + extra
+        )
+        self.summary.setToolTip(detail_text)
 
 
 class InitialDirectionColourWheel(QWidget):
@@ -3678,20 +3742,58 @@ class InitialDirectionColourWheel(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._projection_angle_deg = 0.0
         self.setObjectName("initialDirectionColourWheel")
         self.setFixedSize(184, 184)
         self.setAccessibleName("Initial ray direction colour wheel")
+        self._update_description()
+
+    def _update_description(self) -> None:
+        primary_name = projection_axis_name(self._projection_angle_deg)
+        orthogonal_name = orthogonal_axis_name(self._projection_angle_deg)
+        if primary_name.startswith("U("):
+            primary_angle = self._projection_angle_deg % 360.0
+            orthogonal_angle = (primary_angle + 90.0) % 360.0
+            basis_description = (
+                f"+U is {format_projection_angle(primary_angle)} degrees "
+                "counter-clockwise from physical +X and +V is "
+                f"{format_projection_angle(orthogonal_angle)} degrees."
+            )
+        else:
+            basis_description = (
+                f"+U is physical {primary_name} and +V is physical "
+                f"{orthogonal_name}."
+            )
         description = (
             "Continuous colour = initial polar angle about the starting "
             "bundle centroid. +X is 0 degrees and the angle increases "
             "counter-clockwise toward +Y. Colour tracks direction only; "
             "it does not represent ray radius, energy, intensity or "
-            "survival state. At a selected detector, the greyscale underlay "
-            "is the peak-normalized forward PSF response; coloured dots "
-            "remain the original rays."
+            "survival state. The displayed basis follows Ray Diagram: "
+            f"{basis_description} At a selected detector, the greyscale "
+            "underlay is the peak-normalized forward PSF response; "
+            "coloured dots remain the original rays."
         )
         self.setAccessibleDescription(description)
         self.setToolTip(description)
+
+    def set_projection_angle(self, angle_deg: float) -> None:
+        """Rotate the displayed U/V basis without changing physical hues."""
+
+        angle = float(np.clip(angle_deg, 0.0, 360.0))
+        if np.isclose(angle, self._projection_angle_deg, atol=1.0e-12):
+            return
+        self._projection_angle_deg = angle
+        self._update_description()
+        self.update()
+
+    @staticmethod
+    def _reference_label(angle_deg: float) -> str:
+        name = projection_axis_name(angle_deg)
+        if name.startswith("U("):
+            rounded = int(np.floor((angle_deg % 360.0) + 0.5)) % 360
+            return f"{rounded}°"
+        return name
 
     @staticmethod
     def colour_for_angle(angle_rad: float) -> QColor:
@@ -3708,7 +3810,10 @@ class InitialDirectionColourWheel(QWidget):
         wheel_rect = QRectF(31.0, 31.0, 122.0, 122.0)
         painter.setPen(Qt.PenStyle.NoPen)
         for degree in range(360):
-            painter.setBrush(self.colour_for_angle(math.radians(degree)))
+            physical_degree = degree + self._projection_angle_deg
+            painter.setBrush(
+                self.colour_for_angle(math.radians(physical_degree))
+            )
             # The one-unit overlap avoids hairline gaps after rasterisation.
             painter.drawPie(wheel_rect, degree * 16, 17)
 
@@ -3726,22 +3831,28 @@ class InitialDirectionColourWheel(QWidget):
         painter.drawText(
             QRectF(151.0, 70.0, 33.0, 42.0),
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-            "+X\n0°",
+            "+U\n" + self._reference_label(self._projection_angle_deg),
         )
         painter.drawText(
             QRectF(66.0, 0.0, 52.0, 31.0),
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom,
-            "+Y 90°",
+            "+V\n" + self._reference_label(
+                self._projection_angle_deg + 90.0
+            ),
         )
         painter.drawText(
             QRectF(0.0, 70.0, 31.0, 42.0),
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
-            "-X\n180°",
+            "-U\n" + self._reference_label(
+                self._projection_angle_deg + 180.0
+            ),
         )
         painter.drawText(
             QRectF(55.0, 153.0, 74.0, 31.0),
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-            "-Y 270°",
+            "-V\n" + self._reference_label(
+                self._projection_angle_deg + 270.0
+            ),
         )
         painter.end()
 
@@ -3767,6 +3878,7 @@ class TransverseBeamView(QWidget):
         self._point_spread_image = None
         self._point_spread_response = None
         self._fit_coordinates = None
+        self._projection_angle_deg = 0.0
         self._view_scale_initialized = False
         self._view_change_guard = False
         self._view_ranges = (
@@ -3793,13 +3905,10 @@ class TransverseBeamView(QWidget):
 
         self.plot = pg.PlotWidget(background="#050816")
         self.plot.setObjectName("transverseBeamPlot")
-        for axis_name, title in (
-            ("bottom", "X displacement"),
-            ("left", "Y displacement"),
-        ):
+        for axis_name in ("bottom", "left"):
             axis = self.plot.getAxis(axis_name)
             axis.enableAutoSIPrefix(False)
-            axis.setLabel(title, units=self.DISPLAY_UNIT)
+        self._update_projection_labels()
         self.plot.showGrid(x=True, y=True, alpha=0.18)
         self.plot.setAspectLocked(True, ratio=1.0)
         self.plot.setMenuEnabled(False)
@@ -3863,6 +3972,36 @@ class TransverseBeamView(QWidget):
         )
         layout.addStretch(1)
         self.fit_beam.clicked.connect(self._fit_beam_view)
+
+    def _update_projection_labels(self) -> None:
+        primary_name = projection_axis_name(self._projection_angle_deg)
+        orthogonal_name = orthogonal_axis_name(self._projection_angle_deg)
+        self.plot.getAxis("bottom").setLabel(
+            f"{primary_name} displacement",
+            units=self.DISPLAY_UNIT,
+        )
+        self.plot.getAxis("left").setLabel(
+            f"{orthogonal_name} displacement",
+            units=self.DISPLAY_UNIT,
+        )
+        self.plot.setToolTip(
+            "Display coordinates follow Ray Diagram: "
+            "U = X cos(angle) + Y sin(angle), "
+            "V = -X sin(angle) + Y cos(angle)."
+        )
+
+    def set_projection_angle(self, angle_deg: float) -> None:
+        """Match the Ray Diagram display basis without retracing rays."""
+
+        angle = float(np.clip(angle_deg, 0.0, 360.0))
+        changed = not np.isclose(
+            angle, self._projection_angle_deg, atol=1.0e-12
+        )
+        self._projection_angle_deg = angle
+        self.angle_colour_wheel.set_projection_angle(angle)
+        self._update_projection_labels()
+        if changed and self._result is not None:
+            self._redraw()
 
     def _apply_centered_view_ranges(
         self,
@@ -4031,6 +4170,18 @@ class TransverseBeamView(QWidget):
             (x1 - x0) * extent_scale,
             (y1 - y0) * extent_scale,
         ))
+        angle_rad = math.radians(self._projection_angle_deg)
+        cosine = math.cos(angle_rad)
+        sine = math.sin(angle_rad)
+        physical_to_display = QTransform(
+            cosine,
+            -sine,
+            sine,
+            cosine,
+            0.0,
+            0.0,
+        )
+        image.setTransform(image.transform() * physical_to_display)
         image.setOpacity(0.62)
         image.setZValue(-20.0)
         image.setToolTip(
@@ -4097,8 +4248,13 @@ class TransverseBeamView(QWidget):
                 )
             )
             brushes.append(pg.mkBrush(colour))
-        display_x = x_m[indices] * self.METRES_TO_DISPLAY
-        display_y = y_m[indices] * self.METRES_TO_DISPLAY
+        display_x_m, display_y_m = transverse_view_coordinates(
+            x_m[indices],
+            y_m[indices],
+            self._projection_angle_deg,
+        )
+        display_x = display_x_m * self.METRES_TO_DISPLAY
+        display_y = display_y_m * self.METRES_TO_DISPLAY
         self._fit_coordinates = (display_x, display_y)
         self._scatter = pg.ScatterPlotItem(
             x=display_x,
@@ -4138,6 +4294,7 @@ class TransverseBeamView(QWidget):
             if math.isfinite(relative_rotation) else "unavailable"
         )
         point_spread_text = ""
+        point_spread_compact = ""
         if point_spread_response is not None:
             retained_text = (
                 f"{100.0 * point_spread_response.retained_fraction:.6g}%"
@@ -4153,15 +4310,29 @@ class TransverseBeamView(QWidget):
                 f"finite-area retained weight {retained_text} "
                 f"[{point_spread.status}]"
             )
-        self.heading.setText(f"Transverse beam X-Y at Z = {plane:.6g} mm")
-        self.summary.setText(
+            point_spread_compact = f" | PSF retained {retained_text}"
+        primary_name = projection_axis_name(self._projection_angle_deg)
+        orthogonal_name = orthogonal_axis_name(self._projection_angle_deg)
+        self.heading.setText(
+            f"Transverse beam {primary_name}/{orthogonal_name} at "
+            f"Z = {plane:.6g} mm"
+        )
+        detail_text = (
             f"{branch.name} | {indices.size} surviving rays | "
             f"RMS radius {rms_radius_display:.6g} {self.DISPLAY_UNIT} | "
             f"orientation relative to bundle start {rotation_text} | "
+            f"display basis U={primary_name}, V={orthogonal_name} | "
             "continuous colour identifies initial direction about the "
             "bundle centroid"
             + point_spread_text
         )
+        self.summary.setText(
+            f"{branch.name} | {indices.size} rays | "
+            f"RMS {rms_radius_display:.6g} {self.DISPLAY_UNIT} | "
+            f"rotation {rotation_text}"
+            + point_spread_compact
+        )
+        self.summary.setToolTip(detail_text)
 
 
 @dataclass(frozen=True)
@@ -4372,12 +4543,16 @@ class OpticalTransferView(QWidget):
         self.heading.setText(
             f"Signed first-order optical transfer - {self._current_mode or 'unknown'} mode"
         )
-        self.summary.setText(
+        detail_text = (
             f"{record.name} | Z {record.z_mm:.6g} mm | {insertion} | "
             f"active conjugate map {active}. Straight-column paraxial "
             "Jacobian; spherical aberration, hexapole nonlinearity and the "
             "curved Energy Filter branch are outside this matrix."
         )
+        self.summary.setText(
+            f"{record.name} | Z {record.z_mm:.6g} mm | {insertion} | {active}"
+        )
+        self.summary.setToolTip(detail_text)
         detector = record.detector_frame
         calibration = (
             "calibrated" if detector.is_calibrated else "UNCALIBRATED placeholder"
@@ -4705,13 +4880,18 @@ class MagneticFieldView(QWidget):
             f"{record.image_rotation_from_sample_deg:+.4g}°"
             for record in self._plane_records
         )
-        self.summary.setText(
+        detail_text = (
             "Positive rotation follows the right-hand rule about +Z | "
             f"full-column signed Larmor rotation {total_rotation_deg:+.6g} deg | "
             "Gaussian ranges are numerical 7σ tail cutoffs, not physical hard edges; "
             "pole geometry/material is not yet field-solver coupled"
             + (f" | {plane_text}" if plane_text else "")
         )
+        self.summary.setText(
+            f"Signed Larmor rotation {total_rotation_deg:+.6g}° | "
+            f"{len(self._plane_records)} reference plane(s) | 7σ display support"
+        )
+        self.summary.setToolTip(detail_text)
         self._apply_curve_styles()
 
     def _add_rotation_markers(self, total_field_t) -> None:
@@ -4826,7 +5006,17 @@ class MagneticFieldView(QWidget):
         )
         self._support_item.setZValue(-5)
         self.plot.addItem(self._support_item)
-        self.summary.setText(self.diagnostic_text(key))
+        detail_text = self.diagnostic_text(key)
+        focal = (
+            f"{record.focal_length_mm:.6g} mm"
+            if math.isfinite(record.focal_length_mm) else "unfocused"
+        )
+        self.summary.setText(
+            f"Selected: {record.name} | {record.excitation_percent:.6g}% | "
+            f"peak |Bz| {record.peak_t:.6g} T | focal length {focal} | "
+            f"ΔφL {record.larmor_rotation_deg:+.6g}°"
+        )
+        self.summary.setToolTip(detail_text)
 
     def diagnostic_text(self, key: str) -> str:
         record = next((item for item in self._records if item.key == key), None)

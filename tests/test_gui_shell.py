@@ -105,6 +105,13 @@ def test_ray_and_eds_projection_angles_remain_synchronised(qtbot):
 
     assert workspace._projection_angle_deg == pytest.approx(37.25)
     assert workspace.eds_page._projection_angle_deg == pytest.approx(37.25)
+    assert workspace.transverse_beam._projection_angle_deg == pytest.approx(
+        37.25
+    )
+    assert (
+        workspace.transverse_beam.angle_colour_wheel._projection_angle_deg
+        == pytest.approx(37.25)
+    )
     assert workspace.eds_page.projection_slider.value() == 373
     assert workspace.eds_page.trajectory_tabs.tabText(0).startswith("U(37.25")
     assert workspace.eds_page.trajectory_tabs.tabText(1).startswith("V(37.25")
@@ -113,6 +120,9 @@ def test_ray_and_eds_projection_angles_remain_synchronised(qtbot):
 
     assert workspace.eds_page._projection_angle_deg == pytest.approx(123.4)
     assert workspace._projection_angle_deg == pytest.approx(123.4)
+    assert workspace.transverse_beam._projection_angle_deg == pytest.approx(
+        123.4
+    )
     assert workspace.projection_slider.value() == 1234
 
 
@@ -268,6 +278,37 @@ def test_transverse_coordinates_are_displayed_in_micrometres(qtbot):
     assert "µm" in view.summary.text()
 
 
+def test_transverse_view_rotates_with_ray_projection_without_rescaling(qtbot):
+    view = TransverseBeamView()
+    qtbot.addWidget(view)
+    x_m = np.array((-2.0e-6, 3.0e-6))
+    y_m = np.array((1.0e-6, -4.0e-6))
+    branch = SimpleNamespace(
+        name="incident",
+        z=np.array((0.0, 1.0)),
+        x=np.vstack((x_m, x_m)),
+        y=np.vstack((y_m, y_m)),
+        blocked_z=np.full(2, np.nan),
+    )
+    view.display_result(SimpleNamespace(
+        simulation=SimpleNamespace(incident=branch, branches={})
+    ))
+    original_ranges = np.asarray(view.plot.getViewBox().viewRange())
+
+    view.set_projection_angle(90.0)
+
+    assert view._scatter.data["x"] == pytest.approx((1.0, -4.0))
+    assert view._scatter.data["y"] == pytest.approx((2.0, -3.0))
+    assert np.asarray(view.plot.getViewBox().viewRange()) == pytest.approx(
+        original_ranges
+    )
+    assert view.plot.getAxis("bottom").labelText == "Y displacement"
+    assert view.plot.getAxis("left").labelText == "-X displacement"
+    assert "U=Y, V=-X" in view.summary.toolTip()
+    assert "physical Y" in view.angle_colour_wheel.toolTip()
+    assert "physical -X" in view.angle_colour_wheel.toolTip()
+
+
 def test_transverse_z_change_preserves_user_scale_and_zero_centre(qtbot):
     view = TransverseBeamView()
     qtbot.addWidget(view)
@@ -336,7 +377,7 @@ def test_transverse_ray_colours_follow_angle_about_offset_bundle_centroid(
 
     brushes = view._scatter.data["brush"]
     assert len({brush.color().rgba() for brush in brushes}) == angles.size
-    assert "bundle centroid" in view.summary.text()
+    assert "bundle centroid" in view.summary.toolTip()
 
 
 def test_transverse_selected_detector_shows_psf_and_arbitrary_z_clears_it(
@@ -383,14 +424,19 @@ def test_transverse_selected_detector_shows_psf_and_arbitrary_z_clears_it(
     assert view._point_spread_image is not None
     assert view._point_spread_response is response
     assert view._plane_z_mm == pytest.approx(0.75)
-    assert "detector PSF gaussian" in view.summary.text()
+    assert "detector PSF gaussian" in view.summary.toolTip()
     assert "87.5%" in view.summary.text()
+
+    view.set_projection_angle(90.0)
+    rotated_origin = view._point_spread_image.transform().map(QPointF(0.0, 0.0))
+    assert rotated_origin.x() == pytest.approx(-1_000.0)
+    assert rotated_origin.y() == pytest.approx(1_000.0)
 
     view.focus_z(0.5)
 
     assert view._focused_component_key is None
     assert view._point_spread_image is None
-    assert "detector PSF" not in view.summary.text()
+    assert "detector PSF" not in view.summary.toolTip()
 
 
 def test_ray_diagram_projects_only_the_visible_high_accuracy_rays(
@@ -572,6 +618,7 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
         control.target.objectName()
         for control in direct_alignment.controls.values()
     } == {
+        "spotSizeCurrentLimitTarget",
         "nanoprobeConvergenceTarget",
         "microprobeIlluminationTarget",
         "imageMagnificationTarget",
@@ -612,7 +659,7 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
     assert window.compute_backend.objectName() == "computeBackend"
     assert window.compute_backend.currentData() == "Auto"
     assert "C2 + C3 + C2 aperture" in (
-        window.assembly_panel.operating_mode_status.text()
+        window.assembly_panel.operating_mode_status.toolTip()
     )
 
     window.load_assembly(AssemblySelection(
@@ -856,6 +903,7 @@ def test_direct_alignment_gui_gates_modes_and_emits_the_requested_target(qtbot):
     state.illumination_mode = "STEM"
     state.projector_mode = "diffraction"
     panel.set_state(state)
+    assert controls["spot_size_current_limit"].target.isEnabled()
     assert controls["nanoprobe_convergence"].target.isEnabled()
     assert controls["nanoprobe_convergence"].apply_button.isEnabled()
     assert not controls["microprobe_illumination"].target.isEnabled()
@@ -873,6 +921,7 @@ def test_direct_alignment_gui_gates_modes_and_emits_the_requested_target(qtbot):
     state.illumination_mode = "TEM"
     state.projector_mode = "image"
     panel.set_state(state)
+    assert controls["spot_size_current_limit"].target.isEnabled()
     assert not controls["nanoprobe_convergence"].target.isEnabled()
     assert controls["microprobe_illumination"].target.isEnabled()
     assert controls["image_magnification"].target.isEnabled()
@@ -929,6 +978,23 @@ def test_main_window_commits_a_current_background_alignment_atomically(
     } == {"condenser_lens_2", "condenser_lens_3"}
     assert "Direct Alignment applied" in window.status_label.text()
     assert not window.progress.isVisible()
+
+
+def test_main_window_commits_spot_current_limit_without_changing_lenses(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.preview_timer.stop()
+    before = {lens.key: lens.percent for lens in window.state.lenses}
+    before_ray_count = window.state.electron_gun.ray_count
+
+    with qtbot.waitSignal(window.direct_alignments.finished, timeout=5_000):
+        window.apply_direct_alignment("spot_size_current_limit", 42.0)
+    window.preview_timer.stop()
+
+    assert window.state.column_current_limit_percent == pytest.approx(42.0)
+    assert window.state.electron_gun.ray_count == before_ray_count
+    assert {lens.key: lens.percent for lens in window.state.lenses} == before
+    assert "Direct Alignment applied" in window.status_label.text()
 
 
 def test_main_window_image_commit_enables_equivalent_five_lens_model(qtbot):
@@ -1622,10 +1688,10 @@ def test_physical_layout_separates_aperture_plate_screw_and_rear_rod(qtbot):
         if record.profile == view.APERTURE_MECHANISM_PROFILE
     }
     assert set(view._aperture_mechanism_items) == set(records)
-    assert "Pt perforated strip" in view.aperture_legend.text()
-    assert "rear connecting rod" in view.aperture_legend.text()
-    assert "5 mm beyond the local shown column wall" in (
-        view.aperture_legend.text()
+    assert "Pt perforated strip" in view.aperture_legend.toolTip()
+    assert "rear connecting rod" in view.aperture_legend.toolTip()
+    assert "5 mm beyond the locally shown column wall" in (
+        view.aperture_legend.toolTip()
     )
     expected_wall_source_keys = {
         "feg_dpa_aperture": "feg_accelerator",
@@ -1784,7 +1850,7 @@ def test_physical_layout_draws_multistage_accelerator_electrodes(
     assert "without an OEM scale" in (
         record.accelerator_electrode_stack_evidence_source
     )
-    assert "not magnetic coils" in view.accelerator_legend.text()
+    assert "not magnetic coils" in view.accelerator_legend.toolTip()
 
     roles = view._accelerator_stack_items[accelerator_key]
     assert {role: len(items) for role, items in roles.items()} == {
@@ -2209,7 +2275,9 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert window.workspace.magnetic_field.show_rotation_labels.isChecked()
     assert window.workspace.magnetic_field._rotation_items
     assert window.workspace.magnetic_field._plane_records
-    assert "Objective image plane" in window.workspace.magnetic_field.summary.text()
+    assert "Objective image plane" in (
+        window.workspace.magnetic_field.summary.toolTip()
+    )
     window.workspace.magnetic_field.show_rotation_labels.setChecked(False)
     assert all(
         not item.isVisible()
@@ -2378,6 +2446,7 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     )
     window.workspace._set_projection_angle(0.0)
 
+    view_before_linked_z = window.workspace.plot.getViewBox().viewRange()
     window.workspace.tabs.setCurrentIndex(1)
     window.workspace.physical_layout.axial_position_selected.emit(910.0)
     assert window.workspace.tabs.currentIndex() == 0
@@ -2391,24 +2460,48 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         910.0
     )
     linked_range = window.workspace.plot.getViewBox().viewRange()[0]
-    assert 0.5 * (linked_range[0] + linked_range[1]) == pytest.approx(910.0)
-    assert linked_range[1] - linked_range[0] <= 260.0
+    assert linked_range == pytest.approx(view_before_linked_z[0])
+    assert window.workspace.plot.getViewBox().viewRange()[1] == pytest.approx(
+        view_before_linked_z[1]
+    )
 
+    view_before_magnetic_z = window.workspace.plot.getViewBox().viewRange()
     window.workspace.tabs.setCurrentIndex(2)
     window.workspace.magnetic_field.axial_position_selected.emit(950.0)
     assert window.workspace.tabs.currentIndex() == 0
     assert window.workspace._selected_z_mm == pytest.approx(950.0)
     assert window.workspace.transverse_beam._plane_z_mm == pytest.approx(950.0)
+    assert window.workspace.plot.getViewBox().viewRange()[0] == pytest.approx(
+        view_before_magnetic_z[0]
+    )
+    assert window.workspace.plot.getViewBox().viewRange()[1] == pytest.approx(
+        view_before_magnetic_z[1]
+    )
 
-    window.workspace.jump_to_ray_position(1200.0, window_mm=80.0)
+    window.workspace.plot.setXRange(1160.0, 1240.0, padding=0.0)
+    window.workspace.plot.setYRange(-0.25, 0.75, padding=0.0)
+    window.workspace.jump_to_ray_position(1200.0)
     assert window.workspace.transverse_beam._plane_z_mm == pytest.approx(
         1200.0
     )
+    user_defined_ray_range = np.asarray(
+        window.workspace.plot.getViewBox().viewRange(), dtype=float
+    ).copy()
     window.workspace.axial_cursor_item.setValue(1195.0)
     assert window.workspace.transverse_beam._plane_z_mm == pytest.approx(
         1195.0
     )
-    window.workspace.axial_cursor_item.setValue(1200.0)
+    window.workspace._axial_cursor_move_finished(
+        window.workspace.axial_cursor_item
+    )
+    assert window.workspace._selected_z_mm == pytest.approx(1195.0)
+    assert np.asarray(
+        window.workspace.plot.getViewBox().viewRange()
+    ) == pytest.approx(user_defined_ray_range)
+    window.workspace.jump_to_ray_position(1200.0)
+    assert np.asarray(
+        window.workspace.plot.getViewBox().viewRange()
+    ) == pytest.approx(user_defined_ray_range)
     interaction_text = window.workspace.interaction_detail.toPlainText()
     assert "Selected-plane interaction budget" in interaction_text
     assert "Current reaching Z" in interaction_text
@@ -2514,8 +2607,8 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert "field direction" in window.parameter_panel.lens_diagnostics.text()
     assert "column cumulative" in window.parameter_panel.lens_diagnostics.text()
     assert "focal length" in window.workspace.magnetic_field.summary.text()
-    assert "Larmor rotation" in window.workspace.magnetic_field.summary.text()
-    assert "orientation relative" in window.workspace.transverse_beam.summary.text()
+    assert "Larmor rotation" in window.workspace.magnetic_field.summary.toolTip()
+    assert "orientation relative" in window.workspace.transverse_beam.summary.toolTip()
     window.workspace.optical_transfer.target_plane.setCurrentIndex(
         window.workspace.optical_transfer.target_plane.findData("camera")
     )

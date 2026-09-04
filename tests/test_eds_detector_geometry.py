@@ -271,7 +271,9 @@ def test_physical_layout_draws_two_eds_azimuthal_projections(qtbot):
     assert view._label_callouts["eds:detector_array"].component_key == (
         EDS_DETECTOR_SYSTEM
     )
-    assert "Crystal/package size is not public" in view.eds_legend.text()
+    assert "crystal and package dimensions are unavailable" in (
+        view.eds_legend.toolTip()
+    )
     tooltip = view._eds_detector_items["active_face"][0].toolTip()
     assert "dimensions are not public" in tooltip
     assert "display-only clearance" in tooltip
@@ -298,5 +300,6 @@ def test_physical_layout_draws_two_eds_azimuthal_projections(qtbot):
         ) >= minimum_solid_radius - 1.0e-9
 
     view.focus_component(assembly.part(EDS_DETECTOR_SYSTEM))
-    assert "Active area, sensor distance" in view.summary.text()
-    assert "non-dimensional schematics" in view.summary.text()
+    assert len(view.summary.text()) < 160
+    assert "Active area, sensor distance" in view.summary.toolTip()
+    assert "non-dimensional schematics" in view.summary.toolTip()

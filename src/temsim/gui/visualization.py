@@ -39,7 +39,13 @@ from temsim.gui.sample_interactions_3d import SampleInteractions3DPage
 from temsim.gui.eds_panel import EDSPage
 from temsim.gui.aberration_view import AberrationComparisonView
 from temsim.gui.parameter_panel import ParameterPanel
+from temsim.gui.transverse_projection import (
+    format_projection_angle,
+    project_transverse_values,
+    projection_axis_name,
+)
 from temsim.specimen.source import specimen_structure_available
+from temsim.physics.recording_stop import active_tem_recording_plane
 
 
 class WaveImagingView(QWidget):
@@ -48,8 +54,10 @@ class WaveImagingView(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.summary = QLabel(
-            "Optional full-column TEM Camera calculation. Enable TEM wave "
-            "imaging on the Sample and run High accuracy."
+            "No TEM wave image | enable it on Sample and run High accuracy"
+        )
+        self.summary.setToolTip(
+            "Enable TEM wave imaging on Sample, then run High accuracy."
         )
         self.summary.setWordWrap(True)
         self.summary.setStyleSheet("color: #94a3b8; font-weight: 600;")
@@ -64,12 +72,12 @@ class WaveImagingView(QWidget):
             view.ui.menuBtn.hide()
             view.getView().setAspectLocked(True)
         self.image.getView().setTitle(
-            "Physical Camera image (display-normalised)"
+            "Physical recording-plane image (display-normalised)"
         )
-        self.image.getView().setLabel("bottom", "camera x", units="mm")
-        self.image.getView().setLabel("left", "camera y", units="mm")
+        self.image.getView().setLabel("bottom", "recording x", units="mm")
+        self.image.getView().setLabel("left", "recording y", units="mm")
         self.diffraction.getView().setTitle(
-            "Exit-wave diffraction (log display)"
+            "Specimen exit-wave diffraction reference (log display)"
         )
         self.diffraction.getView().setLabel("bottom", "qₓ", units="Å⁻¹")
         self.diffraction.getView().setLabel("left", "qᵧ", units="Å⁻¹")
@@ -121,15 +129,17 @@ class WaveImagingView(QWidget):
                 if state is not None
                 else False
             )
-            camera_inserted = bool(
-                getattr(getattr(state, "camera", None), "inserted", False)
-                if state is not None
-                else False
-            )
+            try:
+                active_tem_recording_plane(state)
+                recording_available = True
+                recording_error = ""
+            except (AttributeError, StopIteration, ValueError) as exc:
+                recording_available = False
+                recording_error = str(exc)
             if quality == "Preview":
                 message = (
                     "Preview omits TEM wave imaging. Run High accuracy to "
-                    "calculate the physical Camera image and diffraction."
+                    "calculate the physical recording-plane result."
                 )
             elif requested and illumination != "TEM":
                 message = (
@@ -141,10 +151,10 @@ class WaveImagingView(QWidget):
                     "TEM wave imaging requires an imported CIF/MCIF in Real "
                     "mode or a TOML reference specimen in Virtual mode."
                 )
-            elif requested and not camera_inserted:
-                message = (
-                    "TEM Camera imaging is inactive because the Camera is "
-                    "retracted. Insert Camera and run High accuracy."
+            elif requested and not recording_available:
+                message = recording_error or (
+                    "Insert the Fluorescent Screen or Camera, then run High "
+                    "accuracy."
                 )
             else:
                 message = (
@@ -193,6 +203,18 @@ class WaveImagingView(QWidget):
             scale=diffraction_scale,
         )
         metrics = wave_result.metrics
+        plane_name = str(
+            metrics.get("recording_plane_name", "Camera")
+        )
+        observable = (
+            "Diffraction pattern"
+            if metrics.get("recording_plane_observable")
+            == "diffraction_pattern"
+            else "Image"
+        )
+        self.image.getView().setTitle(
+            f"{plane_name}: {observable} (display-normalised)"
+        )
         model = str(metrics.get("specimen_model", "unknown"))
         slices = int(metrics.get("specimen_slice_count", 0))
         potential_model = str(
@@ -240,22 +262,17 @@ class WaveImagingView(QWidget):
         self.summary.setText(
             f"{wave_result.preset_name} | "
             f"{model}, {slices} slices | "
-            f"{potential_model}, {configurations} configuration(s)"
-            f"{thermal_text} | "
-            f"compute {backend} | "
-            f"Camera {float(metrics.get('camera_width_mm', 0.0)):.5g} mm | "
-            "M "
-            f"{float(metrics.get('projector_magnification', 0.0)):.5g}x | "
-            f"surviving rays {int(metrics['surviving_rays'])} | "
-            "full-column Camera image, display-normalised"
+            f"{configurations} configuration(s){thermal_text} | "
+            f"{plane_name} {observable.lower()} | "
+            f"{backend}"
             f"{warning_text}"
         )
         details = [
             "Scope: gun-conditioned illumination, specimen interaction, "
-            "complete projector transfer and physical Camera response.",
-            "Camera propagation: "
+            "complete projector transfer and physical recording response.",
+            "Recording propagation: "
             f"{metrics.get('camera_wave_propagation_method', 'unknown')}",
-            "Camera sampling: "
+            "Recording sampling: "
             f"{metrics.get('camera_calculation_pixels_xy', 'unknown')} pixels; "
             f"binning {metrics.get('camera_binning_xy', 'unknown')}.",
             "Energy-loss scope: "
@@ -270,6 +287,11 @@ class WaveImagingView(QWidget):
             f"{metrics.get('diffraction_display_scaling', 'unknown')}",
             "Potential builder: "
             f"{metrics.get('specimen_potential_builder_backend', 'unknown')}",
+            f"Potential model: {potential_model}",
+            "Projector magnification: "
+            f"{float(metrics.get('projector_magnification', 0.0)):.5g}x",
+            f"Surviving rays: {int(metrics['surviving_rays'])}",
+            f"Output: {plane_name} {observable.lower()}, display-normalised.",
         ]
         realised_extent = metrics.get(
             "specimen_realised_lateral_extent_angstrom"
@@ -294,6 +316,19 @@ class WaveImagingView(QWidget):
                 f"{relative_standard_error:.3g}"
             )
         self.summary.setToolTip("\n".join(details))
+
+    def mark_result_stale(self) -> None:
+        """Retain the last complete image while preventing a false cache hit."""
+
+        if self.image.image is None and self.diffraction.image is None:
+            return
+        self.summary.setText(
+            "Previous High accuracy image retained | inputs changed"
+        )
+        self.summary.setToolTip(
+            "The displayed complete frame belongs to the previous microscope "
+            "state. Run High accuracy to update it."
+        )
 
 
 class VisualizationWorkspace(QWidget):
@@ -476,8 +511,8 @@ class VisualizationWorkspace(QWidget):
         self.sample_region_toggle.setEnabled(False)
         self.sample_region_toggle.setToolTip(
             "Show sample-region electron paths and their downstream "
-            "continuation. If no result is cached, clicking runs one explicit "
-            "high-accuracy sample-region calculation."
+            "continuation. If needed, clicking builds the missing local view "
+            "from the shared High accuracy result."
         )
         self.sample_region_xrays = QPushButton("X-rays")
         self.sample_region_xrays.setObjectName("sampleRegionXrayToggle")
@@ -485,17 +520,15 @@ class VisualizationWorkspace(QWidget):
         self.sample_region_xrays.setChecked(True)
         self.sample_region_xrays.setEnabled(False)
         self.sample_region_xrays.setToolTip(
-            "Show isotropically sampled characteristic X-ray paths. If no "
-            "result is cached, clicking runs one explicit high-accuracy "
-            "sample-region calculation."
+            "Show isotropically sampled characteristic X-ray paths. If needed, "
+            "clicking builds the missing local view from the shared result."
         )
         self.fit_sample_region = QPushButton("Fit sample")
         self.fit_sample_region.setObjectName("fitSampleRegionButton")
         self.fit_sample_region.setEnabled(False)
         self.fit_sample_region.setToolTip(
-            "Zoom to the manual sample-region entry/exit boundaries. If no "
-            "result is cached, clicking runs one explicit high-accuracy "
-            "sample-region calculation first."
+            "Zoom to the sample-region entry/exit boundaries. If needed, "
+            "clicking builds the missing local view first."
         )
         for option_button in (
             self.projection_xz,
@@ -595,8 +628,11 @@ class VisualizationWorkspace(QWidget):
         )
 
         navigation_hint = QLabel(
+            "Double-click any axial plot to update Transverse X-Y"
+        )
+        navigation_hint.setToolTip(
             "Double-click an axial position in Ray Diagram, Physical Layout, "
-            "or Magnetic Field to update the Transverse X-Y panel on the right"
+            "or Magnetic Field to update the Transverse X-Y panel on the right."
         )
         navigation_hint.setWordWrap(True)
         navigation_hint.setStyleSheet("color: #64748b; font-weight: 600;")
@@ -643,6 +679,9 @@ class VisualizationWorkspace(QWidget):
         self._selected_z_mm = None
         self._last_result = None
         self._last_quality = ""
+        self._preview_result = None
+        self._high_accuracy_result = None
+        self._high_accuracy_current = False
         self._sample_region_result = None
         self._focused_part = None
         self._show_notice("Waiting for the first calculation")
@@ -978,6 +1017,9 @@ class VisualizationWorkspace(QWidget):
         )
         self.eds_page.sample_region_result_ready.connect(
             self._set_sample_region_result
+        )
+        self.eds_page.specimen_interactions_updated.connect(
+            self._set_specimen_interactions
         )
         self.sample_interactions_3d.sample_region_requested.connect(
             self._ensure_sample_region_result
@@ -1377,8 +1419,24 @@ class VisualizationWorkspace(QWidget):
 
     def _set_sample_region_result(self, result) -> None:
         self._sample_region_result = result
+        if self._high_accuracy_result is not None:
+            self._high_accuracy_result.sample_region = result
         self.sample_interactions_3d.set_sample_region_result(result)
         self._update_sample_region_control_availability()
+        if self._last_result is not None:
+            self._draw_ray_diagram(
+                self._last_result,
+                self._last_quality,
+                preserve_view=True,
+            )
+
+    def _set_specimen_interactions(self, interactions) -> None:
+        if self._high_accuracy_result is None:
+            return
+        self._high_accuracy_result.specimen_interactions = interactions
+        self.sample_interactions_3d.display_result(
+            self._high_accuracy_result
+        )
         if self._last_result is not None:
             self._draw_ray_diagram(
                 self._last_result,
@@ -1619,11 +1677,7 @@ class VisualizationWorkspace(QWidget):
     @staticmethod
     def _project_transverse_values(x, y, angle_deg: float) -> np.ndarray:
         """Project X/Y values onto a transverse axis rotated about Z."""
-        angle_rad = np.deg2rad(float(angle_deg))
-        return (
-            np.asarray(x, dtype=float) * np.cos(angle_rad)
-            + np.asarray(y, dtype=float) * np.sin(angle_rad)
-        )
+        return project_transverse_values(x, y, angle_deg)
 
     def _project_transverse(self, x, y) -> np.ndarray:
         return self._project_transverse_values(
@@ -1631,21 +1685,11 @@ class VisualizationWorkspace(QWidget):
         )
 
     def _projection_axis_name(self) -> str:
-        angle = self._projection_angle_deg % 360.0
-        cardinal = (
-            (0.0, "X"),
-            (90.0, "Y"),
-            (180.0, "-X"),
-            (270.0, "-Y"),
-        )
-        for cardinal_angle, name in cardinal:
-            if np.isclose(angle, cardinal_angle, atol=0.05):
-                return name
-        return f"U({self._format_angle(angle)} deg)"
+        return projection_axis_name(self._projection_angle_deg)
 
     @staticmethod
     def _format_angle(angle_deg: float) -> str:
-        return f"{float(angle_deg):.2f}".rstrip("0").rstrip(".")
+        return format_projection_angle(angle_deg)
 
     def _projection_slider_changed(self, value: int) -> None:
         if not self._projection_syncing:
@@ -1681,6 +1725,7 @@ class VisualizationWorkspace(QWidget):
             emit_signal=False,
             defer_redraw=defer_redraw,
         )
+        self.transverse_beam.set_projection_angle(angle)
         if changed and self._last_result is not None:
             if defer_redraw:
                 if not self._projection_redraw_timer.isActive():
@@ -1920,13 +1965,18 @@ class VisualizationWorkspace(QWidget):
     def jump_to_ray_position(
         self,
         z_mm: float,
-        window_mm: float | None = None,
         activate_tab: bool = True,
     ) -> None:
-        """Open an axial Z location in the Ray Diagram without retracing."""
+        """Select an axial Z without changing a user-defined plot range.
+
+        Cursor, spin-box, and linked-view Z changes preserve both Ray Diagram
+        axes exactly. Fit and component Auto zoom remain explicit view tools.
+        """
         limits = self._simulation_x_limits()
         if limits is None or not np.isfinite(z_mm):
             return
+        preserved_range = self.plot.getViewBox().viewRange()
+        self.plot.disableAutoRange()
         lower_limit, upper_limit = limits
         selected = float(np.clip(z_mm, lower_limit, upper_limit))
         self._selected_z_mm = selected
@@ -1941,21 +1991,12 @@ class VisualizationWorkspace(QWidget):
         else:
             self.axial_cursor_item.setValue(selected)
 
-        current_range = self.plot.getViewBox().viewRange()[0]
-        current_span = max(float(current_range[1] - current_range[0]), 1.0)
-        requested_span = current_span if window_mm is None else float(window_mm)
-        full_span = max(upper_limit - lower_limit, 1.0)
-        view_span = min(max(requested_span, 10.0), 260.0, full_span)
-        x_min = selected - 0.5 * view_span
-        x_max = selected + 0.5 * view_span
-        x_min, x_max = self._clamp_focus_range(x_min, x_max)
-        # The initial full-column fit is one-shot. Keeping AutoRange enabled
-        # lets aperture span updates pull a manually zoomed view back out.
-        self.plot.disableAutoRange()
-        self.plot.setXRange(x_min, x_max, padding=0.0)
-        y_range = self._local_y_range(x_min, x_max)
-        if y_range is not None:
-            self.plot.setYRange(*y_range, padding=0.0)
+        self.plot.getViewBox().setRange(
+            xRange=tuple(float(value) for value in preserved_range[0]),
+            yRange=tuple(float(value) for value in preserved_range[1]),
+            padding=0.0,
+            disableAutoRange=True,
+        )
         self._update_component_label_visibility()
         self.stop_detail.setText(
             f"Selected axial position: Z {selected:.9g} mm | "
@@ -3222,6 +3263,20 @@ class VisualizationWorkspace(QWidget):
         self._update_interaction_detail()
 
     def display_result(self, result, quality: str) -> None:
+        is_preview = str(quality).strip().lower().startswith("preview")
+        if is_preview:
+            self._preview_result = result
+            current_high = bool(
+                self._high_accuracy_result is not None
+                and getattr(self._high_accuracy_result, "model_signature", "")
+                and getattr(self._high_accuracy_result, "model_signature", "")
+                == getattr(result, "model_signature", "")
+            )
+            if not current_high:
+                self.mark_high_accuracy_stale()
+        else:
+            self._high_accuracy_result = result
+            self._high_accuracy_current = True
         preserve_ray_view = (
             self._last_result is not None
             and self._ray_geometry_signature(self._last_result)
@@ -3240,24 +3295,47 @@ class VisualizationWorkspace(QWidget):
         self.probe_aberrations.display_result(result)
         self.image_aberrations.display_result(result)
         self.optical_transfer.display_result(result)
-        self.energy_filter.display_result(result)
         self.transverse_beam.display_result(result)
-        self.scan_control.display_result(
-            getattr(result, "scan_geometry", None),
-            getattr(result, "stem_scan", None),
-        )
+        if not is_preview:
+            self.energy_filter.display_result(result)
+        if not is_preview or self._high_accuracy_result is None:
+            self.scan_control.display_result(
+                getattr(result, "scan_geometry", None),
+                getattr(result, "stem_scan", None),
+                complete=not is_preview,
+            )
         self.sample_page.display_result(
             result,
-            getattr(result, "stem_scan", None),
+            (
+                getattr(result, "stem_scan", None)
+                if not is_preview
+                else None
+            ),
         )
-        self.eds_page.display_result(result)
-        self.sample_interactions_3d.display_result(result)
-        self._update_sample_region_control_availability()
-        self.wave_imaging.display_result(
-            getattr(result, "wave_imaging", None),
-            getattr(result, "state_snapshot", None),
-            quality,
-        )
+        if not is_preview:
+            cached_sample_region = getattr(result, "sample_region", None)
+            self.sample_interactions_3d.display_result(result)
+            self.eds_page.display_result(result)
+            if cached_sample_region is not None:
+                self._set_sample_region_result(cached_sample_region)
+            self._update_sample_region_control_availability()
+            self.wave_imaging.display_result(
+                getattr(result, "wave_imaging", None),
+                getattr(result, "state_snapshot", None),
+                quality,
+            )
         if self._focused_part is not None:
             self.physical_layout.focus_component(self._focused_part)
             self.magnetic_field.focus_component(self._focused_part)
+
+    def mark_high_accuracy_stale(self) -> None:
+        """Keep completed displays visible but detach them from live inputs."""
+
+        if self._high_accuracy_result is None or not self._high_accuracy_current:
+            return
+        self._high_accuracy_current = False
+        self.energy_filter.mark_result_stale()
+        self.eds_page.mark_result_stale()
+        self.sample_interactions_3d.mark_result_stale()
+        self.scan_control.mark_stem_frame_stale()
+        self.wave_imaging.mark_result_stale()

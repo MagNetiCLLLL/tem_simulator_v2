@@ -434,3 +434,66 @@ class SpecimenInteractionResult:
             raise ValueError(
                 "Only one solver may own the exclusive electron population budget"
             )
+
+
+def retain_specimen_observables(
+    result: SpecimenInteractionResult | None,
+    observables: frozenset[SpecimenObservable],
+) -> SpecimenInteractionResult | None:
+    """Keep only explicitly compatible products from a shared result.
+
+    Cache invalidation is deliberately expressed in terms of physical
+    observables.  Derived event ledgers and conservation summaries are rebuilt
+    by :func:`run_specimen_interactions` on the next augmentation rather than
+    being carried across a changed dependency signature.
+    """
+
+    if result is None:
+        return None
+    retained = frozenset(result.completed_observables & observables)
+    request = SpecimenInteractionRequest(
+        observables=retained,
+        point_x_nm=result.request.point_x_nm,
+        point_y_nm=result.request.point_y_nm,
+        dwell_time_s=result.request.dwell_time_s,
+        incident_electrons=result.request.incident_electrons,
+    )
+    return SpecimenInteractionResult(
+        request=request,
+        completed_observables=retained,
+        scene=result.scene,
+        incident_bundle=(
+            result.incident_bundle
+            if SpecimenObservable.ELASTIC_TRANSPORT in retained
+            else None
+        ),
+        wave_imaging=(
+            result.wave_imaging
+            if SpecimenObservable.COHERENT_ELASTIC_WAVE in retained
+            else None
+        ),
+        inelastic_distribution=(
+            result.inelastic_distribution
+            if SpecimenObservable.STOCHASTIC_INELASTIC in retained
+            else None
+        ),
+        elastic_transport=(
+            result.elastic_transport
+            if SpecimenObservable.ELASTIC_TRANSPORT in retained
+            else None
+        ),
+        eds_spectrum=(
+            result.eds_spectrum
+            if SpecimenObservable.CHARACTERISTIC_X_RAY in retained
+            else None
+        ),
+        metrics={
+            "contract_version": result.metrics.get("contract_version", 5),
+            "dependency_signatures": dict(
+                result.metrics.get("dependency_signatures", {})
+            ),
+            "retained_observables_after_dependency_check": tuple(
+                sorted(value.value for value in retained)
+            ),
+        },
+    )

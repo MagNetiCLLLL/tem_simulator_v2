@@ -1,4 +1,5 @@
 from dataclasses import dataclass, asdict, field
+import math
 
 from temsim import module_manifest
 
@@ -490,6 +491,10 @@ class State:
 
     projector_mode: str = "diffraction"
 
+    # Ideal Spot-size abstraction.  It caps the physical current represented
+    # by normalized rays without changing numerical sampling or ray optics.
+    column_current_limit_percent: float = 100.0
+
     # Enabled after applying a five-lens image-magnification preset.  The
     # engineering model uses field-integral focal lengths plus separate
     # Larmor rotations; diffraction mode always retains distributed fields.
@@ -553,9 +558,19 @@ class State:
     probe_aberrations: dict = field(default_factory=dict)
     image_aberrations: dict = field(default_factory=dict)
 
-    schema_version: int = 73
+    schema_version: int = 74
 
     def __post_init__(self):
+        self.column_current_limit_percent = float(
+            self.column_current_limit_percent
+        )
+        if (
+            not math.isfinite(self.column_current_limit_percent)
+            or not 0.0 <= self.column_current_limit_percent <= 100.0
+        ):
+            raise ValueError(
+                "Column current limit must be between 0 and 100%."
+            )
         if self.electron_gun is None:
             from temsim.optics.electron_gun import create_electron_gun
             self.electron_gun = create_electron_gun("cold_feg")
@@ -1633,6 +1648,9 @@ class State:
             },
 
             "projector_mode":self.projector_mode,
+            "column_current_limit_percent":float(
+                self.column_current_limit_percent
+            ),
             "equivalent_image_lenses_enabled":(
                 self.equivalent_image_lenses_enabled
             ),
@@ -2585,6 +2603,9 @@ class State:
             sample=Sample(**sample_data), camera=None,
             component_placements=component_placements,
             illumination_mode=d.get("illumination_mode","STEM"), projector_mode=d.get("projector_mode","diffraction"),
+            column_current_limit_percent=float(
+                d.get("column_current_limit_percent", 100.0)
+            ),
             equivalent_image_lenses_enabled=bool(
                 d.get("equivalent_image_lenses_enabled", False)
             ),
@@ -2684,7 +2705,7 @@ class State:
             ),
             probe_aberrations=dict(d.get("probe_aberrations", {})),
             image_aberrations=dict(d.get("image_aberrations", {})),
-            schema_version=73,
+            schema_version=74,
         )
         if loaded_schema_version < 64:
             from temsim.specimen.geometry import (

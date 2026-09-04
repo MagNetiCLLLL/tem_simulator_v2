@@ -216,6 +216,8 @@ def trace_transverse_transfers(
     state,
     source_z_mm: float,
     target_z_values_mm: Iterable[float],
+    *,
+    maximum_step_mm: float | None = None,
 ) -> dict[float, TransverseTransfer]:
     """Trace a reference plus four bases once and sample requested planes."""
 
@@ -255,6 +257,7 @@ def trace_transverse_transfers(
         include_spherical_aberration=False,
         include_hexapole=False,
         save_z_mm=downstream,
+        maximum_step_mm=maximum_step_mm,
     )
     for target in downstream:
         index = int(np.argmin(np.abs(z_mm - target)))
@@ -278,12 +281,21 @@ def trace_transverse_transfers(
 
 
 def trace_transverse_transfer(
-    state, source_z_mm: float, target_z_mm: float
+    state,
+    source_z_mm: float,
+    target_z_mm: float,
+    *,
+    maximum_step_mm: float | None = None,
 ) -> TransverseTransfer:
     """Return one signed first-order transverse transfer."""
 
     target = float(target_z_mm)
-    return trace_transverse_transfers(state, source_z_mm, (target,))[target]
+    return trace_transverse_transfers(
+        state,
+        source_z_mm,
+        (target,),
+        maximum_step_mm=maximum_step_mm,
+    )[target]
 
 
 def detector_frame_from_component(component) -> DetectorFrameCalibration:

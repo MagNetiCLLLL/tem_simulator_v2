@@ -1,7 +1,8 @@
 """Application-facing simulation pipeline, independent of the Tk GUI."""
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from temsim.calculation_cache import calculation_signatures, matching_products
 from temsim.detector.recording_system import ensure_recording_system
 from temsim.detector.stem_signal import StemScanResult, acquire_stem_scan
 from temsim.column.state_layout import apply_physical_layout_to_state
@@ -11,6 +12,10 @@ from temsim.optics.energy_filter import ensure_energy_filter
 from temsim.optics.energy_filter_raytrace import simulate_energy_filter
 from temsim.physics.all_lens_crossovers import detect_all_lens_crossovers
 from temsim.physics.simulation import Simulation, run
+from temsim.physics.beam_current import (
+    column_current_limit_percent,
+    effective_source_current_pa,
+)
 from temsim.physics.scan_geometry import (
     ScanGeometryResult,
     calculate_scan_geometry,
@@ -18,12 +23,15 @@ from temsim.physics.scan_geometry import (
 )
 from temsim.physics.wave_imaging import (
     WaveImagingResult,
+    reproject_wave_image,
     tem_wave_imaging_enabled,
 )
 from temsim.specimen.interaction_engine import run_specimen_interactions
 from temsim.specimen.interaction_types import (
+    SpecimenObservable,
     SpecimenInteractionRequest,
     SpecimenInteractionResult,
+    retain_specimen_observables,
 )
 from temsim.specimen.source import specimen_structure_available
 
@@ -40,8 +48,14 @@ class CalculationResult:
     scan_geometry: ScanGeometryResult | None = None
     scan_ray_paths: object | None = None
     stem_scan: StemScanResult | None = None
+    sample_region: object | None = None
     lens_crossovers: tuple[dict[str, object], ...] = ()
     aperture_stops: tuple[dict[str, object], ...] = ()
+    model_signature: str = ""
+    signatures: dict[str, str] | None = None
+    calculated_products: frozenset[str] = frozenset()
+    reused_products: frozenset[str] = frozenset()
+    cache_hit: bool = False
 
 
 def aperture_stop_records(state) -> tuple[dict[str, object], ...]:
@@ -132,6 +146,15 @@ def _geometric_specimen_transport_requested(state) -> bool:
     )
 
 
+def _eds_point_requested(state) -> bool:
+    sample = state.sample
+    return bool(
+        getattr(sample, "inserted", False)
+        and getattr(sample, "eds_enabled", False)
+        and specimen_structure_available(sample)
+    )
+
+
 def calculate_stem_scan_frame(
     state,
     simulation,
@@ -156,9 +179,24 @@ def calculate(
     state,
     *,
     progress_callback: ProgressCallback | None = None,
+    existing_result: CalculationResult | None = None,
 ):
-    """Normalise editable state and calculate all non-visual simulation results."""
+    """Calculate a complete result while reusing compatible cached products.
 
+    A previous complete result is a seed, never an output target.  Every
+    product is reused only when its dependency-scoped signature matches the
+    current immutable calculation snapshot.  Failed or cancelled replacement
+    work therefore cannot partially mutate the previous complete result.
+    """
+
+    ensure_recording_system(state)
+    ensure_energy_filter(state)
+    ensure_corrector_structure(state)
+    normalise_component_names(state)
+    signatures = calculation_signatures(state)
+    reusable = matching_products(
+        getattr(existing_result, "signatures", None), signatures
+    )
     tem_wave_requested = tem_wave_imaging_enabled(state)
     stem_frame_requested = bool(
         state.ac_deflector.enabled and state.ac_deflector.scan_enabled
@@ -166,27 +204,107 @@ def calculate(
     geometric_specimen_transport_requested = (
         _geometric_specimen_transport_requested(state)
     )
-    stages = [
-        ("Preparing state and physical layout", 1),
-        ("Tracing the electron column", 1),
-    ]
-    if tem_wave_requested:
-        stages.append(("Calculating the TEM wave image", 1))
-    if geometric_specimen_transport_requested:
+    eds_point_requested = _eds_point_requested(state)
+    column_reused = bool(
+        existing_result is not None
+        and existing_result.simulation is not None
+        and "column" in reusable
+    )
+    incident_reused = bool(
+        existing_result is not None
+        and existing_result.simulation is not None
+        and "incident" in reusable
+    )
+    wave_reused = bool(
+        tem_wave_requested
+        and existing_result is not None
+        and existing_result.wave_imaging is not None
+        and "wave" in reusable
+    )
+    wave_source_reused = bool(
+        tem_wave_requested
+        and not wave_reused
+        and existing_result is not None
+        and existing_result.wave_imaging is not None
+        and existing_result.wave_imaging.projector_checkpoint is not None
+        and "wave_source" in reusable
+    )
+    elastic_reused = bool(
+        (geometric_specimen_transport_requested or eds_point_requested)
+        and existing_result is not None
+        and existing_result.specimen_interactions is not None
+        and existing_result.specimen_interactions.elastic_transport is not None
+        and "elastic" in reusable
+    )
+    eds_reused = bool(
+        eds_point_requested
+        and existing_result is not None
+        and existing_result.specimen_interactions is not None
+        and existing_result.specimen_interactions.eds_spectrum is not None
+        and "eds" in reusable
+    )
+    energy_filter_reused = bool(
+        existing_result is not None
+        and "energy_filter" in reusable
+    )
+    scan_geometry_reused = bool(
+        existing_result is not None
+        and "scan" in reusable
+    )
+    scan_paths_reused = bool(
+        existing_result is not None
+        and "scan" in reusable
+    )
+    stem_reused = bool(
+        stem_frame_requested
+        and existing_result is not None
+        and existing_result.stem_scan is not None
+        and "stem" in reusable
+    )
+    sample_region_reused = bool(
+        existing_result is not None
+        and existing_result.sample_region is not None
+        and "sample_region" in reusable
+    )
+
+    stages = [("Preparing state and physical layout", 1)]
+    if not column_reused:
+        stages.append(("Tracing the electron column", 1))
+    if tem_wave_requested and not wave_reused:
+        stages.append((
+            (
+                "Projecting the cached Objective wave to the recording plane"
+                if wave_source_reused
+                else "Calculating the TEM wave image"
+            ),
+            1,
+        ))
+    if geometric_specimen_transport_requested and not elastic_reused:
         stages.append(
             (
                 "Transporting electrons through the specimen",
                 max(int(state.electron_gun.ray_count), 1),
             )
         )
-    stages.extend(
-        (
-            ("Tracing the energy filter", 1),
-            ("Solving scan geometry", 1),
-            ("Building scan-ray playback", 1),
+    if eds_point_requested and not eds_reused:
+        stages.append(
+            (
+                "Calculating the EDS point spectrum",
+                (
+                    1
+                    if elastic_reused
+                    or geometric_specimen_transport_requested
+                    else max(int(state.electron_gun.ray_count), 1)
+                ),
+            )
         )
-    )
-    if stem_frame_requested:
+    if not energy_filter_reused:
+        stages.append(("Tracing the energy filter", 1))
+    if not scan_geometry_reused:
+        stages.append(("Solving scan geometry", 1))
+    if not scan_paths_reused:
+        stages.append(("Building scan-ray playback", 1))
+    if stem_frame_requested and not stem_reused:
         stages.append(
             (
                 "Calculating the STEM detector frame",
@@ -233,61 +351,206 @@ def calculate(
             label,
         )
 
+    calculated_products: set[str] = set()
+    reused_products: set[str] = set()
     report_stage()
-    ensure_recording_system(state)
-    ensure_energy_filter(state)
-    ensure_corrector_structure(state)
-    normalise_component_names(state)
     layout = apply_physical_layout_to_state(state)
     ensure_recording_system(state)
     ensure_corrector_structure(state)
     advance_stage()
-    simulation = run(state, resolved_layout=layout)
-    advance_stage()
-    specimen_interactions = None
-    if tem_wave_requested:
-        specimen_interactions = run_specimen_interactions(
-            state,
-            simulation,
-            SpecimenInteractionRequest.tem_wave(),
+
+    if column_reused:
+        previous_simulation = existing_result.simulation
+        metrics = dict(previous_simulation.metrics)
+        surviving_fraction = float(
+            metrics.get("sample_beam_surviving_fraction", 0.0)
         )
-        wave_imaging = specimen_interactions.wave_imaging
+        source_current_pa = effective_source_current_pa(state)
+        metrics.update({
+            "column_current_limit_percent": (
+                column_current_limit_percent(state)
+            ),
+            "effective_source_current_pa": source_current_pa,
+            "sample_surviving_current_pa": (
+                source_current_pa * surviving_fraction
+            ),
+        })
+        simulation = replace(previous_simulation, metrics=metrics)
+        reused_products.add("column")
+    else:
+        run_kwargs = {"resolved_layout": layout}
+        if existing_result is not None:
+            run_kwargs["existing_simulation"] = existing_result.simulation
+        simulation = run(state, **run_kwargs)
+        calculated_products.add("column")
+        if incident_reused:
+            reused_products.add("incident")
         advance_stage()
+
+    keep_observables: set[SpecimenObservable] = set()
+    previous_interactions = (
+        existing_result.specimen_interactions
+        if existing_result is not None
+        else None
+    )
+    if previous_interactions is not None and incident_reused:
+        if wave_reused or wave_source_reused:
+            keep_observables.add(SpecimenObservable.COHERENT_ELASTIC_WAVE)
+        if "elastic" in reusable:
+            keep_observables.add(SpecimenObservable.ELASTIC_TRANSPORT)
+        if "eds" in reusable:
+            keep_observables.add(SpecimenObservable.CHARACTERISTIC_X_RAY)
+        if previous_interactions.inelastic_distribution is not None:
+            keep_observables.add(SpecimenObservable.STOCHASTIC_INELASTIC)
+    specimen_interactions = retain_specimen_observables(
+        previous_interactions,
+        frozenset(keep_observables),
+    )
+
+    if tem_wave_requested:
+        if wave_reused:
+            wave_imaging = existing_result.wave_imaging
+            reused_products.add("wave")
+        elif wave_source_reused:
+            wave_imaging = reproject_wave_image(
+                state, existing_result.wave_imaging
+            )
+            reused_products.add("wave_source")
+            calculated_products.add("wave_projection")
+            if specimen_interactions is not None:
+                interaction_metrics = dict(specimen_interactions.metrics)
+                interaction_metrics["dependency_signatures"] = signatures
+                specimen_interactions = replace(
+                    specimen_interactions,
+                    wave_imaging=wave_imaging,
+                    metrics=interaction_metrics,
+                )
+            advance_stage()
+        else:
+            specimen_interactions = run_specimen_interactions(
+                state,
+                simulation,
+                SpecimenInteractionRequest.tem_wave(),
+                existing_result=specimen_interactions,
+            )
+            wave_imaging = specimen_interactions.wave_imaging
+            calculated_products.add("wave")
+            advance_stage()
     else:
         wave_imaging = None
+        if specimen_interactions is not None:
+            specimen_interactions = retain_specimen_observables(
+                specimen_interactions,
+                frozenset(
+                    specimen_interactions.completed_observables
+                    - {SpecimenObservable.COHERENT_ELASTIC_WAVE}
+                ),
+            )
+
     if geometric_specimen_transport_requested:
-        specimen_interactions = run_specimen_interactions(
-            state,
-            simulation,
-            SpecimenInteractionRequest.elastic_point(),
-            existing_result=specimen_interactions,
-            progress_callback=report_current_stage_progress,
-        )
+        if elastic_reused:
+            reused_products.add("elastic")
+        else:
+            specimen_interactions = run_specimen_interactions(
+                state,
+                simulation,
+                SpecimenInteractionRequest.elastic_point(),
+                existing_result=specimen_interactions,
+                progress_callback=report_current_stage_progress,
+            )
+            calculated_products.add("elastic")
+            advance_stage()
+    if eds_point_requested:
+        if eds_reused:
+            reused_products.add("eds")
+        else:
+            from temsim.component_keys import EDS_DETECTOR_SYSTEM
+            from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
+
+            detector_geometry = EDSDetectorArrayGeometry.from_part_data(
+                state._resolved_assembly.part(EDS_DETECTOR_SYSTEM).data
+            )
+            specimen_interactions = run_specimen_interactions(
+                state,
+                simulation,
+                SpecimenInteractionRequest.eds_point(),
+                detector_geometry=detector_geometry,
+                existing_result=specimen_interactions,
+                progress_callback=report_current_stage_progress,
+            )
+            calculated_products.add("eds")
+            advance_stage()
+        if (
+            specimen_interactions is not None
+            and specimen_interactions.elastic_transport is not None
+        ):
+            if elastic_reused:
+                reused_products.add("elastic")
+            elif not geometric_specimen_transport_requested:
+                calculated_products.add("elastic")
+    specimen_interactions = run_specimen_interactions(
+        state,
+        simulation,
+        SpecimenInteractionRequest(),
+        existing_result=specimen_interactions,
+    )
+
+    if energy_filter_reused:
+        energy_filter = existing_result.energy_filter
+        reused_products.add("energy_filter")
+    else:
+        energy_filter = simulate_energy_filter(state, simulation)
+        calculated_products.add("energy_filter")
         advance_stage()
-    if specimen_interactions is None:
-        specimen_interactions = run_specimen_interactions(
-            state,
-            simulation,
-            SpecimenInteractionRequest(),
-        )
-    energy_filter = simulate_energy_filter(state, simulation)
-    advance_stage()
-    scan_geometry = calculate_scan_geometry(state)
-    advance_stage()
-    scan_ray_paths = calculate_scan_ray_paths(state, simulation)
-    advance_stage()
-    stem_scan = None
+
+    if scan_geometry_reused:
+        scan_geometry = existing_result.scan_geometry
+        reused_products.add("scan_geometry")
+    else:
+        scan_geometry = calculate_scan_geometry(state)
+        calculated_products.add("scan_geometry")
+        advance_stage()
+
+    if scan_paths_reused:
+        scan_ray_paths = existing_result.scan_ray_paths
+        reused_products.add("scan_ray_paths")
+    else:
+        scan_ray_paths = calculate_scan_ray_paths(state, simulation)
+        calculated_products.add("scan_ray_paths")
+        advance_stage()
+
     if stem_frame_requested:
-        stem_scan = calculate_stem_scan_frame(
-            state,
-            simulation,
-            specimen_interactions=specimen_interactions,
-            progress_callback=report_current_stage_progress,
-        )
-        advance_stage()
+        if stem_reused:
+            stem_scan = existing_result.stem_scan
+            reused_products.add("stem")
+        else:
+            stem_scan = calculate_stem_scan_frame(
+                state,
+                simulation,
+                specimen_interactions=specimen_interactions,
+                progress_callback=report_current_stage_progress,
+            )
+            calculated_products.add("stem")
+            advance_stage()
+    else:
+        stem_scan = None
+    sample_region = (
+        existing_result.sample_region if sample_region_reused else None
+    )
+    if sample_region_reused:
+        reused_products.add("sample_region")
+
     state.energy_filter_result = energy_filter
-    lens_crossovers = detect_all_lens_crossovers(
-        [simulation.incident, *simulation.branches.values()], state.lenses)
+    if column_reused and existing_result.lens_crossovers:
+        lens_crossovers = existing_result.lens_crossovers
+        aperture_stops = existing_result.aperture_stops
+        reused_products.add("diagnostics")
+    else:
+        lens_crossovers = detect_all_lens_crossovers(
+            [simulation.incident, *simulation.branches.values()], state.lenses
+        )
+        aperture_stops = aperture_stop_records(state)
+        calculated_products.add("diagnostics")
     state.all_lens_crossovers = lens_crossovers
     result = CalculationResult(
         simulation=simulation,
@@ -300,8 +563,12 @@ def calculate(
         scan_geometry=scan_geometry,
         scan_ray_paths=scan_ray_paths,
         stem_scan=stem_scan,
+        sample_region=sample_region,
         lens_crossovers=tuple(lens_crossovers),
-        aperture_stops=aperture_stop_records(state),
+        aperture_stops=tuple(aperture_stops),
+        signatures=signatures,
+        calculated_products=frozenset(calculated_products),
+        reused_products=frozenset(reused_products),
     )
     advance_stage()
     return result

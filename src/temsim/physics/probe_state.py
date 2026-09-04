@@ -8,6 +8,7 @@ import math
 import numpy as np
 
 from temsim.physics.beam_statistics import branch_sample_statistics
+from temsim.physics.beam_current import effective_source_current_a
 from temsim.physics.core import electron
 from temsim.optics.aberrations import configured_probe_defocus_mm
 
@@ -107,7 +108,7 @@ def probe_state_from_simulation(state, simulation) -> ProbeState:
     covariance = np.einsum("n,ni,nj->ij", conditional, centred, centred)
     statistics = branch_sample_statistics(branch)
     _charge, _momentum, wavelength_nm = electron(state)
-    emitted_current_a = max(float(state.electron_gun.emitted_current_a), 0.0)
+    source_current_a = effective_source_current_a(state)
     objective = state.objective_lens
     configured_defocus_nm = configured_probe_defocus_mm(state) * 1.0e6
     ray_waist_offset_nm = statistics.waist_offset_m * 1.0e9
@@ -120,7 +121,7 @@ def probe_state_from_simulation(state, simulation) -> ProbeState:
     probe_sigma_nm = statistics.radius_rms_m * 1.0e9 / math.sqrt(2.0)
     return ProbeState(
         surviving_fraction=surviving_fraction,
-        surviving_current_pa=emitted_current_a * 1.0e12 * surviving_fraction,
+        surviving_current_pa=source_current_a * 1.0e12 * surviving_fraction,
         centroid_nm=(statistics.mean_x_m * 1.0e9, statistics.mean_y_m * 1.0e9),
         chief_angle_mrad=(statistics.mean_tx_rad * 1.0e3, statistics.mean_ty_rad * 1.0e3),
         angular_covariance_mrad2=tuple(

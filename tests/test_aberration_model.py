@@ -109,7 +109,7 @@ def test_effective_coefficients_persist_and_inactive_corrector_is_identity():
     }
     payload = state.to_dict()
     restored = type(state).from_dict(payload)
-    assert restored.schema_version == 73
+    assert restored.schema_version == 74
     assert restored.image_aberrations == state.image_aberrations
     before, after, diagnostics = effective_aberration_comparison(
         restored, "image"

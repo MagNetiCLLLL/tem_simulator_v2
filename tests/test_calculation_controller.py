@@ -15,6 +15,7 @@ from temsim.optics.column import default_state
 def test_high_accuracy_pipeline_reports_completed_real_stages(monkeypatch):
     state = default_state()
     state.sample.wave_enabled = False
+    state.sample.eds_enabled = False
     state.ac_deflector.scan_enabled = False
     simulation = SimpleNamespace(
         incident=SimpleNamespace(),
@@ -121,6 +122,7 @@ def test_geometric_real_sample_requests_finite_specimen_transport():
 def test_high_accuracy_pipeline_maps_stem_batches_inside_stage(monkeypatch):
     state = default_state()
     state.sample.wave_enabled = False
+    state.sample.eds_enabled = False
     state.ac_deflector.enabled = True
     state.ac_deflector.scan_enabled = True
     state.ac_deflector.scan_pixels_x = 32
@@ -286,6 +288,9 @@ def test_high_accuracy_defaults_fit_32_gib_budget_and_extreme_request_is_rejecte
 
 def test_high_accuracy_memory_guard_includes_tem_wave_grid():
     state = default_state()
+    for detector in state.stem_detectors:
+        detector.inserted = False
+        detector.readout_enabled = False
     state.illumination_mode = "TEM"
     state.sample.wave_enabled = True
     state.sample.wave_multislice_enabled = False

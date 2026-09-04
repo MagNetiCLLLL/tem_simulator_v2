@@ -1,11 +1,11 @@
-"""Gun-conditioned TEM wave propagation through specimen and physical Camera.
+"""Gun-conditioned TEM wave propagation to a physical recording plane.
 
 The complete source-to-specimen ray bundle defines the incident coherent mode,
 including clipping, focusing, affine steering, Larmor rotation and enabled
 stigmators/correctors.  The specimen uses the selected multislice or phase
 object model.  Its exit wave is then transferred through the Objective pupil
 and higher-order image aberrations and through the complete post-specimen
-projector Jacobian to the physical Camera and detector PSF.
+projector Jacobian to the active FluScreen/Camera and detector PSF.
 
 This is a non-OEM paraxial/multislice model, not a bonded-charge,
 first-principles-potential or full Maxwell field solution.
@@ -26,7 +26,8 @@ from temsim.physics.compute_backend import (
 from temsim.physics.multislice import propagate_multislice
 from temsim.physics.beam_statistics import branch_sample_statistics
 from temsim.physics.wave_fft import apply_coherent_transfer
-from temsim.physics.camera_wave import project_wave_to_camera
+from temsim.physics.camera_wave import project_wave_to_recording_plane
+from temsim.physics.recording_stop import active_tem_recording_plane
 from temsim.optics.aberrations import (
     aberration_phase_rad,
     active_effective_aberrations,
@@ -62,6 +63,149 @@ class WaveImagingResult:
     spatial_frequency_inv_angstrom: np.ndarray
     spatial_frequency_y_inv_angstrom: np.ndarray
     metrics: dict
+    projector_checkpoint: "ProjectorWaveCheckpoint | None" = None
+
+
+@dataclass(frozen=True)
+class ProjectorWaveCheckpoint:
+    """Reusable Objective-side waves for downstream D/I/P reprojection.
+
+    Each entry is one frozen-phonon configuration after the Objective pupil
+    and residual image-aberration phase.  Keeping the configurations separate
+    is required: detector intensities are averaged incoherently, so projecting
+    only their coherent mean would change the physical observable.
+    """
+
+    objective_wave_configurations: tuple[np.ndarray, ...]
+    x_angstrom: np.ndarray
+    y_angstrom: np.ndarray
+    wavelength_angstrom: float
+    convergence_semiangle_rad: float
+
+
+def _readonly_array(values, *, dtype=None) -> np.ndarray:
+    result = np.array(values, dtype=dtype, order="C", copy=True)
+    result.setflags(write=False)
+    return result
+
+
+def _project_objective_configurations(state, checkpoint):
+    """Project cached Objective-side waves through the current D/I/P state."""
+
+    raw_image = None
+    raw_electron_optical_image = None
+    image_m2 = None
+    camera_projection = None
+    for configuration_index, objective_wave in enumerate(
+        checkpoint.objective_wave_configurations, start=1
+    ):
+        camera_projection = project_wave_to_recording_plane(
+            state,
+            objective_wave,
+            checkpoint.x_angstrom,
+            checkpoint.y_angstrom,
+            checkpoint.wavelength_angstrom,
+            convergence_semiangle_rad=(
+                checkpoint.convergence_semiangle_rad
+            ),
+        )
+        image_configuration = np.asarray(
+            camera_projection.intensity, dtype=np.float64
+        )
+        electron_optical_configuration = np.asarray(
+            camera_projection.electron_optical_intensity,
+            dtype=np.float64,
+        )
+        if raw_image is None:
+            raw_image = np.zeros_like(image_configuration)
+            raw_electron_optical_image = np.zeros_like(
+                electron_optical_configuration
+            )
+            image_m2 = np.zeros_like(image_configuration)
+        image_delta = image_configuration - raw_image
+        raw_image += image_delta / configuration_index
+        image_m2 += image_delta * (image_configuration - raw_image)
+        raw_electron_optical_image += (
+            electron_optical_configuration - raw_electron_optical_image
+        ) / configuration_index
+
+    if camera_projection is None:
+        raise ValueError("Projector checkpoint contains no wave configurations.")
+    return (
+        raw_image,
+        raw_electron_optical_image,
+        image_m2,
+        camera_projection,
+    )
+
+
+def _detector_probability(image, x_mm, y_mm) -> float:
+    """Integrate one detector-plane density using its physical pixel area."""
+
+    x_values = np.asarray(x_mm, dtype=float)
+    y_values = np.asarray(y_mm, dtype=float)
+    if x_values.size < 2 or y_values.size < 2:
+        return 0.0
+    pixel_area_m2 = (
+        float(x_values[1] - x_values[0])
+        * float(y_values[1] - y_values[0])
+        * 1.0e-6
+    )
+    return float(np.sum(np.asarray(image, dtype=float)) * pixel_area_m2)
+
+
+def reproject_wave_image(state, result: WaveImagingResult) -> WaveImagingResult:
+    """Reuse specimen/Objective work and recompute only the recording plane."""
+
+    checkpoint = result.projector_checkpoint
+    if checkpoint is None:
+        raise ValueError(
+            "The cached TEM result has no Objective-side projector checkpoint."
+        )
+    (
+        raw_image,
+        raw_electron_optical_image,
+        image_m2,
+        camera_projection,
+    ) = _project_objective_configurations(state, checkpoint)
+    configuration_count = len(checkpoint.objective_wave_configurations)
+    if configuration_count > 1:
+        image_standard_error = np.sqrt(
+            image_m2 / (configuration_count - 1) / configuration_count
+        )
+        relative_standard_error = math.sqrt(
+            float(np.mean(image_standard_error**2))
+            / max(float(np.mean(raw_image**2)), 1.0e-30)
+        )
+    else:
+        relative_standard_error = 0.0
+    metrics = dict(result.metrics)
+    metrics.update(camera_projection.metrics)
+    metrics.update({
+        "camera_collected_zero_loss_relative_intensity": (
+            _detector_probability(
+                raw_image,
+                camera_projection.x_mm,
+                camera_projection.y_mm,
+            )
+        ),
+        "camera_collected_intensity_aggregation": (
+            "incoherent_configuration_mean"
+        ),
+        "image_configuration_relative_standard_error": (
+            relative_standard_error
+        ),
+        "projector_checkpoint_reused": True,
+        "projector_checkpoint_configuration_count": configuration_count,
+    })
+    return replace(
+        result,
+        image_intensity=_normalise_image(raw_image),
+        camera_electron_optical_intensity=raw_electron_optical_image,
+        camera_x_mm=camera_projection.x_mm,
+        camera_y_mm=camera_projection.y_mm,
+        metrics=metrics,
+    )
 
 
 @dataclass(frozen=True)
@@ -92,11 +236,16 @@ def tem_wave_imaging_enabled(state) -> bool:
     """
 
     scene = SpecimenScene.from_state(state)
+    try:
+        active_tem_recording_plane(state)
+        recording_available = True
+    except ValueError:
+        recording_available = False
     return bool(
         getattr(state.sample, "wave_enabled", False)
         and str(getattr(state, "illumination_mode", "TEM")).upper() == "TEM"
         and scene.structure_available
-        and bool(getattr(getattr(state, "camera", None), "inserted", True))
+        and recording_available
     )
 
 
@@ -933,15 +1082,11 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
     fft_fallback_seed = (
         specimen_metrics.get("fallback_reason") or wave_fallback_reason
     )
-    raw_image = np.zeros((ny, nx), dtype=np.float64)
-    raw_electron_optical_image = np.zeros((ny, nx), dtype=np.float64)
-    image_m2 = np.zeros((ny, nx), dtype=np.float64)
     raw_diffraction = np.zeros((ny, nx), dtype=np.float64)
     coherent_exit_wave = np.zeros((ny, nx), dtype=np.complex128)
+    objective_wave_configurations = []
     fft_records = []
-    for configuration_index, exit_configuration in enumerate(
-        exit_waves, start=1
-    ):
+    for exit_configuration in exit_waves:
         objective_image_wave, diffraction_configuration, fft_diagnostics = (
             apply_coherent_transfer(
                 exit_configuration,
@@ -950,32 +1095,30 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
                 fallback_reason=fft_fallback_seed,
             )
         )
-        camera_projection = project_wave_to_camera(
-            state,
-            objective_image_wave,
-            x_axis,
-            y_axis,
-            wavelength_angstrom,
-            convergence_semiangle_rad=float(
-                ray_stats["convergence_semiangle_rad"]
-            ),
+        objective_wave_configurations.append(
+            _readonly_array(objective_image_wave)
         )
-        image_configuration = camera_projection.intensity
-        electron_optical_configuration = (
-            camera_projection.electron_optical_intensity
-        )
-        image_delta = image_configuration - raw_image
-        raw_image += image_delta / configuration_index
-        image_m2 += image_delta * (image_configuration - raw_image)
-        raw_electron_optical_image += (
-            electron_optical_configuration - raw_electron_optical_image
-        ) / configuration_index
         raw_diffraction += diffraction_configuration
         coherent_exit_wave += exit_configuration
         fft_records.append(fft_diagnostics)
         if fft_diagnostics.compute_backend != fft_backend:
             fft_backend = fft_diagnostics.compute_backend
             fft_fallback_seed = fft_diagnostics.fallback_reason
+    projector_checkpoint = ProjectorWaveCheckpoint(
+        objective_wave_configurations=tuple(objective_wave_configurations),
+        x_angstrom=_readonly_array(x_axis, dtype=np.float64),
+        y_angstrom=_readonly_array(y_axis, dtype=np.float64),
+        wavelength_angstrom=float(wavelength_angstrom),
+        convergence_semiangle_rad=float(
+            ray_stats["convergence_semiangle_rad"]
+        ),
+    )
+    (
+        raw_image,
+        raw_electron_optical_image,
+        image_m2,
+        camera_projection,
+    ) = _project_objective_configurations(state, projector_checkpoint)
     raw_diffraction /= len(exit_waves)
     exit_wave = coherent_exit_wave / len(exit_waves)
     linear_diffraction = raw_diffraction / max(
@@ -1095,7 +1238,9 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         "image_formation_scope": (
             "electron gun through complete illumination column to specimen; "
             "multislice interaction; Objective pupil and complete projector "
-            "system to physical Camera with detector PSF"
+            "field transfer to the active recording plane with terminal mask "
+            "and detector PSF; intermediate post-sample aperture wave masks "
+            "are not yet applied"
         ),
         "exit_wave_representation": "coherent ensemble mean",
         "displayed_intensity_average": (
@@ -1129,6 +1274,14 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         "image_configuration_relative_standard_error": (
             image_relative_standard_error
         ),
+        "projector_checkpoint_reused": False,
+        "projector_checkpoint_configuration_count": len(
+            projector_checkpoint.objective_wave_configurations
+        ),
+        "projector_checkpoint_scope": (
+            "specimen and Objective pupil/aberration output retained before "
+            "the Diffraction/Intermediate/P1/P2 recording-plane transfer"
+        ),
         "wave_sampling_truncates_illumination": bool(
             ray_stats["convergence_semiangle_rad"] * 1.0e3
             > float(specimen_metrics["maximum_isotropic_angle_mrad"])
@@ -1139,6 +1292,16 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         ),
         **camera_projection.metrics,
     }
+    metrics["camera_collected_zero_loss_relative_intensity"] = (
+        _detector_probability(
+            raw_image,
+            camera_projection.x_mm,
+            camera_projection.y_mm,
+        )
+    )
+    metrics["camera_collected_intensity_aggregation"] = (
+        "incoherent_configuration_mean"
+    )
     custom_cif_path = specimen_metrics.get("atomistic_source_path")
     display_key = (
         f"cif:{Path(custom_cif_path).name}"
@@ -1168,4 +1331,5 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         spatial_frequency_inv_angstrom=frequencies_x,
         spatial_frequency_y_inv_angstrom=frequencies_y,
         metrics=metrics,
+        projector_checkpoint=projector_checkpoint,
     )

@@ -251,6 +251,9 @@ def test_tem_atomistic_frozen_phonons_average_intensities_on_rectangular_grid():
     _require_atomistic_backend()
     state = _small_atomistic_state()
     state.illumination_mode = "TEM"
+    for detector in state.stem_detectors:
+        detector.inserted = False
+        detector.readout_enabled = False
     state.sample.wave_frozen_phonon_enabled = True
     state.sample.wave_frozen_phonon_configurations = 2
     state.sample.wave_frozen_phonon_seed = 77

@@ -483,6 +483,39 @@ def test_engine_enriches_and_reuses_one_shared_specimen_result(monkeypatch):
     assert len(calls) == 1
 
 
+def test_same_scene_does_not_reuse_wave_after_column_state_changes(monkeypatch):
+    import temsim.physics.wave_imaging as wave_imaging
+
+    state = default_state()
+    state.sample.wave_enabled = True
+    simulation = SimpleNamespace(real_interactions=None)
+    waves = [object(), object()]
+    calls = []
+
+    def fake_wave(*_args, **_kwargs):
+        calls.append(True)
+        return waves[len(calls) - 1]
+
+    monkeypatch.setattr(wave_imaging, "simulate_wave_image", fake_wave)
+    first = run_specimen_interactions(
+        state,
+        simulation,
+        SpecimenInteractionRequest.tem_wave(),
+    )
+    state.lenses[0].percent += 1.0
+    second = run_specimen_interactions(
+        state,
+        SimpleNamespace(real_interactions=None),
+        SpecimenInteractionRequest.tem_wave(),
+        existing_result=first,
+    )
+
+    assert calls == [True, True]
+    assert first.wave_imaging is waves[0]
+    assert second.wave_imaging is waves[1]
+    assert second.metrics["existing_result_reused"] is False
+
+
 def test_changed_point_request_recalculates_only_point_observables(monkeypatch):
     import temsim.detector.eds_signal as eds_signal
 

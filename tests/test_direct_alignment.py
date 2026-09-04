@@ -55,7 +55,7 @@ def test_equivalent_image_lens_mode_round_trips_in_state(assembled_state):
     assert restored.equivalent_image_lenses_enabled is True
 
 
-def test_toml_defines_the_four_exact_direct_alignment_controls():
+def test_toml_defines_the_five_exact_direct_alignment_controls():
     catalog = load_operating_mode_catalog()
     definitions = {
         definition.key: definition
@@ -63,17 +63,21 @@ def test_toml_defines_the_four_exact_direct_alignment_controls():
     }
 
     assert set(definitions) == {
+        "spot_size_current_limit",
         "nanoprobe_convergence",
         "microprobe_illumination",
         "image_magnification",
         "diffraction_camera_length",
     }
     expected = {
+        "spot_size_current_limit": (
+            "micro_probe", "%", 0.1, 100.0, 100.0, (),
+        ),
         "nanoprobe_convergence": (
             "nano_probe", "mrad", 3.0, 60.0, 30.0, CONDENSER_KEYS,
         ),
         "microprobe_illumination": (
-            "micro_probe", "um", 0.5, 2.2, 2.0, CONDENSER_KEYS,
+            "micro_probe", "um", 0.75, 2.2, 2.0, CONDENSER_KEYS,
         ),
         "image_magnification": (
             "imaging", "x", 10.0, 1_000_000.0, 65.7, IMAGE_KEYS,
@@ -102,6 +106,10 @@ def test_toml_defines_the_four_exact_direct_alignment_controls():
             assert int(
                 definition.targets["maximum_continuation_stages"]
             ) == (10 if key == "diffraction_camera_length" else 8)
+    spot = definitions["spot_size_current_limit"]
+    assert spot.active_mode_keys == ("micro_probe", "nano_probe")
+    assert spot.state_parameters == ("column_current_limit_percent",)
+    assert not spot.devices
     image = definitions["image_magnification"]
     assert image.constraint == "sample_to_recording_plane_B_zero"
     assert image.targets["preset_magnifications"] == [
@@ -178,6 +186,20 @@ def test_beam_statistics_use_current_weighted_95_percent_quantiles():
     assert statistics.convergence_99_rad == pytest.approx(math.atan(0.1))
     assert statistics.radius_95_m == pytest.approx(0.0, abs=1.0e-18)
     assert statistics.radius_99_m == pytest.approx(1.0e-6)
+
+
+def test_beam_statistics_report_weighted_surviving_current_fraction():
+    statistics = transverse_beam_statistics(
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        alive=np.asarray((True, False, True)),
+        weights=np.asarray((0.15, 0.55, 0.30)),
+    )
+
+    assert statistics.surviving_rays == 2
+    assert statistics.surviving_fraction == pytest.approx(0.45)
 
 
 @pytest.mark.parametrize(
@@ -425,24 +447,77 @@ def test_image_working_points_commit_the_five_lens_solution(
         )
 
 
-def test_microprobe_area_keeps_the_parallel_branch_and_c2_headroom(
-    assembled_state,
+@pytest.mark.parametrize("target_um", (0.75, 1.0, 1.5, 2.0, 2.2))
+def test_microprobe_area_keeps_the_parallel_branch_and_c2_c3_bounds(
+    assembled_state, target_um,
 ):
     state = _state_copy(assembled_state)
     apply_operating_mode_pair(state, "micro_probe", "imaging")
     before = _lens_values(state)
 
-    result = apply_direct_alignment(state, "microprobe_illumination", 2.0)
+    result = apply_direct_alignment(
+        state, "microprobe_illumination", target_um
+    )
     after = _lens_values(state)
 
     assert result.success
-    assert result.achieved == pytest.approx(2.0, rel=0.05)
+    assert result.achieved == pytest.approx(target_um, rel=0.05)
     assert abs(result.constraint_value) <= 25.0
-    assert result.convergence_95_mrad <= 0.5
-    assert 0.0 < after["condenser_lens_2"] <= 70.0
+    assert result.convergence_95_mrad <= 0.3
+    assert result.convergence_99_mrad <= 0.5
+    assert 10.0 <= after["condenser_lens_2"] <= 25.0
+    assert 30.0 <= after["condenser_lens_3"] <= 40.0
     assert {
         key for key in before if after[key] != before[key]
     } == set(CONDENSER_KEYS)
+
+
+@pytest.mark.parametrize("probe_mode,projector", (
+    ("micro_probe", "imaging"),
+    ("nano_probe", "diffraction"),
+))
+def test_spot_size_caps_physical_current_without_changing_rays_or_lenses(
+    assembled_state, probe_mode, projector,
+):
+    state = _state_copy(assembled_state)
+    apply_operating_mode_pair(state, probe_mode, projector)
+    before_lenses = _lens_values(state)
+    before_ray_count = state.electron_gun.ray_count
+
+    result = apply_direct_alignment(
+        state, "spot_size_current_limit", 37.5
+    )
+
+    assert result.success
+    assert result.achieved == pytest.approx(37.5)
+    assert result.strengths == {}
+    assert result.state_updates == {
+        "column_current_limit_percent": pytest.approx(37.5)
+    }
+    assert result.constraint_value == pytest.approx(
+        state.electron_gun.emitted_current_a * 1.0e12 * 0.375
+    )
+    assert state.column_current_limit_percent == pytest.approx(37.5)
+    assert state.electron_gun.ray_count == before_ray_count
+    assert _lens_values(state) == before_lenses
+
+
+def test_spot_size_current_limit_round_trips_and_scales_stem_and_eds(
+    assembled_state,
+):
+    from temsim.detector.eds_signal import default_eds_incident_electrons
+    from temsim.detector.stem_signal import source_current_pa
+
+    state = _state_copy(assembled_state)
+    state.column_current_limit_percent = 40.0
+    restored = _state_copy(state)
+    current_pa = state.electron_gun.emitted_current_a * 1.0e12 * 0.4
+
+    assert restored.column_current_limit_percent == pytest.approx(40.0)
+    assert source_current_pa(state) == pytest.approx(current_pa)
+    assert default_eds_incident_electrons(
+        state, 2.0e-6
+    ) == pytest.approx(current_pa * 1.0e-12 * 2.0e-6 / 1.602176634e-19)
 
 
 def test_camera_length_uses_main_screen_reference_and_commits(
@@ -529,6 +604,115 @@ def test_canonical_diffraction_basis_removes_objective_field_position_term(
     assert np.linalg.norm(canonical.j_img, ord=2) <= 1.0e-3
     assert np.sqrt(abs(np.linalg.det(canonical.j_diff_m_per_rad))) == (
         pytest.approx(0.05, rel=3.0e-2)
+    )
+
+
+def test_tem_wave_diffraction_uses_canonical_transfer_at_inserted_screen(
+    assembled_state,
+):
+    from temsim.physics.camera_wave import project_wave_to_recording_plane
+    from temsim.physics.simulation import run
+
+    state = _state_copy(assembled_state)
+    apply_operating_mode_pair(state, "micro_probe", "diffraction")
+    state.fluorescent_screen.inserted = True
+    state.camera.inserted = False
+    result = apply_direct_alignment(
+        state, "diffraction_camera_length", 0.05
+    )
+    assert result.success
+    axis = np.linspace(-8.0, 8.0, 32)
+    xx, yy = np.meshgrid(axis, axis, indexing="xy")
+    wave = np.exp(-(xx * xx + yy * yy) / 16.0).astype(np.complex128)
+
+    projection = project_wave_to_recording_plane(
+        state,
+        wave,
+        axis,
+        axis,
+        0.0197,
+        convergence_semiangle_rad=1.0e-4,
+    )
+    phase_shifted = project_wave_to_recording_plane(
+        state,
+        wave * np.exp(1j * 2.0 * np.pi * xx / 4.0),
+        axis,
+        axis,
+        0.0197,
+        convergence_semiangle_rad=1.0e-4,
+    )
+
+    assert projection.metrics["recording_plane_key"] == "flu_screen"
+    assert projection.metrics["recording_plane_observable"] == (
+        "diffraction_pattern"
+    )
+    assert projection.metrics["projector_transfer_input_basis"] == (
+        "specimen_canonical_momentum"
+    )
+    assert projection.method == "collins_fft_linear_canonical_transform"
+    assert projection.metrics[
+        "camera_collected_zero_loss_relative_intensity"
+    ] == pytest.approx(1.0, rel=1.0e-10)
+    assert np.count_nonzero(projection.intensity) > 0
+    assert not np.allclose(projection.intensity, phase_shifted.intensity)
+    assert np.linalg.norm(
+        np.asarray(projection.metrics["projector_image_map"]), ord=2
+    ) <= 1.0e-3
+    state.acceleration_enabled = False
+    state.step_mm = 5.0
+    state.history_step_mm = 5.0
+    emitter = getattr(state.electron_gun, "emitter", None)
+    if emitter is None:
+        state.electron_gun.ray_count = 9
+    else:
+        emitter.ray_count = 9
+    simulation = run(state)
+    expected_length_m = np.sqrt(abs(np.linalg.det(
+        np.asarray(
+            projection.metrics["projector_diffraction_map_m_per_rad"]
+        )
+    )))
+
+    assert simulation.metrics["transfer_analysis_plane_key"] == "flu_screen"
+    assert simulation.metrics["transfer_analysis_plane_z_mm"] == pytest.approx(
+        state.fluorescent_screen.z_mm
+    )
+    assert simulation.metrics["effective_camera_length_m"] == pytest.approx(
+        expected_length_m, rel=1.0e-10
+    )
+
+
+def test_canonical_transfer_keeps_validation_step_with_stigmator_enabled(
+    assembled_state,
+):
+    from temsim.optics.direct_alignment import diffraction_transfer
+
+    state = _state_copy(assembled_state)
+    apply_operating_mode_pair(state, "micro_probe", "diffraction")
+    assert apply_direct_alignment(
+        state, "diffraction_camera_length", 0.05
+    ).success
+    stigmator = next(
+        component
+        for component in state.stigmators
+        if component.key == "diffraction_stigmator"
+    )
+    stigmator.strength_x_percent = 0.001
+    stigmator.strength_y_percent = -0.0005
+    state.step_mm = 0.5
+    coarse_request = diffraction_transfer(
+        state, state.fluorescent_screen.z_mm
+    )
+    state.step_mm = 0.025
+    validation_request = diffraction_transfer(
+        state, state.fluorescent_screen.z_mm
+    )
+
+    np.testing.assert_allclose(
+        coarse_request.matrix,
+        validation_request.matrix,
+        rtol=0.0,
+        atol=0.0,
     )
 
 

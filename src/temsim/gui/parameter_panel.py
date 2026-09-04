@@ -358,7 +358,7 @@ class ParameterPanel(QWidget):
             if metrics is not None
             else ""
         )
-        self.energy_filter_status.setText(
+        detail_text = (
             f"{energy_filter.calibration_status}; public topology: one large "
             "tapered prism and 10 multipoles (most dodecapoles; individual "
             "assignments and exact production order not public; M01-M10 are "
@@ -371,6 +371,12 @@ class ParameterPanel(QWidget):
             f"{energy_filter.zebra_detector.alignment_height_mm:g} mm."
             f"{metric_text}"
         )
+        self.energy_filter_status.setText(
+            f"{energy_filter.calibration_status} | prism radius "
+            f"{energy_filter.prism_radius_mm:g} mm | Zebra 5 × 2048"
+            + metric_text
+        )
+        self.energy_filter_status.setToolTip(detail_text)
 
     def _energy_filter_controls_changed(self, _value=None) -> None:
         if self._updating or self._runtime_target is None:
@@ -704,9 +710,13 @@ class ParameterPanel(QWidget):
         self.lens_cc.setEnabled(explicit and coefficients_available)
         self.lens_cs.setValue(float(profile.cs_mm or 0.0))
         self.lens_cc.setValue(float(profile.cc_mm or 0.0))
-        self.lens_aberration_provenance.setText(
+        provenance_detail = (
             f"{profile.status}: {profile.model}. {profile.source}."
         )
+        self.lens_aberration_provenance.setText(
+            f"{profile.status} | {profile.model}"
+        )
+        self.lens_aberration_provenance.setToolTip(provenance_detail)
         polarity = int(getattr(obj, "polarity", 1))
         direction_index = self.lens_field_direction.findData(
             -1 if polarity < 0 else 1

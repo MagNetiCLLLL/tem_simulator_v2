@@ -638,6 +638,60 @@ def run_specimen_interactions(
         if getattr(state, "sample", None) is not None
         else None
     )
+    dependency_signatures: dict[str, str] = {}
+    if callable(getattr(state, "to_dict", None)):
+        from temsim.calculation_cache import (
+            calculation_signatures,
+            matching_products,
+        )
+        from temsim.specimen.interaction_types import (
+            retain_specimen_observables,
+        )
+
+        dependency_signatures = calculation_signatures(state)
+        old_signatures = (
+            existing_result.metrics.get("dependency_signatures", {})
+            if existing_result is not None
+            else {}
+        )
+        if existing_result is not None and old_signatures:
+            reusable_products = matching_products(
+                old_signatures, dependency_signatures
+            )
+            retained_observables: set[SpecimenObservable] = set()
+            has_projector_checkpoint = bool(
+                existing_result.wave_imaging is not None
+                and getattr(
+                    existing_result.wave_imaging,
+                    "projector_checkpoint",
+                    None,
+                )
+                is not None
+            )
+            if (
+                "wave" in reusable_products
+                or (
+                    "wave_source" in reusable_products
+                    and has_projector_checkpoint
+                )
+            ):
+                retained_observables.add(
+                    SpecimenObservable.COHERENT_ELASTIC_WAVE
+                )
+            if "elastic" in reusable_products:
+                retained_observables.add(SpecimenObservable.ELASTIC_TRANSPORT)
+            if "eds" in reusable_products:
+                retained_observables.add(
+                    SpecimenObservable.CHARACTERISTIC_X_RAY
+                )
+            if "incident" in reusable_products:
+                retained_observables.add(
+                    SpecimenObservable.STOCHASTIC_INELASTIC
+                )
+            existing_result = retain_specimen_observables(
+                existing_result,
+                frozenset(retained_observables),
+            )
     compatible_existing = (
         existing_result
         if existing_result is not None and existing_result.scene == scene
@@ -709,26 +763,38 @@ def run_specimen_interactions(
         SpecimenObservable.CHARACTERISTIC_X_RAY in requested
         and eds_spectrum is None
     ):
+        elastic_available_before_eds = elastic_transport is not None
         if detector_geometry is None:
             raise ValueError(
                 "Characteristic X-ray calculation requires EDS detector geometry"
             )
         from temsim.detector.eds_signal import simulate_eds_point
 
+        eds_kwargs = {
+            "simulation": simulation,
+            "x_nm": request.point_x_nm,
+            "y_nm": request.point_y_nm,
+            "dwell_time_s": request.dwell_time_s,
+            "incident_electrons": request.incident_electrons,
+        }
+        if elastic_transport is not None:
+            eds_kwargs["elastic_transport"] = elastic_transport
+        if incident_bundle is not None:
+            eds_kwargs["incident_bundle"] = incident_bundle
+        if progress_callback is not None:
+            eds_kwargs["progress_callback"] = progress_callback
         eds_spectrum = simulate_eds_point(
             state,
             detector_geometry,
-            simulation=simulation,
-            x_nm=request.point_x_nm,
-            y_nm=request.point_y_nm,
-            dwell_time_s=request.dwell_time_s,
-            incident_electrons=request.incident_electrons,
+            **eds_kwargs,
         )
         calculated.add(SpecimenObservable.CHARACTERISTIC_X_RAY)
         elastic_transport = eds_spectrum.elastic_transport
         if elastic_transport is not None:
-            calculated.add(SpecimenObservable.ELASTIC_TRANSPORT)
-        incident_bundle = None
+            if elastic_available_before_eds:
+                reused.add(SpecimenObservable.ELASTIC_TRANSPORT)
+            else:
+                calculated.add(SpecimenObservable.ELASTIC_TRANSPORT)
 
     if (
         SpecimenObservable.ELASTIC_TRANSPORT in requested
@@ -811,6 +877,7 @@ def run_specimen_interactions(
     )
     metrics: dict[str, object] = {
         "contract_version": 5,
+        "dependency_signatures": dependency_signatures,
         "coordinate_system": "right_handed_specimen_frame_electrons_along_+z",
         "position_unit": "nm",
         "direction_unit": "1",

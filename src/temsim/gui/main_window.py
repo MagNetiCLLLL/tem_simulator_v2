@@ -698,19 +698,31 @@ class MainWindow(QMainWindow):
     ) -> None:
         definition = direct_alignment_by_key(key)
         expected_keys = set(definition.devices)
+        expected_state_parameters = set(definition.state_parameters)
         result_keys = set(result.strengths)
-        if result.key != key or result_keys != expected_keys:
+        result_state_updates = dict(result.state_updates or {})
+        if (
+            result.key != key
+            or result_keys != expected_keys
+            or set(result_state_updates) != expected_state_parameters
+        ):
             lenses = {lens.key: lens for lens in self.state.lenses}
             current = {
                 lens_key: float(lenses[lens_key].percent)
                 for lens_key in expected_keys
                 if lens_key in lenses
             }
+            current_state_updates = {
+                name: float(getattr(self.state, name))
+                for name in expected_state_parameters
+                if hasattr(self.state, name)
+            }
             result = replace(
                 result,
                 key=key,
                 success=False,
                 strengths=current,
+                state_updates=current_state_updates,
                 message=(
                     "The background result did not match the submitted "
                     "Direct Alignment key and exact coupled-device set; it "
@@ -732,6 +744,11 @@ class MainWindow(QMainWindow):
                 result,
                 success=False,
                 strengths=current,
+                state_updates={
+                    name: float(getattr(self.state, name))
+                    for name in expected_state_parameters
+                    if hasattr(self.state, name)
+                },
                 message=(
                     "The microscope state changed while the background solve "
                     "was running; the stale result was discarded and no "
@@ -746,6 +763,7 @@ class MainWindow(QMainWindow):
             self._set_progress_active("calculation", False)
             lenses = {lens.key: lens for lens in self.state.lenses}
             updates = []
+            state_updates = []
             try:
                 for lens_key, value in result.strengths.items():
                     lens = lenses.get(lens_key)
@@ -761,6 +779,17 @@ class MainWindow(QMainWindow):
                             f"Coupled lens {lens_key!r} result is outside limits"
                         )
                     updates.append((lens, numeric))
+                for name, value in result_state_updates.items():
+                    if name != "column_current_limit_percent":
+                        raise ValueError(
+                            f"Unsupported state update {name!r}"
+                        )
+                    numeric = float(value)
+                    if not definition.minimum <= numeric <= definition.maximum:
+                        raise ValueError(
+                            f"State update {name!r} is outside limits"
+                        )
+                    state_updates.append((name, numeric))
             except Exception as exc:
                 current = {
                     lens_key: float(lenses[lens_key].percent)
@@ -771,6 +800,11 @@ class MainWindow(QMainWindow):
                     result,
                     success=False,
                     strengths=current,
+                    state_updates={
+                        name: float(getattr(self.state, name))
+                        for name in expected_state_parameters
+                        if hasattr(self.state, name)
+                    },
                     message=(
                         f"The background result could not be committed: {exc}. "
                         "No lens value was changed."
@@ -779,6 +813,10 @@ class MainWindow(QMainWindow):
 
         if result.success:
             previous = [(lens, float(lens.percent)) for lens, _ in updates]
+            previous_state = [
+                (name, float(getattr(self.state, name)))
+                for name, _ in state_updates
+            ]
             previous_equivalent_image_lenses = bool(
                 getattr(
                     self.state, "equivalent_image_lenses_enabled", False
@@ -787,12 +825,16 @@ class MainWindow(QMainWindow):
             try:
                 for lens, numeric in updates:
                     lens.percent = numeric
+                for name, numeric in state_updates:
+                    setattr(self.state, name, numeric)
                 if key == "image_magnification":
                     self.state.equivalent_image_lenses_enabled = True
                 self._refresh_assembly_views()
             except Exception as exc:
                 for lens, numeric in previous:
                     lens.percent = numeric
+                for name, numeric in previous_state:
+                    setattr(self.state, name, numeric)
                 self.state.equivalent_image_lenses_enabled = (
                     previous_equivalent_image_lenses
                 )
@@ -800,6 +842,9 @@ class MainWindow(QMainWindow):
                     result,
                     success=False,
                     strengths={lens.key: numeric for lens, numeric in previous},
+                    state_updates={
+                        name: numeric for name, numeric in previous_state
+                    },
                     message=(
                         f"The coupled values passed optical validation but "
                         f"the live GUI refresh failed: {exc}. The exact "
@@ -812,9 +857,16 @@ class MainWindow(QMainWindow):
                 f"{lens_key}={value:.5g}%"
                 for lens_key, value in result.strengths.items()
             )
+            state_values = ", ".join(
+                f"{name}={value:.6g}"
+                for name, value in result_state_updates.items()
+            )
+            applied_values = "; ".join(
+                value for value in (strengths, state_values) if value
+            )
             self.log_output.appendPlainText(
                 f"Direct Alignment applied in {duration:.3f} s: "
-                f"{result.message} Coupled values: {strengths}."
+                f"{result.message} Applied values: {applied_values}."
             )
             self.status_label.setText(
                 f"Direct Alignment applied: {result.achieved:.6g} "
@@ -869,6 +921,13 @@ class MainWindow(QMainWindow):
             self._show_error(f"Unable to match Energy Filter: {exc}")
 
     def schedule_preview(self, _parameter: str = "") -> None:
+        # Invalidate immediately rather than waiting for the debounce timer.
+        # A completed worker for the pre-edit state must never be committed to
+        # the new live state.  Existing complete displays remain available as
+        # explicitly stale results until their replacements succeed.
+        self.calculations.invalidate_pending()
+        self.workspace.mark_high_accuracy_stale()
+        self._set_progress_active("calculation", False)
         self.preview_timer.start(self.PREVIEW_DEBOUNCE_MS)
 
     def _runtime_parameter_changed(self, parameter: str = "") -> None:
@@ -997,14 +1056,38 @@ class MainWindow(QMainWindow):
         )
         wave_status = f" | wave: {wave_backend}" if wave_backend else ""
         wave_log = f", wave backend={wave_backend}" if wave_backend else ""
+        if bool(getattr(result, "cache_hit", False)):
+            cache_status = " | complete cache hit"
+            cache_log = ", complete cache hit"
+        else:
+            reused = sorted(getattr(result, "reused_products", ()))
+            calculated = sorted(getattr(result, "calculated_products", ()))
+            cache_status = (
+                f" | reused {len(reused)}, calculated {len(calculated)}"
+                if reused
+                else ""
+            )
+            cache_log = (
+                f", reused={','.join(reused)}, calculated={','.join(calculated)}"
+                if reused
+                else ""
+            )
+        segment_cache = metrics.get("column_segment_cache", {})
+        if segment_cache.get("mode") == "checkpoint":
+            resume_z = float(segment_cache.get("resume_z_mm", 0.0))
+            cache_status += f" | column resumed at {resume_z:.1f} mm"
+            cache_log += f", column resume z={resume_z:.6g} mm"
+        elif segment_cache.get("mode") == "full_incident":
+            cache_status += " | incident beam reused"
+            cache_log += ", incident beam reused"
         self.status_label.setText(
             f"{quality} completed in {duration:.3f} s | "
-            f"mode: {mode} | rays: {backend}{wave_status}"
+            f"mode: {mode} | rays: {backend}{wave_status}{cache_status}"
         )
         self.log_output.appendPlainText(
             f"{quality}: {duration:.3f} s, "
             f"{result.simulation.incident.x.shape[1]} rays, mode={mode}, "
-            f"ray backend={backend}{wave_log}."
+            f"ray backend={backend}{wave_log}{cache_log}."
         )
 
     def _calculation_failed(self, quality: str, message: str) -> None:

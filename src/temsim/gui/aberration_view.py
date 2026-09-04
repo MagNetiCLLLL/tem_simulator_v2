@@ -109,12 +109,17 @@ class AberrationComparisonView(QWidget):
         ratio = float(diagnostics["c3_residual_ratio"])
         rms_before = float(diagnostics["ray_error_rms_before"])
         rms_after = float(diagnostics["ray_error_rms_after"])
-        self.summary.setText(
+        detail_text = (
             f"Reference: {before.reference_plane}. C3 residual ratio "
             f"{ratio:+.4g}; transverse ray-error RMS "
             f"{rms_before:.4g} → {rms_after:.4g} rad. "
             f"{diagnostics['source']}. Values are a non-OEM principle model."
         )
+        self.summary.setText(
+            f"{before.reference_plane} | C3 residual {ratio:+.4g} | "
+            f"ray RMS {rms_before:.4g} → {rms_after:.4g} rad"
+        )
+        self.summary.setToolTip(detail_text)
         self.table.setRowCount(len(SYSTEM_COEFFICIENT_ROWS))
         for row, (term, value_name, angle_name) in enumerate(SYSTEM_COEFFICIENT_ROWS):
             value_before = float(getattr(before, value_name))

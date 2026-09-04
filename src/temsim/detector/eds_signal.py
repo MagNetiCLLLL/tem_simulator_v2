@@ -930,9 +930,9 @@ def default_eds_dwell_time_s(state) -> float:
 
 
 def default_eds_incident_electrons(state, dwell_time_s: float) -> float:
-    current_pa = max(
-        float(state.electron_gun.emitted_current_a) * 1.0e12, 0.0
-    )
+    from temsim.physics.beam_current import effective_source_current_pa
+
+    current_pa = effective_source_current_pa(state)
     return current_pa * 1.0e-12 * float(dwell_time_s) / ELEMENTARY_CHARGE_C
 
 
@@ -945,6 +945,9 @@ def simulate_eds_point(
     y_nm: float | None = None,
     dwell_time_s: float | None = None,
     incident_electrons: float | None = None,
+    elastic_transport=None,
+    incident_bundle=None,
+    progress_callback=None,
 ) -> EDSSpectrum:
     """Run an explicit point acquisition at the sample scan origin."""
 
@@ -970,7 +973,6 @@ def simulate_eds_point(
     transport_mode = str(
         getattr(sample, "eds_transport_mode", "elastic_monte_carlo")
     ).strip().lower()
-    elastic_transport = None
     if transport_mode == "elastic_monte_carlo":
         # Local import keeps the EDS track contract independent and avoids a
         # module-load cycle: elastic_transport consumes EDSMaterial and
@@ -981,16 +983,19 @@ def simulate_eds_point(
             simulate_elastic_point_transport,
         )
 
-        incident_bundle = incident_rays_from_simulation(
-            state,
-            simulation,
-            target_x_nm=x_value,
-            target_y_nm=y_value,
-        )
-        elastic_transport = simulate_elastic_point_transport(
-            state,
-            incident_rays=incident_bundle.rays,
-        )
+        if incident_bundle is None:
+            incident_bundle = incident_rays_from_simulation(
+                state,
+                simulation,
+                target_x_nm=x_value,
+                target_y_nm=y_value,
+            )
+        if elastic_transport is None:
+            elastic_transport = simulate_elastic_point_transport(
+                state,
+                incident_rays=incident_bundle.rays,
+                progress_callback=progress_callback,
+            )
         tracks = elastic_transport.eds_tracks
         electron_count = (
             source_electron_count * incident_bundle.surviving_fraction
@@ -1019,6 +1024,7 @@ def simulate_eds_point(
             }
         )
     elif transport_mode == "straight_primary":
+        elastic_transport = None
         tracks = point_track_segments(state, x_nm=x_value, y_nm=y_value)
         electron_count = source_electron_count
     else:

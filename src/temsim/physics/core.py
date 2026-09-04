@@ -12,6 +12,8 @@ stigmators are unchanged. Full integration uses state.step_mm; only stored plott
 history is downsampled to reduce memory pressure.
 """
 import math
+from dataclasses import dataclass
+import hashlib
 import numpy as np
 
 from temsim.optics.lens_focal_length import focal_length_mm
@@ -27,6 +29,85 @@ E=1.602176634e-19
 M=9.1093837015e-31
 C=299792458.0
 H=6.62607015e-34
+# This is now a solver boundary, not only a drawing range.  At 7 sigma a
+# Gaussian amplitude is 2.29e-11 of its peak and its omitted two-sided
+# integral is about 2.56e-12.  The explicit boundary makes upstream cache
+# independence testable while keeping the truncation below ray-solver error.
+FIELD_SIGMA_CUTOFF = 7.0
+
+
+@dataclass(frozen=True, slots=True)
+class PropagationCheckpoints:
+    """Full-precision ray phase space at selected axial planes.
+
+    Arrays use metres for X/Y, radians for TX/TY and have shape
+    ``(checkpoint, ray)``.  They are kept separate from the float32 plotting
+    history so resuming a high-accuracy integration does not add an extra
+    history-quantisation error.
+    """
+
+    z_mm: np.ndarray
+    x_m: np.ndarray
+    tx_rad: np.ndarray
+    y_m: np.ndarray
+    ty_rad: np.ndarray
+
+
+@dataclass(frozen=True, slots=True)
+class AxialPropagationPlan:
+    """Immutable, full-axis optical coefficients for restartable propagation."""
+
+    z_mm: np.ndarray
+    step_m: np.ndarray
+    magnetic_t: np.ndarray
+    sx_m2: np.ndarray
+    sy_m2: np.ndarray
+    hex_normal_m3: np.ndarray
+    hex_skew_m3: np.ndarray
+    cs_kick_m3: np.ndarray
+    thin_power_m1: np.ndarray
+    thin_rotation_rad: np.ndarray
+    kick_x_rad: np.ndarray
+    kick_y_rad: np.ndarray
+    save_index: np.ndarray
+    checkpoint_index: np.ndarray
+    solver_signature: str
+    signature: str
+
+
+def _frozen_array(values, dtype=np.float64):
+    result = np.ascontiguousarray(values, dtype=dtype)
+    result.setflags(write=False)
+    return result
+
+
+def _support_mask(z_mm, provider):
+    """Return the solver's explicit finite-support mask for one field."""
+
+    if hasattr(provider, "field_support_mm"):
+        try:
+            lower, upper = provider.field_support_mm(FIELD_SIGMA_CUTOFF)
+        except TypeError:
+            lower, upper = provider.field_support_mm()
+    else:
+        if not (
+            hasattr(provider, "effective_length_mm")
+            or hasattr(provider, "length_mm")
+        ):
+            return np.ones_like(np.asarray(z_mm), dtype=bool)
+        centre = float(getattr(provider, "z_mm"))
+        length = float(
+            getattr(
+                provider,
+                "effective_length_mm",
+                getattr(provider, "length_mm", 0.0),
+            )
+        )
+        sigma = max(abs(length) / 2.355, 1e-12)
+        lower = centre - FIELD_SIGMA_CUTOFF * sigma
+        upper = centre + FIELD_SIGMA_CUTOFF * sigma
+    z = np.asarray(z_mm, dtype=float)
+    return (z >= float(lower)) & (z <= float(upper))
 
 try:
     from numba import cuda, njit, prange
@@ -71,7 +152,9 @@ def fields(z,state):
                 f"{getattr(lens, 'name', 'Round lens')} polarity must be +1 or -1."
             )
         if lens.key in CONDENSER_LENS_KEYS:
-            magnetic += state.condenser_system[lens.key].magnetic_field_t(z)
+            provider = state.condenser_system[lens.key]
+            contribution = provider.magnetic_field_t(z)
+            magnetic += np.where(_support_mask(z, provider), contribution, 0.0)
             continue
         if hasattr(lens, "magnetic_field_t"):
             contribution = lens.magnetic_field_t(z)
@@ -81,31 +164,36 @@ def fields(z,state):
                 contribution = np.where(
                     z < float(state.sample.z_mm), contribution, 0.0
                 )
-            magnetic += contribution
+            magnetic += np.where(_support_mask(z, lens), contribution, 0.0)
             continue
+        mask = _support_mask(z, lens)
         for g in lens.gaussian:
-            magnetic += lens.scale()*g.amplitude*np.exp(-0.5*((z-(lens.z_mm+g.offset*lens.a_mm))/(g.sigma*lens.a_mm))**2)
+            contribution = lens.scale()*g.amplitude*np.exp(-0.5*((z-(lens.z_mm+g.offset*lens.a_mm))/(g.sigma*lens.a_mm))**2)
+            magnetic += np.where(mask, contribution, 0.0)
     for stig in state.stigmators:
         if not stig.enabled: continue
         if hasattr(stig, "quadrupole_strengths_m2"):
             qx, qy = stig.quadrupole_strengths_m2(z)
-            sx += qx
-            sy += qy
+            mask = _support_mask(z, stig)
+            sx += np.where(mask, qx, 0.0)
+            sy += np.where(mask, qy, 0.0)
             continue
         envelope=np.exp(-0.5*((z-stig.z_mm)/max(1e-12,stig.length_mm/2.355))**2)
         xset=stig.max_strength_m2*stig.strength_x_percent/100.0
         yset=stig.max_strength_m2*stig.strength_y_percent/100.0
         q=0.5*(xset-yset)*envelope
-        sx += q
-        sy -= q
+        mask = _support_mask(z, stig)
+        sx += np.where(mask, q, 0.0)
+        sy -= np.where(mask, q, 0.0)
     for component in getattr(state, "corrector_elements", []):
         if not getattr(component, "enabled", False):
             continue
         if not hasattr(component, "quadrupole_strength_m2"):
             continue
         q = component.quadrupole_strength_m2(z)
-        sx += q
-        sy -= q
+        mask = _support_mask(z, component)
+        sx += np.where(mask, q, 0.0)
+        sy -= np.where(mask, q, 0.0)
     return magnetic,sx,sy
 
 def bz(z,state): return fields(z,state)[0]
@@ -130,11 +218,15 @@ def hexapole_field_components(z, state):
             component_normal, component_skew = (
                 component.hexapole_strength_components_m3(z)
             )
-            normal += component_normal
-            skew += component_skew
+            mask = _support_mask(z, component)
+            normal += np.where(mask, component_normal, 0.0)
+            skew += np.where(mask, component_skew, 0.0)
             continue
         if hasattr(component, "hexapole_strength_m3"):
-            normal += component.hexapole_strength_m3(z)
+            contribution = component.hexapole_strength_m3(z)
+            normal += np.where(
+                _support_mask(z, component), contribution, 0.0
+            )
     return normal, skew
 
 
@@ -206,7 +298,7 @@ def _parallel_rk4(
     kx, ky, hex_normal, hex_skew, larmor_g, larmor_gradient, cs_kick,
     thin_power, thin_rotation, step_m,
     x0, tx0, y0, ty0,
-    kickx, kicky, save_index, es_alpha, es_beta,
+    kickx, kicky, save_index, checkpoint_index, es_alpha, es_beta,
     gun_index, gun_focal_m,
 ):
     nr=x0.size
@@ -215,8 +307,13 @@ def _parallel_rk4(
     TX=np.empty((ns,nr),np.float32)
     Y=np.empty((ns,nr),np.float32)
     TY=np.empty((ns,nr),np.float32)
+    nc=checkpoint_index.size
+    CX=np.empty((nc,nr),np.float64)
+    CTX=np.empty((nc,nr),np.float64)
+    CY=np.empty((nc,nr),np.float64)
+    CTY=np.empty((nc,nr),np.float64)
     for ray in prange(nr):
-        x=x0[ray];tx=tx0[ray];y=y0[ray];ty=ty0[ray];s=0
+        x=x0[ray];tx=tx0[ray];y=y0[ray];ty=ty0[ray];s=0;c=0
         for j in range(kx.shape[0]):
             if thin_power[j] != 0.0:
                 tx -= thin_power[j]*x
@@ -236,6 +333,8 @@ def _parallel_rk4(
                 ty -= cs_kick[j]*radius_sq*y
             if s<ns and j==save_index[s]:
                 X[s,ray]=x;TX[s,ray]=tx;Y[s,ray]=y;TY[s,ray]=ty;s+=1
+            if c<nc and j==checkpoint_index[c]:
+                CX[c,ray]=x;CTX[c,ray]=tx;CY[c,ray]=y;CTY[c,ray]=ty;c+=1
             if j>=kx.shape[0]-1: continue
             h=step_m[j]
             kx0=kx[j,ray];ky0=ky[j,ray];kxm=0.5*(kx[j,ray]+kx[j+1,ray]);kym=0.5*(ky[j,ray]+ky[j+1,ray]);kx1=kx[j+1,ray];ky1=ky[j+1,ray]
@@ -269,17 +368,19 @@ def _parallel_rk4(
             tx += h*(ax2+2*bx2+2*cx2+dx2)/6.0
             y += h*(ay1+2*by1+2*cy1+dy1)/6.0
             ty += h*(ay2+2*by2+2*cy2+dy2)/6.0
-    return X,TX,Y,TY
+    return X,TX,Y,TY,CX,CTX,CY,CTY
 
 def _vectorised_rk4(
     kx, ky, hex_normal, hex_skew, larmor_g, larmor_gradient, cs_kick,
     thin_power, thin_rotation, step_m,
     x, tx, y, ty,
-    kickx, kicky, save_index, es_alpha, es_beta,
+    kickx, kicky, save_index, checkpoint_index, es_alpha, es_beta,
     gun_index, gun_focal_m,
 ):
     nr=x.size;ns=save_index.size
     X=np.empty((ns,nr),np.float32);TX=np.empty_like(X);Y=np.empty_like(X);TY=np.empty_like(X);s=0
+    nc=checkpoint_index.size;c=0
+    CX=np.empty((nc,nr),np.float64);CTX=np.empty_like(CX);CY=np.empty_like(CX);CTY=np.empty_like(CX)
     for j in range(kx.shape[0]):
         if thin_power[j] != 0.0:
             tx = tx-thin_power[j]*x
@@ -298,6 +399,8 @@ def _vectorised_rk4(
             ty -= cs_kick[j]*radius_sq*y
         if s<ns and j==save_index[s]:
             X[s]=x;TX[s]=tx;Y[s]=y;TY[s]=ty;s+=1
+        if c<nc and j==checkpoint_index[c]:
+            CX[c]=x;CTX[c]=tx;CY[c]=y;CTY[c]=ty;c+=1
         if j>=kx.shape[0]-1: continue
         h=step_m[j]
         kx0=kx[j];ky0=ky[j];kxm=.5*(kx[j]+kx[j+1]);kym=.5*(ky[j]+ky[j+1]);kx1=kx[j+1];ky1=ky[j+1]
@@ -328,7 +431,7 @@ def _vectorised_rk4(
         dx2=-es_alpha[j+1]*dtx-(kx1+es_beta[j+1])*dx-hn1*dhu-hs1*dhv+2.0*g1*dty+dg1*dy
         dy2=-es_alpha[j+1]*dty-(ky1+es_beta[j+1])*dy+hn1*dhv-hs1*dhu-2.0*g1*dtx-dg1*dx
         x=x+h*(ax1+2*bx1+2*cx1+dx1)/6;tx=tx+h*(ax2+2*bx2+2*cx2+dx2)/6;y=y+h*(ay1+2*by1+2*cy1+dy1)/6;ty=ty+h*(ay2+2*by2+2*cy2+dy2)/6
-    return X,TX,Y,TY
+    return X,TX,Y,TY,CX,CTX,CY,CTY
 
 
 if NUMBA_AVAILABLE:
@@ -337,8 +440,8 @@ if NUMBA_AVAILABLE:
         kx_axis, ky_axis, hex_normal, hex_skew, larmor_axis,
         larmor_gradient_axis, inverse_momentum, cs_kick,
         thin_power, thin_rotation, step_m,
-        x0, tx0, y0, ty0, kickx, kicky, save_index, es_alpha, es_beta,
-        X, TX, Y, TY,
+        x0, tx0, y0, ty0, kickx, kicky, save_index, checkpoint_index,
+        es_alpha, es_beta, X, TX, Y, TY, CX, CTX, CY, CTY,
     ):
         ray = cuda.grid(1)
         if ray >= x0.size:
@@ -348,7 +451,9 @@ if NUMBA_AVAILABLE:
         y = y0[ray]
         ty = ty0[ray]
         saved = 0
+        checkpointed = 0
         save_count = save_index.size
+        checkpoint_count = checkpoint_index.size
         step_count = kx_axis.size
         for j in range(step_count):
             if thin_power[j] != 0.0:
@@ -377,6 +482,15 @@ if NUMBA_AVAILABLE:
                 Y[saved, ray] = y
                 TY[saved, ray] = ty
                 saved += 1
+            if (
+                checkpointed < checkpoint_count
+                and j == checkpoint_index[checkpointed]
+            ):
+                CX[checkpointed, ray] = x
+                CTX[checkpointed, ray] = tx
+                CY[checkpointed, ray] = y
+                CTY[checkpointed, ray] = ty
+                checkpointed += 1
             if j >= step_count - 1:
                 continue
 
@@ -480,7 +594,8 @@ def _cuda_rk4(
     kx_axis, ky_axis, hex_normal, hex_skew, larmor_axis,
     larmor_gradient_axis, inverse_momentum, cs_kick,
     thin_power, thin_rotation, step_m,
-    x0, tx0, y0, ty0, kickx, kicky, save_index, es_alpha, es_beta,
+    x0, tx0, y0, ty0, kickx, kicky, save_index, checkpoint_index,
+    es_alpha, es_beta,
 ):
     """Run the independent-ray RK4 integration on a CUDA device."""
     if cuda is None or _cuda_rk4_kernel is None:
@@ -490,13 +605,18 @@ def _cuda_rk4(
             kx_axis, ky_axis, hex_normal, hex_skew, larmor_axis,
             larmor_gradient_axis, inverse_momentum, cs_kick,
             thin_power, thin_rotation, step_m,
-            x0, tx0, y0, ty0, kickx, kicky, save_index, es_alpha, es_beta,
+            x0, tx0, y0, ty0, kickx, kicky, save_index, checkpoint_index,
+            es_alpha, es_beta,
         )
     ]
     output_shape = (save_index.size, x0.size)
     device_outputs = [
         cuda.device_array(output_shape, dtype=np.float32) for _ in range(4)
     ]
+    checkpoint_shape = (checkpoint_index.size, x0.size)
+    device_outputs.extend(
+        cuda.device_array(checkpoint_shape, dtype=np.float64) for _ in range(4)
+    )
     threads = 128
     blocks = (x0.size + threads - 1) // threads
     _cuda_rk4_kernel[blocks, threads](*device_inputs, *device_outputs)
@@ -633,12 +753,16 @@ def _piecewise_endpoint_exact_axial_grid(
     ])
     return grid, np.diff(grid)
 
-def propagate(
-    state,z0,z1,x,tx,y,ty,events=(),energy_offset_ev=None,
-    *,include_spherical_aberration=True,include_hexapole=True,
-    save_z_mm=(),include_initial_plane_kicks=True,
+def build_propagation_plan(
+    state, z0, z1, events=(), *, include_spherical_aberration=True,
+    include_hexapole=True, save_z_mm=(), checkpoint_z_mm=(),
+    maximum_step_mm=None,
 ):
+    """Build the single global axial plan used by full and resumed traces."""
+
     requested_step=float(state.step_mm)
+    if maximum_step_mm is not None:
+        requested_step=min(requested_step,float(maximum_step_mm))
     image_lens_events=equivalent_image_events(state,float(z0),float(z1))
     exact_z_mm = [event.z_mm for event in image_lens_events]
     exact_z_mm.extend(float(value) for value in save_z_mm)
@@ -674,7 +798,6 @@ def propagate(
         hex_skew = np.zeros(len(zfull), np.float64)
     hex_normal=np.ascontiguousarray(hex_normal,np.float64)
     hex_skew=np.ascontiguousarray(hex_skew,np.float64)
-    arrays=[np.ascontiguousarray(a,np.float64) for a in (x,tx,y,ty)]
     cs_kick=np.ascontiguousarray(
         spherical_aberration_kick_m3(zfull,state)
         if include_spherical_aberration else np.zeros(len(zfull)),
@@ -691,16 +814,6 @@ def propagate(
     kickx=np.zeros(len(zfull),np.float64);kicky=np.zeros(len(zfull),np.float64)
     for ze,dx,dy in sorted(events):
         idx=_nearest_axial_grid_index(ze,zfull);kickx[idx]+=dx;kicky[idx]+=dy
-    if not bool(include_initial_plane_kicks):
-        # A column trace split at a material/reference plane has already
-        # applied every zero-thickness action at the preceding segment's final
-        # sample.  Continuous Bz, quadrupole and hexapole fields remain active
-        # on the new segment; only the shared-plane impulses are suppressed.
-        cs_kick[0]=0.0
-        thin_power[0]=0.0
-        thin_rotation[0]=0.0
-        kickx[0]=0.0
-        kicky[0]=0.0
     history_step=max(requested_step,float(getattr(state,"history_step_mm",2.0)))
     stride=max(1,int(round(history_step/requested_step)))
     save=np.arange(0,len(zfull),stride,dtype=np.int64)
@@ -715,7 +828,132 @@ def propagate(
     ]
     if requested_save_indices:
         save = np.unique(np.r_[save, requested_save_indices])
+    checkpoint_indices = np.unique(np.asarray([
+        _nearest_axial_grid_index(value, zfull)
+        for value in checkpoint_z_mm
+        if grid_start <= float(value) <= float(zfull[-1])
+    ], dtype=np.int64))
     if save[-1] != len(zfull)-1: save=np.r_[save,np.int64(len(zfull)-1)]
+    digest = hashlib.sha256()
+    digest.update(f"field-cutoff={FIELD_SIGMA_CUTOFF:.17g}".encode("ascii"))
+    solver_signature = repr((
+        float(getattr(state, "beam_voltage_kv")),
+        float(requested_step),
+        float(getattr(state, "history_step_mm", requested_step)),
+        bool(getattr(state, "acceleration_enabled", False)),
+        str(getattr(state, "acceleration_backend", "Auto")),
+        FIELD_SIGMA_CUTOFF,
+    ))
+    digest.update(solver_signature.encode("utf-8"))
+    for values in (
+        zfull, step_m, magnetic, sx, sy, hex_normal, hex_skew,
+        cs_kick, thin_power, thin_rotation, kickx, kicky, save,
+        checkpoint_indices,
+    ):
+        contiguous = np.ascontiguousarray(values, dtype=np.float64)
+        digest.update(contiguous.shape.__repr__().encode("ascii"))
+        digest.update(contiguous.tobytes())
+    return AxialPropagationPlan(
+        z_mm=_frozen_array(zfull),
+        step_m=_frozen_array(step_m),
+        magnetic_t=_frozen_array(magnetic),
+        sx_m2=_frozen_array(sx),
+        sy_m2=_frozen_array(sy),
+        hex_normal_m3=_frozen_array(hex_normal),
+        hex_skew_m3=_frozen_array(hex_skew),
+        cs_kick_m3=_frozen_array(cs_kick),
+        thin_power_m1=_frozen_array(thin_power),
+        thin_rotation_rad=_frozen_array(thin_rotation),
+        kick_x_rad=_frozen_array(kickx),
+        kick_y_rad=_frozen_array(kicky),
+        save_index=_frozen_array(save, np.int64),
+        checkpoint_index=_frozen_array(checkpoint_indices, np.int64),
+        solver_signature=solver_signature,
+        signature=digest.hexdigest(),
+    )
+
+
+def propagation_plan_common_prefix_nodes(previous, current):
+    """Return count of leading nodes whose actual optical actions are equal."""
+
+    if previous is None or current is None:
+        return 0
+    if previous.solver_signature != current.solver_signature:
+        return 0
+    old_z = np.asarray(previous.z_mm)
+    new_z = np.asarray(current.z_mm)
+    count = min(old_z.size, new_z.size)
+    if count == 0:
+        return 0
+    arrays = (
+        (old_z, new_z),
+        (previous.magnetic_t, current.magnetic_t),
+        (previous.sx_m2, current.sx_m2),
+        (previous.sy_m2, current.sy_m2),
+        (previous.hex_normal_m3, current.hex_normal_m3),
+        (previous.hex_skew_m3, current.hex_skew_m3),
+        (previous.cs_kick_m3, current.cs_kick_m3),
+        (previous.thin_power_m1, current.thin_power_m1),
+        (previous.thin_rotation_rad, current.thin_rotation_rad),
+        (previous.kick_x_rad, current.kick_x_rad),
+        (previous.kick_y_rad, current.kick_y_rad),
+    )
+    equal = np.ones(count, dtype=bool)
+    for old, new in arrays:
+        equal &= np.asarray(old[:count]) == np.asarray(new[:count])
+    changed = np.flatnonzero(~equal)
+    if changed.size:
+        # Bz at node i affects the numerical derivative and the RK4 interval
+        # ending at i.  Keep a two-node safety halo before the first change.
+        return max(0, int(changed[0]) - 2)
+    if old_z.size != new_z.size:
+        return max(0, count - 2)
+    return count
+
+
+def execute_propagation_plan(
+    state, plan, x, tx, y, ty, energy_offset_ev=None, *, start_index=0,
+    include_initial_plane_kicks=True,
+):
+    """Execute a complete plan or resume it from an after-action checkpoint."""
+
+    start_index = int(start_index)
+    if not 0 <= start_index < len(plan.z_mm):
+        raise ValueError("Propagation-plan start index is out of range")
+    zfull = np.asarray(plan.z_mm[start_index:], dtype=np.float64)
+    step_m = np.ascontiguousarray(plan.step_m[start_index:], np.float64)
+    magnetic = np.asarray(plan.magnetic_t[start_index:], dtype=np.float64)
+    sx = np.asarray(plan.sx_m2[start_index:], dtype=np.float64)
+    sy = np.asarray(plan.sy_m2[start_index:], dtype=np.float64)
+    hex_normal = np.ascontiguousarray(
+        plan.hex_normal_m3[start_index:], np.float64
+    )
+    hex_skew = np.ascontiguousarray(
+        plan.hex_skew_m3[start_index:], np.float64
+    )
+    cs_kick = np.array(plan.cs_kick_m3[start_index:], dtype=np.float64)
+    thin_power = np.array(plan.thin_power_m1[start_index:], dtype=np.float64)
+    thin_rotation = np.array(
+        plan.thin_rotation_rad[start_index:], dtype=np.float64
+    )
+    kickx = np.array(plan.kick_x_rad[start_index:], dtype=np.float64)
+    kicky = np.array(plan.kick_y_rad[start_index:], dtype=np.float64)
+    if not bool(include_initial_plane_kicks):
+        cs_kick[0]=0.0
+        thin_power[0]=0.0
+        thin_rotation[0]=0.0
+        kickx[0]=0.0
+        kicky[0]=0.0
+    arrays=[np.array(a,dtype=np.float64,order="C",copy=True) for a in (x,tx,y,ty)]
+    global_save = np.asarray(plan.save_index, dtype=np.int64)
+    save = np.ascontiguousarray(
+        global_save[global_save >= start_index] - start_index, np.int64
+    )
+    global_checkpoints = np.asarray(plan.checkpoint_index, dtype=np.int64)
+    checkpoint_index = np.ascontiguousarray(
+        global_checkpoints[global_checkpoints >= start_index] - start_index,
+        np.int64,
+    )
     gun_index=np.int64(-1);gun_focal_m=np.float64(-1.0)
     es_alpha=np.zeros(len(zfull),np.float64)
     es_beta=np.zeros(len(zfull),np.float64)
@@ -728,13 +966,23 @@ def propagate(
     )
 
     def cpu_coefficients():
-        momentum = momentum_profile(state, zfull, energy_offset_ev)
+        halo_start = max(0, start_index - 1)
+        coefficient_z = np.asarray(plan.z_mm[halo_start:], dtype=np.float64)
+        coefficient_magnetic = np.asarray(
+            plan.magnetic_t[halo_start:], dtype=np.float64
+        )
+        momentum = momentum_profile(state, coefficient_z, energy_offset_ev)
         if momentum.ndim == 1:
             momentum = np.broadcast_to(
-                momentum[:, None], (len(zfull), arrays[0].size)
+                momentum[:, None], (len(coefficient_z), arrays[0].size)
             )
         larmor_g, larmor_gradient = larmor_coefficients_m1(
-            magnetic, momentum, zfull
+            coefficient_magnetic, momentum, coefficient_z
+        )
+        offset = start_index - halo_start
+        larmor_g = np.ascontiguousarray(larmor_g[offset:], np.float64)
+        larmor_gradient = np.ascontiguousarray(
+            larmor_gradient[offset:], np.float64
         )
         coefficient_shape = larmor_g.shape
         kx = np.ascontiguousarray(
@@ -764,22 +1012,33 @@ def propagate(
                 inverse_momentum = np.ascontiguousarray(
                     1.0 / momentum_at_start[0], dtype=np.float64
                 )
-            larmor_axis = np.ascontiguousarray(
-                (-E) * magnetic / 2.0, dtype=np.float64
+            halo_start = max(0, start_index - 1)
+            coefficient_z = np.asarray(plan.z_mm[halo_start:], dtype=float)
+            coefficient_magnetic = np.asarray(
+                plan.magnetic_t[halo_start:], dtype=float
             )
-            z_m = np.asarray(zfull, dtype=float) * 1.0e-3
+            full_larmor_axis = np.ascontiguousarray(
+                (-E) * coefficient_magnetic / 2.0, dtype=np.float64
+            )
+            z_m = coefficient_z * 1.0e-3
+            offset = start_index - halo_start
+            larmor_axis = np.ascontiguousarray(
+                full_larmor_axis[offset:], dtype=np.float64
+            )
             larmor_gradient_axis = np.ascontiguousarray(
-                np.gradient(larmor_axis, z_m, edge_order=1)
-                if len(z_m) >= 2 else np.zeros_like(larmor_axis),
+                (
+                    np.gradient(full_larmor_axis, z_m, edge_order=1)[offset:]
+                    if len(z_m) >= 2 else np.zeros_like(larmor_axis)
+                ),
                 dtype=np.float64,
             )
-            X,TX,Y,TY=_cuda_rk4(
+            outputs=_cuda_rk4(
                 np.ascontiguousarray(sx, np.float64),
                 np.ascontiguousarray(sy, np.float64),
                 hex_normal,hex_skew,larmor_axis,larmor_gradient_axis,
                 inverse_momentum,cs_kick,thin_power,thin_rotation,
                 step_m,*arrays,kickx,kicky,
-                save,es_alpha,es_beta,
+                save,checkpoint_index,es_alpha,es_beta,
             )
             _record_active_backend(state, backend, fallback_reason)
         except Exception as exc:
@@ -789,18 +1048,47 @@ def propagate(
             _record_active_backend(state, backend, f"CUDA error: {exc}")
             kx, ky, larmor_g, larmor_gradient = cpu_coefficients()
             if backend == BACKEND_NUMBA:
-                X,TX,Y,TY=_parallel_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,es_alpha,es_beta,gun_index,gun_focal_m)
+                outputs=_parallel_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,checkpoint_index,es_alpha,es_beta,gun_index,gun_focal_m)
             else:
-                X,TX,Y,TY=_vectorised_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,es_alpha,es_beta,gun_index,gun_focal_m)
+                outputs=_vectorised_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,checkpoint_index,es_alpha,es_beta,gun_index,gun_focal_m)
     elif backend == BACKEND_NUMBA:
         kx, ky, larmor_g, larmor_gradient = cpu_coefficients()
-        X,TX,Y,TY=_parallel_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,es_alpha,es_beta,gun_index,gun_focal_m)
+        outputs=_parallel_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,checkpoint_index,es_alpha,es_beta,gun_index,gun_focal_m)
         _record_active_backend(state, backend, fallback_reason)
     else:
         kx, ky, larmor_g, larmor_gradient = cpu_coefficients()
-        X,TX,Y,TY=_vectorised_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,es_alpha,es_beta,gun_index,gun_focal_m)
+        outputs=_vectorised_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,checkpoint_index,es_alpha,es_beta,gun_index,gun_focal_m)
         _record_active_backend(state, backend, fallback_reason)
-    return zfull[save],X,TX,Y,TY
+    X,TX,Y,TY,CX,CTX,CY,CTY=outputs
+    checkpoints = PropagationCheckpoints(
+        z_mm=_frozen_array(zfull[checkpoint_index]),
+        x_m=_frozen_array(CX),
+        tx_rad=_frozen_array(CTX),
+        y_m=_frozen_array(CY),
+        ty_rad=_frozen_array(CTY),
+    )
+    return zfull[save],X,TX,Y,TY,checkpoints
+
+
+def propagate(
+    state,z0,z1,x,tx,y,ty,events=(),energy_offset_ev=None,
+    *,include_spherical_aberration=True,include_hexapole=True,
+    save_z_mm=(),include_initial_plane_kicks=True,
+    checkpoint_z_mm=(),return_checkpoints=False,maximum_step_mm=None,
+):
+    plan = build_propagation_plan(
+        state,z0,z1,events,
+        include_spherical_aberration=include_spherical_aberration,
+        include_hexapole=include_hexapole,
+        save_z_mm=save_z_mm,
+        checkpoint_z_mm=checkpoint_z_mm,
+        maximum_step_mm=maximum_step_mm,
+    )
+    result = execute_propagation_plan(
+        state,plan,x,tx,y,ty,energy_offset_ev,
+        include_initial_plane_kicks=include_initial_plane_kicks,
+    )
+    return result if return_checkpoints else result[:5]
 
 def transfer(state,z0,z1):
     _,x,tx,_,_=propagate(

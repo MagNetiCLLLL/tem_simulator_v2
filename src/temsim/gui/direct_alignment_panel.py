@@ -27,6 +27,10 @@ from temsim.operating_modes import (
 
 
 _CONTROL_NAMES = {
+    "spot_size_current_limit": (
+        "spotSizeCurrentLimitTarget",
+        "applySpotSizeCurrentLimit",
+    ),
     "nanoprobe_convergence": (
         "nanoprobeConvergenceTarget",
         "applyNanoprobeConvergence",
@@ -46,6 +50,7 @@ _CONTROL_NAMES = {
 }
 
 _CURRENT_METRICS = {
+    "spot_size_current_limit": "column_current_limit_percent",
     "nanoprobe_convergence": "sample_convergence_95_mrad",
     "microprobe_illumination": "sample_illumination_diameter_95_um",
     "image_magnification": "magnification",
@@ -72,7 +77,7 @@ class _AlignmentControl:
 
 
 class DirectAlignmentPanel(QWidget):
-    """Four mode-gated controls backed by the operating-mode catalog."""
+    """Catalog-backed, mode-gated user alignment controls."""
 
     adjustment_requested = Signal(str, float)
 
@@ -91,6 +96,9 @@ class DirectAlignmentPanel(QWidget):
         self._busy_key: str | None = None
 
         introduction = QLabel(
+            "Coupled optical alignment with automatic rollback on failure."
+        )
+        introduction.setToolTip(
             "Direct Alignment changes user-facing optical values while solving "
             "the listed lenses together. Nanoprobe convergence is the "
             "95%-current semi-angle relative to the chief ray, so Larmor "
@@ -106,11 +114,13 @@ class DirectAlignmentPanel(QWidget):
         target_group = QGroupBox("Projector diffraction calibration")
         target_form = QFormLayout(target_group)
         target_notice = QLabel(
+            "Camera length is calibrated at the TOML main-screen plane."
+        )
+        target_notice.setToolTip(
             "Camera length is one independent D/I/P1/P2 projector setting. "
-            "It is calibrated at the TOML-owned main-screen reference plane. "
-            "The axially ordered HAADF, DF and BF detectors retain distinct Z "
-            "positions and collection-angle transfers; detector insertion and "
-            "readout do not select a projector preset."
+            "HAADF, DF and BF retain distinct Z positions and collection-angle "
+            "transfers; detector insertion and readout do not select a "
+            "projector preset."
         )
         target_notice.setWordWrap(True)
         target_notice.setStyleSheet("color: #64748b;")
@@ -189,10 +199,15 @@ class DirectAlignmentPanel(QWidget):
 
         group = QGroupBox(definition.name)
         group.setObjectName(f"{definition.key}Group")
+        coupled_description = (
+            f"Coupled devices: {', '.join(definition.devices)}"
+            if definition.devices
+            else "No lens field is changed by this ideal current control."
+        )
         group.setToolTip(
             f"{definition.calibration_status}\n"
             f"{definition.calibration_reference}\n"
-            f"Coupled devices: {', '.join(definition.devices)}"
+            f"{coupled_description}"
         )
         form = QFormLayout(group)
 
@@ -281,19 +296,25 @@ class DirectAlignmentPanel(QWidget):
             projector_field_calibration_rows,
         )
         rows = projector_field_calibration_rows(state)
-        self.projector_field_calibration.setText(
-            "Projector field calibration: "
-            + "; ".join(
+        calibration_detail = "\n".join(
                 f"{row['key']} {row['maximum_peak_field_t']:.4g} T, "
                 f"half-width {row['field_half_width_mm']:.4g} mm, "
                 f"limit {row['maximum_excitation_percent']:.4g}%, "
                 f"{row['status']}"
                 for row in rows
-            )
         )
-        self.projector_field_calibration.setToolTip("\n".join(
-            f"{row['key']}: {row['source']}" for row in rows
-        ))
+        provisional_count = sum(
+            "provisional" in str(row["status"]).lower() for row in rows
+        )
+        self.projector_field_calibration.setText(
+            f"Projector field limits: {len(rows)} lenses | "
+            f"{provisional_count} provisional"
+        )
+        self.projector_field_calibration.setToolTip(
+            calibration_detail
+            + "\n\n"
+            + "\n".join(f"{row['key']}: {row['source']}" for row in rows)
+        )
         self._update_mode_gating()
 
     @staticmethod
@@ -328,10 +349,10 @@ class DirectAlignmentPanel(QWidget):
             for lens in getattr(self._state, "lenses", ())
         }
         for control in self._controls.values():
-            required = control.definition.mode_key
+            required_modes = set(control.definition.active_mode_keys)
             mode_available = (
                 self._available_mode_keys is None
-                or required in self._available_mode_keys
+                or bool(required_modes & self._available_mode_keys)
             )
             devices_ready = all(
                 key in lenses
@@ -339,14 +360,17 @@ class DirectAlignmentPanel(QWidget):
                 for key in control.definition.devices
             )
             active = (
-                required in active_modes
+                bool(required_modes & active_modes)
                 and mode_available
                 and devices_ready
                 and self._busy_key is None
             )
             control.target.setEnabled(active)
             control.apply_button.setEnabled(active)
-            mode_label = _MODE_LABELS.get(required, required)
+            mode_label = " or ".join(
+                _MODE_LABELS.get(required, required)
+                for required in control.definition.active_mode_keys
+            )
             if self._busy_key is not None:
                 control.availability.setText(
                     "A coupled Direct Alignment solve is running."
@@ -423,6 +447,9 @@ class DirectAlignmentPanel(QWidget):
     @staticmethod
     def _unavailable_current_text(key: str) -> str:
         return {
+            "spot_size_current_limit": (
+                "Current Spot-size limit: unavailable."
+            ),
             "nanoprobe_convergence": (
                 "Current 95%-current semi-angle: unavailable."
             ),
@@ -446,7 +473,21 @@ class DirectAlignmentPanel(QWidget):
             if value is None:
                 control.current.setText(self._unavailable_current_text(key))
                 continue
-            if key == "nanoprobe_convergence":
+            if key == "spot_size_current_limit":
+                source_current = self._finite_value(
+                    self._metrics, "effective_source_current_pa"
+                )
+                sample_current = self._finite_value(
+                    self._metrics, "sample_surviving_current_pa"
+                )
+                details = []
+                if source_current is not None:
+                    details.append(f"column {source_current:.6g} pA")
+                if sample_current is not None:
+                    details.append(f"sample {sample_current:.6g} pA")
+                suffix = f"; {', '.join(details)}" if details else ""
+                text = f"Current Spot-size limit: {value:.6g}%{suffix}."
+            elif key == "nanoprobe_convergence":
                 waist = self._finite_value(
                     self._metrics, "sample_waist_offset_mm"
                 )
@@ -462,6 +503,9 @@ class DirectAlignmentPanel(QWidget):
                 angle = self._finite_value(
                     self._metrics, "sample_convergence_95_mrad"
                 )
+                angle_99 = self._finite_value(
+                    self._metrics, "sample_convergence_99_mrad"
+                )
                 curvature = self._finite_value(
                     self._metrics, "sample_wavefront_curvature_per_m"
                 )
@@ -469,6 +513,10 @@ class DirectAlignmentPanel(QWidget):
                 if angle is not None:
                     details.append(
                         f"95%-current semi-angle {angle:.6g} mrad"
+                    )
+                if angle_99 is not None:
+                    details.append(
+                        f"99%-current semi-angle {angle_99:.6g} mrad"
                     )
                 if curvature is not None:
                     details.append(
@@ -564,6 +612,9 @@ class DirectAlignmentPanel(QWidget):
 
         if success and math.isfinite(achieved):
             current_text = {
+                "spot_size_current_limit": (
+                    f"Solved Spot-size current limit: {achieved:.6g} {unit}."
+                ),
                 "nanoprobe_convergence": (
                     f"Solved 95%-current semi-angle: {achieved:.6g} {unit}."
                 ),

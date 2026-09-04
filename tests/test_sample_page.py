@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QDoubleSpinBox, QLabel
 
 from temsim.assembly_catalog import AssemblyCatalog
@@ -197,7 +198,7 @@ def test_dedicated_eds_page_uses_calculated_sample_plane_rays(qtbot):
     assert state.sample.eds_support_material_key == "copper"
     assert state.sample.eds_support_offset_x_um == pytest.approx(-60.0)
     assert page._eds_result is None
-    assert "press Calculate point EDS" in page.eds_summary.text()
+    assert "run High accuracy" in page.eds_summary.text()
     assert "Ultra" not in page.eds_group.title()
 
     catalog = AssemblyCatalog()
@@ -241,8 +242,34 @@ def test_dedicated_eds_page_uses_calculated_sample_plane_rays(qtbot):
     assert {
         line.source_key for line in page._eds_result.lines
     } >= {"sample", "support:bar"}
-    assert "EDS point:" in page.eds_summary.text()
+    assert "EDS point |" in page.eds_summary.text()
     assert "Ultra" not in page.eds_summary.text()
+
+
+def test_eds_spectrum_hover_reports_nearest_energy_bin_and_counts(qtbot):
+    page = EDSPage()
+    qtbot.addWidget(page)
+    page.resize(1000, 700)
+    page.show()
+    page.result_tabs.setCurrentIndex(1)
+    spectrum = SimpleNamespace(
+        energy_bin_centres_ev=np.asarray((1000.0, 2000.0, 3000.0)),
+        expected_counts=np.asarray((10.0, 25.5, 8.0)),
+        sampled_counts=None,
+    )
+
+    page._plot_spectrum(spectrum)
+    qtbot.wait(20)
+    scene_position = page.spectrum_plot.getViewBox().mapViewToScene(
+        QPointF(2.1, 25.5)
+    )
+    page._spectrum_mouse_moved(scene_position)
+
+    assert page.spectrum_hover_readout.text() == (
+        "Energy 2 keV | Expected counts 25.5"
+    )
+    assert page._spectrum_cursor.isVisible()
+    assert page._spectrum_cursor.value() == pytest.approx(2.0)
 
 
 def test_sample_page_does_not_show_eds_controls_or_trajectory_plot(qtbot):

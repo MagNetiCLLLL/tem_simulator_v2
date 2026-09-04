@@ -2,9 +2,13 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from PySide6.QtGui import QVector3D
+from PySide6.QtWidgets import QTabWidget, QWidget
 
 from temsim.gui.sample_interactions_3d import (
     SampleInteractions3DPage,
+    _gl_display_bounds,
+    _gl_display_positions,
     build_sample_interaction_scene,
 )
 from temsim.optics.column import default_state
@@ -71,6 +75,21 @@ def test_high_accuracy_cache_builds_local_3d_scene_without_new_physics():
     assert not scene.has_bounded_result
 
 
+def test_3d_display_maps_physical_downstream_z_toward_screen_down():
+    physical = np.asarray(((1.0, 2.0, -5.0), (3.0, 4.0, 7.0)))
+
+    displayed = _gl_display_positions(physical)
+    display_lower, display_upper = _gl_display_bounds((
+        np.asarray((-2.0, -3.0, -5.0)),
+        np.asarray((4.0, 6.0, 7.0)),
+    ))
+
+    np.testing.assert_allclose(displayed, ((1.0, 2.0, 5.0), (3.0, 4.0, -7.0)))
+    np.testing.assert_allclose(physical[:, 2], (-5.0, 7.0))
+    np.testing.assert_allclose(display_lower, (-2.0, -3.0, -7.0))
+    np.testing.assert_allclose(display_upper, (4.0, 6.0, 5.0))
+
+
 def test_bounded_scene_uses_global_to_local_coordinates_and_skips_secondaries():
     calculation = _calculation_result()
     interactions = calculation.specimen_interactions
@@ -126,14 +145,109 @@ def test_3d_page_exposes_cached_view_and_explicit_calculation_request(qtbot):
 
     assert page.scene_snapshot is not None
     assert page.calculate_paths.isEnabled()
-    assert "Cached local view" in page.summary.text()
-    assert "not HAADF/DF/BF counts" in page.summary.text()
-    assert "only redraw this cache" in page.summary.text()
+    assert "2 electron paths" in page.summary.text()
+    assert len(page.summary.text()) < 180
+    assert "Cached local view" in page.summary.toolTip()
+    assert "not HAADF/DF/BF counts" in page.summary.toolTip()
+    assert "physical +Z downward" in page.summary.toolTip()
+    assert "only redraw this cache" in page.summary.toolTip()
+    if not page.opengl_available:
+        assert page.view.getViewBox().state["yInverted"] is True
     calculation = _calculation_result()
     calculation.state_snapshot.sample.eds_enabled = True
     page.display_result(calculation)
     page.calculate_paths.click()
     assert requests == [True]
+
+
+def test_3d_page_filters_each_cached_signal_category_without_recalculation(
+    qtbot,
+):
+    page = SampleInteractions3DPage()
+    qtbot.addWidget(page)
+    page.display_result(_calculation_result())
+    cached_scene = page.scene_snapshot
+
+    assert len(page.signal_actions) == 11
+    assert len(page.visible_signal_categories) == 11
+    assert page.signal_filter.text() == "Visible signals: 11/11"
+
+    page.signal_actions["elastic"].setChecked(False)
+    page.signal_actions["inelastic_event"].setChecked(False)
+
+    assert page.scene_snapshot is cached_scene
+    assert "elastic" not in page.visible_signal_categories
+    assert "inelastic_event" not in page.visible_signal_categories
+    assert page.signal_filter.text() == "Visible signals: 9/11"
+    assert " Elastic&nbsp;&nbsp;" not in page.legend.text()
+    assert "Vacancy sites" not in page.legend.text()
+    assert "Incident" in page.legend.text()
+    assert "Elastically scattered electrons" in page.legend.toolTip()
+
+    page.hide_all_signals.trigger()
+    assert not page.visible_signal_categories
+    assert "No signal types selected" in page.legend.text()
+    assert page.context_toggle.isChecked()
+
+    page.show_all_signals.trigger()
+    assert len(page.visible_signal_categories) == 11
+    assert page.scene_snapshot is cached_scene
+
+
+def test_3d_tab_round_trip_preserves_cached_scene_and_view(qtbot):
+    tabs = QTabWidget()
+    page = SampleInteractions3DPage()
+    tabs.addTab(page, "Sample Interactions 3D")
+    tabs.addTab(QWidget(), "EDS")
+    qtbot.addWidget(tabs)
+    tabs.resize(1000, 700)
+    tabs.show()
+    calculation = _calculation_result()
+    page.display_result(calculation)
+    qtbot.wait(20)
+    cached_scene = page.scene_snapshot
+    page.display_result(calculation)
+    assert page.scene_snapshot is cached_scene
+
+    if page.opengl_available:
+        page.view.opts["center"] = QVector3D(11.0, -7.0, 3.0)
+        page.view.setCameraPosition(
+            distance=321.0,
+            elevation=67.0,
+            azimuth=123.0,
+        )
+        expected = page._capture_view_state()
+    else:
+        page.view.setRange(
+            xRange=(-17.0, 29.0),
+            yRange=(-31.0, 13.0),
+            padding=0.0,
+        )
+        expected = page._capture_view_state()
+
+    tabs.setCurrentIndex(1)
+    tabs.setCurrentIndex(0)
+    qtbot.wait(20)
+    qtbot.waitUntil(lambda: page._pending_view_restore is None)
+
+    assert page.scene_snapshot is cached_scene
+    restored = page._capture_view_state()
+    assert restored["kind"] == expected["kind"]
+    if page.opengl_available:
+        assert restored["center"] == pytest.approx(expected["center"])
+        assert restored["distance"] == pytest.approx(expected["distance"])
+        assert restored["elevation"] == pytest.approx(expected["elevation"])
+        assert restored["azimuth"] == pytest.approx(expected["azimuth"])
+    else:
+        for axis in ("x_range", "y_range"):
+            restored_range = np.asarray(restored[axis])
+            expected_range = np.asarray(expected[axis])
+            assert float(np.mean(restored_range)) == pytest.approx(
+                float(np.mean(expected_range)), abs=0.2
+            )
+            assert float(np.ptp(restored_range)) == pytest.approx(
+                float(np.ptp(expected_range)), rel=0.01
+            )
 
 
 def test_virtual_and_vacuum_scenes_use_the_active_user_selection():

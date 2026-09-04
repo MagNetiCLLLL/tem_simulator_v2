@@ -1,3 +1,4 @@
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -5,13 +6,19 @@ import pytest
 
 from temsim.optics.column import default_state
 from temsim.physics import compute_backend
+from temsim.physics.camera_wave import project_wave_to_recording_plane
 from temsim.physics.wave_imaging import (
     _incident_wave,
     _weighted_ray_statistics,
     effective_sample_thickness_nm,
     estimate_tem_wave_memory_bytes,
+    reproject_wave_image,
     simulate_wave_image,
     tem_wave_imaging_enabled,
+)
+from temsim.physics.recording_stop import (
+    active_tem_recording_plane,
+    tem_projection_reference_plane,
 )
 from temsim.physics.stem_wave_imaging import (
     AngularDetector,
@@ -30,6 +37,12 @@ def _incident_bundle(tx_rad, ty_rad, weights):
         tx=np.asarray(tx_rad, dtype=float)[None, :],
         ty=np.asarray(ty_rad, dtype=float)[None, :],
     )
+
+
+def _retract_stem_detectors(state):
+    for detector in state.stem_detectors:
+        detector.inserted = False
+        detector.readout_enabled = False
 
 
 def _incident_bundle_with_waist(waist_offset_nm):
@@ -60,6 +73,7 @@ def test_retracted_sample_has_zero_interacting_wave_thickness():
 
 def test_tem_wave_observable_accepts_virtual_reference_or_real_cif():
     state = default_state()
+    _retract_stem_detectors(state)
     state.sample.wave_enabled = True
     state.illumination_mode = "TEM"
 
@@ -80,8 +94,172 @@ def test_tem_wave_observable_accepts_virtual_reference_or_real_cif():
     assert tem_wave_imaging_enabled(state) is True
 
 
+def test_tem_recording_plane_stops_at_screen_and_alignment_falls_back_to_camera():
+    state = default_state()
+    _retract_stem_detectors(state)
+
+    assert active_tem_recording_plane(state).key == "flu_screen"
+    state.fluorescent_screen.inserted = False
+    assert active_tem_recording_plane(state).key == "camera"
+    state.camera.inserted = False
+
+    with pytest.raises(ValueError, match="Insert the Fluorescent Screen or Camera"):
+        active_tem_recording_plane(state)
+    assert tem_projection_reference_plane(state).key == "camera"
+
+
+def test_tem_recording_rejects_an_inserted_upstream_stem_detector():
+    state = default_state()
+
+    with pytest.raises(ValueError, match="Retract upstream STEM detector"):
+        active_tem_recording_plane(state)
+
+
+def test_projector_checkpoint_reprojection_matches_fresh_wave_calculation():
+    state = default_state()
+    _retract_stem_detectors(state)
+    state.illumination_mode = "TEM"
+    state.projector_mode = "image"
+    state.fluorescent_screen.inserted = False
+    state.camera.inserted = True
+    state.sample.specimen_preset_key = "si_110"
+    state.sample.thickness_nm = 2.0
+    state.sample.wave_grid_pixels = 32
+    state.sample.wave_field_of_view_angstrom = 16.0
+    state.sample.wave_multislice_enabled = False
+    state.sample.wave_atomistic_enabled = False
+    incident = _incident_bundle(
+        [0.0, 1.0e-4, -1.0e-4],
+        [0.0, 0.0, 0.0],
+        [0.8, 0.1, 0.1],
+    )
+    simulation = SimpleNamespace(incident=incident)
+
+    previous = simulate_wave_image(state, simulation)
+    previous_exit_wave = previous.exit_wave.copy()
+    previous_transfer = np.asarray(
+        previous.metrics["projector_transfer_matrix"], dtype=float
+    )
+    state.intermediate_lens.percent += 2.0
+    reprojected = reproject_wave_image(state, previous)
+    fresh = simulate_wave_image(state, simulation)
+
+    np.testing.assert_array_equal(previous.exit_wave, previous_exit_wave)
+    np.testing.assert_allclose(
+        reprojected.image_intensity, fresh.image_intensity, rtol=0.0, atol=0.0
+    )
+    np.testing.assert_allclose(
+        reprojected.camera_electron_optical_intensity,
+        fresh.camera_electron_optical_intensity,
+        rtol=0.0,
+        atol=0.0,
+    )
+    np.testing.assert_array_equal(reprojected.camera_x_mm, fresh.camera_x_mm)
+    np.testing.assert_array_equal(reprojected.camera_y_mm, fresh.camera_y_mm)
+    assert reprojected.metrics["projector_checkpoint_reused"] is True
+    assert reprojected.metrics["recording_plane_key"] == "camera"
+    assert not np.allclose(
+        previous_transfer,
+        np.asarray(reprojected.metrics["projector_transfer_matrix"], dtype=float),
+    )
+    checkpoint = previous.projector_checkpoint
+    xx, _yy = np.meshgrid(
+        checkpoint.x_angstrom,
+        checkpoint.y_angstrom,
+        indexing="xy",
+    )
+    first_wave = checkpoint.objective_wave_configurations[0]
+    second_wave = first_wave * np.exp(1j * 2.0 * np.pi * xx / 4.0)
+    forward = reproject_wave_image(
+        state,
+        replace(
+            previous,
+            projector_checkpoint=replace(
+                checkpoint,
+                objective_wave_configurations=(first_wave, second_wave),
+            ),
+        ),
+    )
+    reversed_order = reproject_wave_image(
+        state,
+        replace(
+            previous,
+            projector_checkpoint=replace(
+                checkpoint,
+                objective_wave_configurations=(second_wave, first_wave),
+            ),
+        ),
+    )
+    np.testing.assert_allclose(
+        forward.image_intensity,
+        reversed_order.image_intensity,
+        rtol=1.0e-14,
+        atol=1.0e-14,
+    )
+    assert forward.metrics[
+        "camera_collected_zero_loss_relative_intensity"
+    ] == pytest.approx(
+        reversed_order.metrics[
+            "camera_collected_zero_loss_relative_intensity"
+        ],
+        rel=1.0e-14,
+    )
+
+
+def test_defocused_image_wave_uses_symplectic_specimen_canonical_transfer():
+    from temsim.physics.simulation import run
+
+    state = default_state()
+    _retract_stem_detectors(state)
+    state.projector_mode = "image"
+    state.fluorescent_screen.inserted = False
+    state.camera.inserted = True
+    state.intermediate_lens.percent += 2.0
+    axis = np.linspace(-8.0, 8.0, 32)
+    wave = np.ones((32, 32), dtype=np.complex128)
+
+    projection = project_wave_to_recording_plane(
+        state, wave, axis, axis, 0.0197
+    )
+    matrix = np.asarray(projection.transfer_matrix, dtype=float)
+    symplectic_form = np.block([
+        [np.zeros((2, 2)), np.eye(2)],
+        [-np.eye(2), np.zeros((2, 2))],
+    ])
+    quadratic_phase = np.linalg.solve(
+        matrix[:2, 2:], matrix[:2, :2]
+    )
+
+    assert projection.method == "collins_fft_linear_canonical_transform"
+    assert projection.metrics["projector_transfer_input_basis"] == (
+        "specimen_canonical_momentum"
+    )
+    assert np.linalg.norm(
+        matrix.T @ symplectic_form @ matrix - symplectic_form, ord=2
+    ) <= 1.0e-7
+    assert np.linalg.norm(
+        quadratic_phase - quadratic_phase.T, ord=2
+    ) <= 1.0e-9
+    state.acceleration_enabled = False
+    state.step_mm = 5.0
+    state.history_step_mm = 5.0
+    emitter = getattr(state.electron_gun, "emitter", None)
+    if emitter is None:
+        state.electron_gun.ray_count = 9
+    else:
+        emitter.ray_count = 9
+    simulation = run(state)
+    np.testing.assert_allclose(
+        simulation.metrics["j_img"],
+        projection.metrics["projector_image_map"],
+        rtol=1.0e-10,
+        atol=1.0e-10,
+    )
+
+
 def test_tem_wave_memory_estimate_accounts_for_large_fft_grid():
     state = default_state()
+    _retract_stem_detectors(state)
     state.illumination_mode = "TEM"
     state.sample.wave_enabled = True
     state.sample.wave_multislice_enabled = False
@@ -94,6 +272,7 @@ def test_tem_wave_memory_estimate_accounts_for_large_fft_grid():
 
 def test_retracted_sample_ignores_dormant_custom_cif_settings(tmp_path):
     state = default_state()
+    _retract_stem_detectors(state)
     state.sample.inserted = False
     state.sample.cif_path = str(tmp_path / "missing.cif")
     state.sample.wave_atomistic_enabled = False
@@ -226,6 +405,7 @@ def test_si_110_stem_detector_signals_respond_to_position_and_traced_defocus():
 
 def test_tem_wave_image_reports_multislice_model_and_sampling_metrics():
     state = default_state()
+    _retract_stem_detectors(state)
     state.illumination_mode = "TEM"
     state.sample.specimen_preset_key = "vacuum"
     state.sample.thickness_nm = 2.0
@@ -264,6 +444,7 @@ def test_tem_wave_image_reports_multislice_model_and_sampling_metrics():
 
 def test_projected_phase_object_remains_available_as_preview_model():
     state = default_state()
+    _retract_stem_detectors(state)
     state.illumination_mode = "TEM"
     state.sample.specimen_preset_key = "vacuum"
     state.sample.thickness_nm = 2.0
@@ -388,6 +569,7 @@ def test_explicit_cuda_preference_reaches_tem_multislice_and_imaging_fft():
     if not compute_backend.cupy_capability().available:
         pytest.skip("CuPy CUDA backend unavailable")
     state = default_state()
+    _retract_stem_detectors(state)
     state.illumination_mode = "TEM"
     state.acceleration_enabled = True
     state.acceleration_backend = "CUDA GPU"

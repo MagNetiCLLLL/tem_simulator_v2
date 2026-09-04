@@ -11,6 +11,7 @@ import numpy as np
 @dataclass(frozen=True, slots=True)
 class TransverseBeamStatistics:
     surviving_rays: int
+    surviving_fraction: float
     mean_x_m: float
     mean_y_m: float
     mean_tx_rad: float
@@ -81,7 +82,7 @@ def transverse_beam_statistics(
         raise ValueError("No finite surviving rays are available")
 
     if weights is None:
-        selected_weights = np.ones(np.count_nonzero(mask), dtype=float)
+        raw_weights = np.ones(x.size, dtype=float)
     else:
         raw_weights = np.asarray(weights, dtype=float)
         if raw_weights.shape != x.shape:
@@ -90,11 +91,14 @@ def transverse_beam_statistics(
             raise ValueError("Beam-statistics weights must be finite")
         if np.any(raw_weights < 0.0):
             raise ValueError("Beam-statistics weights must be non-negative")
-        selected_weights = raw_weights[mask].copy()
-    total_weight = float(np.sum(selected_weights))
-    if not math.isfinite(total_weight) or total_weight <= 0.0:
+    source_weight = float(np.sum(raw_weights))
+    if not math.isfinite(source_weight) or source_weight <= 0.0:
+        raise ValueError("Beam rays must have positive total weight")
+    selected_weights = raw_weights[mask].copy()
+    surviving_weight = float(np.sum(selected_weights))
+    if not math.isfinite(surviving_weight) or surviving_weight <= 0.0:
         raise ValueError("Surviving rays must have positive total weight")
-    selected_weights /= total_weight
+    selected_weights /= surviving_weight
 
     selected_x = x[mask]
     selected_y = y[mask]
@@ -145,6 +149,7 @@ def transverse_beam_statistics(
 
     return TransverseBeamStatistics(
         surviving_rays=int(np.count_nonzero(mask)),
+        surviving_fraction=surviving_weight / source_weight,
         mean_x_m=mean_x,
         mean_y_m=mean_y,
         mean_tx_rad=mean_tx,

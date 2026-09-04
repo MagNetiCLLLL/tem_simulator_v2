@@ -62,16 +62,17 @@ class ScanControlView(QWidget):
         self.summary.setWordWrap(True)
         self.summary.setStyleSheet("color: #0f172a; font-weight: 600;")
         scope = QLabel(
+            "AC/Descan raster with physical HAADF, DF and BF readout."
+        )
+        scope.setToolTip(
             "Scan is available in TEM and STEM with both microprobe and "
             "nanoprobe illumination. AC and Descan expose the same raster and "
             "foil controls. AC is coupled for zero first-order angle at the "
             "sample; Descan uses the opposite raster command and is coupled "
             "at the Selected Area Aperture image-reference station. Calculated "
-            "first image/diffraction planes and the two physical aperture "
-            "stations are classified independently as image, diffraction, or "
-            "mixed for the current lens state. HAADF / DF / BF frames contain "
-            "the detector fraction calculated at every probe position; "
-            "Preview uses the geometric approximation."
+            "image/diffraction planes and physical aperture stations are "
+            "classified independently for the current lens state. Preview "
+            "uses the geometric detector approximation."
         )
         scope.setObjectName("scanScopeNotice")
         scope.setWordWrap(True)
@@ -117,6 +118,9 @@ class ScanControlView(QWidget):
         self.poisson_seed.valueChanged.connect(self._poisson_seed_changed)
         controls_layout.addWidget(statistics)
         pivot_help = QLabel(
+            "Shared raster; scan/descan foil coupling is solved automatically."
+        )
+        pivot_help.setToolTip(
             "Both foil pairs use one signed upper gain and a derived lower-foil "
             "2 x 2 coupling. The raster clock, pixel count, pixel size and FOV "
             "are shared. Active magnetic lenses can rotate and remap both pairs, "
@@ -213,7 +217,8 @@ class ScanControlView(QWidget):
         )
         self.detector_playback_summary.setWordWrap(True)
         detector_layout.addWidget(self.detector_playback_summary)
-        self.image_model_notice = QLabel(
+        self.image_model_notice = QLabel("No STEM frame loaded.")
+        self.image_model_notice.setToolTip(
             "Run a STEM calculation to identify whether the images are a "
             "geometry preview, virtual specimen signal, or CIF multislice signal."
         )
@@ -225,9 +230,12 @@ class ScanControlView(QWidget):
         )
         detector_layout.addWidget(self.image_model_notice)
         interpretation = QLabel(
-            "BF records transmitted/low-angle electrons; DF records its configured "
-            "scattered-angle band; HAADF records the configured high-angle band. "
-            "The exact angular ranges are listed above each image."
+            "BF: low angle · DF: selected band · HAADF: high angle"
+        )
+        interpretation.setToolTip(
+            "BF records transmitted/low-angle electrons; DF records its "
+            "configured scattered-angle band; HAADF records the configured "
+            "high-angle band. Exact angular ranges appear above each image."
         )
         interpretation.setObjectName("stemImageInterpretation")
         interpretation.setWordWrap(True)
@@ -624,12 +632,18 @@ class ScanControlView(QWidget):
                 self._set_playback_active(False)
         self.parameters_changed.emit(f"{prefix}.{field}")
 
-    def display_result(self, result, stem_frame=None) -> None:
+    def display_result(self, result, stem_frame=None, *, complete=False) -> None:
         """Display scan geometry and one reusable detector-signal frame."""
 
         self._result = result
         if stem_frame is not None:
             self._set_stem_frame(stem_frame)
+        elif complete:
+            self._stem_frame = None
+            self._paused_display_frame = None
+            for item in self.detector_image_items.values():
+                item.clear()
+            self._update_image_model_notice(None)
         live_ac = (
             getattr(self._state, "ac_deflector", None)
             if self._state is not None
@@ -745,6 +759,20 @@ class ScanControlView(QWidget):
             f"{symmetry_text}{coupling_text}{descan_text}"
         )
 
+    def mark_stem_frame_stale(self) -> None:
+        """Freeze the previous complete detector frame after input changes."""
+
+        if self._stem_frame is None:
+            return
+        self._set_playback_active(False)
+        self.image_model_notice.setText(
+            "Previous High accuracy frame retained | inputs changed"
+        )
+        self.image_model_notice.setToolTip(
+            "The displayed complete detector frame belongs to the previous "
+            "state. Run High accuracy to update it."
+        )
+
     def _set_stem_frame(self, frame) -> None:
         shape = np.asarray(frame.scan_x_um, dtype=float).shape
         if len(shape) != 2 or not all(value > 0 for value in shape):
@@ -774,8 +802,11 @@ class ScanControlView(QWidget):
     def _update_image_model_notice(self, frame) -> None:
         if frame is None:
             self.image_model_notice.setText(
-                "No STEM frame is loaded. Run Preview for scan/detector geometry "
-                "or High accuracy with wave/multislice enabled for specimen-dependent contrast."
+                "No STEM frame | Preview: geometry · High accuracy: specimen contrast"
+            )
+            self.image_model_notice.setToolTip(
+                "Run Preview for scan/detector geometry or High accuracy with "
+                "wave/multislice enabled for specimen-dependent contrast."
             )
             return
         metrics = getattr(frame, "metrics", None) or {}
@@ -790,11 +821,21 @@ class ScanControlView(QWidget):
                 f"FOV {self._format_length_nm(float(fov_x_nm))} x "
                 f"{self._format_length_nm(float(fov_y_nm))}."
             )
-        scale += self._sample_scale_warning(
+        sampling_warning = self._sample_scale_warning(
             pixel_nm=pixel_nm,
             fov_x_nm=fov_x_nm,
             fov_y_nm=fov_y_nm,
         )
+        scale += sampling_warning
+        compact_scale = ""
+        if pixel_nm is not None and fov_x_nm is not None and fov_y_nm is not None:
+            compact_scale = (
+                f" | {self._format_length_nm(float(pixel_nm))}/px | "
+                f"FOV {self._format_length_nm(float(fov_x_nm))} × "
+                f"{self._format_length_nm(float(fov_y_nm))}"
+            )
+        if sampling_warning:
+            compact_scale += " | sampling warning"
         if model == "geometric_detector_interception":
             sample = getattr(self._state, "sample", None)
             cif_path = active_cif_path(sample) if sample is not None else ""
@@ -803,7 +844,7 @@ class ScanControlView(QWidget):
                 if cif_path
                 else ""
             )
-            text = (
+            detail_text = (
                 "Preview geometry only — not a specimen STEM image. The polygons "
                 "and sharp wedges are detector-clipping boundaries produced by "
                 "scan/descan ray interception; they are not atoms or diffraction "
@@ -811,34 +852,46 @@ class ScanControlView(QWidget):
                 "to calculate TOML-reference or CIF-dependent elastic "
                 f"contrast.{scale}"
             )
+            text = (
+                "Geometry preview only | specimen contrast not calculated"
+                + (" | selected CIF not used" if cif_path else "")
+                + compact_scale
+            )
             colour = (
                 "color: #92400e; background: #fffbeb; border: 1px solid #f59e0b;"
             )
         elif model in {"multislice_angle_resolved", "thin_phase_angle_resolved"}:
             potential = str(metrics.get("specimen_potential_model", "specimen potential"))
-            text = (
+            detail_text = (
                 f"Specimen-dependent {model.replace('_', ' ')} image using "
                 f"{potential}. Detector values are fractions of emitted source "
                 f"current integrated over the physical detector masks.{scale}"
+            )
+            text = (
+                f"Specimen image | {model.replace('_', ' ')} | {potential}"
+                + compact_scale
             )
             colour = (
                 "color: #166534; background: #f0fdf4; border: 1px solid #22c55e;"
             )
         elif model == "finite_virtual_absolute_probability":
-            text = (
+            detail_text = (
                 "Virtual-sample image from the configured absolute interaction "
                 f"probabilities and finite density regions.{scale}"
             )
+            text = "Virtual-sample image | absolute probabilities" + compact_scale
             colour = (
                 "color: #1e40af; background: #eff6ff; border: 1px solid #60a5fa;"
             )
         else:
             limitation = str(metrics.get("model_limitation", "")).strip()
-            text = f"Image model: {model}. {limitation}{scale}".strip()
+            detail_text = f"Image model: {model}. {limitation}{scale}".strip()
+            text = f"Image model: {model}" + compact_scale
             colour = (
                 "color: #334155; background: #f8fafc; border: 1px solid #94a3b8;"
             )
         self.image_model_notice.setText(text)
+        self.image_model_notice.setToolTip(detail_text)
         self.image_model_notice.setStyleSheet(f"{colour} padding: 6px;")
 
     def _sample_scale_warning(self, *, pixel_nm, fov_x_nm, fov_y_nm) -> str:

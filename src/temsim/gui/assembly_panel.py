@@ -296,6 +296,7 @@ class AssemblyPanel(QWidget):
             self.operating_mode_status.setText(
                 "No calibrated preset is available for this assembly."
             )
+            self.operating_mode_status.setToolTip("")
             return
         condenser = mode_by_key(
             condenser_key, self.operating_mode_catalog
@@ -310,6 +311,10 @@ class AssemblyPanel(QWidget):
         plane_label = {
             "objective_image_plane": "objective image plane",
             "objective_back_focal_plane": "objective back focal plane",
+            "mode_dependent_image_reference_plane": "image reference plane",
+            "mode_dependent_diffraction_reference_plane": (
+                "diffraction reference plane"
+            ),
         }.get(str(plane), str(plane))
         if condenser.key == "nano_probe":
             illumination_note = (
@@ -331,7 +336,7 @@ class AssemblyPanel(QWidget):
         else:
             # Read-only compatibility for an external pre-diameter catalog.
             aperture_um = float(aperture_values["radius_mm"]) * 2000.0
-        self.operating_mode_status.setText(
+        detail_text = (
             f"Preset reference sample semi-angle: {float(angle):.3f} mrad. "
             f"C2 {c2:.2f}%, C3 {c3:.2f}%, C2 aperture "
             f"diameter {aperture_um:.0f} µm, Objective focus {objective:.1f}%. "
@@ -340,6 +345,12 @@ class AssemblyPanel(QWidget):
             "adjustments, or edit individual values under Optical > "
             "Lenses/Correctors."
         )
+        self.operating_mode_status.setText(
+            f"{float(angle):.3f} mrad | C2 {c2:.2f}% | C3 {c3:.2f}% | "
+            f"C2 aperture {aperture_um:.0f} µm | Objective {objective:.1f}% | "
+            f"{plane_label}"
+        )
+        self.operating_mode_status.setToolTip(detail_text)
 
     def _request_operating_mode(self) -> None:
         condenser_key = self.probe_mode.currentData()

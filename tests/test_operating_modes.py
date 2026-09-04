@@ -65,7 +65,7 @@ def _sample_statistics(state):
 @pytest.mark.parametrize(
     ("mode_key", "minimum_mrad", "maximum_mrad", "diameter_um"),
     (
-        ("micro_probe", 0.0, 0.5, 100.0),
+        ("micro_probe", 0.0, 0.3, 100.0),
         ("nano_probe", 3.0, 60.0, 100.0),
     ),
 )
@@ -164,3 +164,21 @@ def test_diffraction_mode_targets_the_main_screen_reference_plane():
     assert np.sqrt(abs(np.linalg.det(transfer.j_diff_m_per_rad))) == (
         pytest.approx(0.05, rel=3.0e-2)
     )
+
+
+def test_probe_mode_presets_keep_tem_and_stem_recording_paths_exclusive():
+    state = _state()
+
+    apply_operating_mode_pair(state, "micro_probe", "imaging")
+    assert all(not detector.inserted for detector in state.stem_detectors)
+    assert all(
+        not detector.readout_enabled for detector in state.stem_detectors
+    )
+    assert state.camera.inserted is True
+    assert state.fluorescent_screen.inserted is False
+
+    apply_operating_mode_pair(state, "nano_probe", "diffraction")
+    assert all(detector.inserted for detector in state.stem_detectors)
+    assert all(detector.readout_enabled for detector in state.stem_detectors)
+    assert state.fluorescent_screen.inserted is False
+    assert state.camera.inserted is False

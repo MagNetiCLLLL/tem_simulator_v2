@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from temsim.physics.beam_current import effective_source_current_pa
+
 from temsim.component_keys import STEM_DETECTOR_KEYS
 from temsim.physics.scan_geometry import (
     calibrate_scan_system,
@@ -168,10 +170,7 @@ def _normalised_ray_weights(branch):
 
 def source_current_pa(state):
     """Return the absolute emitted current represented by the ray bundle."""
-    return max(
-        float(state.electron_gun.emitted_current_a) * 1.0e9,
-        0.0,
-    ) * 1.0e3
+    return effective_source_current_pa(state)
 
 
 def _current_values(state, fraction):

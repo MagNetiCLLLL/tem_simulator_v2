@@ -230,8 +230,9 @@ def test_energy_filter_view_draws_scaled_housing_banks(qtbot):
     x_before = tuple(view_box.viewRange()[0])
     view.plot.setYRange(-80.0, 20.0, padding=0.0)
     assert tuple(view_box.viewRange()[0]) == pytest.approx(x_before)
-    assert "adjustable non-OEM envelopes" in view.summary.text()
-    assert "zoomed independently" in view.summary.text()
+    assert len(view.summary.text()) < 180
+    assert "adjustable non-OEM envelopes" in view.summary.toolTip()
+    assert "zoomed independently" in view.summary.toolTip()
 
 
 def test_public_iliad_topology_and_zebra_active_areas_have_unique_toml_rows():

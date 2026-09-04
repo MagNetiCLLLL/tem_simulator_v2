@@ -3,9 +3,9 @@
 The ray integrator is the authority for the ordered post-specimen column.  Its
 signed laboratory-frame 4x4 Jacobian is used here as a two-dimensional linear
 canonical transform (LCT), so Objective, Diffraction, Intermediate, P1, P2,
-round-lens rotation and every enabled quadrupole/stigmator all affect the
-camera wave.  Deflectors are affine rather than Jacobian terms and are traced
-separately as a camera-plane displacement.
+    round-lens rotation and every enabled quadrupole/stigmator all affect the
+    recording-plane wave.  Deflectors are affine rather than Jacobian terms and
+    are traced separately as a recording-plane displacement.
 
 This is exact for the simulator's first-order paraxial Hamiltonian model.  It
 does not claim an OEM field calibration or replace a full Maxwell/Schrodinger
@@ -19,7 +19,6 @@ from dataclasses import dataclass
 import math
 
 import numpy as np
-from scipy.ndimage import map_coordinates
 
 from temsim.detector.point_spread import (
     DetectorPointSpread,
@@ -29,8 +28,8 @@ from temsim.physics.core import propagate
 from temsim.physics.first_order import (
     detector_frame_from_component,
     linear_map_properties,
-    trace_transverse_transfer,
 )
+from temsim.physics.recording_stop import active_tem_recording_plane
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,38 +106,57 @@ def _normalise_wave(wave: np.ndarray, dx_m: float, dy_m: float) -> np.ndarray:
     return np.asarray(wave, dtype=np.complex128) / math.sqrt(norm)
 
 
-def _sample_complex_grid(
-    values: np.ndarray,
-    x_axis: np.ndarray,
-    y_axis: np.ndarray,
-    query_x: np.ndarray,
-    query_y: np.ndarray,
+def _deposit_mapped_probability(
+    probability: np.ndarray,
+    mapped_x_m: np.ndarray,
+    mapped_y_m: np.ndarray,
+    camera_x_m: np.ndarray,
+    camera_y_m: np.ndarray,
 ) -> np.ndarray:
-    """Bilinearly sample one complex regular grid with zero exterior."""
+    """Conservatively integrate mapped probability into detector pixels."""
 
-    dx = float(x_axis[1] - x_axis[0])
-    dy = float(y_axis[1] - y_axis[0])
-    indices = np.vstack((
-        ((query_y - float(y_axis[0])) / dy).ravel(),
-        ((query_x - float(x_axis[0])) / dx).ravel(),
-    ))
-    real = map_coordinates(
-        np.asarray(values.real, dtype=float),
-        indices,
-        order=1,
-        mode="constant",
-        cval=0.0,
-        prefilter=False,
+    dx_camera = float(camera_x_m[1] - camera_x_m[0])
+    dy_camera = float(camera_y_m[1] - camera_y_m[0])
+    ix = (mapped_x_m - float(camera_x_m[0])) / dx_camera
+    iy = (mapped_y_m - float(camera_y_m[0])) / dy_camera
+    ix0 = np.floor(ix).astype(np.int64)
+    iy0 = np.floor(iy).astype(np.int64)
+    fx = ix - ix0
+    fy = iy - iy0
+    inside_sensor = (
+        (mapped_x_m >= float(camera_x_m[0]) - 0.5 * dx_camera)
+        & (mapped_x_m < float(camera_x_m[-1]) + 0.5 * dx_camera)
+        & (mapped_y_m >= float(camera_y_m[0]) - 0.5 * dy_camera)
+        & (mapped_y_m < float(camera_y_m[-1]) + 0.5 * dy_camera)
     )
-    imaginary = map_coordinates(
-        np.asarray(values.imag, dtype=float),
-        indices,
-        order=1,
-        mode="constant",
-        cval=0.0,
-        prefilter=False,
-    )
-    return (real + 1j * imaginary).reshape(query_x.shape)
+    targets = []
+    normalisation = np.zeros_like(probability, dtype=float)
+    for offset_x, weight_x in ((0, 1.0 - fx), (1, fx)):
+        for offset_y, weight_y in ((0, 1.0 - fy), (1, fy)):
+            target_x = ix0 + offset_x
+            target_y = iy0 + offset_y
+            weight = weight_x * weight_y
+            valid = (
+                inside_sensor
+                & (target_x >= 0)
+                & (target_x < camera_x_m.size)
+                & (target_y >= 0)
+                & (target_y < camera_y_m.size)
+            )
+            normalisation[valid] += weight[valid]
+            targets.append((target_x, target_y, weight, valid))
+    deposited = np.zeros((camera_y_m.size, camera_x_m.size), dtype=float)
+    for target_x, target_y, weight, valid in targets:
+        np.add.at(
+            deposited,
+            (target_y[valid], target_x[valid]),
+            (
+                probability[valid]
+                * weight[valid]
+                / normalisation[valid]
+            ),
+        )
+    return deposited / (dx_camera * dy_camera)
 
 
 def _geometric_image_intensity(
@@ -164,35 +182,17 @@ def _geometric_image_intensity(
     mapped[1] += offset_m[1]
     dx_source = float(x_m[1] - x_m[0])
     dy_source = float(y_m[1] - y_m[0])
-    dx_camera = float(camera_x_m[1] - camera_x_m[0])
-    dy_camera = float(camera_y_m[1] - camera_y_m[0])
-    ix = (mapped[0] - float(camera_x_m[0])) / dx_camera
-    iy = (mapped[1] - float(camera_y_m[0])) / dy_camera
-    ix0 = np.floor(ix).astype(np.int64)
-    iy0 = np.floor(iy).astype(np.int64)
-    fx = ix - ix0
-    fy = iy - iy0
     probability = np.abs(wave) ** 2 * dx_source * dy_source
-    deposited = np.zeros((camera_y_m.size, camera_x_m.size), dtype=float)
-    for offset_x, weight_x in ((0, 1.0 - fx), (1, fx)):
-        for offset_y, weight_y in ((0, 1.0 - fy), (1, fy)):
-            target_x = ix0 + offset_x
-            target_y = iy0 + offset_y
-            valid = (
-                (target_x >= 0)
-                & (target_x < camera_x_m.size)
-                & (target_y >= 0)
-                & (target_y < camera_y_m.size)
-            )
-            np.add.at(
-                deposited,
-                (target_y[valid], target_x[valid]),
-                (probability * weight_x * weight_y)[valid],
-            )
-    return deposited / (dx_camera * dy_camera)
+    return _deposit_mapped_probability(
+        probability,
+        mapped[0],
+        mapped[1],
+        camera_x_m,
+        camera_y_m,
+    )
 
 
-def _collins_lct_wave(
+def _collins_lct_intensity(
     wave: np.ndarray,
     x_m: np.ndarray,
     y_m: np.ndarray,
@@ -203,7 +203,13 @@ def _collins_lct_wave(
     offset_m: np.ndarray,
     wavelength_m: float,
 ) -> np.ndarray:
-    """Evaluate the two-dimensional Collins diffraction integral by FFT."""
+    """Conservatively bin a Collins transform into detector pixels.
+
+    The FFT is evaluated on its natural reciprocal grid.  Each sample carries
+    its Parseval probability and is mapped by ``u = offset + wavelength B f``
+    before bilinear detector-pixel integration.  This avoids losing a narrow
+    diffraction pattern between coarse physical pixel centres.
+    """
 
     determinant = float(np.linalg.det(b_block_m_per_rad))
     singular_values = np.linalg.svd(b_block_m_per_rad, compute_uv=False)
@@ -239,38 +245,44 @@ def _collins_lct_wave(
     )
     frequency_x = np.fft.fftshift(np.fft.fftfreq(x_m.size, d=dx_m))
     frequency_y = np.fft.fftshift(np.fft.fftfreq(y_m.size, d=dy_m))
-
-    uu, vv = np.meshgrid(camera_x_m, camera_y_m, indexing="xy")
-    centred = np.stack((uu - offset_m[0], vv - offset_m[1]), axis=0)
-    query_frequency = np.einsum(
-        "ij,jyx->iyx", inverse_b / wavelength_m, centred
+    dfx_m1 = float(frequency_x[1] - frequency_x[0])
+    dfy_m1 = float(frequency_y[1] - frequency_y[0])
+    frequency_xx, frequency_yy = np.meshgrid(
+        frequency_x, frequency_y, indexing="xy"
     )
-    sampled_spectrum = _sample_complex_grid(
-        spectrum,
-        frequency_x,
-        frequency_y,
-        query_frequency[0],
-        query_frequency[1],
+    frequency_coordinates = np.stack(
+        (frequency_xx, frequency_yy), axis=0
     )
-    # The omitted output-only Collins chirp has unit magnitude and cannot
-    # affect this terminal intensity detector.
-    return sampled_spectrum / (wavelength_m * math.sqrt(abs(determinant)))
+    mapped = wavelength_m * np.einsum(
+        "ij,jyx->iyx", b_block_m_per_rad, frequency_coordinates
+    )
+    mapped[0] += offset_m[0]
+    mapped[1] += offset_m[1]
+    probability = np.abs(spectrum) ** 2 * dfx_m1 * dfy_m1
+    return _deposit_mapped_probability(
+        probability,
+        mapped[0],
+        mapped[1],
+        camera_x_m,
+        camera_y_m,
+    )
 
 
-def project_wave_to_camera(
+def _project_wave_to_plane(
     state,
     exit_wave,
     x_angstrom,
     y_angstrom,
     wavelength_angstrom: float,
     *,
+    recording_plane,
     convergence_semiangle_rad: float = 0.0,
 ) -> CameraWaveProjection:
-    """Propagate a specimen exit wave through the full projector to Camera."""
+    """Propagate a specimen wave through the full projector to one stop."""
 
-    camera = state.camera.validate()
-    if not bool(camera.inserted):
-        raise ValueError("Camera must be inserted to calculate a camera image.")
+    recording_plane = recording_plane.validate()
+    if not bool(recording_plane.inserted):
+        raise ValueError("The selected TEM recording plane is retracted.")
     x_m = np.asarray(x_angstrom, dtype=float) * 1.0e-10
     y_m = np.asarray(y_angstrom, dtype=float) * 1.0e-10
     wave = np.asarray(exit_wave, dtype=np.complex128)
@@ -287,24 +299,55 @@ def project_wave_to_camera(
         raise ValueError("Electron wavelength must be finite and positive.")
     wave = _normalise_wave(wave, dx_m, dy_m)
 
-    transfer = trace_transverse_transfer(
-        state, float(state.sample.z_mm), float(camera.z_mm)
+    projector_mode = str(getattr(state, "projector_mode", "image")).lower()
+    # The specimen lies inside the Objective field, so the Fourier coordinate
+    # of every exit wave is canonical momentum in both image and diffraction
+    # modes.  The mode selects the intended conjugacy, not a different phase-
+    # space basis.  ``diffraction_transfer`` is the established stable
+    # specimen-canonical transfer used by the projector solver.
+    from temsim.optics.direct_alignment import diffraction_transfer
+
+    transfer = diffraction_transfer(
+        state,
+        float(recording_plane.z_mm),
     )
-    detector_frame = detector_frame_from_component(camera)
+    transfer_basis = "specimen_canonical_momentum"
+    detector_frame = detector_frame_from_component(recording_plane)
     rotation = detector_frame.column_to_detector
     a_block = rotation @ np.asarray(transfer.j_img, dtype=float)
     b_block = rotation @ np.asarray(
         transfer.j_diff_m_per_rad, dtype=float
     )
-    offset_m = rotation @ _camera_affine_offset_m(state, camera)
+    offset_m = rotation @ _camera_affine_offset_m(state, recording_plane)
 
     # Use the specimen calculation grid as explicit on-chip binning.  Setting
     # the wave grid to camera.pixels produces native detector sampling; smaller
     # wave grids calculate an integer/non-integer binned camera image without
     # pretending to add specimen information by interpolation.
-    pixels_x = min(int(camera.pixels), int(x_m.size))
-    pixels_y = min(int(camera.pixels), int(y_m.size))
-    width_m = float(camera.width_mm) * 1.0e-3
+    hardware_pixels_value = getattr(recording_plane, "pixels", None)
+    hardware_pixels = (
+        int(hardware_pixels_value)
+        if hardware_pixels_value is not None
+        else None
+    )
+    pixels_x = (
+        min(hardware_pixels, int(x_m.size))
+        if hardware_pixels is not None
+        else int(x_m.size)
+    )
+    pixels_y = (
+        min(hardware_pixels, int(y_m.size))
+        if hardware_pixels is not None
+        else int(y_m.size)
+    )
+    width_mm = float(
+        getattr(
+            recording_plane,
+            "width_mm",
+            getattr(recording_plane, "outer_width_mm"),
+        )
+    )
+    width_m = width_mm * 1.0e-3
     pixel_x_m = width_m / pixels_x
     pixel_y_m = width_m / pixels_y
     camera_x_m = (
@@ -314,13 +357,24 @@ def project_wave_to_camera(
         np.arange(pixels_y, dtype=float) - 0.5 * (pixels_y - 1)
     ) * pixel_y_m
 
-    ray_angles = max(
-        float(convergence_semiangle_rad),
-        1.0e-6,
+    # The exit wave can carry specimen spatial frequencies far beyond the
+    # illumination cone.  Use the represented Nyquist band when deciding
+    # whether a nearly image-conjugate B block is negligible.  Diffraction
+    # mode must always retain B and the wave phase; a geometric A*x mapping
+    # cannot form a diffraction pattern.
+    represented_angle_rad = wavelength_m * math.hypot(
+        0.5 / dx_m,
+        0.5 / dy_m,
     )
-    blur_m = float(np.linalg.norm(b_block, ord=2)) * ray_angles
+    blur_angle_rad = max(
+        float(convergence_semiangle_rad), represented_angle_rad
+    )
+    blur_m = float(np.linalg.norm(b_block, ord=2)) * blur_angle_rad
     camera_pixel_m = max(pixel_x_m, pixel_y_m)
-    if blur_m <= 0.25 * camera_pixel_m:
+    if (
+        projector_mode != "diffraction"
+        and blur_m <= 0.25 * camera_pixel_m
+    ):
         electron_optical_intensity = _geometric_image_intensity(
             wave,
             x_m,
@@ -332,7 +386,7 @@ def project_wave_to_camera(
         )
         method = "image_conjugate_linear_canonical_transform"
     else:
-        camera_wave = _collins_lct_wave(
+        electron_optical_intensity = _collins_lct_intensity(
             wave,
             x_m,
             y_m,
@@ -343,33 +397,59 @@ def project_wave_to_camera(
             offset_m,
             wavelength_m,
         )
-        electron_optical_intensity = np.abs(camera_wave) ** 2
         method = "collins_fft_linear_canonical_transform"
 
-    point_spread = DetectorPointSpread.from_component(camera)
+    hit_mask = np.asarray(
+        recording_plane.hit_mask(
+            camera_x_m[None, :] * 1.0e3,
+            camera_y_m[:, None] * 1.0e3,
+        ),
+        dtype=bool,
+    )
+    electron_optical_intensity = np.where(
+        hit_mask, electron_optical_intensity, 0.0
+    )
+    point_spread = DetectorPointSpread.from_component(recording_plane)
     detector_intensity = apply_point_spread(
         electron_optical_intensity,
         point_spread,
         pixel_size_x_mm=pixel_x_m * 1.0e3,
         pixel_size_y_mm=pixel_y_m * 1.0e3,
     )
+    detector_intensity = np.where(hit_mask, detector_intensity, 0.0)
     camera_integral = float(
         np.sum(detector_intensity) * pixel_x_m * pixel_y_m
     )
     properties = linear_map_properties(a_block)
     metrics = {
-        "camera_key": str(camera.key),
-        "camera_z_mm": float(camera.z_mm),
-        "camera_width_mm": float(camera.width_mm),
-        "camera_hardware_pixels": int(camera.pixels),
+        "recording_plane_key": str(recording_plane.key),
+        "recording_plane_name": str(recording_plane.name),
+        "recording_plane_z_mm": float(recording_plane.z_mm),
+        "recording_plane_width_mm": width_mm,
+        "recording_plane_hardware_pixels": hardware_pixels,
+        "recording_plane_sampling_model": (
+            "native_pixel_binning"
+            if hardware_pixels is not None
+            else "continuous_screen_numerical_grid"
+        ),
+        # Legacy Camera-prefixed aliases remain for saved diagnostics and GUI
+        # consumers while the target may now be the Fluorescent Screen.
+        "camera_key": str(recording_plane.key),
+        "camera_z_mm": float(recording_plane.z_mm),
+        "camera_width_mm": width_mm,
+        "camera_hardware_pixels": hardware_pixels,
         "camera_calculation_pixels_xy": (pixels_x, pixels_y),
         "camera_pixel_size_mm_xy": (
             pixel_x_m * 1.0e3,
             pixel_y_m * 1.0e3,
         ),
         "camera_binning_xy": (
-            float(camera.pixels) / pixels_x,
-            float(camera.pixels) / pixels_y,
+            (
+                float(hardware_pixels) / pixels_x,
+                float(hardware_pixels) / pixels_y,
+            )
+            if hardware_pixels is not None
+            else (None, None)
         ),
         "camera_affine_offset_mm_xy": tuple(offset_m * 1.0e3),
         "camera_collected_zero_loss_relative_intensity": camera_integral,
@@ -381,6 +461,7 @@ def project_wave_to_camera(
         "camera_point_spread_status": point_spread.status,
         "camera_detector_orientation_status": detector_frame.status,
         "projector_transfer_matrix": transfer.matrix.tolist(),
+        "projector_transfer_input_basis": transfer_basis,
         "projector_image_map": a_block.tolist(),
         "projector_diffraction_map_m_per_rad": b_block.tolist(),
         "projector_magnification": properties.isotropic_scale,
@@ -388,11 +469,20 @@ def project_wave_to_camera(
         "projector_orientation_deg": properties.orientation_deg,
         "projector_mirrored": properties.mirrored,
         "projector_conjugacy_blur_estimate_mm": blur_m * 1.0e3,
+        "projector_exit_wave_bandlimit_mrad": represented_angle_rad * 1.0e3,
         "camera_wave_propagation_method": method,
-        "camera_projector_mode": str(getattr(state, "projector_mode", "")),
+        "camera_projector_mode": projector_mode,
+        "recording_plane_observable": (
+            "diffraction_pattern"
+            if projector_mode == "diffraction"
+            else "image"
+        ),
+        "intermediate_post_sample_masks_applied": False,
         "camera_wave_model_scope": (
-            "specimen exit to physical Camera through the complete enabled "
-            "post-specimen paraxial column; detector PSF forward applied"
+            "specimen exit to the first inserted TEM recording stop through "
+            "the enabled post-specimen paraxial fields; terminal detector "
+            "mask and PSF applied; intermediate aperture masks are not yet "
+            "split-plane wave propagations"
         ),
     }
     return CameraWaveProjection(
@@ -406,4 +496,49 @@ def project_wave_to_camera(
         affine_offset_mm=tuple(offset_m * 1.0e3),
         method=method,
         metrics=metrics,
+    )
+
+
+def project_wave_to_recording_plane(
+    state,
+    exit_wave,
+    x_angstrom,
+    y_angstrom,
+    wavelength_angstrom: float,
+    *,
+    convergence_semiangle_rad: float = 0.0,
+) -> CameraWaveProjection:
+    """Project to the first inserted Fluorescent Screen or Camera."""
+
+    return _project_wave_to_plane(
+        state,
+        exit_wave,
+        x_angstrom,
+        y_angstrom,
+        wavelength_angstrom,
+        recording_plane=active_tem_recording_plane(state),
+        convergence_semiangle_rad=convergence_semiangle_rad,
+    )
+
+
+def project_wave_to_camera(
+    state,
+    exit_wave,
+    x_angstrom,
+    y_angstrom,
+    wavelength_angstrom: float,
+    *,
+    convergence_semiangle_rad: float = 0.0,
+) -> CameraWaveProjection:
+    """Backward-compatible explicit Camera projection entry point."""
+
+    camera = state.camera
+    return _project_wave_to_plane(
+        state,
+        exit_wave,
+        x_angstrom,
+        y_angstrom,
+        wavelength_angstrom,
+        recording_plane=camera,
+        convergence_semiangle_rad=convergence_semiangle_rad,
     )

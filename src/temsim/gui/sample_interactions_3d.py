@@ -19,17 +19,19 @@ import os
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QVector3D
 from PySide6.QtWidgets import (
     QCheckBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from temsim.specimen.scene import SpecimenScene
@@ -67,6 +69,39 @@ EVENT_STYLES = {
     "inelastic_event": ("Inelastic / vacancy sites", "#c084fc"),
     "relaxation_event": ("Relaxation / X-ray sites", "#fde047"),
 }
+
+LEGEND_LABELS = {
+    "incident": "Incident",
+    "primary": "Primary",
+    "elastic": "Elastic",
+    "backscattered": "Backscatter",
+    "downstream_primary": "Primary exit",
+    "downstream_elastic": "Scattered exit",
+    "xray_generated": "X-rays",
+    "xray_detected": "EDS accepted",
+    "elastic_event": "Elastic sites",
+    "inelastic_event": "Vacancy sites",
+    "relaxation_event": "X-ray sites",
+}
+
+SIGNAL_GROUPS = (
+    (
+        "Electron trajectories",
+        (
+            "incident",
+            "primary",
+            "elastic",
+            "backscattered",
+            "downstream_primary",
+            "downstream_elastic",
+        ),
+    ),
+    ("Characteristic X-rays", ("xray_generated", "xray_detected")),
+    (
+        "Interaction sites",
+        ("elastic_event", "inelastic_event", "relaxation_event"),
+    ),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +191,34 @@ def _global_mm_to_local_nm(positions_mm, sample_z_mm: float) -> np.ndarray:
     local[:, :2] *= 1.0e6
     local[:, 2] = (local[:, 2] - float(sample_z_mm)) * 1.0e6
     return local
+
+
+def _gl_display_positions(positions_nm) -> np.ndarray:
+    """Map physical local coordinates to the TEM-style 3-D display frame.
+
+    The physical model remains right-handed with +Z downstream.  PyQtGraph's
+    OpenGL world draws +Z upward in the default side view, so the renderer
+    reflects only its displayed Z coordinate to make downstream screen-down.
+    """
+
+    displayed = np.asarray(positions_nm, dtype=float).copy()
+    if displayed.shape[-1:] != (3,):
+        raise ValueError("Displayed specimen positions need a final XYZ axis")
+    displayed[..., 2] *= -1.0
+    return displayed
+
+
+def _gl_display_bounds(
+    bounds_nm: tuple[np.ndarray, np.ndarray],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return ordered OpenGL bounds after the display-only Z reflection."""
+
+    lower, upper = (np.asarray(value, dtype=float) for value in bounds_nm)
+    display_lower = lower.copy()
+    display_upper = upper.copy()
+    display_lower[2] = -upper[2]
+    display_upper[2] = -lower[2]
+    return display_lower, display_upper
 
 
 def _clip_photon_path(
@@ -720,8 +783,13 @@ class SampleInteractions3DPage(QWidget):
         self._calculation_result = None
         self._sample_region_result = None
         self._scene: SampleInteractionScene | None = None
+        self._rendered_interactions = None
         self._items = []
         self._fit_scope = "material"
+        self._signal_filter_guard = False
+        self._hidden_scene = None
+        self._hidden_view_state = None
+        self._pending_view_restore = None
 
         self.summary = QLabel(
             "Run High accuracy to populate cached specimen trajectories."
@@ -733,21 +801,51 @@ class SampleInteractions3DPage(QWidget):
         )
         self.summary.setStyleSheet("color: #94a3b8; font-weight: 600;")
 
-        self.electron_toggle = QCheckBox("Electron paths")
-        self.electron_toggle.setChecked(True)
-        self.event_toggle = QCheckBox("Interaction sites")
-        self.event_toggle.setChecked(True)
-        self.xray_toggle = QCheckBox("Characteristic X-rays")
-        self.xray_toggle.setChecked(True)
+        self.signal_filter = QPushButton()
+        self.signal_filter.setObjectName("sampleInteractionsSignalFilter")
+        self.signal_filter.setToolTip(
+            "Choose individual cached electron, X-ray and interaction-site "
+            "categories to display. Filtering never reruns the calculation."
+        )
+        self.signal_menu = QMenu(self.signal_filter)
+        self.signal_actions: dict[str, QCheckBox] = {}
+        self._signal_widget_actions: list[QWidgetAction] = []
+        self.show_all_signals = self.signal_menu.addAction("Show all signals")
+        self.hide_all_signals = self.signal_menu.addAction("Hide all signals")
+        self.show_all_signals.triggered.connect(
+            lambda: self._set_all_signal_visibility(True)
+        )
+        self.hide_all_signals.triggered.connect(
+            lambda: self._set_all_signal_visibility(False)
+        )
+        self.signal_menu.addSeparator()
+        all_styles = {**PATH_STYLES, **EVENT_STYLES}
+        for group_index, (group_name, categories) in enumerate(SIGNAL_GROUPS):
+            if group_index:
+                self.signal_menu.addSeparator()
+            heading = self.signal_menu.addAction(group_name)
+            heading.setEnabled(False)
+            for category in categories:
+                label, _colour = all_styles[category]
+                toggle = QCheckBox(label)
+                toggle.setObjectName(
+                    f"sampleInteractionsSignal_{category}"
+                )
+                toggle.setChecked(True)
+                toggle.toggled.connect(self._signal_visibility_changed)
+                widget_action = QWidgetAction(self.signal_menu)
+                widget_action.setDefaultWidget(toggle)
+                self.signal_menu.addAction(widget_action)
+                self._signal_widget_actions.append(widget_action)
+                self.signal_actions[category] = toggle
+        self.signal_filter.setMenu(self.signal_menu)
+        self._update_signal_filter_text()
+
         self.context_toggle = QCheckBox("Sample-plane context")
         self.context_toggle.setChecked(True)
-        for control in (
-            self.electron_toggle,
-            self.event_toggle,
-            self.xray_toggle,
-            self.context_toggle,
-        ):
-            control.toggled.connect(self._redraw)
+        self.context_toggle.toggled.connect(
+            lambda _checked=False: self._redraw(refit=False)
+        )
 
         self.calculate_paths = QPushButton("Calculate detailed paths + X-rays")
         self.calculate_paths.setObjectName("sampleInteractions3DCalculate")
@@ -775,15 +873,10 @@ class SampleInteractions3DPage(QWidget):
         self.fit_region.clicked.connect(lambda: self._fit("region"))
         self.fit_sample.clicked.connect(lambda: self._fit("sample"))
 
-        visibility_controls = QGridLayout()
-        for index, widget in enumerate((
-            self.electron_toggle,
-            self.event_toggle,
-            self.xray_toggle,
-            self.context_toggle,
-        )):
-            visibility_controls.addWidget(widget, index // 2, index % 2)
-        visibility_controls.setColumnStretch(2, 1)
+        visibility_controls = QHBoxLayout()
+        visibility_controls.addWidget(self.signal_filter)
+        visibility_controls.addWidget(self.context_toggle)
+        visibility_controls.addStretch(1)
         action_controls = QGridLayout()
         for index, widget in enumerate((
             self.calculate_paths,
@@ -800,6 +893,15 @@ class SampleInteractions3DPage(QWidget):
         self.legend.setWordWrap(True)
         self.legend.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.legend.setToolTip(
+            "\n".join(
+                f"{LEGEND_LABELS[category]}: {label}"
+                for category, (label, _colour) in (
+                    *PATH_STYLES.items(),
+                    *EVENT_STYLES.items(),
+                )
+            )
         )
 
         self.opengl_available = False
@@ -825,6 +927,12 @@ class SampleInteractions3DPage(QWidget):
         self.view.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
+        self.view.setToolTip(
+            "Physical path order is upstream -Z to downstream +Z. The 3-D "
+            "renderer maps physical +Z downward in the default side view, so "
+            "the incident beam travels top-to-bottom. Orbiting changes only "
+            "the camera."
+        )
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.summary)
@@ -833,43 +941,188 @@ class SampleInteractions3DPage(QWidget):
         layout.addWidget(self.legend)
         layout.addWidget(self.view, 1)
 
-    @staticmethod
-    def _legend_html() -> str:
+    def _legend_html(self) -> str:
+        visible = {
+            category
+            for category, toggle in self.signal_actions.items()
+            if toggle.isChecked()
+        }
         entries = [
-            f'<span style="color:{colour}">●</span> {label}'
-            for label, colour in (
-                *PATH_STYLES.values(),
-                *EVENT_STYLES.values(),
+            f'<span style="color:{colour}">●</span> {LEGEND_LABELS[category]}'
+            for category, (label, colour) in (
+                *PATH_STYLES.items(),
+                *EVENT_STYLES.items(),
             )
+            if category in visible
         ]
+        if not entries:
+            return '<span style="color:#94a3b8">No signal types selected.</span>'
         return "&nbsp;&nbsp; ".join(entries)
+
+    @property
+    def visible_signal_categories(self) -> frozenset[str]:
+        return frozenset(
+            category
+            for category, toggle in self.signal_actions.items()
+            if toggle.isChecked()
+        )
+
+    def _update_signal_filter_text(self) -> None:
+        visible_count = sum(
+            toggle.isChecked() for toggle in self.signal_actions.values()
+        )
+        self.signal_filter.setText(
+            f"Visible signals: {visible_count}/{len(self.signal_actions)}"
+        )
+
+    def _signal_visibility_changed(self, _checked=False) -> None:
+        if self._signal_filter_guard:
+            return
+        self._update_signal_filter_text()
+        if hasattr(self, "legend"):
+            self.legend.setText(self._legend_html())
+        self._redraw(refit=False)
+
+    def _set_all_signal_visibility(self, visible: bool) -> None:
+        self._signal_filter_guard = True
+        try:
+            for toggle in self.signal_actions.values():
+                toggle.setChecked(bool(visible))
+        finally:
+            self._signal_filter_guard = False
+        self._signal_visibility_changed()
 
     @property
     def scene_snapshot(self) -> SampleInteractionScene | None:
         return self._scene
 
+    def _capture_view_state(self):
+        """Capture display state only; no specimen data are copied or rebuilt."""
+
+        if self.opengl_available:
+            options = self.view.opts
+            centre = options.get("center", QVector3D())
+            return {
+                "kind": "opengl",
+                "center": (
+                    float(centre.x()),
+                    float(centre.y()),
+                    float(centre.z()),
+                ),
+                "distance": float(options.get("distance", 10.0)),
+                "fov": float(options.get("fov", 60.0)),
+                "elevation": float(options.get("elevation", 30.0)),
+                "azimuth": float(options.get("azimuth", 45.0)),
+            }
+        ranges = self.view.getViewBox().viewRange()
+        return {
+            "kind": "fallback-2d",
+            "x_range": tuple(float(value) for value in ranges[0]),
+            "y_range": tuple(float(value) for value in ranges[1]),
+        }
+
+    def _restore_view_state(self, state) -> None:
+        if not state:
+            return
+        if self.opengl_available and state.get("kind") == "opengl":
+            self.view.opts["center"] = QVector3D(*state["center"])
+            self.view.opts["fov"] = float(state["fov"])
+            self.view.setCameraPosition(
+                distance=float(state["distance"]),
+                elevation=float(state["elevation"]),
+                azimuth=float(state["azimuth"]),
+            )
+            self.view.update()
+        elif not self.opengl_available and state.get("kind") == "fallback-2d":
+            self.view.setRange(
+                xRange=state["x_range"],
+                yRange=state["y_range"],
+                padding=0.0,
+            )
+
+    def hideEvent(self, event) -> None:
+        self._hidden_scene = self._scene
+        self._hidden_view_state = self._capture_view_state()
+        self._pending_view_restore = None
+        super().hideEvent(event)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if (
+            self._scene is not None
+            and self._hidden_scene is self._scene
+            and self._hidden_view_state is not None
+        ):
+            self._pending_view_restore = (
+                self._hidden_scene,
+                self._hidden_view_state,
+            )
+            QTimer.singleShot(0, self._restore_cached_view_after_show)
+
+    def _restore_cached_view_after_show(self) -> None:
+        pending = self._pending_view_restore
+        self._pending_view_restore = None
+        if pending is None or not self.isVisible():
+            return
+        scene, view_state = pending
+        if scene is not self._scene:
+            return
+        # A QOpenGLWidget context may be recreated after its tab was hidden.
+        # Re-add display items from the exact same immutable scene snapshot;
+        # never rebuild or resample the scientific calculation here.
+        if self.opengl_available:
+            self._redraw(refit=False)
+        self._restore_view_state(view_state)
+
     def _fallback_plot(self):
         plot = pg.PlotWidget(background="#050816")
         plot.setObjectName("sampleInteractionsFallback2DView")
         plot.setLabel("bottom", "Local X", units="nm")
-        plot.setLabel("left", "Local Z (+ downstream)", units="nm")
+        plot.setLabel("left", "Local Z (+ downstream ↓)", units="nm")
         plot.showGrid(x=True, y=True, alpha=0.2)
         plot.getViewBox().setAspectLocked(True)
+        plot.getViewBox().invertY(True)
         return plot
 
     def display_result(self, calculation_result) -> None:
-        if calculation_result is not self._calculation_result:
+        changed = calculation_result is not self._calculation_result
+        current_interactions = getattr(
+            calculation_result, "specimen_interactions", None
+        )
+        interactions_changed = (
+            current_interactions is not self._rendered_interactions
+        )
+        if changed:
             self._sample_region_result = None
         self._calculation_result = calculation_result
+        if not changed and not interactions_changed:
+            return
         self._refresh_scene()
 
+    def mark_result_stale(self) -> None:
+        """Retain the last complete 3-D scene as an explicitly stale view."""
+
+        if self._calculation_result is None:
+            return
+        self.calculate_paths.setEnabled(False)
+        self.summary.setText(
+            "Previous sample-interaction scene retained | inputs changed"
+        )
+        self.summary.setToolTip(
+            "Run High accuracy to bind the scene to the current microscope "
+            "and specimen state. Rotation and signal filtering remain display-only."
+        )
+
     def set_sample_region_result(self, result) -> None:
+        if result is self._sample_region_result:
+            return
         self._sample_region_result = result
         self._refresh_scene()
 
     def _refresh_scene(self) -> None:
         if self._calculation_result is None:
             self._scene = None
+            self._rendered_interactions = None
             self._clear_items()
             self.summary.setText(
                 "Run High accuracy to populate cached specimen trajectories."
@@ -878,6 +1131,9 @@ class SampleInteractions3DPage(QWidget):
         self._scene = build_sample_interaction_scene(
             self._calculation_result,
             self._sample_region_result,
+        )
+        self._rendered_interactions = getattr(
+            self._calculation_result, "specimen_interactions", None
         )
         scene = self._scene
         state = getattr(self._calculation_result, "state_snapshot", None)
@@ -897,16 +1153,17 @@ class SampleInteractions3DPage(QWidget):
             for path in scene.paths
         )
         event_count = sum(len(group.positions_nm) for group in scene.events)
+        specimen_label = (
+            "Vacuum reference"
+            if scene.specimen_is_vacuum
+            else "Virtual TOML sample"
+            if scene.specimen_mode == "virtual"
+            else "Real imported CIF sample"
+        )
         parts = [
             (
                 "Active specimen: "
-                + (
-                    "Vacuum reference"
-                    if scene.specimen_is_vacuum
-                    else "Virtual TOML sample"
-                    if scene.specimen_mode == "virtual"
-                    else "Real imported CIF sample"
-                )
+                + specimen_label
                 + f" ({scene.specimen_source_key}); "
                 + f"{scene.sample_envelope_shape} "
                 + f"{scene.sample_size_xy_nm[0]:.6g} × "
@@ -958,11 +1215,24 @@ class SampleInteractions3DPage(QWidget):
             "downstream lens transport and physical detector intersection."
         )
         parts.append(
-            "Coordinates are specimen-local nm (+Z downstream); rotating, "
-            "zooming, filtering, and fitting only redraw this cache."
+            "Coordinates are specimen-local nm and path order is upstream "
+            "-Z to downstream +Z. The display maps physical +Z downward in "
+            "the default side view, so the incident beam appears top-to-bottom; "
+            "rotating, zooming, filtering, and fitting only redraw this cache."
         )
-        self.summary.setText(" ".join(parts))
+        detail_text = " ".join(parts)
+        self.summary.setText(
+            f"{specimen_label} ({scene.specimen_source_key}) | "
+            f"{scene.sample_envelope_shape} "
+            f"{scene.sample_size_xy_nm[0]:.6g} × "
+            f"{scene.sample_size_xy_nm[1]:.6g} × "
+            f"{scene.sample_thickness_nm:.6g} nm | "
+            f"{electron_count:,} electron paths · {event_count:,} sites · "
+            f"{xray_count:,} X-rays"
+        )
         self.summary.setToolTip(
+            detail_text
+            + "\n\n"
             "The user-sample outline uses the configured finite envelope; use "
             "Fit user sample to see its complete edge. X-ray display lines are "
             "clipped to "
@@ -996,7 +1266,7 @@ class SampleInteractions3DPage(QWidget):
             float(alpha),
         )
 
-    def _redraw(self, _checked=False) -> None:
+    def _redraw(self, _checked=False, *, refit: bool = True) -> None:
         self._clear_items()
         scene = self._scene
         if scene is None:
@@ -1005,12 +1275,16 @@ class SampleInteractions3DPage(QWidget):
             self._draw_gl(scene)
         else:
             self._draw_2d(scene)
-        self._apply_fit()
+        if refit:
+            self._apply_fit()
 
     def _path_visible(self, category: str) -> bool:
-        if category in {"xray_generated", "xray_detected"}:
-            return self.xray_toggle.isChecked()
-        return self.electron_toggle.isChecked()
+        toggle = self.signal_actions.get(category)
+        return toggle is None or toggle.isChecked()
+
+    def _event_visible(self, category: str) -> bool:
+        toggle = self.signal_actions.get(category)
+        return toggle is None or toggle.isChecked()
 
     def _draw_gl(self, scene: SampleInteractionScene) -> None:
         for path in scene.paths:
@@ -1018,7 +1292,7 @@ class SampleInteractions3DPage(QWidget):
                 continue
             _label, colour = PATH_STYLES[path.category]
             item = gl.GLLinePlotItem(
-                pos=np.asarray(path.positions_nm, dtype=float),
+                pos=_gl_display_positions(path.positions_nm),
                 color=self._rgba(colour, 0.92),
                 width=1.5,
                 antialias=True,
@@ -1026,21 +1300,22 @@ class SampleInteractions3DPage(QWidget):
             )
             self.view.addItem(item)
             self._items.append(item)
-        if self.event_toggle.isChecked():
-            for group in scene.events:
-                _label, colour = EVENT_STYLES[group.category]
-                item = gl.GLScatterPlotItem(
-                    pos=np.asarray(group.positions_nm, dtype=float),
-                    color=self._rgba(colour, 0.95),
-                    size=6.0,
-                    pxMode=True,
-                )
-                self.view.addItem(item)
-                self._items.append(item)
+        for group in scene.events:
+            if not self._event_visible(group.category):
+                continue
+            _label, colour = EVENT_STYLES[group.category]
+            item = gl.GLScatterPlotItem(
+                pos=_gl_display_positions(group.positions_nm),
+                color=self._rgba(colour, 0.95),
+                size=6.0,
+                pxMode=True,
+            )
+            self.view.addItem(item)
+            self._items.append(item)
         if self.context_toggle.isChecked():
             plane = _sample_model_outline(scene)
             item = gl.GLLinePlotItem(
-                pos=plane,
+                pos=_gl_display_positions(plane),
                 color=self._rgba("#ffffff", 0.55),
                 width=1.3,
                 antialias=True,
@@ -1050,7 +1325,7 @@ class SampleInteractions3DPage(QWidget):
             self._items.append(item)
             for outline in scene.virtual_region_outlines_nm:
                 item = gl.GLLinePlotItem(
-                    pos=outline,
+                    pos=_gl_display_positions(outline),
                     color=self._rgba("#a78bfa", 0.75),
                     width=1.2,
                     antialias=True,
@@ -1069,17 +1344,18 @@ class SampleInteractions3DPage(QWidget):
                 path.positions_nm[:, 2],
                 pen=pg.mkPen(colour, width=1.4),
             )
-        if self.event_toggle.isChecked():
-            for group in scene.events:
-                _label, colour = EVENT_STYLES[group.category]
-                item = pg.ScatterPlotItem(
-                    x=group.positions_nm[:, 0],
-                    y=group.positions_nm[:, 2],
-                    size=6,
-                    pen=pg.mkPen(colour),
-                    brush=pg.mkBrush(colour),
-                )
-                self.view.addItem(item)
+        for group in scene.events:
+            if not self._event_visible(group.category):
+                continue
+            _label, colour = EVENT_STYLES[group.category]
+            item = pg.ScatterPlotItem(
+                x=group.positions_nm[:, 0],
+                y=group.positions_nm[:, 2],
+                size=6,
+                pen=pg.mkPen(colour),
+                brush=pg.mkBrush(colour),
+            )
+            self.view.addItem(item)
         if self.context_toggle.isChecked():
             outline = _sample_model_outline(scene)
             self.view.plot(
@@ -1115,9 +1391,10 @@ class SampleInteractions3DPage(QWidget):
         if self._scene is None:
             return
         lower, upper = self._active_bounds()
-        centre = 0.5 * (lower + upper)
         span = max(float(np.max(upper - lower)), 1.0)
         if self.opengl_available:
+            display_lower, display_upper = _gl_display_bounds((lower, upper))
+            centre = 0.5 * (display_lower + display_upper)
             self.view.opts["center"] = QVector3D(*centre)
             self.view.setCameraPosition(
                 distance=2.1 * span,

@@ -31,6 +31,12 @@ from temsim.specimen.support import (
     available_support_meshes,
 )
 from temsim.specimen.source import specimen_structure_available
+from temsim.gui.transverse_projection import (
+    format_projection_angle,
+    orthogonal_axis_name,
+    project_transverse_values,
+    projection_axis_name,
+)
 
 
 class EDSPage(QWidget):
@@ -40,6 +46,7 @@ class EDSPage(QWidget):
     error = Signal(str)
     projection_angle_changed = Signal(float)
     sample_region_result_ready = Signal(object)
+    specimen_interactions_updated = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -53,6 +60,10 @@ class EDSPage(QWidget):
         self._updating = False
         self._projection_angle_deg = 0.0
         self._projection_syncing = False
+        self._spectrum_energy_kev = np.empty(0, dtype=float)
+        self._spectrum_counts = np.empty(0, dtype=float)
+        self._spectrum_count_label = "Counts"
+        self._spectrum_cursor = None
         self._projection_redraw_timer = QTimer(self)
         self._projection_redraw_timer.setSingleShot(True)
         self._projection_redraw_timer.setInterval(16)
@@ -154,11 +165,11 @@ class EDSPage(QWidget):
         self.incident_summary.setStyleSheet(
             "color: #0f766e; font-weight: 600;"
         )
-        self.eds_acquire = QPushButton("Calculate point EDS")
+        self.eds_acquire = QPushButton("Update point EDS")
         self.eds_acquire.setObjectName("sampleEdsAcquirePoint")
         self.eds_acquire.setToolTip(
-            "Runs only on this button. Mechanical edits do not recalculate "
-            "the EDS spectrum automatically."
+            "Uses the shared High accuracy result and calculates only a "
+            "missing or invalid EDS product."
         )
         self.eds_summary = QLabel(
             "No EDS point acquisition has been calculated."
@@ -207,7 +218,7 @@ class EDSPage(QWidget):
         eds_form.addRow("Result", self.eds_summary)
         controls_layout.addWidget(eds)
 
-        local = QGroupBox("Sample-region high accuracy")
+        local = QGroupBox("Detailed sample region")
         local.setObjectName("sampleRegionControls")
         local_form = QFormLayout(local)
         local_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
@@ -223,12 +234,11 @@ class EDSPage(QWidget):
         self.sample_region_seed = self._integer_control(
             "sampleRegionSeed", 0, 2_147_483_647
         )
-        self.sample_region_run = QPushButton("Run sample-region high accuracy")
+        self.sample_region_run = QPushButton("Build detailed sample view")
         self.sample_region_run.setObjectName("sampleRegionRunHighAccuracy")
         self.sample_region_run.setToolTip(
-            "Manual only: consumes the cached upstream phase space, runs finite "
-            "specimen/support elastic + EDS transport, then propagates forward "
-            "terminal electrons through the downstream column."
+            "Builds the detailed local view from shared specimen results and "
+            "calculates only products that are still missing."
         )
         self.sample_region_summary = QLabel(
             "No bounded sample-region calculation has been run."
@@ -239,6 +249,9 @@ class EDSPage(QWidget):
             "color: #64748b; font-weight: 600;"
         )
         local_note = QLabel(
+            "Elastic MC uses Rutherford scattering; channeling uses multislice."
+        )
+        local_note.setToolTip(
             "Rutherford is treated as the active elastic approximation. "
             "Channeling remains a coherent multislice result, not a random "
             "particle label. X-ray representatives are sampled only for the "
@@ -306,9 +319,11 @@ class EDSPage(QWidget):
             projection_controls.addWidget(control)
         projection_controls.addStretch(1)
         projection_note = QLabel(
-            "The transport calculation is three-dimensional. These two "
-            "orthogonal views use the same rotation angle as Ray Diagram; "
-            "red points are elastic events and +Z is downward. Rotating the "
+            "Shared Ray/EDS rotation · elastic events in red · +Z downward"
+        )
+        projection_note.setToolTip(
+            "The transport calculation is three-dimensional. The X-Z and Y-Z "
+            "views use the same rotation angle as Ray Diagram. Rotating the "
             "view reprojects stored histories without rerunning transport."
         )
         projection_note.setWordWrap(True)
@@ -324,10 +339,28 @@ class EDSPage(QWidget):
         self.spectrum_plot.setLabel("bottom", "X-ray energy", units="keV")
         self.spectrum_plot.setLabel("left", "Expected counts")
         self.spectrum_plot.showGrid(x=True, y=True, alpha=0.22)
+        self.spectrum_hover_readout = QLabel(
+            "Hover spectrum: energy and counts"
+        )
+        self.spectrum_hover_readout.setToolTip(
+            "Move the pointer over the spectrum to read the nearest energy bin "
+            "and its expected or sampled counts."
+        )
+        self.spectrum_hover_readout.setObjectName("edsSpectrumHoverReadout")
+        self.spectrum_hover_readout.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.spectrum_hover_readout.setStyleSheet(
+            "color: #cbd5e1; font-weight: 600;"
+        )
+        self.spectrum_plot.scene().sigMouseMoved.connect(
+            self._spectrum_mouse_moved
+        )
         self.eds_lines = self._table(
             ("Source", "Element", "Transition", "Energy / counts")
         )
         self.eds_lines.setObjectName("sampleEdsLineTable")
+        spectrum_layout.addWidget(self.spectrum_hover_readout)
         spectrum_layout.addWidget(self.spectrum_plot, 2)
         spectrum_layout.addWidget(self.eds_lines, 1)
 
@@ -335,6 +368,7 @@ class EDSPage(QWidget):
         results.setObjectName("edsResultTabs")
         results.addTab(trajectory_page, "Elastic trajectories")
         results.addTab(spectrum_page, "EDS spectrum")
+        self.result_tabs = results
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(controls_scroll)
@@ -463,42 +497,19 @@ class EDSPage(QWidget):
     @staticmethod
     def _project_transverse_values(x, y, angle_deg: float) -> np.ndarray:
         """Project X/Y onto the same rotated transverse axis as Ray Diagram."""
-
-        angle_rad = np.deg2rad(float(angle_deg))
-        return (
-            np.asarray(x, dtype=float) * np.cos(angle_rad)
-            + np.asarray(y, dtype=float) * np.sin(angle_rad)
-        )
+        return project_transverse_values(x, y, angle_deg)
 
     @staticmethod
     def _format_angle(angle_deg: float) -> str:
-        return f"{float(angle_deg):.2f}".rstrip("0").rstrip(".")
+        return format_projection_angle(angle_deg)
 
     @classmethod
     def _projection_axis_name(cls, angle_deg: float) -> str:
-        angle = float(angle_deg) % 360.0
-        for cardinal_angle, name in (
-            (0.0, "X"),
-            (90.0, "Y"),
-            (180.0, "-X"),
-            (270.0, "-Y"),
-        ):
-            if np.isclose(angle, cardinal_angle, atol=0.05):
-                return name
-        return f"U({cls._format_angle(angle)} deg)"
+        return projection_axis_name(angle_deg)
 
     @classmethod
     def _orthogonal_axis_name(cls, angle_deg: float) -> str:
-        angle = float(angle_deg) % 360.0
-        for cardinal_angle, name in (
-            (0.0, "Y"),
-            (90.0, "-X"),
-            (180.0, "-Y"),
-            (270.0, "X"),
-        ):
-            if np.isclose(angle, cardinal_angle, atol=0.05):
-                return name
-        return f"V({cls._format_angle(angle)} deg)"
+        return orthogonal_axis_name(angle_deg)
 
     def _projection_slider_changed(self, value: int) -> None:
         if not self._projection_syncing:
@@ -611,14 +622,49 @@ class EDSPage(QWidget):
         changed = result is not self._result
         if changed:
             self._clear_result(
-                "Column result changed; press Calculate point EDS."
+                "No EDS product is available in this shared result."
             )
         self._result = result
         if changed:
             self._specimen_interactions = getattr(
                 result, "specimen_interactions", None
             )
+            cached_spectrum = getattr(
+                self._specimen_interactions, "eds_spectrum", None
+            )
+            if cached_spectrum is not None:
+                self._eds_result = cached_spectrum
+                self._elastic_result = cached_spectrum.elastic_transport
+                if self._elastic_result is not None:
+                    self._plot_elastic_trajectories(self._elastic_result)
+                self._plot_spectrum(cached_spectrum)
+                self._populate_lines(cached_spectrum)
+                self.eds_summary.setText(
+                    f"Cached EDS | {cached_spectrum.total_expected_counts:.6g} "
+                    f"expected counts | {len(cached_spectrum.lines)} lines"
+                )
+            self._sample_region_result = getattr(
+                result, "sample_region", None
+            )
         self._update_incident_summary()
+        self._update_controls()
+
+    def mark_result_stale(self) -> None:
+        """Detach live calculation controls without erasing complete plots."""
+
+        if self._result is None:
+            return
+        self._result = None
+        self.eds_summary.setText(
+            "Previous EDS result retained | inputs changed"
+        )
+        self.eds_summary.setToolTip(
+            "The displayed spectrum belongs to the previous High accuracy "
+            "state. Run High accuracy before calculating new EDS data."
+        )
+        self.sample_region_summary.setText(
+            "Previous sample-region result retained | inputs changed"
+        )
         self._update_controls()
 
     def _update_incident_summary(self):
@@ -642,7 +688,7 @@ class EDSPage(QWidget):
         except Exception as exc:
             self.incident_summary.setText(str(exc))
             return
-        self.incident_summary.setText(
+        detail_text = (
             f"{bundle.reaching_ray_count:,} of {bundle.emitted_ray_count:,} "
             f"calculated rays reach the sample plane "
             f"({100.0 * bundle.surviving_fraction:.6g}% source current). "
@@ -653,6 +699,14 @@ class EDSPage(QWidget):
             f"{bundle.energy_range_ev[0] * 1.0e-3:.6g}–"
             f"{bundle.energy_range_ev[1] * 1.0e-3:.6g} keV."
         )
+        self.incident_summary.setText(
+            f"Sample input: {bundle.reaching_ray_count:,}/"
+            f"{bundle.emitted_ray_count:,} rays | "
+            f"{100.0 * bundle.surviving_fraction:.6g}% current | "
+            f"chief angle ({bundle.chief_angle_mrad[0]:+.6g}, "
+            f"{bundle.chief_angle_mrad[1]:+.6g}) mrad"
+        )
+        self.incident_summary.setToolTip(detail_text)
 
     def _set_bool(self, name, value):
         if self._updating or self._state is None:
@@ -678,7 +732,7 @@ class EDSPage(QWidget):
             return
         setattr(self._state.sample, name, float(value))
         self._clear_sample_region_result(
-            "Sample-region settings changed; press the manual high-accuracy button."
+            "Sample-region display settings changed; rebuild the detailed view."
         )
 
     def _set_sample_region_integer(self, name, value):
@@ -686,7 +740,7 @@ class EDSPage(QWidget):
             return
         setattr(self._state.sample, name, int(value))
         self._clear_sample_region_result(
-            "Sample-region settings changed; press the manual high-accuracy button."
+            "Sample-region display settings changed; rebuild the detailed view."
         )
 
     def _set_choice(self, name, value):
@@ -697,10 +751,12 @@ class EDSPage(QWidget):
         self._changed(name)
 
     def _changed(self, name):
-        self._clear_result(
-            "EDS settings changed; run the column calculation if needed, "
-            "then press Calculate point EDS."
-        )
+        if self._result is None:
+            self.eds_summary.setText(
+                "EDS inputs changed | run High accuracy to update the shared result"
+            )
+        else:
+            self.mark_result_stale()
         self.parameters_changed.emit(f"sample.{name}")
 
     def _update_controls(self):
@@ -714,7 +770,6 @@ class EDSPage(QWidget):
             self.eds_solid_angle,
             self.eds_transport,
             self.eds_poisson_enabled,
-            self.eds_acquire,
             self.sample_region_upstream,
             self.sample_region_downstream,
             self.sample_region_photons,
@@ -722,6 +777,7 @@ class EDSPage(QWidget):
             *self.eds_scalar_controls.values(),
         ):
             control.setEnabled(enabled)
+        self.eds_acquire.setEnabled(enabled and self._result is not None)
         self.sample_region_run.setEnabled(
             self.sample_region_calculation_available()
         )
@@ -742,6 +798,7 @@ class EDSPage(QWidget):
         self.eds_trajectory_plot.clear()
         self.eds_trajectory_yz_plot.clear()
         self.spectrum_plot.clear()
+        self._reset_spectrum_hover()
         self._clear_sample_region_result(
             "Sample-region result is stale; run the manual calculation again."
         )
@@ -751,6 +808,8 @@ class EDSPage(QWidget):
 
         had_sample_region = self._sample_region_result is not None
         self._sample_region_result = None
+        if self._result is not None:
+            self._result.sample_region = None
         self.sample_region_summary.setText(text)
         if had_sample_region:
             self.sample_region_result_ready.emit(None)
@@ -761,6 +820,7 @@ class EDSPage(QWidget):
         self._specimen_interactions = interactions
         if self._result is not None:
             self._result.specimen_interactions = interactions
+        self.specimen_interactions_updated.emit(interactions)
 
     def sample_region_calculation_available(self) -> bool:
         """Return whether an explicit bounded specimen calculation can run."""
@@ -781,7 +841,7 @@ class EDSPage(QWidget):
 
         if self._state is None or self._result is None:
             self.error.emit(
-                "Run a column calculation before sample-region transport."
+                "Run High accuracy before building the detailed sample view."
             )
             return False
         if not self.sample_region_calculation_available():
@@ -823,6 +883,7 @@ class EDSPage(QWidget):
             self.sample_region_summary.setText(f"Calculation failed: {exc}")
             return False
         self._sample_region_result = result
+        self._result.sample_region = result
         self._store_specimen_interactions(result.interactions)
         self._eds_result = result.spectrum
         self._elastic_result = result.spectrum.elastic_transport
@@ -839,7 +900,7 @@ class EDSPage(QWidget):
             )
             else " Calculated the missing specimen signals once."
         )
-        self.sample_region_summary.setText(
+        detail_text = (
             f"Entry {result.entry_z_mm:.6g} mm -> exit {result.exit_z_mm:.6g} mm; "
             f"{metrics['sample_ray_count']:,} specimen histories, "
             f"{len(result.photon_paths):,} isotropic X-ray representatives, "
@@ -847,19 +908,31 @@ class EDSPage(QWidget):
             f"{exit_weight:.6g}% tracked electron weight reaches the selected "
             f"exit boundary after specimen losses.{shared_text}"
         )
+        self.sample_region_summary.setText(
+            f"{metrics['sample_ray_count']:,} histories | "
+            f"{len(result.photon_paths):,} X-ray paths | "
+            f"forward {forward:.6g}% | exit {exit_weight:.6g}%"
+        )
         self.sample_region_summary.setToolTip(
-            "\n".join(
+            detail_text
+            + "\n\n"
+            + "\n".join(
                 f"{key}: {value}"
                 for key, value in metrics.items()
                 if not str(key).startswith("secondary_")
             )
         )
-        self.eds_summary.setText(
+        eds_detail = (
             f"Bounded EDS result: {result.spectrum.total_expected_counts:.6g} "
             "expected counts. X-ray lines are propagated isotropically for "
             "display; detected paths use the exact aggregate-solid-angle "
             "angular surrogate, not an invented sensor face."
         )
+        self.eds_summary.setText(
+            f"Bounded EDS | {result.spectrum.total_expected_counts:.6g} "
+            f"expected counts | {len(result.spectrum.lines)} line contributions"
+        )
+        self.eds_summary.setToolTip(eds_detail)
         self.sample_region_result_ready.emit(result)
         return True
 
@@ -942,14 +1015,23 @@ class EDSPage(QWidget):
             )
             else ""
         )
-        self.eds_summary.setText(
+        detail_text = (
             f"EDS point: {spectrum.total_expected_counts:.6g} expected "
             f"counts{sampled_text}; {len(spectrum.lines)} characteristic "
             f"track-line contributions; sources: {source_names}. "
             f"{transport_text} Bremsstrahlung is not yet included.{reused_text}"
         )
+        self.eds_summary.setText(
+            f"EDS point | {spectrum.total_expected_counts:.6g} expected "
+            f"counts{sampled_text} | {len(spectrum.lines)} line contributions | "
+            f"{source_names}"
+        )
         self.eds_summary.setToolTip(
-            "\n".join(f"{key}: {value}" for key, value in spectrum.metrics.items())
+            detail_text
+            + "\n\n"
+            + "\n".join(
+                f"{key}: {value}" for key, value in spectrum.metrics.items()
+            )
         )
 
     def _populate_lines(self, spectrum):
@@ -979,12 +1061,102 @@ class EDSPage(QWidget):
             if spectrum.sampled_counts is not None
             else spectrum.expected_counts
         )
+        energy_kev = np.asarray(
+            spectrum.energy_bin_centres_ev, dtype=float
+        ) * 1.0e-3
+        counts = np.asarray(values, dtype=float)
+        if energy_kev.ndim != 1 or counts.shape != energy_kev.shape:
+            raise ValueError(
+                "EDS spectrum energies and counts must be matching 1-D arrays"
+            )
+        if not np.all(np.isfinite(energy_kev)) or not np.all(
+            np.isfinite(counts)
+        ):
+            raise ValueError("EDS spectrum contains NaN or infinity")
+        self._spectrum_energy_kev = energy_kev
+        self._spectrum_counts = counts
+        self._spectrum_count_label = (
+            "Sampled counts"
+            if spectrum.sampled_counts is not None
+            else "Expected counts"
+        )
+        self.spectrum_plot.setLabel("left", self._spectrum_count_label)
         self.spectrum_plot.plot(
-            np.asarray(spectrum.energy_bin_centres_ev) * 1.0e-3,
-            np.asarray(values, dtype=float),
+            energy_kev,
+            counts,
             pen=pg.mkPen("#22d3ee", width=1.4),
         )
+        self._spectrum_cursor = pg.InfiniteLine(
+            angle=90,
+            movable=False,
+            pen=pg.mkPen(
+                "#f8fafc",
+                width=1.0,
+                style=Qt.PenStyle.DashLine,
+            ),
+        )
+        self._spectrum_cursor.setVisible(False)
+        self.spectrum_plot.addItem(
+            self._spectrum_cursor,
+            ignoreBounds=True,
+        )
+        self.spectrum_hover_readout.setText(
+            "Hover spectrum: energy and counts"
+        )
         self.spectrum_plot.enableAutoRange()
+
+    def _reset_spectrum_hover(self) -> None:
+        self._spectrum_energy_kev = np.empty(0, dtype=float)
+        self._spectrum_counts = np.empty(0, dtype=float)
+        self._spectrum_count_label = "Counts"
+        self._spectrum_cursor = None
+        self.spectrum_hover_readout.setText(
+            "Hover spectrum: energy and counts"
+        )
+
+    def _spectrum_mouse_moved(self, scene_position) -> None:
+        """Snap the hover readout to the nearest physical energy bin."""
+
+        if isinstance(scene_position, (tuple, list)):
+            if not scene_position:
+                return
+            scene_position = scene_position[0]
+        view_box = self.spectrum_plot.getViewBox()
+        if (
+            self._spectrum_energy_kev.size == 0
+            or not view_box.sceneBoundingRect().contains(scene_position)
+        ):
+            if self._spectrum_cursor is not None:
+                self._spectrum_cursor.setVisible(False)
+            return
+        energy_at_pointer = float(
+            view_box.mapSceneToView(scene_position).x()
+        )
+        insertion = int(
+            np.searchsorted(self._spectrum_energy_kev, energy_at_pointer)
+        )
+        candidates = tuple(
+            index
+            for index in (insertion - 1, insertion)
+            if 0 <= index < self._spectrum_energy_kev.size
+        )
+        if not candidates:
+            return
+        index = min(
+            candidates,
+            key=lambda value: abs(
+                float(self._spectrum_energy_kev[value]) - energy_at_pointer
+            ),
+        )
+        energy_kev = float(self._spectrum_energy_kev[index])
+        counts = float(self._spectrum_counts[index])
+        self.spectrum_hover_readout.setText(
+            f"Energy {energy_kev:.6g} keV | "
+            f"{self._spectrum_count_label} {counts:.6g}"
+        )
+        if self._spectrum_cursor is not None:
+            self._spectrum_cursor.setPos(energy_kev)
+            self._spectrum_cursor.setVisible(True)
 
     def _plot_elastic_trajectories(self, transport):
         self.eds_trajectory_plot.clear()

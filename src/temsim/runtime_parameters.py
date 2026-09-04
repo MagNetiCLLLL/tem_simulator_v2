@@ -19,6 +19,7 @@ INTERNAL_FIELDS = frozenset({
     "calibrated_dispersion_um_per_ev",
     "centre_m",
     "column_mode",
+    "column_current_limit_percent",
     "corrector_mode",
     "energy_filter_installed",
     "energy_filter_mode",

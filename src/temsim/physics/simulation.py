@@ -13,7 +13,16 @@ from temsim.physics.chromatic import (
     objective_chromatic_kick_from_state,
 )
 
-from temsim.physics.core import propagate,electron,fields
+from temsim.physics.core import (
+    FIELD_SIGMA_CUTOFF,
+    PropagationCheckpoints,
+    build_propagation_plan,
+    electron,
+    execute_propagation_plan,
+    fields,
+    propagate,
+    propagation_plan_common_prefix_nodes,
+)
 from temsim.physics.first_order import (
     linear_map_properties,
     trace_transverse_transfer,
@@ -21,11 +30,18 @@ from temsim.physics.first_order import (
 
 from temsim.physics.beam_waist import detect_beam_waist
 from temsim.physics.beam_statistics import branch_sample_statistics
+from temsim.physics.beam_current import (
+    column_current_limit_percent,
+    effective_source_current_pa,
+)
 
 
 from temsim.physics.corrector_crossovers import detect_corrector_crossovers
 
-from temsim.physics.recording_stop import determine_tem_stop_z, tem_camera_plane_z
+from temsim.physics.recording_stop import (
+    tem_projection_reference_plane_z,
+    determine_tem_stop_z,
+)
 from temsim.physics.recording_clipping import clip_recording_planes
 from temsim.component_keys import CONDENSER_LENS_2, CONDENSER_LENS_3
 
@@ -57,6 +73,8 @@ RAY_INTERACTION_COLOURS = {
 # branches together.  Large production bundles are batched to keep the
 # (axial steps x rays) momentum/Larmor work arrays within a bounded peak.
 MAX_VECTORIZED_POST_RAYS = 4096
+INCIDENT_CHECKPOINT_SPACING_MM = 5.0
+INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024
 
 
 def _canonical_interaction_kind(kind):
@@ -115,10 +133,90 @@ class Branch:
 
 class Simulation:
 
-    incident:Branch; branches:dict; metrics:dict; gun_waist:dict|None=None; c2c3_crossover:dict|None=None; corrector_crossovers:list|None=None; gun_trace:object|None=None; sample_to_analysis_transfer:object|None=None; optical_transfers:tuple=(); real_interactions:object|None=None
+    incident:Branch; branches:dict; metrics:dict; gun_waist:dict|None=None; c2c3_crossover:dict|None=None; corrector_crossovers:list|None=None; gun_trace:object|None=None; sample_to_analysis_transfer:object|None=None; optical_transfers:tuple=(); real_interactions:object|None=None; incident_plan:object|None=None; incident_checkpoints:PropagationCheckpoints|None=None
 
 
-def run(s, *, resolved_layout=None):
+def _column_checkpoint_planes(start_z_mm, stop_z_mm, ray_count):
+    start = float(start_z_mm)
+    stop = float(stop_z_mm)
+    if stop <= start:
+        return ()
+    desired_count = int(
+        math.floor((stop - start) / INCIDENT_CHECKPOINT_SPACING_MM)
+    )
+    bytes_per_checkpoint = 4 * np.dtype(np.float64).itemsize * max(
+        int(ray_count), 1
+    )
+    maximum_count = (
+        INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES // bytes_per_checkpoint
+    )
+    if maximum_count <= 0:
+        return ()
+    stride = max(1, int(math.ceil(desired_count / maximum_count)))
+    spacing = INCIDENT_CHECKPOINT_SPACING_MM * stride
+    count = int(math.floor((stop - start) / spacing))
+    return tuple(
+        start + index * spacing
+        for index in range(1, count + 1)
+        if start + index * spacing < stop
+    )
+
+
+def _gun_traces_match(previous, current):
+    if previous is None or current is None:
+        return False
+    scalar_names = (
+        "emitted_current_a", "dpa_transmitted_current_a",
+        "c1_transmitted_current_a", "monochromator_transmitted_current_a",
+        "output_energy_fwhm_ev", "slit_dispersion_um_per_ev",
+    )
+    if any(
+        getattr(previous, name, None) != getattr(current, name, None)
+        for name in scalar_names
+    ):
+        return False
+    array_names = ("z_mm", "x_m", "y_m", "tx_rad", "ty_rad", "blocked_z_mm")
+    if any(
+        not np.array_equal(
+            np.asarray(getattr(previous, name)),
+            np.asarray(getattr(current, name)),
+            equal_nan=True,
+        )
+        for name in array_names
+    ):
+        return False
+    if tuple(previous.blocked_key) != tuple(current.blocked_key):
+        return False
+    old_exit = previous.exit_bundle
+    new_exit = current.exit_bundle
+    return all(
+        np.array_equal(
+            np.asarray(getattr(old_exit, name)),
+            np.asarray(getattr(new_exit, name)),
+            equal_nan=True,
+        )
+        for name in (
+            "x_m", "y_m", "tx_rad", "ty_rad", "energy_offset_ev",
+            "weight", "ray_id", "alive",
+        )
+    )
+
+
+def _merge_checkpoints(previous, suffix, resume_z_mm):
+    if previous is None:
+        return suffix
+    keep = np.asarray(previous.z_mm) < float(resume_z_mm)
+    arrays = {}
+    for name in ("z_mm", "x_m", "tx_rad", "y_m", "ty_rad"):
+        old = np.asarray(getattr(previous, name))[keep]
+        new = np.asarray(getattr(suffix, name))
+        merged = np.ascontiguousarray(np.concatenate((old, new)), dtype=np.float64)
+        merged.setflags(write=False)
+        arrays[name] = merged
+    return PropagationCheckpoints(**arrays)
+
+
+def run(s, *, resolved_layout=None, existing_simulation=None):
     # The low-level entry point is also public and is used directly by tests
     # and scripts, so it must enforce the same TOML-owned geometry contract as
     # the application-facing calculation pipeline.
@@ -185,15 +283,121 @@ def run(s, *, resolved_layout=None):
                 else post_events
             ).append(event)
 
-    z_column,X_column,TX_column,Y_column,TY_column=propagate(
-        s,gun.exit_plane_z_mm,s.sample.z_mm,
-        x,tx,y,ty,pre_events,dE
+    checkpoint_planes = _column_checkpoint_planes(
+        gun.exit_plane_z_mm, s.sample.z_mm, n
     )
-    z=np.r_[gun_trace.z_mm,z_column[1:]]
-    X=np.vstack((gun_trace.x_m,X_column[1:]))
-    TX=np.vstack((gun_trace.tx_rad,TX_column[1:]))
-    Y=np.vstack((gun_trace.y_m,Y_column[1:]))
-    TY=np.vstack((gun_trace.ty_rad,TY_column[1:]))
+    incident_plan = build_propagation_plan(
+        s, gun.exit_plane_z_mm, s.sample.z_mm, pre_events,
+        checkpoint_z_mm=checkpoint_planes,
+    )
+    cache_mode = "none"
+    resume_z_mm = float(gun.exit_plane_z_mm)
+    reused_prefix_rows = 0
+    reused_plan_nodes = 0
+    incident_checkpoints = None
+    previous_plan = getattr(existing_simulation, "incident_plan", None)
+    previous_checkpoints = getattr(
+        existing_simulation, "incident_checkpoints", None
+    )
+    source_matches = _gun_traces_match(
+        getattr(existing_simulation, "gun_trace", None), gun_trace
+    )
+
+    if (
+        source_matches
+        and previous_plan is not None
+        and previous_checkpoints is not None
+        and previous_plan.signature == incident_plan.signature
+    ):
+        # Geometry coordinates are independent of aperture/wall clipping.  A
+        # new Branch and new stop arrays are still built below.
+        previous_incident = existing_simulation.incident
+        # Results are isolated snapshots.  Coordinate copies prevent any
+        # later display/diagnostic consumer of the replacement result from
+        # mutating the previously completed high-accuracy cache entry.
+        z = np.asarray(previous_incident.z).copy()
+        X = np.asarray(previous_incident.x).copy()
+        TX = np.asarray(previous_incident.tx).copy()
+        Y = np.asarray(previous_incident.y).copy()
+        TY = np.asarray(previous_incident.ty).copy()
+        incident_checkpoints = previous_checkpoints
+        cache_mode = "full_incident"
+        resume_z_mm = float(s.sample.z_mm)
+        reused_prefix_rows = int(len(z))
+        reused_plan_nodes = int(len(incident_plan.z_mm))
+    else:
+        common_nodes = (
+            propagation_plan_common_prefix_nodes(
+                previous_plan, incident_plan
+            )
+            if source_matches else 0
+        )
+        resume = None
+        if common_nodes > 0 and previous_checkpoints is not None:
+            current_checkpoint_indices = np.asarray(
+                incident_plan.checkpoint_index, dtype=np.int64
+            )
+            current_checkpoint_z = np.asarray(incident_plan.z_mm)[
+                current_checkpoint_indices
+            ]
+            for old_checkpoint_row in range(
+                len(previous_checkpoints.z_mm) - 1, -1, -1
+            ):
+                candidate_z = float(
+                    previous_checkpoints.z_mm[old_checkpoint_row]
+                )
+                matches = np.flatnonzero(current_checkpoint_z == candidate_z)
+                if not matches.size:
+                    continue
+                current_row = int(matches[-1])
+                current_index = int(current_checkpoint_indices[current_row])
+                if current_index < common_nodes:
+                    resume = (
+                        old_checkpoint_row, current_index, candidate_z
+                    )
+                    break
+
+        if resume is None:
+            column_result = execute_propagation_plan(
+                s, incident_plan, x, tx, y, ty, dE
+            )
+            (
+                z_column, X_column, TX_column, Y_column, TY_column,
+                incident_checkpoints,
+            ) = column_result
+            z=np.r_[gun_trace.z_mm,z_column[1:]]
+            X=np.vstack((gun_trace.x_m,X_column[1:]))
+            TX=np.vstack((gun_trace.tx_rad,TX_column[1:]))
+            Y=np.vstack((gun_trace.y_m,Y_column[1:]))
+            TY=np.vstack((gun_trace.ty_rad,TY_column[1:]))
+        else:
+            old_row, start_index, resume_z_mm = resume
+            suffix_result = execute_propagation_plan(
+                s, incident_plan,
+                np.asarray(previous_checkpoints.x_m[old_row]).copy(),
+                np.asarray(previous_checkpoints.tx_rad[old_row]).copy(),
+                np.asarray(previous_checkpoints.y_m[old_row]).copy(),
+                np.asarray(previous_checkpoints.ty_rad[old_row]).copy(),
+                dE, start_index=start_index,
+                include_initial_plane_kicks=False,
+            )
+            (
+                z_suffix, X_suffix, TX_suffix, Y_suffix, TY_suffix,
+                suffix_checkpoints,
+            ) = suffix_result
+            previous_incident = existing_simulation.incident
+            keep = np.asarray(previous_incident.z) < resume_z_mm
+            z = np.r_[np.asarray(previous_incident.z)[keep], z_suffix]
+            X = np.vstack((np.asarray(previous_incident.x)[keep], X_suffix))
+            TX = np.vstack((np.asarray(previous_incident.tx)[keep], TX_suffix))
+            Y = np.vstack((np.asarray(previous_incident.y)[keep], Y_suffix))
+            TY = np.vstack((np.asarray(previous_incident.ty)[keep], TY_suffix))
+            incident_checkpoints = _merge_checkpoints(
+                previous_checkpoints, suffix_checkpoints, resume_z_mm
+            )
+            cache_mode = "checkpoint"
+            reused_prefix_rows = int(np.count_nonzero(keep))
+            reused_plan_nodes = int(start_index + 1)
     alive=emitted.alive.copy()
     blocked=gun_trace.blocked_z_mm.copy()
     keys=list(gun_trace.blocked_key)
@@ -209,6 +413,38 @@ def run(s, *, resolved_layout=None):
         blocked,keys,1.,dE,emitted.weight,
         interaction_kind=incident_kind,
     )
+    retained_checkpoint_count = (
+        int(len(incident_checkpoints.z_mm))
+        if incident_checkpoints is not None else 0
+    )
+    retained_checkpoint_bytes = (
+        sum(
+            int(np.asarray(getattr(incident_checkpoints, name)).nbytes)
+            for name in ("x_m", "tx_rad", "y_m", "ty_rad")
+        )
+        if incident_checkpoints is not None else 0
+    )
+    segment_cache_metrics = {
+        "mode": cache_mode,
+        "hit": cache_mode != "none",
+        "resume_z_mm": float(resume_z_mm),
+        "reused_prefix_rows": int(reused_prefix_rows),
+        "recomputed_history_rows": int(len(z) - reused_prefix_rows),
+        "reused_integration_nodes": int(reused_plan_nodes),
+        "recomputed_integration_nodes": int(
+            len(incident_plan.z_mm) - reused_plan_nodes
+        ),
+        "checkpoint_spacing_mm": (
+            float(checkpoint_planes[0]) - float(gun.exit_plane_z_mm)
+            if checkpoint_planes else math.inf
+        ),
+        "checkpoint_count": retained_checkpoint_count,
+        "checkpoint_retained_bytes": retained_checkpoint_bytes,
+        "checkpoint_memory_budget_bytes": (
+            INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES
+        ),
+        "field_sigma_cutoff": FIELD_SIGMA_CUTOFF,
+    }
 
     gun_field_end,gun_diagnostic_end=gun.diagnostic_waist_region_mm
     gun_waist=detect_beam_waist(
@@ -369,28 +605,18 @@ def run(s, *, resolved_layout=None):
                 interaction_kick_y_rad=kick_y_array,
             )
 
-    recording_stop_z=determine_tem_stop_z(s)
-    analysis_stop_z=(
-        tem_camera_plane_z(s)
-        if s.projector_mode == 'image'
-        else recording_stop_z
-    )
     analysis_reference_key=None
-    if (
-        s.projector_mode != 'image'
-        and str(getattr(s,'illumination_mode','')).upper() == 'STEM'
-    ):
+    from temsim.optics.direct_alignment import diffraction_transfer
+    if s.projector_mode == 'image':
+        analysis_stop_z=tem_projection_reference_plane_z(s)
+        sample_transfer=diffraction_transfer(s,analysis_stop_z)
+    else:
         from temsim.optics.direct_alignment import (
             diffraction_focus_depth_diagnostic,
             diffraction_reference_plane,
-            diffraction_transfer,
         )
         analysis_reference_key,analysis_stop_z=diffraction_reference_plane(s)
-    sample_transfer=(
-        diffraction_transfer(s,analysis_stop_z)
-        if analysis_reference_key is not None
-        else trace_transverse_transfer(s,s.sample.z_mm,analysis_stop_z)
-    )
+        sample_transfer=diffraction_transfer(s,analysis_stop_z)
     image_properties=linear_map_properties(sample_transfer.j_img)
     diffraction_properties=linear_map_properties(
         sample_transfer.j_diff_m_per_rad
@@ -405,11 +631,18 @@ def run(s, *, resolved_layout=None):
     signed_image_magnification = float(
         0.5 * np.trace(derotated_image)
     )
-    half=(
-        float(s.fluorescent_screen.outer_width_mm)/2
-        if analysis_reference_key is not None
-        else s.camera.width_mm/2
+    reference_component=min(
+        (s.fluorescent_screen,s.camera),
+        key=lambda component: abs(
+            float(component.z_mm)-float(analysis_stop_z)
+        ),
     )
+    recording_width_mm=float(getattr(
+        reference_component,
+        'width_mm',
+        getattr(reference_component,'outer_width_mm'),
+    ))
+    half=recording_width_mm/2
 
     if s.projector_mode=='image':
 
@@ -428,7 +661,7 @@ def run(s, *, resolved_layout=None):
             if plane_map is not None else 0.0
         )
         magnification=max(image_properties.isotropic_scale,1e-15)
-        metrics={'mode':'image','magnification':magnification,'object_full_m':s.camera.width_mm*1e-3/magnification,'relay_error':relay_error,'conjugate_plane':plane_name,'conjugate_plane_z_mm':plane_z,'conjugate_plane_magnification':plane_magnification}
+        metrics={'mode':'image','magnification':magnification,'object_full_m':recording_width_mm*1e-3/magnification,'relay_error':relay_error,'conjugate_plane':plane_name,'conjugate_plane_z_mm':plane_z,'conjugate_plane_magnification':plane_magnification}
 
     else:
         from temsim.optics.direct_alignment import (
@@ -467,6 +700,7 @@ def run(s, *, resolved_layout=None):
         else None
     )
     metrics.update({
+        'column_segment_cache': segment_cache_metrics,
         'sample_inserted': sample_inserted,
         'sample_scattering_applied': bool(
             sample_diffraction_applied
@@ -557,6 +791,16 @@ def run(s, *, resolved_layout=None):
         'sample_beam_surviving_rays':(
             sample_beam.surviving_rays if sample_beam is not None else 0
         ),
+        'sample_beam_surviving_fraction':(
+            sample_beam.surviving_fraction
+            if sample_beam is not None else 0.0
+        ),
+        'column_current_limit_percent':column_current_limit_percent(s),
+        'effective_source_current_pa':effective_source_current_pa(s),
+        'sample_surviving_current_pa':(
+            effective_source_current_pa(s) * sample_beam.surviving_fraction
+            if sample_beam is not None else 0.0
+        ),
     })
 
     crossovers=detect_corrector_crossovers(incident,getattr(s,"corrector_crossover_targets_mm",[810.0,853.0,963.0]))
@@ -588,6 +832,8 @@ def run(s, *, resolved_layout=None):
         sample_to_analysis_transfer=sample_transfer,
         optical_transfers=optical_transfer_records(s),
         real_interactions=real_interactions,
+        incident_plan=incident_plan,
+        incident_checkpoints=incident_checkpoints,
     )
 
     return result

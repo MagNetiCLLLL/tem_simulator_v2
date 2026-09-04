@@ -763,7 +763,8 @@ class SamplePage(QWidget):
         real_layout = QVBoxLayout(real)
         source_form = QFormLayout()
         source_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        real_note = QLabel(
+        real_note = QLabel("Real sample: imported CIF / MCIF only")
+        real_note.setToolTip(
             "Real sample mode accepts only a user-imported crystallographic "
             "structure. Simulator TOML references belong to Virtual sample."
         )
@@ -1050,7 +1051,8 @@ class SamplePage(QWidget):
         )
         reference_form.addRow("Reference sample (TOML)", self.preset)
         virtual_layout.addLayout(reference_form)
-        reference_note = QLabel(
+        reference_note = QLabel("Ideal TOML reference samples")
+        reference_note.setToolTip(
             "Ideal simulator reference samples such as Silicon [110] and "
             "Gold [001] are TOML-defined. They are not imported real samples."
         )
@@ -1967,7 +1969,7 @@ class SamplePage(QWidget):
                 f"{channel.label} {100.0 * channel.probability:.5g}%"
                 for channel in distribution.channels
             )
-            self.inelastic_summary.setText(
+            detail_text = (
                 f"{distribution.material_name}; total λ {mfp(distribution.total_inelastic_mean_free_path_nm)}, "
                 f"plasmon λ {mfp(distribution.plasmon_mean_free_path_nm)}, "
                 f"ionisation λ {mfp(distribution.ionisation_mean_free_path_nm)}; "
@@ -1975,8 +1977,16 @@ class SamplePage(QWidget):
                 f"{channel_text}; effective absorption "
                 f"{100.0 * distribution.absorbed_probability:.5g}%."
             )
+            self.inelastic_summary.setText(
+                f"{distribution.material_name} | total λ "
+                f"{mfp(distribution.total_inelastic_mean_free_path_nm)} | "
+                f"t/λ {distribution.mean_inelastic_events:.6g} | absorption "
+                f"{100.0 * distribution.absorbed_probability:.5g}%"
+            )
             self.inelastic_summary.setToolTip(
-                "\n".join(
+                detail_text
+                + "\n\n"
+                + "\n".join(
                     (
                         f"Model: {distribution.model}",
                         f"Reference: {distribution.reference}",
@@ -2305,10 +2315,23 @@ class SamplePage(QWidget):
                 f"{render_model}"
             )
         warning = " | ".join(snapshot.warnings)
-        self.scene_status.setText(
-            f"{mode} | {'INSERTED' if snapshot.inserted else 'RETRACTED'} | {backend}{atom_detail}"
+        detail_text = (
+            f"{mode} | {'INSERTED' if snapshot.inserted else 'RETRACTED'} | "
+            f"{backend}{atom_detail}"
             + (f"\n{warning}" if warning else "")
         )
+        atom_count = (
+            f" | {snapshot.atomic_numbers.size:,} atoms"
+            if snapshot.atomic_numbers.size
+            else ""
+        )
+        warning_count = len(snapshot.warnings)
+        self.scene_status.setText(
+            f"{mode} | {'inserted' if snapshot.inserted else 'retracted'}"
+            f"{atom_count}"
+            + (f" | {warning_count} warning(s)" if warning_count else "")
+        )
+        self.scene_status.setToolTip(detail_text)
 
     def display_result(self, result, stem_frame=None):
         """Refresh specimen geometry; detector images belong to the STEM page."""
