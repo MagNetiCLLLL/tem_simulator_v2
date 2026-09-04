@@ -48,9 +48,16 @@ def clip_segment(
     z_min = float(min(z[0], z[-1]))
     z_max = float(max(z[0], z[-1]))
 
+    apertures = list(state.apertures)
+    nanopulser = getattr(state, "nanopulser", None)
+    if nanopulser is not None and bool(nanopulser.installed):
+        # The stop remains physically inserted in the open state. Switching
+        # the field off restores its on-axis transmission, not its removal.
+        nanopulser.validate()
+        apertures.append(nanopulser.aperture)
     active_apertures = [
         aperture
-        for aperture in state.apertures
+        for aperture in apertures
         if aperture.enabled
         and bool(getattr(aperture, "installed", True))
         and z_min <= float(aperture.z_mm) <= z_max

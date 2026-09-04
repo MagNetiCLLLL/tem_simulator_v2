@@ -1,4 +1,5 @@
 from copy import deepcopy
+from itertools import product
 from pathlib import Path
 import shutil
 import tomllib
@@ -43,12 +44,12 @@ def test_scan_and_descan_are_mirrored_about_sample_in_every_column_toml():
 def test_catalog_reports_variant_scope_and_unique_active_authorities():
     audit = ManifestEditor().validate_catalog()
 
-    assert audit.module_count == 10
-    assert audit.part_definition_count == 480
-    assert audit.logical_part_key_count == 196
+    assert audit.module_count == 11
+    assert audit.part_definition_count == 482
+    assert audit.logical_part_key_count == 198
     assert audit.variant_scoped_duplicate_count == 284
-    assert audit.assembly_count == 15
-    assert audit.resolved_part_authority_count == 2029
+    assert audit.assembly_count == 30
+    assert audit.resolved_part_authority_count == 4088
 
 
 def test_selected_runtime_components_record_their_one_toml_authority():
@@ -215,11 +216,14 @@ def test_all_catalog_assemblies_apply_one_authority_per_runtime_part():
     assembly_count = 0
     for gun in catalog.guns:
         for column in catalog.columns:
-            for recording in catalog.recording_systems:
+            for recording, blanker in product(
+                catalog.recording_systems, catalog.beam_blankers
+            ):
                 selection = AssemblySelection(
                     gun=gun.name,
                     column=column.name,
                     recording=recording.name,
+                    beam_blanker=blanker.name,
                 )
                 state = default_state()
                 assembly = catalog.apply(state, selection)
@@ -240,7 +244,7 @@ def test_all_catalog_assemblies_apply_one_authority_per_runtime_part():
                             assert component.name == assembly.part(key).name
                 assembly_count += 1
 
-    assert assembly_count == 15
+    assert assembly_count == 30
 
 
 def test_saved_state_omits_every_manifest_owned_structural_attribute():

@@ -8,27 +8,27 @@ description = "Calculated FEI-style Microprobe/Nanoprobe and Image/Diffraction o
 
 [[modes]]
 key = "micro_probe"
-name = "Microprobe (TEM)"
+name = "Microprobe"
 family = "condenser"
 calibration_status = "retained_not_recomputed_after_c2_aperture_relocation"
 calibration_reference = "Preset strengths and reported metrics are retained from the preceding 300 kV non-OEM C3 + Probe Corrector calibration with the C2 aperture at local Z 295 mm. The mechanical aperture plane is now local Z 315 mm; no optical-path or preset-strength recalculation was performed for this component move."
 compatible_columns = ["C3 + Probe Corrector"]
 compatible_recording_systems = ["*"]
-devices = { condenser_lens_1 = { percent = 20.0 }, condenser_lens_2 = { percent = 17.526971067688827 }, condenser_lens_3 = { percent = 34.500911306851144 }, adapter_lens = { percent = 42.0 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 35.0, field_polarity = 1 }, objective_lens = { percent = 68.9801 } }
+devices = { condenser_lens_1 = { percent = 20.0 }, condenser_lens_2 = { percent = 17.526971067688827 }, condenser_lens_3 = { percent = 34.500911306851144 }, adapter_lens = { percent = 42.0 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 35.0, field_polarity = 1 }, objective_lens = { percent = 68.9801 }, probe_hp2_hexapole = { enabled = true, strength_m3 = 508073.49, orientation_rad = 0.0 }, probe_hp1_hexapole = { enabled = true, strength_m3 = 302372.3317133547, orientation_rad = -0.04234211 } }
 apertures = { condenser_aperture_2 = { enabled = true, diameter_mm = 0.10 } }
 targets = { beam_character = "quasi_parallel", maximum_convergence_sem_angle_mrad = 0.3, achieved_convergence_sem_angle_mrad = 0.26614575494115617, achieved_illumination_diameter_95_um = 2.001682266314471, achieved_wavefront_curvature_per_m = -2.839541631496529, c2_aperture_diameter_um = 100.0 }
 
 [[modes]]
 key = "nano_probe"
-name = "Nanoprobe (STEM)"
+name = "Nanoprobe"
 family = "condenser"
-calibration_status = "retained_not_recomputed_after_c2_aperture_relocation"
-calibration_reference = "Preset strengths, reported metrics and the 10-200 um warm-start table are retained from the preceding 300 kV non-OEM C3 + Probe Corrector calibration with the C2 aperture at local Z 295 mm. The mechanical aperture plane is now local Z 315 mm; no optical-path or preset-strength recalculation was performed for this component move."
+calibration_status = "computed_300kv_non_oem_source_probe_corrector"
+calibration_reference = "Source-based geometric calibration at 300 kV with the 100 um C2 aperture at local Z 315 mm (absolute Z 765 mm), sample Z 1599.2 mm, and 1000 deterministic emitted rays. C3 sets sample focus; both enabled principal hexapoles and their relative azimuth minimise nonlinear ray-position errors against the same source in the linear column. Canonical RK4 at 0.05 mm, validated at 0.025 mm. The 25 mrad working point achieves 24.625 mrad (95%-current semi-angle). This is a simulator field calibration, not a DCOR current table or a wave-probe FWHM calibration."
 compatible_columns = ["C3 + Probe Corrector"]
 compatible_recording_systems = ["*"]
-devices = { condenser_lens_1 = { percent = 51.666666666666664 }, condenser_lens_2 = { percent = 25.25772717253661 }, condenser_lens_3 = { percent = 21.302709185797106 }, adapter_lens = { percent = 86.0039434207 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 41.5570797718, field_polarity = -1 }, objective_lens = { percent = 68.9801 } }
+devices = { condenser_lens_1 = { percent = 51.666666666666664 }, condenser_lens_2 = { percent = 25.25772717253661 }, condenser_lens_3 = { percent = 21.273622908333973 }, adapter_lens = { percent = 86.0039434207 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 41.5570797718, field_polarity = -1 }, objective_lens = { percent = 68.9801 }, probe_hp2_hexapole = { enabled = true, strength_m3 = 626910.5744377297, orientation_rad = 0.0 }, probe_hp1_hexapole = { enabled = true, strength_m3 = 374822.52529434016, orientation_rad = -0.04231957336232493 } }
 apertures = { condenser_aperture_2 = { enabled = true, diameter_mm = 0.10 } }
-targets = { beam_character = "convergent_probe", target_convergence_sem_angle_mrad = 30.0, minimum_convergence_sem_angle_mrad = 3.0, maximum_convergence_sem_angle_mrad = 60.0, achieved_convergence_sem_angle_mrad = 29.999999581941033, achieved_waist_offset_nm = 0.00000022582783707494838, c2_aperture_diameter_um = 100.0, aperture_scaling_reference_mrad_per_um = 0.3, aperture_scaling_diameter_range_um = [10.0, 200.0], aperture_scaling_rms_error_mrad = 2.311953379941114, aperture_scaling_maximum_absolute_error_mrad = 5.495668574225782 }
+targets = { beam_character = "convergent_probe", target_convergence_sem_angle_mrad = 25.0, minimum_convergence_sem_angle_mrad = 3.0, maximum_convergence_sem_angle_mrad = 60.0, achieved_convergence_sem_angle_mrad = 24.6248884796, achieved_waist_offset_nm = -0.00024024, c2_aperture_diameter_um = 100.0, achieved_geometric_rms_radius_nm = 0.1043500125, achieved_geometric_diameter_95_nm = 0.4469295888, achieved_twofold_moment = 0.0725659, achieved_threefold_moment = 0.0109222, calibration_ray_count = 1000, calibration_step_mm = 0.05, validation_step_mm = 0.025, step_waist_difference_nm = 0.03041173 }
 
 [[modes]]
 key = "imaging"
@@ -68,23 +68,6 @@ note = "The crossover target is the mid-plane of the opposing C1-lower and C2-up
 # separate from the range reachable by the current non-OEM field model.  A
 # failed or unreachable solve must leave every lens at its previous value.
 
-[[direct_alignments]]
-key = "spot_size_current_limit"
-name = "Spot size — column-current limit"
-family = "condenser"
-mode_key = "micro_probe"
-applies_to_modes = ["micro_probe", "nano_probe"]
-unit = "%"
-minimum = 0.1
-maximum = 100.0
-default_value = 100.0
-devices = []
-state_parameters = ["column_current_limit_percent"]
-observable = "maximum_column_current_as_emitted_current_fraction"
-constraint = "physical_current_cap_without_changing_numerical_ray_count"
-calibration_status = "ideal_current_limit_no_oem_c1_current_table"
-calibration_reference = "This ideal Spot-size control represents the beam-current role normally assigned to C1. It limits the physical current represented by normalized rays in both probe modes, without changing Monte Carlo ray count or C2/C3 optics. No measured C1 excitation-to-current or manufacturer spot-number table is available, so the low-level C1 field remains an independent editable optical parameter."
-targets = { maximum_numerical_spread = 0.01, optimiser_step_mm = 0.1, validation_step_mm = 0.1 }
 
 [[direct_alignments]]
 key = "nanoprobe_convergence"
@@ -94,17 +77,17 @@ mode_key = "nano_probe"
 unit = "mrad"
 minimum = 3.0
 maximum = 60.0
-default_value = 30.0
+default_value = 25.0
 devices = ["condenser_lens_2", "condenser_lens_3"]
 observable = "sample_current_weighted_95_percent_semi_angle"
 constraint = "probe_waist_at_sample"
 calibration_status = "live_coupled_solve_full_ray_validation_non_oem"
-calibration_reference = "C2/C3 are solved together at the active sample plane using the currently inserted C2 aperture diameter. The stored preset and per-aperture warm starts were calculated with the C2 aperture at local Z 295 mm and are retained only as initial seeds after its relocation to local Z 315 mm. A future user-requested live solve must perform full-ray validation before committing strengths."
-targets = { reference_c2_aperture_diameter_um = 100.0, aperture_scaling_reference_mrad_per_um = 0.3, aperture_scaling_diameter_range_um = [10.0, 200.0], aperture_scaling_rms_error_mrad = 2.311953379941114, aperture_scaling_maximum_absolute_error_mrad = 5.495668574225782, maximum_relative_error = 0.08, maximum_waist_offset_mm = 0.00001, optimiser_waist_scale_mm = 0.002, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.1, validation_step_mm = 0.1, precalculation_interpolation = "linear_target_and_aperture_path_seed_full_validation", precalculation_aperture_match_relative_tolerance = 0.02, precalculation_aperture_diameters_um = [10.0, 20.0, 40.0, 60.0, 80.0, 100.0, 120.0, 140.0, 160.0, 180.0, 200.0], precalculation_convergence_mrad = [3.0, 6.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0, 48.0, 54.0, 60.0], precalculation_vectors = [[25.25772717253661, 21.302709185797106], [25.51730139150316, 21.2829810280785], [25.25772717253661, 21.302709185797106], [25.25772717253661, 21.302709185797106], [25.25772717253661, 21.302709185797106], [25.25772717253661, 21.302709185797106], [25.25772717253661, 21.302709185797106], [25.25772717253661, 21.302709185797106], [22.74094567328449, 21.553162153280343], [28.721936776797804, 21.06416079240903], [31.217349546040545, 20.940117100285764]] }
+calibration_reference = "C2/C3 are solved together at the active sample plane using the currently inserted C2 aperture diameter. Warm starts follow an approximate 0.25 mrad/um path for the current local-Z-315-mm aperture and source-calibrated corrector. Every live solve validates the full nonlinear rays before committing strengths; the requested 3-60 mrad range is not an exact reachability or round-probe guarantee. Changing illumination may require a new corrector calibration."
+targets = { reference_c2_aperture_diameter_um = 100.0, aperture_scaling_reference_mrad_per_um = 0.25, aperture_scaling_diameter_range_um = [12.0, 240.0], aperture_scaling_rms_error_mrad = 2.987082887288112, aperture_scaling_maximum_absolute_error_mrad = 6.165301140106486, maximum_relative_error = 0.08, maximum_waist_offset_mm = 0.00001, optimiser_waist_scale_mm = 0.002, maximum_numerical_spread = 0.01, optimiser_step_mm = 0.1, validation_step_mm = 0.1, precalculation_interpolation = "linear_target_and_aperture_path_seed_full_validation", precalculation_aperture_match_relative_tolerance = 0.02, precalculation_aperture_diameters_um = [12,24,48,72,96,120,144,168,192,216,240], precalculation_convergence_mrad = [3,6,12,18,24,30,36,42,48,54,60], precalculation_vectors = [[28,21.079316995273516],[25.25772717253661,21.273636335884998],[24,21.388669976624275],[23.662775702441532,21.42317811675332],[23,21.496282512499967],[21,21.771172852243602],[23,21.496296743638176],[24,21.388696927385425],[22,21.622123293125956],[28,21.079422809765397],[30,20.97119414232055]] }
 
 [[direct_alignments]]
 key = "microprobe_illumination"
-name = "Microprobe illuminated-area diameter"
+name = "Illumination area (95%-current diameter)"
 family = "condenser"
 mode_key = "micro_probe"
 unit = "um"

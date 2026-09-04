@@ -4,7 +4,7 @@ format_version = 1
 coordinate_system = "module_local_z_mm"
 
 [assembly]
-order = ["gun", "column", "project_and_recording_system"]
+order = ["gun", "beam_blanker", "column", "project_and_recording_system"]
 first_interface = "electron_source_reference"
 last_interface = "recording_system_end"
 
@@ -30,6 +30,13 @@ name = "Thermionic"
 file = "gun/Thermionic.toml"
 electron_gun = "Thermionic"
 monochromator = false
+
+[[beam_blanker_variants]]
+# Optional ultrafast module only. Standard blanking remains a gun-coil function
+# in every gun variant, including assemblies without this NanoPulser option.
+name = "NanoPulser"
+file = "beam_blanker/NanoPulser.toml"
+installed = true
 
 [[column_variants]]
 name = "C2"

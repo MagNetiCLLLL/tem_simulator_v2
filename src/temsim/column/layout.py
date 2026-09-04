@@ -137,6 +137,8 @@ from temsim.component_keys import (
     THERMIONIC_STIGMATOR,
     THERMIONIC_WEHNELT,
     MINI_CONDENSER,
+    NANOPULSER_APERTURE,
+    NANOPULSER_DEFLECTOR,
     OBJECTIVE_LENS,
     OBJECTIVE_APERTURE,
     OBJECTIVE_STIGMATOR,
@@ -342,6 +344,8 @@ class LayoutConfiguration:
     c3_hardware: C3Hardware = C3Hardware.THREE_CONDENSER
     c3_excited: bool = True
     monochromator_installed: bool = False
+    nanopulser_installed: bool = False
+    nanopulser_component: object = None
     source_relative_column_offset_mm: float = 0.0
     sample_center_from_source_mm: float = REFERENCE_SAMPLE_EFFECTIVE_Z_MM
     objective: ObjectiveLayout = field(default_factory=ObjectiveLayout)
@@ -2784,12 +2788,84 @@ def build_optics_layout(
     *,
     assembly=None,
 ) -> LayoutResult:
-    from temsim.column.module_assembly import apply_module_assembly
+    from temsim.column.module_assembly import (
+        apply_module_assembly, resolve_module_assembly,
+    )
 
+    if assembly is None:
+        assembly = configuration.resolved_assembly
+    if assembly is None:
+        assembly = resolve_module_assembly(configuration)
+    metadata = _build_optics_layout_metadata(configuration)
+    if configuration.nanopulser_installed:
+        metadata = _with_nanopulser_components(configuration, metadata, assembly)
     return apply_module_assembly(
         configuration,
-        _build_optics_layout_metadata(configuration),
+        metadata,
         assembly=assembly,
+    )
+
+
+def _with_nanopulser_components(configuration, layout, assembly):
+    """Expose the optional TOML module in the normal physical component list."""
+
+    sample_z = float(assembly.part("sample").center_z_mm)
+    additions = []
+    for key in (NANOPULSER_DEFLECTOR, NANOPULSER_APERTURE):
+        part = assembly.part(key)
+        data = part.data
+        start, end = sample_z - part.end_z_mm, sample_z - part.start_z_mm
+        center = sample_z - part.center_z_mm
+        aperture = key == NANOPULSER_APERTURE
+        active = True if aperture else bool(
+            getattr(configuration.nanopulser_component, "blanked", False)
+        )
+        diameter = float(data[
+            "bore_diameter_mm" if aperture else "mechanical_clear_bore_diameter_mm"
+        ])
+        reference = part.center_z_mm + float(
+            data["optical_reference_local_z_mm"]
+        ) - float(data["local_center_z_mm"])
+        additions.append(LayoutComponent(
+            key=key,
+            name=part.name,
+            kind="aperture" if aperture else "deflector",
+            owner="nanopulser",
+            branch=Branch.ILLUMINATION,
+            excitation_enabled=active,
+            mechanical=MechanicalEnvelope(start, end),
+            field_support=FieldSupport(start, end),
+            local_s_center_mm=center,
+            local_s_range_mm=(start, end),
+            rendered_z_center_mm=center,
+            rendered_z_range_mm=(start, end),
+            note="Provisional non-OEM geometry; placement follows the public Iliad datasheet.",
+            mechanical_shape=MechanicalShape(
+                part.length_mm,
+                profile=str(data["mechanical_profile"]),
+                outer_diameter_mm=float(data["mechanical_outer_diameter_mm"]),
+                active_diameter_mm=diameter,
+                active_length_mm=float(data[
+                    "plate_thickness_mm" if aperture else "plate_length_mm"
+                ]),
+            ),
+            field_model=FieldModel(
+                "hard_aperture" if aperture else "electrostatic_field", active,
+            ),
+            optical_reference_plane_z_mm=reference,
+            optical_interaction_planes_z_mm=(reference,),
+            effective_aperture_radius_mm=0.5 * diameter,
+        ))
+    components = list(layout)
+    index = next(i for i, item in enumerate(components) if item.key == CONDENSER_LENS_1)
+    components[index:index] = additions
+    return LayoutResult(
+        replace(
+            item,
+            upstream_key=components[i - 1].key if i else None,
+            downstream_key=components[i + 1].key if i + 1 < len(components) else None,
+        )
+        for i, item in enumerate(components)
     )
 
 

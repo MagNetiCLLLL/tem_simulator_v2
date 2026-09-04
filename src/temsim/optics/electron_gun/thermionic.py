@@ -425,6 +425,7 @@ def _deflector():
         upper_center_from_tip_mm=centers[0],
         lower_center_from_tip_mm=centers[1],
         coil_length_mm=float(part["active_length_mm"]),
+        blanking_field_y_mt=float(part.get("blanking_field_y_mt", 50.0)),
     )
 
 

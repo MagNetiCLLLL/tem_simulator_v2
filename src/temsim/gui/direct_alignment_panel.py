@@ -9,7 +9,6 @@ from typing import Mapping
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
-    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QLabel,
@@ -19,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from temsim.gui.input_policy import WheelSafeDoubleSpinBox as QDoubleSpinBox
 from temsim.operating_modes import (
     DirectAlignmentDefinition,
     OperatingModeCatalog,
@@ -27,10 +27,6 @@ from temsim.operating_modes import (
 
 
 _CONTROL_NAMES = {
-    "spot_size_current_limit": (
-        "spotSizeCurrentLimitTarget",
-        "applySpotSizeCurrentLimit",
-    ),
     "nanoprobe_convergence": (
         "nanoprobeConvergenceTarget",
         "applyNanoprobeConvergence",
@@ -50,7 +46,6 @@ _CONTROL_NAMES = {
 }
 
 _CURRENT_METRICS = {
-    "spot_size_current_limit": "column_current_limit_percent",
     "nanoprobe_convergence": "sample_convergence_95_mrad",
     "microprobe_illumination": "sample_illumination_diameter_95_um",
     "image_magnification": "magnification",
@@ -58,8 +53,8 @@ _CURRENT_METRICS = {
 }
 
 _MODE_LABELS = {
-    "nano_probe": "Nanoprobe (STEM)",
-    "micro_probe": "Microprobe (TEM)",
+    "nano_probe": "Nanoprobe",
+    "micro_probe": "Microprobe",
     "imaging": "Image",
     "diffraction": "Diffraction",
 }
@@ -91,12 +86,13 @@ class DirectAlignmentPanel(QWidget):
         self._catalog = catalog or load_operating_mode_catalog()
         self._state = None
         self._available_mode_keys: set[str] | None = None
+        self._selected_mode_keys: set[str] | None = None
         self._metrics: dict[str, object] = {}
         self._controls: dict[str, _AlignmentControl] = {}
         self._busy_key: str | None = None
 
         introduction = QLabel(
-            "Coupled optical alignment with automatic rollback on failure."
+            "Adjust sample illumination and image / diffraction projection."
         )
         introduction.setToolTip(
             "Direct Alignment changes user-facing optical values while solving "
@@ -109,21 +105,27 @@ class DirectAlignmentPanel(QWidget):
         )
         introduction.setObjectName("directAlignmentDescription")
         introduction.setWordWrap(True)
-        introduction.setStyleSheet("color: #475569; font-weight: 600;")
+        introduction.setStyleSheet("font-weight: 600;")
 
-        target_group = QGroupBox("Projector diffraction calibration")
+        self.mode_status = QLabel()
+        self.mode_status.setObjectName("directAlignmentAppliedModes")
+        self.mode_status.setWordWrap(True)
+
+        target_group = self.projector_calibration_group = QGroupBox(
+            "Projector diffraction calibration"
+        )
         target_form = QFormLayout(target_group)
         target_notice = QLabel(
-            "Camera length is calibrated at the TOML main-screen plane."
+            "Camera length is measured at the active projection reference plane."
         )
         target_notice.setToolTip(
             "Camera length is one independent D/I/P1/P2 projector setting. "
+            "The active reference plane is reported with its measured value. "
             "HAADF, DF and BF retain distinct Z positions and collection-angle "
             "transfers; detector insertion and readout do not select a "
             "projector preset."
         )
         target_notice.setWordWrap(True)
-        target_notice.setStyleSheet("color: #64748b;")
         target_form.addRow(target_notice)
         self.projector_field_calibration = QLabel()
         self.projector_field_calibration.setObjectName(
@@ -139,7 +141,7 @@ class DirectAlignmentPanel(QWidget):
         self.result_status = QLabel("Select an active operating mode and target.")
         self.result_status.setObjectName("directAlignmentStatus")
         self.result_status.setWordWrap(True)
-        self.result_status.setStyleSheet("color: #475569; font-weight: 600;")
+        self.result_status.setStyleSheet("font-weight: 600;")
         # A short alias is convenient for callers and tests without creating a
         # second, potentially inconsistent status widget.
         self.status = self.result_status
@@ -158,7 +160,7 @@ class DirectAlignmentPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(introduction)
-        layout.addWidget(target_group)
+        layout.addWidget(self.mode_status)
         layout.addWidget(scroll, 1)
         layout.addWidget(self.result_status)
 
@@ -177,12 +179,16 @@ class DirectAlignmentPanel(QWidget):
         while self._control_layout.count():
             item = self._control_layout.takeAt(0)
             widget = item.widget()
-            if widget is not None:
+            if widget is not None and widget is not self.projector_calibration_group:
                 widget.deleteLater()
         self._controls = {}
 
         for definition in catalog.direct_alignments:
+            # Retire this control even when opening an older external catalog.
+            if definition.key == "spot_size_current_limit":
+                continue
             self._add_control(definition)
+        self._control_layout.addWidget(self.projector_calibration_group)
         self._control_layout.addStretch(1)
         self._update_mode_gating()
         self.update_metrics(self._metrics)
@@ -233,15 +239,13 @@ class DirectAlignmentPanel(QWidget):
 
         availability = QLabel()
         availability.setWordWrap(True)
-        availability.setStyleSheet("color: #64748b; font-weight: 600;")
+        availability.setStyleSheet("font-weight: 600;")
 
         current = QLabel(self._unavailable_current_text(definition.key))
         current.setWordWrap(True)
-        current.setStyleSheet("color: #334155;")
 
         result = QLabel()
         result.setWordWrap(True)
-        result.setStyleSheet("color: #475569;")
 
         form.addRow("Target", target)
         form.addRow(apply_button)
@@ -271,11 +275,12 @@ class DirectAlignmentPanel(QWidget):
 
     def _request(self, key: str) -> None:
         control = self._controls[key]
-        if not control.apply_button.isEnabled():
+        self._update_mode_gating()
+        if control.group.isHidden() or not control.apply_button.isEnabled():
             return
         value = float(control.target.value())
         self.result_status.setStyleSheet(
-            "color: #475569; font-weight: 600;"
+            "font-weight: 600;"
         )
         self.result_status.setText(
             f"Solving {control.definition.name}: {value:g} "
@@ -317,6 +322,16 @@ class DirectAlignmentPanel(QWidget):
         )
         self._update_mode_gating()
 
+    def set_selected_mode_keys(
+        self, condenser_key: str | None, projector_key: str | None
+    ) -> None:
+        """Keep pending selector choices separate from the applied optics."""
+
+        self._selected_mode_keys = {
+            str(key) for key in (condenser_key, projector_key) if key
+        }
+        self._update_mode_gating()
+
     @staticmethod
     def _applied_mode_keys(state) -> set[str]:
         if state is None:
@@ -344,12 +359,40 @@ class DirectAlignmentPanel(QWidget):
 
     def _update_mode_gating(self) -> None:
         active_modes = self._applied_mode_keys(self._state)
+        pending_mode_change = (
+            self._selected_mode_keys is not None
+            and not self._selected_mode_keys.issubset(active_modes)
+        )
+        active_probe = next(
+            (key for key in ("micro_probe", "nano_probe") if key in active_modes),
+            None,
+        )
+        active_projector = next(
+            (key for key in ("imaging", "diffraction") if key in active_modes),
+            None,
+        )
+        if active_probe and active_projector:
+            mode_text = (
+                f"Applied: {_MODE_LABELS[active_probe]} + "
+                f"{_MODE_LABELS[active_projector]}."
+            )
+        else:
+            mode_text = "Apply an optical preset to show its alignment controls."
+        if pending_mode_change:
+            mode_text += (
+                " Selection changed: apply the selected optical preset "
+                "before adjusting Direct Alignment."
+            )
+        self.mode_status.setText(mode_text)
+        self.projector_calibration_group.setVisible("diffraction" in active_modes)
         lenses = {
             str(getattr(lens, "key", "")): lens
             for lens in getattr(self._state, "lenses", ())
         }
         for control in self._controls.values():
             required_modes = set(control.definition.active_mode_keys)
+            mode_active = bool(required_modes & active_modes)
+            control.group.setVisible(mode_active)
             mode_available = (
                 self._available_mode_keys is None
                 or bool(required_modes & self._available_mode_keys)
@@ -360,10 +403,11 @@ class DirectAlignmentPanel(QWidget):
                 for key in control.definition.devices
             )
             active = (
-                bool(required_modes & active_modes)
+                mode_active
                 and mode_available
                 and devices_ready
                 and self._busy_key is None
+                and not pending_mode_change
             )
             control.target.setEnabled(active)
             control.apply_button.setEnabled(active)
@@ -376,12 +420,19 @@ class DirectAlignmentPanel(QWidget):
                     "A coupled Direct Alignment solve is running."
                 )
                 control.availability.setStyleSheet(
-                    "color: #0369a1; font-weight: 600;"
+                    "font-weight: 600;"
+                )
+            elif pending_mode_change:
+                control.availability.setText(
+                    "Apply the selected optical preset first."
+                )
+                control.availability.setStyleSheet(
+                    "font-weight: 600;"
                 )
             elif active:
                 control.availability.setText(f"Active in {mode_label} mode.")
                 control.availability.setStyleSheet(
-                    "color: #15803d; font-weight: 600;"
+                    "font-weight: 600;"
                 )
             elif not mode_available:
                 control.availability.setText(
@@ -389,7 +440,7 @@ class DirectAlignmentPanel(QWidget):
                     "the selected assembly."
                 )
                 control.availability.setStyleSheet(
-                    "color: #64748b; font-weight: 600;"
+                    "font-weight: 600;"
                 )
             elif not devices_ready:
                 control.availability.setText(
@@ -397,7 +448,7 @@ class DirectAlignmentPanel(QWidget):
                     "optical device required by this adjustment."
                 )
                 control.availability.setStyleSheet(
-                    "color: #64748b; font-weight: 600;"
+                    "font-weight: 600;"
                 )
             else:
                 control.availability.setText(
@@ -405,7 +456,7 @@ class DirectAlignmentPanel(QWidget):
                     "operating preset first."
                 )
                 control.availability.setStyleSheet(
-                    "color: #64748b; font-weight: 600;"
+                    "font-weight: 600;"
                 )
 
     def set_busy(self, key: str | None) -> None:
@@ -417,9 +468,9 @@ class DirectAlignmentPanel(QWidget):
     def show_status_message(self, message: str, *, error: bool = False) -> None:
         """Replace a pending status after cancellation or worker failure."""
 
-        colour = "#b91c1c" if error else "#475569"
         self.result_status.setStyleSheet(
-            f"color: {colour}; font-weight: 600;"
+            "color: #991b1b; background: #fef2f2; font-weight: 600;"
+            if error else "font-weight: 600;"
         )
         self.result_status.setText(str(message))
 
@@ -447,9 +498,6 @@ class DirectAlignmentPanel(QWidget):
     @staticmethod
     def _unavailable_current_text(key: str) -> str:
         return {
-            "spot_size_current_limit": (
-                "Current Spot-size limit: unavailable."
-            ),
             "nanoprobe_convergence": (
                 "Current 95%-current semi-angle: unavailable."
             ),
@@ -473,21 +521,7 @@ class DirectAlignmentPanel(QWidget):
             if value is None:
                 control.current.setText(self._unavailable_current_text(key))
                 continue
-            if key == "spot_size_current_limit":
-                source_current = self._finite_value(
-                    self._metrics, "effective_source_current_pa"
-                )
-                sample_current = self._finite_value(
-                    self._metrics, "sample_surviving_current_pa"
-                )
-                details = []
-                if source_current is not None:
-                    details.append(f"column {source_current:.6g} pA")
-                if sample_current is not None:
-                    details.append(f"sample {sample_current:.6g} pA")
-                suffix = f"; {', '.join(details)}" if details else ""
-                text = f"Current Spot-size limit: {value:.6g}%{suffix}."
-            elif key == "nanoprobe_convergence":
+            if key == "nanoprobe_convergence":
                 waist = self._finite_value(
                     self._metrics, "sample_waist_offset_mm"
                 )
@@ -571,7 +605,7 @@ class DirectAlignmentPanel(QWidget):
         control = self._controls.get(key)
         if control is None:
             self.result_status.setStyleSheet(
-                "color: #b91c1c; font-weight: 600;"
+                "color: #991b1b; background: #fef2f2; font-weight: 600;"
             )
             self.result_status.setText(
                 f"Unknown Direct Alignment result: {key or 'missing key'}."
@@ -603,18 +637,17 @@ class DirectAlignmentPanel(QWidget):
             summary += f" {message}"
         control.result.setText(summary)
         control.result.setToolTip(strength_text)
-        colour = "#15803d" if success else "#b91c1c"
-        control.result.setStyleSheet(f"color: {colour}; font-weight: 600;")
-        self.result_status.setStyleSheet(
-            f"color: {colour}; font-weight: 600;"
+        status_style = (
+            "color: #166534; background: #f0fdf4; font-weight: 600;"
+            if success else
+            "color: #991b1b; background: #fef2f2; font-weight: 600;"
         )
+        control.result.setStyleSheet(status_style)
+        self.result_status.setStyleSheet(status_style)
         self.result_status.setText(summary)
 
         if success and math.isfinite(achieved):
             current_text = {
-                "spot_size_current_limit": (
-                    f"Solved Spot-size current limit: {achieved:.6g} {unit}."
-                ),
                 "nanoprobe_convergence": (
                     f"Solved 95%-current semi-angle: {achieved:.6g} {unit}."
                 ),

@@ -34,6 +34,8 @@ from temsim.component_keys import (
     GUN_EXTRACTOR_APERTURE,
     IMAGE_DIFFRACTION_DEFLECTOR,
     MINI_CONDENSER,
+    NANOPULSER_APERTURE,
+    NANOPULSER_DEFLECTOR,
     OBJECTIVE_APERTURE,
     OBJECTIVE_LENS,
     OBJECTIVE_STIGMATOR,
@@ -427,9 +429,14 @@ def _selected_entries(configuration, catalog):
             energy_filter=bool(configuration.energy_filter_selected),
         ),
     }
+    if bool(getattr(configuration, "nanopulser_installed", False)):
+        selected["beam_blanker"] = _one(
+            catalog.get("beam_blanker_variants", ()), installed=True,
+        )
     return tuple(
-        selected[module_type]
+        (module_type, selected[module_type])
         for module_type in catalog["assembly"]["order"]
+        if module_type in selected
     )
 
 
@@ -439,10 +446,7 @@ def selected_module_paths(configuration, root=None):
     entries = _selected_entries(configuration, catalog)
     return {
         module_type: str(entry["file"])
-        for module_type, entry in zip(
-            catalog["assembly"]["order"],
-            entries,
-        )
+        for module_type, entry in entries
     }
 
 
@@ -459,14 +463,11 @@ def resolve_module_assembly(configuration, root=None):
             str(module_type),
             str(entry["file"]),
         )
-        for module_type, entry in zip(
-            catalog["assembly"]["order"],
-            entries,
-        )
+        for module_type, entry in entries
     )
     modules = tuple(
         _load_module(root / entry["file"], entry["file"])
-        for entry in entries
+        for _module_type, entry in entries
     )
     parts = []
     module_origins = []
@@ -1541,6 +1542,32 @@ def _apply_manifest_runtime_geometry(state, parts, assembly):
             state.sample.z_mm
         ).validate_between_poles(objective_lens)
     _apply_energy_filter_manifest_geometry(state, parts)
+    _apply_nanopulser_manifest_geometry(state, parts)
+
+
+def _apply_nanopulser_manifest_geometry(state, parts):
+    from temsim.optics.nanopulser import ensure_nanopulser
+
+    nanopulser = ensure_nanopulser(state)
+    deflector = parts.get(NANOPULSER_DEFLECTOR)
+    aperture = parts.get(NANOPULSER_APERTURE)
+    nanopulser.installed = deflector is not None and aperture is not None
+    if not nanopulser.installed:
+        return
+    _set_manifest_authority(nanopulser, deflector)
+    values = {
+        "z_mm": _absolute_part_value(deflector, "optical_reference_local_z_mm"),
+        "stop_z_mm": _absolute_part_value(aperture, "optical_reference_local_z_mm"),
+        "mechanical_center_from_tip_mm": float(deflector.center_z_mm),
+        "mechanical_length_mm": float(deflector.length_mm),
+        "plate_length_mm": float(deflector.data["plate_length_mm"]),
+        "plate_gap_mm": float(deflector.data["plate_gap_mm"]),
+        "aperture_radius_mm": float(aperture.data["aperture_radius_mm"]),
+        "mechanical_outer_diameter_mm": float(deflector.data["mechanical_outer_diameter_mm"]),
+        "mechanical_clear_bore_diameter_mm": float(deflector.data["mechanical_clear_bore_diameter_mm"]),
+    }
+    for field, value in values.items():
+        setattr(nanopulser, field, value)
 
 
 def _apply_energy_filter_manifest_geometry(state, parts):

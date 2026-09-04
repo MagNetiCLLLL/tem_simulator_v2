@@ -10,6 +10,7 @@ from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QApplication
 
 from temsim.gui.main_window import MainWindow
+from temsim.gui.input_policy import install_numeric_input_policy
 
 
 _CHECKBOX_ASSET_ROOT = (
@@ -111,6 +112,7 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
 
     existing = QApplication.instance()
     if existing is not None:
+        install_numeric_input_policy(existing)
         return existing
 
     QCoreApplication.setOrganizationName("TEM Simulator")
@@ -118,6 +120,7 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
     application = QApplication(list(argv) if argv is not None else sys.argv)
     application.setStyle("Fusion")
     application.setStyleSheet(APPLICATION_STYLE)
+    install_numeric_input_policy(application)
     return application
 
 

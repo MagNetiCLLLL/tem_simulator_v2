@@ -1,0 +1,122 @@
+{
+  "scope": "Geometric incident source rays at the physical sample plane; installed preset without refitting",
+  "emitted_ray_count": 15000,
+  "voltage_kv": 300.0,
+  "sample_z_mm": 1599.2,
+  "c2_aperture_diameter_um": 100.0,
+  "corrected_steps_mm": {
+    "0.1": {
+      "surviving_rays": 7891,
+      "surviving_fraction": 0.5260666666666668,
+      "mean_x_m": -1.469365096654929e-12,
+      "mean_y_m": -1.6974236328214435e-13,
+      "mean_tx_rad": -3.873554954618445e-05,
+      "mean_ty_rad": 0.00017846393756468216,
+      "convergence_rms_rad": 0.013696604514804906,
+      "convergence_95_rad": 0.024238069099795805,
+      "convergence_99_rad": 0.025758947703049512,
+      "convergence_edge_rad": 0.026352216367027097,
+      "radius_rms_m": 1.0691335100444611e-10,
+      "radius_95_m": 2.2444260388060863e-10,
+      "radius_99_m": 3.248520730487975e-10,
+      "radial_position_angle_covariance_m_rad": -1.0263381790953219e-13,
+      "radial_wavefront_curvature_per_m": -8978971.659911074,
+      "waist_offset_m": 5.469594244369237e-10,
+      "twofold_moment": 0.007506911540832708,
+      "threefold_moment": 0.0271467116945009
+    },
+    "0.05": {
+      "surviving_rays": 7891,
+      "surviving_fraction": 0.5260666666666668,
+      "mean_x_m": -1.48455395209377e-12,
+      "mean_y_m": -8.215336840806852e-14,
+      "mean_tx_rad": -3.873560010460455e-05,
+      "mean_ty_rad": 0.00017846393169197435,
+      "convergence_rms_rad": 0.013696604633014076,
+      "convergence_95_rad": 0.024238070318628437,
+      "convergence_99_rad": 0.02575894737305831,
+      "convergence_edge_rad": 0.026352215705147546,
+      "radius_rms_m": 1.0665334040678251e-10,
+      "radius_95_m": 2.2294017248785177e-10,
+      "radius_99_m": 3.2246931216578663e-10,
+      "radial_position_angle_covariance_m_rad": -1.1384673126578992e-14,
+      "radial_wavefront_curvature_per_m": -1000856.1021787735,
+      "waist_offset_m": 6.067156303874567e-11,
+      "twofold_moment": 0.007431593695823222,
+      "threefold_moment": 0.026795645391608353
+    },
+    "0.025": {
+      "surviving_rays": 7891,
+      "surviving_fraction": 0.5260666666666668,
+      "mean_x_m": -1.4856181760088789e-12,
+      "mean_y_m": -7.67004738392828e-14,
+      "mean_tx_rad": -3.873560743941056e-05,
+      "mean_ty_rad": 0.00017846393301591706,
+      "convergence_rms_rad": 0.013696604636852417,
+      "convergence_95_rad": 0.024238070314175398,
+      "convergence_99_rad": 0.025758947463896502,
+      "convergence_edge_rad": 0.026352215665099266,
+      "radius_rms_m": 1.0665090759029179e-10,
+      "radius_95_m": 2.225290061459603e-10,
+      "radius_99_m": 3.2213389412861686e-10,
+      "radial_position_angle_covariance_m_rad": -5.6780792141396165e-15,
+      "radial_wavefront_curvature_per_m": -499197.4242277788,
+      "waist_offset_m": 3.0259800782709045e-11,
+      "twofold_moment": 0.0074286920436061905,
+      "threefold_moment": 0.026763189781944377
+    }
+  },
+  "old_hexapoles_at_same_lens_focus": {
+    "surviving_rays": 7891,
+    "surviving_fraction": 0.5260666666666668,
+    "mean_x_m": 5.778114603219029e-13,
+    "mean_y_m": 5.543835821842486e-12,
+    "mean_tx_rad": -3.874522465121978e-05,
+    "mean_ty_rad": 0.0001784448722909597,
+    "convergence_rms_rad": 0.013696218583423663,
+    "convergence_95_rad": 0.024238133658847926,
+    "convergence_99_rad": 0.02575588012835837,
+    "convergence_edge_rad": 0.026354908173550972,
+    "radius_rms_m": 4.709659006593271e-10,
+    "radius_95_m": 1.0413248474145475e-09,
+    "radius_99_m": 1.3713414473003271e-09,
+    "radial_position_angle_covariance_m_rad": 1.7191536303189732e-12,
+    "radial_wavefront_curvature_per_m": 7750607.791466149,
+    "waist_offset_m": -9.162285022153367e-09,
+    "twofold_moment": 0.004631719444719855,
+    "threefold_moment": 0.3347967128065262
+  },
+  "calibrated_settings": {
+    "lenses": {
+      "condenser_lens_1": 51.666666666666664,
+      "condenser_lens_2": 25.25772717253661,
+      "condenser_lens_3": 21.273622908333973,
+      "adapter_lens": 86.0039434207,
+      "probe_tl22_lens": 60.0,
+      "probe_tl21_lens": 60.0,
+      "probe_tl12_lens": 60.0,
+      "mini_condenser": 41.5570797718,
+      "objective_lens": 68.9801,
+      "diffraction_lens": 14.577617197168571,
+      "intermediate_lens": 0.035082657259397326,
+      "projector_lens_1": 32.1132572718703,
+      "projector_lens_2": 9.826874422815507,
+      "image_ol_post_lens": 60.0,
+      "image_tl11_lens": 60.0,
+      "image_tl12_lens": 60.0,
+      "image_tl21_lens": 60.0,
+      "image_tl22_lens": 60.0,
+      "image_adapter_lens": 60.0
+    },
+    "hexapoles": {
+      "probe_hp2_hexapole": {
+        "strength_m3": 626910.5744377297,
+        "orientation_rad": 0.0
+      },
+      "probe_hp1_hexapole": {
+        "strength_m3": 374822.52529434016,
+        "orientation_rad": -0.04231957336232493
+      }
+    }
+  }
+}

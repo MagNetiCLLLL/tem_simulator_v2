@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -21,6 +20,7 @@ from temsim.assembly_catalog import AssemblySelection
 from temsim.component_keys import ENERGY_FILTER_INTERNAL_KEYS
 from temsim.gui.direct_alignment_panel import DirectAlignmentPanel
 from temsim.gui.instrument_tree import InstrumentTree, OPTICAL_FILTERS
+from temsim.gui.input_policy import WheelSafeComboBox as QComboBox
 from temsim.operating_modes import (
     compatible_modes,
     load_operating_mode_catalog,
@@ -42,7 +42,15 @@ class AssemblyPanel(QWidget):
         form = QFormLayout(box)
         self.gun = QComboBox()
         self.column = QComboBox()
-        for selector in (self.gun, self.column):
+        self.beam_blanker = QComboBox()
+        self.beam_blanker.setObjectName("beamBlankerSelector")
+        self.beam_blanker.setToolTip(
+            "Optional ultrafast electrostatic NanoPulser between the gun and condenser. "
+            "Standard gun-coil blanking is available even when None is selected. "
+            "Installing it changes the column length and recalculates the "
+            "condenser preset. Apply with Load assembly."
+        )
+        for selector in (self.gun, self.column, self.beam_blanker):
             # Do not let the longest catalog label dictate the dock width.
             # The popup still displays the complete option text.
             selector.setSizeAdjustPolicy(
@@ -51,9 +59,11 @@ class AssemblyPanel(QWidget):
             selector.setMinimumContentsLength(18)
         self.gun.addItems([option.name for option in catalog.guns])
         self.column.addItems([option.name for option in catalog.columns])
+        self.beam_blanker.addItems([option.name for option in catalog.beam_blankers])
         self.set_selection(selection)
         form.addRow("Gun", self.gun)
         form.addRow("Column", self.column)
+        form.addRow("NanoPulser option", self.beam_blanker)
         apply_button = QPushButton("Load assembly")
         apply_button.setObjectName("loadAssemblyButton")
         apply_button.clicked.connect(self._request_selection)
@@ -73,6 +83,14 @@ class AssemblyPanel(QWidget):
             selector.setMinimumContentsLength(18)
         mode_form.addRow("Probe / illumination", self.probe_mode)
         mode_form.addRow("Projection", self.projector_mode)
+        self.probe_mode.setToolTip(
+            "Sample illumination: Microprobe or Nanoprobe, independent of "
+            "Image / Diffraction projection. Apply the preset to change optics."
+        )
+        self.projector_mode.setToolTip(
+            "Optics below the sample: Image or Diffraction, independent of "
+            "Microprobe / Nanoprobe illumination. Apply the preset to change optics."
+        )
         self.apply_operating_mode_button = QPushButton(
             "Apply calculated lens preset"
         )
@@ -134,6 +152,9 @@ class AssemblyPanel(QWidget):
             self.operating_mode_catalog, self
         )
         self.direct_alignment = self.direct_alignment_panel
+        self.direct_alignment_panel.set_selected_mode_keys(
+            self.probe_mode.currentData(), self.projector_mode.currentData()
+        )
         self.component_pages.addTab(
             self.direct_alignment_panel, "Direct Alignment"
         )
@@ -190,6 +211,7 @@ class AssemblyPanel(QWidget):
             gun=self.gun.currentText(),
             column=self.column.currentText(),
             recording=self.catalog.default_selection().recording,
+            beam_blanker=self.beam_blanker.currentText(),
         )
         return self.catalog.normalise_selection(selection)
 
@@ -197,12 +219,14 @@ class AssemblyPanel(QWidget):
         selection = self.catalog.normalise_selection(selection)
         self.gun.setCurrentText(selection.gun)
         self.column.setCurrentText(selection.column)
+        self.beam_blanker.setCurrentText(selection.beam_blanker)
 
     def reload_catalog(self, catalog, selection: AssemblySelection) -> None:
         self.catalog = catalog
         for combo, options in (
             (self.gun, catalog.guns),
             (self.column, catalog.columns),
+            (self.beam_blanker, catalog.beam_blankers),
         ):
             combo.clear()
             combo.addItems([option.name for option in options])
@@ -292,6 +316,9 @@ class AssemblyPanel(QWidget):
     def _update_operating_mode_description(self, _index: int = -1) -> None:
         condenser_key = self.probe_mode.currentData()
         projector_key = self.projector_mode.currentData()
+        alignment_panel = getattr(self, "direct_alignment_panel", None)
+        if alignment_panel is not None:
+            alignment_panel.set_selected_mode_keys(condenser_key, projector_key)
         if condenser_key is None or projector_key is None:
             self.operating_mode_status.setText(
                 "No calibrated preset is available for this assembly."
@@ -319,7 +346,7 @@ class AssemblyPanel(QWidget):
         if condenser.key == "nano_probe":
             illumination_note = (
                 "Convergence: C2 + C3 + C2 aperture; "
-                "STEM focus: Objective lens."
+                "probe focus: Objective lens."
             )
         else:
             illumination_note = (

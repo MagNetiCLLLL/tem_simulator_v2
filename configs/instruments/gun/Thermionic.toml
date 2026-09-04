@@ -115,6 +115,14 @@ parent_key = "thermionic_accelerator"
 order = 6
 key = "thermionic_deflector"
 name = "Thermionic Gun Deflector Pair"
+blanking_role = "standard_pre_specimen"
+blanking_implementation = "gun_tilt_coil_drive"
+blanking_field_y_mt = 50.0
+blanking_field_calibration_status = "provisional_model_parameter"
+blanking_field_calibration_source = "Illustrative upper-coil transverse magnetic field used to intercept the beam on the existing gun bore or exit aperture; not an OEM current-to-field calibration."
+blanking_geometry_status = "existing_model_geometry_not_oem"
+blanking_evidence_source = "temscript Illumination.BeamBlanked documents gun-tilt coil blanking before the condenser; TEM Server 7.2 p15 names GunTiltBlanker for Titan/Talos. Shared simulator implementation, not identical OEM hardware or calibrated coil currents."
+blanking_evidence_urls = ["https://temscript.readthedocs.io/latest/instrument.html#temscript.Illumination.BeamBlanked", "https://documents.thermofisher.com/TFS-Assets/MSD/Product-Information/TEM-Server-307413.pdf#page=15"]
 branch = "common"
 local_start_z_mm = 398.0
 local_center_z_mm = 410.0

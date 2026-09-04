@@ -24,6 +24,12 @@ from temsim.physics.compute_backend import (
     BACKEND_NUMBA,
     choose_ray_backend,
 )
+from temsim.physics.ray_integrator import (
+    NUMBA_AVAILABLE,
+    parallel_rk4 as _parallel_rk4,
+    vectorised_rk4 as _vectorised_rk4,
+    cuda_rk4 as _cuda_rk4,
+)
 
 E=1.602176634e-19
 M=9.1093837015e-31
@@ -64,6 +70,11 @@ class AxialPropagationPlan:
     sy_m2: np.ndarray
     hex_normal_m3: np.ndarray
     hex_skew_m3: np.ndarray
+    midpoint_magnetic_t: np.ndarray
+    midpoint_sx_m2: np.ndarray
+    midpoint_sy_m2: np.ndarray
+    midpoint_hex_normal_m3: np.ndarray
+    midpoint_hex_skew_m3: np.ndarray
     cs_kick_m3: np.ndarray
     thin_power_m1: np.ndarray
     thin_rotation_rad: np.ndarray
@@ -109,26 +120,14 @@ def _support_mask(z_mm, provider):
     z = np.asarray(z_mm, dtype=float)
     return (z >= float(lower)) & (z <= float(upper))
 
-try:
-    from numba import cuda, njit, prange
-    NUMBA_AVAILABLE=True
-except Exception:
-    NUMBA_AVAILABLE=False
-    cuda=None
-    def njit(*args,**kwargs):
-        def wrapper(func): return func
-        return wrapper
-    range_parallel=range
-    prange=range
 
 def electron(state):
-    kinetic=E*state.beam_voltage_kv*1000.0
-    rest=M*C*C
-    momentum=math.sqrt(kinetic*kinetic+2.0*kinetic*rest)/C
-    # Electron charge is signed.  Keeping it signed is essential for magnetic
-    # image rotation; round-lens focusing depends on q**2, while the Larmor
-    # angle changes sign with q*Bz.
-    return -E,momentum,H/momentum*1.0e9
+    kinetic = E * state.beam_voltage_kv * 1000.0
+    rest = M * C * C
+    momentum = math.sqrt(kinetic * kinetic + 2.0 * kinetic * rest) / C
+    # Charge stays signed so magnetic image rotation retains its handedness.
+    return -E, momentum, H / momentum * 1.0e9
+
 
 def fields(z,state):
     if hasattr(state,"sync_objective"): state.sync_objective()
@@ -293,337 +292,6 @@ def spherical_aberration_kick_m3(z_mm, state):
     return result
 
 
-@njit(cache=True,parallel=True,fastmath=True)
-def _parallel_rk4(
-    kx, ky, hex_normal, hex_skew, larmor_g, larmor_gradient, cs_kick,
-    thin_power, thin_rotation, step_m,
-    x0, tx0, y0, ty0,
-    kickx, kicky, save_index, checkpoint_index, es_alpha, es_beta,
-    gun_index, gun_focal_m,
-):
-    nr=x0.size
-    ns=save_index.size
-    X=np.empty((ns,nr),np.float32)
-    TX=np.empty((ns,nr),np.float32)
-    Y=np.empty((ns,nr),np.float32)
-    TY=np.empty((ns,nr),np.float32)
-    nc=checkpoint_index.size
-    CX=np.empty((nc,nr),np.float64)
-    CTX=np.empty((nc,nr),np.float64)
-    CY=np.empty((nc,nr),np.float64)
-    CTY=np.empty((nc,nr),np.float64)
-    for ray in prange(nr):
-        x=x0[ray];tx=tx0[ray];y=y0[ray];ty=ty0[ray];s=0;c=0
-        for j in range(kx.shape[0]):
-            if thin_power[j] != 0.0:
-                tx -= thin_power[j]*x
-                ty -= thin_power[j]*y
-            if thin_rotation[j] != 0.0:
-                cosine=math.cos(thin_rotation[j])
-                sine=math.sin(thin_rotation[j])
-                rotated_x=cosine*x-sine*y
-                rotated_y=sine*x+cosine*y
-                rotated_tx=cosine*tx-sine*ty
-                rotated_ty=sine*tx+cosine*ty
-                x=rotated_x;y=rotated_y;tx=rotated_tx;ty=rotated_ty
-            tx += kickx[j];ty += kicky[j]
-            if cs_kick[j] != 0.0:
-                radius_sq=x*x+y*y
-                tx -= cs_kick[j]*radius_sq*x
-                ty -= cs_kick[j]*radius_sq*y
-            if s<ns and j==save_index[s]:
-                X[s,ray]=x;TX[s,ray]=tx;Y[s,ray]=y;TY[s,ray]=ty;s+=1
-            if c<nc and j==checkpoint_index[c]:
-                CX[c,ray]=x;CTX[c,ray]=tx;CY[c,ray]=y;CTY[c,ray]=ty;c+=1
-            if j>=kx.shape[0]-1: continue
-            h=step_m[j]
-            kx0=kx[j,ray];ky0=ky[j,ray];kxm=0.5*(kx[j,ray]+kx[j+1,ray]);kym=0.5*(ky[j,ray]+ky[j+1,ray]);kx1=kx[j+1,ray];ky1=ky[j+1,ray]
-            g0=larmor_g[j,ray];gm=0.5*(larmor_g[j,ray]+larmor_g[j+1,ray]);g1=larmor_g[j+1,ray]
-            dg0=larmor_gradient[j,ray];dgm=0.5*(larmor_gradient[j,ray]+larmor_gradient[j+1,ray]);dg1=larmor_gradient[j+1,ray]
-            hn0=hex_normal[j];hnm=0.5*(hex_normal[j]+hex_normal[j+1]);hn1=hex_normal[j+1]
-            hs0=hex_skew[j];hsm=0.5*(hex_skew[j]+hex_skew[j+1]);hs1=hex_skew[j+1]
-            ax1=tx;ay1=ty
-            hu=x*x-y*y;hv=2.0*x*y
-            ax2=-es_alpha[j]*tx-(kx0+es_beta[j])*x-hn0*hu-hs0*hv+2.0*g0*ty+dg0*y
-            ay2=-es_alpha[j]*ty-(ky0+es_beta[j])*y+hn0*hv-hs0*hu-2.0*g0*tx-dg0*x
-            bx= x+0.5*h*ax1; btx=tx+0.5*h*ax2
-            by= y+0.5*h*ay1; bty=ty+0.5*h*ay2
-            bx1=btx;by1=bty
-            bhu=bx*bx-by*by;bhv=2.0*bx*by
-            bx2=-0.5*(es_alpha[j]+es_alpha[j+1])*btx-(kxm+0.5*(es_beta[j]+es_beta[j+1]))*bx-hnm*bhu-hsm*bhv+2.0*gm*bty+dgm*by
-            by2=-0.5*(es_alpha[j]+es_alpha[j+1])*bty-(kym+0.5*(es_beta[j]+es_beta[j+1]))*by+hnm*bhv-hsm*bhu-2.0*gm*btx-dgm*bx
-            cx=x+0.5*h*bx1;ctx=tx+0.5*h*bx2
-            cy=y+0.5*h*by1;cty=ty+0.5*h*by2
-            cx1=ctx;cy1=cty
-            chu=cx*cx-cy*cy;chv=2.0*cx*cy
-            cx2=-0.5*(es_alpha[j]+es_alpha[j+1])*ctx-(kxm+0.5*(es_beta[j]+es_beta[j+1]))*cx-hnm*chu-hsm*chv+2.0*gm*cty+dgm*cy
-            cy2=-0.5*(es_alpha[j]+es_alpha[j+1])*cty-(kym+0.5*(es_beta[j]+es_beta[j+1]))*cy+hnm*chv-hsm*chu-2.0*gm*ctx-dgm*cx
-            dx=x+h*cx1;dtx=tx+h*cx2
-            dy=y+h*cy1;dty=ty+h*cy2
-            dx1=dtx;dy1=dty
-            dhu=dx*dx-dy*dy;dhv=2.0*dx*dy
-            dx2=-es_alpha[j+1]*dtx-(kx1+es_beta[j+1])*dx-hn1*dhu-hs1*dhv+2.0*g1*dty+dg1*dy
-            dy2=-es_alpha[j+1]*dty-(ky1+es_beta[j+1])*dy+hn1*dhv-hs1*dhu-2.0*g1*dtx-dg1*dx
-            x += h*(ax1+2*bx1+2*cx1+dx1)/6.0
-            tx += h*(ax2+2*bx2+2*cx2+dx2)/6.0
-            y += h*(ay1+2*by1+2*cy1+dy1)/6.0
-            ty += h*(ay2+2*by2+2*cy2+dy2)/6.0
-    return X,TX,Y,TY,CX,CTX,CY,CTY
-
-def _vectorised_rk4(
-    kx, ky, hex_normal, hex_skew, larmor_g, larmor_gradient, cs_kick,
-    thin_power, thin_rotation, step_m,
-    x, tx, y, ty,
-    kickx, kicky, save_index, checkpoint_index, es_alpha, es_beta,
-    gun_index, gun_focal_m,
-):
-    nr=x.size;ns=save_index.size
-    X=np.empty((ns,nr),np.float32);TX=np.empty_like(X);Y=np.empty_like(X);TY=np.empty_like(X);s=0
-    nc=checkpoint_index.size;c=0
-    CX=np.empty((nc,nr),np.float64);CTX=np.empty_like(CX);CY=np.empty_like(CX);CTY=np.empty_like(CX)
-    for j in range(kx.shape[0]):
-        if thin_power[j] != 0.0:
-            tx = tx-thin_power[j]*x
-            ty = ty-thin_power[j]*y
-        if thin_rotation[j] != 0.0:
-            cosine=math.cos(thin_rotation[j]);sine=math.sin(thin_rotation[j])
-            rotated_x=cosine*x-sine*y
-            rotated_y=sine*x+cosine*y
-            rotated_tx=cosine*tx-sine*ty
-            rotated_ty=sine*tx+cosine*ty
-            x=rotated_x;y=rotated_y;tx=rotated_tx;ty=rotated_ty
-        tx += kickx[j];ty += kicky[j]
-        if cs_kick[j] != 0.0:
-            radius_sq=x*x+y*y
-            tx -= cs_kick[j]*radius_sq*x
-            ty -= cs_kick[j]*radius_sq*y
-        if s<ns and j==save_index[s]:
-            X[s]=x;TX[s]=tx;Y[s]=y;TY[s]=ty;s+=1
-        if c<nc and j==checkpoint_index[c]:
-            CX[c]=x;CTX[c]=tx;CY[c]=y;CTY[c]=ty;c+=1
-        if j>=kx.shape[0]-1: continue
-        h=step_m[j]
-        kx0=kx[j];ky0=ky[j];kxm=.5*(kx[j]+kx[j+1]);kym=.5*(ky[j]+ky[j+1]);kx1=kx[j+1];ky1=ky[j+1]
-        g0=larmor_g[j];gm=.5*(larmor_g[j]+larmor_g[j+1]);g1=larmor_g[j+1]
-        dg0=larmor_gradient[j];dgm=.5*(larmor_gradient[j]+larmor_gradient[j+1]);dg1=larmor_gradient[j+1]
-        hn0=hex_normal[j];hnm=.5*(hex_normal[j]+hex_normal[j+1]);hn1=hex_normal[j+1]
-        hs0=hex_skew[j];hsm=.5*(hex_skew[j]+hex_skew[j+1]);hs1=hex_skew[j+1]
-        ax1=tx;ay1=ty
-        hu=x*x-y*y;hv=2.0*x*y
-        ax2=-es_alpha[j]*tx-(kx0+es_beta[j])*x-hn0*hu-hs0*hv+2.0*g0*ty+dg0*y
-        ay2=-es_alpha[j]*ty-(ky0+es_beta[j])*y+hn0*hv-hs0*hu-2.0*g0*tx-dg0*x
-        bx=x+.5*h*ax1;btx=tx+.5*h*ax2
-        by=y+.5*h*ay1;bty=ty+.5*h*ay2
-        bx1=btx;by1=bty
-        bhu=bx*bx-by*by;bhv=2.0*bx*by
-        bx2=-.5*(es_alpha[j]+es_alpha[j+1])*btx-(kxm+.5*(es_beta[j]+es_beta[j+1]))*bx-hnm*bhu-hsm*bhv+2.0*gm*bty+dgm*by
-        by2=-.5*(es_alpha[j]+es_alpha[j+1])*bty-(kym+.5*(es_beta[j]+es_beta[j+1]))*by+hnm*bhv-hsm*bhu-2.0*gm*btx-dgm*bx
-        cx=x+.5*h*bx1;ctx=tx+.5*h*bx2
-        cy=y+.5*h*by1;cty=ty+.5*h*by2
-        cx1=ctx;cy1=cty
-        chu=cx*cx-cy*cy;chv=2.0*cx*cy
-        cx2=-.5*(es_alpha[j]+es_alpha[j+1])*ctx-(kxm+.5*(es_beta[j]+es_beta[j+1]))*cx-hnm*chu-hsm*chv+2.0*gm*cty+dgm*cy
-        cy2=-.5*(es_alpha[j]+es_alpha[j+1])*cty-(kym+.5*(es_beta[j]+es_beta[j+1]))*cy+hnm*chv-hsm*chu-2.0*gm*ctx-dgm*cx
-        dx=x+h*cx1;dtx=tx+h*cx2
-        dy=y+h*cy1;dty=ty+h*cy2
-        dx1=dtx;dy1=dty
-        dhu=dx*dx-dy*dy;dhv=2.0*dx*dy
-        dx2=-es_alpha[j+1]*dtx-(kx1+es_beta[j+1])*dx-hn1*dhu-hs1*dhv+2.0*g1*dty+dg1*dy
-        dy2=-es_alpha[j+1]*dty-(ky1+es_beta[j+1])*dy+hn1*dhv-hs1*dhu-2.0*g1*dtx-dg1*dx
-        x=x+h*(ax1+2*bx1+2*cx1+dx1)/6;tx=tx+h*(ax2+2*bx2+2*cx2+dx2)/6;y=y+h*(ay1+2*by1+2*cy1+dy1)/6;ty=ty+h*(ay2+2*by2+2*cy2+dy2)/6
-    return X,TX,Y,TY,CX,CTX,CY,CTY
-
-
-if NUMBA_AVAILABLE:
-    @cuda.jit
-    def _cuda_rk4_kernel(
-        kx_axis, ky_axis, hex_normal, hex_skew, larmor_axis,
-        larmor_gradient_axis, inverse_momentum, cs_kick,
-        thin_power, thin_rotation, step_m,
-        x0, tx0, y0, ty0, kickx, kicky, save_index, checkpoint_index,
-        es_alpha, es_beta, X, TX, Y, TY, CX, CTX, CY, CTY,
-    ):
-        ray = cuda.grid(1)
-        if ray >= x0.size:
-            return
-        x = x0[ray]
-        tx = tx0[ray]
-        y = y0[ray]
-        ty = ty0[ray]
-        saved = 0
-        checkpointed = 0
-        save_count = save_index.size
-        checkpoint_count = checkpoint_index.size
-        step_count = kx_axis.size
-        for j in range(step_count):
-            if thin_power[j] != 0.0:
-                tx -= thin_power[j] * x
-                ty -= thin_power[j] * y
-            if thin_rotation[j] != 0.0:
-                cosine = math.cos(thin_rotation[j])
-                sine = math.sin(thin_rotation[j])
-                rotated_x = cosine * x - sine * y
-                rotated_y = sine * x + cosine * y
-                rotated_tx = cosine * tx - sine * ty
-                rotated_ty = sine * tx + cosine * ty
-                x = rotated_x
-                y = rotated_y
-                tx = rotated_tx
-                ty = rotated_ty
-            tx += kickx[j]
-            ty += kicky[j]
-            if cs_kick[j] != 0.0:
-                radius_sq = x * x + y * y
-                tx -= cs_kick[j] * radius_sq * x
-                ty -= cs_kick[j] * radius_sq * y
-            if saved < save_count and j == save_index[saved]:
-                X[saved, ray] = x
-                TX[saved, ray] = tx
-                Y[saved, ray] = y
-                TY[saved, ray] = ty
-                saved += 1
-            if (
-                checkpointed < checkpoint_count
-                and j == checkpoint_index[checkpointed]
-            ):
-                CX[checkpointed, ray] = x
-                CTX[checkpointed, ray] = tx
-                CY[checkpointed, ray] = y
-                CTY[checkpointed, ray] = ty
-                checkpointed += 1
-            if j >= step_count - 1:
-                continue
-
-            h = step_m[j]
-
-            kx0 = kx_axis[j]
-            ky0 = ky_axis[j]
-            kxm = 0.5 * (kx_axis[j] + kx_axis[j + 1])
-            kym = 0.5 * (ky_axis[j] + ky_axis[j + 1])
-            kx1 = kx_axis[j + 1]
-            ky1 = ky_axis[j + 1]
-            inverse_p = inverse_momentum[ray]
-            g0 = larmor_axis[j] * inverse_p
-            gm = 0.5 * (
-                larmor_axis[j] + larmor_axis[j + 1]
-            ) * inverse_p
-            g1 = larmor_axis[j + 1] * inverse_p
-            dg0 = larmor_gradient_axis[j] * inverse_p
-            dgm = 0.5 * (
-                larmor_gradient_axis[j] + larmor_gradient_axis[j + 1]
-            ) * inverse_p
-            dg1 = larmor_gradient_axis[j + 1] * inverse_p
-            hn0 = hex_normal[j]
-            hnm = 0.5 * (hex_normal[j] + hex_normal[j + 1])
-            hn1 = hex_normal[j + 1]
-            hs0 = hex_skew[j]
-            hsm = 0.5 * (hex_skew[j] + hex_skew[j + 1])
-            hs1 = hex_skew[j + 1]
-
-            ax1 = tx
-            ay1 = ty
-            hu = x * x - y * y
-            hv = 2.0 * x * y
-            ax2 = (
-                -es_alpha[j] * tx - (kx0 + es_beta[j]) * x
-                - hn0 * hu - hs0 * hv + 2.0 * g0 * ty + dg0 * y
-            )
-            ay2 = (
-                -es_alpha[j] * ty - (ky0 + es_beta[j]) * y
-                + hn0 * hv - hs0 * hu - 2.0 * g0 * tx - dg0 * x
-            )
-            bx = x + 0.5 * h * ax1
-            btx = tx + 0.5 * h * ax2
-            by = y + 0.5 * h * ay1
-            bty = ty + 0.5 * h * ay2
-            bx1 = btx
-            by1 = bty
-            bhu = bx * bx - by * by
-            bhv = 2.0 * bx * by
-            alpha_mid = 0.5 * (es_alpha[j] + es_alpha[j + 1])
-            beta_mid = 0.5 * (es_beta[j] + es_beta[j + 1])
-            bx2 = (
-                -alpha_mid * btx - (kxm + beta_mid) * bx
-                - hnm * bhu - hsm * bhv + 2.0 * gm * bty + dgm * by
-            )
-            by2 = (
-                -alpha_mid * bty - (kym + beta_mid) * by
-                + hnm * bhv - hsm * bhu - 2.0 * gm * btx - dgm * bx
-            )
-            cx = x + 0.5 * h * bx1
-            ctx = tx + 0.5 * h * bx2
-            cy = y + 0.5 * h * by1
-            cty = ty + 0.5 * h * by2
-            cx1 = ctx
-            cy1 = cty
-            chu = cx * cx - cy * cy
-            chv = 2.0 * cx * cy
-            cx2 = (
-                -alpha_mid * ctx - (kxm + beta_mid) * cx
-                - hnm * chu - hsm * chv + 2.0 * gm * cty + dgm * cy
-            )
-            cy2 = (
-                -alpha_mid * cty - (kym + beta_mid) * cy
-                + hnm * chv - hsm * chu - 2.0 * gm * ctx - dgm * cx
-            )
-            dx = x + h * cx1
-            dtx = tx + h * cx2
-            dy = y + h * cy1
-            dty = ty + h * cy2
-            dx1 = dtx
-            dy1 = dty
-            dhu = dx * dx - dy * dy
-            dhv = 2.0 * dx * dy
-            dx2 = (
-                -es_alpha[j + 1] * dtx - (kx1 + es_beta[j + 1]) * dx
-                - hn1 * dhu - hs1 * dhv + 2.0 * g1 * dty + dg1 * dy
-            )
-            dy2 = (
-                -es_alpha[j + 1] * dty - (ky1 + es_beta[j + 1]) * dy
-                + hn1 * dhv - hs1 * dhu - 2.0 * g1 * dtx - dg1 * dx
-            )
-            x += h * (ax1 + 2.0 * bx1 + 2.0 * cx1 + dx1) / 6.0
-            tx += h * (ax2 + 2.0 * bx2 + 2.0 * cx2 + dx2) / 6.0
-            y += h * (ay1 + 2.0 * by1 + 2.0 * cy1 + dy1) / 6.0
-            ty += h * (ay2 + 2.0 * by2 + 2.0 * cy2 + dy2) / 6.0
-else:
-    _cuda_rk4_kernel = None
-
-
-def _cuda_rk4(
-    kx_axis, ky_axis, hex_normal, hex_skew, larmor_axis,
-    larmor_gradient_axis, inverse_momentum, cs_kick,
-    thin_power, thin_rotation, step_m,
-    x0, tx0, y0, ty0, kickx, kicky, save_index, checkpoint_index,
-    es_alpha, es_beta,
-):
-    """Run the independent-ray RK4 integration on a CUDA device."""
-    if cuda is None or _cuda_rk4_kernel is None:
-        raise RuntimeError("Numba CUDA support is not importable")
-    device_inputs = [
-        cuda.to_device(value) for value in (
-            kx_axis, ky_axis, hex_normal, hex_skew, larmor_axis,
-            larmor_gradient_axis, inverse_momentum, cs_kick,
-            thin_power, thin_rotation, step_m,
-            x0, tx0, y0, ty0, kickx, kicky, save_index, checkpoint_index,
-            es_alpha, es_beta,
-        )
-    ]
-    output_shape = (save_index.size, x0.size)
-    device_outputs = [
-        cuda.device_array(output_shape, dtype=np.float32) for _ in range(4)
-    ]
-    checkpoint_shape = (checkpoint_index.size, x0.size)
-    device_outputs.extend(
-        cuda.device_array(checkpoint_shape, dtype=np.float64) for _ in range(4)
-    )
-    threads = 128
-    blocks = (x0.size + threads - 1) // threads
-    _cuda_rk4_kernel[blocks, threads](*device_inputs, *device_outputs)
-    cuda.synchronize()
-    return tuple(output.copy_to_host() for output in device_outputs)
-
-
 def _record_active_backend(state, backend, fallback_reason=None):
     """Accumulate backends without letting two-ray diagnostics hide CUDA."""
     used = getattr(state, "_active_backends_used", None)
@@ -753,6 +421,18 @@ def _piecewise_endpoint_exact_axial_grid(
     ])
     return grid, np.diff(grid)
 
+def interleaved_rk4_values(nodes, midpoints):
+    """Pack true endpoint/midpoint samples without interpolating fields."""
+    node_values = np.asarray(nodes, dtype=np.float64)
+    midpoint_values = np.asarray(midpoints, dtype=np.float64)
+    if midpoint_values.shape != (max(node_values.size - 1, 0),):
+        raise ValueError("RK4 stages require one midpoint per node interval")
+    result = np.empty(max(2 * node_values.size - 1, 0), dtype=np.float64)
+    result[::2] = node_values
+    result[1::2] = midpoint_values
+    return result
+
+
 def build_propagation_plan(
     state, z0, z1, events=(), *, include_spherical_aberration=True,
     include_hexapole=True, save_z_mm=(), checkpoint_z_mm=(),
@@ -760,17 +440,41 @@ def build_propagation_plan(
 ):
     """Build the single global axial plan used by full and resumed traces."""
 
+    events = tuple(events)
+    save_z_mm = tuple(save_z_mm)
+    nanopulser = getattr(state, "nanopulser", None)
+    if nanopulser is not None and bool(nanopulser.installed):
+        nanopulser.validate()
+        events += tuple(
+            event for event in nanopulser.kick_events(state.beam_voltage_kv)
+            if float(z0) <= float(event[0]) <= float(z1)
+        )
+        # Stop interception must use the exact aperture plane even when the
+        # GUI requests a coarse drawing-history interval. Keeping this in the
+        # common plan also covers direct-alignment and calibration traces.
+        if float(z0) <= float(nanopulser.stop_z_mm) <= float(z1):
+            save_z_mm += (float(nanopulser.stop_z_mm),)
     requested_step=float(state.step_mm)
     if maximum_step_mm is not None:
         requested_step=min(requested_step,float(maximum_step_mm))
     image_lens_events=equivalent_image_events(state,float(z0),float(z1))
     exact_z_mm = [event.z_mm for event in image_lens_events]
     exact_z_mm.extend(float(value) for value in save_z_mm)
+    # Impulsive actions must occur at their physical planes, independent of
+    # the requested integration step or an unrelated observation plane.
+    exact_z_mm.extend(float(event[0]) for event in events)
+    if include_spherical_aberration:
+        exact_z_mm.extend(
+            float(lens.z_mm) for lens in state.lenses
+            if bool(getattr(lens, 'enabled', True))
+            and spherical_aberration_mm(lens, state.beam_voltage_kv)
+        )
     zfull,step_mm=_piecewise_endpoint_exact_axial_grid(
         z0,z1,requested_step,
         exact_z_mm,
     )
     step_m=np.ascontiguousarray(step_mm*1e-3,np.float64)
+    midpoint_z_mm = 0.5 * (zfull[:-1] + zfull[1:])
     grid_start=float(zfull[0])
     had_equivalent_propagation_flag = hasattr(
         state, "_using_equivalent_image_propagation"
@@ -784,6 +488,9 @@ def build_propagation_plan(
     )
     try:
         magnetic,sx,sy=fields(zfull,state)
+        midpoint_magnetic, midpoint_sx, midpoint_sy = fields(
+            midpoint_z_mm, state
+        )
     finally:
         if had_equivalent_propagation_flag:
             state._using_equivalent_image_propagation = (
@@ -793,9 +500,14 @@ def build_propagation_plan(
             delattr(state, "_using_equivalent_image_propagation")
     if include_hexapole:
         hex_normal, hex_skew = hexapole_field_components(zfull, state)
+        midpoint_hex_normal, midpoint_hex_skew = hexapole_field_components(
+            midpoint_z_mm, state
+        )
     else:
         hex_normal = np.zeros(len(zfull), np.float64)
         hex_skew = np.zeros(len(zfull), np.float64)
+        midpoint_hex_normal = np.zeros(len(midpoint_z_mm), np.float64)
+        midpoint_hex_skew = np.zeros(len(midpoint_z_mm), np.float64)
     hex_normal=np.ascontiguousarray(hex_normal,np.float64)
     hex_skew=np.ascontiguousarray(hex_skew,np.float64)
     cs_kick=np.ascontiguousarray(
@@ -843,10 +555,13 @@ def build_propagation_plan(
         bool(getattr(state, "acceleration_enabled", False)),
         str(getattr(state, "acceleration_backend", "Auto")),
         FIELD_SIGMA_CUTOFF,
+        'canonical-rk4-exact-midpoints-v1',
     ))
     digest.update(solver_signature.encode("utf-8"))
     for values in (
         zfull, step_m, magnetic, sx, sy, hex_normal, hex_skew,
+        midpoint_magnetic, midpoint_sx, midpoint_sy,
+        midpoint_hex_normal, midpoint_hex_skew,
         cs_kick, thin_power, thin_rotation, kickx, kicky, save,
         checkpoint_indices,
     ):
@@ -861,6 +576,11 @@ def build_propagation_plan(
         sy_m2=_frozen_array(sy),
         hex_normal_m3=_frozen_array(hex_normal),
         hex_skew_m3=_frozen_array(hex_skew),
+        midpoint_magnetic_t=_frozen_array(midpoint_magnetic),
+        midpoint_sx_m2=_frozen_array(midpoint_sx),
+        midpoint_sy_m2=_frozen_array(midpoint_sy),
+        midpoint_hex_normal_m3=_frozen_array(midpoint_hex_normal),
+        midpoint_hex_skew_m3=_frozen_array(midpoint_hex_skew),
         cs_kick_m3=_frozen_array(cs_kick),
         thin_power_m1=_frozen_array(thin_power),
         thin_rotation_rad=_frozen_array(thin_rotation),
@@ -901,10 +621,19 @@ def propagation_plan_common_prefix_nodes(previous, current):
     equal = np.ones(count, dtype=bool)
     for old, new in arrays:
         equal &= np.asarray(old[:count]) == np.asarray(new[:count])
+    # Midpoint i belongs to the interval leaving node i.  A changed
+    # midpoint invalidates that interval even when its endpoint fields match.
+    for name in (
+        'midpoint_magnetic_t', 'midpoint_sx_m2', 'midpoint_sy_m2',
+        'midpoint_hex_normal_m3', 'midpoint_hex_skew_m3',
+    ):
+        old, new = getattr(previous, name), getattr(current, name)
+        interval_count = min(count, old.size, new.size)
+        equal[:interval_count] &= old[:interval_count] == new[:interval_count]
     changed = np.flatnonzero(~equal)
     if changed.size:
-        # Bz at node i affects the numerical derivative and the RK4 interval
-        # ending at i.  Keep a two-node safety halo before the first change.
+        # Preserve the preceding interval when an endpoint or its midpoint
+        # changes.  The extra node keeps existing checkpoint selection safe.
         return max(0, int(changed[0]) - 2)
     if old_z.size != new_z.size:
         return max(0, count - 2)
@@ -922,15 +651,16 @@ def execute_propagation_plan(
         raise ValueError("Propagation-plan start index is out of range")
     zfull = np.asarray(plan.z_mm[start_index:], dtype=np.float64)
     step_m = np.ascontiguousarray(plan.step_m[start_index:], np.float64)
-    magnetic = np.asarray(plan.magnetic_t[start_index:], dtype=np.float64)
-    sx = np.asarray(plan.sx_m2[start_index:], dtype=np.float64)
-    sy = np.asarray(plan.sy_m2[start_index:], dtype=np.float64)
-    hex_normal = np.ascontiguousarray(
-        plan.hex_normal_m3[start_index:], np.float64
-    )
-    hex_skew = np.ascontiguousarray(
-        plan.hex_skew_m3[start_index:], np.float64
-    )
+    def stages(node_name, midpoint_name):
+        nodes = np.asarray(getattr(plan, node_name)[start_index:])
+        midpoint = np.asarray(getattr(plan, midpoint_name)[start_index:])
+        return interleaved_rk4_values(nodes, midpoint)
+
+    magnetic = stages("magnetic_t", "midpoint_magnetic_t")
+    sx = stages("sx_m2", "midpoint_sx_m2")
+    sy = stages("sy_m2", "midpoint_sy_m2")
+    hex_normal = stages("hex_normal_m3", "midpoint_hex_normal_m3")
+    hex_skew = stages("hex_skew_m3", "midpoint_hex_skew_m3")
     cs_kick = np.array(plan.cs_kick_m3[start_index:], dtype=np.float64)
     thin_power = np.array(plan.thin_power_m1[start_index:], dtype=np.float64)
     thin_rotation = np.array(
@@ -954,111 +684,44 @@ def execute_propagation_plan(
         global_checkpoints[global_checkpoints >= start_index] - start_index,
         np.int64,
     )
-    gun_index=np.int64(-1);gun_focal_m=np.float64(-1.0)
-    es_alpha=np.zeros(len(zfull),np.float64)
-    es_beta=np.zeros(len(zfull),np.float64)
     backend, fallback_reason = choose_ray_backend(
         getattr(state, "acceleration_backend", "Auto"),
-        acceleration_enabled=bool(
-            getattr(state, "acceleration_enabled", False)
-        ),
+        acceleration_enabled=bool(getattr(state, "acceleration_enabled", False)),
         ray_count=arrays[0].size,
     )
-
-    def cpu_coefficients():
-        halo_start = max(0, start_index - 1)
-        coefficient_z = np.asarray(plan.z_mm[halo_start:], dtype=np.float64)
-        coefficient_magnetic = np.asarray(
-            plan.magnetic_t[halo_start:], dtype=np.float64
+    # Post-gun momentum is constant along Z, including with an energy spread.
+    # Keep this factor separate on every backend; no (Z, ray) coefficient
+    # matrices or finite-difference magnetic derivatives are necessary.
+    momentum_at_start = momentum_profile(state, zfull[:1], energy_offset_ev)
+    if momentum_at_start.ndim == 1:
+        inverse_momentum = np.full(
+            arrays[0].size, 1.0 / float(momentum_at_start[0]), dtype=np.float64
         )
-        momentum = momentum_profile(state, coefficient_z, energy_offset_ev)
-        if momentum.ndim == 1:
-            momentum = np.broadcast_to(
-                momentum[:, None], (len(coefficient_z), arrays[0].size)
-            )
-        larmor_g, larmor_gradient = larmor_coefficients_m1(
-            coefficient_magnetic, momentum, coefficient_z
+    else:
+        inverse_momentum = np.ascontiguousarray(
+            1.0 / momentum_at_start[0], dtype=np.float64
         )
-        offset = start_index - halo_start
-        larmor_g = np.ascontiguousarray(larmor_g[offset:], np.float64)
-        larmor_gradient = np.ascontiguousarray(
-            larmor_gradient[offset:], np.float64
-        )
-        coefficient_shape = larmor_g.shape
-        kx = np.ascontiguousarray(
-            np.broadcast_to(sx[:, None], coefficient_shape), np.float64
-        )
-        ky = np.ascontiguousarray(
-            np.broadcast_to(sy[:, None], coefficient_shape), np.float64
-        )
-        return kx, ky, larmor_g, larmor_gradient
-
+    larmor_axis = np.ascontiguousarray((-E) * magnetic / 2.0)
+    inputs = (
+        sx, sy, hex_normal, hex_skew, larmor_axis, inverse_momentum,
+        cs_kick, thin_power, thin_rotation, step_m, *arrays, kickx, kicky,
+        save, checkpoint_index,
+    )
     if backend == BACKEND_CUDA:
         try:
-            # Beyond the gun exit the accelerating potential is constant, so
-            # g(z, ray) = -e Bz(z) / (2 p(ray)) is exactly separable.  Keeping
-            # the axial factor and per-ray inverse momentum separate avoids
-            # allocating and transferring several enormous (Z, ray) arrays.
-            momentum_at_start = momentum_profile(
-                state, zfull[:1], energy_offset_ev
-            )
-            if momentum_at_start.ndim == 1:
-                inverse_momentum = np.full(
-                    arrays[0].size,
-                    1.0 / float(momentum_at_start[0]),
-                    dtype=np.float64,
-                )
-            else:
-                inverse_momentum = np.ascontiguousarray(
-                    1.0 / momentum_at_start[0], dtype=np.float64
-                )
-            halo_start = max(0, start_index - 1)
-            coefficient_z = np.asarray(plan.z_mm[halo_start:], dtype=float)
-            coefficient_magnetic = np.asarray(
-                plan.magnetic_t[halo_start:], dtype=float
-            )
-            full_larmor_axis = np.ascontiguousarray(
-                (-E) * coefficient_magnetic / 2.0, dtype=np.float64
-            )
-            z_m = coefficient_z * 1.0e-3
-            offset = start_index - halo_start
-            larmor_axis = np.ascontiguousarray(
-                full_larmor_axis[offset:], dtype=np.float64
-            )
-            larmor_gradient_axis = np.ascontiguousarray(
-                (
-                    np.gradient(full_larmor_axis, z_m, edge_order=1)[offset:]
-                    if len(z_m) >= 2 else np.zeros_like(larmor_axis)
-                ),
-                dtype=np.float64,
-            )
-            outputs=_cuda_rk4(
-                np.ascontiguousarray(sx, np.float64),
-                np.ascontiguousarray(sy, np.float64),
-                hex_normal,hex_skew,larmor_axis,larmor_gradient_axis,
-                inverse_momentum,cs_kick,thin_power,thin_rotation,
-                step_m,*arrays,kickx,kicky,
-                save,checkpoint_index,es_alpha,es_beta,
-            )
-            _record_active_backend(state, backend, fallback_reason)
+            outputs = _cuda_rk4(*inputs)
         except Exception as exc:
-            # CUDA is optional.  A driver/JIT/memory failure must not discard
-            # the user's calculation; continue with the best CPU backend.
             backend = BACKEND_NUMBA if NUMBA_AVAILABLE else BACKEND_CPU
-            _record_active_backend(state, backend, f"CUDA error: {exc}")
-            kx, ky, larmor_g, larmor_gradient = cpu_coefficients()
-            if backend == BACKEND_NUMBA:
-                outputs=_parallel_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,checkpoint_index,es_alpha,es_beta,gun_index,gun_focal_m)
-            else:
-                outputs=_vectorised_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,checkpoint_index,es_alpha,es_beta,gun_index,gun_focal_m)
+            fallback_reason = f"CUDA error: {exc}"
+            outputs = (
+                _parallel_rk4(*inputs) if backend == BACKEND_NUMBA
+                else _vectorised_rk4(*inputs)
+            )
     elif backend == BACKEND_NUMBA:
-        kx, ky, larmor_g, larmor_gradient = cpu_coefficients()
-        outputs=_parallel_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,checkpoint_index,es_alpha,es_beta,gun_index,gun_focal_m)
-        _record_active_backend(state, backend, fallback_reason)
+        outputs = _parallel_rk4(*inputs)
     else:
-        kx, ky, larmor_g, larmor_gradient = cpu_coefficients()
-        outputs=_vectorised_rk4(kx,ky,hex_normal,hex_skew,larmor_g,larmor_gradient,cs_kick,thin_power,thin_rotation,step_m,*arrays,kickx,kicky,save,checkpoint_index,es_alpha,es_beta,gun_index,gun_focal_m)
-        _record_active_backend(state, backend, fallback_reason)
+        outputs = _vectorised_rk4(*inputs)
+    _record_active_backend(state, backend, fallback_reason)
     X,TX,Y,TY,CX,CTX,CY,CTY=outputs
     checkpoints = PropagationCheckpoints(
         z_mm=_frozen_array(zfull[checkpoint_index]),

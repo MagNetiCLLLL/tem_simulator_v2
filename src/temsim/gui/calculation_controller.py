@@ -164,14 +164,15 @@ def estimate_calculation_memory_bytes(
         max(1, MAX_VECTORIZED_POST_RAYS // rays),
     )
     peak_post_rays = rays * vectorised_branches
-    # Momentum, Larmor rate/gradient, X/Y focusing and temporary ufunc output
-    # dominate integration. Nine float64 matrices is conservative across the
-    # CPU paths; post-specimen interaction branches use the same bounded
-    # vectorisation batch as the solver.
-    working = max(
-        pre_nodes * rays,
-        post_nodes * peak_post_rays,
-    ) * 8 * 9
+    # Canonical RK4 uses axial node/midpoint coefficients and separate per-ray
+    # momentum. No integration coefficient is a (Z, ray) matrix. Account for
+    # retained plans, packed stages, construction temporaries and a possible
+    # device copy, plus the NumPy fallback's temporary per-ray stage vectors.
+    # Conservative 64-vector allowances cover these two independent scales.
+    working = (
+        (pre_nodes + post_nodes) * 64
+        + max(rays, peak_post_rays) * 64
+    ) * 8
     # X/TX/Y/TY are retained as float32 histories for the incident bundle and
     # every post-specimen branch.
     history = (
@@ -191,6 +192,12 @@ def estimate_calculation_memory_bytes(
     checkpoint_peak = checkpoint_storage * (
         2 if gpu_checkpoint_copy else 1
     )
+    # CUDA keeps the active batch's device histories while copying its output
+    # to host. Already retained branches are counted once in `history` above.
+    history_device_copy = (
+        max(pre_history * rays, post_history * peak_post_rays) * 4 * 4
+        if gpu_checkpoint_copy else 0
+    )
     wave_imaging = (
         estimate_tem_wave_memory_bytes(state)
         if quality != "Preview"
@@ -199,6 +206,7 @@ def estimate_calculation_memory_bytes(
     return int(
         working
         + history
+        + history_device_copy
         + checkpoint_peak
         + wave_imaging
         + 512 * 1024**2

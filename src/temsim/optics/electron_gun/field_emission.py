@@ -92,6 +92,7 @@ _TOML_GEOMETRY_ATTRIBUTES = frozenset((
     "coil_length_mm",
     "effective_length_mm",
     "active_length_mm",
+    "blanking_field_y_mt",
 ))
 
 
@@ -180,6 +181,7 @@ def _create_deflector():
         upper_center_from_tip_mm=centers[0],
         lower_center_from_tip_mm=centers[1],
         coil_length_mm=float(part["active_length_mm"]),
+        blanking_field_y_mt=float(part.get("blanking_field_y_mt", 50.0)),
     )
 
 
@@ -252,6 +254,7 @@ def _apply_part_geometry(component, module_path):
         component.upper_center_from_tip_mm = centers[0]
         component.lower_center_from_tip_mm = centers[1]
         component.coil_length_mm = float(part["active_length_mm"])
+        component.blanking_field_y_mt = float(part.get("blanking_field_y_mt", 50.0))
     elif isinstance(component, GunStigmator):
         component.effective_length_mm = float(part["active_length_mm"])
     elif component.key == FEG_MONOCHROMATOR_WIEN:
@@ -327,6 +330,7 @@ def _apply_resolved_part_geometry(component, part):
         component.upper_center_from_tip_mm = centers[0]
         component.lower_center_from_tip_mm = centers[1]
         component.coil_length_mm = float(data["active_length_mm"])
+        component.blanking_field_y_mt = float(data.get("blanking_field_y_mt", 50.0))
     elif isinstance(component, GunStigmator):
         component.effective_length_mm = float(data["active_length_mm"])
     elif component.key == FEG_MONOCHROMATOR_WIEN:
@@ -632,6 +636,9 @@ class FieldEmissionGun:
     def _cache_key(self, count):
         payload = self.to_dict()
         payload["requested_count"] = count
+        # This field is TOML-owned and deliberately omitted from profiles,
+        # but changing its calibration must invalidate cached gun trajectories.
+        payload["blanking_field_y_mt"] = float(self.deflector.blanking_field_y_mt)
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
     def trace_to_exit(self, count=None):

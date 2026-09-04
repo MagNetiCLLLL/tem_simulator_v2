@@ -26,6 +26,8 @@ class TransverseBeamStatistics:
     radial_position_angle_covariance_m_rad: float
     radial_wavefront_curvature_per_m: float
     waist_offset_m: float
+    twofold_moment: float = 0.0
+    threefold_moment: float = 0.0
 
     @property
     def illumination_diameter_95_um(self) -> float:
@@ -147,6 +149,34 @@ def transverse_beam_statistics(
     # Linear free-space extrapolation: d<r^2>/dz = 2<r.theta>.
     waist_offset = -covariance / max(angle_squared, 1.0e-30)
 
+    # Centered complex moments detect different angular symmetries. In
+    # particular, an equilateral three-lobed spot has an isotropic covariance
+    # (zero twofold moment), while its threefold moment can approach one.
+    # Normalize the coordinates first to avoid underflow for very small probes.
+    # These bounded shape measures are not fitted A1/A2 aberration coefficients.
+    positive_current = selected_weights > 0.0
+    shape_weights = selected_weights[positive_current]
+    radial_scale = float(np.max(radius[positive_current]))
+    if radial_scale > 0.0:
+        normalized = (
+            centred_x[positive_current] + 1j * centred_y[positive_current]
+        ) / radial_scale
+        normalized_radius = radius[positive_current] / radial_scale
+
+        def shape_moment(order: int) -> float:
+            denominator = float(np.sum(shape_weights * normalized_radius**order))
+            if denominator <= 0.0:
+                return 0.0
+            return float(np.clip(
+                abs(np.sum(shape_weights * normalized**order)) / denominator,
+                0.0, 1.0,
+            ))
+
+        twofold_moment = shape_moment(2)
+        threefold_moment = shape_moment(3)
+    else:
+        twofold_moment = threefold_moment = 0.0
+
     return TransverseBeamStatistics(
         surviving_rays=int(np.count_nonzero(mask)),
         surviving_fraction=surviving_weight / source_weight,
@@ -168,6 +198,8 @@ def transverse_beam_statistics(
         radial_position_angle_covariance_m_rad=covariance,
         radial_wavefront_curvature_per_m=curvature,
         waist_offset_m=waist_offset,
+        twofold_moment=twofold_moment,
+        threefold_moment=threefold_moment,
     )
 
 

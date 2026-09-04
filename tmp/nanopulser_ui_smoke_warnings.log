@@ -1,0 +1,32 @@
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:62: RuntimeWarning: overflow encountered in multiply
+  hu, hv = dx * dx - dy * dy, 2.0 * dx * dy
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:62: RuntimeWarning: invalid value encountered in subtract
+  hu, hv = dx * dx - dy * dy, 2.0 * dx * dy
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:63: RuntimeWarning: invalid value encountered in multiply
+  dpx1 = -(kx1 + g1 * g1) * dx + g1 * dpy - hn1 * hu - hs1 * hv
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:41: RuntimeWarning: overflow encountered in multiply
+  hu, hv = x * x - y * y, 2.0 * x * y
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:41: RuntimeWarning: invalid value encountered in subtract
+  hu, hv = x * x - y * y, 2.0 * x * y
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:42: RuntimeWarning: invalid value encountered in multiply
+  apx = -(kx0 + g0 * g0) * x + g0 * py - hn0 * hu - hs0 * hv
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:43: RuntimeWarning: overflow encountered in multiply
+  apy = -(ky0 + g0 * g0) * y - g0 * px + hn0 * hv - hs0 * hu
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:48: RuntimeWarning: overflow encountered in multiply
+  hu, hv = bx * bx - by * by, 2.0 * bx * by
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:48: RuntimeWarning: invalid value encountered in subtract
+  hu, hv = bx * bx - by * by, 2.0 * bx * by
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:49: RuntimeWarning: overflow encountered in multiply
+  bpx1 = -(kxm + gm * gm) * bx + gm * bpy - hnm * hu - hsm * hv
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:49: RuntimeWarning: invalid value encountered in multiply
+  bpx1 = -(kxm + gm * gm) * bx + gm * bpy - hnm * hu - hsm * hv
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:50: RuntimeWarning: overflow encountered in multiply
+  bpy1 = -(kym + gm * gm) * by - gm * bpx + hnm * hv - hsm * hu
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:55: RuntimeWarning: overflow encountered in multiply
+  hu, hv = cx * cx - cy * cy, 2.0 * cx * cy
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:55: RuntimeWarning: invalid value encountered in subtract
+  hu, hv = cx * cx - cy * cy, 2.0 * cx * cy
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:56: RuntimeWarning: invalid value encountered in multiply
+  cpx1 = -(kxm + gm * gm) * cx + gm * cpy - hnm * hu - hsm * hv
+E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:57: RuntimeWarning: invalid value encountered in add
+  cpy1 = -(kym + gm * gm) * cy - gm * cpx + hnm * hv - hsm * hu

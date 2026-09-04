@@ -128,10 +128,11 @@ class ManifestEditor:
             str(entry["file"])
             for group in (
                 "gun_variants",
+                "beam_blanker_variants",
                 "column_variants",
                 "project_and_recording_system_variants",
             )
-            for entry in catalog[group]
+            for entry in catalog.get(group, ())
         }
         part_count = 0
         logical_part_keys = set()
@@ -176,20 +177,26 @@ class ManifestEditor:
                         )),
                         energy_filter_selected=bool(recording["energy_filter"]),
                     )
-                    assembly = resolve_module_assembly(
-                        configuration, root=self.root
+                    blanker_states = (
+                        (False, True)
+                        if catalog.get("beam_blanker_variants") else (False,)
                     )
-                    authorities = assembly.part_authorities
-                    if len(authorities) != len(assembly.parts):
-                        raise ValueError(
-                            "Resolved assembly has duplicate active part keys"
+                    for installed in blanker_states:
+                        configuration.nanopulser_installed = installed
+                        assembly = resolve_module_assembly(
+                            configuration, root=self.root
                         )
-                    if len(set(authorities.values())) != len(assembly.parts):
-                        raise ValueError(
-                            "Resolved assembly reuses one TOML part definition"
-                        )
-                    resolved_part_authority_count += len(assembly.parts)
-                    assembly_count += 1
+                        authorities = assembly.part_authorities
+                        if len(authorities) != len(assembly.parts):
+                            raise ValueError(
+                                "Resolved assembly has duplicate active part keys"
+                            )
+                        if len(set(authorities.values())) != len(assembly.parts):
+                            raise ValueError(
+                                "Resolved assembly reuses one TOML part definition"
+                            )
+                        resolved_part_authority_count += len(assembly.parts)
+                        assembly_count += 1
         return CatalogAudit(
             module_count=len(module_paths),
             part_definition_count=part_count,

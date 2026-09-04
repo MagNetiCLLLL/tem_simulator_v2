@@ -32,6 +32,10 @@ class GunDeflector:
     enabled: bool = True
     colour: str = "#ab47bc"
     field_center_offset_mm: float = 0.0
+    beam_blanked: bool = False
+    # Existing-coil engineering drive, configured by the selected gun TOML;
+    # this is a field amplitude, not a manufacturer's coil current.
+    blanking_field_y_mt: float = 50.0
 
     def __post_init__(self):
         object.__setattr__(self, "_position_coupling_ready", True)
@@ -75,11 +79,11 @@ class GunDeflector:
     def field_at_global_positions_t(self, positions_m):
         positions = np.asarray(positions_m, dtype=float)
         result = np.zeros_like(positions)
-        if not self.enabled:
+        if not self.enabled and not self.beam_blanked:
             return result
         z_mm = positions[..., 2] * 1000.0
         half = 0.5 * self.coil_length_mm
-        for center, field_x, field_y in (
+        coil_fields = (
             (
                 self.upper_center_from_tip_mm,
                 self.upper_field_x_mt,
@@ -90,7 +94,15 @@ class GunDeflector:
                 self.lower_field_x_mt,
                 self.lower_field_y_mt,
             ),
-        ):
+        )
+        if self.beam_blanked:
+            # The dedicated blanking drive replaces the gun-tilt command
+            # temporarily. Stored alignment fields are never overwritten, so
+            # opening the beam restores them exactly, including disabled tilt.
+            coil_fields = ((
+                self.upper_center_from_tip_mm, 0.0, self.blanking_field_y_mt,
+            ),)
+        for center, field_x, field_y in coil_fields:
             center += self.field_center_offset_mm
             envelope = _soft_window_with_derivatives(
                 z_mm, center - half, center + half, self.soft_edge_mm
@@ -100,6 +112,10 @@ class GunDeflector:
         return result
 
     def validate(self):
+        if not isinstance(self.beam_blanked, bool):
+            raise ValueError("Gun beam-blanked state must be Boolean.")
+        if not math.isfinite(float(self.blanking_field_y_mt)) or self.blanking_field_y_mt == 0.0:
+            raise ValueError("Gun blanking field must be finite and nonzero.")
         if self.mechanical_length_mm <= 0.0:
             raise ValueError("Gun deflector body length must be positive.")
         if self.mechanical_outer_diameter_mm <= 0.0:

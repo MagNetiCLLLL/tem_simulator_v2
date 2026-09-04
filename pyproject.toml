@@ -52,6 +52,7 @@ where = ["src"]
 "configs/instruments" = ["configs/instruments/catalog.toml"]
 "configs/instruments/column" = ["configs/instruments/column/*.toml"]
 "configs/instruments/gun" = ["configs/instruments/gun/*.toml"]
+"configs/instruments/beam_blanker" = ["configs/instruments/beam_blanker/*.toml"]
 "configs/instruments/project_and_recording_system" = [
     "configs/instruments/project_and_recording_system/*.toml",
 ]

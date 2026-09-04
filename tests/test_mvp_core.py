@@ -177,9 +177,9 @@ def test_every_active_part_has_a_confirmed_assembly_anchor():
 def test_complete_catalog_and_every_assembly_combination_validate():
     audit = ManifestEditor().validate_catalog()
 
-    assert audit.module_count == 10
-    assert audit.part_definition_count == 480
-    assert audit.assembly_count == 15
+    assert audit.module_count == 11
+    assert audit.part_definition_count == 482
+    assert audit.assembly_count == 30
 
 
 def test_all_apertures_declare_photo_informed_pt_strip_and_single_rod():
@@ -917,7 +917,7 @@ def test_operating_mode_storage_tracks_calculated_and_retained_values():
         "retained_not_recomputed_"
     )
     assert by_key["nano_probe"].calibration_status.startswith(
-        "retained_not_recomputed_"
+        "computed_300kv_non_oem_source_probe_corrector"
     )
     assert "non_oem" in by_key["diffraction"].calibration_status
     assert by_key["micro_probe"].targets[

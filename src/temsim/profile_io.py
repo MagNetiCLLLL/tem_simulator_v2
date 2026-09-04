@@ -65,6 +65,7 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
             "gun": selection.gun,
             "column": selection.column,
             "recording": selection.recording,
+            "beam_blanker": selection.beam_blanker,
         },
         "devices": devices,
         "sample_model": {
@@ -102,6 +103,7 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
         gun=str(assembly["gun"]),
         column=str(assembly["column"]),
         recording=str(assembly["recording"]),
+        beam_blanker=str(assembly.get("beam_blanker", "None")),
     )
     devices = document.get("devices", {})
     if not isinstance(devices, dict):

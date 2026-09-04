@@ -15,6 +15,7 @@ from temsim.physics.simulation import Simulation, run
 from temsim.physics.beam_current import (
     column_current_limit_percent,
     effective_source_current_pa,
+    sample_illumination_absent,
 )
 from temsim.physics.scan_geometry import (
     ScanGeometryResult,
@@ -68,6 +69,9 @@ def aperture_stop_records(state) -> tuple[dict[str, object], ...]:
         if getattr(gun, name, None) is not None
     ]
     apertures.extend(state.apertures)
+    nanopulser = getattr(state, "nanopulser", None)
+    if nanopulser is not None and bool(nanopulser.installed):
+        apertures.append(nanopulser.aperture)
     seen = set()
     for aperture in apertures:
         if aperture.key in seen:
@@ -387,13 +391,21 @@ def calculate(
             reused_products.add("incident")
         advance_stage()
 
+    no_illumination = sample_illumination_absent(simulation, state)
+    if no_illumination:
+        simulation = replace(simulation, metrics={
+            **simulation.metrics,
+            "sample_illumination_status": "no incident current",
+            "sample_surviving_current_pa": 0.0,
+            "specimen_products_status": "No electrons illuminate the specimen",
+        })
     keep_observables: set[SpecimenObservable] = set()
     previous_interactions = (
         existing_result.specimen_interactions
         if existing_result is not None
         else None
     )
-    if previous_interactions is not None and incident_reused:
+    if previous_interactions is not None and incident_reused and not no_illumination:
         if wave_reused or wave_source_reused:
             keep_observables.add(SpecimenObservable.COHERENT_ELASTIC_WAVE)
         if "elastic" in reusable:
@@ -403,11 +415,11 @@ def calculate(
         if previous_interactions.inelastic_distribution is not None:
             keep_observables.add(SpecimenObservable.STOCHASTIC_INELASTIC)
     specimen_interactions = retain_specimen_observables(
-        previous_interactions,
+        previous_interactions if not no_illumination else None,
         frozenset(keep_observables),
     )
 
-    if tem_wave_requested:
+    if tem_wave_requested and not no_illumination:
         if wave_reused:
             wave_imaging = existing_result.wave_imaging
             reused_products.add("wave")
@@ -438,6 +450,8 @@ def calculate(
             advance_stage()
     else:
         wave_imaging = None
+        if tem_wave_requested and not wave_reused:
+            advance_stage()
         if specimen_interactions is not None:
             specimen_interactions = retain_specimen_observables(
                 specimen_interactions,
@@ -447,7 +461,7 @@ def calculate(
                 ),
             )
 
-    if geometric_specimen_transport_requested:
+    if geometric_specimen_transport_requested and not no_illumination:
         if elastic_reused:
             reused_products.add("elastic")
         else:
@@ -460,7 +474,9 @@ def calculate(
             )
             calculated_products.add("elastic")
             advance_stage()
-    if eds_point_requested:
+    elif geometric_specimen_transport_requested and not elastic_reused:
+        advance_stage()
+    if eds_point_requested and not no_illumination:
         if eds_reused:
             reused_products.add("eds")
         else:
@@ -488,12 +504,15 @@ def calculate(
                 reused_products.add("elastic")
             elif not geometric_specimen_transport_requested:
                 calculated_products.add("elastic")
-    specimen_interactions = run_specimen_interactions(
-        state,
-        simulation,
-        SpecimenInteractionRequest(),
-        existing_result=specimen_interactions,
-    )
+    elif eds_point_requested and not eds_reused:
+        advance_stage()
+    if not no_illumination:
+        specimen_interactions = run_specimen_interactions(
+            state,
+            simulation,
+            SpecimenInteractionRequest(),
+            existing_result=specimen_interactions,
+        )
 
     if energy_filter_reused:
         energy_filter = existing_result.energy_filter
@@ -535,9 +554,10 @@ def calculate(
     else:
         stem_scan = None
     sample_region = (
-        existing_result.sample_region if sample_region_reused else None
+        existing_result.sample_region
+        if sample_region_reused and not no_illumination else None
     )
-    if sample_region_reused:
+    if sample_region_reused and not no_illumination:
         reused_products.add("sample_region")
 
     state.energy_filter_result = energy_filter

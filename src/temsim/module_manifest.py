@@ -9,7 +9,11 @@ import re
 import tempfile
 import tomllib
 
-from temsim.component_keys import PROJECTION_CHAMBER_DPA_APERTURE
+from temsim.component_keys import (
+    NANOPULSER_APERTURE,
+    NANOPULSER_DEFLECTOR,
+    PROJECTION_CHAMBER_DPA_APERTURE,
+)
 from temsim.detector.eds_geometry import (
     EDS_DETECTOR_DEFINITION_FIELD,
     EDS_DETECTOR_DEFINITION_FIELDS,
@@ -695,6 +699,8 @@ def validate_document(document):
     _validate_accelerator_stack_metadata(parts)
     if document.get("module", {}).get("type") == "gun":
         _validate_gun_mechanical_relationships(parts)
+    if document.get("module", {}).get("type") == "beam_blanker":
+        _validate_nanopulser_module(document)
     if document.get("module", {}).get("type") == "column":
         _validate_column_order(parts)
         _validate_objective_assembly(parts)
@@ -731,6 +737,63 @@ def validate_document(document):
             f"length_mm={length}, port_span={exit_z - entrance}"
         )
     return document
+
+
+def _validate_nanopulser_module(document):
+    """Keep the provisional deflector/stop assembly physically consistent."""
+
+    module = document["module"]
+    if module.get("geometry_status") != "engineering_reconstruction_not_oem":
+        raise ValueError("NanoPulser dimensions must retain their non-OEM status")
+    for field in (
+        "geometry_source", "public_topology_source", "public_topology_source_url",
+    ):
+        if not str(module.get(field, "")).strip():
+            raise ValueError(f"NanoPulser is missing {field}")
+    entrance = float(document["ports"]["entrance"]["local_z_mm"])
+    exit_z = float(document["ports"]["exit"]["local_z_mm"])
+    if not math.isfinite(entrance) or not math.isfinite(exit_z) or exit_z <= entrance:
+        raise ValueError("NanoPulser module must have positive finite length")
+    if any(
+        document["ports"][port]["interface"] != "gun_to_column"
+        for port in ("entrance", "exit")
+    ):
+        raise ValueError("NanoPulser must connect the gun-to-column interface")
+    parts = sorted(document["parts"], key=lambda part: part["order"])
+    if tuple(part["key"] for part in parts) != (
+        NANOPULSER_DEFLECTOR, NANOPULSER_APERTURE,
+    ):
+        raise ValueError("NanoPulser requires one deflector followed by one aperture")
+    deflector, aperture = parts
+    for part in parts:
+        if not entrance <= part["local_start_z_mm"] <= part["local_end_z_mm"] <= exit_z:
+            raise ValueError("NanoPulser parts must remain inside the module")
+    if deflector["local_end_z_mm"] >= aperture["local_start_z_mm"]:
+        raise ValueError("NanoPulser aperture must be downstream of the deflector")
+    for part, names in (
+        (deflector, (
+            "plate_length_mm", "plate_gap_mm",
+            "mechanical_outer_diameter_mm", "mechanical_clear_bore_diameter_mm",
+        )),
+        (aperture, (
+            "aperture_radius_mm", "plate_thickness_mm", "mechanical_outer_diameter_mm",
+        )),
+    ):
+        for field in names:
+            value = float(part[field])
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"NanoPulser {field} must be finite and positive")
+    if float(deflector["plate_length_mm"]) > float(deflector["length_mm"]):
+        raise ValueError("NanoPulser plates must fit inside their envelope")
+    if float(deflector["mechanical_clear_bore_diameter_mm"]) >= float(
+        deflector["mechanical_outer_diameter_mm"]
+    ):
+        raise ValueError("NanoPulser bore must fit inside its body")
+    radius = float(aperture["aperture_radius_mm"])
+    if 2.0 * radius > float(aperture["vacuum_inner_diameter_mm"]):
+        raise ValueError("NanoPulser aperture must fit inside its vacuum bore")
+    if not math.isclose(2.0 * radius, float(aperture["bore_diameter_mm"])):
+        raise ValueError("NanoPulser aperture radius and bore diameter disagree")
 
 
 def part_requires_field_polarity(part):

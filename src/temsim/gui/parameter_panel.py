@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from temsim.gui.input_policy import (
+    WheelSafeComboBox as QComboBox,
+    WheelSafeDoubleSpinBox as QDoubleSpinBox,
+    WheelSafeSpinBox as QSpinBox,
+)
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QLabel,
@@ -14,7 +18,6 @@ from PySide6.QtWidgets import (
     QLayout,
     QPushButton,
     QScrollArea,
-    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -157,7 +160,11 @@ class ParameterPanel(QWidget):
         self.energy_filter_bias.setDecimals(3)
         self.energy_filter_bias.setSuffix(" eV")
         self.energy_filter_alignment = QCheckBox("Use 2-D alignment area")
-        self.energy_filter_shutter = QCheckBox("Fast shutter open")
+        self.energy_filter_shutter = QCheckBox("Zebra detector shutter open")
+        self.energy_filter_shutter.setToolTip(
+            "Shutter in the EELS detector branch. Controls detector exposure; "
+            "sample illumination is controlled by the pre-specimen blankers."
+        )
         self.energy_filter_status = QLabel()
         self.energy_filter_status.setWordWrap(True)
         self.energy_filter_status.setStyleSheet(
@@ -439,6 +446,14 @@ class ParameterPanel(QWidget):
         obj = getattr(target, "obj", None)
         if obj is None:
             return ()
+        if getattr(target, "key", None) == "nanopulser_deflector":
+            return (
+                ("blanked", "NanoPulser blanked (static)", 1.0, ""),
+                ("voltage_v", "Plate voltage difference", 1.0, " V"),
+                ("azimuth_deg", "Deflection azimuth", 1.0, "°"),
+            )
+        if hasattr(obj, "beam_blanked") and hasattr(obj, "upper_field_x_mt"):
+            return (("beam_blanked", "Blank beam", 1.0, ""),)
         if getattr(target, "key", None) == ENERGY_FILTER_SLIT:
             return (
                 ("inserted", "Inserted", 1.0, ""),
@@ -573,6 +588,11 @@ class ParameterPanel(QWidget):
                     )
                 )
             widget.setObjectName(f"quick_{name}")
+            if name == "beam_blanked":
+                widget.setToolTip(
+                    "Blank the beam using these gun tilt coils. "
+                    "Uncheck to restore the saved gun alignment."
+                )
             self.quick_form.addRow(label, widget)
             self._quick_widgets[name] = widget
         self.quick_box.setVisible(bool(self._quick_widgets))

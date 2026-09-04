@@ -1,0 +1,34 @@
+...............s..................................................s..... [ 12%]
+...........sss.......................................................... [ 25%]
+........................................................................ [ 38%]
+........................................................................ [ 51%]
+.................s...................................................... [ 64%]
+........................................................................ [ 77%]
+........................................................................ [ 90%]
+..sss.............................ss..................s                  [100%]
+============================== warnings summary ===============================
+tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[Thermionic]
+  E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:152: RuntimeWarning: overflow encountered in cast
+    X[saved], TX[saved], Y[saved], TY[saved] = x, tx, y, ty
+
+tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[Thermionic]
+  E:\tem_simulator_v2\src\temsim\physics\recording_clipping.py:44: RuntimeWarning: invalid value encountered in subtract
+    xx=(x[lo]+f*(x[hi]-x[lo]))*1e3;yy=(y[lo]+f*(y[hi]-y[lo]))*1e3
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================ slowest 12 durations =============================
+25.83s call     tests/test_direct_alignment.py::test_fixed_lens_aperture_scaling_matches_recalculated_toml_metrics
+25.02s call     tests/test_direct_alignment.py::test_nanoprobe_range_commits_only_the_c2_c3_solution[240.0-60.0]
+23.32s call     tests/test_diagnostics.py::test_all_catalog_assemblies_produce_layout_and_field_diagnostics
+20.34s call     tests/test_direct_alignment.py::test_microprobe_diffraction_camera_length_endpoints_commit[0.005]
+19.52s call     tests/test_mvp_core.py::test_every_lens_and_preset_uses_at_most_one_hundred_percent
+18.64s call     tests/test_direct_alignment.py::test_canonical_transfer_keeps_validation_step_with_stigmator_enabled
+16.26s call     tests/test_toml_authority.py::test_all_catalog_assemblies_apply_one_authority_per_runtime_part
+15.52s call     tests/test_direct_alignment.py::test_canonical_diffraction_basis_removes_objective_field_position_term
+12.35s call     tests/test_direct_alignment.py::test_condenser_production_validation_uses_kicks_and_aperture_planes
+10.41s call     tests/test_gui_shell.py::test_ray_plot_marks_every_component_centre_and_detected_crossover
+9.69s call     tests/test_direct_alignment.py::test_microprobe_diffraction_camera_length_endpoints_commit[2.5]
+9.42s call     tests/test_aberration_model.py::test_intrinsic_round_lens_profile_distinguishes_explicit_and_estimated
+547 passed, 12 skipped, 2 warnings in 708.11s (0:11:48)
+E:\tem_simulator_v2\.venv\Lib\site-packages\pyqtgraph\graphicsItems\ViewBox\ViewBox.py:1818: RuntimeWarning: Failed to disconnect (NoneType) from signal "destroyed()".
+  k.destroyed.disconnect()

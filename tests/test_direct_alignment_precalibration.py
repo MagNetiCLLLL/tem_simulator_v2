@@ -78,7 +78,7 @@ def test_nanoprobe_seed_requires_the_calibrated_aperture_path():
     upper = np.full(2, 100.0)
 
     matched = interpolated_nanoprobe_seed(
-        definition, 33.0, 110.0, lower, upper
+        definition, 33.0, 132.0, lower, upper
     )
     mismatched = interpolated_nanoprobe_seed(
         definition, 33.0, 100.0, lower, upper

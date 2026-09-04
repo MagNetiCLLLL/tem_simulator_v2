@@ -24,6 +24,7 @@ class AssemblySelection:
     gun: str
     column: str
     recording: str
+    beam_blanker: str = "None"
 
 
 class AssemblyCatalog:
@@ -34,6 +35,10 @@ class AssemblyCatalog:
         self._validate_document(document)
         self.guns = self._options(document["gun_variants"])
         self.columns = self._options(document["column_variants"])
+        self.beam_blankers = (
+            AssemblyOption("None", "", {"installed": False}),
+            *self._options(document.get("beam_blanker_variants", ())),
+        )
         self._recording_system_modules = self._options(
             document["project_and_recording_system_variants"]
         )
@@ -49,13 +54,20 @@ class AssemblyCatalog:
         if document.get("coordinate_system") != "module_local_z_mm":
             raise ValueError("Invalid instrument-catalog coordinate system")
 
-        expected = (
+        required = (
             ("gun", "gun_variants"),
             ("column", "column_variants"),
             (
                 "project_and_recording_system",
                 "project_and_recording_system_variants",
             ),
+        )
+        has_blanker = bool(document.get("beam_blanker_variants"))
+        expected = (
+            required[:1]
+            + (("beam_blanker", "beam_blanker_variants"),)
+            + required[1:]
+            if has_blanker else required
         )
         order = tuple(document.get("assembly", {}).get("order", ()))
         expected_order = tuple(module_type for module_type, _ in expected)
@@ -72,6 +84,14 @@ class AssemblyCatalog:
             if not entries:
                 raise ValueError(f"Instrument catalog has no {group}")
             names = [str(entry["name"]) for entry in entries]
+            if module_type == "beam_blanker":
+                if "None" in names or any(
+                    entry.get("installed") is not True for entry in entries
+                ):
+                    raise ValueError(
+                        "Beam-blanker catalog entries must describe installed "
+                        "modules; None is the implicit absent selection"
+                    )
             files = [Path(str(entry["file"])).as_posix() for entry in entries]
             signatures = [
                 tuple(sorted(
@@ -187,27 +207,38 @@ class AssemblyCatalog:
         # Accept known legacy selections so saved profiles migrate cleanly,
         # while retaining strict validation for malformed/unknown names.
         self._by_name(self._recording_system_modules, selection.recording)
+        self._by_name(self.beam_blankers, selection.beam_blanker)
         return AssemblySelection(
             gun=selection.gun,
             column=selection.column,
             recording=self.recording_systems[0].name,
+            beam_blanker=selection.beam_blanker,
         )
 
     def selected_paths(self, selection: AssemblySelection) -> dict[str, str]:
         selection = self.normalise_selection(selection)
-        return {
+        paths = {
             "gun": self._by_name(self.guns, selection.gun).file,
+        }
+        if selection.beam_blanker != "None":
+            paths["beam_blanker"] = self._by_name(
+                self.beam_blankers, selection.beam_blanker
+            ).file
+        paths.update({
             "column": self._by_name(self.columns, selection.column).file,
             "project_and_recording_system": self._by_name(
                 self.recording_systems, selection.recording
             ).file,
-        }
+        })
+        return paths
 
     def apply(self, state, selection: AssemblySelection):
         selection = self.normalise_selection(selection)
         gun = self._by_name(self.guns, selection.gun)
         column = self._by_name(self.columns, selection.column)
         recording = self._by_name(self.recording_systems, selection.recording)
+        from temsim.optics.nanopulser import ensure_nanopulser
+        ensure_nanopulser(state).installed = selection.beam_blanker != "None"
 
         gun_type = (
             "thermionic"

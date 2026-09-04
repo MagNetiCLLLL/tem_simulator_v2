@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from temsim.gui.input_policy import (
+    install_numeric_input_policy,
+    WheelSafeDoubleSpinBox as QDoubleSpinBox,
+    WheelSafeComboBox as QComboBox,
+    WheelSafeSpinBox as QSpinBox,
+)
+
 from pathlib import Path
 from dataclasses import replace
 
@@ -9,8 +16,6 @@ from PySide6.QtCore import QByteArray, QSettings, Qt, QTimer
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QDockWidget,
-    QDoubleSpinBox,
-    QComboBox,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -19,7 +24,6 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSplitter,
-    QSpinBox,
     QToolBar,
     QWidget,
 )
@@ -39,6 +43,7 @@ from temsim.gui.calculation_controller import (
 from temsim.gui.direct_alignment_controller import (
     DirectAlignmentController,
 )
+from temsim.gui.operating_preset_controller import OperatingPresetController
 from temsim.gui.parameter_panel import ParameterPanel
 from temsim.gui.instrument_tree import TreeSelection
 from temsim.gui.visualization import VisualizationWorkspace
@@ -71,6 +76,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        install_numeric_input_policy()
         self.setObjectName("mainWindow")
         self.setWindowTitle("TEM Simulator v2")
         self.resize(1500, 920)
@@ -132,6 +138,8 @@ class MainWindow(QMainWindow):
 
         self.calculations = CalculationController(self)
         self.direct_alignments = DirectAlignmentController(self)
+        self.operating_presets = OperatingPresetController(self)
+        self._preset_state_token: str | None = None
         self._direct_alignment_state_token: str | None = None
         self._progress_owners: set[str] = set()
         self.preview_timer = QTimer(self)
@@ -198,6 +206,9 @@ class MainWindow(QMainWindow):
         self.direct_alignments.finished.connect(
             self._direct_alignment_finished
         )
+        self.operating_presets.result_ready.connect(self._operating_preset_ready)
+        self.operating_presets.failed.connect(self._operating_preset_failed)
+        self.operating_presets.finished.connect(self._operating_preset_finished)
 
         self._create_actions()
         self._create_toolbar()
@@ -620,6 +631,14 @@ class MainWindow(QMainWindow):
         self._invalidate_direct_alignment()
         try:
             selection = self.catalog.normalise_selection(selection)
+            if selection.beam_blanker != "None":
+                condenser_key, projector_key = self._state_operating_mode_keys(
+                    self.state
+                )
+                self._start_operating_preset(
+                    selection, condenser_key, projector_key, load_assembly=True
+                )
+                return
             candidate_state = type(self.state).from_dict(self.state.to_dict())
             candidate_assembly = self.catalog.apply(candidate_state, selection)
             self._apply_state_operating_modes(candidate_state, selection)
@@ -640,6 +659,11 @@ class MainWindow(QMainWindow):
     ) -> None:
         self._invalidate_direct_alignment()
         try:
+            if self.state.nanopulser.installed:
+                self._start_operating_preset(
+                    self.selection, condenser_key, projector_key
+                )
+                return
             result = apply_operating_mode_pair(
                 self.state,
                 condenser_key,
@@ -666,9 +690,72 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._show_error(f"Unable to apply operating preset: {exc}")
 
+    def _start_operating_preset(
+        self, selection, condenser_key, projector_key, *, load_assembly=False
+    ) -> None:
+        self.preview_timer.stop()
+        self.calculations.invalidate_pending()
+        self._set_progress_active("calculation", False)
+        self._preset_state_token = repr(self.state.to_dict())
+        self.assembly_panel.set_direct_alignment_busy("condenser_preset")
+        self.progress.setRange(0, 0)
+        self.progress.setFormat("Calibrating condenser preset")
+        self._set_progress_active("operating_preset", True)
+        self.status_label.setText(
+            "Solving condenser preset for the installed NanoPulser geometry…"
+        )
+        try:
+            self.operating_presets.submit(
+                self.state, self.catalog, selection, condenser_key, projector_key,
+                load_assembly=load_assembly,
+            )
+        except Exception:
+            self._operating_preset_finished()
+            raise
+
+    def _operating_preset_ready(self, state, selection, result, duration) -> None:
+        if self._preset_state_token != repr(self.state.to_dict()):
+            self.log_output.appendPlainText(
+                "Discarded condenser preset after a newer microscope edit."
+            )
+            return
+        previous = self.state, self.selection, self.assembly
+        try:
+            self.state = state
+            self.selection = selection
+            self.assembly = state._resolved_assembly
+            self.assembly_panel.set_selection(selection)
+            self._refresh_assembly_views()
+        except Exception as exc:
+            self.state, self.selection, self.assembly = previous
+            self.assembly_panel.set_selection(self.selection)
+            self._refresh_assembly_views()
+            self._operating_preset_failed(str(exc))
+            return
+        detail = (
+            result.summary if result is not None
+            else "Assembly loaded; no compatible condenser preset"
+        )
+        self.assembly_panel.set_operating_mode_status(f"Applied: {detail}")
+        self.status_label.setText(f"NanoPulser assembly/preset applied in {duration:.2f} s")
+        self.log_output.appendPlainText(
+            f"Loaded {selection.gun} | {selection.column} | {selection.beam_blanker}: "
+            f"{detail} ({duration:.2f} s)."
+        )
+        self.schedule_preview()
+
+    def _operating_preset_failed(self, message) -> None:
+        self._show_error(f"Unable to apply NanoPulser assembly/preset: {message}")
+
+    def _operating_preset_finished(self) -> None:
+        self._preset_state_token = None
+        self.assembly_panel.set_direct_alignment_busy(None)
+        self._set_progress_active("operating_preset", False)
+
     def apply_direct_alignment(self, key: str, target: float) -> None:
         """Submit one transactional user-level coupled lens adjustment."""
 
+        self._invalidate_operating_preset()
         self.preview_timer.stop()
         self.calculations.invalidate_pending()
         self._set_progress_active("calculation", False)
@@ -937,6 +1024,7 @@ class MainWindow(QMainWindow):
         self.schedule_preview(parameter)
 
     def _invalidate_direct_alignment(self) -> None:
+        self._invalidate_operating_preset()
         was_running = self._direct_alignment_state_token is not None
         self.direct_alignments.invalidate_pending()
         self._direct_alignment_state_token = None
@@ -946,6 +1034,14 @@ class MainWindow(QMainWindow):
             self.assembly_panel.set_direct_alignment_message(
                 "Direct Alignment cancelled because the microscope state "
                 "changed before the background solve completed."
+            )
+
+    def _invalidate_operating_preset(self) -> None:
+        self.operating_presets.invalidate_pending()
+        if self._preset_state_token is not None:
+            self._operating_preset_finished()
+            self.log_output.appendPlainText(
+                "Condenser preset cancelled after a microscope state change."
             )
 
     def _compute_backend_changed(self, _index: int) -> None:
@@ -967,9 +1063,16 @@ class MainWindow(QMainWindow):
         )
 
     def run_preview(self) -> None:
-        if self._direct_alignment_state_token is not None:
+        if (
+            self._direct_alignment_state_token is not None
+            or self._preset_state_token is not None
+        ):
+            operation = (
+                "Direct Alignment" if self._direct_alignment_state_token is not None
+                else "the condenser preset"
+            )
             self.status_label.setText(
-                "Preview deferred until Direct Alignment finishes"
+                f"Preview deferred until {operation} finishes"
             )
             return
         self.calculations.submit(
@@ -980,10 +1083,16 @@ class MainWindow(QMainWindow):
         )
 
     def run_high_accuracy(self) -> None:
-        if self._direct_alignment_state_token is not None:
+        if (
+            self._direct_alignment_state_token is not None
+            or self._preset_state_token is not None
+        ):
+            operation = (
+                "Direct Alignment" if self._direct_alignment_state_token is not None
+                else "the condenser preset"
+            )
             self.status_label.setText(
-                "High-accuracy calculation deferred until Direct Alignment "
-                "finishes"
+                f"High-accuracy calculation deferred until {operation} finishes"
             )
             return
         self.preview_timer.stop()
@@ -1246,4 +1355,6 @@ class MainWindow(QMainWindow):
         settings.setValue(self.SETTINGS_STATE, self.saveState())
         self.calculations.pool.clear()
         self.calculations.pool.waitForDone(3_000)
+        self.operating_presets.invalidate_pending()
+        self.operating_presets.pool.waitForDone(3_000)
         super().closeEvent(event)

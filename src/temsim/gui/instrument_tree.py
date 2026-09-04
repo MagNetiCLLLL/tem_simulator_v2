@@ -150,14 +150,21 @@ class InstrumentTree(QTreeWidget):
             root.setData(0, Qt.ItemDataRole.UserRole + 1, part_category)
             self.addTopLevelItem(root)
             for part in parts:
-                root.addChild(self._selection_item(
+                item = self._selection_item(
                     part.name,
                     TreeSelection(
                         part.key,
                         part.name,
                         module_paths[part.module_key],
                     ),
-                ))
+                )
+                if part.data.get("blanking_role") == "standard_pre_specimen":
+                    item.setToolTip(
+                        0, f"{part.key}\nExisting gun tilt coils also provide "
+                        "standard pre-specimen beam blanking. "
+                        "No additional column module is required."
+                    )
+                root.addChild(item)
 
         self._finish_load(select_first)
 

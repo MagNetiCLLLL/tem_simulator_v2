@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from temsim.gui.input_policy import (
+    WheelSafeComboBox as QComboBox,
+    WheelSafeDoubleSpinBox as QDoubleSpinBox,
+    WheelSafeSpinBox as QSpinBox,
+)
+
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -17,7 +21,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSlider,
-    QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -646,8 +649,21 @@ class EDSPage(QWidget):
             self._sample_region_result = getattr(
                 result, "sample_region", None
             )
+        if not self._has_incident_current():
+            self.eds_summary.setText("No incident current at the specimen | no EDS signal")
+            self.sample_region_summary.setText(
+                "No incident current at the specimen | sample transport unavailable"
+            )
         self._update_incident_summary()
         self._update_controls()
+
+    def _has_incident_current(self):
+        from temsim.physics.beam_current import sample_illumination_absent
+
+        return self._result is not None and not sample_illumination_absent(
+            getattr(self._result, "simulation", None),
+            getattr(self._result, "state_snapshot", self._state),
+        )
 
     def mark_result_stale(self) -> None:
         """Detach live calculation controls without erasing complete plots."""
@@ -777,7 +793,7 @@ class EDSPage(QWidget):
             *self.eds_scalar_controls.values(),
         ):
             control.setEnabled(enabled)
-        self.eds_acquire.setEnabled(enabled and self._result is not None)
+        self.eds_acquire.setEnabled(enabled and self._has_incident_current())
         self.sample_region_run.setEnabled(
             self.sample_region_calculation_available()
         )
@@ -826,6 +842,8 @@ class EDSPage(QWidget):
         """Return whether an explicit bounded specimen calculation can run."""
 
         if self._state is None or self._result is None:
+            return False
+        if not self._has_incident_current():
             return False
         sample = self._state.sample
         return bool(

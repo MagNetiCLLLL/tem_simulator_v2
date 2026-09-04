@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import copy
+import hashlib
 import math
 
 import numpy as np
@@ -222,7 +223,11 @@ def _configured_system_set(state, system: str) -> EffectiveAberrationSet:
 
 
 def _corrector_trace_ratio(state, system: str) -> tuple[float, float, float, str]:
-    """Return signed C3 residual ratio and uncorrected/corrected RMS errors."""
+    """Return a compact-ring C3 ratio and transverse-position RMS errors in m.
+
+    This probe-independent diagnostic does not measure the other coefficients
+    or establish the quality of the actual finite-source sample probe.
+    """
 
     from temsim.physics.core import propagate
 
@@ -275,43 +280,64 @@ def _corrector_trace_ratio(state, system: str) -> tuple[float, float, float, str
     return ratio, rms_before, rms_after, "distributed round-lens Cs plus explicit hexapole fields"
 
 
+def _public_optical_value(value):
+    """Freeze component parameters without retaining private runtime caches."""
+
+    if isinstance(value, np.ndarray):
+        return (str(value.dtype), value.shape, value.tobytes())
+    if isinstance(value, dict):
+        return tuple(sorted(
+            (str(key), _public_optical_value(item))
+            for key, item in value.items() if not str(key).startswith("_")
+        ))
+    if isinstance(value, (list, tuple)):
+        return tuple(_public_optical_value(item) for item in value)
+    if hasattr(value, "__dict__"):
+        return (type(value).__qualname__, _public_optical_value(vars(value)))
+    return value
+
+
+def _aberration_cache_signature(state, system: str) -> str:
+    # Include all public field parameters, not just current settings. This
+    # covers hexapole orientation_rad, quadrupoles, field widths and profiles,
+    # polarity, explicit Cs/Cc, and sample/reference-plane motion. Mechanics
+    # included here can cause harmless cache misses; stale physics cannot.
+    snapshot = {
+        name: getattr(state, name, None)
+        for name in (
+            "beam_voltage_kv", "step_mm", "acceleration_enabled",
+            "acceleration_backend", "chromatic_aberration_enabled",
+            "equivalent_image_lenses_enabled", "illumination_mode",
+            "projector_mode", "objective_coupled", "objective_image_plane_z_mm",
+            "objective_back_focal_plane_z_mm", "lenses", "corrector_elements",
+            "stigmators", "deflectors", "electron_gun", "component_placements",
+        )
+    }
+    snapshot.update(
+        system=system,
+        sample_z_mm=float(state.sample.z_mm),
+        sample_wave_defocus_nm=float(getattr(state.sample, "wave_defocus_nm", 0.0)),
+        overrides=getattr(state, f"{system}_aberrations", {}),
+        installed=bool(getattr(state, f"{system}_corrector_installed", False)),
+    )
+    return hashlib.sha256(repr(_public_optical_value(snapshot)).encode("utf-8")).hexdigest()
+
+
 def effective_aberration_comparison(state, system: str) -> tuple[EffectiveAberrationSet, EffectiveAberrationSet, dict]:
-    """Build uncorrected and active-corrector system coefficient sets."""
+    """Build coefficient models, with explicit measurement/provenance limits."""
 
     system = str(system).lower()
-    signature = (
-        system,
-        float(getattr(state, "beam_voltage_kv", 0.0)),
-        tuple(
-            (
-                str(getattr(item, "key", "")),
-                bool(getattr(item, "enabled", True)),
-                float(getattr(item, "percent", 0.0)),
-                getattr(item, "cs_mm", None),
-                float(getattr(item, "z_mm", 0.0)),
-            )
-            for item in getattr(state, "lenses", ())
-        ),
-        tuple(
-            (
-                str(getattr(item, "key", "")),
-                bool(getattr(item, "enabled", True)),
-                float(getattr(item, "strength_m3", 0.0)),
-                float(getattr(item, "angle_rad", 0.0)),
-                float(getattr(item, "z_mm", 0.0)),
-            )
-            for item in getattr(state, "corrector_elements", ())
-            if hasattr(item, "strength_m3")
-        ),
-        repr(getattr(state, f"{system}_aberrations", {})),
-        bool(getattr(state, f"{system}_corrector_installed", False)),
-    )
+    if system not in {"probe", "image"}:
+        raise ValueError("Aberration system must be 'probe' or 'image'.")
+    if hasattr(state, "sync_objective"):
+        state.sync_objective()
+    signature = _aberration_cache_signature(state, system)
     cache = getattr(state, "_effective_aberration_cache", None)
     if cache is None:
         cache = {}
         setattr(state, "_effective_aberration_cache", cache)
-    if signature in cache:
-        return cache[signature]
+    if system in cache and cache[system][0] == signature:
+        return cache[system][1]
     before = _configured_system_set(state, system)
     ratio, rms_before, rms_after, source = _corrector_trace_ratio(state, system)
     after = replace(
@@ -320,13 +346,42 @@ def effective_aberration_comparison(state, system: str) -> tuple[EffectiveAberra
         c3_mm=before.c3_mm * ratio,
         source=source,
     )
+    overrides = getattr(state, f"{system}_aberrations", {}) or {}
+    inferred = ("C3",) if source.startswith("distributed") else ()
+    coefficient_status = {}
+    unmeasured = []
+    for term, value_name, _angle_name in SYSTEM_COEFFICIENT_ROWS:
+        if term in inferred:
+            coefficient_status[term] = "compact-ring C3 estimate"
+        elif value_name in overrides:
+            coefficient_status[term] = "configured; not fitted"
+        elif term == "C1":
+            coefficient_status[term] = (
+                "configured offset; ray focus reported separately"
+                if system == "probe" else "lens/configured offset"
+            )
+        elif term in {"C3", "Cc"}:
+            coefficient_status[term] = "lens coefficient; not fitted"
+        else:
+            coefficient_status[term] = "unmeasured; wave-model default zero"
+            unmeasured.append(term)
     result = before, after, {
         "c3_residual_ratio": ratio,
         "ray_error_rms_before": rms_before,
         "ray_error_rms_after": rms_after,
         "source": source,
+        "ray_error_rms_unit": "m",
+        "coefficient_status": coefficient_status,
+        "inferred_coefficients": inferred,
+        "unmeasured_coefficients": tuple(unmeasured),
+        "diagnostic_scope": (
+            "Compact reference ring with nonlinear fields off/on; C3 only. "
+            "Other residual coefficients are not fitted from the actual probe."
+        ),
     }
-    cache[signature] = result
+    # Keep one entry per system while adjusting channels; numerical searches
+    # must not retain an unbounded dictionary of historical optical settings.
+    cache[system] = (signature, result)
     return result
 
 

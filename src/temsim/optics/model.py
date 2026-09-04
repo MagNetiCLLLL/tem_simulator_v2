@@ -2,6 +2,7 @@ from dataclasses import dataclass, asdict, field
 import math
 
 from temsim import module_manifest
+from temsim.optics.nanopulser import NanoPulser
 
 
 _DEFAULT_COLUMN_MODULE = "column/C3_ProbeCorrector.toml"
@@ -480,6 +481,8 @@ class State:
     electron_gun: object = None
     electron_gun_profiles: dict = field(default_factory=dict, repr=False)
 
+    nanopulser: NanoPulser = field(default_factory=NanoPulser)
+
     sample: Sample = field(default_factory=Sample)
 
     camera: object = None
@@ -491,8 +494,8 @@ class State:
 
     projector_mode: str = "diffraction"
 
-    # Ideal Spot-size abstraction.  It caps the physical current represented
-    # by normalized rays without changing numerical sampling or ray optics.
+    # Retained profile current ceiling, independent of Direct Alignment.
+    # It scales normalized-ray current without changing sampling or optics.
     column_current_limit_percent: float = 100.0
 
     # Enabled after applying a five-lens image-magnification preset.  The
@@ -558,7 +561,7 @@ class State:
     probe_aberrations: dict = field(default_factory=dict)
     image_aberrations: dict = field(default_factory=dict)
 
-    schema_version: int = 74
+    schema_version: int = 75
 
     def __post_init__(self):
         self.column_current_limit_percent = float(
@@ -665,6 +668,20 @@ class State:
     def beam_voltage_kv(self):
         return float(self.electron_gun.nominal_exit_energy_ev) / 1000.0
 
+    @property
+    def beam_blanked(self):
+        """Conventional gun-tilt blanking, independent of the NanoPulser."""
+        return bool(getattr(getattr(self.electron_gun, "deflector", None), "beam_blanked", False))
+
+    @beam_blanked.setter
+    def beam_blanked(self, value):
+        if not isinstance(value, bool):
+            raise ValueError("Beam blanking state must be Boolean")
+        deflector = getattr(self.electron_gun, "deflector", None)
+        if deflector is None or not hasattr(deflector, "beam_blanked"):
+            raise ValueError("The selected gun does not provide a beam blanker")
+        deflector.beam_blanked = value
+
     def replace_electron_gun(self, assembly):
         """Install an explicit complete gun without changing the column."""
 
@@ -705,6 +722,12 @@ class State:
                 previous.to_dict()
             )
         self.electron_gun = assembly
+        if previous is not None and previous is not assembly:
+            replacement_deflector = getattr(assembly, "deflector", None)
+            if replacement_deflector is not None and hasattr(replacement_deflector, "beam_blanked"):
+                replacement_deflector.beam_blanked = bool(
+                    getattr(getattr(previous, "deflector", None), "beam_blanked", False)
+                )
         self.electron_gun_profiles.pop(assembly.type_key, None)
         if (
             assembly.type_key == "cold_feg"
@@ -1632,6 +1655,7 @@ class State:
             "deflectors":[component_payload(x) for x in self.deflectors],
 
             "electron_gun":self.electron_gun.to_dict(),
+            "nanopulser":self.nanopulser.to_dict(),
             "electron_gun_profiles":{
                 str(key):dict(value)
                 for key,value in self.electron_gun_profiles.items()
@@ -2705,7 +2729,8 @@ class State:
             ),
             probe_aberrations=dict(d.get("probe_aberrations", {})),
             image_aberrations=dict(d.get("image_aberrations", {})),
-            schema_version=74,
+            nanopulser=NanoPulser.from_dict(d.get("nanopulser", {})),
+            schema_version=75,
         )
         if loaded_schema_version < 64:
             from temsim.specimen.geometry import (

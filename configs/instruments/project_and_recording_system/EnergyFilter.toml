@@ -1235,6 +1235,8 @@ mechanical_geometry_source = "Public material confirms the bias-tube function an
 [[parts]]
 order = 114
 key = "energy_filter_shutter"
+# Detector-end exposure shutter, owned by the Zebra/EELS detection subsystem.
+# It cannot protect the upstream specimen and is not an optional column blanker.
 name = "Iliad Fast Electrostatic Shutter"
 branch = "energy_filter"
 local_start_z_mm = 1211.5

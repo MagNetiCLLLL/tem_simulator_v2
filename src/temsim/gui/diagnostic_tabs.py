@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from temsim.gui.input_policy import (
+    WheelSafeComboBox as QComboBox,
+)
+
 from dataclasses import dataclass
 import math
 
@@ -10,7 +14,6 @@ import pyqtgraph as pg
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPolygonF, QTransform
 from PySide6.QtWidgets import (
-    QComboBox,
     QGraphicsEllipseItem,
     QGraphicsPolygonItem,
     QGraphicsRectItem,

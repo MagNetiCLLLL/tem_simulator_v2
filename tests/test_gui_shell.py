@@ -2,7 +2,7 @@ import numpy as np
 import threading
 from types import SimpleNamespace
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtWidgets import QDockWidget, QDoubleSpinBox
+from PySide6.QtWidgets import QDockWidget, QDoubleSpinBox, QLabel, QPushButton
 import pyqtgraph as pg
 import pytest
 
@@ -618,7 +618,6 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
         control.target.objectName()
         for control in direct_alignment.controls.values()
     } == {
-        "spotSizeCurrentLimitTarget",
         "nanoprobeConvergenceTarget",
         "microprobeIlluminationTarget",
         "imageMagnificationTarget",
@@ -751,9 +750,11 @@ def test_workspace_action_buttons_fit_without_a_window_state_change(qtbot):
     assert len(button_rows) == 1
     assert all(button.sizeHint().height() <= 32 for button in view_buttons)
     assert workspace.findChild(QDoubleSpinBox, "projectionAngleSpin") is None
-    assert workspace.sample_region_toggle.isEnabled() is False
-    assert workspace.sample_region_xrays.isEnabled() is False
-    assert workspace.fit_sample_region.isEnabled() is False
+    for name in (
+        "sampleRegionRayToggle", "sampleRegionXrayToggle", "fitSampleRegionButton",
+    ):
+        assert workspace.findChild(QPushButton, name) is None
+    assert workspace.findChild(QLabel, "manualSampleResultLabel") is None
     workspace.resize(1400, 700)
     qtbot.wait(20)
     wide_xz_left = workspace.projection_xz.mapTo(
@@ -766,22 +767,6 @@ def test_workspace_action_buttons_fit_without_a_window_state_change(qtbot):
         assert button.isVisible()
         assert top_left.x() >= 0
         assert bottom_right.x() < workspace.width()
-    sample_controls = (
-        workspace.crossovers,
-        workspace.manual_sample_result_label,
-        workspace.sample_region_toggle,
-        workspace.sample_region_xrays,
-        workspace.fit_sample_region,
-    )
-    control_layout = workspace.view_controls_panel.layout()
-    assert [control_layout.indexOf(control) for control in sample_controls] == (
-        sorted(control_layout.indexOf(control) for control in sample_controls)
-    )
-    control_centres_y = {
-        control.mapTo(workspace, control.rect().center()).y()
-        for control in sample_controls
-    }
-    assert max(control_centres_y) - min(control_centres_y) <= 1
     assert not hasattr(workspace, "sample_region_secondaries")
     assert not hasattr(workspace.eds_page, "sample_region_secondaries")
 
@@ -831,7 +816,7 @@ def test_eds_page_adopts_shared_interactions_from_the_column_result(qtbot):
     assert result.specimen_interactions is enriched_interactions
 
 
-def test_ray_xray_button_explicitly_requests_uncached_sample_region_result(
+def test_sample_interactions_3d_requests_shared_sample_region_without_ray_redraw(
     qtbot, monkeypatch
 ):
     workspace = VisualizationWorkspace()
@@ -843,11 +828,18 @@ def test_ray_xray_button_explicitly_requests_uncached_sample_region_result(
     workspace.eds_page.display_result(SimpleNamespace(simulation=None))
     workspace._update_sample_region_control_availability()
 
-    assert workspace.sample_region_xrays.isEnabled()
+    assert workspace.sample_interactions_3d.calculate_paths.isEnabled()
     assert workspace._sample_region_result is None
 
     requested = []
     sample_result = object()
+    shared_result = SimpleNamespace(sample_region=None)
+    workspace._high_accuracy_result = shared_result
+    workspace._last_result = shared_result
+    redraws = []
+    displayed = []
+    monkeypatch.setattr(workspace, "_draw_ray_diagram", lambda *_a, **_kw: redraws.append(True))
+    monkeypatch.setattr(workspace.sample_interactions_3d, "set_sample_region_result", displayed.append)
 
     def calculate_sample_region():
         requested.append(True)
@@ -860,39 +852,48 @@ def test_ray_xray_button_explicitly_requests_uncached_sample_region_result(
         calculate_sample_region,
     )
 
-    # The buttons start checked so that a completed manual result shows all
-    # overlays. The first click used to merely toggle the invisible X-rays
-    # off; it must now be interpreted as the explicit calculation request.
-    workspace.sample_region_xrays.click()
+    workspace.sample_interactions_3d.calculate_paths.click()
 
     assert requested == [True]
     assert workspace._sample_region_result is sample_result
-    assert workspace.sample_region_xrays.isChecked()
-    assert workspace.fit_sample_region.isEnabled()
+    assert shared_result.sample_region is sample_result
+    assert displayed == [sample_result]
+    assert redraws == []
+    workspace.sample_interactions_3d.calculate_paths.click()
+    assert requested == [True]
 
 
-def test_ray_diagram_does_not_draw_secondary_candidate_paths(qtbot):
+def test_shared_specimen_interactions_update_3d_without_ray_redraw(qtbot, monkeypatch):
     workspace = VisualizationWorkspace()
     qtbot.addWidget(workspace)
-    secondary = SimpleNamespace(
-        kind="secondary_candidate",
-        positions_mm=np.array(((0.0, 0.0, 1.0), (1.0, 0.0, 2.0))),
-    )
-    workspace._sample_region_result = SimpleNamespace(
-        electron_paths=(secondary,),
-        photon_paths=(),
-        metrics={},
-        entry_z_mm=1.0,
-        exit_z_mm=2.0,
-    )
-    workspace._sample_region_path_records = []
+    shared_result = SimpleNamespace(specimen_interactions=None)
+    workspace._high_accuracy_result = shared_result
+    workspace._last_result = shared_result
+    interactions = object()
+    redraws = []
+    displayed = []
+    monkeypatch.setattr(workspace, "_draw_ray_diagram", lambda *_a, **_kw: redraws.append(True))
+    monkeypatch.setattr(workspace.sample_interactions_3d, "display_result", displayed.append)
 
-    workspace._draw_sample_region_overlay()
+    workspace._set_specimen_interactions(interactions)
 
-    assert workspace._sample_region_path_records == []
+    assert shared_result.specimen_interactions is interactions
+    assert displayed == [shared_result]
+    assert redraws == []
 
 
-def test_direct_alignment_gui_gates_modes_and_emits_the_requested_target(qtbot):
+@pytest.mark.parametrize(
+    ("probe_key", "projector_key", "visible_keys"),
+    (
+        ("nano_probe", "diffraction", {"nanoprobe_convergence", "diffraction_camera_length"}),
+        ("nano_probe", "imaging", {"nanoprobe_convergence", "image_magnification"}),
+        ("micro_probe", "diffraction", {"microprobe_illumination", "diffraction_camera_length"}),
+        ("micro_probe", "imaging", {"microprobe_illumination", "image_magnification"}),
+    ),
+)
+def test_direct_alignment_gui_shows_only_the_two_applied_mode_controls(
+    qtbot, probe_key, projector_key, visible_keys
+):
     panel = DirectAlignmentPanel()
     qtbot.addWidget(panel)
     controls = panel.controls
@@ -900,32 +901,84 @@ def test_direct_alignment_gui_gates_modes_and_emits_the_requested_target(qtbot):
     catalog = AssemblyCatalog()
     catalog.apply(state, catalog.default_selection())
 
-    state.illumination_mode = "STEM"
-    state.projector_mode = "diffraction"
+    apply_operating_mode_pair(state, probe_key, projector_key)
     panel.set_state(state)
-    assert controls["spot_size_current_limit"].target.isEnabled()
-    assert controls["nanoprobe_convergence"].target.isEnabled()
-    assert controls["nanoprobe_convergence"].apply_button.isEnabled()
-    assert not controls["microprobe_illumination"].target.isEnabled()
-    assert not controls["image_magnification"].target.isEnabled()
-    assert controls["diffraction_camera_length"].target.isEnabled()
+    assert "spot_size_current_limit" not in controls
+    assert {
+        key for key, control in controls.items() if not control.group.isHidden()
+    } == visible_keys
+    assert {
+        key for key, control in controls.items() if control.apply_button.isEnabled()
+    } == visible_keys
+    assert panel.projector_calibration_group.isHidden() == (
+        projector_key == "imaging"
+    )
 
-    controls["nanoprobe_convergence"].target.setValue(31.25)
+    key = next(key for key in controls if key in visible_keys)
+    requested = controls[key].target.value()
     with qtbot.waitSignal(panel.adjustment_requested) as blocker:
-        qtbot.mouseClick(
-            controls["nanoprobe_convergence"].apply_button,
-            Qt.MouseButton.LeftButton,
-        )
-    assert blocker.args == ["nanoprobe_convergence", 31.25]
+        controls[key].apply_button.click()
+    assert blocker.args == [key, requested]
 
-    state.illumination_mode = "TEM"
-    state.projector_mode = "image"
-    panel.set_state(state)
-    assert controls["spot_size_current_limit"].target.isEnabled()
-    assert not controls["nanoprobe_convergence"].target.isEnabled()
-    assert controls["microprobe_illumination"].target.isEnabled()
-    assert controls["image_magnification"].target.isEnabled()
-    assert not controls["diffraction_camera_length"].target.isEnabled()
+    with qtbot.assertNotEmitted(panel.adjustment_requested):
+        for hidden_key in controls.keys() - visible_keys:
+            panel._request(hidden_key)
+    panel.set_busy(key)
+    assert {
+        key for key, control in controls.items() if not control.group.isHidden()
+    } == visible_keys
+    assert all(not control.target.isEnabled() for control in controls.values())
+    assert all(not control.apply_button.isEnabled() for control in controls.values())
+    with qtbot.assertNotEmitted(panel.adjustment_requested):
+        panel._request(key)
+    panel.set_busy(None)
+    assert controls[key].target.isEnabled()
+
+
+def test_direct_alignment_selector_changes_wait_for_applied_optics(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.preview_timer.stop()
+    assembly = window.assembly_panel
+    panel = assembly.direct_alignment_panel
+
+    assembly.probe_mode.setCurrentIndex(assembly.probe_mode.findData("micro_probe"))
+    assembly.projector_mode.setCurrentIndex(assembly.projector_mode.findData("imaging"))
+    assert not panel.controls["nanoprobe_convergence"].group.isHidden()
+    assert not panel.controls["diffraction_camera_length"].group.isHidden()
+    assert all(not control.target.isEnabled() for control in panel.controls.values())
+    assert "Selection changed" in panel.mode_status.text()
+    with qtbot.assertNotEmitted(panel.adjustment_requested):
+        panel._request("nanoprobe_convergence")
+
+    assembly.apply_operating_mode_button.click()
+    window.preview_timer.stop()
+    assert {
+        key for key, control in panel.controls.items() if not control.group.isHidden()
+    } == {"microprobe_illumination", "image_magnification"}
+    assert panel.controls["microprobe_illumination"].apply_button.isEnabled()
+    assert panel.controls["image_magnification"].apply_button.isEnabled()
+    assert "Selection changed" not in panel.mode_status.text()
+
+    assembly.probe_mode.setCurrentIndex(assembly.probe_mode.findData("nano_probe"))
+    assert not panel.controls["microprobe_illumination"].apply_button.isEnabled()
+    assembly.probe_mode.setCurrentIndex(assembly.probe_mode.findData("micro_probe"))
+    assert panel.controls["microprobe_illumination"].apply_button.isEnabled()
+
+
+def test_direct_alignment_unavailable_probe_preset_preserves_projection_control(qtbot):
+    panel = DirectAlignmentPanel()
+    qtbot.addWidget(panel)
+    state = default_state()
+    catalog = AssemblyCatalog()
+    catalog.apply(state, catalog.default_selection())
+    apply_operating_mode_pair(state, "nano_probe", "diffraction")
+    panel.set_state(state, {"diffraction"})
+    panel.set_selected_mode_keys(None, "diffraction")
+
+    assert panel.controls["diffraction_camera_length"].apply_button.isEnabled()
+    assert not panel.controls["nanoprobe_convergence"].apply_button.isEnabled()
+    assert "Selection changed" not in panel.mode_status.text()
 
 
 def _successful_direct_alignment_result(state, key, target):
@@ -980,21 +1033,12 @@ def test_main_window_commits_a_current_background_alignment_atomically(
     assert not window.progress.isVisible()
 
 
-def test_main_window_commits_spot_current_limit_without_changing_lenses(qtbot):
+def test_main_window_has_no_spot_size_adjustment(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.preview_timer.stop()
-    before = {lens.key: lens.percent for lens in window.state.lenses}
-    before_ray_count = window.state.electron_gun.ray_count
-
-    with qtbot.waitSignal(window.direct_alignments.finished, timeout=5_000):
-        window.apply_direct_alignment("spot_size_current_limit", 42.0)
-    window.preview_timer.stop()
-
-    assert window.state.column_current_limit_percent == pytest.approx(42.0)
-    assert window.state.electron_gun.ray_count == before_ray_count
-    assert {lens.key: lens.percent for lens in window.state.lenses} == before
-    assert "Direct Alignment applied" in window.status_label.text()
+    assert "spot_size_current_limit" not in window.assembly_panel.direct_alignment.controls
+    assert window.findChild(QDoubleSpinBox, "spotSizeCurrentLimitTarget") is None
 
 
 def test_main_window_image_commit_enables_equivalent_five_lens_model(qtbot):

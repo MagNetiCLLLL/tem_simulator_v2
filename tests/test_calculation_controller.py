@@ -286,6 +286,20 @@ def test_high_accuracy_defaults_fit_32_gib_budget_and_extreme_request_is_rejecte
         controller.submit(state, "High accuracy", 1_000_000, 0.01)
 
 
+def test_step_refinement_memory_tracks_axial_fields_not_z_by_ray_matrices():
+    state = default_state()
+    state.sample.inserted = False
+    state.sample.wave_enabled = False
+    coarse = estimate_calculation_memory_bytes(state, "High accuracy", 15_000, 0.1)
+    fine = estimate_calculation_memory_bytes(state, "High accuracy", 15_000, 0.01)
+    assert coarse < fine
+    # Tenfold refinement adds only axial fields; ray histories keep their
+    # independent 0.5 mm storage cadence. The former dense coefficient estimate
+    # falsely needed tens of GiB and prevented a convergence calculation.
+    assert fine - coarse < 512 * 1024**2
+    assert fine < HIGH_ACCURACY_MEMORY_BUDGET_BYTES
+
+
 def test_high_accuracy_memory_guard_includes_tem_wave_grid():
     state = default_state()
     for detector in state.stem_detectors:
@@ -294,7 +308,9 @@ def test_high_accuracy_memory_guard_includes_tem_wave_grid():
     state.illumination_mode = "TEM"
     state.sample.wave_enabled = True
     state.sample.wave_multislice_enabled = False
-    state.sample.wave_grid_pixels = 8192
+    # Wave storage itself must exceed the budget now that ray integration no
+    # longer allocates nine dense axial-by-ray coefficient matrices.
+    state.sample.wave_grid_pixels = 16384
 
     estimate = estimate_calculation_memory_bytes(
         state, "High accuracy", 15_000, 0.1

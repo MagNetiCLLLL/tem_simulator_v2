@@ -55,7 +55,7 @@ def test_equivalent_image_lens_mode_round_trips_in_state(assembled_state):
     assert restored.equivalent_image_lenses_enabled is True
 
 
-def test_toml_defines_the_five_exact_direct_alignment_controls():
+def test_toml_defines_the_four_mode_specific_direct_alignment_controls():
     catalog = load_operating_mode_catalog()
     definitions = {
         definition.key: definition
@@ -63,18 +63,14 @@ def test_toml_defines_the_five_exact_direct_alignment_controls():
     }
 
     assert set(definitions) == {
-        "spot_size_current_limit",
         "nanoprobe_convergence",
         "microprobe_illumination",
         "image_magnification",
         "diffraction_camera_length",
     }
     expected = {
-        "spot_size_current_limit": (
-            "micro_probe", "%", 0.1, 100.0, 100.0, (),
-        ),
         "nanoprobe_convergence": (
-            "nano_probe", "mrad", 3.0, 60.0, 30.0, CONDENSER_KEYS,
+            "nano_probe", "mrad", 3.0, 60.0, 25.0, CONDENSER_KEYS,
         ),
         "microprobe_illumination": (
             "micro_probe", "um", 0.75, 2.2, 2.0, CONDENSER_KEYS,
@@ -106,10 +102,7 @@ def test_toml_defines_the_five_exact_direct_alignment_controls():
             assert int(
                 definition.targets["maximum_continuation_stages"]
             ) == (10 if key == "diffraction_camera_length" else 8)
-    spot = definitions["spot_size_current_limit"]
-    assert spot.active_mode_keys == ("micro_probe", "nano_probe")
-    assert spot.state_parameters == ("column_current_limit_percent",)
-    assert not spot.devices
+    assert all(not item.state_parameters for item in definitions.values())
     image = definitions["image_magnification"]
     assert image.constraint == "sample_to_recording_plane_B_zero"
     assert image.targets["preset_magnifications"] == [
@@ -305,7 +298,7 @@ def test_condenser_production_validation_uses_kicks_and_aperture_planes(
 
 @pytest.mark.parametrize(
     ("diameter_um", "target"),
-    ((10.0, 3.0), (100.0, 30.0), (200.0, 60.0)),
+    ((12.0, 3.0), (100.0, 25.0), (240.0, 60.0)),
 )
 def test_nanoprobe_range_commits_only_the_c2_c3_solution(
     assembled_state, diameter_um, target
@@ -343,7 +336,7 @@ def test_nanoprobe_solve_uses_the_current_c2_aperture_diameter(
     apply_operating_mode_pair(state, "nano_probe", "imaging")
     state.condenser_aperture_2.diameter_um = diameter_um
 
-    target_mrad = 0.3 * diameter_um
+    target_mrad = 0.25 * diameter_um
     result = apply_direct_alignment(
         state, "nanoprobe_convergence", target_mrad
     )
@@ -373,8 +366,7 @@ def test_fixed_lens_aperture_scaling_matches_recalculated_toml_metrics(
         lenses[key].percent for key in CONDENSER_KEYS
     ])
     angles = []
-    diameters_um = (10.0, 20.0, 40.0, 60.0, 80.0, 100.0,
-                    120.0, 140.0, 160.0, 180.0, 200.0)
+    diameters_um = definition.targets["precalculation_aperture_diameters_um"]
     for diameter_um in diameters_um:
         state.condenser_aperture_2.diameter_um = diameter_um
         measurement = _validate_condenser_production(
@@ -383,7 +375,8 @@ def test_fixed_lens_aperture_scaling_matches_recalculated_toml_metrics(
         angles.append(measurement.value)
 
     assert np.all(np.diff(angles) > 0.0)
-    errors_mrad = np.asarray(angles) - 0.3 * np.asarray(diameters_um)
+    slope = float(definition.targets["aperture_scaling_reference_mrad_per_um"])
+    errors_mrad = np.asarray(angles) - slope * np.asarray(diameters_um)
     assert np.sqrt(np.mean(errors_mrad**2)) == pytest.approx(
         float(definition.targets["aperture_scaling_rms_error_mrad"]),
         rel=2.0e-7,
@@ -476,7 +469,7 @@ def test_microprobe_area_keeps_the_parallel_branch_and_c2_c3_bounds(
     ("micro_probe", "imaging"),
     ("nano_probe", "diffraction"),
 ))
-def test_spot_size_caps_physical_current_without_changing_rays_or_lenses(
+def test_retired_spot_alignment_cannot_change_current_or_optics(
     assembled_state, probe_mode, projector,
 ):
     state = _state_copy(assembled_state)
@@ -484,25 +477,15 @@ def test_spot_size_caps_physical_current_without_changing_rays_or_lenses(
     before_lenses = _lens_values(state)
     before_ray_count = state.electron_gun.ray_count
 
-    result = apply_direct_alignment(
-        state, "spot_size_current_limit", 37.5
-    )
-
-    assert result.success
-    assert result.achieved == pytest.approx(37.5)
-    assert result.strengths == {}
-    assert result.state_updates == {
-        "column_current_limit_percent": pytest.approx(37.5)
-    }
-    assert result.constraint_value == pytest.approx(
-        state.electron_gun.emitted_current_a * 1.0e12 * 0.375
-    )
-    assert state.column_current_limit_percent == pytest.approx(37.5)
+    before_current_limit = state.column_current_limit_percent
+    with pytest.raises(KeyError, match="Unknown direct alignment"):
+        apply_direct_alignment(state, "spot_size_current_limit", 37.5)
+    assert state.column_current_limit_percent == before_current_limit
     assert state.electron_gun.ray_count == before_ray_count
     assert _lens_values(state) == before_lenses
 
 
-def test_spot_size_current_limit_round_trips_and_scales_stem_and_eds(
+def test_stored_current_limit_round_trips_and_scales_stem_and_eds(
     assembled_state,
 ):
     from temsim.detector.eds_signal import default_eds_incident_electrons

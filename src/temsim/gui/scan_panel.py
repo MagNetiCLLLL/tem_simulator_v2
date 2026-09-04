@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from temsim.gui.input_policy import (
+    WheelSafeComboBox as QComboBox,
+    WheelSafeDoubleSpinBox as QDoubleSpinBox,
+    WheelSafeSpinBox as QSpinBox,
+)
+
 from pathlib import Path
 from time import perf_counter
 
@@ -10,15 +16,12 @@ import pyqtgraph as pg
 from PySide6.QtCore import QRectF, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QScrollArea,
     QSizePolicy,
-    QSpinBox,
     QSplitter,
     QTabWidget,
     QVBoxLayout,

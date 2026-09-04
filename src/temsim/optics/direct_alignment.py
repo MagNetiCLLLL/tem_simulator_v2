@@ -33,10 +33,10 @@ from temsim.physics.beam_statistics import (
     TransverseBeamStatistics,
     transverse_beam_statistics,
 )
-from temsim.physics.beam_current import effective_source_current_pa
 from temsim.physics.aperture_clipping import clip_segment
 from temsim.physics.column_wall import clip_column_wall
-from temsim.physics.core import E, fields, propagate
+from temsim.physics.core import E, fields, propagate, interleaved_rk4_values
+from temsim.physics.ray_integrator import _canonical_step_numba
 from temsim.physics.first_order import (
     TransverseTransfer,
     trace_transverse_transfer,
@@ -63,7 +63,6 @@ except Exception:  # pragma: no cover - Numba is a required project dependency.
 
 NANOPROBE_CONVERGENCE = "nanoprobe_convergence"
 MICROPROBE_ILLUMINATION = "microprobe_illumination"
-SPOT_SIZE_CURRENT_LIMIT = "spot_size_current_limit"
 IMAGE_MAGNIFICATION = "image_magnification"
 DIFFRACTION_CAMERA_LENGTH = "diffraction_camera_length"
 
@@ -197,7 +196,10 @@ def diffraction_transfer(
     z_mm = _piecewise_endpoint_exact_grid(
         source_z_mm, target_z_mm, step_mm
     )
-    magnetic_t, sx_m2, sy_m2 = fields(z_mm, state)
+    stage_z_mm = interleaved_rk4_values(
+        z_mm, 0.5 * (z_mm[:-1] + z_mm[1:])
+    )
+    magnetic_t, sx_m2, sy_m2 = fields(stage_z_mm, state)
     momentum = _electron_momentum_kg_m_s(state.beam_voltage_kv)
     g = np.ascontiguousarray(-E * magnetic_t / (2.0 * momentum))
     if (
@@ -215,7 +217,8 @@ def diffraction_transfer(
         z_m = np.ascontiguousarray(z_mm * 1.0e-3)
         radial = _rk4_axisymmetric_larmor_matrix(g, z_m)
         phase = float(np.sum(
-            0.5 * (g[1:] + g[:-1]) * np.diff(z_m)
+            (g[:-2:2] + 4.0 * g[1::2] + g[2::2])
+            * np.diff(z_m) / 6.0
         ))
         target_g = float(g[-1])
 
@@ -378,55 +381,13 @@ def _piecewise_endpoint_exact_grid(
 
 
 @njit(cache=True)
-def _rk4_transfer_matrix(g, dg, sx, sy, z_m):
-    """Integrate the coupled laboratory-frame 4x4 paraxial map."""
+def _rk4_transfer_matrices(g, sx, sy, z_m, capture_indices):
+    """Map laboratory slopes with the production canonical RK4 stages.
 
-    matrix = np.eye(4, dtype=np.float64)
-    for index in range(z_m.size - 1):
-        h = z_m[index + 1] - z_m[index]
-        g0 = g[index]
-        g1 = g[index + 1]
-        gm = 0.5 * (g0 + g1)
-        dg0 = dg[index]
-        dg1 = dg[index + 1]
-        dgm = 0.5 * (dg0 + dg1)
-        sx0 = sx[index]
-        sx1 = sx[index + 1]
-        sxm = 0.5 * (sx0 + sx1)
-        sy0 = sy[index]
-        sy1 = sy[index + 1]
-        sym = 0.5 * (sy0 + sy1)
-
-        system0 = np.array((
-            (0.0, 0.0, 1.0, 0.0),
-            (0.0, 0.0, 0.0, 1.0),
-            (-sx0, dg0, 0.0, 2.0 * g0),
-            (-dg0, -sy0, -2.0 * g0, 0.0),
-        ))
-        systemm = np.array((
-            (0.0, 0.0, 1.0, 0.0),
-            (0.0, 0.0, 0.0, 1.0),
-            (-sxm, dgm, 0.0, 2.0 * gm),
-            (-dgm, -sym, -2.0 * gm, 0.0),
-        ))
-        system1 = np.array((
-            (0.0, 0.0, 1.0, 0.0),
-            (0.0, 0.0, 0.0, 1.0),
-            (-sx1, dg1, 0.0, 2.0 * g1),
-            (-dg1, -sy1, -2.0 * g1, 0.0),
-        ))
-        k1 = system0 @ matrix
-        k2 = systemm @ (matrix + 0.5 * h * k1)
-        k3 = systemm @ (matrix + 0.5 * h * k2)
-        k4 = system1 @ (matrix + h * k3)
-        matrix = matrix + h * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
-    return matrix
-
-
-@njit(cache=True)
-def _rk4_transfer_matrices(g, dg, sx, sy, z_m, capture_indices):
-    """Integrate once and retain maps at selected grid indices."""
-
+    Coefficients interleave exact endpoints and midpoints.  Keeping the
+    affine-free four bases in slope coordinates at each node also handles
+    source and capture planes inside a magnetic lens correctly.
+    """
     captured = np.empty((capture_indices.size, 4, 4), dtype=np.float64)
     matrix = np.eye(4, dtype=np.float64)
     capture = 0
@@ -435,49 +396,28 @@ def _rk4_transfer_matrices(g, dg, sx, sy, z_m, capture_indices):
         capture = 1
     for index in range(z_m.size - 1):
         h = z_m[index + 1] - z_m[index]
-        g0 = g[index]
-        g1 = g[index + 1]
-        gm = 0.5 * (g0 + g1)
-        dg0 = dg[index]
-        dg1 = dg[index + 1]
-        dgm = 0.5 * (dg0 + dg1)
-        sx0 = sx[index]
-        sx1 = sx[index + 1]
-        sxm = 0.5 * (sx0 + sx1)
-        sy0 = sy[index]
-        sy1 = sy[index + 1]
-        sym = 0.5 * (sy0 + sy1)
-
-        system0 = np.array((
-            (0.0, 0.0, 1.0, 0.0),
-            (0.0, 0.0, 0.0, 1.0),
-            (-sx0, dg0, 0.0, 2.0 * g0),
-            (-dg0, -sy0, -2.0 * g0, 0.0),
-        ))
-        systemm = np.array((
-            (0.0, 0.0, 1.0, 0.0),
-            (0.0, 0.0, 0.0, 1.0),
-            (-sxm, dgm, 0.0, 2.0 * gm),
-            (-dgm, -sym, -2.0 * gm, 0.0),
-        ))
-        system1 = np.array((
-            (0.0, 0.0, 1.0, 0.0),
-            (0.0, 0.0, 0.0, 1.0),
-            (-sx1, dg1, 0.0, 2.0 * g1),
-            (-dg1, -sy1, -2.0 * g1, 0.0),
-        ))
-        k1 = system0 @ matrix
-        k2 = systemm @ (matrix + 0.5 * h * k1)
-        k3 = systemm @ (matrix + 0.5 * h * k2)
-        k4 = system1 @ (matrix + h * k3)
-        matrix = matrix + h * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
-        while (
-            capture < capture_indices.size
-            and capture_indices[capture] == index + 1
-        ):
+        a, b, c = 2 * index, 2 * index + 1, 2 * index + 2
+        for column in range(4):
+            x, tx, y, ty = _canonical_step_numba(
+                matrix[0, column], matrix[2, column],
+                matrix[1, column], matrix[3, column], h,
+                g[a], g[b], g[c],
+                sx[a], sx[b], sx[c], sy[a], sy[b], sy[c],
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            )
+            matrix[0, column], matrix[1, column] = x, y
+            matrix[2, column], matrix[3, column] = tx, ty
+        while capture < capture_indices.size and capture_indices[capture] == index + 1:
             captured[capture] = matrix
             capture += 1
     return captured
+
+
+@njit(cache=True)
+def _rk4_transfer_matrix(g, sx, sy, z_m):
+    return _rk4_transfer_matrices(
+        g, sx, sy, z_m, np.asarray((z_m.size - 1,), dtype=np.int64)
+    )[0]
 
 
 @njit(cache=True)
@@ -493,10 +433,9 @@ def _rk4_axisymmetric_larmor_matrix(g, z_m):
     a, b, c, d = 1.0, 0.0, 0.0, 1.0
     for index in range(z_m.size - 1):
         h = z_m[index + 1] - z_m[index]
-        q0 = g[index] * g[index]
-        midpoint_g = 0.5 * (g[index] + g[index + 1])
-        qm = midpoint_g * midpoint_g
-        q1 = g[index + 1] * g[index + 1]
+        q0 = g[2 * index] * g[2 * index]
+        qm = g[2 * index + 1] * g[2 * index + 1]
+        q1 = g[2 * index + 2] * g[2 * index + 2]
 
         a1, b1, c1, d1 = c, d, -q0 * a, -q0 * b
         aa = a + 0.5 * h * a1
@@ -555,6 +494,9 @@ class _LiveFirstOrderModel:
             source_z_mm, target_z_mm, step_mm, capture_z_mm
         )
         self.z_m = self.z_mm * 1.0e-3
+        self.stage_z_mm = interleaved_rk4_values(
+            self.z_mm, 0.5 * (self.z_mm[:-1] + self.z_mm[1:])
+        )
         lenses = _lens_map(state)
         try:
             self.lenses = tuple(lenses[key] for key in self.variable_keys)
@@ -576,11 +518,11 @@ class _LiveFirstOrderModel:
         try:
             for lens in self.lenses:
                 lens.percent = 0.0
-            fixed_b, sx, sy = fields(self.z_mm, state)
+            fixed_b, sx, sy = fields(self.stage_z_mm, state)
             profiles = []
             for lens, maximum in zip(self.lenses, self.upper):
                 lens.percent = float(maximum)
-                maximum_b = fields(self.z_mm, state)[0]
+                maximum_b = fields(self.stage_z_mm, state)[0]
                 profiles.append(
                     (maximum_b - fixed_b) * (100.0 / float(maximum))
                 )
@@ -598,14 +540,14 @@ class _LiveFirstOrderModel:
         self.field_to_g_m1 = -E / (2.0 * momentum)
         # Compile the capture kernel before the first optimiser callback.
         _rk4_transfer_matrices(
-            np.zeros(2), np.zeros(2), np.zeros(2), np.zeros(2),
+            np.zeros(3), np.zeros(3), np.zeros(3),
             np.array((0.0, 1.0)), np.array((1,), dtype=np.int64),
         )
         _rk4_axisymmetric_larmor_matrix(
-            np.zeros(2), np.array((0.0, 1.0))
+            np.zeros(3), np.array((0.0, 1.0))
         )
 
-    def _field_arrays(self, vector) -> tuple[np.ndarray, np.ndarray]:
+    def _field_arrays(self, vector) -> np.ndarray:
         values = np.asarray(vector, dtype=float)
         if values.shape != (len(self.variable_keys),):
             raise ValueError("Coupled lens vector has the wrong shape")
@@ -615,15 +557,12 @@ class _LiveFirstOrderModel:
         g = np.ascontiguousarray(
             self.field_to_g_m1 * magnetic, dtype=np.float64
         )
-        dg = np.ascontiguousarray(
-            np.gradient(g, self.z_m, edge_order=1), dtype=np.float64
-        )
-        return g, dg
+        return g
 
     def matrix(self, vector) -> np.ndarray:
-        g, dg = self._field_arrays(vector)
+        g = self._field_arrays(vector)
         return _rk4_transfer_matrix(
-            g, dg, self.sx_m2, self.sy_m2, self.z_m
+            g, self.sx_m2, self.sy_m2, self.z_m
         )
 
     def canonical_position_blocks(
@@ -639,7 +578,7 @@ class _LiveFirstOrderModel:
         validation checks.
         """
 
-        g, _dg = self._field_arrays(vector)
+        g = self._field_arrays(vector)
         matrix = self.matrix(vector)
         canonical = matrix @ _canonical_source_basis(g[0])
         return canonical[:2, :2], canonical[:2, 2:]
@@ -655,10 +594,9 @@ class _LiveFirstOrderModel:
             raise ValueError("Requested capture plane is not on the model grid")
         if np.any(np.diff(indices) < 0):
             raise ValueError("Capture planes must be ordered along +Z")
-        g, dg = self._field_arrays(vector)
+        g = self._field_arrays(vector)
         return _rk4_transfer_matrices(
             g,
-            dg,
             self.sx_m2,
             self.sy_m2,
             self.z_m,
@@ -671,6 +609,12 @@ class _CondenserMeasurementModel:
         self.state = state
         self.source_z_mm = float(state.electron_gun.exit_plane_z_mm)
         self.sample_z_mm = float(state.sample.z_mm)
+        apertures = tuple(state.apertures)
+        nanopulser = getattr(state, "nanopulser", None)
+        if nanopulser is not None and bool(nanopulser.installed):
+            # Match production's permanent stop in the transmitted state;
+            # otherwise a small NanoPulser pupil is absent from the solve.
+            apertures += (nanopulser.aperture,)
         gun_trace = state.electron_gun.trace_to_exit()
         emitted = gun_trace.exit_bundle
         self.source_rays = np.vstack((
@@ -694,7 +638,7 @@ class _CondenserMeasurementModel:
             step_mm=step_mm,
             capture_z_mm=(
                 float(aperture.z_mm)
-                for aperture in state.apertures
+                for aperture in apertures
                 if bool(getattr(aperture, "enabled", True))
                 and bool(getattr(aperture, "installed", True))
                 and self.source_z_mm
@@ -704,7 +648,7 @@ class _CondenserMeasurementModel:
         )
         self.apertures = tuple(
             aperture
-            for aperture in sorted(state.apertures, key=lambda item: item.z_mm)
+            for aperture in sorted(apertures, key=lambda item: item.z_mm)
             if bool(getattr(aperture, "enabled", True))
             and bool(getattr(aperture, "installed", True))
             and self.source_z_mm < float(aperture.z_mm) < self.sample_z_mm
@@ -1608,103 +1552,118 @@ def _refine_nanoprobe_production_focus(
     vector: np.ndarray,
     step_mm: float,
 ) -> tuple[np.ndarray, int]:
-    """Apply one bounded Newton correction using the production ray model.
+    """Polish the production focus without discarding an acceptable pupil.
 
-    The fast first-order solve supplies the basin.  Distributed spherical and
-    corrector fields shift the current-weighted waist slightly, so three full
-    traces measure the local 2-by-2 Jacobian of convergence and waist.  One
-    correction is sufficient at the calibrated nanoprobe working points and
-    avoids pretending that the paraxial candidate is already the final focus.
+    A clipped current-weighted angular quantile is not a smooth lens response.
+    When the first-order candidate already has an acceptable convergence,
+    preserve C2 and solve the local C3 focus first.  A coupled Newton step is
+    only a fallback, and must not replace a better production-validated point.
+    The final Direct Alignment angle, waist and step-spread gates still apply.
     """
-
     if definition.key != NANOPROBE_CONVERGENCE:
         return np.asarray(vector, dtype=float), 0
-    candidate = np.asarray(vector, dtype=float).copy()
+    initial = np.asarray(vector, dtype=float).copy()
     lenses = _lens_map(state)
     upper = np.asarray(
-        [float(lenses[key].max_percent) for key in CONDENSER_KEYS],
-        dtype=float,
+        [float(lenses[key].max_percent) for key in CONDENSER_KEYS], dtype=float
     )
-    base = _validate_condenser_production(
-        state, definition, candidate, step_mm
-    )
-    residual = np.asarray(
-        (
-            math.log(max(base.value, 1.0e-15) / float(target)),
-            base.constraint_value,
-        ),
-        dtype=float,
-    )
-    perturbation = 1.0e-3  # percentage points, above solver noise
+    angle_tolerance = _target_number(definition, "maximum_relative_error", 0.03)
+    waist_tolerance = _target_number(definition, "maximum_waist_offset_mm", 0.002)
+    measurements: dict[tuple[float, ...], DirectAlignmentMeasurement] = {}
+
+    def measure(candidate):
+        key = tuple(float(value) for value in candidate)
+        if key not in measurements:
+            measurements[key] = _validate_condenser_production(
+                state, definition, candidate, step_mm
+            )
+        return measurements[key]
+
+    def angle_error(measured):
+        return abs(math.log(max(measured.value, 1.0e-15) / float(target)))
+
+    def acceptable(measured):
+        return (
+            angle_error(measured) <= angle_tolerance
+            and abs(measured.constraint_value) <= waist_tolerance
+        )
+
+    def score(candidate):
+        measured = measure(candidate)
+        # Every valid point ranks ahead of every invalid one.
+        return max(
+            angle_error(measured) / angle_tolerance,
+            abs(measured.constraint_value) / waist_tolerance,
+        )
+
+    def polish_c3(vector):
+        candidate = np.asarray(vector, dtype=float).copy()
+
+        def waist_at_c3(percent):
+            probe = candidate.copy()
+            probe[1] = float(percent)
+            return measure(probe).constraint_value
+
+        centre = float(candidate[1])
+        if abs(waist_at_c3(centre)) <= 1.0e-12:
+            return candidate
+        for half_width in (0.02, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0):
+            lower = max(0.0, centre - half_width)
+            higher = min(float(upper[1]), centre + half_width)
+            lower_waist, upper_waist = waist_at_c3(lower), waist_at_c3(higher)
+            if lower_waist == 0.0:
+                candidate[1] = lower
+                return candidate
+            if upper_waist == 0.0:
+                candidate[1] = higher
+                return candidate
+            if lower_waist * upper_waist < 0.0:
+                candidate[1] = brentq(
+                    waist_at_c3, lower, higher, xtol=1.0e-7, rtol=1.0e-10
+                )
+                return candidate
+        return candidate
+
+    base = measure(initial)
+    if acceptable(base):
+        return initial, len(measurements)
+    candidates = [initial]
+    if angle_error(base) <= angle_tolerance:
+        focused = polish_c3(initial)
+        candidates.append(focused)
+        if acceptable(measure(focused)):
+            return focused, len(measurements)
+
+    residual = np.asarray((
+        math.log(max(base.value, 1.0e-15) / float(target)),
+        base.constraint_value,
+    ))
+    perturbation = 1.0e-3
     jacobian = np.empty((2, 2), dtype=float)
     for index in range(2):
-        shifted = candidate.copy()
+        shifted = initial.copy()
         shifted[index] = min(shifted[index] + perturbation, upper[index])
-        actual_step = shifted[index] - candidate[index]
+        actual_step = shifted[index] - initial[index]
         if actual_step <= 0.0:
-            return candidate, index + 1
-        measured = _validate_condenser_production(
-            state, definition, shifted, step_mm
-        )
-        shifted_residual = np.asarray(
-            (
-                math.log(max(measured.value, 1.0e-15) / float(target)),
-                measured.constraint_value,
-            ),
-            dtype=float,
-        )
+            return min(candidates, key=score), len(measurements)
+        measured = measure(shifted)
+        shifted_residual = np.asarray((
+            math.log(max(measured.value, 1.0e-15) / float(target)),
+            measured.constraint_value,
+        ))
         jacobian[:, index] = (shifted_residual - residual) / actual_step
     try:
         correction = np.linalg.solve(jacobian, -residual)
     except np.linalg.LinAlgError:
-        return candidate, 3
+        return min(candidates, key=score), len(measurements)
     if not np.all(np.isfinite(correction)):
-        return candidate, 3
-    # A large step means the local production Jacobian is not trustworthy.
+        return min(candidates, key=score), len(measurements)
     correction = np.clip(correction, -2.0, 2.0)
-    candidate = np.clip(candidate + correction, 0.0, upper)
-
-    # The current-weighted angular quantile is mildly non-smooth when an
-    # aperture clips individual weighted rays.  The two-variable Newton step
-    # can therefore leave a small (10-20 nm) waist residual even though the
-    # C3 focus root is well behaved.  Polish only that physical conjugate with
-    # a bracketed C3 solve; do not weaken the sample-focus acceptance gate.
-    evaluations = 3
-
-    def waist_at_c3(c3_percent: float) -> float:
-        nonlocal evaluations
-        probe = candidate.copy()
-        probe[1] = float(c3_percent)
-        evaluations += 1
-        return _validate_condenser_production(
-            state, definition, probe, step_mm
-        ).constraint_value
-
-    centre = float(candidate[1])
-    centre_waist = waist_at_c3(centre)
-    if abs(centre_waist) <= 1.0e-12:
-        return candidate, evaluations
-    for half_width in (0.02, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0):
-        lower_c3 = max(0.0, centre - half_width)
-        upper_c3 = min(float(upper[1]), centre + half_width)
-        lower_waist = waist_at_c3(lower_c3)
-        upper_waist = waist_at_c3(upper_c3)
-        if lower_waist == 0.0:
-            candidate[1] = lower_c3
-            return candidate, evaluations
-        if upper_waist == 0.0:
-            candidate[1] = upper_c3
-            return candidate, evaluations
-        if lower_waist * upper_waist < 0.0:
-            candidate[1] = brentq(
-                waist_at_c3,
-                lower_c3,
-                upper_c3,
-                xtol=1.0e-7,
-                rtol=1.0e-10,
-            )
-            return candidate, evaluations
-    return candidate, evaluations
+    candidate = np.clip(initial + correction, 0.0, upper)
+    candidates.append(candidate)
+    candidates.append(polish_c3(candidate))
+    best = min(candidates, key=score)
+    return best, len(measurements)
 
 
 def _validate_projector_production(
@@ -1767,7 +1726,7 @@ def _validate_projector_production(
     )
 
 
-def apply_direct_alignment(
+def _solve_direct_alignment(
     state,
     key: str,
     target: float,
@@ -1791,40 +1750,6 @@ def apply_direct_alignment(
         active_modes = " or ".join(definition.active_mode_keys)
         raise ValueError(
             f"{definition.name} is only active in {active_modes} mode"
-        )
-
-    if definition.key == SPOT_SIZE_CURRENT_LIMIT:
-        previous = float(
-            getattr(state, "column_current_limit_percent", 100.0)
-        )
-        try:
-            state.column_current_limit_percent = requested
-            current_pa = effective_source_current_pa(state)
-        except Exception:
-            state.column_current_limit_percent = previous
-            raise
-        return DirectAlignmentResult(
-            key=definition.key,
-            success=True,
-            requested=requested,
-            achieved=requested,
-            unit=definition.unit,
-            constraint_value=current_pa,
-            constraint_unit="pA",
-            strengths={},
-            iterations=0,
-            validation_step_mm=0.0,
-            numerical_spread=0.0,
-            message=(
-                f"Column current capped at {requested:.6g}% of emitted "
-                f"current ({current_pa:.6g} pA). Numerical ray count and "
-                "C2/C3 optics are unchanged."
-            ),
-            state_updates={
-                "column_current_limit_percent": requested,
-            },
-            candidate_strengths={},
-            candidate_limit_fractions={},
         )
 
     if definition.family == "condenser":
@@ -2114,3 +2039,26 @@ def apply_direct_alignment(
             initial_equivalent_image_lenses
         )
         raise
+
+
+def apply_direct_alignment(
+    state,
+    key: str,
+    target: float,
+    *,
+    definition: DirectAlignmentDefinition | None = None,
+) -> DirectAlignmentResult:
+    """Solve transmitted-beam optics while preserving both blanking gates.
+
+    Condenser solves on the GUI worker snapshot temporarily open its ordinary
+    and optional blankers. Actual beam measurements and image calculation keep
+    their configured gate states and still report a blank specimen correctly.
+    """
+    definition = definition or direct_alignment_by_key(key)
+    if definition.family != "condenser":
+        return _solve_direct_alignment(state, key, target, definition=definition)
+
+    from temsim.optics.calibration_beam import transmitted_calibration_beam
+
+    with transmitted_calibration_beam(state):
+        return _solve_direct_alignment(state, key, target, definition=definition)

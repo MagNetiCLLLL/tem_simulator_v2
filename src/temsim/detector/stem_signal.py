@@ -8,7 +8,10 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from temsim.physics.beam_current import effective_source_current_pa
+from temsim.physics.beam_current import (
+    effective_source_current_pa,
+    sample_illumination_absent,
+)
 
 from temsim.component_keys import STEM_DETECTOR_KEYS
 from temsim.physics.scan_geometry import (
@@ -939,6 +942,10 @@ def acquire_stem_scan(
     second time.
     """
 
+    if sample_illumination_absent(simulation, state):
+        if progress_callback is not None:
+            progress_callback(1, 1, "No incident current at the specimen")
+        return None
     simulation_inelastic = getattr(simulation, "real_interactions", None)
     shared_inelastic = getattr(
         specimen_interactions, "inelastic_distribution", None

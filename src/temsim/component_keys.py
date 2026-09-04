@@ -1,5 +1,8 @@
 """Canonical runtime component identifiers and load-boundary migrations."""
 
+NANOPULSER_DEFLECTOR = "nanopulser_deflector"
+NANOPULSER_APERTURE = "nanopulser_aperture"
+
 CONDENSER_LENS_1 = "condenser_lens_1"
 CONDENSER_LENS_2 = "condenser_lens_2"
 CONDENSER_LENS_3 = "condenser_lens_3"

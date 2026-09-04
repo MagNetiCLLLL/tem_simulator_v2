@@ -68,6 +68,10 @@ TOML_OWNED_FIELDS = frozenset({
     "maximum_strength_m3",
     "electrode_length_mm",
     "electrode_gap_mm",
+    "plate_length_mm",
+    "plate_gap_mm",
+    "blanking_field_y_mt",
+    "aperture_radius_mm",
     "nominal_focal_length_mm",
     "nominal_voltage_kv",
     "sample_axial_offset_mm",
@@ -125,6 +129,9 @@ def runtime_targets(state) -> dict[str, RuntimeTarget]:
 
     add("simulation", state)
     add("electron_gun", state.electron_gun)
+    nanopulser = getattr(state, "nanopulser", None)
+    if nanopulser is not None and nanopulser.installed:
+        add("nanopulser_deflector", nanopulser)
 
     def add_children(parent_key: str, parent: object) -> None:
         for attribute, obj in vars(parent).items():

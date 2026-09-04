@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from temsim.gui.input_policy import (
+    WheelSafeComboBox as QComboBox,
+    WheelSafeDoubleSpinBox as QDoubleSpinBox,
+    WheelSafeSpinBox as QSpinBox,
+)
+
 import json
 import math
 import os
@@ -13,8 +19,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QVector3D
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
-    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -25,7 +29,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,

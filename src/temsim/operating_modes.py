@@ -236,7 +236,6 @@ def load_operating_mode_catalog() -> OperatingModeCatalog:
     if len(set(direct_keys)) != len(direct_keys):
         raise ValueError(f"{path}: duplicate direct-alignment key")
     expected_direct_keys = {
-        "spot_size_current_limit",
         "nanoprobe_convergence",
         "microprobe_illumination",
         "image_magnification",
@@ -248,7 +247,6 @@ def load_operating_mode_catalog() -> OperatingModeCatalog:
             + ", ".join(sorted(expected_direct_keys))
         )
     expected_devices = {
-        "spot_size_current_limit": (),
         "nanoprobe_convergence": (
             "condenser_lens_2", "condenser_lens_3",
         ),
@@ -265,7 +263,6 @@ def load_operating_mode_catalog() -> OperatingModeCatalog:
         ),
     }
     expected_state_parameters = {
-        "spot_size_current_limit": ("column_current_limit_percent",),
         "nanoprobe_convergence": (),
         "microprobe_illumination": (),
         "image_magnification": (),
@@ -419,7 +416,7 @@ def _apply_values(state, mode: OperatingModeDefinition) -> tuple[str, ...]:
     return tuple(changed)
 
 
-def apply_operating_mode_pair(
+def _apply_operating_mode_pair(
     state,
     condenser_key: str,
     projector_key: str,
@@ -492,4 +489,67 @@ def apply_operating_mode_pair(
 
     state.electron_gun.electrostatic_lens.voltage_kv = 1.2
     state.sync_objective()
+    if bool(getattr(getattr(state, "nanopulser", None), "installed", False)):
+        from temsim.optics.condenser_recalibration import (
+            recalibrate_nanopulser_condenser,
+        )
+        condenser = recalibrate_nanopulser_condenser(state, condenser, catalog)
     return AppliedOperatingModes(condenser, projector, changed)
+
+
+def apply_operating_mode_pair(
+    state,
+    condenser_key: str,
+    projector_key: str,
+    *,
+    column_name: str | None = None,
+    recording_name: str | None = None,
+    catalog: OperatingModeCatalog | None = None,
+) -> AppliedOperatingModes:
+    """Apply presets; an installed NanoPulser requires a validated live solve.
+
+    The additional gun-to-C1 distance changes the incident beam.  Do not leave
+    a partially applied pair when its recalculation cannot meet the requested
+    sample illumination and focus constraints.
+    """
+    arguments = dict(
+        column_name=column_name, recording_name=recording_name, catalog=catalog,
+    )
+    if not bool(getattr(getattr(state, "nanopulser", None), "installed", False)):
+        return _apply_operating_mode_pair(
+            state, condenser_key, projector_key, **arguments
+        )
+
+    from temsim.runtime_parameters import runtime_targets
+
+    targets = runtime_targets(state)
+    saved = []
+    for key in (condenser_key, projector_key):
+        definition = mode_by_key(key, catalog)
+        for group in (definition.devices, definition.apertures):
+            for device_key, values in group.items():
+                obj = targets[device_key].obj
+                for field in values:
+                    field = {"field_polarity": "polarity"}.get(field, field)
+                    saved.append((obj, field, getattr(obj, field)))
+    saved.extend((
+        (state, "illumination_mode", state.illumination_mode),
+        (state, "projector_mode", state.projector_mode),
+        (state.electron_gun.electrostatic_lens, "voltage_kv",
+         state.electron_gun.electrostatic_lens.voltage_kv),
+        (state.condenser_aperture_3, "radius_mm", state.condenser_aperture_3.radius_mm),
+    ))
+    for device in (*getattr(state, "stem_detectors", ()),
+                   state.fluorescent_screen, state.camera):
+        for field in ("inserted", "readout_enabled"):
+            if hasattr(device, field):
+                saved.append((device, field, getattr(device, field)))
+    try:
+        return _apply_operating_mode_pair(
+            state, condenser_key, projector_key, **arguments
+        )
+    except Exception:
+        for obj, field, value in reversed(saved):
+            setattr(obj, field, value)
+        state.sync_objective()
+        raise

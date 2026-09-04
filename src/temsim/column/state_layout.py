@@ -298,6 +298,10 @@ def layout_configuration_from_state(
             state.electron_gun.type_key == "cold_feg"
             and getattr(state, "monochromator_installed", False)
         ),
+        nanopulser_installed=bool(
+            getattr(getattr(state, "nanopulser", None), "installed", False)
+        ),
+        nanopulser_component=getattr(state, "nanopulser", None),
         source_relative_column_offset_mm=(
             float(getattr(
                 state, "monochromator_column_offset_mm", 0.0

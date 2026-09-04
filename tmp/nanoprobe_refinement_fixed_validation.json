@@ -1,0 +1,39 @@
+[
+  {
+    "diameter_um": 240,
+    "result": {
+      "key": "nanoprobe_convergence",
+      "success": true,
+      "requested": 60.0,
+      "achieved": 55.66669661167866,
+      "unit": "mrad",
+      "constraint_value": 9.12051567291292e-15,
+      "constraint_unit": "mm",
+      "strengths": {
+        "condenser_lens_2": 29.882917934721913,
+        "condenser_lens_3": 20.977209210881163
+      },
+      "iterations": 200,
+      "validation_step_mm": 0.1,
+      "numerical_spread": 0.0,
+      "message": "Requested 60 mrad; achieved 55.6667 mrad; waist offset 9.12052e-15 mm; validated at 0.1 mm.",
+      "convergence_95_mrad": 55.66669661167866,
+      "convergence_99_mrad": 59.73772878383346,
+      "illumination_diameter_95_um": 0.0011613257166881994,
+      "relay_error_um": null,
+      "diffraction_conjugacy_residual": null,
+      "target_plane_key": null,
+      "target_plane_z_mm": null,
+      "field_calibration_statuses": [],
+      "candidate_strengths": {
+        "condenser_lens_2": 29.882917934721913,
+        "condenser_lens_3": 20.977209210881163
+      },
+      "candidate_limit_fractions": {
+        "condenser_lens_2": 0.29882917934721914,
+        "condenser_lens_3": 0.20977209210881165
+      },
+      "state_updates": {}
+    }
+  }
+]

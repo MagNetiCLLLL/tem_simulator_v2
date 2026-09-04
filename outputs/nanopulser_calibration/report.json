@@ -1,0 +1,248 @@
+[
+  {
+    "mode": "nano_probe",
+    "sample_z_mm": 1679.2,
+    "blanker_z_mm": 470.0,
+    "stop_z_mm": 510.0,
+    "beam_voltage_kv": 300.0,
+    "rays": 1000,
+    "calculation_seconds": 38.38254290004261,
+    "preset": {
+      "key": "nano_probe",
+      "name": "Nanoprobe",
+      "family": "condenser",
+      "calibration_status": "computed_live_nanopulser_condenser_non_oem",
+      "compatible_columns": [
+        "C3 + Probe Corrector"
+      ],
+      "compatible_recording_systems": [
+        "*"
+      ],
+      "devices": {
+        "condenser_lens_1": {
+          "percent": 51.666666666666664
+        },
+        "condenser_lens_2": {
+          "percent": 25.25772717253661
+        },
+        "condenser_lens_3": {
+          "percent": 21.273666565422367
+        },
+        "adapter_lens": {
+          "percent": 86.0039434207
+        },
+        "probe_tl22_lens": {
+          "percent": 60.0
+        },
+        "probe_tl21_lens": {
+          "percent": 60.0
+        },
+        "probe_tl12_lens": {
+          "percent": 60.0
+        },
+        "mini_condenser": {
+          "percent": 41.5570797718,
+          "field_polarity": -1
+        },
+        "objective_lens": {
+          "percent": 68.9801
+        },
+        "probe_hp2_hexapole": {
+          "enabled": true,
+          "strength_m3": 626910.5744377297,
+          "orientation_rad": 0.0
+        },
+        "probe_hp1_hexapole": {
+          "enabled": true,
+          "strength_m3": 374822.52529434016,
+          "orientation_rad": -0.04231957336232493
+        }
+      },
+      "apertures": {
+        "condenser_aperture_2": {
+          "enabled": true,
+          "diameter_mm": 0.1
+        }
+      },
+      "targets": {
+        "beam_character": "convergent_probe",
+        "target_convergence_sem_angle_mrad": 25.0,
+        "minimum_convergence_sem_angle_mrad": 3.0,
+        "maximum_convergence_sem_angle_mrad": 60.0,
+        "c2_aperture_diameter_um": 100.0,
+        "achieved_convergence_sem_angle_mrad": 24.121253045900406,
+        "achieved_illumination_diameter_95_um": 0.0004305668624287682,
+        "calibration_ray_count": 512,
+        "calibration_step_mm": 0.1,
+        "validation_step_mm": 0.05,
+        "calibration_geometry_fingerprint": "21dbd9843f9a91929c1bd150c93b83c750e54dde6dcc40dd20e3233f0d15e87d",
+        "achieved_waist_offset_nm": 7.229700361127343e-09
+      },
+      "calibration_reference": "C2/C3 recomputed for the installed NanoPulser and current assembled geometry using 512 deterministic source rays. Full nonlinear propagation and physical clipping validate the sample illumination and focus constraint at 0.05 mm. Principal corrector fields retain the base-mode values; this is not a new aberration-corrector or OEM current calibration."
+    },
+    "coarse_step_mm": 0.05,
+    "fine_step_mm": 0.025,
+    "coarse_statistics": {
+      "surviving_rays": 538,
+      "surviving_fraction": 0.5379999999999998,
+      "mean_x_m": -2.736315350082606e-12,
+      "mean_y_m": 4.878177150674089e-12,
+      "mean_tx_rad": 0.00025454149610014523,
+      "mean_ty_rad": -0.0004506334630010778,
+      "convergence_rms_rad": 0.014043643918262044,
+      "convergence_95_rad": 0.024119867317750975,
+      "convergence_99_rad": 0.02573339223845002,
+      "convergence_edge_rad": 0.026541879067419963,
+      "radius_rms_m": 1.0605599340155036e-10,
+      "radius_95_m": 2.2602827777715206e-10,
+      "radius_99_m": 2.909965084635971e-10,
+      "radial_position_angle_covariance_m_rad": -5.853182639702227e-14,
+      "radial_wavefront_curvature_per_m": -5203812.539934293,
+      "waist_offset_m": 2.9670251575035854e-10,
+      "twofold_moment": 0.07181769455938983,
+      "threefold_moment": 0.09653478661545227
+    },
+    "fine_statistics": {
+      "surviving_rays": 538,
+      "surviving_fraction": 0.5379999999999998,
+      "mean_x_m": -2.7288604797801294e-12,
+      "mean_y_m": 4.864306548942656e-12,
+      "mean_tx_rad": 0.00025454148166175497,
+      "mean_ty_rad": -0.00045063348106433396,
+      "convergence_rms_rad": 0.014043643915808118,
+      "convergence_95_rad": 0.024119867322899308,
+      "convergence_99_rad": 0.025733392234626486,
+      "convergence_edge_rad": 0.026541877874334784,
+      "radius_rms_m": 1.0604006148582851e-10,
+      "radius_95_m": 2.2667852396630952e-10,
+      "radius_99_m": 2.904625805530103e-10,
+      "radial_position_angle_covariance_m_rad": -5.253236456542147e-14,
+      "radial_wavefront_curvature_per_m": -4671829.748482427,
+      "waist_offset_m": 2.6629076332959955e-10,
+      "twofold_moment": 0.0723791013630872,
+      "threefold_moment": 0.09591579419081829
+    }
+  },
+  {
+    "mode": "micro_probe",
+    "sample_z_mm": 1679.2,
+    "blanker_z_mm": 470.0,
+    "stop_z_mm": 510.0,
+    "beam_voltage_kv": 300.0,
+    "rays": 1000,
+    "calculation_seconds": 11.748779600020498,
+    "preset": {
+      "key": "micro_probe",
+      "name": "Microprobe",
+      "family": "condenser",
+      "calibration_status": "computed_live_nanopulser_condenser_non_oem",
+      "compatible_columns": [
+        "C3 + Probe Corrector"
+      ],
+      "compatible_recording_systems": [
+        "*"
+      ],
+      "devices": {
+        "condenser_lens_1": {
+          "percent": 20.0
+        },
+        "condenser_lens_2": {
+          "percent": 17.50823746090856
+        },
+        "condenser_lens_3": {
+          "percent": 34.50480243859428
+        },
+        "adapter_lens": {
+          "percent": 42.0
+        },
+        "probe_tl22_lens": {
+          "percent": 60.0
+        },
+        "probe_tl21_lens": {
+          "percent": 60.0
+        },
+        "probe_tl12_lens": {
+          "percent": 60.0
+        },
+        "mini_condenser": {
+          "percent": 35.0,
+          "field_polarity": 1
+        },
+        "objective_lens": {
+          "percent": 68.9801
+        },
+        "probe_hp2_hexapole": {
+          "enabled": true,
+          "strength_m3": 508073.49,
+          "orientation_rad": 0.0
+        },
+        "probe_hp1_hexapole": {
+          "enabled": true,
+          "strength_m3": 302372.3317133547,
+          "orientation_rad": -0.04234211
+        }
+      },
+      "apertures": {
+        "condenser_aperture_2": {
+          "enabled": true,
+          "diameter_mm": 0.1
+        }
+      },
+      "targets": {
+        "beam_character": "quasi_parallel",
+        "maximum_convergence_sem_angle_mrad": 0.3,
+        "c2_aperture_diameter_um": 100.0,
+        "achieved_convergence_sem_angle_mrad": 0.2708717229074363,
+        "achieved_illumination_diameter_95_um": 2.0443241689764333,
+        "calibration_ray_count": 512,
+        "calibration_step_mm": 0.1,
+        "validation_step_mm": 0.05,
+        "calibration_geometry_fingerprint": "79ceeda2046d8c1381266641c60c9368f4800c65524bbb5434542f802e72f667",
+        "achieved_wavefront_curvature_per_m": -0.05232792149345393
+      },
+      "calibration_reference": "C2/C3 recomputed for the installed NanoPulser and current assembled geometry using 512 deterministic source rays. Full nonlinear propagation and physical clipping validate the sample illumination and focus constraint at 0.05 mm. Principal corrector fields retain the base-mode values; this is not a new aberration-corrector or OEM current calibration."
+    },
+    "coarse_step_mm": 0.05,
+    "fine_step_mm": 0.025,
+    "coarse_statistics": {
+      "surviving_rays": 990,
+      "surviving_fraction": 0.99,
+      "mean_x_m": 5.427263434966578e-09,
+      "mean_y_m": 1.5991405902379322e-09,
+      "mean_tx_rad": -4.1543459829877246e-07,
+      "mean_ty_rad": 1.4254107115592513e-06,
+      "convergence_rms_rad": 0.0001152563016618725,
+      "convergence_95_rad": 0.000263759682033398,
+      "convergence_99_rad": 0.0004436916476549994,
+      "convergence_edge_rad": 0.0005177016925574053,
+      "radius_rms_m": 4.344922434185956e-07,
+      "radius_95_m": 9.944046538433069e-07,
+      "radius_99_m": 1.6741963085559811e-06,
+      "radial_position_angle_covariance_m_rad": -2.0990261696132097e-13,
+      "radial_wavefront_curvature_per_m": -1.1118694499120179,
+      "waist_offset_m": 1.580114159200835e-05,
+      "twofold_moment": 0.11253109705834989,
+      "threefold_moment": 0.1007184571849592
+    },
+    "fine_statistics": {
+      "surviving_rays": 990,
+      "surviving_fraction": 0.99,
+      "mean_x_m": 5.4272633963523345e-09,
+      "mean_y_m": 1.5991407404358525e-09,
+      "mean_tx_rad": -4.1543468724400723e-07,
+      "mean_ty_rad": 1.4254106753790007e-06,
+      "convergence_rms_rad": 0.00011525630155229351,
+      "convergence_95_rad": 0.0002637596814684798,
+      "convergence_99_rad": 0.0004436916473762309,
+      "convergence_edge_rad": 0.0005177016926965622,
+      "radius_rms_m": 4.344922438039685e-07,
+      "radius_95_m": 9.944046537466583e-07,
+      "radius_99_m": 1.674196308366923e-06,
+      "radial_position_angle_covariance_m_rad": -2.09903319046809e-13,
+      "radial_wavefront_curvature_per_m": -1.1118731669376314,
+      "waist_offset_m": 1.5801194473954488e-05,
+      "twofold_moment": 0.11253109610978208,
+      "threefold_moment": 0.10071845393343858
+    }
+  }
+]

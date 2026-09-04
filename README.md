@@ -75,9 +75,26 @@ recalculation preserves a user's runtime direction override.
 - Loads five C2/C3/corrector column arrangements with the Energy Filter
   recording system permanently installed; Instrument Setup no longer exposes
   a recording-system selector.
-- Validates all 10 module TOMLs, 480 part definitions and 15 selectable catalog
+- Validates all 11 module TOMLs, 482 part definitions and 30 selectable catalog
   assembly combinations at startup. The legacy no-filter TOML remains
   validation-only historical geometry.
+- Provides a **Blank beam** checkbox in the gun deflector/tilt-coil parameters
+  in every assembly, using the existing gun tilt coils.
+  This standard pre-specimen blanker preserves gun alignment and adds no column
+  length. Camera and EDS shutters belong to their detection subsystems; the
+  Zebra/EELS shutter controls downstream detector exposure only.
+- Offers an optional **NanoPulser** between the gun and condenser. Select it
+  under **Assembly modules → NanoPulser option**, then **Load assembly**. Its
+  provisional 80 mm TOML module changes the source-to-condenser spacing, so
+  Microprobe/Nanoprobe presets are checked and recalculated in the background.
+  The separate **NanoPulser blanked (static)** checkbox in the NanoPulser
+  component parameters applies a static electrostatic deflection. Both blankers
+  must be open for sample illumination. Plate voltage and azimuth are editable under
+  **NanoPulser Electrostatic Deflector**. The installed aperture physically
+  intercepts deflected rays. This stage does not simulate nanosecond pulse
+  timing; dimensions and voltages are model parameters, not OEM specifications.
+  See [`docs/nanopulser_reference.md`](docs/nanopulser_reference.md) for sources,
+  calibration results and reproduction commands.
 - Rejects magnetic-lens manifests that omit a signed `field_polarity` or its
   provenance, and reports that provenance in Magnetic Field diagnostics.
 - Exposes the complete signed sample-to-plane `J_img` and `J_diff` 2x2
@@ -87,8 +104,11 @@ recalculation preserves a user's runtime direction override.
 - Shows every active part, its derived assembly anchor and absolute positions.
 - Edits operating parameters and saves/loads complete operating profiles as
   TOML.
-- Adds a left-side **Direct Alignment** page with four user-level coupled
-  controls. Nanoprobe convergence and Microprobe illuminated diameter solve
+- Shows two controls on **Direct Alignment**, selected by two independent
+  optical modes: **Microprobe → Illumination area** or **Nanoprobe →
+  Convergence semi-angle**, plus **Image → Magnification** or **Diffraction →
+  Camera length**. Inactive controls are hidden and Spot size is removed.
+  Illumination area retains its 95%-current diameter in µm. The probe controls solve
   C2/C3 together. Image magnification solves Objective/D/I/P1/P2 as one preset;
   Diffraction camera length independently solves D/I/P1/P2 against the
   Objective back-focal plane. The individual low-level controls remain
@@ -98,6 +118,11 @@ recalculation preserves a user's runtime direction override.
   Solves run on a background state snapshot and commit all coupled values only
   if the target and conjugate constraint pass fine-step validation and the live
   state has not changed. Failed, unreachable or stale solves change no lens.
+- Prevents mouse-wheel changes to numeric inputs and closed selection fields,
+  including dynamic Parameter controls and plotting-menu editors. Typing,
+  arrow keys/buttons, popup-list scrolling, page scrolling and plot zoom keep
+  their normal behaviour. Changing an optical mode selector requires applying
+  its preset before Direct Alignment can adjust that state.
 - Edits existing module and part TOML values with validation and atomic
   rollback when an assembly becomes invalid.
 - Recalculates a direct-beam preview after a lens excitation change without
@@ -147,6 +172,15 @@ recalculation preserves a user's runtime direction override.
   as provisional focal-length-scaled estimates, never silently as zero. These
   are principle-model, non-OEM coefficients until replaced by traceable
   calibration.
+- Calibrates the default 300 kV nanoprobe against the actual emitted source
+  and the relocated 100 µm C2 aperture. **Apply calculated lens preset** now
+  restores the two principal hexapole strengths and relative orientation as
+  well as lens focus. The approximately 25 mrad working point is checked for
+  sample-plane size, threefold distortion and integration-step convergence.
+  **Probe Aberrations** reports actual incident-ray RMS radius, D95, shape
+  moments and waist offset; residual coefficients that have not been measured
+  display **—**. See [the correction reference](docs/probe_corrector_reference.md)
+  for DCOR screenshot interpretation and calibration reproduction.
 - Uses high-contrast, scalable checkbox indicators throughout the dark theme:
   white-outline unchecked boxes, cyan checked boxes with a white tick, violet
   partial-state boxes and separately legible hover/disabled states.
@@ -245,6 +279,10 @@ recalculation preserves a user's runtime direction override.
   user-authored ray probabilities remain distinct from the TOML reference's
   IAM/multislice calculation and are disabled by default until explicitly
   enabled.
+- **Sample Interactions 3D** provides the specimen-local electron trajectories
+  and characteristic X-ray view, including **Calculate detailed paths + X-rays**
+  for explicit calculation. Ray Diagram has no Manual sample result controls
+  or specimen-local transport overlays.
 - In Ray Diagram, hue denotes the interaction type: Real energy-loss state or
   Virtual user channel, with neutral hues for incident/vacuum/zero-loss paths.
   Five dark-to-bright shades denote each

@@ -1,0 +1,122 @@
+[
+  {
+    "gun": "FEG",
+    "mode": "nano_probe",
+    "blanked": false,
+    "voltage_v": 500.0,
+    "emitted": 512,
+    "gun_exit_alive": 512,
+    "stop_surviving": 512,
+    "stop_z_mm": 510.0
+  },
+  {
+    "gun": "FEG",
+    "mode": "nano_probe",
+    "blanked": true,
+    "voltage_v": 500.0,
+    "emitted": 512,
+    "gun_exit_alive": 512,
+    "stop_surviving": 0,
+    "stop_z_mm": 510.0
+  },
+  {
+    "gun": "FEG",
+    "mode": "micro_probe",
+    "blanked": false,
+    "voltage_v": 500.0,
+    "emitted": 512,
+    "gun_exit_alive": 512,
+    "stop_surviving": 512,
+    "stop_z_mm": 510.0
+  },
+  {
+    "gun": "FEG",
+    "mode": "micro_probe",
+    "blanked": true,
+    "voltage_v": 500.0,
+    "emitted": 512,
+    "gun_exit_alive": 512,
+    "stop_surviving": 0,
+    "stop_z_mm": 510.0
+  },
+  {
+    "gun": "FEG + Mono",
+    "mode": "nano_probe",
+    "blanked": false,
+    "voltage_v": 500.0,
+    "emitted": 512,
+    "gun_exit_alive": 32,
+    "stop_surviving": 27,
+    "stop_z_mm": 560.0
+  },
+  {
+    "gun": "FEG + Mono",
+    "mode": "nano_probe",
+    "blanked": true,
+    "voltage_v": 500.0,
+    "emitted": 512,
+    "gun_exit_alive": 32,
+    "stop_surviving": 0,
+    "stop_z_mm": 560.0
+  },
+  {
+    "gun": "FEG + Mono",
+    "mode": "micro_probe",
+    "blanked": false,
+    "voltage_v": 500.0,
+    "emitted": 512,
+    "gun_exit_alive": 32,
+    "stop_surviving": 27,
+    "stop_z_mm": 560.0
+  },
+  {
+    "gun": "FEG + Mono",
+    "mode": "micro_probe",
+    "blanked": true,
+    "voltage_v": 500.0,
+    "emitted": 512,
+    "gun_exit_alive": 32,
+    "stop_surviving": 0,
+    "stop_z_mm": 560.0
+  },
+  {
+    "gun": "Thermionic",
+    "mode": "nano_probe",
+    "blanked": false,
+    "voltage_v": 500.0,
+    "emitted": 512,
+    "gun_exit_alive": 244,
+    "stop_surviving": 54,
+    "stop_z_mm": 510.0
+  },
+  {
+    "gun": "Thermionic",
+    "mode": "nano_probe",
+    "blanked": true,
+    "voltage_v": 500.0,
+    "emitted": 512,
+    "gun_exit_alive": 244,
+    "stop_surviving": 1,
+    "stop_z_mm": 510.0
+  },
+  {
+    "gun": "Thermionic",
+    "mode": "micro_probe",
+    "blanked": false,
+    "voltage_v": 500.0,
+    "emitted": 512,
+    "gun_exit_alive": 244,
+    "stop_surviving": 54,
+    "stop_z_mm": 510.0
+  },
+  {
+    "gun": "Thermionic",
+    "mode": "micro_probe",
+    "blanked": true,
+    "voltage_v": 500.0,
+    "emitted": 512,
+    "gun_exit_alive": 244,
+    "stop_surviving": 1,
+    "stop_z_mm": 510.0
+  }
+]
