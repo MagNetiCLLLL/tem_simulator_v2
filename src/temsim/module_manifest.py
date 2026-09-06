@@ -696,6 +696,8 @@ def validate_document(document):
     if not math.isfinite(liner_wall) or liner_wall <= 0.0:
         raise ValueError("Vacuum liner wall thickness must be positive")
     _validate_aperture_mechanism_metadata(parts)
+    from temsim.magnetic_circuits import validate_circuit_declarations
+    validate_circuit_declarations(parts)
     _validate_accelerator_stack_metadata(parts)
     if document.get("module", {}).get("type") == "gun":
         _validate_gun_mechanical_relationships(parts)
@@ -1299,6 +1301,7 @@ def _validate_post_projector_detector_chamber(parts):
             "Missing projection-chamber differential-pumping aperture"
         )
     required_dpa_fields = (
+        "maximum_radius_mm",
         "mechanical_outer_diameter_mm",
         "mechanical_bore_diameter_mm",
         "reference_bore_diameter_mm",
@@ -1324,45 +1327,42 @@ def _validate_post_projector_detector_chamber(parts):
         != FIXED_DIFFERENTIAL_PUMPING_APERTURE
         or dpa.get("mechanical_part_role")
         != "fixed_vacuum_restriction"
-        or not bool(dpa.get("mechanical_only", False))
+        or bool(dpa.get("mechanical_only", False))
         or str(dpa.get("branch")) != "common"
     ):
         raise ValueError(
             "Projection-chamber DPA must be a common, fixed, "
-            "mechanical-only vacuum restriction"
+            "always-inserted optical vacuum restriction"
         )
-    if "optical_reference_local_z_mm" in dpa:
-        raise ValueError(
-            "Mechanical-only projection-chamber DPA must not impose an "
-            "optical reference plane"
-        )
+    # The documented boundary location is a default, not an immutable design
+    # constraint. The simulator may move the complete zero-thickness stop.
     for field in (
-        "local_start_z_mm",
-        "local_center_z_mm",
         "local_end_z_mm",
+        "local_start_z_mm",
+        "optical_reference_local_z_mm",
     ):
         if not math.isclose(
-            float(dpa[field]),
-            start,
+            float(dpa.get(field, float("nan"))),
+            float(dpa["local_center_z_mm"]),
             rel_tol=0.0,
             abs_tol=tolerance,
         ):
             raise ValueError(
-                "Projection-chamber DPA must remain at the P2/chamber boundary"
+                "Projection-chamber DPA stop and mechanical plane must coincide"
             )
     dpa_bore = float(dpa["mechanical_bore_diameter_mm"])
     reference_bore = float(dpa["reference_bore_diameter_mm"])
     dpa_outer = float(dpa["mechanical_outer_diameter_mm"])
+    maximum_radius = float(dpa["maximum_radius_mm"])
     if not (
         math.isfinite(dpa_bore)
         and math.isfinite(reference_bore)
         and math.isfinite(dpa_outer)
         and 0.0 < dpa_bore < dpa_outer
-        and math.isclose(
-            dpa_bore,
-            reference_bore,
-            rel_tol=0.0,
-            abs_tol=tolerance,
+        and reference_bore > 0.0
+        and math.isfinite(maximum_radius)
+        and 0.5 * dpa_bore <= maximum_radius <= 0.5 * min(
+            dpa_outer, float(dpa["vacuum_inner_diameter_mm"])
         )
         and dpa_outer <= inner
     ):
@@ -1386,11 +1386,11 @@ def _validate_post_projector_detector_chamber(parts):
         or dpa["conjugate_plane_status"]
         != "operating_mode_dependent_not_imposed_by_mechanical_layout"
         or dpa["optical_constraint_policy"]
-        != "mechanical_only_no_clipping_or_preset_recalculation"
+        != "always_inserted_hard_edge_no_automatic_preset_recalculation"
     ):
         raise ValueError(
-            "Projection-chamber DPA must not impose runtime optical "
-            "constraints or preset recalculation"
+            "Projection-chamber DPA must remain an active stop without "
+            "automatic preset recalculation"
         )
     dpa_urls = dpa["mechanical_geometry_source_urls"]
     if (
@@ -2968,6 +2968,10 @@ def _validate_magnetic_lens_mechanical_parts(parts, geometry):
             )
     for lens_key in lens_keys:
         lens = by_key[lens_key]
+        if lens.get("magnetic_circuit_id"):
+            # Explicit circuits are validated independently of this legacy
+            # non-OEM sizing recipe. A control channel need not own two poles.
+            continue
         try:
             design_peak_field = float(peak_fields[lens_key])
         except (KeyError, TypeError, ValueError) as exc:

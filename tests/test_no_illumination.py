@@ -93,13 +93,12 @@ def test_eds_no_current_clears_spectrum_and_disables_acquisition(qtbot):
     page.set_state(state)
     page._spectrum_energy_kev = np.ones(4)
     page._spectrum_counts = np.ones(4)
-    page.eds_lines.setRowCount(3)
     result = CalculationResult(
         simulation=_empty_simulation(), energy_filter=None, state_snapshot=state,
     )
     page.display_result(result)
     assert page._spectrum_counts.size == 0
-    assert page.eds_lines.rowCount() == 0
+    assert not hasattr(page, "eds_lines")
     assert not page.eds_acquire.isEnabled()
     assert not page.sample_region_calculation_available()
     assert "No incident current" in page.eds_summary.text()

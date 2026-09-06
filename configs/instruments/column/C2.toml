@@ -823,6 +823,7 @@ vacuum_inner_diameter_mm = 5.76
 mechanical_inner_diameter_mm = 60.0
 mechanical_outer_diameter_mm = 90.75
 mechanical_profile = "c1_c2_pole_piece_cartridge"
+magnetic_lens_keys = ["condenser_lens_1", "condenser_lens_2"]
 mechanical_part_role = "pole_piece_cartridge"
 material_class = "mixed_material_cartridge_user_photo_unresolved"
 mechanical_only = true

@@ -4,7 +4,11 @@ import numpy as np
 import pytest
 
 import temsim.specimen.downstream_transport as downstream_transport
-from temsim.specimen.downstream_transport import build_geometric_specimen_exit
+from temsim.specimen.downstream_transport import (
+    GeometricSpecimenExit,
+    build_geometric_specimen_exit,
+    validated_geometric_specimen_exit,
+)
 from temsim.specimen.elastic_transport import (
     ElasticTerminalBundle,
     ElasticTransportResult,
@@ -76,6 +80,17 @@ def _test_inelastic_distribution():
         ),
         tracked_probability=0.9,
         absorbed_probability=0.1,
+    )
+
+
+def _signed_exit(*, tracked=0.0, absorbed=0.0, branch_weights=()):
+    return GeometricSpecimenExit(
+        tuple(SimpleNamespace(weight=weight) for weight in branch_weights),
+        {
+            "tracked_downstream_source_probability": tracked,
+            "inelastic_absorbed_source_probability": absorbed,
+        },
+        dependency_signature="current",
     )
 
 
@@ -191,5 +206,109 @@ def test_geometric_exit_back_projects_terminal_line_to_common_sample_plane(
     assert captured_x == pytest.approx((10.0e-9, expected_scattered_x_m))
     assert not result.metrics["terminal_state_projection_preserves_free_flight_line"]
     assert result.metrics["terminal_state_projection_model"] == (
-        "inverse local-uniform axial-field helical drift"
+        "inverse shared-vector-field reference-plane matching"
     )
+
+
+def test_geometric_exit_requires_matching_internal_provenance():
+    signed = GeometricSpecimenExit(
+        (),
+        {
+            "tracked_downstream_source_probability": 0.0,
+            "inelastic_absorbed_source_probability": 0.0,
+        },
+        dependency_signature="current",
+    )
+
+    assert validated_geometric_specimen_exit(signed, "current") is signed
+    assert validated_geometric_specimen_exit(signed, "stale") is None
+    assert validated_geometric_specimen_exit(
+        GeometricSpecimenExit((), {}),
+        "current",
+    ) is None
+
+    signed.metrics["sample_downstream_signature"] = "tampered"
+    assert validated_geometric_specimen_exit(signed, "current") is None
+
+
+def test_geometric_exit_rejects_conflicting_metric_signature():
+    with pytest.raises(ValueError, match="cannot be relabelled"):
+        GeometricSpecimenExit(
+            (),
+            {
+                "sample_downstream_signature": "old",
+                "tracked_downstream_source_probability": 0.0,
+                "inelastic_absorbed_source_probability": 0.0,
+            },
+            dependency_signature="new",
+        )
+
+
+def test_geometric_exit_rejects_incomplete_probability_ledger():
+    incomplete = GeometricSpecimenExit(
+        (),
+        {"tracked_downstream_source_probability": 0.0},
+        dependency_signature="current",
+    )
+
+    assert validated_geometric_specimen_exit(incomplete, "current") is None
+
+
+@pytest.mark.parametrize(
+    ("tracked", "absorbed"),
+    (
+        (-0.1, 0.0),
+        (1.1, 0.0),
+        (float("nan"), 0.0),
+        (float("inf"), 0.0),
+        (0.0, -0.1),
+        (0.0, 1.1),
+        (0.0, float("nan")),
+        (0.0, float("inf")),
+    ),
+)
+def test_geometric_exit_rejects_invalid_source_probabilities(tracked, absorbed):
+    checkpoint = _signed_exit(tracked=tracked, absorbed=absorbed)
+
+    assert validated_geometric_specimen_exit(checkpoint, "current") is None
+
+
+def test_geometric_exit_checks_probability_partition_with_roundoff_tolerance():
+    within_tolerance = _signed_exit(
+        tracked=0.6,
+        absorbed=0.4 + 1.0e-12,
+        branch_weights=(0.2, 0.4),
+    )
+    beyond_tolerance = _signed_exit(
+        tracked=0.6,
+        absorbed=0.4 + 1.0e-10,
+        branch_weights=(0.2, 0.4),
+    )
+
+    assert validated_geometric_specimen_exit(within_tolerance, "current") is (
+        within_tolerance
+    )
+    assert validated_geometric_specimen_exit(beyond_tolerance, "current") is None
+
+
+@pytest.mark.parametrize("weight", (-0.1, float("nan"), float("inf")))
+def test_geometric_exit_rejects_invalid_branch_weights(weight):
+    checkpoint = _signed_exit(tracked=0.5, branch_weights=(0.5, weight))
+
+    assert validated_geometric_specimen_exit(checkpoint, "current") is None
+
+
+def test_geometric_exit_requires_branch_weights_to_match_tracked_probability():
+    within_tolerance = _signed_exit(
+        tracked=0.3,
+        branch_weights=(0.1, 0.2 + 1.0e-12),
+    )
+    beyond_tolerance = _signed_exit(
+        tracked=0.3,
+        branch_weights=(0.1, 0.2 + 1.0e-8),
+    )
+
+    assert validated_geometric_specimen_exit(within_tolerance, "current") is (
+        within_tolerance
+    )
+    assert validated_geometric_specimen_exit(beyond_tolerance, "current") is None

@@ -8,10 +8,11 @@ import numpy as np
 
 from temsim import module_manifest
 from temsim.component_keys import C1_APERTURE, GUN_EXTRACTOR_APERTURE
+from temsim.optics.aperture_policy import ApertureInsertionPolicy
 
 
 @dataclass
-class GunAperture:
+class GunAperture(ApertureInsertionPolicy):
     name: str
     key: str
     mechanical_center_from_tip_mm: float

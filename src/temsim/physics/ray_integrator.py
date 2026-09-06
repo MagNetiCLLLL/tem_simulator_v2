@@ -126,6 +126,12 @@ def parallel_rk4(
     return X, TX, Y, TY, CX, CTX, CY, CTY
 
 
+# The exact same kernel without thread-pool overhead for small tuning bundles.
+# prange is an ordinary serial range when parallel=False; no equations differ.
+serial_rk4 = (njit(cache=True, nogil=True)(parallel_rk4.py_func)
+              if NUMBA_AVAILABLE else parallel_rk4)
+
+
 def vectorised_rk4(
     kx, ky, hn, hs, larmor_axis, inverse_momentum, cs_kick,
     thin_power, thin_rotation, step_m, x, tx, y, ty,

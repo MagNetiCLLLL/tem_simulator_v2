@@ -1,8 +1,10 @@
 from dataclasses import dataclass, asdict, field
+from copy import deepcopy
 import math
 
 from temsim import module_manifest
 from temsim.optics.nanopulser import NanoPulser
+from temsim.optics.aperture_policy import ApertureInsertionPolicy
 
 
 _DEFAULT_COLUMN_MODULE = "column/C3_ProbeCorrector.toml"
@@ -69,7 +71,7 @@ class Lens:
 
 @dataclass
 
-class Aperture:
+class Aperture(ApertureInsertionPolicy):
 
     name: str
 
@@ -324,6 +326,45 @@ class Sample:
 
     stem_poisson_seed: int = 0
 
+    # Optional angle-resolved STEM diffraction-cube capture.  It is disabled
+    # by default and is evaluated only by an explicit High accuracy wave-STEM
+    # acquisition.  Detector-response defaults are ideal simulator values,
+    # not an OEM pixel-detector calibration.
+    stem_fourdstem_enabled: bool = False
+
+    stem_fourdstem_output_path: str = ""
+
+    stem_fourdstem_overwrite: bool = False
+
+    stem_fourdstem_resume: bool = False
+
+    stem_fourdstem_response_mode: str = "ideal"
+
+    stem_fourdstem_quantum_efficiency: float = 1.0
+
+    stem_fourdstem_charge_spread_sigma_px: float = 0.0
+
+    stem_fourdstem_dark_electrons_per_pixel: float = 0.0
+
+    stem_fourdstem_read_noise_electrons_rms: float = 0.0
+
+    # Zero disables saturation in the adjustable detector response.
+    stem_fourdstem_saturation_electrons: float = 0.0
+
+    stem_fourdstem_gain_counts_per_electron: float = 1.0
+
+    stem_fourdstem_offset_counts: float = 0.0
+
+    stem_fourdstem_poisson_enabled: bool = False
+
+    stem_fourdstem_seed: int = 0
+
+    # Lightweight post-processing controls.  They affect only integration of
+    # an existing disk-backed diffraction cube, never multislice capture.
+    stem_fourdstem_virtual_inner_mrad: float = 0.0
+
+    stem_fourdstem_virtual_outer_mrad: float = 50.0
+
     # Generic EDS acquisition controls. Detector placement/solid angle remain
     # instrument-owned; these fields select the specimen support and explicit
     # signal calculation settings. Zero resolution is the intentional ideal
@@ -490,6 +531,16 @@ class State:
     # Canonical editable geometry store shared by all modular components.
     component_placements: dict = field(default_factory=dict)
 
+    # Serializable loader descriptors for measured/FEM lens field maps.  The
+    # large immutable arrays are loaded lazily in each worker after their file
+    # SHA-256 and geometry/assembly fingerprints have been revalidated.
+    lens_field_map_descriptors: dict = field(default_factory=dict, repr=False)
+
+    # Legacy states keep their mixed per-lens configuration. New teaching
+    # windows explicitly select Ideal Optics without changing operating values.
+    simulation_mode: str = "custom"
+    simulation_mode_profiles: dict = field(default_factory=dict, repr=False)
+
     illumination_mode: str = "STEM"
 
     projector_mode: str = "diffraction"
@@ -561,9 +612,13 @@ class State:
     probe_aberrations: dict = field(default_factory=dict)
     image_aberrations: dict = field(default_factory=dict)
 
-    schema_version: int = 75
+    schema_version: int = 76
 
     def __post_init__(self):
+        from temsim.simulation_modes import validate_mode, normalise_profiles, validate_model_recipes
+        self.simulation_mode = validate_mode(self.simulation_mode)
+        self.simulation_mode_profiles = normalise_profiles(self.simulation_mode_profiles)
+        validate_model_recipes(self.lens_field_map_descriptors)
         self.column_current_limit_percent = float(
             self.column_current_limit_percent
         )
@@ -1671,6 +1726,14 @@ class State:
                 if key not in TOML_OWNED_GEOMETRY_KEYS
             },
 
+            "lens_field_map_descriptors":{
+                str(key): dict(value)
+                for key, value in self.lens_field_map_descriptors.items()
+            },
+
+            "simulation_mode": self.simulation_mode,
+            "simulation_mode_profiles": deepcopy(self.simulation_mode_profiles),
+
             "projector_mode":self.projector_mode,
             "column_current_limit_percent":float(
                 self.column_current_limit_percent
@@ -2274,6 +2337,11 @@ class State:
                 )
                 apertures.append(condenser_aperture_from_dict(q))
             else:
+                # Resolved TOML geometry is restored below; the persisted
+                # operating snapshot intentionally omits owned positions.
+                from temsim.component_keys import PROJECTION_CHAMBER_DPA_APERTURE
+                if q["key"] == PROJECTION_CHAMBER_DPA_APERTURE:
+                    q.setdefault("z_mm", 0.0)
                 apertures.append(Aperture(**q))
         if not objective_aperture_loaded:
             from temsim.optics.objective_aperture import (
@@ -2626,6 +2694,15 @@ class State:
             },
             sample=Sample(**sample_data), camera=None,
             component_placements=component_placements,
+            simulation_mode=d.get("simulation_mode", "custom"),
+            simulation_mode_profiles=d.get("simulation_mode_profiles", {}),
+            lens_field_map_descriptors={
+                str(key): dict(value)
+                for key, value in d.get(
+                    "lens_field_map_descriptors", {}
+                ).items()
+                if isinstance(value, dict)
+            },
             illumination_mode=d.get("illumination_mode","STEM"), projector_mode=d.get("projector_mode","diffraction"),
             column_current_limit_percent=float(
                 d.get("column_current_limit_percent", 100.0)
@@ -2730,7 +2807,7 @@ class State:
             probe_aberrations=dict(d.get("probe_aberrations", {})),
             image_aberrations=dict(d.get("image_aberrations", {})),
             nanopulser=NanoPulser.from_dict(d.get("nanopulser", {})),
-            schema_version=75,
+            schema_version=76,
         )
         if loaded_schema_version < 64:
             from temsim.specimen.geometry import (

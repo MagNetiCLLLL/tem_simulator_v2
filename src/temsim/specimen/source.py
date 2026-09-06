@@ -83,6 +83,16 @@ def specimen_is_vacuum(sample) -> bool:
     )
 
 
+def specimen_interactions_active(sample) -> bool:
+    """Return whether an inserted, non-vacuum structure can interact."""
+
+    return bool(
+        getattr(sample, "inserted", False)
+        and specimen_structure_available(sample)
+        and not specimen_is_vacuum(sample)
+    )
+
+
 def wave_template_preset_key(sample, *, inserted: bool = True) -> str:
     """Return the TOML grid/potential template used by a wave calculation.
 

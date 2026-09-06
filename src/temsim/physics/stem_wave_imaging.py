@@ -46,6 +46,10 @@ from temsim.specimen.source import (
     wave_template_preset_key,
 )
 from temsim.specimen.geometry import build_sample_geometry_snapshot
+from temsim.physics.stem_sampling import (
+    detector_angular_bounds,
+    detector_sampling_report,
+)
 
 
 ProgressCallback = Callable[[int, int, str], None]
@@ -116,6 +120,7 @@ class AngleResolvedStemResult:
     uncollected_fraction: np.ndarray
     truncated_fraction: np.ndarray | None
     metrics: dict
+    fourdstem_artifact: object | None = None
 
 
 @dataclass(frozen=True)
@@ -363,8 +368,17 @@ def simulate_angle_resolved_stem(
     baseline_scan_offset_um=(0.0, 0.0),
     detector_center_shifts_mrad=None,
     progress_callback: ProgressCallback | None = None,
+    diffraction_sink=None,
+    record_plane_plan=None,
 ):
-    """Form STEM images by integrating detector-angle bands."""
+    """Form STEM images and optionally stream the complete diffraction cube.
+
+    ``diffraction_sink`` follows the narrow ``FourDSTEMCaptureSink`` protocol:
+    ``begin(calibration, valid_mask, maximum_isotropic_angle_mrad=...)``, then
+    ``write_frame(y, x, probability)``, and finally ``finish()``.  Requesting
+    the cube selects the complete NumPy reference route because the resident
+    GPU reduction intentionally does not transfer per-probe diffraction data.
+    """
     last_progress_fraction = 0.0
 
     def report_progress(completed: int, total: int, label: str) -> None:
@@ -520,6 +534,54 @@ def simulate_angle_resolved_stem(
     origin_y_um = float(ray_stats["mean_y_m"]) * 1.0e6 - float(
         baseline_scan_offset_um[1]
     )
+    sampling = detector_sampling_report(
+        detector_angular_bounds(
+            detectors,
+            positions_m=np.stack((origin_x_um + scan_x_um.ravel(),
+                                  origin_y_um + scan_y_um.ravel()), axis=-1) * 1e-6,
+            record_plane_plan=record_plane_plan,
+            detector_center_shifts_mrad=detector_center_shifts_mrad,
+        ),
+        maximum_angle_mrad=maximum_isotropic_angle_mrad,
+        wavelength_angstrom=wavelength_angstrom,
+        requested_fov_angstrom=float(prepared.metrics.get(
+            "requested_field_of_view_angstrom", max(spacing_x * nx, spacing_y * ny))),
+        requested_grid_pixels=int(getattr(state.sample, "wave_grid_pixels", 0) or preset.pixels),
+        bandwidth_fraction=(float(getattr(state.sample, "wave_bandwidth_fraction", 2 / 3))
+                            if multislice_enabled else 1.0),
+        probe_semiangle_mrad=_coherent_probe_semiangle_rad(ray_stats) * 1e3,
+        potential_storage_bytes=int(prepared.metrics.get("potential_storage_bytes", 0)),
+    )
+    if record_plane_plan is not None:
+        physical_detector_keys = {
+            plane.key
+            for plane in record_plane_plan.planes
+            if plane.kind == "detector"
+        }
+        missing_physical = {
+            detector.key for detector in detectors
+        } - physical_detector_keys
+        if missing_physical:
+            raise ValueError(
+                "Runtime record-plane plan is missing STEM detector(s): "
+                + ", ".join(sorted(missing_physical))
+            )
+    if diffraction_sink is not None:
+        from temsim.physics.fourdstem import FourDSTEMCalibration
+
+        # Mixed-plane propagation needs the actual specimen-plane position,
+        # including the incident-bundle centroid.  ``scan_x/y_um`` alone are
+        # raster coordinates and can omit a static alignment displacement.
+        diffraction_sink.begin(
+            FourDSTEMCalibration(
+                origin_x_um + scan_x_um,
+                origin_y_um + scan_y_um,
+                angle_x_mrad,
+                angle_y_mrad,
+            ),
+            valid_reciprocal,
+            maximum_isotropic_angle_mrad=maximum_isotropic_angle_mrad,
+        )
     _, detector_masks, _ = integrate_angular_intensity(
         np.ones_like(scattering_angle_mrad),
         scattering_angle_mrad,
@@ -589,6 +651,38 @@ def simulate_angle_resolved_stem(
         "cuda_resident_pipeline": False,
         "cuda_pipeline_fallback_reason": None,
     }
+    if wave_backend == WAVE_BACKEND_CUPY and diffraction_sink is not None:
+        capture_reason = (
+            "4D-STEM capture uses the complete NumPy diffraction frames; "
+            "the resident GPU detector reduction does not return a 4-D cube."
+        )
+        wave_backend = WAVE_BACKEND_NUMPY
+        fft_backend = WAVE_BACKEND_NUMPY
+        wave_fallback_reason = "; ".join(
+            reason
+            for reason in (wave_fallback_reason, capture_reason)
+            if reason
+        )
+        fft_fallback_reason = wave_fallback_reason
+        resident_pipeline_metrics["cuda_pipeline_fallback_reason"] = (
+            capture_reason
+        )
+    if wave_backend == WAVE_BACKEND_CUPY and record_plane_plan is not None:
+        routing_reason = (
+            "Full mixed-plane J_img*r + J_diff*theta detector routing uses "
+            "the NumPy reference path."
+        )
+        wave_backend = WAVE_BACKEND_NUMPY
+        fft_backend = WAVE_BACKEND_NUMPY
+        wave_fallback_reason = "; ".join(
+            reason
+            for reason in (wave_fallback_reason, routing_reason)
+            if reason
+        )
+        fft_fallback_reason = wave_fallback_reason
+        resident_pipeline_metrics["cuda_pipeline_fallback_reason"] = (
+            routing_reason
+        )
     if wave_backend == WAVE_BACKEND_CUPY and flat_detector_centers is not None:
         dynamic_reason = (
             "Pixel-dependent physical detector acceptance uses the complete "
@@ -699,6 +793,8 @@ def simulate_angle_resolved_stem(
             np.fft.ifftshift(shifted_spectrum, axes=(-2, -1)),
             axes=(-2, -1),
         )
+        # All prepared potentials use (arange(N) - N//2) * spacing axes.
+        probe = np.fft.fftshift(probe, axes=(-2, -1))
         probe_norm = np.sqrt(
             np.maximum(np.sum(np.abs(probe) ** 2, axis=(-2, -1)), 1.0e-30)
         )
@@ -707,8 +803,43 @@ def simulate_angle_resolved_stem(
             detector.key: [] for detector in detectors
         }
         configuration_truncated = []
+        configuration_averaged_diffraction = (
+            np.zeros(
+                (stop - start, *valid_reciprocal.shape),
+                dtype=np.float64,
+            )
+            if diffraction_sink is not None
+            else None
+        )
         batch_detector_masks = detector_masks
-        if flat_detector_centers is not None:
+        if record_plane_plan is not None:
+            from temsim.physics.record_plane import route_record_planes
+
+            position_m = np.stack((
+                origin_x_um + scan_x_um.ravel()[start:stop],
+                origin_y_um + scan_y_um.ravel()[start:stop],
+            ), axis=-1)[:, None, None, :] * 1.0e-6
+            angle_rad = np.stack(
+                (angle_x_mrad, angle_y_mrad), axis=-1
+            )[None, ...] * 1.0e-3
+            routed = route_record_planes(
+                record_plane_plan,
+                position_m,
+                angle_rad,
+            )
+            by_key = {
+                interaction.plane.key: interaction.signal_mask
+                for interaction in routed.interactions
+                if interaction.plane.kind == "detector"
+            }
+            batch_detector_masks = {
+                detector.key: (
+                    by_key[detector.key]
+                    & valid_reciprocal[None, :, :]
+                )
+                for detector in detectors
+            }
+        elif flat_detector_centers is not None:
             available = np.ones(
                 (stop - start, *valid_reciprocal.shape),
                 dtype=bool,
@@ -787,6 +918,8 @@ def simulate_angle_resolved_stem(
             if fft_diagnostics.compute_backend != fft_backend:
                 fft_backend = fft_diagnostics.compute_backend
                 fft_fallback_reason = fft_diagnostics.fallback_reason
+            if configuration_averaged_diffraction is not None:
+                configuration_averaged_diffraction += diffraction
             configuration_truncated.append(
                 np.sum(
                     diffraction[:, ~valid_reciprocal],
@@ -847,6 +980,21 @@ def simulate_angle_resolved_stem(
             np.stack(configuration_truncated, axis=0),
             axis=0,
         )
+        if configuration_averaged_diffraction is not None:
+            configuration_averaged_diffraction /= configuration_count
+            scan_width = int(scan_x_um.shape[1])
+            for local_index, diffraction_frame in enumerate(
+                configuration_averaged_diffraction
+            ):
+                scan_y_index, scan_x_index = divmod(
+                    start + local_index,
+                    scan_width,
+                )
+                diffraction_sink.write_frame(
+                    scan_y_index,
+                    scan_x_index,
+                    diffraction_frame,
+                )
 
     final_progress_total = (
         cuda_total_work
@@ -866,7 +1014,7 @@ def simulate_angle_resolved_stem(
     truncated = tuple(
         detector.key
         for detector in detectors
-        if detector.outer_mrad > maximum_isotropic_angle_mrad
+        if sampling["detectors"][detector.key]["status"] != "full"
     )
     scan_span_x_angstrom = float(np.ptp(scan_x_um)) * 1.0e4
     scan_span_y_angstrom = float(np.ptp(scan_y_um)) * 1.0e4
@@ -996,6 +1144,9 @@ def simulate_angle_resolved_stem(
             )
             for detector in detectors
         }
+    fourdstem_artifact = (
+        None if diffraction_sink is None else diffraction_sink.finish()
+    )
     result = AngleResolvedStemResult(
         scan_x_um=scan_x_um,
         scan_y_um=scan_y_um,
@@ -1019,6 +1170,16 @@ def simulate_angle_resolved_stem(
             "wavelength_angstrom": wavelength_angstrom,
             "probe_ray_waist_offset_nm": (
                 probe_focus.ray_waist_offset_m * 1.0e9
+            ),
+            "physical_detector_routing": (
+                "full_signed_j_img_r_plus_j_diff_theta_sequential_stops"
+                if record_plane_plan is not None
+                else "angular_detector_masks"
+            ),
+            "record_plane_plan_fingerprint": (
+                None
+                if record_plane_plan is None
+                else record_plane_plan.fingerprint
             ),
             "probe_ray_defocus_nm": probe_focus.ray_defocus_mm * 1.0e6,
             "probe_configured_defocus_nm": (
@@ -1058,7 +1219,8 @@ def simulate_angle_resolved_stem(
             ),
             "maximum_isotropic_angle_mrad": maximum_isotropic_angle_mrad,
             "truncated_detector_keys": truncated,
-            "angular_coverage_complete": not bool(truncated),
+            "angular_coverage_complete": sampling["coverage_complete"],
+            "detector_sampling": sampling,
             "truncated_fraction_available": bool(
                 resident_cuda_result is None
             ),
@@ -1095,6 +1257,7 @@ def simulate_angle_resolved_stem(
             "wave_compute_backend": wave_compute_backend,
             **resident_pipeline_metrics,
         },
+        fourdstem_artifact=fourdstem_artifact,
     )
     report_progress(
         final_progress_total,

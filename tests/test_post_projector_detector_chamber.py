@@ -70,7 +70,7 @@ def test_post_p2_chamber_preserves_detector_planes_and_marks_non_oem_geometry(
         FIXED_DIFFERENTIAL_PUMPING_APERTURE
     )
     assert dpa["mechanical_part_role"] == "fixed_vacuum_restriction"
-    assert dpa["mechanical_only"] is True
+    assert dpa["mechanical_only"] is False
     assert dpa["branch"] == "common"
     assert dpa["local_start_z_mm"] == pytest.approx(p2_end)
     assert dpa["local_center_z_mm"] == pytest.approx(p2_end)
@@ -86,9 +86,9 @@ def test_post_p2_chamber_preserves_detector_planes_and_marks_non_oem_geometry(
         "operating_mode_dependent_not_imposed_by_mechanical_layout"
     )
     assert dpa["optical_constraint_policy"] == (
-        "mechanical_only_no_clipping_or_preset_recalculation"
+        "always_inserted_hard_edge_no_automatic_preset_recalculation"
     )
-    assert "optical_reference_local_z_mm" not in dpa
+    assert dpa["optical_reference_local_z_mm"] == pytest.approx(p2_end)
     assert "aperture_plate_attachment" not in dpa
 
     expected_gaps_mm = {
@@ -117,7 +117,7 @@ def test_post_p2_chamber_must_start_at_p2_end():
         validate_document(document)
 
 
-def test_projection_chamber_dpa_must_remain_at_the_p2_chamber_boundary():
+def test_projection_chamber_dpa_stop_follows_its_adjustable_mechanics():
     document = _document("EnergyFilter.toml")
     dpa = _parts_by_key(document)[PROJECTION_CHAMBER_DPA_APERTURE]
     dpa["local_start_z_mm"] += 1.0
@@ -126,9 +126,13 @@ def test_projection_chamber_dpa_must_remain_at_the_p2_chamber_boundary():
 
     with pytest.raises(
         ValueError,
-        match="DPA must remain at the P2/chamber boundary",
+        match="DPA stop and mechanical plane must coincide",
     ):
         validate_document(document)
+    dpa["optical_reference_local_z_mm"] += 1.0
+    dpa["mechanical_bore_diameter_mm"] = 0.4
+    validate_document(document)
+    assert dpa["reference_bore_diameter_mm"] == 0.2  # Literature reference unchanged.
 
 
 def test_physical_layout_draws_post_p2_detector_chamber_without_moving_planes(
@@ -160,7 +164,7 @@ def test_physical_layout_draws_post_p2_detector_chamber_without_moving_planes(
         assembly.part("projector_lens_2").end_z_mm
     )
     assert dpa_record.bore_diameter_mm == pytest.approx(0.2)
-    assert dpa_record.optical_references_mm == ()
+    assert dpa_record.optical_references_mm == (dpa_record.center_z_mm,)
     assert POST_PROJECTOR_DETECTOR_CHAMBER in view._component_label_items
     assert PROJECTION_CHAMBER_DPA_APERTURE in (
         view._component_label_items
@@ -168,8 +172,8 @@ def test_physical_layout_draws_post_p2_detector_chamber_without_moving_planes(
     assert PROJECTION_CHAMBER_DPA_APERTURE in set(
         view._selectable_item_keys.values()
     )
-    assert PROJECTION_CHAMBER_DPA_APERTURE not in APERTURE_KEYS
-    assert PROJECTION_CHAMBER_DPA_APERTURE not in {
+    assert PROJECTION_CHAMBER_DPA_APERTURE in APERTURE_KEYS
+    assert PROJECTION_CHAMBER_DPA_APERTURE in {
         record["key"] for record in aperture_stop_records(state)
     }
     assert assembly.part("haadf").start_z_mm - assembly.part(

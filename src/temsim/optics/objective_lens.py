@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 import math
+from threading import RLock
 from typing import ClassVar
 
 import numpy as np
@@ -19,6 +21,13 @@ from temsim.optics.excitation_policy import (
 
 
 ELECTRON_CHARGE_C = 1.602176634e-19
+
+# Scalar reference-plane roots are repeatedly requested while constructing
+# independent worker snapshots. Share exact solves across those equivalent
+# components without retaining any State, lens object, array or GUI widget.
+_PLANE_ZERO_CACHE_LIMIT = 1024
+_PLANE_ZERO_CACHE: OrderedDict[tuple, float | None] = OrderedDict()
+_PLANE_ZERO_CACHE_LOCK = RLock()
 
 _DEFAULT_OBJECTIVE_MODULE_PATH = "column/C3_ProbeCorrector.toml"
 _DEFAULT_COLUMN_ORIGIN_Z_MM = module_manifest.port_z_mm(
@@ -409,6 +418,51 @@ class ObjectiveLensComponent:
         return matrix
 
     def _first_matrix_zero(
+        self,
+        voltage_kv,
+        start_z_mm,
+        end_z_mm,
+        matrix_index,
+        step_mm,
+    ):
+        """Reuse exact analytical reference-plane roots, never interpolation."""
+
+        methods = ("transfer_matrix", "magnetic_field_t", "unit_excitation_field_t", "_profile")
+        # A custom implementation can have dependencies absent from this
+        # analytical contract. Keep its original un-cached behaviour.
+        if type(self) is not ObjectiveLensComponent or any(name in self.__dict__ for name in methods):
+            return self._solve_first_matrix_zero(
+                voltage_kv, start_z_mm, end_z_mm, matrix_index, step_mm
+            )
+        key = (
+            *(getattr(type(self), name) for name in methods),
+            type(self)._solve_first_matrix_zero,
+            float(voltage_kv), float(start_z_mm), float(end_z_mm),
+            tuple(matrix_index), float(step_mm),
+            bool(self.enabled), float(self.percent), float(self.polarity),
+            float(self.upper_b0_t), float(self.lower_b0_t),
+            float(self.upper_a_mm), float(self.lower_a_mm),
+            float(self.upper_field_center_z_mm), float(self.lower_field_center_z_mm),
+            tuple((float(term.amplitude), float(term.offset), float(term.sigma))
+                  for term in self.upper_gaussian),
+            tuple((float(term.amplitude), float(term.offset), float(term.sigma))
+                  for term in self.lower_gaussian),
+        )
+        with _PLANE_ZERO_CACHE_LOCK:
+            if key in _PLANE_ZERO_CACHE:
+                _PLANE_ZERO_CACHE.move_to_end(key)
+                return _PLANE_ZERO_CACHE[key]
+        value = self._solve_first_matrix_zero(
+            voltage_kv, start_z_mm, end_z_mm, matrix_index, step_mm
+        )
+        with _PLANE_ZERO_CACHE_LOCK:
+            _PLANE_ZERO_CACHE[key] = value
+            _PLANE_ZERO_CACHE.move_to_end(key)
+            while len(_PLANE_ZERO_CACHE) > _PLANE_ZERO_CACHE_LIMIT:
+                _PLANE_ZERO_CACHE.popitem(last=False)
+        return value
+
+    def _solve_first_matrix_zero(
         self,
         voltage_kv,
         start_z_mm,

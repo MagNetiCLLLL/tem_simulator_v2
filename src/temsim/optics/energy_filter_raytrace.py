@@ -72,6 +72,8 @@ class EnergyFilterResult:
     eels_transmitted_fraction: float
     eels_transmitted_current_pa: float
     metrics: object = None
+    eels_forward: object = None
+    eftem_image: object = None
 
 
 def branch_items(simulation):
@@ -655,7 +657,13 @@ def trace_one(state, x0, tx0, energy_offset_ev):
     return paths_u[0], paths_v[0], bool(batch.reached_eels[0])
 
 
-def simulate_energy_filter(state, simulation):
+def simulate_energy_filter(
+    state,
+    simulation,
+    inelastic_distribution=None,
+    *,
+    eftem_source_image=None,
+):
     ensure_energy_filter(state)
     energy_filter = state.energy_filter
     if not energy_filter.enabled:
@@ -665,6 +673,35 @@ def simulate_energy_filter(state, simulation):
         state,
         state.energy_filter_entrance_aperture,
     )
+    eels_forward = None
+    eftem_image = None
+    if inelastic_distribution is not None:
+        # This spectrum consumes the exact immutable distribution already
+        # produced by the shared specimen-interaction result.  It is
+        # normalised per electron at the specimen boundary; the separate ray
+        # counters below remain authoritative for physical entrance/output
+        # interception until an energy-resolved Boris transfer is available.
+        from temsim.detector.eels_forward import simulate_eels_forward
+
+        eels_forward = simulate_eels_forward(
+            state,
+            incident_electrons=1.0,
+            simulation=simulation,
+            distribution=inelastic_distribution,
+        )
+        if (
+            str(getattr(energy_filter, "operating_mode", "eels")).lower()
+            == "eftem"
+            and eftem_source_image is not None
+        ):
+            from temsim.detector.eels_forward import (
+                eftem_image_from_shared_spectrum,
+            )
+
+            eftem_image = eftem_image_from_shared_spectrum(
+                eftem_source_image,
+                eels_forward,
+            )
     rays, total_entrance_count = _representative_entrance_rays(
         extract_entrance_rays(state, simulation),
         energy_filter.maximum_trace_rays,
@@ -693,6 +730,8 @@ def simulate_energy_filter(state, simulation):
             camera_recorded_current_pa=0.0,
             eels_transmitted_fraction=0.0,
             eels_transmitted_current_pa=0.0,
+            eels_forward=eels_forward,
+            eftem_image=eftem_image,
         )
 
     reference_batch = trace_energy_filter_batch(
@@ -773,4 +812,6 @@ def simulate_energy_filter(state, simulation):
         eels_transmitted_fraction=eels_fraction,
         eels_transmitted_current_pa=source_pa * eels_fraction,
         metrics=getattr(energy_filter, "_last_slit_metrics", None),
+        eels_forward=eels_forward,
+        eftem_image=eftem_image,
     )

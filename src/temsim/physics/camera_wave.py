@@ -371,7 +371,18 @@ def _project_wave_to_plane(
     )
     blur_m = float(np.linalg.norm(b_block, ord=2)) * blur_angle_rad
     camera_pixel_m = max(pixel_x_m, pixel_y_m)
-    if (
+    from temsim.physics.multiplane_wave import intermediate_apertures, project_through_apertures
+    aperture_rows = ()
+    if intermediate_apertures(state, float(recording_plane.z_mm)):
+        final_wave, aperture_rows = project_through_apertures(
+            state, wave, x_m, y_m, wavelength_m, float(recording_plane.z_mm),
+        )
+        coordinates = np.einsum("ij,jyx->iyx", rotation, final_wave.coordinates_m())
+        electron_optical_intensity = _deposit_mapped_probability(
+            np.abs(final_wave.amplitude) ** 2, coordinates[0], coordinates[1], camera_x_m, camera_y_m,
+        )
+        method = "multiplane_coherent_lct_with_apertures"
+    elif (
         projector_mode != "diffraction"
         and blur_m <= 0.25 * camera_pixel_m
     ):
@@ -477,12 +488,13 @@ def _project_wave_to_plane(
             if projector_mode == "diffraction"
             else "image"
         ),
-        "intermediate_post_sample_masks_applied": False,
+        "intermediate_post_sample_masks_applied": bool(aperture_rows),
+        "intermediate_aperture_transmissions": aperture_rows,
         "camera_wave_model_scope": (
             "specimen exit to the first inserted TEM recording stop through "
             "the enabled post-specimen paraxial fields; terminal detector "
-            "mask and PSF applied; intermediate aperture masks are not yet "
-            "split-plane wave propagations"
+            "mask and PSF applied; enabled intermediate aperture masks use "
+            "coherent split-plane LCTs; unresolved sampling fails explicitly"
         ),
     }
     return CameraWaveProjection(

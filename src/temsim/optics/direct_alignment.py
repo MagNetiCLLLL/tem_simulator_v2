@@ -40,11 +40,14 @@ from temsim.physics.ray_integrator import _canonical_step_numba
 from temsim.physics.first_order import (
     TransverseTransfer,
     trace_transverse_transfer,
+    trace_transverse_transfers,
 )
+from temsim.physics.lens_field_provider import active_mapped_providers
 from temsim.physics.recording_stop import tem_projection_reference_plane
 from temsim.optics.equivalent_image_lenses import (
     equivalent_image_calibrations,
     equivalent_image_transfer_matrix,
+    equivalent_image_maps_supported,
 )
 from temsim.optics.direct_alignment_precalibration import (
     interpolated_precalculated_seed,
@@ -169,7 +172,7 @@ def diffraction_transfer(
 
     source_z_mm = float(state.sample.z_mm)
     target_z_mm = float(target_z_mm)
-    if not stable_axisymmetric:
+    if not stable_axisymmetric or active_mapped_providers(state):
         raw = trace_transverse_transfer(
             state,
             source_z_mm,
@@ -189,6 +192,8 @@ def diffraction_transfer(
             j_diff_m_per_rad=matrix[:2, 2:],
             k_img_rad_per_m=matrix[2:, :2],
             k_diff=matrix[2:, 2:],
+            position_offset_m=raw.position_offset_m,
+            angle_offset_rad=raw.angle_offset_rad,
         )
     # Match the independently required production-validation resolution so
     # GUI diagnostics cannot regress to a visibly different coarse-step plane.
@@ -490,6 +495,8 @@ class _LiveFirstOrderModel:
     ) -> None:
         self.state = state
         self.variable_keys = tuple(variable_keys)
+        self.vector_maps = bool(active_mapped_providers(state))
+        self.maximum_step_mm = float(step_mm)
         self.z_mm = _piecewise_endpoint_exact_grid(
             source_z_mm, target_z_mm, step_mm, capture_z_mm
         )
@@ -511,6 +518,11 @@ class _LiveFirstOrderModel:
         )
         if np.any(self.upper <= 0.0):
             raise ValueError("Coupled lens limits must be positive")
+
+        if self.vector_maps:
+            # Imported fields must use the production XYZ solver, not the
+            # on-axis scalar profiles used by the analytic fast optimiser.
+            return
 
         original = np.asarray(
             [float(lens.percent) for lens in self.lenses], dtype=float
@@ -559,7 +571,50 @@ class _LiveFirstOrderModel:
         )
         return g
 
+    @contextmanager
+    def _mapped_candidate(self, vector):
+        values = np.asarray(vector, dtype=float)
+        if values.shape != (len(self.lenses),) or not np.all(np.isfinite(values)):
+            raise ValueError("Coupled lens vector has the wrong shape or values")
+        original = [float(lens.percent) for lens in self.lenses]
+        had_flag = hasattr(self.state, "equivalent_image_lenses_enabled")
+        old_flag = getattr(self.state, "equivalent_image_lenses_enabled", False)
+        try:
+            for lens, value in zip(self.lenses, values):
+                lens.percent = float(value)
+            self.state.equivalent_image_lenses_enabled = False
+            yield
+        finally:
+            for lens, value in zip(self.lenses, original):
+                lens.percent = value
+            if had_flag:
+                self.state.equivalent_image_lenses_enabled = old_flag
+            else:
+                delattr(self.state, "equivalent_image_lenses_enabled")
+
+    def _mapped_transfers(self, vector, targets):
+        with self._mapped_candidate(vector):
+            return trace_transverse_transfers(
+                self.state, self.z_mm[0], targets,
+                maximum_step_mm=self.maximum_step_mm,
+            )
+
+    def rays_at(self, vector, source_rays, targets):
+        """Capture actual nonlinear mapped trajectories for condenser stops."""
+        targets = tuple(float(z) for z in targets)
+        with self._mapped_candidate(vector):
+            z, x, tx, y, ty = propagate(
+                self.state, self.z_mm[0], max(targets),
+                source_rays[0], source_rays[2], source_rays[1], source_rays[3],
+                save_z_mm=targets, maximum_step_mm=self.maximum_step_mm,
+            )
+        indices = [int(np.argmin(abs(z-target))) for target in targets]
+        return np.asarray([(x[i], y[i], tx[i], ty[i]) for i in indices])
+
     def matrix(self, vector) -> np.ndarray:
+        if self.vector_maps:
+            target = float(self.z_mm[-1])
+            return self._mapped_transfers(vector, (target,))[target].matrix
         g = self._field_arrays(vector)
         return _rk4_transfer_matrix(
             g, self.sx_m2, self.sy_m2, self.z_m
@@ -578,6 +633,13 @@ class _LiveFirstOrderModel:
         validation checks.
         """
 
+        if self.vector_maps:
+            matrix = self.matrix(vector)
+            with self._mapped_candidate(vector):
+                source_b = fields((self.z_mm[0],), self.state)[0][0]
+            momentum = _electron_momentum_kg_m_s(self.state.beam_voltage_kv)
+            canonical = matrix @ _canonical_source_basis(-E*source_b/(2*momentum))
+            return canonical[:2, :2], canonical[:2, 2:]
         g = self._field_arrays(vector)
         matrix = self.matrix(vector)
         canonical = matrix @ _canonical_source_basis(g[0])
@@ -594,6 +656,9 @@ class _LiveFirstOrderModel:
             raise ValueError("Requested capture plane is not on the model grid")
         if np.any(np.diff(indices) < 0):
             raise ValueError("Capture planes must be ordered along +Z")
+        if self.vector_maps:
+            transfers = self._mapped_transfers(vector, requested)
+            return np.asarray([transfers[float(z)].matrix for z in requested])
         g = self._field_arrays(vector)
         return _rk4_transfer_matrices(
             g,
@@ -661,9 +726,12 @@ class _CondenserMeasurementModel:
             *(float(aperture.z_mm) for aperture in self.apertures),
             self.sample_z_mm,
         ]
-        matrices = self.sample_model.matrices_at(vector, capture_planes)
-        for aperture, matrix in zip(self.apertures, matrices[:-1]):
-            rays = matrix @ self.source_rays
+        if self.sample_model.vector_maps:
+            captured = self.sample_model.rays_at(vector, self.source_rays, capture_planes)
+        else:
+            matrices = self.sample_model.matrices_at(vector, capture_planes)
+            captured = matrices @ self.source_rays
+        for aperture, rays in zip(self.apertures, captured[:-1]):
             x_mm = rays[0] * 1.0e3
             y_mm = rays[1] * 1.0e3
             if hasattr(aperture, "transmission_mask"):
@@ -677,7 +745,7 @@ class _CondenserMeasurementModel:
                     y_mm - float(aperture.offset_y_mm),
                 ) <= radius_mm
             alive &= passed
-        sample_rays = matrices[-1] @ self.source_rays
+        sample_rays = captured[-1]
         return transverse_beam_statistics(
             sample_rays[0],
             sample_rays[1],
@@ -726,11 +794,15 @@ class _ProjectorMeasurementModel:
             # transfer B=0, with total signed magnification in A.
             self.plane_z_mm = None
             self.variable_keys = IMAGE_KEYS
-            self.sample_model = _EquivalentImageFirstOrderModel(
-                state,
-                float(state.sample.z_mm),
-                stop_z_mm,
-            )
+            if equivalent_image_maps_supported(state):
+                self.sample_model = _EquivalentImageFirstOrderModel(
+                    state, float(state.sample.z_mm), stop_z_mm,
+                )
+            else:
+                self.sample_model = _LiveFirstOrderModel(
+                    state, float(state.sample.z_mm), stop_z_mm,
+                    self.variable_keys, step_mm=step_mm,
+                )
         else:
             self.reference_plane_key, target_z_mm = (
                 diffraction_reference_plane(state)

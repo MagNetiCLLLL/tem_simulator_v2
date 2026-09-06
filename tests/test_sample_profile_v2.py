@@ -103,7 +103,7 @@ def test_profile_v2_round_trips_sample_tables_and_quaternion(tmp_path: Path):
     assert restored.sample.sample_region_photon_path_count == 77
     assert restored.sample.sample_region_secondary_path_count == 19
     assert restored.sample.sample_region_seed == 46
-    assert "format_version = 2" in path.read_text(encoding="utf-8")
+    assert "format_version = 3" in path.read_text(encoding="utf-8")
 
 
 def test_retired_eds_trajectory_count_is_a_clean_profile_no_op():

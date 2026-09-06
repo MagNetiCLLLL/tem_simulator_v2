@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -12,6 +13,7 @@ from temsim.physics.beam_current import (
     effective_source_current_pa,
     sample_illumination_absent,
 )
+from temsim.calculation_cache import calculation_signatures
 
 from temsim.component_keys import STEM_DETECTOR_KEYS
 from temsim.physics.scan_geometry import (
@@ -30,7 +32,10 @@ from temsim.specimen.virtual import (
     virtual_density_at_scan,
 )
 from temsim.specimen.source import specimen_structure_available
-from temsim.specimen.downstream_transport import build_geometric_specimen_exit
+from temsim.specimen.downstream_transport import (
+    build_geometric_specimen_exit,
+    validated_geometric_specimen_exit,
+)
 
 ELEMENTARY_CHARGE_C = 1.602176634e-19
 ProgressCallback = Callable[[int, int, str], None]
@@ -76,6 +81,7 @@ class StemScanResult:
     truncated_fraction: np.ndarray | None = None
     high_angle_tail_fraction: dict[str, np.ndarray] | None = None
     probe_state: ProbeState | None = None
+    fourdstem_artifact: object | None = None
     axis_units: tuple[str, str] = ("um", "um")
     orientation: str = "array[y, x]; laboratory +X right, +Y up"
 
@@ -199,6 +205,7 @@ def _stem_result(
     absorbed_fraction=None,
     truncated_fraction=None,
     high_angle_tail_fraction=None,
+    fourdstem_artifact=None,
 ):
     """Attach deterministic current/dose observables and optional shot noise."""
 
@@ -229,6 +236,10 @@ def _stem_result(
         }
     probe_state = probe_state_from_simulation(state, simulation)
     metadata = dict(metrics or {})
+    if "detector_sampling" in metadata:
+        # A sampling proposal belongs to this exact acquisition state, not a
+        # later edited state or the previous frame frozen by Pause refresh.
+        metadata["sampling_state_signature"] = calculation_signatures(state)["stem"]
     metadata.update(
         {
             "scan_frame_period_s": frame_period_s,
@@ -273,7 +284,134 @@ def _stem_result(
         ),
         high_angle_tail_fraction=high_angle_tail_fraction,
         probe_state=probe_state,
+        fourdstem_artifact=fourdstem_artifact,
     )
+
+
+def reweight_stem_scan(state, frame: StemScanResult) -> StemScanResult:
+    """Update dose/readout fields without repeating wave or ray transport."""
+
+    fractions = {
+        key: np.asarray(values, dtype=float)
+        for key, values in frame.fractions.items()
+    }
+    pixel_count = max(np.asarray(frame.scan_x_um).size, 1)
+    dwell_time_s = float(state.ac_deflector.scan_frame_period_s) / pixel_count
+    source_pa = source_current_pa(state)
+    current = {key: values * source_pa for key, values in fractions.items()}
+    expected = {
+        key: values * 1.0e-12 * dwell_time_s / ELEMENTARY_CHARGE_C
+        for key, values in current.items()
+    }
+    poisson = None
+    if bool(getattr(state.sample, "stem_poisson_enabled", False)):
+        seed = int(getattr(state.sample, "stem_poisson_seed", 0))
+        if seed < 0:
+            raise ValueError("STEM Poisson seed cannot be negative.")
+        rng = np.random.default_rng(seed)
+        poisson = {
+            key: rng.poisson(np.maximum(values, 0.0))
+            for key, values in expected.items()
+        }
+    metrics = dict(frame.metrics)
+    metrics.update({
+        "dwell_time_s": dwell_time_s,
+        "poisson_noise_enabled": poisson is not None,
+        "poisson_seed": (
+            int(getattr(state.sample, "stem_poisson_seed", 0))
+            if poisson is not None
+            else None
+        ),
+        "dose_reweighted_without_transport": True,
+    })
+    return replace(
+        frame,
+        current_pa=current,
+        expected_electrons=expected,
+        poisson_counts=poisson,
+        dwell_time_s=dwell_time_s,
+        metrics=metrics,
+    )
+
+
+def _configured_fourdstem_response(sample):
+    """Build the explicit ideal or user-adjustable pixel response."""
+
+    from temsim.physics.fourdstem import PixelatedDetectorResponse
+
+    mode = str(
+        getattr(sample, "stem_fourdstem_response_mode", "ideal")
+    ).strip().lower()
+    if mode == "ideal":
+        return PixelatedDetectorResponse(
+            status="ideal_simulator_response_not_oem_calibration",
+        )
+    if mode != "adjustable":
+        raise ValueError(
+            "4D-STEM detector response must be ideal or adjustable."
+        )
+    saturation = float(
+        getattr(sample, "stem_fourdstem_saturation_electrons", 0.0)
+    )
+    if saturation < 0.0:
+        raise ValueError("4D-STEM saturation cannot be negative.")
+    sigma = float(
+        getattr(sample, "stem_fourdstem_charge_spread_sigma_px", 0.0)
+    )
+    return PixelatedDetectorResponse(
+        quantum_efficiency=float(
+            getattr(sample, "stem_fourdstem_quantum_efficiency", 1.0)
+        ),
+        charge_spread_sigma_x_px=sigma,
+        charge_spread_sigma_y_px=sigma,
+        dark_electrons_per_pixel=float(
+            getattr(sample, "stem_fourdstem_dark_electrons_per_pixel", 0.0)
+        ),
+        read_noise_electrons_rms=float(
+            getattr(sample, "stem_fourdstem_read_noise_electrons_rms", 0.0)
+        ),
+        saturation_electrons=None if saturation == 0.0 else saturation,
+        gain_counts_per_electron=float(
+            getattr(sample, "stem_fourdstem_gain_counts_per_electron", 1.0)
+        ),
+        offset_counts=float(
+            getattr(sample, "stem_fourdstem_offset_counts", 0.0)
+        ),
+        poisson_enabled=bool(
+            getattr(sample, "stem_fourdstem_poisson_enabled", False)
+        ),
+        seed=int(getattr(sample, "stem_fourdstem_seed", 0)),
+        status="user_adjustable_simulator_response_not_oem_calibration",
+    ).validate()
+
+
+def _prepare_configured_fourdstem_capture(state, simulation):
+    """Create a sink only for an explicitly enabled wave-STEM acquisition."""
+
+    from temsim.physics.fourdstem_workflow import (
+        FourDSTEMRequest,
+        prepare_fourdstem_capture,
+    )
+
+    sample = state.sample
+    output = str(
+        getattr(sample, "stem_fourdstem_output_path", "")
+    ).strip()
+    if not output:
+        raise ValueError("Choose a 4D-STEM output path before High accuracy.")
+    overwrite = bool(
+        getattr(sample, "stem_fourdstem_overwrite", False)
+    )
+    resume = bool(getattr(sample, "stem_fourdstem_resume", False))
+    if overwrite and resume:
+        raise ValueError("4D-STEM overwrite and resume are mutually exclusive.")
+    request = FourDSTEMRequest(
+        path=Path(output).expanduser(),
+        response=_configured_fourdstem_response(sample),
+        overwrite=overwrite,
+        resume=resume,
+    )
+    return prepare_fourdstem_capture(state, simulation, request)
 
 
 def measure_sample_current(simulation, state):
@@ -368,7 +506,11 @@ def collection_angle(state, detector):
 
 
 def physical_angular_detectors(state, detectors):
-    """Resolve TOML detector shapes through the full signed 2-D transfer."""
+    """Resolve reference angular ranges for labels and tail quadrature.
+
+    Coherent live detector pixels are routed separately through the full
+    runtime record-plane plan using ``J_img @ r + J_diff @ theta``.
+    """
 
     resolved = []
     angles = {}
@@ -930,7 +1072,10 @@ def acquire_stem_scan(
     pixels_y=None,
     *,
     specimen_interactions=None,
+    geometric_specimen_exit=None,
+    geometric_specimen_exit_signature: str = "",
     progress_callback: ProgressCallback | None = None,
+    diffraction_sink=None,
 ):
     """Integrate selected detector signals over the current AC raster.
 
@@ -965,6 +1110,28 @@ def acquire_stem_scan(
         else simulation_inelastic
     )
     shared_interactions_used = specimen_interactions is not None
+    supplied_downstream_signature = str(
+        geometric_specimen_exit_signature
+    )
+    downstream_signature = supplied_downstream_signature
+    supplied_signature_is_current = True
+    if (
+        getattr(specimen_interactions, "elastic_transport", None) is not None
+        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
+        == "atomic"
+        and not bool(getattr(state.sample, "stem_wave_enabled", False))
+    ):
+        # Derive the authoritative identity before scan calibration.  A caller
+        # may supply the signature it used to build a checkpoint, but that
+        # value is an assertion to verify rather than an alternate authority.
+        current_downstream_signature = calculation_signatures(state)[
+            "sample_downstream"
+        ]
+        supplied_signature_is_current = bool(
+            not supplied_downstream_signature
+            or supplied_downstream_signature == current_downstream_signature
+        )
+        downstream_signature = current_downstream_signature
 
     if progress_callback is not None:
         progress_callback(0, 1, "Preparing STEM scan and detector geometry")
@@ -973,6 +1140,29 @@ def acquire_stem_scan(
         raise ValueError(
             "AC Scan Coil and its raster drive must both be enabled before "
             "STEM signal acquisition."
+        )
+    fourdstem_enabled = bool(
+        getattr(state.sample, "stem_fourdstem_enabled", False)
+    )
+    from temsim.physics.diffraction_memory import MemoryDiffractionSink
+    if isinstance(diffraction_sink, MemoryDiffractionSink):
+        fourdstem_enabled = True  # Explicit interactive-page RAM capture, never a file write.
+    if diffraction_sink is not None and not fourdstem_enabled:
+        raise ValueError(
+            "A 4D-STEM diffraction sink requires explicit 4D-STEM enablement."
+        )
+    if fourdstem_enabled and (
+        str(getattr(state, "illumination_mode", "")).strip().upper()
+        != "STEM"
+        or not bool(getattr(state.sample, "stem_wave_enabled", False))
+    ):
+        raise ValueError(
+            "4D-STEM capture requires STEM illumination and the High accuracy "
+            "wave / multislice detector model."
+        )
+    if fourdstem_enabled and not specimen_structure_available(state.sample):
+        raise ValueError(
+            "4D-STEM capture requires a usable virtual specimen or imported CIF."
         )
     inserted = [
         detector for detector in state.stem_detectors
@@ -1095,16 +1285,37 @@ def acquire_stem_scan(
         baseline_sample_offset_um = (
             (baseline_scan_mrad * 1.0e-3) @ sample_response.T
         ) * 1.0e3
-        wave = simulate_angle_resolved_stem(
-            state,
-            simulation,
-            physical_detectors,
-            scan_x_um,
-            scan_y_um,
-            baseline_scan_offset_um=baseline_sample_offset_um,
-            detector_center_shifts_mrad=detector_center_shifts_mrad,
-            progress_callback=progress_callback,
+        prepared_fourdstem = None
+        active_diffraction_sink = diffraction_sink
+        if fourdstem_enabled and active_diffraction_sink is None:
+            prepared_fourdstem = _prepare_configured_fourdstem_capture(
+                state, simulation
+            )
+            active_diffraction_sink = prepared_fourdstem.sink
+        record_plane_plan = getattr(
+            prepared_fourdstem, "record_plane_plan", None
         )
+        if record_plane_plan is None:
+            from temsim.physics.record_plane import build_record_plane_plan
+
+            record_plane_plan = build_record_plane_plan(state)
+        try:
+            wave = simulate_angle_resolved_stem(
+                state,
+                simulation,
+                physical_detectors,
+                scan_x_um,
+                scan_y_um,
+                baseline_scan_offset_um=baseline_sample_offset_um,
+                detector_center_shifts_mrad=detector_center_shifts_mrad,
+                progress_callback=progress_callback,
+                diffraction_sink=active_diffraction_sink,
+                record_plane_plan=record_plane_plan,
+            )
+        except Exception:
+            if prepared_fourdstem is not None:
+                prepared_fourdstem.sink.close_partial()
+            raise
         incident_fraction = measure_sample_current(
             simulation, state
         ).fraction
@@ -1201,11 +1412,30 @@ def acquire_stem_scan(
         metrics["sequential_detector_interception"] = True
         metrics["post_sample_lens_transport_applied"] = True
         metrics["detector_signal_requires_physical_intersection"] = True
+        artifact = wave.fourdstem_artifact
         metrics["post_sample_transport_model"] = (
-            "full_signed_sample_to_detector_transfer"
+            "full_signed_j_img_r_plus_j_diff_theta_sequential_stops"
         )
+        metrics["mixed_plane_recording_model"] = (
+            "applied_to_live_stem_frame_and_4dstem_reintegration"
+            if artifact is not None
+            else "applied_to_live_stem_frame"
+        )
+        metrics["record_plane_plan_fingerprint"] = record_plane_plan.fingerprint
         metrics["rutherford_tail_enabled"] = tail_metrics is not None
         metrics["rutherford_tail"] = tail_metrics
+        metrics["fourdstem_capture_enabled"] = fourdstem_enabled
+        metrics["fourdstem_artifact_path"] = (
+            None if artifact is None or artifact.path is None else str(Path(artifact.path).resolve())
+        )
+        metrics["fourdstem_artifact_shape"] = (
+            None
+            if artifact is None
+            else tuple(int(value) for value in artifact.data.shape)
+        )
+        metrics["fourdstem_detector_response"] = (
+            None if artifact is None else artifact.metadata.get("detector_response")
+        )
         metrics["hybrid_tail_nonoverlap_minimum_mrad"] = (
             float(wave.maximum_isotropic_angle_mrad)
             if tail_metrics is not None
@@ -1251,6 +1481,7 @@ def acquire_stem_scan(
                 else wave.truncated_fraction * available_fraction * wave_scale
             ),
             high_angle_tail_fraction=tail_images,
+            fourdstem_artifact=artifact,
         )
         return _readout_view(
             result,
@@ -1281,7 +1512,10 @@ def acquire_stem_scan(
             readout_keys=[detector.key for detector in selected],
         )
 
+    provided_geometric_specimen_exit = geometric_specimen_exit
     geometric_specimen_exit = None
+    shared_specimen_exit_used = False
+    rejected_specimen_exit_reason = ""
     shared_elastic = getattr(
         specimen_interactions, "elastic_transport", None
     )
@@ -1292,12 +1526,53 @@ def acquire_stem_scan(
         == "atomic"
         and not bool(getattr(state.sample, "stem_wave_enabled", False))
     ):
-        geometric_specimen_exit = build_geometric_specimen_exit(
-            state,
-            simulation,
-            shared_elastic,
-            real_interactions,
+        spectrum_elastic = getattr(
+            getattr(specimen_interactions, "eds_spectrum", None),
+            "elastic_transport",
+            None,
         )
+        if spectrum_elastic is not None and spectrum_elastic is not shared_elastic:
+            raise ValueError(
+                "EDS and geometric STEM must share one elastic transport result"
+            )
+        validated_exit = (
+            validated_geometric_specimen_exit(
+                provided_geometric_specimen_exit,
+                downstream_signature,
+            )
+            if supplied_signature_is_current
+            else None
+        )
+        if validated_exit is None:
+            if provided_geometric_specimen_exit is not None:
+                rejected_specimen_exit_reason = (
+                    "provided checkpoint or asserted signature did not match "
+                    "the current sample/downstream state"
+                )
+            downstream_distance_um = float(
+                getattr(
+                    state.sample,
+                    "sample_region_downstream_distance_um",
+                    0.0,
+                )
+            )
+            save_z_mm = (
+                (
+                    float(state.sample.z_mm)
+                    + downstream_distance_um * 1.0e-3
+                ),
+            ) if downstream_distance_um > 0.0 else ()
+            geometric_specimen_exit = build_geometric_specimen_exit(
+                state,
+                simulation,
+                shared_elastic,
+                real_interactions,
+                save_z_mm=save_z_mm,
+                dependency_signature=downstream_signature,
+            )
+        else:
+            geometric_specimen_exit = validated_exit
+            shared_specimen_exit_used = True
         branches = geometric_specimen_exit.branches
         probabilities = np.asarray(
             [float(branch.weight) for branch in branches],
@@ -1481,6 +1756,11 @@ def acquire_stem_scan(
         {
             "model": "geometric_detector_interception",
             "shared_specimen_interactions_used": shared_interactions_used,
+            "shared_specimen_exit_transport_used": (
+                shared_specimen_exit_used
+                and geometric_specimen_exit is not None
+            ),
+            "rejected_specimen_exit_reason": rejected_specimen_exit_reason,
             "manual_sample_paths_added_to_stem_signal": False,
             "finite_specimen_exit_used": geometric_specimen_exit is not None,
             "finite_specimen_exit": (

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from typing import Any
+from temsim.component_keys import FIXED_APERTURE_KEYS
 
 
 SCALAR_TYPES = (bool, int, float, str)
@@ -31,6 +32,7 @@ INTERNAL_FIELDS = frozenset({
     "monochromator_installed",
     "probe_corrector_installed",
     "schema_version",
+    "simulation_mode",
     "zero_loss_offset_m",
 })
 TOML_OWNED_FIELDS = frozenset({
@@ -194,6 +196,7 @@ def editable_parameters(target: RuntimeTarget) -> tuple[RuntimeParameter, ...]:
             or name in INTERNAL_FIELDS
             or name in TOML_OWNED_FIELDS
             or is_geometry_owned(name)
+            or (target.key in FIXED_APERTURE_KEYS and name == "enabled")
         ):
             continue
         if value is None or isinstance(value, SCALAR_TYPES):
@@ -222,6 +225,8 @@ def validate_runtime_assignment(
     """Type-check and domain-check one profile/runtime assignment."""
 
     old_value = getattr(target.obj, name)
+    if target.key in FIXED_APERTURE_KEYS and name == "enabled" and value is not True:
+        raise ValueError(f"{target.label} is always inserted")
     if isinstance(old_value, bool):
         if not isinstance(value, bool):
             raise ValueError(f"{target.key}.{name} must be a Boolean")
@@ -273,6 +278,10 @@ def validate_runtime_assignment(
     }:
         if float(converted) < 0.0:
             raise ValueError(f"{target.key}.{name} cannot be negative")
+    if name in {"diameter_mm", "radius_mm"} and hasattr(target.obj, "maximum_radius_mm"):
+        radius = float(converted) * (0.5 if name == "diameter_mm" else 1.0)
+        if radius > float(target.obj.maximum_radius_mm):
+            raise ValueError(f"{target.label} opening exceeds its clear bore")
     if name in {"size_x_nm", "size_y_nm"} and float(converted) <= 0.0:
         raise ValueError(f"{target.key}.{name} must be positive")
     if name in {

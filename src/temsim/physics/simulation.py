@@ -50,6 +50,7 @@ RAY_INTERACTION_COLOURS = {
     # later by changing only the brightness of this base colour.
     'incident': (0.22, 0.74, 0.97),
     'vacuum': (0.58, 0.64, 0.72),
+    'optical_reference': (0.58, 0.74, 0.84),
     'real_sample_reference': (0.58, 0.64, 0.72),
     'real_zero_loss': (0.72, 0.76, 0.82),
     'real_plasmon': (0.16, 0.82, 0.96),
@@ -216,7 +217,7 @@ def _merge_checkpoints(previous, suffix, resume_z_mm):
     return PropagationCheckpoints(**arrays)
 
 
-def run(s, *, resolved_layout=None, existing_simulation=None):
+def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False):
     # The low-level entry point is also public and is used directly by tests
     # and scripts, so it must enforce the same TOML-owned geometry contract as
     # the application-facing calculation pipeline.
@@ -226,7 +227,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None):
 
     ac_scan = getattr(s, "ac_deflector", None)
     if (
-        ac_scan is not None
+        not optical_only and ac_scan is not None
         and bool(getattr(ac_scan, "enabled", False))
         and bool(getattr(ac_scan, "scan_enabled", False))
     ):
@@ -482,7 +483,10 @@ def run(s, *, resolved_layout=None, existing_simulation=None):
         and getattr(s.sample, 'diffraction_enabled', True)
     )
 
-    if sample_is_vacuum:
+    if optical_only:
+        branch_specs = [('000', 0.0, 0.0, 1.0, 'optical_reference', 0.0)]
+        scattering_model = 'omitted_for_optical_tuning'
+    elif sample_is_vacuum:
         branch_specs = [('000', 0.0, 0.0, 1.0, 'vacuum', 0.0)]
         scattering_model = 'user_selected_vacuum_reference_plane'
     elif specimen_mode == 'atomic':
@@ -604,6 +608,14 @@ def run(s, *, resolved_layout=None, existing_simulation=None):
                 interaction_kick_x_rad=kick_x_array,
                 interaction_kick_y_rad=kick_y_array,
             )
+
+    if optical_only:
+        from temsim.physics.optical_tuning import tuning_metrics
+        metrics = tuning_metrics(s, incident)
+        metrics['column_segment_cache'] = segment_cache_metrics
+        return Simulation(incident, branches, metrics, gun_waist=gun_waist,
+                          gun_trace=gun_trace, incident_plan=incident_plan,
+                          incident_checkpoints=incident_checkpoints)
 
     analysis_reference_key=None
     from temsim.optics.direct_alignment import diffraction_transfer

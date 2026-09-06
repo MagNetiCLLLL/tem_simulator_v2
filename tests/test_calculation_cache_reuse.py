@@ -1,9 +1,13 @@
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
+import temsim.calculation_cache as calculation_cache
 from temsim.calculation_cache import (
     calculation_signatures,
+    matching_products,
     state_model_signature,
 )
 from temsim.gui.calculation_controller import (
@@ -12,6 +16,7 @@ from temsim.gui.calculation_controller import (
 )
 from temsim.gui.visualization import VisualizationWorkspace
 from temsim.optics.column import default_state
+from temsim.physics.scan_geometry import calibrate_scan_system
 from temsim.simulation_pipeline import CalculationResult
 from temsim.simulation_pipeline import calculate
 
@@ -69,6 +74,33 @@ def test_result_cache_budget_counts_shared_numpy_storage_once():
     shared_total = estimate_result_cache_bytes(first, second)
 
     assert separate_total - shared_total >= owner.nbytes
+
+
+def test_checkpoint_candidate_survives_when_no_complete_product_matches():
+    controller = CalculationController(persistent_cache_enabled=False)
+    checkpoints = SimpleNamespace(z_mm=np.asarray((500.0, 505.0)))
+    candidate = _cache_result("previous", np.zeros(1), column="old-column")
+    candidate.simulation.incident_checkpoints = checkpoints
+    candidate.simulation.incident_plan = object()
+    candidate.simulation.gun_trace = object()
+    controller._cache_result(candidate)
+
+    assert controller._best_seed({"column": "new-column"}) is candidate
+    assert not matching_products(candidate.signatures, {"column": "new-column"})
+    candidate.simulation.incident_checkpoints = None
+    assert controller._best_seed({"column": "new-column"}) is None
+
+
+def test_exact_product_seed_outranks_newer_checkpoint_only_candidate():
+    controller = CalculationController(persistent_cache_enabled=False)
+    exact = _cache_result("exact", np.zeros(1), column="matching-column")
+    candidate = _cache_result("previous", np.zeros(1), column="old-column")
+    candidate.simulation.incident_checkpoints = SimpleNamespace(z_mm=np.asarray((500.0,)))
+    candidate.simulation.incident_plan = object()
+    candidate.simulation.gun_trace = object()
+    controller._cache_result(exact)
+    controller._cache_result(candidate)
+    assert controller._best_seed({"column": "matching-column"}) is exact
 
 
 def test_result_cache_byte_budget_evicts_oldest_until_it_fits():
@@ -154,6 +186,60 @@ def test_identical_inflight_high_requests_share_one_worker():
     assert running_key == workers[0].request_signatures["request"]
 
 
+def test_preview_supersedes_high_without_leaving_a_stale_running_token():
+    controller = CalculationController()
+    workers = []
+    controller.pool.start = workers.append
+    state = default_state()
+
+    controller.submit(state, HIGH_QUALITY, RAY_COUNT, STEP_MM)
+    old_high = workers[-1]
+    controller.submit(state, "Preview", RAY_COUNT, STEP_MM)
+
+    assert controller._running_high_key is None
+    controller._accept_finished(old_high.generation, HIGH_QUALITY)
+    controller.submit(state, HIGH_QUALITY, RAY_COUNT, STEP_MM)
+
+    assert len(workers) == 3
+    assert controller._running_high_key == (
+        workers[-1].request_signatures["request"]
+    )
+    assert controller._running_high_generation == workers[-1].generation
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "downstream_changes"),
+    (
+        ("sample_region_upstream_distance_um", 75.0, False),
+        ("sample_region_downstream_distance_um", 80.0, True),
+        ("sample_region_photon_path_count", 257, False),
+        ("sample_region_secondary_path_count", 97, False),
+        ("sample_region_seed", 13, False),
+    ),
+)
+def test_sample_region_controls_invalidate_only_the_region_artifact(
+    field,
+    replacement,
+    downstream_changes,
+):
+    state = default_state()
+    before = calculation_signatures(state)
+
+    setattr(state.sample, field, replacement)
+    after = calculation_signatures(state)
+
+    changed = {
+        product
+        for product in before
+        if before[product] != after[product]
+    }
+    expected = {"request", "sample_region"}
+    if downstream_changes:
+        expected.add("sample_downstream")
+    assert changed == expected
+    assert "sample_region" not in matching_products(before, after)
+
+
 def test_eds_only_parameter_changes_only_request_and_eds_signatures():
     state = default_state()
     before = calculation_signatures(state)
@@ -171,6 +257,134 @@ def test_eds_only_parameter_changes_only_request_and_eds_signatures():
         assert after[reusable_product] == before[reusable_product]
 
 
+def test_energy_filter_setting_changes_only_filter_product():
+    state = default_state()
+    before = calculation_signatures(state)
+
+    state.energy_filter.selected_loss_ev += 12.5
+    after = calculation_signatures(state)
+
+    changed = {
+        product
+        for product in before
+        if before[product] != after[product]
+    }
+    assert changed == {"request", "energy_filter"}
+
+
+def test_tem_objective_pupil_and_image_aberration_invalidate_wave_source():
+    for mutate in (
+        lambda state: setattr(
+            state.objective_aperture,
+            "radius_mm",
+            state.objective_aperture.radius_mm * 1.1,
+        ),
+        lambda state: setattr(
+            state,
+            "image_aberrations",
+            {"a2_mm": 0.002, "a2_azimuth_deg": 17.0},
+        ),
+        lambda state: setattr(
+            state.objective_lens,
+            "percent",
+            state.objective_lens.percent + 0.25,
+        ),
+    ):
+        state = default_state()
+        before = calculation_signatures(state)
+
+        mutate(state)
+        after = calculation_signatures(state)
+
+        assert after["wave_source"] != before["wave_source"]
+        assert after["wave"] != before["wave"]
+
+
+def test_elastic_transport_controls_also_invalidate_geometric_stem():
+    for name, value in (
+        ("eds_elastic_seed", 123456),
+        ("eds_elastic_max_events", 17),
+        ("eds_support_rotation_deg", 23.0),
+    ):
+        state = default_state()
+        before = calculation_signatures(state)
+
+        setattr(state.sample, name, value)
+        after = calculation_signatures(state)
+
+        for product in (
+            "elastic",
+            "eds",
+            "stem",
+            "sample_region",
+            "sample_downstream",
+        ):
+            assert after[product] != before[product]
+        for product in ("incident", "wave", "wave_source"):
+            assert after[product] == before[product]
+
+
+def test_dynamic_simulation_time_is_part_of_calculation_identity():
+    state = default_state()
+    before = calculation_signatures(state)
+
+    state.simulation_time_s = 0.125
+    after = calculation_signatures(state)
+
+    assert after["request"] != before["request"]
+    assert after["column"] != before["column"]
+    assert after["incident"] != before["incident"]
+    assert after["scan_geometry"] == before["scan_geometry"]
+    assert after["scan_ray_paths"] != before["scan_ray_paths"]
+
+
+def test_scan_response_products_ignore_emitter_sampling_density():
+    state = default_state()
+    before = calculation_signatures(state)
+
+    state.electron_gun.emitter.ray_count += 17
+    after = calculation_signatures(state)
+
+    assert after["request"] != before["request"]
+    assert after["column"] != before["column"]
+    assert after["scan_geometry"] == before["scan_geometry"]
+    assert after["scan_ray_paths"] == before["scan_ray_paths"]
+
+
+def test_virtual_density_map_content_changes_identity_at_same_path(tmp_path):
+    density_path = tmp_path / "density.npy"
+    np.save(density_path, np.zeros((4, 4), dtype=np.float32))
+    state = default_state()
+    state.sample.specimen_mode = "virtual"
+    state.sample.virtual_regions = [{
+        "kind": "map",
+        "map_path": str(density_path),
+        "centre_x_nm": 0.0,
+        "centre_y_nm": 0.0,
+        "size_x_nm": 100.0,
+        "size_y_nm": 100.0,
+        "density": 1.0,
+    }]
+    before = calculation_signatures(state)
+
+    np.save(density_path, np.ones((4, 4), dtype=np.float32))
+    after = calculation_signatures(state)
+
+    assert after["request"] != before["request"]
+    for product in ("incident", "column"):
+        assert after[product] == before[product]
+    for product in (
+        "elastic",
+        "eds",
+        "wave",
+        "wave_source",
+        "stem",
+        "stem_transport",
+        "sample_region",
+    ):
+        assert after[product] != before[product]
+
+
 def test_spot_current_limit_reuses_geometry_but_invalidates_counts():
     state = default_state()
     before = calculation_signatures(state)
@@ -183,10 +397,21 @@ def test_spot_current_limit_reuses_geometry_but_invalidates_counts():
         for product in before
         if before[product] != after[product]
     }
-    assert changed == {"request", "eds", "stem"}
-    for reusable_product in (
-        "column", "elastic", "wave", "energy_filter", "scan",
+    assert changed == {
+        "request",
+        "eds",
+        "energy_filter",
+        "fourdstem_virtual_detectors",
         "sample_region",
+        "stem",
+    }
+    for reusable_product in (
+        "column",
+        "elastic",
+        "wave",
+        "scan_geometry",
+        "scan_ray_paths",
+        "sample_downstream",
     ):
         assert after[reusable_product] == before[reusable_product]
 
@@ -212,8 +437,124 @@ def test_post_sample_lens_change_keeps_specimen_checkpoint_products():
             "sample_region",
         ):
             assert after[reusable_product] == before[reusable_product]
-        for invalidated_product in ("column", "wave", "energy_filter"):
+        for invalidated_product in (
+            "column",
+            "wave",
+            "energy_filter",
+            "sample_downstream",
+            "scan_geometry",
+            "scan_ray_paths",
+            "stem",
+        ):
             assert after[invalidated_product] != before[invalidated_product]
+
+
+def _replace_assembly_part_geometry(state, key, field, value):
+    parts = tuple(
+        replace(
+            part,
+            data={**dict(part.data), field: value},
+        )
+        if part.key == key
+        else part
+        for part in state._resolved_assembly.parts
+    )
+    state._resolved_assembly = replace(
+        state._resolved_assembly,
+        parts=parts,
+    )
+
+
+def test_post_sample_projector_geometry_keeps_local_stage_products():
+    state = default_state()
+    before = calculation_signatures(state)
+    pole = state._resolved_assembly.part("projector_lens_1_upper_pole")
+    previous = float(pole.data.get("pole_piece_bore_diameter_mm", 20.0))
+
+    state.projector_lens_p1.z_mm += 0.75
+    _replace_assembly_part_geometry(
+        state,
+        "projector_lens_1_upper_pole",
+        "pole_piece_bore_diameter_mm",
+        previous + 0.5,
+    )
+    after = calculation_signatures(state)
+
+    for reusable_product in (
+        "incident",
+        "wave_source",
+        "elastic",
+        "eds",
+        "sample_region",
+    ):
+        assert after[reusable_product] == before[reusable_product]
+    assert after["request"] != before["request"]
+    assert after["column"] != before["column"]
+    assert after["sample_downstream"] != before["sample_downstream"]
+
+
+def test_projector_field_map_descriptor_does_not_invalidate_upstream_products(
+    tmp_path,
+):
+    first_map = tmp_path / "projector-first.npz"
+    second_map = tmp_path / "projector-second.npz"
+    first_map.write_bytes(b"first projector map")
+    second_map.write_bytes(b"second projector map")
+    state = default_state()
+    state.lens_field_map_descriptors = {
+        "projector_lens_1": {
+            "source_path": str(first_map),
+            "source_sha256": "first-descriptor",
+            "geometry_fingerprint": "projector-geometry-a",
+            "reference_excitation_percent": 100.0,
+        }
+    }
+    before = calculation_signatures(state)
+
+    state.lens_field_map_descriptors["projector_lens_1"] = {
+        "source_path": str(second_map),
+        "source_sha256": "second-descriptor",
+        "geometry_fingerprint": "projector-geometry-b",
+        "reference_excitation_percent": 80.0,
+    }
+    after = calculation_signatures(state)
+
+    for product in (
+        "incident",
+        "wave_source",
+        "elastic",
+        "eds",
+        "sample_region",
+        "fourdstem_cube",
+        "fourdstem_virtual_detectors",
+    ):
+        assert after[product] == before[product]
+    assert after["request"] != before["request"]
+    assert after["column"] != before["column"]
+
+
+def test_upstream_pole_geometry_invalidates_local_stage_products():
+    state = default_state()
+    before = calculation_signatures(state)
+    pole = state._resolved_assembly.part("condenser_lens_1_lower_pole")
+    previous = float(pole.data.get("pole_piece_bore_diameter_mm", 5.76))
+
+    _replace_assembly_part_geometry(
+        state,
+        "condenser_lens_1_lower_pole",
+        "pole_piece_bore_diameter_mm",
+        previous + 0.25,
+    )
+    after = calculation_signatures(state)
+
+    for invalidated_product in (
+        "incident",
+        "wave_source",
+        "elastic",
+        "eds",
+        "sample_region",
+    ):
+        assert after[invalidated_product] != before[invalidated_product]
 
 
 def test_projector_mode_change_keeps_specimen_checkpoint_products():
@@ -231,7 +572,15 @@ def test_projector_mode_change_keeps_specimen_checkpoint_products():
         "sample_region",
     ):
         assert after[reusable_product] == before[reusable_product]
-    for invalidated_product in ("column", "wave", "energy_filter"):
+    for invalidated_product in (
+        "column",
+        "wave",
+        "energy_filter",
+        "sample_downstream",
+        "scan_geometry",
+        "scan_ray_paths",
+        "stem",
+    ):
         assert after[invalidated_product] != before[invalidated_product]
 
 
@@ -250,7 +599,15 @@ def test_tem_recording_plane_switch_keeps_specimen_checkpoint_products():
         "sample_region",
     ):
         assert after[reusable_product] == before[reusable_product]
-    for invalidated_product in ("column", "wave"):
+    for invalidated_product in (
+        "column",
+        "wave",
+        "energy_filter",
+        "sample_downstream",
+        "scan_geometry",
+        "scan_ray_paths",
+        "stem",
+    ):
         assert after[invalidated_product] != before[invalidated_product]
 
 
@@ -310,6 +667,15 @@ def test_seed_selection_prefers_reusable_incident_and_wave_source():
         wave="wave-a",
         energy_filter="filter-a",
     )
+    projection_seed.simulation.incident = object()
+    projection_seed.specimen_interactions = SimpleNamespace(
+        elastic_transport=object(),
+    )
+    projection_seed.wave_imaging = SimpleNamespace(
+        projector_checkpoint=object(),
+    )
+    downstream_seed.wave_imaging = object()
+    downstream_seed.energy_filter = object()
     controller._cache_result(projection_seed)
     controller._cache_result(downstream_seed)
 
@@ -323,6 +689,59 @@ def test_seed_selection_prefers_reusable_incident_and_wave_source():
     })
 
     assert selected is projection_seed
+
+
+@pytest.mark.parametrize("descan_enabled", (False, True))
+def test_scan_calibration_does_not_change_cache_identity(descan_enabled):
+    state = default_state()
+    state.ac_deflector.enabled = True
+    state.ac_deflector.scan_enabled = True
+    state.ac_deflector.wobble_enabled = False
+    state.descan_deflector.enabled = descan_enabled
+    state.descan_deflector.scan_enabled = descan_enabled
+    if descan_enabled:
+        state.descan_deflector.scan_pixels_x = 7
+        state.descan_deflector.scan_lines = 9
+        state.descan_deflector.scan_pixel_size_nm = 2.5
+        state.descan_deflector.scan_frame_period_s = 0.75
+    before = calculation_signatures(state)
+    lower_before = (
+        state.ac_deflector.lower_coil_gain,
+        state.descan_deflector.lower_coil_gain,
+    )
+
+    calibrate_scan_system(state)
+
+    lower_after = (
+        state.ac_deflector.lower_coil_gain,
+        state.descan_deflector.lower_coil_gain,
+    )
+    assert lower_after != lower_before
+    assert calculation_signatures(state) == before
+    if descan_enabled:
+        assert state.descan_deflector.scan_pixels_x == (
+            state.ac_deflector.scan_pixels_x
+        )
+        assert state.descan_deflector.scan_lines == state.ac_deflector.scan_lines
+
+
+def test_legacy_ac_scan_amplitudes_do_not_invalidate_calibrated_scan():
+    baseline = default_state()
+    baseline.ac_deflector.enabled = True
+    baseline.ac_deflector.scan_enabled = True
+    baseline.ac_deflector.wobble_enabled = False
+    changed = default_state()
+    changed.ac_deflector.enabled = True
+    changed.ac_deflector.scan_enabled = True
+    changed.ac_deflector.wobble_enabled = False
+    changed.ac_deflector.scan_amplitude_x_mrad = 7.5
+    changed.ac_deflector.scan_amplitude_y_mrad = -3.25
+
+    assert calculation_signatures(changed) == calculation_signatures(baseline)
+
+    baseline_command, _, _ = calibrate_scan_system(baseline)
+    changed_command, _, _ = calibrate_scan_system(changed)
+    assert changed_command == pytest.approx(baseline_command)
 
 
 def test_cif_content_change_at_same_path_changes_calculation_identity(tmp_path):
@@ -340,6 +759,57 @@ def test_cif_content_change_at_same_path_changes_calculation_identity(tmp_path):
 
     assert after["request"] != before["request"]
     assert after_model != before_model
+    for product in ("incident", "column"):
+        assert after[product] == before[product]
+    for product in (
+        "elastic",
+        "eds",
+        "wave",
+        "wave_source",
+        "stem",
+        "stem_transport",
+        "sample_region",
+    ):
+        assert after[product] != before[product]
+
+
+def test_loaded_specimen_data_only_invalidates_post_column_products(
+    monkeypatch,
+):
+    state = default_state()
+    monkeypatch.setattr(
+        calculation_cache,
+        "_loaded_solver_input_identities",
+        lambda _state: {
+            "specimen_preset": "preset-a",
+            "support_catalog": "support-a",
+            "bote_salvat": "bote-a",
+        },
+    )
+    before = calculation_signatures(state)
+    monkeypatch.setattr(
+        calculation_cache,
+        "_loaded_solver_input_identities",
+        lambda _state: {
+            "specimen_preset": "preset-b",
+            "support_catalog": "support-b",
+            "bote_salvat": "bote-b",
+        },
+    )
+    after = calculation_signatures(state)
+
+    for product in ("incident", "column"):
+        assert after[product] == before[product]
+    for product in (
+        "elastic",
+        "eds",
+        "wave",
+        "wave_source",
+        "stem",
+        "stem_transport",
+        "sample_region",
+    ):
+        assert after[product] != before[product]
 
 
 def test_same_state_preview_does_not_replace_high_accuracy_tab_products(
@@ -360,9 +830,6 @@ def test_same_state_preview_does_not_replace_high_accuracy_tab_products(
         workspace,
         "_draw_ray_diagram",
         lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        workspace, "_ray_geometry_signature", lambda _result: "geometry"
     )
     monkeypatch.setattr(
         workspace, "_update_sample_region_control_availability", lambda: None

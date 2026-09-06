@@ -24,6 +24,10 @@ from temsim.component_keys import (
     PROJECTOR_LENS_2,
 )
 from temsim.optics.lens_focal_length import E, electron_momentum
+from temsim.physics.lens_field_provider import (
+    MappedLensFieldProvider, active_mapped_providers,
+    resolve_runtime_lens_field_provider, supports_axisymmetric_reduction,
+)
 
 
 IMAGE_LENS_KEYS = (
@@ -65,7 +69,14 @@ def equivalent_image_lenses_enabled(state) -> bool:
     return (
         str(getattr(state, "projector_mode", "")).lower() == "image"
         and bool(getattr(state, "equivalent_image_lenses_enabled", False))
+        and equivalent_image_maps_supported(state)
     )
+
+
+def equivalent_image_maps_supported(state) -> bool:
+    return all(supports_axisymmetric_reduction(provider.field_map)
+               for provider in active_mapped_providers(state)
+               if provider.lens_key in IMAGE_LENS_KEYS)
 
 
 def _trapezoid(values, coordinates) -> float:
@@ -75,11 +86,15 @@ def _trapezoid(values, coordinates) -> float:
     return float(np.trapz(values, coordinates))  # pragma: no cover - NumPy < 2
 
 
-def _unit_field_samples(lens, sample_z_mm: float, stop_z_mm: float):
+def _unit_field_samples(lens, sample_z_mm: float, stop_z_mm: float, state=None):
+    provider = (resolve_runtime_lens_field_provider(state, lens.key, lens)
+                if state is not None else lens)
+    if isinstance(provider, MappedLensFieldProvider) and not supports_axisymmetric_reduction(provider.field_map):
+        raise ValueError("This field map requires distributed vector transport, not an axisymmetric thin lens")
     if not hasattr(lens, "magnetic_field_t"):
         raise ValueError(f"{lens.name} has no axial magnetic-field model")
-    if hasattr(lens, "field_support_mm"):
-        lower, upper = lens.field_support_mm()
+    if hasattr(provider, "field_support_mm"):
+        lower, upper = provider.field_support_mm()
     else:  # pragma: no cover - current five image lenses expose support.
         width = max(abs(float(getattr(lens, "a_mm", 1.0))), 1.0)
         lower = float(lens.z_mm) - 8.0 * width
@@ -92,7 +107,7 @@ def _unit_field_samples(lens, sample_z_mm: float, stop_z_mm: float):
     original_percent = float(lens.percent)
     try:
         lens.percent = 100.0
-        field_t = np.asarray(lens.magnetic_field_t(z_mm), dtype=float)
+        field_t = np.asarray(provider.magnetic_field_t(z_mm), dtype=float)
     finally:
         lens.percent = original_percent
     return z_mm, field_t
@@ -114,6 +129,8 @@ def _calibration_signature(state, sample_z_mm: float, stop_z_mm: float):
         lens_values.append((
             id(lens),
             key,
+            bool(getattr(lens, "enabled", True)),
+            float(lens.max_percent),
             float(getattr(lens, "z_mm", 0.0)),
             float(getattr(lens, "b0_t", 0.0)),
             float(getattr(lens, "upper_b0_t", 0.0)),
@@ -129,6 +146,9 @@ def _calibration_signature(state, sample_z_mm: float, stop_z_mm: float):
         float(sample_z_mm),
         float(stop_z_mm),
         tuple(lens_values),
+        tuple((provider.lens_key, provider.field_map.content_fingerprint,
+               provider.binding.geometry_fingerprint)
+              for provider in active_mapped_providers(state)),
     )
 
 
@@ -155,17 +175,14 @@ def equivalent_image_calibrations(
         if not bool(getattr(lens, "enabled", True)):
             raise ValueError(f"Image preset lens {key!r} must be enabled")
         z_mm, unit_field_t = _unit_field_samples(
-            lens, sample_z_mm, stop_z_mm
+            lens, sample_z_mm, stop_z_mm, state
         )
         z_m = z_mm * 1.0e-3
         squared_integral = _trapezoid(unit_field_t**2, z_m)
         absolute_weight = unit_field_t**2
         weight_integral = _trapezoid(absolute_weight, z_mm)
-        if squared_integral <= 0.0 or weight_integral <= 0.0:
-            raise ValueError(f"Image preset lens {key!r} has zero field power")
-        effective_z_mm = _trapezoid(
-            z_mm * absolute_weight, z_mm
-        ) / weight_integral
+        effective_z_mm = (_trapezoid(z_mm * absolute_weight, z_mm) / weight_integral
+                         if weight_integral > 0.0 else float(lens.z_mm))
         field_integral_t_m = _trapezoid(unit_field_t, z_m)
         calibrations.append(EquivalentImageLensCalibration(
             key=key,
@@ -200,10 +217,11 @@ def equivalent_image_events(
     calibration_stop_z_mm = float(stop_z_mm)
     for key in IMAGE_LENS_KEYS:
         lens = lenses[key]
-        if hasattr(lens, "field_support_mm"):
+        provider = resolve_runtime_lens_field_provider(state, key, lens)
+        if hasattr(provider, "field_support_mm"):
             calibration_stop_z_mm = max(
                 calibration_stop_z_mm,
-                float(lens.field_support_mm()[1]),
+                float(provider.field_support_mm()[1]),
             )
     calibrations = equivalent_image_calibrations(
         state, sample_z_mm, calibration_stop_z_mm

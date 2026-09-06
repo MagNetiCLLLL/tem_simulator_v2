@@ -13,6 +13,8 @@ intersected an inserted detector.
 
 from __future__ import annotations
 
+from temsim.specimen.vector_field_transport import SpecimenFieldTransport
+
 from dataclasses import dataclass
 import math
 import os
@@ -22,6 +24,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QVector3D
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QGridLayout,
     QHBoxLayout,
@@ -29,6 +32,8 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QSizePolicy,
+    QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
     QWidgetAction,
@@ -36,8 +41,6 @@ from PySide6.QtWidgets import (
 
 from temsim.specimen.scene import SpecimenScene
 from temsim.specimen.axial_field_transport import (
-    axial_field_polyline,
-    axial_rotation_rate_rad_per_nm,
     sample_axial_field_diagnostic,
 )
 
@@ -387,8 +390,8 @@ def _sample_boundary_paths(
 
     The low-level ray calculation has already propagated every output branch
     through the downstream column.  For this specimen-local page we display
-    short helical segments generated from the exact cached sample-plane phase
-    space and the same local axial field as the global solver.
+    short field-integrated segments from the cached sample-plane phase space
+    and the same registered vector fields as the global solver.
     """
 
     simulation = getattr(calculation_result, "simulation", None)
@@ -401,6 +404,7 @@ def _sample_boundary_paths(
     if state is None:
         return []
     field_diagnostic = sample_axial_field_diagnostic(state)
+    field_transport = SpecimenFieldTransport(state)
     length_nm = max(4.0 * float(scene.interacting_thickness_nm), 100.0)
     alive = np.asarray(getattr(incident, "alive", ()), dtype=bool)
     ray_count = int(alive.size)
@@ -423,13 +427,11 @@ def _sample_boundary_paths(
         energy_ev = float(state.beam_voltage_kv) * 1000.0 + float(
             incident.energy_offset_ev[index]
         )
-        points, _ = axial_field_polyline(
+        points, _ = field_transport.plane_polyline(
             (x_nm, y_nm, 0.0),
             direction,
-            -length_nm / float(direction[2]),
-            rotation_rate_rad_per_nm=axial_rotation_rate_rad_per_nm(
-                field_diagnostic.total_field_t, energy_ev
-            ),
+            -length_nm,
+            energy_ev=energy_ev,
         )
         points = points[::-1]
         if np.all(np.isfinite(points)):
@@ -437,7 +439,7 @@ def _sample_boundary_paths(
                 ScenePath(
                     points,
                     "incident",
-                    "cached specimen-input state; local-uniform solver Bz",
+                    "cached specimen-input state; shared vector field",
                 )
             )
 
@@ -475,20 +477,18 @@ def _sample_boundary_paths(
             energy_ev = float(state.beam_voltage_kv) * 1000.0 + float(
                 branch.energy_offset_ev[index]
             )
-            points, _ = axial_field_polyline(
+            points, _ = field_transport.plane_polyline(
                 (x_nm, y_nm, 0.0),
                 direction,
-                length_nm / float(direction[2]),
-                rotation_rate_rad_per_nm=axial_rotation_rate_rad_per_nm(
-                    field_diagnostic.total_field_t, energy_ev
-                ),
+                length_nm,
+                energy_ev=energy_ev,
             )
             if np.all(np.isfinite(points)):
                 rows.append(
                     ScenePath(
                         points,
                         category,
-                        "cached specimen-exit state; local-uniform solver Bz; "
+                        "cached specimen-exit state; shared vector field; "
                         "detector not assigned",
                     )
                 )
@@ -551,13 +551,80 @@ def build_sample_interaction_scene(
             abs(float(sample_region_result.exit_z_mm) - sample_z_mm),
         ) * 1.0e6
         photon_display_length_nm = max(boundary_length_nm, 100.0)
-        for path in tuple(getattr(sample_region_result, "photon_paths", ())):
-            local = _global_mm_to_local_nm(path.positions_mm, sample_z_mm)
-            local = _clip_photon_path(local, photon_display_length_nm)
-            category = "xray_detected" if bool(path.detected) else "xray_generated"
-            paths.append(
-                ScenePath(local, category, str(getattr(path, "provenance", "")))
-            )
+        photon_transport = getattr(
+            sample_region_result, "photon_transport", None
+        )
+        transport_paths = tuple(getattr(photon_transport, "paths", ()))
+        if transport_paths:
+            for transport_path in transport_paths:
+                photon = transport_path.photon
+                origin_mm = np.asarray(photon.origin_mm, dtype=float)
+                hit_mm = getattr(transport_path, "detector_hit_mm", None)
+                terminal_status = str(
+                    getattr(transport_path, "terminal_status", "")
+                )
+                if hit_mm is not None:
+                    endpoint_mm = np.asarray(hit_mm, dtype=float)
+                    endpoint_status = "sourced detector-face intersection"
+                else:
+                    hard_intercepts = tuple(
+                        interval
+                        for interval in tuple(
+                            getattr(transport_path, "material_intervals", ())
+                        )
+                        if bool(getattr(interval, "hard_shadow", False))
+                    )
+                    if hard_intercepts:
+                        distance_mm = min(
+                            float(interval.entry_distance_mm)
+                            for interval in hard_intercepts
+                        )
+                        endpoint_mm = origin_mm + distance_mm * np.asarray(
+                            photon.direction, dtype=float
+                        )
+                        endpoint_status = "physical shadow intercept"
+                    else:
+                        endpoint_mm = origin_mm + (
+                            photon_display_length_nm * 1.0e-6
+                            * np.asarray(photon.direction, dtype=float)
+                        )
+                        endpoint_status = (
+                            "aggregate direction; detector face unavailable"
+                        )
+                local = _global_mm_to_local_nm(
+                    np.asarray((origin_mm, endpoint_mm)), sample_z_mm
+                )
+                category = (
+                    "xray_detected"
+                    if float(getattr(transport_path, "detected_weight", 0.0))
+                    > 0.0
+                    else "xray_generated"
+                )
+                paths.append(ScenePath(
+                    local,
+                    category,
+                    f"{getattr(transport_path, 'transport_mode', '')}; "
+                    f"{terminal_status}; {endpoint_status}",
+                ))
+        else:
+            # Compatibility with older cached results.  These endpoints are
+            # clipped direction representatives, not physical sensor hits.
+            for path in tuple(
+                getattr(sample_region_result, "photon_paths", ())
+            ):
+                local = _global_mm_to_local_nm(
+                    path.positions_mm, sample_z_mm
+                )
+                local = _clip_photon_path(local, photon_display_length_nm)
+                category = (
+                    "xray_detected" if bool(path.detected)
+                    else "xray_generated"
+                )
+                paths.append(ScenePath(
+                    local,
+                    category,
+                    str(getattr(path, "provenance", "")),
+                ))
     elif interactions is not None:
         elastic = getattr(interactions, "elastic_transport", None)
         trajectories = tuple(getattr(elastic, "trajectories", ()))
@@ -582,34 +649,31 @@ def build_sample_interaction_scene(
             indices = np.linspace(0, len(rays) - 1, 128, dtype=int)
             rays = tuple(rays[index] for index in indices)
         upstream_length_nm = max(4.0 * thickness_nm, 100.0)
+        field_transport = SpecimenFieldTransport(state)
         top_z_nm = -0.5 * thickness_nm
         for ray in rays:
             direction = np.asarray(ray.direction, dtype=float)
             if direction.shape != (3,) or direction[2] <= 1.0e-12:
                 continue
             sample_xy = np.asarray(ray.position_xy_nm, dtype=float)
-            rate = axial_rotation_rate_rad_per_nm(
-                field_diagnostic.total_field_t,
-                ray.kinetic_energy_ev,
-            )
-            reference_to_top, top_direction = axial_field_polyline(
+            reference_to_top, top_direction = field_transport.plane_polyline(
                 (*sample_xy, 0.0),
                 direction,
-                top_z_nm / float(direction[2]),
-                rotation_rate_rad_per_nm=rate,
+                top_z_nm,
+                energy_ev=ray.kinetic_energy_ev,
             )
             top_position = reference_to_top[-1]
-            top_to_start, _ = axial_field_polyline(
+            top_to_start, _ = field_transport.plane_polyline(
                 top_position,
                 top_direction,
-                -upstream_length_nm / float(top_direction[2]),
-                rotation_rate_rad_per_nm=rate,
+                top_z_nm - upstream_length_nm,
+                energy_ev=ray.kinetic_energy_ev,
             )
             paths.append(
                 ScenePath(
                     top_to_start[::-1],
                     "incident",
-                    "cached sample-plane phase space; local-uniform solver Bz",
+                    "cached sample-plane phase space; shared vector field",
                 )
             )
 
@@ -790,6 +854,8 @@ class SampleInteractions3DPage(QWidget):
         self._hidden_scene = None
         self._hidden_view_state = None
         self._pending_view_restore = None
+        self._view_states = {}
+        self.parameters_panel = None
 
         self.summary = QLabel(
             "Run High accuracy to populate cached specimen trajectories."
@@ -934,12 +1000,111 @@ class SampleInteractions3DPage(QWidget):
             "the camera."
         )
 
+        self._gl_view = self.view if self.opengl_available else None
+        self._projection_view = (
+            self._fallback_plot() if self.opengl_available else self.view
+        )
+        self._view_mode = "3d" if self.opengl_available else "xz"
+        self.view_stack = QStackedWidget()
+        self.view_stack.setObjectName("sampleInteractionViewStack")
+        if self._gl_view is not None:
+            self.view_stack.addWidget(self._gl_view)
+        self.view_stack.addWidget(self._projection_view)
+        self.view_stack.setCurrentWidget(self.view)
+
+        view_controls = QHBoxLayout()
+        view_controls.addWidget(QLabel("View"))
+        self.view_buttons = {}
+        self.view_button_group = QButtonGroup(self)
+        self.view_button_group.setExclusive(True)
+        for mode, label in (("3d", "3D"), ("xz", "X-Z"), ("yz", "Y-Z")):
+            button = QPushButton(label)
+            button.setObjectName(f"sampleInteractionView_{mode}")
+            button.setCheckable(True)
+            button.setChecked(mode == self._view_mode)
+            button.setEnabled(mode != "3d" or self.opengl_available)
+            button.setToolTip(
+                "Rotate the cached 3-D scene. Requires OpenGL."
+                if mode == "3d" else
+                f"Orthogonal {label} projection of the same cached scene; +Z downward."
+            )
+            button.clicked.connect(
+                lambda _checked=False, selected=mode: self.set_view_mode(selected)
+            )
+            self.view_button_group.addButton(button)
+            self.view_buttons[mode] = button
+            view_controls.addWidget(button)
+        view_controls.addStretch(1)
+        self.parameters_toggle = QPushButton("Parameters")
+        self.parameters_toggle.setObjectName("sampleInteractionParametersToggle")
+        self.parameters_toggle.setCheckable(True)
+        self.parameters_toggle.setEnabled(False)
+        self.parameters_toggle.setToolTip("Show sample transport and EDS settings.")
+        self.parameters_toggle.toggled.connect(self._set_parameters_visible)
+        view_controls.addWidget(self.parameters_toggle)
+
+        self.content_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.content_splitter.setObjectName("sampleInteractionContentSplitter")
+        self.content_splitter.setHandleWidth(7)
+        self.content_splitter.addWidget(self.view_stack)
+        self.content_splitter.setStretchFactor(0, 1)
+
         layout = QVBoxLayout(self)
         layout.addWidget(self.summary)
         layout.addLayout(visibility_controls)
         layout.addLayout(action_controls)
+        layout.addLayout(view_controls)
         layout.addWidget(self.legend)
-        layout.addWidget(self.view, 1)
+        layout.addWidget(self.content_splitter, 1)
+
+    @property
+    def _using_gl(self) -> bool:
+        return self.opengl_available and self._view_mode == "3d"
+
+    @property
+    def _projection_axis(self) -> int:
+        return 1 if self._view_mode == "yz" else 0
+
+    def set_parameters_widget(self, widget: QWidget) -> None:
+        """Host the existing controls, without duplicating settings or solvers."""
+        if self.parameters_panel is not None:
+            raise ValueError("Sample interaction parameters are already installed")
+        self.parameters_panel = widget
+        self.content_splitter.addWidget(widget)
+        self.content_splitter.setStretchFactor(1, 0)
+        self.content_splitter.setSizes((900, 380))
+        widget.hide()
+        self.parameters_toggle.setEnabled(True)
+
+    def _set_parameters_visible(self, visible: bool) -> None:
+        if self.parameters_panel is not None:
+            self.parameters_panel.setVisible(visible)
+
+    def set_view_mode(self, mode: str) -> None:
+        """Change only the renderer; never build a new interaction scene."""
+        if mode not in {"3d", "xz", "yz"}:
+            raise ValueError(f"Unknown sample view: {mode}")
+        if mode == "3d" and not self.opengl_available:
+            return
+        if mode == self._view_mode:
+            return
+        previous_mode = self._view_mode
+        previous_view = self._capture_view_state()
+        self._view_states[previous_mode] = previous_view
+        self._pending_view_restore = None
+        self._clear_items()
+        self._view_mode = mode
+        self.view = self._gl_view if self._using_gl else self._projection_view
+        self.view_stack.setCurrentWidget(self.view)
+        self.view_buttons[mode].setChecked(True)
+        self._redraw(refit=False)
+        saved = self._view_states.get(mode)
+        if saved is None and previous_mode != "3d" and mode != "3d":
+            saved = {**previous_view, "mode": mode}
+        if saved is not None:
+            self._restore_view_state(saved)
+        else:
+            self._apply_fit()
 
     def _legend_html(self) -> str:
         visible = {
@@ -999,11 +1164,12 @@ class SampleInteractions3DPage(QWidget):
     def _capture_view_state(self):
         """Capture display state only; no specimen data are copied or rebuilt."""
 
-        if self.opengl_available:
+        if self._using_gl:
             options = self.view.opts
             centre = options.get("center", QVector3D())
             return {
                 "kind": "opengl",
+                "mode": self._view_mode,
                 "center": (
                     float(centre.x()),
                     float(centre.y()),
@@ -1017,6 +1183,7 @@ class SampleInteractions3DPage(QWidget):
         ranges = self.view.getViewBox().viewRange()
         return {
             "kind": "fallback-2d",
+            "mode": self._view_mode,
             "x_range": tuple(float(value) for value in ranges[0]),
             "y_range": tuple(float(value) for value in ranges[1]),
         }
@@ -1024,7 +1191,9 @@ class SampleInteractions3DPage(QWidget):
     def _restore_view_state(self, state) -> None:
         if not state:
             return
-        if self.opengl_available and state.get("kind") == "opengl":
+        if state.get("mode", self._view_mode) != self._view_mode:
+            return
+        if self._using_gl and state.get("kind") == "opengl":
             self.view.opts["center"] = QVector3D(*state["center"])
             self.view.opts["fov"] = float(state["fov"])
             self.view.setCameraPosition(
@@ -1033,7 +1202,7 @@ class SampleInteractions3DPage(QWidget):
                 azimuth=float(state["azimuth"]),
             )
             self.view.update()
-        elif not self.opengl_available and state.get("kind") == "fallback-2d":
+        elif not self._using_gl and state.get("kind") == "fallback-2d":
             self.view.setRange(
                 xRange=state["x_range"],
                 yRange=state["y_range"],
@@ -1070,7 +1239,7 @@ class SampleInteractions3DPage(QWidget):
         # A QOpenGLWidget context may be recreated after its tab was hidden.
         # Re-add display items from the exact same immutable scene snapshot;
         # never rebuild or resample the scientific calculation here.
-        if self.opengl_available:
+        if self._using_gl:
             self._redraw(refit=False)
         self._restore_view_state(view_state)
 
@@ -1183,8 +1352,8 @@ class SampleInteractions3DPage(QWidget):
             f"Specimen field: total Bz {scene.sample_axial_field_t:+.6g} T; "
             f"Objective contribution {scene.sample_objective_field_t:+.6g} T; "
             f"face-to-face ΔBz {scene.sample_field_face_variation_t:.3g} T. "
-            "Finite specimen flights use reversible local-uniform axial-field "
-            "helical transport with no magnetic energy change."
+            "Finite specimen flights use shared vector-field transport "
+            "with no magnetic energy change."
         )
         aberration_text = _aberration_scope_text(self._calculation_result)
         if aberration_text:
@@ -1209,6 +1378,28 @@ class SampleInteractions3DPage(QWidget):
                 "Vacuum preserves the user reference plane but generates no "
                 "sample scattering, ionisation, or characteristic X-rays."
             )
+        photon_transport = getattr(
+            self._sample_region_result, "photon_transport", None
+        )
+        if photon_transport is not None:
+            metrics = dict(getattr(photon_transport, "metrics", {}) or {})
+            geometry_label = (
+                "exact detector faces"
+                if bool(getattr(photon_transport, "geometry_complete", False))
+                else "aggregate solid angle"
+            )
+            hit_count = int(metrics.get("detector_hit_count", 0))
+            blocked_count = int(metrics.get("blocked_photon_count", 0))
+            specimen_count = int(metrics.get("specimen_intersection_count", 0))
+            mean_transmission = float(
+                metrics.get("mean_specimen_transmission", 1.0)
+            )
+            parts.append(
+                f"EDS photon transport: {geometry_label}; {hit_count} hit, "
+                f"{blocked_count} shadowed; specimen self-absorption crossed "
+                f"by {specimen_count} path segment(s), mean transmission "
+                f"{mean_transmission:.4g}."
+            )
         parts.append(
             "Electron lines here are specimen-input/output states, not "
             "HAADF/DF/BF counts. Electron signal is counted only after "
@@ -1229,24 +1420,36 @@ class SampleInteractions3DPage(QWidget):
             f"{scene.sample_thickness_nm:.6g} nm | "
             f"{electron_count:,} electron paths · {event_count:,} sites · "
             f"{xray_count:,} X-rays"
+            + (
+                " · "
+                + (
+                    "exact-face"
+                    if bool(getattr(photon_transport, "geometry_complete", False))
+                    else "aggregate"
+                )
+                + f" · {int(dict(getattr(photon_transport, 'metrics', {}) or {}).get('detector_hit_count', 0))} hit"
+                + f" · {int(dict(getattr(photon_transport, 'metrics', {}) or {}).get('blocked_photon_count', 0))} blocked"
+                if photon_transport is not None
+                else ""
+            )
         )
         self.summary.setToolTip(
             detail_text
             + "\n\n"
             "The user-sample outline uses the configured finite envelope; use "
-            "Fit user sample to see its complete edge. X-ray display lines are "
-            "clipped to "
-            "the bounded sample-region scale; their source direction and EDS "
-            "acceptance are unchanged. X-rays are not deflected by magnetic "
-            "lenses. The plotted axial field is parameterised; displayed pole "
-            "geometry and material are not yet coupled to a FEM/measured field "
-            "map. Secondary-electron paths are not shown "
+            "Fit user sample to see its complete edge. Exact detector-face "
+            "and pole-shadow endpoints are retained when sourced geometry is "
+            "available; aggregate-only X-ray directions remain clipped. "
+            "X-rays are not deflected by magnetic "
+            "lenses. The plotted axial field uses the same runtime provider "
+            "as full-column propagation; its measured/FEM or provisional "
+            "status is listed above. Secondary-electron paths are not shown "
             "because no validated yield/energy/escape model is implemented."
         )
         self._redraw()
 
     def _clear_items(self) -> None:
-        if self.opengl_available:
+        if self._using_gl:
             for item in self._items:
                 try:
                     self.view.removeItem(item)
@@ -1271,7 +1474,7 @@ class SampleInteractions3DPage(QWidget):
         scene = self._scene
         if scene is None:
             return
-        if self.opengl_available:
+        if self._using_gl:
             self._draw_gl(scene)
         else:
             self._draw_2d(scene)
@@ -1335,12 +1538,14 @@ class SampleInteractions3DPage(QWidget):
                 self._items.append(item)
 
     def _draw_2d(self, scene: SampleInteractionScene) -> None:
+        axis = self._projection_axis
+        self.view.setLabel("bottom", f"Local {'Y' if axis else 'X'}", units="nm")
         for path in scene.paths:
             if not self._path_visible(path.category):
                 continue
             _label, colour = PATH_STYLES[path.category]
             self.view.plot(
-                path.positions_nm[:, 0],
+                path.positions_nm[:, axis],
                 path.positions_nm[:, 2],
                 pen=pg.mkPen(colour, width=1.4),
             )
@@ -1349,7 +1554,7 @@ class SampleInteractions3DPage(QWidget):
                 continue
             _label, colour = EVENT_STYLES[group.category]
             item = pg.ScatterPlotItem(
-                x=group.positions_nm[:, 0],
+                x=group.positions_nm[:, axis],
                 y=group.positions_nm[:, 2],
                 size=6,
                 pen=pg.mkPen(colour),
@@ -1359,13 +1564,13 @@ class SampleInteractions3DPage(QWidget):
         if self.context_toggle.isChecked():
             outline = _sample_model_outline(scene)
             self.view.plot(
-                outline[:, 0],
+                outline[:, axis],
                 outline[:, 2],
                 pen=pg.mkPen("#ffffff", width=1.2),
             )
             for region_outline in scene.virtual_region_outlines_nm:
                 self.view.plot(
-                    region_outline[:, 0],
+                    region_outline[:, axis],
                     region_outline[:, 2],
                     pen=pg.mkPen("#a78bfa", width=1.1),
                 )
@@ -1392,7 +1597,7 @@ class SampleInteractions3DPage(QWidget):
             return
         lower, upper = self._active_bounds()
         span = max(float(np.max(upper - lower)), 1.0)
-        if self.opengl_available:
+        if self._using_gl:
             display_lower, display_upper = _gl_display_bounds((lower, upper))
             centre = 0.5 * (display_lower + display_upper)
             self.view.opts["center"] = QVector3D(*centre)
@@ -1404,7 +1609,10 @@ class SampleInteractions3DPage(QWidget):
             self.view.update()
         else:
             self.view.setRange(
-                xRange=(float(lower[0]), float(upper[0])),
+                xRange=(
+                    float(lower[self._projection_axis]),
+                    float(upper[self._projection_axis]),
+                ),
                 yRange=(float(lower[2]), float(upper[2])),
                 padding=0.0,
             )

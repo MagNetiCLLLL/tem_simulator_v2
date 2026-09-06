@@ -4,13 +4,19 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+import temsim.specimen.sample_region as sample_region_module
 from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
 from temsim.optics.column import default_state
+from temsim.specimen.downstream_transport import GeometricSpecimenExit
 from temsim.specimen.sample_region import (
     SampleRegionElectronPath,
+    SampleRegionResult,
     _angular_acceptance,
     _electron_paths,
     _isotropic_directions,
+    bind_sample_region_downstream,
+    reproject_sample_region_downstream,
+    simulate_sample_region,
 )
 
 
@@ -112,4 +118,246 @@ def test_boundary_input_path_ends_at_the_centred_specimen_entrance_face():
     assert endpoint[2] == pytest.approx(expected_top_z_mm)
     assert endpoint[0] == pytest.approx(
         -0.5 * state.sample.thickness_nm * slope_x * 1.0e-6
+    )
+
+
+def test_downstream_reprojection_shares_local_paths_and_rebinds_observables(
+    monkeypatch,
+):
+    state = default_state()
+    electron_paths = ("cached-electron",)
+    photon_paths = ("cached-photon",)
+    old = SampleRegionResult(
+        entry_z_mm=1.0,
+        exit_z_mm=2.0,
+        electron_paths=electron_paths,
+        photon_paths=photon_paths,
+        downstream_branches=("old-downstream",),
+        spectrum="old-spectrum",
+        interactions="old-interactions",
+        metrics={
+            "kept_local_metric": 7,
+            "downstream_forward_weight": 0.25,
+            "model": "old-model",
+        },
+    )
+    elastic = object()
+    spectrum = SimpleNamespace(elastic_transport=elastic)
+    interactions = SimpleNamespace(
+        elastic_transport=elastic,
+        eds_spectrum=spectrum,
+        inelastic_distribution="current-inelastic",
+        metrics={
+            "dependency_signatures": {
+                "sample_downstream": "downstream-current",
+            }
+        },
+    )
+    calls = []
+    new_downstream_branch = SimpleNamespace(weight=0.75)
+
+    def fake_downstream(
+        passed_state,
+        passed_simulation,
+        passed_elastic,
+        passed_inelastic,
+        *,
+        save_z_mm,
+        dependency_signature,
+    ):
+        calls.append((
+            passed_state,
+            passed_simulation,
+            passed_elastic,
+            passed_inelastic,
+            save_z_mm,
+            dependency_signature,
+        ))
+        return GeometricSpecimenExit(
+            (new_downstream_branch,),
+            {
+                "model": "new-model",
+                "downstream_forward_weight": 0.75,
+                "tracked_downstream_source_probability": 0.75,
+                "inelastic_absorbed_source_probability": 0.05,
+            },
+            dependency_signature=dependency_signature,
+        )
+
+    monkeypatch.setattr(
+        sample_region_module,
+        "build_geometric_specimen_exit",
+        fake_downstream,
+    )
+    simulation = object()
+
+    updated = reproject_sample_region_downstream(
+        state,
+        simulation,
+        old,
+        interactions,
+        wave_imaging=object(),
+        dependency_signatures={
+            "sample_region": "local-current",
+            "sample_downstream": "downstream-current",
+        },
+    )
+
+    assert calls == [(
+        state,
+        simulation,
+        elastic,
+        "current-inelastic",
+        (2.0,),
+        "downstream-current",
+    )]
+    assert updated is not old
+    assert updated.electron_paths is electron_paths
+    assert updated.photon_paths is photon_paths
+    assert updated.downstream_branches == (new_downstream_branch,)
+    assert updated.spectrum is spectrum
+    assert updated.interactions is interactions
+    assert updated.specimen_exit.dependency_signature == "downstream-current"
+    assert updated.metrics["kept_local_metric"] == 7
+    assert updated.metrics["model"] == "new-model"
+    assert updated.metrics["downstream_forward_weight"] == pytest.approx(0.75)
+    assert updated.metrics["sample_region_signature"] == "local-current"
+    assert updated.metrics["sample_downstream_signature"] == (
+        "downstream-current"
+    )
+    assert updated.metrics["channeling_model"].startswith("coherent wave")
+    assert old.downstream_branches == ("old-downstream",)
+    assert old.metrics["downstream_forward_weight"] == pytest.approx(0.25)
+
+
+def test_bind_sample_region_rejects_checkpoint_from_other_interactions():
+    elastic = object()
+    interactions = SimpleNamespace(
+        elastic_transport=elastic,
+        eds_spectrum=SimpleNamespace(elastic_transport=elastic),
+        metrics={
+            "dependency_signatures": {
+                "sample_downstream": "different-state",
+            }
+        },
+    )
+    checkpoint = GeometricSpecimenExit(
+        (),
+        {
+            "tracked_downstream_source_probability": 0.0,
+            "inelastic_absorbed_source_probability": 0.0,
+        },
+        dependency_signature="current-state",
+    )
+    sample_region = SampleRegionResult(
+        entry_z_mm=1.0,
+        exit_z_mm=2.0,
+        electron_paths=(),
+        photon_paths=(),
+        downstream_branches=(),
+        spectrum=interactions.eds_spectrum,
+        interactions=interactions,
+        metrics={"sample_region_signature": "local"},
+    )
+
+    with pytest.raises(ValueError, match="same current dependency signature"):
+        bind_sample_region_downstream(
+            sample_region,
+            checkpoint,
+            interactions,
+            expected_signature="current-state",
+        )
+
+
+def test_manual_sample_region_reuses_high_accuracy_specimen_exit(
+    monkeypatch,
+    detector_geometry,
+):
+    state = default_state()
+    state.sample.inserted = True
+    state.sample.eds_enabled = True
+    elastic = SimpleNamespace(metrics={})
+    shared_photon_transport = SimpleNamespace(
+        metrics={"model": "shared main-spectrum photon transport"},
+        geometry_complete=False,
+        expected_detected_weight_per_segment=(0.0,) * 6,
+    )
+    spectrum = SimpleNamespace(
+        elastic_transport=elastic,
+        photon_transport=shared_photon_transport,
+    )
+    downstream_signature = "shared-downstream"
+    interactions = SimpleNamespace(
+        elastic_transport=elastic,
+        eds_spectrum=spectrum,
+        inelastic_distribution=object(),
+        metrics={
+            "dependency_signatures": {
+                "sample_region": "local-region",
+                "sample_downstream": downstream_signature,
+            },
+            "existing_result_reused": True,
+            "calculated_observables_this_call": (),
+        },
+    )
+    shared_downstream_branch = SimpleNamespace(weight=0.8)
+    checkpoint = GeometricSpecimenExit(
+        (shared_downstream_branch,),
+        {
+            "downstream_forward_weight": 0.8,
+            "tracked_downstream_source_probability": 0.8,
+            "inelastic_absorbed_source_probability": 0.05,
+        },
+        dependency_signature=downstream_signature,
+    )
+    calculation_result = SimpleNamespace(
+        simulation=object(),
+        wave_imaging=None,
+        specimen_exit=checkpoint,
+    )
+    bundle = SimpleNamespace(reaching_ray_count=1)
+    local_electron = SimpleNamespace(kind="incident")
+    monkeypatch.setattr(
+        sample_region_module,
+        "run_specimen_interactions",
+        lambda *_args, **_kwargs: interactions,
+    )
+    monkeypatch.setattr(
+        sample_region_module,
+        "_electron_paths",
+        lambda *_args, **_kwargs: ((local_electron,), bundle, bundle),
+    )
+    monkeypatch.setattr(
+        sample_region_module,
+        "_photon_paths",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("shared main-spectrum photons were resampled")
+        ),
+    )
+    monkeypatch.setattr(
+        sample_region_module,
+        "build_geometric_specimen_exit",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("compatible high-accuracy checkpoint was rebuilt")
+        ),
+    )
+
+    result = simulate_sample_region(
+        state,
+        calculation_result,
+        detector_geometry,
+        upstream_distance_um=50.0,
+        downstream_distance_um=50.0,
+        photon_path_count=0,
+        secondary_path_count=0,
+        seed=17,
+        existing_interactions=interactions,
+    )
+
+    assert result.specimen_exit is checkpoint
+    assert result.photon_transport is shared_photon_transport
+    assert result.metrics["eds_photon_transport_shared_with_spectrum"]
+    assert result.downstream_branches is checkpoint.branches
+    assert result.metrics["sample_downstream_signature"] == (
+        downstream_signature
     )

@@ -7,6 +7,7 @@ from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QDoubleSpinBox, QLabel
 
 from temsim.assembly_catalog import AssemblyCatalog
+from temsim.calculation_cache import calculation_signatures
 from temsim.gui.sample_panel import SamplePage
 from temsim.gui.eds_panel import EDSPage
 from temsim.optics.column import default_state
@@ -204,6 +205,10 @@ def test_dedicated_eds_page_uses_calculated_sample_plane_rays(qtbot):
     catalog = AssemblyCatalog()
     assembly = catalog.apply(state, catalog.default_selection())
     ray_count = 2
+    calculation_state = type(state).from_dict(state.to_dict())
+    calculation_state.electron_gun.emitter.ray_count = ray_count
+    state.electron_gun.emitter.ray_count = ray_count + 3
+    result_signatures = calculation_signatures(calculation_state)
     simulation = SimpleNamespace(
         incident=SimpleNamespace(
             alive=np.ones(ray_count, dtype=bool),
@@ -216,7 +221,12 @@ def test_dedicated_eds_page_uses_calculated_sample_plane_rays(qtbot):
         )
     )
     page.display_result(
-        SimpleNamespace(assembly=assembly, simulation=simulation)
+        SimpleNamespace(
+            assembly=assembly,
+            simulation=simulation,
+            state_snapshot=calculation_state,
+            signatures=result_signatures,
+        )
     )
     page.eds_acquire.click()
 
@@ -226,19 +236,16 @@ def test_dedicated_eds_page_uses_calculated_sample_plane_rays(qtbot):
     assert page._eds_result.metrics["trajectory_count"] == ray_count
     assert page._eds_result.metrics["reaching_sample_ray_count"] == ray_count
     assert page._elastic_result is page._eds_result.elastic_transport
-    assert page.eds_trajectory_plot.listDataItems()
-    assert page.eds_trajectory_yz_plot.listDataItems()
-    first_points = page._elastic_result.trajectories[0].points_nm
-    page.set_projection_angle(90.0, emit_signal=True)
-    assert page._projection_angle_deg == pytest.approx(90.0)
-    assert page.projection_slider.value() == 900
-    assert page.projection_yz.isChecked()
-    assert page.eds_trajectory_plot.listDataItems()[0].xData == pytest.approx(
-        first_points[:, 1]
+    assert (
+        page._specimen_interactions.metrics["dependency_signatures"]["eds"]
+        == result_signatures["eds"]
     )
-    assert page.eds_trajectory_yz_plot.listDataItems()[0].xData == pytest.approx(
-        -first_points[:, 0]
-    )
+    assert result_signatures["eds"] != calculation_signatures(state)["eds"]
+    assert page.spectrum_plot.listDataItems()
+    assert not hasattr(page, "eds_trajectory_plot")
+    assert not hasattr(page, "eds_trajectory_yz_plot")
+    # Histories remain available to the shared sample scene, not another plot.
+    assert page._elastic_result.trajectories
     assert {
         line.source_key for line in page._eds_result.lines
     } >= {"sample", "support:bar"}
@@ -246,12 +253,35 @@ def test_dedicated_eds_page_uses_calculated_sample_plane_rays(qtbot):
     assert "Ultra" not in page.eds_summary.text()
 
 
+def test_eds_page_rejects_enrichment_from_a_different_calculation_identity(
+    qtbot,
+):
+    page = EDSPage()
+    qtbot.addWidget(page)
+    retained = object()
+    page._result = SimpleNamespace(
+        signatures={"eds": "high-15k"},
+        specimen_interactions=retained,
+    )
+    errors = []
+    page.error.connect(errors.append)
+    mismatched = SimpleNamespace(
+        metrics={"dependency_signatures": {"eds": "live-1k"}}
+    )
+
+    stored = page._store_specimen_interactions(mismatched)
+
+    assert stored is False
+    assert page._result.specimen_interactions is retained
+    assert page._specimen_interactions is None
+    assert errors and "does not match" in errors[-1]
+
+
 def test_eds_spectrum_hover_reports_nearest_energy_bin_and_counts(qtbot):
     page = EDSPage()
     qtbot.addWidget(page)
     page.resize(1000, 700)
     page.show()
-    page.result_tabs.setCurrentIndex(1)
     spectrum = SimpleNamespace(
         energy_bin_centres_ev=np.asarray((1000.0, 2000.0, 3000.0)),
         expected_counts=np.asarray((10.0, 25.5, 8.0)),

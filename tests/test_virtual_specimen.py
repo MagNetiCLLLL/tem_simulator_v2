@@ -170,7 +170,7 @@ def test_schema_69_cif_state_migrates_to_real_mode():
 
     restored = type(state).from_dict(payload)
 
-    assert restored.schema_version == 75
+    assert restored.schema_version == 76
     assert restored.sample.specimen_mode == "atomic"
     assert restored.sample.specimen_preset_key == "si_110"
     assert restored.sample.cif_path == "legacy-example.cif"
@@ -187,7 +187,7 @@ def test_schema_70_real_preset_state_migrates_to_virtual_reference_mode():
 
     restored = type(state).from_dict(payload)
 
-    assert restored.schema_version == 75
+    assert restored.schema_version == 76
     assert restored.sample.specimen_mode == "virtual"
     assert restored.sample.specimen_preset_key == "au_001"
     assert not hasattr(restored.sample, "atomic_structure_source")
@@ -201,7 +201,7 @@ def test_pre_73_state_without_shape_retains_rectangular_envelope():
 
     restored = type(state).from_dict(payload)
 
-    assert restored.schema_version == 75
+    assert restored.schema_version == 76
     assert restored.sample.envelope_shape == "rectangle"
 
 

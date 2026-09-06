@@ -1,0 +1,220 @@
+{
+  "schema": "temsim-incremental-ray-scene-benchmark-v1",
+  "scope": "Synthetic prescribed rays; real Qt scene; no ray/field/specimen solves; no desktop or GPU FPS claim",
+  "timing_notes": "Fixture generation and workspace construction are excluded. Update is synchronous wall/whole-process CPU time. Events are two dispatch passes; raster is an additional forced QWidget grab, not additive display latency.",
+  "environment": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.3",
+    "machine": "AMD64",
+    "processor": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+    "numpy": "2.4.6",
+    "pyqtgraph": "0.14.0",
+    "pyside": "6.8.3",
+    "qt": "6.8.3",
+    "qt_platform": "offscreen"
+  },
+  "run_options": {
+    "measured_repeats": 10,
+    "warmups": 2,
+    "seed": 412
+  },
+  "fixture": {
+    "planes_per_bundle": 2048,
+    "rays_per_bundle": 512,
+    "bundles": 3,
+    "components": 80,
+    "window_size_px": [
+      1600,
+      900
+    ],
+    "device_pixel_ratio": 1,
+    "transverse_visible": true,
+    "magnetic_field_visible": false,
+    "two_result_history_array_bytes": 201326592,
+    "display_ray_limit_per_bundle": 48
+  },
+  "first_process_publication": {
+    "update_wall_ms": 259.20870000118157,
+    "update_process_cpu_ms": 234.375,
+    "event_dispatch_ms": 524.7933999999077,
+    "raster_capture_ms": 199.723300000187,
+    "update_and_events_ms": 784.0021000010893,
+    "ray_scene_update_ms": 235.72330000024522
+  },
+  "cases": {
+    "fresh_scene_first_publication": {
+      "samples": 10,
+      "update_wall_ms": {
+        "median": 263.38285000019823,
+        "p95": 386.9501799981663,
+        "max": 387.1822000000975
+      },
+      "update_process_cpu_ms": {
+        "median": 250,
+        "p95": 375,
+        "max": 375
+      },
+      "event_dispatch_ms": {
+        "median": 521.1561999967671,
+        "p95": 530.6508450004912,
+        "max": 534.081600002537
+      },
+      "raster_capture_ms": {
+        "median": 192.38844999927096,
+        "p95": 197.96246999867435,
+        "max": 200.05200000014156
+      },
+      "update_and_events_ms": {
+        "median": 788.1256500004383,
+        "p95": 908.0304049959523,
+        "max": 908.8804999992135
+      },
+      "ray_scene_update_ms": {
+        "median": 228.6222499969881,
+        "p95": 356.0403099985706,
+        "max": 364.88829999871086
+      }
+    },
+    "same_geometry_publication": {
+      "samples": 10,
+      "update_wall_ms": {
+        "median": 94.86685000229045,
+        "p95": 98.56169000195223,
+        "max": 99.18350000225473
+      },
+      "update_process_cpu_ms": {
+        "median": 93.75,
+        "p95": 102.34374999999999,
+        "max": 109.375
+      },
+      "event_dispatch_ms": {
+        "median": 174.86004999955185,
+        "p95": 181.22051500140515,
+        "max": 181.95730000297772
+      },
+      "raster_capture_ms": {
+        "median": 155.3624000043783,
+        "p95": 167.00239999699988,
+        "max": 169.30819999834057
+      },
+      "update_and_events_ms": {
+        "median": 270.59539999754634,
+        "p95": 277.69612000411144,
+        "max": 279.50350000173785
+      },
+      "ray_scene_update_ms": {
+        "median": 70.5708500026958,
+        "p95": 76.76195000494772,
+        "max": 77.18630000454141
+      }
+    },
+    "rotation": {
+      "samples": 10,
+      "update_wall_ms": {
+        "median": 40.49825000038254,
+        "p95": 46.25039000275137,
+        "max": 48.19790000328794
+      },
+      "update_process_cpu_ms": {
+        "median": 46.875,
+        "p95": 46.875,
+        "max": 46.875
+      },
+      "event_dispatch_ms": {
+        "median": 170.03500000282656,
+        "p95": 172.83761000217055,
+        "max": 173.37140000017826
+      },
+      "raster_capture_ms": {
+        "median": 157.33935000025667,
+        "p95": 165.17390999979398,
+        "max": 165.84989999682875
+      },
+      "update_and_events_ms": {
+        "median": 210.26350000101957,
+        "p95": 217.36991000834678,
+        "max": 218.4455000096932
+      }
+    },
+    "selected_z": {
+      "samples": 10,
+      "update_wall_ms": {
+        "median": 26.44605000023148,
+        "p95": 29.38871999758703,
+        "max": 29.620199995406438
+      },
+      "update_process_cpu_ms": {
+        "median": 31.25,
+        "p95": 31.25,
+        "max": 31.25
+      },
+      "event_dispatch_ms": {
+        "median": 51.28770000010263,
+        "p95": 96.82776500048928,
+        "max": 108.72050000034506
+      },
+      "raster_capture_ms": {
+        "median": 158.54469999612775,
+        "p95": 163.97135499610158,
+        "max": 165.7911999936914
+      },
+      "update_and_events_ms": {
+        "median": 77.88594999874476,
+        "p95": 126.21648499807631,
+        "max": 138.3406999957515
+      }
+    }
+  },
+  "scene_counters": {
+    "before_updates": {
+      "initial_builds": 1,
+      "updates": 0,
+      "layers_rebuilt": 82,
+      "layers_reused": 0,
+      "static_layers": 82,
+      "ray_groups": 15,
+      "last_update_ms": 209.2320000010659
+    },
+    "after_same_geometry_publication": {
+      "initial_builds": 1,
+      "updates": 12,
+      "layers_rebuilt": 94,
+      "layers_reused": 972,
+      "static_layers": 82,
+      "ray_groups": 15,
+      "last_update_ms": 68.40630000078818
+    },
+    "after_rotation": {
+      "initial_builds": 1,
+      "updates": 12,
+      "layers_rebuilt": 94,
+      "layers_reused": 972,
+      "static_layers": 82,
+      "ray_groups": 15,
+      "last_update_ms": 68.40630000078818
+    },
+    "after_selected_z": {
+      "initial_builds": 1,
+      "updates": 12,
+      "layers_rebuilt": 94,
+      "layers_reused": 972,
+      "static_layers": 82,
+      "ray_groups": 15,
+      "last_update_ms": 68.40630000078818
+    }
+  },
+  "display_data_cache": {
+    "budget_bytes": 536870912,
+    "used_bytes": 32862576,
+    "entries": 57,
+    "hits": 219,
+    "misses": 309
+  },
+  "target": {
+    "p95_update_and_events_ms": 50,
+    "rotation_synchronous_update_passed": true,
+    "selected_z_synchronous_update_passed": true,
+    "rotation_passed": false,
+    "selected_z_passed": false
+  }
+}

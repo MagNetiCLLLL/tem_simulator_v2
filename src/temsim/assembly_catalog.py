@@ -232,7 +232,20 @@ class AssemblyCatalog:
         })
         return paths
 
-    def apply(self, state, selection: AssemblySelection):
+    def apply(
+        self,
+        state,
+        selection: AssemblySelection,
+        *,
+        preserve_operating_parameters: bool = False,
+    ):
+        """Resolve one complete assembly into ``state``.
+
+        A newly selected assembly starts from its manifest defaults.  Editors
+        that merely reload geometry for the already installed assembly may
+        instead retain the live lens strengths and apply a preset explicitly
+        after all mechanical edits are complete.
+        """
         selection = self.normalise_selection(selection)
         gun = self._by_name(self.guns, selection.gun)
         column = self._by_name(self.columns, selection.column)
@@ -278,7 +291,7 @@ class AssemblyCatalog:
         ensure_corrector_structure(state)
         apply_physical_layout_to_state(
             state,
-            preserve_operating_parameters=False,
+            preserve_operating_parameters=preserve_operating_parameters,
             assembly_root=self.root,
         )
         from temsim.component_keys import (

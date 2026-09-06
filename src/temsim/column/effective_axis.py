@@ -382,6 +382,9 @@ def _reference_configuration(configuration):
             configuration.fluorescent_screen_component
         ),
         camera_component=configuration.camera_component,
+        projection_chamber_aperture_component=(
+            configuration.projection_chamber_aperture_component
+        ),
         energy_filter_entrance_aperture_component=(
             configuration.energy_filter_entrance_aperture_component
         ),

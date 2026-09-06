@@ -4,7 +4,11 @@ from dataclasses import dataclass, replace
 
 from temsim.calculation_cache import calculation_signatures, matching_products
 from temsim.detector.recording_system import ensure_recording_system
-from temsim.detector.stem_signal import StemScanResult, acquire_stem_scan
+from temsim.detector.stem_signal import (
+    StemScanResult,
+    acquire_stem_scan,
+    reweight_stem_scan,
+)
 from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.component_names import normalise_component_names
 from temsim.optics.corrector_structure import ensure_corrector_structure
@@ -34,7 +38,18 @@ from temsim.specimen.interaction_types import (
     SpecimenInteractionResult,
     retain_specimen_observables,
 )
-from temsim.specimen.source import specimen_structure_available
+from temsim.specimen.source import (
+    specimen_interactions_active,
+)
+from temsim.specimen.downstream_transport import (
+    GeometricSpecimenExit,
+    build_geometric_specimen_exit,
+    validated_geometric_specimen_exit,
+)
+from temsim.specimen.sample_region import (
+    bind_sample_region_downstream,
+    validated_sample_region_exit,
+)
 
 
 @dataclass
@@ -49,6 +64,7 @@ class CalculationResult:
     scan_geometry: ScanGeometryResult | None = None
     scan_ray_paths: object | None = None
     stem_scan: StemScanResult | None = None
+    specimen_exit: GeometricSpecimenExit | None = None
     sample_region: object | None = None
     lens_crossovers: tuple[dict[str, object], ...] = ()
     aperture_stops: tuple[dict[str, object], ...] = ()
@@ -106,6 +122,30 @@ def aperture_stop_records(state) -> tuple[dict[str, object], ...]:
 
 
 ProgressCallback = Callable[[int, int, str], None]
+_QT_PROGRESS_SAFE_MAX = 2_000_000_000
+
+
+def _progress_stage_subdivisions(total_work: int) -> int:
+    """Return nested-progress resolution bounded to a Qt signed integer."""
+
+    work = max(int(total_work), 1)
+    return max(1, min(10_000, _QT_PROGRESS_SAFE_MAX // work))
+
+
+def _bounded_progress_position(
+    completed_work: int,
+    total_work: int,
+) -> tuple[int, int]:
+    """Map arbitrary work counts onto Qt's signed progress range."""
+
+    total = max(int(total_work), 1)
+    completed = min(max(int(completed_work), 0), total)
+    if total <= _QT_PROGRESS_SAFE_MAX:
+        return completed, total
+    return (
+        round(_QT_PROGRESS_SAFE_MAX * completed / total),
+        _QT_PROGRESS_SAFE_MAX,
+    )
 
 
 def _stem_frame_work_weight(state) -> int:
@@ -138,11 +178,10 @@ def _geometric_specimen_transport_requested(state) -> bool:
     return bool(
         state.ac_deflector.enabled
         and state.ac_deflector.scan_enabled
-        and getattr(sample, "inserted", False)
+        and specimen_interactions_active(sample)
         and str(getattr(sample, "specimen_mode", "atomic")).strip().lower()
         == "atomic"
         and not bool(getattr(sample, "stem_wave_enabled", False))
-        and specimen_structure_available(sample)
         and any(
             bool(getattr(detector, "inserted", False))
             for detector in state.stem_detectors
@@ -153,9 +192,8 @@ def _geometric_specimen_transport_requested(state) -> bool:
 def _eds_point_requested(state) -> bool:
     sample = state.sample
     return bool(
-        getattr(sample, "inserted", False)
-        and getattr(sample, "eds_enabled", False)
-        and specimen_structure_available(sample)
+        getattr(sample, "eds_enabled", False)
+        and specimen_interactions_active(sample)
     )
 
 
@@ -164,18 +202,58 @@ def calculate_stem_scan_frame(
     simulation,
     *,
     specimen_interactions: SpecimenInteractionResult | None = None,
+    geometric_specimen_exit=None,
+    geometric_specimen_exit_signature: str = "",
     progress_callback: ProgressCallback | None = None,
+    diffraction_sink=None,
 ):
     """Calculate exactly one detector-signal frame when AC scan is active."""
 
     component = state.ac_deflector
     if not bool(component.enabled and component.scan_enabled):
         return None
+    extra = {"diffraction_sink": diffraction_sink} if diffraction_sink is not None else {}
     return acquire_stem_scan(
         simulation,
         state,
         specimen_interactions=specimen_interactions,
+        geometric_specimen_exit=geometric_specimen_exit,
+        geometric_specimen_exit_signature=geometric_specimen_exit_signature,
         progress_callback=progress_callback,
+        **extra,
+    )
+
+
+def _rebind_reused_sample_region(
+    sample_region,
+    specimen_interactions: SpecimenInteractionResult | None,
+    wave_imaging: WaveImagingResult | None,
+    dependency_signatures: dict[str, str] | None = None,
+):
+    """Attach current shared observables to reusable particle geometry."""
+
+    spectrum = getattr(specimen_interactions, "eds_spectrum", None)
+    if (
+        sample_region is None
+        or specimen_interactions is None
+        or spectrum is None
+    ):
+        return None
+    metrics = dict(getattr(sample_region, "metrics", {}) or {})
+    metrics["channeling_model"] = (
+        "coherent wave/multislice result available; not reclassified as particles"
+        if wave_imaging is not None
+        else "unavailable without a wave/multislice specimen result"
+    )
+    if dependency_signatures is not None:
+        metrics["sample_region_signature"] = str(
+            dependency_signatures.get("sample_region", "")
+        )
+    return replace(
+        sample_region,
+        interactions=specimen_interactions,
+        spectrum=spectrum,
+        metrics=metrics,
     )
 
 
@@ -184,6 +262,7 @@ def calculate(
     *,
     progress_callback: ProgressCallback | None = None,
     existing_result: CalculationResult | None = None,
+    diffraction_sink=None,
 ):
     """Calculate a complete result while reusing compatible cached products.
 
@@ -203,6 +282,16 @@ def calculate(
     )
     tem_wave_requested = tem_wave_imaging_enabled(state)
     stem_frame_requested = bool(
+        state.ac_deflector.enabled and state.ac_deflector.scan_enabled
+    )
+    scan_geometry_requested = bool(
+        (state.ac_deflector.enabled and state.ac_deflector.scan_enabled)
+        or (
+            state.descan_deflector.enabled
+            and state.descan_deflector.scan_enabled
+        )
+    )
+    scan_paths_requested = bool(
         state.ac_deflector.enabled and state.ac_deflector.scan_enabled
     )
     geometric_specimen_transport_requested = (
@@ -252,23 +341,94 @@ def calculate(
         and "energy_filter" in reusable
     )
     scan_geometry_reused = bool(
-        existing_result is not None
-        and "scan" in reusable
+        scan_geometry_requested
+        and existing_result is not None
+        and existing_result.scan_geometry is not None
+        and "scan_geometry" in reusable
     )
     scan_paths_reused = bool(
-        existing_result is not None
-        and "scan" in reusable
+        scan_paths_requested
+        and existing_result is not None
+        and existing_result.scan_ray_paths is not None
+        and "scan_ray_paths" in reusable
+    )
+    fourdstem_requested = bool(
+        stem_frame_requested
+        and (getattr(state.sample, "stem_fourdstem_enabled", False) or diffraction_sink is not None)
+        and getattr(state.sample, "stem_wave_enabled", False)
+        and str(getattr(state, "illumination_mode", "")).upper() == "STEM"
+    )
+    existing_stem_scan = (
+        existing_result.stem_scan if existing_result is not None else None
+    )
+    existing_fourdstem = getattr(
+        existing_stem_scan, "fourdstem_artifact", None
+    )
+    artifact_metadata = getattr(existing_fourdstem, "metadata", {}) or {}
+    artifact_provenance = (
+        artifact_metadata.get("provenance", {})
+        if hasattr(artifact_metadata, "get")
+        else {}
+    )
+    fourdstem_cube_reused = bool(
+        fourdstem_requested
+        and existing_fourdstem is not None
+        and "fourdstem_cube" in reusable
+        and hasattr(artifact_provenance, "get")
+        and artifact_provenance.get("fourdstem_cube_state_signature")
+        == signatures["fourdstem_cube"]
     )
     stem_reused = bool(
         stem_frame_requested
-        and existing_result is not None
-        and existing_result.stem_scan is not None
+        and existing_stem_scan is not None
         and "stem" in reusable
+        and (not fourdstem_requested or fourdstem_cube_reused)
+    )
+    stem_transport_reused = bool(
+        stem_frame_requested
+        and not stem_reused
+        and existing_stem_scan is not None
+        and "stem_transport" in reusable
+        and (not fourdstem_requested or fourdstem_cube_reused)
+    )
+    from temsim.physics.diffraction_memory import can_recollect_stem
+    stem_cube_recollection = bool(diffraction_sink is not None and fourdstem_cube_reused
+                                  and can_recollect_stem(existing_stem_scan)
+                                  and not stem_reused and not stem_transport_reused)
+    existing_sample_region = (
+        existing_result.sample_region
+        if existing_result is not None
+        else None
+    )
+    existing_region_metrics = dict(
+        getattr(existing_sample_region, "metrics", {}) or {}
     )
     sample_region_reused = bool(
-        existing_result is not None
-        and existing_result.sample_region is not None
+        existing_sample_region is not None
         and "sample_region" in reusable
+        and str(existing_region_metrics.get("sample_region_signature", ""))
+        == signatures["sample_region"]
+    )
+    cached_specimen_exit = validated_geometric_specimen_exit(
+        (
+            getattr(existing_result, "specimen_exit", None)
+            if existing_result is not None
+            else None
+        ),
+        signatures["sample_downstream"],
+    )
+    if cached_specimen_exit is None and sample_region_reused:
+        cached_specimen_exit = validated_sample_region_exit(
+            existing_sample_region,
+            signatures["sample_downstream"],
+        )
+    sample_downstream_requested = bool(
+        geometric_specimen_transport_requested or sample_region_reused
+    )
+    sample_downstream_reused = bool(
+        sample_downstream_requested
+        and cached_specimen_exit is not None
+        and "sample_downstream" in reusable
     )
 
     stages = [("Preparing state and physical layout", 1)]
@@ -304,15 +464,19 @@ def calculate(
         )
     if not energy_filter_reused:
         stages.append(("Tracing the energy filter", 1))
-    if not scan_geometry_reused:
+    if scan_geometry_requested and not scan_geometry_reused:
         stages.append(("Solving scan geometry", 1))
-    if not scan_paths_reused:
+    if scan_paths_requested and not scan_paths_reused:
         stages.append(("Building scan-ray playback", 1))
-    if stem_frame_requested and not stem_reused:
+    if sample_downstream_requested and not sample_downstream_reused:
+        stages.append(("Propagating specimen-exit electrons downstream", 1))
+    if stem_transport_reused:
+        stages.append(("Updating STEM dose readout", 1))
+    elif stem_frame_requested and not stem_reused:
         stages.append(
             (
                 "Calculating the STEM detector frame",
-                _stem_frame_work_weight(state),
+                1 if stem_cube_recollection else _stem_frame_work_weight(state),
             )
         )
     stages.append(("Finalising optical diagnostics", 1))
@@ -324,7 +488,11 @@ def calculate(
         if progress_callback is None:
             return
         label = "Complete" if next_stage >= len(stages) else stages[next_stage][0]
-        progress_callback(completed_work, total_work, label)
+        completed, total = _bounded_progress_position(
+            completed_work,
+            total_work,
+        )
+        progress_callback(completed, total, label)
 
     def advance_stage() -> None:
         nonlocal completed_work, next_stage
@@ -332,7 +500,10 @@ def calculate(
         next_stage += 1
         report_stage()
 
-    stage_subdivisions = 10_000
+    # Qt progress signals and QProgressBar use signed 32-bit integers.  Keep
+    # fine-grained nested progress without multiplying a million-ray stage
+    # beyond that boundary.
+    stage_subdivisions = _progress_stage_subdivisions(total_work)
 
     def report_current_stage_progress(
         completed: int,
@@ -343,15 +514,21 @@ def calculate(
             return
         bounded = min(max(int(completed), 0), int(total))
         stage_weight = stages[next_stage][1]
-        progress_callback(
-            completed_work * stage_subdivisions
-            + round(
-                stage_weight
-                * stage_subdivisions
-                * bounded
-                / int(total)
-            ),
+        nested_total = min(
             total_work * stage_subdivisions,
+            _QT_PROGRESS_SAFE_MAX,
+        )
+        nested_completed = round(
+            nested_total
+            * (
+                completed_work
+                + stage_weight * bounded / int(total)
+            )
+            / total_work
+        )
+        progress_callback(
+            nested_completed,
+            nested_total,
             label,
         )
 
@@ -506,6 +683,29 @@ def calculate(
                 calculated_products.add("elastic")
     elif eds_point_requested and not eds_reused:
         advance_stage()
+    if (
+        bool(getattr(state.energy_filter, "enabled", False))
+        and not no_illumination
+        and specimen_interactions_active(state.sample)
+        and (
+            specimen_interactions is None
+            or specimen_interactions.inelastic_distribution is None
+        )
+    ):
+        # The EELS/EFTEM chain must consume the same immutable specimen loss
+        # distribution as every other observable.  Request it here only when
+        # the shared envelope does not already carry it; the filter must never
+        # independently resample or reinterpret the material.
+        specimen_interactions = run_specimen_interactions(
+            state,
+            simulation,
+            SpecimenInteractionRequest(
+                observables=frozenset(
+                    (SpecimenObservable.STOCHASTIC_INELASTIC,)
+                )
+            ),
+            existing_result=specimen_interactions,
+        )
     if not no_illumination:
         specimen_interactions = run_specimen_interactions(
             state,
@@ -518,50 +718,184 @@ def calculate(
         energy_filter = existing_result.energy_filter
         reused_products.add("energy_filter")
     else:
-        energy_filter = simulate_energy_filter(state, simulation)
+        filter_args = []
+        filter_kwargs = {}
+        if (
+            specimen_interactions is not None
+            and specimen_interactions.inelastic_distribution is not None
+        ):
+            filter_args.append(
+                specimen_interactions.inelastic_distribution
+            )
+        if (
+            str(
+                getattr(state.energy_filter, "operating_mode", "eels")
+            ).lower()
+            == "eftem"
+            and wave_imaging is not None
+        ):
+            filter_kwargs["eftem_source_image"] = (
+                wave_imaging.camera_electron_optical_intensity
+            )
+        energy_filter = simulate_energy_filter(
+            state,
+            simulation,
+            *filter_args,
+            **filter_kwargs,
+        )
         calculated_products.add("energy_filter")
         advance_stage()
 
     if scan_geometry_reused:
         scan_geometry = existing_result.scan_geometry
         reused_products.add("scan_geometry")
-    else:
+    elif scan_geometry_requested:
         scan_geometry = calculate_scan_geometry(state)
-        calculated_products.add("scan_geometry")
+        if scan_geometry is not None:
+            calculated_products.add("scan_geometry")
         advance_stage()
+    else:
+        scan_geometry = None
 
     if scan_paths_reused:
         scan_ray_paths = existing_result.scan_ray_paths
         reused_products.add("scan_ray_paths")
-    else:
+    elif scan_paths_requested:
         scan_ray_paths = calculate_scan_ray_paths(state, simulation)
-        calculated_products.add("scan_ray_paths")
+        if scan_ray_paths is not None:
+            calculated_products.add("scan_ray_paths")
         advance_stage()
+    else:
+        scan_ray_paths = None
+
+    # Retain a compatible first-class checkpoint even when this particular
+    # request does not consume it.  It is immutable and may save a complete
+    # post-specimen rebuild when the user next enables a dependent view.
+    specimen_exit = (
+        cached_specimen_exit
+        if cached_specimen_exit is not None
+        and "sample_downstream" in reusable
+        else None
+    )
+    if sample_downstream_requested and not no_illumination:
+        if sample_downstream_reused:
+            specimen_exit = cached_specimen_exit
+            reused_products.add("sample_downstream")
+        else:
+            elastic = getattr(specimen_interactions, "elastic_transport", None)
+            if elastic is None:
+                raise RuntimeError(
+                    "Specimen-exit transport requires a current elastic result"
+                )
+            spectrum_elastic = getattr(
+                getattr(specimen_interactions, "eds_spectrum", None),
+                "elastic_transport",
+                None,
+            )
+            if spectrum_elastic is not None and spectrum_elastic is not elastic:
+                raise ValueError(
+                    "EDS and downstream transport must share one elastic result"
+                )
+            downstream_distance_um = float(
+                getattr(
+                    state.sample,
+                    "sample_region_downstream_distance_um",
+                    0.0,
+                )
+            )
+            save_z_mm = (
+                float(existing_sample_region.exit_z_mm),
+            ) if sample_region_reused else (
+                (
+                    float(state.sample.z_mm)
+                    + downstream_distance_um * 1.0e-3
+                ),
+            ) if downstream_distance_um > 0.0 else ()
+            specimen_exit = build_geometric_specimen_exit(
+                state,
+                simulation,
+                elastic,
+                getattr(
+                    specimen_interactions,
+                    "inelastic_distribution",
+                    None,
+                ),
+                save_z_mm=save_z_mm,
+                dependency_signature=signatures["sample_downstream"],
+                progress_callback=report_current_stage_progress,
+            )
+            calculated_products.add("sample_downstream")
+            advance_stage()
+    elif sample_downstream_requested and not sample_downstream_reused:
+        # Preserve monotonic progress when no electrons reach the specimen.
+        advance_stage()
+
+    sample_region = None
+    if sample_region_reused and not no_illumination:
+        sample_region = _rebind_reused_sample_region(
+            existing_sample_region,
+            specimen_interactions,
+            wave_imaging,
+            signatures,
+        )
+        if sample_region is not None and specimen_exit is not None:
+            sample_region = bind_sample_region_downstream(
+                sample_region,
+                specimen_exit,
+                specimen_interactions,
+                expected_signature=signatures["sample_downstream"],
+                wave_imaging=wave_imaging,
+            )
+    if sample_region is not None:
+        reused_products.add("sample_region")
 
     if stem_frame_requested:
         if stem_reused:
             stem_scan = existing_result.stem_scan
             reused_products.add("stem")
+            if fourdstem_cube_reused:
+                reused_products.add("fourdstem_cube")
+        elif stem_transport_reused:
+            stem_scan = reweight_stem_scan(state, existing_stem_scan)
+            reused_products.add("stem_transport")
+            calculated_products.add("stem")
+            if fourdstem_cube_reused:
+                reused_products.add("fourdstem_cube")
+            advance_stage()
+        elif stem_cube_recollection:
+            from temsim.physics.diffraction_memory import recollect_stem
+            stem_scan = recollect_stem(state, existing_stem_scan)
+            reused_products.add("fourdstem_cube")
+            calculated_products.add("stem")
+            advance_stage()
         else:
+            stem_kwargs = {
+                "specimen_interactions": specimen_interactions,
+                "progress_callback": report_current_stage_progress,
+            }
+            if diffraction_sink is not None:
+                stem_kwargs["diffraction_sink"] = diffraction_sink
+            if specimen_exit is not None:
+                stem_kwargs["geometric_specimen_exit"] = (
+                    specimen_exit
+                )
+                stem_kwargs["geometric_specimen_exit_signature"] = (
+                    signatures["sample_downstream"]
+                )
             stem_scan = calculate_stem_scan_frame(
                 state,
                 simulation,
-                specimen_interactions=specimen_interactions,
-                progress_callback=report_current_stage_progress,
+                **stem_kwargs,
             )
             calculated_products.add("stem")
+            if getattr(stem_scan, "fourdstem_artifact", None) is not None:
+                calculated_products.add("fourdstem_cube")
             advance_stage()
     else:
         stem_scan = None
-    sample_region = (
-        existing_result.sample_region
-        if sample_region_reused and not no_illumination else None
-    )
-    if sample_region_reused and not no_illumination:
-        reused_products.add("sample_region")
 
     state.energy_filter_result = energy_filter
-    if column_reused and existing_result.lens_crossovers:
+    if column_reused:
         lens_crossovers = existing_result.lens_crossovers
         aperture_stops = existing_result.aperture_stops
         reused_products.add("diagnostics")
@@ -572,6 +906,13 @@ def calculate(
         aperture_stops = aperture_stop_records(state)
         calculated_products.add("diagnostics")
     state.all_lens_crossovers = lens_crossovers
+    from temsim.optics.aberrations import prepare_field_aberration_diagnostics
+    if any(getattr(state, f"{system}_aberrations", {}).get("mode") == "field_derived"
+           for system in ("probe", "image")):
+        report_current_stage_progress(0, 1, "Preparing field-derived aberration diagnostics")
+        prepare_field_aberration_diagnostics(
+            state, getattr(existing_result, "state_snapshot", None)
+        )
     result = CalculationResult(
         simulation=simulation,
         energy_filter=energy_filter,
@@ -583,6 +924,7 @@ def calculate(
         scan_geometry=scan_geometry,
         scan_ray_paths=scan_ray_paths,
         stem_scan=stem_scan,
+        specimen_exit=specimen_exit,
         sample_region=sample_region,
         lens_crossovers=tuple(lens_crossovers),
         aperture_stops=tuple(aperture_stops),

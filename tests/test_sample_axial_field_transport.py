@@ -67,6 +67,6 @@ def test_sample_field_uses_the_same_objective_provider_as_the_column_solver():
         pytest.approx(expected_objective)
     )
     assert diagnostic.transport_model == (
-        "local_uniform_axial_Bz_exact_helical_drift"
+        "shared_vector_field_relativistic_boris"
     )
     assert diagnostic.geometry_material_coupled is False

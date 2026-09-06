@@ -61,6 +61,8 @@ where = ["src"]
 "configs/specimens" = ["configs/specimens/*.toml"]
 "configs/specimen_supports" = ["configs/specimen_supports/*.toml"]
 "configs/operating_modes" = ["configs/operating_modes/*.toml"]
+"configs/materials" = ["configs/materials/lens_defaults.toml"]
+"configs/materials/magnetic" = ["configs/materials/magnetic/*.toml"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

@@ -15,6 +15,7 @@ from temsim.optics.selected_area_aperture import (
     SELECTED_AREA_APERTURE_DEFINITION,
 )
 from temsim.optics.selected_area_downstream import downstream_offset_mm
+from temsim.optics.aperture_policy import ApertureInsertionPolicy
 
 
 _DEFAULT_MANIFEST_PART = module_manifest.part_data(
@@ -106,7 +107,7 @@ class EnergyFilterEntranceApertureDefinition:
 
 
 @dataclass
-class EnergyFilterEntranceApertureComponent:
+class EnergyFilterEntranceApertureComponent(ApertureInsertionPolicy):
     name: str = "Iliad Spectrometer Entrance Aperture"
     key: str = ENERGY_FILTER_ENTRANCE_APERTURE
     z_mm: float = (

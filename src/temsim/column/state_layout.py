@@ -333,6 +333,10 @@ def layout_configuration_from_state(
         stem_detector_components=tuple(state.stem_detectors),
         fluorescent_screen_component=state.fluorescent_screen,
         camera_component=state.camera,
+        projection_chamber_aperture_component=next(
+            (a for a in state.apertures
+             if a.key == "projection_chamber_dpa_aperture"), None,
+        ),
         energy_filter_entrance_aperture_component=(
             state.energy_filter_entrance_aperture
         ),
@@ -388,6 +392,10 @@ def layout_configuration_from_state(
             specimen_thickness_mm=state.sample.thickness_nm * 1.0e-6,
         ),
         resolved_assembly=state._resolved_assembly,
+        projection_chamber_aperture_component=next(
+            (a for a in state.apertures
+             if a.key == "projection_chamber_dpa_aperture"), None,
+        ),
     )
     state.objective_aperture.validate()
     state.objective_lens._back_focal_plane_z_mm = (
@@ -456,13 +464,23 @@ def apply_physical_layout_to_state(
     assembly_root=None,
     assembly=None,
 ):
-    """Resolve selected hardware topology onto the effective ray-tracing axis."""
+    """Resolve selected hardware topology onto the effective ray-tracing axis.
+
+    A state that already owns a :class:`ResolvedAssembly` must keep using that
+    exact immutable assembly for ordinary layout refreshes and calculations.
+    Re-resolving from the process-default TOML catalog can silently substitute
+    a different module length (notably FEG + Mono or NanoPulser) in detached
+    worker states.  Supplying ``assembly_root`` remains the explicit request to
+    read a catalog again, as used while installing/reloading an assembly.
+    """
     from temsim.column.module_assembly import (
         apply_column_manifest_geometry,
         apply_module_state_offsets,
         clear_module_state_offsets,
     )
 
+    if assembly is None and assembly_root is None:
+        assembly = getattr(state, "_resolved_assembly", None)
     clear_module_state_offsets(state)
     configuration = layout_configuration_from_state(
         state,

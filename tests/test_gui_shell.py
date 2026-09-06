@@ -16,6 +16,7 @@ from temsim.gui.diagnostic_tabs import (
     TransverseBeamView,
 )
 from temsim.gui.direct_alignment_panel import DirectAlignmentPanel
+from temsim.gui.instrument_tree import InstrumentTree
 from temsim.gui.main_window import MainWindow
 from temsim.gui.visualization import VisualizationWorkspace, WaveImagingView
 from temsim.optics.column import default_state
@@ -33,6 +34,7 @@ from temsim.simulation_pipeline import (
     CalculationResult,
     aperture_stop_records,
 )
+from temsim.specimen.downstream_transport import GeometricSpecimenExit
 from temsim.runtime_parameters import editable_parameters, runtime_targets
 
 
@@ -97,14 +99,14 @@ def test_transverse_projection_supports_arbitrary_view_angles():
     ) == pytest.approx((x + y) / np.sqrt(2.0))
 
 
-def test_ray_and_eds_projection_angles_remain_synchronised(qtbot):
+def test_ray_and_transverse_angles_remain_synchronised_without_eds_plots(qtbot):
     workspace = VisualizationWorkspace()
     qtbot.addWidget(workspace)
 
     workspace._set_projection_angle(37.25)
 
     assert workspace._projection_angle_deg == pytest.approx(37.25)
-    assert workspace.eds_page._projection_angle_deg == pytest.approx(37.25)
+    assert not hasattr(workspace.eds_page, "_projection_angle_deg")
     assert workspace.transverse_beam._projection_angle_deg == pytest.approx(
         37.25
     )
@@ -112,18 +114,44 @@ def test_ray_and_eds_projection_angles_remain_synchronised(qtbot):
         workspace.transverse_beam.angle_colour_wheel._projection_angle_deg
         == pytest.approx(37.25)
     )
-    assert workspace.eds_page.projection_slider.value() == 373
-    assert workspace.eds_page.trajectory_tabs.tabText(0).startswith("U(37.25")
-    assert workspace.eds_page.trajectory_tabs.tabText(1).startswith("V(37.25")
-
-    workspace.eds_page.projection_slider.setValue(1234)
-
-    assert workspace.eds_page._projection_angle_deg == pytest.approx(123.4)
+    workspace.projection_slider.setValue(1234)
     assert workspace._projection_angle_deg == pytest.approx(123.4)
     assert workspace.transverse_beam._projection_angle_deg == pytest.approx(
         123.4
     )
     assert workspace.projection_slider.value() == 1234
+
+
+def test_eds_contains_only_spectrum_and_sample_hosts_shared_settings(qtbot):
+    from PySide6.QtWidgets import QTabWidget, QTableWidget
+
+    workspace = VisualizationWorkspace()
+    qtbot.addWidget(workspace)
+    eds = workspace.eds_page
+    sample = workspace.sample_interactions_3d
+    assert eds.findChildren(pg.PlotWidget) == [eds.spectrum_plot]
+    assert not eds.findChildren(QTabWidget)
+    assert not eds.findChildren(QTableWidget)
+    assert not hasattr(eds, "eds_trajectory_plot")
+    assert sample.parameters_panel is eds.settings_panel
+    assert sample.isAncestorOf(eds.eds_acquire)
+    assert sample.isAncestorOf(eds.sample_region_upstream)
+    assert not hasattr(eds, "sample_region_run")
+    assert not eds.isAncestorOf(eds.eds_group)
+    assert eds.settings_panel.isHidden()
+    events = []
+    workspace.scan_parameters_changed.connect(events.append)
+    sample.parameters_toggle.click()
+    assert not eds.settings_panel.isHidden()
+    sample.parameters_toggle.click()
+    assert eds.settings_panel.isHidden()
+    assert events == []
+
+    state = default_state()
+    eds.set_state(state)
+    eds.eds_scalar_controls["eds_detector_efficiency"].setValue(0.75)
+    assert state.sample.eds_detector_efficiency == pytest.approx(0.75)
+    assert len(events) == 1
 
 
 def test_ray_diagram_sections_are_user_resizable_and_keep_ray_priority(qtbot):
@@ -476,7 +504,8 @@ def test_ray_diagram_projects_only_the_visible_high_accuracy_rays(
     )
     actual = workspace._display_bundle_lines(branch)
 
-    assert projected_shapes == [(row_count, workspace.MAX_DISPLAY_RAYS)]
+    # Clipped X/Y display bases are flattened once and reprojected directly.
+    assert projected_shapes == [((row_count + 1) * workspace.MAX_DISPLAY_RAYS,)]
     assert actual[0] == pytest.approx(expected[0], nan_ok=True)
     assert actual[1] == pytest.approx(expected[1], nan_ok=True)
 
@@ -553,22 +582,30 @@ def test_projection_slider_coalesces_continuous_redraws(qtbot, monkeypatch):
         redraw_events.append("fast")
 
     monkeypatch.setattr(workspace, "_draw_ray_diagram", observe_redraw)
+    monkeypatch.setattr(workspace, "_update_projection_text", lambda: None)
+    finalize_angles = []
+    monkeypatch.setattr(
+        workspace, "_update_scale_notice",
+        lambda: finalize_angles.append(workspace._projection_angle_deg),
+    )
+    monkeypatch.setattr(workspace, "_redraw_projection_items", observe_fast_redraw)
+    workspace._projection_redraw_timer.timeout.disconnect()
     workspace._projection_redraw_timer.timeout.connect(observe_fast_redraw)
     for slider_value in (100, 200, 300, 400):
         workspace._projection_slider_changed(slider_value)
 
     assert workspace._projection_redraw_timer.isActive()
     assert redraw_angles == []
-    # QTimer promises event-loop ordering, not a hard real-time deadline.
-    # Leave headroom for Windows/offscreen runs after CIF/abTEM tests while
-    # still asserting that the 16 ms timer coalesces all slider changes once.
-    qtbot.waitUntil(
-        lambda: len(fast_redraw_angles) == 1 and len(redraw_angles) == 1,
-        timeout=1_000,
-    )
+    # Deliver the two coalesced callbacks explicitly. This tests event handling
+    # rather than wall-clock scheduling under concurrent scientific test loads.
+    workspace._projection_redraw_timer.stop()
+    workspace._projection_redraw_timer.timeout.emit()
+    workspace._projection_finalize_timer.stop()
+    workspace._projection_finalize_timer.timeout.emit()
     assert fast_redraw_angles == [pytest.approx(40.0)]
-    assert redraw_angles == [pytest.approx(40.0)]
-    assert redraw_events == ["fast", "final"]
+    assert redraw_angles == []
+    assert finalize_angles == [pytest.approx(40.0)]
+    assert redraw_events == ["fast"]
 
 
 def _find_tree_item(tree, key):
@@ -579,6 +616,24 @@ def _find_tree_item(tree, key):
             if child.toolTip(0) == key:
                 return child
     raise AssertionError(f"Missing tree item: {key}")
+
+
+def _find_tree_selection_item(tree, key):
+    """Find a leaf by its canonical selection key, independent of tooltip."""
+
+    pending = [
+        tree.topLevelItem(index)
+        for index in range(tree.topLevelItemCount())
+    ]
+    while pending:
+        item = pending.pop(0)
+        selection = item.data(0, Qt.ItemDataRole.UserRole)
+        if getattr(selection, "key", None) == key:
+            return item
+        pending.extend(
+            item.child(index) for index in range(item.childCount())
+        )
+    raise AssertionError(f"Missing tree selection: {key}")
 
 
 def _tree_keys(tree):
@@ -596,6 +651,328 @@ def _tree_keys(tree):
             item.child(index) for index in range(item.childCount())
         )
     return keys
+
+
+def _tree_child_keys(root):
+    return tuple(
+        root.child(index).data(0, Qt.ItemDataRole.UserRole).key
+        for index in range(root.childCount())
+    )
+
+
+def _tree_root_starting_with(tree, label):
+    matches = [
+        tree.topLevelItem(index)
+        for index in range(tree.topLevelItemCount())
+        if tree.topLevelItem(index).text(0).startswith(label)
+    ]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def _prepare_component_reveal_views(window):
+    """Install deterministic axial bounds without running a second solver."""
+
+    layout = apply_physical_layout_to_state(window.state)
+    window.workspace.physical_layout.display_result(SimpleNamespace(
+        assembly=window.assembly,
+        layout=layout,
+    ))
+    lower = min(float(part.start_z_mm) for part in window.assembly.parts)
+    upper = max(float(part.end_z_mm) for part in window.assembly.parts)
+    zeros = np.zeros((2, 1), dtype=float)
+    branch = SimpleNamespace(
+        z=np.array((lower, upper), dtype=float),
+        x=zeros.copy(),
+        y=zeros.copy(),
+        tx=zeros.copy(),
+        ty=zeros.copy(),
+        blocked_z=np.array((np.nan,), dtype=float),
+        blocked_key=np.array((None,), dtype=object),
+    )
+    window.workspace._last_result = SimpleNamespace(
+        simulation=SimpleNamespace(incident=branch, branches={})
+    )
+
+
+def _region_centred_at(plot, centre):
+    return next(
+        (
+            item
+            for item in plot.getPlotItem().items
+            if isinstance(item, pg.LinearRegionItem)
+            and np.mean(item.getRegion()) == pytest.approx(centre)
+        ),
+        None,
+    )
+
+
+def test_instrument_tree_emits_double_click_activation_for_leaves_only(qtbot):
+    state = default_state()
+    catalog = AssemblyCatalog()
+    assembly = catalog.apply(state, catalog.default_selection())
+    tree = InstrumentTree()
+    qtbot.addWidget(tree)
+    tree.load_optical(assembly, runtime_targets(state), category="all")
+    selected = []
+    activated = []
+    tree.component_selected.connect(selected.append)
+    tree.component_activated.connect(activated.append)
+
+    objective = _find_tree_selection_item(tree, "objective_lens")
+    tree.setCurrentItem(objective)
+
+    assert [selection.key for selection in selected] == ["objective_lens"]
+    assert activated == []
+
+    tree.itemDoubleClicked.emit(objective, 0)
+
+    assert [selection.key for selection in activated] == ["objective_lens"]
+    assert [selection.key for selection in selected] == ["objective_lens"]
+
+    category_root = _tree_root_starting_with(tree, "Lenses")
+    tree.itemDoubleClicked.emit(category_root, 0)
+    assert [selection.key for selection in activated] == ["objective_lens"]
+
+
+def test_component_tree_double_click_reveals_without_changing_auto_zoom(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.preview_timer.stop()
+    _prepare_component_reveal_views(window)
+    panel = window.assembly_panel
+    workspace = window.workspace
+    objective = window.assembly.part("objective_lens")
+    objective_item = _find_tree_selection_item(
+        panel.tree, "objective_lens"
+    )
+    workspace.auto_zoom.setChecked(False)
+
+    # A single click remains a parameter selection and never takes over the
+    # central workspace.  Its existing linked-view focus semantics are kept.
+    workspace.tabs.setCurrentWidget(workspace.eds_page)
+    panel.tree.setCurrentItem(objective_item)
+    assert window.parameter_panel.title.text() == objective.name
+    assert workspace.tabs.currentWidget() is workspace.eds_page
+
+    # From a non-axial page an optical activation defaults to Ray Diagram.
+    workspace.plot.setXRange(2_500.0, 2_700.0, padding=0.0)
+    panel.tree.itemDoubleClicked.emit(objective_item, 0)
+    assert workspace.tabs.currentWidget() is workspace.ray_page
+    assert not workspace.auto_zoom.isChecked()
+    ray_range = workspace.plot.getViewBox().viewRange()[0]
+    assert np.mean(ray_range) == pytest.approx(objective.center_z_mm)
+    assert ray_range[0] < objective.center_z_mm < ray_range[1]
+    assert _region_centred_at(
+        workspace.plot, objective.center_z_mm
+    ) is not None
+
+    # When Physical Layout is already active, the same optical component is
+    # revealed there rather than forcing a return to Ray Diagram.
+    workspace.tabs.setCurrentWidget(workspace.physical_layout)
+    workspace.physical_layout.plot.setXRange(
+        2_500.0, 2_700.0, padding=0.0
+    )
+    panel.tree.itemDoubleClicked.emit(objective_item, 0)
+    assert workspace.tabs.currentWidget() is workspace.physical_layout
+    assert not workspace.auto_zoom.isChecked()
+    physical_range = (
+        workspace.physical_layout.plot.getViewBox().viewRange()[0]
+    )
+    assert np.mean(physical_range) == pytest.approx(objective.center_z_mm)
+    assert physical_range[0] < objective.center_z_mm < physical_range[1]
+    assert workspace.physical_layout._highlight is not None
+    assert np.mean(
+        workspace.physical_layout._highlight.getRegion()
+    ) == pytest.approx(objective.center_z_mm)
+
+    # Mechanical-tree activation owns the Physical Layout destination even
+    # when another central tab was active.
+    panel.component_pages.setCurrentIndex(1)
+    housing_item = _find_tree_selection_item(
+        panel.mechanical_tree, "objective_lens_housing"
+    )
+    housing = window.assembly.part("objective_lens_housing")
+    workspace.tabs.setCurrentWidget(workspace.eds_page)
+    panel.mechanical_tree.setCurrentItem(housing_item)
+    assert workspace.tabs.currentWidget() is workspace.eds_page
+    panel.mechanical_tree.itemDoubleClicked.emit(housing_item, 0)
+    assert workspace.tabs.currentWidget() is workspace.physical_layout
+    assert not workspace.auto_zoom.isChecked()
+    housing_range = (
+        workspace.physical_layout.plot.getViewBox().viewRange()[0]
+    )
+    assert np.mean(housing_range) == pytest.approx(housing.center_z_mm)
+    assert workspace.physical_layout._highlight is not None
+    assert np.mean(
+        workspace.physical_layout._highlight.getRegion()
+    ) == pytest.approx(housing.center_z_mm)
+
+
+@pytest.mark.parametrize(
+    ("key", "label"),
+    (
+        ("simulation", "Simulation"),
+        ("electron_gun", "Gun ray tracing"),
+    ),
+)
+
+
+def test_runtime_control_double_click_has_no_false_physical_position(
+    qtbot, key, label
+):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.preview_timer.stop()
+    _prepare_component_reveal_views(window)
+    panel = window.assembly_panel
+    workspace = window.workspace
+    panel.component_pages.setCurrentIndex(0)
+    item = _find_tree_selection_item(panel.tree, key)
+    workspace.tabs.setCurrentWidget(workspace.eds_page)
+    workspace.plot.setXRange(2_400.0, 2_600.0, padding=0.0)
+    workspace.physical_layout.plot.setXRange(
+        2_300.0, 2_700.0, padding=0.0
+    )
+    ray_range = workspace.plot.getViewBox().viewRange()[0]
+    physical_range = workspace.physical_layout.plot.getViewBox().viewRange()[0]
+    highlight = workspace.physical_layout._highlight
+
+    panel.tree.setCurrentItem(item)
+    assert workspace.tabs.currentWidget() is workspace.eds_page
+    panel.tree.itemDoubleClicked.emit(item, 0)
+
+    assert workspace.tabs.currentWidget() is workspace.eds_page
+    assert workspace.plot.getViewBox().viewRange()[0] == pytest.approx(
+        ray_range
+    )
+    assert (
+        workspace.physical_layout.plot.getViewBox().viewRange()[0]
+        == pytest.approx(physical_range)
+    )
+    assert workspace.physical_layout._highlight is highlight
+    assert label in window.status_label.text()
+    assert "No axial component" in window.status_label.text()
+    assert len(window.status_label.text()) <= 96
+
+
+@pytest.mark.parametrize("gun_name", ("FEG", "FEG + Mono", "Thermionic"))
+def test_optical_tree_separates_active_electron_source_from_global_controls(
+    qtbot, gun_name
+):
+    state = default_state()
+    catalog = AssemblyCatalog()
+    default = catalog.default_selection()
+    assembly = catalog.apply(state, AssemblySelection(
+        gun=gun_name,
+        column=default.column,
+        recording=default.recording,
+    ))
+    targets = runtime_targets(state)
+    tree = InstrumentTree()
+    qtbot.addWidget(tree)
+
+    tree.load_optical(assembly, targets, category="all")
+
+    global_root = _tree_root_starting_with(tree, "Global controls")
+    assert global_root.text(0) == "Global controls (1)"
+    assert _tree_child_keys(global_root) == ("simulation",)
+
+    gun_module = next(
+        module for module in assembly.modules if module.type == "gun"
+    )
+    gun_part_keys = tuple(
+        part.key
+        for part in assembly.parts
+        if part.module_key == gun_module.key
+        and "aperture" not in part.key
+        and not bool(part.data.get("mechanical_only", False))
+        and part.key in targets
+    )
+    assert gun_part_keys
+    if gun_name == "FEG + Mono":
+        assert "feg_monochromator_wien" in gun_part_keys
+        assert "feg_monochromator_slit" not in gun_part_keys
+
+    source_root = _tree_root_starting_with(tree, "Electron source")
+    assert source_root.text(0) == (
+        f"Electron source ({len(gun_part_keys) + 1})"
+    )
+    assert source_root.child(0).text(0) == "Gun ray tracing"
+    assert _tree_child_keys(source_root) == (
+        "electron_gun",
+        *gun_part_keys,
+    )
+
+    roots_by_key = {}
+    for root_index in range(tree.topLevelItemCount()):
+        root = tree.topLevelItem(root_index)
+        for key in _tree_child_keys(root):
+            roots_by_key.setdefault(key, []).append(root.text(0))
+    for key in ("electron_gun", *gun_part_keys):
+        assert roots_by_key[key] == [source_root.text(0)]
+
+    other_root = _tree_root_starting_with(tree, "Detectors")
+    assert set(_tree_child_keys(other_root)).isdisjoint({
+        "electron_gun",
+        *gun_part_keys,
+    })
+
+    tree.load_optical(assembly, targets, category="electron_source")
+    assert tree.topLevelItemCount() == 1
+    source_root = tree.topLevelItem(0)
+    assert source_root.text(0) == (
+        f"Electron source ({len(gun_part_keys) + 1})"
+    )
+    assert _tree_child_keys(source_root) == (
+        "electron_gun",
+        *gun_part_keys,
+    )
+
+    tree.load_optical(assembly, targets, category="other")
+    assert tree.topLevelItemCount() == 1
+    assert tree.topLevelItem(0).text(0).startswith("Detectors")
+    assert set(_tree_child_keys(tree.topLevelItem(0))).isdisjoint({
+        "simulation",
+        "electron_gun",
+        *gun_part_keys,
+    })
+
+
+@pytest.mark.parametrize(
+    ("gun_name", "tip_key"),
+    (
+        ("FEG", "feg_tip"),
+        ("FEG + Mono", "feg_tip"),
+        ("Thermionic", "thermionic_cathode"),
+    ),
+)
+def test_main_window_navigation_opens_the_active_electron_source_filter(
+    qtbot, gun_name, tip_key
+):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    default = window.catalog.default_selection()
+    window.load_assembly(AssemblySelection(
+        gun=gun_name,
+        column=default.column,
+        recording=default.recording,
+    ))
+    window.preview_timer.stop()
+    panel = window.assembly_panel
+
+    assert panel.select_key("electron_gun")
+    assert panel.component_pages.currentIndex() == 0
+    assert panel.optical_filter.currentData() == "electron_source"
+    assert panel.tree.current_key() == "electron_gun"
+
+    assert panel.select_key(tip_key)
+    assert panel.optical_filter.currentData() == "electron_source"
+    assert panel.tree.current_key() == tip_key
+
+    assert panel.select_key("simulation")
+    assert panel.optical_filter.currentData() == "all"
+    assert panel.tree.current_key() == "simulation"
 
 
 def test_main_window_contains_the_toml_backed_workspace(qtbot):
@@ -624,6 +1001,13 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
         "cameraLengthTarget",
     }
     assert window.assembly_panel.optical_filter.currentData() == "all"
+    electron_source_index = window.assembly_panel.optical_filter.findData(
+        "electron_source"
+    )
+    assert electron_source_index >= 0
+    assert window.assembly_panel.optical_filter.itemText(
+        electron_source_index
+    ) == "Electron source"
     assert window.assembly_panel.optical_filter.findData(
         "energy_filter"
     ) == -1
@@ -679,7 +1063,9 @@ def test_energy_filter_page_owns_iliad_navigation_and_eels_controls(qtbot):
         selector.itemData(index) for index in range(selector.count())
     }
     assert selector_keys == {"energy_filter", *ENERGY_FILTER_INTERNAL_KEYS}
-    assert selector_keys.isdisjoint(_tree_keys(window.assembly_panel.tree))
+    assert selector_keys.intersection(_tree_keys(window.assembly_panel.tree)) == {
+        "energy_filter_entrance_aperture"
+    }  # One shared model, accessible from Apertures and the filter page.
 
     window.workspace.component_selected.emit("energy_filter")
     qtbot.wait(20)
@@ -712,6 +1098,57 @@ def test_loading_a_compatible_assembly_reapplies_the_active_modes(qtbot):
     assert by_key["objective_lens"].percent == pytest.approx(68.9801)
     assert by_key["diffraction_lens"].percent == pytest.approx(
         14.577617197168571
+    )
+
+
+def test_manifest_geometry_reload_retains_lens_strengths_until_explicit_preset(
+    qtbot, monkeypatch
+):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.preview_timer.stop()
+    by_key = {lens.key: lens for lens in window.state.lenses}
+    by_key["condenser_lens_2"].percent = 12.345
+    by_key["objective_lens"].percent = 67.89
+    before = {
+        lens.key: float(lens.percent)
+        for lens in window.state.lenses
+    }
+    preserve_requests = []
+    real_apply = window.catalog.apply
+
+    def record_apply(state, selection, **kwargs):
+        preserve_requests.append(kwargs.get("preserve_operating_parameters"))
+        return real_apply(state, selection, **kwargs)
+
+    monkeypatch.setattr(window.catalog, "apply", record_apply)
+    monkeypatch.setattr(
+        window.manifest_editor,
+        "save",
+        lambda _target, _updates, _configuration: {},
+    )
+    monkeypatch.setattr(
+        window,
+        "_apply_state_operating_modes",
+        lambda *_args, **_kwargs: pytest.fail(
+            "A component edit must not recalculate an operating preset"
+        ),
+    )
+
+    window._save_manifest_updates(
+        SimpleNamespace(module_path="column/C3_ProbeCorrector.toml"),
+        {"mechanical_length_mm": 1.0},
+    )
+    window.preview_timer.stop()
+
+    after = {
+        lens.key: float(lens.percent)
+        for lens in window.state.lenses
+    }
+    assert after == pytest.approx(before)
+    assert preserve_requests == [True]
+    assert "Lens strengths kept" in (
+        window.assembly_panel.operating_mode_status.text()
     )
 
 
@@ -832,8 +1269,28 @@ def test_sample_interactions_3d_requests_shared_sample_region_without_ray_redraw
     assert workspace._sample_region_result is None
 
     requested = []
-    sample_result = object()
-    shared_result = SimpleNamespace(sample_region=None)
+    checkpoint = GeometricSpecimenExit(
+        (),
+        {
+            "tracked_downstream_source_probability": 0.0,
+            "inelastic_absorbed_source_probability": 0.0,
+        },
+        dependency_signature="downstream-signature",
+    )
+    sample_result = SimpleNamespace(
+        metrics={
+            "sample_region_signature": "local-signature",
+            "sample_downstream_signature": "downstream-signature",
+        },
+        specimen_exit=checkpoint,
+    )
+    shared_result = SimpleNamespace(
+        sample_region=None,
+        specimen_exit=None,
+        signatures={"request": "request"},
+        calculated_products=frozenset(),
+        reused_products=frozenset(),
+    )
     workspace._high_accuracy_result = shared_result
     workspace._last_result = shared_result
     redraws = []
@@ -857,6 +1314,15 @@ def test_sample_interactions_3d_requests_shared_sample_region_without_ray_redraw
     assert requested == [True]
     assert workspace._sample_region_result is sample_result
     assert shared_result.sample_region is sample_result
+    assert shared_result.specimen_exit is checkpoint
+    assert shared_result.signatures["sample_region"] == "local-signature"
+    assert shared_result.signatures["sample_downstream"] == (
+        "downstream-signature"
+    )
+    assert {
+        "sample_region",
+        "sample_downstream",
+    } <= shared_result.calculated_products
     assert displayed == [sample_result]
     assert redraws == []
     workspace.sample_interactions_3d.calculate_paths.click()
@@ -1405,11 +1871,11 @@ def test_component_navigation_filters_only_the_active_assembly(qtbot):
     )
     stigmator_keys = _tree_keys(panel.tree)
     assert {
-        "feg_stigmator",
         "condenser_stigmator",
         "objective_stigmator",
         "diffraction_stigmator",
     }.issubset(stigmator_keys)
+    assert "feg_stigmator" not in stigmator_keys
 
     panel.optical_filter.setCurrentIndex(
         panel.optical_filter.findData("corrector")
@@ -1961,10 +2427,16 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     # This test injects a deterministic result directly. Prevent the window's
     # queued startup preview from arriving later and replacing its plot state.
     monkeypatch.setattr(
-        window.calculations, "submit", lambda *_args, **_kwargs: None
+        window.calculations, "submit_background", lambda *_args, **_kwargs: None
     )
     window.preview_timer.stop()
 
+    # Optional diagnostics are rendered only when visible. Use a stable
+    # viewport and inspect each page after Qt has laid it out.
+    window.resize(1800, 1100)
+    window.show()
+    window.workspace.show_ray_diagram()
+    window.workspace.transverse_beam_toggle.setChecked(True)
     window.workspace.display_result(result, "Preview")
     qtbot.wait(20)
 
@@ -2042,6 +2514,8 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         "Scanning Image",
         "Illuminating Image",
         "Optical Transfer",
+        "Model Inspector",
+        "Design Explorer",
     ]
     assert window.workspace.scanning_page.count() == 2
     assert window.workspace.scanning_page.widget(0) is (
@@ -2057,7 +2531,7 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert [
         window.workspace.scanning_results_tabs.tabText(index)
         for index in range(window.workspace.scanning_results_tabs.count())
-    ] == ["Geometry", "Images"]
+    ] == ["Geometry", "Images", "4D-STEM"]
     assert window.workspace.scanning_controls_tabs.widget(0) is (
         window.workspace.scan_control.parameters_page
     )
@@ -2071,6 +2545,10 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert window.workspace.magnetic_field.isHidden()
     window.workspace.magnetic_field_toggle.setChecked(True)
     assert not window.workspace.magnetic_field.isHidden()
+    # Optional panels consume the newest result when first made visible.
+    window.workspace.tabs.setCurrentWidget(window.workspace.physical_layout)
+    qtbot.waitUntil(lambda: bool(window.workspace.physical_layout._records))
+    qtbot.wait(20)
     assert len(window.workspace.physical_layout._records) == sum(
         not bool(part.data.get("branch_path_only", False))
         for part in assembly.parts
@@ -2297,7 +2775,9 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         assert all(
             not first_bounds.intersects(second.sceneBoundingRect())
             for second in visible_labels[index + 1:]
-        )
+        ), [(key, other_key, first_bounds, component_labels[other_key].sceneBoundingRect())
+            for other_key in visible_label_keys[index + 1:]
+            if first_bounds.intersects(component_labels[other_key].sceneBoundingRect())]
         assert all(
             not first_bounds.intersects(special.sceneBoundingRect())
             for special in (
@@ -2308,6 +2788,7 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert horizontally_offset_leaders > 0
     for callout in label_callouts.values():
         assert callout.label.isVisible() == callout.leader.isVisible()
+    window.workspace.show_ray_diagram()
     assert len(window.workspace.magnetic_field._curves) == len(state.lenses)
     formula_records = window.workspace.magnetic_field._records
     assert len({record.formula_key for record in formula_records}) == 3

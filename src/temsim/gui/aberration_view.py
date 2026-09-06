@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from temsim.optics.aberrations import (
     SYSTEM_COEFFICIENT_ROWS,
     effective_aberration_comparison,
+    _aberration_cache_signature,
 )
 from temsim.physics.beam_statistics import branch_sample_statistics
 
@@ -49,10 +50,12 @@ class AberrationComparisonView(QWidget):
             "multipole configuration."
         )
         self.summary.setWordWrap(True)
+        self.summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.summary.setStyleSheet("font-weight: 600;")
         self.probe_summary = QLabel()
         self.probe_summary.setObjectName("sampleProbeShapeSummary")
         self.probe_summary.setWordWrap(True)
+        self.probe_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.probe_summary.setToolTip(
             "Current-weighted geometric rays at the physical sample plane, using "
             "all surviving rays. D95 contains 95% of surviving current. Shape "
@@ -95,8 +98,7 @@ class AberrationComparisonView(QWidget):
         self._refresh_probe_summary()
         self._stale = True
         self.summary.setText(
-            "Aberration state updated. Open this page to run the compact "
-            "corrector comparison."
+            "Aberration state updated. Open this page to inspect coefficients."
         )
 
     def _refresh_probe_summary(self) -> None:
@@ -144,30 +146,54 @@ class AberrationComparisonView(QWidget):
         if self._state is None:
             return
         self._stale = False
+        system = str(self.fixed_system or self.system.currentData())
+        from temsim.simulation_modes import is_ideal
+        ideal_mode = is_ideal(self._state)
         try:
+            field_mode = not ideal_mode and getattr(self._state, f"{system}_aberrations", {}).get("mode") == "field_derived"
+            if field_mode:
+                entry = getattr(self._state, "_effective_aberration_cache", {}).get(system)
+                if entry is None or entry[0] != _aberration_cache_signature(self._state, system):
+                    raise ValueError("Run a calculation to fit field-derived coefficients")
             before, after, diagnostics = effective_aberration_comparison(
                 self._state,
-                str(self.fixed_system or self.system.currentData()),
+                system,
             )
         except Exception as exc:
             self.summary.setText(f"Aberration comparison unavailable: {exc}")
             self.table.setRowCount(0)
             return
-        ratio = float(diagnostics["c3_residual_ratio"])
-        rms_before = float(diagnostics["ray_error_rms_before"]) * 1.0e9
-        rms_after = float(diagnostics["ray_error_rms_after"]) * 1.0e9
-        detail_text = (
-            f"Reference: {before.reference_plane}. C3 residual ratio "
-            f"{ratio:+.4g}; transverse ray-error RMS "
-            f"{rms_before:.4g} → {rms_after:.4g} nm. "
-            f"{diagnostics['source']}. {diagnostics['diagnostic_scope']} "
-            "Values are a non-OEM principle model."
-        )
-        self.summary.setText(
-            f"{before.reference_plane} | compact-ring C3 residual {ratio:+.4g} | "
-            f"ray-error RMS {rms_before:.4g} → {rms_after:.4g} nm. "
-            "Other residual coefficients are not measured by this comparison."
-        )
+        self.table.setColumnHidden(2, field_mode)
+        self.table.setColumnHidden(4, field_mode)
+        if ideal_mode:
+            self.summary.setText("Ideal Optics | lens aberrations disabled | defocus retained")
+            detail_text = diagnostics["diagnostic_scope"]
+        elif field_mode:
+            self.summary.setText(
+                f"{after.reference_plane} | Field-derived | fit RMS "
+                f"{diagnostics['fit_rms_m'] * 1e9:.4g} nm | correction comparison not calculated"
+            )
+            detail_text = (
+                f"{diagnostics['source']}. {diagnostics['diagnostic_scope']}. "
+                f"Fit condition number: {diagnostics['fit_condition_number']:.4g}. "
+                "Fit residual is model approximation error, not a corrected beam size."
+            )
+        else:
+            ratio = float(diagnostics["c3_residual_ratio"])
+            rms_before = float(diagnostics["ray_error_rms_before"]) * 1.0e9
+            rms_after = float(diagnostics["ray_error_rms_after"]) * 1.0e9
+            detail_text = (
+                f"Reference: {before.reference_plane}. C3 residual ratio "
+                f"{ratio:+.4g}; transverse ray-error RMS "
+                f"{rms_before:.4g} → {rms_after:.4g} nm. "
+                f"{diagnostics['source']}. {diagnostics['diagnostic_scope']} "
+                "Values are a non-OEM principle model."
+            )
+            self.summary.setText(
+                f"{before.reference_plane} | compact-ring C3 residual {ratio:+.4g} | "
+                f"ray-error RMS {rms_before:.4g} → {rms_after:.4g} nm. "
+                "Other residual coefficients are not measured by this comparison."
+            )
         self.summary.setToolTip(detail_text)
         self.table.setRowCount(len(SYSTEM_COEFFICIENT_ROWS))
         for row, (term, value_name, angle_name) in enumerate(SYSTEM_COEFFICIENT_ROWS):

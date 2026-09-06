@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from temsim.gui.input_policy import (
     WheelSafeComboBox as QComboBox,
+    WheelSafeDoubleSpinBox as QDoubleSpinBox,
 )
 
 from dataclasses import dataclass
 import math
+from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
@@ -17,11 +19,13 @@ from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsPolygonItem,
     QGraphicsRectItem,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -181,9 +185,84 @@ class EnergyFilterView(QWidget):
         view_box = self.plot.getViewBox()
         view_box.setAspectLocked(False)
         view_box.setMouseEnabled(x=True, y=True)
+
+        physical_page = QWidget()
+        physical_layout = QVBoxLayout(physical_page)
+        physical_layout.setContentsMargins(0, 0, 0, 0)
+        physical_layout.addWidget(self.plot, 1)
+
+        self.spectrum_plot = pg.PlotWidget(background="#050816")
+        self.spectrum_plot.setObjectName("energyFilterSpectrumPlot")
+        self.spectrum_plot.setLabel("bottom", "Energy loss", units="eV")
+        self.spectrum_plot.setLabel("left", "Detected counts")
+        self.spectrum_plot.showGrid(x=True, y=True, alpha=0.18)
+        self.spectrum_curve = self.spectrum_plot.plot(
+            [], [], pen=pg.mkPen("#67e8f9", width=1.8)
+        )
+        self.spectrum_cursor = pg.InfiniteLine(
+            angle=90,
+            movable=False,
+            pen=pg.mkPen(
+                "#f8fafc", width=0.8, style=Qt.PenStyle.DashLine
+            ),
+        )
+        self.spectrum_cursor.hide()
+        self.spectrum_plot.addItem(self.spectrum_cursor)
+        self.spectrum_point = pg.ScatterPlotItem(
+            size=7,
+            pen=pg.mkPen("#f8fafc", width=1.0),
+            brush=pg.mkBrush("#22d3ee"),
+        )
+        self.spectrum_point.hide()
+        self.spectrum_plot.addItem(self.spectrum_point)
+        self.spectrum_status = QLabel(
+            "No cached High-accuracy EELS spectrum."
+        )
+        self.spectrum_status.setObjectName("energyFilterSpectrumStatus")
+        self.spectrum_status.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.spectrum_status.setStyleSheet("color: #94a3b8;")
+        spectrum_page = QWidget()
+        spectrum_layout = QVBoxLayout(spectrum_page)
+        spectrum_layout.setContentsMargins(0, 0, 0, 0)
+        spectrum_layout.addWidget(self.spectrum_plot, 1)
+        spectrum_layout.addWidget(self.spectrum_status)
+        self._spectrum_energy_ev = np.asarray((), dtype=float)
+        self._spectrum_counts = np.asarray((), dtype=float)
+        self.spectrum_plot.scene().sigMouseMoved.connect(
+            self._spectrum_mouse_moved
+        )
+
+        self.eftem_plot = pg.PlotWidget(background="#050816")
+        self.eftem_plot.setObjectName("energyFilterEFTEMPlot")
+        self.eftem_plot.setAspectLocked(True)
+        self.eftem_plot.invertY(True)
+        self.eftem_image_item = pg.ImageItem(axisOrder="row-major")
+        self.eftem_image_item.hide()
+        self.eftem_plot.addItem(self.eftem_image_item)
+        self.eftem_status = QLabel(
+            "No cached High-accuracy EFTEM image."
+        )
+        self.eftem_status.setObjectName("energyFilterEFTEMStatus")
+        self.eftem_status.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.eftem_status.setStyleSheet("color: #94a3b8;")
+        eftem_page = QWidget()
+        eftem_layout = QVBoxLayout(eftem_page)
+        eftem_layout.setContentsMargins(0, 0, 0, 0)
+        eftem_layout.addWidget(self.eftem_plot, 1)
+        eftem_layout.addWidget(self.eftem_status)
+
+        self.output_tabs = QTabWidget()
+        self.output_tabs.setObjectName("energyFilterOutputTabs")
+        self.output_tabs.addTab(physical_page, "Physical + rays")
+        self.output_tabs.addTab(spectrum_page, "EELS spectrum")
+        self.output_tabs.addTab(eftem_page, "EFTEM image")
         layout = QVBoxLayout(self)
         layout.addLayout(header)
-        layout.addWidget(self.plot, 1)
+        layout.addWidget(self.output_tabs, 1)
         layout.addWidget(self.summary)
         self.fit_all.clicked.connect(self.plot.autoRange)
         self._prism_clear_aperture_items = []
@@ -197,6 +276,100 @@ class EnergyFilterView(QWidget):
         self.plot.scene().sigMouseClicked.connect(
             self._component_item_clicked
         )
+
+    def _spectrum_mouse_moved(self, scene_position) -> None:
+        """Read the nearest cached spectrum bin without recalculation."""
+
+        if self._spectrum_energy_ev.size == 0:
+            return
+        view_box = self.spectrum_plot.getViewBox()
+        if not view_box.sceneBoundingRect().contains(scene_position):
+            return
+        point = view_box.mapSceneToView(scene_position)
+        index = int(np.argmin(np.abs(
+            self._spectrum_energy_ev - float(point.x())
+        )))
+        energy_ev = float(self._spectrum_energy_ev[index])
+        counts = float(self._spectrum_counts[index])
+        self.spectrum_cursor.setPos(energy_ev)
+        self.spectrum_cursor.show()
+        self.spectrum_point.setData((energy_ev,), (counts,))
+        self.spectrum_point.show()
+        self.spectrum_status.setText(
+            f"Energy {energy_ev:.6g} eV | counts {counts:.6g}"
+        )
+
+    def _display_scientific_outputs(self, branch_result, mode: str) -> None:
+        """Render only data already attached to the completed result."""
+
+        forward = getattr(branch_result, "eels_forward", None)
+        if forward is None:
+            self._spectrum_energy_ev = np.asarray((), dtype=float)
+            self._spectrum_counts = np.asarray((), dtype=float)
+            self.spectrum_curve.setData([], [])
+            self.spectrum_cursor.hide()
+            self.spectrum_point.hide()
+            self.spectrum_status.setText(
+                "No cached High-accuracy EELS spectrum."
+            )
+        else:
+            energy = np.asarray(forward.energy_loss_ev, dtype=float)
+            sampled = getattr(forward, "detected_sampled_counts", None)
+            counts = np.asarray(
+                sampled
+                if sampled is not None
+                else forward.detected_expected_counts,
+                dtype=float,
+            )
+            if (
+                energy.ndim != 1
+                or counts.shape != energy.shape
+                or not np.all(np.isfinite(energy))
+                or not np.all(np.isfinite(counts))
+            ):
+                self._spectrum_energy_ev = np.asarray((), dtype=float)
+                self._spectrum_counts = np.asarray((), dtype=float)
+                self.spectrum_curve.setData([], [])
+                self.spectrum_status.setText("Cached EELS spectrum is invalid.")
+            else:
+                self._spectrum_energy_ev = energy
+                self._spectrum_counts = counts
+                self.spectrum_curve.setData(energy, counts)
+                self.spectrum_plot.autoRange()
+                kind = "sampled" if sampled is not None else "expected"
+                self.spectrum_status.setText(
+                    f"{energy.size:,} bins | {kind} total counts "
+                    f"{float(np.sum(counts)):.6g} | hover for bin values"
+                )
+
+        eftem_image = getattr(branch_result, "eftem_image", None)
+        if str(mode).lower() != "eftem":
+            self.eftem_image_item.hide()
+            self.eftem_status.setText(
+                "EFTEM image is available when acquisition mode is EFTEM."
+            )
+        elif eftem_image is None:
+            self.eftem_image_item.hide()
+            self.eftem_status.setText(
+                "No cached High-accuracy EFTEM image."
+            )
+        else:
+            image = np.asarray(eftem_image, dtype=float)
+            if (
+                image.ndim != 2
+                or not np.all(np.isfinite(image))
+                or np.any(image < 0.0)
+            ):
+                self.eftem_image_item.hide()
+                self.eftem_status.setText("Cached EFTEM image is invalid.")
+            else:
+                self.eftem_image_item.setImage(image, autoLevels=True)
+                self.eftem_image_item.show()
+                self.eftem_plot.autoRange()
+                self.eftem_status.setText(
+                    f"Cached EFTEM image | {image.shape[1]} × "
+                    f"{image.shape[0]} px"
+                )
 
     def _component_clicked(self, _item, points, _event=None) -> None:
         if points:
@@ -523,6 +696,7 @@ class EnergyFilterView(QWidget):
         )
 
     def display_result(self, result) -> None:
+        self._display_scientific_outputs(None, "")
         self.plot.clear()
         self._prism_clear_aperture_items = []
         self._multipole_housing_items = []
@@ -909,6 +1083,8 @@ class EnergyFilterView(QWidget):
         self._device_centres = device_scatter
 
         branch_result = getattr(result, "energy_filter", None)
+        mode = str(energy_filter.operating_mode).upper()
+        self._display_scientific_outputs(branch_result, mode)
         if branch_result is not None and branch_result.paths_u_mm:
             path_count = len(branch_result.paths_u_mm)
             indices = np.unique(np.linspace(
@@ -925,7 +1101,6 @@ class EnergyFilterView(QWidget):
                     pen=pg.mkPen(colour, width=0.8),
                 )
 
-        mode = str(energy_filter.operating_mode).upper()
         metrics = getattr(energy_filter, "_last_slit_metrics", None)
         metric_text = (
             f" | dispersion {metrics.dispersion_um_per_ev:.4g} um/eV | "
@@ -986,6 +1161,14 @@ class EnergyFilterView(QWidget):
         self.summary.setToolTip(
             "Run High accuracy to update the branch ray trace for the current state."
         )
+        if self._spectrum_energy_ev.size:
+            self.spectrum_status.setText(
+                "Previous complete EELS spectrum retained | inputs changed"
+            )
+        if self.eftem_image_item.isVisible():
+            self.eftem_status.setText(
+                "Previous complete EFTEM image retained | inputs changed"
+            )
 
 
 def _component_colour(record) -> str:
@@ -1216,6 +1399,7 @@ class PhysicalLayoutView(QWidget):
         self.plot.getViewBox().sigRangeChanged.connect(
             self._layout_component_labels
         )
+        self.plot.getViewBox().sigResized.connect(self._layout_component_labels)
 
     def _plot_position_clicked(self, event) -> None:
         if (
@@ -1410,6 +1594,19 @@ class PhysicalLayoutView(QWidget):
                 record.key,
             )
 
+    def _add_magnetic_radial_profile(self, record, colour, profile) -> None:
+        """Draw the same piecewise-linear radii used by the material solver."""
+        z = record.start_z_mm + profile[:, 0]
+        for sign in (-1, 1):
+            points = list(zip(z, sign*profile[:, 2])) + list(zip(z[::-1], sign*profile[::-1, 1]))
+            polygon = QGraphicsPolygonItem(QPolygonF([QPointF(float(x), float(y)) for x, y in points]))
+            polygon.setPen(pg.mkPen(colour, width=0.9))
+            rgb = pg.mkColor(colour)
+            polygon.setBrush(pg.mkBrush(rgb.red(), rgb.green(), rgb.blue(), 105))
+            polygon.setToolTip(f"{record.name}\nExplicit magnetic radial profile (mm); shared with field geometry")
+            self.plot.addItem(polygon)
+            _register_selectable_graphics_item(self._selectable_item_keys, polygon, record.key)
+
     @staticmethod
     def _is_objective_lens_layer(record) -> bool:
         return (
@@ -1433,50 +1630,15 @@ class PhysicalLayoutView(QWidget):
         return gap_start, gap_end
 
     def _objective_lens_active_intervals(self, record):
-        """Return the two material intervals of the split Objective body."""
-
+        """Use the same resolved material intervals as the field solver."""
+        from temsim.magnetic_geometry import objective_layer_intervals_mm
         objective = self._record_by_key.get("objective_lens")
-        objective_part = self._part_by_key.get("objective_lens")
-        if objective is None or objective_part is None:
+        part = self._part_by_key.get("objective_lens")
+        if objective is None or part is None:
             return ()
-        data = objective_part.data
-        required = (
-            "local_start_z_mm",
-            "upper_yoke_start_local_z_mm",
-            "upper_yoke_end_local_z_mm",
-            "lower_yoke_start_local_z_mm",
-            "lower_yoke_end_local_z_mm",
-        )
-        if any(field not in data for field in required):
-            return ()
-        origin = (
-            float(objective.start_z_mm)
-            - float(data["local_start_z_mm"])
-        )
-        intervals = [
-            [
-                origin + float(data["upper_yoke_start_local_z_mm"]),
-                origin + float(data["upper_yoke_end_local_z_mm"]),
-            ],
-            [
-                origin + float(data["lower_yoke_start_local_z_mm"]),
-                origin + float(data["lower_yoke_end_local_z_mm"]),
-            ],
-        ]
-        if record.profile == "magnetic_excitation_coil":
-            inset = float(data.get("mechanical_coil_axial_inset_mm", 0.0))
-            intervals[0][0] += inset
-            intervals[0][1] -= inset
-            intervals[1][0] += inset
-            intervals[1][1] -= inset
-        return tuple(
-            (name, start, end)
-            for name, (start, end) in zip(
-                ("Upper Objective Lens", "Lower Objective Lens"),
-                intervals,
-            )
-            if end > start
-        )
+        intervals = objective_layer_intervals_mm(part.data, objective.start_z_mm, record.profile)
+        return tuple((name, start, end) for name, (start, end) in
+                     zip(("Upper Objective Lens", "Lower Objective Lens"), intervals))
 
     def _add_split_objective_lens_layer(self, record, colour) -> None:
         """Draw one Objective layer as separate upper and lower bodies."""
@@ -3104,6 +3266,10 @@ class PhysicalLayoutView(QWidget):
         if not self._label_callouts:
             return
         view_box = self.plot.getViewBox()
+        # A lazily activated page can receive its range/resize signal before
+        # pyqtgraph's next paint. Measure labels in the current transform, not
+        # the previous hidden viewport, or their first-frame rows overlap.
+        view_box.updateMatrix()
         (x_min, x_max), (y_min, y_max) = view_box.viewRange()
         x_span = float(x_max - x_min)
         y_span = float(y_max - y_min)
@@ -3386,7 +3552,12 @@ class PhysicalLayoutView(QWidget):
             width = max(record.end_z_mm - record.start_z_mm, 0.25)
             outer_half = 0.5 * record.outer_diameter_mm
             bore_half = min(0.5 * record.bore_diameter_mm, outer_half)
-            if (
+            from temsim.magnetic_circuits import radial_profile_mm
+            part = self._part_by_key.get(record.key)
+            radial_profile = radial_profile_mm(part.data, part.length_mm) if part is not None else None
+            if radial_profile is not None:
+                self._add_magnetic_radial_profile(record, colour, radial_profile)
+            elif (
                 record.profile == "magnetic_pole_piece"
                 and outer_half > bore_half
             ):
@@ -3458,10 +3629,9 @@ class PhysicalLayoutView(QWidget):
                             else ""
                         )
                         + (
-                            "\nFixed differential-pumping restriction at "
-                            "the column/projection-chamber boundary."
-                            "\nMechanical-layout accessory only: no ray "
-                            "clipping or preset recalculation is imposed."
+                            "\nAlways-inserted differential-pumping stop."
+                            "\nSize/position adjustable; clips rays without "
+                            "automatic preset recalculation."
                             if record.profile == self.FIXED_DPA_PROFILE
                             else ""
                         )
@@ -3737,6 +3907,38 @@ class PhysicalLayoutView(QWidget):
         )
         self.summary.setToolTip(detail_text)
 
+    def reveal_component(self, part) -> bool:
+        """Highlight and centre a component without enabling live auto-range."""
+
+        self.focus_component(part)
+        record = self._record_by_key.get(getattr(part, "key", ""))
+        if record is None:
+            return False
+        span = max(
+            abs(float(record.end_z_mm) - float(record.start_z_mm)),
+            1.0,
+        )
+        half_window = max(45.0, min(260.0, 1.6 * span))
+        radial_half_window = max(
+            0.65 * float(record.outer_diameter_mm),
+            0.65 * float(record.mechanical_bore_diameter_mm),
+            5.0,
+        )
+        centre = float(record.center_z_mm)
+        self.plot.disableAutoRange()
+        self.plot.setXRange(
+            centre - half_window,
+            centre + half_window,
+            padding=0.0,
+        )
+        self.plot.setYRange(
+            -radial_half_window,
+            radial_half_window,
+            padding=0.0,
+        )
+        self._layout_component_labels()
+        return True
+
 
 class InitialDirectionColourWheel(QWidget):
     """DPC-style cyclic legend for initial transverse ray direction."""
@@ -3993,8 +4195,8 @@ class TransverseBeamView(QWidget):
             "V = -X sin(angle) + Y cos(angle)."
         )
 
-    def set_projection_angle(self, angle_deg: float) -> None:
-        """Match the Ray Diagram display basis without retracing rays."""
+    def set_projection_angle(self, angle_deg: float, *, redraw: bool = True) -> None:
+        """Match the Ray Diagram basis; hidden owners can defer presentation."""
 
         angle = float(np.clip(angle_deg, 0.0, 360.0))
         changed = not np.isclose(
@@ -4003,7 +4205,7 @@ class TransverseBeamView(QWidget):
         self._projection_angle_deg = angle
         self.angle_colour_wheel.set_projection_angle(angle)
         self._update_projection_labels()
-        if changed and self._result is not None:
+        if redraw and changed and self._result is not None:
             self._redraw()
 
     def _apply_centered_view_ranges(
@@ -4105,14 +4307,23 @@ class TransverseBeamView(QWidget):
             + fraction * np.asarray(values[upper], dtype=float)
         )
 
-    def display_result(self, result) -> None:
+    def display_result(self, result, *, focus=None) -> None:
         self._result = result
+        if focus is not None:
+            kind, value = focus
+            if kind == "component" and value is not None:
+                self.focus_component(value, redraw=False)
+            elif kind == "component":
+                self._focused_component_key = None
+            else:
+                self.focus_z(value, redraw=False)
         if self._plane_z_mm is None:
             self._plane_z_mm = float(result.simulation.incident.z[-1])
         self._redraw()
 
-    def focus_component(self, part) -> None:
+    def focus_component(self, part, *, redraw: bool = True) -> None:
         key = str(part.key)
+        changed_focus = self._focused_component_key != key
         self._focused_component_key = key
         plane_z = float(part.center_z_mm)
         state = getattr(self._result, "state_snapshot", None)
@@ -4125,19 +4336,21 @@ class TransverseBeamView(QWidget):
         )
         if detector is not None:
             plane_z = float(detector.z_mm)
-        self._set_plane_z(plane_z)
+        self._set_plane_z(plane_z, redraw=redraw, force_redraw=changed_focus)
 
-    def focus_z(self, z_mm: float) -> None:
+    def focus_z(self, z_mm: float, *, redraw: bool = True) -> None:
         """Display an arbitrary finite axial plane without retracing rays."""
 
+        changed_focus = self._focused_component_key is not None
         self._focused_component_key = None
-        self._set_plane_z(z_mm)
+        self._set_plane_z(z_mm, redraw=redraw, force_redraw=changed_focus)
 
-    def _set_plane_z(self, z_mm: float) -> None:
+    def _set_plane_z(self, z_mm: float, *, redraw: bool = True, force_redraw=False) -> None:
         if not math.isfinite(float(z_mm)):
             return
+        changed = self._plane_z_mm != float(z_mm)
         self._plane_z_mm = float(z_mm)
-        if self._result is not None:
+        if redraw and (changed or force_redraw) and self._result is not None:
             self._redraw()
 
     def _add_point_spread_response(self):
@@ -4695,17 +4908,26 @@ class OpticalTransferView(QWidget):
 class MagneticFieldView(QWidget):
     component_selected = Signal(str)
     axial_position_selected = Signal(float)
+    field_map_import_requested = Signal(str, str, str, float, int)
+    field_map_clear_requested = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._records = ()
         self._curves = {}
+        self._total_curve = None
+        self._formula_sample_by_key = {}
+        self._legend_key = None
+        self._rotation_by_key = {}
+        self._has_field_scene = False
         self._selected_key = None
         self._support_item = None
         self._formula_samples = []
         self._rotation_items = []
         self._sample_field_items = []
         self._plane_records = ()
+        self._state_snapshot = None
+        self._presentation_pending = False
 
         self.heading = QLabel("Axial magnetic field Bz")
         self.summary = QLabel("Recalculate to evaluate lens fields.")
@@ -4719,6 +4941,70 @@ class MagneticFieldView(QWidget):
         self.show_rotation_labels.setCheckable(True)
         self.show_rotation_labels.setChecked(True)
         self.show_rotation_labels.setStyleSheet(BUTTON_STYLE)
+
+        self.field_map_lens = QComboBox()
+        self.field_map_lens.setObjectName("magneticFieldMapLens")
+        self.field_map_lens.setMinimumContentsLength(18)
+        self.field_map_provenance = QComboBox()
+        self.field_map_provenance.setObjectName(
+            "magneticFieldMapProvenance"
+        )
+        self.field_map_provenance.addItem("Select source", None)
+        self.field_map_provenance.addItem("Measured", "measured")
+        self.field_map_provenance.addItem("FEM", "fem")
+        self.field_map_reference = QDoubleSpinBox()
+        self.field_map_reference.setObjectName(
+            "magneticFieldMapReferenceExcitation"
+        )
+        self.field_map_reference.setRange(0.0, 1_000_000.0)
+        self.field_map_reference.setDecimals(6)
+        self.field_map_reference.setSuffix(" %")
+        self.field_map_reference.setSpecialValueText("Reference required")
+        self.field_map_reference.setValue(0.0)
+        self.field_map_polarity = QComboBox()
+        self.field_map_polarity.setObjectName(
+            "magneticFieldMapReferencePolarity"
+        )
+        self.field_map_polarity.addItem("Select polarity", None)
+        self.field_map_polarity.addItem("+Z", 1)
+        self.field_map_polarity.addItem("-Z", -1)
+        self.field_map_import = QPushButton("Import SI map")
+        self.field_map_import.setObjectName("magneticFieldMapImport")
+        self.field_map_import.setToolTip(
+            "Import NPZ/CSV with coordinates in metres and magnetic field in "
+            "tesla. No unit inference or conversion is performed. NPZ may "
+            "carry explicit registration metadata; tidy CSV coordinates must "
+            "already use the global column frame."
+        )
+        self.field_map_clear = QPushButton("Clear map")
+        self.field_map_clear.setObjectName("magneticFieldMapClear")
+        self.field_map_status = QLabel(
+            "Select a lens to inspect its geometry-bound field provider."
+        )
+        self.field_map_status.setObjectName("magneticFieldMapStatus")
+        self.field_map_status.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.field_map_status.setStyleSheet("color: #94a3b8;")
+        self.digital_twin_status = QLabel(
+            "Digital-twin fit: no sourced axial Bz dataset attached."
+        )
+        self.digital_twin_status.setObjectName(
+            "magneticFieldCalibrationStatus"
+        )
+        self.digital_twin_status.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.digital_twin_status.setStyleSheet("color: #64748b;")
+
+        field_map_row = QHBoxLayout()
+        field_map_row.addWidget(QLabel("Field map"))
+        field_map_row.addWidget(self.field_map_lens, 1)
+        field_map_row.addWidget(self.field_map_provenance)
+        field_map_row.addWidget(self.field_map_reference)
+        field_map_row.addWidget(self.field_map_polarity)
+        field_map_row.addWidget(self.field_map_import)
+        field_map_row.addWidget(self.field_map_clear)
 
         heading_row = QHBoxLayout()
         heading_row.addWidget(self.heading)
@@ -4739,6 +5025,9 @@ class MagneticFieldView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(heading_row)
         layout.addLayout(action_row)
+        layout.addLayout(field_map_row)
+        layout.addWidget(self.field_map_status)
+        layout.addWidget(self.digital_twin_status)
         layout.addWidget(self.plot, 1)
         layout.addWidget(self.summary)
         self.show_individual.toggled.connect(self._apply_curve_styles)
@@ -4748,6 +5037,165 @@ class MagneticFieldView(QWidget):
         self.plot.scene().sigMouseClicked.connect(
             self._plot_position_clicked
         )
+        self.field_map_lens.currentIndexChanged.connect(
+            self._refresh_field_map_status
+        )
+        self.field_map_provenance.currentIndexChanged.connect(
+            self._update_field_map_import_enabled
+        )
+        self.field_map_reference.valueChanged.connect(
+            self._update_field_map_import_enabled
+        )
+        self.field_map_polarity.currentIndexChanged.connect(
+            self._update_field_map_import_enabled
+        )
+        self.field_map_import.clicked.connect(self._choose_field_map)
+        self.field_map_clear.clicked.connect(self._clear_field_map)
+        self._update_field_map_import_enabled()
+
+    def _update_field_map_import_enabled(self, *_args) -> None:
+        self.field_map_import.setEnabled(bool(
+            self.field_map_lens.currentData()
+            and self.field_map_provenance.currentData() in {"measured", "fem"}
+            and self.field_map_reference.value() > 0.0
+            and self.field_map_polarity.currentData() in {-1, 1}
+        ))
+
+    def _choose_field_map(self) -> None:
+        lens_key = self.field_map_lens.currentData()
+        provenance = self.field_map_provenance.currentData()
+        polarity = self.field_map_polarity.currentData()
+        reference = float(self.field_map_reference.value())
+        if (
+            not lens_key
+            or provenance not in {"measured", "fem"}
+            or polarity not in {-1, 1}
+            or reference <= 0.0
+        ):
+            self.set_field_map_operation_status(
+                "Select source, actual reference excitation and polarity.",
+                error=True,
+            )
+            return
+        path, _filter = QFileDialog.getOpenFileName(
+            self,
+            "Import geometry-bound magnetic field map",
+            "",
+            "SI magnetic field maps (*.npz *.csv)",
+        )
+        if not path:
+            return
+        self.set_field_map_operation_status("Validating selected map...")
+        self.field_map_import_requested.emit(
+            str(lens_key),
+            str(path),
+            str(provenance),
+            reference,
+            int(polarity),
+        )
+
+    def _clear_field_map(self) -> None:
+        lens_key = self.field_map_lens.currentData()
+        if lens_key:
+            self.field_map_clear_requested.emit(str(lens_key))
+
+    def set_field_map_operation_status(
+        self, text: str, *, error: bool = False
+    ) -> None:
+        self.field_map_status.setText(str(text))
+        self.field_map_status.setStyleSheet(
+            "color: #f87171;" if error else "color: #94a3b8;"
+        )
+
+    def _populate_field_map_lenses(self) -> None:
+        selected = self.field_map_lens.currentData()
+        rows = tuple((record.key, record.name) for record in self._records)
+        if tuple(
+            (self.field_map_lens.itemData(index),
+             self.field_map_lens.itemText(index))
+            for index in range(self.field_map_lens.count())
+        ) != rows:
+            self.field_map_lens.blockSignals(True)
+            self.field_map_lens.clear()
+            for key, name in rows:
+                self.field_map_lens.addItem(str(name), str(key))
+            index = self.field_map_lens.findData(selected)
+            self.field_map_lens.setCurrentIndex(max(index, 0))
+            self.field_map_lens.blockSignals(False)
+        self._refresh_field_map_status()
+        self._update_field_map_import_enabled()
+
+    def _refresh_field_map_status(self, *_args) -> None:
+        state = self._state_snapshot
+        key = self.field_map_lens.currentData()
+        if state is None or not key:
+            self.field_map_clear.setEnabled(False)
+            self.set_field_map_operation_status(
+                "Select a lens to inspect its geometry-bound field provider."
+            )
+            return
+        descriptor = dict(
+            getattr(state, "lens_field_map_descriptors", {}).get(
+                str(key), {}
+            )
+            or {}
+        )
+        diagnostic = dict(
+            getattr(state, "_field_provider_diagnostics", {}).get(
+                str(key), {}
+            )
+            or {}
+        )
+        self.field_map_clear.setEnabled(bool(descriptor))
+        mode = str(diagnostic.get("mode", ""))
+        if mode == "imported_field_map":
+            source = Path(str(descriptor.get("source_path", ""))).name
+            kind = str(descriptor.get("provenance_kind", "map")).upper()
+            divergence = (
+                "divergence check passed"
+                if bool(diagnostic.get("divergence_within_tolerance", False))
+                else "divergence warning"
+            )
+            self.set_field_map_operation_status(
+                f"{kind} map matched | {source} | {divergence}"
+            )
+        elif descriptor:
+            reason = str(
+                diagnostic.get("reason", "saved_map_unavailable_or_stale")
+            )
+            self.set_field_map_operation_status(
+                f"Saved map rejected ({reason}) | provisional TOML Gaussian",
+                error=True,
+            )
+        else:
+            self.set_field_map_operation_status(
+                "Provisional TOML Gaussian | no matching measured/FEM map"
+            )
+        detail = "\n".join(
+            str(value) for value in (
+                descriptor.get("source_path", ""),
+                descriptor.get("source_sha256", ""),
+                diagnostic.get("geometry_fingerprint", ""),
+                diagnostic.get("descriptor_error", ""),
+            )
+            if value
+        )
+        self.field_map_status.setToolTip(detail)
+        source_note = str(descriptor.get("source_note", ""))
+        if "axial Bz calibration" in source_note:
+            self.digital_twin_status.setText(
+                "Digital-twin fit: calibration provenance attached."
+            )
+            self.digital_twin_status.setToolTip(source_note)
+        else:
+            self.digital_twin_status.setText(
+                "Digital-twin fit: not run; core API requires sourced axial "
+                "Bz points."
+            )
+            self.digital_twin_status.setToolTip(
+                "fit_axial_field_map_calibration returns scale, axial "
+                "registration and residuals without modifying source data."
+            )
 
     def link_axial_axis(self, source_plot) -> None:
         """Share the Ray Diagram's axial range and plotting boundaries."""
@@ -4779,56 +5227,119 @@ class MagneticFieldView(QWidget):
             max(float(np.max(branch.z)) for branch in bundles),
         )
 
-    def display_result(self, result) -> None:
-        self.plot.clear()
+    def mark_presentation_pending(self) -> None:
+        """Do not report the old field's numbers as current while hidden."""
+        self._presentation_pending = True
+
+    def _clear_field_graphics(self) -> None:
+        """Discard only owned graphics when there is no calculation snapshot."""
+        items = [self._total_curve, self._support_item, *self._curves.values(),
+                 *self._formula_samples, *self._rotation_items, *self._sample_field_items]
+        for item in items:
+            if item is not None:
+                self.plot.removeItem(item)
+        self.legend.clear()
         self._curves = {}
+        self._total_curve = None
         self._support_item = None
         self._formula_samples = []
+        self._formula_sample_by_key = {}
+        self._legend_key = None
         self._rotation_items = []
+        self._rotation_by_key = {}
         self._sample_field_items = []
-        self._plane_records = ()
-        self.legend.clear()
+        self._has_field_scene = False
+
+    def _update_formula_legend(self) -> None:
+        formula_records = {}
+        for record in self._records:
+            formula_records.setdefault(record.formula_key, record)
+        for key in self._formula_sample_by_key.keys() - formula_records.keys():
+            self.plot.removeItem(self._formula_sample_by_key.pop(key))
+        for key, record in formula_records.items():
+            sample = self._formula_sample_by_key.get(key)
+            if sample is None:
+                sample = pg.PlotDataItem([], [])
+                self.plot.addItem(sample)
+                self._formula_sample_by_key[key] = sample
+            sample.setPen(pg.mkPen(record.formula_colour, width=2.4))
+        legend_key = tuple((record.formula_key, record.formula_label)
+                           for record in formula_records.values())
+        if legend_key != self._legend_key:
+            self.legend.clear()
+            self.legend.addItem(self._total_curve, "Total solver Bz")
+            for key, record in formula_records.items():
+                self.legend.addItem(self._formula_sample_by_key[key], record.formula_label)
+            self._legend_key = legend_key
+        self._formula_samples = [self._formula_sample_by_key[key] for key in formula_records]
+        self.legend.update()
+
+    def display_result(self, result) -> None:
+        self._presentation_pending = False
         state = getattr(result, "state_snapshot", None)
+        self._state_snapshot = state
         if state is None:
+            self._clear_field_graphics()
             self._records = ()
+            self._plane_records = ()
+            self.heading.setText("Axial magnetic field Bz")
             self.summary.setText("No calculation state snapshot is available.")
+            self.summary.setToolTip("")
+            self._populate_field_map_lenses()
             return
+        view_box = self.plot.getViewBox()
+        previous_y = tuple(view_box.viewRange()[1]) if self._has_field_scene else None
+        view_box.disableAutoRange(axis=pg.ViewBox.YAxis)
         start, end = self._simulation_limits(result.simulation)
         z_mm = np.linspace(start, end, 3_000)
+        # Evaluate the authoritative providers for every new snapshot. Reusing
+        # Qt items must not turn partial field dependencies into a physics cache.
         total, self._records = lens_field_records(state, z_mm)
+        self._populate_field_map_lenses()
         self._plane_records = image_plane_rotation_records(state)
-        total_curve = self.plot.plot(
-            z_mm,
-            total,
-            pen=pg.mkPen("#f8fafc", width=2.6),
-        )
-        self.legend.addItem(total_curve, "Total solver Bz")
+        if self._total_curve is None:
+            self._total_curve = self.plot.plot(pen=pg.mkPen("#f8fafc", width=2.6))
+        self._total_curve.setData(z_mm, total)
         sample_z_mm = float(state.sample.z_mm)
         sample_field_t = float(sum(
             record.field_at_sample_t for record in self._records
         ))
-        sample_line = pg.InfiniteLine(
-            pos=sample_z_mm,
-            angle=90,
-            movable=False,
-            pen=pg.mkPen(
-                "#f97316", width=1.4, style=Qt.PenStyle.DashLine
-            ),
-        )
+        if not self._sample_field_items:
+            sample_line = pg.InfiniteLine(
+                angle=90, movable=False,
+                pen=pg.mkPen("#f97316", width=1.4, style=Qt.PenStyle.DashLine),
+            )
+            self.plot.addItem(sample_line)
+            self._sample_field_items.append(sample_line)
+        sample_line = self._sample_field_items[0]
+        sample_line.setValue(sample_z_mm)
         sample_line.setToolTip(
             f"Specimen plane Z {sample_z_mm:.6g} mm\n"
             f"Total solver Bz {sample_field_t:+.6g} T\n"
             "The specimen-local electron model uses this field; X-rays remain "
             "undeflected."
         )
-        self.plot.addItem(sample_line)
-        self._sample_field_items.append(sample_line)
+        record_keys = {record.key for record in self._records}
+        for key in self._curves.keys() - record_keys:
+            self.plot.removeItem(self._curves.pop(key))
+        if self._selected_key not in record_keys:
+            self._selected_key = None
+            if self._support_item is not None:
+                self.plot.removeItem(self._support_item)
+                self._support_item = None
         for record in self._records:
-            curve = self.plot.plot(
-                z_mm,
-                record.field_t,
-                pen=pg.mkPen(record.formula_colour, width=1.2),
-            )
+            curve = self._curves.get(record.key)
+            if curve is None:
+                curve = self.plot.plot()
+                self._curves[record.key] = curve
+                try:
+                    curve.setCurveClickable(True, width=8)
+                    curve.sigClicked.connect(
+                        lambda *_args, key=record.key: self.component_selected.emit(key)
+                    )
+                except AttributeError:
+                    pass
+            curve.setData(z_mm, record.field_t)
             curve.setToolTip(
                 f"{record.name}\nPeak |Bz| {record.peak_t:.6g} T\n"
                 f"Excitation {record.excitation_percent:.6g}%\n"
@@ -4846,30 +5357,16 @@ class MagneticFieldView(QWidget):
                 f"Cumulative column rotation "
                 f"{record.cumulative_column_rotation_deg:+.6g} deg"
             )
-            try:
-                curve.setCurveClickable(True, width=8)
-                curve.sigClicked.connect(
-                    lambda *_args, key=record.key: self.component_selected.emit(key)
-                )
-            except AttributeError:
-                pass
-            self._curves[record.key] = curve
-        formula_records = {}
-        for record in self._records:
-            formula_records.setdefault(record.formula_key, record)
-        for record in formula_records.values():
-            sample = pg.PlotDataItem(
-                [], [], pen=pg.mkPen(record.formula_colour, width=2.4)
-            )
-            self.plot.addItem(sample)
-            self.legend.addItem(sample, record.formula_label)
-            self._formula_samples.append(sample)
+        self._update_formula_legend()
         self._add_rotation_markers(total)
-        view_box = self.plot.getViewBox()
-        view_box.disableAutoRange()
-        view_box.enableAutoRange(axis=pg.ViewBox.YAxis, enable=True)
-        view_box.updateAutoRange()
-        view_box.disableAutoRange(axis=pg.ViewBox.YAxis)
+        if previous_y is None:
+            view_box.disableAutoRange()
+            view_box.enableAutoRange(axis=pg.ViewBox.YAxis, enable=True)
+            view_box.updateAutoRange()
+            view_box.disableAutoRange(axis=pg.ViewBox.YAxis)
+        else:
+            view_box.setYRange(*previous_y, padding=0)
+        self._has_field_scene = True
         peak = float(np.max(np.abs(total))) if total.size else 0.0
         total_rotation_deg = sum(
             record.larmor_rotation_deg for record in self._records
@@ -4886,23 +5383,29 @@ class MagneticFieldView(QWidget):
         detail_text = (
             "Positive rotation follows the right-hand rule about +Z | "
             f"full-column signed Larmor rotation {total_rotation_deg:+.6g} deg | "
-            "Gaussian ranges are numerical 7σ tail cutoffs, not physical hard edges; "
-            "pole geometry/material is not yet field-solver coupled"
+            "Gaussian fields use numerical 7σ tails; field maps use finite grid "
+            "support. Inspect each curve for geometry/material coupling. "
+            "Joint B-H fields are counted once, not decomposed per lens."
             + (f" | {plane_text}" if plane_text else "")
         )
         self.summary.setText(
             f"Signed Larmor rotation {total_rotation_deg:+.6g}° | "
-            f"{len(self._plane_records)} reference plane(s) | 7σ display support"
+            f"{len(self._plane_records)} reference plane(s) | Provider-defined support"
         )
         self.summary.setToolTip(detail_text)
         self._apply_curve_styles()
+        if self._selected_key is not None:
+            self.focus_component(next(record for record in self._records
+                                      if record.key == self._selected_key))
 
     def _add_rotation_markers(self, total_field_t) -> None:
+        """Refresh keyed annotations without accumulating new graphics items."""
         peak = max(
             float(np.max(np.abs(total_field_t)))
             if np.size(total_field_t) else 0.0,
             1.0e-6,
         )
+        items = {}
         for index, record in enumerate(sorted(
             self._records, key=lambda item: item.center_z_mm
         )):
@@ -4911,16 +5414,16 @@ class MagneticFieldView(QWidget):
             offset = (0.055 + 0.025 * (index % 3)) * peak
             y_value = field_value + offset if field_value >= 0.0 else field_value - offset
             anchor_y = 1.0 if field_value >= 0.0 else 0.0
-            label = pg.TextItem(
-                text=(
-                    f"{record.key}\n"
-                    f"ΔφL {record.larmor_rotation_deg:+.3g}°"
-                ),
-                color="#cbd5e1",
-                anchor=(0.5, anchor_y),
-                fill=pg.mkBrush(5, 8, 22, 185),
-                border=pg.mkPen(record.formula_colour, width=0.8),
+            key = ("lens", record.key)
+            label = self._rotation_by_key.get(key)
+            if label is None:
+                label = pg.TextItem(color="#cbd5e1", fill=pg.mkBrush(5, 8, 22, 185))
+                self.plot.addItem(label)
+            label.setText(
+                f"{record.key}\nΔφL {record.larmor_rotation_deg:+.3g}°"
             )
+            label.setAnchor((0.5, anchor_y))
+            label.border = pg.mkPen(record.formula_colour, width=0.8)
             label.setPos(record.center_z_mm, y_value)
             label.setToolTip(
                 f"{record.name}\n"
@@ -4928,21 +5431,20 @@ class MagneticFieldView(QWidget):
                 f"column cumulative ΣφL "
                 f"{record.cumulative_column_rotation_deg:+.6g} deg"
             )
-            self.plot.addItem(label)
-            self._rotation_items.append(label)
+            label.update()
+            items[key] = label
 
         plane_colour = "#fbbf24"
         for index, record in enumerate(self._plane_records):
-            line = pg.InfiniteLine(
-                pos=record.z_mm,
-                angle=90,
-                movable=False,
-                pen=pg.mkPen(
-                    plane_colour,
-                    width=1.1,
-                    style=Qt.PenStyle.DashLine,
-                ),
-            )
+            key = ("plane_line", record.key)
+            line = self._rotation_by_key.get(key)
+            if line is None:
+                line = pg.InfiniteLine(
+                    angle=90, movable=False,
+                    pen=pg.mkPen(plane_colour, width=1.1, style=Qt.PenStyle.DashLine),
+                )
+                self.plot.addItem(line)
+            line.setValue(record.z_mm)
             line.setToolTip(
                 f"{record.name}\n"
                 f"image orientation from sample "
@@ -4953,23 +5455,27 @@ class MagneticFieldView(QWidget):
                 f"||B|| {record.conjugacy_error_m:.6g} m/rad | "
                 f"anisotropy {record.anisotropy_ratio:.6g}"
             )
-            self.plot.addItem(line)
-            self._rotation_items.append(line)
+            items[key] = line
             y_value = peak * (0.92 - 0.13 * (index % 4))
-            label = pg.TextItem(
-                text=(
-                    f"{record.name}\n"
-                    f"θsample {record.image_rotation_from_sample_deg:+.3g}°"
-                ),
-                color=plane_colour,
-                anchor=(0.5, 0.0),
-                fill=pg.mkBrush(5, 8, 22, 210),
-                border=pg.mkPen(plane_colour, width=0.9),
+            key = ("plane_label", record.key)
+            label = self._rotation_by_key.get(key)
+            if label is None:
+                label = pg.TextItem(
+                    color=plane_colour, anchor=(0.5, 0.0),
+                    fill=pg.mkBrush(5, 8, 22, 210),
+                    border=pg.mkPen(plane_colour, width=0.9),
+                )
+                self.plot.addItem(label)
+            label.setText(
+                f"{record.name}\nθsample {record.image_rotation_from_sample_deg:+.3g}°"
             )
             label.setPos(record.z_mm, y_value)
             label.setToolTip(line.toolTip())
-            self.plot.addItem(label)
-            self._rotation_items.append(label)
+            items[key] = label
+        for key in self._rotation_by_key.keys() - items.keys():
+            self.plot.removeItem(self._rotation_by_key[key])
+        self._rotation_by_key = items
+        self._rotation_items = list(items.values())
         self._apply_rotation_marker_visibility()
 
     def _apply_rotation_marker_visibility(self) -> None:
@@ -4996,19 +5502,21 @@ class MagneticFieldView(QWidget):
             return
         self._selected_key = key
         self._apply_curve_styles()
-        if self._support_item is not None:
-            self.plot.removeItem(self._support_item)
         support_colour = pg.mkColor(record.formula_colour)
         support_colour.setAlpha(34)
-        self._support_item = pg.LinearRegionItem(
-            values=record.support_mm,
-            orientation="vertical",
-            movable=False,
-            brush=pg.mkBrush(support_colour),
-            pen=pg.mkPen(record.formula_colour, width=1.2),
-        )
-        self._support_item.setZValue(-5)
-        self.plot.addItem(self._support_item)
+        if self._support_item is None:
+            self._support_item = pg.LinearRegionItem(
+                values=record.support_mm, orientation="vertical", movable=False,
+                brush=pg.mkBrush(support_colour),
+                pen=pg.mkPen(record.formula_colour, width=1.2),
+            )
+            self._support_item.setZValue(-5)
+            self.plot.addItem(self._support_item)
+        else:
+            self._support_item.setRegion(record.support_mm)
+            self._support_item.setBrush(pg.mkBrush(support_colour))
+            for line in self._support_item.lines:
+                line.setPen(pg.mkPen(record.formula_colour, width=1.2))
         detail_text = self.diagnostic_text(key)
         focal = (
             f"{record.focal_length_mm:.6g} mm"
@@ -5022,6 +5530,8 @@ class MagneticFieldView(QWidget):
         self.summary.setToolTip(detail_text)
 
     def diagnostic_text(self, key: str) -> str:
+        if self._presentation_pending:
+            return "Field view pending | show Magnetic field to update diagnostics."
         record = next((item for item in self._records if item.key == key), None)
         if record is None:
             return "Recalculate to update field and focal diagnostics."

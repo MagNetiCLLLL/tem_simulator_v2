@@ -8,6 +8,9 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem
 
 from temsim.component_keys import (
+    ENERGY_FILTER_ENTRANCE_APERTURE,
+    FIXED_APERTURE_KEYS,
+    NANOPULSER_APERTURE,
     ENERGY_FILTER_INTERNAL_KEYS,
     IMAGE_CORRECTOR_KEYS,
     PROBE_CORRECTOR_KEYS,
@@ -16,29 +19,33 @@ from temsim.component_keys import (
 
 OPTICAL_FILTERS = (
     ("all", "All optical"),
+    ("electron_source", "Electron source"),
     ("lens", "Lenses"),
     ("deflector", "Deflectors"),
     ("aperture", "Apertures"),
     ("stigmator", "Stigmators"),
     ("corrector", "Correctors"),
-    ("other", "Source / detectors"),
+    ("other", "Detectors"),
 )
 OPTICAL_CATEGORY_LABELS = {
+    "electron_source": "Electron source",
     "lens": "Lenses",
     "deflector": "Deflectors",
     "aperture": "Apertures",
     "stigmator": "Stigmators",
     "corrector": "Correctors",
-    "other": "Source / detectors",
+    "other": "Detectors",
 }
 OPTICAL_CATEGORY_ORDER = tuple(OPTICAL_CATEGORY_LABELS)
 CORRECTOR_KEYS = frozenset((*PROBE_CORRECTOR_KEYS, *IMAGE_CORRECTOR_KEYS))
-GLOBAL_RUNTIME_KEYS = ("simulation", "electron_gun")
+GLOBAL_RUNTIME_KEYS = ("simulation",)
+ELECTRON_SOURCE_RUNTIME_KEY = "electron_gun"
+ELECTRON_SOURCE_RUNTIME_LABEL = "Gun ray tracing"
 CENTRAL_WORKSPACE_KEYS = frozenset({
     "sample",
     "energy_filter",
     *ENERGY_FILTER_INTERNAL_KEYS,
-})
+}) - {ENERGY_FILTER_ENTRANCE_APERTURE}
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +58,7 @@ class TreeSelection:
 
 class InstrumentTree(QTreeWidget):
     component_selected = Signal(object)
+    component_activated = Signal(object)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -59,6 +67,7 @@ class InstrumentTree(QTreeWidget):
         self.setAlternatingRowColors(True)
         self.setMinimumWidth(285)
         self.currentItemChanged.connect(self._emit_current_item)
+        self.itemDoubleClicked.connect(self._emit_activated_item)
 
     @staticmethod
     def _selection_item(label: str, selection: TreeSelection):
@@ -80,19 +89,25 @@ class InstrumentTree(QTreeWidget):
     def _is_optical_part(part, runtime_targets) -> bool:
         return (
             part.key not in CENTRAL_WORKSPACE_KEYS
-            and part.key in runtime_targets
+            # NanoPulser owns its stop geometry; edit the original TOML,
+            # never a temporary copy returned by nanopulser.aperture.
+            and (part.key in runtime_targets or part.key == NANOPULSER_APERTURE)
             and not bool(part.data.get("mechanical_only", False))
         )
 
     @staticmethod
-    def optical_category(part, runtime_target=None) -> str:
+    def optical_category(
+        part, runtime_target=None, *, module_type: str | None = None
+    ) -> str:
         key = str(part.key)
+        if "aperture" in key:
+            return "aperture"
+        if module_type == "gun":
+            return "electron_source"
         if key == "energy_filter" or key in ENERGY_FILTER_INTERNAL_KEYS:
             return "energy_filter"
         if key in CORRECTOR_KEYS:
             return "corrector"
-        if "aperture" in key:
-            return "aperture"
         if "stigmator" in key:
             return "stigmator"
         if "deflector" in key:
@@ -113,18 +128,23 @@ class InstrumentTree(QTreeWidget):
         self.setHeaderLabel("Optical calculation components")
         targets = runtime_targets or {}
         module_paths = self._module_paths(assembly)
+        module_types = {
+            module.key: module.type for module in assembly.modules
+        }
         grouped = {name: [] for name in OPTICAL_CATEGORY_ORDER}
         for part in assembly.parts:
             if not self._is_optical_part(part, targets):
                 continue
             part_category = self.optical_category(
-                part, targets.get(part.key)
+                part,
+                targets.get(part.key),
+                module_type=module_types.get(part.module_key),
             )
             if category not in {"all", part_category}:
                 continue
             grouped[part_category].append(part)
 
-        if category in {"all", "other"}:
+        if category == "all":
             controls = [
                 targets[key]
                 for key in GLOBAL_RUNTIME_KEYS
@@ -143,15 +163,37 @@ class InstrumentTree(QTreeWidget):
 
         for part_category in OPTICAL_CATEGORY_ORDER:
             parts = grouped[part_category]
-            if not parts:
+            source_control = (
+                targets.get(ELECTRON_SOURCE_RUNTIME_KEY)
+                if part_category == "electron_source"
+                and category in {"all", "electron_source"}
+                else None
+            )
+            item_count = len(parts) + int(source_control is not None)
+            if not item_count:
                 continue
             label = OPTICAL_CATEGORY_LABELS[part_category]
-            root = QTreeWidgetItem([f"{label} ({len(parts)})"])
+            root = QTreeWidgetItem([f"{label} ({item_count})"])
             root.setData(0, Qt.ItemDataRole.UserRole + 1, part_category)
             self.addTopLevelItem(root)
+            if source_control is not None:
+                source_item = self._selection_item(
+                    ELECTRON_SOURCE_RUNTIME_LABEL,
+                    TreeSelection(
+                        source_control.key,
+                        ELECTRON_SOURCE_RUNTIME_LABEL,
+                        None,
+                    ),
+                )
+                source_item.setToolTip(
+                    0,
+                    "Numerical ray-tracing settings for the selected gun",
+                )
+                root.addChild(source_item)
             for part in parts:
                 item = self._selection_item(
-                    part.name,
+                    (f"{part.name} (always inserted)"
+                     if part.key in FIXED_APERTURE_KEYS else part.name),
                     TreeSelection(
                         part.key,
                         part.name,
@@ -250,6 +292,15 @@ class InstrumentTree(QTreeWidget):
         selection = current.data(0, Qt.ItemDataRole.UserRole)
         if isinstance(selection, TreeSelection):
             self.component_selected.emit(selection)
+
+    def _emit_activated_item(self, item, _column: int) -> None:
+        """Emit an explicit navigation request for a double-clickable leaf."""
+
+        if item is None:
+            return
+        selection = item.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(selection, TreeSelection):
+            self.component_activated.emit(selection)
 
     def select_key(self, key: str) -> bool:
         """Select a component by canonical key for plot-to-tree linking."""

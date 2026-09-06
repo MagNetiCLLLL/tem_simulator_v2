@@ -69,7 +69,7 @@ class EffectiveAberrationSet:
         for name, value in self.__dict__.items():
             if name.endswith(("_mm", "_deg")) and not math.isfinite(float(value)):
                 raise ValueError(f"{name} must be finite.")
-        if self.cc_mm < 0.0:
+        if self.cc_mm < 0.0 and self.correction_state != "field-derived":
             raise ValueError("Cc cannot be negative in this first-order model.")
         return self
 
@@ -311,6 +311,8 @@ def _aberration_cache_signature(state, system: str) -> str:
             "projector_mode", "objective_coupled", "objective_image_plane_z_mm",
             "objective_back_focal_plane_z_mm", "lenses", "corrector_elements",
             "stigmators", "deflectors", "electron_gun", "component_placements",
+            "lens_field_map_descriptors", "_lens_field_map_bindings",
+            "simulation_mode",
         )
     }
     snapshot.update(
@@ -320,6 +322,15 @@ def _aberration_cache_signature(state, system: str) -> str:
         overrides=getattr(state, f"{system}_aberrations", {}),
         installed=bool(getattr(state, f"{system}_corrector_installed", False)),
     )
+    from temsim.physics.lens_field_provider import lens_geometry_binding
+    snapshot["field_geometry_bindings"] = {
+        key: lens_geometry_binding(state, key).geometry_fingerprint
+        for key in getattr(state, "lens_field_map_descriptors", {})
+    }
+    snapshot["bound_map_contents"] = {
+        key: value.content_fingerprint
+        for key, value in getattr(state, "_lens_field_map_bindings", {}).items()
+    }
     return hashlib.sha256(repr(_public_optical_value(snapshot)).encode("utf-8")).hexdigest()
 
 
@@ -329,6 +340,22 @@ def effective_aberration_comparison(state, system: str) -> tuple[EffectiveAberra
     system = str(system).lower()
     if system not in {"probe", "image"}:
         raise ValueError("Aberration system must be 'probe' or 'image'.")
+    from temsim.simulation_modes import is_ideal
+    if is_ideal(state):
+        overrides = getattr(state, f"{system}_aberrations", {}) or {}
+        defocus = (configured_probe_defocus_mm(state) if system == "probe" else
+                   float(overrides.get("c1_mm", _objective_defocus_mm(state))))
+        ideal = EffectiveAberrationSet(
+            "specimen" if system == "probe" else "objective image", "ideal",
+            c1_mm=defocus, status="ideal_model", source="Ideal Optics; configured defocus retained",
+        ).validate()
+        return ideal, ideal, {
+            "c3_residual_ratio": 0.0, "ray_error_rms_before": 0.0, "ray_error_rms_after": 0.0,
+            "source": ideal.source, "diagnostic_scope": "Lens aberrations disabled by model; not a measurement or fit",
+            "coefficient_status": {term: "configured defocus" if term == "C1" else "disabled by Ideal Optics"
+                                   for term, _, _ in SYSTEM_COEFFICIENT_ROWS},
+            "inferred_coefficients": (), "unmeasured_coefficients": (),
+        }
     if hasattr(state, "sync_objective"):
         state.sync_objective()
     signature = _aberration_cache_signature(state, system)
@@ -338,6 +365,16 @@ def effective_aberration_comparison(state, system: str) -> tuple[EffectiveAberra
         setattr(state, "_effective_aberration_cache", cache)
     if system in cache and cache[system][0] == signature:
         return cache[system][1]
+    mode = str((getattr(state, f"{system}_aberrations", {}) or {}).get("mode", "manual"))
+    if mode == "field_derived":
+        from temsim.optics.field_aberrations import derive_field_aberrations
+        result = derive_field_aberrations(state, system)
+        # Resolving a saved map can populate its immutable binding registry.
+        # Store the resolved identity, otherwise the next consumer repeats the fit.
+        cache[system] = (_aberration_cache_signature(state, system), result)
+        return result
+    if mode != "manual":
+        raise ValueError("Aberration mode must be manual or field_derived")
     before = _configured_system_set(state, system)
     ratio, rms_before, rms_after, source = _corrector_trace_ratio(state, system)
     after = replace(
@@ -387,6 +424,32 @@ def effective_aberration_comparison(state, system: str) -> tuple[EffectiveAberra
 
 def active_effective_aberrations(state, system: str) -> EffectiveAberrationSet:
     return effective_aberration_comparison(state, system)[1]
+
+
+def prepare_field_aberration_diagnostics(state, previous_state=None) -> None:
+    """Populate worker-owned fits once; unchanged snapshots can reuse them."""
+    from temsim.physics.lens_field_provider import active_mapped_providers
+    from temsim.simulation_modes import is_ideal
+    if is_ideal(state):
+        return
+    systems = tuple(system for system in ("probe", "image")
+                    if getattr(state, f"{system}_aberrations", {}).get("mode") == "field_derived")
+    if not systems:
+        return
+    if hasattr(state, "sync_objective"):
+        state.sync_objective()
+    active_mapped_providers(state)
+    # Never share a mutable cache dictionary with the previous result.
+    cache = dict(getattr(state, "_effective_aberration_cache", {}))
+    state._effective_aberration_cache = cache
+    previous = getattr(previous_state, "_effective_aberration_cache", {})
+    for system in systems:
+        signature = _aberration_cache_signature(state, system)
+        entry = previous.get(system)
+        if (cache.get(system, (None,))[0] != signature
+                and entry is not None and entry[0] == signature):
+            cache[system] = entry
+        effective_aberration_comparison(state, system)
 
 
 def aberration_phase_rad(

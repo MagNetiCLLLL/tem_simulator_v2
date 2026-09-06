@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from functools import lru_cache
+import hashlib
 import math
 from pathlib import Path
 from typing import Iterable
@@ -263,6 +264,7 @@ class EDSSpectrum:
     metrics: dict[str, object]
     vacancies: tuple[EDSVacancySignal, ...] = ()
     elastic_transport: object | None = None
+    photon_transport: object | None = None
 
     def __post_init__(self) -> None:
         lines = tuple(self.lines)
@@ -506,6 +508,7 @@ def _empty_spectrum(
         {
             "detector_segment_count": int(segment_count),
             "total_expected_counts": 0.0,
+            "total_expected_emitted_photons": 0.0,
             "line_count": 0,
         }
     )
@@ -518,9 +521,98 @@ def _empty_spectrum(
             "total_expected_unresolved_relaxations": 0.0,
             "shell_cross_section_evaluation_count": 0,
             "duplicate_shell_ionisation_passes": 0,
+            # Efficiency application counts are configured before this helper
+            # is called and retained in ``metrics`` for an empty result.
         }
     )
     return EDSSpectrum(centres, expected, None, (), metrics)
+
+
+def _stable_unit_fraction(identifier: str) -> float:
+    digest = hashlib.sha256(str(identifier).encode("utf-8")).digest()
+    integer = int.from_bytes(digest[:8], byteorder="big", signed=False)
+    return (integer + 0.5) / float(1 << 64)
+
+
+def _vacancy_emission_origin_mm(
+    state,
+    vacancy: EDSVacancySignal,
+    elastic_transport,
+    *,
+    fallback_xy_nm: tuple[float, float],
+    material_flight_index: dict[
+        tuple[int, str, str, str],
+        tuple[tuple[np.ndarray, np.ndarray, float], ...],
+    ]
+    | None = None,
+) -> tuple[tuple[float, float, float], str]:
+    """Resolve one reproducible emission point from the owning material flight."""
+
+    matches: tuple[tuple[np.ndarray, np.ndarray, float], ...] = ()
+    if vacancy.source_ray_index is not None and material_flight_index is not None:
+        matches = material_flight_index.get(
+            (
+                int(vacancy.source_ray_index),
+                str(vacancy.source_key),
+                str(vacancy.material_key),
+                str(vacancy.electron_history),
+            ),
+            (),
+        )
+    elif vacancy.source_ray_index is not None:
+        rows = []
+        for flight in tuple(
+            getattr(elastic_transport, "material_flights", ())
+        ):
+            if (
+                int(flight.source_ray_index) != int(vacancy.source_ray_index)
+                or str(flight.source_key) != str(vacancy.source_key)
+                or str(flight.material_key) != str(vacancy.material_key)
+                or str(flight.history) != str(vacancy.electron_history)
+            ):
+                continue
+            start = np.asarray(flight.start_nm, dtype=float)
+            end = np.asarray(flight.end_nm, dtype=float)
+            length = float(np.linalg.norm(end - start))
+            if length > 0.0:
+                rows.append((start, end, length))
+        matches = tuple(rows)
+    total_length = float(sum(row[2] for row in matches))
+    if total_length > 0.0:
+        target = _stable_unit_fraction(vacancy.vacancy_id) * total_length
+        traversed = 0.0
+        local_nm = matches[-1][1]
+        for start, end, length in matches:
+            if target <= traversed + length:
+                fraction = (target - traversed) / length
+                local_nm = start + fraction * (end - start)
+                break
+            traversed += length
+        return (
+            (
+                float(local_nm[0]) * 1.0e-6,
+                float(local_nm[1]) * 1.0e-6,
+                float(state.sample.z_mm) + float(local_nm[2]) * 1.0e-6,
+            ),
+            "stored_elastic_material_flight",
+        )
+
+    scene = SpecimenScene.from_state(state, include_eds_materials=False)
+    x_nm, y_nm = (float(value) for value in fallback_xy_nm)
+    if str(vacancy.source_key).startswith("support:"):
+        local_z_nm = 0.5 * (scene.support_top_nm + scene.support_bottom_nm)
+        status = "support_layer_centre_no_stored_flight"
+    else:
+        local_z_nm = 0.0
+        status = "specimen_reference_plane_no_stored_flight"
+    return (
+        (
+            x_nm * 1.0e-6,
+            y_nm * 1.0e-6,
+            scene.reference_z_mm + local_z_nm * 1.0e-6,
+        ),
+        status,
+    )
 
 
 def simulate_eds_tracks(
@@ -536,6 +628,15 @@ def simulate_eds_tracks(
     energy_resolution_fwhm_ev: float = 0.0,
     poisson_enabled: bool = False,
     poisson_seed: int = 0,
+    state=None,
+    elastic_transport=None,
+    photon_origin_xy_nm: tuple[float, float] = (0.0, 0.0),
+    photon_detector_surfaces: Iterable[object] = (),
+    photon_holder_occluders: Iterable[object] = (),
+    photon_quadrature_order: int = 1,
+    photon_maximum_stored_paths: int = 1024,
+    photon_include_specimen: bool = True,
+    photon_include_support: bool = True,
 ) -> EDSSpectrum:
     """Convert material track segments to one expected characteristic spectrum."""
 
@@ -563,6 +664,14 @@ def simulate_eds_tracks(
     if int(poisson_seed) < 0:
         raise ValueError("EDS Poisson seed cannot be negative")
     detector_geometry.validate()
+    detector_surfaces = tuple(photon_detector_surfaces)
+    holder_occluders = tuple(photon_holder_occluders)
+    quadrature_order = int(photon_quadrature_order)
+    maximum_stored_paths = int(photon_maximum_stored_paths)
+    if quadrature_order <= 0:
+        raise ValueError("EDS photon quadrature order must be positive")
+    if maximum_stored_paths < 0:
+        raise ValueError("EDS photon stored-path limit cannot be negative")
     solid_angle = (
         detector_geometry.analytical_holder_solid_angle_sr
         if use_analytical_holder_solid_angle
@@ -581,7 +690,31 @@ def simulate_eds_tracks(
         ),
         "geometric_collection_fraction": geometric_fraction,
         "detector_efficiency": efficiency,
-        "detector_efficiency_model": "ideal_scalar",
+        "global_detector_quantum_efficiency": efficiency,
+        "detector_efficiency_model": (
+            "global_absolute_qe_x_surface_relative_response"
+            if detector_surfaces
+            else "global_absolute_qe"
+        ),
+        "surface_relative_response_applied": bool(detector_surfaces),
+        "surface_relative_response_source": (
+            "PlanarEDSDetectorSegment.efficiency"
+            if detector_surfaces
+            else None
+        ),
+        "global_detector_efficiency_application_count": 1,
+        "surface_relative_efficiency_application_count": (
+            1 if detector_surfaces else 0
+        ),
+        "detector_efficiency_application_count": (
+            1 + (1 if detector_surfaces else 0)
+        ),
+        "detector_efficiency_application_semantics": (
+            "one global absolute QE factor plus one sourced-face relative "
+            "response factor"
+            if detector_surfaces
+            else "one global absolute QE factor"
+        ),
         "ionisation_model": "Bote-Salvat K/L/M electron impact",
         "relaxation_database": f"xraylib {xraylib.__version__}",
         "vacancy_cascade_model": (
@@ -602,7 +735,9 @@ def simulate_eds_tracks(
         "secondary_fluorescence_included": False,
         "poisson_noise_enabled": bool(poisson_enabled),
         "poisson_seed": int(poisson_seed) if poisson_enabled else None,
+        "poisson_sampling_stage": "after_final_expected_spectrum",
         "track_segment_count": len(track_rows),
+        "photon_transport_applied_to_main_spectrum": state is not None,
     }
     if incident == 0.0 or not track_rows:
         return _empty_spectrum(
@@ -759,6 +894,159 @@ def simulate_eds_tracks(
                         )
                     )
 
+    photon_transport = None
+    if state is not None and lines:
+        from temsim.detector.eds_photon_transport import (
+            detector_quadrature_photons,
+            transport_eds_photons,
+        )
+
+        vacancy_by_id = {
+            vacancy.vacancy_id: vacancy for vacancy in vacancies
+        }
+        emission_keys = tuple(
+            f"{line.vacancy_id}:line{line_index}:{line.transition}"
+            for line_index, line in enumerate(lines)
+        )
+        origin_status_counts: dict[str, int] = {}
+        material_flight_rows: dict[
+            tuple[int, str, str, str],
+            list[tuple[np.ndarray, np.ndarray, float]],
+        ] = {}
+        for flight in tuple(
+            getattr(elastic_transport, "material_flights", ())
+        ):
+            start = np.asarray(flight.start_nm, dtype=float)
+            end = np.asarray(flight.end_nm, dtype=float)
+            length = float(np.linalg.norm(end - start))
+            if length <= 0.0:
+                continue
+            flight_key = (
+                int(flight.source_ray_index),
+                str(flight.source_key),
+                str(flight.material_key),
+                str(flight.history),
+            )
+            material_flight_rows.setdefault(flight_key, []).append(
+                (start, end, length)
+            )
+        material_flight_index = {
+            key: tuple(values)
+            for key, values in material_flight_rows.items()
+        }
+        origin_by_vacancy: dict[
+            str, tuple[tuple[float, float, float], str]
+        ] = {}
+
+        def photon_rows():
+            for line, emission_key in zip(
+                lines, emission_keys, strict=True
+            ):
+                vacancy = vacancy_by_id[line.vacancy_id]
+                if line.vacancy_id not in origin_by_vacancy:
+                    origin_by_vacancy[line.vacancy_id] = (
+                        _vacancy_emission_origin_mm(
+                            state,
+                            vacancy,
+                            elastic_transport,
+                            fallback_xy_nm=photon_origin_xy_nm,
+                            material_flight_index=material_flight_index,
+                        )
+                    )
+                    origin_status = origin_by_vacancy[line.vacancy_id][1]
+                    origin_status_counts[origin_status] = (
+                        origin_status_counts.get(origin_status, 0) + 1
+                    )
+                origin, _origin_status = origin_by_vacancy[
+                    line.vacancy_id
+                ]
+                yield from detector_quadrature_photons(
+                    emission_key=emission_key,
+                    origin_mm=origin,
+                    energy_ev=line.energy_ev,
+                    expected_emitted_photons=(
+                        line.expected_emitted_photons
+                    ),
+                    geometry=detector_geometry,
+                    detector_surfaces=detector_surfaces,
+                    use_analytical_holder_solid_angle=(
+                        use_analytical_holder_solid_angle
+                    ),
+                    detector_efficiency=efficiency,
+                    quadrature_order=quadrature_order,
+                    source_key=line.source_key,
+                    transition=line.transition,
+                )
+
+        photon_transport = transport_eds_photons(
+            state,
+            photon_rows(),
+            detector_geometry,
+            detector_surfaces=detector_surfaces,
+            holder_occluders=holder_occluders,
+            include_specimen=bool(photon_include_specimen),
+            include_support=bool(photon_include_support),
+            use_analytical_holder_solid_angle=(
+                use_analytical_holder_solid_angle
+            ),
+            # The deterministic ray weights already contain the scalar
+            # efficiency so exact-face and aggregate branches use it once.
+            aggregate_detector_efficiency=1.0,
+            maximum_stored_paths=maximum_stored_paths,
+        )
+        transported_lines = []
+        for line, emission_key in zip(lines, emission_keys, strict=True):
+            per_segment = tuple(
+                photon_transport.expected_detected_weight_per_emission.get(
+                    emission_key,
+                    (0.0,) * detector_geometry.segment_count,
+                )
+            )
+            transported_lines.append(
+                replace(
+                    line,
+                    expected_detected_counts=float(sum(per_segment)),
+                    expected_counts_per_segment=per_segment,
+                )
+            )
+        lines = transported_lines
+        metrics.update(
+            {
+                "photon_transport_model": photon_transport.metrics["model"],
+                "photon_transport_mode": (
+                    "sourced_detector_faces"
+                    if detector_surfaces
+                    else "aggregate_angular_fallback"
+                ),
+                "photon_transport_quadrature_order": quadrature_order,
+                "photon_transport_geometry_complete": (
+                    photon_transport.geometry_complete
+                ),
+                "photon_transport_origin_status_counts": dict(
+                    sorted(origin_status_counts.items())
+                ),
+                "photon_transport_expected_unattenuated_counts": float(
+                    sum(
+                        photon_transport.quadrature_weight_per_emission.values()
+                    )
+                ),
+                "photon_transport_expected_detected_counts": float(
+                    photon_transport.metrics["total_detected_weight"]
+                ),
+                "photon_transport_blocked_ray_count": int(
+                    photon_transport.metrics["blocked_photon_count"]
+                ),
+                "photon_transport_stored_path_count": int(
+                    photon_transport.metrics["stored_path_count"]
+                ),
+                "self_absorption_model": (
+                    "finite specimen ray intervals from shared line-emission "
+                    "origins; line field retains legacy uniform-depth reference"
+                ),
+                "cross_layer_absorption": bool(photon_include_support),
+            }
+        )
+
     edges = np.arange(
         spectrum_values[0],
         spectrum_values[1] + spectrum_values[2],
@@ -838,6 +1126,9 @@ def simulate_eds_tracks(
             "total_expected_counts": float(
                 sum(line.expected_detected_counts for line in lines)
             ),
+            "total_expected_emitted_photons": float(
+                sum(line.expected_emitted_photons for line in lines)
+            ),
             "spectrum_expected_counts": float(np.sum(expected)),
             "counts_outside_spectrum": outside_counts,
             "maximum_shell_optical_depth_per_electron": (
@@ -878,6 +1169,10 @@ def simulate_eds_tracks(
                 "single vacancy pass feeds radiative lines and event ledger"
             ),
             "duplicate_shell_ionisation_passes": 0,
+            "photon_statistical_weight_conservation": (
+                "detector quadrature weights are derived once from each "
+                "line emission; attenuation/shadowing can only remove weight"
+            ),
         }
     )
     return EDSSpectrum(
@@ -887,6 +1182,8 @@ def simulate_eds_tracks(
         lines=tuple(lines),
         metrics=metrics,
         vacancies=tuple(vacancies),
+        elastic_transport=elastic_transport,
+        photon_transport=photon_transport,
     )
 
 
@@ -948,6 +1245,10 @@ def simulate_eds_point(
     elastic_transport=None,
     incident_bundle=None,
     progress_callback=None,
+    photon_detector_surfaces: Iterable[object] = (),
+    photon_holder_occluders: Iterable[object] = (),
+    photon_quadrature_order: int = 1,
+    photon_maximum_stored_paths: int = 1024,
 ) -> EDSSpectrum:
     """Run an explicit point acquisition at the sample scan origin."""
 
@@ -1062,6 +1363,13 @@ def simulate_eds_point(
             getattr(sample, "eds_poisson_enabled", False)
         ),
         poisson_seed=int(getattr(sample, "eds_poisson_seed", 0)),
+        state=state,
+        elastic_transport=elastic_transport,
+        photon_origin_xy_nm=(x_value, y_value),
+        photon_detector_surfaces=photon_detector_surfaces,
+        photon_holder_occluders=photon_holder_occluders,
+        photon_quadrature_order=photon_quadrature_order,
+        photon_maximum_stored_paths=photon_maximum_stored_paths,
     )
     result.metrics.update(
         {

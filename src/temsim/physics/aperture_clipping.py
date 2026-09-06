@@ -67,7 +67,9 @@ def clip_segment(
         index = int(np.argmin(np.abs(z - float(aperture.z_mm))))
         x_mm = x[index] * 1.0e3
         y_mm = y[index] * 1.0e3
-        if hasattr(aperture, "transmission_mask"):
+        if float(getattr(aperture, "radius_mm", 1.0)) <= 0.0:
+            passes = np.zeros(x_mm.shape, dtype=bool)
+        elif hasattr(aperture, "transmission_mask"):
             passes = np.asarray(
                 aperture.transmission_mask(x_mm, y_mm),
                 dtype=bool,

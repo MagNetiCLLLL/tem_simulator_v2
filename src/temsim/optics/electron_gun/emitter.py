@@ -146,7 +146,7 @@ class ColdFieldEmitter:
             mean_kinetic_energy_ev=self.emission_energy_ev,
             minimum_kinetic_energy_ev=self.minimum_kinetic_energy_ev,
         )
-        return EmissionBundle(
+        bundle = EmissionBundle(
             x_m=x,
             y_m=y,
             tx_rad=tx,
@@ -155,6 +155,10 @@ class ColdFieldEmitter:
             weight=np.full(n, 1.0 / n, dtype=float),
             ray_id=np.arange(n, dtype=np.int64),
         )
+        if getattr(self, "_tuning_boundary_probes", 0):
+            from temsim.physics.optical_tuning import add_source_support_probes
+            bundle = add_source_support_probes(bundle, self)
+        return bundle
 
     def draw_layout(self):
         return {

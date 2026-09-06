@@ -15,6 +15,7 @@ import math
 from dataclasses import dataclass
 import hashlib
 import numpy as np
+from temsim.simulation_modes import is_ideal, mode_key
 
 from temsim.optics.lens_focal_length import focal_length_mm
 from temsim.optics.magnetic_lens_aberration import spherical_aberration_mm
@@ -24,9 +25,14 @@ from temsim.physics.compute_backend import (
     BACKEND_NUMBA,
     choose_ray_backend,
 )
+from temsim.physics.lens_field_provider import (
+    runtime_axial_magnetic_field_t,
+    FrozenMappedField, active_mapped_providers,
+)
 from temsim.physics.ray_integrator import (
     NUMBA_AVAILABLE,
     parallel_rk4 as _parallel_rk4,
+    serial_rk4 as _serial_rk4,
     vectorised_rk4 as _vectorised_rk4,
     cuda_rk4 as _cuda_rk4,
 )
@@ -84,6 +90,7 @@ class AxialPropagationPlan:
     checkpoint_index: np.ndarray
     solver_signature: str
     signature: str
+    mapped_fields: tuple = ()
 
 
 def _frozen_array(values, dtype=np.float64):
@@ -129,7 +136,43 @@ def electron(state):
     return -E, momentum, H / momentum * 1.0e9
 
 
-def fields(z,state):
+class _LegacyAxialFieldProvider:
+    """Stable adapter for pre-provider Gaussian lens objects."""
+
+    def __init__(self, source):
+        self.source = source
+        self.lens = source
+        self.key = source.key
+
+    def magnetic_field_t(self, values):
+        values = np.asarray(values, dtype=float)
+        result = np.zeros_like(values)
+        for term in self.source.gaussian:
+            result += (
+                self.source.scale()
+                * term.amplitude
+                * np.exp(
+                    -0.5
+                    * (
+                        (
+                            values
+                            - (
+                                self.source.z_mm
+                                + term.offset * self.source.a_mm
+                            )
+                        )
+                        / (term.sigma * self.source.a_mm)
+                    )
+                    ** 2
+                )
+            )
+        return result
+
+    def field_support_mm(self, *args):
+        return self.source.field_support_mm(*args)
+
+
+def fields(z,state, *, exclude_mapped_keys=()):
     if hasattr(state,"sync_objective"): state.sync_objective()
     z=np.asarray(z,float)
     magnetic=np.zeros_like(z)
@@ -145,30 +188,53 @@ def fields(z,state):
     )
     for lens in state.lenses:
         if not getattr(lens,"enabled",True): continue
+        if lens.key in exclude_mapped_keys:
+            continue
         polarity = int(getattr(lens, "polarity", 1))
         if polarity not in (-1, 1):
             raise ValueError(
                 f"{getattr(lens, 'name', 'Round lens')} polarity must be +1 or -1."
             )
         if lens.key in CONDENSER_LENS_KEYS:
-            provider = state.condenser_system[lens.key]
-            contribution = provider.magnetic_field_t(z)
-            magnetic += np.where(_support_mask(z, provider), contribution, 0.0)
+            native_provider = state.condenser_system[lens.key]
+            contribution, provider = runtime_axial_magnetic_field_t(
+                state, lens.key, native_provider, z
+            )
+            magnetic += np.where(
+                _support_mask(z, provider), contribution, 0.0
+            )
             continue
         if hasattr(lens, "magnetic_field_t"):
-            contribution = lens.magnetic_field_t(z)
+            contribution, provider = runtime_axial_magnetic_field_t(
+                state, lens.key, lens, z
+            )
             if equivalent_image and lens.key in IMAGE_LENS_KEYS:
                 if post_sample_only:
                     continue
                 contribution = np.where(
                     z < float(state.sample.z_mm), contribution, 0.0
                 )
-            magnetic += np.where(_support_mask(z, lens), contribution, 0.0)
+            magnetic += np.where(
+                _support_mask(z, provider), contribution, 0.0
+            )
             continue
-        mask = _support_mask(z, lens)
-        for g in lens.gaussian:
-            contribution = lens.scale()*g.amplitude*np.exp(-0.5*((z-(lens.z_mm+g.offset*lens.a_mm))/(g.sigma*lens.a_mm))**2)
-            magnetic += np.where(mask, contribution, 0.0)
+        # Legacy Gaussian-only lens objects are adapted to the same runtime
+        # provider boundary so imported maps cannot bypass geometry checks.
+        native_provider = _LegacyAxialFieldProvider(lens)
+        contribution, provider = runtime_axial_magnetic_field_t(
+            state, lens.key, native_provider, z
+        )
+        magnetic += np.where(
+            _support_mask(z, provider), contribution, 0.0
+        )
+    sx, sy = multipole_focusing_fields(z, state)
+    return magnetic, sx, sy
+
+
+def multipole_focusing_fields(z, state):
+    """Shared continuous quadrupole coefficients, without querying round lenses."""
+    z = np.asarray(z, float)
+    sx, sy = np.zeros_like(z), np.zeros_like(z)
     for stig in state.stigmators:
         if not stig.enabled: continue
         if hasattr(stig, "quadrupole_strengths_m2"):
@@ -193,7 +259,7 @@ def fields(z,state):
         mask = _support_mask(z, component)
         sx += np.where(mask, q, 0.0)
         sy -= np.where(mask, q, 0.0)
-    return magnetic,sx,sy
+    return sx, sy
 
 def bz(z,state): return fields(z,state)[0]
 
@@ -210,6 +276,8 @@ def hexapole_field_components(z, state):
     z = np.asarray(z, float)
     normal = np.zeros_like(z)
     skew = np.zeros_like(z)
+    if is_ideal(state):
+        return normal, skew
     for component in getattr(state, "corrector_elements", []):
         if not getattr(component, "enabled", False):
             continue
@@ -267,11 +335,16 @@ def spherical_aberration_kick_m3(z_mm, state):
 
     z = np.asarray(z_mm, dtype=float)
     result = np.zeros(z.size, dtype=np.float64)
-    if z.size == 0:
+    if z.size == 0 or is_ideal(state):
         return result
     half_step = math.inf if z.size < 2 else 0.5 * abs(float(z[1] - z[0]))
+    mapped_keys = {provider.lens_key for provider in active_mapped_providers(state)}
     for lens in getattr(state, "lenses", ()):
         if not bool(getattr(lens, "enabled", True)):
+            continue
+        if lens.key in mapped_keys:
+            # The imported spatial field supplies its own ray aberrations.
+            # Do not add the native Gaussian lens's calibrated Cs again.
             continue
         cs_mm = spherical_aberration_mm(lens, state.beam_voltage_kv)
         if cs_mm is None or float(cs_mm) == 0.0:
@@ -442,6 +515,8 @@ def build_propagation_plan(
 
     events = tuple(events)
     save_z_mm = tuple(save_z_mm)
+    if is_ideal(state):
+        include_spherical_aberration = include_hexapole = False
     nanopulser = getattr(state, "nanopulser", None)
     if nanopulser is not None and bool(nanopulser.installed):
         nanopulser.validate()
@@ -457,8 +532,30 @@ def build_propagation_plan(
     requested_step=float(state.step_mm)
     if maximum_step_mm is not None:
         requested_step=min(requested_step,float(maximum_step_mm))
-    image_lens_events=equivalent_image_events(state,float(z0),float(z1))
+    reduce_image_maps = (equivalent_image_lenses_enabled(state)
+                         and float(z0) >= float(state.sample.z_mm))
+    # A span crossing the specimen uses distributed fields throughout. Thin
+    # image events are only valid in a post-specimen-only segment, where the
+    # corresponding distributed image fields are also excluded below.
+    image_lens_events = (equivalent_image_events(state,float(z0),float(z1))
+                         if reduce_image_maps else ())
+    mapped_fields = tuple(
+        FrozenMappedField.from_provider(provider)
+        for provider in active_mapped_providers(state)
+        if not (reduce_image_maps and provider.lens_key in IMAGE_LENS_KEYS)
+        and provider.field_support_mm()[0] <= float(z1)
+        and provider.field_support_mm()[1] >= float(z0)
+    )
+    mapped_keys = {item.lens_key for item in mapped_fields}
     exact_z_mm = [event.z_mm for event in image_lens_events]
+    for item in mapped_fields:
+        lower, upper = item.field_map.field_support_mm
+        lower, upper = max(lower, float(z0)), min(upper, float(z1))
+        if upper <= lower:
+            continue
+        local_step = item.maximum_step_mm(requested_step, electron(state)[1])
+        exact_z_mm.extend(np.linspace(lower, upper,
+            max(1, int(math.ceil((upper-lower)/local_step)))+1))
     exact_z_mm.extend(float(value) for value in save_z_mm)
     # Impulsive actions must occur at their physical planes, independent of
     # the requested integration step or an unrelated observation plane.
@@ -487,9 +584,10 @@ def build_propagation_plan(
         and float(zfull[0]) >= float(state.sample.z_mm)
     )
     try:
-        magnetic,sx,sy=fields(zfull,state)
+        field_options = {"exclude_mapped_keys": mapped_keys} if mapped_keys else {}
+        magnetic,sx,sy=fields(zfull,state, **field_options)
         midpoint_magnetic, midpoint_sx, midpoint_sy = fields(
-            midpoint_z_mm, state
+            midpoint_z_mm, state, **field_options
         )
     finally:
         if had_equivalent_propagation_flag:
@@ -555,9 +653,12 @@ def build_propagation_plan(
         bool(getattr(state, "acceleration_enabled", False)),
         str(getattr(state, "acceleration_backend", "Auto")),
         FIELD_SIGMA_CUTOFF,
-        'canonical-rk4-exact-midpoints-v1',
+        'canonical-rk4-vector-maps-v2',
+        mode_key(state),
     ))
     digest.update(solver_signature.encode("utf-8"))
+    for item in mapped_fields:
+        digest.update(item.fingerprint.encode("ascii"))
     for values in (
         zfull, step_m, magnetic, sx, sy, hex_normal, hex_skew,
         midpoint_magnetic, midpoint_sx, midpoint_sy,
@@ -590,6 +691,7 @@ def build_propagation_plan(
         checkpoint_index=_frozen_array(checkpoint_indices, np.int64),
         solver_signature=solver_signature,
         signature=digest.hexdigest(),
+        mapped_fields=mapped_fields,
     )
 
 
@@ -619,6 +721,15 @@ def propagation_plan_common_prefix_nodes(previous, current):
         (previous.kick_y_rad, current.kick_y_rad),
     )
     equal = np.ones(count, dtype=bool)
+    old_maps = {item.lens_key: item for item in previous.mapped_fields}
+    new_maps = {item.lens_key: item for item in current.mapped_fields}
+    for key in old_maps.keys() | new_maps.keys():
+        old, new = old_maps.get(key), new_maps.get(key)
+        if old is not None and new is not None and old.fingerprint == new.fingerprint:
+            continue
+        boundary = min(item.field_map.field_support_mm[0]
+                       for item in (old,new) if item is not None)
+        equal &= new_z[:count] < boundary
     for old, new in arrays:
         equal &= np.asarray(old[:count]) == np.asarray(new[:count])
     # Midpoint i belongs to the interval leaving node i.  A changed
@@ -645,6 +756,9 @@ def execute_propagation_plan(
     include_initial_plane_kicks=True,
 ):
     """Execute a complete plan or resume it from an after-action checkpoint."""
+
+    from temsim.physics.optical_tuning import check_tuning_cancelled
+    check_tuning_cancelled(state)
 
     start_index = int(start_index)
     if not 0 <= start_index < len(plan.z_mm):
@@ -692,7 +806,9 @@ def execute_propagation_plan(
     # Post-gun momentum is constant along Z, including with an energy spread.
     # Keep this factor separate on every backend; no (Z, ray) coefficient
     # matrices or finite-difference magnetic derivatives are necessary.
-    momentum_at_start = momentum_profile(state, zfull[:1], energy_offset_ev)
+    # Ideal column optics is evaluated at the reference energy. The caller's
+    # energy array remains unchanged for scattering, EDS and EELS bookkeeping.
+    momentum_at_start = momentum_profile(state, zfull[:1], None if is_ideal(state) else energy_offset_ev)
     if momentum_at_start.ndim == 1:
         inverse_momentum = np.full(
             arrays[0].size, 1.0 / float(momentum_at_start[0]), dtype=np.float64
@@ -707,7 +823,21 @@ def execute_propagation_plan(
         cs_kick, thin_power, thin_rotation, step_m, *arrays, kickx, kicky,
         save, checkpoint_index,
     )
-    if backend == BACKEND_CUDA:
+    if plan.mapped_fields:
+        from temsim.physics.vector_field_transport import vector_map_rk4
+        backend, fallback_reason = BACKEND_CPU, "imported vector-field RK4"
+        outputs = vector_map_rk4(*inputs, z_mm=zfull, mapped_fields=plan.mapped_fields)
+    elif (getattr(state, "_optical_tuning", False) and NUMBA_AVAILABLE
+          and getattr(state, "acceleration_enabled", False)
+          and getattr(state, "acceleration_backend", "Auto") == "Auto"):
+        try:
+            outputs = _serial_rk4(*inputs)
+            backend = BACKEND_NUMBA
+            state._tuning_kernel = "serial_numba"
+        except Exception as exc:
+            backend, fallback_reason = BACKEND_CPU, f"Tuning JIT unavailable: {exc}"
+            outputs = _vectorised_rk4(*inputs)
+    elif backend == BACKEND_CUDA:
         try:
             outputs = _cuda_rk4(*inputs)
         except Exception as exc:
@@ -721,6 +851,7 @@ def execute_propagation_plan(
         outputs = _parallel_rk4(*inputs)
     else:
         outputs = _vectorised_rk4(*inputs)
+    check_tuning_cancelled(state)
     _record_active_backend(state, backend, fallback_reason)
     X,TX,Y,TY,CX,CTX,CY,CTY=outputs
     checkpoints = PropagationCheckpoints(
@@ -754,6 +885,10 @@ def propagate(
     return result if return_checkpoints else result[:5]
 
 def transfer(state,z0,z1):
+    if active_mapped_providers(state):
+        from temsim.physics.first_order import trace_transverse_transfer
+        matrix = trace_transverse_transfer(state, z0, z1).matrix
+        return matrix[np.ix_((0, 2), (0, 2))]
     _,x,tx,_,_=propagate(
         state,z0,z1,
         np.array([1.,0.]),np.array([0.,1.]),np.zeros(2),np.zeros(2),
@@ -764,6 +899,20 @@ def transfer(state,z0,z1):
 
 def complex_transfer(state, z0, z1):
     """Return the first-order, Larmor-coupled transfer in complex form."""
+
+    if active_mapped_providers(state):
+        from temsim.physics.first_order import trace_transverse_transfer
+        matrix = trace_transverse_transfer(state, z0, z1).matrix
+        result = np.empty((2, 2), dtype=np.complex128)
+        for i in range(2):
+            for j in range(2):
+                block = matrix[2*i:2*i+2, 2*j:2*j+2]
+                expected = np.array(((block[0,0], -block[1,0]),
+                                     (block[1,0], block[0,0])))
+                if not np.allclose(block, expected, rtol=1e-5, atol=1e-9):
+                    raise ValueError("Non-axisymmetric map requires the full 4x4 transverse transfer")
+                result[i,j] = block[0,0] + 1j*block[1,0]
+        return result
 
     _, x, tx, y, ty = propagate(
         state, z0, z1,

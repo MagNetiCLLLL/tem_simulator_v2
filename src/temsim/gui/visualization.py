@@ -8,10 +8,13 @@ from temsim.gui.input_policy import (
 )
 
 from html import escape
+from collections import OrderedDict
+from time import perf_counter
+import weakref
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QSignalBlocker, QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QSignalBlocker, QTimer, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame,
@@ -23,12 +26,14 @@ from PySide6.QtWidgets import (
     QSlider,
     QSplitter,
     QTabWidget,
+    QToolButton,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
 
 from temsim.diagnostics import ray_stop_records, vacuum_bore_plot_points
+from temsim.design_explorer import summarise_calculation_result
 from temsim.gui.diagnostic_tabs import (
     EnergyFilterView,
     MagneticFieldView,
@@ -41,6 +46,10 @@ from temsim.gui.sample_panel import SamplePage
 from temsim.gui.sample_interactions_3d import SampleInteractions3DPage
 from temsim.gui.eds_panel import EDSPage
 from temsim.gui.aberration_view import AberrationComparisonView
+from temsim.gui.ray_scene import StaticRayLayers
+from temsim.gui.design_explorer import DesignExplorerPage
+from temsim.gui.interactive_calculation import InteractiveCalculationPage
+from temsim.gui.model_inspector import ModelInspectorPage
 from temsim.gui.parameter_panel import ParameterPanel
 from temsim.gui.transverse_projection import (
     format_projection_angle,
@@ -57,6 +66,24 @@ class WaveImagingView(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._current_wave_presentation = (None, None, "", False)
+        self._current_wave_stale = False
+        self._bank_readout = None
+        self._bank_readout_pending = ""
+        self._display_source = "current"
+        self._source_view_ranges = {}
+        self.image_source = QComboBox()
+        self.image_source.setObjectName("temImageSource")
+        self.image_source.addItem("Current calculation", "current")
+        self.image_source.addItem("Advanced bank", "bank")
+        self.image_source.setToolTip("Choose a stored result to display. Current instrument parameters are not changed.")
+        self.image_source_status = QLabel("Current calculation")
+        self.image_source_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.image_source_status.setWordWrap(True)
+        source_row = QHBoxLayout()
+        source_row.addWidget(QLabel("Result source"))
+        source_row.addWidget(self.image_source)
+        source_row.addWidget(self.image_source_status, 1)
         self.summary = QLabel(
             "No TEM wave image | enable it on Sample and run High accuracy"
         )
@@ -89,8 +116,74 @@ class WaveImagingView(QWidget):
         panels.addWidget(self.image, 1)
         panels.addWidget(self.diffraction, 1)
         layout = QVBoxLayout(self)
+        layout.addLayout(source_row)
         layout.addWidget(self.summary)
         layout.addLayout(panels, 1)
+        self.image_source.currentIndexChanged.connect(self._source_changed)
+
+    def _remember_source_ranges(self) -> None:
+        if self.image.image is not None or self.diffraction.image is not None:
+            self._source_view_ranges[self._display_source] = (
+                self.image.getView().viewRange(), self.diffraction.getView().viewRange(),
+            )
+
+    def _source_changed(self, *_args) -> None:
+        self._remember_source_ranges()
+        self._display_source = str(self.image_source.currentData())
+        self._refresh_source()
+
+    def _refresh_source(self) -> None:
+        if self._display_source == "bank":
+            readout = self._bank_readout
+            wave = getattr(readout, "wave", None)
+            if wave is None:
+                self.image.clear()
+                self.diffraction.clear()
+                self.summary.setText("No TEM image in this Advanced bank readout")
+                self.summary.setToolTip("The selected bank must already contain a TEM result. Selecting a source does not calculate it.")
+            else:
+                self._display_wave_result(wave, getattr(readout, "state_snapshot", None), "High accuracy")
+        else:
+            wave, state, quality, no_illumination = self._current_wave_presentation
+            self._display_wave_result(wave, state, quality, no_illumination=no_illumination)
+            if self._current_wave_stale:
+                self._show_current_stale_notice()
+        ranges = self._source_view_ranges.get(self._display_source)
+        if ranges is not None:
+            for plot, bounds in zip((self.image, self.diffraction), ranges):
+                plot.getView().setRange(xRange=bounds[0], yRange=bounds[1], padding=0, disableAutoRange=True)
+        self._update_source_status()
+
+    def _update_source_status(self) -> None:
+        if self._display_source == "bank":
+            if self._bank_readout is None:
+                status = "No Advanced bank readout"
+            elif self._bank_readout_pending:
+                status = "Advanced bank | previous readout retained"
+            else:
+                status = "Advanced bank | captured settings"
+            details = ["Display only. Sample and Image Aberrations controls still edit the current instrument."]
+            if self._bank_readout_pending:
+                details.append(self._bank_readout_pending)
+            details.extend(getattr(self._bank_readout, "notes", ()))
+            details.extend(f"{key}: {value:.9g}" for key, value in getattr(self._bank_readout, "coordinates", {}).items())
+        else:
+            status = "Current calculation | inputs changed" if self._current_wave_stale else "Current calculation"
+            details = ["Displays the main calculation result. A completed Advanced bank is stored separately."]
+        self.image_source_status.setText(status)
+        self.image_source_status.setToolTip("\n".join(details))
+
+    def set_bank_readout(self, readout) -> None:
+        """Publish a detached bank result without replacing the main image."""
+        self._bank_readout = readout
+        self._bank_readout_pending = ""
+        if self._display_source == "bank":
+            self._remember_source_ranges()
+            self._refresh_source()
+
+    def mark_bank_readout_pending(self, message: str) -> None:
+        self._bank_readout_pending = str(message)
+        self._update_source_status()
 
     @staticmethod
     def _axis_transform(x_axis, y_axis):
@@ -116,6 +209,15 @@ class WaveImagingView(QWidget):
         )
 
     def display_result(
+        self, wave_result, state=None, quality: str = "", *, no_illumination=False,
+    ) -> None:
+        self._current_wave_presentation = (wave_result, state, quality, no_illumination)
+        self._current_wave_stale = False
+        if self._display_source == "current":
+            self._display_wave_result(wave_result, state, quality, no_illumination=no_illumination)
+            self._update_source_status()
+
+    def _display_wave_result(
         self, wave_result, state=None, quality: str = "", *, no_illumination=False,
     ) -> None:
         if wave_result is None:
@@ -329,6 +431,12 @@ class WaveImagingView(QWidget):
     def mark_result_stale(self) -> None:
         """Retain the last complete image while preventing a false cache hit."""
 
+        self._current_wave_stale = True
+        if self._display_source == "current":
+            self._show_current_stale_notice()
+            self._update_source_status()
+
+    def _show_current_stale_notice(self) -> None:
         if self.image.image is None and self.diffraction.image is None:
             return
         self.summary.setText(
@@ -341,9 +449,12 @@ class WaveImagingView(QWidget):
 
 
 class VisualizationWorkspace(QWidget):
+    ray_layout_changing = Signal()
+    ray_layout_changed = Signal()
     component_selected = Signal(str)
     scan_parameters_changed = Signal(str)
     scan_error = Signal(str)
+    calculation_artifacts_changed = Signal(object)
     MAX_DISPLAY_RAYS = 48
     MAX_RANGE_SAMPLE_RAYS = 256
     RAY_LABEL_BASE_PT = 10
@@ -408,6 +519,22 @@ class VisualizationWorkspace(QWidget):
 
         self._projection_angle_deg = 0.0
         self._projection_syncing = False
+        # Exact display-only data, never full solver histories or signals.
+        self._ray_display_cache = OrderedDict()
+        self._ray_display_cache_budget = 512 * 1024**2
+        self._ray_display_cache_bytes = 0
+        self._ray_display_cache_hits = 0
+        self._ray_display_cache_misses = 0
+        self._ray_display_cache_result = None
+        self._ray_static_layers = StaticRayLayers()
+        self._ray_scene_initialized = False
+        self._ray_scene_updates = 0
+        self._ray_scene_last_update_ms = 0.0
+        self._ray_items_by_group = {}
+        self._ray_legend_items = {}
+        self._stop_items_by_group = {}
+        self._support_items_by_branch = {}
+        self._tuning_envelopes = []
         self._scan_ray_paths = None
         self._scan_ray_offsets_m: dict[str, np.ndarray] = {}
         self._scan_playback_active = False
@@ -423,7 +550,7 @@ class VisualizationWorkspace(QWidget):
         self._projection_finalize_timer.setSingleShot(True)
         self._projection_finalize_timer.setInterval(150)
         self._projection_finalize_timer.timeout.connect(
-            self._redraw_last_result
+            self._finalize_projection
         )
         self.projection_label = QLabel("Angle")
         self.projection_label.setToolTip(
@@ -532,6 +659,11 @@ class VisualizationWorkspace(QWidget):
         heading_row.addWidget(self.heading)
         heading_row.addWidget(self.magnetic_field_toggle)
         heading_row.addWidget(self.transverse_beam_toggle)
+        self.live_tuning_toggle = QToolButton()
+        self.live_tuning_toggle.setObjectName("rayLiveTuningToggle")
+        self.live_tuning_toggle.setText("Live tuning")
+        self.live_tuning_toggle.setToolTip("Show or hide the Live tuning dock")
+        heading_row.addWidget(self.live_tuning_toggle)
         heading_row.addStretch(1)
 
         self.view_controls_panel = QWidget()
@@ -643,6 +775,7 @@ class VisualizationWorkspace(QWidget):
         self._high_accuracy_current = False
         self._sample_region_result = None
         self._focused_part = None
+        self._ray_component_highlight = None
         self._show_notice("Waiting for the first calculation")
 
         self.stop_detail = QLabel(
@@ -726,8 +859,8 @@ class VisualizationWorkspace(QWidget):
         self.ray_vertical_splitter.setSizes((650, 110, 260))
         self.magnetic_field.setVisible(False)
 
-        ray_page = QWidget()
-        ray_layout = QVBoxLayout(ray_page)
+        self.ray_page = QWidget()
+        ray_layout = QVBoxLayout(self.ray_page)
         ray_layout.setContentsMargins(0, 0, 0, 0)
 
         self.physical_layout = PhysicalLayoutView()
@@ -743,6 +876,7 @@ class VisualizationWorkspace(QWidget):
         self.optical_transfer = OpticalTransferView()
         self.energy_filter = EnergyFilterView()
         self.energy_filter_parameters = ParameterPanel()
+        self.energy_filter_parameters.tabs.setObjectName("energyFilterEditorTabs")
         self.energy_filter_parameters.setObjectName(
             "energyFilterParameterPanel"
         )
@@ -830,11 +964,13 @@ class VisualizationWorkspace(QWidget):
         self.ray_workspace_splitter.setStretchFactor(0, 3)
         self.ray_workspace_splitter.setStretchFactor(1, 1)
         self.ray_workspace_splitter.setSizes((1350, 450))
-        ray_layout.addWidget(self.ray_workspace_splitter, 1)
         self.scan_control = ScanControlView()
         self.sample_page = SamplePage()
         self.sample_interactions_3d = SampleInteractions3DPage()
         self.eds_page = EDSPage()
+        self.sample_interactions_3d.set_parameters_widget(
+            self.eds_page.settings_panel
+        )
         self.wave_imaging = WaveImagingView()
         scanning_parameters, scanning_results = (
             self.scan_control.take_workspace_panels()
@@ -878,12 +1014,27 @@ class VisualizationWorkspace(QWidget):
         self.illuminating_page.addTab(
             self.image_aberrations, "Image Aberrations"
         )
+        self.design_explorer = DesignExplorerPage()
+        self.interactive_calculation = InteractiveCalculationPage(self)
+        self.interactive_calculation.hide()
+        self.ray_result_tabs = QTabWidget()
+        self.ray_result_tabs.setObjectName("rayResultTabs")
+        self.ray_result_tabs.addTab(self.ray_workspace_splitter, "Rays")
+        self.ray_result_tabs.addTab(self.interactive_calculation.readout_panel, "Cached signals")
+        self.ray_result_tabs.setTabToolTip(1, "Detached Advanced-bank readout, separate from current live settings")
+        ray_layout.addWidget(self.ray_result_tabs, 1)
+        self.interactive_calculation.rays_requested.connect(self.show_ray_diagram)
+        self.interactive_calculation.readout_updated.connect(self.scan_control.set_bank_readout)
+        self.interactive_calculation.readout_updated.connect(self.wave_imaging.set_bank_readout)
+        self.interactive_calculation.readout_status_changed.connect(self.scan_control.mark_bank_readout_pending)
+        self.interactive_calculation.readout_status_changed.connect(self.wave_imaging.mark_bank_readout_pending)
+        self.model_inspector = ModelInspectorPage()
         self.tabs = QTabWidget()
         self.tabs.setObjectName("visualizationTabs")
         self.tabs.tabBar().setExpanding(False)
         self.tabs.tabBar().setUsesScrollButtons(True)
         self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideRight)
-        self.tabs.addTab(ray_page, "Ray Diagram")
+        self.tabs.addTab(self.ray_page, "Ray Diagram")
         self.tabs.addTab(self.physical_layout, "Physical Layout")
         self.tabs.addTab(self.energy_filter_page, "Energy Filter")
         self.tabs.addTab(self.sample_page, "Sample")
@@ -892,6 +1043,8 @@ class VisualizationWorkspace(QWidget):
         self.tabs.addTab(self.scanning_page, "Scanning Image")
         self.tabs.addTab(self.illuminating_page, "Illuminating Image")
         self.tabs.addTab(self.optical_transfer, "Optical Transfer")
+        self.tabs.addTab(self.model_inspector, "Model Inspector")
+        self.tabs.addTab(self.design_explorer, "Design Explorer")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -901,10 +1054,10 @@ class VisualizationWorkspace(QWidget):
         self.crossovers.toggled.connect(self._redraw_last_result)
         self.column_walls.toggled.connect(self._redraw_last_result)
         self.magnetic_field_toggle.toggled.connect(
-            self.magnetic_field.setVisible
+            lambda visible: self._set_ray_panel_visible(self.magnetic_field, visible)
         )
         self.transverse_beam_toggle.toggled.connect(
-            self.transverse_beam.setVisible
+            lambda visible: self._set_ray_panel_visible(self.transverse_beam, visible)
         )
         self.fit_column.clicked.connect(self._fit_column_view)
         self.auto_zoom.toggled.connect(self._auto_zoom_toggled)
@@ -959,9 +1112,6 @@ class VisualizationWorkspace(QWidget):
             self.scan_parameters_changed.emit
         )
         self.eds_page.error.connect(self.scan_error.emit)
-        self.eds_page.projection_angle_changed.connect(
-            self._set_projection_angle
-        )
         self.eds_page.sample_region_result_ready.connect(
             self._set_sample_region_result
         )
@@ -983,6 +1133,103 @@ class VisualizationWorkspace(QWidget):
         self.magnetic_field.axial_position_selected.connect(
             self.jump_to_ray_position
         )
+
+        # Presentation-only queues: one newest result per optional panel, not
+        # another history cache. Scientific result publication below is eager.
+        self._pending_ray_panels = {}
+        self._pending_ray_focus = set()
+        self._presented_ray_panels = set()
+        self._transverse_focus_request = None
+        self._ray_panel_refresh_timer = QTimer(self)
+        self._ray_panel_refresh_timer.setSingleShot(True)
+        self._ray_panel_refresh_timer.timeout.connect(self._refresh_visible_ray_panels)
+        for panel in self._optional_ray_panels():
+            panel.installEventFilter(self)
+        self.tabs.currentChanged.connect(self._schedule_visible_ray_panels)
+        self.ray_result_tabs.currentChanged.connect(self._schedule_visible_ray_panels)
+
+    def _optional_ray_panels(self):
+        return (self.physical_layout, self.magnetic_field, self.transverse_beam)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.Show and watched in self._optional_ray_panels():
+            self._schedule_visible_ray_panels()
+        return super().eventFilter(watched, event)
+
+    def _schedule_visible_ray_panels(self, *_args) -> None:
+        # Show events may arrive while Qt is still changing parent visibility.
+        if not self._ray_panel_refresh_timer.isActive():
+            self._ray_panel_refresh_timer.start(0)
+
+    @staticmethod
+    def _current_presentation_part(result, part):
+        """Resolve remembered selection against the newly published assembly."""
+        if part is None:
+            return None
+        parts = getattr(getattr(result, "assembly", None), "parts", None)
+        if parts is None:
+            return part
+        key = str(getattr(part, "key", ""))
+        return next((item for item in parts if str(item.key) == key), None)
+
+    def _refresh_visible_ray_panels(self, *_args) -> None:
+        for panel in self._optional_ray_panels():
+            if not panel.isVisible():
+                continue
+            if panel not in self._pending_ray_panels:
+                if panel in self._pending_ray_focus and self._focused_part is not None:
+                    panel.focus_component(self._focused_part)
+                    self._pending_ray_focus.discard(panel)
+                continue
+            result = self._pending_ray_panels.pop(panel)
+            previous_range = (panel.plot.getViewBox().viewRange()
+                              if panel in self._presented_ray_panels else None)
+            # Magnetic Field shares Ray Diagram's axial axis. A hidden view
+            # may still have stale layout-dependent linked bounds of its own.
+            ray_x_range = (self.plot.getViewBox().viewRange()[0]
+                           if panel is self.magnetic_field else None)
+            if panel is self.transverse_beam:
+                focus = self._transverse_focus_request
+                if focus is not None and focus[0] == "component":
+                    focus = (focus[0], self._current_presentation_part(result, focus[1]))
+                panel.display_result(result, focus=focus)
+            else:
+                panel.display_result(result)
+                part = self._current_presentation_part(result, self._focused_part)
+                if part is not None:
+                    panel.focus_component(part)
+                if ray_x_range is not None:
+                    panel.plot.setRange(
+                        xRange=ray_x_range,
+                        yRange=previous_range[1] if previous_range is not None else None,
+                        padding=0.0, disableAutoRange=True,
+                    )
+                elif previous_range is not None:
+                    # Reopening a dirty panel is not an implicit Fit command.
+                    panel.plot.setRange(xRange=previous_range[0], yRange=previous_range[1],
+                                        padding=0.0, disableAutoRange=True)
+            self._presented_ray_panels.add(panel)
+            self._pending_ray_focus.discard(panel)
+
+    def _publish_optional_ray_panels(self, result, *, refresh=True) -> None:
+        for panel in self._optional_ray_panels():
+            self._pending_ray_panels[panel] = result
+        self.magnetic_field.mark_presentation_pending()
+        if refresh:
+            self._refresh_visible_ray_panels()
+
+    def _focus_transverse(self, kind: str, value) -> None:
+        self._transverse_focus_request = (kind, value)
+        if not self.transverse_beam.isVisible():
+            if self._last_result is not None:
+                self._pending_ray_panels[self.transverse_beam] = self._last_result
+            return
+        if self.transverse_beam in self._pending_ray_panels:
+            self._refresh_visible_ray_panels()
+        elif kind == "component":
+            self.transverse_beam.focus_component(value)
+        else:
+            self.transverse_beam.focus_z(value)
 
     def show_sample_page(self) -> None:
         """Activate the central owner of all specimen parameters."""
@@ -1039,6 +1286,7 @@ class VisualizationWorkspace(QWidget):
 
     def _show_notice(self, text: str) -> None:
         self.plot.clear()
+        self._ray_component_highlight = None
         notice = pg.TextItem(text, color="#94a3b8", anchor=(0.5, 0.5))
         notice.setFont(self._marker_font(self.RAY_AXIS_LABEL_PT))
         notice.setPos(0.5, 0.5)
@@ -1120,7 +1368,11 @@ class VisualizationWorkspace(QWidget):
     def _display_bundle_lines(
         self, branch, indices=None
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Project only the deterministic ray subset that is actually drawn."""
+        """Reproject exact clipped X/Y bases of the deterministic drawn subset.
+
+        Published result arrays are read-only inputs here. A new display_result
+        call invalidates the bases, even when the result object was reused.
+        """
 
         if indices is None:
             indices = self._display_ray_indices(branch)
@@ -1128,24 +1380,86 @@ class VisualizationWorkspace(QWidget):
             indices = np.asarray(indices, dtype=int)
         if indices.size == 0:
             return np.array([], dtype=float), np.array([], dtype=float)
-        x_values = np.asarray(branch.x)[:, indices]
-        y_values = np.asarray(branch.y)[:, indices]
+        sources = (branch.z, branch.x, branch.y, branch.blocked_z)
+        key = ("lines", tuple(id(value) for value in sources), indices.tobytes())
+        basis = self._ray_display_cache_get(key, sources)
+        if basis is None:
+            blocked_z = np.asarray(branch.blocked_z, dtype=float)[indices]
+            z, x_values = self._bundle_lines(
+                branch.z, np.asarray(branch.x)[:, indices], len(indices), blocked_z
+            )
+            _, y_values = self._bundle_lines(
+                branch.z, np.asarray(branch.y)[:, indices], len(indices), blocked_z
+            )
+            basis = (z, x_values, y_values)
+            self._ray_display_cache_put(key, sources, basis)
+        z, x_values, y_values = basis
+        projected = self._project_transverse(x_values, y_values)
         scan_offset = self._scan_ray_offsets_m.get(
             str(getattr(branch, "name", ""))
         )
         if scan_offset is not None:
             scan_offset = np.asarray(scan_offset, dtype=float)
-            if scan_offset.shape == (x_values.shape[0], 2):
-                x_values = x_values + scan_offset[:, 0, None]
-                y_values = y_values + scan_offset[:, 1, None]
-        projected = self._project_transverse(x_values, y_values)
-        blocked_z = np.asarray(branch.blocked_z, dtype=float)[indices]
-        return self._bundle_lines(
-            branch.z,
-            projected,
-            len(indices),
-            blocked_z,
-        )
+            if scan_offset.shape == (len(branch.z), 2):
+                offsets_mm = self._project_transverse(
+                    scan_offset[:, 0], scan_offset[:, 1]
+                ) * 1.0e3
+                # Interpolate scan displacement at the same terminal stop
+                # planes as the original rays. NaN line separators survive.
+                projected += np.interp(z, branch.z, offsets_mm)
+        return z, projected
+
+    def set_ray_display_cache_limit_bytes(self, limit: int) -> None:
+        """Bound display-array retention; zero disables it, not ray drawing."""
+        if isinstance(limit, bool) or int(limit) != limit or int(limit) < 0:
+            raise ValueError("Ray display cache limit must be a non-negative integer")
+        self._ray_display_cache_budget = int(limit)
+        while self._ray_display_cache and self._ray_display_cache_bytes > int(limit):
+            _, (_, _, size) = self._ray_display_cache.popitem(last=False)
+            self._ray_display_cache_bytes -= size
+
+    def ray_display_cache_info(self) -> dict[str, int]:
+        return {
+            "budget_bytes": self._ray_display_cache_budget,
+            "used_bytes": self._ray_display_cache_bytes,
+            "entries": len(self._ray_display_cache),
+            "hits": self._ray_display_cache_hits,
+            "misses": self._ray_display_cache_misses,
+        }
+
+    def _ray_display_cache_get(self, key, sources):
+        entry = self._ray_display_cache.get(key)
+        if entry is not None:
+            references, arrays, size = entry
+            if all(reference() is source for reference, source in zip(references, sources)):
+                self._ray_display_cache.move_to_end(key)
+                self._ray_display_cache_hits += 1
+                return arrays
+            self._ray_display_cache_bytes -= size
+            del self._ray_display_cache[key]
+        self._ray_display_cache_misses += 1
+        return None
+
+    def _ray_display_cache_put(self, key, sources, arrays) -> None:
+        size = sum(array.nbytes for array in arrays)
+        if size > self._ray_display_cache_budget or not self._ray_display_cache_budget:
+            return
+        # Weak references guard against Python id reuse without retaining
+        # gigabytes of physical ray histories outside the solver cache budget.
+        try:
+            references = tuple(weakref.ref(source) for source in sources)
+        except TypeError:
+            return
+        previous = self._ray_display_cache.pop(key, None)
+        if previous is not None:
+            self._ray_display_cache_bytes -= previous[2]
+        while self._ray_display_cache and self._ray_display_cache_bytes + size > self._ray_display_cache_budget:
+            _, (_, _, old_size) = self._ray_display_cache.popitem(last=False)
+            self._ray_display_cache_bytes -= old_size
+        for array in arrays:
+            array.setflags(write=False)
+        self._ray_display_cache[key] = (references, arrays, size)
+        self._ray_display_cache_bytes += size
 
     @staticmethod
     def _canonical_interaction_kind(kind: str) -> str:
@@ -1352,6 +1666,8 @@ class VisualizationWorkspace(QWidget):
                 transverse_parts.append(transverse)
         if not z_parts:
             return np.array([], dtype=float), np.array([], dtype=float)
+        if len(z_parts) == 1:
+            return z_parts[0], transverse_parts[0]
         return np.concatenate(z_parts), np.concatenate(transverse_parts)
 
     def _redraw_last_result(self) -> None:
@@ -1364,20 +1680,106 @@ class VisualizationWorkspace(QWidget):
                 preserve_view=True,
             )
 
-    def _set_sample_region_result(self, result) -> None:
+    def _set_sample_region_result(
+        self, result, *, mark_calculated: bool = True
+    ) -> None:
         self._sample_region_result = result
         if self._high_accuracy_result is not None:
             self._high_accuracy_result.sample_region = result
+            calculated = set(
+                getattr(self._high_accuracy_result, "calculated_products", ())
+            )
+            reused = set(
+                getattr(self._high_accuracy_result, "reused_products", ())
+            )
+            if result is None:
+                calculated.discard("sample_region")
+                reused.discard("sample_region")
+                if getattr(
+                    self._high_accuracy_result,
+                    "specimen_exit",
+                    None,
+                ) is None:
+                    calculated.discard("sample_downstream")
+                    reused.discard("sample_downstream")
+            elif mark_calculated:
+                metrics = getattr(result, "metrics", {})
+                checkpoint = getattr(result, "specimen_exit", None)
+                if checkpoint is not None:
+                    self._high_accuracy_result.specimen_exit = checkpoint
+                region_signature = str(
+                    metrics.get("sample_region_signature", "")
+                )
+                downstream_signature = str(
+                    metrics.get("sample_downstream_signature", "")
+                )
+                if region_signature or downstream_signature:
+                    signatures = dict(
+                        getattr(self._high_accuracy_result, "signatures", {})
+                        or {}
+                    )
+                    if region_signature:
+                        signatures["sample_region"] = region_signature
+                    if downstream_signature:
+                        signatures["sample_downstream"] = (
+                            downstream_signature
+                        )
+                    self._high_accuracy_result.signatures = signatures
+                calculated.add("sample_region")
+                reused.discard("sample_region")
+                if checkpoint is not None:
+                    calculated.add("sample_downstream")
+                    reused.discard("sample_downstream")
+            self._high_accuracy_result.calculated_products = frozenset(
+                calculated
+            )
+            self._high_accuracy_result.reused_products = frozenset(reused)
         self.sample_interactions_3d.set_sample_region_result(result)
         self._update_sample_region_control_availability()
+        self.calculation_artifacts_changed.emit(self._high_accuracy_result)
 
     def _set_specimen_interactions(self, interactions) -> None:
         if self._high_accuracy_result is None:
             return
         self._high_accuracy_result.specimen_interactions = interactions
+        metrics = getattr(interactions, "metrics", {}) or {}
+        dependencies = metrics.get("dependency_signatures", {})
+        signatures = dict(
+            getattr(self._high_accuracy_result, "signatures", {}) or {}
+        )
+        calculated = set(
+            getattr(self._high_accuracy_result, "calculated_products", ())
+        )
+        reused = set(
+            getattr(self._high_accuracy_result, "reused_products", ())
+        )
+        observable_stages = {
+            "elastic_transport": ("elastic",),
+            "characteristic_x_ray": ("eds",),
+            "coherent_elastic_wave": ("wave", "wave_source"),
+        }
+        calculated_observables = set(
+            metrics.get("calculated_observables_this_call", ())
+        )
+        reused_observables = set(metrics.get("reused_observables", ()))
+        for observable, stage_keys in observable_stages.items():
+            for stage_key in stage_keys:
+                signature = str(dependencies.get(stage_key, ""))
+                if signature:
+                    signatures[stage_key] = signature
+                if observable in calculated_observables:
+                    calculated.add(stage_key)
+                    reused.discard(stage_key)
+                elif observable in reused_observables:
+                    reused.add(stage_key)
+                    calculated.discard(stage_key)
+        self._high_accuracy_result.signatures = signatures
+        self._high_accuracy_result.calculated_products = frozenset(calculated)
+        self._high_accuracy_result.reused_products = frozenset(reused)
         self.sample_interactions_3d.display_result(
             self._high_accuracy_result
         )
+        self.calculation_artifacts_changed.emit(self._high_accuracy_result)
 
     def _update_sample_region_control_availability(self) -> None:
         """Keep the 3-D page's request bound to the shared EDS result."""
@@ -1419,13 +1821,16 @@ class VisualizationWorkspace(QWidget):
                 scan_text = (
                     f" | scan {status} pixel {column + 1}, line {line + 1}"
                 )
+        simulation = getattr(self._last_result, "simulation", None)
+        tuning = bool((getattr(simulation, "metrics", None) or {}).get("optical_tuning", False))
+        tuning_text = " | optical tuning only; no specimen signals" if tuning else ""
         self.heading.setText(
             f"Electron ray paths — {self._last_quality} | "
             f"{self._projection_axis_name()} projection at "
             f"{self._format_angle(self._projection_angle_deg)}° | "
             f"{self._crossover_count} crossovers | "
             f"{self._wall_stop_count} column-wall stops"
-            f"{scan_text}"
+            f"{scan_text}{tuning_text}"
         )
         if self._selected_z_mm is None:
             self.stop_detail.setText(
@@ -1442,6 +1847,12 @@ class VisualizationWorkspace(QWidget):
         for item, payload in self._ray_bundle_records:
             z, transverse = self._ray_record_lines(payload)
             item.setData(z, transverse, connect="finite")
+        if getattr(self, "_tuning_envelopes", ()):
+            from temsim.physics.optical_tuning import projected_support
+            for lower, upper, branch in self._tuning_envelopes:
+                lo, hi = projected_support(branch, self._projection_angle_deg)
+                lower.setData(branch.z, lo, connect="finite")
+                upper.setData(branch.z, hi, connect="finite")
         for item, group, records in self._stop_projection_records:
             projected_mm = self._project_transverse(
                 [record.x_mm for record in records],
@@ -1456,6 +1867,11 @@ class VisualizationWorkspace(QWidget):
                 f"{group}: projected on {self._projection_axis_name()}; "
                 "click a marker for exact X/Y diagnostics"
             )
+        self._redraw_component_projection_items()
+        self._update_projection_text()
+
+    def _redraw_component_projection_items(self) -> None:
+        """Refresh only small projected aperture/detector graphics."""
         updated_spans = []
         for lower, upper, offset_x_mm, offset_y_mm, radius_mm in (
             self._aperture_projection_records
@@ -1466,10 +1882,41 @@ class VisualizationWorkspace(QWidget):
             updated_spans.append(
                 (lower, upper, centre_u_mm, radius_mm)
             )
+            # Keep the numeric opening tooltip in sync without replacing
+            # the aperture or its user-visible label.
+            tooltip = lower.toolTip().split("\nAllowed ")[0]
+            tooltip += (
+                f"\nAllowed {self._projection_axis_name()} opening = "
+                f"[{centre_u_mm - radius_mm:.6g}, {centre_u_mm + radius_mm:.6g}] mm\n"
+                f"Circular radius = {radius_mm:.6g} mm\n"
+                f"X/Y offset = {offset_x_mm:.6g} / {offset_y_mm:.6g} mm\n"
+                "The blank gap is the circular opening projected onto the "
+                "selected transverse axis; solid segments block."
+            )
+            lower.setToolTip(tooltip)
+            upper.setToolTip(tooltip)
+            upper.label.setToolTip(tooltip)
         if updated_spans:
             self._aperture_span_records = updated_spans
             self._update_aperture_spans()
-        self._update_projection_text()
+        for item in self.recording_surface_range_items:
+            basis = getattr(item, "_projection_basis", None)
+            if basis is None:
+                continue
+            z_values, radial_values, offset_x, offset_y, interval_starts = basis
+            y_values = radial_values + float(self._project_transverse(offset_x, offset_y))
+            item.setData(z_values, y_values, connect="finite")
+            item.active_intervals_mm = tuple(
+                (float(y_values[start]), float(y_values[start + 1]))
+                for start in interval_starts
+            )
+
+    def _finalize_projection(self) -> None:
+        """Finish at the exact requested angle without clearing the scene."""
+        if self._projection_redraw_timer.isActive():
+            self._projection_redraw_timer.stop()
+            self._redraw_projection_items()
+        self._update_scale_notice()
 
     def _prepare_scan_ray_playback(self, result) -> None:
         self._scan_ray_paths = getattr(result, "scan_ray_paths", None)
@@ -1530,27 +1977,6 @@ class VisualizationWorkspace(QWidget):
         self._update_projection_text()
 
     @staticmethod
-    def _ray_geometry_signature(result) -> tuple | None:
-        """Identify geometry changes that require a fresh column fit."""
-
-        assembly = getattr(result, "assembly", None)
-        if assembly is None:
-            return None
-        return (
-            tuple(getattr(assembly, "selected_module_paths", ())),
-            tuple(
-                (
-                    str(part.key),
-                    float(part.start_z_mm),
-                    float(part.center_z_mm),
-                    float(part.end_z_mm),
-                )
-                for part in assembly.parts
-                if not bool(part.data.get("branch_path_only", False))
-            ),
-        )
-
-    @staticmethod
     def _project_transverse_values(x, y, angle_deg: float) -> np.ndarray:
         """Project X/Y values onto a transverse axis rotated about Z."""
         return project_transverse_values(x, y, angle_deg)
@@ -1596,12 +2022,12 @@ class VisualizationWorkspace(QWidget):
             )
         finally:
             self._projection_syncing = False
-        self.eds_page.set_projection_angle(
-            angle,
-            emit_signal=False,
-            defer_redraw=defer_redraw,
+        self.transverse_beam.set_projection_angle(
+            angle, redraw=(self.transverse_beam.isVisible()
+                           and self.transverse_beam not in self._pending_ray_panels)
         )
-        self.transverse_beam.set_projection_angle(angle)
+        if changed and not self.transverse_beam.isVisible() and self._last_result is not None:
+            self._pending_ray_panels[self.transverse_beam] = self._last_result
         if changed and self._last_result is not None:
             if defer_redraw:
                 if not self._projection_redraw_timer.isActive():
@@ -1610,7 +2036,8 @@ class VisualizationWorkspace(QWidget):
             else:
                 self._projection_redraw_timer.stop()
                 self._projection_finalize_timer.stop()
-                self._redraw_last_result()
+                self._redraw_projection_items()
+                self._update_scale_notice()
 
     def _auto_zoom_toggled(self, checked: bool) -> None:
         if checked and self._focused_part is not None:
@@ -1619,11 +2046,70 @@ class VisualizationWorkspace(QWidget):
     def focus_component(self, part) -> None:
         """Remember the selected part and optionally focus its optical region."""
         self._focused_part = part
-        self.physical_layout.focus_component(part)
-        self.magnetic_field.focus_component(part)
-        self.transverse_beam.focus_component(part)
+        self._pending_ray_focus.update((self.physical_layout, self.magnetic_field))
+        self._focus_transverse("component", part)
+        self._refresh_visible_ray_panels()
+        if self._last_result is not None:
+            self._highlight_ray_component(part)
         if self.auto_zoom.isChecked() and self._last_result is not None:
             self._apply_component_zoom(part)
+
+    def _set_ray_panel_visible(self, panel, visible: bool) -> None:
+        self.ray_layout_changing.emit()
+        panel.setVisible(visible)
+        self._refresh_visible_ray_panels()
+        self.ray_layout_changed.emit()
+
+    def show_ray_diagram(self) -> None:
+        self.tabs.setCurrentWidget(self.ray_page)
+        self.ray_result_tabs.setCurrentWidget(self.ray_workspace_splitter)
+        self._refresh_visible_ray_panels()
+
+    def reveal_component(self, part, *, preferred_view: str = "ray") -> str:
+        """Show and centre a tree-activated component in a visual page."""
+
+        current_page = self.tabs.currentWidget()
+        use_physical = (
+            preferred_view == "physical"
+            or current_page is self.physical_layout
+        )
+        self.focus_component(part)
+        if use_physical:
+            self.tabs.setCurrentWidget(self.physical_layout)
+            self._refresh_visible_ray_panels()
+            self.physical_layout.reveal_component(part)
+            return "Physical Layout"
+
+        self.show_ray_diagram()
+        self._highlight_ray_component(part)
+        self._apply_component_zoom(part)
+        return "Ray Diagram"
+
+    def _highlight_ray_component(self, part) -> None:
+        """Draw a persistent selected-component band independent of labels."""
+        centre = float(part.center_z_mm)
+        half_width = max(
+            0.5 * abs(float(part.end_z_mm) - float(part.start_z_mm)),
+            0.5,
+        )
+        highlight = self._ray_component_highlight
+        if highlight is None:
+            highlight = pg.LinearRegionItem(
+                values=(centre - half_width, centre + half_width),
+                orientation="vertical",
+                movable=False,
+                brush=pg.mkBrush(250, 204, 21, 42),
+                pen=pg.mkPen("#facc15", width=1.2),
+            )
+            self.plot.addItem(highlight)
+        else:
+            highlight.setRegion((centre - half_width, centre + half_width))
+        highlight.setZValue(24)
+        highlight.setToolTip(
+            f"Selected: {part.name}\nCentre Z = {centre:.6g} mm"
+        )
+        highlight.component_key = str(part.key)
+        self._ray_component_highlight = highlight
 
     @staticmethod
     def _component_x_range(part) -> tuple[float, float]:
@@ -1696,7 +2182,7 @@ class VisualizationWorkspace(QWidget):
     def _axial_cursor_moved(self, cursor) -> None:
         """Preview the transverse slice continuously while the cursor moves."""
 
-        self.transverse_beam.focus_z(float(cursor.value()))
+        self._focus_transverse("z", float(cursor.value()))
 
     def _axial_cursor_move_finished(self, cursor) -> None:
         self.jump_to_ray_position(float(cursor.value()))
@@ -1856,11 +2342,11 @@ class VisualizationWorkspace(QWidget):
         lower_limit, upper_limit = limits
         selected = float(np.clip(z_mm, lower_limit, upper_limit))
         self._selected_z_mm = selected
-        self.transverse_beam.focus_z(selected)
+        self._focus_transverse("z", selected)
         self.axial_position.setRange(lower_limit, upper_limit)
         self.axial_position.setValue(selected)
         if activate_tab:
-            self.tabs.setCurrentIndex(0)
+            self.show_ray_diagram()
 
         if self.axial_cursor_item is None:
             self._add_axial_position_cursor()
@@ -1935,6 +2421,9 @@ class VisualizationWorkspace(QWidget):
             self.column_wall_items.append(item)
 
     def _add_stop_markers(self, simulation) -> None:
+        """Replace intercept data, reusing each surviving scatter group."""
+        self.stop_marker_items = []
+        self._stop_projection_records = []
         records = ray_stop_records(simulation, maximum_records=600)
         groups = {}
         for record in records:
@@ -1953,26 +2442,32 @@ class VisualizationWorkspace(QWidget):
                 [record.x_mm for record in group_records],
                 [record.y_mm for record in group_records],
             )
-            item = pg.ScatterPlotItem(
+            key = (group, colour)
+            item = self._stop_items_by_group.get(key)
+            if item is None:
+                item = pg.ScatterPlotItem(
+                    symbol="x", size=9,
+                    pen=pg.mkPen(colour, width=1.8), name=group,
+                )
+                item.sigClicked.connect(self._stop_marker_clicked)
+                self.plot.addItem(item)
+                self._stop_items_by_group[key] = item
+            item.setData(
                 x=[record.z_mm for record in group_records],
-                y=projected_mm,
-                data=group_records,
-                symbol="x",
-                size=9,
-                pen=pg.mkPen(colour, width=1.8),
-                name=group,
+                y=projected_mm, data=group_records,
             )
             item.setZValue(30)
             item.setToolTip(
                 f"{group}: projected on {self._projection_axis_name()}; "
                 "click a marker for exact X/Y diagnostics"
             )
-            item.sigClicked.connect(self._stop_marker_clicked)
-            self.plot.addItem(item)
             self.stop_marker_items.append(item)
             self._stop_projection_records.append(
                 (item, group, tuple(group_records))
             )
+        for key in tuple(self._stop_items_by_group):
+            if key not in groups:
+                self.plot.removeItem(self._stop_items_by_group.pop(key))
 
     def _stop_marker_clicked(self, _item, points, _event=None) -> None:
         if not points:
@@ -2076,31 +2571,41 @@ class VisualizationWorkspace(QWidget):
         maximum = 0.0
         for branch in branches:
             z_values = np.asarray(branch.z, dtype=float)
-            in_window = (z_values >= x_min) & (z_values <= x_max)
-            if not np.any(in_window):
+            first = int(np.searchsorted(z_values, x_min, side="left"))
+            last = int(np.searchsorted(z_values, x_max, side="right"))
+            if first >= last or branch.tx.shape[1] == 0:
                 continue
-            z_indices = np.flatnonzero(in_window)
-            ray_count = branch.tx.shape[1]
-            ray_indices = np.unique(
-                np.linspace(
-                    0,
-                    ray_count - 1,
-                    min(ray_count, self.MAX_RANGE_SAMPLE_RAYS),
-                    dtype=int,
-                )
-            )
-            slopes = self._project_transverse(
-                branch.tx[np.ix_(z_indices, ray_indices)],
-                branch.ty[np.ix_(z_indices, ray_indices)],
-            )
-            blocked_z = np.asarray(branch.blocked_z, dtype=float)[ray_indices]
-            valid_to_stop = (
-                np.isnan(blocked_z)[None, :]
-                | (z_values[z_indices, None] <= blocked_z[None, :])
-            )
-            valid = np.abs(slopes[np.isfinite(slopes) & valid_to_stop])
-            if valid.size:
-                maximum = max(maximum, float(np.max(valid)))
+            sources = (branch.z, branch.tx, branch.ty, branch.blocked_z)
+            source_key = tuple(id(value) for value in sources)
+            angle_key = ("slope-max", source_key, self.MAX_RANGE_SAMPLE_RAYS,
+                         float(self._projection_angle_deg) % 360.0)
+            maxima = self._ray_display_cache_get(angle_key, sources)
+            if maxima is None:
+                basis_key = ("slopes", source_key, self.MAX_RANGE_SAMPLE_RAYS)
+                basis = self._ray_display_cache_get(basis_key, sources)
+                if basis is None:
+                    ray_count = branch.tx.shape[1]
+                    ray_indices = np.unique(np.linspace(
+                        0, ray_count - 1,
+                        min(ray_count, self.MAX_RANGE_SAMPLE_RAYS), dtype=int,
+                    ))
+                    tx = np.asarray(branch.tx[:, ray_indices], dtype=float).copy()
+                    ty = np.asarray(branch.ty[:, ray_indices], dtype=float).copy()
+                    blocked_z = np.asarray(branch.blocked_z, dtype=float)[ray_indices]
+                    valid_to_stop = (
+                        np.isnan(blocked_z)[None, :]
+                        | (z_values[:, None] <= blocked_z[None, :])
+                    )
+                    tx[~valid_to_stop] = np.nan
+                    ty[~valid_to_stop] = np.nan
+                    basis = (tx, ty)
+                    self._ray_display_cache_put(basis_key, sources, basis)
+                slopes = self._project_transverse(*basis)
+                slopes = np.abs(slopes)
+                slopes[~np.isfinite(slopes)] = 0.0
+                maxima = (np.max(slopes, axis=1),)
+                self._ray_display_cache_put(angle_key, sources, maxima)
+            maximum = max(maximum, float(np.max(maxima[0][first:last])))
         return maximum
 
     def _update_scale_notice(self, *_args) -> None:
@@ -2141,8 +2646,6 @@ class VisualizationWorkspace(QWidget):
         )
 
     def _apply_component_zoom(self, part) -> None:
-        if self._last_result is None:
-            return
         x_min, x_max = self._clamp_focus_range(*self._component_x_range(part))
         self.plot.disableAutoRange()
         self.plot.setXRange(x_min, x_max, padding=0.0)
@@ -2562,6 +3065,12 @@ class VisualizationWorkspace(QWidget):
                 (0, 3) if inner_radius_mm > 0.0 else (0,)
             )
         )
+        range_item._projection_basis = (
+            x_values, y_values - centre_u_mm,
+            float(getattr(component, "centre_offset_x_mm", 0.0)),
+            float(getattr(component, "centre_offset_y_mm", 0.0)),
+            (0, 3) if inner_radius_mm > 0.0 else (0,),
+        )
         self.recording_surface_range_items.append(range_item)
 
         # Use an invisible axial carrier for a view-anchored label. The only
@@ -2587,94 +3096,88 @@ class VisualizationWorkspace(QWidget):
             (label_anchor.label, signal_z_mm, False)
         )
 
-    def _add_component_markers(self, result) -> None:
-        assembly = getattr(result, "assembly", None)
-        if assembly is None or not self.component_centres.isChecked():
+    def _add_component_marker(self, result, part, index: int) -> None:
+        """Build one independently invalidated component layer."""
+        if bool(part.data.get("branch_path_only", False)):
             return
-        for index, part in enumerate(assembly.parts):
-            if bool(part.data.get("branch_path_only", False)):
-                continue
-            # The specimen plane is drawn independently and remains visible
-            # when generic component-centre markers are hidden.
-            if part.key == "sample":
-                continue
-            is_lens = "lens" in part.key
-            # A hardware name can contain "aperture" without defining a
-            # runtime electron-optical stop.  In particular, the fixed
-            # projection-chamber DPA is currently a mechanical vacuum
-            # accessory only and deliberately carries no optical reference.
-            is_aperture = (
-                "aperture" in part.key
-                and not bool(part.data.get("mechanical_only", False))
+        # The specimen plane is drawn independently and remains visible
+        # when generic component-centre markers are hidden.
+        if part.key == "sample":
+            return
+        is_lens = "lens" in part.key
+        # Only modeled optical stops receive adjustable opening markers.
+        is_aperture = (
+            "aperture" in part.key
+            and not bool(part.data.get("mechanical_only", False))
+        )
+        if is_aperture:
+            self._add_aperture_component(part, index)
+            return
+        is_recording_surface = part.data.get("mechanical_profile") in {
+            "retractable_detector_plane",
+            "camera_sensor_plane",
+        }
+        if is_recording_surface:
+            self._add_recording_surface_range(result, part, index)
+            return
+        planes = self._deflector_planes(part)
+        is_deflector = bool(planes)
+        if is_deflector:
+            centre = pg.ScatterPlotItem(
+                x=[part.center_z_mm],
+                y=[0.0],
+                symbol="+",
+                size=13,
+                pen=pg.mkPen("#c3ffe3", width=2.0),
             )
-            if is_aperture:
-                self._add_aperture_component(part, index)
-                continue
-            is_recording_surface = part.data.get("mechanical_profile") in {
-                "retractable_detector_plane",
-                "camera_sensor_plane",
-            }
-            if is_recording_surface:
-                self._add_recording_surface_range(result, part, index)
-                continue
-            planes = self._deflector_planes(part)
-            is_deflector = bool(planes)
-            if is_deflector:
-                centre = pg.ScatterPlotItem(
-                    x=[part.center_z_mm],
-                    y=[0.0],
-                    symbol="+",
-                    size=13,
-                    pen=pg.mkPen("#c3ffe3", width=2.0),
-                )
-                centre.setZValue(12)
-                centre.setToolTip(
-                    f"{part.name}\nPair centre Z = "
-                    f"{part.center_z_mm:.6g} mm"
-                )
-                self.plot.addItem(centre)
-                self.component_marker_items.append(centre)
-                self._add_deflector_pair(part, planes)
-                continue
-            if is_lens:
-                colour = "#22d3ee"
-                width = 1.3
-                style = Qt.PenStyle.DashLine
-                label = part.name
-            else:
-                colour = "#94a3b8"
-                width = 0.7
-                style = Qt.PenStyle.DashLine
-                label = part.name
-            line = pg.InfiniteLine(
-                pos=part.center_z_mm,
-                angle=90,
-                pen=pg.mkPen(
-                    colour,
-                    width=width,
-                    style=style,
-                ),
-                label=label,
-                labelOpts={
-                    "position": 0.76 + 0.07 * (index % 4),
-                    "color": colour,
-                    "rotateAxis": (1, 0),
-                },
+            centre.setZValue(12)
+            centre.setToolTip(
+                f"{part.name}\nPair centre Z = "
+                f"{part.center_z_mm:.6g} mm"
             )
-            line.setZValue(6)
-            tooltip = f"{part.name}\nCentre Z = {part.center_z_mm:.6g} mm"
-            line.setToolTip(tooltip)
-            self._register_ray_label(line.label)
-            line.label.setToolTip(tooltip)
-            self.plot.addItem(line)
-            self.component_marker_items.append(line)
-            self._component_labels.append(
-                (
-                    line.label,
-                    float(part.center_z_mm),
-                    is_lens,
-                )
+            self.plot.addItem(centre)
+            self.component_marker_items.append(centre)
+            self._add_deflector_pair(part, planes)
+            return
+        if is_lens:
+            colour = "#22d3ee"
+            width = 1.3
+            style = Qt.PenStyle.DashLine
+            label = part.name
+        else:
+            colour = "#94a3b8"
+            width = 0.7
+            style = Qt.PenStyle.DashLine
+            label = part.name
+        line = pg.InfiniteLine(
+            pos=part.center_z_mm,
+            angle=90,
+            pen=pg.mkPen(
+                colour,
+                width=width,
+                style=style,
+            ),
+            label=label,
+            labelOpts={
+                "position": 0.76 + 0.07 * (index % 4),
+                "color": colour,
+                "rotateAxis": (1, 0),
+            },
+        )
+        line.setZValue(6)
+        tooltip = f"{part.name}\nCentre Z = {part.center_z_mm:.6g} mm"
+        line.setToolTip(tooltip)
+        self._register_ray_label(line.label)
+        line.label.setToolTip(tooltip)
+        self.plot.addItem(line)
+        self.component_marker_items.append(line)
+        self._component_labels.append(
+            (
+                line.label,
+                float(part.center_z_mm),
+                is_lens,
             )
+        )
 
     def _add_sample_marker(self, result) -> None:
         """Draw the incident/post-specimen boundary above rays and lenses."""
@@ -2866,152 +3369,277 @@ class VisualizationWorkspace(QWidget):
             self.plot.addItem(marker)
             self.crossover_marker_items.append(marker)
 
+    def ray_scene_info(self) -> dict[str, int | float]:
+        """Rendering diagnostics; timings exclude solving and deferred painting."""
+        return {
+            "initial_builds": int(self._ray_scene_initialized),
+            "updates": self._ray_scene_updates,
+            "layers_rebuilt": self._ray_static_layers.rebuilt,
+            "layers_reused": self._ray_static_layers.reused,
+            "static_layers": len(self._ray_static_layers.layers),
+            "ray_groups": len(self._ray_items_by_group),
+            "last_update_ms": self._ray_scene_last_update_ms,
+        }
+
+    def _component_drawing_signature(self, result, part, index: int) -> tuple:
+        """Snapshot only values used by a component's drawing, not its optics."""
+        data = part.data
+        signature = (
+            str(part.key), str(part.name), index,
+            float(part.start_z_mm), float(part.center_z_mm), float(part.end_z_mm),
+            bool(data.get("mechanical_only", False)), data.get("mechanical_profile"),
+            self._deflector_planes(part), self._aperture_optical_plane(part),
+        )
+        if "aperture" in part.key and not data.get("mechanical_only", False):
+            record = self._aperture_stops_by_key.get(part.key)
+            signature += (None if record is None else tuple(
+                record.get(key) for key in (
+                    "z_mm", "enabled", "installed", "diameter_mm", "radius_mm",
+                    "offset_x_mm", "offset_y_mm",
+                )
+            ),)
+        if data.get("mechanical_profile") in {
+            "retractable_detector_plane", "camera_sensor_plane",
+        }:
+            component = self._recording_plane_component(result, part.key)
+            signature += (
+                tuple(getattr(component, key, None) for key in (
+                    "z_mm", "inserted", "readout_enabled", "outer_width_mm",
+                    "inner_diameter_mm", "centre_offset_x_mm",
+                    "centre_offset_y_mm", "colour",
+                )),
+                data.get("outer_width_mm"), data.get("mechanical_outer_diameter_mm"),
+                data.get("inner_diameter_mm"),
+            )
+        return signature
+
+    def _sync_ray_static_layers(self, result) -> None:
+        layers = self._ray_static_layers
+        layers.begin(self)
+        assembly = getattr(result, "assembly", None)
+        segments = getattr(assembly, "vacuum_bore_segments", ())
+        if self.column_walls.isChecked() and segments:
+            signature = tuple(
+                (float(item.start_z_mm), float(item.end_z_mm),
+                 float(item.inner_diameter_mm)) for item in segments
+            )
+            layers.update(self, ("walls",), signature, lambda: self._add_column_walls(result))
+        parts = getattr(assembly, "parts", ())
+        if self.component_centres.isChecked():
+            for index, part in enumerate(parts):
+                if part.key == "sample" or part.data.get("branch_path_only", False):
+                    continue
+                layers.update(
+                    self, ("component", str(part.key)),
+                    self._component_drawing_signature(result, part, index),
+                    lambda part=part, index=index: self._add_component_marker(result, part, index),
+                )
+        sample = getattr(getattr(result, "state_snapshot", None), "sample", None)
+        sample_z = next(
+            (float(part.center_z_mm) for part in parts if part.key == "sample"),
+            float(result.simulation.incident.z[-1]),
+        )
+        layers.update(
+            self, ("sample",),
+            (sample_z, bool(getattr(sample, "inserted", True)),
+             str(getattr(sample, "specimen_mode", "atomic")).strip().lower()),
+            lambda: self._add_sample_marker(result),
+        )
+        if self.crossovers.isChecked():
+            signature = tuple(
+                (float(record["z_mm"]), float(record.get("rms_radius_mm", float("nan"))).hex(),
+                 str(record.get("name", "Crossover")))
+                for record in self._all_crossovers(result)
+            )
+            layers.update(
+                self, ("crossovers",), signature,
+                lambda: self._add_crossover_markers(result),
+            )
+        layers.finish(self)
+        # A new result can arrive before the deferred angle timer fires.
+        # Bring reused apparatus graphics to that angle, without redrawing rays.
+        self._redraw_component_projection_items()
+        if self.axial_cursor_item is not None:
+            self._ray_label_items.append(self.axial_cursor_item.label)
+
+    def _sync_tuning_envelopes(self, simulation, bundles) -> None:
+        active = set()
+        self._tuning_envelopes = []
+        if (getattr(simulation, "metrics", None) or {}).get("tuning_quality") == "Medium":
+            from temsim.physics.optical_tuning import projected_support
+            for index, branch in enumerate(bundles):
+                key = (index, str(branch.name))
+                active.add(key)
+                items = self._support_items_by_branch.get(key)
+                if items is None:
+                    lower = self.plot.plot([], [], pen=pg.mkPen("#b4e55f", width=.7))
+                    upper = self.plot.plot([], [], pen=pg.mkPen("#b4e55f", width=.7))
+                    fill = pg.FillBetweenItem(lower, upper, brush=pg.mkBrush(140, 200, 100, 20))
+                    fill.setZValue(-5)
+                    fill.setToolTip("Sampled support guide only; not density, signal or a guaranteed outer boundary.")
+                    self.plot.addItem(fill)
+                    items = (lower, upper, fill)
+                    self._support_items_by_branch[key] = items
+                lower, upper, _fill = items
+                lo, hi = projected_support(branch, self._projection_angle_deg)
+                lower.setData(branch.z, lo, connect="finite")
+                upper.setData(branch.z, hi, connect="finite")
+                self._tuning_envelopes.append((lower, upper, branch))
+        for key in tuple(self._support_items_by_branch):
+            if key not in active:
+                lower, upper, fill = self._support_items_by_branch.pop(key)
+                # Disconnect the fill's curve observers before releasing curves.
+                lower.sigPlotChanged.disconnect(fill.curveChanged)
+                upper.sigPlotChanged.disconnect(fill.curveChanged)
+                for item in (fill, lower, upper):
+                    self.plot.removeItem(item)
+
+    def _sync_ray_curves(self, simulation, bundles) -> None:
+        self._convergence_colour_reference_mrad = self._convergence_reference_mrad(simulation)
+        kind_order, base_colours, colour_groups = self._ray_colour_groups(
+            bundles, self._convergence_colour_reference_mrad,
+        )
+        for kind in kind_order:
+            pen = pg.mkPen(self._shade_colour(base_colours[kind], 1.0), width=1.8)
+            if kind not in self._ray_legend_items:
+                label = self.INTERACTION_LABELS.get(kind, kind.replace("_", " ").title())
+                self._ray_legend_items[kind] = self.plot.plot([], [], pen=pen, name=label)
+            else:
+                if self._ray_legend_items[kind].opts["pen"] != pen:
+                    self._ray_legend_items[kind].setPen(pen)
+        for kind in tuple(self._ray_legend_items):
+            if kind not in kind_order:
+                self.plot.removeItem(self._ray_legend_items.pop(kind))
+        active = set()
+        self._ray_bundle_records = []
+        for key, segments in colour_groups.items():
+            kind, bin_index = key
+            payload = tuple(segments)
+            z, transverse = self._ray_record_lines(payload)
+            if not z.size:
+                continue
+            active.add(key)
+            shade = bin_index / max(self.CONVERGENCE_SHADE_BINS - 1, 1)
+            pen = pg.mkPen(self._shade_colour(base_colours[kind], shade), width=1.35)
+            item = self._ray_items_by_group.get(key)
+            if item is None:
+                item = self.plot.plot([], [], pen=pen, connect="finite")
+                self._ray_items_by_group[key] = item
+            elif item.opts["pen"] != pen:
+                item.setPen(pen)
+            item.setData(z, transverse, connect="finite")
+            label = self.INTERACTION_LABELS.get(kind, kind.replace("_", " ").title())
+            if self._convergence_colour_reference_mrad > 0.0:
+                detail = (
+                    f"Convergence shade {bin_index + 1}/{self.CONVERGENCE_SHADE_BINS}; "
+                    f"brightness saturates at α99 = {self._convergence_colour_reference_mrad:.6g} mrad"
+                )
+            else:
+                detail = "Convergence shade unavailable"
+            item.setToolTip(
+                f"Interaction: {label}\n{detail}\n"
+                "Semi-angle is measured relative to this branch's "
+                "weighted chief ray at the sample plane."
+            )
+            self._ray_bundle_records.append((item, payload))
+        for key in tuple(self._ray_items_by_group):
+            if key not in active:
+                self.plot.removeItem(self._ray_items_by_group.pop(key))
+
     def _draw_ray_diagram(
         self, result, quality: str, preserve_view: bool = False
     ) -> None:
+        """Publish changed layers without clearing unchanged geometry or rays."""
+        started = perf_counter()
         self._projection_redraw_timer.stop()
         self._projection_finalize_timer.stop()
-        preserved_range = (
-            self.plot.getViewBox().viewRange() if preserve_view else None
-        )
-        simulation = result.simulation
-        self.plot.clear()
-        self._set_ray_axis_label("left", "Projected displacement")
-        self._style_ray_axes()
-        self.component_marker_items = []
-        self._component_labels = []
-        self._ray_label_items = []
-        self._ray_label_font_pt = None
-        self.sample_marker_items = []
-        self.aperture_marker_items = []
-        self.aperture_optical_plane_items = []
-        self.aperture_stop_segment_items = []
-        self.recording_surface_range_items = []
-        self._aperture_span_records = []
-        self._aperture_projection_records = []
+        if result is not self._ray_display_cache_result:
+            self._ray_display_cache.clear()
+            self._ray_display_cache_bytes = 0
+            self._ray_display_cache_result = result
+        preserved_range = self.plot.getViewBox().viewRange() if preserve_view else None
+        self.plot.disableAutoRange()
+        if not self._ray_scene_initialized:
+            self.plot.clear()  # Remove the initial waiting notice, once only.
+            self._set_ray_axis_label("left", "Projected displacement")
+            self._style_ray_axes()
+            self._style_ray_legend(self.plot.addLegend(offset=(10, 10)))
+            for label, colour, width in (
+                ("Aperture", "#ffb000", 2.0),
+                ("Deflector U/L", "#2cffad", 2.0),
+                ("Sample plane", "#ffffff", 2.6),
+            ):
+                self.plot.plot([], [], pen=pg.mkPen(colour, width=width), name=label)
+            self._ray_scene_initialized = True
+        else:
+            self._ray_scene_updates += 1
         self._aperture_stops_by_key = {
             str(record["key"]): dict(record)
             for record in getattr(result, "aperture_stops", ())
         }
-        self.deflector_pair_items = []
-        self.crossover_marker_items = []
-        self.column_wall_items = []
-        self.stop_marker_items = []
-        self._stop_projection_records = []
-        self._ray_bundle_records = []
-        self.axial_cursor_item = None
+        simulation = result.simulation
+        bundles = [simulation.incident, *simulation.branches.values()]
+        self._sync_tuning_envelopes(simulation, bundles)
+        self._sync_ray_curves(simulation, bundles)
+        self._add_stop_markers(simulation)
+        self._sync_ray_static_layers(result)
         limits = self._simulation_x_limits()
         if limits is not None:
             self.axial_position.setRange(*limits)
-        legend = self.plot.addLegend(offset=(10, 10))
-        self._style_ray_legend(legend)
-
-        bundles = [simulation.incident, *simulation.branches.values()]
-        self._convergence_colour_reference_mrad = (
-            self._convergence_reference_mrad(simulation)
-        )
-        kind_order, base_colours, colour_groups = self._ray_colour_groups(
-            bundles,
-            self._convergence_colour_reference_mrad,
-        )
-        for kind in kind_order:
-            label = self.INTERACTION_LABELS.get(
-                kind, kind.replace("_", " ").title()
-            )
-            self.plot.plot(
-                [],
-                [],
-                pen=pg.mkPen(
-                    self._shade_colour(base_colours[kind], 1.0),
-                    width=1.8,
-                ),
-                name=label,
-            )
-
-        for (kind, bin_index), segments in colour_groups.items():
-            payload = tuple(segments)
-            z, transverse = self._ray_record_lines(payload)
-            if z.size:
-                shade_level = (
-                    bin_index / max(self.CONVERGENCE_SHADE_BINS - 1, 1)
-                )
-                item = self.plot.plot(
-                    z,
-                    transverse,
-                    pen=pg.mkPen(
-                        self._shade_colour(
-                            base_colours[kind], shade_level
-                        ),
-                        width=1.35,
-                    ),
-                    connect="finite",
-                )
-                label = self.INTERACTION_LABELS.get(
-                    kind, kind.replace("_", " ").title()
-                )
-                if self._convergence_colour_reference_mrad > 0.0:
-                    shade_detail = (
-                        f"Convergence shade {bin_index + 1}/"
-                        f"{self.CONVERGENCE_SHADE_BINS}; brightness "
-                        "saturates at α99 = "
-                        f"{self._convergence_colour_reference_mrad:.6g} mrad"
-                    )
+            if self._selected_z_mm is not None:
+                # A worker may publish between cursor-drag events and release.
+                # Keep the displayed cursor position, not its last committed Z.
+                cursor_z = (self.axial_cursor_item.value()
+                            if self.axial_cursor_item is not None else self._selected_z_mm)
+                self._selected_z_mm = float(np.clip(cursor_z, *limits))
+                self.axial_position.setValue(self._selected_z_mm)
+                if self.axial_cursor_item is None:
+                    self._add_axial_position_cursor()
                 else:
-                    shade_detail = "Convergence shade unavailable"
-                item.setToolTip(
-                    f"Interaction: {label}\n{shade_detail}\n"
-                    "Semi-angle is measured relative to this branch's "
-                    "weighted chief ray at the sample plane."
-                )
-                self._ray_bundle_records.append((item, payload))
-
-        self.plot.plot(
-            [], [], pen=pg.mkPen("#ffb000", width=2.0), name="Aperture"
-        )
-        self.plot.plot(
-            [], [], pen=pg.mkPen("#2cffad", width=2.0), name="Deflector U/L"
-        )
-        self.plot.plot(
-            [], [], pen=pg.mkPen("#ffffff", width=2.6), name="Sample plane"
-        )
-
-        self._add_column_walls(result)
-        self._add_stop_markers(simulation)
-        self._add_component_markers(result)
-        self._add_sample_marker(result)
-        self._add_crossover_markers(result)
-        self._add_axial_position_cursor()
-
+                    with QSignalBlocker(self.axial_cursor_item):
+                        self.axial_cursor_item.setBounds(limits)
+                        self.axial_cursor_item.setValue(self._selected_z_mm)
+                if (self._transverse_focus_request is None
+                        or self._transverse_focus_request[0] == "z"):
+                    self._transverse_focus_request = ("z", self._selected_z_mm)
+        if self._focused_part is not None:
+            parts = getattr(getattr(result, "assembly", None), "parts", ())
+            self._focused_part = next(
+                (part for part in parts if part.key == self._focused_part.key), None
+            )
+            if self._focused_part is not None:
+                self._highlight_ray_component(self._focused_part)
+            elif self._ray_component_highlight is not None:
+                self.plot.removeItem(self._ray_component_highlight)
+                self._ray_component_highlight = None
         if preserved_range is not None:
-            self.plot.disableAutoRange()
             (x_min, x_max), (y_min, y_max) = preserved_range
-            self.plot.setXRange(x_min, x_max, padding=0.0)
-            self.plot.setYRange(y_min, y_max, padding=0.0)
-            self._update_component_label_visibility()
+            self.plot.getViewBox().setRange(
+                xRange=(x_min, x_max), yRange=(y_min, y_max),
+                padding=0.0, disableAutoRange=True,
+            )
+        elif self.auto_zoom.isChecked() and self._focused_part is not None:
+            self._apply_component_zoom(self._focused_part)
         else:
-            self.plot.enableAutoRange()
-            if self.auto_zoom.isChecked() and self._focused_part is not None:
-                self._apply_component_zoom(self._focused_part)
-            elif self._selected_z_mm is not None:
-                self.jump_to_ray_position(
-                    self._selected_z_mm, activate_tab=False
-                )
-            else:
-                # Resolve the initial data bounds synchronously, then freeze
-                # them. Aperture openings are view-dependent graphics, so an
-                # always-live AutoRange creates a zoom/span feedback loop.
-                self.plot.getViewBox().autoRange()
-                self.plot.disableAutoRange()
-                self._update_component_label_visibility()
+            self.plot.getViewBox().autoRange()
+            self.plot.disableAutoRange()
+        self._update_component_label_visibility()
         self._update_aperture_spans()
         self._update_scale_notice()
         self._crossover_count = len(self._all_crossovers(result))
         self._wall_stop_count = self._column_wall_stop_count(simulation)
         self._update_projection_text()
         self._update_interaction_detail()
+        self._ray_scene_last_update_ms = (perf_counter() - started) * 1000.0
 
     def display_result(self, result, quality: str) -> None:
-        is_preview = str(quality).strip().lower().startswith("preview")
+        # Explicit republication is also the invalidation boundary for callers
+        # that updated an existing result/array in place before handing it back.
+        self._ray_display_cache.clear()
+        self._ray_display_cache_bytes = 0
+        self._ray_display_cache_result = result
+        is_preview = str(quality).strip().lower().startswith("preview") or quality == "Medium"
+        optical_tuning = bool((getattr(result.simulation, "metrics", None) or {}).get("optical_tuning", False))
         if is_preview:
             self._preview_result = result
             current_high = bool(
@@ -3025,31 +3653,35 @@ class VisualizationWorkspace(QWidget):
         else:
             self._high_accuracy_result = result
             self._high_accuracy_current = True
-        preserve_ray_view = (
-            self._last_result is not None
-            and self._ray_geometry_signature(self._last_result)
-            == self._ray_geometry_signature(result)
-        )
+        # Geometry changes also preserve the user's view; Fit is explicit.
+        preserve_ray_view = self._last_result is not None
         self._last_result = result
         self._last_quality = quality
         no_illumination = sample_illumination_absent(
             getattr(result, "simulation", None),
             getattr(result, "state_snapshot", None),
         )
-        if not is_preview or no_illumination:
+        if not optical_tuning and (not is_preview or no_illumination):
             self._sample_region_result = getattr(result, "sample_region", None)
         self._prepare_scan_ray_playback(result)
+        # Queue before drawing the axial cursor: its focus notifications must
+        # never interpolate the previous result while a new one is arriving.
+        self._publish_optional_ray_panels(result, refresh=False)
         self._draw_ray_diagram(
             result,
             quality,
             preserve_view=preserve_ray_view,
         )
-        self.physical_layout.display_result(result)
-        self.magnetic_field.display_result(result)
+        self._refresh_visible_ray_panels()
+        if optical_tuning:
+            # Low-count tuning can miss a tiny aperture. It must never erase
+            # completed spectra/images or replace them with synthetic frames.
+            self._update_projection_text()
+            self.heading.setToolTip("Optical tuning only: specimen scattering and image/spectrum calculations are deferred. Medium uses interior rays plus zero-current support probes; no density is inferred from the outline.")
+            return
         self.probe_aberrations.display_result(result)
         self.image_aberrations.display_result(result)
         self.optical_transfer.display_result(result)
-        self.transverse_beam.display_result(result)
         if not is_preview or no_illumination:
             self.energy_filter.display_result(result)
             if no_illumination:
@@ -3080,7 +3712,10 @@ class VisualizationWorkspace(QWidget):
             self.sample_interactions_3d.display_result(result)
             self.eds_page.display_result(result)
             if cached_sample_region is not None:
-                self._set_sample_region_result(cached_sample_region)
+                self._set_sample_region_result(
+                    cached_sample_region,
+                    mark_calculated=False,
+                )
             self._update_sample_region_control_availability()
             self.wave_imaging.display_result(
                 getattr(result, "wave_imaging", None),
@@ -3088,9 +3723,6 @@ class VisualizationWorkspace(QWidget):
                 quality,
                 no_illumination=no_illumination,
             )
-        if self._focused_part is not None:
-            self.physical_layout.focus_component(self._focused_part)
-            self.magnetic_field.focus_component(self._focused_part)
 
     def mark_high_accuracy_stale(self) -> None:
         """Keep completed displays visible but detach them from live inputs."""
@@ -3103,3 +3735,10 @@ class VisualizationWorkspace(QWidget):
         self.sample_interactions_3d.mark_result_stale()
         self.scan_control.mark_stem_frame_stale()
         self.wave_imaging.mark_result_stale()
+
+    def high_accuracy_result_summary(self):
+        """Return detached metadata for the displayed complete calculation."""
+
+        if self._high_accuracy_result is None:
+            return None
+        return summarise_calculation_result(self._high_accuracy_result)

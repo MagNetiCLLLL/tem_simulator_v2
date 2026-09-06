@@ -10,6 +10,9 @@ the wave solver already owns coherent elastic angular redistribution.
 
 from __future__ import annotations
 
+from temsim.specimen.vector_field_transport import SpecimenFieldTransport
+
+from collections.abc import Callable
 from dataclasses import dataclass
 import math
 
@@ -26,10 +29,18 @@ from temsim.physics.recording_stop import determine_tem_stop_z
 from temsim.physics.simulation import Branch, RAY_INTERACTION_COLOURS
 from temsim.specimen.inelastic import real_inelastic_ray_branches
 from temsim.specimen.axial_field_transport import (
-    advance_in_uniform_axial_field,
-    axial_rotation_rate_rad_per_nm,
     sample_axial_field_diagnostic,
 )
+
+
+ProgressCallback = Callable[[int, int, str], None]
+
+_REQUIRED_SPECIMEN_EXIT_METRICS = (
+    "tracked_downstream_source_probability",
+    "inelastic_absorbed_source_probability",
+)
+_PROBABILITY_LEDGER_ABS_TOL = 5.0e-12
+_PROBABILITY_LEDGER_REL_TOL = 1.0e-10
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,10 +49,74 @@ class GeometricSpecimenExit:
 
     branches: tuple[Branch, ...]
     metrics: dict[str, object]
+    dependency_signature: str = ""
 
     def __post_init__(self) -> None:
+        signature = str(self.dependency_signature)
+        metrics = dict(self.metrics)
+        metric_signature = str(
+            metrics.get("sample_downstream_signature", "")
+        )
+        if signature and metric_signature and metric_signature != signature:
+            raise ValueError(
+                "Specimen-exit metrics cannot be relabelled with a different "
+                "downstream dependency signature"
+            )
+        if not signature:
+            signature = metric_signature
+        metrics["sample_downstream_signature"] = signature
         object.__setattr__(self, "branches", tuple(self.branches))
-        object.__setattr__(self, "metrics", dict(self.metrics))
+        object.__setattr__(self, "metrics", metrics)
+        object.__setattr__(self, "dependency_signature", signature)
+
+
+def validated_geometric_specimen_exit(
+    value,
+    expected_signature: str,
+) -> GeometricSpecimenExit | None:
+    """Return a downstream checkpoint only when its own provenance matches."""
+
+    expected = str(expected_signature)
+    if not expected or not isinstance(value, GeometricSpecimenExit):
+        return None
+    metric_signature = str(
+        value.metrics.get("sample_downstream_signature", "")
+    )
+    if value.dependency_signature != expected or metric_signature != expected:
+        return None
+    probabilities: list[float] = []
+    for key in _REQUIRED_SPECIMEN_EXIT_METRICS:
+        try:
+            metric = float(value.metrics[key])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(metric) or not 0.0 <= metric <= 1.0:
+            return None
+        probabilities.append(metric)
+    if math.fsum(probabilities) > 1.0 + _PROBABILITY_LEDGER_ABS_TOL:
+        return None
+
+    branch_weights: list[float] = []
+    for branch in value.branches:
+        try:
+            weight = float(branch.weight)
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(weight) or weight < 0.0:
+            return None
+        branch_weights.append(weight)
+    try:
+        branch_weight_sum = math.fsum(branch_weights)
+    except OverflowError:
+        return None
+    if not math.isfinite(branch_weight_sum) or not math.isclose(
+        branch_weight_sum,
+        probabilities[0],
+        rel_tol=_PROBABILITY_LEDGER_REL_TOL,
+        abs_tol=_PROBABILITY_LEDGER_ABS_TOL,
+    ):
+        return None
+    return value
 
 
 def _post_sample_events(state) -> tuple[tuple[float, float, float], ...]:
@@ -117,6 +192,8 @@ def build_geometric_specimen_exit(
     inelastic_distribution=None,
     *,
     save_z_mm: tuple[float, ...] = (),
+    dependency_signature: str = "",
+    progress_callback: ProgressCallback | None = None,
 ) -> GeometricSpecimenExit:
     """Combine elastic exit phase space and exclusive inelastic populations.
 
@@ -146,7 +223,7 @@ def build_geometric_specimen_exit(
         "post_sample_reinjection_plane_z_mm": float(state.sample.z_mm),
         "material_terminal_z_collapsed_to_reference_plane": False,
         "terminal_state_projection_model": (
-            "inverse local-uniform axial-field helical drift"
+            "inverse shared-vector-field reference-plane matching"
         ),
         "terminal_state_projection_preserves_free_flight_line": False,
         "source_probability_conservation_error": 0.0,
@@ -156,7 +233,13 @@ def build_geometric_specimen_exit(
         "used_by_wave_multislice": False,
     }
     if terminal is None or len(terminal.outcome) == 0:
-        return GeometricSpecimenExit((), empty_metrics)
+        if progress_callback is not None:
+            progress_callback(1, 1, "No transmitted specimen-exit electrons")
+        return GeometricSpecimenExit(
+            (),
+            empty_metrics,
+            dependency_signature=dependency_signature,
+        )
 
     positions_nm = np.asarray(terminal.position_nm, dtype=float)
     directions = np.asarray(terminal.direction, dtype=float)
@@ -205,6 +288,19 @@ def build_geometric_specimen_exit(
     ):
         raise ValueError("Inelastic tracked and absorbed probabilities must sum to one")
 
+    positive_specs = sum(
+        float(spec[3]) > 0.0
+        for spec in specs
+    )
+    progress_total = max(1 + 2 * positive_specs, 1)
+    progress_completed = 0
+    if progress_callback is not None:
+        progress_callback(
+            0,
+            progress_total,
+            "Preparing specimen-exit phase space",
+        )
+
     eligible = (outcomes == "transmitted") & (directions[:, 2] > 1.0e-12)
     forward_weight = float(np.sum(weights[eligible]))
     nominal_energy_ev = float(state.beam_voltage_kv) * 1000.0
@@ -212,6 +308,7 @@ def build_geometric_specimen_exit(
     events = _post_sample_events(state)
     chromatic_focal_mm = configured_objective_chromatic_focal_mm(state)
     field_diagnostic = sample_axial_field_diagnostic(state)
+    field_transport = SpecimenFieldTransport(state)
     branches: list[Branch] = []
     exit_plane_source_probability = 0.0
 
@@ -223,7 +320,7 @@ def build_geometric_specimen_exit(
         terminal_scattered = scattered[eligible]
         terminal_indices = source_indices[eligible]
         # Terminal Z is specimen-local.  Invert the same local objective-field
-        # helical drift used inside the finite specimen to obtain a common
+        # vector-field transport used inside the finite specimen to obtain a common
         # specimen-reference phase space for the ordinary downstream solver.
         reference_positions = np.empty_like(local_positions)
         reference_directions = np.empty_like(terminal_direction)
@@ -233,17 +330,12 @@ def build_geometric_specimen_exit(
             terminal_energies,
             strict=True,
         )):
-            rate = axial_rotation_rate_rad_per_nm(
-                field_diagnostic.total_field_t,
-                float(energy_ev),
-            )
-            path_to_reference_nm = -float(position[2]) / float(direction[2])
             reference_positions[index], reference_directions[index] = (
-                advance_in_uniform_axial_field(
+                field_transport.to_plane(
                     position,
                     direction,
-                    path_to_reference_nm,
-                    rotation_rate_rad_per_nm=rate,
+                    0.0,
+                    energy_ev=float(energy_ev),
                 )
             )
         reference_xy_nm = reference_positions[:, :2]
@@ -251,6 +343,13 @@ def build_geometric_specimen_exit(
             reference_directions[:, :2]
             / reference_directions[:, 2, None]
         )
+        progress_completed = 1
+        if progress_callback is not None:
+            progress_callback(
+                progress_completed,
+                progress_total,
+                "Projected elastic terminal states to the specimen plane",
+            )
 
         for channel_name, kick_x, kick_y, channel_probability, kind, loss_ev in specs:
             if channel_probability <= 0.0:
@@ -283,6 +382,13 @@ def build_geometric_specimen_exit(
             ):
                 mask = terminal_scattered == is_scattered
                 if not np.any(mask):
+                    progress_completed += 1
+                    if progress_callback is not None:
+                        progress_callback(
+                            progress_completed,
+                            progress_total,
+                            f"Propagated {channel_name} {elastic_label} electrons",
+                        )
                     continue
                 group_weights = terminal_weights[mask]
                 group_weight = float(np.sum(group_weights))
@@ -290,6 +396,13 @@ def build_geometric_specimen_exit(
                     source_fraction * group_weight * channel_probability
                 )
                 if absolute_probability <= 0.0:
+                    progress_completed += 1
+                    if progress_callback is not None:
+                        progress_callback(
+                            progress_completed,
+                            progress_total,
+                            f"Propagated {channel_name} {elastic_label} electrons",
+                        )
                     continue
                 z, x, tx, y, ty = propagate(
                     state,
@@ -352,6 +465,20 @@ def build_geometric_specimen_exit(
                         interaction_kick_y_rad=kick_y_values[mask],
                     )
                 )
+                progress_completed += 1
+                if progress_callback is not None:
+                    progress_callback(
+                        progress_completed,
+                        progress_total,
+                        f"Propagated {channel_name} {elastic_label} electrons",
+                    )
+
+    if progress_callback is not None and progress_completed < progress_total:
+        progress_callback(
+            progress_total,
+            progress_total,
+            "Specimen-exit propagation complete",
+        )
 
     tracked_source = source_fraction * forward_weight * inelastic_tracked
     absorbed_source = source_fraction * forward_weight * inelastic_absorbed
@@ -404,7 +531,7 @@ def build_geometric_specimen_exit(
         "post_sample_reinjection_plane_z_mm": float(state.sample.z_mm),
         "material_terminal_z_collapsed_to_reference_plane": False,
         "terminal_state_projection_model": (
-            "inverse local-uniform axial-field helical drift"
+            "inverse shared-vector-field reference-plane matching"
         ),
         "source_probability_conservation_error": conservation_error,
         "source_probability_conserved": abs(conservation_error) <= 5.0e-12,
@@ -416,4 +543,8 @@ def build_geometric_specimen_exit(
         "pixel_resolved_specimen_contrast": False,
         "used_by_wave_multislice": False,
     }
-    return GeometricSpecimenExit(tuple(branches), metrics)
+    return GeometricSpecimenExit(
+        tuple(branches),
+        metrics,
+        dependency_signature=dependency_signature,
+    )

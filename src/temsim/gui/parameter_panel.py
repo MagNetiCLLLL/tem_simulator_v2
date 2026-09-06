@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from temsim.component_keys import ENERGY_FILTER_SLIT
+from temsim.component_keys import ENERGY_FILTER_SLIT, FIXED_APERTURE_KEYS
 from temsim.manifest_editor import format_toml_value, parse_toml_value
 from temsim.runtime_parameters import (
     convert_runtime_value,
@@ -264,6 +264,57 @@ class ParameterPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.scroll_area)
 
+    def refresh_runtime_values(self) -> None:
+        """Refresh retained controls after a model-shelf switch, without edits."""
+        previous = self._updating
+        self._updating = True
+        try:
+            self._load_runtime()
+            self._load_lens_controls()
+            self._load_quick_controls()
+        finally:
+            self._updating = previous
+
+    def refresh_live_values(self, changed_keys) -> None:
+        """Update existing editors after a slider edit, without rebuilding them."""
+        if self._runtime_target is None or self._runtime_target.key not in changed_keys:
+            return
+        previous = self._updating
+        self._updating = True
+        try:
+            parameters = editable_parameters(self._runtime_target)
+            names = [self.runtime_table.item(row, 0).text()
+                     for row in range(self.runtime_table.rowCount())]
+            if names != [parameter.name for parameter in parameters]:
+                self._load_runtime()
+            else:
+                for row, parameter in enumerate(parameters):
+                    item = self.runtime_table.item(row, 1)
+                    value = parameter.value
+                    text = ("none" if value is None else str(value).lower()
+                            if isinstance(value, bool) else str(value))
+                    if item.text() != text:
+                        item.setText(text)
+                        item.setData(Qt.ItemDataRole.UserRole, value)
+            self._load_lens_controls()
+            obj = self._runtime_target.obj
+            for name, _label, scale, _suffix in self._quick_specs(self._runtime_target):
+                widget = self._quick_widgets.get(name)
+                if widget is None or not hasattr(obj, name):
+                    continue
+                value = getattr(obj, name)
+                if isinstance(widget, QCheckBox):
+                    widget.setChecked(bool(value))
+                elif isinstance(widget, QComboBox):
+                    widget.setCurrentIndex(max(0, widget.findData(str(value))))
+                elif isinstance(widget, QLineEdit):
+                    if widget.text() != str(value):
+                        widget.setText(str(value))
+                else:
+                    widget.setValue(float(value) * scale)
+        finally:
+            self._updating = previous
+
     def set_lens_diagnostics(self, text: str) -> None:
         self.lens_diagnostics.setText(
             text or "Recalculate to update field and focal diagnostics."
@@ -471,8 +522,9 @@ class ParameterPanel(QWidget):
                 ),
             )
         if hasattr(obj, "diameter_mm"):
-            return (
-                ("enabled", "Inserted", 1.0, ""),
+            insertion = (() if target.key in FIXED_APERTURE_KEYS else
+                         (("enabled", "Inserted", 1.0, ""),))
+            return insertion + (
                 ("diameter_mm", "Opening diameter", 1_000.0, " µm"),
                 ("offset_x_mm", "X offset", 1_000.0, " µm"),
                 ("offset_y_mm", "Y offset", 1_000.0, " µm"),
@@ -530,6 +582,22 @@ class ParameterPanel(QWidget):
     def _load_quick_controls(self) -> None:
         self._clear_quick_controls()
         obj = getattr(self._runtime_target, "obj", None)
+        fixed = (
+            getattr(self._runtime_target, "key", None) in FIXED_APERTURE_KEYS
+            or getattr(self._manifest_target, "part_key", None) in FIXED_APERTURE_KEYS
+        )
+        if fixed:
+            status = QLabel("Always inserted")
+            status.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+                | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            )
+            status.setToolTip(
+                "Non-retractable stop. Edit axial position in TOML. "
+                + ("Adjust opening and X/Y using the controls below."
+                   if obj is not None else "Edit opening size in TOML.")
+            )
+            self.quick_form.addRow("Insertion", status)
         specs = self._quick_specs(self._runtime_target)
         for name, label, scale, suffix in specs:
             if not hasattr(obj, name):
@@ -579,6 +647,8 @@ class ParameterPanel(QWidget):
                     obj, "maximum_diameter_mm"
                 ):
                     widget.setMaximum(float(obj.maximum_diameter_mm) * scale)
+                elif name == "diameter_mm" and hasattr(obj, "maximum_radius_mm"):
+                    widget.setMaximum(2.0 * float(obj.maximum_radius_mm) * scale)
                 widget.setSuffix(suffix)
                 widget.setKeyboardTracking(False)
                 widget.setValue(float(value) * scale)
@@ -595,7 +665,7 @@ class ParameterPanel(QWidget):
                 )
             self.quick_form.addRow(label, widget)
             self._quick_widgets[name] = widget
-        self.quick_box.setVisible(bool(self._quick_widgets))
+        self.quick_box.setVisible(bool(self._quick_widgets) or fixed)
 
     def _quick_changed(self, name: str, value, scale: float) -> None:
         if self._updating or self._runtime_target is None:

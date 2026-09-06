@@ -109,7 +109,7 @@ class DetectorFrameCalibration:
 
 @dataclass(frozen=True, slots=True)
 class TransverseTransfer:
-    """Full signed first-order 4x4 transfer in 2x2 block form."""
+    """Signed local 4x4 Jacobian and affine reference-ray displacement."""
 
     source_z_mm: float
     target_z_mm: float
@@ -117,8 +117,15 @@ class TransverseTransfer:
     j_diff_m_per_rad: np.ndarray
     k_img_rad_per_m: np.ndarray
     k_diff: np.ndarray
+    position_offset_m: tuple[float, float] = (0.0, 0.0)
+    angle_offset_rad: tuple[float, float] = (0.0, 0.0)
 
     def __post_init__(self) -> None:
+        for name in ("position_offset_m", "angle_offset_rad"):
+            values = tuple(float(value) for value in getattr(self, name))
+            if len(values) != 2 or not np.all(np.isfinite(values)):
+                raise ValueError(f"{name} must contain two finite values")
+            object.__setattr__(self, name, values)
         object.__setattr__(self, "j_img", _readonly_matrix(self.j_img, "J_img"))
         object.__setattr__(
             self,
@@ -219,7 +226,7 @@ def trace_transverse_transfers(
     *,
     maximum_step_mm: float | None = None,
 ) -> dict[float, TransverseTransfer]:
-    """Trace a reference plus four bases once and sample requested planes."""
+    """Trace a reference and bases once, using small central differences for maps."""
 
     source = float(source_z_mm)
     if not math.isfinite(source):
@@ -246,14 +253,17 @@ def trace_transverse_transfers(
     if not downstream:
         return result
 
+    from temsim.physics.lens_field_provider import active_mapped_providers
+    vector_maps = bool(active_mapped_providers(state))
+    steps = np.array((1e-8, 1e-8, 1e-6, 1e-6)) if vector_maps else np.ones(4)
+    basis = np.column_stack((np.zeros(4), np.diag(steps)))
+    if vector_maps:
+        basis = np.column_stack((basis, -np.diag(steps)))
     z_mm, x, tx, y, ty = propagate(
         state,
         source,
         downstream[-1],
-        np.array([0.0, 1.0, 0.0, 0.0, 0.0]),
-        np.array([0.0, 0.0, 0.0, 1.0, 0.0]),
-        np.array([0.0, 0.0, 1.0, 0.0, 0.0]),
-        np.array([0.0, 0.0, 0.0, 0.0, 1.0]),
+        basis[0], basis[2], basis[1], basis[3],
         include_spherical_aberration=False,
         include_hexapole=False,
         save_z_mm=downstream,
@@ -269,6 +279,9 @@ def trace_transverse_transfers(
             np.asarray(tx[index, 1:5], dtype=float) - float(tx[index, 0]),
             np.asarray(ty[index, 1:5], dtype=float) - float(ty[index, 0]),
         ))
+        if vector_maps:
+            position = np.vstack((x[index,1:5]-x[index,5:9], y[index,1:5]-y[index,5:9])) / (2.0*steps)
+            angle = np.vstack((tx[index,1:5]-tx[index,5:9], ty[index,1:5]-ty[index,5:9])) / (2.0*steps)
         result[target] = TransverseTransfer(
             source_z_mm=source,
             target_z_mm=target,
@@ -276,6 +289,8 @@ def trace_transverse_transfers(
             j_diff_m_per_rad=position[:, 2:],
             k_img_rad_per_m=angle[:, :2],
             k_diff=angle[:, 2:],
+            position_offset_m=(float(x[index,0]),float(y[index,0])),
+            angle_offset_rad=(float(tx[index,0]),float(ty[index,0])),
         )
     return result
 

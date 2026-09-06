@@ -379,6 +379,7 @@ class LayoutConfiguration:
     stem_detector_components: tuple = STEM_DETECTOR_DEFINITIONS
     fluorescent_screen_component: object = FLUORESCENT_SCREEN_DEFINITION
     camera_component: object = CAMERA_DETECTOR_DEFINITION
+    projection_chamber_aperture_component: object = None
     energy_filter_entrance_aperture_component: object = (
         ENERGY_FILTER_ENTRANCE_APERTURE_DEFINITION
     )
@@ -2797,6 +2798,7 @@ def build_optics_layout(
     if assembly is None:
         assembly = resolve_module_assembly(configuration)
     metadata = _build_optics_layout_metadata(configuration)
+    metadata = _with_projection_chamber_aperture(configuration, metadata, assembly)
     if configuration.nanopulser_installed:
         metadata = _with_nanopulser_components(configuration, metadata, assembly)
     return apply_module_assembly(
@@ -2804,6 +2806,38 @@ def build_optics_layout(
         metadata,
         assembly=assembly,
     )
+
+
+def _with_projection_chamber_aperture(configuration, layout, assembly):
+    """Register the permanent stop without imposing an optical conjugacy."""
+    from temsim.component_keys import PROJECTION_CHAMBER_DPA_APERTURE
+
+    part = next((p for p in assembly.parts
+                 if p.key == PROJECTION_CHAMBER_DPA_APERTURE), None)
+    if part is None:
+        return layout
+    s = layout.source_to_sample_mm - float(part.center_z_mm)
+    runtime = configuration.projection_chamber_aperture_component
+    diameter = (2.0 * float(runtime.radius_mm) if runtime is not None else
+                float(part.data["mechanical_bore_diameter_mm"]))
+    stop = LayoutComponent(
+        key=part.key, name=part.name, kind="aperture", owner="projection_chamber",
+        branch=Branch.COMMON, excitation_enabled=True,
+        mechanical=MechanicalEnvelope(s, s), field_support=FieldSupport(s, s),
+        local_s_center_mm=s, local_s_range_mm=(s, s),
+        rendered_z_center_mm=s, rendered_z_range_mm=(s, s),
+        mechanical_shape=MechanicalShape(
+            0.0, profile=str(part.data["mechanical_profile"]),
+            outer_diameter_mm=float(part.data["mechanical_outer_diameter_mm"]),
+            active_diameter_mm=diameter, active_length_mm=0.0,
+        ),
+        field_model=FieldModel("hard_aperture", True),
+        optical_reference_plane_z_mm=float(part.center_z_mm),
+        optical_interaction_planes_z_mm=(float(part.center_z_mm),),
+        effective_aperture_radius_mm=0.5 * diameter,
+        note="Always inserted; size and position are simulator design variables.",
+    )
+    return LayoutResult([*layout, stop])
 
 
 def _with_nanopulser_components(configuration, layout, assembly):

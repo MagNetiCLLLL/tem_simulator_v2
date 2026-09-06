@@ -47,7 +47,9 @@ def clip_recording_planes(state,z,x,y,alive,blocked_z,blocked_key):
             & (blocked_z > plane_z_mm + 1.0e-9)
         )
         if kind_order == 0:
-            if hasattr(plane, "transmission_mask"):
+            if float(getattr(plane, "radius_mm", 1.0)) <= 0.0:
+                passes = np.zeros(xx.shape, dtype=bool)
+            elif hasattr(plane, "transmission_mask"):
                 passes = np.asarray(
                     plane.transmission_mask(xx, yy),
                     dtype=bool,

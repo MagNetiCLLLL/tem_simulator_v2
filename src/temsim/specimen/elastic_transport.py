@@ -33,10 +33,9 @@ from temsim.specimen.interaction_types import (
     IncidentRayBundle,
 )
 from temsim.specimen.axial_field_transport import (
-    advance_in_uniform_axial_field,
-    axial_rotation_rate_rad_per_nm,
     sample_axial_field_diagnostic,
 )
+from temsim.specimen.vector_field_transport import SpecimenFieldTransport
 from temsim.specimen.scene import SpecimenScene
 from temsim.specimen.support import SupportGrid
 
@@ -591,6 +590,22 @@ class ElasticTransportGeometry:
         return self.support_top_nm + self.support_grid.foil_thickness_um * 1000.0
 
     @property
+    def material_z_bounds_nm(self) -> tuple[float, float] | None:
+        """Axial handoff envelope of actual matter, excluding virtual supports.
+
+        The optical/sample reference planes are unchanged. After leaving this
+        envelope, subsequent magnetic propagation belongs to the column solver.
+        """
+        bounds = []
+        if self.sample_material is not None and self.sample_thickness_nm > 0.0:
+            bounds.append((self.sample_top_nm, self.sample_bottom_nm))
+        if self.support_material is not None:
+            bounds.append((self.support_top_nm, self.support_bottom_nm))
+        if not bounds:
+            return None
+        return min(row[0] for row in bounds), max(row[1] for row in bounds)
+
+    @property
     def transport_span_nm(self) -> float:
         return max(
             self.support_grid.outer_diameter_mm * 1000.0 * 1000.0,
@@ -913,6 +928,7 @@ def simulate_elastic_point_transport(
     input_weights /= float(input_weights.sum())
     geometry = ElasticTransportGeometry.from_state(state)
     field_diagnostic = sample_axial_field_diagnostic(state)
+    field_transport = SpecimenFieldTransport(state)
     rng = np.random.default_rng(random_seed)
     maximum_path_nm = 8.0 * geometry.transport_span_nm
     tracks: list[ElectronTrackSegment] = []
@@ -952,19 +968,15 @@ def simulate_elastic_point_transport(
                 "Incident elastic-transport rays must propagate along +Z"
             )
         energy_ev = float(ray.kinetic_energy_ev)
-        rotation_rate = axial_rotation_rate_rad_per_nm(
-            field_diagnostic.total_field_t,
-            energy_ev,
-        )
         start_z_nm = geometry.sample_top_nm - 8.0 * geometry.epsilon_nm
         reference_position_nm = np.asarray(
             (*ray.position_xy_nm, 0.0), dtype=float
         )
-        position, direction = advance_in_uniform_axial_field(
+        position, direction = field_transport.to_plane(
             reference_position_nm,
             direction,
-            start_z_nm / float(direction[2]),
-            rotation_rate_rad_per_nm=rotation_rate,
+            start_z_nm,
+            energy_ev=energy_ev,
         )
         points = [position.copy()] if trajectory_index < stored_count else None
         events: list[ElasticScatterEvent] | None = (
@@ -982,29 +994,31 @@ def simulate_elastic_point_transport(
             region = geometry.region_at(position)
             if region is None:
                 remaining = maximum_path_nm - travelled_path
-                boundary = geometry.next_region_boundary_distance_nm(
+                boundary = field_transport.boundary_distance(
+                    geometry,
                     position,
                     direction,
                     None,
                     maximum_distance_nm=remaining,
+                    energy_ev=energy_ev,
                 )
                 if boundary is None:
                     outcome = _terminal_outcome(direction)
                     break
-                boundary_point, direction = advance_in_uniform_axial_field(
+                boundary_point, direction = field_transport.advance(
                     position,
                     direction,
                     boundary,
-                    rotation_rate_rad_per_nm=rotation_rate,
+                    energy_ev=energy_ev,
                 )
                 travelled_path += boundary
                 if points is not None:
                     points.append(boundary_point.copy())
-                position, direction = advance_in_uniform_axial_field(
+                position, direction = field_transport.advance(
                     boundary_point,
                     direction,
                     geometry.epsilon_nm,
-                    rotation_rate_rad_per_nm=rotation_rate,
+                    energy_ev=energy_ev,
                 )
                 continue
 
@@ -1017,11 +1031,13 @@ def simulate_elastic_point_transport(
             free_path = float(rng.exponential(1.0 / total_rate))
             remaining = maximum_path_nm - travelled_path
             flight_limit = min(free_path, remaining)
-            boundary = geometry.next_region_boundary_distance_nm(
+            boundary = field_transport.boundary_distance(
+                geometry,
                 position,
                 direction,
                 region,
                 maximum_distance_nm=flight_limit,
+                energy_ev=energy_ev,
             )
             distance = boundary if boundary is not None else flight_limit
             history = _history_for_region(region, has_scattered)
@@ -1041,11 +1057,11 @@ def simulate_elastic_point_transport(
                 + float(ray_weight) * distance
             )
             flight_start = position.copy()
-            endpoint, direction = advance_in_uniform_axial_field(
+            endpoint, direction = field_transport.advance(
                 position,
                 direction,
                 distance,
-                rotation_rate_rad_per_nm=rotation_rate,
+                energy_ev=energy_ev,
             )
             if points is not None and distance > 0.0:
                 stored_material_flights.append(
@@ -1065,11 +1081,11 @@ def simulate_elastic_point_transport(
                 points.append(endpoint.copy())
             position = endpoint
             if boundary is not None:
-                position, direction = advance_in_uniform_axial_field(
+                position, direction = field_transport.advance(
                     endpoint,
                     direction,
                     geometry.epsilon_nm,
-                    rotation_rate_rad_per_nm=rotation_rate,
+                    energy_ev=energy_ev,
                 )
                 continue
             if free_path > remaining:

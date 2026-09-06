@@ -195,7 +195,7 @@ def physical_layout_records(result) -> tuple[PhysicalLayoutRecord, ...]:
             component, "effective_aperture_radius_mm", None
         )
         if (
-            profile == "adjustable_circular_aperture"
+            profile in {"adjustable_circular_aperture", "fixed_differential_pumping_aperture"}
             and effective_radius is not None
         ):
             bore = max(2.0 * float(effective_radius), 0.0)
@@ -350,9 +350,18 @@ def vacuum_bore_plot_points(assembly):
 
 
 def _lens_provider(state, lens):
-    if lens.key in CONDENSER_LENS_KEYS:
-        return state.condenser_system[lens.key]
-    return lens
+    native = (
+        state.condenser_system[lens.key]
+        if lens.key in CONDENSER_LENS_KEYS
+        else lens
+    )
+    from temsim.physics.lens_field_provider import (
+        resolve_runtime_lens_field_provider,
+    )
+
+    return resolve_runtime_lens_field_provider(
+        state, lens.key, native
+    )
 
 
 FIELD_FORMULAS = {
@@ -376,6 +385,16 @@ FIELD_FORMULAS = {
         "Bz(z) = provider.magnetic_field_t(z)",
         "#4ade80",
     ),
+    "joint_nonlinear": (
+        "Joint nonlinear B-H field",
+        "Bz(z; I1, ..., In), solved jointly",
+        "#4ade80",
+    ),
+    "joint_nonlinear_member": (
+        "Included in joint B-H field",
+        "No additional contribution; included in the joint field",
+        "#94a3b8",
+    ),
     "no_field_provider": (
         "No axial-field formula",
         "Bz(z) = 0",
@@ -385,14 +404,26 @@ FIELD_FORMULAS = {
 
 
 def _field_formula(lens, provider):
-    if all(
-        hasattr(provider, attribute)
+    formula_provider = getattr(provider, "native_provider", provider)
+    status = getattr(provider, "model_status", "")
+    if status == "joint_nonlinear_field":
+        key = "joint_nonlinear"
+    elif status == "included_in_joint_nonlinear_field":
+        key = "joint_nonlinear_member"
+    elif hasattr(provider, "field_map"):
+        # A mapped provider replaces, rather than decorates, its native field.
+        key = "solver_provider"
+    elif all(
+        hasattr(formula_provider, attribute)
         for attribute in ("upper_gaussian", "lower_gaussian")
     ):
         key = "dual_pole_gaussian"
     elif bool(getattr(lens, "normalise_profile_peak", False)):
         key = "peak_normalised_three_gaussian"
-    elif hasattr(lens, "gaussian") or hasattr(provider, "gaussian"):
+    elif (
+        hasattr(lens, "gaussian")
+        or hasattr(formula_provider, "gaussian")
+    ):
         key = "three_gaussian"
     elif hasattr(provider, "magnetic_field_t"):
         key = "solver_provider"
@@ -402,7 +433,35 @@ def _field_formula(lens, provider):
     return key, label, expression, colour
 
 
-def _field_model_semantics(formula_key: str) -> tuple[str, str, str]:
+def _field_model_semantics(
+    formula_key: str, provider=None
+) -> tuple[str, str, str]:
+    provider_status = str(getattr(provider, "model_status", ""))
+    if provider_status in {"joint_nonlinear_field", "included_in_joint_nonlinear_field"}:
+        return (
+            "finite joint FEM grid support",
+            "joint static B-H field" if provider_status == "joint_nonlinear_field"
+            else "control channel included in the joint static B-H field",
+            "axisymmetric geometry and material solved at the complete current "
+            "vector; no independent per-lens decomposition; control ownership "
+            "only prevents counting the joint field more than once",
+        )
+    if provider_status == "measured_or_fem_geometry_bound":
+        return (
+            "finite field-map grid support",
+            "measured/FEM field map matched to the current geometry",
+            "geometry fingerprint matched at runtime; source provenance and "
+            "divergence diagnostics remain inspectable",
+        )
+    if provider_status == "provisional_geometry_bound_analytic_not_fem":
+        return (
+            "numerical 7-sigma Gaussian-tail cutoff; native TOML analytic "
+            "profile",
+            "provisional geometry-bound analytic fallback; not FEM",
+            "pole geometry/material is not solved; geometry edits invalidate "
+            "imported maps but do not turn the fallback into a pole-shape "
+            "magnetostatic solution",
+        )
     if "gaussian" in str(formula_key):
         support = (
             "numerical 7-sigma Gaussian-tail cutoff; the analytic field has "
@@ -437,7 +496,7 @@ def lens_field_records(
             _field_formula(lens, provider)
         )
         support_definition, field_model_status, geometry_material_coupling = (
-            _field_model_semantics(formula_key)
+            _field_model_semantics(formula_key, provider)
         )
         if hasattr(provider, "magnetic_field_t"):
             field_t = np.asarray(provider.magnetic_field_t(z_mm), dtype=float)

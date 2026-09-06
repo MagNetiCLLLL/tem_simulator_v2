@@ -24,8 +24,9 @@ from temsim.specimen.geometry import (
 from temsim.specimen.source import migrate_legacy_structure_source
 
 
-PROFILE_FORMAT_VERSION = 2
+PROFILE_FORMAT_VERSION = 3
 _SAMPLE_MODEL_KEY = "__sample_model__"
+_SIMULATION_MODEL_KEY = "__simulation_model__"
 _PROFILE_VERSION_KEY = "__profile_format_version__"
 
 
@@ -50,6 +51,7 @@ def _atomic_write_profile(path: Path, document: dict) -> None:
 
 
 def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
+    from temsim.simulation_modes import capture_mode_settings, mode_key
     devices = {}
     for key, target in runtime_targets(state).items():
         values = {
@@ -68,6 +70,11 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
             "beam_blanker": selection.beam_blanker,
         },
         "devices": devices,
+        "simulation_model": {
+            "mode": mode_key(state),
+            "profiles": deepcopy(state.simulation_mode_profiles),
+            "settings": capture_mode_settings(state),
+        },
         "sample_model": {
             "orientation_quaternion_wxyz": list(
                 normalise_quaternion_wxyz(
@@ -94,7 +101,7 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
     if not isinstance(document, dict):
         raise ValueError("Operating profile must be a TOML table")
     format_version = int(document.get("format_version", 0))
-    if format_version not in {1, PROFILE_FORMAT_VERSION}:
+    if format_version not in {1, 2, PROFILE_FORMAT_VERSION}:
         raise ValueError("Unsupported operating-profile format")
     assembly = document.get("assembly")
     if not isinstance(assembly, dict):
@@ -110,6 +117,10 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
         raise ValueError("Operating profile devices must be a table")
     values = dict(devices)
     values[_PROFILE_VERSION_KEY] = format_version
+    model = document.get("simulation_model", {"mode": "custom"})
+    if not isinstance(model, dict):
+        raise ValueError("Operating profile simulation_model must be a table")
+    values[_SIMULATION_MODEL_KEY] = model
     if format_version >= 2:
         sample_model = document.get("sample_model", {})
         if not isinstance(sample_model, dict):
@@ -173,6 +184,13 @@ def apply_profile_values(state, values: dict) -> list[str]:
     values = dict(values)
     format_version = int(values.pop(_PROFILE_VERSION_KEY, 1))
     sample_model = values.pop(_SAMPLE_MODEL_KEY, None)
+    from temsim.simulation_modes import validate_mode, normalise_profiles, MODEL_SETTINGS
+    model = values.pop(_SIMULATION_MODEL_KEY, {"mode": "custom"})
+    if not isinstance(model, dict):
+        raise ValueError("Operating profile simulation_model must be a table")
+    selected_mode = validate_mode(model.get("mode", "custom"))
+    model_profiles = normalise_profiles(model.get("profiles", {}))
+    model_settings = normalise_profiles({selected_mode: model.get("settings", {})})[selected_mode]
     targets = runtime_targets(state)
     skipped = []
     pending = []
@@ -241,4 +259,16 @@ def apply_profile_values(state, values: dict) -> list[str]:
         state.sample.virtual_interactions = legacy_virtual_interaction_rows(
             state.sample
         )
+    state.simulation_mode = selected_mode
+    state.simulation_mode_profiles = model_profiles
+    for name in MODEL_SETTINGS:
+        if name in model_settings:
+            setattr(state, name, deepcopy(model_settings[name]))
+    for lens in state.lenses:
+        row = model_settings.get("lens_excitation", {}).get(lens.key)
+        if row is not None:
+            lens.percent, lens.polarity = row["percent"], row["polarity"]
+    state._runtime_lens_field_provider_cache = {}
+    state._lens_field_map_bindings = {}
+    state._simulation_mode_maps = {}
     return skipped

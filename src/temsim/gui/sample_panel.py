@@ -1339,6 +1339,7 @@ class SamplePage(QWidget):
         )
         self.eds_trajectory_plot.hide()
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setObjectName("samplePageSplitter")
         splitter.addWidget(self.controls_scroll)
         splitter.addWidget(scene_page)
         splitter.setStretchFactor(0, 0)

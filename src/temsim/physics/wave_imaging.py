@@ -81,6 +81,10 @@ class ProjectorWaveCheckpoint:
     y_angstrom: np.ndarray
     wavelength_angstrom: float
     convergence_semiangle_rad: float
+    # Separate configurations BEFORE the angular Objective pupil. This permits
+    # widening a readout aperture without inventing previously deleted phase.
+    unapertured_wave_configurations: tuple[np.ndarray, ...] = ()
+    objective_aperture_rad: float | None = None
 
 
 def _readonly_array(values, *, dtype=None) -> np.ndarray:
@@ -162,6 +166,24 @@ def reproject_wave_image(state, result: WaveImagingResult) -> WaveImagingResult:
         raise ValueError(
             "The cached TEM result has no Objective-side projector checkpoint."
         )
+    aperture_rad = _objective_aperture_rad(state)
+    if checkpoint.objective_aperture_rad != aperture_rad:
+        if not checkpoint.unapertured_wave_configurations:
+            # Legacy checkpoints cannot restore a wider pupil. An unchanged
+            # legacy aperture remains compatible with ordinary D/I/P replay.
+            previous = float(result.metrics.get("objective_aperture_mrad", math.inf)) * 1.0e-3
+            if not math.isclose(previous, aperture_rad, rel_tol=1.0e-12, abs_tol=1.0e-15):
+                raise ValueError("Recalculate TEM once to retain the pre-aperture wave configurations")
+        else:
+            dx = float(checkpoint.x_angstrom[1] - checkpoint.x_angstrom[0])
+            dy = float(checkpoint.y_angstrom[1] - checkpoint.y_angstrom[0])
+            fx, fy = np.meshgrid(np.fft.fftfreq(len(checkpoint.x_angstrom), dx),
+                                 np.fft.fftfreq(len(checkpoint.y_angstrom), dy))
+            mask = (fx**2 + fy**2 <= (aperture_rad / checkpoint.wavelength_angstrom)**2)
+            configurations = tuple(_readonly_array(np.fft.ifft2(np.fft.fft2(w) * mask))
+                                   for w in checkpoint.unapertured_wave_configurations)
+            checkpoint = replace(checkpoint, objective_wave_configurations=configurations,
+                                 objective_aperture_rad=aperture_rad)
     (
         raw_image,
         raw_electron_optical_image,
@@ -196,6 +218,7 @@ def reproject_wave_image(state, result: WaveImagingResult) -> WaveImagingResult:
             relative_standard_error
         ),
         "projector_checkpoint_reused": True,
+        "objective_aperture_mrad": aperture_rad * 1.0e3,
         "projector_checkpoint_configuration_count": configuration_count,
     })
     return replace(
@@ -205,6 +228,7 @@ def reproject_wave_image(state, result: WaveImagingResult) -> WaveImagingResult:
         camera_x_mm=camera_projection.x_mm,
         camera_y_mm=camera_projection.y_mm,
         metrics=metrics,
+        projector_checkpoint=checkpoint,
     )
 
 
@@ -324,7 +348,7 @@ def estimate_tem_wave_memory_bytes(state) -> int:
         )
 
     retained_exit_waves = (
-        configuration_count
+        3 * configuration_count  # specimen exit, post-pupil, and pre-pupil configurations
         * grid_points
         * _COMPLEX_EXIT_WAVE_BYTES_PER_PIXEL
     )
@@ -840,7 +864,7 @@ def _incident_wave(
     x0 = math.remainder(ray_stats["mean_x_m"] * 1.0e10, fov_x)
     y0 = math.remainder(ray_stats["mean_y_m"] * 1.0e10, fov_y)
     spectrum = aperture.astype(complex) * np.exp(-2j * math.pi * (fx * x0 + fy * y0))
-    wave = np.fft.ifft2(np.fft.ifftshift(spectrum))
+    wave = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(spectrum)))
     return wave / math.sqrt(max(float(np.mean(np.abs(wave) ** 2)), 1.0e-30))
 
 
@@ -1085,8 +1109,14 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
     raw_diffraction = np.zeros((ny, nx), dtype=np.float64)
     coherent_exit_wave = np.zeros((ny, nx), dtype=np.complex128)
     objective_wave_configurations = []
+    unapertured_wave_configurations = []
     fft_records = []
     for exit_configuration in exit_waves:
+        # Retain the residual aberration phase, but not the removable pupil.
+        unapertured, _, _ = apply_coherent_transfer(
+            exit_configuration, np.exp(-1j * chi),
+            compute_backend=fft_backend, fallback_reason=fft_fallback_seed)
+        unapertured_wave_configurations.append(_readonly_array(unapertured))
         objective_image_wave, diffraction_configuration, fft_diagnostics = (
             apply_coherent_transfer(
                 exit_configuration,
@@ -1105,6 +1135,8 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
             fft_backend = fft_diagnostics.compute_backend
             fft_fallback_seed = fft_diagnostics.fallback_reason
     projector_checkpoint = ProjectorWaveCheckpoint(
+        unapertured_wave_configurations=tuple(unapertured_wave_configurations),
+        objective_aperture_rad=float(aperture_rad),
         objective_wave_configurations=tuple(objective_wave_configurations),
         x_angstrom=_readonly_array(x_axis, dtype=np.float64),
         y_angstrom=_readonly_array(y_axis, dtype=np.float64),

@@ -2,6 +2,28 @@
 
 Clean PySide6 reconstruction of the TEM simulator.
 
+The **Live tuning** dock beside **Ray Diagram** supports continuous Preview/Medium optical
+tuning inside explicit lens/aperture ranges, followed by one final
+high-accuracy calculation. An optional advanced RAM bank separates physical stop
+readout from reusable propagation, including detector ranges. Open the dock from
+**View > Live tuning**; the detached detector table is under **Ray Diagram > Cached signals**.
+TEM/STEM images share the normal **Illuminating Image** and **Scanning Image**
+viewers. Their **Result source** selectors choose **Current calculation** or
+**Advanced bank** without changing parameters or requesting another calculation.
+See [Live tuning and cached signals](docs/INTERACTIVE_CALCULATION.md)
+for the workflow, supported controls and model limits.
+
+Use **View > Layouts** to save and select named workspace layouts. Window/dock
+sizes, page splitters and ray-panel visibility variants are retained separately
+for each layout, including after restart. See [Workspace layouts](docs/WORKSPACE_LAYOUTS.md).
+
+Use **Simulation > Performance and cache...** to retain more high-accuracy,
+Preview/Medium and display data, with separate RAM and disk limits. Exact result
+reuse and cached projection data speed up repeated Ray Diagram interaction.
+See [Ray interaction and cache settings](docs/RAY_INTERACTION_PERFORMANCE.md).
+Preview/Medium prepares requests in the background. Hidden Physical Layout,
+Magnetic Field and Transverse panels refresh only when opened.
+
 ## Development setup
 
 1. Run `setup_env.py` with a 64-bit Python 3.12 interpreter.
@@ -71,6 +93,26 @@ recalculation preserves a user's runtime direction override.
 
 ## Current MVP
 
+- **EDS** shows only the spectrum, its short status and hover energy/counts.
+  Electron paths, X-rays and interaction sites share **Sample Interactions 3D**,
+  with `3D / X-Z / Y-Z` views of the same cached scene. Its collapsible
+  **Parameters** panel hosts the existing EDS/support and local-region settings.
+  View changes do not recalculate physics or alter the stored spectrum.
+- Adds **Simulation** beside File and View for column-lens model selection:
+  Ideal Optics (new-window default), Analytical Field, explicit Linear Geometry
+  Field, configured static Nonlinear Material Field, and Custom / Per-lens Models.
+  Coupled Multiphysics remains disabled. Model selection is
+  independent of High accuracy; it retains per-mode settings and compatible
+  cached results without recalculating lens presets. See
+  [`docs/SIMULATION_MODES.md`](docs/SIMULATION_MODES.md) for scope and setup.
+- Supports a sourced FEMM pure-iron B-H reference and explicit SI CSV imports.
+  Static nonlinear fields solve configured coils jointly, without duplicating
+  saturated contributions or scaling stale operating points. See
+  [`docs/STATIC_NONLINEAR_MAGNETICS.md`](docs/STATIC_NONLINEAR_MAGNETICS.md).
+- Adds **Model Inspector > Field validation** for detached mesh/boundary studies
+  and cached R-Z material, field-strength and magnetic-flux views. Numerical
+  checks preserve operating values and images; Cs/Cc and external validation
+  remain separate. See [`docs/MAGNETIC_FIELD_VALIDATION.md`](docs/MAGNETIC_FIELD_VALIDATION.md).
 - Loads the FEG, FEG + monochromator and thermionic gun TOMLs.
 - Loads five C2/C3/corrector column arrangements with the Energy Filter
   recording system permanently installed; Instrument Setup no longer exposes
@@ -191,6 +233,61 @@ recalculation preserves a user's runtime direction override.
   rotation, handedness and anisotropy at objective and recording planes.
   Capturing one Image state and one Diffraction state at the same plane gives
   the normalised diffraction-vector-to-image-direction transform.
+- Adds **Design Explorer** after **Optical Transfer**. It distinguishes
+  calculated, reused, stale, missing and inactive High accuracy products,
+  and compares detached A/B setting captures without launching a solver or
+  copying ray, image or spectrum arrays. Cache status is not presented as
+  physical validation. Scan calibration and ray-diagram playback have separate
+  cache identities, so Descan-only operation does not create a false playback
+  result. The manually built sample-local 3D paths are also cached separately
+  from post-specimen D/I/P propagation; projector changes preserve the local
+  electron/X-ray paths and repeat only the downstream transport and clipping.
+  The signed specimen-exit checkpoint is a first-class cached product shared
+  in both directions by geometric STEM and Sample Interactions 3D; matching
+  branches are reused, while stale or unsigned checkpoints are rebuilt once.
+- Implements expansion stages 1–6 without tomography or ptychography:
+  1. an immutable calculation manifest and bounded disk artifact store retain
+     dependency-scoped High accuracy checkpoints;
+  2. Design Explorer provides detached A/B recipes, bounded history and real
+     production-pipeline sweeps with progress, cancellation, sensitivity
+     estimates and user-defined tolerance checks;
+  3. image and diffraction coordinates are mixed at each physical recording
+     plane before ordered aperture/detector interception;
+  4. optional 4D-STEM streams transport-neutral diffraction probabilities to
+     disk, supports resumable acquisition, then applies dose, detector response
+     and virtual-detector masks as repeatable derived products;
+  5. EDS uses finite-specimen photon transport, while EELS and EFTEM share one
+     inelastic-loss distribution;
+  6. measured or FEM magnetic-field maps can replace the provisional analytic
+     lens field only when their SI units and geometry fingerprint match the
+     installed lens and pole pieces.
+  Mechanical edits preserve the current lens strengths and invalidate only
+  products whose scoped geometry changed. A field map from a different pole
+  shape, gap, bore, position or assembly is rejected rather than silently
+  reused. Initial lens strengths are calculated once after a complete assembly
+  has been resolved; subsequent component edits do not automatically reapply a
+  preset.
+- Imported-field repairs: column rays now sample all three magnetic components
+  at their own XYZ positions using a CPU Lorentz/RK4 path. The imported lens's
+  native Gaussian field and preview Cs kick are excluded to avoid double
+  counting. Rotated map support covers the entire volume. Restart plans freeze
+  map content and excitation, including on disk; changing transverse field
+  components invalidates the affected segment even when axial Bz is unchanged.
+  Direct Alignment uses this same distributed solver for arbitrary field maps.
+  The optional equivalent-image model integrates the current mapped Bz for
+  centred, aligned RZ maps; tilted, displaced or Cartesian maps use distributed
+  transport instead. First-order recording maps also retain beam displacement.
+- Scientific boundaries remain explicit. The fallback Gaussian lens field is
+  geometry-bound but is not a magnetostatic pole-piece solution; physically
+  geometry/material-coupled fields require a matching measured/FEM map. Global
+  analytic-lens transport remains paraxial. Imported-map ray transport assumes
+  forward motion along Z and requires step/grid convergence; turning rays need
+  a time-domain solver. Recording-plane maps remain local first-order
+  approximations, specimen-local magnetic transport remains axial, and wave
+  aberration coefficients are not inferred from imported 3D maps. EELS is a
+  probability-per-incident-electron forward model, and 4D detector response is
+  a derived model rather than a calibrated hardware response. These results are
+  labelled as such rather than presented as calibrated experimental predictions.
 - Makes every resolved name, centre marker and drawn hardware body on
   **Physical Layout** and **Energy Filter** a navigation target. Dashed
   leaders remain visual guides and do not intercept clicks intended for the
@@ -425,8 +522,11 @@ and distinct from the downstream Iliad spectrometer entrance aperture. The
 configured 0.2 mm bore is a documented Tecnai/Talos-family reference, not a
 confirmed Titan production dimension; the unavailable plate thickness remains
 a zero-length mechanical reference with schematic display thickness. This
-accessory is intentionally mechanical-only: it adds no ray clipping, optical
-reference plane, conjugacy constraint or preset-lens recalculation.
+stop now participates in ray and coherent-wave clipping. Its opening and X/Y
+offsets are editable in **Apertures**; its axial position is editable in TOML.
+Gun/anode and spectrometer-entrance apertures are also listed there and remain
+**Always inserted** when installed. Movable apertures retain their insertion
+switches. No conjugacy constraint or automatic preset recalculation is added.
 
 Every Camera, Fluorescent Screen and BF/DF/HAADF row defines
 `signal_collection_surface = "upstream_top_surface"`. Its optical reference
@@ -541,6 +641,36 @@ electrostatic envelopes, labels unknown external packages instead of inventing
 them, and keeps X/Z scaling independent. Clicking a label, centre marker or
 drawn body opens the same component in the left editor. Runtime controls use
 **Operating**; structural values and evidence status use **TOML**.
+
+## Physics model controls and design studies
+
+The [magnetic-circuit model notes](docs/MAGNETIC_CIRCUIT_MODELS.md) distinguish
+optical channels from independent/shared magnetic bodies. Model Inspector's
+**Magnetic circuits** subtab shows structure and evidence without recalculating.
+Explicit axisymmetric radial profiles are shared by the physical drawing and
+field material mask. Monolithic saturation designs reject the linear solver;
+their imported maps are valid only at the documented operating point.
+
+See [the six-stage implementation notes](docs/SIX_STAGE_PHYSICS_IMPLEMENTATION.md)
+for the supported numerical models and their limits. **Model Inspector** exposes
+explicit geometry-field inputs and exclusive Manual / Field-derived aberration
+modes. **Design Explorer** supports multiple independent runtime-parameter axes
+on detached A/B snapshots, with a 64-point Cartesian-product limit.
+
+The axisymmetric geometry solver is a linear-permeability model, not an OEM
+calibration. It rejects overlapping coil/pole material. The current Objective
+reconstruction requires that overlap to be resolved before using a generated
+field; analytic and registered-map modes remain available. Geometry edits do
+not trigger preset-strength optimisation.
+
+## Enhancement roadmap
+
+See the [six-stage enhancement plan](docs/ENHANCEMENT_PLAN_2026-09-06.md) for
+planned interaction, result-integrity, persistent-cache and geometry-validation
+improvements. It records delivery order, acceptance criteria and stage status.
+The [stage 1 rendering notes](docs/RAY_INTERACTION_PERFORMANCE.md#stage-1-incremental-result-presentation)
+distinguish implemented graphics reuse from the outstanding end-to-end timing
+target.
 
 ## License
 

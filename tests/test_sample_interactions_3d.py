@@ -75,6 +75,84 @@ def test_high_accuracy_cache_builds_local_3d_scene_without_new_physics():
     assert not scene.has_bounded_result
 
 
+def test_xz_yz_views_reproject_one_scene_without_calculation(qtbot, monkeypatch):
+    import temsim.gui.sample_interactions_3d as view_module
+
+    page = SampleInteractions3DPage()
+    qtbot.addWidget(page)
+    page.resize(900, 700)
+    page.show()
+    page.display_result(_calculation_result())
+    cached = page.scene_snapshot
+    originals = tuple(path.positions_nm.copy() for path in cached.paths)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("View changes must not rebuild the scene or physics")
+    monkeypatch.setattr(view_module, "build_sample_interaction_scene", forbidden)
+    monkeypatch.setattr(view_module, "SpecimenFieldTransport", forbidden)
+
+    page.set_view_mode("xz")
+    assert page.view.listDataItems()[0].xData == pytest.approx(originals[0][:, 0])
+    page.view.setRange(xRange=(-50, 50), yRange=(-80, 80), padding=0)
+    previous_range = np.asarray(page.view.viewRange())
+    page.view_buttons["yz"].click()
+    assert page._view_mode == "yz"
+    assert page.view.listDataItems()[0].xData == pytest.approx(originals[0][:, 1])
+    assert page.view.listDataItems()[0].yData == pytest.approx(originals[0][:, 2])
+    assert page.view.getAxis("bottom").labelText == "Local Y"
+    assert page.view.getViewBox().state["yInverted"] is True
+    np.testing.assert_allclose(page.view.viewRange(), previous_range)
+    page.fit_material.click()
+    page.view_buttons["xz"].click()
+    np.testing.assert_allclose(page.view.viewRange(), previous_range)
+    assert page.scene_snapshot is cached
+    for path, original in zip(cached.paths, originals, strict=True):
+        np.testing.assert_array_equal(path.positions_nm, original)
+
+
+def test_3d_projection_roundtrip_preserves_camera_without_opengl_execution(qtbot, monkeypatch):
+    """Renderer API fixture only: no desktop/GPU visual validation is claimed."""
+    import temsim.gui.sample_interactions_3d as view_module
+
+    class FakeGLView(QWidget):
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.opts = {"center": QVector3D(), "distance": 100.0,
+                         "fov": 60.0, "elevation": 18.0, "azimuth": -45.0}
+            self.items = []
+
+        def setBackgroundColor(self, colour):
+            pass
+
+        def setCameraPosition(self, **values):
+            self.opts.update(values)
+
+        def addItem(self, item):
+            self.items.append(item)
+
+        def removeItem(self, item):
+            self.items.remove(item)
+
+    monkeypatch.setattr(view_module, "gl", SimpleNamespace(
+        GLViewWidget=FakeGLView,
+        GLLinePlotItem=lambda **kwargs: SimpleNamespace(**kwargs),
+        GLScatterPlotItem=lambda **kwargs: SimpleNamespace(**kwargs),
+    ))
+    monkeypatch.setattr(view_module, "QGuiApplication", SimpleNamespace(
+        platformName=lambda: "renderer-api-fixture",
+    ))
+    page = SampleInteractions3DPage()
+    qtbot.addWidget(page)
+    page.display_result(_calculation_result())
+    scene = page.scene_snapshot
+    page.view.setCameraPosition(distance=543.0, elevation=27.0, azimuth=12.0)
+    before = page._capture_view_state()
+    for mode in ("xz", "yz", "3d"):
+        page.view_buttons[mode].click()
+        assert page.scene_snapshot is scene
+    assert page._capture_view_state() == before
+    assert len(page._gl_view.items) == len(page._items)
+
+
 def test_3d_display_maps_physical_downstream_z_toward_screen_down():
     physical = np.asarray(((1.0, 2.0, -5.0), (3.0, 4.0, 7.0)))
 
@@ -133,6 +211,85 @@ def test_bounded_scene_uses_global_to_local_coordinates_and_skips_secondaries():
         pytest.approx(100.0)
     )
     assert scene.has_bounded_result
+
+
+def test_bounded_scene_prefers_v2_photon_transport_endpoints_and_metrics(qtbot):
+    calculation = _calculation_result()
+    interactions = calculation.specimen_interactions
+    photon = SimpleNamespace(
+        origin_mm=(0.0, 0.0, 1.5),
+        direction=(1.0, 0.0, 0.0),
+        energy_ev=1_740.0,
+    )
+    exact = SimpleNamespace(
+        photon=photon,
+        detector_hit_mm=(0.001, 0.0, 1.5),
+        material_intervals=(),
+        detected_weight=0.2,
+        terminal_status="detected",
+        transport_mode="sourced_planar_segment_intersection",
+    )
+    blocked_photon = SimpleNamespace(
+        origin_mm=(0.0, 0.0, 1.5),
+        direction=(0.0, 1.0, 0.0),
+        energy_ev=1_740.0,
+    )
+    interval = SimpleNamespace(
+        entry_distance_mm=0.0002,
+        hard_shadow=True,
+    )
+    blocked = SimpleNamespace(
+        photon=blocked_photon,
+        detector_hit_mm=None,
+        material_intervals=(interval,),
+        detected_weight=0.0,
+        terminal_status="blocked_by:objective_upper_pole",
+        transport_mode="sourced_planar_segment_intersection",
+    )
+    transport = SimpleNamespace(
+        paths=(exact, blocked),
+        geometry_complete=True,
+        metrics={
+            "detector_hit_count": 1,
+            "blocked_photon_count": 1,
+            "specimen_intersection_count": 2,
+            "mean_specimen_transmission": 0.75,
+        },
+    )
+    region = SimpleNamespace(
+        entry_z_mm=1.49995,
+        exit_z_mm=1.50005,
+        interactions=interactions,
+        downstream_branches=(),
+        electron_paths=(),
+        photon_transport=transport,
+        photon_paths=(SimpleNamespace(
+            positions_mm=np.asarray(((0.0, 0.0, 1.5), (10.0, 0.0, 1.5))),
+            detected=False,
+            provenance="legacy path must not be drawn",
+        ),),
+    )
+
+    scene = build_sample_interaction_scene(calculation, region)
+    xray_paths = tuple(
+        path for path in scene.paths if path.category.startswith("xray_")
+    )
+    assert len(xray_paths) == 2
+    np.testing.assert_allclose(
+        xray_paths[0].positions_nm[-1], (1_000.0, 0.0, 0.0)
+    )
+    np.testing.assert_allclose(
+        xray_paths[1].positions_nm[-1], (0.0, 200.0, 0.0)
+    )
+
+    page = SampleInteractions3DPage()
+    qtbot.addWidget(page)
+    page.display_result(calculation)
+    page.set_sample_region_result(region)
+    assert "exact-face" in page.summary.text()
+    assert "1 hit" in page.summary.text()
+    assert "1 blocked" in page.summary.text()
+    assert "mean transmission 0.75" in page.summary.toolTip()
 
 
 def test_3d_page_exposes_cached_view_and_explicit_calculation_request(qtbot):

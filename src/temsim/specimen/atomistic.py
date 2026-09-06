@@ -448,7 +448,13 @@ def _build_one_potential(
     # abTEM stores real-space axes as (X, Y); temsim and NumPy imaging use
     # (..., Y, X), so transpose exactly once at this boundary.
     array = np.asarray(built.array, dtype=np.float32).transpose(0, 2, 1)
-    array = np.fft.fftshift(array, axes=(-2, -1))
+    # Periodic reference cells place crystal origin at abTEM's box origin;
+    # move that origin to the centre of our signed real-space axes. Finite
+    # CIF boxes already place specimen-local zero at the box centre in
+    # _build_cif_atoms, so shifting them again displaces atoms by half an FOV
+    # and makes the subsequently applied finite-envelope mask incorrect.
+    if bool(np.all(np.asarray(atoms.pbc, dtype=bool))):
+        array = np.fft.fftshift(array, axes=(-2, -1))
     thicknesses = np.asarray(built.slice_thickness, dtype=np.float64)
     if array.ndim != 3 or array.shape[0] != thicknesses.size:
         raise RuntimeError("abTEM returned an invalid potential-slice array.")
@@ -554,6 +560,10 @@ def build_atomistic_potential_ensemble(
         max(16, int(round(length / requested_sampling)))
         for length in realised_lengths[:2]
     )
+    if not bool(np.all(np.asarray(equilibrium.pbc, dtype=bool))):
+        # Finite-box zero is exactly L/2. Keep it on the N//2 grid point;
+        # an odd grid would otherwise introduce a half-pixel displacement.
+        gpts_xy = tuple(2 * int(math.ceil(count / 2)) for count in gpts_xy)
     estimated_slices = max(
         1,
         int(

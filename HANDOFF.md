@@ -1,6 +1,6 @@
 # TEM Simulator v2 — Project Handoff
 
-Last updated: 2026-08-31
+Last updated: 2026-09-07
 
 ## Purpose
 
@@ -8,6 +8,600 @@ This file is the persistent handoff for continuing development. Keep it focused
 on current behaviour, confirmed design decisions, provisional assumptions and
 the next concrete work. `README.md` remains the user/developer overview and
 `CHANGELOG.md` remains the release history.
+
+## Stage 1: incremental ray and magnetic graphics
+
+- New ray results reuse unchanged component, specimen, wall and crossover layers;
+  ray and stop groups update in place. Removed layers release their items,
+  labels, legend entries and old ray payloads. Only the initial waiting notice
+  requires a full scene clear.
+- Mechanical/aperture/detector drawing inputs are value-keyed independently from
+  physical result identities. Same-object republication still invalidates
+  projected-array caches. Geometry edits preserve user X/Y ranges; Fit remains
+  explicit.
+- Cursor identity and in-flight position survive publication. The latest
+  detector-versus-Z focus choice is retained. Pending rotation and result
+  publication cannot leave aperture/detector graphics at an old angle.
+- MagneticFieldView reuses curves, markers, legends and selected support. Field
+  and rotation providers still evaluate the latest snapshot; no new physics
+  memoization or preset calculation was introduced.
+- The implementation, benchmark scope and outstanding 50 ms end-to-end target
+  are documented in `docs/RAY_INTERACTION_PERFORMANCE.md`. Stages 2-6 of
+  `docs/ENHANCEMENT_PLAN_2026-09-06.md` have not been started.
+- Final combined validation: 110 tests passed (288.84 s); another 16 selected
+  existing GUI-shell checks passed separately. The isolated synthetic benchmark
+  measured 94.87 ms median same-geometry publication versus 263.38 ms fresh-scene
+  construction. Rotation/Z event-inclusive p95 values were 217.37/126.22 ms:
+  the 50 ms complete-response target is still open. Raw output is in
+  `docs/benchmarks/RAY_SCENE_2026-09-07.json`; no native/GPU FPS claim is made.
+
+## Unified TEM/STEM result viewers
+
+- Ray Diagram > Cached signals now contains the detached physical-detector
+  table, not duplicate TEM/STEM image widgets. The normal Illuminating Image
+  and Scanning Image > Images viewers have independent Result source selectors:
+  Current calculation / Advanced bank.
+- Switching a source is presentation-only. It cannot request a solve/readout or
+  apply bank settings to live State. Both main and bank products remain retained;
+  new main results do not replace a displayed bank image. Pending/failed bank
+  readouts retain previous images with an explicit status; missing products are
+  unavailable rather than borrowing current images.
+- InteractiveReadout carries the detached readout-state snapshot for provenance
+  and detector geometry. Main scan playback/paused frames remain independent of
+  static bank presentation. Geometry/4D-STEM and parameter/aberration controls
+  continue to refer to the current instrument. Bank coordinates and approximation
+  notes are available in source-status tooltips.
+- Removed cachedSignalTabs saved layout entries are safely ignored by the
+  existing name-based layout restoration; other tab/splitter names are retained.
+- Validation: 110 focused tests passed, 3 production integration cases deselected
+  in 103.92 s. Coverage includes shared routing, TEM/STEM source isolation,
+  paused/main frames, bank failure/debounce handling, layout restoration,
+  analytical bank clipping, scan and 4D-STEM regressions. No full high-accuracy
+  imaging or preset solve. Changed Python files compile; whitespace checks pass.
+  Offscreen screenshots use explicitly synthetic arrays, only for UI inspection.
+  The existing non-fatal pyqtgraph destroyed-signal warning remains at teardown.
+
+## Background requests and lazy ray panels
+
+- MainWindow Preview/Medium uses CalculationController.submit_background.
+  CapturedCalculationRequest owns copied editable values and small live-geometry
+  components; only recursively frozen installed assembly data is shared. Workers
+  do not read or serialize the live State. Full snapshot reconstruction and exact
+  identities are prepared off-thread; cache dispatch remains on the GUI thread.
+- Preserve both identities: original live model signature can differ from a
+  TOML-normalized calculation snapshot. The new capture carries the former's
+  geometry/anchors instead of replacing it with the normalized model signature.
+- One generation/lifecycle spans preparation, cached delivery and ray tracing.
+  Latest-value live scheduling remains; obsolete preparations cannot launch
+  solvers. Cache completion is generation-checked after result callbacks too,
+  preventing reentrant requests from being finished by an older cache hit.
+- Physical Layout, Magnetic Field and Transverse keep a newest-only pending
+  result while hidden. Visibility applies current result/focus/Z/projection.
+  Magnetic X follows current Ray X; user ranges survive deferred refresh.
+  Pending magnetic diagnostics are labelled, never silently served as current.
+  Shared scientific publication and high-accuracy retained products remain eager.
+- Explicit High accuracy still uses the prior synchronous request contract.
+  Full static/dynamic scene separation on each new ray result is a later step.
+  MainWindow close invalidates pending work. No preset strengths or physical
+  calculation approximations changed. See scripts/benchmark_request_preparation.py.
+- Physical Layout label packing now updates the ViewBox transform before
+  measuring labels and repacks on viewport resize, including first activation
+  after a hidden update.
+- Validation: 182 focused tests passed across three separate selections
+  (97 backend/cache, 45 presentation, 40 main-window/live/layout). The real
+  small-bundle CPU drag test uses the background path; controlled solver tests
+  explicitly keep their synchronous test boundary. Compilation/whitespace
+  checks passed. No full high-accuracy image or preset solve was run.
+- Serial warm request benchmark (8 repeats): GUI preparation 530.39 ms before
+  versus 5.57 ms capture now, plus 545.13 ms moved to background. Exact snapshots
+  and signatures match. These numbers are request preparation only, not solver
+  speed or display frame-rate claims. See docs/RAY_INTERACTION_PERFORMANCE.md.
+
+## Ray interaction and bounded caches (2026-09-06)
+
+- Simulation > Performance and cache provides persistent, modeless retention
+  controls: high accuracy up to 8 GiB/32 entries by default, live tuning 1 GiB/128
+  entries, ray display 512 MiB and disk checkpoints 16 GiB. RAM defaults adapt to
+  hardware; the dialog caps aggregate managed caches at half physical RAM.
+- Preview/Medium now have exact-signature LRU histories with shared-buffer memory
+  accounting. Latest compatible seeds and asynchronous generation guards remain.
+  High-accuracy results are retained independently; no interpolated optics or
+  automatic preset/image calculation was introduced.
+- Scalar live edits validate the full batch without a pre-edit instrument
+  snapshot and refresh existing parameter widgets in place. Worker snapshots
+  remain detached. Analytical Objective reference-plane roots have a bounded,
+  exact-parameter scalar cache to avoid repeated solves during state construction.
+- Ray rotation reuses clipped X/Y bases and existing scene items; pan/zoom reuses
+  sampled projected-slope summaries. Explicit result publication invalidates
+  derived display data. User plot ranges, clipping endpoints and scan offsets
+  retain their existing semantics. See docs/RAY_INTERACTION_PERFORMANCE.md.
+- Cache preferences do not change physical state, submit calculations, cancel
+  workers or erase visible results. Disk quota enforcement is deferred to the
+  next managed checkpoint write; disk storage does not yet persist all images.
+- Final combined regression: 126 tests passed in 149.10 s across cache
+  preferences/integration, live scalar edits, live slider updates, interactive
+  calculations, cache capacity, Objective plane caching and ray-display caching.
+  Includes the real small-bundle solver during sustained slider motion. Additional
+  controller/artifact and ray/scan regression selections passed separately.
+  No full high-accuracy image run or preset recalculation. A pyqtgraph teardown
+  destroyed-signal disconnect warning remains; tests exited successfully.
+
+## Sourced lens material defaults (2026-09-06)
+
+- JEOL polepiece/yoke/objective documentation supports a generic pure-iron
+  magnetic-body default and the existing copper winding model. This is an
+  explicit reference design, not a Titan material identification. Research,
+  sources, scope and workflow: docs/LENS_MATERIAL_DEFAULTS.md.
+- configs/materials/lens_defaults.toml selects the existing FEMM Pure Iron
+  curve by stable key. Linear permeability 14872 is the pinned block's constant
+  Mu_x/Mu_y value, not a fit to its B-H points. Source SHA-256, both constants
+  and all 21 B-H pairs were verified against the pinned remote source.
+- Model Inspector pre-fills unconfigured material drafts and provides Use
+  default material. Applying still requires an explicit coil input. Saved
+  numeric/material snapshots and material-class overrides are preserved;
+  custom material selections no longer leak into another unconfigured lens.
+  Linear reference attribution is persisted unless its value is overridden.
+- Material configuration is included in wheel data files. No assembly geometry,
+  excitation percentage, high-accuracy settings or preset strengths changed.
+  No recipe is silently installed and no setup/convergence guard is bypassed.
+- Validation: 37 material/inspector/nonlinear tests passed, followed by 2
+  linear-field/profile regressions (39 total). Existing Pydantic deprecation
+  warnings remain. Changed Python files compile and offscreen material controls
+  were visually inspected with Segoe UI explicitly loaded for the headless
+  renderer. No full suite, high-accuracy column run or OEM validation was run.
+
+## Named workspace layouts and per-state panel sizes (2026-09-06)
+
+- View > Layouts supports Default and user-named layouts, Save current layout,
+  and Save layout as. Changes autosave after 600 ms idle, before switching
+  layouts, and on close; the last active layout is restored at startup.
+  Existing legacy main-window/live-control preferences migrate without a reset.
+- Versioned QSettings snapshots retain main-window and native dock geometry,
+  tabbed/floating/hidden dock state, 13 named application splitters, selected
+  presentation tabs and magnetic/transverse/Advanced-bank visibility. Ray
+  splitter sizes are stored independently for each magnetic/transverse switch
+  combination. Hidden pages restore on Show after Qt allocates their space.
+- Layout restoration blocks presentation-tab signals and never applies model
+  parameters or clears results. The component-selection handler no longer
+  enlarges the instrument editor automatically. Reset only changes the active
+  named layout; other saved layouts remain intact.
+- Scope and workflow: docs/WORKSPACE_LAYOUTS.md. Stable widget names identify
+  application panels, not fragile list indices or ambiguous third-party names.
+  Physical settings, cached calculations and plot camera/zoom are not layout
+  data. Normal Qt screen/minimum-size safeguards still constrain restoration.
+- Validation: 39 focused GUI/layout/scheduling regressions passed (138.26 s);
+  the unchanged real-ray integration case was deselected. This includes eight
+  new persistence/isolation/autosave tests and existing floating-dock checks.
+  Menu rendering was inspected offscreen. No high-accuracy or unchanged physics
+  suite was run; native pointer dragging and physical multi-monitor/DPI changes
+  were not exercised.
+
+## Live tuning dock and shared Ray Diagram (2026-09-06)
+
+- Removed the top-level Interactive Calculation tab and its duplicate live ray
+  plot. The only live plot is now Ray Diagram > Rays, including Medium support
+  outlines, projection, transverse view and the user's fixed plot range.
+- Live tuning is a native closable/movable/floatable dock, initially hidden and
+  tabified beside Instrument setup and parameters. View > Live tuning and the
+  Ray Diagram button share its toggle action. The aligned range/reference and
+  slider columns remain together; the optional Advanced bank is retained.
+- First opening allocates a readable control width when space permits. Later
+  openings preserve the user's width. Dock visibility, placement and floating
+  size use the main workspace settings; internal control widths have a new
+  key so the obsolete three-pane saved state is not misapplied.
+- Detached bank detector readouts are in Ray Diagram > Cached signals; TEM/STEM
+  now share the main viewers via Result source (see the newer entry above).
+  Live status is separate and cannot relabel or redraw a cached signal.
+  Closing/reopening the dock does not destroy ranges, controls, caches or
+  current results, and does not start or cancel calculation. Component/Z
+  navigation and starting live tuning reveal the shared Rays subpage.
+- Validation: 32 focused Qt/layout/scheduling regressions passed (112.97 s),
+  including real CPU small-bundle frames during sustained slider motion. The
+  final first-open width/persistence change passed all four dock regressions
+  (24.70 s). Changed-file compilation and offscreen layout inspections passed.
+  No high-accuracy specimen calculation or unchanged physics suite was run;
+  native Windows pointer docking/dragging was not exercised.
+
+## Live optical tuning before one final signal calculation (2026-09-06)
+
+- Mixed-range slider fix: detector draft rows no longer reject the entire live
+  plan. Lens/aperture sliders remain aligned and usable; detector references
+  display Advanced bank and are excluded from live updates. Detector bounds
+  are still retained and fully validated when building the detached bank.
+  A detector-only live request gives a concise explanation without starting work.
+  Validation: reproduced the reported C1/DF-Z/Objective failure before the fix;
+  24 focused UI/scheduling tests passed (66.53 s), with the unchanged real-ray
+  integration case deselected. Offscreen mixed-row layout inspection and
+  changed-file compilation passed. No high-accuracy physics calculation run.
+- Adding a unit reads its current live value into a copyable, read-only
+  Reference column; it does not invent bounds or alter the capture snapshot.
+  The middle controls now use identity-matched table rows with linked heights,
+  vertical placement and scrolling. Resizing and Advanced-bank expansion keep
+  alignment. Draft edits preserve active bank/live controls, with unmatched
+  controls explicitly labelled Active only rather than paired with a wrong unit.
+  Validation: 17 focused GUI/scheduling regressions passed (58.91 s), plus
+  offscreen layout inspection and changed-file compilation. The unchanged
+  real-ray integration test was deselected for this UI-only change.
+- Continuous slider refresh: replaced the page's restart-on-every-edit debounce
+  with a 50 ms latest-value throttle and release flush. Main-window live tuning
+  bypasses the second debounce and lets one ray frame finish, retaining only
+  the latest pending settings. This avoids cancellation starvation during drag.
+  Intermediate frames are explicitly labelled Updating and never restore older
+  lens values. Ordinary model edits still invalidate workers; High accuracy
+  clears pending live work. Completed high-accuracy products remain retained.
+  Validation includes sustained motion with the real CPU small-bundle solver,
+  changed ray coordinates, final-value readback and controlled queue/error tests.
+  All 15 selected layout, live-refresh and controller regressions passed
+  (66.13 s); changed Python files passed compilation checks.
+  No high-accuracy specimen/image calculation or unchanged physics suite is run.
+- Interactive Calculation now uses three independently resizable columns:
+  range selection, live/cached controls, and ray/signal views. Component names
+  sit to the left of their sliders; controls scroll together with range rows.
+  Three-pane widths use a separate QSettings key from the former two-pane layout.
+  This is a UI-only change: existing tuning and bank signals are unchanged.
+  Validation: seven focused layout/control tests and an offscreen visual check;
+  no unchanged physics suite or high-accuracy calculation was rerun.
+- The reported 60%/3-of-5 stop was an explicit 6 GiB bank limit, not a hung
+  solver. Live Preview/Medium tuning now avoids building a high-accuracy bank
+  for each focus value. Advanced banks remain optional, collapsed by default,
+  and an oversized first-point storage projection stops construction early.
+- The toolbar selects Preview (49 rays, 1 mm maximum step) or Medium (160
+  interior source samples plus 33 zero-current support probes, 0.25 mm step).
+  Static column fields, selected physical-model tier and clipping remain active;
+  sample scattering, spectra, multislice, raster frames and full transfer
+  diagnostics are deferred. Medium shading is sampled support, not density or
+  a guaranteed outer envelope. A low-count trace may miss a narrow aperture.
+- Interactive Calculation requires explicit endpoints for continuous live lens
+  and aperture operating controls. These intentionally update current settings
+  and Ray Diagram; detector geometry remains detached Advanced-bank readout.
+  Bank sample counts/RAM settings are hidden until Advanced bank is expanded.
+  The final action flushes the last slider value and submits one High accuracy
+  request, with the already selected signal products. No automatic lens preset.
+- Existing RK4 equations are reused by a serial Numba tuning kernel in Auto;
+  NumPy fallback and explicit backend choices remain. Obsolete queued requests
+  are dropped, results are generation-checked and cancellation is checked around
+  integration segments. Native kernels are not force-killed. Tuning snapshots
+  and prefix seeds remain separate from completed High accuracy products.
+- Preview/Medium cannot erase completed images/spectra even if sparse rays miss
+  the sample. Changed results are marked stale, and user Ray Diagram limits
+  remain fixed. Last live sliders, source flags, cache isolation, analytical
+  support/clipping and serial/NumPy equivalence have regression coverage.
+- Validation: 55 targeted tests passed (85.21 s), followed by a 30-test final
+  UI/range regression (71.60 s) and all 11 new tuning tests (25.87 s), including
+  the added Objective-edit/prefix-reuse case. These selections overlap.
+  Default assembled CPU/Auto worker
+  timings after warmup were Preview 0.404 s and Medium 0.923 s (initial runs
+  1.721 s / 2.446 s). These exclude GUI/snapshot overhead and are not universal
+  real-time guarantees. Full acquisition, nonlinear/FEM benchmarks and the full
+  repository suite were not run. No preset solve, Git push or shutdown requested.
+- Final offscreen page layout was inspected; the quality selector is only in
+  the main toolbar and the new plots use explicit mm labels (no SI-prefix/mm
+  concatenation). Changed Python files compile and whitespace checks pass.
+- See `docs/INTERACTIVE_CALCULATION.md`. This supersedes the former bank-first
+  default described in the following historical checkpoint.
+
+## Interactive range calculation and independent readout (2026-09-06)
+
+- New English **Interactive Calculation** tab captures a detached state and
+  requires explicit Minimum/Maximum endpoints, optical sample counts and a
+  pinned RAM limit. Lens and upstream-aperture axes form up to 256 exact nodes;
+  downstream-aperture and inserted-detector controls are continuous readout axes.
+  No interpolation, extrapolation, automatic preset solve or live geometry edit.
+- Completed main results seed dependency-compatible nodes without being replaced.
+  Bank replacement is transactional; failure, cancellation and changed external
+  files retain the old complete bank. Latest-wins readout discards superseded
+  responses. Main calculations/alignment and range workers cannot overlap.
+- Ray replay preserves emitted-source weights, pre-sample losses and wall stops,
+  then re-evaluates ordered apertures and recording planes. Zero openings block
+  even on-axis rays. TEM retains pre-pupil complex configurations for reopening
+  the Objective aperture and repropagates affected downstream waves.
+- Wave STEM retains a bounded RAM diffraction-probability cube. Compatible P2
+  nodes and later detector/aperture readouts reuse this cube rather than repeat
+  specimen calculations. This remains angle-resolved first-order routing, not
+  arbitrary-plane coherent STEM. Uncached high-angle tails disable changed-stop
+  STEM output explicitly. EDS-array range controls are not included.
+- Validation: 77 related tests passed (104.88 s), followed by a final rerun of
+  all 16 new tests (42.50 s), including an added analytical detector-Z test using
+  the production camera component. Four focused offscreen GUI tests also passed.
+  Small CPU production cases verify source-checkpoint reuse, TEM replay against
+  a fresh projection and exactly one STEM specimen call for two P2 nodes.
+  These runs overlap; they are not a full-suite count or a production speed claim.
+  Offscreen layout was inspected. Full acquisition/GPU benchmarking was not run.
+- See `docs/INTERACTIVE_CALCULATION.md`. Banks are session-local; JSON export
+  contains the plan only. Existing unrelated worktree changes were preserved.
+  No preset calculation, commit, push or shutdown was requested for this task.
+
+## Fixed optical apertures (2026-09-06)
+
+- Apertures navigation includes gun/anode, projection-chamber DPA and
+  spectrometer-entrance stops. The optional NanoPulser stop exposes its original
+  TOML editor, not a disposable runtime copy. EELS internals remain in Energy Filter.
+- Fixed stops are always inserted; legacy disabled flags cannot retract them.
+  Installation remains separate, including coherent-wave intermediate masks.
+  Movable condenser/objective/selected-area apertures retain insertion switches.
+- DPA is now a single active runtime hard stop, shared by ray/record-plane and
+  coherent-wave transport. Diameter and X/Y are operating controls; its TOML
+  axial plane and default bore can change independently of P2 and the literature
+  reference. Refresh/snapshot/profile operations preserve the active opening.
+- Existing 0.2 mm family-reference bore and zero-thickness approximation remain.
+  No lens presets were recalculated. This supersedes the mechanical-only DPA
+  implementation described in the historical 2026-08-30 checkpoint below.
+- Validation: 102 targeted tests passed (83.41 s), covering fixed-stop controls,
+  snapshots/profile round trips, identical cache signatures after worker copies,
+  manifest edits, optional installation, record-plane/coherent masking and GUI
+  navigation. Changed Python files compile; whitespace checks pass. No full
+  acquisition, lens preset solve, commit, push or shutdown was requested.
+- A broader test selection exposed an existing unrelated fixture failure:
+  `test_vector_specimen_flight_transverse_field_and_plane_reversal` constructs
+  `SpecimenFieldTransport` via `__new__` without `_provider_supports`. Its test
+  fixture and production transport were not changed in this aperture task.
+
+## STEM angular coverage and registered contrast (2026-09-06)
+
+- Images distinguish covered, partial, outside-grid and unchecked angular
+  bands. Outside-grid channels no longer appear as physical black images;
+  raw arrays remain in the cached result. An undersampled illumination disk
+  suppresses all displayed detector images. No BF/DF grayscale inversion.
+- **Match detector sampling** proposes a grid-only change with an area/storage
+  estimate and confirmation. It does not start a calculation, change lens or
+  detector geometry, change FOV, or discard existing frames. Stale proposals
+  and proposals exceeding the current grid/potential limits cannot be applied.
+- Fixed two reproduced coordinate defects: corner-origin inverse-FFT probes
+  versus centred potential axes, and a second half-box shift on finite CIF
+  potentials. CPU, CUDA and the STEM incident-wave helper now agree. Finite
+  boxes use even lateral dimensions to avoid a half-pixel origin error.
+- Wave/STEM/4D-STEM cache signatures include a new coordinate schema. Old wave
+  products must be recalculated; incident, elastic, EDS and local sample-region
+  cache signatures remain reusable. Existing unrelated worktree edits remain.
+- Final focused regression: **153 passed, 17 warnings**, exit 0 (96.63 s).
+  Includes independent abTEM thin-phase contrast/registered-atom checks,
+  actual CUDA/CPU comparisons, finite/periodic atom positions, recording-plane
+  routing, shared caches and offscreen GUI pause/sampling controls. Pydantic
+  deprecation, small CUDA-grid occupancy and pyqtgraph teardown warnings remain.
+  Changed-file `compileall` and `git diff --check` passed.
+  No full repository suite, full user acquisition, preset solve or Git push.
+- See `docs/STEM_SAMPLING_AND_CONTRAST.md` for assumptions and limits. A covered
+  detector band is not a thick-crystal contrast or projector-calibration
+  certificate. The user's exact screenshot configuration was not rerun.
+
+## Spectrum-only EDS and shared sample views (2026-09-06)
+
+- EDS now contains only its spectrum, short status and hover energy/counts.
+  Removed its trajectory/projection tabs, line table and projection redraw
+  timer. Line contributions remain in the scientific result, not another UI.
+- The existing settings widget is hosted once under **Sample Interactions 3D >
+  Parameters** (collapsed initially). Support, EDS response/acquisition and
+  detailed-region controls retain their original state and shared-cache wiring.
+- **3D / X-Z / Y-Z** switch renderers over one immutable interaction scene.
+  Orthogonal 2-D views include the same selected electron, X-ray and event
+  categories and use local nm with +Z downward. Each view retains its range or
+  camera during switching; no transport/EDS calculation is triggered. Without
+  OpenGL, both projections remain available and 3D is explicitly disabled.
+- The detailed-path calculation has one button on the sample page; the
+  relocated parameter panel does not add a second copy of that action.
+- Related offscreen regression: **139 passed, 16 warnings**, exit 0 (298.96 s).
+  The first run exposed one obsolete line-table assertion; it was updated to
+  check the spectrum-only no-current state before the complete related rerun.
+  Changed-file compilation passed. Layout renders use a synthetic test scene;
+  the 3D camera round-trip uses a renderer API fixture, not live GPU validation.
+  Third-party Pydantic deprecations and a pyqtgraph teardown warning remain.
+  No full repository suite, preset solve, Git push or shutdown was performed.
+
+## Specimen transport performance checkpoint (2026-09-06)
+
+- Removed long trial flights near material interfaces and needless searches
+  through virtual vacuum supports. Curved magnetic intersections, scattering
+  physics and boundary tolerances remain active. Field support metadata are
+  resolved once per calculation.
+- Local deterministic benchmarks: 64 axial rays through 10 nm Si with vacuum
+  support improved from 13.05 s to 0.46 s; 16 tilted rays improved from 5.39 s
+  to 0.19 s. Event counts, energy and weights match exactly; position/path
+  differences are at floating-point rounding scale. These are local transport
+  timings, not full application or STEM scan speedups.
+- Checkpoint-only candidates now reach the solver after raster/lens edits
+  invalidate all complete-product signatures. Source and common-plan checks
+  still decide which prefix can be reused; stale products are not authorized.
+- Related offscreen regression: **150 passed, 16 warnings**, exit 0 (120.43 s).
+  No full repository suite, GPU benchmark or preset recalculation was run.
+  Details, reproduction commands and remaining limitations are in
+  `docs/PERFORMANCE_2026-09-06.md`.
+- Preview display replacement, stale EDS display policy and the STEM wave CPU
+  fallback remain separate work. Existing uncommitted changes are preserved;
+  no Git push or shutdown was requested or performed this round.
+
+## Magnetic convergence and R-Z checkpoint (2026-09-05)
+
+- **Model Inspector > Field validation** now runs three mesh cases and two
+  boundary cases on detached snapshots, with completed-case progress and
+  cooperative cancellation. Expansion retains every existing interior node.
+  It never applies a refined mesh, changes current/presets or clears images.
+- Comparisons use fixed physical reference planes, explicit absolute/relative
+  targets and separate unavailable states. Bz, finite-segment paraxial focal
+  length, signed Larmor rotation and a collimated test radius are checked.
+  The local RK4 transfer has step-refinement, determinant and uniform-field
+  analytic tests; it is not a specimen/image model. Cs/Cc and external-software
+  validation remain **Not checked**, not inferred from axial-field convergence.
+- **Magnetic R-Z** shows the final study case's material masks, field magnitude
+  and R*A_phi flux contours. Tab/layer changes reuse the cached scene. Controls
+  are split over two rows to preserve small-window usability; plot/table panes
+  are user-resizable. Flux overlays are removed correctly when redrawn.
+- The four-study LRU is independent of image/ray results. Refined FEM data use
+  their own twelve-entry cache; completed base solves can be reused. Relevant
+  geometry, current, material, voltage and options key each study. Distant
+  unrelated linear-lens and sample/image edits retain compatible studies.
+  Late results for earlier inputs are cached without replacing the current view.
+- Exported JSON contains the original study inputs, units, field curves,
+  material provenance and diagnostics. It is not a FEMM-native model or a claim
+  of an external comparison. See `docs/MAGNETIC_FIELD_VALIDATION.md` for the
+  numerical method, limits, source references and remaining work.
+- An offline synthetic shared-coil study correctly fails the 1% target on its
+  coarse grid; a solved FEM system is not automatically marked numerically
+  validated. Validation was also run on a synthetic joint B-H case. No OEM
+  material/geometry, desktop OpenGL/GPU, Cs/Cc or external FEMM validation is
+  claimed. Final related regression: **156 passed, 16 warnings**, exit 0
+  (173.50 s), covering validation, Model Inspector, nonlinear FEM, circuits,
+  field providers, model modes and GUI shell. Final targeted verification:
+  **23 passed, 16 warnings**, exit 0 (11.40 s). Counts overlap. Changed-file
+  compilation and whitespace checks passed. Warnings are third-party Pydantic
+  deprecations and a pyqtgraph teardown disconnect warning. Offscreen inspection
+  covered convergence curves, material masks and flux/field views; the separate
+  small-window regression checks the corrected minimum width.
+- Pre-existing uncommitted work is retained. No preset recalculation, Git push,
+  shutdown or production parameter changes were performed.
+
+## Static nonlinear magnetics checkpoint (2026-09-05)
+
+- The configured **Nonlinear Material Field** tier now runs a static isotropic
+  axisymmetric B-H solve; Coupled Multiphysics remains unavailable. Model
+  Inspector provides a referenced pure-iron table and explicit B-H CSV import.
+  Curves, source URLs and hashes are embedded in saved recipes. No material,
+  ampere-turn value or physical dimension is inferred as a Titan calibration.
+- All configured B-H coil channels are solved jointly at the complete current
+  vector. Shared circuits require every member recipe. Active foreign coils
+  inside the solve domain must join it or be explicitly disabled. One provider
+  carries the total field, while member entries add nothing a second time;
+  diagnostics identify this bookkeeping role rather than labelling it Gaussian.
+- Damped Newton uses an assembled-residual convergence check and strict final
+  B-H range validation. Unsupported geometry, genuine coil/iron overlap,
+  nonconvergence and conflicting material assignments fail explicitly.
+  Algebraic convergence does not establish mesh/domain convergence or measured
+  accuracy. No hysteresis, thermal feedback, 3-D iron or GPU FEM was added.
+- Existing projector tapered poles now have matching material masks. Objective
+  coil/yoke masks share Physical Layout's TOML upper/lower intervals; current
+  density uses their actual winding cross-section. No mechanical dimensions or
+  operating strengths were changed to make the field solve succeed.
+- Mapped-lens guards prevent duplicate empirical ray Cs. Generated Objective
+  fields also suppress an additional empirical ray Cc kick; energy-dependent
+  momentum already enters their spatial-field transport. Saved options and
+  explicit Manual/Field-derived wave-aberration selection are retained.
+- Prepared meshes and completed joint operating points have bounded caches.
+  Current, material and geometry edits invalidate the affected result; returning
+  to a retained point reuses it. Frozen plans keep their original field. Old
+  completed diagnostics are not presented as current after an input change.
+- Current persisted solver identity: `temsim-solver-2026-09-static-bh-v1`.
+  State schema 76 and profile format 3 are unchanged. Earlier persisted seeds
+  are rejected without deleting user data. See
+  `docs/STATIC_NONLINEAR_MAGNETICS.md` for source provenance and numerical scope.
+- Initial related regression: **147 passed, 16 warnings**, exit 0 (144.94 s).
+  Follow-up material/cache/UI/manifest regression: **45 passed, 16 warnings**,
+  exit 0 (70.12 s). Final regression: **155 passed, 16 warnings**, exit 0,
+  covering nonlinear FEM, diagnostics, modes, Model Inspector, persisted
+  manifests, downstream transport and GUI shell. These runs overlap; counts are
+  not additive. Warnings are third-party Pydantic deprecations, with an additional
+  pyqtgraph teardown disconnect warning. Changed-file compilation passed.
+  Offscreen rendering verified the B-H controls at 1100 x 680; no desktop
+  OpenGL/GPU or measured instrument validation was performed.
+- No preset optimisation, Git upload or shutdown was performed. Pre-existing
+  uncommitted work is preserved.
+
+## Simulation model levels checkpoint (2026-09-05, historical)
+
+The static B-H checkpoint above supersedes this checkpoint's nonlinear,
+projector/Objective geometry and persisted-solver limitations.
+
+- **Simulation** now sits beside File and View. New windows start in Ideal
+  Optics; legacy states/profiles without a selection remain Custom. The
+  available alternatives are Analytical Field, explicitly configured Linear
+  Geometry Field, and Custom / Per-lens Models. Nonlinear Material Field and
+  Coupled Multiphysics are disabled, not analytic substitutes.
+- This selector controls column-lens physics, independently of ray count,
+  integration step and backend. Ideal retains finite-length paraxial focusing,
+  magnetic rotation and physical interception; column focusing uses reference
+  energy and excludes spherical/hexapole/extra chromatic kicks. Wave-lens
+  coefficients are zero except configured defocus. Gun, dedicated Energy Filter
+  transport, specimen scattering and local specimen flights keep their models.
+- Each mode retains round-lens excitation/polarity, field recipes and aberration
+  options. Geometry, installation, specimen and numerical controls are shared.
+  Switching models does not calculate a preset or clear other models' results.
+  Active model identity separates workers, stage results and ray checkpoints;
+  inactive shelves do not invalidate a returning mode's compatible cache.
+- Linear Geometry requires material/current recipes for every enabled round
+  lens and does not fall back to analytic fields. Readiness does not certify
+  geometry or convergence. The shipped projector tapered-pole profile remains
+  unsupported by the linear solver; the existing Objective coil/iron-overlap
+  rejection also remains. Production geometry was not changed to enable a tier.
+- State schema 76 and operating-profile format 3 persist the mode and shelves;
+  profile versions 1/2 remain readable. Current persisted solver identity:
+  `temsim-solver-2026-09-simulation-modes-v1`. Earlier seeds are rejected without
+  deleting the saved results. See `docs/SIMULATION_MODES.md`.
+- Verification: related optics/provider/cache/GUI regression **183 passed,
+  16 warnings**, exit 0 (233.86 s). Final model/controller/persisted-artifact
+  regression **60 passed, 16 warnings**, exit 0 (91.24 s), including all 14
+  model-level cases. These suites overlap; their counts are not additive.
+  Warnings are third-party Pydantic deprecations and a pyqtgraph teardown
+  disconnect warning. Offscreen rendering confirms menu selection and disabled
+  tier contrast. Synthetic FEM tests are not material/OEM/GPU validation.
+- No preset optimisation, Git upload or shutdown was performed. Pre-existing
+  uncommitted changes remain in the workspace.
+
+## Magnetic-circuit stage 1 checkpoint (2026-09-05)
+
+- See `docs/MAGNETIC_CIRCUIT_MODELS.md` for schema, numerical boundaries and
+  the next stage. Optical controls and physical magnetic circuits are now
+  separate: an explicit circuit may contain independent poles, shared poles,
+  an air-core coil, or a profiled monolithic saturation insert.
+- D/I/P1/P2 dimensions, strengths and presets are unchanged. Their shipped
+  independent-pole topology remains an engineering assumption. The previous
+  reference to FEI US9595359B2 Figure 6 as evidence for those dimensions and
+  topology has been corrected; no Titan OEM section drawing was supplied.
+- Shared passive bodies affect all member-channel geometry/cache identities
+  without becoming extra optical sources. Linear shared-coil responses drive
+  only their assigned current channel. Material, mesh and boundary settings
+  must agree across generated responses, including cached ones.
+- Optional radial profiles use the same knots in Physical Layout and FEM
+  material masks. Explicit air-core projector installation no longer restores
+  missing legacy pole drawings. Existing named condenser/objective assembly
+  constraints still require compatible installation-specific manifests.
+- Model Inspector has a compact read-only Magnetic circuits subtab. No view
+  refresh starts a field solve. The unresolved mixed-material C1/C2 carrier
+  remains a shared dependency, not an invented homogeneous iron volume.
+- Monolithic saturation inserts reject the constant-permeability FEM solver.
+  Imported maps for that topology are locked to their reference excitation
+  and polarity; no nonlinear B-H solver or material calibration is claimed.
+  Analytic fallback remains provisional, not a geometry-derived solution.
+- Related offscreen regression: **184 passed, 16 warnings**, exit 0,
+  258.49 s. After the final shared-operator guard, affected magnetic/provider/
+  inspector/physics tests passed again: **37 passed, 16 warnings**, exit 0,
+  19.50 s, including three new mismatch cases. Warnings are third-party
+  Pydantic deprecations; the broader run also emitted a pyqtgraph teardown
+  disconnect warning after completion. These are synthetic/offscreen checks,
+  not EOD/MEBS/COMSOL, measured-material, desktop OpenGL or GPU validation.
+- At this checkpoint the solver identity was `temsim-solver-2026-09-magnetic-circuits-v2`;
+  old implementation seeds are rejected without deleting saved results.
+- Next: sourced B-H tables, a coupled nonlinear circuit solve at the complete
+  current vector, and independent numerical/material benchmarks. No preset
+  optimisation, Git upload or shutdown was performed in this phase.
+
+## Six-stage physics checkpoint (2026-09-05)
+
+- See `docs/SIX_STAGE_PHYSICS_IMPLEMENTATION.md` for current numerical scope
+  and verification. Older checkpoints below are historical, not current test counts.
+- Final related offscreen regression: **302 passed, 17 warnings**, exit 0,
+  274.58 s. Compilation and whitespace checks pass. This is not a full preset
+  recalibration, measured-column validation or desktop OpenGL/GPU certification.
+- Specimen magnetic flights and downstream reference matching now use the
+  registered vector-field providers and the shared relativistic Boris kernel;
+  the exact uniform-Bz helper remains an analytical test reference.
+- Model Inspector offers an explicit linear axisymmetric A-phi FEM recipe from
+  resolved pole/yoke/coil geometry. Relative permeability and ampere-turns must
+  be supplied; no alloy calibration, nonlinear B-H curve or preset is invented.
+  C1/C2 generated finite fields in an offline check. Current Objective coil/iron
+  overlap is rejected; its geometry was not silently changed.
+- TEM Camera propagation can retain complex waves through intermediate physical
+  aperture planes. Masks remove probability; they do not renormalise it away.
+- Probe/Image aberrations have mutually exclusive Manual and Field-derived
+  modes. Field fits use production rays without empirical Cs kicks and exclude
+  first-order focus already carried by transport. Worker/result caches share
+  the fit; fit RMS must not be presented as a corrected beam size.
+- Design Explorer accepts multiple runtime-parameter axes on detached recipes
+  (GUI Cartesian limit: 64 points). TOML geometry must still be explicitly
+  edited/validated before capture; unrestricted geometry sweep overlays are
+  not implemented.
+- Project-facing additions are English. The living specification and historical
+  projector/EDS research have been translated, retaining all prior requirement
+  IDs, dated outcomes, citations and physical qualifications.
+- No automatic preset optimisation, Git upload or shutdown was performed in
+  this phase. Pre-existing uncommitted work remains in the workspace.
 
 ## Generic EDS elastic-trajectory checkpoint (2026-08-31)
 
@@ -35,10 +629,9 @@ the next concrete work. `README.md` remains the user/developer overview and
   vacancies, xraylib characteristic lines, emitting-layer self absorption,
   configured solid-angle collection, ideal scalar efficiency, energy
   broadening and optional Poisson counts.
-- EDS is now a dedicated top-level page immediately right of Sample. It owns
-  support, path mode, seed/event guard, rotatable orthogonal U-Z/V-Z
-  trajectory projections and the
-  spectrum/line view. **Calculate point EDS** is explicit and synchronous;
+- EDS is a dedicated spectrum-only top-level page. Support, path mode,
+  seed/event guard and acquisition controls are hosted in **Sample Interactions
+  3D > Parameters**. **Update point EDS** is explicit and synchronous;
   editing a mechanical/support component never auto-runs a spectrum or
   recomputes a lens preset. A straight-primary reference remains selectable.
 - There is no independent elastic trajectory count. Each point acquisition
@@ -46,10 +639,9 @@ the next concrete work. `README.md` remains the user/developer overview and
   its X/Y, tx/ty (including accumulated rotation), energy offset and
   source-current weight. Emitted-current counts are multiplied by the upstream
   survival fraction, then conditional ray weights are applied once.
-- EDS trajectory projection angle is bidirectionally synchronized with Ray
-  Diagram. It uses the identical `U = X cos(phi) + Y sin(phi)` convention plus
-  the orthogonal V axis, and reprojects stored histories without rerunning the
-  Monte Carlo calculation.
+- Specimen trajectories are shown only in Sample Interactions 3D, with 3D,
+  X-Z and Y-Z views. Ray Diagram still synchronizes its arbitrary rotation
+  with Transverse X-Y, but no longer redraws duplicate EDS trajectory plots.
 - Scanning Image is a fixed horizontal split, not a nested full ScanControlView
   tab. Its left pane owns Scanning Parameters / Probe Aberrations; its right
   pane owns Geometry / Images. The existing scan controller still owns all
@@ -93,7 +685,7 @@ the next concrete work. `README.md` remains the user/developer overview and
   calibration families intentionally not rerun. `compileall`, import smoke,
   `pip check` and `git diff --check` also passed.
 
-## Projection-chamber differential-pumping aperture checkpoint (2026-08-30)
+## Projection-chamber differential-pumping aperture checkpoint (2026-08-30, historical)
 
 - Both recording TOMLs now contain a distinct
   `projection_chamber_dpa_aperture` at local Z 772.5 mm, exactly at the P2

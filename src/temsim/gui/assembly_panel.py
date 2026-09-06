@@ -33,6 +33,7 @@ class AssemblyPanel(QWidget):
     operating_mode_requested = Signal(str, str)
     direct_alignment_requested = Signal(str, float)
     component_selected = Signal(object)
+    component_activated = Signal(object, str)
 
     def __init__(self, catalog, selection: AssemblySelection, parent=None) -> None:
         super().__init__(parent)
@@ -123,8 +124,8 @@ class AssemblyPanel(QWidget):
         for key, label in OPTICAL_FILTERS:
             self.optical_filter.addItem(label, key)
         self.optical_filter.setToolTip(
-            "Show only active components of one optical function; "
-            "corrector elements remain in their own group"
+            "Show one active functional group; electron-source and "
+            "corrector components stay with their own assemblies"
         )
         filter_row.addWidget(self.optical_filter, 1)
         optical_layout.addLayout(filter_row)
@@ -201,6 +202,16 @@ class AssemblyPanel(QWidget):
         )
         self.mechanical_tree.component_selected.connect(
             lambda selection: self._forward_selection(1, selection)
+        )
+        self.tree.component_activated.connect(
+            lambda selection: self._forward_activation(
+                0, selection, "optical"
+            )
+        )
+        self.mechanical_tree.component_activated.connect(
+            lambda selection: self._forward_activation(
+                1, selection, "mechanical"
+            )
         )
         self.direct_alignment_panel.adjustment_requested.connect(
             self.direct_alignment_requested.emit
@@ -439,11 +450,22 @@ class AssemblyPanel(QWidget):
         ):
             self.component_selected.emit(selection)
 
+    def _forward_activation(
+        self, page_index: int, selection, source: str
+    ) -> None:
+        if (
+            not self._suppress_forward_selection
+            and self.component_pages.currentIndex() == page_index
+        ):
+            self.component_activated.emit(selection, source)
+
     def _optical_category_for_key(self, key: str) -> str | None:
         if key == "energy_filter" or key in ENERGY_FILTER_INTERNAL_KEYS:
             return None
-        if key in {"simulation", "electron_gun"}:
-            return "other"
+        if key == "simulation":
+            return "all"
+        if key == "electron_gun":
+            return "electron_source"
         if self._assembly is None:
             return None
         part = next(
@@ -454,6 +476,14 @@ class AssemblyPanel(QWidget):
             None,
         )
         target = self._runtime_targets.get(key)
+        module_type = next(
+            (
+                module.type
+                for module in self._assembly.modules
+                if module.key == getattr(part, "module_key", None)
+            ),
+            None,
+        )
         if (
             part is None
             or target is None
@@ -462,7 +492,9 @@ class AssemblyPanel(QWidget):
             )
         ):
             return None
-        return InstrumentTree.optical_category(part, target)
+        return InstrumentTree.optical_category(
+            part, target, module_type=module_type
+        )
 
     def _emit_current_tree_selection(self, tree: InstrumentTree) -> None:
         current = tree.currentItem()

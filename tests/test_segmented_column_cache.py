@@ -94,6 +94,39 @@ def test_segment_resume_never_mutates_the_previous_result():
         assert cached.flags.writeable is False
 
 
+def test_gui_cache_passes_raster_checkpoint_to_the_validating_solver():
+    from temsim.calculation_cache import calculation_signatures, matching_products
+    from temsim.gui.calculation_controller import CalculationController
+    from temsim.simulation_pipeline import CalculationResult
+    from temsim.simulation_modes import switch_mode
+
+    state = _small_vacuum_state()
+    switch_mode(state, "ideal")
+    state.ac_deflector.wobble_enabled = False
+    state = CalculationController._calculation_snapshot(state, "High accuracy", 9, 5.0)
+    previous = run(state)
+    previous_result = CalculationResult(
+        simulation=previous, energy_filter=None,
+        state_snapshot=state, signatures=calculation_signatures(state),
+        calculated_products=frozenset({"column"}),
+    )
+    controller = CalculationController(persistent_cache_enabled=False)
+    controller._cache_result(previous_result)
+    changed = type(state).from_dict(state.to_dict())
+    changed.ac_deflector.scan_enabled = True
+    changed.ac_deflector.scan_pixels_x = changed.ac_deflector.scan_lines = 2
+    assert not matching_products(previous_result.signatures, calculation_signatures(changed))
+    workers = []
+    controller.pool.start = workers.append
+    controller.submit(changed, "High accuracy", 9, 5.0)
+    assert workers[0].existing_result is previous_result
+    incremental = run(workers[0].state, existing_simulation=workers[0].existing_result.simulation)
+    cold = run(type(workers[0].state).from_dict(workers[0].state.to_dict()))
+    _assert_incident_equal(incremental.incident, cold.incident)
+    assert incremental.metrics["column_segment_cache"]["mode"] == "checkpoint"
+    assert incremental.metrics["column_segment_cache"]["reused_integration_nodes"] > 0
+
+
 def test_unchanged_optical_plan_reuses_the_complete_incident_trace():
     state = _small_vacuum_state()
     previous = run(state)

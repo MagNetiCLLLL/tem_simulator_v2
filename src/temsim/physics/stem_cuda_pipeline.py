@@ -277,6 +277,7 @@ def run_resident_stem_cuda(
             cp.fft.ifftshift(shifted_spectrum, axes=(-2, -1)),
             axes=(-2, -1),
         )
+        probe = cp.fft.fftshift(probe, axes=(-2, -1))
         probe_norm = cp.sqrt(
             cp.maximum(
                 cp.sum(

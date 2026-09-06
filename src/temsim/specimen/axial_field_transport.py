@@ -1,15 +1,8 @@
-"""Specimen-local transport in the objective-lens axial magnetic field.
+"""Axial field diagnostics and an analytical uniform-field test reference.
 
-The global column solver already integrates the continuous round-lens field on
-both sides of the specimen plane.  The finite specimen Monte Carlo uses much
-shorter (nm--um) material flights, so it uses the local-uniform ``Bz`` limit of
-the same solver field.  This preserves the incident kinetic energy and applies
-the exact helical drift for each straight-flight arc before a collision.
-
-This module intentionally does *not* infer a field from the displayed pole
-piece geometry or material.  Those data are mechanical reconstruction inputs;
-the active optical field remains the TOML-configured axial field provider until
-a measured or FEM field map is supplied.
+Production finite-specimen transport uses vector_field_transport and the same
+registered fields as the column. The exact axial helix below is retained as an
+independent analytical reference, not a second production transport model.
 """
 
 from __future__ import annotations
@@ -20,7 +13,15 @@ import math
 import numpy as np
 
 from temsim.component_keys import CONDENSER_LENS_KEYS
-from temsim.physics.core import fields
+from temsim.physics.core import (
+    _LegacyAxialFieldProvider,
+    _support_mask,
+    fields,
+)
+from temsim.physics.lens_field_provider import (
+    MappedLensFieldProvider,
+    runtime_axial_magnetic_field_t,
+)
 from temsim.physics.relativistic_lorentz import (
     ELECTRON,
     momentum_from_kinetic_energy_ev,
@@ -36,9 +37,12 @@ class SampleAxialFieldDiagnostic:
     objective_field_t: float
     face_fields_t: tuple[float, float]
     active_lens_contributions_t: tuple[tuple[str, float], ...]
-    transport_model: str = "local_uniform_axial_Bz_exact_helical_drift"
+    transport_model: str = "shared_vector_field_relativistic_boris"
     field_source: str = "same parameterised axial providers as global column solver"
     geometry_material_coupled: bool = False
+    objective_field_model_status: str = "no_active_objective_field_provider"
+    objective_field_source: str = ""
+    active_lens_field_sources: tuple[tuple[str, str, str], ...] = ()
 
     @property
     def face_variation_t(self) -> float:
@@ -63,29 +67,64 @@ def sample_axial_field_diagnostic(state) -> SampleAxialFieldDiagnostic:
     total_values = np.asarray(fields(axial_points, state)[0], dtype=float)
 
     objective = getattr(state, "objective_lens", None)
-    if objective is not None and hasattr(objective, "magnetic_field_t"):
-        objective_field_t = float(
-            np.asarray(objective.magnetic_field_t((sample_z_mm,)), dtype=float)[0]
-        )
-    else:
-        objective_field_t = 0.0
-
+    objective_key = str(getattr(objective, "key", ""))
+    objective_field_t = 0.0
+    objective_status = "no_active_objective_field_provider"
+    objective_source = ""
+    objective_geometry_coupled = False
     contributions: list[tuple[str, float]] = []
+    sources: list[tuple[str, str, str]] = []
     for lens in getattr(state, "lenses", ()):
         if not bool(getattr(lens, "enabled", True)):
             continue
-        provider = (
+        native_provider = (
             state.condenser_system[lens.key]
             if lens.key in CONDENSER_LENS_KEYS
             else lens
         )
-        evaluator = getattr(provider, "magnetic_field_t", None)
-        if not callable(evaluator):
-            continue
-        value = float(np.asarray(evaluator((sample_z_mm,)), dtype=float)[0])
+        if not callable(getattr(native_provider, "magnetic_field_t", None)):
+            native_provider = _LegacyAxialFieldProvider(lens)
+        values, provider = runtime_axial_magnetic_field_t(
+            state,
+            lens.key,
+            native_provider,
+            np.asarray((sample_z_mm,), dtype=float),
+        )
+        value = float(np.where(
+            _support_mask(np.asarray((sample_z_mm,)), provider),
+            values,
+            0.0,
+        )[0])
+        status = str(
+            getattr(provider, "model_status", "native_field_provider")
+        )
+        if isinstance(provider, MappedLensFieldProvider):
+            provenance = provider.field_map.provenance
+            source = (
+                f"{provenance.kind}:{provenance.source_path}; "
+                f"sha256={provenance.source_sha256}"
+            )
+        else:
+            reason = str(getattr(provider, "fallback_reason", ""))
+            source = (
+                f"{status}; {reason}" if reason else status
+            )
+        sources.append((str(lens.key), status, source))
         if abs(value) > 1.0e-15:
             contributions.append((str(getattr(lens, "key", lens)), value))
+        if str(lens.key) == objective_key:
+            objective_field_t = value
+            objective_status = status
+            objective_source = source
+            objective_geometry_coupled = isinstance(
+                provider, MappedLensFieldProvider
+            )
     contributions.sort(key=lambda item: abs(item[1]), reverse=True)
+
+    any_imported = any(
+        status == "measured_or_fem_geometry_bound"
+        for _key, status, _source in sources
+    )
 
     return SampleAxialFieldDiagnostic(
         sample_z_mm=sample_z_mm,
@@ -93,6 +132,17 @@ def sample_axial_field_diagnostic(state) -> SampleAxialFieldDiagnostic:
         objective_field_t=objective_field_t,
         face_fields_t=(float(total_values[0]), float(total_values[2])),
         active_lens_contributions_t=tuple(contributions),
+        field_source=(
+            "same runtime measured/FEM and fallback providers as global "
+            "column solver"
+            if any_imported
+            else "same provisional TOML analytic providers as global column "
+            "solver; not a pole-shape magnetostatic solve"
+        ),
+        geometry_material_coupled=objective_geometry_coupled,
+        objective_field_model_status=objective_status,
+        objective_field_source=objective_source,
+        active_lens_field_sources=tuple(sources),
     )
 
 

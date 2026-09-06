@@ -570,7 +570,18 @@ def apply_module_assembly(
         for component in layout
     }
     parts = {part.key: part for part in assembly.parts}
-    component_key_list = [component.key for component in layout]
+    def legacy_pole_is_absent(component):
+        parent = parts.get(component.nested_parent_key)
+        return (component.key not in parts and parent is not None
+                and parent.data.get("magnetic_circuit_id")
+                and component.mechanical_shape is not None
+                and component.mechanical_shape.profile == "magnetic_pole_piece")
+
+    # Do not resurrect the old one-pair-per-control drawing for an explicit
+    # circuit. Its actual bodies are supplied by TOML (including shared ones).
+    # Missing optical controls and undeclared legacy parts remain errors.
+    components = tuple(c for c in layout if not legacy_pole_is_absent(c))
+    component_key_list = [component.key for component in components]
     component_keys = set(component_key_list)
     if len(component_keys) != len(component_key_list):
         duplicates = sorted({
@@ -582,7 +593,7 @@ def apply_module_assembly(
         )
     physical_keys = {
         component.key
-        for component in layout
+        for component in components
         if (
             component.mechanical_shape is None
             or component.mechanical_shape.profile != "reference_plane"
@@ -606,7 +617,7 @@ def apply_module_assembly(
         key: original_positions[key][1] for key in physical_keys
     }
     replacements = []
-    for component in layout:
+    for component in components:
         part = parts.get(component.key)
         if part is None:
             old_start, old_center, old_end = original_positions[component.key]
@@ -834,7 +845,11 @@ def apply_column_manifest_geometry(
             if field in part.data:
                 geometry[field] = float(part.data[field])
         component.apply_manifest_geometry(**geometry)
+    _bind_projection_chamber_aperture(state, parts)
     _apply_manifest_runtime_geometry(state, parts, assembly)
+    # Match State.from_dict ordering so detached worker snapshots do not
+    # invalidate caches merely by sorting the newly registered stop.
+    state.apertures.sort(key=lambda aperture: float(aperture.z_mm))
     for lens in getattr(state, "lenses", ()):
         for name, value in operating_values.get(str(lens.key), {}).items():
             object.__setattr__(lens, name, value)
@@ -857,6 +872,30 @@ def apply_column_manifest_geometry(
     state._module_optical_offsets_mm = {}
     state._module_gun_offsets_mm = {}
     return parts
+
+
+def _bind_projection_chamber_aperture(state, parts):
+    """Add the TOML-defined restriction once, preserving live opening edits."""
+    from temsim.component_keys import PROJECTION_CHAMBER_DPA_APERTURE as key
+    from temsim.optics.model import Aperture
+
+    part = parts.get(key)
+    if part is None:
+        state.apertures[:] = [item for item in state.apertures if item.key != key]
+        return
+    aperture = next((item for item in state.apertures if item.key == key), None)
+    reference_radius = 0.5 * float(part.data["mechanical_bore_diameter_mm"])
+    if aperture is None:
+        aperture = Aperture(part.name, key, part.center_z_mm, reference_radius)
+        state.apertures.append(aperture)
+    previous = getattr(aperture, "_manifest_opening_radius_mm", reference_radius)
+    if previous != reference_radius:
+        aperture.radius_mm = reference_radius
+    aperture._manifest_opening_radius_mm = reference_radius
+    aperture.maximum_radius_mm = float(part.data["maximum_radius_mm"])
+    if not 0.0 <= float(aperture.radius_mm) <= aperture.maximum_radius_mm:
+        raise ValueError(f"{part.name} opening exceeds its continuous range")
+    aperture.enabled = True
 
 
 def _state_targets(state):

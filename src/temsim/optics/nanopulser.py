@@ -97,13 +97,15 @@ class NanoPulser:
         # leave behind an aperture at a previous module position.
         from temsim.optics.model import Aperture
 
-        return Aperture(
+        aperture = Aperture(
             name="NanoPulser blanking aperture",
             key="nanopulser_aperture",
             z_mm=float(self.stop_z_mm),
             radius_mm=float(self.aperture_radius_mm),
             enabled=bool(self.installed),
         )
+        aperture.installed = bool(self.installed)
+        return aperture
 
     def validate(self):
         if not isinstance(self.installed, bool) or not isinstance(self.blanked, bool):

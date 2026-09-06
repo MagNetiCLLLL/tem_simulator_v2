@@ -15,7 +15,11 @@ not a mechanical sensor-face intersection.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from temsim.specimen.vector_field_transport import SpecimenFieldTransport
+
+from collections.abc import Mapping
+from copy import copy
+from dataclasses import dataclass, replace
 import math
 
 import numpy as np
@@ -23,7 +27,11 @@ import numpy as np
 from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
 from temsim.detector.eds_signal import EDSSpectrum
 from temsim.physics.simulation import Branch
-from temsim.specimen.downstream_transport import build_geometric_specimen_exit
+from temsim.specimen.downstream_transport import (
+    GeometricSpecimenExit,
+    build_geometric_specimen_exit,
+    validated_geometric_specimen_exit,
+)
 from temsim.specimen.elastic_transport import incident_rays_from_simulation
 from temsim.specimen.interaction_engine import run_specimen_interactions
 from temsim.specimen.interaction_types import (
@@ -32,9 +40,6 @@ from temsim.specimen.interaction_types import (
 )
 from temsim.specimen.scene import SpecimenScene
 from temsim.specimen.axial_field_transport import (
-    advance_in_uniform_axial_field,
-    axial_field_polyline,
-    axial_rotation_rate_rad_per_nm,
     sample_axial_field_diagnostic,
 )
 
@@ -99,6 +104,125 @@ class SampleRegionResult:
     spectrum: EDSSpectrum
     interactions: SpecimenInteractionResult
     metrics: dict[str, object]
+    specimen_exit: GeometricSpecimenExit | None = None
+    photon_transport: object | None = None
+
+
+_DOWNSTREAM_METRIC_KEYS = frozenset({
+    "model",
+    "coupling_approximation",
+    "sample_incident_source_probability",
+    "elastic_forward_conditional_probability",
+    "elastic_nontransmitted_conditional_probability",
+    "inelastic_tracked_conditional_probability",
+    "inelastic_absorbed_conditional_probability",
+    "tracked_downstream_source_probability",
+    "inelastic_absorbed_source_probability",
+    "elastic_nontransmitted_source_probability",
+    "pre_sample_lost_source_probability",
+    "downstream_branch_weight_sum",
+    "downstream_forward_weight",
+    "downstream_source_ray_count",
+    "exit_plane_source_probability",
+    "exit_plane_weight",
+    "post_sample_reinjection_plane_z_mm",
+    "material_terminal_z_collapsed_to_reference_plane",
+    "terminal_state_projection_model",
+    "terminal_state_projected_to_sample_reference_plane",
+    "terminal_state_projection_preserves_free_flight_line",
+    "source_probability_conservation_error",
+    "source_probability_conserved",
+    "geometric_reference_point_only",
+    "pixel_resolved_specimen_contrast",
+    "used_by_wave_multislice",
+    "sample_downstream_signature",
+    "downstream_reprojection_only",
+})
+
+
+def validated_sample_region_exit(
+    sample_region: SampleRegionResult,
+    expected_signature: str,
+) -> GeometricSpecimenExit | None:
+    """Recover a validated first-class or legacy downstream checkpoint."""
+
+    checkpoint = validated_geometric_specimen_exit(
+        getattr(sample_region, "specimen_exit", None),
+        expected_signature,
+    )
+    if checkpoint is not None:
+        return checkpoint
+    metrics = dict(getattr(sample_region, "metrics", {}) or {})
+    if str(metrics.get("sample_downstream_signature", "")) != str(
+        expected_signature
+    ):
+        return None
+    downstream_metrics = {
+        key: value
+        for key, value in metrics.items()
+        if key in _DOWNSTREAM_METRIC_KEYS
+    }
+    return validated_geometric_specimen_exit(
+        GeometricSpecimenExit(
+            sample_region.downstream_branches,
+            downstream_metrics,
+            dependency_signature=expected_signature,
+        ),
+        expected_signature,
+    )
+
+
+def bind_sample_region_downstream(
+    sample_region: SampleRegionResult,
+    checkpoint: GeometricSpecimenExit,
+    interactions: SpecimenInteractionResult,
+    *,
+    expected_signature: str,
+    wave_imaging=None,
+) -> SampleRegionResult:
+    """Attach one validated downstream checkpoint to cached local paths."""
+
+    signature = str(expected_signature)
+    if validated_geometric_specimen_exit(checkpoint, signature) is None:
+        raise ValueError(
+            "A complete specimen-exit checkpoint for the current downstream "
+            "dependencies is required"
+        )
+    interaction_signatures = dict(
+        getattr(interactions, "metrics", {}) or {}
+    ).get("dependency_signatures", {})
+    if not isinstance(interaction_signatures, Mapping) or str(
+        interaction_signatures.get("sample_downstream", "")
+    ) != signature:
+        raise ValueError(
+            "Specimen interactions and downstream checkpoint must have the "
+            "same current dependency signature"
+        )
+    spectrum = getattr(interactions, "eds_spectrum", None)
+    if spectrum is None:
+        raise ValueError("Current EDS interactions are required")
+    elastic = getattr(interactions, "elastic_transport", None)
+    if elastic is None or getattr(spectrum, "elastic_transport", None) is not elastic:
+        raise ValueError("EDS and geometric transport must share one elastic result")
+    metrics = {
+        key: value
+        for key, value in dict(sample_region.metrics).items()
+        if key not in _DOWNSTREAM_METRIC_KEYS
+    }
+    metrics.update(checkpoint.metrics)
+    metrics["channeling_model"] = (
+        "coherent wave/multislice result available; not reclassified as particles"
+        if wave_imaging is not None
+        else "unavailable without a wave/multislice specimen result"
+    )
+    return replace(
+        sample_region,
+        downstream_branches=checkpoint.branches,
+        spectrum=spectrum,
+        interactions=interactions,
+        metrics=metrics,
+        specimen_exit=checkpoint,
+    )
 
 
 def _isotropic_directions(
@@ -285,34 +409,27 @@ def _electron_paths(
         boundary_z_mm=entry_z_mm,
     )
     field_diagnostic = sample_axial_field_diagnostic(state)
+    field_transport = SpecimenFieldTransport(state)
     rows: list[SampleRegionElectronPath] = []
     entry_local_z_nm = (
         float(entry_z_mm) - float(state.sample.z_mm)
     ) * 1.0e6
     for sample_ray in sample_bundle.rays:
         sample_direction = np.asarray(sample_ray.direction, dtype=float)
-        rotation_rate = axial_rotation_rate_rad_per_nm(
-            field_diagnostic.total_field_t,
-            sample_ray.kinetic_energy_ev,
-        )
         reference_position = np.asarray(
             (*sample_ray.position_xy_nm, 0.0), dtype=float
         )
-        top_position, top_direction = advance_in_uniform_axial_field(
+        top_position, top_direction = field_transport.to_plane(
             reference_position,
             sample_direction,
-            scene.sample_top_nm / float(sample_direction[2]),
-            rotation_rate_rad_per_nm=rotation_rate,
+            scene.sample_top_nm,
+            energy_ev=sample_ray.kinetic_energy_ev,
         )
-        top_to_entry_length = (
-            (entry_local_z_nm - scene.sample_top_nm)
-            / float(top_direction[2])
-        )
-        top_to_entry, _entry_direction = axial_field_polyline(
+        top_to_entry, _entry_direction = field_transport.plane_polyline(
             top_position,
             top_direction,
-            top_to_entry_length,
-            rotation_rate_rad_per_nm=rotation_rate,
+            entry_local_z_nm,
+            energy_ev=sample_ray.kinetic_energy_ev,
         )
         entry_to_top = top_to_entry[::-1]
         global_mm = entry_to_top.copy()
@@ -327,8 +444,8 @@ def _electron_paths(
                 weight=float(sample_ray.weight),
                 kinetic_energy_ev=float(sample_ray.kinetic_energy_ev),
                 provenance=(
-                    "cached sample-plane phase space; local-uniform solver Bz "
-                    "helical boundary transport"
+                    "cached sample-plane phase space; shared vector-field "
+                    "boundary transport"
                 ),
                 downstream_eligible=True,
             )
@@ -388,6 +505,63 @@ def _electron_paths(
     return tuple(rows), entry_bundle, sample_bundle
 
 
+def reproject_sample_region_downstream(
+    state,
+    simulation,
+    sample_region: SampleRegionResult,
+    interactions: SpecimenInteractionResult,
+    *,
+    wave_imaging=None,
+    dependency_signatures: dict[str, str] | None = None,
+) -> SampleRegionResult:
+    """Rebuild only post-specimen branches from cached local sample paths.
+
+    ``electron_paths`` and ``photon_paths`` are immutable sample-local view
+    products.  D/I/P, projector-mode or recording-plane edits do not alter
+    them, so this function shares those arrays by reference and repeats only
+    the ordinary downstream propagation and clipping step.
+    """
+
+    if sample_region is None or interactions is None:
+        raise ValueError("Cached sample-local paths and interactions are required")
+    spectrum = getattr(interactions, "eds_spectrum", None)
+    elastic = getattr(interactions, "elastic_transport", None)
+    if spectrum is None or elastic is None:
+        raise ValueError(
+            "Downstream sample transport requires current EDS and elastic results"
+        )
+    if getattr(spectrum, "elastic_transport", None) is not elastic:
+        raise ValueError("EDS and downstream transport must share one elastic result")
+    signatures = dependency_signatures or interactions.metrics.get(
+        "dependency_signatures", {}
+    )
+    downstream_signature = str(signatures.get("sample_downstream", ""))
+    downstream = build_geometric_specimen_exit(
+        state,
+        simulation,
+        elastic,
+        interactions.inelastic_distribution,
+        save_z_mm=(float(sample_region.exit_z_mm),),
+        dependency_signature=downstream_signature,
+    )
+    rebound = bind_sample_region_downstream(
+        sample_region,
+        downstream,
+        interactions,
+        expected_signature=downstream_signature,
+        wave_imaging=wave_imaging,
+    )
+    metrics = dict(rebound.metrics)
+    metrics["downstream_reprojection_only"] = True
+    metrics["sample_region_signature"] = str(
+        signatures.get("sample_region", "")
+    )
+    return replace(
+        rebound,
+        metrics=metrics,
+    )
+
+
 def simulate_sample_region(
     state,
     calculation_result,
@@ -418,6 +592,22 @@ def simulate_sample_region(
         raise ValueError("Sample-region boundary distances must be positive")
     if int(photon_path_count) < 0 or int(secondary_path_count) < 0:
         raise ValueError("Displayed photon/electron path counts cannot be negative")
+    # Region bounds and display sampling are explicit arguments.  Mirror them
+    # into a shallow calculation context so the stored sample_region identity
+    # describes the paths actually built, without mutating the cached global
+    # state or duplicating its large/immutable assembly objects.
+    calculation_state = copy(state)
+    calculation_state.sample = copy(state.sample)
+    calculation_state.sample.sample_region_upstream_distance_um = upstream_um
+    calculation_state.sample.sample_region_downstream_distance_um = downstream_um
+    calculation_state.sample.sample_region_photon_path_count = int(
+        photon_path_count
+    )
+    calculation_state.sample.sample_region_secondary_path_count = int(
+        secondary_path_count
+    )
+    calculation_state.sample.sample_region_seed = int(seed)
+    state = calculation_state
     simulation = getattr(calculation_result, "simulation", None)
     if simulation is None:
         raise ValueError("A completed global column calculation is required")
@@ -435,11 +625,13 @@ def simulate_sample_region(
     spectrum = interactions.eds_spectrum
     if spectrum is None:
         raise RuntimeError("Specimen interaction engine returned no EDS spectrum")
-    elastic = spectrum.elastic_transport
+    elastic = getattr(interactions, "elastic_transport", None)
     if elastic is None:
         raise ValueError(
             "Sample-region transport requires Elastic Monte Carlo electron paths"
         )
+    if spectrum.elastic_transport is not elastic:
+        raise ValueError("EDS and sample-region transport must share one elastic result")
     electron_paths, entry_bundle, sample_bundle = _electron_paths(
         state,
         simulation,
@@ -448,22 +640,85 @@ def simulate_sample_region(
         secondary_count=int(secondary_path_count),
         rng=rng,
     )
-    photon_paths, acceptance_half_width_deg = _photon_paths(
-        state,
-        spectrum,
-        elastic,
-        detector_geometry,
-        count=int(photon_path_count),
-        rng=rng,
-        display_length_mm=max(10.0, 4.0 * downstream_um * 1.0e-3),
+    from temsim.detector.eds_photon_transport import (
+        photons_from_sample_region_paths,
+        transport_eds_photons,
     )
-    downstream = build_geometric_specimen_exit(
-        state,
-        simulation,
-        elastic,
-        interactions.inelastic_distribution,
-        save_z_mm=(exit_z_mm,),
+
+    photon_transport = getattr(spectrum, "photon_transport", None)
+    shared_spectrum_photon_transport = photon_transport is not None
+    if shared_spectrum_photon_transport:
+        photon_paths = ()
+        solid_angle = (
+            detector_geometry.analytical_holder_solid_angle_sr
+            if str(
+                getattr(
+                    state.sample,
+                    "eds_solid_angle_mode",
+                    "installed_holder",
+                )
+            )
+            != "unshadowed"
+            else detector_geometry.minimum_unshadowed_solid_angle_sr
+        )
+        takeoff = math.radians(detector_geometry.takeoff_angle_deg)
+        acceptance_half_width_deg = math.degrees(math.asin(
+            solid_angle / (4.0 * math.pi * math.cos(takeoff))
+        ))
+        xray_direction_sampling = (
+            "shared deterministic main-spectrum detector quadrature"
+        )
+    else:
+        photon_paths, acceptance_half_width_deg = _photon_paths(
+            state,
+            spectrum,
+            elastic,
+            detector_geometry,
+            count=int(photon_path_count),
+            rng=rng,
+            display_length_mm=max(
+                10.0, 4.0 * downstream_um * 1.0e-3
+            ),
+        )
+        xray_direction_sampling = "uniform cos(theta), uniform azimuth"
+    if photon_transport is None:
+        photon_transport = transport_eds_photons(
+            state,
+            photons_from_sample_region_paths(photon_paths),
+            detector_geometry,
+            use_analytical_holder_solid_angle=(
+                str(
+                    getattr(
+                        state.sample,
+                        "eds_solid_angle_mode",
+                        "installed_holder",
+                    )
+                )
+                != "unshadowed"
+            ),
+            aggregate_detector_efficiency=float(
+                getattr(state.sample, "eds_detector_efficiency", 1.0)
+            ),
+        )
+    dependency_signatures = interactions.metrics.get(
+        "dependency_signatures", {}
     )
+    downstream_signature = str(
+        dependency_signatures.get("sample_downstream", "")
+    )
+    downstream = validated_geometric_specimen_exit(
+        getattr(calculation_result, "specimen_exit", None),
+        downstream_signature,
+    )
+    if downstream is None:
+        downstream = build_geometric_specimen_exit(
+            state,
+            simulation,
+            elastic,
+            interactions.inelastic_distribution,
+            save_z_mm=(exit_z_mm,),
+            dependency_signature=downstream_signature,
+        )
     downstream_branches = downstream.branches
     downstream_metrics = downstream.metrics
     wave_result = getattr(calculation_result, "wave_imaging", None)
@@ -472,17 +727,35 @@ def simulate_sample_region(
         "exit_z_mm": exit_z_mm,
         "entry_ray_count": entry_bundle.reaching_ray_count,
         "sample_ray_count": sample_bundle.reaching_ray_count,
-        "photon_path_count": len(photon_paths),
+        "photon_path_count": (
+            len(tuple(getattr(photon_transport, "paths", ())))
+            if shared_spectrum_photon_transport
+            else len(photon_paths)
+        ),
         "secondary_marker_count": sum(
             path.kind == "secondary_candidate" for path in electron_paths
         ),
-        "xray_direction_sampling": "uniform cos(theta), uniform azimuth",
+        "xray_direction_sampling": xray_direction_sampling,
         "xray_detector_acceptance": (
             "azimuth-partitioned elevation band with exact aggregate solid angle"
         ),
         "xray_acceptance_half_width_deg": acceptance_half_width_deg,
-        "xray_sensor_face_intersection": False,
-        "xray_display_endpoint_is_schematic": True,
+        "xray_sensor_face_intersection": bool(
+            photon_transport.geometry_complete
+        ),
+        "xray_display_endpoint_is_schematic": not bool(
+            photon_transport.geometry_complete
+        ),
+        "eds_photon_transport_model": photon_transport.metrics["model"],
+        "eds_photon_transport_shared_with_spectrum": (
+            shared_spectrum_photon_transport
+        ),
+        "eds_photon_detector_geometry_complete": (
+            photon_transport.geometry_complete
+        ),
+        "eds_photon_expected_weight_per_segment": (
+            photon_transport.expected_detected_weight_per_segment
+        ),
         "secondary_electron_model": (
             "qualitative local marker only; no yield or energy distribution"
         ),
@@ -511,6 +784,16 @@ def simulate_sample_region(
         "specimen_observables_calculated_for_this_view": tuple(
             interactions.metrics.get("calculated_observables_this_call", ())
         ),
+        "sample_region_signature": str(
+            interactions.metrics.get("dependency_signatures", {}).get(
+                "sample_region", ""
+            )
+        ),
+        "sample_downstream_signature": str(
+            interactions.metrics.get("dependency_signatures", {}).get(
+                "sample_downstream", ""
+            )
+        ),
         **downstream_metrics,
     }
     return SampleRegionResult(
@@ -522,4 +805,6 @@ def simulate_sample_region(
         spectrum=spectrum,
         interactions=interactions,
         metrics=metrics,
+        specimen_exit=downstream,
+        photon_transport=photon_transport,
     )
