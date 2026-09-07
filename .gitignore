@@ -7,3 +7,8 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+
+# Generated scratch files and reproducible calculation output are local only.
+/tmp/
+/outputs/high_accuracy/
+/outputs/high_accuracy_artifacts/

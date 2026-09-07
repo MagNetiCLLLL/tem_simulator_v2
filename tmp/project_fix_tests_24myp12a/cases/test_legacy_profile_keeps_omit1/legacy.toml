@@ -1,9 +1,0 @@
-format_version = 2
-
-[assembly]
-gun = "FEG"
-column = "C3 + Probe Corrector"
-recording = "Energy Filter"
-
-[devices.objective_lens]
-cs_mm = 0.85
