@@ -13,6 +13,7 @@ right-handed unit vectors in the global microscope frame (+Z downstream).
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass, field
 import math
 from typing import Iterable, Protocol
@@ -21,6 +22,10 @@ import numpy as np
 
 from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
 from temsim.specimen.scene import SpecimenScene
+
+
+# One acquisition only; different requests never share geometry or materials.
+_PHOTON_GEOMETRY_CACHE_ENTRIES = 1024
 
 
 class PhotonAttenuationMaterial(Protocol):
@@ -561,7 +566,16 @@ def _interval_transmission(
     return 0.0 if math.isinf(optical_depth) else math.exp(-max(optical_depth, 0.0))
 
 
-def trace_eds_photon(
+@dataclass(frozen=True, slots=True)
+class _EDSPhotonGeometry:
+    detector_segment: int | None
+    detector_hit_mm: tuple[float, float, float] | None
+    material_intervals: tuple[PhotonMaterialInterval, ...]
+    detector_efficiency: float
+    transport_mode: str
+
+
+def _trace_eds_photon_geometry(
     photon: EDSPhotonRay,
     geometry: EDSDetectorArrayGeometry,
     *,
@@ -570,8 +584,8 @@ def trace_eds_photon(
     use_analytical_holder_solid_angle: bool = True,
     aggregate_detector_efficiency: float = 1.0,
     _geometry_validated: bool = False,
-) -> EDSPhotonPathResult:
-    """Trace one photon without inventing an unpublished detector face."""
+) -> _EDSPhotonGeometry:
+    """Resolve energy-independent geometry without caching photon outcomes."""
 
     if not _geometry_validated:
         geometry.validate()
@@ -628,6 +642,19 @@ def trace_eds_photon(
     intervals = tuple(
         sorted(intervals, key=lambda item: item.entry_distance_mm)
     )
+    return _EDSPhotonGeometry(segment, hit, intervals, efficiency, mode)
+
+
+def _apply_photon_geometry(
+    photon: EDSPhotonRay, geometry: _EDSPhotonGeometry,
+) -> EDSPhotonPathResult:
+    """Evaluate attenuation and statistical weight anew for this photon."""
+
+    segment = geometry.detector_segment
+    hit = geometry.detector_hit_mm
+    intervals = geometry.material_intervals
+    efficiency = geometry.detector_efficiency
+    mode = geometry.transport_mode
     transmission = 1.0
     blocked_by = None
     for interval in intervals:
@@ -657,6 +684,28 @@ def trace_eds_photon(
         terminal_status=status,
         transport_mode=mode,
     )
+
+
+def trace_eds_photon(
+    photon: EDSPhotonRay,
+    geometry: EDSDetectorArrayGeometry,
+    *,
+    detector_surfaces: Iterable[PlanarEDSDetectorSegment] = (),
+    occluders: Iterable[PhotonOccluder] = (),
+    use_analytical_holder_solid_angle: bool = True,
+    aggregate_detector_efficiency: float = 1.0,
+    _geometry_validated: bool = False,
+) -> EDSPhotonPathResult:
+    """Trace one photon without caches or an invented detector face."""
+
+    resolved = _trace_eds_photon_geometry(
+        photon, geometry, detector_surfaces=detector_surfaces,
+        occluders=occluders,
+        use_analytical_holder_solid_angle=use_analytical_holder_solid_angle,
+        aggregate_detector_efficiency=aggregate_detector_efficiency,
+        _geometry_validated=_geometry_validated,
+    )
+    return _apply_photon_geometry(photon, resolved)
 
 
 def detector_quadrature_photons(
@@ -997,7 +1046,13 @@ def transport_eds_photons(
     aggregate_detector_efficiency: float = 1.0,
     maximum_stored_paths: int | None = None,
 ) -> EDSPhotonTransportResult:
-    """Trace a photon population through support, holder and pole geometry."""
+    """Trace photons through fixed acquisition geometry with a bounded LRU.
+
+    Only exact repeated origin/direction intersections are cached.  Every
+    photon retains its own energy, weight, identity and attenuation evaluation.
+    The cache is local to this call, so changed sample/material/detector settings
+    cannot reuse another acquisition's geometry.
+    """
 
     geometry.validate()
     surfaces = tuple(detector_surfaces)
@@ -1039,6 +1094,10 @@ def transport_eds_photons(
     specimen_transmission_count = 0
     total_quadrature_weight = 0.0
     total_detected_weight = 0.0
+    geometry_cache: OrderedDict[
+        tuple[tuple[float, float, float], tuple[float, float, float]],
+        _EDSPhotonGeometry,
+    ] = OrderedDict()
     for ray in photons:
         photon_count += 1
         total_quadrature_weight += float(ray.statistical_weight)
@@ -1051,28 +1110,36 @@ def transport_eds_photons(
             emission_segment_weights[emission_key] = np.zeros(
                 geometry.segment_count, dtype=float
             )
-        support = (
-            support_occluder_for_ray(state, ray, scene=scene)
-            if include_support
-            else None
-        )
-        occluders = (
-            poles
-            + holder
-            + ((specimen,) if specimen is not None else ())
-            + ((support,) if support is not None else ())
-        )
-        path = trace_eds_photon(
-            ray,
-            geometry,
-            detector_surfaces=surfaces,
-            occluders=occluders,
-            use_analytical_holder_solid_angle=(
-                use_analytical_holder_solid_angle
-            ),
-            aggregate_detector_efficiency=aggregate_detector_efficiency,
-            _geometry_validated=True,
-        )
+        geometry_key = (ray.origin_mm, ray.direction)
+        resolved = geometry_cache.get(geometry_key)
+        if resolved is None:
+            support = (
+                support_occluder_for_ray(state, ray, scene=scene)
+                if include_support
+                else None
+            )
+            occluders = (
+                poles
+                + holder
+                + ((specimen,) if specimen is not None else ())
+                + ((support,) if support is not None else ())
+            )
+            resolved = _trace_eds_photon_geometry(
+                ray,
+                geometry,
+                detector_surfaces=surfaces,
+                occluders=occluders,
+                use_analytical_holder_solid_angle=use_analytical_holder_solid_angle,
+                aggregate_detector_efficiency=aggregate_detector_efficiency,
+                _geometry_validated=True,
+            )
+            if _PHOTON_GEOMETRY_CACHE_ENTRIES > 0:
+                geometry_cache[geometry_key] = resolved
+                if len(geometry_cache) > _PHOTON_GEOMETRY_CACHE_ENTRIES:
+                    geometry_cache.popitem(last=False)
+        else:
+            geometry_cache.move_to_end(geometry_key)
+        path = _apply_photon_geometry(ray, resolved)
         if stored_limit is None or len(paths) < stored_limit:
             paths.append(path)
         if path.detector_segment is not None:

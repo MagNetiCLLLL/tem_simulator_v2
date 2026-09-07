@@ -3,8 +3,10 @@
 The caller supplies a shifted reciprocal-space probe aperture, periodic
 specimen potentials and non-overlapping detector masks.  Probe formation,
 multislice propagation, diffraction FFTs, frozen-phonon intensity averaging
-and detector integration remain on one CuPy device.  Only the final detector
-fractions and uncollected fraction are copied to the host.
+and detector integration remain on one CuPy device.  Only final detector,
+uncollected and optional bandwidth-truncation fractions are copied to the
+host.  Position-dependent physical detector masks may be supplied by the
+reference recording-plane router once per probe batch.
 
 Real-space arrays use ``(..., Y, X)``; explicit potentials use
 ``(Z, Y, X)``.  Lengths are angstrom, reciprocal coordinates are inverse
@@ -40,6 +42,7 @@ class ResidentStemCudaResult:
     multislice_diagnostics: MultisliceDiagnostics | None
     fft_diagnostics: WaveFftDiagnostics
     metrics: dict
+    truncated_flat: np.ndarray | None = None
 
 
 def release_cupy_memory_pools() -> None:
@@ -142,12 +145,18 @@ def run_resident_stem_cuda(
     batch_size: int = 8,
     fallback_reason: str | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
+    detector_mask_provider: Callable[[int, int], dict[str, np.ndarray]] | None = None,
+    valid_reciprocal_mask: np.ndarray | None = None,
+    transmission_cache_limit_bytes: int | None = None,
 ) -> ResidentStemCudaResult:
     """Calculate all STEM detector fractions with one bulk host transfer.
 
     CUDA failures intentionally propagate to the caller.  The caller must
     discard every partial result and rerun the complete observable through the
-    NumPy reference path.
+    NumPy reference path.  ``detector_mask_provider`` receives the flattened
+    half-open scan interval and must return one Boolean ``(B, Y, X)`` mask for
+    every detector key.  These masks already include sequential physical
+    stops; they are not reconstructed or renormalised on the device.
     """
 
     (
@@ -168,6 +177,13 @@ def run_resident_stem_cuda(
         detector_masks,
         batch_size,
     )
+    valid_mask = (
+        None
+        if valid_reciprocal_mask is None
+        else np.asarray(valid_reciprocal_mask, dtype=bool)
+    )
+    if valid_mask is not None and valid_mask.shape != spectrum.shape:
+        raise ValueError("The reciprocal-space validity mask has the wrong shape.")
     cp = cupy_module()
     started = time.perf_counter()
     detector_keys = tuple(masks)
@@ -193,7 +209,15 @@ def run_resident_stem_cuda(
     device_masks = {
         key: cp.asarray(masks[key], dtype=cp.bool_)
         for key in detector_keys
-    }
+    } if detector_mask_provider is None else {}
+    device_invalid_mask = (
+        None if valid_mask is None else cp.asarray(~valid_mask, dtype=cp.bool_)
+    )
+    truncation_sums = (
+        None if valid_mask is None else cp.zeros(scan_count, dtype=cp.float64)
+    )
+    mask_upload_count = 0
+    mask_upload_bytes = 0
     detector_sums = {
         key: cp.zeros(scan_count, dtype=cp.float64)
         for key in detector_keys
@@ -206,6 +230,7 @@ def run_resident_stem_cuda(
     maximum_phases = ()
     potential_phase_scan_count = 0
     phase_gratings = None
+    prepared_transmissions = ()
     if multislice_enabled:
         explicit_slices = device_potentials[0].ndim == 3
         multislice_plan = CuPyMultislicePlan.build(
@@ -226,6 +251,7 @@ def run_resident_stem_cuda(
             ),
             bandwidth_fraction=bandwidth_fraction,
             cupy=cp,
+            transmission_cache_limit_bytes=transmission_cache_limit_bytes,
         )
         device_potentials = tuple(
             multislice_plan.validate_potential(potential)
@@ -239,6 +265,14 @@ def run_resident_stem_cuda(
             for potential in device_potentials
         )
         potential_phase_scan_count = configuration_count
+        prepared_transmissions = tuple(
+            multislice_plan.prepare_transmission(
+                potential,
+                maximum_phase_per_slice_rad=maximum_phases[index],
+                potential_is_validated=True,
+            )
+            for index, potential in enumerate(device_potentials)
+        )
     else:
         if any(potential.ndim != 2 for potential in device_potentials):
             raise ValueError(
@@ -263,6 +297,20 @@ def run_resident_stem_cuda(
         range(0, scan_count, effective_batch_size)
     ):
         stop = min(start + effective_batch_size, scan_count)
+        if detector_mask_provider is None:
+            batch_masks = device_masks
+        else:
+            provided_masks = detector_mask_provider(start, stop)
+            if set(provided_masks) != set(detector_keys):
+                raise ValueError("The physical detector mask keys do not match the detector keys.")
+            batch_masks = {}
+            for key in detector_keys:
+                mask = np.asarray(provided_masks[key], dtype=bool)
+                if mask.shape != (stop - start, *spectrum.shape):
+                    raise ValueError(f"Physical detector mask {key!r} has the wrong batch shape.")
+                batch_masks[key] = cp.asarray(mask, dtype=cp.bool_)
+                mask_upload_count += 1
+                mask_upload_bytes += int(mask.nbytes)
         x0 = device_scan_x[start:stop, None, None]
         y0 = device_scan_y[start:stop, None, None]
         shift = cp.exp(
@@ -298,7 +346,11 @@ def run_resident_stem_cuda(
             if multislice_enabled:
                 exit_wave, diagnostics = multislice_plan.propagate(
                     normalised_probe,
-                    device_potential,
+                    (
+                        prepared_transmissions[configuration_index]
+                        if prepared_transmissions[configuration_index] is not None
+                        else device_potential
+                    ),
                     maximum_phase_per_slice_rad=(
                         maximum_phases[configuration_index]
                     ),
@@ -337,14 +389,25 @@ def run_resident_stem_cuda(
                 cp.float32(1.0e-30),
             )
             for key in detector_keys:
-                values = cp.sum(
-                    diffraction[:, device_masks[key]],
-                    axis=1,
-                    dtype=cp.float64,
-                )
+                if detector_mask_provider is None:
+                    values = cp.sum(
+                        diffraction[:, batch_masks[key]],
+                        axis=1,
+                        dtype=cp.float64,
+                    )
+                else:
+                    values = cp.sum(
+                        diffraction * batch_masks[key],
+                        axis=(-2, -1),
+                        dtype=cp.float64,
+                    )
                 values = cp.clip(values, 0.0, 1.0)
                 detector_sums[key][start:stop] += values
                 detector_sums_squared[key][start:stop] += values**2
+            if truncation_sums is not None:
+                truncation_sums[start:stop] += cp.sum(
+                    diffraction[:, device_invalid_mask], axis=1, dtype=cp.float64,
+                )
         if progress_callback is not None:
             # CuPy launches asynchronously. Synchronise only when a caller
             # explicitly requests truthful completed-work progress.
@@ -398,7 +461,8 @@ def run_resident_stem_cuda(
 
     device_output = cp.stack(
         tuple(detector_means[key] for key in detector_keys)
-        + (device_uncollected,),
+        + (device_uncollected,)
+        + (() if truncation_sums is None else (truncation_sums / configuration_count,)),
         axis=0,
     )
     host_output = cp.asnumpy(device_output)
@@ -407,7 +471,11 @@ def run_resident_stem_cuda(
         key: np.asarray(host_output[index], dtype=np.float64)
         for index, key in enumerate(detector_keys)
     }
-    uncollected = np.asarray(host_output[-1], dtype=np.float64)
+    uncollected = np.asarray(host_output[len(detector_keys)], dtype=np.float64)
+    truncated = (
+        None if truncation_sums is None
+        else np.asarray(host_output[len(detector_keys) + 1], dtype=np.float64)
+    )
     resident_potential_bytes = int(
         sum(array.nbytes for array in device_potentials)
     )
@@ -422,6 +490,8 @@ def run_resident_stem_cuda(
         + sum(mask.nbytes for mask in device_masks.values())
         + sum(array.nbytes for array in detector_sums.values())
         + sum(array.nbytes for array in detector_sums_squared.values())
+        + (0 if device_invalid_mask is None else device_invalid_mask.nbytes)
+        + (0 if truncation_sums is None else truncation_sums.nbytes)
         + (
             sum(array.nbytes for array in phase_gratings)
             if phase_gratings is not None
@@ -429,6 +499,7 @@ def run_resident_stem_cuda(
         )
         + (
             multislice_plan.cached_device_bytes
+            + multislice_plan.transmission_cache_bytes
             if multislice_plan is not None
             else 0
         )
@@ -454,6 +525,8 @@ def run_resident_stem_cuda(
             "cuda_fixed_device_bytes": fixed_device_bytes,
             "cuda_bulk_host_transfer_count": 1,
             "cuda_bulk_host_transfer_bytes": int(host_output.nbytes),
+            "cuda_physical_detector_mask_upload_count": mask_upload_count,
+            "cuda_physical_detector_mask_upload_bytes": mask_upload_bytes,
             "cuda_multislice_diagnostic_count": diagnostic_count,
             "cuda_multislice_plan_reused": multislice_plan is not None,
             "cuda_multislice_plan_build_count": (
@@ -480,5 +553,30 @@ def run_resident_stem_cuda(
                 else 0.0
             ),
             "cuda_potential_phase_scan_count": potential_phase_scan_count,
+            "cuda_transmission_cache_builds": (
+                multislice_plan.transmission_cache_build_count
+                if multislice_plan is not None else 0
+            ),
+            "cuda_transmission_cache_hits": (
+                multislice_plan.transmission_cache_hit_count
+                if multislice_plan is not None else 0
+            ),
+            "cuda_transmission_cache_bypass_count": (
+                multislice_plan.transmission_cache_bypass_count
+                if multislice_plan is not None else 0
+            ),
+            "cuda_transmission_cache_bytes": (
+                multislice_plan.transmission_cache_bytes
+                if multislice_plan is not None else 0
+            ),
+            "cuda_transmission_cache_limit_bytes": (
+                multislice_plan.transmission_cache_limit_bytes
+                if multislice_plan is not None else 0
+            ),
+            "cuda_transmission_cache_build_elapsed_s": (
+                multislice_plan.transmission_cache_build_elapsed_s
+                if multislice_plan is not None else 0.0
+            ),
         },
+        truncated_flat=truncated,
     )

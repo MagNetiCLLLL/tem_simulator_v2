@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
+import operator
 import time
 
 import numpy as np
@@ -40,6 +41,44 @@ def _unique_device_bytes(arrays) -> int:
         seen.add(id(array))
         total += int(array.nbytes)
     return total
+
+
+MAX_TRANSMISSION_CACHE_BYTES = 512 * 1024**2
+
+
+def _transmission_cache_budget(cupy, requested: int | None) -> int:
+    if requested is not None:
+        budget = operator.index(requested)
+        if budget < 0:
+            raise ValueError("Transmission cache capacity cannot be negative.")
+        return budget
+    try:
+        free_bytes, _total_bytes = cupy.cuda.runtime.memGetInfo()
+    except Exception:
+        # An optional cache must not make a working propagation path fail.
+        return 0
+    return max(0, min(MAX_TRANSMISSION_CACHE_BYTES, int(free_bytes) // 8))
+
+
+@dataclass(frozen=True, eq=False)
+class PreparedCuPyTransmission:
+    """Opaque handle to an immutable configuration captured by one plan.
+
+    No mutable potential or device array is exposed by the handle. Passing the
+    original potential to ``propagate`` continues to use its current contents;
+    passing this handle explicitly selects the configuration at preparation.
+    """
+
+    _owner: object = field(repr=False)
+    _index: int = field(repr=False)
+
+
+@dataclass
+class _TransmissionEntry:
+    gratings: tuple = field(repr=False)
+    maximum_phase_rad: float
+    plan_signature: tuple = field(repr=False)
+    use_count: int = 0
 
 
 @dataclass
@@ -70,6 +109,16 @@ class CuPyMultislicePlan:
     cached_propagator_count: int
     build_elapsed_s: float
     use_count: int = 0
+    transmission_cache_limit_bytes: int = 0
+    transmission_cache_bytes: int = 0
+    transmission_cache_build_count: int = 0
+    transmission_cache_hit_count: int = 0
+    transmission_cache_bypass_count: int = 0
+    transmission_cache_build_elapsed_s: float = 0.0
+    _transmission_owner: object = field(default_factory=object, repr=False)
+    _transmission_entries: list[_TransmissionEntry] = field(
+        default_factory=list, repr=False,
+    )
 
     @classmethod
     def build(
@@ -84,11 +133,15 @@ class CuPyMultislicePlan:
         slice_thicknesses_angstrom: np.ndarray | None = None,
         bandwidth_fraction: float = 2.0 / 3.0,
         cupy=None,
+        transmission_cache_limit_bytes: int | None = None,
     ) -> "CuPyMultislicePlan":
         """Create and cache all grid- and thickness-dependent device arrays."""
 
         cp = cupy if cupy is not None else cupy_module()
         started = time.perf_counter()
+        transmission_budget = _transmission_cache_budget(
+            cp, transmission_cache_limit_bytes,
+        )
         potential = cp.asarray(
             projected_potential_v_angstrom,
             dtype=cp.float32,
@@ -281,6 +334,7 @@ class CuPyMultislicePlan:
             cached_device_bytes=_unique_device_bytes(cached_arrays),
             cached_propagator_count=len(unique_propagators),
             build_elapsed_s=time.perf_counter() - started,
+            transmission_cache_limit_bytes=transmission_budget,
         )
 
     @property
@@ -346,6 +400,90 @@ class CuPyMultislicePlan:
             ).item()
         )
 
+    def _transmission_signature(self) -> tuple:
+        return (
+            self.potential_shape,
+            self.potential_ndim,
+            self.spatial_shape_yx,
+            self.interaction_constant_rad_per_v_angstrom,
+            self.potential_divisor,
+            self.wavelength_angstrom,
+            self.pixel_size_y_angstrom,
+            self.pixel_size_x_angstrom,
+            self.bandwidth_fraction,
+            self.slice_thicknesses_angstrom.tobytes(),
+        )
+
+    def prepare_transmission(
+        self,
+        projected_potential_v_angstrom,
+        *,
+        maximum_phase_per_slice_rad: float | None = None,
+        potential_is_validated: bool = False,
+    ) -> PreparedCuPyTransmission | None:
+        """Capture exact slice gratings, or leave this configuration uncached.
+
+        Admission is bounded and does not evict other phonon configurations:
+        repeated sequential batches cannot thrash an undersized cache. A 2-D
+        total projected potential needs only one grating, shared by its slices.
+        A zero budget or allocation failure preserves on-the-fly propagation.
+        """
+
+        cp = self.cupy
+        potential = self._coerce_potential(
+            projected_potential_v_angstrom,
+            check_finite=not potential_is_validated,
+        )
+        grating_count = 1 if self.potential_ndim == 2 else self.slice_count
+        required_bytes = (
+            grating_count * math.prod(self.spatial_shape_yx)
+            * np.dtype(np.complex64).itemsize
+        )
+        if not self.slice_count or required_bytes > (
+            self.transmission_cache_limit_bytes - self.transmission_cache_bytes
+        ):
+            self.transmission_cache_bypass_count += 1
+            return None
+        started = time.perf_counter()
+        if maximum_phase_per_slice_rad is None:
+            maximum_phase = self.maximum_phase_per_slice_rad(
+                potential, potential_is_validated=True,
+            )
+        else:
+            maximum_phase = float(maximum_phase_per_slice_rad)
+            if not math.isfinite(maximum_phase) or maximum_phase < 0.0:
+                raise ValueError("Maximum phase diagnostic must be finite and non-negative.")
+        gratings = []
+        try:
+            for index in range(grating_count):
+                phase_potential = (
+                    potential / self.potential_divisor
+                    if self.potential_ndim == 2 else potential[index]
+                )
+                # Preserve the exact existing float32/complex64 expression and
+                # operation order; only its repetition over batches is removed.
+                gratings.append(cp.exp(
+                    1j * self.interaction_constant_rad_per_v_angstrom
+                    * phase_potential
+                ).astype(cp.complex64, copy=False))
+            cp.cuda.get_current_stream().synchronize()
+        except MemoryError:
+            # Cache admission is optional. Do not convert a cache allocation
+            # failure into a whole-frame CPU retry when one slice still fits.
+            self.transmission_cache_bypass_count += 1
+            return None
+        finally:
+            self.transmission_cache_build_elapsed_s += time.perf_counter() - started
+        handle = PreparedCuPyTransmission(
+            self._transmission_owner, len(self._transmission_entries),
+        )
+        self._transmission_entries.append(_TransmissionEntry(
+            tuple(gratings), maximum_phase, self._transmission_signature(),
+        ))
+        self.transmission_cache_bytes += required_bytes
+        self.transmission_cache_build_count += 1
+        return handle
+
     def propagate(
         self,
         incident_wave,
@@ -355,7 +493,7 @@ class CuPyMultislicePlan:
         fallback_reason: str | None = None,
         potential_is_validated: bool = False,
     ):
-        """Propagate one leading probe batch using the cached device plan."""
+        """Propagate a current raw potential or an explicitly prepared snapshot."""
 
         cp = self.cupy
         wave = _validate_wave_and_sampling(
@@ -368,25 +506,37 @@ class CuPyMultislicePlan:
             raise ValueError(
                 "Wave spatial shape does not match the cached CUDA plan."
             )
-        potential = self._coerce_potential(
-            projected_potential_v_angstrom,
-            check_finite=not potential_is_validated,
-        )
+        prepared = None
+        if isinstance(projected_potential_v_angstrom, PreparedCuPyTransmission):
+            handle = projected_potential_v_angstrom
+            if handle._owner is not self._transmission_owner:
+                raise ValueError("Prepared transmission belongs to a different CUDA plan.")
+            prepared = self._transmission_entries[handle._index]
+            if prepared.plan_signature != self._transmission_signature():
+                raise ValueError("CUDA plan parameters changed after transmission preparation.")
+            potential = None
+        else:
+            potential = self._coerce_potential(
+                projected_potential_v_angstrom,
+                check_finite=not potential_is_validated,
+            )
         initial_intensity = _intensity_per_wave(wave, xp=cp)
         if bool(cp.any(initial_intensity <= 0.0).item()):
             raise ValueError("Every incident wave must contain positive intensity.")
         maximum_relative_change = cp.asarray(0.0, dtype=cp.float64)
         if maximum_phase_per_slice_rad is None:
-            maximum_phase = self.maximum_phase_per_slice_rad(
-                potential,
-                potential_is_validated=True,
+            maximum_phase = (
+                prepared.maximum_phase_rad if prepared is not None
+                else self.maximum_phase_per_slice_rad(
+                    potential, potential_is_validated=True,
+                )
             )
         else:
             maximum_phase = float(maximum_phase_per_slice_rad)
             if not math.isfinite(maximum_phase) or maximum_phase < 0.0:
                 raise ValueError("Maximum phase diagnostic must be finite and non-negative.")
 
-        if self.potential_ndim == 2:
+        if self.potential_ndim == 2 and prepared is None:
             slice_potential = potential / self.potential_divisor
         else:
             slice_potential = None
@@ -400,15 +550,20 @@ class CuPyMultislicePlan:
             for index, propagator in enumerate(
                 self.propagators_after_slices
             ):
-                if self.potential_ndim == 2:
-                    phase_potential = slice_potential
+                if prepared is not None:
+                    transmission = prepared.gratings[
+                        0 if self.potential_ndim == 2 else index
+                    ]
                 else:
-                    phase_potential = potential[index]
-                transmission = cp.exp(
-                    1j
-                    * self.interaction_constant_rad_per_v_angstrom
-                    * phase_potential
-                ).astype(cp.complex64, copy=False)
+                    phase_potential = (
+                        slice_potential if self.potential_ndim == 2
+                        else potential[index]
+                    )
+                    transmission = cp.exp(
+                        1j
+                        * self.interaction_constant_rad_per_v_angstrom
+                        * phase_potential
+                    ).astype(cp.complex64, copy=False)
                 wave *= transmission
                 wave = _propagate(wave, propagator, xp=cp)
                 current_intensity = _intensity_per_wave(wave, xp=cp)
@@ -423,6 +578,10 @@ class CuPyMultislicePlan:
 
         final_intensity = _intensity_per_wave(wave, xp=cp)
         self.use_count += 1
+        if prepared is not None:
+            if prepared.use_count:
+                self.transmission_cache_hit_count += 1
+            prepared.use_count += 1
         diagnostics = MultisliceDiagnostics(
             model=self.model,
             slice_count=self.slice_count,

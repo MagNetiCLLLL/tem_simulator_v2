@@ -88,7 +88,7 @@ def test_explicit_cuda_keeps_stem_arrays_resident_until_one_bulk_transfer(
     assert result.metrics["cuda_resident_pipeline"] is True
     assert result.metrics["cuda_bulk_host_transfer_count"] == 1
     assert result.metrics["cuda_bulk_host_transfer_bytes"] == (
-        (len(_detectors()) + 1) * scan_x.size * np.dtype(np.float64).itemsize
+        (len(_detectors()) + 2) * scan_x.size * np.dtype(np.float64).itemsize
     )
     assert result.metrics["cuda_potential_upload_count"] == 1
     assert result.metrics["cuda_probe_batch_count"] == 1
@@ -232,3 +232,47 @@ def test_resident_cuda_failure_discards_partial_work_and_recomputes_on_cpu(
     assert all(
         np.all(np.isfinite(values)) for values in result.fractions.values()
     )
+
+
+@pytest.mark.parametrize("fail_after_first_batch", [False, True])
+def test_dynamic_detector_centres_match_cpu_even_after_partial_cuda_failure(monkeypatch, fail_after_first_batch):
+    if not compute_backend.cupy_capability().available:
+        pytest.skip("CuPy CUDA backend unavailable")
+    scan_x, scan_y = _scan()
+    centres = {"bf": (np.array([[-3., 0.], [3., 6.]]), np.zeros((2, 2)))}
+    inputs = (SimpleNamespace(incident=_incident_bundle()), _detectors(), scan_x, scan_y)
+    cpu = simulate_angle_resolved_stem(_state("CPU"), *inputs,
+                                     detector_center_shifts_mrad=centres)
+    original_cuda = stem_wave_imaging.run_resident_stem_cuda
+    callback_starts = []
+
+    def cuda_with_mask_check(**kwargs):
+        provider = kwargs["detector_mask_provider"]
+
+        def checked_masks(start, stop):
+            callback_starts.append(start)
+            if start > 0 and fail_after_first_batch:
+                raise RuntimeError("synthetic failure after completed GPU batch")
+            return provider(start, stop)
+
+        kwargs["detector_mask_provider"] = checked_masks
+        return original_cuda(**kwargs)
+
+    monkeypatch.setattr(stem_wave_imaging, "resident_stem_batch_size", lambda *a, **k: 2)
+    monkeypatch.setattr(stem_wave_imaging, "run_resident_stem_cuda", cuda_with_mask_check)
+    progress = []
+    result = simulate_angle_resolved_stem(
+        _state("CUDA GPU"), *inputs, detector_center_shifts_mrad=centres,
+        progress_callback=lambda done, total, stage: progress.append(done / total))
+    assert callback_starts == [0, 2]
+    assert result.metrics["cuda_resident_pipeline"] is (not fail_after_first_batch)
+    if fail_after_first_batch:
+        assert "after completed GPU batch" in result.metrics["cuda_pipeline_fallback_reason"]
+        assert result.metrics["wave_compute_backend"] == "NumPy CPU"
+    else:
+        assert result.metrics["wave_compute_backend"] == "CuPy CUDA"
+    for key in cpu.fractions:
+        np.testing.assert_allclose(result.fractions[key], cpu.fractions[key], rtol=2e-4, atol=2e-7)
+    np.testing.assert_allclose(result.truncated_fraction, cpu.truncated_fraction, rtol=2e-4, atol=2e-7)
+    assert progress == sorted(progress)
+    assert progress[-1] == 1.0

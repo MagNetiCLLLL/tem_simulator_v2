@@ -62,17 +62,23 @@ class CachePreferences:
     disk_cache_budget_bytes: int = 16 * GIB
     high_cache_limit: int = 32
     tuning_cache_limit: int = 128
+    prepared_specimen_cache_budget_bytes: int = 256 * MIB
+    sample_display_cache_budget_bytes: int = 128 * MIB
 
     @property
     def managed_ram_budget_bytes(self) -> int:
         return (self.high_cache_budget_bytes + self.tuning_cache_budget_bytes
-                + self.ray_display_cache_budget_bytes)
+                + self.ray_display_cache_budget_bytes
+                + self.prepared_specimen_cache_budget_bytes
+                + self.sample_display_cache_budget_bytes)
 
     def controller_kwargs(self) -> dict[str, int]:
         return {
             item.name: getattr(self, item.name)
             for item in fields(self)
-            if item.name != "ray_display_cache_budget_bytes"
+            if item.name not in {"ray_display_cache_budget_bytes",
+                                 "prepared_specimen_cache_budget_bytes",
+                                 "sample_display_cache_budget_bytes"}
         }
 
 
@@ -80,11 +86,13 @@ def default_cache_preferences(total_memory_bytes: int | None = None) -> CachePre
     """Hardware-conscious defaults; unknown hardware keeps bounded fixed defaults."""
     if total_memory_bytes is None:
         return CachePreferences()
-    total = max(6 * MIB, int(total_memory_bytes))
+    total = max(10 * MIB, int(total_memory_bytes))
     return CachePreferences(
         high_cache_budget_bytes=max(MIB, min(8 * GIB, total // 4)),
         tuning_cache_budget_bytes=max(MIB, min(GIB, total // 16)),
         ray_display_cache_budget_bytes=max(MIB, min(512 * MIB, total // 32)),
+        prepared_specimen_cache_budget_bytes=max(MIB, min(256 * MIB, total // 32)),
+        sample_display_cache_budget_bytes=max(MIB, min(128 * MIB, total // 64)),
     )
 
 
@@ -94,7 +102,8 @@ def validate_cache_preferences(prefs: CachePreferences,
     if not isinstance(prefs, CachePreferences):
         raise ValueError("Expected cache preferences")
     for name in ("high_cache_budget_bytes", "tuning_cache_budget_bytes",
-                 "ray_display_cache_budget_bytes", "disk_cache_budget_bytes"):
+                 "ray_display_cache_budget_bytes", "disk_cache_budget_bytes",
+                 "prepared_specimen_cache_budget_bytes", "sample_display_cache_budget_bytes"):
         value = getattr(prefs, name)
         maximum = (1024 if name == "disk_cache_budget_bytes" else 256) * GIB
         if type(value) is not int or not MIB <= value <= maximum:

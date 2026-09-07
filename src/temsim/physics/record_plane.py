@@ -16,7 +16,7 @@ component-position, or assembly edit unnoticed.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass, fields, is_dataclass
 import hashlib
@@ -596,6 +596,86 @@ def record_plane_plan_provenance(plan: RecordPlanePlan) -> Mapping[str, object]:
             ).tolist(),
         } for transfer in plan.transfers),
     })
+
+
+def prepare_record_plane_detector_masks(
+    plan: RecordPlanePlan,
+    sample_angle_rad,
+) -> Callable[..., dict[str, np.ndarray]]:
+    """Prepare exact detector acceptance on a fixed specimen angular grid.
+
+    The returned callable accepts broadcast-compatible positions in metres
+    and an optional flattened ``scan_slice`` for the plan's raster offsets.
+    It returns one Boolean signal mask per detector, including disabled
+    readouts.  Angles use radians and a trailing XY axis of length two.
+
+    Only ``J_diff @ angle`` is cached.  Each call evaluates
+    ``(J_img @ position + cached_angle) + affine + raster_offset`` in the
+    reference router's arithmetic order.  All physical stop methods and
+    sequential blocking/readout rules are shared with the full router;
+    unused projected angles, per-plane histories and weighted diagnostics
+    are not constructed.  This is not a new transport approximation.
+    """
+
+    angle = np.asarray(sample_angle_rad, dtype=float)
+    if angle.shape[-1:] != (2,):
+        raise ValueError("Sample angles must have trailing dimension 2")
+    if not np.all(np.isfinite(angle)):
+        raise ValueError("Sample phase-space coordinates must be finite")
+    angular_positions = tuple(
+        np.einsum("ij,...j->...i", transfer.j_diff_m_per_rad, angle)
+        for transfer in plan.transfers
+    )
+    for values in angular_positions:
+        if not np.all(np.isfinite(values)):
+            raise ValueError("Projected phase-space coordinates must be finite")
+        values.setflags(write=False)
+    angle_shape = angle.shape[:-1]
+
+    def detector_masks(
+        sample_position_m, *, scan_slice: slice | None = None,
+    ) -> dict[str, np.ndarray]:
+        position = np.asarray(sample_position_m, dtype=float)
+        if position.shape[-1:] != (2,):
+            raise ValueError("Sample positions must have trailing dimension 2")
+        try:
+            event_shape = np.broadcast_shapes(position.shape[:-1], angle_shape)
+        except ValueError as error:
+            raise ValueError("Sample positions and angles are not broadcast-compatible") from error
+        if not np.all(np.isfinite(position)):
+            raise ValueError("Sample phase-space coordinates must be finite")
+        active = np.ones(event_shape, dtype=bool)
+        masks = {}
+        for index, (plane, transfer, angular_position) in enumerate(
+            zip(plan.planes, plan.transfers, angular_positions)
+        ):
+            projected = (
+                np.einsum("ij,...j->...i", transfer.j_img, position)
+                + angular_position
+                + np.asarray(transfer.position_offset_m)
+            )
+            if plan.scan_position_offsets_m:
+                delta = plan.scan_position_offsets_m[index].reshape(-1, 2)
+                if scan_slice is not None:
+                    delta = delta[scan_slice]
+                if not event_shape or delta.shape[0] != event_shape[0]:
+                    raise ValueError("Record-plane scan offsets do not match the routed scan batch")
+                delta = delta.reshape((delta.shape[0],) + (1,) * (len(event_shape) - 1) + (2,))
+                projected = projected + delta
+            if not np.all(np.isfinite(projected)):
+                raise ValueError("Projected phase-space coordinates must be finite")
+            if plane.kind == "aperture":
+                active &= plane.transmission_mask(projected[..., 0], projected[..., 1])
+            else:
+                hits = plane.hit_mask(projected[..., 0], projected[..., 1])
+                signal = active & hits if plane.readout_enabled else np.zeros(event_shape, dtype=bool)
+                signal.setflags(write=False)
+                masks[plane.key] = signal
+                if not plane.non_blocking:
+                    active &= ~hits
+        return masks
+
+    return detector_masks
 
 
 def route_record_planes(

@@ -44,10 +44,14 @@ class CacheSettingsDialog(QDialog):
         self.high_cache = self._spin(" GiB", 0.001, 256.0, 3)
         self.tuning_cache = self._spin(" GiB", 0.001, 256.0, 3)
         self.ray_display_cache = self._spin(" MiB", 1.0, 256.0 * 1024, 1)
+        self.prepared_specimen_cache = self._spin(" MiB", 1.0, 256.0 * 1024, 1)
+        self.sample_display_cache = self._spin(" MiB", 1.0, 256.0 * 1024, 1)
         self.disk_cache = self._spin(" GiB", 0.001, 1024.0, 3)
         form.addRow("High-accuracy results", self.high_cache)
         form.addRow("Live-tuning results", self.tuning_cache)
         form.addRow("Ray display", self.ray_display_cache)
+        form.addRow("Specimen potentials (RAM)", self.prepared_specimen_cache)
+        form.addRow("Sample atom display (RAM)", self.sample_display_cache)
         form.addRow("Disk checkpoints", self.disk_cache)
         self.ram_summary = self._label("")
         form.addRow(self.ram_summary)
@@ -81,7 +85,8 @@ class CacheSettingsDialog(QDialog):
         self.buttons.button(QDialogButtonBox.StandardButton.RestoreDefaults).clicked.connect(self.restore_defaults)
         self.buttons.rejected.connect(self.close)
         layout.addWidget(self.buttons)
-        for control in (self.high_cache, self.tuning_cache, self.ray_display_cache, self.disk_cache):
+        for control in (self.high_cache, self.tuning_cache, self.ray_display_cache,
+                        self.prepared_specimen_cache, self.sample_display_cache, self.disk_cache):
             control.valueChanged.connect(self._update_summary)
         self._populate(self.preferences)
         geometry = settings.value(f"{SETTINGS_ROOT}/dialog_geometry")
@@ -108,6 +113,8 @@ class CacheSettingsDialog(QDialog):
         self.high_cache.setValue(prefs.high_cache_budget_bytes / GIB)
         self.tuning_cache.setValue(prefs.tuning_cache_budget_bytes / GIB)
         self.ray_display_cache.setValue(prefs.ray_display_cache_budget_bytes / MIB)
+        self.prepared_specimen_cache.setValue(prefs.prepared_specimen_cache_budget_bytes / MIB)
+        self.sample_display_cache.setValue(prefs.sample_display_cache_budget_bytes / MIB)
         self.disk_cache.setValue(prefs.disk_cache_budget_bytes / GIB)
         self._update_summary()
 
@@ -117,6 +124,8 @@ class CacheSettingsDialog(QDialog):
             high_cache_budget_bytes=round(self.high_cache.value() * GIB),
             tuning_cache_budget_bytes=round(self.tuning_cache.value() * GIB),
             ray_display_cache_budget_bytes=round(self.ray_display_cache.value() * MIB),
+            prepared_specimen_cache_budget_bytes=round(self.prepared_specimen_cache.value() * MIB),
+            sample_display_cache_budget_bytes=round(self.sample_display_cache.value() * MIB),
             disk_cache_budget_bytes=round(self.disk_cache.value() * GIB),
         )
 
@@ -160,14 +169,23 @@ class CacheSettingsDialog(QDialog):
             data = self.statistics_provider()
             calculation = data.get("calculation", {})
             display = data.get("ray_display", {})
+            prepared = data.get("prepared_specimen", {})
+            sample = data.get("sample_display", {})
             lines = []
             for title, values, prefix in (("High accuracy", calculation, "high_"),
                                            ("Live tuning", calculation, "tuning_"),
-                                           ("Ray display", display, "")):
+                                           ("Ray display", display, ""),
+                                           ("Specimen potentials", prepared, ""),
+                                           ("Sample atom display", sample, "")):
                 retained = values.get(f"{prefix}used_bytes", 0) / MIB
                 entries = values.get(f"{prefix}entries", 0)
                 hits = values.get(f"{prefix}hits", 0)
-                lines.append(f"{title}: {retained:.1f} MiB | {entries} entries | {hits} hits")
+                text = f"{title}: {retained:.1f} MiB | {entries} entries | {hits} hits"
+                misses = values.get(f"{prefix}misses")
+                if misses is not None:
+                    requests = hits + misses
+                    text += f" | {100.0 * hits / requests:.1f}% hit rate" if requests else " | not used"
+                lines.append(text)
             if calculation.get("disk_enabled") is False:
                 lines.append("Disk checkpoints: unavailable; memory caching remains active.")
             elif calculation.get("disk_enabled") is True:

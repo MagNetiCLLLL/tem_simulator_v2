@@ -1,6 +1,7 @@
 """Application-facing simulation pipeline, independent of the Tk GUI."""
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from time import perf_counter
 
 from temsim.calculation_cache import calculation_signatures, matching_products
 from temsim.detector.recording_system import ensure_recording_system
@@ -73,6 +74,7 @@ class CalculationResult:
     calculated_products: frozenset[str] = frozenset()
     reused_products: frozenset[str] = frozenset()
     cache_hit: bool = False
+    performance: dict[str, object] = field(default_factory=dict)
 
 
 def aperture_stop_records(state) -> tuple[dict[str, object], ...]:
@@ -148,27 +150,65 @@ def _bounded_progress_position(
     )
 
 
-def _stem_frame_work_weight(state) -> int:
-    """Return the number of independently completed STEM work units."""
+class _StageProgress:
+    """Equal stage slots plus honest local counts, not a runtime estimate.
 
-    component = state.ac_deflector
-    pixels_x = max(int(component.scan_pixels_x), 1)
-    pixels_y = max(int(component.scan_lines), 1)
-    sample = state.sample
-    wave_requested = bool(getattr(sample, "stem_wave_enabled", False))
-    if not wave_requested:
-        # The geometric detector path reports one completed raster row.
-        return pixels_y
-    configuration_count = (
-        max(int(sample.wave_frozen_phonon_configurations), 1)
-        if bool(getattr(sample, "wave_atomistic_enabled", False))
-        and bool(getattr(sample, "wave_frozen_phonon_enabled", False))
-        else 1
-    )
-    # The wave path completes at most eight probe positions per batch and
-    # repeats the propagation for every frozen-phonon configuration.
-    batch_count = (pixels_x * pixels_y + 7) // 8
-    return max(batch_count * configuration_count, 1)
+    Electron histories, photon events and probe batches are different units.
+    They only measure their own step, never the weight of a pipeline stage.
+    The outer position is monotonic even when a stage starts a new local step.
+    """
+
+    def __init__(self, stages: list[str], callback: ProgressCallback | None,
+                 *, started_at: float | None = None):
+        self.stages = tuple(stages)
+        self.callback = callback
+        self.index = 0
+        self.subdivisions = _progress_stage_subdivisions(len(self.stages))
+        self.total = max(len(self.stages), 1) * self.subdivisions
+        self.position = 0
+        self.started_at = perf_counter() if started_at is None else started_at
+        self.stage_started_at = self.started_at
+        self.timings: list[dict[str, object]] = []
+
+    def _emit(self, position: int, label: str) -> None:
+        if self.callback is None:
+            return
+        self.position = max(self.position, min(max(position, 0), self.total))
+        completed, total = _bounded_progress_position(self.position, self.total)
+        self.callback(completed, total, label)
+
+    def report(self) -> None:
+        label = (
+            "Complete" if self.index >= len(self.stages)
+            else f"Stage {self.index + 1}/{len(self.stages)} | {self.stages[self.index]}"
+        )
+        self._emit(self.index * self.subdivisions, label)
+
+    def advance(self) -> None:
+        now = perf_counter()
+        if self.index < len(self.stages):
+            self.timings.append({
+                "stage": self.stages[self.index],
+                "seconds": max(0.0, now - self.stage_started_at),
+            })
+        self.stage_started_at = now
+        self.index += 1
+        self.report()
+
+    def update(self, completed: int, total: int, label: str) -> None:
+        if self.callback is None or int(total) <= 0 or self.index >= len(self.stages):
+            return
+        total = int(total)
+        completed = min(max(int(completed), 0), total)
+        fraction = completed / total
+        # A finished substep is not a finished stage. Only advance() may
+        # complete its slot, including when photons follow electron histories.
+        position = (self.index * self.subdivisions
+                    + min(round(self.subdivisions * fraction), self.subdivisions - 1))
+        self._emit(position, (
+            f"Stage {self.index + 1}/{len(self.stages)} | {label}"
+            f" | stage progress {100.0 * fraction:.1f}%"
+        ))
 
 
 def _geometric_specimen_transport_requested(state) -> bool:
@@ -272,6 +312,7 @@ def calculate(
     work therefore cannot partially mutate the previous complete result.
     """
 
+    calculation_started = perf_counter()
     ensure_recording_system(state)
     ensure_energy_filter(state)
     ensure_corrector_structure(state)
@@ -431,106 +472,38 @@ def calculate(
         and "sample_downstream" in reusable
     )
 
-    stages = [("Preparing state and physical layout", 1)]
+    stages = ["Preparing state and physical layout"]
     if not column_reused:
-        stages.append(("Tracing the electron column", 1))
+        stages.append("Tracing the electron column")
     if tem_wave_requested and not wave_reused:
-        stages.append((
-            (
-                "Projecting the cached Objective wave to the recording plane"
-                if wave_source_reused
-                else "Calculating the TEM wave image"
-            ),
-            1,
-        ))
+        stages.append(
+            "Projecting the cached Objective wave to the recording plane"
+            if wave_source_reused
+            else "Calculating the TEM wave image"
+        )
     if geometric_specimen_transport_requested and not elastic_reused:
-        stages.append(
-            (
-                "Transporting electrons through the specimen",
-                max(int(state.electron_gun.ray_count), 1),
-            )
-        )
+        stages.append("Transporting electrons through the specimen")
     if eds_point_requested and not eds_reused:
-        stages.append(
-            (
-                "Calculating the EDS point spectrum",
-                (
-                    1
-                    if elastic_reused
-                    or geometric_specimen_transport_requested
-                    else max(int(state.electron_gun.ray_count), 1)
-                ),
-            )
-        )
+        stages.append("Calculating the EDS point spectrum")
     if not energy_filter_reused:
-        stages.append(("Tracing the energy filter", 1))
+        stages.append("Tracing the energy filter")
     if scan_geometry_requested and not scan_geometry_reused:
-        stages.append(("Solving scan geometry", 1))
+        stages.append("Solving scan geometry")
     if scan_paths_requested and not scan_paths_reused:
-        stages.append(("Building scan-ray playback", 1))
+        stages.append("Building scan-ray playback")
     if sample_downstream_requested and not sample_downstream_reused:
-        stages.append(("Propagating specimen-exit electrons downstream", 1))
+        stages.append("Propagating specimen-exit electrons downstream")
     if stem_transport_reused:
-        stages.append(("Updating STEM dose readout", 1))
+        stages.append("Updating STEM dose readout")
+    elif stem_cube_recollection:
+        stages.append("Recollecting cached STEM diffraction")
     elif stem_frame_requested and not stem_reused:
-        stages.append(
-            (
-                "Calculating the STEM detector frame",
-                1 if stem_cube_recollection else _stem_frame_work_weight(state),
-            )
-        )
-    stages.append(("Finalising optical diagnostics", 1))
-    total_work = sum(weight for _label, weight in stages)
-    next_stage = 0
-    completed_work = 0
-
-    def report_stage() -> None:
-        if progress_callback is None:
-            return
-        label = "Complete" if next_stage >= len(stages) else stages[next_stage][0]
-        completed, total = _bounded_progress_position(
-            completed_work,
-            total_work,
-        )
-        progress_callback(completed, total, label)
-
-    def advance_stage() -> None:
-        nonlocal completed_work, next_stage
-        completed_work += stages[next_stage][1]
-        next_stage += 1
-        report_stage()
-
-    # Qt progress signals and QProgressBar use signed 32-bit integers.  Keep
-    # fine-grained nested progress without multiplying a million-ray stage
-    # beyond that boundary.
-    stage_subdivisions = _progress_stage_subdivisions(total_work)
-
-    def report_current_stage_progress(
-        completed: int,
-        total: int,
-        label: str,
-    ) -> None:
-        if progress_callback is None or int(total) <= 0:
-            return
-        bounded = min(max(int(completed), 0), int(total))
-        stage_weight = stages[next_stage][1]
-        nested_total = min(
-            total_work * stage_subdivisions,
-            _QT_PROGRESS_SAFE_MAX,
-        )
-        nested_completed = round(
-            nested_total
-            * (
-                completed_work
-                + stage_weight * bounded / int(total)
-            )
-            / total_work
-        )
-        progress_callback(
-            nested_completed,
-            nested_total,
-            label,
-        )
+        stages.append("Calculating the STEM detector frame")
+    stages.append("Finalising optical diagnostics")
+    progress = _StageProgress(stages, progress_callback, started_at=calculation_started)
+    report_stage = progress.report
+    advance_stage = progress.advance
+    report_current_stage_progress = progress.update
 
     calculated_products: set[str] = set()
     reused_products: set[str] = set()
@@ -933,4 +906,9 @@ def calculate(
         reused_products=frozenset(reused_products),
     )
     advance_stage()
+    result.performance = {
+        "pipeline_seconds": max(0.0, progress.stage_started_at - calculation_started),
+        "stages": tuple(progress.timings),
+        "timing_scope": "Current pipeline call; excludes GUI drawing and worker setup",
+    }
     return result

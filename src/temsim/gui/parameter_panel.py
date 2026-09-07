@@ -10,7 +10,7 @@ from temsim.gui.input_policy import (
     WheelSafeSpinBox as QSpinBox,
 )
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPersistentModelIndex, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFormLayout,
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -42,6 +43,33 @@ from temsim.runtime_parameters import (
 from temsim.optics.aberrations import intrinsic_lens_aberration_profile
 from temsim.part_geometry import geometry_from_part
 from temsim.mechanical_profiles import MAGNETIC_LENS_MECHANICAL_PROFILES
+
+
+class _ManifestDraftDelegate(QStyledItemDelegate):
+    """Expose literal, not-yet-committed text to geometry-save transactions."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._editors = {}
+        self.closeEditor.connect(lambda editor, _hint: self._editors.pop(id(editor), None))
+
+    def createEditor(self, parent, option, index):
+        editor = super().createEditor(parent, option, index)
+        if isinstance(editor, QLineEdit):
+            token = id(editor)
+            self._editors[token] = (QPersistentModelIndex(index), editor)
+            editor.destroyed.connect(lambda _obj=None, key=token: self._editors.pop(key, None))
+        return editor
+
+    def pending_texts(self):
+        return {tuple(index.data(Qt.ItemDataRole.UserRole) or ()): editor.text()
+                for index, editor in self._editors.values() if index.isValid()}
+
+    def close_pending_editors(self):
+        editors = tuple(editor for _index, editor in self._editors.values())
+        self._editors.clear()
+        for editor in editors:
+            self.closeEditor.emit(editor, QStyledItemDelegate.EndEditHint.RevertModelCache)
 
 
 class ParameterPanel(QWidget):
@@ -244,6 +272,8 @@ class ParameterPanel(QWidget):
         self.tabs = QTabWidget()
         self.runtime_table = self._table(("Operating parameter", "Value"))
         self.manifest_table = self._table(("TOML parameter", "Value"))
+        self._manifest_delegate = _ManifestDraftDelegate(self.manifest_table)
+        self.manifest_table.setItemDelegate(self._manifest_delegate)
         self.anchor_table = self._table(("Anchor property", "Value"))
         self.anchor_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.tabs.addTab(self.runtime_table, "Operating")
@@ -885,16 +915,19 @@ class ParameterPanel(QWidget):
             return {}
         original = {field.path: format_toml_value(field.value) for field in self._manifest_fields}
         draft = {}
+        pending = self._manifest_delegate.pending_texts()
         for row in range(self.manifest_table.rowCount()):
             item = self.manifest_table.item(row, 1)
             path = tuple(item.data(Qt.ItemDataRole.UserRole) or ())
-            if path in original and item.text() != original[path]:
-                draft[path] = item.text()
+            text = pending.get(path, item.text())
+            if path in original and text != original[path]:
+                draft[path] = text
         return draft
 
     def restore_manifest_draft_texts(self, target, draft):
         if self._manifest_target != target or not draft:
             return
+        self._manifest_delegate.close_pending_editors()
         blocked = self.manifest_table.blockSignals(True)
         try:
             for row in range(self.manifest_table.rowCount()):
@@ -915,6 +948,7 @@ class ParameterPanel(QWidget):
 
     def _load_manifest(self) -> None:
         self.manifest_draft_notice.hide()
+        self._manifest_delegate.close_pending_editors()
         blocked = self.manifest_table.blockSignals(True)
         try:
             self.manifest_table.setRowCount(len(self._manifest_fields))

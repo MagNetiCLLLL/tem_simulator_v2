@@ -125,20 +125,21 @@ def _arc_rotation(start, end):
     return np.eye(3) + sine * cross + (1 - cosine) * (cross @ cross)
 
 
-def _section_triangles(triangles, *, with_sources=False):
-    """Clip surfaces at world y=0, retaining the y>=0 half of each mesh."""
+def _section_triangles(triangles, *, with_sources=False, keep_positive_y=True):
+    """Clip at world y=0 without reflecting or changing source coordinates."""
     result = []
     sources = []
+    sign = 1.0 if keep_positive_y else -1.0
     for source, triangle in enumerate(triangles):
-        if np.all(triangle[:, 1] >= 0):
+        if np.all(sign * triangle[:, 1] >= 0):
             result.append(triangle)
             sources.append(source)
             continue
-        if np.all(triangle[:, 1] < 0):
+        if np.all(sign * triangle[:, 1] < 0):
             continue
         polygon = []
         for previous, current in zip(np.roll(triangle, 1, axis=0), triangle):
-            previous_inside, current_inside = previous[1] >= 0, current[1] >= 0
+            previous_inside, current_inside = sign * previous[1] >= 0, sign * current[1] >= 0
             if previous_inside != current_inside:
                 fraction = previous[1] / (previous[1] - current[1])
                 polygon.append(previous + fraction * (current - previous))
@@ -251,16 +252,17 @@ def _draw_semantic_edge(segments, mesh_id, pixels, ids, face_ids, triangles, eps
                     pixels[py, px, :3] = color
 
 
-def _edge_segments(vertices, section):
+def _edge_segments(vertices, section, *, keep_positive_y=True):
     segments = np.stack((vertices[:-1], vertices[1:]), axis=1).copy()
     if not section:
         return segments
-    segments = segments[np.any(segments[..., 1] >= 0, axis=1)]
+    sign = 1.0 if keep_positive_y else -1.0
+    segments = segments[np.any(sign * segments[..., 1] >= 0, axis=1)]
     for segment in segments:
-        if (segment[0, 1] < 0) != (segment[1, 1] < 0):
+        if (sign * segment[0, 1] < 0) != (sign * segment[1, 1] < 0):
             fraction = segment[0, 1] / (segment[0, 1] - segment[1, 1])
             crossing = segment[0] + fraction * (segment[1] - segment[0])
-            segment[0 if segment[0, 1] < 0 else 1] = crossing
+            segment[0 if sign * segment[0, 1] < 0 else 1] = crossing
     return segments
 
 
@@ -310,7 +312,8 @@ class PartModelView(QWidget):
     and color fields, plus optional face_groups/surfaces/edges semantic metadata.
     ``selection_changed`` only fires for user selections;
     ``set_selection`` can therefore follow an external component tree safely.
-    Section mode removes y<0 surfaces to expose the interior; it does not invent
+    Section mode defaults to removing y<0 surfaces; its retained side can be
+    chosen explicitly for a downstream-oriented column view. It does not invent
     material faces across a cut or change the source mesh. Topology selection
     reports module-coordinate hits after part selection callbacks have completed.
     """
@@ -325,10 +328,13 @@ class PartModelView(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
         self.setToolTip("Left drag: rotate freely. Right drag: pan. Wheel: zoom. Click a visible surface to select it.")
+        self._view_title = "3D model"
+        self._empty_text = "Select a part to view its 3D model"
         self._meshes = ()
         self._triangles = ()
         self._triangle_sources = ()
         self._section = False
+        self._section_keep_positive_y = True
         self._selection = ("", None)
         self._selection_keys = frozenset()
         self._selection_mode = "part"
@@ -450,7 +456,8 @@ class PartModelView(QWidget):
             self._invalidate()
 
     def _rebuild_triangles(self):
-        pairs = tuple(_section_triangles(mesh.vertices[mesh.faces], with_sources=True) if self._section
+        pairs = tuple(_section_triangles(mesh.vertices[mesh.faces], with_sources=True,
+                                        keep_positive_y=self._section_keep_positive_y) if self._section
                       else (mesh.vertices[mesh.faces], np.arange(len(mesh.faces))) for mesh in self._meshes)
         self._triangles = tuple(pair[0] for pair in pairs)
         self._triangle_sources = tuple(pair[1] for pair in pairs)
@@ -465,10 +472,13 @@ class PartModelView(QWidget):
                 self.clear_topology_selection()
             self._invalidate()
 
-    def set_section_enabled(self, enabled):
+    def set_section_enabled(self, enabled, *, keep_positive_y=True):
+        """Retain a chosen world-Y half; the default editor side is y>=0."""
         enabled = bool(enabled)
-        if enabled != self._section:
+        keep_positive_y = bool(keep_positive_y)
+        if enabled != self._section or keep_positive_y != self._section_keep_positive_y:
             self._section = enabled
+            self._section_keep_positive_y = keep_positive_y
             self._rebuild_triangles()
             self._invalidate()
 
@@ -518,6 +528,41 @@ class PartModelView(QWidget):
         self._settle_timer.stop()
         self._rotation = np.eye(3)
         self._invalidate()
+
+    def set_column_view(self):
+        """Look from +Y with +X right and downstream +Z vertically down.
+
+        This is a proper camera rotation, not a reflected mesh. Its camera
+        axes are (+X, -Z, +Y); screen Y increases downward. Existing section
+        clipping remains in world coordinates and is not changed by a view.
+        """
+        self._interactive = False
+        self._settle_timer.stop()
+        self._rotation = np.array([[1.0, 0.0, 0.0],
+                                   [0.0, 0.0, -1.0],
+                                   [0.0, 1.0, 0.0]])
+        self._invalidate()
+
+    def set_column_isometric_view(self):
+        """Oblique orthographic column view with +Z down and visible depth.
+
+        The preset is deliberately only slightly elevated to keep a long
+        column legible. Rolling both camera-plane axes by 180 degrees keeps
+        a right-handed rotation; projected physical units are never stretched.
+        """
+        self._interactive = False
+        self._settle_timer.stop()
+        self._rotation = _view_rotation([0.65, 1.5, -0.4])
+        self._rotation[:2] *= -1.0
+        self._invalidate()
+
+    def set_view_labels(self, *, title=None, empty_text=None):
+        """Customize presentation text without changing geometry or camera."""
+        if title is not None:
+            self._view_title = str(title)
+        if empty_text is not None:
+            self._empty_text = str(empty_text)
+        self.update()
 
     def _scale(self):
         return max(1, min(self.width(), self.height())) * 0.42 / self._radius * self._zoom
@@ -601,7 +646,10 @@ class PartModelView(QWidget):
                 selected = (mesh.key, mesh.region, "edge", edge["id"]) in topology
                 if not selected and self._selection_mode != "edge":
                     continue
-                segments = self.project_points(_edge_segments(edge["vertices"], self._section))
+                segments = self.project_points(_edge_segments(
+                    edge["vertices"], self._section,
+                    keep_positive_y=self._section_keep_positive_y,
+                ))
                 segments[..., 0] *= sx
                 segments[..., 1] *= sy
                 _draw_semantic_edge(segments, mesh_id, pixels, ids, face_ids, screen_triangles,
@@ -679,7 +727,10 @@ class PartModelView(QWidget):
         candidates = []
         for mesh_id, mesh in enumerate(self._meshes):
             for edge in mesh.edges:
-                segments = _edge_segments(edge["vertices"], self._section)
+                segments = _edge_segments(
+                    edge["vertices"], self._section,
+                    keep_positive_y=self._section_keep_positive_y,
+                )
                 projected = self.project_points(segments)
                 if not len(projected):
                     continue
@@ -707,10 +758,11 @@ class PartModelView(QWidget):
         painter.drawImage(self.rect(), self._image)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(QColor("#b8c8dc"))
-        title = "3D model · Orthographic" + (" · Section y ≥ 0" if self._section else "")
+        section_label = " · Section y ≥ 0" if self._section_keep_positive_y else " · Section y ≤ 0"
+        title = self._view_title + " · Orthographic" + (section_label if self._section else "")
         painter.drawText(14, 24, title)
         if not self._meshes:
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Select a part to view its 3D model")
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._empty_text)
         if self.width() >= 450:
             painter.drawText(14, self.height() - 16, "Left drag: rotate   Right drag: pan   Wheel: zoom")
         origin = QPointF(self.width() - 58, self.height() - 56)

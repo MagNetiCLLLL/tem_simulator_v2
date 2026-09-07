@@ -1716,12 +1716,13 @@ def test_high_accuracy_progress_bar_shows_completion_and_current_stage(qtbot):
         "High accuracy",
         3,
         8,
-        "Tracing the energy filter",
+        "Stage 4/8 | Tracing the energy filter",
     )
 
     assert window.progress.maximum() == 8
     assert window.progress.value() == 3
-    assert window.progress.text().startswith("37.5%")
+    assert window.progress.text().startswith("Stage 4/8")
+    assert "37.5%" not in window.progress.text()
     assert "Tracing the energy filter" in window.progress.text()
     assert "Tracing the energy filter" in window.status_label.text()
 

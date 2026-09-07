@@ -69,7 +69,7 @@ def test_sample_page_applies_extensible_interaction_table(qtbot):
     ]
 
 
-def test_sample_page_owns_real_wave_and_virtual_interaction_controls(qtbot):
+def test_sample_page_owns_shared_wave_and_virtual_interaction_controls(qtbot):
     state = default_state()
     state.illumination_mode = "TEM"
     page = SamplePage()
@@ -82,7 +82,6 @@ def test_sample_page_owns_real_wave_and_virtual_interaction_controls(qtbot):
     assert preset_index >= 0
     page.preset.setCurrentIndex(preset_index)
     page.tem_wave_enabled.setChecked(True)
-    page.stem_wave_enabled.setChecked(True)
     page.wave_grid.setValue(64)
     page.wave_scalar_controls["wave_slice_thickness_angstrom"].setValue(1.5)
     page.frozen_enabled.setChecked(True)
@@ -98,7 +97,6 @@ def test_sample_page_owns_real_wave_and_virtual_interaction_controls(qtbot):
 
     assert state.sample.specimen_preset_key == "si_110"
     assert state.sample.wave_enabled is True
-    assert state.sample.stem_wave_enabled is True
     assert state.sample.wave_grid_pixels == 64
     assert state.sample.wave_slice_thickness_angstrom == pytest.approx(1.5)
     assert state.sample.wave_frozen_phonon_enabled is True
@@ -159,7 +157,7 @@ def test_mode_is_the_only_structure_source_selector(qtbot):
     assert state.sample.cif_path == "ideal-sample.cif"
 
 
-def test_sample_page_gates_wave_controls_by_illumination_mode(qtbot):
+def test_sample_page_gates_tem_wave_control_by_illumination_mode(qtbot):
     state = default_state()
     page = SamplePage()
     qtbot.addWidget(page)
@@ -167,23 +165,19 @@ def test_sample_page_gates_wave_controls_by_illumination_mode(qtbot):
     state.illumination_mode = "STEM"
     page.set_state(state)
     assert not page.tem_wave_enabled.isEnabled()
-    assert page.stem_wave_enabled.isEnabled()
 
     state.illumination_mode = "TEM"
     page.set_state(state)
     assert page.tem_wave_enabled.isEnabled()
-    assert not page.stem_wave_enabled.isEnabled()
 
     state.sample.specimen_mode = "atomic"
     state.sample.cif_path = ""
     page.set_state(state)
     assert not page.tem_wave_enabled.isEnabled()
-    assert not page.stem_wave_enabled.isEnabled()
 
     state.sample.cif_path = "real-sample.cif"
     page.set_state(state)
     assert page.tem_wave_enabled.isEnabled()
-    assert not page.stem_wave_enabled.isEnabled()
 
 
 def test_dedicated_eds_page_uses_calculated_sample_plane_rays(qtbot):
@@ -334,6 +328,9 @@ def test_sample_page_contains_only_structure_and_labels_ball_elements(
     page.set_state(state)
 
     assert not hasattr(page, "image_panels")
+    assert page._snapshot is None  # Hidden pages defer expensive atom rendering.
+    page.show()
+    qtbot.waitUntil(lambda: page._snapshot is not None)
     assert page._snapshot.atomic_numbers.size > 2
     assert page._snapshot.atom_bond_pairs.shape[0] > 0
     legend_text = "\n".join(

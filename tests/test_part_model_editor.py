@@ -476,10 +476,11 @@ aperture_hole_diameters_um = [100.0, 200.0]
 def test_mainwindow_keeps_original_2d_view_and_binds_model_selection_and_project_save(window, qtbot, monkeypatch):
     layout = window.workspace.physical_layout
     original_plot = layout.plot
-    assert layout.tabs.count() == 2
-    assert [layout.tabs.tabText(index) for index in range(2)] == ["2D section", "3D model editor"]
+    assert layout.tabs.count() == 3
+    assert [layout.tabs.tabText(index) for index in range(3)] == ["2D", "3D Parts", "3D"]
     assert layout.tabs.widget(0) is layout.section_page
     assert layout.tabs.widget(1) is layout.model_editor
+    assert layout.tabs.widget(2) is layout.assembly_3d
     assert layout.plot.parentWidget() is layout.section_page
     assert window.workspace.tabs.widget(window.workspace.tabs.indexOf(layout)) is layout
     page = layout.model_editor
@@ -886,3 +887,67 @@ def test_topology_pick_highlights_multiple_real_dimension_rows(page, qtbot, mode
     assert not page._topology_selection
     assert not any(page.dimensions.item(row, 1).data(Qt.ItemDataRole.UserRole + 1)
                    for row in range(page.dimensions.rowCount()))
+
+
+@pytest.mark.parametrize("save_path", ["model", "dimensions"])
+@pytest.mark.parametrize("fail_after_reload", [False, True])
+def test_geometry_save_preserves_each_panels_target_and_uncommitted_draft(
+        window, root, monkeypatch, save_path, fail_after_reload):
+    """Exercise both save entry points; persistence/reload is an in-memory stub."""
+    from PySide6.QtWidgets import QLineEdit
+    from temsim.manifest_editor import ManifestTarget
+
+    assert window.assembly_panel.select_key(HOUSING)
+    assert window._select_energy_filter_component(
+        "energy_filter_slit", activate_page=False, focus_editor=False)
+    main_panel = window.parameter_panel
+    energy_panel = window.workspace.energy_filter_parameters
+    snapshots = []
+    for panel, text in ((main_panel, "invalid main draft"), (energy_panel, "invalid EELS draft")):
+        panel.tabs.setCurrentIndex(1)
+        row = next(row for row, field in enumerate(panel._manifest_fields)
+                   if field.editable and isinstance(field.value, (int, float)))
+        item = panel.manifest_table.item(row, 1)
+        original_text = item.text()
+        panel.manifest_table.editItem(item)
+        editor = next(editor for _index, editor in panel._manifest_delegate._editors.values())
+        assert isinstance(editor, QLineEdit)
+        editor.setText(text)
+        # Typed text has not reached the table model, let alone disk or state.
+        assert item.text() == original_text
+        path = tuple(item.data(Qt.ItemDataRole.UserRole))
+        snapshots.append((panel, panel._manifest_target, path, text))
+
+    calls = []
+    def save_stub(target, updates, **_kwargs):
+        calls.append((target, updates))
+        # Reproduce the context replacements performed after a catalog reload.
+        energy_panel._load_manifest()
+        window.assembly_panel.select_key(target.part_key)
+        if fail_after_reload:
+            raise ValueError("test reload failure")
+
+    monkeypatch.setattr(window, "_save_manifest_updates", save_stub)
+    target = ManifestTarget(MODULE, COIL)
+    if save_path == "model":
+        window.workspace.physical_layout.model_editor._selected_key = COIL
+        if fail_after_reload:
+            with pytest.raises(ValueError, match="test reload failure"):
+                window._save_model_document(root / MODULE, {("parts", COIL, "length_mm"): 2.})
+        else:
+            window._save_model_document(root / MODULE, {("parts", COIL, "length_mm"): 2.})
+    else:
+        dialog = window._edit_part_geometry(target)
+        assert dialog is not None
+        control = dialog.dimension_controls["outer_diameter_mm"]
+        control.setValue(control.value() + 1.)
+        dialog.apply()
+        assert ("test reload failure" in dialog.error_label.text()) == fail_after_reload
+        dialog.reject()
+    assert len(calls) == 1
+    assert window._selected_component_key == HOUSING
+    for panel, own_target, path, text in snapshots:
+        assert panel._manifest_target == own_target
+        assert panel.manifest_draft_texts(own_target)[path] == text
+        assert panel.tabs.currentIndex() == 1
+        assert not panel._manifest_delegate.pending_texts()

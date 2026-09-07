@@ -95,6 +95,9 @@ def test_inactive_module_loses_runtime_opening_when_assembly_changes(editor):
     assert "working_opening" in editor._mesh_records[0]["face_groups"]
     editor.set_project_context(editor._project_root, ASSEMBLY, None, values)
     editor.set_simulation_context("ideal", {})
+    assert editor._runtime_refresh_pending  # Hidden CAD refreshes on presentation.
+    assert "working_opening" in editor._mesh_records[0]["face_groups"]
+    editor.show()
     assert "working_opening" not in editor._mesh_records[0]["face_groups"]
     assert all(editor.dimensions.item(row, 1).data(Qt.ItemDataRole.UserRole)[0] != "runtime"
                for row in range(editor.dimensions.rowCount()))

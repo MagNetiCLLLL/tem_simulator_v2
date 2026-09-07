@@ -645,7 +645,7 @@ class CalculationManifest:
     def to_dict(self) -> dict[str, object]:
         return {
             "created_at_utc": self.created_at_utc,
-            **thaw_json(self.identity_payload),
+            **thaw_json(freeze_json(self.identity_payload)),
             "solver": thaw_json(freeze_json(self.solver)),
             "digest": self.digest,
         }

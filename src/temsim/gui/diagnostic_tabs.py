@@ -1378,7 +1378,7 @@ class PhysicalLayoutView(QWidget):
         self.plot = pg.PlotWidget(background="#050816")
         self.plot.setObjectName("physicalLayoutPlot")
         self.plot.setToolTip(
-            "Click to select a component. Double-click to locate it in the 3D model editor."
+            "Click to select a component. Double-click to locate it in 3D Parts."
         )
         self.plot.setLabel("bottom", "Axial position", units="mm")
         self.plot.setLabel("left", "Mechanical radius", units="mm")
@@ -1398,11 +1398,19 @@ class PhysicalLayoutView(QWidget):
         layout.addWidget(self.summary)
 
         from temsim.gui.part_model_editor import PartModelEditorPage
+        from temsim.gui.assembly_model_page import AssemblyModelPage
         self.model_editor = PartModelEditorPage()
+        self.assembly_3d = AssemblyModelPage()
         self.tabs = QTabWidget()
         self.tabs.setObjectName("physicalLayoutTabs")
-        self.tabs.addTab(self.section_page, "2D section")
-        self.tabs.addTab(self.model_editor, "3D model editor")
+        self.tabs.addTab(self.section_page, "2D")
+        self.tabs.addTab(self.model_editor, "3D Parts")
+        self.tabs.addTab(self.assembly_3d, "3D")
+        self.tabs.setTabToolTip(0, "Two-dimensional mechanical section")
+        self.tabs.setTabToolTip(1, "Inspect and edit individual component geometry")
+        self.tabs.setTabToolTip(2, "Read-only 3D view of the saved column assembly")
+        self.assembly_3d.component_selected.connect(self.component_selected)
+        self.assembly_3d.edit_part_requested.connect(self.component_activated)
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.addWidget(self.tabs)
@@ -3906,6 +3914,7 @@ class PhysicalLayoutView(QWidget):
             self.component_selected.emit(str(points[0].data()))
 
     def focus_component(self, part) -> None:
+        self.assembly_3d.focus_component(part)
         record = self._record_by_key.get(getattr(part, "key", ""))
         if record is None:
             return
@@ -4007,6 +4016,11 @@ class PhysicalLayoutView(QWidget):
         """Highlight and centre a component without enabling live auto-range."""
 
         self.focus_component(part)
+        if self.tabs.currentWidget() is self.assembly_3d:
+            return self.assembly_3d.fit_current_selection()
+        if self.tabs.currentWidget() is self.model_editor:
+            self.model_editor.reveal_project_part(part)
+            return True
         record = self._record_by_key.get(getattr(part, "key", ""))
         if record is None:
             return False

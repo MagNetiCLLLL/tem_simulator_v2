@@ -546,30 +546,72 @@ def _toml_statement_spans(lines, start, end):
         index = last
 
 
-def _replace_model_3d(lines, start, end, value, newline):
-    """Replace the complete optional CAD table, whether inline or expanded.
+def _retained_toml_comments(lines, newline):
+    """Keep standalone/inline comments without mistaking string content for them."""
+    text = "".join(lines)
+    retained = []
+    quote = None
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote is not None:
+            if quote.startswith('"') and char == "\\":
+                index += 2
+                continue
+            if text.startswith(quote, index):
+                end = index + len(quote)
+                # A multiline closing delimiter may include one or two extra
+                # literal quotes. Consume the complete run, not a new string.
+                if len(quote) == 3:
+                    while end < len(text) and text[end] == char:
+                        end += 1
+                quote = None
+                index = end
+                continue
+        elif char in {'"', "'"}:
+            quote = char * (3 if text.startswith(char * 3, index) else 1)
+            index += len(quote)
+            continue
+        elif char == "#":
+            end = text.find("\n", index)
+            end = len(text) if end < 0 else end + 1
+            line_start = text.rfind("\n", 0, index) + 1
+            prefix = text[line_start:index]
+            indent = prefix[:len(prefix) - len(prefix.lstrip())]
+            comment = text[index:end]
+            retained.append(indent + comment + (newline if not comment.endswith("\n") else ""))
+            index = end
+            continue
+        index += 1
+    return retained
 
-    None is a deletion marker only for this optional field. Removed-feature
-    table comments remain in the source; unrelated tables retain their text.
+
+def _replace_part_table(lines, start, end, field, value, newline):
+    """Replace a complete optional part table, including expanded descendants.
+
+    Only model_3d supports None as deletion. Material assignments use an empty
+    table to clear their regions. Other tables and all comments are retained.
     """
-    if value is not None and not isinstance(value, dict):
-        raise ValueError("model_3d must be a table or None")
+    if not isinstance(value, dict) and not (field == "model_3d" and value is None):
+        raise ValueError(f"{field} must be a table" + (" or None" if field == "model_3d" else ""))
     statements = list(_toml_statement_spans(lines, start, end))
     headers = [(first, header) for first, _, header in statements if header is not None]
     direct_end = headers[0][0] if headers else end
     spans = []
-    assignment = re.compile(r'''^\s*(?:model_3d|"model_3d"|'model_3d')\s*(?:\.|=)''')
     for first, last, header in statements:
-        if first < direct_end and header is None and assignment.match(lines[first]):
-            spans.append((first, last))
+        if first < direct_end and header is None:
+            # Let TOML resolve quoted/escaped and dotted keys. A similar name
+            # inside another table or a string is not this part's assignment.
+            if field in tomllib.loads("".join(lines[first:last])):
+                spans.append((first, last))
     for offset, (index, path) in enumerate(headers):
-        if path[:2] == ("parts", "model_3d"):
+        if path[:2] == ("parts", field):
             last = headers[offset + 1][0] if offset + 1 < len(headers) else end
             spans.append((index, last))
     for first, last in sorted(spans, reverse=True):
-        lines[first:last] = [line for line in lines[first:last] if line.lstrip().startswith("#")]
+        lines[first:last] = _retained_toml_comments(lines[first:last], newline)
     if value is not None:
-        lines[start:start] = [f"model_3d = {_format_toml_value(value)}{newline}"]
+        lines[start:start] = [f"{field} = {_format_toml_value(value)}{newline}"]
 
 
 def stage_manifest_text(text, updates):
@@ -582,21 +624,15 @@ def stage_manifest_text(text, updates):
         if len(path) == 3 and path[0] == "parts":
             start, end = _part_span(lines, path[1])
             field = path[2]
-            if field == "model_3d":
-                _replace_model_3d(lines, start, end, value, newline)
+            if field in {"model_3d", "material_regions"}:
+                _replace_part_table(lines, start, end, field, value, newline)
                 continue
         elif len(path) >= 2:
             start, end = _section_span(lines, ".".join(path[:-1]))
             field = path[-1]
         else:
             raise ValueError(f"Invalid TOML update path: {path!r}")
-        try:
-            first, last = _assignment_span(lines, start, end, field)
-        except ValueError:
-            if len(path) == 3 and path[0] == "parts" and field == "material_regions":
-                first = last = start
-            else:
-                raise
+        first, last = _assignment_span(lines, start, end, field)
         indent = lines[first][:len(lines[first]) - len(lines[first].lstrip())]
         lines[first:last] = [
             f"{indent}{field} = {_format_toml_value(value)}{newline}"
@@ -3082,7 +3118,29 @@ def _validate_simple_magnetic_layer_geometry(parts):
                 parent, float(parent["local_start_z_mm"]), profile
             )
         if not intervals:
-            intervals = ((dimensions["local_start_z_mm"], dimensions["local_end_z_mm"]),)
+            # Match the mesh/FEM material sections: parent-defined objective
+            # intervals win, followed by explicit sections, then the envelope.
+            intervals = part.get("material_intervals_mm")
+            if intervals is None:
+                intervals = ((dimensions["local_start_z_mm"], dimensions["local_end_z_mm"]),)
+            else:
+                message = f"{key}.material_intervals_mm requires finite (start, end) pairs with start < end"
+                if not isinstance(intervals, (list, tuple)) or not intervals:
+                    raise ValueError(message)
+                checked = []
+                for interval in intervals:
+                    if not isinstance(interval, (list, tuple)) or len(interval) != 2:
+                        raise ValueError(message)
+                    if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in interval):
+                        raise ValueError(message)
+                    try:
+                        start, end = map(float, interval)
+                    except (OverflowError, ValueError) as exc:
+                        raise ValueError(message) from exc
+                    if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+                        raise ValueError(message)
+                    checked.append((start, end))
+                intervals = tuple(checked)
         layers_by_owner.setdefault(owner_key, []).append((part, inner, outer, intervals))
 
     for layers in layers_by_owner.values():
@@ -3812,7 +3870,10 @@ def update_manifest_values(updates_by_module, root=None):
     for module_path, updates in updates_by_module.items():
         relative = str(module_path)
         path = root / relative
-        original = path.read_text(encoding="utf-8")
+        # Universal-newline translation would lose CRLF/mixed line endings in
+        # both successful edits and snapshots used by later assembly rollback.
+        with path.open("r", encoding="utf-8", newline="") as stream:
+            original = stream.read()
         originals[relative] = original
         staged[relative] = stage_manifest_text(original, updates)
     replaced = []

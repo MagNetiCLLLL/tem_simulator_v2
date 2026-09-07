@@ -26,6 +26,7 @@ from temsim.physics.compute_backend import (
 )
 from temsim.physics.core import electron
 from temsim.physics.multislice import propagate_multislice
+from temsim.physics.stem_batching import resident_stem_batch_size
 from temsim.physics.stem_cuda_pipeline import (
     release_cupy_memory_pools,
     run_resident_stem_cuda,
@@ -426,11 +427,20 @@ def simulate_angle_resolved_stem(
             and record_plane_plan.scan_times_s is None):
         raise ValueError("Dynamic STEM recording requires a plan built with scan times")
 
+    ray_stats = _weighted_ray_statistics(simulation.incident)
+    origin_x_um = float(ray_stats["mean_x_m"]) * 1.0e6 - float(
+        baseline_scan_offset_um[0]
+    )
+    origin_y_um = float(ray_stats["mean_y_m"]) * 1.0e6 - float(
+        baseline_scan_offset_um[1]
+    )
+    # Material ROI and probe translations share laboratory positions. A
+    # steered/shifted beam must not wrap onto a centred CIF.
     preset, prepared = _wave_grid(
         state,
         simulation,
-        scan_x_um,
-        scan_y_um,
+        origin_x_um + scan_x_um,
+        origin_y_um + scan_y_um,
     )
     x_axis = prepared.x_angstrom
     y_axis = prepared.y_angstrom
@@ -522,7 +532,6 @@ def simulate_angle_resolved_stem(
         np.clip(wavelength_angstrom * fy, -1.0, 1.0)
     ) * 1.0e3
 
-    ray_stats = _weighted_ray_statistics(simulation.incident)
     probe_aberrations, probe_focus = probe_focus_aberrations(state, ray_stats)
     base_spectrum = _probe_spectrum(
         state,
@@ -545,12 +554,6 @@ def simulate_angle_resolved_stem(
     }
     uncollected = np.zeros(scan_x_um.shape, dtype=float)
     truncated_fraction = np.zeros(scan_x_um.shape, dtype=float)
-    origin_x_um = float(ray_stats["mean_x_m"]) * 1.0e6 - float(
-        baseline_scan_offset_um[0]
-    )
-    origin_y_um = float(ray_stats["mean_y_m"]) * 1.0e6 - float(
-        baseline_scan_offset_um[1]
-    )
     sampling = detector_sampling_report(
         detector_angular_bounds(
             detectors,
@@ -563,12 +566,34 @@ def simulate_angle_resolved_stem(
         wavelength_angstrom=wavelength_angstrom,
         requested_fov_angstrom=float(prepared.metrics.get(
             "requested_field_of_view_angstrom", max(spacing_x * nx, spacing_y * ny))),
-        requested_grid_pixels=int(getattr(state.sample, "wave_grid_pixels", 0) or preset.pixels),
+        requested_grid_pixels=int(prepared.metrics.get("wave_sampling_plan", {}).get(
+            "pixels", getattr(state.sample, "wave_grid_pixels", 0) or preset.pixels)),
         bandwidth_fraction=(float(getattr(state.sample, "wave_bandwidth_fraction", 2 / 3))
                             if multislice_enabled else 1.0),
         probe_semiangle_mrad=_coherent_probe_semiangle_rad(ray_stats) * 1e3,
         potential_storage_bytes=int(prepared.metrics.get("potential_storage_bytes", 0)),
     )
+    wave_plan = prepared.metrics.get("wave_sampling_plan")
+    if wave_plan is not None:
+        # Match detector sampling edits the reference Grid in Sample. Convert
+        # the padded-grid proposal back to it, avoiding double FOV expansion.
+        reference_fov = float(getattr(state.sample, "wave_field_of_view_angstrom", 0.0))
+        if reference_fov <= 0.0:
+            reference_fov = float(preset.field_of_view_angstrom)
+        reference_grid = int(getattr(state.sample, "wave_grid_pixels", 0) or preset.pixels)
+        proposed = sampling.get("recommended_grid_pixels")
+        sampling["execution_grid_pixels"] = wave_plan["pixels"]
+        sampling["requested_grid_pixels"] = reference_grid
+        if proposed is not None:
+            proposed_reference = max(reference_grid, 32 * math.ceil(
+                proposed * reference_fov / wave_plan["field_of_view_angstrom"] / 32
+            ))
+            sampling["recommended_grid_pixels"] = proposed_reference
+            factor = (proposed_reference / reference_grid) ** 2
+            sampling["grid_area_factor"] = factor
+            sampling["estimated_potential_bytes"] = math.ceil(
+                int(prepared.metrics.get("potential_storage_bytes", 0)) * factor
+            )
     if record_plane_plan is not None:
         physical_detector_keys = {
             plane.key
@@ -638,6 +663,45 @@ def simulate_angle_resolved_stem(
                 center_x.ravel(),
                 center_y.ravel(),
             )
+
+    prepared_detector_masks = None
+    if record_plane_plan is not None:
+        from temsim.physics.record_plane import prepare_record_plane_detector_masks
+
+        prepared_detector_masks = prepare_record_plane_detector_masks(
+            record_plane_plan,
+            np.stack((angle_x_mrad, angle_y_mrad), axis=-1)[None, ...] * 1.0e-3,
+        )
+
+    def batch_detector_masks_for(start, stop):
+        """One exact physical acceptance calculation, shared by CPU and GPU."""
+        if prepared_detector_masks is not None:
+            position_m = np.stack((
+                origin_x_um + scan_x_um.ravel()[start:stop],
+                origin_y_um + scan_y_um.ravel()[start:stop],
+            ), axis=-1)[:, None, None, :] * 1.0e-6
+            by_key = prepared_detector_masks(position_m, scan_slice=slice(start, stop))
+            return {
+                detector.key: by_key[detector.key] & valid_reciprocal[None, :, :]
+                for detector in detectors
+            }
+        if flat_detector_centers is None:
+            return detector_masks
+        available = np.ones((stop - start, *valid_reciprocal.shape), dtype=bool)
+        masks = {}
+        for detector in detectors:
+            center_x, center_y = flat_detector_centers[detector.key]
+            shifted_x = angle_x_mrad[None, :, :] - center_x[start:stop, None, None]
+            shifted_y = angle_y_mrad[None, :, :] - center_y[start:stop, None, None]
+            angular_band = _detector_mask(
+                detector, np.hypot(shifted_x, shifted_y),
+                angle_x_mrad=shifted_x, angle_y_mrad=shifted_y,
+            )
+            mask = available & valid_reciprocal[None, :, :] & angular_band
+            masks[detector.key] = mask
+            available &= ~mask
+        return masks
+
     roi_centre_nm = prepared.metrics.get(
         "calculation_roi_centre_nm",
         (0.0, 0.0),
@@ -685,41 +749,20 @@ def simulate_angle_resolved_stem(
         resident_pipeline_metrics["cuda_pipeline_fallback_reason"] = (
             capture_reason
         )
-    if wave_backend == WAVE_BACKEND_CUPY and record_plane_plan is not None:
-        routing_reason = (
-            "Full mixed-plane J_img*r + J_diff*theta detector routing uses "
-            "the NumPy reference path."
-        )
-        wave_backend = WAVE_BACKEND_NUMPY
-        fft_backend = WAVE_BACKEND_NUMPY
-        wave_fallback_reason = "; ".join(
-            reason
-            for reason in (wave_fallback_reason, routing_reason)
-            if reason
-        )
-        fft_fallback_reason = wave_fallback_reason
-        resident_pipeline_metrics["cuda_pipeline_fallback_reason"] = (
-            routing_reason
-        )
-    if wave_backend == WAVE_BACKEND_CUPY and flat_detector_centers is not None:
-        dynamic_reason = (
-            "Pixel-dependent physical detector acceptance uses the complete "
-            "NumPy reference observable; partial CPU/GPU frames are not mixed."
-        )
-        wave_backend = WAVE_BACKEND_NUMPY
-        fft_backend = WAVE_BACKEND_NUMPY
-        wave_fallback_reason = "; ".join(
-            reason
-            for reason in (wave_fallback_reason, dynamic_reason)
-            if reason
-        )
-        fft_fallback_reason = wave_fallback_reason
-        resident_pipeline_metrics["cuda_pipeline_fallback_reason"] = (
-            dynamic_reason
-        )
-    if wave_backend == WAVE_BACKEND_CUPY and flat_detector_centers is None:
+    if wave_backend == WAVE_BACKEND_CUPY:
         try:
-            cuda_total_work = batch_count + 2
+            dynamic_masks = record_plane_plan is not None or flat_detector_centers is not None
+            cuda_batch_size = resident_stem_batch_size(
+                flat_x_angstrom.size, (ny, nx),
+                potential_bytes=sum(
+                    int(configuration.size) * np.dtype(np.float32).itemsize
+                    for configuration in prepared.potential_configurations_v_angstrom
+                ),
+                detector_count=len(detectors),
+                recording_plane_count=(0 if record_plane_plan is None else len(record_plane_plan.planes)),
+                dynamic_masks=dynamic_masks,
+            )
+            cuda_total_work = math.ceil(flat_x_angstrom.size / cuda_batch_size) + 2
             resident_cuda_result = run_resident_stem_cuda(
                 base_spectrum=base_spectrum,
                 frequencies_x=frequencies_x,
@@ -730,6 +773,8 @@ def simulate_angle_resolved_stem(
                     prepared.potential_configurations_v_angstrom
                 ),
                 detector_masks=detector_masks,
+                detector_mask_provider=batch_detector_masks_for if dynamic_masks else None,
+                valid_reciprocal_mask=valid_reciprocal,
                 multislice_enabled=multislice_enabled,
                 pixel_size_angstrom=(spacing_y, spacing_x),
                 wavelength_angstrom=wavelength_angstrom,
@@ -746,7 +791,7 @@ def simulate_angle_resolved_stem(
                         2.0 / 3.0,
                     )
                 ),
-                batch_size=batch_size,
+                batch_size=cuda_batch_size,
                 fallback_reason=wave_fallback_reason,
                 progress_callback=(
                     None
@@ -786,6 +831,8 @@ def simulate_angle_resolved_stem(
             for key, values in resident_cuda_result.fractions_flat.items():
                 flat_fractions[key][:] = values
             flat_uncollected[:] = resident_cuda_result.uncollected_flat
+            if resident_cuda_result.truncated_flat is not None:
+                flat_truncated[:] = resident_cuda_result.truncated_flat
             if resident_cuda_result.multislice_diagnostics is not None:
                 diagnostic_records.append(
                     asdict(
@@ -829,65 +876,7 @@ def simulate_angle_resolved_stem(
             if diffraction_sink is not None
             else None
         )
-        batch_detector_masks = detector_masks
-        if record_plane_plan is not None:
-            from temsim.physics.record_plane import route_record_planes
-
-            position_m = np.stack((
-                origin_x_um + scan_x_um.ravel()[start:stop],
-                origin_y_um + scan_y_um.ravel()[start:stop],
-            ), axis=-1)[:, None, None, :] * 1.0e-6
-            angle_rad = np.stack(
-                (angle_x_mrad, angle_y_mrad), axis=-1
-            )[None, ...] * 1.0e-3
-            routed = route_record_planes(
-                record_plane_plan,
-                position_m,
-                angle_rad,
-                scan_slice=slice(start, stop),
-            )
-            by_key = {
-                interaction.plane.key: interaction.signal_mask
-                for interaction in routed.interactions
-                if interaction.plane.kind == "detector"
-            }
-            batch_detector_masks = {
-                detector.key: (
-                    by_key[detector.key]
-                    & valid_reciprocal[None, :, :]
-                )
-                for detector in detectors
-            }
-        elif flat_detector_centers is not None:
-            available = np.ones(
-                (stop - start, *valid_reciprocal.shape),
-                dtype=bool,
-            )
-            batch_detector_masks = {}
-            for detector in detectors:
-                center_x, center_y = flat_detector_centers[detector.key]
-                shifted_x = (
-                    angle_x_mrad[None, :, :]
-                    - center_x[start:stop, None, None]
-                )
-                shifted_y = (
-                    angle_y_mrad[None, :, :]
-                    - center_y[start:stop, None, None]
-                )
-                shifted_angle = np.hypot(shifted_x, shifted_y)
-                angular_band = _detector_mask(
-                    detector,
-                    shifted_angle,
-                    angle_x_mrad=shifted_x,
-                    angle_y_mrad=shifted_y,
-                )
-                mask = (
-                    available
-                    & valid_reciprocal[None, :, :]
-                    & angular_band
-                )
-                batch_detector_masks[detector.key] = mask
-                available &= ~mask
+        batch_detector_masks = batch_detector_masks_for(start, stop)
         for configuration_index, configuration in enumerate(
             prepared.potential_configurations_v_angstrom
         ):
@@ -1161,6 +1150,9 @@ def simulate_angle_resolved_stem(
     fourdstem_artifact = (
         None if diffraction_sink is None else diffraction_sink.finish()
     )
+    truncation_available = (
+        resident_cuda_result is None or resident_cuda_result.truncated_flat is not None
+    )
     result = AngleResolvedStemResult(
         scan_x_um=scan_x_um,
         scan_y_um=scan_y_um,
@@ -1168,9 +1160,7 @@ def simulate_angle_resolved_stem(
         detector_ranges_mrad=detector_ranges,
         maximum_isotropic_angle_mrad=maximum_isotropic_angle_mrad,
         uncollected_fraction=uncollected,
-        truncated_fraction=(
-            None if resident_cuda_result is not None else truncated_fraction
-        ),
+        truncated_fraction=truncated_fraction if truncation_available else None,
         metrics={
             "model": (
                 "multislice_angle_resolved"
@@ -1235,13 +1225,9 @@ def simulate_angle_resolved_stem(
             "truncated_detector_keys": truncated,
             "angular_coverage_complete": sampling["coverage_complete"],
             "detector_sampling": sampling,
-            "truncated_fraction_available": bool(
-                resident_cuda_result is None
-            ),
+            "truncated_fraction_available": truncation_available,
             "mean_truncated_fraction": (
-                None
-                if resident_cuda_result is not None
-                else float(np.mean(truncated_fraction))
+                float(np.mean(truncated_fraction)) if truncation_available else None
             ),
             "wave_sampling_truncates_illumination": bool(
                 _coherent_probe_semiangle_rad(ray_stats) * 1.0e3

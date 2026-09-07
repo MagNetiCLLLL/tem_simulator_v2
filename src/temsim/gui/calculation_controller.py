@@ -88,6 +88,32 @@ def default_artifact_cache_root() -> Path:
     return base / "TEM Simulator v2" / "high_accuracy_artifacts"
 
 
+def project_artifact_fallback_root() -> Path | None:
+    """Find an existing recovery cache in this source checkout only.
+
+    Do not search the working directory, another project, or installed data
+    directories. Resolving the candidate also rejects an escaping junction.
+    """
+
+    try:
+        source = Path(__file__).resolve()
+        checkout = source.parents[3]
+        if (
+            source.relative_to(checkout).as_posix()
+            != "src/temsim/gui/calculation_controller.py"
+            or not (checkout / "pyproject.toml").is_file()
+            or not (checkout / "configs").is_dir()
+        ):
+            return None
+        candidate = checkout / "outputs" / "high_accuracy_artifacts"
+        if not candidate.is_dir():
+            return None
+        resolved = candidate.resolve()
+        return resolved if resolved.is_relative_to(checkout) else None
+    except (OSError, RuntimeError, ValueError, IndexError):
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class HighAccuracyReusePlan:
     """Small, read-only description of reusable High accuracy products."""
@@ -293,6 +319,8 @@ class CalculationWorker(QRunnable):
         existing_result: CalculationResult | None = None,
         artifact_store: ArtifactStore | None = None,
         calculation_manifest: CalculationManifest | None = None,
+        allow_project_artifact_fallback: bool = False,
+        artifact_cache_budget_bytes: int = PERSISTENT_ARTIFACT_CACHE_BUDGET_BYTES,
     ) -> None:
         super().__init__()
         self.generation = generation
@@ -303,13 +331,17 @@ class CalculationWorker(QRunnable):
         self.existing_result = existing_result
         self.artifact_store = artifact_store
         self.calculation_manifest = calculation_manifest
+        self.allow_project_artifact_fallback = bool(
+            allow_project_artifact_fallback and quality == "High accuracy"
+        )
+        self.artifact_cache_budget_bytes = int(artifact_cache_budget_bytes)
         self.signals = WorkerSignals()
 
     def _load_persistent_incident_seed(
         self,
         existing_result: CalculationResult | None,
     ) -> CalculationResult | None:
-        if self.artifact_store is None or self.calculation_manifest is None:
+        if self.calculation_manifest is None:
             return existing_result
         expected = str(
             self.calculation_manifest.calculation_signatures.get(
@@ -331,14 +363,31 @@ class CalculationWorker(QRunnable):
             and getattr(existing_simulation, "gun_trace", None) is not None
         ):
             return existing_result
-        try:
-            seed = self.artifact_store.get_incident_simulation_seed(
-                self.calculation_manifest
-            )
-        except Exception:
-            # Persistent cache corruption, permissions, or stale external
-            # files must degrade to an ordinary calculation.
-            return existing_result
+        seed = None
+        if self.artifact_store is not None:
+            try:
+                seed = self.artifact_store.get_incident_simulation_seed(
+                    self.calculation_manifest
+                )
+            except Exception:
+                # Cache corruption, permissions, or stale external files are
+                # a miss, never a reason to discard a completed result.
+                pass
+        if seed is None and self.allow_project_artifact_fallback:
+            try:
+                fallback_root = project_artifact_fallback_root()
+                if fallback_root is not None:
+                    # Use the ordinary verified codec and managed-path checks.
+                    # Reads may update cache lock/access metadata; no result is
+                    # written here or redirected away from the primary store.
+                    fallback = ArtifactStore(
+                        fallback_root, quota_bytes=self.artifact_cache_budget_bytes
+                    )
+                    seed = fallback.get_incident_simulation_seed(
+                        self.calculation_manifest
+                    )
+            except Exception:
+                pass
         if seed is None:
             return existing_result
         signatures = dict(existing_signatures)
@@ -501,6 +550,12 @@ class CalculationController(QObject):
         self._running_high_generation: int | None = None
         self._cancel_event = Event()
         self._tuning_seeds = {}
+        self._allow_project_artifact_fallback = bool(
+            persistent_cache_enabled
+            and artifact_store is None
+            and artifact_cache_root is None
+        )
+        self._artifact_cache_budget_bytes = int(artifact_cache_budget_bytes)
         self._artifact_store = artifact_store
         if self._artifact_store is None and persistent_cache_enabled:
             try:
@@ -560,8 +615,10 @@ class CalculationController(QObject):
                 raise ValueError("disk_cache_budget_bytes must be a positive integer")
         for name, value in validated.items():
             setattr(self, name, value)
-        if disk_cache_budget_bytes is not None and self._artifact_store is not None:
-            self._artifact_store.set_quota_bytes(int(disk_cache_budget_bytes))
+        if disk_cache_budget_bytes is not None:
+            self._artifact_cache_budget_bytes = int(disk_cache_budget_bytes)
+            if self._artifact_store is not None:
+                self._artifact_store.set_quota_bytes(int(disk_cache_budget_bytes))
         self._trim_high_cache()
         self._trim_tuning_cache()
 
@@ -1246,7 +1303,9 @@ class CalculationController(QObject):
             self._running_high_key = request_key
             self._running_high_generation = generation
         calculation_manifest = None
-        if quality == "High accuracy" and self._artifact_store is not None:
+        if quality == "High accuracy" and (
+            self._artifact_store is not None or self._allow_project_artifact_fallback
+        ):
             try:
                 calculation_manifest = capture_calculation_manifest(
                     snapshot,
@@ -1266,6 +1325,8 @@ class CalculationController(QObject):
                 self._artifact_store if quality == "High accuracy" else None
             ),
             calculation_manifest=calculation_manifest,
+            allow_project_artifact_fallback=self._allow_project_artifact_fallback,
+            artifact_cache_budget_bytes=self._artifact_cache_budget_bytes,
         )
         worker.cancel_event = self._cancel_event
         worker.signals.result.connect(self._accept_result)

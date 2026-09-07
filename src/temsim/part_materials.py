@@ -103,6 +103,21 @@ def material_for_region(part, region="body") -> dict | None:
     return regions.get(region, regions.get("body"))
 
 
+def configured_region_colour(part, region="body", fallback=(0.55, 0.61, 0.69, 1.0)) -> tuple:
+    """Shared presentation-only RGBA for saved material-region assignments.
+
+    The palette matches the 3D Parts editor. No assignment means the existing
+    mesh colour is retained; this helper does not change any material law.
+    """
+    assignment = material_for_region(part, region)
+    if assignment is None:
+        return tuple(fallback)
+    palette = {"femm_pure_iron": "8b9bad", "copper": "c8874e", "aluminum": "b7c5d3",
+               "nonmagnetic_stainless_steel": "99aca9", "vacuum": "6db1c4"}
+    rgb = palette.get(assignment["material_key"], "87aaa3")
+    return (*tuple(int(rgb[index:index + 2], 16) / 255.0 for index in (0, 2, 4)), 1.0)
+
+
 def material_application_scope(part) -> str:
     """Describe this component's actual solver participation for editors/reports."""
     profile = part_data(part).get("mechanical_profile")

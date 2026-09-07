@@ -1,6 +1,7 @@
 """Physical Layout's file-backed three-dimensional dimension workspace."""
 
 from pathlib import Path
+from copy import deepcopy
 
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QBrush, QColor, QKeySequence, QShortcut
@@ -18,7 +19,7 @@ from temsim.part_model_document import PartModelDocument
 class _DimensionDelegate(QStyledItemDelegate):
     def sizeHint(self, option, index):
         # Leave room around wrapped semantic labels and multi-line CAD fields.
-        return super().sizeHint(option, index) + QSize(0, 4)
+        return super().sizeHint(option, index) + QSize(0, 6)
 
 
 class PartModelEditorPage(QWidget):
@@ -43,6 +44,8 @@ class PartModelEditorPage(QWidget):
         self._saving = False
         self._mesh_records = ()
         self._runtime_values = {}
+        self._runtime_refresh_pending = False
+        self._runtime_parameters_pending = False
         self._invalid_inputs = {}
         self._topology_selection = ()
         self._simulation_mode = None
@@ -194,9 +197,14 @@ class PartModelEditorPage(QWidget):
         file_row.addWidget(self.source_label, 1)
         file_row.addWidget(self.audit_button)
         layout.addLayout(file_row)
+        # Source selection and camera controls must not form one nonwrapping
+        # row that forces every central workspace tab wider than the window.
+        module_row = QHBoxLayout()
+        module_row.addWidget(self.modules, 1)
+        module_row.addWidget(self.load_module_button)
+        layout.addLayout(module_row)
         view_row = QHBoxLayout()
-        view_row.addWidget(self.modules, 1)
-        for widget in (self.load_module_button, self.scope, self.fit_button,
+        for widget in (self.scope, self.fit_button,
                        self.iso_button, self.front_button, self.section):
             view_row.addWidget(widget)
         view_row.addWidget(self.aperture)
@@ -244,10 +252,11 @@ class PartModelEditorPage(QWidget):
         self._update_buttons()
 
     def set_project_context(self, root, assembly, save_callback, runtime_values=None):
-        previous_runtime = self._model_runtime_values()
+        previous_mesh = self._runtime_mesh_dependencies()
+        previous_parameters = self._selected_runtime_values()
         self._project_root = Path(root).resolve()
         self._project_save = save_callback
-        self._runtime_values = runtime_values or {}
+        self._runtime_values = deepcopy(runtime_values or {})
         paths = tuple(str(path) for _kind, path in assembly.selected_module_paths)
         self._project_paths = paths
         self.load_module_button.setEnabled(bool(paths))
@@ -280,13 +289,11 @@ class PartModelEditorPage(QWidget):
                     self._update_buttons()
                 except Exception as exc:
                     self._message(f"Source could not be reloaded: {exc}", error=True)
-        if (self.session is not None and not source_reloaded
-                and previous_runtime != self._model_runtime_values()):
+        if self.session is not None and not source_reloaded:
             # A module can become inactive while its document stays open, or a
             # newly loaded profile can change the working opening. Neither
             # transition may leave the old instrument's aperture in the mesh.
-            self._load_parameters()
-            self._render(preserve_view=True)
+            self._refresh_runtime_dependencies(previous_mesh, previous_parameters)
         self._sync_source_context()
 
     def _model_runtime_values(self):
@@ -297,11 +304,77 @@ class PartModelEditorPage(QWidget):
 
     def set_runtime_values(self, values):
         """Refresh operating apertures without replacing the mechanical draft."""
-        self._runtime_values = values or {}
-        if (self.session is not None and self._selected_key is not None
-                and self.session.part(self._selected_key).get("aperture_plate_form")):
+        previous_mesh = self._runtime_mesh_dependencies()
+        previous_parameters = self._selected_runtime_values()
+        self._runtime_values = deepcopy(values or {})
+        self._refresh_runtime_dependencies(previous_mesh, previous_parameters)
+
+    def _selected_runtime_values(self):
+        if self.session is None or self._selected_key is None:
+            return {}
+        values = self._model_runtime_values()
+        key = self._selected_key
+        if key not in values:
+            key = self.session.part(key).get("parent_key")
+        return values.get(key, {})
+
+    def _runtime_mesh_dependencies(self):
+        """Only strip openings consume operating values in the CAD renderer."""
+        if self.session is None or self._selected_key is None:
+            return ()
+        from temsim.part_model_apertures import _opening, is_strip_aperture
+
+        parts = {part["key"]: part for part in self.session.document["parts"]}
+        scope = self.scope.currentData()
+        if scope == "module":
+            keys = set(parts)
+        else:
+            keys = {self._selected_key}
+            # Match part_model_from_document's descendant/shared-body closure.
+            while True:
+                more = {key for key, part in parts.items()
+                        if part.get("parent_key") in keys
+                        or keys.intersection(part.get("magnetic_lens_keys", ()))}
+                if more <= keys:
+                    break
+                keys.update(more)
+            if scope == "context":
+                parent = parts[self._selected_key].get("parent_key")
+                keys.update(key for key, part in parts.items()
+                            if parent and part.get("parent_key") == parent)
+        runtime = self._model_runtime_values()
+        dependencies = []
+        for key, part in parts.items():
+            if (key not in keys or not is_strip_aperture(part)
+                    or part.get("model_3d", {}).get("base", {}).get("kind", "existing") != "existing"):
+                continue
+            try:
+                index = self._aperture_index if key == self._selected_key and scope != "module" else 0
+                opening = _opening(part, runtime.get(key), index)
+            except ValueError as exc:
+                # Invalid input is handled by the normal preview error path.
+                opening = str(exc)
+            dependencies.append((key, opening))
+        return tuple(dependencies)
+
+    def _refresh_runtime_dependencies(self, previous_mesh, previous_parameters):
+        self._runtime_refresh_pending |= previous_mesh != self._runtime_mesh_dependencies()
+        self._runtime_parameters_pending |= previous_parameters != self._selected_runtime_values()
+        if self.isVisible():
+            self._flush_runtime_refresh()
+
+    def _flush_runtime_refresh(self):
+        if self.session is None or self._selected_key is None:
+            return
+        mesh_pending = self._runtime_refresh_pending
+        parameters_pending = self._runtime_parameters_pending
+        self._runtime_refresh_pending = self._runtime_parameters_pending = False
+        if mesh_pending:
             self._load_parameters()
             self._render(preserve_view=True)
+        elif parameters_pending:
+            # Operating annotations can change without changing any CAD mesh.
+            self._load_all_parameters()
 
     def set_simulation_context(self, mode=None, descriptors=None, by_key=None):
         self._simulation_mode = mode
@@ -783,6 +856,7 @@ class PartModelEditorPage(QWidget):
             self._open_pending_part()
         elif self.session is None and self.modules.count():
             self._open_active_module()
+        self._flush_runtime_refresh()
 
     def _open_pending_part(self):
         path, key = self._pending_part
@@ -1028,6 +1102,7 @@ class PartModelEditorPage(QWidget):
         return fallback
 
     def _load_all_parameters(self):
+        self._runtime_parameters_pending = False
         self.parameters.clear()
         part = self.session.part(self._selected_key)
         by_key = {item["key"]: item for item in self.session.document["parts"]}
@@ -1127,8 +1202,9 @@ class PartModelEditorPage(QWidget):
     def _render(self, *, preserve_view=False):
         if self.session is None or self._selected_key is None:
             return
+        self._runtime_refresh_pending = False
         from temsim.part_model_3d import part_model_from_document, module_model_from_document
-        from temsim.part_materials import material_for_region
+        from temsim.part_materials import configured_region_colour
         runtime_values = self._model_runtime_values()
         try:
             if self.scope.currentData() == "module":
@@ -1145,8 +1221,6 @@ class PartModelEditorPage(QWidget):
                         if parent and part.get("parent_key") == parent and part["key"] != self._selected_key:
                             meshes.extend(part_model_from_document(self.session.document, part["key"],
                                 include_children=False, runtime_values=runtime_values).meshes)
-            colors = {"femm_pure_iron": "#8b9bad", "copper": "#c8874e", "aluminum": "#b7c5d3",
-                      "nonmagnetic_stainless_steel": "#99aca9", "vacuum": "#6db1c4"}
             records, seen = [], set()
             for mesh in meshes:
                 part = self.session.part(mesh.key)
@@ -1157,8 +1231,7 @@ class PartModelEditorPage(QWidget):
                 if signature in seen:
                     continue
                 seen.add(signature)
-                assignment = material_for_region(self.session.part(mesh.key), mesh.region)
-                color = colors.get(assignment["material_key"], "#87aaa3") if assignment else mesh.color
+                color = configured_region_colour(part, mesh.region, mesh.color)
                 records.append(dict(vertices=mesh.vertices, faces=mesh.faces, key=mesh.key,
                                     region=mesh.region, color=color,
                                     face_groups=mesh.face_groups, surfaces=mesh.surfaces, edges=mesh.edges))

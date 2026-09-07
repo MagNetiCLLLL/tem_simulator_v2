@@ -287,6 +287,18 @@ def _eds_event_ledger(
     material_flights = tuple(getattr(transport, "material_flights", ()))
     if not material_flights:
         return ()
+    # Keep each group's original order and duplicates: deterministic vacancy
+    # sampling is length-weighted over these exact flights.  Index references
+    # once instead of searching every electron's flights for every vacancy.
+    flights_by_source: dict[tuple[int, str, str, str], list[object]] = {}
+    for flight in material_flights:
+        flight_key = (
+            int(flight.source_ray_index),
+            str(flight.source_key),
+            str(flight.material_key),
+            str(flight.history),
+        )
+        flights_by_source.setdefault(flight_key, []).append(flight)
     lines_by_vacancy: dict[str, list[object]] = {}
     for line in getattr(spectrum, "lines", ()):
         lines_by_vacancy.setdefault(str(line.vacancy_id), []).append(line)
@@ -301,7 +313,15 @@ def _eds_event_ledger(
     )
     rows: list[InteractionEvent] = []
     for vacancy in getattr(spectrum, "vacancies", ()):
-        position = _vacancy_position_nm(vacancy, material_flights)
+        ray_index = getattr(vacancy, "source_ray_index", None)
+        matching_flights = (
+            () if ray_index is None else flights_by_source.get(
+                (int(ray_index), str(vacancy.source_key),
+                 str(vacancy.material_key), str(vacancy.electron_history)),
+                (),
+            )
+        )
+        position = _vacancy_position_nm(vacancy, matching_flights)
         if position is None:
             continue
         vacancy_id = str(vacancy.vacancy_id)
@@ -813,7 +833,12 @@ def run_specimen_interactions(
         )
         transport_kwargs = {"incident_rays": incident_bundle.rays}
         if progress_callback is not None:
-            transport_kwargs["progress_callback"] = progress_callback
+            transport_kwargs["progress_callback"] = (
+                lambda done, total, label: progress_callback(
+                    round(9900 * min(max(done, 0), total) / max(total, 1)),
+                    10000, label,
+                )
+            ) if callable(progress_callback) else progress_callback
         elastic_transport = simulate_elastic_point_transport(
             state,
             **transport_kwargs,
@@ -847,6 +872,10 @@ def run_specimen_interactions(
     if elastic_transport is not None:
         completed.add(SpecimenObservable.ELASTIC_TRANSPORT)
 
+    if callable(progress_callback):
+        progress_callback(
+            9900, 10000, "Recording specimen interaction events",
+        )
     elastic_events = _elastic_event_ledger(elastic_transport)
     eds_events = _eds_event_ledger(eds_spectrum, elastic_transport)
     events = elastic_events + eds_events
@@ -1004,6 +1033,8 @@ def run_specimen_interactions(
             for check in conservation
         ),
     }
+    if callable(progress_callback):
+        progress_callback(10000, 10000, "Specimen interactions complete")
     return SpecimenInteractionResult(
         request=merged_request,
         completed_observables=frozenset(completed),

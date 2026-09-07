@@ -188,6 +188,8 @@ class WorkspaceLayouts(QObject):
             # Restoring presentation tabs must not emit computation requests.
             tab_states = data.get("tabs", {})
             for name, title in (tab_states.items() if isinstance(tab_states, dict) else ()):
+                if name == "physicalLayoutTabs" and isinstance(title, str):
+                    title = {"2D section": "2D", "3D model editor": "3D Parts"}.get(title, title)
                 tabs = self.tabs.get(name)
                 if tabs is not None:
                     for index in range(tabs.count()):

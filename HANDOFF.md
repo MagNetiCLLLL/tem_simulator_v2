@@ -1,6 +1,6 @@
 # TEM Simulator v2 — Project Handoff
 
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 ## Purpose
 
@@ -8,6 +8,216 @@ This file is the persistent handoff for continuing development. Keep it focused
 on current behaviour, confirmed design decisions, provisional assumptions and
 the next concrete work. `README.md` remains the user/developer overview and
 `CHANGELOG.md` remains the release history.
+
+## Upload validation (2026-09-08)
+
+- The changed-test sweep completed with 634 passing tests and one GUI minimum-
+  width failure. The part editor now separates source controls from camera
+  controls. Windows offscreen tests load the installed Segoe UI fonts to use
+  actual application metrics; the original width assertion remains unchanged.
+- The final affected GUI rerun passed all 133 tests in 164.10 s. All 86 changed
+  Python files compiled, and scoped whitespace checks passed. This was not a
+  full repository test run or a new high-accuracy acquisition. The existing
+  pyqtgraph teardown-disconnect warning remains.
+- Generated scratch data is removed from version control and ignored. Local
+  high-accuracy outputs and caches are not uploaded. Unrelated launcher
+  whitespace and the local historical inspection report are excluded.
+
+## Physical Layout presentation modes (2026-09-08)
+
+- Physical Layout now exposes `2D`, `3D Parts` (the existing file-backed
+  editor) and `3D` (read-only whole saved assembly). Legacy layout tab titles
+  migrate; the new splitter participates in named layout persistence.
+- `assembly_model_3d.py` reuses existing part geometry, translates meshes and
+  semantic edges to resolved global Z, retains declared vacuum liners and
+  excludes virtual/reference planes and duplicate optical/branch envelopes.
+  Partial errors and schematic models remain explicit. Saved regional
+  material colours are shared with the part editor.
+- The whole-column camera has +Z downstream/downward with equal-mm orthographic
+  scaling. The negative-Y section exposes existing interior surfaces. Camera,
+  selection and visibility are presentation state, not physical transforms.
+- The page builds only while visible and reuses exact unchanged mesh inputs.
+  Excitation-only edits do not rebuild geometry. Returning to a tab preserves
+  the camera; fit is explicit. Unsaved part drafts and cached simulation
+  products are never overwritten by viewing. Runtime insertion mechanisms and
+  detector motion are not inferred from the configured mechanical model.
+- Validation: 242 relevant geometry, viewport, editor, material and layout
+  tests passed. A pyqtgraph teardown disconnect warning remains outside test
+  failures. No high-accuracy propagation was needed or run.
+- Native hidden-window QA: default saved assembly produced 181 meshes and
+  23,124 triangles without geometry errors. Full-column and Objective-section
+  framebuffers were inspected; coils, yokes and pole surfaces were visible.
+  The mesh build counter stayed at one across fitting, selection and section
+  changes. User windows/settings and existing result caches were not touched.
+- See `docs/PHYSICAL_LAYOUT_VIEWS.md` for use and model limitations.
+
+## Specimen preparation and display performance (2026-09-07)
+
+- Added a bounded, process-local prepared-specimen cache shared by compatible
+  TEM/STEM requests. Exact CIF content, finite geometry, laboratory ROI,
+  sampling, slice and phonon/backend dependencies control reuse. Admitted
+  arrays are immutable, metadata is detached and concurrent identical builds
+  are deduplicated. Failures, temporary qualitative fallbacks and oversized
+  products are not retained. Optional cache-copy failure keeps valid results.
+- Resident CUDA STEM now reuses exact slice transmission functions per phonon
+  configuration across probe batches. The per-plan VRAM budget is conservative;
+  capacity/allocation failure uses the unchanged on-the-fly path. Raw 4D-STEM
+  sinks and the existing complete CPU retry are unchanged.
+- Sample caches CIF atoms/bonds separately from physics, retains graphics on
+  unchanged geometry, updates draft transforms without rebuilding meshes, and
+  defers hidden-page work until shown. CIF replacement/removal invalidates
+  display atoms; valid full/local outlines remain available. Cache-copy failure
+  does not hide successfully generated atoms.
+- Performance and cache has persistent Specimen potentials / Sample atom
+  display limits (256/128 MiB defaults, scaled down on smaller hosts), included
+  in the managed RAM allowance. Statistics show hits and retention. Logs report
+  fresh stage times and actual wave backends; complete hits and cached
+  diffraction recollection do not replay historical propagation timings.
+- Tiny CPU potential-only Si [110] measurement: warm-backend cold build
+  38.70 ms versus median hit 1.39 ms, exact arrays. A separate structural
+  display fixture measured 33.49 ms cold versus 0.857 ms warm. These are local
+  preparation stages, not full-acquisition or GUI FPS claims.
+- Hidden native OpenGL QA used 36 synthetic Si sites: one mesh build, two
+  reuses, unchanged item identities and camera bounds on redraw; draft and
+  camera rotations changed the framebuffer correctly. The cache dialog fits
+  its added rows; its QA statistics were synthetic and used in-memory settings.
+- Existing user processes, physical settings and saved caches were not changed.
+  No full 100 x 100 acquisition was run. See
+  `docs/SPECIMEN_CACHE_PERFORMANCE.md` and
+  `scripts/benchmark_prepared_specimen_cache.py`.
+- Final focused integration: **343 passed in 227.19 s**, including actual CUDA,
+  physical wave references, cache invalidation/concurrency/budget failures,
+  controller/artifact reuse, scene rendering contracts and layout/settings.
+  Tiny CUDA work emits an expected under-utilisation warning; the existing
+  pyqtgraph teardown-disconnect warning remains. Scoped compilation and
+  whitespace checks passed. This was not the full repository suite.
+
+## Full sample outline and local atomic region (2026-09-07)
+
+- Sample now labels the complete blue physical outline, pink local material
+  bounds and equilibrium CIF atom spheres separately. A capped atom window is
+  marked as an amber display subset, never as the full calculation volume.
+- Completed STEM/TEM wave-domain metadata takes precedence over geometric
+  scan/probe estimates. The displayed region and full envelope share the same
+  captured sample; missing metadata is labelled preview/estimated, and changed
+  drafts are not silently mixed into completed sample geometry.
+- Fixed missing circular-disk clipping in CIF previews and removed the extra
+  crystal rotation from the laboratory-frame envelope. Fixed uniform GL line
+  colours being passed as a short per-vertex buffer: this made most of the real
+  OpenGL wireframe invisible. The obsolete unlabelled unit-cell outline was
+  removed; the large probe-marker sphere is now a small cross.
+- `Fit full sample` / `Fit local region` only move the camera. Redraws retain
+  the user's range and do not calculate physics. Missing/unreadable CIF atoms
+  leave valid known geometry visible with an explicit unavailable status.
+- Validation: 63 focused tests passed in 40.15 s. Small real Si [110] atom
+  generation and hidden-window OpenGL framebuffer checks verified a 10 nm
+  diameter/thickness envelope around a 1.98 x 1.98 x 10 nm atomic region.
+  The render test used synthetic completed-domain metadata, not a new TEM/STEM
+  acquisition. A Qt teardown signal-disconnect warning remains in the test run.
+  Existing user processes, physics settings and saved result caches were left
+  untouched. See `docs/SAMPLE_DISPLAY_REGIONS.md`.
+
+## Offline EDS peak labels and response audit (2026-09-07)
+
+- EDS now has one display-only `Peak labels` control and an element reference
+  selector. Shared installed xraylib tables supply transition names/energies;
+  existing radiative enumeration and spectrum arithmetic are unchanged.
+- Default green annotations aggregate positive contributions in the displayed
+  result, including retained/cached spectra. Amber `Ref` annotations are manual
+  library references, never evidence of an element or added simulated counts.
+  Empty/vacuum results do not gain automatic reference peaks.
+- Labels/hover do not request calculations or change plot ranges. Dense labels
+  are bounded and edge-aligned; changing label scope clears stale hover identity.
+  Missing response metadata is reported as unavailable, not ideal resolution.
+- Audited attenuation, source-energy and response limits are documented in
+  `docs/EDS_SIGNAL_MODEL.md`. No new Fano/readout model, detector-window response
+  or physics default was silently introduced. Gaussian FWHM still defaults to 0.
+- Validation: 79 focused tests passed in 41.13 s; the nine annotation tests also
+  passed after the final label-collision refinement. Offscreen synthetic Si/Fe
+  plots were inspected with the application style; this was not a new physical
+  acquisition. A Qt teardown signal-disconnect warning remains in the combined
+  test run. Existing processes and cached results were not modified.
+
+## Finite CIF and independent wave domain (2026-09-07)
+
+- CIF atoms now come from the physical specimen / padded beam-window
+  intersection, using bounded lattice-column enumeration instead of a large
+  rotated covering cube. Disks clip actual atom positions. Lattice phase and
+  deterministic ordering are preserved for unchanged rectangular regions.
+- A defocus-expanded wave window retains vacuum and reference FOV/Grid spacing
+  by adding pixels. Preflight checks both the existing 4 GiB potential limit
+  and a conservative 8 GiB wave-working-set limit before generating atoms.
+  Explicitly degenerate IAM sampling reports a clear error instead of backend
+  division by zero. Extreme defocus remains subject to resource limits.
+- STEM atom ROI uses the same laboratory beam/raster positions as probe
+  propagation. Moving the ROI no longer shifts the TOML analytic/atomic lattice
+  with the beam. Detector Grid proposals map back to the saved reference Grid.
+- Wave-only cache versioning prevents automatic reuse of old TEM/STEM/4D-STEM
+  and EFTEM results, including complete-result shortcuts. Incident/particle/EDS
+  and ordinary EELS signatures are retained; no historical files were deleted.
+- Final combined validation: 149 focused tests passed in 83.12 s, including
+  actual small CPU multislice and CUDA/CPU checks. Warnings were the tiny CUDA
+  fixture's low occupancy and a Qt teardown signal disconnect. No full scan or
+  running user process was started, stopped, or reconfigured.
+- Real user CIF atom-only check: 80 nm disk, 10 nm thickness, [110], 50 um wave
+  window retained 3,650,889 atoms in 3.836 s. This does not mean a 50 um atomic-
+  resolution wave calculation is feasible; its independent grid preflight
+  correctly rejects the required memory. See `docs/WAVE_DOMAIN_AND_FINITE_CIF.md`.
+
+## Specimen/EDS reuse and stage progress (2026-09-07)
+
+- Removed full-flight rescans per EDS vacancy via a per-request flight index.
+  Photon intersections, immutable atomic data, detector-response kernels and
+  repeated specimen-field queries now have exact, bounded or per-call reuse.
+  No physics sampling, RNG ordering or downstream detector semantics changed.
+- High-accuracy progress uses named equal-size stages instead of mixing electron
+  histories and probe batches. EDS reports ionisation tracks, photon emissions,
+  spectrum lines and event-ledger finalisation after elastic histories finish.
+  Percentages describe a stage, not estimated remaining time. Main and bank
+  displays agree; cache-hit stages remain skipped.
+- Combined validation: 122 focused tests passed in 44.63 s. A 32-ray CPU field
+  microbenchmark improved from median 0.3531 to 0.2692 s with exact outputs;
+  this is not an end-to-end timing claim. See `docs/PERFORMANCE_2026-09-07.md`.
+- Existing user processes and saved result caches were left untouched. Restart
+  after saving/finishing the current calculation to load these changes. Shared
+  variable-consumption RNG still prevents naive parallel history execution.
+
+## Single STEM imaging control (2026-09-07)
+
+- The only STEM wave-imaging toggle is now Scanning Image → Scanning Parameters
+  → `Calculate STEM detector images (High accuracy)`. Sample no longer has a
+  duplicate STEM checkbox; it provides a short location hint instead.
+- Sample's `Wave imaging settings` retains the sole TEM image/diffraction
+  toggle and the shared multislice, potential, grid and phonon controls.
+- The `sample.stem_wave_enabled` profile field, change signal, calculation
+  signatures and existing TEM/STEM scan support are unchanged. This UI merge
+  does not start calculations or replace cached results.
+- Validation: 41 targeted tests passed (29 sample/scan, nine ownership/profile,
+  three shell/pipeline checks). Changed Python files compiled successfully.
+  The affected controls were also rendered offscreen with the application
+  stylesheet; no new high-accuracy physical calculation was performed.
+
+## Inspection repairs and verified incident cache (2026-09-07)
+
+- Geometry saves preserve both panels' independent TOML drafts and active
+  editor text. Runtime-only lens edits no longer rebuild unrelated 3D meshes;
+  aperture changes invalidate the openings actually displayed by each scope.
+- Material-table replacement supports expanded TOML, overlap validation uses
+  explicit material intervals, and failed transactions preserve newline bytes.
+- Removed 28 generated scratch directories (8,180 files, 242.18 MiB) and five
+  obsolete repro scripts. Scientific reference outputs and formal tests remain.
+- One authorized default high-accuracy calculation completed: Ideal Optics,
+  300 kV, virtual Si[110], 15,000 rays, 0.1 mm step. Its verified incident seed
+  is in local `outputs/high_accuracy_artifacts` (about 1.34 GiB). The default
+  controller tries this checkout-local fallback after a normal cache miss or
+  error; exact signatures, checksums and path containment remain mandatory.
+- Persistence still covers incident propagation only, not full TEM/STEM/EDS
+  products. Windows package redirection required recovery of the written seed;
+  no physical calculation was repeated. Actual GUI-worker readback against a
+  freshly captured default request passed without invoking calculation.
+- Validation: 722 affected regressions, nine offline utility tests and 36
+  targeted cache/controller tests passed; serial compilation passed. See
+  `docs/MAINTENANCE_2026-09-07.md` for cleanup, reproduction and scope details.
 
 ## Parameter definitions and calculation use (2026-09-07)
 
@@ -1682,3 +1892,13 @@ material grade, permeability or saturation field.
 ## Known documentation mismatch
 
 No known catalog-count mismatch remains at this checkpoint.
+
+## 2026-09-07 STEM wave throughput
+
+Physical detector masks no longer force multislice/FFT to CPU. A prepared
+mask-only router reuses angular projections; exact sequential aperture/detector
+rules remain covered against the original diagnostic router. GPU batching is
+memory-bounded, up to 128 probes, and includes truncation diagnostics. Full
+4D-STEM capture still uses its safe CPU route. See
+`docs/PERFORMANCE_2026-09-07.md` for measured timings, numerical precision and
+reproduction details; no complete 100 x 100 scan was benchmarked.

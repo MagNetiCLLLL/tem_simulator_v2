@@ -108,12 +108,13 @@ class ScanControlView(QWidget):
             prefix="descan",
         )
         self.wave_scan_enabled = QCheckBox(
-            "Use wave / multislice detector signal in High accuracy"
+            "Calculate STEM detector images (High accuracy)"
         )
         self.wave_scan_enabled.setObjectName("stemWaveScanEnabled")
         self.wave_scan_enabled.setToolTip(
-            "Preview always uses the fast geometric detector approximation; "
-            "High accuracy uses the specimen wave model when this is enabled."
+            "Use the specimen wave model for BF, DF and HAADF images during "
+            "High accuracy. Shared multislice and wave-grid settings are on Sample. "
+            "Preview remains geometric; this switch does not start a calculation."
         )
         self.wave_scan_enabled.toggled.connect(
             self._wave_scan_model_changed

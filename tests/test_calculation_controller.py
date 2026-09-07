@@ -210,11 +210,11 @@ def test_high_accuracy_pipeline_reports_completed_real_stages(monkeypatch):
     assert result.scan_geometry is None
     assert result.scan_ray_paths is None
     assert progress == [
-        (0, 4, "Preparing state and physical layout"),
-        (1, 4, "Tracing the electron column"),
-        (2, 4, "Tracing the energy filter"),
-        (3, 4, "Finalising optical diagnostics"),
-        (4, 4, "Complete"),
+        (0, 40_000, "Stage 1/4 | Preparing state and physical layout"),
+        (10_000, 40_000, "Stage 2/4 | Tracing the electron column"),
+        (20_000, 40_000, "Stage 3/4 | Tracing the energy filter"),
+        (30_000, 40_000, "Stage 4/4 | Finalising optical diagnostics"),
+        (40_000, 40_000, "Complete"),
     ]
 
 
@@ -611,9 +611,8 @@ def test_pipeline_reprojects_only_stale_sample_downstream(monkeypatch):
     assert result.sample_region.specimen_exit is result.specimen_exit
     assert "sample_region" in result.reused_products
     assert "sample_downstream" in result.calculated_products
-    assert "Propagating specimen-exit electrons downstream" in {
-        label for _completed, _total, label in progress
-    }
+    assert any("Propagating specimen-exit electrons downstream" in label
+               for _completed, _total, label in progress)
 
 
 def test_pipeline_shares_cached_specimen_exit_with_geometric_stem(monkeypatch):
@@ -992,13 +991,13 @@ def test_high_accuracy_pipeline_maps_stem_batches_inside_stage(monkeypatch):
 
     assert result.stem_scan == "stem-frame"
     assert received_specimen_interactions == [result.specimen_interactions]
-    nested = [item for item in progress if item[1] == 1_340_000]
+    nested = [item for item in progress if " | stage progress " in item[2]]
     assert nested == [
-        (50_000, 1_340_000, "Preparing STEM"),
-        (690_000, 1_340_000, "STEM probes 16/32"),
-        (1_330_000, 1_340_000, "STEM detector frame complete"),
+        (50_000, 70_000, "Stage 6/7 | Preparing STEM | stage progress 0.0%"),
+        (55_000, 70_000, "Stage 6/7 | STEM probes 16/32 | stage progress 50.0%"),
+        (59_999, 70_000, "Stage 6/7 | STEM detector frame complete | stage progress 100.0%"),
     ]
-    assert nested[0][0] / nested[0][1] < 0.04
+    assert nested[0][0] / nested[0][1] == 5 / 7
     percentages = [completed / total for completed, total, _stage in progress]
     assert percentages == sorted(percentages)
 

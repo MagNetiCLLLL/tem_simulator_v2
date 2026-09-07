@@ -16,6 +16,7 @@ import numpy as np
 
 from temsim.specimen.envelope import (
     envelope_contains_bounds,
+    envelope_intersects_bounds,
     sample_envelope_shape,
 )
 from temsim.specimen.source import active_cif_path
@@ -66,6 +67,12 @@ class SampleGeometrySnapshot:
     calculation_roi_bounds_nm: tuple[float, float, float, float] | None
     current_probe_nm: tuple[float, float] | None
     warnings: tuple[str, ...]
+    # Laboratory-frame material bounds before the rendering atom cap. The
+    # circular specimen may occupy only part of this axis-aligned box. Without
+    # a calculation ROI this describes a structural preview, not a completed
+    # calculation. Full physical extent remains centre_nm / size_nm.
+    local_material_bounds_nm: tuple[float, float, float, float, float, float] | None = None
+    atom_display_capped: bool = False
 
 
 def _finite_vector(name: str, values, length: int) -> np.ndarray:
@@ -328,6 +335,52 @@ def read_cif_preview(
     specimen_size_xy_nm: tuple[float, float],
     specimen_centre_xy_nm: tuple[float, float],
     maximum_atoms: int = 2_500,
+    specimen_envelope_shape: str = "rectangle",
+) -> tuple:
+    """Reuse exact bounded display data without caching any physical solver state."""
+    from .display_cache import cached_cif_display, cif_display_fingerprint
+
+    path = Path(cif_path).expanduser().resolve()
+    # Always verify bytes before a hit: removed/replaced CIFs must not leave a
+    # silently stale structural preview, even if filesystem timestamps match.
+    if not path.is_file():
+        raise ValueError(f"CIF file does not exist: {path}")
+    if path.suffix.lower() not in {".cif", ".mcif"}:
+        raise ValueError("Atomic specimen import requires a CIF or MCIF file.")
+    try:
+        fingerprint = cif_display_fingerprint(path)
+    except OSError as exc:
+        raise ValueError(f"Unable to read CIF file {path}: {exc}") from exc
+    rotation = np.asarray(orientation_matrix, dtype=float)
+    options = dict(
+        requested_bounds_nm=tuple(requested_bounds_nm),
+        thickness_nm=float(thickness_nm),
+        specimen_size_xy_nm=tuple(specimen_size_xy_nm),
+        specimen_centre_xy_nm=tuple(specimen_centre_xy_nm),
+        maximum_atoms=int(maximum_atoms),
+        specimen_envelope_shape=str(specimen_envelope_shape),
+    )
+    key = (str(path), fingerprint, rotation.shape, rotation.tobytes(), *options.values())
+
+    def build():
+        result = _read_cif_preview_uncached(str(path), rotation, **options)
+        if cif_display_fingerprint(path) != fingerprint:
+            raise ValueError("CIF changed while building the structural preview; refresh to retry.")
+        return result
+
+    return cached_cif_display(key, build)
+
+
+def _read_cif_preview_uncached(
+    cif_path: str,
+    orientation_matrix,
+    *,
+    requested_bounds_nm: tuple[float, float, float, float],
+    thickness_nm: float,
+    specimen_size_xy_nm: tuple[float, float],
+    specimen_centre_xy_nm: tuple[float, float],
+    maximum_atoms: int = 2_500,
+    specimen_envelope_shape: str = "rectangle",
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -345,7 +398,9 @@ def read_cif_preview(
     the IAM calculation, while ASE expands and crops the periodic structure.
     Very large requested volumes are represented by a centred display window
     whose atom count is bounded; this is a rendering limit only and never
-    changes the multislice calculation ROI.
+    changes the multislice calculation ROI. The lattice is rotated before
+    clipping to the laboratory-frame physical envelope and display window;
+    the envelope itself is not rotated by the crystallographic orientation.
     """
 
     path = Path(cif_path).expanduser().resolve()
@@ -428,6 +483,7 @@ def read_cif_preview(
         specimen_size_xy_angstrom=tuple(
             np.asarray(specimen_size_xy_nm, dtype=float) * 10.0
         ),
+        specimen_envelope_shape=specimen_envelope_shape,
         specimen_centre_xy_angstrom=tuple(
             np.asarray(specimen_centre_xy_nm, dtype=float) * 10.0
         ),
@@ -484,6 +540,7 @@ def build_sample_geometry_snapshot(
     probe_padding_nm: float = 0.0,
     load_atoms: bool = True,
     maximum_display_atoms: int = 2_500,
+    calculation_roi_bounds_nm_override: tuple[float, float, float, float] | None = None,
 ) -> SampleGeometrySnapshot:
     mode = str(getattr(sample, "specimen_mode", "atomic")).strip().lower()
     if mode not in {"atomic", "virtual"}:
@@ -514,10 +571,18 @@ def build_sample_geometry_snapshot(
     if len(zone) != 3 or len(in_plane) != 3:
         raise ValueError("Zone and in-plane axes must each contain three integers.")
     scan_bounds = sample_scan_bounds_nm(scan_x_um, scan_y_um, sample)
-    roi = calculation_roi_bounds_nm(
-        scan_bounds,
-        probe_padding_nm=probe_padding_nm,
-    )
+    if calculation_roi_bounds_nm_override is None:
+        roi = calculation_roi_bounds_nm(
+            scan_bounds,
+            probe_padding_nm=probe_padding_nm,
+        )
+    else:
+        supplied = _finite_vector(
+            "Calculation ROI bounds", calculation_roi_bounds_nm_override, 4
+        )
+        if supplied[1] < supplied[0] or supplied[3] < supplied[2]:
+            raise ValueError("Calculation ROI bounds must be ordered.")
+        roi = tuple(float(value) for value in supplied)
     warnings: list[str] = []
     cif = active_cif_path(sample) or None
     atom_positions = np.empty((0, 3), dtype=float)
@@ -527,21 +592,36 @@ def build_sample_geometry_snapshot(
     unit_preview = False
     atom_display_centre = None
     atom_display_size = None
+    atom_display_capped = False
+    sample_bounds = (
+        centre[0] - 0.5 * size[0],
+        centre[0] + 0.5 * size[0],
+        centre[1] - 0.5 * size[1],
+        centre[1] + 0.5 * size[1],
+    )
+    requested = roi or scan_bounds or sample_bounds
+    display_bounds = (
+        max(sample_bounds[0], requested[0]),
+        min(sample_bounds[1], requested[1]),
+        max(sample_bounds[2], requested[2]),
+        min(sample_bounds[3], requested[3]),
+    )
+    lateral_overlap = (
+        display_bounds[1] > display_bounds[0]
+        and display_bounds[3] > display_bounds[2]
+        and envelope_intersects_bounds(
+            envelope_shape,
+            display_bounds,
+            centre_xy_nm=centre[:2],
+            size_xy_nm=size[:2],
+        )
+    )
+    local_material_bounds = (
+        (*display_bounds, centre[2] - size[2] / 2, centre[2] + size[2] / 2)
+        if lateral_overlap and size[2] > 0.0 else None
+    )
     if mode == "atomic" and cif and load_atoms:
-        sample_bounds = (
-            centre[0] - 0.5 * size[0],
-            centre[0] + 0.5 * size[0],
-            centre[1] - 0.5 * size[1],
-            centre[1] + 0.5 * size[1],
-        )
-        requested = roi or scan_bounds or sample_bounds
-        display_bounds = (
-            max(sample_bounds[0], requested[0]),
-            min(sample_bounds[1], requested[1]),
-            max(sample_bounds[2], requested[2]),
-            min(sample_bounds[3], requested[3]),
-        )
-        if display_bounds[1] <= display_bounds[0] or display_bounds[3] <= display_bounds[2]:
+        if not lateral_overlap:
             warnings.append(
                 "The requested atomic display range is outside the finite sample; it contains vacuum only."
             )
@@ -568,6 +648,7 @@ def build_sample_geometry_snapshot(
                     specimen_size_xy_nm=size[:2],
                     specimen_centre_xy_nm=centre[:2],
                     maximum_atoms=maximum_display_atoms,
+                    specimen_envelope_shape=envelope_shape,
                 )
             except ValueError as exc:
                 if "contains no atomic sites" not in str(exc):
@@ -578,6 +659,14 @@ def build_sample_geometry_snapshot(
                 )
             else:
                 warnings.extend(cif_warnings)
+                requested_size = np.asarray((
+                    display_bounds[1] - display_bounds[0],
+                    display_bounds[3] - display_bounds[2],
+                    size[2],
+                ))
+                atom_display_capped = bool(np.any(
+                    np.asarray(atom_display_size) < requested_size * (1.0 - 1.0e-12)
+                ))
     for array in (atom_positions, atomic_numbers, atom_bonds, cell_vectors):
         array.setflags(write=False)
     if mode == "atomic" and not cif:
@@ -623,4 +712,6 @@ def build_sample_geometry_snapshot(
         calculation_roi_bounds_nm=roi,
         current_probe_nm=current_probe_nm,
         warnings=tuple(warnings),
+        local_material_bounds_nm=local_material_bounds,
+        atom_display_capped=atom_display_capped,
     )

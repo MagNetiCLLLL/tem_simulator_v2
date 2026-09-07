@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
 import math
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 
@@ -26,6 +27,12 @@ from temsim.physics.compute_backend import (
 from temsim.physics.multislice import propagate_multislice
 from temsim.physics.beam_statistics import branch_sample_statistics
 from temsim.physics.wave_fft import apply_coherent_transfer
+from temsim.physics.wave_sampling import plan_wave_sampling
+from temsim.physics.prepared_specimen_cache import (
+    cached_prepared_specimen,
+    content_identity,
+    exact_identity,
+)
 from temsim.physics.camera_wave import project_wave_to_recording_plane
 from temsim.physics.recording_stop import active_tem_recording_plane
 from temsim.optics.aberrations import (
@@ -34,6 +41,7 @@ from temsim.optics.aberrations import (
 )
 from temsim.specimen.atomistic import (
     AtomisticBackendUnavailable,
+    MAX_ATOMISTIC_POTENTIAL_BYTES,
     build_atomistic_potential_ensemble,
 )
 from temsim.specimen.presets import (
@@ -375,6 +383,7 @@ def projected_potential(
     *,
     pixels: int | None = None,
     field_of_view_angstrom: float | None = None,
+    origin_angstrom_xy=(0.0, 0.0),
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Generate the periodic projected potential defined by one TOML preset."""
     n = int(pixels or preset.pixels)
@@ -383,7 +392,10 @@ def projected_potential(
         raise ValueError("Wave grid must contain at least 32 pixels and a positive FOV.")
     spacing = fov / n
     axis = (np.arange(n, dtype=float) - n // 2) * spacing
-    xx, yy = np.meshgrid(axis, axis, indexing="xy")
+    origin_x, origin_y = (float(value) for value in origin_angstrom_xy)
+    if not (math.isfinite(origin_x) and math.isfinite(origin_y)):
+        raise ValueError("Projected-potential origin must be finite.")
+    xx, yy = np.meshgrid(axis + origin_x, axis + origin_y, indexing="xy")
     potential = np.zeros((n, n), dtype=float)
     thickness_scale = max(float(thickness_nm), 0.0) / preset.reference_thickness_nm
     ax = preset.unit_cell_x_angstrom
@@ -403,7 +415,113 @@ def projected_potential(
     return axis, axis.copy(), potential
 
 
+def _prepared_specimen_identity(
+    state, preset, *, field_of_view_angstrom_override,
+    calculation_roi_centre_nm, calculation_roi_bounds_nm,
+):
+    """Potential dependencies only; incident beam/lens/detector state is absent."""
+    from temsim.specimen import atomistic
+
+    scene = SpecimenScene.from_state(state)
+    sample = state.sample
+    defaults = {
+        "wave_grid_pixels": 0,
+        "wave_field_of_view_angstrom": 0.0,
+        "wave_slice_thickness_angstrom": 2.0,
+        "wave_multislice_enabled": True,
+        "wave_atomistic_enabled": True,
+        "wave_frozen_phonon_enabled": False,
+        "wave_frozen_phonon_configurations": 4,
+        "wave_frozen_phonon_sigma_angstrom": 0.0,
+        "wave_frozen_phonon_seed": 100,
+        "wave_frozen_phonon_sigma_by_element_angstrom": {},
+        "specimen_rotation_x_deg": 0.0,
+        "specimen_rotation_y_deg": 0.0,
+        "specimen_rotation_z_deg": 0.0,
+    }
+    parameters = {key: getattr(sample, key, default) for key, default in defaults.items()}
+    backend = {"numpy": np.__version__}
+    if (parameters["wave_atomistic_enabled"] and parameters["wave_multislice_enabled"]
+            and scene.interacting_thickness_nm > 0.0):
+        capability = atomistic.atomistic_capability()
+        backend["atomistic"] = asdict(capability)
+        if capability.available:
+            import abtem
+
+            backend["precision"] = abtem.config.get("precision")
+    return exact_identity({
+        # Hash the parsed preset actually passed to the builder, not a possibly
+        # different file hidden behind the preset loader's own cache.
+        "preset": asdict(preset),
+        "scene": {
+            key: getattr(scene, key) for key in (
+                "inserted", "mode", "source_kind", "source_key",
+                "structure_available", "cif_path", "preset_key", "wave_template_key",
+                "envelope_shape", "centre_xy_nm", "size_xy_nm", "thickness_nm",
+                "orientation_quaternion_wxyz",
+            )
+        },
+        "sample_parameters": parameters,
+        "active_cif_content": content_identity(
+            scene.cif_path if scene.interacting_thickness_nm > 0.0 else ""
+        ),
+        "field_of_view_angstrom_override": field_of_view_angstrom_override,
+        "calculation_roi_centre_nm": tuple(calculation_roi_centre_nm),
+        # None means the original TEM mask policy, not a supplied finite ROI.
+        "calculation_roi_bounds_nm": (
+            tuple(calculation_roi_bounds_nm) if calculation_roi_bounds_nm is not None else None
+        ),
+        "backend": backend,
+        "potential_limit": MAX_ATOMISTIC_POTENTIAL_BYTES,
+        "implementation": tuple(id(function) for function in (
+            _prepare_specimen_potentials_uncached, build_atomistic_potential_ensemble,
+            projected_potential, plan_wave_sampling, atomistic.build_equilibrium_atoms,
+            atomistic._build_one_potential,
+        )),
+    })
+
+
 def prepare_specimen_potentials(
+    state,
+    preset: SpecimenPreset,
+    *,
+    field_of_view_angstrom_override: float | None = None,
+    calculation_roi_centre_nm=(0.0, 0.0),
+    calculation_roi_bounds_nm=None,
+) -> PreparedSpecimen:
+    """Reuse exact specimen potentials independently of wave propagation."""
+    started = perf_counter()
+    arguments = {
+        "field_of_view_angstrom_override": field_of_view_angstrom_override,
+        "calculation_roi_centre_nm": tuple(calculation_roi_centre_nm),
+        "calculation_roi_bounds_nm": (
+            tuple(calculation_roi_bounds_nm) if calculation_roi_bounds_nm is not None else None
+        ),
+    }
+    try:
+        key = _prepared_specimen_identity(state, preset, **arguments)
+    except (TypeError, ValueError, OverflowError):
+        # Invalid/non-serializable inputs still pass through the original
+        # scientific validator, which supplies its actionable domain error.
+        key = None
+    prepared, hit, build_seconds, retained_bytes = cached_prepared_specimen(
+        key,
+        lambda: _prepare_specimen_potentials_uncached(state, preset, **arguments),
+        # A file/settings change while an expensive build runs must never
+        # install its result under the earlier content identity.
+        still_valid=lambda: key is not None and _prepared_specimen_identity(state, preset, **arguments) == key,
+    )
+    prepared.metrics.update({
+        "preparation_seconds": perf_counter() - started,
+        "preparation_build_seconds": build_seconds,
+        "prepared_specimen_cache_hit": hit,
+        "prepared_specimen_cache_key": key,
+        "prepared_specimen_cache_retained_bytes": retained_bytes,
+    })
+    return prepared
+
+
+def _prepare_specimen_potentials_uncached(
     state,
     preset: SpecimenPreset,
     *,
@@ -469,10 +587,54 @@ def prepare_specimen_potentials(
             "A custom CIF requires multislice specimen propagation."
         )
 
-    if calculation_roi_bounds_nm is not None and total_thickness > 0.0:
-        overlaps = scene.sample_intersects_bounds(
-            tuple(float(value) for value in calculation_roi_bounds_nm)
+    half_fov_nm = requested_fov * 0.05
+    wave_bounds_nm = (
+        roi_centre_nm[0] - half_fov_nm, roi_centre_nm[0] + half_fov_nm,
+        roi_centre_nm[1] - half_fov_nm, roi_centre_nm[1] + half_fov_nm,
+    )
+    overlaps = scene.sample_intersects_bounds(wave_bounds_nm)
+    # FOV/grid defines spatial sampling. A larger beam (for example after an
+    # Objective focus change) must enlarge the grid, not smear the same CIF
+    # onto progressively coarser pixels. Plan before generating any atoms.
+    sampling_plan = plan_wave_sampling(
+        reference_fov_angstrom=(
+            fov_override if fov_override > 0.0 else preset.field_of_view_angstrom
+        ),
+        reference_pixels=pixels,
+        requested_fov_angstrom=requested_fov,
+        thickness_angstrom=total_thickness,
+        target_slice_thickness_angstrom=target_slice,
+        configuration_count=(
+            int(getattr(state.sample, "wave_frozen_phonon_configurations", 4))
+            if frozen_requested else 1
+        ),
+        atomistic=bool(
+            atomistic_requested and multislice_enabled
+            and scene.matter_thickness_nm > 0.0 and overlaps
+        ),
+        max_potential_bytes=MAX_ATOMISTIC_POTENTIAL_BYTES,
+    )
+    pixels = sampling_plan.pixels
+    material_bounds_nm = None
+    if overlaps and scene.matter_thickness_nm > 0.0:
+        cx, cy = scene.centre_xy_nm
+        sx, sy = scene.size_xy_nm
+        material_bounds_nm = (
+            max(wave_bounds_nm[0], cx - sx / 2),
+            min(wave_bounds_nm[1], cx + sx / 2),
+            max(wave_bounds_nm[2], cy - sy / 2),
+            min(wave_bounds_nm[3], cy + sy / 2),
         )
+    domain_metrics = {
+        "wave_sampling_plan": asdict(sampling_plan),
+        "wave_window_bounds_nm": wave_bounds_nm,
+        # This is a bounding box. The physical disk mask further clips atoms.
+        "atom_generation_bounds_nm": material_bounds_nm,
+    }
+
+    if calculation_roi_bounds_nm is not None and total_thickness > 0.0:
+        # Test the actual square FFT window, not the narrower scan rectangle:
+        # padding/configured FOV may still illuminate matter outside that ROI.
         if not overlaps:
             spacing = requested_fov / pixels
             axis = (np.arange(pixels, dtype=float) - pixels // 2) * spacing
@@ -484,6 +646,7 @@ def prepare_specimen_potentials(
                 mean_projected_potential_v_angstrom=vacuum,
                 slice_thicknesses_angstrom=None,
                 metrics={
+                    **domain_metrics,
                     "potential_model": "finite_sample_vacuum_outside",
                     "atomistic_requested": atomistic_requested,
                     "atomistic_applied": False,
@@ -544,6 +707,7 @@ def prepare_specimen_potentials(
                     scene.size_xy_nm[0] * 10.0,
                     scene.size_xy_nm[1] * 10.0,
                 ),
+                specimen_envelope_shape=scene.envelope_shape,
                 specimen_centre_xy_angstrom=(
                     scene.centre_xy_nm[0] * 10.0,
                     scene.centre_xy_nm[1] * 10.0,
@@ -597,6 +761,7 @@ def prepare_specimen_potentials(
                     ensemble.slice_thicknesses_angstrom
                 ),
                 metrics={
+                    **domain_metrics,
                     "potential_model": "atomistic_lobato_iam",
                     "atomistic_requested": True,
                     "atomistic_applied": True,
@@ -670,6 +835,10 @@ def prepare_specimen_potentials(
         thickness_nm,
         pixels=pixels,
         field_of_view_angstrom=requested_fov,
+        origin_angstrom_xy=(
+            (roi_centre_nm[0] - scene.centre_xy_nm[0]) * 10.0,
+            (roi_centre_nm[1] - scene.centre_xy_nm[1]) * 10.0,
+        ),
     )
     if calculation_roi_bounds_nm is not None and thickness_nm > 0.0:
         lab_x_nm = x_axis * 0.1 + roi_centre_nm[0]
@@ -686,6 +855,7 @@ def prepare_specimen_potentials(
         mean_projected_potential_v_angstrom=potential,
         slice_thicknesses_angstrom=None,
         metrics={
+            **domain_metrics,
             "potential_model": "analytic_projected_columns",
             "atomistic_requested": atomistic_requested,
             "atomistic_applied": False,

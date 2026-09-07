@@ -24,6 +24,7 @@ from temsim.detector.eds_atomic import (
     bote_ionisation_cross_section_cm2,
 )
 from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
+from temsim.detector.eds_line_library import radiative_lines as _radiative_lines
 from temsim.specimen.presets import (
     load_specimen_preset,
 )
@@ -49,6 +50,11 @@ class EDSMaterial:
     provenance: str
 
     def __post_init__(self) -> None:
+        # Accept list-based inputs without retaining mutable composition in an
+        # immutable material or making exact-value cache keys unhashable.
+        object.__setattr__(
+            self, "mass_fractions", tuple(tuple(row) for row in self.mass_fractions),
+        )
         if (
             not math.isfinite(self.density_g_cm3)
             or self.density_g_cm3 <= 0.0
@@ -84,7 +90,10 @@ class EDSMaterial:
             / float(xraylib.AtomicWeight(z))
         )
 
+    @lru_cache(maxsize=4096)
     def mass_attenuation_cm2_g(self, photon_energy_ev: float) -> float:
+        # Immutable material + exact energy: reuse atomic data, not a rounded
+        # energy or a path-dependent transmission. The cache is bounded.
         energy_kev = float(photon_energy_ev) * 1.0e-3
         if not math.isfinite(energy_kev) or energy_kev <= 0.0:
             raise ValueError("Photon energy must be finite and positive")
@@ -406,62 +415,6 @@ def material_from_support_grid(grid) -> EDSMaterial | None:
     )
 
 
-_ORBITALS = (
-    "K",
-    "L1",
-    "L2",
-    "L3",
-    "M1",
-    "M2",
-    "M3",
-    "M4",
-    "M5",
-    "N1",
-    "N2",
-    "N3",
-    "N4",
-    "N5",
-    "N6",
-    "N7",
-    "O1",
-    "O2",
-    "O3",
-    "O4",
-    "O5",
-    "O6",
-    "O7",
-    "P1",
-    "P2",
-    "P3",
-    "P4",
-    "P5",
-    "Q1",
-)
-
-
-@lru_cache(maxsize=None)
-def _radiative_lines(
-    atomic_number: int, subshell_index: int
-) -> tuple[tuple[str, float, float], ...]:
-    origin = _ORBITALS[int(subshell_index)]
-    rows = []
-    for destination in _ORBITALS[int(subshell_index) + 1 :]:
-        constant_name = f"{origin}{destination}_LINE"
-        constant = getattr(xraylib, constant_name, None)
-        if constant is None:
-            continue
-        try:
-            energy_ev = 1000.0 * float(
-                xraylib.LineEnergy(int(atomic_number), constant)
-            )
-            rate = float(xraylib.RadRate(int(atomic_number), constant))
-        except ValueError:
-            continue
-        if energy_ev > 0.0 and rate > 0.0:
-            rows.append((f"{origin}-{destination}", energy_ev, rate))
-    return tuple(rows)
-
-
 def _mean_self_absorption_transmission(
     material: EDSMaterial,
     photon_energy_ev: float,
@@ -482,6 +435,49 @@ def _mean_self_absorption_transmission(
     if optical_depth <= 1.0e-10:
         return 1.0 - 0.5 * optical_depth
     return -math.expm1(-optical_depth) / optical_depth
+
+
+@lru_cache(maxsize=1024)
+def _relaxation_yields(z: int, subshell_index: int) -> tuple[float, float, float]:
+    """Reuse immutable atomic yields without changing vacancy arithmetic."""
+    try:
+        fluorescence_yield = float(xraylib.FluorYield(z, subshell_index))
+    except ValueError:
+        fluorescence_yield = 0.0
+    try:
+        auger_yield = float(xraylib.AugerYield(z, subshell_index))
+    except ValueError:
+        auger_yield = 0.0
+    direct_yield_sum = fluorescence_yield + auger_yield
+    if direct_yield_sum > 1.0:
+        if direct_yield_sum > 1.0 + 2.0e-12:
+            raise ValueError("xraylib vacancy-relaxation yields exceed one")
+        fluorescence_yield /= direct_yield_sum
+        auger_yield /= direct_yield_sum
+    return (
+        fluorescence_yield,
+        auger_yield,
+        max(1.0 - fluorescence_yield - auger_yield, 0.0),
+    )
+
+
+def _report_phase_progress(callback, start, end, completed, total, label):
+    """Compose stage fractions; labels retain the actual physical work count."""
+    if callback is None:
+        return
+    fraction = min(max(float(completed) / max(int(total), 1), 0.0), 1.0)
+    callback(round(10_000 * (start + (end - start) * fraction)), 10_000, label)
+
+
+def _line_response_kernel(centres, energy_ev, sigma_ev):
+    """Reference Gaussian weights; callers may cache by exact line energy."""
+    lower = max(int(np.searchsorted(centres, energy_ev - 5.0 * sigma_ev)), 0)
+    upper = min(
+        int(np.searchsorted(centres, energy_ev + 5.0 * sigma_ev)) + 1,
+        centres.size,
+    )
+    weights = np.exp(-0.5 * ((centres[lower:upper] - energy_ev) / sigma_ev) ** 2)
+    return lower, upper, weights, float(np.sum(weights))
 
 
 def _empty_spectrum(
@@ -637,6 +633,7 @@ def simulate_eds_tracks(
     photon_maximum_stored_paths: int = 1024,
     photon_include_specimen: bool = True,
     photon_include_support: bool = True,
+    progress_callback=None,
 ) -> EDSSpectrum:
     """Convert material track segments to one expected characteristic spectrum."""
 
@@ -664,6 +661,10 @@ def simulate_eds_tracks(
     if int(poisson_seed) < 0:
         raise ValueError("EDS Poisson seed cannot be negative")
     detector_geometry.validate()
+    _report_phase_progress(
+        progress_callback, 0.0, 0.4, 0, len(track_rows),
+        f"EDS ionisation tracks 0/{len(track_rows)}",
+    )
     detector_surfaces = tuple(photon_detector_surfaces)
     holder_occluders = tuple(photon_holder_occluders)
     quadrature_order = int(photon_quadrature_order)
@@ -740,6 +741,9 @@ def simulate_eds_tracks(
         "photon_transport_applied_to_main_spectrum": state is not None,
     }
     if incident == 0.0 or not track_rows:
+        _report_phase_progress(
+            progress_callback, 0.0, 1.0, 1, 1, "EDS spectrum: no incident tracks",
+        )
         return _empty_spectrum(
             energy_min_ev=spectrum_values[0],
             energy_max_ev=spectrum_values[1],
@@ -753,6 +757,11 @@ def simulate_eds_tracks(
     maximum_shell_optical_depth = 0.0
     shell_cross_section_evaluation_count = 0
     for track_index, track in enumerate(track_rows):
+        if track_index % max(1, len(track_rows) // 100) == 0:
+            _report_phase_progress(
+                progress_callback, 0.0, 0.4, track_index, len(track_rows),
+                f"EDS ionisation tracks {track_index}/{len(track_rows)}",
+            )
         if track.path_length_nm == 0.0 or track.electron_weight == 0.0:
             continue
         path_cm = track.path_length_nm * 1.0e-7
@@ -784,30 +793,9 @@ def simulate_eds_tracks(
                     * track.electron_weight
                     * shell_optical_depth
                 )
-                try:
-                    fluorescence_yield = float(
-                        xraylib.FluorYield(z, subshell_index)
-                    )
-                except ValueError:
-                    fluorescence_yield = 0.0
-                try:
-                    auger_yield = float(
-                        xraylib.AugerYield(z, subshell_index)
-                    )
-                except ValueError:
-                    auger_yield = 0.0
-                direct_yield_sum = fluorescence_yield + auger_yield
-                if direct_yield_sum > 1.0:
-                    if direct_yield_sum > 1.0 + 2.0e-12:
-                        raise ValueError(
-                            "xraylib vacancy-relaxation yields exceed one"
-                        )
-                    fluorescence_yield /= direct_yield_sum
-                    auger_yield /= direct_yield_sum
-                unresolved_relaxation_yield = max(
-                    1.0 - fluorescence_yield - auger_yield,
-                    0.0,
-                )
+                (
+                    fluorescence_yield, auger_yield, unresolved_relaxation_yield,
+                ) = _relaxation_yields(z, subshell_index)
                 ray_label = (
                     track.source_ray_index
                     if track.source_ray_index is not None
@@ -894,6 +882,10 @@ def simulate_eds_tracks(
                         )
                     )
 
+    _report_phase_progress(
+        progress_callback, 0.0, 0.4, len(track_rows), len(track_rows),
+        f"EDS ionisation tracks {len(track_rows)}/{len(track_rows)}",
+    )
     photon_transport = None
     if state is not None and lines:
         from temsim.detector.eds_photon_transport import (
@@ -939,9 +931,13 @@ def simulate_eds_tracks(
         ] = {}
 
         def photon_rows():
-            for line, emission_key in zip(
+            _report_phase_progress(
+                progress_callback, 0.4, 0.9, 0, len(lines),
+                f"EDS photon emissions 0/{len(lines)}",
+            )
+            for line_index, (line, emission_key) in enumerate(zip(
                 lines, emission_keys, strict=True
-            ):
+            )):
                 vacancy = vacancy_by_id[line.vacancy_id]
                 if line.vacancy_id not in origin_by_vacancy:
                     origin_by_vacancy[line.vacancy_id] = (
@@ -977,6 +973,17 @@ def simulate_eds_tracks(
                     source_key=line.source_key,
                     transition=line.transition,
                 )
+                completed_lines = line_index + 1
+                if (
+                    completed_lines % max(1, len(lines) // 100) == 0
+                    or completed_lines == len(lines)
+                ):
+                    # Resuming after yield means all photons from this line
+                    # have been transported, not merely generated.
+                    _report_phase_progress(
+                        progress_callback, 0.4, 0.9, completed_lines, len(lines),
+                        f"EDS photon emissions {completed_lines}/{len(lines)}",
+                    )
 
         photon_transport = transport_eds_photons(
             state,
@@ -1061,7 +1068,13 @@ def simulate_eds_tracks(
     sigma_ev = spectrum_values[3] / (
         2.0 * math.sqrt(2.0 * math.log(2.0))
     )
-    for line in lines:
+    response_kernels = {}
+    for line_index, line in enumerate(lines):
+        if line_index % max(1, len(lines) // 100) == 0:
+            _report_phase_progress(
+                progress_callback, 0.9, 1.0, line_index, len(lines),
+                f"EDS spectrum lines {line_index}/{len(lines)}",
+            )
         if not spectrum_values[0] <= line.energy_ev < spectrum_values[1]:
             outside_counts += line.expected_detected_counts
             continue
@@ -1070,28 +1083,11 @@ def simulate_eds_tracks(
             index = min(max(index, 0), expected.size - 1)
             expected[index] += line.expected_detected_counts
             continue
-        lower = max(
-            int(
-                np.searchsorted(
-                    centres, line.energy_ev - 5.0 * sigma_ev
-                )
-            ),
-            0,
-        )
-        upper = min(
-            int(
-                np.searchsorted(
-                    centres, line.energy_ev + 5.0 * sigma_ev
-                )
+        if line.energy_ev not in response_kernels:
+            response_kernels[line.energy_ev] = _line_response_kernel(
+                centres, line.energy_ev, sigma_ev,
             )
-            + 1,
-            expected.size,
-        )
-        weights = np.exp(
-            -0.5
-            * ((centres[lower:upper] - line.energy_ev) / sigma_ev) ** 2
-        )
-        total_weight = float(np.sum(weights))
+        lower, upper, weights, total_weight = response_kernels[line.energy_ev]
         if total_weight > 0.0:
             expected[lower:upper] += (
                 line.expected_detected_counts * weights / total_weight
@@ -1174,6 +1170,9 @@ def simulate_eds_tracks(
                 "line emission; attenuation/shadowing can only remove weight"
             ),
         }
+    )
+    _report_phase_progress(
+        progress_callback, 0.9, 1.0, 1, 1, "EDS spectrum complete",
     )
     return EDSSpectrum(
         energy_bin_centres_ev=centres,
@@ -1295,7 +1294,12 @@ def simulate_eds_point(
             elastic_transport = simulate_elastic_point_transport(
                 state,
                 incident_rays=incident_bundle.rays,
-                progress_callback=progress_callback,
+                progress_callback=(
+                    None if progress_callback is None else
+                    lambda done, total, label: _report_phase_progress(
+                        progress_callback, 0.0, 0.35, done, total, label,
+                    )
+                ),
             )
         tracks = elastic_transport.eds_tracks
         electron_count = (
@@ -1370,6 +1374,12 @@ def simulate_eds_point(
         photon_holder_occluders=photon_holder_occluders,
         photon_quadrature_order=photon_quadrature_order,
         photon_maximum_stored_paths=photon_maximum_stored_paths,
+        progress_callback=(
+            None if progress_callback is None else
+            lambda done, total, label: _report_phase_progress(
+                progress_callback, 0.35, 0.99, done, total, label,
+            )
+        ),
     )
     result.metrics.update(
         {

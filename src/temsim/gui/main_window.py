@@ -376,11 +376,18 @@ class MainWindow(QMainWindow):
 
     def _apply_cache_preferences(self, preferences) -> None:
         """Change retention only; never invalidate results or request a solve."""
+        from temsim.physics.prepared_specimen_cache import configure_prepared_specimen_cache
+        from temsim.specimen.display_cache import configure_sample_display_cache
+
         self.calculations.configure_cache(**preferences.controller_kwargs())
         self.workspace.set_ray_display_cache_limit_bytes(preferences.ray_display_cache_budget_bytes)
+        configure_prepared_specimen_cache(budget_bytes=preferences.prepared_specimen_cache_budget_bytes)
+        configure_sample_display_cache(budget_bytes=preferences.sample_display_cache_budget_bytes)
 
     def _show_cache_settings(self) -> None:
         from temsim.gui.cache_settings import CacheSettingsDialog
+        from temsim.physics.prepared_specimen_cache import prepared_specimen_cache_info
+        from temsim.specimen.display_cache import sample_display_cache_info
 
         if self._cache_settings_dialog is None:
             self._cache_settings_dialog = CacheSettingsDialog(
@@ -388,6 +395,8 @@ class MainWindow(QMainWindow):
                 lambda: {
                     "calculation": self.calculations.cache_statistics(),
                     "ray_display": self.workspace.ray_display_cache_info(),
+                    "prepared_specimen": prepared_specimen_cache_info(),
+                    "sample_display": sample_display_cache_info(),
                 },
                 parent=self,
             )
@@ -554,11 +563,15 @@ class MainWindow(QMainWindow):
         self._refresh_simulation_mode()
         self.workspace.model_inspector.set_state(self.state)
         self._runtime_targets = runtime_targets(self.state)
+        geometry_runtime = {
+            key: {parameter.name: parameter.value for parameter in editable_parameters(target)}
+            for key, target in self._runtime_targets.items()
+        }
         self.workspace.physical_layout.model_editor.set_project_context(
             self.manifest_editor.root, self.assembly, self._save_model_document,
-            {key: {parameter.name: parameter.value for parameter in editable_parameters(target)}
-             for key, target in self._runtime_targets.items()},
+            geometry_runtime,
         )
+        self.workspace.physical_layout.assembly_3d.set_assembly(self.assembly, geometry_runtime)
         self._refresh_parameter_simulation_context()
         # The persisted runtime key predates the explicit TOML part name.
         # Expose the same live object under the active assembly key so the
@@ -1054,7 +1067,7 @@ class MainWindow(QMainWindow):
         layout.tabs.setCurrentWidget(layout.model_editor)
         layout.model_editor.reveal_project_part(part)
         if layout.model_editor._pending_part is None:
-            self.status_label.setText(f"Showing {part.name} in Physical Layout / 3D model editor")
+            self.status_label.setText(f"Showing {part.name} in Physical Layout / 3D Parts")
         else:
             self.status_label.setText(layout.model_editor.status.text())
 
@@ -1627,10 +1640,10 @@ class MainWindow(QMainWindow):
         # Its generation must not be allowed to overwrite a newer manual edit.
         self._invalidate_direct_alignment()
         self._refresh_simulation_mode()
-        self.workspace.physical_layout.model_editor.set_runtime_values(
-            {key: {item.name: item.value for item in editable_parameters(target)}
-             for key, target in self._runtime_targets.items()}
-        )
+        geometry_runtime = {key: {item.name: item.value for item in editable_parameters(target)}
+                            for key, target in self._runtime_targets.items()}
+        self.workspace.physical_layout.model_editor.set_runtime_values(geometry_runtime)
+        self.workspace.physical_layout.assembly_3d.set_runtime_values(geometry_runtime)
         self.schedule_preview(parameter)
 
     def _invalidate_direct_alignment(self) -> None:
@@ -1766,7 +1779,7 @@ class MainWindow(QMainWindow):
         if quality == "High accuracy":
             self.progress.setRange(0, 1)
             self.progress.setValue(0)
-            self.progress.setFormat("0% · Preparing")
+            self.progress.setFormat("Preparing calculation stages")
             self.workspace.design_explorer.set_calculation_status(
                 "High accuracy running"
             )
@@ -1788,8 +1801,11 @@ class MainWindow(QMainWindow):
         bounded_completed = min(max(int(completed), 0), int(total))
         self.progress.setRange(0, int(total))
         self.progress.setValue(bounded_completed)
-        percentage = 100.0 * bounded_completed / int(total)
-        self.progress.setFormat(f"{percentage:.1f}% · {stage}")
+        self.progress.setFormat(stage)
+        self.progress.setToolTip(
+            f"{stage}\nThe bar allocates equal space to calculation stages, not elapsed time. "
+            "Counts describe the named step; percentages describe progress within its stage."
+        )
         self.status_label.setText(f"{quality}: {stage}...")
 
     def _calculation_ready(self, quality: str, result, duration: float) -> None:
@@ -1866,6 +1882,11 @@ class MainWindow(QMainWindow):
             f"{result.simulation.incident.x.shape[1]} rays, mode={mode}, "
             f"ray backend={backend}{wave_log}{cache_log}."
         )
+        if quality not in ("Preview", "Medium"):
+            from temsim.calculation_performance import calculation_performance_lines
+
+            for line in calculation_performance_lines(result):
+                self.log_output.appendPlainText(line)
 
     def _calculation_failed(self, quality: str, message: str) -> None:
         self.workspace.physical_layout.model_editor.set_calculation_status("failed", f"{quality}: {message}. Previous results have not been replaced.")
@@ -1891,12 +1912,30 @@ class MainWindow(QMainWindow):
         relative = Path(path).resolve().relative_to(self.manifest_editor.root).as_posix()
         page = self.workspace.physical_layout.model_editor
         target = ManifestTarget(relative, page._selected_key)
-        drafts = [(panel, panel.manifest_draft_texts(target)) for panel in (
+        self._save_geometry_updates_preserving_drafts(target, updates)
+
+    def _save_geometry_updates_preserving_drafts(self, target, updates):
+        """Geometry saves do not own either panel's independent TOML draft."""
+        selected_key = self._selected_component_key
+        energy_key = self._selected_energy_filter_key
+        drafts = [(panel, panel._manifest_target,
+                   panel.manifest_draft_texts(panel._manifest_target),
+                   panel.tabs.currentIndex()) for panel in (
             self.parameter_panel, self.workspace.energy_filter_parameters
         )]
-        self._save_manifest_updates(target, updates, report_error=False)
-        for panel, draft in drafts:
-            panel.restore_manifest_draft_texts(target, draft)
+        try:
+            self._save_manifest_updates(target, updates, report_error=False)
+        finally:
+            # Reloads replace runtime objects. Reselect through the normal
+            # context builders instead of restoring references to old state.
+            if selected_key is not None and self._selected_component_key != selected_key:
+                self.assembly_panel.select_key(selected_key)
+            if energy_key is not None and self._selected_energy_filter_key != energy_key:
+                self._select_energy_filter_component(
+                    energy_key, activate_page=False, focus_editor=False)
+            for panel, own_target, draft, tab_index in drafts:
+                panel.restore_manifest_draft_texts(own_target, draft)
+                panel.tabs.setCurrentIndex(tab_index)
 
     def _edit_part_geometry(self, target):
         from temsim import module_manifest
@@ -1930,13 +1969,7 @@ class MainWindow(QMainWindow):
                         "This module changed while the editor was open. Close and reopen "
                         "Edit dimensions to load its current geometry before applying."
                     )
-                drafts = [
-                    (panel, panel.manifest_draft_texts(target))
-                    for panel in (self.parameter_panel, self.workspace.energy_filter_parameters)
-                ]
-                self._save_manifest_updates(target, updates, report_error=False)
-                for panel, draft in drafts:
-                    panel.restore_manifest_draft_texts(target, draft)
+                self._save_geometry_updates_preserving_drafts(target, updates)
                 original_document = module_manifest.read_document(path)
 
             dialog = GeometryEditorDialog(

@@ -11,12 +11,13 @@ from temsim.gui.input_policy import (
 import json
 import math
 import os
+from dataclasses import fields
 from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QVector3D
+from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtGui import QColor, QGuiApplication, QMatrix4x4, QVector3D
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -52,6 +53,8 @@ from temsim.specimen.support import (
     available_support_meshes,
 )
 from temsim.specimen.virtual import resolve_virtual_interactions
+from temsim.gui.sample_scene_labels import sample_scene_labels
+from temsim.gui.sample_display_source import resolve_sample_display_source
 
 
 try:
@@ -164,28 +167,6 @@ def _sample_envelope_lines(snapshot):
     if snapshot.envelope_shape == "disk":
         return _disk_lines((0.0, 0.0, 0.0), snapshot.size_nm)
     return _box_lines((0.0, 0.0, 0.0), snapshot.size_nm)
-
-
-def _cell_lines(vectors):
-    vectors = np.asarray(vectors, dtype=float)
-    corners = np.asarray(
-        [
-            i * vectors[0] + j * vectors[1] + k * vectors[2]
-            for k in (0.0, 1.0)
-            for j in (0.0, 1.0)
-            for i in (0.0, 1.0)
-        ]
-    )
-    corners -= 0.5 * np.sum(vectors, axis=0)
-    edges = (
-        (0, 1), (0, 2), (1, 3), (2, 3),
-        (4, 5), (4, 6), (5, 7), (6, 7),
-        (0, 4), (1, 5), (2, 6), (3, 7),
-    )
-    result = []
-    for first, second in edges:
-        result.extend((corners[first], corners[second]))
-    return np.asarray(result)
 
 
 def _region_outline(region, z=0.0):
@@ -357,6 +338,16 @@ class SampleSceneView(QWidget):
             self.view = self._fallback_plot()
         layout.addWidget(self.view, 1)
         self._items = []
+        self._snapshot = None
+        self._has_fitted = False
+        self._render_key = None
+        self._atom_item = self._bond_item = self._beam_item = self._probe_item = None
+        self._atom_spots = []
+        self._base_rotation = np.eye(3)
+        self._shown_rotation = np.eye(3)
+        self._shown_probe = None
+        self.model_builds = 0
+        self.model_reuses = 0
 
     def _fallback_plot(self):
         plot = pg.PlotWidget(background="#050816")
@@ -381,17 +372,30 @@ class SampleSceneView(QWidget):
         else:
             self.view.clear()
         self._items = []
+        self._render_key = None
+        self._atom_item = self._bond_item = self._beam_item = self._probe_item = None
+        self._atom_spots = []
 
     def _add_gl_line(self, positions, colour, width=2.0, mode="line_strip"):
+        positions = np.asarray(positions, dtype=float)
+        colours = np.asarray(colour, dtype=float)
+        # pyqtgraph treats every ndarray colour as a per-vertex buffer. A
+        # length-four ndarray is NOT a uniform RGBA and leaves later vertices
+        # without colours, making almost all of a wireframe disappear.
+        if colours.shape == (4,):
+            colours = tuple(float(value) for value in colours)
+        elif colours.shape != (len(positions), 4):
+            raise ValueError("Line colours must be one RGBA or one RGBA per vertex.")
         item = gl.GLLinePlotItem(
-            pos=np.asarray(positions, dtype=float),
-            color=np.asarray(colour, dtype=float),
+            pos=positions,
+            color=colours,
             width=float(width),
             antialias=True,
             mode=mode,
         )
         self.view.addItem(item)
         self._items.append(item)
+        return item
 
     def _add_gl_atoms(self, positions, numbers):
         positions = np.asarray(positions, dtype=float)
@@ -440,18 +444,134 @@ class SampleSceneView(QWidget):
             )
         self.view.addItem(item)
         self._items.append(item)
+        return item
+
+    @staticmethod
+    def _geometry_key(snapshot):
+        # Cached atom arrays are immutable, so identity avoids hashing them on
+        # each scan/probe update. The retained snapshot keeps those identities
+        # alive until a different model is installed. Empty arrays are equal.
+        parts = []
+        for field in fields(snapshot):
+            if field.name == "warnings":
+                continue
+            value = getattr(snapshot, field.name)
+            if field.name == "current_probe_nm":
+                value = value is not None
+            elif isinstance(value, np.ndarray):
+                identity_array = field.name in {"atom_positions_nm", "atomic_numbers", "atom_bond_pairs"}
+                value = (value.shape, value.dtype.str,
+                         (id(value) if value.size else None) if identity_array else value.tobytes())
+            parts.append(value)
+        return tuple(parts)
 
     def display_snapshot(self, snapshot, *, draft_quaternion=None):
-        self.clear()
         target_rotation = quaternion_to_matrix(
             draft_quaternion
             if draft_quaternion is not None
             else snapshot.orientation_quaternion_wxyz
         )
-        if self.opengl_available:
-            self._display_gl(snapshot, target_rotation)
+        key = self._geometry_key(snapshot)
+        if key == self._render_key:
+            self.model_reuses += 1
+            self._update_retained_model(snapshot, target_rotation)
         else:
-            self._display_2d(snapshot, target_rotation)
+            self.clear()
+            self._base_rotation = target_rotation.copy()
+            if self.opengl_available:
+                self._display_gl(snapshot, target_rotation)
+            else:
+                self._display_2d(snapshot, target_rotation)
+            self._render_key = key
+            self.model_builds += 1
+        self._snapshot = snapshot
+        self._shown_rotation = target_rotation.copy()
+        self._shown_probe = snapshot.current_probe_nm
+        if not self._has_fitted:
+            self.fit_full_sample()
+
+    def _update_retained_model(self, snapshot, target_rotation):
+        """Move draft lattice/probe objects without rebuilding meshes or bonds."""
+        if not np.array_equal(target_rotation, self._shown_rotation):
+            if self.opengl_available:
+                delta = target_rotation @ self._base_rotation.T
+                centre = np.asarray(snapshot.centre_nm, dtype=float)
+                transform = np.eye(4)
+                transform[:3, :3] = delta
+                transform[:3, 3] = centre - delta @ centre
+                matrix = QMatrix4x4(*transform.ravel().tolist())
+                for item in (self._atom_item, self._bond_item):
+                    if item is not None:
+                        item.setTransform(matrix)
+            elif self._atom_item is not None:
+                positions = self._oriented_atoms(snapshot, target_rotation).copy()
+                positions[:, :2] += snapshot.centre_nm[:2]
+                for spot, position in zip(self._atom_spots, positions):
+                    spot["pos"] = tuple(position[:2])
+                self._atom_item.setData(spots=self._atom_spots)
+                if self._bond_item is not None:
+                    points = positions[snapshot.atom_bond_pairs].reshape(-1, 3)
+                    self._bond_item.setData(points[:, 0], points[:, 1])
+        if self.opengl_available and snapshot.current_probe_nm != self._shown_probe:
+            size = snapshot.atom_display_size_nm or snapshot.size_nm
+            centre = snapshot.atom_display_centre_nm or snapshot.centre_nm
+            scale = max(float(np.max(size)), 1.0e-3)
+            px, py = snapshot.current_probe_nm or tuple(centre[:2])
+            if self._beam_item is not None:
+                self._beam_item.setData(pos=np.asarray(
+                    ((px, py, -0.8 * scale), (px, py, 0.8 * scale)), dtype=float))
+            if self._probe_item is not None:
+                half = max(scale * 0.012, 1.0e-3)
+                z = 0.6 * snapshot.size_nm[2]
+                self._probe_item.setData(pos=np.asarray(
+                    ((px - half, py, z), (px + half, py, z),
+                     (px, py - half, z), (px, py + half, z)), dtype=float))
+        self.view.update()
+
+    def fit_full_sample(self):
+        """Fit physical dimensions without changing or regenerating atoms."""
+        if self._snapshot is not None:
+            self._fit_region(self._snapshot.centre_nm, self._snapshot.size_nm)
+
+    def fit_local_region(self):
+        """Fit the requested local material region, not its capped atom subset."""
+        if self._snapshot is None:
+            return
+        bounds = getattr(self._snapshot, "local_material_bounds_nm", None)
+        if bounds is None:
+            self.fit_full_sample()
+            return
+        limits = np.asarray(bounds, dtype=float).reshape(3, 2)
+        self._fit_region(np.mean(limits, axis=1), np.diff(limits, axis=1).ravel())
+
+    def _fit_region(self, centre, size):
+        centre = np.asarray(centre, dtype=float)
+        size = np.maximum(np.asarray(size, dtype=float), 1.0e-3)
+        if self.opengl_available:
+            # GLViewWidget uses a horizontal field of view. Fit a bounding
+            # sphere using the smaller viewport angle, without axis stretching.
+            half_angle = math.radians(float(self.view.opts["fov"]) * 0.5)
+            aspect = max(self.view.height(), 1) / max(self.view.width(), 1)
+            half_angle = min(half_angle, math.atan(math.tan(half_angle) * aspect))
+            self.view.opts["distance"] = float(0.6 * np.linalg.norm(size) / math.sin(half_angle))
+            self.view.opts["center"] = QVector3D(*centre)
+            self.view.update()
+        else:
+            self.view.setRange(
+                xRange=(centre[0] - 0.55 * size[0], centre[0] + 0.55 * size[0]),
+                yRange=(centre[1] - 0.55 * size[1], centre[1] + 0.55 * size[1]),
+                padding=0.02,
+                disableAutoRange=True,
+            )
+        self._has_fitted = True
+
+    @staticmethod
+    def _local_outline(snapshot):
+        bounds = getattr(snapshot, "local_material_bounds_nm", None)
+        if bounds is None:
+            return np.empty((0, 3))
+        limits = np.asarray(bounds, dtype=float).reshape(3, 2)
+        return _box_lines(np.mean(limits, axis=1), np.diff(limits, axis=1).ravel())
 
     @staticmethod
     def _oriented_atoms(snapshot, target_rotation):
@@ -471,20 +591,18 @@ class SampleSceneView(QWidget):
             display_size = np.asarray((sx, sy, sz), dtype=float)
             display_centre = np.asarray((cx, cy, cz), dtype=float)
         scale = max(float(np.max(display_size)), 1.0e-3)
-        if max(sx, sy, sz) <= 16.0 * scale:
-            box = _sample_envelope_lines(snapshot)
-            box = box @ np.asarray(target_rotation, dtype=float).T
-            box += np.asarray((cx, cy, cz))
-            self._add_gl_line(
-                box,
-                (0.3, 0.75, 0.95, 0.9),
-                mode="lines",
-            )
-        if snapshot.atom_display_size_nm is not None:
+        # The finite material envelope is in laboratory coordinates. Crystal
+        # zone alignment rotates the lattice, not the solver's clipping solid.
+        box = _sample_envelope_lines(snapshot) + np.asarray((cx, cy, cz))
+        self._add_gl_line(box, (0.22, 0.74, 0.97, 0.95), mode="lines")
+        local = self._local_outline(snapshot)
+        if local.size:
+            self._add_gl_line(local, (0.96, 0.45, 0.71, 0.9), mode="lines")
+        if getattr(snapshot, "atom_display_capped", False):
             self._add_gl_line(
                 _box_lines(display_centre, display_size),
-                (0.75, 0.55, 1.0, 0.85),
-                width=2.0,
+                (0.98, 0.75, 0.14, 0.75),
+                width=1.0,
                 mode="lines",
             )
         beam_x, beam_y = (
@@ -492,7 +610,7 @@ class SampleSceneView(QWidget):
             if snapshot.current_probe_nm is not None
             else tuple(display_centre[:2])
         )
-        self._add_gl_line(
+        self._beam_item = self._add_gl_line(
             ((beam_x, beam_y, -0.8 * scale), (beam_x, beam_y, 0.8 * scale)),
             (1.0, 0.85, 0.2, 0.9),
             width=3.0,
@@ -502,12 +620,6 @@ class SampleSceneView(QWidget):
                 _rectangle_lines(snapshot.scan_fov_bounds_nm, 0.52 * sz),
                 (0.2, 1.0, 0.45, 0.95),
                 width=3.0,
-            )
-        if snapshot.calculation_roi_bounds_nm is not None:
-            self._add_gl_line(
-                _rectangle_lines(snapshot.calculation_roi_bounds_nm, 0.56 * sz),
-                (1.0, 0.45, 0.75, 0.9),
-                width=2.0,
             )
         for region in snapshot.regions:
             if not region.enabled:
@@ -519,14 +631,12 @@ class SampleSceneView(QWidget):
             )
         if snapshot.current_probe_nm is not None:
             px, py = snapshot.current_probe_nm
-            probe = gl.GLScatterPlotItem(
-                pos=np.asarray(((px, py, 0.6 * sz),)),
-                color=np.asarray(((1.0, 1.0, 0.2, 1.0),)),
-                size=max(scale * 0.012, 3.0),
-                pxMode=False,
+            half = max(scale * 0.012, 1.0e-3)
+            self._probe_item = self._add_gl_line(
+                ((px - half, py, 0.6 * sz), (px + half, py, 0.6 * sz),
+                 (px, py - half, 0.6 * sz), (px, py + half, 0.6 * sz)),
+                (1.0, 0.85, 0.2, 0.9), width=2.0, mode="lines",
             )
-            self.view.addItem(probe)
-            self._items.append(probe)
         if snapshot.atom_positions_nm.size:
             positions = self._oriented_atoms(snapshot, target_rotation).copy()
             positions[:, 0] += cx
@@ -538,29 +648,13 @@ class SampleSceneView(QWidget):
                 colours,
             )
             if bond_points.size:
-                self._add_gl_line(
+                self._bond_item = self._add_gl_line(
                     bond_points,
                     bond_colours,
                     width=2.5,
                     mode="lines",
                 )
-            self._add_gl_atoms(positions, snapshot.atomic_numbers)
-        if snapshot.cell_vectors_nm.shape == (3, 3):
-            current = np.asarray(snapshot.orientation_matrix, dtype=float)
-            target_cell = (
-                np.asarray(snapshot.cell_vectors_nm, dtype=float)
-                @ current
-                @ np.asarray(target_rotation, dtype=float).T
-            )
-            cell = _cell_lines(target_cell) + display_centre
-            self._add_gl_line(
-                cell,
-                (0.75, 0.55, 1.0, 0.9),
-                width=2.0,
-                mode="lines",
-            )
-        self.view.opts["distance"] = 1.8 * scale
-        self.view.opts["center"] = QVector3D(*display_centre)
+            self._atom_item = self._add_gl_atoms(positions, snapshot.atomic_numbers)
         self.view.update()
 
     def _display_2d(self, snapshot, target_rotation):
@@ -572,23 +666,27 @@ class SampleSceneView(QWidget):
         else:
             display_size = np.asarray((sx, sy, sz), dtype=float)
             display_centre = np.asarray((cx, cy, 0.0), dtype=float)
-        scale = max(float(np.max(display_size[:2])), 1.0e-3)
-        if max(sx, sy) <= 16.0 * scale:
-            box = _sample_envelope_lines(snapshot)
-            box = box @ np.asarray(target_rotation, dtype=float).T
+        box = _sample_envelope_lines(snapshot)
+        self.view.plot(
+            box[:, 0] + cx, box[:, 1] + cy,
+            pen=pg.mkPen("#38bdf8", width=2), connect="pairs",
+            name="Full sample",
+        )
+        local = self._local_outline(snapshot)
+        if local.size:
             self.view.plot(
-                box[:, 0] + cx,
-                box[:, 1] + cy,
-                pen=pg.mkPen("#38bdf8", width=2),
-                connect="pairs",
+                local[:, 0], local[:, 1],
+                pen=pg.mkPen("#f472b6", width=2), connect="pairs",
+                name="Local region",
             )
-        if snapshot.atom_display_size_nm is not None:
+        if getattr(snapshot, "atom_display_capped", False):
             display_box = _box_lines(display_centre, display_size)
             self.view.plot(
                 display_box[:, 0],
                 display_box[:, 1],
-                pen=pg.mkPen("#c084fc", width=2),
+                pen=pg.mkPen("#fbbf24", width=1, style=Qt.PenStyle.DashLine),
                 connect="pairs",
+                name="Displayed subset",
             )
         if snapshot.scan_fov_bounds_nm is not None:
             x0, x1, y0, y1 = snapshot.scan_fov_bounds_nm
@@ -596,13 +694,6 @@ class SampleSceneView(QWidget):
                 (x0, x1, x1, x0, x0),
                 (y0, y0, y1, y1, y0),
                 pen=pg.mkPen("#22c55e", width=2),
-            )
-        if snapshot.calculation_roi_bounds_nm is not None:
-            x0, x1, y0, y1 = snapshot.calculation_roi_bounds_nm
-            self.view.plot(
-                (x0, x1, x1, x0, x0),
-                (y0, y0, y1, y1, y0),
-                pen=pg.mkPen("#f472b6", width=2),
             )
         for region in snapshot.regions:
             if not region.enabled:
@@ -621,7 +712,7 @@ class SampleSceneView(QWidget):
             bonds = np.asarray(snapshot.atom_bond_pairs, dtype=int)
             if bonds.size:
                 bond_points = positions[bonds].reshape(-1, 3)
-                self.view.plot(
+                self._bond_item = self.view.plot(
                     bond_points[:, 0],
                     bond_points[:, 1],
                     pen=pg.mkPen("#94a3b8", width=1.5),
@@ -641,26 +732,8 @@ class SampleSceneView(QWidget):
             ]
             scatter = pg.ScatterPlotItem(spots=spots, pxMode=True)
             self.view.addItem(scatter)
-        if snapshot.cell_vectors_nm.shape == (3, 3):
-            current = np.asarray(snapshot.orientation_matrix, dtype=float)
-            target_cell = (
-                np.asarray(snapshot.cell_vectors_nm, dtype=float)
-                @ current
-                @ np.asarray(target_rotation, dtype=float).T
-            )
-            cell = _cell_lines(target_cell) + display_centre
-            self.view.plot(
-                cell[:, 0],
-                cell[:, 1],
-                pen=pg.mkPen("#c084fc", width=2),
-                connect="pairs",
-            )
-        half_span = 0.55 * max(float(display_size[0]), float(display_size[1]), 1.0e-3)
-        self.view.setRange(
-            xRange=(display_centre[0] - half_span, display_centre[0] + half_span),
-            yRange=(display_centre[1] - half_span, display_centre[1] + half_span),
-            padding=0.02,
-        )
+            self._atom_spots = spots
+            self._atom_item = scatter
 
 
 class SamplePage(QWidget):
@@ -707,6 +780,8 @@ class SamplePage(QWidget):
         self._state = None
         self._result = None
         self._snapshot = None
+        self._refresh_pending = False
+        self._pending_calculation_result = None
         self._eds_result = None
         self._elastic_result = None
         self._specimen_interactions = None
@@ -938,14 +1013,12 @@ class SamplePage(QWidget):
         inelastic_form.addRow("Resolved model", self.inelastic_summary)
         real_layout.addWidget(inelastic)
 
-        wave = QGroupBox("High-accuracy wave calculation")
+        wave = QGroupBox("Wave imaging settings")
         wave.setObjectName("sampleWaveControls")
         wave_form = QFormLayout(wave)
         wave_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.tem_wave_enabled = QCheckBox("TEM image / diffraction")
         self.tem_wave_enabled.setObjectName("sampleTemWaveEnabled")
-        self.stem_wave_enabled = QCheckBox("STEM detector images")
-        self.stem_wave_enabled.setObjectName("sampleStemWaveEnabled")
         self.multislice_enabled = QCheckBox("Multislice propagation")
         self.multislice_enabled.setObjectName("sampleMultisliceEnabled")
         self.atomistic_enabled = QCheckBox("Lobato IAM potential")
@@ -964,6 +1037,10 @@ class SamplePage(QWidget):
             "sampleWaveGridPixels", 0, 8192, step=32
         )
         self.wave_grid.setSpecialValueText("Preset default")
+        self.wave_grid.setToolTip(
+            "Grid at the configured wave FOV. Larger STEM illumination windows "
+            "add pixels to preserve this spacing, within the memory limit."
+        )
         self.wave_scalar_controls = {
             "wave_field_of_view_angstrom": self._double_control(
                 "sampleWaveFieldOfView", 0.0, 1.0e9, suffix=" Å"
@@ -984,6 +1061,10 @@ class SamplePage(QWidget):
         self.wave_scalar_controls[
             "wave_field_of_view_angstrom"
         ].setSpecialValueText("Preset default")
+        self.wave_scalar_controls["wave_field_of_view_angstrom"].setToolTip(
+            "Wave window, not specimen diameter. STEM may enlarge it for the "
+            "scan and defocused probe; vacuum outside the specimen is retained."
+        )
         self.tail_enabled = QCheckBox("Approximate Rutherford high-angle tail")
         self.element_sigma = QLineEdit()
         self.element_sigma.setObjectName("sampleElementThermalRms")
@@ -1006,7 +1087,15 @@ class SamplePage(QWidget):
         self.tail_maximum.setDecimals(6)
         self.tail_maximum.setSuffix(" mrad")
         wave_form.addRow("Calculate", self.tem_wave_enabled)
-        wave_form.addRow("", self.stem_wave_enabled)
+        stem_location = QLabel("STEM imaging: Scanning Image → Scanning Parameters")
+        stem_location.setObjectName("sampleStemImageLocation")
+        stem_location.setWordWrap(True)
+        stem_location.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        stem_location.setToolTip(
+            "Enable STEM detector images in Scanning Image. "
+            "The wave-propagation settings below are shared by TEM and STEM."
+        )
+        wave_form.addRow(stem_location)
         wave_form.addRow(self.multislice_enabled)
         wave_form.addRow(self.atomistic_enabled)
         wave_form.addRow("Grid", self.wave_grid)
@@ -1312,10 +1401,44 @@ class SamplePage(QWidget):
         self.edit_orientation.toggled.connect(self.scene.set_edit_orientation)
         self.scene_status = QLabel()
         self.scene_status.setWordWrap(True)
-        self.scene_status.setStyleSheet("color: #475569;")
+        self.scene_status.setStyleSheet("color: #94a3b8;")
+        self.scene_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         scene_page = QWidget()
         scene_layout = QVBoxLayout(scene_page)
-        scene_layout.addWidget(self.scene_status)
+        scene_header = QHBoxLayout()
+        scene_header.addWidget(self.scene_status, 1)
+        self.fit_full_sample_button = QPushButton("Fit full sample")
+        self.fit_full_sample_button.setObjectName("sampleFitFullSample")
+        self.fit_full_sample_button.clicked.connect(self.scene.fit_full_sample)
+        self.fit_local_region_button = QPushButton("Fit local region")
+        self.fit_local_region_button.setObjectName("sampleFitLocalRegion")
+        self.fit_local_region_button.clicked.connect(self.scene.fit_local_region)
+        scene_header.addWidget(self.fit_full_sample_button)
+        scene_header.addWidget(self.fit_local_region_button)
+        scene_layout.addLayout(scene_header)
+        self.full_sample_label = QLabel()
+        self.local_region_label = QLabel()
+        self.atom_display_label = QLabel()
+        for label, name, colour in (
+            (self.full_sample_label, "sampleFullOutlineLabel", "#38bdf8"),
+            (self.local_region_label, "sampleLocalRegionLabel", "#f472b6"),
+            (self.atom_display_label, "sampleAtomicDetailLabel", "#e5e7eb"),
+        ):
+            label.setObjectName(name)
+            label.setWordWrap(True)
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            label.setStyleSheet(f"color: {colour};")
+            scene_layout.addWidget(label)
+        self.full_sample_label.setToolTip(
+            "The blue wireframe is the full finite sample in laboratory coordinates. "
+            "It is not resized to match the local atom display. Use Fit full sample to see all of it."
+        )
+        self._atom_display_help = (
+            "Spheres show equilibrium CIF atoms inside the local material region. "
+            "If the rendering limit is reached, the amber box marks the displayed subset; "
+            "the pink local-region boundary is unchanged. This is not a frozen-phonon configuration."
+        )
+        self.atom_display_label.setToolTip(self._atom_display_help)
         structure_row = QHBoxLayout()
         structure_row.setContentsMargins(0, 0, 0, 0)
         structure_row.addWidget(self.scene, 1)
@@ -1361,7 +1484,6 @@ class SamplePage(QWidget):
         )
         for control, field in (
             (self.tem_wave_enabled, "wave_enabled"),
-            (self.stem_wave_enabled, "stem_wave_enabled"),
             (self.multislice_enabled, "wave_multislice_enabled"),
             (self.atomistic_enabled, "wave_atomistic_enabled"),
             (self.frozen_enabled, "wave_frozen_phonon_enabled"),
@@ -1511,7 +1633,6 @@ class SamplePage(QWidget):
                 bool(sample.diffraction_enabled)
             )
             self.tem_wave_enabled.setChecked(bool(sample.wave_enabled))
-            self.stem_wave_enabled.setChecked(bool(sample.stem_wave_enabled))
             self.multislice_enabled.setChecked(
                 bool(sample.wave_multislice_enabled)
             )
@@ -1635,7 +1756,6 @@ class SamplePage(QWidget):
         setattr(self._state.sample, name, bool(value))
         if name in {
             "wave_enabled",
-            "stem_wave_enabled",
             "wave_multislice_enabled",
             "wave_atomistic_enabled",
             "wave_frozen_phonon_enabled",
@@ -1731,21 +1851,13 @@ class SamplePage(QWidget):
             else self.cif_path.text().strip()
         )
         tem_available = structure_available and illumination == "TEM"
-        stem_available = structure_available and illumination == "STEM"
         self.tem_wave_enabled.setEnabled(tem_available)
-        self.stem_wave_enabled.setEnabled(stem_available)
         self.tem_wave_enabled.setToolTip(
             "Calculate the local specimen-to-Objective image and exit-wave "
             "diffraction diagnostic."
             if tem_available
             else "TEM wave imaging requires an imported Real CIF or a Virtual "
             "TOML reference, plus Microprobe (TEM) illumination."
-        )
-        self.stem_wave_enabled.setToolTip(
-            "Calculate raster detector images with the STEM wave model."
-            if stem_available
-            else "STEM wave detector imaging requires an imported Real CIF or "
-            "a Virtual TOML reference, plus Nanoprobe (STEM) illumination."
         )
 
         inelastic_enabled = (
@@ -2092,8 +2204,9 @@ class SamplePage(QWidget):
                 draft_quaternion=self._draft_quaternion,
             )
         self.scene_status.setText(
-            "Draft physical orientation changed. Apply commits it; calculations still use the last applied orientation."
+            "Orientation draft | Apply to update the specimen"
         )
+        self.local_region_label.setText("Local orientation preview | Not a calculated atom state")
 
     def _commit_draft_orientation(self):
         if self._state is None:
@@ -2262,35 +2375,59 @@ class SamplePage(QWidget):
         if self._state is None:
             return
         result = calculation_result or self._result
-        stem = getattr(result, "stem_scan", None) if result is not None else None
-        sample = (
-            getattr(result, "state_snapshot", None).sample
-            if result is not None and getattr(result, "state_snapshot", None) is not None
-            else self._state.sample
-        )
-        probe = getattr(stem, "probe_state", None)
+        if not self.isVisible():
+            # Tab switches and hidden live previews retain only the newest
+            # requested source; no CIF reads, atoms, bonds or GL work here.
+            self._pending_calculation_result = result
+            self._refresh_pending = True
+            return
+        self._refresh_pending = False
+        self._pending_calculation_result = None
+        atom_error = None
         try:
-            snapshot = build_sample_geometry_snapshot(
-                sample,
-                scan_x_um=(stem.scan_x_um if stem is not None else None),
-                scan_y_um=(stem.scan_y_um if stem is not None else None),
-                current_probe_nm=(probe.centroid_nm if probe is not None else None),
-                probe_padding_nm=(
-                    float(probe.radius_99_nm)
-                    * float(getattr(sample, "wave_probe_padding_factor", 3.0))
-                    if probe is not None
-                    else 0.0
-                ),
-                load_atoms=True,
+            source = resolve_sample_display_source(self._state, result)
+            sample = source.sample
+            geometry_options = dict(
+                scan_x_um=source.scan_x_um, scan_y_um=source.scan_y_um,
+                current_probe_nm=source.current_probe_nm, probe_padding_nm=source.probe_padding_nm,
+                calculation_roi_bounds_nm_override=source.calculation_roi_bounds_nm_override,
                 maximum_display_atoms=self.structure_atom_limit.value(),
             )
+            try:
+                snapshot = build_sample_geometry_snapshot(sample, load_atoms=True, **geometry_options)
+            except Exception as exc:
+                # Missing/invalid CIF data must not erase valid known material
+                # dimensions. If geometry itself is invalid this also raises.
+                snapshot = build_sample_geometry_snapshot(sample, load_atoms=False, **geometry_options)
+                atom_error = str(exc)
         except Exception as exc:
             self.scene_status.setText(f"Sample geometry unavailable: {exc}")
             self.scene.clear()
+            self.scene._snapshot = None
+            self._snapshot = None
+            for label in (self.full_sample_label, self.local_region_label, self.atom_display_label):
+                label.clear()
+            self.fit_full_sample_button.setEnabled(False)
+            self.fit_local_region_button.setEnabled(False)
             self.element_legend.set_atomic_numbers(())
             return
         self._snapshot = snapshot
-        self.scene.display_snapshot(snapshot, draft_quaternion=self._draft_quaternion)
+        self.scene.display_snapshot(snapshot)
+        self.fit_full_sample_button.setEnabled(True)
+        self.fit_local_region_button.setEnabled(snapshot.local_material_bounds_nm is not None)
+        for label, text in zip(
+            (self.full_sample_label, self.local_region_label, self.atom_display_label),
+            sample_scene_labels(snapshot, completed_region=source.completed_region),
+        ):
+            label.setText(text)
+        self.local_region_label.setToolTip(source.provenance_detail)
+        self.atom_display_label.setStyleSheet(
+            "color: #fbbf24;" if snapshot.atom_display_capped or atom_error else "color: #e5e7eb;"
+        )
+        self.atom_display_label.setToolTip(self._atom_display_help)
+        if atom_error:
+            self.atom_display_label.setText("Spheres unavailable | Geometry retained")
+            self.atom_display_label.setToolTip(f"Atomic preview unavailable: {atom_error}")
         self.element_legend.set_atomic_numbers(snapshot.atomic_numbers)
         backend = (
             f"3-D OpenGL ({self.scene.opengl_detail})"
@@ -2324,21 +2461,29 @@ class SamplePage(QWidget):
             f"{backend}{atom_detail}"
             + (f"\n{warning}" if warning else "")
         )
-        atom_count = (
-            f" | {snapshot.atomic_numbers.size:,} atoms"
-            if snapshot.atomic_numbers.size
-            else ""
-        )
-        warning_count = len(snapshot.warnings)
+        warning_count = len(snapshot.warnings) + int(atom_error is not None)
         self.scene_status.setText(
-            f"{mode} | {'inserted' if snapshot.inserted else 'retracted'}"
-            f"{atom_count}"
+            f"{source.provenance_label} | {'inserted' if snapshot.inserted else 'retracted'}"
             + (f" | {warning_count} warning(s)" if warning_count else "")
         )
-        self.scene_status.setToolTip(detail_text)
+        self.scene_status.setToolTip(
+            source.provenance_detail + "\n" + detail_text
+            + (f"\nAtomic preview unavailable: {atom_error}" if atom_error else "")
+        )
 
     def display_result(self, result, stem_frame=None):
         """Refresh specimen geometry; detector images belong to the STEM page."""
 
         self._result = result
         self.refresh_snapshot(result)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Defer until the splitter/viewport has its restored size, including
+        # first display. Duplicate queued events consume only one refresh.
+        if self._refresh_pending:
+            QTimer.singleShot(0, self._flush_pending_snapshot)
+
+    def _flush_pending_snapshot(self):
+        if self.isVisible() and self._refresh_pending:
+            self.refresh_snapshot(self._pending_calculation_result)

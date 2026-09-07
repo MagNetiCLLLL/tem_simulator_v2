@@ -21,6 +21,8 @@ def test_hardware_defaults_are_bounded(ram_gib):
     assert prefs.high_cache_budget_bytes <= 8 * cache.GIB
     assert prefs.tuning_cache_budget_bytes <= cache.GIB
     assert prefs.ray_display_cache_budget_bytes <= 512 * cache.MIB
+    assert prefs.prepared_specimen_cache_budget_bytes <= 256 * cache.MIB
+    assert prefs.sample_display_cache_budget_bytes <= 128 * cache.MIB
 
 
 def test_unknown_hardware_defaults_and_controller_api():
@@ -158,3 +160,32 @@ def test_dialog_reports_disk_availability_without_scanning(qtbot, settings):
     data["calculation"] = {"disk_enabled": True, "disk_budget_bytes": 16 * cache.GIB}
     dialog.refresh_statistics()
     assert "Disk checkpoints: enabled | 16 GiB retention limit" in dialog.statistics.text()
+
+
+def test_new_cache_budgets_persist_without_changing_physics(settings):
+    prefs = replace(cache.CachePreferences(), prepared_specimen_cache_budget_bytes=2 * cache.GIB,
+                    sample_display_cache_budget_bytes=256 * cache.MIB)
+    cache.save_cache_preferences(settings, prefs, 64 * cache.GIB)
+    assert cache.load_cache_preferences(settings, 64 * cache.GIB) == prefs
+    assert prefs.managed_ram_budget_bytes == (
+        prefs.high_cache_budget_bytes + prefs.tuning_cache_budget_bytes
+        + prefs.ray_display_cache_budget_bytes + 2 * cache.GIB + 256 * cache.MIB)
+    assert "prepared_specimen_cache_budget_bytes" not in prefs.controller_kwargs()
+    assert "sample_display_cache_budget_bytes" not in prefs.controller_kwargs()
+
+
+def test_dialog_displays_independent_specimen_cache_hit_rates(qtbot, monkeypatch, settings):
+    monkeypatch.setattr(gui, "detect_total_memory_bytes", lambda: 64 * cache.GIB)
+    data = {"prepared_specimen": {"used_bytes": cache.MIB, "entries": 1, "hits": 3, "misses": 1},
+            "sample_display": {"used_bytes": 0, "entries": 0, "hits": 0, "misses": 0}}
+    dialog = gui.CacheSettingsDialog(settings, lambda: data)
+    qtbot.addWidget(dialog)
+    dialog.refresh_statistics()
+    assert "Specimen potentials: 1.0 MiB | 1 entries | 3 hits | 75.0% hit rate" in dialog.statistics.text()
+    assert "Sample atom display: 0.0 MiB | 0 entries | 0 hits | not used" in dialog.statistics.text()
+    dialog.prepared_specimen_cache.setValue(512)
+    dialog.sample_display_cache.setValue(192)
+    assert dialog.apply_preferences()
+    prefs = cache.load_cache_preferences(settings, 64 * cache.GIB)
+    assert prefs.prepared_specimen_cache_budget_bytes == 512 * cache.MIB
+    assert prefs.sample_display_cache_budget_bytes == 192 * cache.MIB

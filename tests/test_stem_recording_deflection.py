@@ -209,6 +209,42 @@ def test_sampling_bounds_include_scan_deflection_exactly_once(recording_column):
     assert bound[1] == pytest.approx(max(value[1] for value in individual))
 
 
+@pytest.mark.parametrize("scanning", [False, True])
+def test_resident_cuda_keeps_exact_physical_recording_masks(recording_column, monkeypatch, scanning):
+    from temsim.physics import compute_backend, stem_wave_imaging
+    from temsim.specimen.atomistic import atomistic_capability
+
+    if not compute_backend.cupy_capability().available or not atomistic_capability().available:
+        pytest.skip("CUDA and atomistic backends required")
+    state, descan, _ = recording_column
+    descan.scan_enabled = scanning
+    simulation, scan_x, scan_y = _tiny_wave_inputs(state)
+    state.sample.specimen_preset_key = "si_110"
+    state.sample.thickness_nm = .8
+    state.sample.wave_multislice_enabled = True
+    state.sample.wave_atomistic_enabled = True
+    state.sample.wave_frozen_phonon_enabled = True
+    state.sample.wave_frozen_phonon_configurations = 2
+    plan = build_record_plane_plan(state, scan_times_s=np.array([[.1, .5, .9]]))
+    detectors = (AngularDetector("bf", 0., 5.), AngularDetector("camera", 5., 50.))
+    cpu = simulate_angle_resolved_stem(
+        state, simulation, detectors, scan_x, scan_y, record_plane_plan=plan)
+    state.acceleration_enabled = True
+    state.acceleration_backend = "CUDA GPU"
+    monkeypatch.setattr(stem_wave_imaging, "resident_stem_batch_size", lambda *a, **k: 2)
+    gpu = simulate_angle_resolved_stem(
+        state, simulation, detectors, scan_x, scan_y, record_plane_plan=plan)
+    assert gpu.metrics["wave_compute_backend"] == "CuPy CUDA"
+    assert gpu.metrics["cuda_resident_pipeline"]
+    assert gpu.metrics["cuda_probe_batch_count"] == 2
+    assert gpu.metrics["record_plane_plan_fingerprint"] == plan.fingerprint
+    for key in cpu.fractions:
+        np.testing.assert_allclose(gpu.fractions[key], cpu.fractions[key], rtol=2e-4, atol=2e-7)
+    np.testing.assert_allclose(gpu.uncollected_fraction, cpu.uncollected_fraction, rtol=2e-4, atol=2e-7)
+    assert gpu.metrics["truncated_fraction_available"]
+    np.testing.assert_allclose(gpu.truncated_fraction, cpu.truncated_fraction, rtol=2e-4, atol=2e-7)
+
+
 def test_legacy_pair_and_wobble_events_follow_the_same_recording_path(recording_column):
     state, descan, planes = recording_column
     descan.enabled = False

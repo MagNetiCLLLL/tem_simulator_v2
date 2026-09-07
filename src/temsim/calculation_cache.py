@@ -47,14 +47,20 @@ _POST_SAMPLE_PROJECTION_LENS_KEYS = frozenset({
 })
 _LOADED_INPUT_DIGEST_CACHE: dict[str, tuple[object, str]] = {}
 _WAVE_COORDINATE_SCHEMA = "centred-real-space-v2"
+_WAVE_SPECIMEN_SCHEMA = "finite-atom-roi-independent-wave-grid-v1"
 _STEM_RECORDING_SCHEMA = "timed-record-plane-kicks-v1"
 
 
 def _wave_digest(payload):
     # The old wave solver mixed corner-origin probes and centred specimen
-    # arrays. Invalidate those wave/cube products only; incident, interaction
-    # and EDS checkpoints remain reusable across this numerical correction.
-    return _digest({"wave_coordinate_schema": _WAVE_COORDINATE_SCHEMA, "parameters": payload})
+    # arrays. The specimen schema also versions finite atom ROI and potential
+    # sampling independently of wave extent. Neither correction changes the
+    # incident, particle-interaction or EDS checkpoint calculations.
+    return _digest({
+        "wave_coordinate_schema": _WAVE_COORDINATE_SCHEMA,
+        "wave_specimen_schema": _WAVE_SPECIMEN_SCHEMA,
+        "parameters": payload,
+    })
 
 
 def _stem_digest(payload):
@@ -737,6 +743,9 @@ def _calculation_signatures_from_payload(
         )
     return {
         "request": _digest({
+            # Complete-result lookup precedes individual product checks.
+            "wave_coordinate_schema": _WAVE_COORDINATE_SCHEMA,
+            "wave_specimen_schema": _WAVE_SPECIMEN_SCHEMA,
             "stem_recording_schema": _STEM_RECORDING_SCHEMA,
             "parameters": full,
         }),
@@ -751,7 +760,11 @@ def _calculation_signatures_from_payload(
             fourdstem_physical_recording
         ),
         "eds": _digest(eds),
-        "energy_filter": _digest(energy_filter),
+        "energy_filter": (
+            _wave_digest(energy_filter)
+            if energy_filter_mode == "eftem"
+            else _digest(energy_filter)
+        ),
         "scan_geometry": _digest(scan_geometry),
         "scan_ray_paths": _digest(scan_ray_paths),
         "stem": _stem_digest(stem),

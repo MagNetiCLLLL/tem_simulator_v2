@@ -391,7 +391,11 @@ class InteractiveCalculationPage(QWidget):
 
     def _progress(self, index, count, done, total, stage):
         self.progress.setValue(round(1000 * (index + done / max(total, 1)) / count))
-        self.progress.setFormat(f"%p% | {index + 1}/{count}: {stage}")
+        self.progress.setFormat(f"Point {index + 1}/{count} | {stage}")
+        self.progress.setToolTip(
+            "Points and stages have equal bar space, not equal execution time. "
+            "Any percentage in the label belongs only to the named stage."
+        )
 
     def _bank_ready(self, bank):
         self._live_mode = False

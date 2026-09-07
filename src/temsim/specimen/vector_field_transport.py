@@ -8,6 +8,7 @@ material transport kernel.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 import math
 import numpy as np
 
@@ -20,9 +21,23 @@ from temsim.physics.relativistic_lorentz import (
 
 
 class SpecimenFieldTransport:
-    """One resolved field context per calculation, never per collision."""
+    """One resolved field context per immutable calculation, never per collision.
 
-    def __init__(self, state):
+    Create a new context after any state edit. Its small exact-position cache
+    belongs only to this context; neither fields nor keys survive a calculation.
+    """
+
+    def __init__(self, state, *, field_cache_size: int = 8):
+        if (
+            isinstance(field_cache_size, bool)
+            or not isinstance(field_cache_size, (int, np.integer))
+            or not 0 <= field_cache_size <= 8
+        ):
+            raise ValueError("Specimen field cache size must be an integer from 0 to 8")
+        self._field_cache_size = int(field_cache_size)
+        self._field_cache: OrderedDict[bytes, np.ndarray] = OrderedDict()
+        self._field_cache_hits = 0
+        self._field_cache_misses = 0
         from temsim.physics.core import electron
         self.state = state
         charge, momentum, _ = electron(state)
@@ -54,6 +69,46 @@ class SpecimenFieldTransport:
         self.spatial_step_nm = min(scales, default=1e6)
 
     def field_at_global_positions_t(self, local_positions_m):
+        """Reuse identical scalar queries without rounding or interpolation.
+
+        Boundary searches and Boris flights often query the same position in
+        succession. Cache only three-vectors, keeping storage bounded even if
+        callers request large batches. Zero capacity uses the original path.
+        """
+        if not getattr(self, "_field_cache_size", 0):
+            return self._field_at_global_positions_t_uncached(local_positions_m)
+        position = np.asarray(local_positions_m, dtype=float)
+        if position.shape != (3,) or not np.all(np.isfinite(position)):
+            return self._field_at_global_positions_t_uncached(local_positions_m)
+        # Exact native float64 bytes preserve nextafter differences and signed
+        # zero. Shape is fixed at (3,); a batch never shares a scalar entry.
+        key = position.tobytes()
+        cached = self._field_cache.get(key)
+        if cached is not None:
+            self._field_cache.move_to_end(key)
+            self._field_cache_hits += 1
+            return cached.copy()
+        self._field_cache_misses += 1
+        value = self._field_at_global_positions_t_uncached(local_positions_m)
+        if np.all(np.isfinite(value)):
+            retained = value.copy()
+            retained.setflags(write=False)
+            self._field_cache[key] = retained
+            if len(self._field_cache) > self._field_cache_size:
+                self._field_cache.popitem(last=False)
+        return value
+
+    def field_cache_info(self) -> dict[str, int]:
+        """Return cheap per-calculation scalar-query cache counters."""
+        return {
+            "capacity": self._field_cache_size,
+            "entries": len(self._field_cache),
+            "hits": self._field_cache_hits,
+            "misses": self._field_cache_misses,
+        }
+
+    def _field_at_global_positions_t_uncached(self, local_positions_m):
+        """Original vector-field evaluation, also used as a test reference."""
         positions = np.asarray(local_positions_m, dtype=float) + self.origin_m
         total = np.zeros_like(positions)
         for provider, low, high in self._provider_supports:

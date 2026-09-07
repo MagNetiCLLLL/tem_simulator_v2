@@ -29,6 +29,7 @@ from temsim.specimen.support import (
     available_support_meshes,
 )
 from temsim.specimen.source import specimen_interactions_active
+from temsim.gui.eds_peak_labels import EDSPeakLabels
 
 
 class EDSPage(QWidget):
@@ -263,6 +264,7 @@ class EDSPage(QWidget):
         self.spectrum_plot.setLabel("bottom", "X-ray energy", units="keV")
         self.spectrum_plot.setLabel("left", "Expected counts")
         self.spectrum_plot.showGrid(x=True, y=True, alpha=0.22)
+        self.peak_labels = EDSPeakLabels(self.spectrum_plot, self)
         self.spectrum_hover_readout = QLabel(
             "Hover spectrum: energy and counts"
         )
@@ -271,6 +273,7 @@ class EDSPage(QWidget):
             "and its expected or sampled counts."
         )
         self.spectrum_hover_readout.setObjectName("edsSpectrumHoverReadout")
+        self.peak_labels.annotations_changed.connect(self._clear_spectrum_readout)
         self.spectrum_hover_readout.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
@@ -284,6 +287,7 @@ class EDSPage(QWidget):
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
         spectrum_layout.addWidget(self.eds_summary)
+        spectrum_layout.addWidget(self.peak_labels)
         spectrum_layout.addWidget(self.spectrum_hover_readout)
         spectrum_layout.addWidget(self.spectrum_plot, 1)
 
@@ -939,8 +943,16 @@ class EDSPage(QWidget):
             "Hover spectrum: energy and counts"
         )
         self.spectrum_plot.enableAutoRange()
+        self.peak_labels.set_spectrum(spectrum)
+
+    def _clear_spectrum_readout(self) -> None:
+        """Do not retain an old element identity after changing label scope."""
+        if self._spectrum_cursor is not None:
+            self._spectrum_cursor.setVisible(False)
+        self.spectrum_hover_readout.setText("Hover spectrum: energy and counts")
 
     def _reset_spectrum_hover(self) -> None:
+        self.peak_labels.clear()
         self._spectrum_energy_kev = np.empty(0, dtype=float)
         self._spectrum_counts = np.empty(0, dtype=float)
         self._spectrum_count_label = "Counts"
@@ -988,6 +1000,7 @@ class EDSPage(QWidget):
         self.spectrum_hover_readout.setText(
             f"Energy {energy_kev:.6g} keV | "
             f"{self._spectrum_count_label} {counts:.6g}"
+            + (f" | {matches}" if (matches := self.peak_labels.nearby_text(energy_kev)) else "")
         )
         if self._spectrum_cursor is not None:
             self._spectrum_cursor.setPos(energy_kev)

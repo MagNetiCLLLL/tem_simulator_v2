@@ -22,6 +22,7 @@ from temsim.calculation_manifest import (
 )
 from temsim.optics.column import default_state
 from temsim.gui.calculation_controller import CalculationController
+from temsim.immutable_json import canonical_json_bytes, json_digest
 from temsim.physics.core import PropagationCheckpoints
 from temsim.physics.simulation import run as run_ray_simulation
 
@@ -88,6 +89,36 @@ def test_manifest_is_repeatable_and_timestamp_is_not_scientific_identity():
     assert first.external_inputs
     with pytest.raises(TypeError):
         first.state_payload["beam_voltage_kv"] = 80.0
+
+
+def test_manifest_export_is_detached_json_without_changing_cache_identity():
+    state, selection = _assembled_state()
+    manifest = _manifest(state, selection)
+    original_identity = canonical_json_bytes(manifest.identity_payload)
+    original_digest = manifest.digest
+    original_signatures = dict(manifest.calculation_signatures)
+    assert manifest.external_inputs
+
+    document = manifest.to_dict()
+    decoded = json.loads(json.dumps(document, allow_nan=False))
+    assert decoded == document
+    assert decoded["external_inputs"][0]["sha256"] == manifest.external_inputs[0].sha256
+    assert decoded["solver"]["package_version"] == manifest.solver.package_version
+    exported_identity = {
+        key: value for key, value in decoded.items()
+        if key not in {"created_at_utc", "solver", "digest"}
+    }
+    assert json_digest(exported_identity) == original_digest
+
+    # Exported records may be edited or written without owning any live or
+    # immutable manifest data, including nested external-input dataclasses.
+    document["external_inputs"][0]["sha256"] = "changed"
+    document["state_payload"]["beam_voltage_kv"] = 80.0
+    document["solver"]["package_version"] = "changed"
+    document["calculation_signatures"]["incident"] = "changed"
+    assert canonical_json_bytes(manifest.identity_payload) == original_identity
+    assert manifest.digest == original_digest
+    assert dict(manifest.calculation_signatures) == original_signatures
 
 
 def test_geometry_fingerprint_ignores_percent_but_tracks_position_and_poles():
