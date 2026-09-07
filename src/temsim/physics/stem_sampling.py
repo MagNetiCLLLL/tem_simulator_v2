@@ -15,19 +15,24 @@ def detector_angular_bounds(detectors, *, positions_m, record_plane_plan=None,
                             detector_center_shifts_mrad=None):
     """Return conservative radial acceptance bounds over all scan positions."""
     planes = {} if record_plane_plan is None else {
-        plane.key: (plane, transfer)
-        for plane, transfer in zip(record_plane_plan.planes, record_plane_plan.transfers)
+        plane.key: (index, plane, transfer)
+        for index, (plane, transfer) in enumerate(zip(record_plane_plan.planes, record_plane_plan.transfers))
         if plane.kind == "detector"
     }
     bounds = {}
     for detector in detectors:
         key = detector.key
         if key in planes:
-            plane, transfer = planes[key]
+            index, plane, transfer = planes[key]
             matrix = np.asarray(transfer.j_diff_m_per_rad, dtype=float)
             centre_m = np.array((plane.offset_x_mm, plane.offset_y_mm)) * 1e-3
             displaced = (centre_m - np.asarray(transfer.position_offset_m)
                          - np.asarray(positions_m) @ np.asarray(transfer.j_img).T)
+            if getattr(record_plane_plan, "scan_position_offsets_m", ()):
+                offsets = record_plane_plan.scan_position_offsets_m[index].reshape(-1, 2)
+                if offsets.shape != displaced.shape:
+                    raise ValueError("Record-plane sampling offsets must match the scan positions")
+                displaced = displaced - offsets
             geometry = plane.geometry
             inner_m = plane.inner_diameter_mm * 0.5e-3 if geometry == "annulus" else 0.0
             outer_m = plane.outer_width_mm * 0.5e-3

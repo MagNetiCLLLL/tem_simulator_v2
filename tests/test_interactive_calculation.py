@@ -321,6 +321,8 @@ def test_production_stem_captures_ram_cube_and_reintegrates_without_multislice(m
     s.ac_deflector.scan_enabled = True
     s.ac_deflector.scan_pixels_x = 2
     s.ac_deflector.scan_lines = 2
+    s.descan_deflector.enabled = True
+    s.descan_deflector.scan_enabled = True
     s.sample.specimen_mode = "virtual"
     s.sample.specimen_preset_key = "si_110"
     s.sample.stem_wave_enabled = True
@@ -351,7 +353,22 @@ def test_production_stem_captures_ram_cube_and_reintegrates_without_multislice(m
     assert frame.fourdstem_artifact is not None
     assert frame.fourdstem_artifact.path is None
     assert not s.sample.stem_fourdstem_enabled
-    replay = recollect_stem(bank.points[0].result.state_snapshot, frame)
+    from temsim.interactive_calculation import detached_state
+    replay_state = detached_state(bank.points[0].result.state_snapshot)
+    original_settings = replay_state.to_dict()
+    original_scan_matrices = tuple(
+        np.asarray(matrix).copy()
+        for component in (replay_state.ac_deflector, replay_state.descan_deflector)
+        for matrix in (component.scan_command_matrix_mrad, *component.coil_kick_matrices())
+    )
+    replay = recollect_stem(replay_state, frame)
+    assert replay_state.to_dict() == original_settings
+    for before, after in zip(original_scan_matrices, (
+        matrix
+        for component in (replay_state.ac_deflector, replay_state.descan_deflector)
+        for matrix in (component.scan_command_matrix_mrad, *component.coil_kick_matrices())
+    )):
+        np.testing.assert_array_equal(after, before)
     for key, values in frame.fractions.items():
         np.testing.assert_allclose(replay.fractions[key], values, rtol=5e-6, atol=1e-8)
     monkeypatch.setattr(wave, "simulate_angle_resolved_stem", lambda *a, **k: pytest.fail("Repeated multislice"))

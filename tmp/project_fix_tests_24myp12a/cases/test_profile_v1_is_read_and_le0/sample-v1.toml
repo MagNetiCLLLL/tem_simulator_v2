@@ -1,0 +1,9 @@
+format_version = 1
+[assembly]
+gun = "FEG"
+column = "C3 + Probe Corrector"
+recording = "Energy Filter"
+[devices.sample]
+specimen_mode = "virtual"
+virtual_diffraction_relative_weight = 0.5
+virtual_scattering_relative_weight = 0.25

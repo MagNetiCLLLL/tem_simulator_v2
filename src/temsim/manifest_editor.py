@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
+from numbers import Real
 from pathlib import Path
 from types import SimpleNamespace
 import tomllib
@@ -17,6 +19,7 @@ class ManifestField:
     label: str
     value: object
     editable: bool = True
+    meaning: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,12 +64,71 @@ def parse_toml_value(text: str) -> object:
         raise ValueError(f"Invalid TOML value: {text}") from exc
 
 
+def _validated_part_length(length):
+    if isinstance(length, bool) or not isinstance(length, Real):
+        raise ValueError("Part length_mm must be a finite non-negative number")
+    try:
+        length = float(length)
+    except OverflowError as exc:
+        raise ValueError("Part length_mm must be a finite non-negative number") from exc
+    if not math.isfinite(length) or length < 0.0:
+        raise ValueError("Part length_mm must be a finite non-negative number")
+    return length
+
+
+def resized_part_axial_coordinates(part, length, *, center_z_mm=None):
+    """Resize one envelope about its fixed centre, preserving any asymmetry."""
+
+    length = _validated_part_length(length)
+    start = float(part["local_start_z_mm"])
+    center = float(part["local_center_z_mm"])
+    end = float(part["local_end_z_mm"])
+    if not all(math.isfinite(value) for value in (start, center, end)) or not start <= center <= end:
+        raise ValueError("Part axial coordinates must be finite with start <= center <= end")
+    fraction = (center - start) / (end - start) if end > start else 0.5
+    pivot = center if center_z_mm is None else float(center_z_mm)
+    resized = {
+        "local_start_z_mm": pivot - fraction * length,
+        "local_end_z_mm": pivot + (1.0 - fraction) * length,
+    }
+    if not all(math.isfinite(value) for value in resized.values()):
+        raise ValueError("Resized part axial coordinates must be finite")
+    return resized
+
+
+def _complete_part_length_updates(document, updates):
+    """Supply redundant endpoints for a length edit; explicit endpoints win."""
+
+    completed = dict(updates)
+    parts = {str(part["key"]): part for part in document.get("parts", ())}
+    for path, length in updates.items():
+        if len(path) != 3 or path[0] != "parts" or path[2] != "length_mm":
+            continue
+        # Explicit endpoints suppress inference, never value validation. A
+        # quoted number/bool must not slip through after an earlier valid edit.
+        _validated_part_length(length)
+        prefix = path[:2]
+        if any(prefix + (field,) in updates for field in ("local_start_z_mm", "local_end_z_mm")):
+            continue
+        if path[1] not in parts:
+            raise ValueError(f"Missing TOML part {path[1]!r}")
+        endpoints = resized_part_axial_coordinates(
+            parts[path[1]], length,
+            center_z_mm=updates.get(prefix + ("local_center_z_mm",)),
+        )
+        completed.update({prefix + (field,): value for field, value in endpoints.items()})
+    return completed
+
+
 class ManifestEditor:
     def __init__(self, root: Path = module_manifest.MODULE_ROOT) -> None:
         self.root = Path(root).resolve()
 
     def fields(self, target: ManifestTarget) -> tuple[ManifestField, ...]:
+        from temsim.parameter_semantics import describe_parameter
+
         document = module_manifest.read_document(self.root / target.module_path)
+        by_key = {str(part["key"]): part for part in document.get("parts", ())}
         if target.part_key is not None:
             part = next(
                 part
@@ -79,6 +141,7 @@ class ManifestEditor:
                     label=str(field),
                     value=value,
                     editable=str(field) not in STRUCTURAL_READ_ONLY_FIELDS,
+                    meaning=describe_parameter(part, ("parts", target.part_key, str(field)), by_key=by_key),
                 )
                 for field, value in part.items()
             )
@@ -91,6 +154,7 @@ class ManifestEditor:
                     label=f"{section_name}.{field}",
                     value=value,
                     editable=str(field) not in STRUCTURAL_READ_ONLY_FIELDS,
+                    meaning=describe_parameter(document, (section_name, str(field)), by_key=by_key),
                 ))
         for port_name, port in document.get("ports", {}).items():
             for field, value in port.items():
@@ -99,12 +163,15 @@ class ManifestEditor:
                     label=f"ports.{port_name}.{field}",
                     value=value,
                     editable=str(field) != "interface",
+                    meaning=describe_parameter(document, ("ports", str(port_name), str(field)), by_key=by_key),
                 ))
         return tuple(fields)
 
     def save(self, target: ManifestTarget, updates: dict[tuple[str, ...], object], configuration):
         if not updates:
             return
+        document = module_manifest.read_document(self.root / target.module_path)
+        updates = _complete_part_length_updates(document, updates)
         originals = module_manifest.update_manifest_values(
             {target.module_path: updates}, root=self.root
         )

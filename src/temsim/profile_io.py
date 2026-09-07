@@ -6,7 +6,10 @@ import os
 from pathlib import Path
 import tempfile
 import tomllib
-from copy import deepcopy
+from copy import copy, deepcopy
+from functools import lru_cache
+from types import UnionType
+from typing import Union, get_args, get_origin, get_type_hints
 
 import tomli_w
 
@@ -24,10 +27,22 @@ from temsim.specimen.geometry import (
 from temsim.specimen.source import migrate_legacy_structure_source
 
 
-PROFILE_FORMAT_VERSION = 3
+PROFILE_FORMAT_VERSION = 4
 _SAMPLE_MODEL_KEY = "__sample_model__"
 _SIMULATION_MODEL_KEY = "__simulation_model__"
 _PROFILE_VERSION_KEY = "__profile_format_version__"
+
+
+@lru_cache(maxsize=None)
+def _nullable_fields(component_type: type) -> frozenset[str]:
+    """Use declared optional fields, independently of their current values."""
+
+    return frozenset(
+        name
+        for name, annotation in get_type_hints(component_type).items()
+        if get_origin(annotation) in (Union, UnionType)
+        and type(None) in get_args(annotation)
+    )
 
 
 def _atomic_write_profile(path: Path, document: dict) -> None:
@@ -53,12 +68,16 @@ def _atomic_write_profile(path: Path, document: dict) -> None:
 def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
     from temsim.simulation_modes import capture_mode_settings, mode_key
     devices = {}
+    none_values = {}
     for key, target in runtime_targets(state).items():
-        values = {
-            parameter.name: parameter.value
-            for parameter in editable_parameters(target)
-            if parameter.value is not None
-        }
+        values = {}
+        for parameter in editable_parameters(target):
+            if parameter.value is None:
+                if parameter.name not in _nullable_fields(type(target.obj)):
+                    raise ValueError(f"{key}.{parameter.name} cannot be none")
+                none_values.setdefault(key, []).append(parameter.name)
+            else:
+                values[parameter.name] = parameter.value
         if values:
             devices[key] = values
     document = {
@@ -70,6 +89,9 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
             "beam_blanker": selection.beam_blanker,
         },
         "devices": devices,
+        # TOML has no null literal. Keep absence (legacy/default behaviour)
+        # distinct from explicitly clearing an optional runtime coefficient.
+        "none_values": none_values,
         "simulation_model": {
             "mode": mode_key(state),
             "profiles": deepcopy(state.simulation_mode_profiles),
@@ -101,7 +123,7 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
     if not isinstance(document, dict):
         raise ValueError("Operating profile must be a TOML table")
     format_version = int(document.get("format_version", 0))
-    if format_version not in {1, 2, PROFILE_FORMAT_VERSION}:
+    if format_version not in {1, 2, 3, PROFILE_FORMAT_VERSION}:
         raise ValueError("Unsupported operating-profile format")
     assembly = document.get("assembly")
     if not isinstance(assembly, dict):
@@ -116,6 +138,24 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
     if not isinstance(devices, dict):
         raise ValueError("Operating profile devices must be a table")
     values = dict(devices)
+    none_values = document.get("none_values", {})
+    if not isinstance(none_values, dict):
+        raise ValueError("Operating profile none_values must be a table")
+    if none_values and format_version < 4:
+        raise ValueError("Operating profile none_values requires format version 4")
+    for key, names in none_values.items():
+        if not isinstance(names, list) or not all(
+            isinstance(name, str) for name in names
+        ):
+            raise ValueError(f"Operating profile none_values.{key} must be an array of names")
+        if len(set(names)) != len(names):
+            raise ValueError(f"Operating profile none_values.{key} contains duplicate names")
+        attributes = values.get(key, {})
+        if not isinstance(attributes, dict):
+            raise ValueError(f"Operating profile device {key} must be a table")
+        if set(names) & attributes.keys():
+            raise ValueError(f"Operating profile device {key} has conflicting none values")
+        values[key] = {**attributes, **dict.fromkeys(names)}
     values[_PROFILE_VERSION_KEY] = format_version
     model = document.get("simulation_model", {"mode": "custom"})
     if not isinstance(model, dict):
@@ -129,10 +169,9 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
     return selection, values
 
 
-def _apply_sample_model(state, model: dict) -> None:
+def _apply_sample_model(sample, model: dict) -> None:
     if not isinstance(model, dict):
         raise ValueError("Operating profile sample_model must be a table")
-    sample = state.sample
     quaternion = normalise_quaternion_wxyz(
         model.get(
             "orientation_quaternion_wxyz",
@@ -201,12 +240,21 @@ def apply_profile_values(state, values: dict) -> list[str]:
     for key, attributes in values.items():
         target = targets.get(key)
         if target is None:
+            if isinstance(attributes, dict) and any(
+                value is None for value in attributes.values()
+            ):
+                raise ValueError(f"Unknown operating-profile device for none values: {key}")
             skipped.append(key)
             continue
         if not isinstance(attributes, dict):
             raise ValueError(f"Operating profile device {key} must be a table")
         allowed = {parameter.name for parameter in editable_parameters(target)}
         for name, value in attributes.items():
+            if value is None:
+                if name not in allowed or name not in _nullable_fields(type(target.obj)):
+                    raise ValueError(f"{key}.{name} cannot be none")
+                pending.append((target.obj, name, None))
+                continue
             if key == "sample" and name == "atomic_structure_source":
                 legacy_sample_source = str(value).strip().lower()
                 if legacy_sample_source not in {"preset", "cif"}:
@@ -232,33 +280,41 @@ def apply_profile_values(state, values: dict) -> list[str]:
                 continue
             converted = validate_runtime_assignment(target, name, value)
             pending.append((target.obj, name, converted))
+    # Validate sample tables and legacy migration on a separate sample before
+    # committing any device changes, including optional coefficient resets.
+    candidate_sample = copy(state.sample)
     for obj, name, value in pending:
-        setattr(obj, name, value)
+        if obj is state.sample:
+            setattr(candidate_sample, name, value)
     if legacy_sample_source:
         migrated = migrate_legacy_structure_source(
             {
-                "specimen_mode": state.sample.specimen_mode,
-                "cif_path": state.sample.cif_path,
+                "specimen_mode": candidate_sample.specimen_mode,
+                "cif_path": candidate_sample.cif_path,
             },
             legacy_source=legacy_sample_source,
         )
-        state.sample.specimen_mode = migrated["specimen_mode"]
+        candidate_sample.specimen_mode = migrated["specimen_mode"]
     elif not sample_mode_was_explicit:
-        if sample_cif_was_explicit and str(state.sample.cif_path).strip():
-            state.sample.specimen_mode = "atomic"
+        if sample_cif_was_explicit and str(candidate_sample.cif_path).strip():
+            candidate_sample.specimen_mode = "atomic"
         elif sample_preset_was_explicit:
-            state.sample.specimen_mode = "virtual"
+            candidate_sample.specimen_mode = "virtual"
     if sample_model is not None:
-        _apply_sample_model(state, sample_model)
+        _apply_sample_model(candidate_sample, sample_model)
     elif format_version == 1:
         # V1 stored only the two legacy relative sliders.  Convert them once
         # to absolute-probability rows while retaining the scalar compatibility
         # fields for older scripts.
         from temsim.specimen.virtual import legacy_virtual_interaction_rows
 
-        state.sample.virtual_interactions = legacy_virtual_interaction_rows(
-            state.sample
+        candidate_sample.virtual_interactions = legacy_virtual_interaction_rows(
+            candidate_sample
         )
+    for obj, name, value in pending:
+        if obj is not state.sample:
+            setattr(obj, name, value)
+    vars(state.sample).update(vars(candidate_sample))
     state.simulation_mode = selected_mode
     state.simulation_mode_profiles = model_profiles
     for name in MODEL_SETTINGS:

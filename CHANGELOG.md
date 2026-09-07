@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+- Unified parameter meanings and declared evidence across the 2D, 3D and TOML
+  inspectors. Added a searchable/exportable catalog dimension audit without
+  changing configured values. The 3D Use column reports active-mode parameter
+  routes, missing field setup and excluded CAD geometry; calculation status
+  distinguishes unsaved drafts, stale results, running work and accepted results.
+- Fixed perforated-strip aperture previews that rendered a thick mechanism
+  envelope as the plate. The 3D view now uses configured plate thickness and
+  active working openings, labels carrier/envelope dimensions separately, and
+  keeps undimensioned strip outlines explicitly schematic. Plate/edge selection
+  highlights the relevant thickness and opening parameters.
+- Synchronized the 3D module selector, source filename and current component.
+  Added parametric asymmetric bases/transforms, real Boolean holes and rounded
+  slots, editable feature lists, TOML round-trips, and face/edge selection with
+  multiple linked parameter highlights. CAD features remain separate from the
+  existing axisymmetric/optical solver parameters.
+- Physical Layout 2D double-clicks now locate the corresponding component in
+  the 3D editor. Component highlights and the selected Ray Diagram position
+  persist across manual tab changes, without an automatic Ray Diagram jump.
+- Added Physical Layout subtabs for the existing 2D section and a file-backed
+  3D model editor. Existing TOML dimensions, bores and arrays can be edited with
+  freely rotatable, selectable meshes, axial views and section clipping.
+  Component/parent/module parameters, cross-component drafts, undo/redo,
+  transactional saves and independent TOML copies are available in the page.
+- Added per-component and existing split-region material snapshots. Linear/B-H
+  geometry fields consume explicit assignments; other parts retain material
+  definitions with their simulation scope disclosed. Existing material roles,
+  optical strengths and source-file authority are preserved.
+- Added Edit dimensions… for simple coils, lens housings and magnetic yokes
+  selected in Physical Layout or the Mechanical tree. Its separate, equal-scale
+  2D section supports numeric length/ID/OD/thickness edits, six drag handles,
+  fixed centres with variable gaps, and an explicit choice of which diameter
+  thickness edits retain. Undo/Redo/Revert manage the preview; Apply validates
+  and saves the complete assembly, then reloads geometry without resetting
+  runtime lens strengths. Invalid assemblies are reported inline.
+- Added physical radial-clearance checks for simple concentric mechanical
+  layers and clearer vacuum-ID mismatch guidance. The graphical editor shows
+  the beam passage and material class read-only, keeping them distinct from
+  material thickness. Its neutral annular-cylinder model supports future 3D
+  development; shaped profiles and shared/segmented structures remain outside
+  this editor's scope.
+- Part TOML length edits now update the displayed/saved axial endpoints while
+  retaining the centre and existing asymmetry. Custom projector housings may
+  have different clearances around their fixed optical centres; the default
+  5 mm design gap remains nominal, and overlapping housings are rejected.
+- Fixed wave-STEM collection with per-probe recording masks and restored static
+  and time-dependent downstream Descan kicks at each aperture/detector plane.
+  New 4D-STEM cubes retain scan times for consistent detector replay; STEM cache
+  identities now invalidate products produced before this correction.
+- Operating profiles now preserve automatic Cs/Cc estimation through explicit
+  nullable-field markers in format 4. Formats 1-3 remain readable, and invalid
+  sample/profile values are checked before applying device edits.
+- Oversized artifact writes now check their minimum retained size before
+  publishing a reference or evicting valid cache entries, preserving previous
+  results when the incoming artifact cannot fit the configured quota.
 - Added a layered aberration model. Every round magnetic lens now resolves an
   intrinsic Cs/Cc profile with explicit provisional/configured provenance;
   missing values no longer appear as zero. Probe/specimen and Objective/image

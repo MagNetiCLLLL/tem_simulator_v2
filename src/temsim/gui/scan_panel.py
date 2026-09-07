@@ -1188,7 +1188,9 @@ class ScanControlView(QWidget):
             if self._state is None:
                 raise ValueError("No microscope state is loaded.")
             artifact = self._current_fourdstem_artifact()
-            plan = build_record_plane_plan(self._state)
+            plan = build_record_plane_plan(
+                self._state, scan_times_s=artifact.calibration.scan_times_s, recalibrate_scan=True,
+            )
             result = integrate_runtime_recording_planes(
                 artifact,
                 None,

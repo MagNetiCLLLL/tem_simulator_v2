@@ -58,7 +58,8 @@ def _joint_map(geometry_json, settings_json):
 
 def resolve_nonlinear_provider(state, key, native, binding, *, prepare_only=False):
     from temsim.component_keys import CONDENSER_LENS_KEYS
-    from temsim.magnetic_circuits import MAGNETIC_BODIES, circuit_channels
+    from temsim.magnetic_circuits import circuit_channels
+    from temsim.part_materials import is_magnetostatic_body
     from temsim.physics.lens_field_provider import (
         lens_geometry_binding, _runtime_excitation, MappedLensFieldProvider, FieldMapError, _part_geometry_data, _fingerprint,
     )
@@ -82,7 +83,7 @@ def resolve_nonlinear_provider(state, key, native, binding, *, prepare_only=Fals
     owner = active[0] if active else keys[0]
     bindings = [lens_geometry_binding(state, k, source) for k, source in zip(keys, sources)]
     physical_token = tuple((p.key, p.start_z_mm, p.end_z_mm, json.dumps(_part_geometry_data(p), sort_keys=True))
-                           for p in by_key.values() if p.data.get("mechanical_profile") in MAGNETIC_BODIES | {"magnetic_excitation_coil", "magnetic_lens_assembly"})
+                           for p in by_key.values() if is_magnetostatic_body(p.data) or p.data.get("mechanical_profile") in {"magnetic_excitation_coil", "magnetic_lens_assembly"})
     token = (keys, point, guard_point, physical_token, tuple(b.geometry_fingerprint for b in bindings),
              json.dumps({k: recipes[k] for k in keys}, sort_keys=True, allow_nan=False))
     cache = getattr(state, "_runtime_nonlinear_provider_cache", None)
@@ -98,7 +99,7 @@ def resolve_nonlinear_provider(state, key, native, binding, *, prepare_only=Fals
         assembly = json.loads(item.canonical_geometry_json)["lens_assembly"]
         parts.update({p["key"]: p for p in assembly["parts"]})
         neighbours.update({p["key"]: p for p in assembly.get("magnetostatic_neighbours", ())})
-    used = [p for p in parts.values() if p["data"].get("mechanical_profile") in MAGNETIC_BODIES | {"magnetic_excitation_coil"}]
+    used = [p for p in parts.values() if is_magnetostatic_body(p["data"]) or p["data"].get("mechanical_profile") == "magnetic_excitation_coil"]
     if not used:
         raise FieldMapError("Nonlinear magnetic system has no field geometry")
     low, high = min(p["start_z_mm"] for p in used), max(p["end_z_mm"] for p in used)
@@ -116,7 +117,7 @@ def resolve_nonlinear_provider(state, key, native, binding, *, prepare_only=Fals
     # local domains. Their canonical data and split intervals come from bindings.
     from temsim.magnetic_geometry import objective_layer_intervals_mm
     for part in by_key.values():
-        if part.key not in parts and part.data.get("mechanical_profile") in MAGNETIC_BODIES and part.start_z_mm < centre+half and part.end_z_mm > centre-half:
+        if part.key not in parts and is_magnetostatic_body(part.data) and part.start_z_mm < centre+half and part.end_z_mm > centre-half:
             data = _part_geometry_data(part)
             parent = by_key.get(part.parent_key)
             if parent is not None:

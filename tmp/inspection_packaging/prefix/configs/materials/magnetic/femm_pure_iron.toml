@@ -1,0 +1,14 @@
+key = "femm_pure_iron"
+label = "Pure iron - FEMM reference"
+model = "isotropic_single_valued_bh"
+source_url = "https://raw.githubusercontent.com/cenit/FEMM/7d9e8ed90772ddb939a3256f976e231bcb5cca97/bin/matlib.dat"
+source_sha256 = "ba0ca80ffae56440a9ad785c9089b0e7f63b45e1c7a73dd5c0bdc338beeb63b7"
+reference_url = "https://www.femm.info/doku/doku.php?id=softmagneticmaterials"
+retrieved = "2026-09-05"
+source_block = "Pure Iron"
+scope = "Reference B-H data from the pinned FEMM material library mirror; not a Titan material assignment or a measured batch. No hysteresis, remanence, temperature dependence or loss model."
+interpolation = "piecewise_linear_h_of_b"
+extrapolation = "reject_final_solution"
+# Original B (tesla), H (A/m) pairs. No fitting or amplitude rescaling.
+b_t = [0.0, 0.227065, 0.454130, 0.681195, 0.908260, 1.13533, 1.36239, 1.58935, 1.81236, 2.01004, 2.13316, 2.19999, 2.25479, 2.29993, 2.34251, 2.37876, 2.41501, 2.45126, 2.48750, 2.52375, 2.56000]
+h_a_per_m = [0.0, 13.8984, 27.7967, 42.3974, 61.4157, 82.3824, 144.669, 897.760, 4581.74, 17736.2, 41339.3, 68321.8, 95685.5, 123355.0, 151083.0, 178954.0, 206825.0, 234696.0, 262568.0, 290439.0, 318310.0]

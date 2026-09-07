@@ -1,0 +1,599 @@
+{
+  "axis_order": [
+    "scan_y",
+    "scan_x",
+    "detector_y",
+    "detector_x"
+  ],
+  "calibration_sha256": "ca3030440282c1caba83e798f13a3948ad34163f2c7b4a77dea6b195674d7bb2",
+  "completed_frames": 4,
+  "detector_coordinate": "signed_scattering_angle",
+  "detector_coordinate_unit": "mrad",
+  "detector_response": {
+    "charge_spread_sigma_px_xy": [
+      0.0,
+      0.0
+    ],
+    "dark_electrons_per_pixel": 0.0,
+    "gain_counts_per_electron": 1.0,
+    "model": "qe_charge_spread_dark_poisson_read_noise_saturation_gain_v1",
+    "offset_counts": 0.0,
+    "poisson_enabled": false,
+    "quantum_efficiency": 1.0,
+    "read_noise_electrons_rms": 0.0,
+    "saturation_electrons": null,
+    "seed": null,
+    "status": "transport_neutral_raw_diffraction_probability",
+    "transport_neutral": true
+  },
+  "dtype": "<f4",
+  "format": "temsim_4dstem_npy",
+  "format_version": 1,
+  "provenance": {
+    "cube_dependency_signature": "b7cfbddea94b37818c2266b5f75c01ca9aee1f93b6ec784119462b1751ecc0d9",
+    "dose_and_detector_response": "deferred_to_derived_products",
+    "fourdstem_cube_state_signature": "c49672b32f19db442625af6ac06064ad7f7f06fcb24efe3d61696b0cbf04ebb4",
+    "fourdstem_physical_recording_state_signature_at_capture": "e47ae11d6723c351ea69f632e3fb49d44b04b83715d05f1e221c84a35d2a9801",
+    "fourdstem_virtual_detector_state_signature_at_capture": "efed996dc7aceb5ec56fb3540455b1a74c28cfa33a86b985a54ed72dc1b70e5f",
+    "input_frame_quantity": "configuration-averaged diffraction probability",
+    "invalid_reciprocal_pixels": "zeroed_without_renormalisation",
+    "maximum_isotropic_angle_mrad": 0.00019928603810327237,
+    "record_plane_plan": {
+      "axis": "laboratory +Z downstream",
+      "fingerprint": "bdc7ac79444d50f532611fe51df81a57d7d71b79373ea8e68f87c52dd8d28475",
+      "model": "signed_mixed_plane_first_order_scan_deflection_v2",
+      "planes": [
+        {
+          "authority": "project_and_recording_system/EnergyFilter.toml::parts[projection_chamber_dpa_aperture]",
+          "geometry": "disk",
+          "inner_diameter_mm": 0.0,
+          "key": "projection_chamber_dpa_aperture",
+          "kind": "aperture",
+          "name": "Projection-Chamber Differential-Pumping Aperture",
+          "non_blocking": false,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "outer_width_mm": 0.0,
+          "radius_mm": 0.1,
+          "readout_enabled": false,
+          "z_mm": 2586.9
+        },
+        {
+          "authority": "project_and_recording_system/EnergyFilter.toml::parts[haadf]",
+          "geometry": "annulus",
+          "inner_diameter_mm": 4.0,
+          "key": "haadf",
+          "kind": "detector",
+          "name": "HAADF Detector",
+          "non_blocking": false,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "outer_width_mm": 22.0,
+          "radius_mm": 0.0,
+          "readout_enabled": true,
+          "z_mm": 2594.15
+        },
+        {
+          "authority": "project_and_recording_system/EnergyFilter.toml::parts[flu_screen]",
+          "geometry": "disk",
+          "inner_diameter_mm": 0.0,
+          "key": "flu_screen",
+          "kind": "detector",
+          "name": "Fluorescent Screen",
+          "non_blocking": false,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "outer_width_mm": 80.0,
+          "radius_mm": 0.0,
+          "readout_enabled": true,
+          "z_mm": 2714.15
+        },
+        {
+          "authority": "project_and_recording_system/EnergyFilter.toml::parts[df]",
+          "geometry": "annulus",
+          "inner_diameter_mm": 2.0,
+          "key": "df",
+          "kind": "detector",
+          "name": "DF Detector",
+          "non_blocking": false,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "outer_width_mm": 14.0,
+          "radius_mm": 0.0,
+          "readout_enabled": true,
+          "z_mm": 2804.15
+        },
+        {
+          "authority": "project_and_recording_system/EnergyFilter.toml::parts[bf]",
+          "geometry": "disk",
+          "inner_diameter_mm": 0.0,
+          "key": "bf",
+          "kind": "detector",
+          "name": "BF Detector",
+          "non_blocking": false,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "outer_width_mm": 1.5,
+          "radius_mm": 0.0,
+          "readout_enabled": true,
+          "z_mm": 2874.15
+        },
+        {
+          "authority": "project_and_recording_system/EnergyFilter.toml::parts[camera]",
+          "geometry": "square",
+          "inner_diameter_mm": 0.0,
+          "key": "camera",
+          "kind": "detector",
+          "name": "Camera",
+          "non_blocking": false,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "outer_width_mm": 57.344,
+          "radius_mm": 0.0,
+          "readout_enabled": true,
+          "z_mm": 2986.6499999999996
+        },
+        {
+          "authority": "project_and_recording_system/EnergyFilter.toml::parts[energy_filter_entrance_aperture]",
+          "geometry": "disk",
+          "inner_diameter_mm": 0.0,
+          "key": "energy_filter_entrance_aperture",
+          "kind": "aperture",
+          "name": "Iliad Spectrometer Entrance Aperture",
+          "non_blocking": false,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "outer_width_mm": 0.0,
+          "radius_mm": 2.5,
+          "readout_enabled": false,
+          "z_mm": 3025.9
+        }
+      ],
+      "resolved_geometry_fingerprint": "6391e5830640980563081705402b1da10b036cac8b53944b132ee34adce1c0f1",
+      "scan_position_offsets_m": [],
+      "scan_times_s": [
+        [
+          0.00125,
+          0.00375
+        ],
+        [
+          0.00625,
+          0.00875
+        ]
+      ],
+      "source_z_mm": 1599.2,
+      "time_dependent_deflection": false,
+      "transfers": [
+        {
+          "angle_offset_rad": [
+            0.0,
+            0.0
+          ],
+          "j_diff_m_per_rad": [
+            [
+              0.11582252383232117,
+              -0.048018015921115875
+            ],
+            [
+              0.048018015921115875,
+              0.11582252383232117
+            ]
+          ],
+          "j_img": [
+            [
+              322.64361572265625,
+              -117.8888931274414
+            ],
+            [
+              117.8888931274414,
+              322.64361572265625
+            ]
+          ],
+          "matrix": [
+            [
+              322.64361572265625,
+              -117.8888931274414,
+              0.11582252383232117,
+              -0.048018015921115875
+            ],
+            [
+              117.8888931274414,
+              322.64361572265625,
+              0.048018015921115875,
+              0.11582252383232117
+            ],
+            [
+              592.3165893554688,
+              -216.06069946289062,
+              0.21527448296546936,
+              -0.08924906700849533
+            ],
+            [
+              216.06069946289062,
+              592.3165893554688,
+              0.08924906700849533,
+              0.21527448296546936
+            ]
+          ],
+          "position_offset_m": [
+            0.0,
+            0.0
+          ],
+          "source_z_mm": 1599.2,
+          "target_z_mm": 2586.9
+        },
+        {
+          "angle_offset_rad": [
+            0.0,
+            0.0
+          ],
+          "j_diff_m_per_rad": [
+            [
+              0.11738326400518417,
+              -0.04866507276892662
+            ],
+            [
+              0.04866507276892662,
+              0.11738326400518417
+            ]
+          ],
+          "j_img": [
+            [
+              326.9378967285156,
+              -119.45533752441406
+            ],
+            [
+              119.45533752441406,
+              326.9378967285156
+            ]
+          ],
+          "matrix": [
+            [
+              326.9378967285156,
+              -119.45533752441406,
+              0.11738326400518417,
+              -0.04866507276892662
+            ],
+            [
+              119.45533752441406,
+              326.9378967285156,
+              0.04866507276892662,
+              0.11738326400518417
+            ],
+            [
+              592.3165893554688,
+              -216.06069946289062,
+              0.21527448296546936,
+              -0.08924906700849533
+            ],
+            [
+              216.06069946289062,
+              592.3165893554688,
+              0.08924906700849533,
+              0.21527448296546936
+            ]
+          ],
+          "position_offset_m": [
+            0.0,
+            0.0
+          ],
+          "source_z_mm": 1599.2,
+          "target_z_mm": 2594.15
+        },
+        {
+          "angle_offset_rad": [
+            0.0,
+            0.0
+          ],
+          "j_diff_m_per_rad": [
+            [
+              0.14321620762348175,
+              -0.059374962002038956
+            ],
+            [
+              0.059374962002038956,
+              0.14321620762348175
+            ]
+          ],
+          "j_img": [
+            [
+              398.0158996582031,
+              -145.3826141357422
+            ],
+            [
+              145.3826141357422,
+              398.0158996582031
+            ]
+          ],
+          "matrix": [
+            [
+              398.0158996582031,
+              -145.3826141357422,
+              0.14321620762348175,
+              -0.059374962002038956
+            ],
+            [
+              145.3826141357422,
+              398.0158996582031,
+              0.059374962002038956,
+              0.14321620762348175
+            ],
+            [
+              592.3165893554688,
+              -216.06069946289062,
+              0.21527448296546936,
+              -0.08924906700849533
+            ],
+            [
+              216.06069946289062,
+              592.3165893554688,
+              0.08924906700849533,
+              0.21527448296546936
+            ]
+          ],
+          "position_offset_m": [
+            0.0,
+            0.0
+          ],
+          "source_z_mm": 1599.2,
+          "target_z_mm": 2714.15
+        },
+        {
+          "angle_offset_rad": [
+            0.0,
+            0.0
+          ],
+          "j_diff_m_per_rad": [
+            [
+              0.1625909060239792,
+              -0.06740737706422806
+            ],
+            [
+              0.06740737706422806,
+              0.1625909060239792
+            ]
+          ],
+          "j_img": [
+            [
+              451.32440185546875,
+              -164.8280792236328
+            ],
+            [
+              164.8280792236328,
+              451.32440185546875
+            ]
+          ],
+          "matrix": [
+            [
+              451.32440185546875,
+              -164.8280792236328,
+              0.1625909060239792,
+              -0.06740737706422806
+            ],
+            [
+              164.8280792236328,
+              451.32440185546875,
+              0.06740737706422806,
+              0.1625909060239792
+            ],
+            [
+              592.3165893554688,
+              -216.06069946289062,
+              0.21527448296546936,
+              -0.08924906700849533
+            ],
+            [
+              216.06069946289062,
+              592.3165893554688,
+              0.08924906700849533,
+              0.21527448296546936
+            ]
+          ],
+          "position_offset_m": [
+            0.0,
+            0.0
+          ],
+          "source_z_mm": 1599.2,
+          "target_z_mm": 2804.15
+        },
+        {
+          "angle_offset_rad": [
+            0.0,
+            0.0
+          ],
+          "j_diff_m_per_rad": [
+            [
+              0.17766012251377106,
+              -0.07365481555461884
+            ],
+            [
+              0.07365481555461884,
+              0.17766012251377106
+            ]
+          ],
+          "j_img": [
+            [
+              492.78656005859375,
+              -179.95233154296875
+            ],
+            [
+              179.95233154296875,
+              492.78656005859375
+            ]
+          ],
+          "matrix": [
+            [
+              492.78656005859375,
+              -179.95233154296875,
+              0.17766012251377106,
+              -0.07365481555461884
+            ],
+            [
+              179.95233154296875,
+              492.78656005859375,
+              0.07365481555461884,
+              0.17766012251377106
+            ],
+            [
+              592.3165893554688,
+              -216.06069946289062,
+              0.21527448296546936,
+              -0.08924906700849533
+            ],
+            [
+              216.06069946289062,
+              592.3165893554688,
+              0.08924906700849533,
+              0.21527448296546936
+            ]
+          ],
+          "position_offset_m": [
+            0.0,
+            0.0
+          ],
+          "source_z_mm": 1599.2,
+          "target_z_mm": 2874.15
+        },
+        {
+          "angle_offset_rad": [
+            0.0,
+            0.0
+          ],
+          "j_diff_m_per_rad": [
+            [
+              0.20187850296497345,
+              -0.08369532972574234
+            ],
+            [
+              0.08369532972574234,
+              0.20187850296497345
+            ]
+          ],
+          "j_img": [
+            [
+              559.4221801757812,
+              -204.2591552734375
+            ],
+            [
+              204.2591552734375,
+              559.4221801757812
+            ]
+          ],
+          "matrix": [
+            [
+              559.4221801757812,
+              -204.2591552734375,
+              0.20187850296497345,
+              -0.08369532972574234
+            ],
+            [
+              204.2591552734375,
+              559.4221801757812,
+              0.08369532972574234,
+              0.20187850296497345
+            ],
+            [
+              592.3165893554688,
+              -216.06069946289062,
+              0.21527448296546936,
+              -0.08924906700849533
+            ],
+            [
+              216.06069946289062,
+              592.3165893554688,
+              0.08924906700849533,
+              0.21527448296546936
+            ]
+          ],
+          "position_offset_m": [
+            0.0,
+            0.0
+          ],
+          "source_z_mm": 1599.2,
+          "target_z_mm": 2986.6499999999996
+        },
+        {
+          "angle_offset_rad": [
+            0.0,
+            0.0
+          ],
+          "j_diff_m_per_rad": [
+            [
+              0.21032802760601044,
+              -0.08719836175441742
+            ],
+            [
+              0.08719836175441742,
+              0.21032802760601044
+            ]
+          ],
+          "j_img": [
+            [
+              582.6705932617188,
+              -212.7395477294922
+            ],
+            [
+              212.7395477294922,
+              582.6705932617188
+            ]
+          ],
+          "matrix": [
+            [
+              582.6705932617188,
+              -212.7395477294922,
+              0.21032802760601044,
+              -0.08719836175441742
+            ],
+            [
+              212.7395477294922,
+              582.6705932617188,
+              0.08719836175441742,
+              0.21032802760601044
+            ],
+            [
+              592.3165893554688,
+              -216.06069946289062,
+              0.21527448296546936,
+              -0.08924906700849533
+            ],
+            [
+              216.06069946289062,
+              592.3165893554688,
+              0.08924906700849533,
+              0.21527448296546936
+            ]
+          ],
+          "position_offset_m": [
+            0.0,
+            0.0
+          ],
+          "source_z_mm": 1599.2,
+          "target_z_mm": 3025.9
+        }
+      ]
+    },
+    "stem_source_signature": "66628883a543a6f116d90bbb0cee16f9609c73b9196f3cdad04dc340a2f7a4d0",
+    "stored_frame_quantity": "configuration-averaged diffraction probability",
+    "valid_reciprocal_mask_sha256": "23335e8d337cf13f8f8a024898c5179478e34f4060907c620287396caf5c87ba"
+  },
+  "record_plane_plan_fingerprint": "bdc7ac79444d50f532611fe51df81a57d7d71b79373ea8e68f87c52dd8d28475",
+  "resolved_geometry_fingerprint": "6391e5830640980563081705402b1da10b036cac8b53944b132ee34adce1c0f1",
+  "rng_state": {
+    "bit_generator": "PCG64",
+    "has_uint32": 0,
+    "state": {
+      "inc": 26908211843238053661107312115889632159,
+      "state": 300565705187481879610461561276119776017
+    },
+    "uinteger": 0
+  },
+  "scan_coordinate_unit": "um",
+  "shape": [
+    2,
+    2,
+    32,
+    32
+  ],
+  "status": "complete",
+  "total_frames": 4
+}

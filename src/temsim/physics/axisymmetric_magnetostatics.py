@@ -17,7 +17,7 @@ import math
 import numpy as np
 
 MU0 = 4e-7 * math.pi
-SOLVER_VERSION = "axisymmetric-aphi-bh-circuits-v3"
+SOLVER_VERSION = "axisymmetric-aphi-bh-material-regions-v4"
 
 
 def _merged_axis(values):
@@ -80,6 +80,19 @@ def _part_mask(part, r, z):
     return axial & (r >= inner) & (r <= outer_radius)
 
 
+def _material_region_masks(part, assignments, r, z):
+    """Partition an existing part mask; assignments never create new geometry."""
+    whole = _part_mask(part, r, z)
+    if not (set(assignments) - {"body"}):
+        return ((whole, assignments.get("body")),)
+    intervals = part["data"].get("material_intervals_mm", ())
+    if len(intervals) != 2 or "magnetic_radial_profile_mm" in part["data"]:
+        raise ValueError(f"{part['key']}: upper/lower materials require existing split material intervals")
+    return tuple((whole & (z >= start*1e-3) & (z <= end*1e-3),
+                  assignments.get(region, assignments.get("body")))
+                 for region, (start, end) in zip(("upper", "lower"), intervals))
+
+
 @lru_cache(maxsize=12)
 def _solve_bound_geometry(geometry_json, settings_json):
     from temsim.physics.lens_field_provider import CoordinateRegistration, MagneticFieldMap, FieldMapProvenance
@@ -93,8 +106,9 @@ def _solve_bound_geometry(geometry_json, settings_json):
     if not (mur > 0 and math.isfinite(mur) and math.isfinite(turns) and 12 <= nr <= 256 and 16 <= nz <= 512 and 1.5 <= padding <= 10):
         raise ValueError("Invalid permeability, ampere-turns, mesh or boundary padding")
     parts = geometry["lens_assembly"]["parts"]
-    from temsim.magnetic_circuits import MAGNETIC_BODIES, radial_profile_mm
-    iron = [p for p in parts if p["data"].get("mechanical_profile") in MAGNETIC_BODIES]
+    from temsim.magnetic_circuits import radial_profile_mm
+    from temsim.part_materials import is_magnetostatic_body, validated_material_regions
+    iron = [p for p in parts if is_magnetostatic_body(p["data"])]
     if topology == "air_core" and iron:
         raise ValueError("Air-core circuit still contains magnetic bodies; change the declared geometry first")
     neighbours = geometry["lens_assembly"].get("magnetostatic_neighbours", [])
@@ -124,6 +138,7 @@ def _solve_bound_geometry(geometry_json, settings_json):
     low, high = min(p["start_z_mm"] for p in used) * 1e-3, max(p["end_z_mm"] for p in used) * 1e-3
     centre, half = (low + high) / 2, (high - low) / 2
     iron.extend(neighbours)
+    assignments = {p["key"]: validated_material_regions(p["data"]) for p in iron + coils}
     # Add authoritative material boundaries to the grid; a narrow gap must not
     # vanish because the generic mesh happens to skip it.
     radial_edges = [0.0]
@@ -163,11 +178,12 @@ def _solve_bound_geometry(geometry_json, settings_json):
         material_values = settings.get("material_permeabilities", {})
         for part in iron:
             value = float(material_values.get(part["data"].get("material_class", ""), mur))
-            mask = _part_mask(part, r, z)
-            if np.any(mask & occupied & (result != value)):
-                raise ValueError("Overlapping magnetic bodies have conflicting material assignments")
-            result = np.where(mask, value, result)
-            occupied |= mask
+            for mask, assignment in _material_region_masks(part, assignments[part["key"]], r, z):
+                response = float(assignment["relative_permeability"]) if assignment is not None else value
+                if np.any(mask & occupied & (result != response)):
+                    raise ValueError("Overlapping magnetic bodies have conflicting material assignments")
+                result = np.where(mask, response, result)
+                occupied |= mask
         return result
     def current(r, z):
         result = np.zeros_like(r)
@@ -189,16 +205,31 @@ def _solve_bound_geometry(geometry_json, settings_json):
         material_classes = sorted(overrides)
         materials.extend(overrides[name] for name in material_classes)
         indices = {name: index+1 for index, name in enumerate(material_classes)}
+        from temsim.magnetic_materials import validate_bh_material
+        assigned_indices = {}
+        for index, material in enumerate(materials):
+            assigned_indices.setdefault(json.dumps(validate_bh_material(material), sort_keys=True), index)
+        for part_assignments in assignments.values():
+            for assignment in part_assignments.values():
+                if assignment["magnetic_response"] == "bh":
+                    encoded = json.dumps(assignment["bh_material"], sort_keys=True)
+                    if encoded not in assigned_indices:
+                        assigned_indices[encoded] = len(materials)
+                        materials.append(assignment["bh_material"])
         def material_ids(r, z):
             result = np.full_like(r, -1, dtype=int)
             occupied = np.zeros_like(r, dtype=bool)
             for part in iron:
-                mask = _part_mask(part, r, z)
-                index = indices.get(part["data"].get("material_class", ""), 0)
-                if np.any(mask & occupied & (result != index)):
-                    raise ValueError("Overlapping magnetic bodies have conflicting material assignments")
-                result[mask] = index
-                occupied |= mask
+                default_index = indices.get(part["data"].get("material_class", ""), 0)
+                for mask, assignment in _material_region_masks(part, assignments[part["key"]], r, z):
+                    index = default_index
+                    if assignment is not None:
+                        index = (assigned_indices[json.dumps(assignment["bh_material"], sort_keys=True)]
+                                 if assignment["magnetic_response"] == "bh" else -1)
+                    if np.any(mask & occupied & (result != index)):
+                        raise ValueError("Overlapping magnetic bodies have conflicting material assignments")
+                    result[mask] = index
+                    occupied |= mask
             return result
         solution = solve_nonlinear(r, z, material_ids, current, materials,
                                    relative_tolerance=float(settings.get("relative_tolerance", 1e-7)),
@@ -210,6 +241,11 @@ def _solve_bound_geometry(geometry_json, settings_json):
     note = f"{SOLVER_VERSION}; topology={topology or 'legacy unspecified'}; linear mu_r={mur:g}; channel={geometry.get('lens_key', 'test')}; NI={turns:g} at 100%; residual={solution.relative_residual:.4g}; mesh/domain convergence not checked; not calibrated"
     if nonlinear:
         note = f"{SOLVER_VERSION}; static isotropic B-H; material={settings['bh_material']['label']}; joint NI={settings['channel_ampere_turns']}; residual={solution.relative_residual:.4g}; Newton iterations={solution.iterations}; peak material B={solution.peak_material_t:.6g} T; no hysteresis; mesh/domain convergence not checked; not calibrated"
+    assigned_labels = [f"{key}/{region}={value['material_key']}"
+                       for key, regions in sorted(assignments.items())
+                       for region, value in sorted(regions.items())]
+    if assigned_labels:
+        note += "; explicit part materials: " + ", ".join(assigned_labels)
     field_map = MagneticFieldMap("axisymmetric_rz", (r, z), (solution.br_t, solution.bz_t), CoordinateRegistration(),
                                  fingerprint, 100.0, 1, FieldMapProvenance("fem", "", source_hash, note))
     for array in (solution.a_phi_tm, solution.br_t, solution.bz_t):

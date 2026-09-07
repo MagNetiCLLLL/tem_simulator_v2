@@ -211,6 +211,11 @@ def test_defocused_image_wave_uses_symplectic_specimen_canonical_transfer():
 
     state = default_state()
     _retract_stem_detectors(state)
+    # Isolate the single Collins transfer: inserted downstream apertures
+    # correctly select the separate coherent multi-plane propagation path.
+    for aperture in state.apertures:
+        if float(aperture.z_mm) > float(state.sample.z_mm):
+            aperture.inserted = False
     state.projector_mode = "image"
     state.fluorescent_screen.inserted = False
     state.camera.inserted = True

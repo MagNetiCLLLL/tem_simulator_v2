@@ -102,7 +102,7 @@ def test_configured_capture_converts_user_detector_response(monkeypatch, tmp_pat
     captured = {}
     sentinel = object()
 
-    def prepare(_state, _simulation, request):
+    def prepare(_state, _simulation, request, **_kwargs):
         captured["request"] = request
         return sentinel
 
@@ -209,7 +209,7 @@ def test_wave_acquisition_passes_sink_and_returns_artifact(monkeypatch, tmp_path
     monkeypatch.setattr(
         stem_signal,
         "_prepare_configured_fourdstem_capture",
-        lambda *_: prepared,
+        lambda *_, **_kwargs: prepared,
     )
 
     def simulate(*_args, **kwargs):
@@ -310,7 +310,7 @@ def test_physical_reintegration_uses_current_plan_without_rerunning_cube(
     calls = []
     monkeypatch.setattr(
         "temsim.physics.record_plane.build_record_plane_plan",
-        lambda active_state: calls.append(active_state) or current_plan,
+        lambda active_state, **_kwargs: calls.append(active_state) or current_plan,
     )
     monkeypatch.setattr(
         "temsim.physics.fourdstem.integrate_runtime_recording_planes",

@@ -47,6 +47,7 @@ _POST_SAMPLE_PROJECTION_LENS_KEYS = frozenset({
 })
 _LOADED_INPUT_DIGEST_CACHE: dict[str, tuple[object, str]] = {}
 _WAVE_COORDINATE_SCHEMA = "centred-real-space-v2"
+_STEM_RECORDING_SCHEMA = "timed-record-plane-kicks-v1"
 
 
 def _wave_digest(payload):
@@ -54,6 +55,16 @@ def _wave_digest(payload):
     # arrays. Invalidate those wave/cube products only; incident, interaction
     # and EDS checkpoints remain reusable across this numerical correction.
     return _digest({"wave_coordinate_schema": _WAVE_COORDINATE_SCHEMA, "parameters": payload})
+
+
+def _stem_digest(payload):
+    # Older STEM products omitted downstream kicks, and their raw cubes did
+    # not retain scan times needed to replay time-dependent detector routing.
+    # Invalidate those products without discarding incident or TEM checkpoints.
+    return _wave_digest({
+        "stem_recording_schema": _STEM_RECORDING_SCHEMA,
+        "parameters": payload,
+    })
 
 
 def _drop_sample_fields(
@@ -725,23 +736,26 @@ def _calculation_signatures_from_payload(
             prefixes=(*_EDS_PREFIXES, "wave_", *_STEM_PREFIXES),
         )
     return {
-        "request": _digest(full),
+        "request": _digest({
+            "stem_recording_schema": _STEM_RECORDING_SCHEMA,
+            "parameters": full,
+        }),
         "column": _digest(column),
         "incident": _digest(incident),
         "elastic": _digest(elastic),
         "wave": _wave_digest(wave),
         "wave_source": _wave_digest(wave_source),
-        "fourdstem_cube": _wave_digest(fourdstem_cube),
-        "fourdstem_virtual_detectors": _wave_digest(fourdstem_virtual_detectors),
-        "fourdstem_physical_recording": _wave_digest(
+        "fourdstem_cube": _stem_digest(fourdstem_cube),
+        "fourdstem_virtual_detectors": _stem_digest(fourdstem_virtual_detectors),
+        "fourdstem_physical_recording": _stem_digest(
             fourdstem_physical_recording
         ),
         "eds": _digest(eds),
         "energy_filter": _digest(energy_filter),
         "scan_geometry": _digest(scan_geometry),
         "scan_ray_paths": _digest(scan_ray_paths),
-        "stem": _wave_digest(stem),
-        "stem_transport": _wave_digest(stem_transport),
+        "stem": _stem_digest(stem),
+        "stem_transport": _stem_digest(stem_transport),
         "sample_region": _digest(sample_region),
         "sample_downstream": _digest(sample_region_downstream),
     }

@@ -20,6 +20,10 @@ def _constant_transport(field):
     transport = SpecimenFieldTransport.__new__(SpecimenFieldTransport)
     transport.origin_m = np.zeros(3)
     transport.providers = (Provider(),)
+    # This synthetic context bypasses __init__, including its support snapshot.
+    transport._provider_supports = tuple(
+        (provider, *provider.field_support_mm()) for provider in transport.providers
+    )
     transport.spatial_step_nm = 100
     return transport
 

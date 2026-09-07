@@ -370,6 +370,7 @@ def simulate_angle_resolved_stem(
     progress_callback: ProgressCallback | None = None,
     diffraction_sink=None,
     record_plane_plan=None,
+    scan_times_s=None,
 ):
     """Form STEM images and optionally stream the complete diffraction cube.
 
@@ -378,6 +379,11 @@ def simulate_angle_resolved_stem(
     ``write_frame(y, x, probability)``, and finally ``finish()``.  Requesting
     the cube selects the complete NumPy reference route because the resident
     GPU reduction intentionally does not transfer per-probe diffraction data.
+
+    A recording plan owns both specimen-position projection and downstream
+    kicks, including its per-scan corrections. Legacy detector-centre shifts
+    are used only without a plan: those absolute shifts already contain the
+    specimen-position displacement and would otherwise count it twice.
     """
     last_progress_fraction = 0.0
 
@@ -408,6 +414,17 @@ def simulate_angle_resolved_stem(
         raise ValueError("STEM scan coordinates must be matching 2-D arrays.")
     if scan_x_um.size == 0:
         raise ValueError("STEM scan coordinate arrays cannot be empty.")
+    if record_plane_plan is not None and record_plane_plan.scan_times_s is not None:
+        if scan_times_s is not None and not np.array_equal(scan_times_s, record_plane_plan.scan_times_s):
+            raise ValueError("STEM scan times differ from the recording plan")
+        scan_times_s = record_plane_plan.scan_times_s
+    if scan_times_s is not None:
+        scan_times_s = np.asarray(scan_times_s, dtype=float)
+        if scan_times_s.shape != scan_x_um.shape or not np.all(np.isfinite(scan_times_s)):
+            raise ValueError("STEM scan times must be finite and match the raster")
+    if (record_plane_plan is not None and record_plane_plan.time_dependent_deflection
+            and record_plane_plan.scan_times_s is None):
+        raise ValueError("Dynamic STEM recording requires a plan built with scan times")
 
     preset, prepared = _wave_grid(
         state,
@@ -578,6 +595,7 @@ def simulate_angle_resolved_stem(
                 origin_y_um + scan_y_um,
                 angle_x_mrad,
                 angle_y_mrad,
+                scan_times_s=scan_times_s,
             ),
             valid_reciprocal,
             maximum_isotropic_angle_mrad=maximum_isotropic_angle_mrad,
@@ -826,6 +844,7 @@ def simulate_angle_resolved_stem(
                 record_plane_plan,
                 position_m,
                 angle_rad,
+                scan_slice=slice(start, stop),
             )
             by_key = {
                 interaction.plane.key: interaction.signal_mask
@@ -927,17 +946,12 @@ def simulate_angle_resolved_stem(
                 )
             )
             for detector in detectors:
-                if flat_detector_centers is None:
-                    values = np.sum(
-                        diffraction[:, batch_detector_masks[detector.key]],
-                        axis=1,
-                    )
-                else:
-                    values = np.sum(
-                        diffraction
-                        * batch_detector_masks[detector.key],
-                        axis=(-2, -1),
-                    )
+                # Both a shared 2-D mask and a per-probe 3-D mask broadcast
+                # onto the diffraction batch without indexing an extra axis.
+                values = np.sum(
+                    diffraction * batch_detector_masks[detector.key],
+                    axis=(-2, -1),
+                )
                 configuration_values[detector.key].append(
                     np.clip(values, 0.0, 1.0)
                 )
@@ -1242,6 +1256,10 @@ def simulate_angle_resolved_stem(
             "rutherford_tail_enabled": False,
             "descan_detector_shift_applied": bool(
                 flat_detector_centers is not None
+                or (record_plane_plan is not None and record_plane_plan.scan_position_offsets_m)
+            ),
+            "record_plane_scan_deflection_applied": bool(
+                record_plane_plan is not None and record_plane_plan.scan_position_offsets_m
             ),
             "displayed_intensity_average": (
                 "incoherent frozen-phonon intensity mean"

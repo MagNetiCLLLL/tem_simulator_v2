@@ -1,0 +1,13 @@
+format_version = 4
+
+[assembly]
+gun = "FEG"
+column = "C3 + Probe Corrector"
+recording = "Energy Filter"
+
+[devices]
+
+[none_values]
+objective_lens = [
+    1,
+]

@@ -1,0 +1,441 @@
+{
+  "axis_order": [
+    "scan_y",
+    "scan_x",
+    "detector_y",
+    "detector_x"
+  ],
+  "calibration_sha256": "8cf09c932a725c272def6eabc28e9589169d9af05ec60cb7937f5d7598da52a3",
+  "completed_frames": 2,
+  "detector_coordinate": "signed_scattering_angle",
+  "detector_coordinate_unit": "mrad",
+  "detector_response": {
+    "charge_spread_sigma_px_xy": [
+      0.0,
+      0.0
+    ],
+    "dark_electrons_per_pixel": 0.0,
+    "gain_counts_per_electron": 1.0,
+    "model": "qe_charge_spread_dark_poisson_read_noise_saturation_gain_v1",
+    "offset_counts": 0.0,
+    "poisson_enabled": false,
+    "quantum_efficiency": 1.0,
+    "read_noise_electrons_rms": 0.0,
+    "saturation_electrons": null,
+    "seed": null,
+    "status": "transport_neutral_raw_diffraction_probability",
+    "transport_neutral": true
+  },
+  "dtype": "<f4",
+  "format": "temsim_4dstem_npy",
+  "format_version": 1,
+  "provenance": {
+    "cube_dependency_signature": "d802983ffd849f05cd702d330c54c7bf26c718baf13c4cdc1e81237dc9d61ac3",
+    "dose_and_detector_response": "deferred_to_derived_products",
+    "fourdstem_cube_state_signature": "b134032daa1ab56eb655b1341ccce0e2ba00c0be2df0ee809c24b82d90579900",
+    "fourdstem_physical_recording_state_signature_at_capture": "9b4a4296f9b9c4ca06d088193164c0b664b5e84d6b43f3dd77e25fe65b177527",
+    "fourdstem_virtual_detector_state_signature_at_capture": "7f968646e5d60098cbdc9c1057d28204d18448845e6c05c0db11adbf423c0139",
+    "input_frame_quantity": "configuration-averaged diffraction probability",
+    "invalid_reciprocal_pixels": "zeroed_without_renormalisation",
+    "maximum_isotropic_angle_mrad": 2.035057708090719,
+    "record_plane_plan": {
+      "axis": "laboratory +Z downstream",
+      "fingerprint": "4319d002aca15b9c3603a2c8cb55546872a6f1d863de6518eeb197f17e276b24",
+      "model": "signed_mixed_plane_first_order_v1",
+      "planes": [
+        {
+          "authority": "project_and_recording_system/EnergyFilter.toml::parts[projection_chamber_dpa_aperture]",
+          "geometry": "disk",
+          "inner_diameter_mm": 0.0,
+          "key": "projection_chamber_dpa_aperture",
+          "kind": "aperture",
+          "name": "Projection-Chamber Differential-Pumping Aperture",
+          "non_blocking": false,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "outer_width_mm": 0.0,
+          "radius_mm": 0.1,
+          "readout_enabled": false,
+          "z_mm": 2586.9
+        },
+        {
+          "authority": "project_and_recording_system/EnergyFilter.toml::parts[haadf]",
+          "geometry": "annulus",
+          "inner_diameter_mm": 4.0,
+          "key": "haadf",
+          "kind": "detector",
+          "name": "HAADF Detector",
+          "non_blocking": false,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "outer_width_mm": 22.0,
+          "radius_mm": 0.0,
+          "readout_enabled": true,
+          "z_mm": 2594.15
+        },
+        {
+          "authority": "project_and_recording_system/EnergyFilter.toml::parts[df]",
+          "geometry": "annulus",
+          "inner_diameter_mm": 2.0,
+          "key": "df",
+          "kind": "detector",
+          "name": "DF Detector",
+          "non_blocking": false,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "outer_width_mm": 14.0,
+          "radius_mm": 0.0,
+          "readout_enabled": true,
+          "z_mm": 2804.15
+        },
+        {
+          "authority": "project_and_recording_system/EnergyFilter.toml::parts[bf]",
+          "geometry": "disk",
+          "inner_diameter_mm": 0.0,
+          "key": "bf",
+          "kind": "detector",
+          "name": "BF Detector",
+          "non_blocking": false,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "outer_width_mm": 1.5,
+          "radius_mm": 0.0,
+          "readout_enabled": true,
+          "z_mm": 2874.15
+        },
+        {
+          "authority": "project_and_recording_system/EnergyFilter.toml::parts[energy_filter_entrance_aperture]",
+          "geometry": "disk",
+          "inner_diameter_mm": 0.0,
+          "key": "energy_filter_entrance_aperture",
+          "kind": "aperture",
+          "name": "Iliad Spectrometer Entrance Aperture",
+          "non_blocking": false,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "outer_width_mm": 0.0,
+          "radius_mm": 2.5,
+          "readout_enabled": false,
+          "z_mm": 3025.8999999999996
+        }
+      ],
+      "resolved_geometry_fingerprint": "2c611e93814e60f62b6ccd02c0612107c71f3121f7b7a58b4b1b09e3dcc8c7d9",
+      "source_z_mm": 1599.2,
+      "transfers": [
+        {
+          "angle_offset_rad": [
+            0.0,
+            0.0
+          ],
+          "j_diff_m_per_rad": [
+            [
+              0.11582252383232117,
+              -0.048018015921115875
+            ],
+            [
+              0.048018015921115875,
+              0.11582252383232117
+            ]
+          ],
+          "j_img": [
+            [
+              322.64361572265625,
+              -117.8888931274414
+            ],
+            [
+              117.8888931274414,
+              322.64361572265625
+            ]
+          ],
+          "matrix": [
+            [
+              322.64361572265625,
+              -117.8888931274414,
+              0.11582252383232117,
+              -0.048018015921115875
+            ],
+            [
+              117.8888931274414,
+              322.64361572265625,
+              0.048018015921115875,
+              0.11582252383232117
+            ],
+            [
+              592.3165893554688,
+              -216.06069946289062,
+              0.21527448296546936,
+              -0.08924906700849533
+            ],
+            [
+              216.06069946289062,
+              592.3165893554688,
+              0.08924906700849533,
+              0.21527448296546936
+            ]
+          ],
+          "position_offset_m": [
+            0.0,
+            0.0
+          ],
+          "source_z_mm": 1599.2,
+          "target_z_mm": 2586.9
+        },
+        {
+          "angle_offset_rad": [
+            0.0,
+            0.0
+          ],
+          "j_diff_m_per_rad": [
+            [
+              0.11738326400518417,
+              -0.04866507276892662
+            ],
+            [
+              0.04866507276892662,
+              0.11738326400518417
+            ]
+          ],
+          "j_img": [
+            [
+              326.9378967285156,
+              -119.45533752441406
+            ],
+            [
+              119.45533752441406,
+              326.9378967285156
+            ]
+          ],
+          "matrix": [
+            [
+              326.9378967285156,
+              -119.45533752441406,
+              0.11738326400518417,
+              -0.04866507276892662
+            ],
+            [
+              119.45533752441406,
+              326.9378967285156,
+              0.04866507276892662,
+              0.11738326400518417
+            ],
+            [
+              592.3165893554688,
+              -216.06069946289062,
+              0.21527448296546936,
+              -0.08924906700849533
+            ],
+            [
+              216.06069946289062,
+              592.3165893554688,
+              0.08924906700849533,
+              0.21527448296546936
+            ]
+          ],
+          "position_offset_m": [
+            0.0,
+            0.0
+          ],
+          "source_z_mm": 1599.2,
+          "target_z_mm": 2594.15
+        },
+        {
+          "angle_offset_rad": [
+            0.0,
+            0.0
+          ],
+          "j_diff_m_per_rad": [
+            [
+              0.1625909060239792,
+              -0.06740737706422806
+            ],
+            [
+              0.06740737706422806,
+              0.1625909060239792
+            ]
+          ],
+          "j_img": [
+            [
+              451.32440185546875,
+              -164.8280792236328
+            ],
+            [
+              164.8280792236328,
+              451.32440185546875
+            ]
+          ],
+          "matrix": [
+            [
+              451.32440185546875,
+              -164.8280792236328,
+              0.1625909060239792,
+              -0.06740737706422806
+            ],
+            [
+              164.8280792236328,
+              451.32440185546875,
+              0.06740737706422806,
+              0.1625909060239792
+            ],
+            [
+              592.3165893554688,
+              -216.06069946289062,
+              0.21527448296546936,
+              -0.08924906700849533
+            ],
+            [
+              216.06069946289062,
+              592.3165893554688,
+              0.08924906700849533,
+              0.21527448296546936
+            ]
+          ],
+          "position_offset_m": [
+            0.0,
+            0.0
+          ],
+          "source_z_mm": 1599.2,
+          "target_z_mm": 2804.15
+        },
+        {
+          "angle_offset_rad": [
+            0.0,
+            0.0
+          ],
+          "j_diff_m_per_rad": [
+            [
+              0.17766012251377106,
+              -0.07365481555461884
+            ],
+            [
+              0.07365481555461884,
+              0.17766012251377106
+            ]
+          ],
+          "j_img": [
+            [
+              492.78656005859375,
+              -179.95233154296875
+            ],
+            [
+              179.95233154296875,
+              492.78656005859375
+            ]
+          ],
+          "matrix": [
+            [
+              492.78656005859375,
+              -179.95233154296875,
+              0.17766012251377106,
+              -0.07365481555461884
+            ],
+            [
+              179.95233154296875,
+              492.78656005859375,
+              0.07365481555461884,
+              0.17766012251377106
+            ],
+            [
+              592.3165893554688,
+              -216.06069946289062,
+              0.21527448296546936,
+              -0.08924906700849533
+            ],
+            [
+              216.06069946289062,
+              592.3165893554688,
+              0.08924906700849533,
+              0.21527448296546936
+            ]
+          ],
+          "position_offset_m": [
+            0.0,
+            0.0
+          ],
+          "source_z_mm": 1599.2,
+          "target_z_mm": 2874.15
+        },
+        {
+          "angle_offset_rad": [
+            0.0,
+            0.0
+          ],
+          "j_diff_m_per_rad": [
+            [
+              0.21032802760601044,
+              -0.08719836175441742
+            ],
+            [
+              0.08719836175441742,
+              0.21032802760601044
+            ]
+          ],
+          "j_img": [
+            [
+              582.6705932617188,
+              -212.7395477294922
+            ],
+            [
+              212.7395477294922,
+              582.6705932617188
+            ]
+          ],
+          "matrix": [
+            [
+              582.6705932617188,
+              -212.7395477294922,
+              0.21032802760601044,
+              -0.08719836175441742
+            ],
+            [
+              212.7395477294922,
+              582.6705932617188,
+              0.08719836175441742,
+              0.21032802760601044
+            ],
+            [
+              592.3165893554688,
+              -216.06069946289062,
+              0.21527448296546936,
+              -0.08924906700849533
+            ],
+            [
+              216.06069946289062,
+              592.3165893554688,
+              0.08924906700849533,
+              0.21527448296546936
+            ]
+          ],
+          "position_offset_m": [
+            0.0,
+            0.0
+          ],
+          "source_z_mm": 1599.2,
+          "target_z_mm": 3025.8999999999996
+        }
+      ]
+    },
+    "stem_source_signature": "811f420d6b028a7e026d9fe7e43b58144c6946e65f4dd17e5afd9c3c6ca13f52",
+    "stored_frame_quantity": "configuration-averaged diffraction probability",
+    "valid_reciprocal_mask_sha256": "6c0adfb2f4ff5698c1e35880519b0d340454a79643d617a3666c4931bdaec455"
+  },
+  "record_plane_plan_fingerprint": "4319d002aca15b9c3603a2c8cb55546872a6f1d863de6518eeb197f17e276b24",
+  "resolved_geometry_fingerprint": "2c611e93814e60f62b6ccd02c0612107c71f3121f7b7a58b4b1b09e3dcc8c7d9",
+  "rng_state": {
+    "bit_generator": "PCG64",
+    "has_uint32": 0,
+    "state": {
+      "inc": 222850324605324470986291000059219746493,
+      "state": 278069632843406695787182282831383072804
+    },
+    "uinteger": 0
+  },
+  "scan_coordinate_unit": "um",
+  "shape": [
+    1,
+    2,
+    32,
+    32
+  ],
+  "status": "complete",
+  "total_frames": 2
+}

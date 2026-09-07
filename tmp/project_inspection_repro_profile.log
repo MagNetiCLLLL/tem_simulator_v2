@@ -1,0 +1,5 @@
+Serialized objective fields: {'enabled': True, 'percent': 30.42591940608605, 'polarity': 1}
+Before: {'stored_cs_mm': None, 'stored_cc_mm': None, 'effective_cs_mm': 1.199849009374114, 'effective_cc_mm': 2.7996476885395998, 'status': 'provisional principle model'}
+After:  {'stored_cs_mm': 1.2, 'stored_cc_mm': 2.0, 'effective_cs_mm': 1.2, 'effective_cc_mm': 2.0, 'status': 'configured'}
+Skipped fields: []
+REPRODUCED: saving and opening the profile changes aberration mode and values.

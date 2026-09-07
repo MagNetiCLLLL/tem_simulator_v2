@@ -1,0 +1,32 @@
+Verification output: E:\tem_simulator_v2\tmp\part_geometry_tests_ci2a5_ih
+........................................................................ [ 15%]
+........................................................................ [ 31%]
+........................................................................ [ 47%]
+........................................................................ [ 63%]
+........................................................................ [ 78%]
+........................................................................ [ 94%]
+.........................                                                [100%]
+============================== warnings summary ===============================
+tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[Thermionic]
+  E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:158: RuntimeWarning: overflow encountered in cast
+    X[saved], TX[saved], Y[saved], TY[saved] = x, tx, y, ty
+
+tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[Thermionic]
+  E:\tem_simulator_v2\src\temsim\physics\recording_clipping.py:44: RuntimeWarning: invalid value encountered in subtract
+    xx=(x[lo]+f*(x[hi]-x[lo]))*1e3;yy=(y[lo]+f*(y[hi]-y[lo]))*1e3
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================ slowest 10 durations =============================
+10.17s call     tests/test_part_geometry.py::test_material_dimension_save_reloads_assembly_without_changing_unrelated_configuration[intermediate_lens_excitation_coil-inner_diameter_mm-70.0]
+10.16s call     tests/test_toml_authority.py::test_all_catalog_assemblies_apply_one_authority_per_runtime_part
+8.40s call     tests/test_gui_shell.py::test_layout_selection_opens_unmodelled_iliad_component_toml
+6.44s call     tests/test_mvp_core.py::test_every_lens_and_preset_uses_at_most_one_hundred_percent
+4.99s call     tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[FEG + Mono]
+4.35s call     tests/test_gui_shell.py::test_lens_selection_exposes_live_excitation_control
+4.04s call     tests/test_part_geometry_integration.py::test_layout_selection_opens_editor_and_applies_only_material_diameter
+3.74s call     tests/test_part_geometry_integration.py::test_apply_preserves_existing_toml_drafts_including_invalid_text
+3.57s call     tests/test_gui_shell.py::test_manifest_geometry_reload_retains_lens_strengths_until_explicit_preset
+3.52s setup    tests/test_part_geometry_integration.py::test_layout_selection_opens_editor_and_applies_only_material_diameter
+457 passed, 2 warnings in 152.48s (0:02:32)
+E:\tem_simulator_v2\.venv\Lib\site-packages\pyqtgraph\graphicsItems\ViewBox\ViewBox.py:1818: RuntimeWarning: Failed to disconnect (NoneType) from signal "destroyed()".
+  k.destroyed.disconnect()

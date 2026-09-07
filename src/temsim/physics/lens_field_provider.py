@@ -178,6 +178,7 @@ _PART_GEOMETRY_FIELDS = frozenset({
     "pole_cone_angle_to_axis_deg",
     "pole_stem_outer_diameter_mm",
     "material_class",
+    "material_regions",
     "magnetic_circuit_id",
     "magnetic_lens_keys",
     "field_source_key",
@@ -459,9 +460,9 @@ def lens_geometry_binding(
     descriptor = getattr(state, "lens_field_map_descriptors", {}).get(key, {})
     if descriptor.get("solver") in {"axisymmetric_linear_fem", "axisymmetric_nonlinear_fem"} and assembly is not None:
         own_parts = lens_assembly["parts"]
-        from temsim.magnetic_circuits import MAGNETIC_BODIES
-        field_parts = [part for part in own_parts if part["data"].get("mechanical_profile") in
-                       MAGNETIC_BODIES | {"magnetic_excitation_coil"}]
+        from temsim.part_materials import is_magnetostatic_body
+        field_parts = [part for part in own_parts if is_magnetostatic_body(part["data"])
+                       or part["data"].get("mechanical_profile") == "magnetic_excitation_coil"]
         neighbours = []
         if field_parts:
             lower = min(part["start_z_mm"] for part in field_parts)
@@ -470,7 +471,7 @@ def lens_geometry_binding(
             own_keys = {part["key"] for part in own_parts}
             for part in assembly.parts:
                 if (part.key not in own_keys and part.start_z_mm < centre+half and part.end_z_mm > centre-half
-                        and part.data.get("mechanical_profile") in MAGNETIC_BODIES):
+                        and is_magnetostatic_body(part.data)):
                     data = _part_geometry_data(part)
                     parent = next((p for p in assembly.parts if p.key == part.parent_key), None)
                     if parent is not None and data.get("mechanical_profile") == "magnetic_lens_yoke":

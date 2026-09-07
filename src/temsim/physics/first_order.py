@@ -225,6 +225,7 @@ def trace_transverse_transfers(
     target_z_values_mm: Iterable[float],
     *,
     maximum_step_mm: float | None = None,
+    events=(),
 ) -> dict[float, TransverseTransfer]:
     """Trace a reference and bases once, using small central differences for maps."""
 
@@ -264,6 +265,7 @@ def trace_transverse_transfers(
         source,
         downstream[-1],
         basis[0], basis[2], basis[1], basis[3],
+        events=events,
         include_spherical_aberration=False,
         include_hexapole=False,
         save_z_mm=downstream,

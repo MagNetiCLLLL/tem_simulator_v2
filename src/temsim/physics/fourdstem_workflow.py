@@ -127,6 +127,7 @@ def prepare_fourdstem_capture(
     request: FourDSTEMRequest,
     *,
     maximum_step_mm: float | None = None,
+    scan_times_s=None,
 ) -> PreparedFourDSTEMCapture:
     """Freeze dose, source signature, and current runtime recording geometry."""
 
@@ -150,6 +151,7 @@ def prepare_fourdstem_capture(
     plan = build_record_plane_plan(
         state,
         maximum_step_mm=maximum_step_mm,
+        scan_times_s=scan_times_s,
     )
     # The diffraction cube ends at the specimen exit.  ``wave_source`` keeps
     # illumination, specimen, scan-coil, and numerical wave inputs while

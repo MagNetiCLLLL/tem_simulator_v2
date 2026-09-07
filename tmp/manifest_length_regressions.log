@@ -1,0 +1,28 @@
+Verification output: E:\tem_simulator_v2\tmp\manifest_length_tests_tml_14xb
+........................................................................ [ 46%]
+........................................................................ [ 92%]
+............                                                             [100%]
+============================== warnings summary ===============================
+tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[Thermionic]
+  E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:158: RuntimeWarning: overflow encountered in cast
+    X[saved], TX[saved], Y[saved], TY[saved] = x, tx, y, ty
+
+tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[Thermionic]
+  E:\tem_simulator_v2\src\temsim\physics\recording_clipping.py:44: RuntimeWarning: invalid value encountered in subtract
+    xx=(x[lo]+f*(x[hi]-x[lo]))*1e3;yy=(y[lo]+f*(y[hi]-y[lo]))*1e3
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================ slowest 10 durations =============================
+10.34s call     tests/test_toml_authority.py::test_all_catalog_assemblies_apply_one_authority_per_runtime_part
+8.36s setup    tests/test_manifest_length_editing.py::test_length_save_reloads_resolved_geometry_without_moving_other_parts[intermediate_lens_housing-225.0-expected0]
+6.16s call     tests/test_mvp_core.py::test_every_lens_and_preset_uses_at_most_one_hundred_percent
+4.77s call     tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[FEG + Mono]
+3.75s call     tests/test_gui_shell.py::test_manifest_geometry_reload_retains_lens_strengths_until_explicit_preset
+3.41s call     tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[Thermionic]
+3.26s call     tests/test_gui_shell.py::test_layout_selection_opens_unmodelled_iliad_component_toml
+2.90s call     tests/test_gui_shell.py::test_lens_selection_exposes_live_excitation_control
+2.81s call     tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[FEG]
+2.02s call     tests/test_nanopulser_assembly.py::test_blanker_toml_geometry_rebuild_preserves_operating_settings
+156 passed, 2 warnings in 87.19s (0:01:27)
+E:\tem_simulator_v2\.venv\Lib\site-packages\pyqtgraph\graphicsItems\ViewBox\ViewBox.py:1818: RuntimeWarning: Failed to disconnect (NoneType) from signal "destroyed()".
+  k.destroyed.disconnect()

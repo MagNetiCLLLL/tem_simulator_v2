@@ -317,8 +317,9 @@ class ArtifactStore:
         """Set the next-write quota without synchronous scanning or deletion.
 
         Updating this integer does not touch any reference or content object.
-        An ongoing or later writer enforces the current quota inside its
-        existing store lock. Already loaded artifacts remain valid.
+        Writers snapshot the current quota before admitting a new reference.
+        A change after that point applies to the next write. Already loaded
+        artifacts remain valid.
         """
 
         if isinstance(quota_bytes, bool) or not isinstance(quota_bytes, int) or quota_bytes <= 0:
@@ -426,6 +427,7 @@ class ArtifactStore:
         identity = self._identity(manifest, product, signature, codec)
         target = self._object_path(content_digest)
         target.parent.mkdir(parents=True, exist_ok=True)
+        created_object = False
         if not target.exists():
             temporary = Path(tempfile.mkdtemp(
                 prefix=".pending-", dir=self.objects_root
@@ -461,6 +463,7 @@ class ArtifactStore:
                     shutil.rmtree(temporary)
                 else:
                     os.replace(temporary, target)
+                    created_object = True
             except Exception:
                 if temporary.exists():
                     shutil.rmtree(temporary)
@@ -478,8 +481,22 @@ class ArtifactStore:
             "content_digest": content_digest,
         }
         reference_path = self._reference_path(identity)
-        self._write_file_atomic(reference_path, canonical_json_bytes(reference))
-        self._prune_to_quota(keep_identity=identity)
+        reference_bytes = canonical_json_bytes(reference)
+        try:
+            # Reject a bundle that cannot fit even after evicting every other
+            # reference. Do this before replacing an existing identity: a
+            # failed replacement must retain its previous content as well.
+            quota_bytes = self.quota_bytes
+            if self._minimum_store_size(target, len(reference_bytes)) > quota_bytes:
+                raise ArtifactTooLargeError(
+                    "Artifact is larger than the persistent cache quota"
+                )
+            self._write_file_atomic(reference_path, reference_bytes)
+        except Exception:
+            if created_object:
+                self._managed_remove(target)
+            raise
+        self._prune_to_quota(keep_identity=identity, quota_bytes=quota_bytes)
         if not reference_path.exists():
             raise ArtifactTooLargeError(
                 "Artifact is larger than the persistent cache quota"
@@ -891,6 +908,32 @@ class ArtifactStore:
             if path.is_file()
         )
 
+    def _minimum_store_size(self, keep_object: Path, reference_bytes: int) -> int:
+        """Size after keeping just the proposed reference and its content.
+
+        Count actual array headers, object/reference manifests and fixed
+        overhead such as the OS lock file. Subtract only files the normal
+        eviction/garbage collection can remove; shared content is counted
+        once, even when replacing an existing reference to that same object.
+        This is a read-only admission check, including for a reduced quota.
+        """
+
+        size = self._store_size() + reference_bytes
+        for path in self.references_root.glob("*.json"):
+            if path.is_file():
+                size -= path.stat().st_size
+        for prefix in self.objects_root.iterdir():
+            if not prefix.is_dir() or prefix.name.startswith(".pending-"):
+                continue
+            for object_path in prefix.iterdir():
+                if object_path.is_dir() and object_path != keep_object:
+                    size -= sum(
+                        path.stat().st_size
+                        for path in object_path.rglob("*")
+                        if path.is_file()
+                    )
+        return size
+
     def _garbage_collect_objects(self) -> None:
         with self._locked():
             referenced = {row[2] for row in self._reference_rows()}
@@ -906,7 +949,7 @@ class ArtifactStore:
                 if prefix.exists() and not any(prefix.iterdir()):
                     prefix.rmdir()
 
-    def _prune_to_quota(self, *, keep_identity: str) -> None:
+    def _prune_to_quota(self, *, keep_identity: str, quota_bytes: int) -> None:
         with self._locked():
             # Reclaim objects left between the object and reference commits
             # before deciding whether the newly committed artifact fits.
@@ -914,12 +957,12 @@ class ArtifactStore:
             rows = self._reference_rows()
             keep_path = self._reference_path(keep_identity)
             for _stamp, path, _content in rows:
-                if self._store_size() <= self.quota_bytes:
+                if self._store_size() <= quota_bytes:
                     break
                 if path != keep_path:
                     self._managed_remove(path)
                     self._garbage_collect_objects()
-            if self._store_size() > self.quota_bytes:
+            if self._store_size() > quota_bytes:
                 self._managed_remove(keep_path)
                 self._garbage_collect_objects()
 

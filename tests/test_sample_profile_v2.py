@@ -1,10 +1,16 @@
 from pathlib import Path
+import tomllib
 
 import pytest
 
 from temsim.assembly_catalog import AssemblyCatalog
 from temsim.optics.column import default_state
-from temsim.profile_io import apply_profile_values, read_profile, save_profile
+from temsim.profile_io import (
+    PROFILE_FORMAT_VERSION,
+    apply_profile_values,
+    read_profile,
+    save_profile,
+)
 from temsim.specimen.geometry import quaternion_from_euler_xyz_deg
 from temsim.specimen.source import (
     active_cif_path,
@@ -103,7 +109,7 @@ def test_profile_v2_round_trips_sample_tables_and_quaternion(tmp_path: Path):
     assert restored.sample.sample_region_photon_path_count == 77
     assert restored.sample.sample_region_secondary_path_count == 19
     assert restored.sample.sample_region_seed == 46
-    assert "format_version = 3" in path.read_text(encoding="utf-8")
+    assert tomllib.loads(path.read_text(encoding="utf-8"))["format_version"] == PROFILE_FORMAT_VERSION
 
 
 def test_retired_eds_trajectory_count_is_a_clean_profile_no_op():

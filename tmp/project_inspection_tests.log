@@ -1,0 +1,88 @@
+...................................FF................................... [ 22%]
+........................................................................ [ 44%]
+...................................F.................................... [ 67%]
+........................................................................ [ 89%]
+...................sss............                                       [100%]
+================================== FAILURES ===================================
+_ test_projector_manifests_use_compact_user_defined_envelopes[NoEnergyFilter.toml] _
+tests\test_mvp_core.py:809: in test_projector_manifests_use_compact_user_defined_envelopes
+    assert "not an OEM production drawing" in (
+E   AssertionError: assert 'not an OEM production drawing' in 'Existing non-OEM engineering dimensions retained, not verified Titan internal dimensions. FEI US9595359B2 Figure 6 is...eparate gapped/monolithic simulation comparison and does not establish this lens topology, bore or pole-face diameter.'
+_ test_projector_manifests_use_compact_user_defined_envelopes[EnergyFilter.toml] _
+tests\test_mvp_core.py:809: in test_projector_manifests_use_compact_user_defined_envelopes
+    assert "not an OEM production drawing" in (
+E   AssertionError: assert 'not an OEM production drawing' in 'Existing non-OEM engineering dimensions retained, not verified Titan internal dimensions. FEI US9595359B2 Figure 6 is...eparate gapped/monolithic simulation comparison and does not establish this lens topology, bore or pole-face diameter.'
+______________ test_store_mutex_serialises_independent_processes ______________
+tests\test_calculation_manifest_artifacts.py:455: in test_store_mutex_serialises_independent_processes
+    assert first_entered.wait(10.0)
+E   assert False
+E    +  where False = wait(10.0)
+E    +    where wait = <Event at 0x13fb1f8d7c0 unset>.wait
+
+During handling of the above exception, another exception occurred:
+tests\test_calculation_manifest_artifacts.py:464: in test_store_mutex_serialises_independent_processes
+    second.join(15.0)
+C:\Users\Royal_Gray\anaconda3\Lib\multiprocessing\process.py:148: in join
+    assert self._popen is not None, 'can only join a started process'
+           ^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: can only join a started process
+---------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+
+  File "<string>", line 1, in <module>
+
+  File "C:\Users\Royal_Gray\anaconda3\Lib\multiprocessing\spawn.py", line 122, in spawn_main
+
+    exitcode = _main(fd, parent_sentinel)
+
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "C:\Users\Royal_Gray\anaconda3\Lib\multiprocessing\spawn.py", line 131, in _main
+
+    prepare(preparation_data)
+
+  File "C:\Users\Royal_Gray\anaconda3\Lib\multiprocessing\spawn.py", line 246, in prepare
+
+    _fixup_main_from_path(data['init_main_from_path'])
+
+  File "C:\Users\Royal_Gray\anaconda3\Lib\multiprocessing\spawn.py", line 297, in _fixup_main_from_path
+
+    main_content = runpy.run_path(main_path,
+
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "<frozen runpy>", line 285, in run_path
+
+  File "<frozen runpy>", line 254, in _get_code_from_file
+
+OSError: [Errno 22] Invalid argument: 'E:\\tem_simulator_v2\\<stdin>'
+
+============================== warnings summary ===============================
+tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[Thermionic]
+  E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:158: RuntimeWarning: overflow encountered in cast
+    X[saved], TX[saved], Y[saved], TY[saved] = x, tx, y, ty
+
+tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[Thermionic]
+  E:\tem_simulator_v2\src\temsim\physics\recording_clipping.py:44: RuntimeWarning: invalid value encountered in subtract
+    xx=(x[lo]+f*(x[hi]-x[lo]))*1e3;yy=(y[lo]+f*(y[hi]-y[lo]))*1e3
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================ slowest 12 durations =============================
+68.08s call     tests/test_incremental_magnetic_scene.py::test_subsequent_publications_preserve_user_y_range_and_linked_ray_x
+27.14s call     tests/test_calculation_manifest_artifacts.py::test_complete_incident_seed_restarts_ray_solver[True]
+17.30s call     tests/test_interactive_calculation.py::test_production_stem_captures_ram_cube_and_reintegrates_without_multislice
+11.50s setup    tests/test_stem_result_sources.py::test_bank_sampling_diagnostics_never_apply_to_current_settings
+11.05s call     tests/test_toml_authority.py::test_all_catalog_assemblies_apply_one_authority_per_runtime_part
+10.03s call     tests/test_calculation_manifest_artifacts.py::test_store_mutex_serialises_independent_processes
+9.52s call     tests/test_mvp_core.py::test_every_catalog_option_resolves_to_the_requested_toml
+9.28s call     tests/test_workspace_layouts.py::test_ray_panel_combinations_keep_independent_sizes_across_restart
+8.34s call     tests/test_interactive_calculation.py::test_production_tem_aperture_replay_agrees_with_fresh_projection
+8.18s call     tests/test_interactive_calculation.py::test_production_bank_reuses_incident_and_never_mutates_source
+7.95s call     tests/test_workspace_layouts.py::test_named_layouts_restore_each_page_and_do_not_change_optics
+7.32s call     tests/test_workspace_layouts.py::test_restart_restores_active_layout_and_hidden_splitters
+=========================== short test summary info ===========================
+FAILED tests/test_mvp_core.py::test_projector_manifests_use_compact_user_defined_envelopes[NoEnergyFilter.toml]
+FAILED tests/test_mvp_core.py::test_projector_manifests_use_compact_user_defined_envelopes[EnergyFilter.toml]
+FAILED tests/test_calculation_manifest_artifacts.py::test_store_mutex_serialises_independent_processes
+E:\tem_simulator_v2\.venv\Lib\site-packages\pyqtgraph\graphicsItems\ViewBox\ViewBox.py:1818: RuntimeWarning: Failed to disconnect (NoneType) from signal "destroyed()".
+  k.destroyed.disconnect()

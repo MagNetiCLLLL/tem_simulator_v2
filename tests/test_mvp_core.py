@@ -806,9 +806,9 @@ def test_projector_manifests_use_compact_user_defined_envelopes(
         assert lens["mechanical_geometry_status"] == (
             "engineering_reconstruction_not_oem"
         )
-        assert "not an OEM production drawing" in (
-            lens["mechanical_geometry_source"]
-        )
+        # The structured status declares the non-OEM model; provenance prose
+        # may be clarified without changing the geometry or its authority.
+        assert lens["mechanical_geometry_source"].strip()
 
         assert housing["mechanical_outer_diameter_mm"] == pytest.approx(
             expected["housing_od"]
@@ -819,13 +819,26 @@ def test_projector_manifests_use_compact_user_defined_envelopes(
         assert yoke["mechanical_inner_diameter_mm"] == pytest.approx(
             expected["yoke_id"]
         )
-        assert coil["mechanical_inner_diameter_mm"] == pytest.approx(
-            expected["coil_id"]
+        # Coil diameters are user-editable, like its axial envelope. Keep
+        # checking material thickness, vacuum clearance and radial nesting
+        # without replacing a valid custom diameter with the reconstruction.
+        assert lens["mechanical_clear_bore_diameter_mm"] <= coil["mechanical_inner_diameter_mm"]
+        assert coil["mechanical_inner_diameter_mm"] < coil["mechanical_outer_diameter_mm"]
+        assert coil["mechanical_outer_diameter_mm"] <= yoke["mechanical_inner_diameter_mm"]
+        assert coil["parent_key"] == key
+        # Coil length is independently editable. Its persisted material
+        # envelope must remain centred and inside the surrounding hardware;
+        # it need not retain the initial reconstruction's axial fraction.
+        assert coil["length_mm"] > 0
+        assert coil["local_center_z_mm"] == pytest.approx(lens["local_center_z_mm"])
+        assert coil["local_start_z_mm"] == pytest.approx(
+            coil["local_center_z_mm"] - coil["length_mm"] / 2
         )
-        assert coil["mechanical_outer_diameter_mm"] == pytest.approx(
-            expected["coil_od"]
+        assert coil["local_end_z_mm"] == pytest.approx(
+            coil["local_center_z_mm"] + coil["length_mm"] / 2
         )
-        assert coil["length_mm"] == pytest.approx(expected["coil_length"])
+        assert housing["local_start_z_mm"] <= coil["local_start_z_mm"]
+        assert coil["local_end_z_mm"] <= housing["local_end_z_mm"]
 
         for pole in poles:
             assert pole["mechanical_outer_diameter_mm"] == pytest.approx(
@@ -849,7 +862,7 @@ def test_projector_manifests_use_compact_user_defined_envelopes(
             )
 
 
-def test_recording_manifest_rejects_nonuniform_projector_lens_gap():
+def test_recording_manifest_accepts_nonuniform_nonoverlapping_projector_lens_gap():
     path = (
         Path(__file__).parents[1]
         / "configs"
@@ -869,8 +882,8 @@ def test_recording_manifest_rejects_nonuniform_projector_lens_gap():
         "local_end_z_mm": 366.5,
     })
 
-    with pytest.raises(ValueError, match="requires 5 mm"):
-        validate_document(document)
+    validate_document(document)
+    assert intermediate["local_center_z_mm"] == 251.5
 
 
 def test_recording_manifest_requires_projector_geometry_provenance():

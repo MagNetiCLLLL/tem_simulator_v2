@@ -1,0 +1,106 @@
+format_version = 1
+catalog_type = "tem_support_grid"
+outer_diameter_mm = 3.05
+foil_thickness_um = 25.0
+rim_width_um = 375.0
+geometry_status = "commercial_nominal"
+geometry_source = "PELCO standard square-mesh TEM grids; 3.0-3.05 mm diameter, approximately 25 um thick, with approximately 350-400 um rim. The simulator uses 3.05 mm, 25 um and the rim-range midpoint for its first analytic grid model."
+geometry_source_url = "https://www.tedpella.com/grids_html/Pelco-TEM-Grids.aspx"
+
+[materials.vacuum]
+name = "Vacuum (virtual support)"
+atomic_number = 0
+density_g_cm3 = 0.0
+status = "ideal_virtual"
+
+[materials.copper]
+name = "Copper"
+atomic_number = 29
+density_g_cm3 = 8.96
+status = "elemental_bulk_density"
+
+[materials.gold]
+name = "Gold"
+atomic_number = 79
+density_g_cm3 = 19.32
+status = "elemental_bulk_density"
+
+[meshes.square_50]
+name = "50 mesh square"
+mesh_count_per_inch = 50
+pitch_um = 508.0
+hole_width_um = 425.0
+bar_width_um = 83.0
+open_area_percent = 70.0
+
+[meshes.square_75]
+name = "75 mesh square"
+mesh_count_per_inch = 75
+pitch_um = 339.0
+hole_width_um = 284.0
+bar_width_um = 55.0
+open_area_percent = 70.0
+
+[meshes.square_100]
+name = "100 mesh square"
+mesh_count_per_inch = 100
+pitch_um = 254.0
+hole_width_um = 204.0
+bar_width_um = 50.0
+open_area_percent = 65.0
+
+[meshes.square_150]
+name = "150 mesh square"
+mesh_count_per_inch = 150
+pitch_um = 169.0
+hole_width_um = 125.0
+bar_width_um = 44.0
+open_area_percent = 60.0
+
+[meshes.square_200]
+name = "200 mesh square"
+mesh_count_per_inch = 200
+pitch_um = 127.0
+hole_width_um = 90.0
+bar_width_um = 37.0
+open_area_percent = 50.0
+
+[meshes.square_200_eoa]
+name = "200 mesh square, extended open area"
+mesh_count_per_inch = 200
+pitch_um = 127.0
+hole_width_um = 106.0
+bar_width_um = 21.0
+open_area_percent = 69.0
+
+[meshes.square_300]
+name = "300 mesh square"
+mesh_count_per_inch = 300
+pitch_um = 85.0
+hole_width_um = 54.0
+bar_width_um = 31.0
+open_area_percent = 40.0
+
+[meshes.square_400]
+name = "400 mesh square"
+mesh_count_per_inch = 400
+pitch_um = 64.0
+hole_width_um = 38.0
+bar_width_um = 26.0
+open_area_percent = 35.0
+
+[meshes.square_400_eoa]
+name = "400 mesh square, extended open area"
+mesh_count_per_inch = 400
+pitch_um = 64.0
+hole_width_um = 45.0
+bar_width_um = 19.0
+open_area_percent = 48.0
+
+[meshes.square_500]
+name = "500 mesh square"
+mesh_count_per_inch = 500
+pitch_um = 51.0
+hole_width_um = 28.0
+bar_width_um = 23.0
+open_area_percent = 30.0

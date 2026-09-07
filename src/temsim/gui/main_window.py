@@ -71,7 +71,7 @@ from temsim.physics.compute_backend import (
     cupy_capability,
     cuda_capability,
 )
-from temsim.runtime_parameters import runtime_targets
+from temsim.runtime_parameters import editable_parameters, runtime_targets
 from temsim.simulation_modes import MODE_BY_KEY, mode_key, switch_mode, promote_custom_mode
 from temsim.gui.simulation_menu import SimulationMenu
 
@@ -111,6 +111,7 @@ class MainWindow(QMainWindow):
         self._anchors_by_key = {}
         self._selected_component_key = None
         self._selected_energy_filter_key = "energy_filter"
+        self._part_geometry_dialog = None
 
         self.workspace = VisualizationWorkspace(self)
         self.workspace.model_inspector.set_state(self.state)
@@ -247,6 +248,13 @@ class MainWindow(QMainWindow):
         self.parameter_panel.manifest_save_requested.connect(
             self._save_manifest_updates
         )
+        self.parameter_panel.geometry_edit_requested.connect(self._edit_part_geometry)
+        self.workspace.physical_layout.model_editor.component_selected.connect(
+            self._select_physical_component
+        )
+        self.workspace.physical_layout.component_activated.connect(
+            self._reveal_physical_model
+        )
         self.parameter_panel.error.connect(self._show_error)
         energy_filter_parameters = self.workspace.energy_filter_parameters
         energy_filter_parameters.runtime_changed.connect(
@@ -258,6 +266,7 @@ class MainWindow(QMainWindow):
         energy_filter_parameters.manifest_save_requested.connect(
             self._save_manifest_updates
         )
+        energy_filter_parameters.geometry_edit_requested.connect(self._edit_part_geometry)
         energy_filter_parameters.error.connect(
             self._show_error
         )
@@ -341,6 +350,8 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.open_profile_action)
         file_menu.addAction(self.save_profile_action)
         file_menu.addAction(self.reload_toml_action)
+        self.dimension_audit_action = file_menu.addAction("Dimension definitions and evidence audit…")
+        self.dimension_audit_action.triggered.connect(self._show_dimension_audit)
         file_menu.addSeparator()
         file_menu.addAction(self.exit_action)
         view_menu = self.menuBar().addMenu("View")
@@ -393,6 +404,28 @@ class MainWindow(QMainWindow):
             selected = MODE_BY_KEY[mode_key(self.state)]
             self.simulation_mode_label.setText(selected.label)
             self.simulation_mode_label.setToolTip(selected.detail)
+        self._refresh_parameter_simulation_context()
+
+    def _refresh_parameter_simulation_context(self):
+        if not hasattr(self, "workspace"):
+            return
+        parts = {part.key: {**part.data, "key": part.key, "parent_key": part.parent_key}
+                 for part in getattr(getattr(self, "assembly", None), "parts", ())}
+        mode = mode_key(self.state)
+        descriptors = self.state.lens_field_map_descriptors
+        for panel in (self.parameter_panel, self.workspace.energy_filter_parameters,
+                      self.workspace.physical_layout.model_editor):
+            panel.set_simulation_context(mode, descriptors, parts)
+        self.workspace.physical_layout.set_parameter_semantics_context(mode, descriptors, parts)
+        dialog = getattr(self, "_part_geometry_dialog", None)
+        if dialog is not None:
+            dialog.set_simulation_context(mode, descriptors, parts)
+
+    def _show_dimension_audit(self):
+        layout = self.workspace.physical_layout
+        self.workspace.tabs.setCurrentWidget(layout)
+        layout.tabs.setCurrentWidget(layout.model_editor)
+        return layout.model_editor.show_dimension_audit()
 
     def set_simulation_mode(self, key: str) -> None:
         try:
@@ -521,6 +554,12 @@ class MainWindow(QMainWindow):
         self._refresh_simulation_mode()
         self.workspace.model_inspector.set_state(self.state)
         self._runtime_targets = runtime_targets(self.state)
+        self.workspace.physical_layout.model_editor.set_project_context(
+            self.manifest_editor.root, self.assembly, self._save_model_document,
+            {key: {parameter.name: parameter.value for parameter in editable_parameters(target)}
+             for key, target in self._runtime_targets.items()},
+        )
+        self._refresh_parameter_simulation_context()
         # The persisted runtime key predates the explicit TOML part name.
         # Expose the same live object under the active assembly key so the
         # Objective Stigmator stays on the optical page with working controls.
@@ -845,12 +884,20 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 fields = ()
                 self._show_error(str(exc))
+        geometry_parent = None
+        if manifest_target is not None and manifest_target.part_key:
+            try:
+                selected_part = self.assembly.part(manifest_target.part_key)
+                geometry_parent = self.assembly.part(selected_part.data.get("parent_key")).data
+            except KeyError:
+                pass
         self.parameter_panel.set_context(
             selection.label,
             runtime_target,
             manifest_target,
             fields,
             self._anchors_by_key.get(selection.key),
+            geometry_parent=geometry_parent,
         )
         if not selection.is_module:
             try:
@@ -859,6 +906,7 @@ class MainWindow(QMainWindow):
                 pass
             else:
                 self.workspace.focus_component(part)
+                self.workspace.physical_layout.model_editor.focus_project_part(part)
         self.parameter_panel.set_lens_diagnostics(
             self.workspace.magnetic_field.diagnostic_text(selection.key)
         )
@@ -980,10 +1028,43 @@ class MainWindow(QMainWindow):
             )
         return True
 
+    def _select_physical_component(self, key: str):
+        """Synchronize geometry selection without opening another workspace."""
+        try:
+            part = self.assembly.part(str(key))
+        except KeyError:
+            return None
+        if not self.assembly_panel.select_key(part.key):
+            self._select_tree_item(TreeSelection(
+                key=part.key, label=part.name, module_path=part.source_file,
+            ))
+        self.parameter_panel.tabs.setCurrentIndex(0 if part.key in self._runtime_targets else 1)
+        if self.workspace.physical_layout.tabs.currentWidget() is self.workspace.physical_layout.section_page:
+            self.instrument_dock.show()
+            self.instrument_dock.raise_()
+        self.status_label.setText(f"Selected {part.name} from Physical Layout")
+        return part
+
+    def _reveal_physical_model(self, key: str, _z_mm: float) -> None:
+        part = self._select_physical_component(key)
+        if part is None:
+            return
+        layout = self.workspace.physical_layout
+        self.workspace.tabs.setCurrentWidget(layout)
+        layout.tabs.setCurrentWidget(layout.model_editor)
+        layout.model_editor.reveal_project_part(part)
+        if layout.model_editor._pending_part is None:
+            self.status_label.setText(f"Showing {part.name} in Physical Layout / 3D model editor")
+        else:
+            self.status_label.setText(layout.model_editor.status.text())
+
     def _select_component_from_workspace(self, key: str) -> None:
         """Open the left editor for a component clicked in a plot."""
 
         key = str(key)
+        if self.workspace.tabs.currentWidget() is self.workspace.physical_layout:
+            self._select_physical_component(key)
+            return
         if key == "sample":
             self.workspace.show_sample_page()
             self.status_label.setText(
@@ -1516,6 +1597,9 @@ class MainWindow(QMainWindow):
                 and self._interactive_preview_generation == self.calculations.generation)
 
     def schedule_preview(self, _parameter: str = "") -> None:
+        self.workspace.physical_layout.model_editor.set_calculation_status(
+            "stale", "Saved geometry, operating values or model settings changed; previous simulation results are out of date."
+        )
         if _parameter == "interactive_tuning":
             # Finish one ray frame while edits accumulate in live state. Keep
             # only a latest-value marker, not one job/snapshot per mouse event.
@@ -1543,6 +1627,10 @@ class MainWindow(QMainWindow):
         # Its generation must not be allowed to overwrite a newer manual edit.
         self._invalidate_direct_alignment()
         self._refresh_simulation_mode()
+        self.workspace.physical_layout.model_editor.set_runtime_values(
+            {key: {item.name: item.value for item in editable_parameters(target)}
+             for key, target in self._runtime_targets.items()}
+        )
         self.schedule_preview(parameter)
 
     def _invalidate_direct_alignment(self) -> None:
@@ -1674,6 +1762,7 @@ class MainWindow(QMainWindow):
             self._show_error(str(exc))
 
     def _calculation_started(self, quality: str) -> None:
+        self.workspace.physical_layout.model_editor.set_calculation_status("running", f"{quality} calculation running for the saved instrument and active model.")
         if quality == "High accuracy":
             self.progress.setRange(0, 1)
             self.progress.setValue(0)
@@ -1720,6 +1809,9 @@ class MainWindow(QMainWindow):
                     "Live tuning: completed ray frame displayed; newer settings pending")
                 return
         self.workspace.model_inspector.display_result(result)
+        self.workspace.physical_layout.model_editor.set_calculation_status(
+            "current", f"{quality} result matches the accepted simulation state. CAD-only features remain excluded from physics."
+        )
         self._schedule_design_explorer_refresh()
         if self._selected_component_key is not None:
             self.parameter_panel.set_lens_diagnostics(
@@ -1776,6 +1868,7 @@ class MainWindow(QMainWindow):
         )
 
     def _calculation_failed(self, quality: str, message: str) -> None:
+        self.workspace.physical_layout.model_editor.set_calculation_status("failed", f"{quality}: {message}. Previous results have not been replaced.")
         self._show_error(f"{quality} calculation failed: {message}")
         self._schedule_design_explorer_refresh()
 
@@ -1794,10 +1887,80 @@ class MainWindow(QMainWindow):
         self.assembly_panel.set_operating_mode_status(message)
         self.assembly_panel.operating_mode_status.setToolTip(message)
 
-    def _save_manifest_updates(self, target, updates) -> None:
+    def _save_model_document(self, path, updates):
+        relative = Path(path).resolve().relative_to(self.manifest_editor.root).as_posix()
+        page = self.workspace.physical_layout.model_editor
+        target = ManifestTarget(relative, page._selected_key)
+        drafts = [(panel, panel.manifest_draft_texts(target)) for panel in (
+            self.parameter_panel, self.workspace.energy_filter_parameters
+        )]
+        self._save_manifest_updates(target, updates, report_error=False)
+        for panel, draft in drafts:
+            panel.restore_manifest_draft_texts(target, draft)
+
+    def _edit_part_geometry(self, target):
+        from temsim import module_manifest
+        from temsim.gui.part_geometry_editor import GeometryEditorDialog
+        from temsim.part_geometry import geometry_from_part
+
+        if self._part_geometry_dialog is not None:
+            self._part_geometry_dialog.raise_()
+            self._part_geometry_dialog.activateWindow()
+            return self._part_geometry_dialog
+        try:
+            path = self.manifest_editor.root / target.module_path
+            original_document = module_manifest.read_document(path)
+            part = next(
+                part for part in original_document["parts"]
+                if part["key"] == target.part_key
+            )
+            by_key = {item["key"]: item for item in original_document["parts"]}
+            parent_part = by_key.get(part.get("parent_key"))
+            geometry_from_part(part, parent=parent_part)
+            neighbours = tuple(
+                other for other in original_document["parts"]
+                if other["key"] != part["key"]
+                and other.get("parent_key") == part.get("parent_key")
+            )
+
+            def apply_changes(updates):
+                nonlocal original_document
+                if module_manifest.read_document(path) != original_document:
+                    raise ValueError(
+                        "This module changed while the editor was open. Close and reopen "
+                        "Edit dimensions to load its current geometry before applying."
+                    )
+                drafts = [
+                    (panel, panel.manifest_draft_texts(target))
+                    for panel in (self.parameter_panel, self.workspace.energy_filter_parameters)
+                ]
+                self._save_manifest_updates(target, updates, report_error=False)
+                for panel, draft in drafts:
+                    panel.restore_manifest_draft_texts(target, draft)
+                original_document = module_manifest.read_document(path)
+
+            dialog = GeometryEditorDialog(
+                part, apply_changes, parent=self, neighbours=neighbours
+            )
+            dialog.set_simulation_context(mode_key(self.state), self.state.lens_field_map_descriptors, by_key)
+        except Exception as exc:
+            self._show_error(f"Unable to edit dimensions: {exc}")
+            return None
+        self._part_geometry_dialog = dialog
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+
+        def finished(_result):
+            self._part_geometry_dialog = None
+            dialog.deleteLater()
+
+        dialog.finished.connect(finished)
+        dialog.open()
+        return dialog
+
+    def _save_manifest_updates(self, target, updates, *, report_error=True) -> bool:
         if not updates:
             self.status_label.setText("No TOML values changed")
-            return
+            return True
         self._invalidate_direct_alignment()
         try:
             configuration = layout_configuration_from_state(self.state)
@@ -1823,6 +1986,8 @@ class MainWindow(QMainWindow):
             self.state = candidate_state
             self.assembly = candidate_assembly
             self._refresh_assembly_views()
+            if getattr(target, "part_key", None) is not None:
+                self.assembly_panel.select_key(target.part_key)
             self._mark_operating_preset_stale()
             self.status_label.setText(
                 f"Saved {Path(target.module_path).name}; lens strengths retained"
@@ -1833,8 +1998,12 @@ class MainWindow(QMainWindow):
                 "editing is complete."
             )
             self.schedule_preview()
+            return True
         except Exception as exc:
+            if not report_error:
+                raise
             self._show_error(f"TOML was not saved: {exc}")
+            return False
 
     def save_profile(self) -> None:
         path, _ = QFileDialog.getSaveFileName(

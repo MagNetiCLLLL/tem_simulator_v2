@@ -1,7 +1,7 @@
 import numpy as np
 import threading
 from types import SimpleNamespace
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, QSettings, Qt
 from PySide6.QtWidgets import QDockWidget, QDoubleSpinBox, QLabel, QPushButton
 import pyqtgraph as pg
 import pytest
@@ -2396,8 +2396,15 @@ def test_physical_layout_draws_multistage_accelerator_electrodes(
 
 
 def test_ray_plot_marks_every_component_centre_and_detected_crossover(
-    qtbot, monkeypatch
+    qtbot, monkeypatch, tmp_path
 ):
+    from temsim.gui import main_window as main_window_module
+
+    # This test owns a deterministic window and selection sequence. Other GUI
+    # tests must not restore their saved dock/tab/filter state into this window.
+    settings_path = str(tmp_path / "ray_plot_window.ini")
+    monkeypatch.setattr(main_window_module, "QSettings", lambda: QSettings(
+        settings_path, QSettings.Format.IniFormat))
     state = default_state()
     catalog = AssemblyCatalog()
     assembly = catalog.apply(state, catalog.default_selection())
@@ -2972,11 +2979,16 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     window.workspace._set_projection_angle(0.0)
 
     view_before_linked_z = window.workspace.plot.getViewBox().viewRange()
-    window.workspace.tabs.setCurrentIndex(1)
+    window.workspace.tabs.setCurrentWidget(window.workspace.physical_layout)
     window.workspace.physical_layout.axial_position_selected.emit(910.0)
-    assert window.workspace.tabs.currentIndex() == 0
+    assert window.workspace.tabs.currentWidget() is window.workspace.physical_layout
     assert window.workspace._last_result is traced_result
     assert window.workspace._selected_z_mm == pytest.approx(910.0)
+    assert window.workspace._transverse_focus_request == ("z", 910.0)
+    # The hidden transverse pane updates lazily; only this explicit user tab
+    # switch should reveal it, after Physical Layout has retained navigation.
+    window.workspace.tabs.setCurrentWidget(window.workspace.ray_page)
+    qtbot.waitUntil(lambda: window.workspace.transverse_beam._plane_z_mm == 910.0)
     assert window.workspace.transverse_beam._plane_z_mm == pytest.approx(910.0)
     assert "Z = 910" in window.workspace.transverse_beam.heading.text()
     assert window.workspace.axial_position.value() == pytest.approx(910.0)

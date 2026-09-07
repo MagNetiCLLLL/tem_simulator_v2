@@ -26,6 +26,7 @@ from temsim.mechanical_profiles import (
     MAGNETIC_EXCITATION_COIL,
     MAGNETIC_LENS_ASSEMBLY,
     MAGNETIC_LENS_HOUSING,
+    MAGNETIC_LENS_MECHANICAL_PROFILES,
     MAGNETIC_LENS_YOKE,
     MAGNETIC_POLE_PIECE,
     POST_PROJECTOR_DETECTOR_CHAMBER,
@@ -439,6 +440,13 @@ def _format_toml_value(value):
         return json.dumps(value, ensure_ascii=False)
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(_format_toml_value(item) for item in value) + "]"
+    if isinstance(value, dict):
+        if not all(isinstance(key, str) for key in value):
+            raise TypeError("TOML table keys must be strings")
+        return "{ " + ", ".join(
+            f"{json.dumps(key, ensure_ascii=False)} = {_format_toml_value(item)}"
+            for key, item in value.items()
+        ) + " }"
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
@@ -476,17 +484,92 @@ def _section_span(lines, header):
 
 def _part_span(lines, key):
     starts = [
-        index for index, line in enumerate(lines)
-        if line.strip() == "[[parts]]"
+        first for first, _, header in _toml_statement_spans(lines, 0, len(lines))
+        if lines[first].lstrip().startswith("[[") and header == ("parts",)
     ]
     for position, start in enumerate(starts):
         end = starts[position + 1] if position + 1 < len(starts) else len(lines)
-        key_pattern = re.compile(
-            rf'^\s*key\s*=\s*{re.escape(json.dumps(str(key)))}\s*$'
-        )
-        if any(key_pattern.match(lines[index].strip()) for index in range(start, end)):
+        parsed = tomllib.loads("".join(lines[start:end]))
+        if str(parsed["parts"][0]["key"]) == str(key):
             return start + 1, end
     raise ValueError(f"Missing TOML part {key!r}")
+
+
+def _table_header_path(line):
+    """Read a standalone table header, including quoted keys and comments."""
+    if not line.lstrip().startswith("["):
+        return None
+    try:
+        node = tomllib.loads(line.rstrip() + "\n__temsim_header_marker__ = 0\n")
+    except tomllib.TOMLDecodeError:
+        return None
+    path = []
+    while isinstance(node, (dict, list)):
+        if isinstance(node, list):
+            node = node[0]
+            continue
+        key = next(iter(node))
+        if key == "__temsim_header_marker__":
+            return tuple(path)
+        path.append(key)
+        node = node[key]
+    return None
+
+
+def _toml_statement_spans(lines, start, end):
+    """Yield complete assignments/headers, ignoring brackets inside values.
+
+    Parsing individual statements also keeps apparent headers inside multiline
+    arrays or strings from being mistaken for part/model table boundaries.
+    """
+    index = start
+    while index < end:
+        if not lines[index].strip() or lines[index].lstrip().startswith("#"):
+            index += 1
+            continue
+        header = _table_header_path(lines[index])
+        if header is not None:
+            yield index, index + 1, header
+            index += 1
+            continue
+        last = index + 1
+        while True:
+            try:
+                tomllib.loads("".join(lines[index:last]))
+            except tomllib.TOMLDecodeError:
+                if last >= end:
+                    raise
+                last += 1
+            else:
+                break
+        yield index, last, None
+        index = last
+
+
+def _replace_model_3d(lines, start, end, value, newline):
+    """Replace the complete optional CAD table, whether inline or expanded.
+
+    None is a deletion marker only for this optional field. Removed-feature
+    table comments remain in the source; unrelated tables retain their text.
+    """
+    if value is not None and not isinstance(value, dict):
+        raise ValueError("model_3d must be a table or None")
+    statements = list(_toml_statement_spans(lines, start, end))
+    headers = [(first, header) for first, _, header in statements if header is not None]
+    direct_end = headers[0][0] if headers else end
+    spans = []
+    assignment = re.compile(r'''^\s*(?:model_3d|"model_3d"|'model_3d')\s*(?:\.|=)''')
+    for first, last, header in statements:
+        if first < direct_end and header is None and assignment.match(lines[first]):
+            spans.append((first, last))
+    for offset, (index, path) in enumerate(headers):
+        if path[:2] == ("parts", "model_3d"):
+            last = headers[offset + 1][0] if offset + 1 < len(headers) else end
+            spans.append((index, last))
+    for first, last in sorted(spans, reverse=True):
+        lines[first:last] = [line for line in lines[first:last] if line.lstrip().startswith("#")]
+    if value is not None:
+        lines[start:start] = [f"model_3d = {_format_toml_value(value)}{newline}"]
 
 
 def stage_manifest_text(text, updates):
@@ -499,12 +582,21 @@ def stage_manifest_text(text, updates):
         if len(path) == 3 and path[0] == "parts":
             start, end = _part_span(lines, path[1])
             field = path[2]
+            if field == "model_3d":
+                _replace_model_3d(lines, start, end, value, newline)
+                continue
         elif len(path) >= 2:
             start, end = _section_span(lines, ".".join(path[:-1]))
             field = path[-1]
         else:
             raise ValueError(f"Invalid TOML update path: {path!r}")
-        first, last = _assignment_span(lines, start, end, field)
+        try:
+            first, last = _assignment_span(lines, start, end, field)
+        except ValueError:
+            if len(path) == 3 and path[0] == "parts" and field == "material_regions":
+                first = last = start
+            else:
+                raise
         indent = lines[first][:len(lines[first]) - len(lines[first].lstrip())]
         lines[first:last] = [
             f"{indent}{field} = {_format_toml_value(value)}{newline}"
@@ -696,6 +788,9 @@ def validate_document(document):
     if not math.isfinite(liner_wall) or liner_wall <= 0.0:
         raise ValueError("Vacuum liner wall thickness must be positive")
     _validate_aperture_mechanism_metadata(parts)
+    _validate_simple_magnetic_layer_geometry(parts)
+    from temsim.part_materials import validate_part_materials
+    validate_part_materials(parts)
     from temsim.magnetic_circuits import validate_circuit_declarations
     validate_circuit_declarations(parts)
     _validate_accelerator_stack_metadata(parts)
@@ -738,6 +833,17 @@ def validate_document(document):
             "Module length mismatch: "
             f"length_mm={length}, port_span={exit_z - entrance}"
         )
+    if any("model_3d" in part for part in parts):
+        from temsim.part_model_features import validate_model_3d
+        from temsim.part_model_3d import part_model_from_document
+
+        for part in parts:
+            if "model_3d" not in part:
+                continue
+            validate_model_3d(part)
+            # Confirm cuts produce real, nonempty geometry. This does not make
+            # the existing axisymmetric physics consume an arbitrary CAD model.
+            part_model_from_document(document, part["key"], include_children=False)
     return document
 
 
@@ -2636,7 +2742,11 @@ def _validate_column_mechanical_overlaps(parts):
 
 
 def _validate_projector_lens_clearances(parts, geometry):
-    """Require a compact, uniform-bore D-I-P1-P2 projector stack."""
+    """Require non-overlapping housings and a uniform-bore D-I-P1-P2 stack.
+
+    The configured inter-lens gap is the nominal default design value.
+    Custom housing lengths may change actual gaps without moving lens centres.
+    """
 
     tolerance = 1.0e-9
     by_key = {str(part["key"]): part for part in parts}
@@ -2651,16 +2761,16 @@ def _validate_projector_lens_clearances(parts, geometry):
         raise ValueError(
             "Missing projector-stack geometry: " + ", ".join(missing)
         )
-    required_clearance = float(geometry["projector_stack_inter_lens_gap_mm"])
+    nominal_clearance = float(geometry["projector_stack_inter_lens_gap_mm"])
     vacuum_diameter = float(
         geometry["projector_stack_vacuum_inner_diameter_mm"]
     )
     if (
-        not math.isfinite(required_clearance)
-        or not 0.0 <= required_clearance <= 10.0
+        not math.isfinite(nominal_clearance)
+        or not 0.0 <= nominal_clearance <= 10.0
     ):
         raise ValueError(
-            "Projector-stack inter-lens gap must be between 0 and 10 mm"
+            "Projector-stack nominal inter-lens gap must be between 0 and 10 mm"
         )
     if not math.isfinite(vacuum_diameter) or vacuum_diameter <= 0.0:
         raise ValueError(
@@ -2692,16 +2802,12 @@ def _validate_projector_lens_clearances(parts, geometry):
             float(downstream["local_start_z_mm"])
             - float(upstream["local_end_z_mm"])
         )
-        if not math.isclose(
-            clearance,
-            required_clearance,
-            rel_tol=0.0,
-            abs_tol=tolerance,
-        ):
+        if not math.isfinite(clearance) or clearance < 0.0:
             raise ValueError(
-                f"Non-uniform mechanical clearance between {upstream_key} "
+                f"Invalid mechanical clearance between {upstream_key} "
                 f"and {downstream_key}: {clearance:.9g} mm; "
-                f"requires {required_clearance:.9g} mm"
+                "actual housing gap must be finite and non-negative "
+                f"(nominal design gap: {nominal_clearance:.9g} mm)"
             )
     stack_keys = set()
     for lens_key in sequence:
@@ -2721,9 +2827,19 @@ def _validate_projector_lens_clearances(parts, geometry):
         if not math.isclose(
             actual, vacuum_diameter, rel_tol=0.0, abs_tol=tolerance
         ):
+            dimension_hint = ""
+            if (
+                part.get("mechanical_profile") in MAGNETIC_LENS_MECHANICAL_PROFILES
+                and "magnetic_radial_profile_mm" not in part
+            ):
+                dimension_hint = (
+                    "; vacuum ID is the beam passage, not material thickness. "
+                    "Use Edit dimensions to adjust mechanical_inner_diameter_mm / "
+                    "mechanical_outer_diameter_mm"
+                )
             raise ValueError(
                 f"{key} vacuum ID {actual:g} mm does not match projector "
-                f"stack {vacuum_diameter:g} mm"
+                f"stack {vacuum_diameter:g} mm{dimension_hint}"
             )
 
 
@@ -2895,6 +3011,96 @@ def _validate_two_pole_lens_assemblies(parts):
                 f"{lens_key} pole pieces must fit its envelope and bound "
                 "its declared pole gap"
             )
+
+
+def _validate_simple_magnetic_layer_geometry(parts):
+    """Validate physical annular layers independently of legacy sizing recipes.
+
+    Vacuum clearance and material ID describe different boundaries. Shared
+    structures and explicit radial profiles retain their dedicated geometry
+    checks; their envelopes are not treated as solid concentric cylinders.
+    """
+    from temsim.magnetic_circuits import optical_owner
+    from temsim.magnetic_geometry import objective_layer_intervals_mm
+
+    tolerance = 1.0e-9
+    by_key = {str(part["key"]): part for part in parts}
+    layers_by_owner = {}
+    for part in parts:
+        profile = part.get("mechanical_profile")
+        if profile not in MAGNETIC_LENS_MECHANICAL_PROFILES:
+            continue
+        key = str(part["key"])
+        dimensions = {}
+        for field in (
+            "local_start_z_mm", "local_center_z_mm", "local_end_z_mm",
+            "length_mm", "mechanical_inner_diameter_mm",
+            "mechanical_outer_diameter_mm", "vacuum_inner_diameter_mm",
+        ):
+            try:
+                value = float(part[field])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(f"{key}.{field} must be a finite number in mm") from exc
+            if not math.isfinite(value):
+                raise ValueError(f"{key}.{field} must be a finite number in mm")
+            dimensions[field] = value
+        if dimensions["length_mm"] <= 0.0:
+            raise ValueError(f"{key}.length_mm must be positive")
+        inner = dimensions["mechanical_inner_diameter_mm"]
+        outer = dimensions["mechanical_outer_diameter_mm"]
+        vacuum = dimensions["vacuum_inner_diameter_mm"]
+        if not 0.0 <= inner < outer:
+            raise ValueError(
+                f"{key}: mechanical diameters require 0 <= ID < OD "
+                f"(ID={inner:g} mm, OD={outer:g} mm)"
+            )
+        if vacuum <= 0.0 or inner < vacuum - tolerance:
+            raise ValueError(
+                f"{key}: mechanical ID {inner:g} mm must clear the positive "
+                f"vacuum ID {vacuum:g} mm; edit mechanical ID/OD to change wall thickness"
+            )
+        material = part.get("material_class")
+        if not isinstance(material, str) or not material.strip():
+            raise ValueError(f"{key}.material_class must be a non-empty material class")
+
+        owner_key = optical_owner(part, by_key)
+        if owner_key is None:
+            continue
+        owner = by_key[owner_key]
+        if (
+            "magnetic_radial_profile_mm" in part
+            or part.get("magnetic_lens_keys")
+            or part.get("shared_housing_key")
+            or owner.get("shared_housing_key")
+            or owner.get("magnetic_circuit_topology") == "shared_pole_multi_gap"
+        ):
+            continue
+        intervals = ()
+        if profile in {MAGNETIC_LENS_YOKE, MAGNETIC_EXCITATION_COIL}:
+            parent = by_key[str(part["parent_key"])]
+            intervals = objective_layer_intervals_mm(
+                parent, float(parent["local_start_z_mm"]), profile
+            )
+        if not intervals:
+            intervals = ((dimensions["local_start_z_mm"], dimensions["local_end_z_mm"]),)
+        layers_by_owner.setdefault(owner_key, []).append((part, inner, outer, intervals))
+
+    for layers in layers_by_owner.values():
+        for index, (first, first_inner, first_outer, first_intervals) in enumerate(layers):
+            for second, second_inner, second_outer, second_intervals in layers[index + 1:]:
+                if min(first_outer, second_outer) - max(first_inner, second_inner) <= tolerance:
+                    continue
+                for first_start, first_end in first_intervals:
+                    for second_start, second_end in second_intervals:
+                        start, end = max(first_start, second_start), min(first_end, second_end)
+                        if end - start > tolerance:
+                            raise ValueError(
+                                f"Mechanical radial layers overlap: {first['key']} "
+                                f"(ID/OD {first_inner:g}/{first_outer:g} mm) and "
+                                f"{second['key']} (ID/OD {second_inner:g}/{second_outer:g} mm) "
+                                f"at module Z {start:g}..{end:g} mm; "
+                                "adjust mechanical ID/OD or separate the parts axially"
+                            )
 
 
 def _validate_magnetic_lens_mechanical_parts(parts, geometry):

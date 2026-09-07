@@ -1,0 +1,53 @@
+{
+  "axis_order": [
+    "scan_y",
+    "scan_x",
+    "detector_y",
+    "detector_x"
+  ],
+  "calibration_sha256": "7361ca5c1cf61bc824606c9d45adb5b0315c849e8978d42923125e42a0934581",
+  "completed_frames": 3,
+  "detector_coordinate": "signed_scattering_angle",
+  "detector_coordinate_unit": "mrad",
+  "detector_response": {
+    "charge_spread_sigma_px_xy": [
+      0.0,
+      0.0
+    ],
+    "dark_electrons_per_pixel": 0.0,
+    "gain_counts_per_electron": 1.0,
+    "model": "qe_charge_spread_dark_poisson_read_noise_saturation_gain_v1",
+    "offset_counts": 0.0,
+    "poisson_enabled": true,
+    "quantum_efficiency": 1.0,
+    "read_noise_electrons_rms": 0.2,
+    "saturation_electrons": null,
+    "seed": 991,
+    "status": "synthetic_unit_test",
+    "transport_neutral": false
+  },
+  "dtype": "<f4",
+  "format": "temsim_4dstem_npy",
+  "format_version": 1,
+  "provenance": {},
+  "record_plane_plan_fingerprint": null,
+  "resolved_geometry_fingerprint": null,
+  "rng_state": {
+    "bit_generator": "PCG64",
+    "has_uint32": 0,
+    "state": {
+      "inc": 155294120264020348963486103318767497121,
+      "state": 175041410988695220633194466808876617484
+    },
+    "uinteger": 0
+  },
+  "scan_coordinate_unit": "um",
+  "shape": [
+    1,
+    3,
+    3,
+    3
+  ],
+  "status": "complete",
+  "total_frames": 3
+}

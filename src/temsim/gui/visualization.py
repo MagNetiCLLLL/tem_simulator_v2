@@ -723,8 +723,9 @@ class VisualizationWorkspace(QWidget):
             "Double-click any axial plot to update Transverse X-Y"
         )
         navigation_hint.setToolTip(
-            "Double-click an axial position in Ray Diagram, Physical Layout, "
-            "or Magnetic Field to update the Transverse X-Y panel on the right."
+            "Double-click in Ray Diagram or Magnetic Field to inspect an axial position. "
+            "Physical Layout double-clicks locate the component in the 3D editor "
+            "and retain the selected axial position here."
         )
         navigation_hint.setWordWrap(True)
         navigation_hint.setStyleSheet("color: #64748b; font-weight: 600;")
@@ -1128,7 +1129,7 @@ class VisualizationWorkspace(QWidget):
             self._scan_playback_active_changed
         )
         self.physical_layout.axial_position_selected.connect(
-            self.jump_to_ray_position
+            lambda z_mm: self.jump_to_ray_position(z_mm, activate_tab=False)
         )
         self.magnetic_field.axial_position_selected.connect(
             self.jump_to_ray_position

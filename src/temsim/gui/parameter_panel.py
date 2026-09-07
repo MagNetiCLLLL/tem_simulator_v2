@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from temsim.gui.input_policy import (
     WheelSafeComboBox as QComboBox,
     WheelSafeDoubleSpinBox as QDoubleSpinBox,
@@ -18,6 +20,7 @@ from PySide6.QtWidgets import (
     QLayout,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -26,19 +29,26 @@ from PySide6.QtWidgets import (
 )
 
 from temsim.component_keys import ENERGY_FILTER_SLIT, FIXED_APERTURE_KEYS
-from temsim.manifest_editor import format_toml_value, parse_toml_value
+from temsim.manifest_editor import (
+    format_toml_value,
+    parse_toml_value,
+    resized_part_axial_coordinates,
+)
 from temsim.runtime_parameters import (
     convert_runtime_value,
     editable_parameters,
     validate_runtime_assignment,
 )
 from temsim.optics.aberrations import intrinsic_lens_aberration_profile
+from temsim.part_geometry import geometry_from_part
+from temsim.mechanical_profiles import MAGNETIC_LENS_MECHANICAL_PROFILES
 
 
 class ParameterPanel(QWidget):
     runtime_changed = Signal(str)
     energy_filter_match_requested = Signal()
     manifest_save_requested = Signal(object, object)
+    geometry_edit_requested = Signal(object)
     error = Signal(str)
 
     def __init__(self, parent=None) -> None:
@@ -49,6 +59,9 @@ class ParameterPanel(QWidget):
         self._manifest_target = None
         self._manifest_fields = ()
         self._updating = False
+        self._simulation_mode = None
+        self._simulation_descriptors = None
+        self._semantic_by_key = {}
 
         self.title = QLabel("Parameters")
         self.title.setObjectName("parameterTitle")
@@ -217,6 +230,17 @@ class ParameterPanel(QWidget):
         )
         self.energy_filter_box.hide()
 
+        self.geometry_box = QGroupBox("Saved mechanical dimensions")
+        geometry_layout = QVBoxLayout(self.geometry_box)
+        self.geometry_summary = QLabel()
+        self.geometry_summary.setWordWrap(True)
+        self.geometry_edit_button = QPushButton("Edit dimensions…")
+        self.geometry_edit_button.setObjectName("editPartDimensionsButton")
+        self.geometry_edit_button.clicked.connect(self._request_geometry_editor)
+        geometry_layout.addWidget(self.geometry_summary)
+        geometry_layout.addWidget(self.geometry_edit_button)
+        self.geometry_box.hide()
+
         self.tabs = QTabWidget()
         self.runtime_table = self._table(("Operating parameter", "Value"))
         self.manifest_table = self._table(("TOML parameter", "Value"))
@@ -227,6 +251,10 @@ class ParameterPanel(QWidget):
         manifest_page = QWidget()
         manifest_layout = QVBoxLayout(manifest_page)
         manifest_layout.setContentsMargins(0, 0, 0, 0)
+        self.manifest_draft_notice = QLabel()
+        self.manifest_draft_notice.setWordWrap(True)
+        self.manifest_draft_notice.hide()
+        manifest_layout.addWidget(self.manifest_draft_notice)
         manifest_layout.addWidget(self.manifest_table, 1)
         self.save_manifest_button = QPushButton("Validate and save TOML")
         self.save_manifest_button.clicked.connect(self._save_manifest)
@@ -235,6 +263,16 @@ class ParameterPanel(QWidget):
         self.tabs.addTab(self.anchor_table, "Anchors")
 
         self.runtime_table.itemChanged.connect(self._runtime_item_changed)
+        self.manifest_table.itemChanged.connect(self._manifest_item_changed)
+        self.runtime_table.currentCellChanged.connect(self._refresh_parameter_details)
+        self.manifest_table.currentCellChanged.connect(self._refresh_parameter_details)
+        self.tabs.currentChanged.connect(self._refresh_parameter_details)
+        self.parameter_details = QLabel()
+        self.parameter_details.setObjectName("parameterMeaningDetails")
+        self.parameter_details.setTextFormat(Qt.TextFormat.PlainText)
+        self.parameter_details.setWordWrap(True)
+        self.parameter_details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.parameter_details.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
 
         # Device controls are populated dynamically. Keep their natural size
         # in a scrollable content widget so a long component editor does not
@@ -249,7 +287,9 @@ class ParameterPanel(QWidget):
         content_layout.addWidget(self.lens_box)
         content_layout.addWidget(self.quick_box)
         content_layout.addWidget(self.energy_filter_box)
+        content_layout.addWidget(self.geometry_box)
         content_layout.addWidget(self.tabs, 1)
+        content_layout.addWidget(self.parameter_details)
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setObjectName("parameterScrollArea")
@@ -263,6 +303,67 @@ class ParameterPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.scroll_area)
+        self._refresh_parameter_details()
+
+    def set_simulation_context(self, mode=None, descriptors=None, by_key=None):
+        """Refresh explanations without rebuilding editors or touching drafts."""
+        self._simulation_mode = mode
+        self._simulation_descriptors = descriptors
+        self._semantic_by_key = dict(by_key or {})
+        self._refresh_parameter_details()
+
+    def _semantic_part(self, path):
+        key = path[1] if len(path) >= 3 and path[0] in {"parts", "runtime"} else None
+        candidate = self._semantic_by_key.get(key)
+        if candidate is not None:
+            return candidate if isinstance(candidate, Mapping) else candidate.data
+        part = {field.path[2]: field.value for field in self._manifest_fields
+                if len(field.path) == 3 and field.path[:2] == ("parts", key)}
+        if key is not None:
+            part.setdefault("key", key)
+        return part
+
+    def _refresh_parameter_details(self, *_args):
+        if not hasattr(self, "parameter_details"):
+            return
+        index = self.tabs.currentIndex()
+        self.parameter_details.setVisible(index in {0, 1})
+        if index not in {0, 1}:
+            return
+        table = self.runtime_table if index == 0 else self.manifest_table
+        row = table.currentRow()
+        meaning = None
+        if row < 0 or table.item(row, 0) is None:
+            self.parameter_details.setText("Select a parameter to see its meaning, source and simulation impact.")
+            return
+        if index == 0:
+            if self._runtime_target is None:
+                return
+            path = ("runtime", self._runtime_target.key, table.item(row, 0).text())
+        else:
+            value = table.item(row, 1)
+            if value is None:
+                return
+            path = tuple(value.data(Qt.ItemDataRole.UserRole) or ())
+            meaning = next((getattr(field, "meaning", None) for field in self._manifest_fields
+                            if tuple(field.path) == path), None)
+        from temsim.parameter_semantics import describe_parameter
+        from temsim.parameter_impact import describe_parameter_impact
+
+        part = self._semantic_part(path)
+        meaning = meaning or describe_parameter(part, path, by_key=self._semantic_by_key)
+        impact = describe_parameter_impact(part, path, by_key=self._semantic_by_key,
+            simulation_mode=self._simulation_mode, descriptors=self._simulation_descriptors)
+        mode = getattr(self._simulation_mode, "value", self._simulation_mode)
+        mode_text = str(mode) if mode is not None else "not connected"
+        details = [meaning.label + (f" ({meaning.unit})" if meaning.unit else ""),
+                   f"Category: {meaning.category_label}",
+                   f"Source: {meaning.source_label}. {meaning.source_note}", meaning.description,
+                   f"Simulation mode: {mode_text}. Impact: {impact.label}. {impact.detail}"]
+        if impact.affected_results:
+            details.append("Affected results: " + ", ".join(impact.affected_results))
+        self.parameter_details.setText("\n".join(line for line in details if line))
+        self.parameter_details.setToolTip(self.parameter_details.text())
 
     def refresh_runtime_values(self) -> None:
         """Refresh retained controls after a model-shelf switch, without edits."""
@@ -336,6 +437,7 @@ class ParameterPanel(QWidget):
         manifest_target,
         manifest_fields,
         anchor_record,
+        *, geometry_parent=None,
     ) -> None:
         self._updating = True
         try:
@@ -343,14 +445,17 @@ class ParameterPanel(QWidget):
             self._runtime_target = runtime_target
             self._manifest_target = manifest_target
             self._manifest_fields = tuple(manifest_fields)
+            self._geometry_parent = geometry_parent
             self._load_runtime()
             self._load_manifest()
+            self._load_geometry_controls()
             self._load_anchor(anchor_record)
             self._load_lens_controls()
             self._load_quick_controls()
             self._load_energy_filter_controls()
         finally:
             self._updating = False
+        self._refresh_parameter_details()
         # Visibility and row-count changes alter the content height.  Activate
         # the layout now so the scrollbar is correct immediately; previously
         # a window-state change was often the first event that forced this
@@ -740,19 +845,181 @@ class ParameterPanel(QWidget):
             self.runtime_table.setItem(row, 0, name)
             self.runtime_table.setItem(row, 1, value)
 
+    def _load_geometry_controls(self) -> None:
+        target = self._manifest_target
+        part = {
+            field.path[2]: field.value
+            for field in self._manifest_fields
+            if target is not None and len(field.path) == 3
+            and field.path[:2] == ("parts", target.part_key)
+        }
+        visible = part.get("mechanical_profile") in MAGNETIC_LENS_MECHANICAL_PROFILES
+        self.geometry_box.setVisible(visible)
+        self.geometry_edit_button.setEnabled(False)
+        if not visible:
+            return
+        try:
+            geometry = geometry_from_part(part, parent=self._geometry_parent)
+        except ValueError as exc:
+            self.geometry_summary.setText(str(exc))
+            return
+        self.geometry_summary.setText(
+            f"Length {geometry.length_mm:.9g} mm · ID {geometry.inner_diameter_mm:.9g} mm"
+            f" · OD {geometry.outer_diameter_mm:.9g} mm\n"
+            f"Radial thickness {geometry.thickness_mm:.9g} mm. "
+            f"Beam passage {geometry.vacuum_inner_diameter_mm:.9g} mm."
+        )
+        self.geometry_edit_button.setEnabled(True)
+        self.geometry_edit_button.setToolTip(
+            "Edit the saved part's axisymmetric section using dimensions or drag handles. "
+            "The centre stays fixed. Uncommitted TOML table edits are not imported."
+        )
+
+    def _request_geometry_editor(self) -> None:
+        if self._manifest_target is not None and self.geometry_edit_button.isEnabled():
+            self.geometry_edit_requested.emit(self._manifest_target)
+
+    def manifest_draft_texts(self, target):
+        """Preserve even invalid text without treating it as a geometry edit."""
+        if self._manifest_target != target:
+            return {}
+        original = {field.path: format_toml_value(field.value) for field in self._manifest_fields}
+        draft = {}
+        for row in range(self.manifest_table.rowCount()):
+            item = self.manifest_table.item(row, 1)
+            path = tuple(item.data(Qt.ItemDataRole.UserRole) or ())
+            if path in original and item.text() != original[path]:
+                draft[path] = item.text()
+        return draft
+
+    def restore_manifest_draft_texts(self, target, draft):
+        if self._manifest_target != target or not draft:
+            return
+        blocked = self.manifest_table.blockSignals(True)
+        try:
+            for row in range(self.manifest_table.rowCount()):
+                item = self.manifest_table.item(row, 1)
+                path = tuple(item.data(Qt.ItemDataRole.UserRole) or ())
+                if path in draft:
+                    item.setText(draft[path])
+        finally:
+            self.manifest_table.blockSignals(blocked)
+        if not self.manifest_draft_texts(target):
+            self.manifest_draft_notice.hide()
+            return
+        self.manifest_draft_notice.setText(
+            "Your earlier TOML table edits are retained here and remain unsaved. "
+            "Saved mechanical dimensions above shows the applied geometry."
+        )
+        self.manifest_draft_notice.show()
+
     def _load_manifest(self) -> None:
-        self.manifest_table.setRowCount(len(self._manifest_fields))
-        for row, field in enumerate(self._manifest_fields):
-            label = QTableWidgetItem(field.label)
-            label.setFlags(label.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            value = QTableWidgetItem(format_toml_value(field.value))
-            value.setData(Qt.ItemDataRole.UserRole, field.path)
-            if not field.editable:
-                value.setFlags(value.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                value.setForeground(Qt.GlobalColor.gray)
-            self.manifest_table.setItem(row, 0, label)
-            self.manifest_table.setItem(row, 1, value)
+        self.manifest_draft_notice.hide()
+        blocked = self.manifest_table.blockSignals(True)
+        try:
+            self.manifest_table.setRowCount(len(self._manifest_fields))
+            for row, field in enumerate(self._manifest_fields):
+                label = QTableWidgetItem(field.label)
+                label.setFlags(label.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                value = QTableWidgetItem(format_toml_value(field.value))
+                value.setData(Qt.ItemDataRole.UserRole, field.path)
+                if not field.editable:
+                    value.setFlags(value.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    value.setForeground(Qt.GlobalColor.gray)
+                if len(field.path) == 3 and field.path[0] == "parts":
+                    if field.path[2] == "length_mm":
+                        tooltip = (
+                            "Changing length keeps local_center_z_mm fixed and "
+                            "updates local_start_z_mm and local_end_z_mm, preserving "
+                            "the centre's relative position within the part. Gaps "
+                            "to neighbouring parts may change. Use Validate and "
+                            "save TOML to apply the edit."
+                        )
+                    elif field.path[2] in {"local_start_z_mm", "local_end_z_mm"}:
+                        tooltip = (
+                            "Updated automatically when this part's length_mm "
+                            "changes, with local_center_z_mm held fixed. Gaps to "
+                            "neighbouring parts may change. This coordinate can "
+                            "also be edited directly."
+                        )
+                    elif field.path[2] == "vacuum_inner_diameter_mm":
+                        tooltip = (
+                            "Electron-beam passage diameter, not material thickness. "
+                            "Use Edit dimensions or mechanical_inner_diameter_mm / "
+                            "mechanical_outer_diameter_mm to change the coil or wall thickness."
+                        )
+                    elif field.path[2] in {
+                        "mechanical_inner_diameter_mm", "mechanical_outer_diameter_mm"
+                    }:
+                        tooltip = (
+                            "Material diameter. Radial thickness = (outer diameter - "
+                            "inner diameter) / 2. Use Edit dimensions for a section preview."
+                        )
+                    else:
+                        tooltip = ""
+                    meaning = getattr(field, "meaning", None)
+                    if meaning is not None:
+                        interaction = tooltip if field.path[2] in {
+                            "length_mm", "local_start_z_mm", "local_end_z_mm", "vacuum_inner_diameter_mm"
+                        } else ""
+                        if meaning.category == "physical" and field.path[2] in {
+                            "mechanical_inner_diameter_mm", "mechanical_outer_diameter_mm"
+                        }:
+                            interaction = tooltip
+                        tooltip = "\n".join(filter(None, (
+                            "TOML key: " + field.label, meaning.label, "Category: " + meaning.category_label,
+                            "Source: " + meaning.source_label + ". " + meaning.source_note,
+                            meaning.description, interaction,
+                        )))
+                    label.setToolTip(tooltip)
+                    value.setToolTip(tooltip)
+                self.manifest_table.setItem(row, 0, label)
+                self.manifest_table.setItem(row, 1, value)
+        finally:
+            self.manifest_table.blockSignals(blocked)
         self.save_manifest_button.setEnabled(self._manifest_target is not None)
+
+    def _manifest_item_changed(self, item: QTableWidgetItem) -> None:
+        if (
+            self._updating
+            or self._manifest_target is None
+            or item.column() != 1
+            or not item.flags() & Qt.ItemFlag.ItemIsEditable
+        ):
+            return
+        path = tuple(item.data(Qt.ItemDataRole.UserRole) or ())
+        if len(path) != 3 or path[0] != "parts" or path[2] != "length_mm":
+            return
+        coordinates = {}
+        for row in range(self.manifest_table.rowCount()):
+            candidate = self.manifest_table.item(row, 1)
+            candidate_path = tuple(candidate.data(Qt.ItemDataRole.UserRole) or ())
+            if (
+                len(candidate_path) == 3
+                and candidate_path[:2] == path[:2]
+                and candidate_path[2] in {
+                    "local_start_z_mm", "local_center_z_mm", "local_end_z_mm"
+                }
+            ):
+                coordinates[candidate_path[2]] = candidate
+        if len(coordinates) != 3:
+            return
+        try:
+            part = {
+                name: parse_toml_value(coordinate.text())
+                for name, coordinate in coordinates.items()
+            }
+            updates = resized_part_axial_coordinates(part, parse_toml_value(item.text()))
+            rendered = {name: format_toml_value(value) for name, value in updates.items()}
+        except (TypeError, ValueError, OverflowError):
+            # Keep invalid input visible for the existing Save validation path.
+            return
+        blocked = self.manifest_table.blockSignals(True)
+        try:
+            for name, text in rendered.items():
+                coordinates[name].setText(text)
+        finally:
+            self.manifest_table.blockSignals(blocked)
 
     def _load_anchor(self, record) -> None:
         rows = []

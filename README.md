@@ -24,6 +24,118 @@ See [Ray interaction and cache settings](docs/RAY_INTERACTION_PERFORMANCE.md).
 Preview/Medium prepares requests in the background. Hidden Physical Layout,
 Magnetic Field and Transverse panels refresh only when opened.
 
+## Mechanical dimensions
+
+Dimension meaning, evidence and calculation use are shared across Physical
+Layout, the 3D inspector and the TOML panel. The 3D **Use** column explains
+whether the active mode consumes a parameter, requires field setup or excludes
+CAD geometry. A separate status tracks drafts and stale/running/current results.
+Open **File > Dimension definitions and evidence audit…** or **Dimension audit…**
+in the 3D editor to inspect and export the saved catalog without changing its
+values. See [Parameter definitions and calculation use](docs/PARAMETER_DEFINITIONS.md).
+
+**Physical Layout** now contains **2D section** and **3D model editor** subtabs.
+Double-click a component or its label in the 2D section to select and centre it
+in the 3D editor. Double-clicking empty space locates the nearest component.
+Selections remain highlighted when switching tabs manually; Ray Diagram also
+  retains the clicked axial position without opening automatically.
+In the 3D editor, select an active module or use **Open TOML…** to open an
+instrument module file. Choose a component in the tree or click its surface.
+The module selector follows the opened file; the source label also identifies
+the current component. Components within one module share one TOML. Choosing a
+different module opens it immediately, unless an unresolved draft needs saving
+or reverting first.
+Drag to rotate freely, right-drag to pan, and scroll to zoom. **Axial view**
+looks through the existing bore; **Section** clips the view to reveal internal
+surfaces. **Selected part**, **Part + neighbours** and **Entire module** control
+the displayed context.
+
+The **Dimensions** pane edits existing lengths, diameters, pole bores and
+dimension arrays. Length edits retain the axial centre; parent-owned split
+coils/yokes expose their actual parent section dimensions. Where a file has a
+hole-diameter array, the hole selector previews one existing hole at a time.
+Existing hole arrays do not imply unprovided hole positions. Unsupported
+mechanisms are labelled as envelopes; missing geometry remains unrendered.
+**All parameters** shows component, parent, child, module and available operating
+values. The latter are read-only.
+
+Perforated-strip apertures show their configured plate thickness, independently
+of the mechanism envelope. For example, C2's 80 mm envelope diameter and 20 mm
+envelope length do not describe its 0.2 mm thin plate. The strip outline is
+schematic because its transverse dimensions are not specified. **Carrier bore
+diameter** is separate from **Working opening diameter**, which follows the
+active aperture's operating control (100 µm is 0.1 mm). Selecting a plate face
+highlights thickness and opening; editing thickness updates the preview without
+changing the mechanism envelope. External TOML files do not borrow operating
+openings from the active instrument, and an unspecified working hole is not
+filled in from the carrier bore.
+
+Use **Select faces** or **Select edges** below the viewport to highlight the
+corresponding dimension rows and entries in **All parameters**. A face or edge
+can control several parameters; Ctrl-click selects multiple visible items.
+The selector uses visible surfaces and semantic boundaries, without treating
+triangulation diagonals as component edges.
+
+**Features** provides an explicit box or elliptic-cylinder base, or
+keeps the existing component solid. **Dimensions** exposes independent X/Y
+scale, translation and rotation for non-axisymmetric designs. Explicit base
+dimensions control the displayed CAD solid; original assembly
+values remain available in **All parameters**. **Add hole…** and
+**Add slot / groove…** subtract cylindrical or rounded-slot tools from the
+solid. Their positions start from the selected face/edge when available and
+can be edited numerically. Features have stable IDs, an X/Y/Z cut axis, depth,
+position and tool dimensions; slot rotation is around its cut axis. Depth is
+centred on the feature position: extend it across the body for a through cut,
+or place a shorter tool across a surface for a blind hole or groove. **Edit
+feature…**, **Remove feature**, **Undo** and **Redo** manage the feature list.
+
+The new geometry is stored under each part's `model_3d` table. Positions are
+relative to the component centre before model transforms; rotations apply X,
+then Y, then Z. Boolean cuts are validated as closed solids on Save. Editing
+an uncalibrated envelope requires choosing an explicit base before machining.
+This is a mechanical design model: existing ray clearances and axisymmetric
+field solvers still use their original physical parameters and do not infer
+new fields or collision geometry from these 3D cuts or transforms.
+
+**Materials** assigns a material to an existing component or its upper/lower
+region. Assignments are stored as source snapshots in `material_regions`.
+Magnetic solid assignments participate in linear/B-H geometry solvers; other
+components retain material metadata with an explicit scope message. Copper,
+aluminum and nonmagnetic stainless steel use the stated static permeability-one
+approximation, without conductivity or thermal properties. Analytic/ideal
+fields are unchanged by these assignments.
+
+Edits remain a draft across component selection. **Undo**, **Redo** and
+**Revert** operate on that draft. **Save** validates and writes the module;
+active instrument modules also reload the assembly while retaining lens
+strengths. **Save copy…** exports a separate TOML outside the instrument catalog.
+Externally changed files cannot be overwritten by a stale draft. STEP/STL
+import, arbitrary sketches and fillets remain outside this TOML editor's scope.
+
+Select a simple excitation coil, lens housing or magnetic yoke in **Physical
+Layout** or the **Mechanical** tree. Under **Saved mechanical dimensions**,
+choose **Edit dimensions…** to open a separate 2D axisymmetric section with
+equal axis scales. Enter the length, mechanical inner diameter (ID), outer
+diameter (OD) or radial thickness, or use the six drag handles. Length changes
+keep the axial centre fixed, so gaps to neighbouring parts may change. When
+editing thickness, choose whether to retain the inner or outer diameter.
+
+**Undo**, **Redo** and **Revert** manage the preview. Only **Apply** validates
+the complete assembly, saves the dimensions and reloads the geometry while
+preserving runtime lens strengths. An invalid assembly is reported inside the
+editor and is not saved. The editor starts from saved geometry; uncommitted
+TOML table edits are not imported. Existing table drafts are retained after
+Apply, with a notice distinguishing them from the newly saved dimensions.
+
+Radial material thickness is `(OD - ID) / 2`. The vacuum diameter describes the
+beam passage and is shown read-only, along with `material_class`. Mechanical
+dimensions must clear that passage, and axially overlapping concentric layers
+must not intersect radially. Existing assembly and design constraints still
+apply. This editor supports simple annular cylinders; shaped profiles and
+shared or segmented structures report that they are unsupported. The neutral
+geometry model also feeds the 3D workflow above. This compact 2D dialog retains
+its narrower editing scope.
+
 ## Development setup
 
 1. Run `setup_env.py` with a 64-bit Python 3.12 interpreter.
@@ -166,7 +278,10 @@ recalculation preserves a user's runtime direction override.
   their normal behaviour. Changing an optical mode selector requires applying
   its preset before Direct Alignment can adjust that state.
 - Edits existing module and part TOML values with validation and atomic
-  rollback when an assembly becomes invalid.
+  rollback when an assembly becomes invalid. Editing a part's `length_mm`
+  updates its start/end coordinates in the table while retaining its centre
+  and any existing asymmetry. Use **Validate and save TOML** to apply the edit;
+  explicitly edited endpoint values are checked for consistency.
 - Recalculates a direct-beam preview after a lens excitation change without
   blocking the GUI.
 - Marks every active component centre on the ray plot, keeps lens centres
@@ -484,8 +599,11 @@ only after the complete catalog and active assembly validate.
 
 The projector assembly separates its optical centres from its complete
 mechanical envelopes. D, I, P1 and P2 retain the regression-validated field
-centres, while their TOML housing/yoke envelopes form a compact stack with
-5 mm service gaps and a uniform 20 mm electron-accessible vacuum ID. These are
+centres, while their default TOML housing/yoke envelopes form a compact stack
+with 5 mm service gaps and a uniform 20 mm electron-accessible vacuum ID.
+Custom housing lengths retain those centres and may change the gaps; actual
+gaps must remain non-negative. `projector_stack_inter_lens_gap_mm` records the
+nominal design gap. Bore, overlap and other assembly checks still apply. These are
 explicit user-defined non-OEM principle-model dimensions, not production
 drawings.
 

@@ -1,0 +1,2 @@
+descan_kick_x_mrad= 0.0 events= ((1694.4, 0.0, 0.0), (1719.4, 0.0, 0.0)) record_plane_transfer_offset_m= (0.0, 0.0) propagated_position_m= (np.float32(0.0), np.float32(0.0))
+descan_kick_x_mrad= 1.0 events= ((1694.4, 0.0005, 0.0), (1719.4, 0.0005, 0.0)) record_plane_transfer_offset_m= (0.0, 0.0) propagated_position_m= (np.float32(2.2499999e-05), np.float32(5.488989e-09))

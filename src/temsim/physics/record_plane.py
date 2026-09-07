@@ -17,6 +17,7 @@ component-position, or assembly edit unnoticed.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from copy import copy
 from dataclasses import dataclass, fields, is_dataclass
 import hashlib
 import json
@@ -224,6 +225,9 @@ class RecordPlanePlan:
     transfers: tuple[TransverseTransfer, ...]
     resolved_geometry_fingerprint: str
     fingerprint: str
+    scan_times_s: np.ndarray | None = None
+    scan_position_offsets_m: tuple[np.ndarray, ...] = ()
+    time_dependent_deflection: bool = False
 
     def __post_init__(self) -> None:
         _finite(self.source_z_mm, "Record-plane source Z")
@@ -243,6 +247,21 @@ class RecordPlanePlan:
         for label in (self.resolved_geometry_fingerprint, self.fingerprint):
             if len(label) != 64:
                 raise ValueError("Record-plane fingerprints must be SHA-256 hex digests")
+        if self.scan_times_s is None:
+            if self.scan_position_offsets_m:
+                raise ValueError("Scan-dependent recording offsets require scan times")
+        else:
+            times = _readonly(self.scan_times_s, dtype=float)
+            if times.ndim != 2 or not times.size or not np.all(np.isfinite(times)):
+                raise ValueError("Record-plane scan times must be a finite non-empty 2-D array")
+            offsets = tuple(_readonly(value, dtype=float) for value in self.scan_position_offsets_m)
+            if (offsets and len(offsets) != len(self.planes)) or any(
+                value.shape != times.shape + (2,) or not np.all(np.isfinite(value))
+                for value in offsets
+            ):
+                raise ValueError("Every recording plane requires finite offsets matching the scan")
+            object.__setattr__(self, "scan_times_s", times)
+            object.__setattr__(self, "scan_position_offsets_m", offsets)
 
 
 @dataclass(frozen=True, slots=True)
@@ -413,31 +432,132 @@ def resolved_runtime_geometry_fingerprint(state, planes: Sequence[PlaneStop]) ->
     })
 
 
+def _downstream_deflector_events(state, source_z_mm, target_z_mm, time_s, *, dynamic_only=False):
+    """Match the explicit kick events used by the geometric column solver."""
+    events = {}
+    for collection in ("deflectors", "corrector_elements"):
+        for component in getattr(state, collection, ()):
+            if not getattr(component, "enabled", False):
+                continue
+            if dynamic_only and not (getattr(component, "scan_enabled", False)
+                                     or getattr(component, "wobble_enabled", False)):
+                continue
+            if hasattr(component, "kick_events"):
+                try:
+                    rows = component.kick_events(time_s=float(time_s))
+                except TypeError:
+                    rows = component.kick_events()
+            elif collection == "deflectors":
+                rows = (
+                    (component.upper_z_mm, component.upper_x_mrad * 1e-3, component.upper_y_mrad * 1e-3),
+                    (component.lower_z_mm, component.lower_x_mrad * 1e-3, component.lower_y_mrad * 1e-3),
+                )
+            else:
+                continue
+            for z, x, y in rows:
+                # The specimen-exit phase space already contains kicks at or
+                # before the sample reference plane.
+                if float(source_z_mm) < float(z) <= float(target_z_mm):
+                    value = events.setdefault(float(z), np.zeros(2))
+                    value += (float(x), float(y))
+    return events
+
+
+def _scan_deflection_offsets(state, source, planes, reference_time, times, maximum_step_mm):
+    """Transport only time-varying downstream kicks, relative to the static plan."""
+    offsets = []
+    if not planes:
+        return tuple(offsets)
+    reference_events = _downstream_deflector_events(
+        state, source, planes[-1].z_mm, reference_time, dynamic_only=True,
+    )
+    if not reference_events:
+        return ()
+    unique_times, inverse = np.unique(times, return_inverse=True)
+    timed_events = [
+        _downstream_deflector_events(state, source, planes[-1].z_mm, time, dynamic_only=True)
+        for time in unique_times
+    ]
+    event_planes = set(reference_events).union(*(set(events) for events in timed_events))
+    for z in sorted(event_planes):
+        reference = reference_events.get(z, np.zeros(2))
+        delta = np.asarray([events.get(z, np.zeros(2)) - reference for events in timed_events])
+        if not np.any(delta):
+            continue
+        if not offsets:
+            offsets = [np.zeros(times.shape + (2,)) for _ in planes]
+        maps = trace_transverse_transfers(
+            state, z, (plane.z_mm for plane in planes if plane.z_mm >= z),
+            maximum_step_mm=maximum_step_mm,
+        )
+        commands = delta[inverse].reshape(times.shape + (2,))
+        for index, plane in enumerate(planes):
+            if plane.z_mm >= z:
+                offsets[index] += np.einsum(
+                    "ij,...j->...i", maps[plane.z_mm].j_diff_m_per_rad, commands,
+                )
+    return tuple(offsets)
+
+
 def build_record_plane_plan(
     state,
     *,
     source_z_mm: float | None = None,
     maximum_step_mm: float | None = None,
+    scan_times_s=None,
+    recalibrate_scan: bool = False,
 ) -> RecordPlanePlan:
     """Trace all active physical surfaces from the current resolved state once."""
 
+    if recalibrate_scan and scan_times_s is not None:
+        # Serialized calculation snapshots do not retain the private AC/descan
+        # coupling matrices. Rebuild those derived values on private components;
+        # keep the caller's microscope settings and resolved geometry untouched.
+        from temsim.physics.scan_geometry import calibrate_scan_system
+
+        state = copy(state)
+        state.corrector_elements = [copy(component) for component in state.corrector_elements]
+        state._ac_deflector = None
+        state._descan_deflector = None
+        calibrate_scan_system(state)
     source = float(state.sample.z_mm if source_z_mm is None else source_z_mm)
     planes = runtime_recording_stops(state, source)
+    reference_time = float(getattr(state, "simulation_time_s", 0.0))
+    reference_events = _downstream_deflector_events(
+        state, source, planes[-1].z_mm if planes else source, reference_time,
+    )
     transfers_by_z = trace_transverse_transfers(
         state,
         source,
         (plane.z_mm for plane in planes),
         maximum_step_mm=maximum_step_mm,
+        events=tuple((z, *kick) for z, kick in sorted(reference_events.items())),
     )
     transfers = tuple(transfers_by_z[plane.z_mm] for plane in planes)
+    times = None if scan_times_s is None else np.asarray(scan_times_s, dtype=float)
+    if times is not None and (times.ndim != 2 or not times.size or not np.all(np.isfinite(times))):
+        raise ValueError("Record-plane scan times must be a finite non-empty 2-D array")
+    scan_offsets = () if times is None else _scan_deflection_offsets(
+        state, source, planes, reference_time, times, maximum_step_mm,
+    )
+    time_dependent = any(
+        getattr(component, "enabled", False)
+        and (getattr(component, "scan_enabled", False) or getattr(component, "wobble_enabled", False))
+        and float(getattr(component, "z_mm", source)) > source
+        for name in ("deflectors", "corrector_elements")
+        for component in getattr(state, name, ())
+    )
     geometry_fingerprint = resolved_runtime_geometry_fingerprint(state, planes)
     fingerprint = _digest({
-        "model": "signed_mixed_plane_first_order_v1",
+        "model": "signed_mixed_plane_first_order_scan_deflection_v2",
         "source_z_mm": source,
         "resolved_geometry_fingerprint": geometry_fingerprint,
         "planes": planes,
         "transfers": tuple(transfer.matrix for transfer in transfers),
         "offsets": tuple((transfer.position_offset_m, transfer.angle_offset_rad) for transfer in transfers),
+        "scan_times_s": times,
+        "scan_position_offsets_m": scan_offsets,
+        "time_dependent_deflection": time_dependent,
     })
     return RecordPlanePlan(
         source_z_mm=source,
@@ -445,6 +565,9 @@ def build_record_plane_plan(
         transfers=transfers,
         resolved_geometry_fingerprint=geometry_fingerprint,
         fingerprint=fingerprint,
+        scan_times_s=times,
+        scan_position_offsets_m=scan_offsets,
+        time_dependent_deflection=time_dependent,
     )
 
 
@@ -452,11 +575,14 @@ def record_plane_plan_provenance(plan: RecordPlanePlan) -> Mapping[str, object]:
     """Return finite JSON data for the exact runtime stops and signed maps."""
 
     return MappingProxyType({
-        "model": "signed_mixed_plane_first_order_v1",
+        "model": "signed_mixed_plane_first_order_scan_deflection_v2",
         "axis": "laboratory +Z downstream",
         "source_z_mm": float(plan.source_z_mm),
         "fingerprint": plan.fingerprint,
         "resolved_geometry_fingerprint": plan.resolved_geometry_fingerprint,
+        "scan_times_s": _normalise_json(plan.scan_times_s),
+        "scan_position_offsets_m": _normalise_json(plan.scan_position_offsets_m),
+        "time_dependent_deflection": plan.time_dependent_deflection,
         "planes": tuple(_normalise_json(plane) for plane in plan.planes),
         "transfers": tuple({
             "source_z_mm": float(transfer.source_z_mm),
@@ -478,6 +604,7 @@ def route_record_planes(
     sample_angle_rad,
     *,
     weights=None,
+    scan_slice: slice | None = None,
 ) -> RecordPlaneResult:
     """Route weighted phase-space samples through all surfaces in physical order."""
 
@@ -504,8 +631,16 @@ def route_record_planes(
     active = np.ones(event_shape, dtype=bool)
     interactions: list[PlaneInteraction] = []
     physically_intercepted = 0.0
-    for plane, transfer in zip(plan.planes, plan.transfers):
+    for index, (plane, transfer) in enumerate(zip(plan.planes, plan.transfers)):
         projected = project_sample_phase_space(transfer, position, angle)
+        if plan.scan_position_offsets_m:
+            delta = plan.scan_position_offsets_m[index].reshape(-1, 2)
+            if scan_slice is not None:
+                delta = delta[scan_slice]
+            if not event_shape or delta.shape[0] != event_shape[0]:
+                raise ValueError("Record-plane scan offsets do not match the routed scan batch")
+            delta = delta.reshape((delta.shape[0],) + (1,) * (len(event_shape) - 1) + (2,))
+            projected = ProjectedPhaseSpace(projected.position_m + delta, projected.angle_rad)
         incident = active.copy()
         if plane.kind == "aperture":
             passes = plane.transmission_mask(

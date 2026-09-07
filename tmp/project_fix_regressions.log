@@ -1,0 +1,49 @@
+Verification output: E:\tem_simulator_v2\tmp\project_fix_tests_24myp12a
+........................................................................ [ 18%]
+........................................................................ [ 36%]
+........................................................................ [ 54%]
+........................................................................ [ 72%]
+............................................F...........s............... [ 90%]
+...............................sss.ss.                                   [100%]
+================================== FAILURES ===================================
+____ test_defocused_image_wave_uses_symplectic_specimen_canonical_transfer ____
+tests\test_wave_imaging.py:233: in test_defocused_image_wave_uses_symplectic_specimen_canonical_transfer
+    assert projection.method == "collins_fft_linear_canonical_transform"
+E   AssertionError: assert 'multiplane_c...ith_apertures' == 'collins_fft_...cal_transform'
+E     
+E     - collins_fft_linear_canonical_transform
+E     + multiplane_coherent_lct_with_apertures
+============================== warnings summary ===============================
+tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[Thermionic]
+  E:\tem_simulator_v2\src\temsim\physics\ray_integrator.py:158: RuntimeWarning: overflow encountered in cast
+    X[saved], TX[saved], Y[saved], TY[saved] = x, tx, y, ty
+
+tests/test_mvp_core.py::test_every_c2_assembly_can_propagate_beyond_its_last_wall[Thermionic]
+  E:\tem_simulator_v2\src\temsim\physics\recording_clipping.py:44: RuntimeWarning: invalid value encountered in subtract
+    xx=(x[lo]+f*(x[hi]-x[lo]))*1e3;yy=(y[lo]+f*(y[hi]-y[lo]))*1e3
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================ slowest 12 durations =============================
+27.71s call     tests/test_calculation_manifest_artifacts.py::test_complete_incident_seed_restarts_ray_solver[True]
+18.96s call     tests/test_fourdstem_cache_products.py::test_high_accuracy_reuses_raw_cube_for_response_and_dose_changes
+18.28s call     tests/test_interactive_calculation.py::test_production_stem_captures_ram_cube_and_reintegrates_without_multislice
+10.53s call     tests/test_toml_authority.py::test_all_catalog_assemblies_apply_one_authority_per_runtime_part
+9.15s call     tests/test_mvp_core.py::test_every_catalog_option_resolves_to_the_requested_toml
+8.30s call     tests/test_interactive_calculation.py::test_production_tem_aperture_replay_agrees_with_fresh_projection
+7.78s call     tests/test_interactive_calculation.py::test_production_bank_reuses_incident_and_never_mutates_source
+7.55s call     tests/test_calculation_manifest_artifacts.py::test_store_mutex_serialises_independent_processes
+6.05s call     tests/test_mvp_core.py::test_every_lens_and_preset_uses_at_most_one_hundred_percent
+5.93s call     tests/test_wave_imaging.py::test_projector_checkpoint_reprojection_matches_fresh_wave_calculation
+5.42s call     tests/test_calculation_cache_reuse.py::test_projector_change_reprojects_saved_objective_wave_without_specimen_recalc
+4.70s call     tests/test_scan_system.py::test_default_column_scan_descan_symmetry_and_optical_cancellation
+=========================== short test summary info ===========================
+SKIPPED [1] tests\test_wave_imaging.py:570: CuPy CUDA backend unavailable
+SKIPPED [1] tests\test_stem_cuda_pipeline.py:63: CuPy CUDA backend unavailable
+SKIPPED [1] tests\test_stem_cuda_pipeline.py:109: CuPy CUDA backend unavailable
+SKIPPED [1] tests\test_stem_cuda_pipeline.py:156: CuPy CUDA backend unavailable
+SKIPPED [1] tests\test_wave_fft.py:25: CuPy CUDA backend unavailable
+SKIPPED [1] tests\test_wave_fft.py:44: CuPy CUDA backend unavailable
+FAILED tests/test_wave_imaging.py::test_defocused_image_wave_uses_symplectic_specimen_canonical_transfer
+1 failed, 391 passed, 6 skipped, 2 warnings in 363.03s (0:06:03)
+E:\tem_simulator_v2\.venv\Lib\site-packages\pyqtgraph\graphicsItems\ViewBox\ViewBox.py:1818: RuntimeWarning: Failed to disconnect (NoneType) from signal "destroyed()".
+  k.destroyed.disconnect()

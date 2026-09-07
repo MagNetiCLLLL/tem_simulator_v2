@@ -1,0 +1,12 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+____ test_defocused_image_wave_uses_symplectic_specimen_canonical_transfer ____
+tests\test_wave_imaging.py:233: in test_defocused_image_wave_uses_symplectic_specimen_canonical_transfer
+    assert projection.method == "collins_fft_linear_canonical_transform"
+E   AssertionError: assert 'multiplane_c...ith_apertures' == 'collins_fft_...cal_transform'
+E     
+E     - collins_fft_linear_canonical_transform
+E     + multiplane_coherent_lct_with_apertures
+=========================== short test summary info ===========================
+FAILED tests/test_wave_imaging.py::test_defocused_image_wave_uses_symplectic_specimen_canonical_transfer
+1 failed in 12.38s

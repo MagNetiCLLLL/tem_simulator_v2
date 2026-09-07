@@ -1,0 +1,13 @@
+FF                                                                       [100%]
+================================== FAILURES ===================================
+_ test_projector_manifests_use_compact_user_defined_envelopes[NoEnergyFilter.toml] _
+tests\test_mvp_core.py:809: in test_projector_manifests_use_compact_user_defined_envelopes
+    assert "not an OEM production drawing" in (
+E   AssertionError: assert 'not an OEM production drawing' in 'Existing non-OEM engineering dimensions retained, not verified Titan internal dimensions. FEI US9595359B2 Figure 6 is...eparate gapped/monolithic simulation comparison and does not establish this lens topology, bore or pole-face diameter.'
+_ test_projector_manifests_use_compact_user_defined_envelopes[EnergyFilter.toml] _
+tests\test_mvp_core.py:809: in test_projector_manifests_use_compact_user_defined_envelopes
+    assert "not an OEM production drawing" in (
+E   AssertionError: assert 'not an OEM production drawing' in 'Existing non-OEM engineering dimensions retained, not verified Titan internal dimensions. FEI US9595359B2 Figure 6 is...eparate gapped/monolithic simulation comparison and does not establish this lens topology, bore or pole-face diameter.'
+=========================== short test summary info ===========================
+FAILED tests/test_mvp_core.py::test_projector_manifests_use_compact_user_defined_envelopes[NoEnergyFilter.toml]
+FAILED tests/test_mvp_core.py::test_projector_manifests_use_compact_user_defined_envelopes[EnergyFilter.toml]

@@ -1,0 +1,24 @@
+format_version = 1
+definition_type = "tem_eds_detector"
+
+[detector]
+eds_system_key = "eds"
+detector_technology = "windowless_silicon_drift_detector_array"
+windowless = true
+segment_count = 6
+segment_count_status = "published_instrument_report_and_user_dataset_supported_not_oem_datasheet"
+azimuth_centers_deg = [0.0, 60.0, 120.0, 180.0, 240.0, 300.0]
+azimuth_status = "symmetric_engineering_reconstruction_not_oem"
+takeoff_angle_deg = 32.06
+takeoff_angle_status = "single_user_dataset_metadata_not_universal_oem"
+takeoff_angle_source = "One previously inspected user EDS acquisition contained six SpectrumStream signals with detector elevation/take-off metadata spanning approximately 32.055 to 32.065 degrees. This is a single-instrument observation, not a universal OEM specification."
+minimum_unshadowed_solid_angle_sr = 4.45
+analytical_double_tilt_holder_solid_angle_sr = 4.04
+solid_angle_status = "manufacturer_documented_minimum_and_holder_configuration"
+active_area_status = "not_public"
+sample_to_sensor_distance_status = "not_public"
+mechanical_envelope_status = "not_public_pending_user_cross_sections"
+mounting_topology = "within_objective_lens_around_sample"
+mounting_topology_status = "patent_family_supported_product_detail_unconfirmed"
+eds_geometry_source = "The installed geometry reference uses published specifications for a six-segment, windowless, sample-facing EDS arrangement: >4.45 sr unshadowed and 4.04 sr with the analytical double-tilt holder. Public sources do not provide segment area, sensor distance, active-face shape, collimator aperture or package dimensions. Published XPAD work confirms that approximately 4.1-4.6 sr performance required a jointly designed detector, low-penumbra holder and custom objective pole piece. A published instrument report and the inspected user dataset support six signals/segments. FEI multi-detector patents support sample-facing detectors within the TEM objective-lens region only at family/topology level. The symmetric azimuth phase and physical drawing size are non-OEM schematics pending user cross-sections."
+eds_geometry_source_urls = ["https://documents.thermofisher.com/TFS-Assets/MSD/Datasheets/spectra-ultra-ds0361-materials-science-datasheet.pdf", "https://documents.thermofisher.com/TFS-Assets/MSD/Datasheets/iliad-ultra-datasheet-ds0510.pdf", "https://www.osti.gov/servlets/purl/1894230", "https://doi.org/10.1021/acsami.4c18243", "https://patents.google.com/patent/US8410439B2/en"]

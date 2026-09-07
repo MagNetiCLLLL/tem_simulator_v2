@@ -64,8 +64,9 @@ does not certify the TEM/STEM image's wave-aberration model.
   Model changes invalidate pending workers immediately; previous plots remain
   explicitly stale until a new result is accepted. Other complete results stay
   in the existing bounded result cache.
-- State schema 76 and operating-profile format 3 persist the selection and
-  shelves. Profile formats 1 and 2 remain readable. Imported arrays are not
+- State schema 76 and operating-profile format 4 persist the selection and
+  shelves. Profile formats 1-3 remain readable. Format 4 also preserves nullable
+  operating values, including automatic Cs/Cc estimation. Imported arrays are not
   embedded in TOML; their original file descriptors retain the normal provenance
   and geometry checks.
 

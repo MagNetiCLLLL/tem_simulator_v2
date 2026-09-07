@@ -1,0 +1,5 @@
+Before oversized write: 1 reference(s)
+ArtifactTooLargeError: Artifact is larger than the persistent cache quota
+After rejected write, original artifact retained: False
+After oversized write: 0 reference(s)
+BUG reproduced: rejected write removed the previous valid cache entry

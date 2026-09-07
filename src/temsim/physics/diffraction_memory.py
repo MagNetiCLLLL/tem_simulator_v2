@@ -71,7 +71,11 @@ def recollect_stem(state, frame):
     # them into source fractions by renormalising the newly surviving signal.
     scale = float(frame.metrics["incident_sample_fraction"]) * float(
         frame.metrics["tracked_probability_after_inelastic_absorption"])
-    routed = integrate_runtime_recording_planes(artifact, None, build_record_plane_plan(state))
+    routed = integrate_runtime_recording_planes(
+        artifact, None, build_record_plane_plan(
+            state, scan_times_s=artifact.calibration.scan_times_s, recalibrate_scan=True,
+        ),
+    )
     detectors = {p.key: p for p in state.stem_detectors if p.inserted and p.readout_enabled}
     fractions = {key: value * scale for key, value in routed.images.items() if key in detectors}
     signals = {}

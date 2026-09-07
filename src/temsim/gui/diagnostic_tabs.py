@@ -1210,6 +1210,7 @@ class _PhysicalLayoutLabelCallout:
 
 class PhysicalLayoutView(QWidget):
     component_selected = Signal(str)
+    component_activated = Signal(str, float)
     axial_position_selected = Signal(float)
     RECORDING_SURFACE_PROFILES = frozenset({
         "retractable_detector_plane",
@@ -1294,6 +1295,10 @@ class PhysicalLayoutView(QWidget):
         self._label_callouts = {}
         self._label_rows_per_side = 0
         self._selectable_item_keys = {}
+        self._parameter_semantics_by_key = {}
+        self._parameter_semantics_mode = None
+        self._parameter_semantics_descriptors = None
+        self._semantic_selected_summary = None
 
         self.heading = QLabel("Resolved mechanical layout")
         self.summary = QLabel(
@@ -1372,6 +1377,9 @@ class PhysicalLayoutView(QWidget):
 
         self.plot = pg.PlotWidget(background="#050816")
         self.plot.setObjectName("physicalLayoutPlot")
+        self.plot.setToolTip(
+            "Click to select a component. Double-click to locate it in the 3D model editor."
+        )
         self.plot.setLabel("bottom", "Axial position", units="mm")
         self.plot.setLabel("left", "Mechanical radius", units="mm")
         self.plot.showGrid(x=True, y=True, alpha=0.16)
@@ -1379,7 +1387,8 @@ class PhysicalLayoutView(QWidget):
         view_box.setAspectLocked(False)
         view_box.setMouseEnabled(x=True, y=True)
 
-        layout = QVBoxLayout(self)
+        self.section_page = QWidget()
+        layout = QVBoxLayout(self.section_page)
         layout.addLayout(heading_row)
         layout.addLayout(action_row)
         layout.addWidget(self.aperture_legend)
@@ -1387,6 +1396,16 @@ class PhysicalLayoutView(QWidget):
         layout.addWidget(self.eds_legend)
         layout.addWidget(self.plot, 1)
         layout.addWidget(self.summary)
+
+        from temsim.gui.part_model_editor import PartModelEditorPage
+        self.model_editor = PartModelEditorPage()
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("physicalLayoutTabs")
+        self.tabs.addTab(self.section_page, "2D section")
+        self.tabs.addTab(self.model_editor, "3D model editor")
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(self.tabs)
 
         self.fit_all.clicked.connect(self.plot.autoRange)
         self.fit_bore.clicked.connect(self._fit_column_bore)
@@ -1411,8 +1430,39 @@ class PhysicalLayoutView(QWidget):
         if not view_box.sceneBoundingRect().contains(event.scenePos()):
             return
         position = view_box.mapSceneToView(event.scenePos())
+        key = _selectable_key_at_scene_position(
+            self.plot.scene(), event.scenePos(), self._selectable_item_keys
+        )
+        if key is None:
+            key = self.component_key_at(float(position.x()), float(position.y()))
+        if key is not None:
+            self.component_activated.emit(key, float(position.x()))
         self.axial_position_selected.emit(float(position.x()))
         event.accept()
+
+    def component_key_at(self, z_mm: float, radius_mm: float = 0.0) -> str | None:
+        """Resolve empty section space to the nearest component envelope.
+
+        Actual graphics and labels take precedence in the click handler. For
+        gaps, prefer the nearest axial interval, then the nearest radial wall.
+        """
+        if not self._records or not np.isfinite((z_mm, radius_mm)).all():
+            return None
+        radius = abs(radius_mm)
+
+        def distance(record):
+            lower, upper = sorted((record.start_z_mm, record.end_z_mm))
+            inner = 0.5 * record.mechanical_bore_diameter_mm
+            outer = max(inner, 0.5 * record.outer_diameter_mm)
+            return (
+                max(lower - z_mm, z_mm - upper, 0.0),
+                max(inner - radius, radius - outer, 0.0),
+                abs(record.center_z_mm - z_mm),
+                upper - lower,
+                record.key,
+            )
+
+        return min(self._records, key=distance).key
 
     def _component_item_clicked(self, event) -> None:
         if (
@@ -3802,6 +3852,54 @@ class PhysicalLayoutView(QWidget):
             f"column OD {column_od_text} | select or hover for details"
         )
         self.summary.setToolTip(layout_detail)
+        self._semantic_selected_summary = None
+
+    def set_parameter_semantics_context(self, mode=None, descriptors=None, by_key=None):
+        """Update selected-parameter explanations without changing the plot."""
+        self._parameter_semantics_mode = mode
+        self._parameter_semantics_descriptors = descriptors
+        self._parameter_semantics_by_key = dict(by_key or {})
+        self._refresh_selected_parameter_semantics()
+
+    def _set_selected_summary(self, part, text, tooltip):
+        self._semantic_selected_summary = (part, text, tooltip)
+        self._refresh_selected_parameter_semantics()
+
+    def _refresh_selected_parameter_semantics(self):
+        if self._semantic_selected_summary is None:
+            return
+        from numbers import Real
+        from temsim.parameter_semantics import describe_parameter
+        from temsim.parameter_impact import describe_parameter_impact
+
+        part, text, tooltip = self._semantic_selected_summary
+        key = getattr(part, "key", "")
+        data = self._parameter_semantics_by_key.get(key, getattr(part, "data", {}))
+        if hasattr(data, "data"):
+            data = data.data
+        data = {**data, "key": key}
+        mode = getattr(self._parameter_semantics_mode, "value", self._parameter_semantics_mode)
+        compact, details = [], []
+        groups = (("length_mm",), ("mechanical_outer_diameter_mm", "outer_diameter_mm"),
+                  ("mechanical_inner_diameter_mm", "mechanical_bore_diameter_mm", "bore_diameter_mm"),
+                  ("plate_thickness_mm", "active_length_mm"))
+        for group in groups:
+            field = next((name for name in group if isinstance(data.get(name), Real)
+                          and not isinstance(data[name], bool)), None)
+            if field is None:
+                continue
+            path = ("parts", key, field)
+            meaning = describe_parameter(data, path, by_key=self._parameter_semantics_by_key)
+            impact = describe_parameter_impact(data, path, by_key=self._parameter_semantics_by_key,
+                simulation_mode=self._parameter_semantics_mode, descriptors=self._parameter_semantics_descriptors)
+            compact.append(f"{meaning.label}: {meaning.category_label}")
+            details.append(f"{meaning.label}: {data[field]:g} {meaning.unit}\n"
+                           f"Category: {meaning.category_label}\n"
+                           f"Source: {meaning.source_label}. {meaning.source_note}\n{meaning.description}\n"
+                           f"Simulation mode: {mode if mode is not None else 'not connected'}. "
+                           f"Impact: {impact.label}. {impact.detail}")
+        self.summary.setText(text + ("\n" + " · ".join(compact) if compact else ""))
+        self.summary.setToolTip(tooltip + ("\n\n" + "\n\n".join(details) if details else ""))
 
     def _centre_clicked(self, _item, points, _event=None) -> None:
         if points:
@@ -3852,12 +3950,11 @@ class PhysicalLayoutView(QWidget):
                 "sensor distance and mechanical envelope are not public; "
                 "the displayed heads are non-dimensional schematics."
             )
-            self.summary.setText(
+            self._set_selected_summary(part,
                 f"Selected: {record.name} | Z {record.center_z_mm:.6g} mm | "
                 f"{geometry.segment_count} segments | "
-                f"{geometry.analytical_holder_solid_angle_sr:.4g} sr with holder"
+                f"{geometry.analytical_holder_solid_angle_sr:.4g} sr with holder", detail_text,
             )
-            self.summary.setToolTip(detail_text)
             return
         detail_text = (
             f"Selected: {record.name} | centre {record.center_z_mm:.6g} mm | "
@@ -3899,13 +3996,12 @@ class PhysicalLayoutView(QWidget):
             extra = f" | {len(record.accelerator_stage_centers_mm)} stages"
         elif record.profile in self.RECORDING_SURFACE_PROFILES:
             extra = f" | active Z {self._recording_signal_z(record):.6g} mm"
-        self.summary.setText(
+        self._set_selected_summary(part,
             f"Selected: {record.name} | Z {record.center_z_mm:.6g} mm | "
             f"OD {record.outer_diameter_mm:.6g} mm | "
             f"bore {record.mechanical_bore_diameter_mm:.6g} mm"
-            + extra
+            + extra, detail_text,
         )
-        self.summary.setToolTip(detail_text)
 
     def reveal_component(self, part) -> bool:
         """Highlight and centre a component without enabling live auto-range."""

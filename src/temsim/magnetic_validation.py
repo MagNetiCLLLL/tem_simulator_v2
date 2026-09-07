@@ -127,7 +127,8 @@ class ValidationCache:
 def input_signature(state, key, options):
     from temsim.physics.axisymmetric_magnetostatics import SOLVER_VERSION
     from temsim.physics.lens_field_provider import _GEOMETRY_ATTRIBUTES, _FIELD_STRUCTURE_PROFILES
-    from temsim.magnetic_circuits import circuit_channels, belongs_to_circuit, MAGNETIC_BODIES
+    from temsim.magnetic_circuits import circuit_channels, belongs_to_circuit
+    from temsim.part_materials import is_magnetostatic_body
     from temsim.simulation_modes import mode_key
     options.validate()
     by_key = {p.key: p for p in state._resolved_assembly.parts}
@@ -135,7 +136,7 @@ def input_signature(state, key, options):
     nonlinear = descriptors.get(key, {}).get("solver") == "axisymmetric_nonlinear_fem"
     keys = ({k for k, row in descriptors.items() if row.get("solver") == "axisymmetric_nonlinear_fem"}
             if nonlinear else set(circuit_channels(by_key, key)))
-    owned = [p for p in by_key.values() if p.data.get("mechanical_profile") in MAGNETIC_BODIES | {"magnetic_excitation_coil"}
+    owned = [p for p in by_key.values() if (is_magnetostatic_body(p.data) or p.data.get("mechanical_profile") == "magnetic_excitation_coil")
              and any(belongs_to_circuit(p, channel, by_key) for channel in keys)]
     if owned:
         lo, hi = min(p.start_z_mm for p in owned), max(p.end_z_mm for p in owned)
@@ -252,9 +253,9 @@ def _extend_axis(axis, low, high):
 
 def extend_problem_grid(problem, previous_axes):
     settings = json.loads(problem.settings_json)
-    from temsim.magnetic_circuits import MAGNETIC_BODIES
+    from temsim.part_materials import is_magnetostatic_body
     parts = json.loads(problem.geometry_json)["lens_assembly"]["parts"]
-    used = [p for p in parts if p["data"].get("mechanical_profile") in MAGNETIC_BODIES | {"magnetic_excitation_coil"}]
+    used = [p for p in parts if is_magnetostatic_body(p["data"]) or p["data"].get("mechanical_profile") == "magnetic_excitation_coil"]
     radius = max(p["data"]["mechanical_outer_diameter_mm"] for p in used)*.5e-3
     low, high = min(p["start_z_mm"] for p in used)*1e-3, max(p["end_z_mm"] for p in used)*1e-3
     centre, half, padding = .5*(low+high), .5*(high-low), settings["padding_factor"]
@@ -355,8 +356,8 @@ def compare_cases(before, after, options, stage):
 
 
 def make_scene(problems, details):
-    from temsim.physics.axisymmetric_magnetostatics import _part_mask
-    from temsim.magnetic_circuits import MAGNETIC_BODIES
+    from temsim.physics.axisymmetric_magnetostatics import _part_mask, _material_region_masks
+    from temsim.part_materials import is_magnetostatic_body, validated_material_regions
     rmax = min(item[0].axes_m[0][-1] for item in details)
     zlo = max(item[0].axes_m[1][0] for item in details)
     zhi = min(item[0].axes_m[1][-1] for item in details)
@@ -371,10 +372,14 @@ def make_scene(problems, details):
         flux += problem.scale*rr*potential
         geometry = json.loads(problem.geometry_json)["lens_assembly"]
         parts.update({p["key"]: p for p in geometry["parts"]+geometry.get("magnetostatic_neighbours", [])})
-    material = [p for p in parts.values() if p["data"].get("mechanical_profile") in MAGNETIC_BODIES | {"magnetic_excitation_coil"}]
+    material = [p for p in parts.values() if is_magnetostatic_body(p["data"]) or p["data"].get("mechanical_profile") == "magnetic_excitation_coil"]
     for part in material:
-        mask = _part_mask(part, rr, zz)
-        regions[mask] = 2 if part["data"]["mechanical_profile"] == "magnetic_excitation_coil" else 1
+        if part["data"]["mechanical_profile"] == "magnetic_excitation_coil":
+            regions[_part_mask(part, rr, zz)] = 2
+        else:
+            for mask, assignment in _material_region_masks(part, validated_material_regions(part["data"]), rr, zz):
+                if assignment is None or assignment["magnetic_response"] == "bh":
+                    regions[mask] = 1
     bounds = (min(p["start_z_mm"] for p in material), max(p["end_z_mm"] for p in material),
               max(p["data"]["mechanical_outer_diameter_mm"] for p in material)/2)
     return MagneticScene(*map(_immutable, (r, z, np.linalg.norm(field, axis=-1), flux, regions)), bounds)
@@ -417,12 +422,12 @@ def run_validation(snapshot, key, options=ValidationOptions(), *, progress=None,
             z = _merged_axis(np.r_[np.linspace(lo, hi, 1025), knots, .5*(knots[1:]+knots[:-1])])
         positions = np.column_stack((np.zeros_like(z), np.zeros_like(z), z))
         bz = sum((p.scale*d[0].field_at_global_positions_t(positions)[:, 2] for p, d in zip(problems, details)), start=np.zeros_like(z))
-        from temsim.magnetic_circuits import MAGNETIC_BODIES
+        from temsim.part_materials import is_magnetostatic_body
         material_parts = {}
         for problem in problems:
             assembly = json.loads(problem.geometry_json)["lens_assembly"]
             for part in assembly["parts"]+assembly.get("magnetostatic_neighbours", []):
-                if part["data"].get("mechanical_profile") in MAGNETIC_BODIES | {"magnetic_excitation_coil"}:
+                if is_magnetostatic_body(part["data"]) or part["data"].get("mechanical_profile") == "magnetic_excitation_coil":
                     material_parts[part["key"]] = part
         metrics = paraxial_metrics(z, bz, snapshot.beam_voltage_kv, options.test_radius_um,
                                   material_parts=tuple(material_parts.values()))

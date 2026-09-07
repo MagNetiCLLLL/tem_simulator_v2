@@ -385,7 +385,7 @@ def _configured_fourdstem_response(sample):
     ).validate()
 
 
-def _prepare_configured_fourdstem_capture(state, simulation):
+def _prepare_configured_fourdstem_capture(state, simulation, *, scan_times_s=None):
     """Create a sink only for an explicitly enabled wave-STEM acquisition."""
 
     from temsim.physics.fourdstem_workflow import (
@@ -411,7 +411,7 @@ def _prepare_configured_fourdstem_capture(state, simulation):
         overwrite=overwrite,
         resume=resume,
     )
-    return prepare_fourdstem_capture(state, simulation, request)
+    return prepare_fourdstem_capture(state, simulation, request, scan_times_s=scan_times_s)
 
 
 def measure_sample_current(simulation, state):
@@ -1289,7 +1289,7 @@ def acquire_stem_scan(
         active_diffraction_sink = diffraction_sink
         if fourdstem_enabled and active_diffraction_sink is None:
             prepared_fourdstem = _prepare_configured_fourdstem_capture(
-                state, simulation
+                state, simulation, scan_times_s=scan_times_s,
             )
             active_diffraction_sink = prepared_fourdstem.sink
         record_plane_plan = getattr(
@@ -1298,7 +1298,7 @@ def acquire_stem_scan(
         if record_plane_plan is None:
             from temsim.physics.record_plane import build_record_plane_plan
 
-            record_plane_plan = build_record_plane_plan(state)
+            record_plane_plan = build_record_plane_plan(state, scan_times_s=scan_times_s)
         try:
             wave = simulate_angle_resolved_stem(
                 state,
@@ -1311,6 +1311,7 @@ def acquire_stem_scan(
                 progress_callback=progress_callback,
                 diffraction_sink=active_diffraction_sink,
                 record_plane_plan=record_plane_plan,
+                scan_times_s=scan_times_s,
             )
         except Exception:
             if prepared_fourdstem is not None:

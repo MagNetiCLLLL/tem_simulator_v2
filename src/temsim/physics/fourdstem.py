@@ -69,6 +69,7 @@ class FourDSTEMCalibration:
     scan_y_um: np.ndarray
     angle_x_mrad: np.ndarray
     angle_y_mrad: np.ndarray
+    scan_times_s: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         scan_x = _readonly(self.scan_x_um)
@@ -87,6 +88,11 @@ class FourDSTEMCalibration:
         object.__setattr__(self, "scan_y_um", scan_y)
         object.__setattr__(self, "angle_x_mrad", angle_x)
         object.__setattr__(self, "angle_y_mrad", angle_y)
+        if self.scan_times_s is not None:
+            times = _readonly(self.scan_times_s)
+            if times.shape != scan_x.shape or not np.all(np.isfinite(times)):
+                raise ValueError("4D-STEM scan times must be finite and match the scan coordinates")
+            object.__setattr__(self, "scan_times_s", times)
 
     @classmethod
     def from_rectilinear_axes(
@@ -117,6 +123,7 @@ class FourDSTEMCalibration:
             self.scan_y_um,
             self.angle_x_mrad,
             self.angle_y_mrad,
+            *((self.scan_times_s,) if self.scan_times_s is not None else ()),
         )
 
     def save(self, path: Path) -> None:
@@ -127,6 +134,7 @@ class FourDSTEMCalibration:
                 scan_y_um=self.scan_y_um,
                 angle_x_mrad=self.angle_x_mrad,
                 angle_y_mrad=self.angle_y_mrad,
+                **({"scan_times_s": self.scan_times_s} if self.scan_times_s is not None else {}),
             )
 
     @classmethod
@@ -137,6 +145,7 @@ class FourDSTEMCalibration:
                 values["scan_y_um"],
                 values["angle_x_mrad"],
                 values["angle_y_mrad"],
+                values["scan_times_s"] if "scan_times_s" in values else None,
             )
 
 
@@ -906,6 +915,15 @@ def integrate_runtime_recording_planes(
         active_calibration = calibration
     if tuple(data.shape) != active_calibration.shape:
         raise ValueError("4D-STEM cube shape does not match its calibration")
+    if plan.time_dependent_deflection and active_calibration.scan_times_s is None:
+        raise ValueError("Dynamic recording deflection requires a 4D-STEM cube with recorded scan times")
+    if plan.scan_times_s is not None:
+        if active_calibration.scan_times_s is None or not np.array_equal(
+            plan.scan_times_s, active_calibration.scan_times_s,
+        ):
+            raise ValueError("Record-plane plan scan times differ from the 4D-STEM calibration")
+    elif plan.time_dependent_deflection:
+        raise ValueError("Build the dynamic record-plane plan with the cube's recorded scan times")
     points = int(chunk_scan_points)
     if points < 1:
         raise ValueError("Runtime detector integration chunk size must be positive")
@@ -919,7 +937,7 @@ def integrate_runtime_recording_planes(
             active_calibration.angle_y_mrad * 1.0e-3,
         ),
         axis=-1,
-    )[None, None, ...]
+    )[None, ...]
     flat_data = data.reshape((-1,) + data.shape[-2:])
     flat_scan_x = active_calibration.scan_x_um.reshape(-1)
     flat_scan_y = active_calibration.scan_y_um.reshape(-1)
@@ -937,7 +955,9 @@ def integrate_runtime_recording_planes(
             ),
             axis=-1,
         )[:, None, None, :]
-        routed = route_record_planes(plan, position, angle, weights=block)
+        routed = route_record_planes(
+            plan, position, angle, weights=block, scan_slice=slice(start, stop),
+        )
         if not result_matches_plan(routed, plan):
             raise RuntimeError("Record-plane result lost its plan provenance")
         for interaction in routed.interactions:

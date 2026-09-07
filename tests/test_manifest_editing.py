@@ -25,11 +25,16 @@ def test_manifest_save_validates_and_invalid_edit_rolls_back(tmp_path: Path):
     )
     saved_text = (root / target.module_path).read_text(encoding="utf-8")
     assert 'name = "C1 Test Lens"' in saved_text
+    start = next(field.value for field in editor.fields(target) if field.label == "local_start_z_mm")
 
     with pytest.raises(ValueError, match="length mismatch"):
         editor.save(
             target,
-            {("parts", "condenser_lens_1", "length_mm"): 999.0},
+            {
+                ("parts", "condenser_lens_1", "length_mm"): 999.0,
+                # Explicit endpoint edits retain strict consistency checking.
+                ("parts", "condenser_lens_1", "local_start_z_mm"): start,
+            },
             configuration,
         )
 

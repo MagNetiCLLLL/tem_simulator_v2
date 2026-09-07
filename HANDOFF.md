@@ -9,6 +9,200 @@ on current behaviour, confirmed design decisions, provisional assumptions and
 the next concrete work. `README.md` remains the user/developer overview and
 `CHANGELOG.md` remains the release history.
 
+## Parameter definitions and calculation use (2026-09-07)
+
+- `parameter_semantics.py` is the shared, Qt-free source of parameter labels,
+  meaning categories and conservative declared provenance. `DimensionSpec`
+  and `ManifestField` expose this metadata without changing field paths or
+  TOML value-column contracts. Source evidence is independent of physical
+  meaning; topology-only photographs do not establish measured dimensions.
+- `dimension_audit.py` and the File/3D-editor audit dialog inspect saved catalog
+  values without generating meshes or modifying configuration. The initial
+  report under `docs/reports/` covers 11 modules, 482 definitions, 4,480 numeric
+  dimensions and 280 structural review items. Most dimensions lack established
+  field-specific evidence; this is a review queue, not an automatic sizing fix.
+- `parameter_impact.py` traces original geometry/operating/material routes for
+  the active simulation mode and explicit field recipe. Mixed vacuum/magnetic
+  length effects are kept separate, missing setup is disclosed, and imported
+  maps do not imply automatic field regeneration. `model_3d` parameters remain
+  excluded from beam/field calculations, including child/shared bodies.
+- MainWindow supplies active mode, field descriptors and assembly context to
+  the inspectors. The 3D Use column and selected-parameter details update
+  without discarding drafts. Calculation-controller lifecycle events drive
+  stale/running/current/failure state; drafts override claims of being current.
+  External module files do not borrow active simulation results. No solver or
+  cache identity is changed by these descriptions. See
+  `docs/PARAMETER_DEFINITIONS.md` for definitions and limitations.
+- Source revision checks prevent obsolete displayed dimensions from claiming
+  to be current. Clean documents reload when the assembly refreshes; pending
+  drafts remain intact. Save-copy and module-selection changes rebuild runtime
+  aperture context. Audit jumps resolve module/port paths and missing fields
+  without substituting a component dimension, and active component navigation
+  synchronizes the other inspectors.
+- Verification: 130 editor/impact/source/manifest integration regressions passed;
+  the wider 629-test model/geometry run exposed one lost vacuum-editing tooltip,
+  which was restored and passed in the integration rerun. Further source and
+  audit boundary checks are in `test_parameter_source_refresh.py` and
+  `test_dimension_impact_editor.py` (19 passed after the final source/context
+  fixes). Visuals under `tmp/parameter_definitions_*.png`
+  use disposable files; the user's EnergyFilter TOML remains byte-identical.
+
+## File-backed 3D model editing (2026-09-07)
+
+- `part_model_features.py` implements part-local `model_3d` schema v1: existing,
+  box or elliptic-cylinder bases; X/Y scale, Euler XYZ rotations and offsets;
+  stable-ID cylindrical holes and rounded slots with X/Y/Z axes and depths.
+  Manifold3D Boolean provenance carries surface IDs and parameter paths into
+  semantic edges. The mechanical CAD mesh does not replace beam-clearance or
+  axisymmetric field models. New fields stay in the original part's TOML.
+- The 3D source selector now follows the actual opened document and its label
+  includes the selected part key. Face/edge picking highlights related rows in
+  Dimensions and All parameters; Features manages editable cuts and
+  base changes. Existing module/file draft guards still apply.
+- PhysicalLayoutView retains its object identity and original plot API. Its
+  `tabs` now contain `section_page` (2D section) and `model_editor`
+  (PartModelEditorPage). Project context and selected components are wired by
+  MainWindow; files are loaded lazily when the 3D page is shown.
+- Physical Layout 2D double-clicks resolve the plotted component/label first,
+  then the nearest axial/radial envelope for empty space, and reveal it in 3D.
+  Single clicks keep the current page, including sample/Energy Filter parts.
+  Ray Diagram retains its axial cursor without navigation; component highlights
+  survive manual tab switches. Explicit 3D reveals refit the selection while
+  retaining rotation, and source-file draft guards still apply.
+- `part_model_document.py` owns file snapshots, cross-component drafts,
+  dimension-array updates, fixed-centre length edits, undo/redo and source-change
+  detection. Active-module saves reuse the catalog transaction and assembly
+  reload; independent instrument TOMLs can be edited and saved separately.
+  Save-copy destinations are kept outside the catalog to preserve its one-to-one
+  module-file authority. Existing 2D/TOML table drafts survive project saves.
+- `part_model_3d.py` builds meshes and exposes existing dimension fields without
+  Qt. Actual annuli, pole sections, radial profiles and parent-owned split
+  intervals are represented; unsupported geometry is explicitly an envelope or
+  omitted if no outer extent exists. Array-defined apertures preview one
+  existing diameter by index, without inventing perforation coordinates.
+- `gui/part_model_view.py` uses Numba/software triangle rasterization and one
+  shared depth/selection buffer. It supports arbitrary trackball rotations,
+  panning, zoom, an axial view and display-only section clipping without requiring
+  an OpenGL context. The section exposes existing surfaces, not new cut solids.
+- Material snapshots live in each part's optional `material_regions` mapping,
+  with `body` as a default and `upper`/`lower` for real split bodies. The existing
+  `material_class` role is retained. `part_materials.py` provides sourced iron
+  and explicit static nonmagnetic approximations plus their application scope.
+  Linear/nonlinear geometry solvers and material identities consume assignments;
+  non-solver components retain metadata only. No conductivity, thermal,
+  scattering, analytic-field or beam-cutoff changes are implied.
+- Three-dimensional editing currently opens existing instrument module TOMLs;
+  STEP/STL import and arbitrary face subdivision are not implemented. Parametric
+  holes and slots are supported as described above. Do not treat envelope
+  displays as detailed OEM CAD models.
+- Verification: `tmp/part_model_regressions.py` ran 636 tests successfully on
+  2026-09-07, covering new models/materials/UI plus existing manifest, geometry,
+  field and selected GUI checks. Two existing extreme-ray numeric warnings
+  remain. Actual Fusion/dark-theme view: `tmp/physical_layout_3d_preview.png`.
+  User EnergyFilter TOML remained byte-identical, including the 180 mm IL coil.
+
+## Graphical mechanical dimensions (2026-09-07)
+
+- Select a simple excitation coil, housing or yoke through Physical Layout or
+  the Mechanical tree, then open Saved mechanical dimensions > Edit dimensions….
+  The separate editor shows an equal-scale 2D axisymmetric section. Numeric
+  length/ID/OD/radial-thickness controls and six drag handles edit the same draft.
+  The axial centre and its fractional position within an asymmetric envelope
+  remain fixed; surrounding gaps may change. Thickness edits explicitly retain
+  either ID or OD, with thickness derived as `(OD - ID) / 2`.
+- Undo/Redo/Revert operate on the preview. Apply is the persistence boundary:
+  full manifest/catalog validation runs before saving and geometry reload
+  preserves runtime lens strengths. Invalid dimensions or assembly collisions
+  appear inline and leave the saved assembly unchanged. Opening the editor
+  reads saved dimensions, without importing uncommitted TOML table edits.
+  Apply preserves existing table drafts, including invalid text, and shows a
+  notice that those values remain unsaved while the geometry summary is current.
+- Vacuum diameter is the beam passage, displayed read-only alongside the
+  material class. Projector vacuum-ID mismatch errors now direct simple-layer
+  users to Edit dimensions and the mechanical ID/OD fields for material
+  thickness changes. A material-class label does not provide a complete material
+  assignment editor; existing FEM permeability/B-H configuration stays separate.
+- `src/temsim/part_geometry.py` owns the neutral annular-cylinder representation;
+  `src/temsim/gui/part_geometry_editor.py` owns its 2D interaction. The primitive
+  can support future 3D rendering, but this stage is not a full 3D CAD system.
+  Shaped radial profiles and shared/segmented structures are explicitly outside
+  the graphical editor's supported scope rather than approximated as cylinders.
+- Manifest validation now checks finite positive layer length, ordered
+  mechanical ID/OD, vacuum clearance and non-empty material classes for the
+  three layer profiles. Simple concentric layers with the same optical owner
+  cannot intersect both axially and radially; contact within the existing
+  tolerance is allowed. Split material intervals retain their physical gaps,
+  and complex/shared geometry is not forced through the simple-annulus check.
+  Existing legacy sizing recipes and other assembly constraints remain active.
+- Preserve user-edited TOML values when extending this feature. In the current
+  workspace, EnergyFilter's Intermediate Lens coil is 180 mm long, at local
+  Z 162.5..342.5 mm with centre 252.5 mm; do not restore the former 162 mm value.
+- Focused coverage lives in `tests/test_part_geometry.py`,
+  `tests/test_part_geometry_editor.py`, `tests/test_part_geometry_validation.py`,
+  `tests/test_part_geometry_integration.py`
+  and the existing manifest/editor integration tests. Validation tests read all
+  current instrument manifests without modifying them and exercise safe radial
+  edits, overlap rejection, contact, complex-profile handling and useful errors.
+- Final geometry, catalog, input-policy and selected GUI regression run:
+  457 passed (2026-09-07), with existing extreme-ray numeric warnings.
+  `tmp/part_geometry_regressions.py` isolates QSettings and loads the installed
+  Segoe UI font for Windows offscreen sizing checks. Actual editor screenshots:
+  `tmp/part_geometry_editor_preview.png` and `tmp/part_geometry_editor_900.png`.
+
+## TOML part length editing (2026-09-07)
+
+- Editing a part's `length_mm` in ParameterPanel updates the staged start/end
+  coordinates immediately after the cell is committed. The centre and its
+  fractional position within an asymmetric envelope remain fixed. The edit is
+  written only through Validate and save TOML; loading the panel never changes
+  staged coordinates. Standalone ManifestEditor length-only saves use the same
+  rule, while explicit endpoint updates retain strict consistency validation.
+- The user chose fixed centres with variable gaps. Projector housing clearance
+  now checks finite, non-negative gaps instead of enforcing the nominal 5 mm
+  design gap at every pair. Bore, collision, provenance and other assembly
+  validations remain active. No default configuration dimensions were changed.
+- The reported IL housing 230 -> 225 mm produces local endpoints 140/365 mm;
+  IL coil 162 -> 168 mm produces 168.5/336.5 mm. Both retain centre 252.5 mm,
+  reload through the catalog, and leave every other part at its original Z.
+- Validation: 156 combined regressions passed across editor, catalog, layout,
+  field-provider and GUI paths. After tightening length type validation even
+  for explicit endpoints, 45 editor/UI cases passed in a focused rerun. Invalid
+  or conflicting input preserves the original file bytes. Compile and diff
+  checks pass; the checked-in instrument TOMLs retain their original values.
+
+## Inspection fixes (2026-09-07)
+
+- Wave-STEM integrates shared and per-probe detector masks by multiplying and
+  summing the final two diffraction axes. Recording plans include downstream
+  static kicks and transport scan-time kick deltas to each physical stop;
+  sample-position transport and the old detector-centre shifts are not added
+  twice. Ordinary first-order/TEM callers retain their previous event defaults.
+- New 4D-STEM calibrations persist the acquisition-time raster. Disk/RAM
+  detector replay uses those times and rebuilds derived scan calibration on
+  private components, including when the input state came from a detached bank
+  snapshot. Legacy cubes retain their original calibration digest and remain
+  readable, but dynamic recording replay requires recorded scan times.
+- STEM request/product identities include the corrected recording schema;
+  incident, elastic, EDS and TEM wave identities remain reusable.
+- Operating-profile format 4 records nullable editable fields in `none_values`,
+  preserving automatic Cs/Cc estimation. Readers support formats 1-4, validate
+  null markers, and validate sample values before applying device changes.
+- Artifact quota admission counts the retained object, replacement reference
+  and fixed store overhead before publishing or evicting. Rejected oversize
+  writes preserve old identities and shared objects; successful writes retain
+  normal LRU eviction. Tests now use structured geometry authority rather than
+  requiring a particular sentence in non-OEM provenance prose.
+- Corrected two additional legacy test fixtures exposed by verification: the
+  single-plane Collins test retracts downstream apertures, and the synthetic
+  specimen transport initialises its cached field supports. All existing
+  symplecticity, map agreement and trajectory-reversal assertions are retained.
+- Validation: 410 distinct CPU cases across 34 test files passed across the
+  combined run and targeted reruns; 6 CUDA cases were skipped because the CuPy
+  backend is unavailable. The final physical-routing implementation passed
+  66 focused cases, wave imaging passed 17 (1 CUDA skip), and the aperture /
+  six-stage files passed 17. Changed Python files compile and `git diff --check`
+  passes. Coverage is focused on the changed paths and their integrations.
+
 ## Stage 1: incremental ray and magnetic graphics
 
 - New ray results reuse unchanged component, specimen, wall and crossover layers;
