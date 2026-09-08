@@ -1,0 +1,19 @@
+{
+  "purpose": "Layout-only synthetic GUI fixture, not computed microscope physics",
+  "style": "Actual Fusion + APPLICATION_STYLE + Segoe UI 9",
+  "catalog": "Temporary copy; no Save invoked; original catalog byte invariance checked by fixture",
+  "frame": "Uniform synthetic 2x2 fractions and synthetic 1-7 mrad DF report",
+  "proposal": "Synthetic ID 8 mm / OD 16 mm, Jdiff singular-axis range 0.8-1.2 m",
+  "panel_size": [
+    1280,
+    760
+  ],
+  "dialog_size": [
+    660,
+    510
+  ],
+  "outputs": [
+    "E:\\tem_simulator_v2\\outputs\\df_direct_beam_clearance\\ui_action_layout_fixture.png",
+    "E:\\tem_simulator_v2\\outputs\\df_direct_beam_clearance\\ui_review_layout_fixture.png"
+  ]
+}

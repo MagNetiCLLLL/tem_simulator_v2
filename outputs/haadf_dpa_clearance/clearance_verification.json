@@ -1,0 +1,206 @@
+{
+  "created_utc": "2026-09-08T09:54:37.625638+00:00",
+  "verification_kind": "read-only signed first-order geometry and sequential stop routing; no new multislice scan or detector image generated",
+  "scope": "Current nano_probe + diffraction default and archived final acquisition lens settings; no guarantee for arbitrary subsequent lens/deflector/position edits. The first-order recorder explicitly disables high-order spherical aberration.",
+  "model_formula": "r_DPA = J_img r_sample + J_diff theta_sample + affine_offset - aperture_offset; dynamic scan offset is zero in the verified profiles.",
+  "default_nanoprobe_diffraction": {
+    "plan_fingerprint": "259360cefeb04de91040c23258d21e5230e6ed4751c15e5022ef838569411d65",
+    "step_mm": 0.5,
+    "DPA": {
+      "z_mm": 2586.9,
+      "radius_mm": 6.0,
+      "j_img": [
+        [
+          -7.457566738128662,
+          -4.901851654052734
+        ],
+        [
+          4.901851654052734,
+          -7.457566738128662
+        ]
+      ],
+      "j_diff_m_per_rad": [
+        [
+          -0.024674246087670326,
+          0.02078499086201191
+        ],
+        [
+          -0.02078499086201191,
+          -0.024674246087670326
+        ]
+      ],
+      "position_offset_m": [
+        0.0,
+        0.0
+      ],
+      "stop_offset_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "HAADF": {
+      "z_mm": 2594.15,
+      "radius_mm": 0.0,
+      "j_img": [
+        [
+          -7.5192766189575195,
+          -5.200157642364502
+        ],
+        [
+          5.200157642364502,
+          -7.5192766189575195
+        ]
+      ],
+      "j_diff_m_per_rad": [
+        [
+          -0.025447076186537743,
+          0.02143598534166813
+        ],
+        [
+          -0.02143598534166813,
+          -0.025447076186537743
+        ]
+      ],
+      "position_offset_m": [
+        0.0,
+        0.0
+      ],
+      "stop_offset_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "HAADF_geometric_annulus_mrad": [
+      60.109811572248276,
+      330.6039636473655
+    ],
+    "scan_pixels": [
+      32,
+      32
+    ],
+    "scan_pixel_size_nm": 1.0,
+    "scan_half_extent_nm": [
+      15.5,
+      15.5
+    ],
+    "DPA_scan_position_bound_mm": 0.00019562381845214454,
+    "HAADF_scan_position_bound_mm": 0.00020040146596657832,
+    "static_and_dynamic_offsets": "DPA and HAADF affine/stop offsets zero; descan scan disabled; no time-dependent recording deflection",
+    "old_radius_mm": 0.1,
+    "old_angle_limit_mrad": 3.099625388291805,
+    "new_radius_mm": 6.0,
+    "new_on_axis_angle_limit_mrad": 185.9775232975083,
+    "all_scan_all_azimuth_HAADF_pass_interval_mrad": [
+      60.115834619427304,
+      185.971459691966
+    ],
+    "full_existing_HAADF_annulus_required_radius_mm_including_scan": 10.666322825620176,
+    "radius_needed_at_168_800386_mrad_mm": 5.44602744898909,
+    "new_radial_margin_over_168_800386_mrad": 0.10172048455498328,
+    "limitation": "The existing 20 mm outer diameter/beam passage cannot pass the whole default HAADF annulus without changing other geometry or lens settings; above about 186 mrad the 12 mm DPA bore still blocks rays."
+  },
+  "final_profiles": [
+    {
+      "path": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\operating_profile.toml",
+      "sha256": "e8ed898ee1d6270ce49aab27d140c647b585d7422e1c61875c3591843912eaae",
+      "plan_fingerprint": "b3fbf9b62e50ffad3f5219fbb521ed9025f53768214583e41d1118fffbfc79b7",
+      "DPA": {
+        "z_mm": 2586.9,
+        "radius_mm": 0.1,
+        "j_img": [
+          [
+            -0.21580365300178528,
+            -0.027111662551760674
+          ],
+          [
+            0.027111662551760674,
+            -0.21580365300178528
+          ]
+        ],
+        "j_diff_m_per_rad": [
+          [
+            2.3250439767918962e-11,
+            3.3143373028704515e-12
+          ],
+          [
+            -3.3143373028704515e-12,
+            2.3250439767918962e-11
+          ]
+        ],
+        "position_offset_m": [
+          0.0,
+          0.0
+        ],
+        "stop_offset_mm": [
+          0.0,
+          0.0
+        ]
+      },
+      "required_radius_bound_360mrad_plus_5nm_square_mm": 1.5464121665548676e-06,
+      "HAADF_60_1_to_329_9mrad_all_azimuths_and_5nm_square_pass": true,
+      "routing_balance_error": 0.0,
+      "lens_strengths": {
+        "diffraction_lens": 21.0525289552772,
+        "intermediate_lens": 93.36936839164477,
+        "projector_lens_1": 46.12308729096934,
+        "projector_lens_2": 32.8005139041144
+      }
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\outputs\\haadf_dpa_clearance\\si110_haadf_dpa_12mm.toml",
+      "sha256": "33b8c955bc4cd0911890d3c2d99c655eb46ac47fab806665a293ee912cb0557c",
+      "plan_fingerprint": "a335d39e92c184fa1d0e62c081ef21770cac554a5defd9699467d0645aa9c383",
+      "DPA": {
+        "z_mm": 2586.9,
+        "radius_mm": 6.0,
+        "j_img": [
+          [
+            -0.21580365300178528,
+            -0.027111662551760674
+          ],
+          [
+            0.027111662551760674,
+            -0.21580365300178528
+          ]
+        ],
+        "j_diff_m_per_rad": [
+          [
+            2.3250439767918962e-11,
+            3.3143373028704515e-12
+          ],
+          [
+            -3.3143373028704515e-12,
+            2.3250439767918962e-11
+          ]
+        ],
+        "position_offset_m": [
+          0.0,
+          0.0
+        ],
+        "stop_offset_mm": [
+          0.0,
+          0.0
+        ]
+      },
+      "required_radius_bound_360mrad_plus_5nm_square_mm": 1.5464121665548676e-06,
+      "HAADF_60_1_to_329_9mrad_all_azimuths_and_5nm_square_pass": true,
+      "routing_balance_error": 0.0,
+      "lens_strengths": {
+        "diffraction_lens": 21.0525289552772,
+        "intermediate_lens": 93.36936839164477,
+        "projector_lens_1": 46.12308729096934,
+        "projector_lens_2": 32.8005139041144
+      }
+    }
+  ],
+  "regression": {
+    "test": "tests/test_haadf_dpa_clearance.py",
+    "result": "1 passed in 12.05s",
+    "method": "5 specimen scan extrema/centre positions, 32 azimuths, 13 angles from 60.2 to 168.8 mrad plus 185/187/200/300 mrad; all real sequential stops retained. Old 0.1 mm radius blocks all; current 6 mm radius passes the wave HAADF band and 185 mrad, while DPA intercepts 187/200/300 mrad; weighted routing balance zero."
+  },
+  "final_acquisition_note": "The archived final calibrated profile already passes the full nominal HAADF angular domain through the original 0.1 mm DPA radius; the new 6 mm radius also passes it with unchanged lenses. This audit did not rerun the 64x64 acquisition and produces no replacement image.",
+  "current_recording_input_hashes": {
+    "E:\\tem_simulator_v2\\configs\\instruments\\project_and_recording_system\\EnergyFilter.toml": "a24840342d83da6867ababc0d660c2d066622da351aa8c631d4807ba01c49dca",
+    "E:\\tem_simulator_v2\\configs\\instruments\\project_and_recording_system\\NoEnergyFilter.toml": "8ad1dd5be0157a6d9de08d48aed458a4a70ab57757b7baf55884a6ec90044f81"
+  }
+}

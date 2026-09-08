@@ -3204,17 +3204,14 @@ class VisualizationWorkspace(QWidget):
         ).strip().lower()
         if inserted:
             label = f"SAMPLE / SPECIMEN  Z={sample_z_mm:.6g} mm"
-            if specimen_mode == "virtual":
+            if specimen_mode == "reference":
                 tooltip = (
-                    "Virtual sample plane (inserted)\n"
+                    "Reference CIF sample plane (inserted)\n"
                     f"Exact axial position Z = {sample_z_mm:.9g} mm\n"
-                    "The selected TOML reference supplies ideal wave/EDS "
-                    "material structure. Explicit user-defined interaction "
-                    "channels start here in the Ray Diagram. "
-                    "Ray hue identifies interaction type; brightness encodes "
-                    "the ray's convergence semi-angle relative to that "
-                    "branch's chief ray. Their common start is a continuous "
-                    "ray boundary, not a second optical element."
+                    "The selected reference CIF supplies atomic structure. "
+                    "Coherent elastic scattering is calculated by multislice; "
+                    "coloured energy-loss paths represent material-based "
+                    "inelastic transport."
                 )
             else:
                 tooltip = (
@@ -3694,6 +3691,7 @@ class VisualizationWorkspace(QWidget):
                 getattr(result, "scan_geometry", None),
                 getattr(result, "stem_scan", None),
                 complete=not is_preview or no_illumination,
+                state_snapshot=getattr(result, "state_snapshot", None),
             )
             if no_illumination:
                 self.scan_control.image_model_notice.setText(

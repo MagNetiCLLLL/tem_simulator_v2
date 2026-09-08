@@ -31,7 +31,7 @@ def test_display_subset_does_not_claim_to_be_the_full_calculation_region():
                        atom_display_capped=True, atom_display_size_nm=(3.3, 3.3, 3.3))
     full, local, atoms = sample_scene_labels(snapshot, completed_region=False)
 
-    assert "Diameter 3 mm" in full
+    assert "Diameter 10 nm" in full
     assert "Local structure preview" in local
     assert "calculation" not in local
     assert "1,800 atoms shown | Display subset: 3.3 nm × 3.3 nm × 3.3 nm" in atoms
@@ -75,7 +75,7 @@ def test_page_retains_completed_region_labels_without_using_new_draft_dimensions
     page.fit_local_region_button.click()
     page.fit_full_sample_button.click()
     assert page._snapshot.size_nm == before
-    assert state.sample.size_x_nm == 3_000_000.0
+    assert state.sample.size_x_nm == 10.0
 
 
 def test_page_missing_cif_preserves_full_and_local_outlines(qtbot, tmp_path):

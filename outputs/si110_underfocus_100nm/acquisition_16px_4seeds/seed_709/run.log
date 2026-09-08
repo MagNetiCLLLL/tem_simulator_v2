@@ -1,0 +1,35 @@
+E:\tem_simulator_v2\.venv\Lib\site-packages\cupy\_environment.py:286: UserWarning: CUDA path could not be detected. Set CUDA_PATH environment variable if CuPy fails to load.
+  warnings.warn(
+Tracing actual profile incident beam...
+{"configured_c1_nm": -100.08365920070722, "effective_c1_nm": -100.0, "alpha_mrad": 24.80467235853336, "sampling_plan": {"field_of_view_angstrom": 80.0, "pixels": 2048, "sampling_angstrom": 0.0390625, "reference_sampling_angstrom": 0.0390625, "estimated_potential_bytes": 452984832, "estimated_working_bytes": 5402263552, "expanded": false}}
+{"elapsed_s": 0.00011410005390644073, "done": 0, "total": 1, "message": "Preparing STEM scan and detector geometry"}
+{"elapsed_s": 24.466122900135815, "done": 1, "total": 34, "message": "STEM specimen potential ready"}
+{"elapsed_s": 34.93233110010624, "done": 10, "total": 258, "message": "STEM GPU probes 9/256"}
+{"elapsed_s": 45.59691030019894, "done": 20, "total": 258, "message": "STEM GPU probes 19/256"}
+{"elapsed_s": 56.27004910027608, "done": 30, "total": 258, "message": "STEM GPU probes 29/256"}
+{"elapsed_s": 66.91808110009879, "done": 40, "total": 258, "message": "STEM GPU probes 39/256"}
+{"elapsed_s": 77.62720930017531, "done": 50, "total": 258, "message": "STEM GPU probes 49/256"}
+{"elapsed_s": 88.33400280028582, "done": 60, "total": 258, "message": "STEM GPU probes 59/256"}
+{"elapsed_s": 99.17921410035342, "done": 70, "total": 258, "message": "STEM GPU probes 69/256"}
+{"elapsed_s": 109.96659720037133, "done": 80, "total": 258, "message": "STEM GPU probes 79/256"}
+{"elapsed_s": 120.47926460020244, "done": 89, "total": 258, "message": "STEM GPU probes 88/256"}
+{"elapsed_s": 131.38990320032462, "done": 99, "total": 258, "message": "STEM GPU probes 98/256"}
+{"elapsed_s": 141.48432190017775, "done": 108, "total": 258, "message": "STEM GPU probes 107/256"}
+{"elapsed_s": 152.24512830004096, "done": 118, "total": 258, "message": "STEM GPU probes 117/256"}
+{"elapsed_s": 162.51075230026618, "done": 127, "total": 258, "message": "STEM GPU probes 126/256"}
+{"elapsed_s": 173.39476950000972, "done": 136, "total": 258, "message": "STEM GPU probes 135/256"}
+{"elapsed_s": 183.66550530027598, "done": 145, "total": 258, "message": "STEM GPU probes 144/256"}
+{"elapsed_s": 194.16143750026822, "done": 154, "total": 258, "message": "STEM GPU probes 153/256"}
+{"elapsed_s": 204.8269704002887, "done": 163, "total": 258, "message": "STEM GPU probes 162/256"}
+{"elapsed_s": 215.08891530008987, "done": 172, "total": 258, "message": "STEM GPU probes 171/256"}
+{"elapsed_s": 225.53481979994103, "done": 181, "total": 258, "message": "STEM GPU probes 180/256"}
+{"elapsed_s": 235.66491750022396, "done": 190, "total": 258, "message": "STEM GPU probes 189/256"}
+{"elapsed_s": 246.00994800031185, "done": 199, "total": 258, "message": "STEM GPU probes 198/256"}
+{"elapsed_s": 256.22546910028905, "done": 208, "total": 258, "message": "STEM GPU probes 207/256"}
+{"elapsed_s": 266.83251320011914, "done": 217, "total": 258, "message": "STEM GPU probes 216/256"}
+{"elapsed_s": 277.0328446999192, "done": 226, "total": 258, "message": "STEM GPU probes 225/256"}
+{"elapsed_s": 287.15120350010693, "done": 235, "total": 258, "message": "STEM GPU probes 234/256"}
+{"elapsed_s": 297.28756290022284, "done": 243, "total": 258, "message": "STEM GPU probes 242/256"}
+{"elapsed_s": 308.3699330999516, "done": 253, "total": 258, "message": "STEM GPU probes 252/256"}
+{"elapsed_s": 312.9289216003381, "done": 258, "total": 258, "message": "STEM detector frame complete"}
+{"output": "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\acquisition_16px_4seeds\\seed_709", "elapsed_acquisition_s": 315.0733404997736, "images": {"haadf": {"min_fraction": 0.0006886143096645844, "max_fraction": 0.0011633638597229616, "mean_fraction": 0.0008144761256503857, "std_fraction": 7.40733506043685e-05, "relative_std": 0.09094600599277053, "michelson_modulation": 0.25634727120751005, "mean_tail_fraction": 7.509786982270722e-05, "tail_share": 0.09220389334646135, "png": {"min_maps_to_0": 0.0006886143096645844, "max_maps_to_65535": 0.0011633638597229616, "row_zero": "maximum sample Y"}}, "df": {"min_fraction": 0.04167103803529428, "max_fraction": 0.0468725764527627, "mean_fraction": 0.043795567613350225, "std_fraction": 0.0010043639921309138, "relative_std": 0.022933005481238538, "michelson_modulation": 0.058745494494919434, "mean_tail_fraction": 0.0, "tail_share": 0.0, "png": {"min_maps_to_0": 0.04167103803529428, "max_maps_to_65535": 0.0468725764527627, "row_zero": "maximum sample Y"}}, "bf": {"min_fraction": 0.00016797546509776093, "max_fraction": 0.0005361804416291272, "mean_fraction": 0.00036332666453002755, "std_fraction": 8.048150025433308e-05, "relative_std": 0.2215127820536871, "michelson_modulation": 0.5229026313829916, "mean_tail_fraction": 0.0, "tail_share": 0.0, "png": {"min_maps_to_0": 0.00016797546509776093, "max_maps_to_65535": 0.0005361804416291272, "row_zero": "maximum sample Y"}}}, "probability_error": 2.220446049250313e-16}

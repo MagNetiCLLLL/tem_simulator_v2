@@ -56,7 +56,7 @@ def test_virtual_specimen_rejects_non_paraxial_user_angle():
         virtual_scattering_branches(sample)
 
 
-def test_ray_simulation_uses_virtual_channels_in_both_transverse_axes():
+def test_ray_simulation_rejects_unmigrated_virtual_mode():
     state = default_state()
     catalog = AssemblyCatalog()
     catalog.apply(state, catalog.default_selection())
@@ -73,39 +73,13 @@ def test_ray_simulation_uses_virtual_channels_in_both_transverse_axes():
     state.sample.virtual_scattering_angle_mrad = 12.0
     state.sample.virtual_scattering_azimuth_samples = 4
 
-    simulation = run(state, resolved_layout=layout)
-
-    assert simulation.metrics["specimen_mode"] == "virtual"
-    assert simulation.metrics["sample_scattering_model"] == (
-        "user_defined_virtual_angular_channels"
-    )
-    assert {
-        "000",
-        "virtual_+g",
-        "virtual_-g",
-        "virtual_ring_001",
-        "virtual_ring_002",
-        "virtual_ring_003",
-        "virtual_ring_004",
-    } == set(simulation.branches)
-    plus = simulation.branches["virtual_+g"]
-    direct = simulation.branches["000"]
-    assert direct.interaction_kind == "transmitted"
-    assert plus.interaction_kind == "diffraction_spots"
-    assert plus.colour != direct.colour
-    assert simulation.metrics["ray_interaction_types"] == (
-        "transmitted",
-        "diffraction_spots",
-        "diffuse_ring",
-    )
-    assert np.mean(plus.ty[0] - direct.ty[0]) == pytest.approx(
-        5.0e-3,
-        rel=1.0e-6,
-        abs=1.0e-9,
-    )
+    # Standalone legacy channel math remains covered above, but production
+    # requires a migrated reference/atomic source rather than executing it.
+    with pytest.raises(ValueError, match="must be 'atomic' or 'reference'"):
+        run(state, resolved_layout=layout)
 
 
-def test_vacuum_reference_disables_virtual_interaction_rows():
+def test_legacy_vacuum_reference_migrates_to_retracted_sample_without_virtual_rows():
     state = default_state()
     catalog = AssemblyCatalog()
     catalog.apply(state, catalog.default_selection())
@@ -114,10 +88,12 @@ def test_vacuum_reference_disables_virtual_interaction_rows():
     state.step_mm = 5.0
     state.history_step_mm = 5.0
     state.electron_gun.emitter.ray_count = 9
-    state.sample.specimen_mode = "virtual"
-    state.sample.specimen_preset_key = "vacuum"
-    state.sample.diffraction_enabled = True
-    state.sample.virtual_interactions = [
+    payload = state.to_dict()
+    payload["schema_version"] = 76  # Deliberately exercise the old input format.
+    payload["sample"]["specimen_mode"] = "virtual"
+    payload["sample"]["specimen_preset_key"] = "vacuum"
+    payload["sample"]["diffraction_enabled"] = True
+    payload["sample"]["virtual_interactions"] = [
         {
             "name": "must not run",
             "kind": "diffraction_spots",
@@ -128,6 +104,12 @@ def test_vacuum_reference_disables_virtual_interaction_rows():
         }
     ]
 
+    state = type(state).from_dict(payload)
+    assert state.schema_version == 77
+    assert state.sample.specimen_mode == "reference"
+    assert state.sample.inserted is False
+    assert state.sample.virtual_interactions == []
+    layout = apply_physical_layout_to_state(state)
     simulation = run(state, resolved_layout=layout)
 
     assert tuple(simulation.branches) == ("000",)
@@ -170,13 +152,13 @@ def test_schema_69_cif_state_migrates_to_real_mode():
 
     restored = type(state).from_dict(payload)
 
-    assert restored.schema_version == 76
+    assert restored.schema_version == 77
     assert restored.sample.specimen_mode == "atomic"
     assert restored.sample.specimen_preset_key == "si_110"
     assert restored.sample.cif_path == "legacy-example.cif"
 
 
-def test_schema_70_real_preset_state_migrates_to_virtual_reference_mode():
+def test_schema_70_real_preset_state_migrates_to_cif_reference_mode():
     state = default_state()
     payload = state.to_dict()
     payload["schema_version"] = 70
@@ -187,8 +169,9 @@ def test_schema_70_real_preset_state_migrates_to_virtual_reference_mode():
 
     restored = type(state).from_dict(payload)
 
-    assert restored.schema_version == 76
-    assert restored.sample.specimen_mode == "virtual"
+    assert restored.schema_version == 77
+    assert restored.sample.specimen_mode == "reference"
+    assert restored.sample.reference_sample_key == "au_001"
     assert restored.sample.specimen_preset_key == "au_001"
     assert not hasattr(restored.sample, "atomic_structure_source")
 
@@ -201,7 +184,7 @@ def test_pre_73_state_without_shape_retains_rectangular_envelope():
 
     restored = type(state).from_dict(payload)
 
-    assert restored.schema_version == 76
+    assert restored.schema_version == 77
     assert restored.sample.envelope_shape == "rectangle"
 
 

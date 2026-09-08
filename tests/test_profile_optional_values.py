@@ -70,10 +70,10 @@ def test_profile_restores_estimates_on_all_runtime_lens_types(tmp_path):
 
     assert all(lens.cs_mm is None and lens.cc_mm is None for lens in restored.lenses)
     document = tomllib.loads(path.read_text(encoding="utf-8"))
-    assert document["format_version"] == PROFILE_FORMAT_VERSION == 4
+    assert document["format_version"] == PROFILE_FORMAT_VERSION == 5
 
 
-@pytest.mark.parametrize("version", [1, 2, 3])
+@pytest.mark.parametrize("version", [1, 2, 3, 4])
 def test_legacy_profile_keeps_omitted_coefficients_and_explicit_numbers(tmp_path, version):
     catalog = AssemblyCatalog()
     selection = catalog.default_selection()

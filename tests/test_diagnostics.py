@@ -115,60 +115,29 @@ def test_physical_layout_records_use_resolved_geometry_and_optical_references():
         "objective_lens_excitation_coil"
     ].bore_diameter_mm
 
-    expected_radial_thickness = {}
-    for module in result.assembly.modules:
-        module_fields = module.geometry.get(
-            "magnetic_lens_design_peak_fields_t", {}
-        )
-        base = module.geometry.get(
-            "magnetic_lens_coil_radial_thickness_base_mm"
-        )
-        per_t = module.geometry.get(
-            "magnetic_lens_coil_radial_thickness_per_t_mm"
-        )
-        if base is None or per_t is None:
-            continue
-        shared_peak = max(
-            (
-                float(module_fields[key])
-                for key in (
-                    "condenser_lens_1",
-                    "condenser_lens_2",
-                )
-                if key in module_fields
-            ),
-            default=0.0,
-        )
-        for key, field_t in module_fields.items():
-            effective_field = (
-                shared_peak
-                if key in {"condenser_lens_1", "condenser_lens_2"}
-                else float(field_t)
-            )
-            expected_radial_thickness[key] = (
-                float(base) + float(per_t) * effective_field
-            )
     for lens_key in lens_keys:
         coil = by_key[f"{lens_key}_excitation_coil"]
-        lens = by_key[lens_key]
+        coil_dimensions = result.assembly.part(coil.key).data
         poles = [
             item for item in records
             if result.assembly.part(item.key).parent_key == lens_key
             and item.profile == "magnetic_pole_piece"
         ]
+        # CAD length edits are authoritative; the original 90%-of-parent
+        # sizing rule is a design default, not the resolved coil's length.
         assert coil.end_z_mm - coil.start_z_mm == pytest.approx(
-            0.9 * min(lens.end_z_mm - lens.start_z_mm, 180.0)
+            float(coil_dimensions["length_mm"])
         )
         assert coil.end_z_mm - coil.start_z_mm > max(
             item.end_z_mm - item.start_z_mm for item in poles
         )
-        assert 0.5 * (
-            coil.outer_diameter_mm - coil.bore_diameter_mm
-        ) == pytest.approx(
-            result.assembly.part(lens_key).data.get(
-                "mechanical_coil_radial_thickness_mm",
-                expected_radial_thickness[lens_key],
-            )
+        # Individual CAD ID/OD edits also supersede the initial field-based
+        # radial sizing recipe; diagnostics must report the actual material.
+        assert coil.outer_diameter_mm == pytest.approx(
+            float(coil_dimensions["mechanical_outer_diameter_mm"])
+        )
+        assert coil.bore_diameter_mm == pytest.approx(
+            float(coil_dimensions["mechanical_inner_diameter_mm"])
         )
 
     objective_poles = [

@@ -9,6 +9,7 @@ relaxation observable rather than a second electron-loss population.
 
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 import math
 from typing import Iterable
@@ -282,6 +283,9 @@ def _eds_event_ledger(
     the same elastic Monte Carlo run used to create the spectrum tracks.
     """
 
+    quadrature = getattr(spectrum, "material_quadrature", None)
+    if quadrature is not None:
+        transport = quadrature
     if spectrum is None or transport is None:
         return ()
     material_flights = tuple(getattr(transport, "material_flights", ()))
@@ -341,13 +345,14 @@ def _eds_event_ledger(
                 energy_transfer_ev=float(vacancy.edge_energy_ev),
                 expected_occurrences_per_source_electron=occurrences,
                 event_id=vacancy_id,
-                parent_electron_index=int(vacancy.source_ray_index),
+                parent_electron_index=(None if quadrature is not None else int(vacancy.source_ray_index)),
                 source_key=str(vacancy.source_key),
                 material_key=str(vacancy.material_key),
                 atomic_number=int(vacancy.atomic_number),
                 model="Bote-Salvat shell ionisation",
                 provenance=(
-                    "weighted vacancy sampled along an existing stored "
+                    ("EDS overlap quadrature; no original electron identity; " if quadrature is not None else "")
+                    + "weighted vacancy sampled along an existing stored "
                     "elastic material flight; transfer is the shell-binding "
                     "lower bound and is excluded from the exclusive "
                     "inelastic population budget"
@@ -368,7 +373,7 @@ def _eds_event_ledger(
                     ),
                     event_id=radiative_id,
                     parent_event_id=vacancy_id,
-                    parent_electron_index=int(vacancy.source_ray_index),
+                    parent_electron_index=(None if quadrature is not None else int(vacancy.source_ray_index)),
                     source_key=str(vacancy.source_key),
                     material_key=str(vacancy.material_key),
                     atomic_number=int(vacancy.atomic_number),
@@ -398,7 +403,7 @@ def _eds_event_ledger(
                         f"{line.transition}"
                     ),
                     parent_event_id=radiative_id,
-                    parent_electron_index=int(vacancy.source_ray_index),
+                    parent_electron_index=(None if quadrature is not None else int(vacancy.source_ray_index)),
                     source_key=str(vacancy.source_key),
                     material_key=str(vacancy.material_key),
                     atomic_number=int(vacancy.atomic_number),
@@ -423,7 +428,7 @@ def _eds_event_ledger(
                     ),
                     event_id=f"{vacancy_id}:auger",
                     parent_event_id=vacancy_id,
-                    parent_electron_index=int(vacancy.source_ray_index),
+                    parent_electron_index=(None if quadrature is not None else int(vacancy.source_ray_index)),
                     source_key=str(vacancy.source_key),
                     material_key=str(vacancy.material_key),
                     atomic_number=int(vacancy.atomic_number),
@@ -448,7 +453,7 @@ def _eds_event_ledger(
                     ),
                     event_id=f"{vacancy_id}:unresolved",
                     parent_event_id=vacancy_id,
-                    parent_electron_index=int(vacancy.source_ray_index),
+                    parent_electron_index=(None if quadrature is not None else int(vacancy.source_ray_index)),
                     source_key=str(vacancy.source_key),
                     material_key=str(vacancy.material_key),
                     atomic_number=int(vacancy.atomic_number),
@@ -578,6 +583,34 @@ def _same_optional_scalar(left: float | None, right: float | None) -> bool:
     return float(left) == float(right)
 
 
+def _resolved_point_request(
+    state,
+    request: SpecimenInteractionRequest,
+) -> SpecimenInteractionRequest:
+    """Resolve acquisition defaults before either transport or cache reuse.
+
+    A point acquisition defaults to the sample's scan origin on each omitted
+    axis. The lower-level incident-boundary extractor deliberately gives None
+    a different meaning (preserve the calculated beam centroid), so it must
+    receive explicit coordinates from this acquisition boundary.
+    """
+
+    if not request.observables & _POINT_OBSERVABLES:
+        return request
+    sample = getattr(state, "sample", None)
+    return replace(
+        request,
+        point_x_nm=(
+            float(getattr(sample, "scan_origin_x_nm", 0.0))
+            if request.point_x_nm is None else request.point_x_nm
+        ),
+        point_y_nm=(
+            float(getattr(sample, "scan_origin_y_nm", 0.0))
+            if request.point_y_nm is None else request.point_y_nm
+        ),
+    )
+
+
 def _same_point_request(
     left: SpecimenInteractionRequest,
     right: SpecimenInteractionRequest,
@@ -652,6 +685,11 @@ def run_specimen_interactions(
         existing_result, SpecimenInteractionResult
     ):
         raise TypeError("Existing specimen result has the wrong contract type")
+
+    # Store the resolved point, not an unresolved None that could later refer
+    # to a different scan origin. Legacy unresolved point results are not
+    # silently reinterpreted as having been calculated at this coordinate.
+    request = _resolved_point_request(state, request)
 
     scene = (
         SpecimenScene.from_state(state)
@@ -974,6 +1012,11 @@ def run_specimen_interactions(
             )
         ),
         "eds_event_ledger_recomputed_cross_sections": False,
+        "eds_material_path_source": (
+            "independent weighted overlap quadrature; no original electron identity"
+            if getattr(eds_spectrum, "material_quadrature", None) is not None
+            else "original elastic material trajectories"
+        ),
         "eds_and_spectrum_share_vacancy_contributions": bool(eds_spectrum),
         "event_ledger_completeness": (
             "representative stored elastic trajectories; EDS vacancy and "

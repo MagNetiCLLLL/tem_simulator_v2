@@ -144,12 +144,14 @@ def resolve_sample_display_source(
             draft_differs,
         )
 
+    # Without a completed wave domain there is no calculated atom volume to
+    # retain. Source edits must immediately preview the selected structure.
+    sample = draft_sample
+    if draft_differs:
+        scan_x = scan_y = probe = None
+        padding = 0.0
     estimated = scan_x is not None
     label = "Estimated scan region" if estimated else "Structural preview"
-    if captured_sample is not None:
-        label += " | captured sample"
-    if draft_differs:
-        label += " | draft changed"
     detail = (
         "No completed wave-domain metadata is available. "
         + ("The region is estimated from scan positions and geometric probe padding; "
@@ -157,7 +159,7 @@ def resolve_sample_display_source(
         + "it is not evidence of the volume used by a completed TEM/STEM calculation."
     )
     if draft_differs:
-        detail += " The view retains the captured sample, not the current draft."
+        detail += " The view shows the current draft structure."
     return SampleDisplaySource(
         sample, scan_x, scan_y, probe, padding, None, label, detail,
         False, draft_sample_differs=draft_differs,

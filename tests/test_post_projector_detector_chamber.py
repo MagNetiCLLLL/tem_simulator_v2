@@ -76,8 +76,9 @@ def test_post_p2_chamber_preserves_detector_planes_and_marks_non_oem_geometry(
     assert dpa["local_center_z_mm"] == pytest.approx(p2_end)
     assert dpa["local_end_z_mm"] == pytest.approx(p2_end)
     assert dpa["length_mm"] == pytest.approx(0.0)
-    assert dpa["mechanical_bore_diameter_mm"] == pytest.approx(0.2)
+    assert dpa["mechanical_bore_diameter_mm"] == pytest.approx(12.0)
     assert dpa["reference_bore_diameter_mm"] == pytest.approx(0.2)
+    assert "not_oem" in dpa["design_bore_status"]
     assert "not_titan_oem" in dpa["reference_bore_status"]
     assert dpa["aperture_adjustability"] == (
         "fixed_non_retractable_hardware_toml_design_variable"
@@ -163,7 +164,9 @@ def test_physical_layout_draws_post_p2_detector_chamber_without_moving_planes(
     assert dpa_record.center_z_mm == pytest.approx(
         assembly.part("projector_lens_2").end_z_mm
     )
-    assert dpa_record.bore_diameter_mm == pytest.approx(0.2)
+    assert dpa_record.bore_diameter_mm == pytest.approx(
+        assembly.part(PROJECTION_CHAMBER_DPA_APERTURE).data["mechanical_bore_diameter_mm"]
+    )
     assert dpa_record.optical_references_mm == (dpa_record.center_z_mm,)
     assert POST_PROJECTOR_DETECTOR_CHAMBER in view._component_label_items
     assert PROJECTION_CHAMBER_DPA_APERTURE in (

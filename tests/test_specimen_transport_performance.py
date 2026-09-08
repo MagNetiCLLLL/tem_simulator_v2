@@ -68,7 +68,9 @@ def test_material_bounds_ignore_vacuum_support_but_keep_real_foil():
     assert geometry.material_z_bounds_nm == (-5.0, 5.0)
     state.sample.eds_support_material_key = "copper"
     assert ElasticTransportGeometry.from_state(state).material_z_bounds_nm == (-5.0, 25_005.0)
-    state.sample.specimen_preset_key = "vacuum"
+    # An unconfigured imported source leaves the inserted support foil in place.
+    state.sample.specimen_mode = "atomic"
+    state.sample.cif_path = ""
     assert ElasticTransportGeometry.from_state(state).material_z_bounds_nm == (5.0, 25_005.0)
     state.sample.inserted = False
     assert ElasticTransportGeometry.from_state(state).material_z_bounds_nm is None
@@ -78,8 +80,11 @@ def test_material_bounds_ignore_vacuum_support_but_keep_real_foil():
 def test_no_magnetic_search_after_leaving_actual_matter(vacuum):
     state = _state()
     if vacuum:
-        state.sample.specimen_preset_key = "vacuum"
+        state.sample.specimen_mode = "atomic"
+        state.sample.cif_path = ""
     geometry = ElasticTransportGeometry.from_state(state)
+    if vacuum:
+        assert geometry.material_z_bounds_nm is None
     transport = _uniform_transport((0.0, 0.0, 1.0))
     def forbidden(*args, **kwargs):
         raise AssertionError("There is no downstream material to search")

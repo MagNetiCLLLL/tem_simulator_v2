@@ -1,0 +1,149 @@
+{
+  "scope": "Production incident _probe_spectrum and record-plane masks; no specimen propagation. Edge energy measures periodic-window strips, not an exact outside-domain probability.",
+  "grid": 2048,
+  "fov_nm": 8.0,
+  "reciprocal_pixel_step_mrad_small_angle": 0.24609361258560997,
+  "reciprocal_pixel_area_mrad2_small_angle": 0.06056206615543629,
+  "positions": [
+    {
+      "index": [
+        1,
+        1
+      ],
+      "position_nm": [
+        0.0,
+        0.0
+      ],
+      "edge_strip_energy": {
+        "0.5": 0.0008540055527677004,
+        "1.0": 0.0017199389259996158
+      },
+      "detectors": {
+        "haadf": {
+          "pixel_count": 1277572,
+          "pixel_count_times_small_angle_area_mrad2": 77372.39998233305
+        },
+        "df": {
+          "pixel_count": 2512,
+          "pixel_count_times_small_angle_area_mrad2": 152.13191018245595
+        },
+        "bf": {
+          "pixel_count": 21,
+          "pixel_count_times_small_angle_area_mrad2": 1.271803389264162
+        }
+      }
+    },
+    {
+      "index": [
+        0,
+        0
+      ],
+      "position_nm": [
+        -0.6000000000000002,
+        -0.6000000000000001
+      ],
+      "edge_strip_energy": {
+        "0.5": 0.0009348944047904138,
+        "1.0": 0.0019302049724900935
+      },
+      "detectors": {
+        "haadf": {
+          "pixel_count": 1277567,
+          "pixel_count_times_small_angle_area_mrad2": 77372.09717200226
+        },
+        "df": {
+          "pixel_count": 2512,
+          "pixel_count_times_small_angle_area_mrad2": 152.13191018245595
+        },
+        "bf": {
+          "pixel_count": 21,
+          "pixel_count_times_small_angle_area_mrad2": 1.271803389264162
+        }
+      }
+    },
+    {
+      "index": [
+        0,
+        2
+      ],
+      "position_nm": [
+        0.6000000000000001,
+        -0.6000000000000002
+      ],
+      "edge_strip_energy": {
+        "0.5": 0.0009323605039154768,
+        "1.0": 0.0019187446811317075
+      },
+      "detectors": {
+        "haadf": {
+          "pixel_count": 1277567,
+          "pixel_count_times_small_angle_area_mrad2": 77372.09717200226
+        },
+        "df": {
+          "pixel_count": 2512,
+          "pixel_count_times_small_angle_area_mrad2": 152.13191018245595
+        },
+        "bf": {
+          "pixel_count": 21,
+          "pixel_count_times_small_angle_area_mrad2": 1.271803389264162
+        }
+      }
+    },
+    {
+      "index": [
+        2,
+        0
+      ],
+      "position_nm": [
+        -0.6000000000000001,
+        0.6000000000000002
+      ],
+      "edge_strip_energy": {
+        "0.5": 0.0009291250531236606,
+        "1.0": 0.0019085620216394168
+      },
+      "detectors": {
+        "haadf": {
+          "pixel_count": 1277567,
+          "pixel_count_times_small_angle_area_mrad2": 77372.09717200226
+        },
+        "df": {
+          "pixel_count": 2512,
+          "pixel_count_times_small_angle_area_mrad2": 152.13191018245595
+        },
+        "bf": {
+          "pixel_count": 21,
+          "pixel_count_times_small_angle_area_mrad2": 1.271803389264162
+        }
+      }
+    },
+    {
+      "index": [
+        2,
+        2
+      ],
+      "position_nm": [
+        0.6000000000000002,
+        0.6000000000000001
+      ],
+      "edge_strip_energy": {
+        "0.5": 0.000925133819409075,
+        "1.0": 0.001900577419109982
+      },
+      "detectors": {
+        "haadf": {
+          "pixel_count": 1277567,
+          "pixel_count_times_small_angle_area_mrad2": 77372.09717200226
+        },
+        "df": {
+          "pixel_count": 2512,
+          "pixel_count_times_small_angle_area_mrad2": 152.13191018245595
+        },
+        "bf": {
+          "pixel_count": 21,
+          "pixel_count_times_small_angle_area_mrad2": 1.271803389264162
+        }
+      }
+    }
+  ]
+}

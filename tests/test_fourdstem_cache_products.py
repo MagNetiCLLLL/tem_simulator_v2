@@ -166,6 +166,9 @@ def test_design_summary_tracks_cube_and_two_derived_products_independently():
 
 def test_design_stage_request_is_explicit_wave_stem_only():
     state = default_state()
+    # This branch specifically tests an explicit user opt-out, independent of
+    # the application's default request for STEM wave images.
+    state.sample.stem_wave_enabled = False
     state.ac_deflector.enabled = True
     state.ac_deflector.scan_enabled = True
     state.ac_deflector.wobble_enabled = False
@@ -194,6 +197,10 @@ def test_high_accuracy_reuses_raw_cube_for_response_and_dose_changes(tmp_path):
     state.sample.thickness_nm = 0.0
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 16.0
+    # Controlled periodic, zero-thickness window for capture/reuse invariants.
+    # Default-column focus is not under test: it may require a much larger
+    # real-space window, so do not auto-expand this deliberately small fixture.
+    state.sample.wave_probe_padding_factor = 0.0
     state.sample.wave_multislice_enabled = False
     state.sample.wave_atomistic_enabled = False
     state.sample.stem_wave_enabled = True

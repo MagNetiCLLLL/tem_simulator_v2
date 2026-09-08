@@ -22,18 +22,18 @@ def test_scene_uses_sample_centre_as_the_shared_local_z_origin():
     )
 
 
-def test_scene_keeps_real_and_virtual_structure_sources_mutually_exclusive():
+def test_scene_keeps_reference_and_external_cif_sources_mutually_exclusive():
     state = default_state()
-    state.sample.specimen_mode = "virtual"
-    state.sample.specimen_preset_key = "si_110"
+    state.sample.specimen_mode = "reference"
+    state.sample.reference_sample_key = "si_110"
     state.sample.cif_path = "dormant.cif"
 
-    virtual = SpecimenScene.from_state(state)
+    reference = SpecimenScene.from_state(state)
 
-    assert virtual.source_kind == "preset"
-    assert virtual.source_key == "preset:si_110"
-    assert virtual.preset_key == "si_110"
-    assert virtual.cif_path == ""
+    assert reference.source_kind == "cif"
+    assert reference.source_key == "cif:Si.cif"
+    assert reference.preset_key == "si_110"
+    assert Path(reference.cif_path).name == "Si.cif"
 
     state.sample.specimen_mode = "atomic"
     state.sample.cif_path = str(Path("user-sample.cif"))
@@ -45,23 +45,20 @@ def test_scene_keeps_real_and_virtual_structure_sources_mutually_exclusive():
     assert real.cif_path.endswith("user-sample.cif")
 
 
-def test_scene_recognises_virtual_vacuum_as_a_non_interacting_reference():
+def test_scene_rejects_retired_virtual_vacuum():
     state = default_state()
     state.sample.specimen_mode = "virtual"
     state.sample.specimen_preset_key = "vacuum"
     state.sample.thickness_nm = 25.0
 
-    scene = SpecimenScene.from_state(state)
-
-    assert scene.is_vacuum
-    assert scene.interacting_thickness_nm == 25.0
-    assert scene.matter_thickness_nm == 0.0
-    assert scene.source_key == "preset:vacuum"
+    with pytest.raises(ValueError, match="Virtual mode has been retired"):
+        SpecimenScene.from_state(state)
 
 
 def test_scene_axial_material_query_matches_sample_and_support_geometry():
     state = default_state()
     state.sample.thickness_nm = 12.0
+    state.sample.size_x_nm = state.sample.size_y_nm = 3_000_000.0
     state.sample.eds_support_material_key = "copper"
     state.sample.eds_support_mesh_key = "square_200"
 

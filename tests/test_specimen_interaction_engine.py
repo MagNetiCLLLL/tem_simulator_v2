@@ -143,7 +143,7 @@ def test_engine_real_inelastic_distribution_conserves_probability_and_energy():
         "specimen_inelastic_mean_energy_partition"
     ].input_value == pytest.approx(300_000.0)
     assert result.scene is not None
-    assert result.scene.source_key == "preset:si_110"
+    assert result.scene.source_key == "cif:Si.cif"
 
 
 def test_engine_runs_explicit_eds_and_exposes_elastic_conservation(monkeypatch):

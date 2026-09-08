@@ -202,7 +202,6 @@ def plane_interaction_budget(result, z_mm: float) -> PlaneInteractionBudget:
             conservation_error=abs(current + stopped - 1.0),
         )
 
-    mode = str(getattr(state.sample, "specimen_mode", "atomic")).lower()
     probabilities = _branch_probabilities(simulation)
     per_ray_probabilities: dict[int, np.ndarray] = {}
     absorbed_per_ray = np.zeros_like(incident_weights)
@@ -218,27 +217,17 @@ def plane_interaction_budget(result, z_mm: float) -> PlaneInteractionBudget:
     real_distribution = getattr(simulation, "real_interactions", None)
     energy_by_kind: dict[str, float] = {}
 
-    virtual_density_active = bool(
-        mode == "virtual"
-        and bool(getattr(state.sample, "inserted", True))
-        and bool(getattr(state.sample, "diffraction_enabled", True))
-    )
-    if virtual_density_active:
-        per_ray_probabilities, absorbed_per_ray = (
-            _virtual_per_ray_probabilities(
-                state, simulation, sample_alive
-            )
+    # Both imported and bundled reference structures use the real inelastic
+    # branch probabilities. Dormant legacy virtual sliders never enter this
+    # source-current budget.
+    for branch in simulation.branches.values():
+        per_ray_probabilities[id(branch)] = np.full(
+            incident_weights.size,
+            probabilities[id(branch)],
+            dtype=float,
         )
-        model += "; finite virtual density evaluated at every incident ray"
-    else:
-        for branch in simulation.branches.values():
-            per_ray_probabilities[id(branch)] = np.full(
-                incident_weights.size,
-                probabilities[id(branch)],
-                dtype=float,
-            )
-        missing = max(1.0 - sum(probabilities.values()), 0.0)
-        absorbed_per_ray[sample_alive] = missing
+    missing = max(1.0 - sum(probabilities.values()), 0.0)
+    absorbed_per_ray[sample_alive] = missing
 
     if real_distribution is not None:
         material_name = real_distribution.material_name
@@ -329,4 +318,3 @@ def plane_interaction_budget(result, z_mm: float) -> PlaneInteractionBudget:
         warnings=tuple(dict.fromkeys(warnings)),
         conservation_error=abs(conserved - 1.0),
     )
-

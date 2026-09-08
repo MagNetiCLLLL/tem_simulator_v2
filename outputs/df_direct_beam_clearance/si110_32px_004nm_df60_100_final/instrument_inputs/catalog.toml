@@ -1,0 +1,32 @@
+format_version = 1
+coordinate_system = "module_local_z_mm"
+gun_variants = [
+    { name = "FEG", file = "gun/FEG.toml", electron_gun = "FEG", monochromator = false },
+]
+
+[assembly]
+order = [
+    "gun",
+    "column",
+    "project_and_recording_system",
+]
+first_interface = "electron_source_reference"
+last_interface = "recording_system_end"
+
+[rules]
+monochromator_supported = true
+monochromator_only_with_feg = true
+corrector_requires_c3_lens = true
+
+[[column_variants]]
+name = "C3 + Probe Corrector"
+file = "column/C3_ProbeCorrector.toml"
+c3_lens = true
+probe_corrector = true
+image_corrector = false
+
+[[project_and_recording_system_variants]]
+name = "Energy Filter"
+file = "project_and_recording_system/EnergyFilter.toml"
+energy_filter = true
+selectable = true

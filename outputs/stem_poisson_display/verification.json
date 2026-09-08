@@ -1,0 +1,36 @@
+{
+  "scope": "Readout of archived Si [110] corrected fractions, not a new optical/wave acquisition or the user's current dose.",
+  "source": "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\near_focus_tail_corrected\\raw_scan.npz",
+  "source_sha256": "d0065416e089d363b1d734d1cef4340bb7702a73f5854d64e8bd6e6db71fa7b4",
+  "source_parameters": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\parameters.json",
+  "source_current_pa": 100.0,
+  "dwell_us": 10.0,
+  "seed": 42,
+  "pixels": [
+    64,
+    64
+  ],
+  "channels": {
+    "haadf": {
+      "mean_fraction": 0.0008019002986534801,
+      "mean_expected_electrons_per_pixel": 5.0050679908584925,
+      "mean_poisson_electrons_per_pixel": 4.99658203125,
+      "zero_count_pixels": 38
+    },
+    "df": {
+      "mean_fraction": 0.04376621276454306,
+      "mean_expected_electrons_per_pixel": 273.167214124676,
+      "mean_poisson_electrons_per_pixel": 273.164794921875,
+      "zero_count_pixels": 0
+    },
+    "bf": {
+      "mean_fraction": 0.0003552750577802397,
+      "mean_expected_electrons_per_pixel": 2.2174524970649374,
+      "mean_poisson_electrons_per_pixel": 2.2509765625,
+      "zero_count_pixels": 716
+    }
+  },
+  "fractions_unchanged": true,
+  "same_seed_reproduced": true,
+  "limitations": "Uses the archived finite-grid wave/tail model; this readout check does not establish its physical or angular convergence."
+}

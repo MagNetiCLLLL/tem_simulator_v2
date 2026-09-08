@@ -1,0 +1,3 @@
+# Preserve archived source/input hashes and the original reference CIF bytes.
+outputs/** -text
+configs/reference_samples/*.cif -text

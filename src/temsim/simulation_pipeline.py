@@ -220,7 +220,7 @@ def _geometric_specimen_transport_requested(state) -> bool:
         and state.ac_deflector.scan_enabled
         and specimen_interactions_active(sample)
         and str(getattr(sample, "specimen_mode", "atomic")).strip().lower()
-        == "atomic"
+        in {"atomic", "reference"}
         and not bool(getattr(sample, "stem_wave_enabled", False))
         and any(
             bool(getattr(detector, "inserted", False))

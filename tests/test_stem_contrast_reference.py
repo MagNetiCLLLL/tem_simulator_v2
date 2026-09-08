@@ -28,7 +28,7 @@ def test_registered_weak_atom_has_bright_adf_and_dark_bf(monkeypatch):
     state.simulation_mode = "ideal"
     state.acceleration_enabled = False
     state.illumination_mode = "STEM"
-    state.sample.specimen_mode = "virtual"
+    state.sample.specimen_mode = "reference"
     state.sample.specimen_preset_key = "si_110"
     state.sample.wave_multislice_enabled = False
     state.sample.wave_grid_pixels = 128

@@ -174,7 +174,7 @@ def test_hidden_page_defers_and_coalesces_latest_captured_sample(qtbot, monkeypa
     page.show()
     qtbot.waitUntil(lambda: page._snapshot.size_nm[0] == 30.)
     assert calls == [20., 30.]
-    assert state.sample.size_x_nm == 3_000_000.
+    assert state.sample.size_x_nm == 10.0
     assert page._result is third
 
 

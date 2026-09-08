@@ -17,8 +17,9 @@ def _small_vacuum_state():
     state.history_step_mm = 5.0
     state.acceleration_enabled = False
     state.acceleration_backend = "CPU"
-    state.sample.specimen_mode = "virtual"
-    state.sample.specimen_preset_key = "vacuum"
+    state.sample.specimen_mode = "reference"
+    state.sample.inserted = False
+    state.sample.stem_wave_enabled = False  # Optical checkpoint fixture.
     state.sample.thickness_nm = 10.0
     emitter = getattr(state.electron_gun, "emitter", None)
     if emitter is not None:

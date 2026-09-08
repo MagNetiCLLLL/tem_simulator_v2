@@ -31,7 +31,12 @@ from temsim.specimen.virtual import (
     build_virtual_angular_distribution,
     virtual_density_at_scan,
 )
-from temsim.specimen.source import specimen_structure_available
+from temsim.specimen.source import specimen_mode, specimen_structure_available
+from temsim.specimen.rutherford import (
+    build_tail_angular_distribution,
+    finite_sample_gaussian_overlap,
+    resolve_tail_material,
+)
 from temsim.specimen.downstream_transport import (
     build_geometric_specimen_exit,
     validated_geometric_specimen_exit,
@@ -244,9 +249,13 @@ def _stem_result(
         {
             "scan_frame_period_s": frame_period_s,
             "dwell_time_s": dwell_time_s,
+            "source_current_pa": source_pa,
+            "source_electrons_per_pixel": source_pa * 1.0e-12 * dwell_time_s / ELEMENTARY_CHARGE_C,
             "signal_fraction_reference": "emitted source current",
             "current_unit": "pA",
             "expected_electron_model": "current*dwell/e",
+            "expected_electron_unit": "electrons / scan pixel",
+            "poisson_count_unit": "detected electrons / scan pixel",
             "poisson_noise_enabled": poisson is not None,
             "poisson_seed": (
                 int(getattr(state.sample, "stem_poisson_seed", 0))
@@ -296,7 +305,8 @@ def reweight_stem_scan(state, frame: StemScanResult) -> StemScanResult:
         for key, values in frame.fractions.items()
     }
     pixel_count = max(np.asarray(frame.scan_x_um).size, 1)
-    dwell_time_s = float(state.ac_deflector.scan_frame_period_s) / pixel_count
+    frame_period_s = float(state.ac_deflector.scan_frame_period_s)
+    dwell_time_s = frame_period_s / pixel_count
     source_pa = source_current_pa(state)
     current = {key: values * source_pa for key, values in fractions.items()}
     expected = {
@@ -313,9 +323,19 @@ def reweight_stem_scan(state, frame: StemScanResult) -> StemScanResult:
             key: rng.poisson(np.maximum(values, 0.0))
             for key, values in expected.items()
         }
-    metrics = dict(frame.metrics)
+    metrics = dict(frame.metrics or {})
+    if "detector_sampling" in metrics:
+        metrics["sampling_state_signature"] = calculation_signatures(state)["stem"]
     metrics.update({
+        "scan_frame_period_s": frame_period_s,
         "dwell_time_s": dwell_time_s,
+        "source_current_pa": source_pa,
+        "source_electrons_per_pixel": source_pa * 1.0e-12 * dwell_time_s / ELEMENTARY_CHARGE_C,
+        "signal_fraction_reference": "emitted source current",
+        "current_unit": "pA",
+        "expected_electron_model": "current*dwell/e",
+        "expected_electron_unit": "electrons / scan pixel",
+        "poisson_count_unit": "detected electrons / scan pixel",
         "poisson_noise_enabled": poisson is not None,
         "poisson_seed": (
             int(getattr(state.sample, "stem_poisson_seed", 0))
@@ -326,6 +346,14 @@ def reweight_stem_scan(state, frame: StemScanResult) -> StemScanResult:
     })
     return replace(
         frame,
+        detector_signals={
+            key: replace(
+                signal,
+                current_pa=source_pa * float(signal.fraction),
+                electrons_per_second=source_pa * float(signal.fraction) * 1.0e-12 / ELEMENTARY_CHARGE_C,
+            )
+            for key, signal in frame.detector_signals.items()
+        },
         current_pa=current,
         expected_electrons=expected,
         poisson_counts=poisson,
@@ -506,9 +534,9 @@ def collection_angle(state, detector):
 
 
 def physical_angular_detectors(state, detectors):
-    """Resolve reference angular ranges for labels and tail quadrature.
+    """Resolve reference angular ranges for labels and sampling estimates.
 
-    Coherent live detector pixels are routed separately through the full
+    Coherent pixels and the Rutherford tail are routed through the full
     runtime record-plane plan using ``J_img @ r + J_diff @ theta``.
     """
 
@@ -957,68 +985,68 @@ def _real_high_angle_tail(
     scan_y_um,
     detector_center_shifts_mrad,
     minimum_angle_mrad,
+    record_plane_plan=None,
+    baseline_scan_offset_um=(0.0, 0.0),
 ):
+    """Supplement the wave outside its support, through the same physical stops.
+
+    The legacy detector-centre shifts argument is intentionally unused: the
+    signed recording plan already includes specimen position and deflection.
+    Adding those shifts again would count their displacement twice.
+    """
     zeros = {
         detector.key: np.zeros_like(scan_x_um, dtype=float)
         for detector in physical_detectors
     }
     if not bool(getattr(state.sample, "real_high_angle_tail_enabled", False)):
         return zeros, np.zeros_like(scan_x_um), np.zeros_like(scan_x_um), None
+    from temsim.physics.wave_imaging import effective_sample_thickness_nm, _weighted_ray_statistics
+
+    thickness_nm = effective_sample_thickness_nm(state)
+    if thickness_nm <= 0.0:
+        # A dormant manual areal density must not scatter a retracted or
+        # zero-thickness specimen, nor require a readable CIF in vacuum.
+        return zeros, np.zeros_like(scan_x_um), np.zeros_like(scan_x_um), None
     maximum = float(getattr(state.sample, "real_tail_max_angle_mrad", 250.0))
     if maximum <= float(minimum_angle_mrad):
         raise ValueError(
             "High-angle tail maximum must exceed strict multislice angular support."
         )
-    density_atoms = float(
-        getattr(state.sample, "real_tail_areal_density_atoms_nm2", 0.0)
+    from temsim.physics.record_plane import build_record_plane_plan, prepare_record_plane_detector_masks
+
+    if record_plane_plan is None:
+        record_plane_plan = build_record_plane_plan(state)
+    if record_plane_plan.time_dependent_deflection and record_plane_plan.scan_times_s is None:
+        raise ValueError("Dynamic Rutherford-tail recording requires the wave plan's scan times.")
+    ray_stats = _weighted_ray_statistics(simulation.incident)
+    origin_um = np.array((ray_stats["mean_x_m"], ray_stats["mean_y_m"])) * 1.0e6 - np.asarray(baseline_scan_offset_um)
+    sample_x_um = origin_um[0] + scan_x_um
+    sample_y_um = origin_um[1] + scan_y_um
+
+    material = resolve_tail_material(
+        state.sample, thickness_nm, state.beam_voltage_kv,
     )
-    if density_atoms <= 0.0:
-        raise ValueError(
-            "High-angle tail needs a positive user-supplied areal density."
-        )
-    row = {
-        "name": "Real-sample high-angle tail",
-        "kind": "physical_rutherford",
-        "enabled": True,
-        "atomic_number": int(getattr(state.sample, "real_tail_atomic_number", 14)),
-        "areal_density_atoms_nm2": density_atoms,
-        "screening_angle_mrad": float(
-            getattr(state.sample, "real_tail_screening_angle_mrad", 5.0)
-        ),
-        "minimum_angle_mrad": float(minimum_angle_mrad) * (1.0 + 1.0e-9),
-        "maximum_angle_mrad": maximum,
-        "radial_samples": 128,
-        "azimuth_samples": 64,
-    }
-    virtual_sample = SimpleNamespace(
-        virtual_interactions=[row],
-        virtual_diffraction_angle_mrad=5.0,
-        virtual_diffraction_azimuth_deg=0.0,
-        virtual_diffraction_relative_weight=1.0,
-        virtual_scattering_angle_mrad=20.0,
-        virtual_scattering_relative_weight=0.2,
-        virtual_scattering_azimuth_samples=16,
+    lower = float(minimum_angle_mrad) * (1.0 + 1.0e-9)
+    distribution = build_tail_angular_distribution(
+        material, beam_energy_kv=state.beam_voltage_kv,
+        minimum_angle_mrad=lower, maximum_angle_mrad=maximum,
     )
-    distribution = build_virtual_angular_distribution(
-        virtual_sample,
-        beam_energy_kv=state.beam_voltage_kv,
-    )
+    # Rutherford deflections are relative to the incident chief direction;
+    # the recording plan and wave reciprocal grid use absolute laboratory
+    # angle components. Remove any tilted tail points already represented by
+    # that grid, without renormalising their probability onto retained points.
+    chief_angle_rad = np.array((ray_stats["mean_tx_rad"], ray_stats["mean_ty_rad"]))
+    angles_rad = np.stack((distribution.angle_x_mrad, distribution.angle_y_mrad), axis=-1) * 1.0e-3 + chief_angle_rad
+    outside_wave = np.hypot(np.sin(angles_rad[:, 0]), np.sin(angles_rad[:, 1])) > np.sin(float(minimum_angle_mrad) * 1.0e-3)
+    retained_probabilities = np.where(outside_wave, distribution.probabilities, 0.0)
+    retained_probability = float(np.sum(retained_probabilities))
+    removed_probability = float(np.sum(distribution.probabilities[~outside_wave]))
+    detector_masks = prepare_record_plane_detector_masks(record_plane_plan, angles_rad[None, ...])
     probe = probe_state_from_simulation(state, simulation)
-    finite_sample = SimpleNamespace(
-        envelope_shape=str(
-            getattr(state.sample, "envelope_shape", "rectangle")
-        ),
-        size_x_nm=float(state.sample.size_x_nm),
-        size_y_nm=float(state.sample.size_y_nm),
-        centre_x_nm=float(state.sample.centre_x_nm),
-        centre_y_nm=float(state.sample.centre_y_nm),
-        virtual_regions=[],
-        virtual_probe_convolution_enabled=True,
-    )
-    density = virtual_density_at_scan(
-        finite_sample,
-        scan_x_um,
-        scan_y_um,
+    density = finite_sample_gaussian_overlap(
+        state.sample,
+        sample_x_um,
+        sample_y_um,
         probe_sigma_nm=probe.probe_sigma_nm,
     )
     incident_fraction = measure_sample_current(simulation, state).fraction
@@ -1027,40 +1055,56 @@ def _real_high_angle_tail(
         for detector in physical_detectors
     }
     tail_uncollected = np.zeros_like(scan_x_um, dtype=float)
-    angle_x = distribution.angle_x_mrad
-    angle_y = distribution.angle_y_mrad
     for flat_index, local_density in enumerate(density.ravel()):
-        local = distribution.probabilities * float(local_density)
-        available = np.ones(angle_x.size, dtype=bool)
+        local = retained_probabilities * float(local_density)
+        sample_position_m = np.array([[[sample_x_um.ravel()[flat_index], sample_y_um.ravel()[flat_index]]]]) * 1.0e-6
+        masks = detector_masks(sample_position_m, scan_slice=slice(flat_index, flat_index + 1))
+        collected = np.zeros(local.size, dtype=bool)
         for detector in physical_detectors:
-            if detector_center_shifts_mrad is None:
-                shifted_x, shifted_y = angle_x, angle_y
-            else:
-                centre_x, centre_y = detector_center_shifts_mrad[detector.key]
-                shifted_x = angle_x - centre_x.ravel()[flat_index]
-                shifted_y = angle_y - centre_y.ravel()[flat_index]
-            hit = available & detector.acceptance_mask(shifted_x, shifted_y)
+            if detector.key not in masks:
+                raise ValueError(f"Rutherford recording plan is missing detector {detector.key}.")
+            hit = masks[detector.key].reshape(-1)
             images[detector.key].ravel()[flat_index] = (
                 float(np.sum(local[hit])) * incident_fraction
             )
-            available[hit] = False
+            collected |= hit
         tail_uncollected.ravel()[flat_index] = (
-            float(np.sum(local[available])) * incident_fraction
+            float(np.sum(local[~collected])) * incident_fraction
         )
     tail_probability_source = (
-        density * distribution.scattered_probability * incident_fraction
+        density * retained_probability * incident_fraction
     )
     metrics = {
         "model": "screened_relativistic_rutherford_approximation_not_mott",
-        "minimum_angle_mrad": row["minimum_angle_mrad"],
+        "minimum_angle_mrad": lower,
         "maximum_angle_mrad": maximum,
-        "atomic_number": row["atomic_number"],
-        "areal_density_atoms_nm2": density_atoms,
-        "screening_angle_mrad": row["screening_angle_mrad"],
-        "integrated_cross_section_m2": distribution.components[0].parameters[
-            "integrated_cross_section_m2"
-        ],
+        "material_source": material.material_source,
+        "screening_source": material.screening_source,
+        "material_provenance": material.provenance,
+        "warnings": material.warnings,
+        "thickness_nm": material.thickness_nm,
+        "finite_sample_overlap_model": "isotropic_gaussian_integral_over_physical_envelope_independent_of_scan_roi",
+        "probe_sigma_nm": float(probe.probe_sigma_nm),
+        "probe_sigma_source": "sample-plane geometric ray RMS radius / sqrt(2); Gaussian envelope approximation, not coherent defocused probe intensity",
+        "minimum_sample_overlap": float(np.min(density)),
+        "maximum_sample_overlap": float(np.max(density)),
+        "elements": [dict(component.parameters, probability_before_overlap_removal=component.probability)
+                     for component in distribution.components],
+        "total_optical_depth": sum(component.parameters["optical_depth"]
+                                   for component in distribution.components),
+        "scattered_probability": retained_probability,
+        "scattered_probability_before_overlap_removal": distribution.scattered_probability,
+        "overlap_removed_probability": removed_probability,
+        "incident_chief_angle_rad": chief_angle_rad.tolist(),
+        "record_plane_plan_fingerprint": record_plane_plan.fingerprint,
+        "physical_detector_routing": "same_signed_record_plane_maps_and_sequential_stops_as_coherent_wave",
     }
+    # Retain the single-element metric fields for existing consumers, without
+    # inventing an effective Z or screening angle for compounds.
+    if len(distribution.components) == 1:
+        metrics.update({name: distribution.components[0].parameters[name] for name in (
+            "atomic_number", "areal_density_atoms_nm2", "screening_angle_mrad", "integrated_cross_section_m2",
+        )})
     return images, tail_uncollected, tail_probability_source, metrics
 
 
@@ -1087,6 +1131,7 @@ def acquire_stem_scan(
     second time.
     """
 
+    active_mode = specimen_mode(state.sample)
     if sample_illumination_absent(simulation, state):
         if progress_callback is not None:
             progress_callback(1, 1, "No incident current at the specimen")
@@ -1117,8 +1162,7 @@ def acquire_stem_scan(
     supplied_signature_is_current = True
     if (
         getattr(specimen_interactions, "elastic_transport", None) is not None
-        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
-        == "atomic"
+        and active_mode in {"atomic", "reference"}
         and not bool(getattr(state.sample, "stem_wave_enabled", False))
     ):
         # Derive the authoritative identity before scan calibration.  A caller
@@ -1162,7 +1206,7 @@ def acquire_stem_scan(
         )
     if fourdstem_enabled and not specimen_structure_available(state.sample):
         raise ValueError(
-            "4D-STEM capture requires a usable virtual specimen or imported CIF."
+            "4D-STEM capture requires a usable reference structure or imported CIF."
         )
     inserted = [
         detector for detector in state.stem_detectors
@@ -1255,30 +1299,6 @@ def acquire_stem_scan(
 
     if (
         physical_detectors
-        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
-        == "virtual"
-        and not bool(getattr(state.sample, "stem_wave_enabled", False))
-    ):
-        result = _virtual_stem_scan(
-            simulation,
-            state,
-            physical_detectors,
-            detector_angles,
-            scan_x_um,
-            scan_y_um,
-            kick_grid_mrad,
-            baseline_scan_mrad,
-            scan_times_s,
-            baseline_descan_scan_mrad,
-        )
-        return _readout_view(
-            result,
-            inserted_keys=[detector.key for detector in inserted],
-            readout_keys=[detector.key for detector in selected],
-        )
-
-    if (
-        physical_detectors
         and bool(getattr(state.sample, "stem_wave_enabled", False))
         and specimen_structure_available(state.sample)
     ):
@@ -1345,6 +1365,8 @@ def acquire_stem_scan(
             scan_y_um,
             detector_center_shifts_mrad,
             wave.maximum_isotropic_angle_mrad,
+            record_plane_plan,
+            baseline_sample_offset_um,
         )
         tail_images = {
             key: values * tracked_sample_probability
@@ -1490,29 +1512,6 @@ def acquire_stem_scan(
             readout_keys=[detector.key for detector in selected],
         )
 
-    if (
-        physical_detectors
-        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
-        == "virtual"
-    ):
-        result = _virtual_stem_scan(
-            simulation,
-            state,
-            physical_detectors,
-            detector_angles,
-            scan_x_um,
-            scan_y_um,
-            kick_grid_mrad,
-            baseline_scan_mrad,
-            scan_times_s,
-            baseline_descan_scan_mrad,
-        )
-        return _readout_view(
-            result,
-            inserted_keys=[detector.key for detector in inserted],
-            readout_keys=[detector.key for detector in selected],
-        )
-
     provided_geometric_specimen_exit = geometric_specimen_exit
     geometric_specimen_exit = None
     shared_specimen_exit_used = False
@@ -1523,8 +1522,7 @@ def acquire_stem_scan(
     if (
         physical_detectors
         and shared_elastic is not None
-        and str(getattr(state.sample, "specimen_mode", "atomic")).lower()
-        == "atomic"
+        and active_mode in {"atomic", "reference"}
         and not bool(getattr(state.sample, "stem_wave_enabled", False))
     ):
         spectrum_elastic = getattr(

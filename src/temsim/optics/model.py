@@ -221,17 +221,17 @@ class Sample:
     # interaction only; it never moves or removes that optical reference.
     inserted: bool = True
 
-    thickness_nm: float = 10.0
+    thickness_nm: float = 5.0
 
     # Finite specimen envelope in the laboratory sample plane.  The beam
     # travels along +Z; X/Y dimensions and the scan origin are independent of
     # the instrument-owned axial sample position.  The default is a standard
-    # 3 mm TEM specimen disk; rectangle remains available for designed samples.
+    # 10 nm specimen disk; rectangle remains available for designed samples.
     envelope_shape: str = "disk"
 
-    size_x_nm: float = 3_000_000.0
+    size_x_nm: float = 10.0
 
-    size_y_nm: float = 3_000_000.0
+    size_y_nm: float = 10.0
 
     centre_x_nm: float = 0.0
 
@@ -252,35 +252,33 @@ class Sample:
 
     diffuse_broadening_mrad: float = 2.0
 
-    # Enables explicit user-defined channels in Virtual sample mode only.
-    # Idealised Virtual ray channels are opt-in. Keeping them disabled by
-    # default avoids conflating the selected TOML reference crystal with a
-    # manually authored angular probability table (and keeps the default
-    # high-accuracy ray allocation bounded).
+    # Retired profile compatibility field; no active specimen mode executes
+    # idealised diffraction channels. Real diffraction belongs to multislice.
     diffraction_enabled: bool = False
 
     # Empty/zero values mean "use the default from the specimen TOML".  The
     # state stores only user choices and overrides, never material constants.
     wave_enabled: bool = False
 
-    # ``atomic`` (Real sample) uses an imported CIF/MCIF. ``virtual`` owns the
-    # simulator TOML reference specimen and its explicit idealised ray
-    # interaction channels. The mode is therefore the sole source selector.
-    specimen_mode: str = "virtual"
+    # Both sources use actual CIF atoms; the library includes orientation and
+    # explicitly sourced thermal/inelastic assumptions in optional sidecars.
+    specimen_mode: str = "reference"
+
+    reference_sample_key: str = "si_110"
 
     specimen_preset_key: str = "si_110"
 
     cif_path: str = ""
 
-    specimen_rotation_x_deg: float = 0.0
+    specimen_rotation_x_deg: float = 90.0
 
-    specimen_rotation_y_deg: float = 0.0
+    specimen_rotation_y_deg: float = -45.0
 
     specimen_rotation_z_deg: float = 0.0
 
     # Canonical physical orientation, stored as a unit quaternion (w,x,y,z).
     # The Euler fields above remain compatibility views for pre-V64 states.
-    specimen_orientation_quaternion_wxyz: tuple = (1.0, 0.0, 0.0, 0.0)
+    specimen_orientation_quaternion_wxyz: tuple = (0.6532814824381883, 0.6532814824381882, -0.2705980500730985, 0.2705980500730985)
 
     zone_axis_uvw: tuple = (1, 1, 0)
 
@@ -318,9 +316,9 @@ class Sample:
 
     wave_frozen_phonon_seed: int = 100
 
-    # Angle-resolved STEM frames are acquired explicitly from the detector
-    # panel and therefore never run during ordinary lens recalculation.
-    stem_wave_enabled: bool = False
+    # High accuracy requests specimen STEM images by default. Preview/live
+    # tuning disables wave calculations in its separate calculation snapshot.
+    stem_wave_enabled: bool = True
 
     stem_poisson_enabled: bool = False
 
@@ -403,6 +401,11 @@ class Sample:
     eds_elastic_seed: int = 0
 
     eds_elastic_max_events: int = 10_000
+    # EDS-only quadrature for a small finite sample missed by a broad ray
+    # bundle. The continuous ray-density estimate is explicitly approximate;
+    # it never replaces the original electron histories or coherent wave.
+    eds_overlap_sampling_enabled: bool = True
+    eds_overlap_sampling_points: int = 256
 
     # Manual bounded sample-region transport. These are computational boundary
     # and display controls, not claims about specimen-holder hardware. The
@@ -420,9 +423,9 @@ class Sample:
 
     wave_probe_padding_factor: float = 3.0
 
-    # Real-CIF inelastic transport. Zero-valued material fields require an
-    # explicit validated override because a Real sample never borrows the
-    # inactive Virtual reference preset's material constants.
+    # External CIFs require explicit validated inelastic material overrides.
+    # Library references may declare a sourced, composition-checked anchor in
+    # their sidecar; a numerical wave template never supplies material identity.
     real_inelastic_enabled: bool = True
 
     real_plasmon_mean_free_path_nm: float = 0.0
@@ -444,6 +447,10 @@ class Sample:
     # represented by multislice.
     real_high_angle_tail_enabled: bool = False
 
+    real_tail_material_source: str = "structure"
+
+    real_tail_screening_source: str = "moliere"
+
     real_tail_atomic_number: int = 14
 
     real_tail_areal_density_atoms_nm2: float = 0.0
@@ -452,9 +459,9 @@ class Sample:
 
     real_tail_max_angle_mrad: float = 250.0
 
-    # Explicit virtual-scatterer controls.  The symmetric diffraction spots
-    # and isotropic ring are user-defined angular channels, not calculated
-    # Rutherford cross-sections or a crystallographic structure factor.
+    # Retired scalar fields retained only to read historic profiles. They are
+    # hidden from runtime editing, excluded from new exports and never used by
+    # active specimen calculations.
     virtual_diffraction_angle_mrad: float = 5.0
 
     virtual_diffraction_azimuth_deg: float = 0.0
@@ -467,33 +474,10 @@ class Sample:
 
     virtual_scattering_azimuth_samples: int = 16
 
-    # Extensible absolute-probability interaction rows.  The unlisted
-    # probability is the direct-beam remainder; enabled rows must never sum
-    # above one.  These defaults preserve an inspectable virtual specimen
-    # without claiming a crystallographic or Rutherford calculation.
-    virtual_interactions: list = field(default_factory=lambda: [
-        {
-            "name": "Diffraction pair",
-            "kind": "diffraction_spots",
-            "enabled": True,
-            "probability": 0.20,
-            "angle_mrad": 5.0,
-            "azimuth_deg": 0.0,
-            "spot_count": 2,
-        },
-        {
-            "name": "Diffuse ring",
-            "kind": "diffuse_ring",
-            "enabled": True,
-            "probability": 0.05,
-            "angle_mrad": 20.0,
-            "width_mrad": 2.0,
-            "azimuth_samples": 32,
-        },
-    ])
+    # Historic interaction tables are discarded at the migration boundary.
+    virtual_interactions: list = field(default_factory=list)
 
-    # Empty means one uniform finite slab using size_x_nm/size_y_nm.  Region
-    # rows can be rectangles, ellipses, or imported grayscale density maps.
+    # Historic virtual density maps have no role in a real CIF specimen.
     virtual_regions: list = field(default_factory=list)
 
     virtual_probe_convolution_enabled: bool = True
@@ -612,7 +596,7 @@ class State:
     probe_aberrations: dict = field(default_factory=dict)
     image_aberrations: dict = field(default_factory=dict)
 
-    schema_version: int = 76
+    schema_version: int = 77
 
     def __post_init__(self):
         from temsim.simulation_modes import validate_mode, normalise_profiles, validate_model_recipes
@@ -1716,7 +1700,8 @@ class State:
                 for key,value in self.electron_gun_profiles.items()
                 if key != self.electron_gun.type_key
             },
-            "sample":asdict(self.sample),
+            "sample": {key: value for key, value in asdict(self.sample).items()
+                       if not key.startswith("virtual_") and key != "diffraction_enabled"},
 
             "illumination_mode":self.illumination_mode,
 
@@ -1919,7 +1904,7 @@ class State:
         sample_data = dict(d.get("sample", {}))
         # Schema 73 adds an explicit finite-envelope shape.  Earlier states
         # used an axis-aligned rectangle, so retain that geometry on load even
-        # though new instruments now start from a 3 mm circular disk.
+        # though new instruments now start from a 10 nm circular disk.
         if loaded_schema_version < 73:
             sample_data.setdefault("envelope_shape", "rectangle")
         # Schema 69 derives elastic EDS histories from the exact set of
@@ -1929,7 +1914,7 @@ class State:
         legacy_structure_source = str(
             sample_data.pop("atomic_structure_source", "")
         )
-        if loaded_schema_version < 71:
+        if loaded_schema_version < 77 or legacy_structure_source or sample_data.get("specimen_mode") == "virtual":
             from temsim.specimen.source import (
                 migrate_legacy_structure_source,
             )
@@ -1937,12 +1922,15 @@ class State:
             sample_data = migrate_legacy_structure_source(
                 sample_data,
                 legacy_source=legacy_structure_source,
+                infer_implicit_atomic_preset=loaded_schema_version < 71,
             )
+            sample_data.setdefault("real_tail_material_source", "manual")
+            sample_data.setdefault("real_tail_screening_source", "manual")
         # Saved sample Z is legacy geometry. The selected assembly TOML is
         # authoritative; only specimen properties survive deserialisation.
         sample_z_mm = _DEFAULT_SAMPLE_Z_MM
         sample_thickness_nm = float(
-            sample_data.get("thickness_nm", 100.0)
+            sample_data.get("thickness_nm", 5.0)
         )
         lens_rows = d.get("lenses", [])
         corrector_mode_for_load = canonical_corrector_mode(
@@ -2807,15 +2795,12 @@ class State:
             probe_aberrations=dict(d.get("probe_aberrations", {})),
             image_aberrations=dict(d.get("image_aberrations", {})),
             nanopulser=NanoPulser.from_dict(d.get("nanopulser", {})),
-            schema_version=76,
+            schema_version=77,
         )
         if loaded_schema_version < 64:
             from temsim.specimen.geometry import (
                 quaternion_from_euler_xyz_deg,
                 set_sample_orientation,
-            )
-            from temsim.specimen.virtual import (
-                legacy_virtual_interaction_rows,
             )
 
             set_sample_orientation(
@@ -2827,9 +2812,6 @@ class State:
                         state.sample.specimen_rotation_z_deg,
                     )
                 ),
-            )
-            state.sample.virtual_interactions = (
-                legacy_virtual_interaction_rows(state.sample)
             )
         state.probe_corrector_installed=d.get("probe_corrector_installed",True)
         state.image_corrector_installed=d.get("image_corrector_installed",False)

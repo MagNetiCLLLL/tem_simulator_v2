@@ -8,7 +8,36 @@ build/
 dist/
 *.egg-info/
 
-# Generated scratch files and reproducible calculation output are local only.
+# Scratch files and reusable calculation caches are local only.
 /tmp/
 /outputs/high_accuracy/
 /outputs/high_accuracy_artifacts/
+
+# Build checks and transient validation logs (selected result archives are tracked).
+/outputs/reference_packaging_validation/
+/outputs/reference_cache_recheck.txt
+/outputs/reference_cache_regression.txt
+/outputs/reference_cache_validation.txt
+/outputs/reference_cuda_pipeline_validation.txt
+/outputs/reference_cuda_validation.txt
+/outputs/reference_integration_validation.txt
+
+# Incomplete DF preparation attempts; the sibling *_final archive is retained.
+/outputs/df_direct_beam_clearance/si110_32px_004nm_df60_100/
+/outputs/df_direct_beam_clearance/si110_32px_004nm_df60_100_v2/
+/outputs/df_direct_beam_clearance/si110_32px_004nm_df60_100_v3/
+
+# Superseded preparation/calibration attempts and interrupted acquisition.
+/outputs/si110_cif_5nm_64px_002nm/prepare/
+/outputs/si110_cif_5nm_64px_002nm/benchmark_1024/
+/outputs/si110_cif_5nm_64px_002nm/benchmark_512_single/
+/outputs/si110_cif_5nm_64px_002nm/acquisition_gpu_1024/
+/outputs/si110_underfocus_100nm/benchmark_static_8nm/
+
+# Invalid or incomplete exploratory EDS outputs; corrected diagnostics are tracked.
+/outputs/eds_defocus_diagnostic/broad_cached_center/
+/outputs/eds_defocus_diagnostic/broad_cached_raw/
+/outputs/eds_defocus_diagnostic/broad_cached_center_photon_review/
+/outputs/eds_defocus_diagnostic/photon_quadrature/
+/outputs/eds_defocus_diagnostic/latest_cached_baseline_eds/
+/outputs/eds_defocus_diagnostic/baseline/

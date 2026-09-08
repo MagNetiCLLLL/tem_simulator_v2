@@ -1,0 +1,106 @@
+{
+  "scope": "Mechanism fixture constructed from screenshot-reported levels, NOT recovered pixels or a new specimen simulation.",
+  "counting_quantum": 6.666666666666667e-05,
+  "image_shape": [
+    32,
+    32
+  ],
+  "sampling": [
+    {
+      "step_nm": 0.02,
+      "pixel_edge_fov_nm": 0.64
+    },
+    {
+      "step_nm": 0.05,
+      "pixel_edge_fov_nm": 1.6
+    }
+  ],
+  "channels": {
+    "haadf": {
+      "count_levels": [
+        16
+      ],
+      "fraction_levels": [
+        0.0010666666666666667
+      ],
+      "mean": 0.001066666666666667,
+      "absolute_peak_to_peak": 0.0,
+      "relative_peak_to_peak": 0.0,
+      "independent_auto_contrast_levels": [
+        0.0010666666666666667,
+        0.0010666666676666667
+      ],
+      "fixed_source_fraction_levels": [
+        0.0,
+        1.0
+      ]
+    },
+    "df": {
+      "count_levels": [
+        2423
+      ],
+      "fraction_levels": [
+        0.16153333333333333
+      ],
+      "mean": 0.16153333333333333,
+      "absolute_peak_to_peak": 0.0,
+      "relative_peak_to_peak": 0.0,
+      "independent_auto_contrast_levels": [
+        0.16153333333333333,
+        0.16153333333433334
+      ],
+      "fixed_source_fraction_levels": [
+        0.0,
+        1.0
+      ]
+    },
+    "bf": {
+      "count_levels": [
+        3531,
+        3532
+      ],
+      "fraction_levels": [
+        0.2354,
+        0.23546666666666666
+      ],
+      "mean": 0.23543333333333327,
+      "absolute_peak_to_peak": 6.666666666665932e-05,
+      "relative_peak_to_peak": 0.00028316579357210537,
+      "independent_auto_contrast_levels": [
+        0.2354,
+        0.23546666666666666
+      ],
+      "fixed_source_fraction_levels": [
+        0.0,
+        1.0
+      ]
+    }
+  },
+  "high_accuracy_snapshot_checks": [
+    {
+      "requested_quality": "High accuracy",
+      "editable_wave_enabled": false,
+      "captured_wave_enabled": false,
+      "structure_available": true,
+      "ray_count": 15000,
+      "step_mm": 0.1
+    },
+    {
+      "requested_quality": "High accuracy",
+      "editable_wave_enabled": true,
+      "captured_wave_enabled": true,
+      "structure_available": true,
+      "ray_count": 15000,
+      "step_mm": 0.1
+    }
+  ],
+  "latest_incident_weight_check": {
+    "manifest": "C:\\Users\\Royal_Gray\\AppData\\Local\\TEM Simulator v2\\high_accuracy_artifacts\\objects\\5a\\5a441b012f06eac1ae61bb810bcceec5702c3478895c9ac3365a60521676abf5\\manifest.json",
+    "stored_ray_count": 15000,
+    "minimum_weight": 6.666666666666667e-05,
+    "maximum_weight": 6.666666666666667e-05,
+    "weight_sum": 1.0000000000000002,
+    "scope": "Actual latest incident weights only; no saved STEM frame or complete state is present."
+  },
+  "interpretation": "The reported levels are consistent with equal-weight ray interception. One ray crossing a BF mask changes raw signal by 1/15000, but independent min/max contrast spans black to white. High accuracy preserves the explicit STEM wave switch."
+}

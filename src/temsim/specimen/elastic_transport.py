@@ -943,6 +943,10 @@ def simulate_elastic_point_transport(
     weighted_total_events = 0.0
     weighted_total_material_path = 0.0
     source_path_sums: dict[str, float] = {}
+    material_hit_count = 0
+    sample_hit_count = 0
+    material_hit_weight = 0.0
+    sample_hit_weight = 0.0
     stored_trajectories: list[ElasticTrajectory] = []
     stored_material_flights: list[ElasticMaterialFlight] = []
     terminal_source_indices: list[int] = []
@@ -1128,6 +1132,18 @@ def simulate_elastic_point_transport(
         weighted_total_material_path += (
             float(ray_weight) * trajectory_material_path
         )
+        # A ray reaching the specimen plane need not cross a finite specimen.
+        # Count the actual material paths, independently of whether an elastic
+        # collision occurred, and retain their conditional incident weights.
+        if ray_weight > 0.0 and trajectory_material_path > 0.0:
+            material_hit_count += 1
+            material_hit_weight += float(ray_weight)
+            if any(
+                key[0] == "sample" and path > 0.0
+                for key, (_material, path) in trajectory_paths.items()
+            ):
+                sample_hit_count += 1
+                sample_hit_weight += float(ray_weight)
         for (
             source_key,
             _material_key,
@@ -1175,6 +1191,16 @@ def simulate_elastic_point_transport(
 
     energies = np.asarray([ray.kinetic_energy_ev for ray in rays], dtype=float)
     directions = np.asarray([ray.direction for ray in rays], dtype=float)
+    positions = np.asarray([ray.position_xy_nm for ray in rays], dtype=float)
+    centroid = np.sum(input_weights[:, None] * positions, axis=0)
+    position_variance = np.sum(
+        input_weights * np.sum((positions - centroid) ** 2, axis=1)
+    )
+    material_sampling_status = (
+        "no_material" if geometry.material_z_bounds_nm is None else
+        "no_sampled_material_hits" if material_hit_count == 0 else
+        "sampled_material_hits"
+    )
     metrics: dict[str, object] = {
         "elastic_trajectory_generation": True,
         "electron_transport_model": RUTHERFORD_MODEL_NAME,
@@ -1182,6 +1208,23 @@ def simulate_elastic_point_transport(
         "recommended_high_accuracy_model": "ELSEPA Dirac partial-wave",
         "recommended_high_accuracy_reference": NIST_ELSEPA_REFERENCE_URL,
         "trajectory_count": count,
+        "positive_weight_trajectory_count": int(np.count_nonzero(input_weights > 0.0)),
+        "material_hit_trajectory_count": material_hit_count,
+        "sample_hit_trajectory_count": sample_hit_count,
+        "material_hit_weight_fraction": material_hit_weight,
+        "sample_hit_weight_fraction": sample_hit_weight,
+        "material_sampling_status": material_sampling_status,
+        "material_hit_definition": (
+            "Positive-weight trajectories with nonzero material path, not "
+            "elastic-event counts. Weights are conditional on reaching the "
+            "specimen plane. Zero sampled hits alone do not establish zero "
+            "physical beam overlap."
+        ),
+        "incident_position_centroid_nm": tuple(float(value) for value in centroid),
+        "incident_position_rms_radius_nm": math.sqrt(max(float(position_variance), 0.0)),
+        "sample_centre_xy_nm": geometry.sample_centre_xy_nm,
+        "sample_size_xy_nm": geometry.sample_size_xy_nm,
+        "sample_thickness_nm": geometry.sample_thickness_nm,
         "trajectory_seed": random_seed,
         "stored_trajectory_count": len(stored_trajectories),
         "maximum_events_per_trajectory": maximum_events,

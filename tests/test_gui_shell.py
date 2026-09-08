@@ -1259,8 +1259,8 @@ def test_sample_interactions_3d_requests_shared_sample_region_without_ray_redraw
     workspace = VisualizationWorkspace()
     qtbot.addWidget(workspace)
     state = default_state()
-    assert state.sample.specimen_mode == "virtual"
-    assert state.sample.specimen_preset_key == "si_110"
+    assert state.sample.specimen_mode == "reference"
+    assert state.sample.reference_sample_key == "si_110"
     workspace.eds_page.set_state(state)
     workspace.eds_page.display_result(SimpleNamespace(simulation=None))
     workspace._update_sample_region_control_availability()
@@ -2139,7 +2139,8 @@ def test_sample_parameters_are_owned_by_central_workspace(qtbot):
         "Sample parameters opened in the central Sample workspace"
     )
     assert page.inserted.isChecked()
-    assert page.mode.currentData() == "virtual"
+    assert page.mode.currentData() == "reference"
+    assert page.reference_sample.currentData() == "si_110"
     assert page.multislice_enabled.isChecked()
     assert page.atomistic_enabled.isChecked()
     assert not page.frozen_enabled.isChecked()
@@ -2490,7 +2491,12 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         assembly.part("sample").center_z_mm
     )
     assert "SAMPLE / SPECIMEN" in sample_line.label.toPlainText()
-    assert "continuous ray boundary" in sample_line.toolTip()
+    assert "Reference CIF sample plane (inserted)" in sample_line.toolTip()
+    assert (
+        f"Exact axial position Z = {assembly.part('sample').center_z_mm:.9g} mm"
+        in sample_line.toolTip()
+    )
+    assert "reference CIF supplies atomic structure" in sample_line.toolTip()
     assert sample_line.zValue() > sample_axis_marker.zValue() - 2
     full_view_label_size = sample_line.label.textItem.font().pointSize()
     assert full_view_label_size == window.workspace.RAY_LABEL_BASE_PT

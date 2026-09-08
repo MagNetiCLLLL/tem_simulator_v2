@@ -1902,3 +1902,423 @@ memory-bounded, up to 128 probes, and includes truncation diagnostics. Full
 4D-STEM capture still uses its safe CPU route. See
 `docs/PERFORMANCE_2026-09-07.md` for measured timings, numerical precision and
 reproduction details; no complete 100 x 100 scan was benchmarked.
+
+## 2026-09-08 CIF references and Rutherford correction
+
+- New specimen defaults: circular disk, 10 nm diameter and 5 nm thickness.
+  The default real reference uses the user's unmodified `Si.cif`, stored in
+  `configs/reference_samples`, with beam [110] and X [1 -1 0]. Its lattice is
+  5.44370237 angstrom, not the older analytic reference's lattice constant.
+- Sample sources are now Reference CIF and Open CIF. Virtual mode and its
+  ideal diffraction/ring/density controls are retired. Library discovery
+  accepts CIF/MCIF plus optional same-stem TOML metadata and a Refresh action.
+  Saved explicit dimensions survive migration; a reference switch preserves
+  dimensions. State schema is 77 and operating profile format is 5; old Si/Au
+  references migrate, vacuum retracts the holder, and missing structures are
+  reported rather than replaced with another material. Retraction/zero
+  thickness still permits a vacuum calculation when a reference is missing.
+  Explicit atomic empty-CIF states/profiles stay unconfigured; only schemas
+  before 71 may infer the retired implicit Real/preset source convention.
+- CIF material is counted from symmetry-expanded, occupancy-weighted sites.
+  The supplied Si cell has 8 atoms, despite formula_sum Si8 and formula_units_Z
+  both being 8; multiplying those tags would incorrectly produce 64 atoms.
+  It gives 49.591457 atoms/nm3, density 2.312759 g/cm3 and 247.957286 atoms/nm2
+  at 5 nm thickness. EDS shares the composition reader. Fractional/mixed
+  occupancy is supported for bulk material but explicitly rejected by
+  coherent atomistic potentials until an explicit disorder supercell exists.
+- Rutherford material and screening each have automatic/manual choices.
+  Automatic screening follows Thomas–Fermi/Moliere (Geant4 equations 97–98).
+  Mixtures use one total Poisson event law and element-resolved angular
+  weights. Manual overrides are retained; older profiles keep manual meaning.
+  Reference thermal assumptions retain their source and are checked against
+  the current CIF material, including same-path file replacements.
+- Critical recording fix: the tail now uses the same signed recording maps,
+  scan offsets, upstream apertures and sequential detector interception as
+  the coherent wave. Previously it bypassed the fixed projection DPA, giving
+  false HAADF signal even when the coherent beam was blocked. Absolute-angle
+  points overlapping the wave domain are removed without renormalisation;
+  the remaining wave budget uses the retained tail probability. STEM cache
+  schema changed to `shared-stops-absolute-angle-mixture-tail-v3`.
+- The requested Si scan uses a separately saved, calculated D/I/P1/P2 setting
+  to put the crossover at the existing fixed 0.1 mm-radius DPA. Instrument
+  geometry and upstream probe lenses are unchanged. With HAADF 60–330 mrad,
+  the installed DF plane receives about 1–7 mrad and BF about 0–0.568 mrad.
+  DF is therefore a low-angle annular detector signal inside the ~24.8 mrad
+  illumination disk, not a pure dark-field image excluding that disk. These
+  are first-order engineering maps, not an OEM calibration.
+- Reference/CIF display, migration, cache/provenance and Rutherford routing
+  regressions are covered by new reference tests. Local optional GPU runtime
+  was enabled for this acquisition: CuPy 14.2.0 with pip CUDA components
+  12.6.3, without changing the system driver. Actual CUDA multislice and
+  physical-mask comparisons passed (26 tests); CPU remains available.
+- See `outputs/si110_cif_5nm_64px_002nm` for acquisition parameters and final
+  artifacts. `benchmark_*` folders contain only labelled 4x4 timing samples;
+  the initial uncalibrated benchmark predates the DPA tail fix and must not be
+  presented as the requested final 64x64 result.
+- The complete acquisition is now in
+  `outputs/si110_cif_5nm_64px_002nm/acquisition_gpu_1024_final`: 4096 positions,
+  0.02 nm pitch, 1024-square wave grid, 25 slices and four frozen phonons at
+  300 kV. Actual CUDA acquisition took 1603.59 s with no CPU fallback. The
+  comparison PNG, float32 TIFFs and raw NPZ all contain the final full scan.
+  Independent checks confirmed exact input-CIF identity, finite/nonnegative
+  nonconstant 64-square channels, TIFF equality to float32 raw fractions and
+  probability conservation to 2.23e-16. HAADF's full-ROI tail share is 8.589%;
+  DF and BF have no tail contribution. The coherent isotropic cutoff is
+  168.8004 mrad; the extension and finite four-configuration ensemble are not
+  a converged full-angle Mott/multislice result.
+- The final directory includes a loadable operating profile (zero skipped
+  fields), original profile export, instrument TOMLs, user CIF, actual startup
+  source archive and verified reproduction hashes. Cache/display regression
+  cohort passed 140 tests, reference integration 112, CUDA comparison/pipeline
+  cohorts 26 and 6, and the final legacy-migration cohort 82; cohorts overlap.
+
+## 2026-09-08 user-requested HAADF DPA opening
+
+- Both recording-module design bores are now 12 mm diameter, with the 0.2 mm
+  literature reference retained separately. Outer diameter and nominal vacuum
+  channel remain 20 mm. This is simulator geometry, not a validated pumping
+  design or an OEM dimension; the stop remains permanently inserted and clips.
+- In ordinary nano_probe/diffraction optics this changes the useful HAADF
+  acceptance from completely blocked to about 60.12–185.97 mrad, conservatively
+  covering the default 32-square 1 nm raster. It clears the previous scan's
+  168.8 mrad coherent limit with about 10.17% radial margin. Full ordinary-preset
+  HAADF acceptance would need a bore larger than the configured 20 mm channel.
+- The saved final Si scan's calibrated DPA crossover already cleared its full
+  60–330 mrad HAADF range with the small aperture. A copy with only DPA radius
+  changed from 0.1 to 6 mm is in `outputs/haadf_dpa_clearance`; it loads with zero
+  skipped fields. Previous acquired images and archived geometry are unchanged.
+  See that folder's README and independent route/profile checks. These bounds
+  describe the existing first-order recording model, not high-order aberrations.
+
+## 2026-09-08 optional reduction in scan sampling
+
+- User authorized reducing pixel count if needed. An explicit fast-preview
+  operating profile is in `outputs/si110_sampling_presets`: 32-square scan,
+  0.04 nm pitch and the same 1.28 nm pixel-footprint FOV. The calibrated 12 mm
+  DPA configuration and 1024-square/4 nm wave window/four phonons are retained.
+  Only synchronized AC/descan raster fields change; the 64-square/0.02 nm
+  profile is preserved. No new wave acquisition or global default change.
+- The existing fixed-FOV 512/1024 comparison changes coherent angular support
+  from 84.10 to 168.80 mrad and differs by 52.13% in HAADF mean. Do not silently
+  reduce the wave grid as though the Rutherford extension were a numerically
+  equivalent replacement. Reducing scan positions avoids that grid change,
+  at the explicit cost of coarser spatial sampling in the preview image.
+
+## 2026-09-08 DF contrast and raster-independent Rutherford overlap
+
+- The archived 64-square DF data are strictly positive (0.03817 to 0.05208
+  emitted-electron fraction). Independent min/max display maps the lowest
+  positive value to black; the dark divisions are not zero signal. Its
+  1.001–7.008 mrad annulus lies inside the 24.805 mrad illumination disk, so
+  coherent low-angle contrast is expected. This explanation is not a claim
+  that the complete model has passed physical convergence checks. See
+  `outputs/si110_underfocus_100nm/df_display_diagnostic.png` and the associated
+  diagnostic JSON files.
+- The scanning page now visibly reports each image's auto-contrast range and
+  each detector's required angular interval, including overlap with the
+  illumination disk. Values follow the displayed live, paused or saved frame.
+  No intensity data or display scaling algorithm was changed. The related GUI
+  and result-source cohort passed 16 tests.
+- A separate real-tail bug was found: Gaussian filtering of the current scan
+  raster treated material beyond the raster boundary as vacuum. Real
+  Rutherford overlap now integrates over the physical circular, elliptical
+  or rectangular sample envelope independently for each probe coordinate.
+  The STEM recording schema is now
+  `physical-envelope-overlap-raster-independent-tail-v4`; unchanged wave
+  potentials remain reusable. The existing ray-RMS Gaussian probe-envelope
+  approximation is retained and recorded; it is not the full defocused wave.
+  Rutherford/routing regressions passed 56 tests and cache cohorts passed 5.
+- Archived near-focus 64-square and two timing benchmarks were corrected by
+  recomposing their stored coherent and tail probabilities, without repeating
+  or modifying the archived multislice calculations. The original files are
+  preserved. Independent reconstruction checks gave maximum budget error
+  2.22e-16 and verified TIFF/PNG encoding and input fingerprints. The corrected
+  near-focus result is `outputs/si110_underfocus_100nm/near_focus_tail_corrected`.
+  Its HAADF mean is 0.0008019003 and its tail share is about 9.365%.
+- This supersedes the earlier 52.13% 512/1024 HAADF comparison above: after
+  fixing raster overlap, the difference is 21.81%. It remains too large to
+  regard a smaller coherent wave grid as an equivalent calculation. The
+  original 52.13% mixed angular support error with the now-fixed raster bug.
+
+## 2026-09-08 completed 100 nm underfocus STEM acquisition
+
+- The new result is
+  `outputs/si110_underfocus_100nm/acquisition_16px_4seeds`: 16-square scan at
+  0.08 nm pitch, retaining the 1.28 nm pixel-footprint FOV, user's Si [110] CIF,
+  10 nm sample diameter, 5 nm thickness, 300 kV and calibrated 12 mm DPA.
+  User authorized fewer scan pixels. It is explicitly not a 64-square result.
+- Effective C1 is -100 nm: focus is 100 nm downstream of the specimen reference
+  plane, verified with actual vacuum propagation to relative error 1.35e-14.
+  Additional coherent-probe C1 compensates the existing small ray-waist offset;
+  lens excitation is unchanged. This is not a magnetic-lens-current retuning.
+- To contain the defocused probe, the wave window is 8 nm / 2048-square,
+  preserving the previous 0.00390625 nm spatial step and 168.8004 mrad isotropic
+  coherent cutoff. There are 25 slices and four independent single-phonon
+  rasters with seeds 707–710, averaged in intensity. Each has an exact profile.
+  The ensemble-equivalent app profile shares physical settings and count but
+  not the independent-seed realisations; use the ensemble runner for that.
+- All four acquisitions used resident CuPy CUDA without CPU fallback. Summed
+  acquisition time was 1214.44 s; total wall time 1310.33 s. Final mean fractions
+  are HAADF 0.0008113768, DF 0.0438218535 and BF 0.0003649501; maximum probability
+  error 2.22e-16. Root independently verified averaging, SEM, source CIF, C1,
+  backend, pitch, exact TIFF values and vertically flipped PNG encoding.
+  The HAADF tail share is 9.26%; it remains an approximate angular extension.
+- Nine static-lattice positions compared 8 nm/2048 and 10 nm/2560 windows:
+  mean HAADF differs by 0.0344%, DF by 0.4507%, BF by 30.70%. BF's narrow disk
+  has 21 versus 25 samples with a 31.25% difference in represented disk area.
+  BF is therefore qualitative, not quantitatively converged. Four thermal
+  configurations and this limited window comparison are not full convergence.
+- Final plots include independent auto-contrast and zero-based scales, raw
+  TIFF/NPZ, thermal-configuration SEM, provenance and a root README describing
+  limits. DF remains a low-angle ring inside the illumination disk; the existing
+  2/14 mm DF geometry and current recording map cause this, not DPA clipping.
+  A future outside-disk DF setup must jointly alter recording geometry and
+  account for upstream HAADF interception, rather than just changing labels.
+
+## 2026-09-08 EDS zero spectrum at objective 68 percent
+
+- User clarified the actual comparison: 68.98055% detects Si; 68.0% does not,
+  after rerunning High accuracy / EDS. Live tuning only preserves a marked old
+  EDS result and does not manufacture a zero spectrum. The user's current
+  Expected versus Poisson-sampled display selection was not known.
+- Self-consistent saved-profile reproduction uses the user's Si CIF, a real
+  10 nm diameter / 5 nm thick disk, vacuum support and a centred point with
+  scanning disabled. At 1000 emitted rays, both settings transmit 561 rays to
+  the specimen plane. At 68.98055%, RMS radius is 1.80085 nm and all 561 cross
+  Si. At 68%, RMS radius is 3930.95 nm, the closest sampled ray is 52.38 nm from
+  centre and none cross Si. The geometric waist offset is about +277.35 um at
+  68%, versus -126.20 nm at 68.98055%. The 49-ray check has the same distinction.
+  See `outputs/eds_defocus_diagnostic/objective_beam_overlap.png` and README.
+- Reaching the sample plane is distinct from crossing its finite material.
+  A real expanded beam can have weak nonzero overlap that sparse traced rays
+  do not resolve. Do not interpret zero sampled paths as proof of zero physical
+  X-ray generation, and do not add a synthetic intensity floor. If 10 nm was
+  intended as only an atomistic calculation window within an extended foil,
+  the physical sample envelope must instead represent that foil. Existing
+  user-selected dimensions/defaults were not changed.
+- Fixed a separately reproduced call-order defect: direct EDS resolved an
+  omitted point to scan_origin and recentred the beam, while Elastic then EDS
+  could reuse a raw-centroid transport. The engine now resolves each omitted
+  point coordinate before calculating/comparing/storing a point request.
+  Low-level incident boundary extraction retains its original raw-centroid
+  semantics. Tests cover mixed explicit/default axes, reuse, changed defaults,
+  legacy unresolved requests and upstream boundaries. The particle-point
+  cache schema versions request/elastic/EDS/sample-region products while
+  retaining valid column, incident and wave/STEM work.
+- Elastic metrics now count positive-weight histories crossing any material
+  and the specimen separately, with conditional current weights, beam RMS
+  radius and specimen dimensions. Crossings do not require an elastic event,
+  and counters do not depend on the number of trajectories stored for display.
+  EDS diagnostics visibly distinguish no sampled material crossings, zero
+  Poisson counts and generated-but-uncollected photons; legacy missing metrics
+  are unavailable rather than zero. Cached/manual results share the same
+  display, and stale/clear behavior retains the correct provenance.
+- A diagnostic-only attempt combining cached rays from Z=1679.2 mm with a
+  baseline assembly centred at Z=1599.2 mm falsely produced total pole shadow.
+  Those directories are explicitly INVALID; no production photon/CAD changes
+  were made based on them. Correctly re-anchored hybrid checks produce positive
+  expected counts when one ray crosses Si. These hybrid results are not exact
+  reconstructions of the user's complete state or dose, and their small
+  angular-quadrature comparison does not establish convergence.
+- Validation: point-routing/interaction/elastic/EDS cohorts passed 47 tests;
+  new material-hit/cache plus photon transport/cache cohort passed 19;
+  EDS acceleration passed 8 after updating its retired Virtual fixture to the
+  real CIF reference. Scoped cache-version cohorts also pass. GUI regressions
+  cover expected/sample counts, empty/stale results and material diagnostics.
+
+## 2026-09-08: EDS overlap weighting and honest STEM preview display
+
+- User authorized beam/specimen overlap sampling and reported black HAADF/DF
+  and diagonal half-black BF at 0.02/0.05 nm pixels. The screenshot fractions
+  are nonzero: HAADF 16/15000, DF about 2423/15000, BF 3531/15000 to 3532/15000.
+  Geometry/finite-particle preview used per-channel min/max, amplifying a
+  single-ray step; it was not a CIF lattice calculation at every pixel.
+- Added `specimen/overlap_sampling.py`: EDS-only weighted Scott-KDE / Sobol
+  quadrature for sparse material hits, with parent-conditioned direction and
+  energy. `eds_overlap_sampling_enabled=True`, `eds_overlap_sampling_points=256`
+  (32–4096) persist in profiles and are exposed in Sample Interactions 3D >
+  Parameters. Guards limit the estimator to small thin specimens, vacuum
+  supports, enough nondegenerate incident phase-space samples, small slopes,
+  and a bounded analytic axial field. Unsupported cases report their reason
+  and retain the original MC estimate. Gaussian KDE tails/smoothing are an
+  approximation; more quadrature points do not establish beam-model accuracy.
+- `EDSSpectrum.material_quadrature` holds separate weighted material paths and
+  all emission flights. The auxiliary MC's normalization is undone on every
+  EDS track/flight, so source current × column survival × overlap enters once.
+  Original elastic histories and terminal electrons are untouched. Quadrature
+  IDs and parent-source IDs are stored separately, including auxiliary misses;
+  the EDS ledger does not assign quadrature IDs as original electron parents.
+- `_EDS_SIGNAL_SCHEMA` invalidates EDS/request/sample-region combined products
+  only. Original elastic/incident/column/wave/STEM cache identities remain valid.
+  EDS diagnostics distinguish original misses from weighted overlap estimates.
+- Scan preview constant positive fractions now show mid-grey + exact value;
+  varying geometric/particle previews use fixed 0–1 source-fraction scale.
+  Raw arrays are unchanged. Axes apply the SI conversion once. Paused and
+  historical frames keep their own captured source/model/coordinates. Images
+  has an explicit Enable CIF wave imaging action; High accuracy alone does
+  not select the wave model. Coherent BF/DF/HAADF still need full wave-domain
+  propagation; EDS overlap integration does not replace it.
+- New bounded validation reuses actual broad raw cache f4c443… with the intact
+  baseline assembly/sample and disclosed Z reanchoring (not the unknown user's
+  complete state). Disabled EDS=0; 256 points=0.0226388471; 1024=0.0229196817
+  expected counts (1.23% difference). Original terminal-array hashes match
+  for all cases. At that assumed dose Poisson zero probability remains 97.7%.
+  See `outputs/eds_overlap_sampling/README.md`, JSON/NPZ and spectrum plot.
+  Source hashes preserve the acquisition version; a later provenance-only
+  quadrature-ID field addition does not pretend to be the acquisition source.
+- Validation: 20 density/domain/weight tests, 4 EDS mass/origin/ledger/interface
+  tests, 24 cache/serialization/range tests, 15 EDS diagnostics GUI cases,
+  27 distinct scan GUI cases and related point/elastic/photon/interaction tests
+  pass. The EDS progress test now reserves 0–25% for original histories and
+  25–35% for optional quadrature before shell/photon work. Corrected preview
+  screenshots are synthetic Qt display checks using the reported fractions,
+  not new CIF scans; `scripts/render_scan_preview_check.py` reproduces them.
+  Existing running App was not closed or modified; restart to load code.
+
+## 2026-09-08: Enable specimen STEM images by default
+
+- User confirmed that selecting Calculate STEM detector images (High accuracy)
+  produced specimen images and requested it be checked by default.
+  `Sample.stem_wave_enabled` now defaults to True. Startup assembly/presets do
+  not override it. Explicitly saved profile choices still restore normally;
+  Preview/Medium only disable wave calculations in their detached snapshot.
+- The existing wave-entry display test and historical screenshot renderer
+  now explicitly select their intended geometry-only scenario. Updated the
+  STEM documentation; 18 relevant ownership/display/preview tests pass.
+
+## 2026-09-08: Show expected electrons and seeded Poisson STEM images
+
+- User authorized connecting Generate seeded Poisson counts to visible STEM
+  images after the explanation that it previously only populated arrays.
+  Images now has a separate Display row: Ideal intensity / Expected electrons /
+  Poisson counts. Checking generation selects Poisson; High accuracy produces
+  the stored realization. Display changes never invoke physics or RNG.
+- Counts use electrons/pixel. Expected and Poisson share a zero-based range
+  covering both full arrays for each detector. Ideal contrast is unchanged.
+  Missing/invalid stored counts show Unavailable with instructions, never an
+  ideal-image fallback. Zero counts remain valid zero. Angular/illumination
+  coverage masks remain active.
+- Paused, current, historical bank and partial-playback frames keep their own
+  count arrays, seed and dwell. Line replay only reveals the stored realization.
+  Captured source current/dose are available in the quantity tooltip; summary
+  means explicitly identify their underlying fraction units.
+- Fresh/reweighted STEM metadata now records effective source current,
+  source electrons/pixel and count units. Reweight refreshes frame period,
+  dwell, sampling-state signature and DetectorSignal current/electron-rate
+  summaries without changing fractions or the original frame. Optional old
+  metrics=None is accepted.
+- stem_transport excludes the Poisson flag and seed; full STEM identity still
+  includes them. A valid cached STEM result can be reweighted after only these
+  controls or current scaling change. Frame period remains a real transport
+  dependency for dynamic deflection/stop timing. Existing pipeline and bank
+  readout branches needed no new production changes.
+- Validation: 38 GUI cases (12 new), 12 statistical/observable cases (10 new),
+  and 52 cache cases (11 new), all passed: 102 distinct tests. The cache run
+  includes test_stem_dose_cache.py, test_calculation_cache_reuse.py and
+  test_fourdstem_cache_products.py (111.89 s). Two old 4D fixtures now explicitly
+  select their intended disabled-STEM and zero-padding periodic-vacuum cases,
+  preserving all original raw-cube/dose reuse assertions. Compilation and
+  git diff --check also pass.
+- scripts/render_stem_poisson_demo.py reweights archived corrected near-focus
+  Si [110] probabilities at a disclosed 100 pA effective source, 10 us/pixel,
+  seed 42 (64x64, 0.02 nm pixels). It does not rerun waves, retune optics, or
+  change the running application. Mean expected HAADF/DF/BF counts are
+  5.00507 / 273.16721 / 2.21745 per pixel. outputs/stem_poisson_display contains
+  NPZ/JSON, a 3x3 comparison, actual offscreen Qt screenshots and a README.
+  Fractions are unchanged and the same seed reproduces identical counts.
+  The archived grid/tail-model convergence limits still apply. Docs updated;
+  restart the application to load code.
+
+## 2026-09-08: Fit DF outside the direct disk using the current camera length
+
+- User identified that the Poisson example's DF accepted the direct disk,
+  then explicitly clarified two constraints: upstream HAADF may shadow DF;
+  overlap depends on camera length as well as DF dimensions. Do not replace
+  this with globally hardcoded DF dimensions or compensate for HAADF shadow.
+- Added physics/dark_field_geometry.py: pure geometry proposal from the full
+  signed Jimg/Jdiff map, complete timed raster, beam chief and detector offset.
+  Default inner angle adds max(5 mrad, 20% alpha); an existing outer diameter
+  is retained when it leaves >=5 mrad radial width, otherwise enlarged. The
+  caller supplies a mechanical chamber bound. Proposals include singular-axis
+  effective camera lengths, angular bounds relative to probe chief and direct
+  disk clearance. Unsupported/singular/anisotropic or oversized cases do not
+  produce dimensions. HAADF never limits the proposed outer band.
+- Images has Exclude direct beam... beside the DF overlap warning. It uses
+  the matching High accuracy state/incident statistics, not the shallow view
+  snapshot, and rejects bank/stale/old paused results. The review displays
+  camera-length-dependent ID/OD and the actual DF source TOML. Save rechecks
+  both state signature and source bytes, then writes both dimensions through
+  the existing manifest transaction, retaining draft texts and the old image
+  marked stale. Lens strengths and detector Z are retained. Ordinary operating
+  profiles do not own DF dimensions; there is no silent runtime-only override.
+- 38 geometry/record-plane/sampling cases and 36 GUI cases pass (74 distinct).
+  Tests include changed camera length with fixed dimensions, signed asymmetric
+  maps/scan offsets, direct disk zero hits, and DF 30-100 mrad overlapping an
+  upstream HAADF 60-330 mrad while preserving interception and probability.
+  The real-TOML GUI transaction runs in a copied catalog; source files stay
+  untouched. Review/action screenshots are explicitly synthetic layout checks.
+- Final real-state UI/production glue verification caught and fixed a missing
+  simulation_time_s attribute: the planner now uses the production default of
+  zero. Both present/missing-time tests pass. Recorded actual probe statistics
+  reproduce every Jimg/Jdiff/static offset exactly, full raster times exactly,
+  and positions within 2.07e-25 m; the captured State serialization is unchanged.
+  The verifier records one reassembled aperture-Z floating-point difference of
+  4.55e-13 mm rather than requiring identical whole-plan fingerprint strings.
+- Actual archive calibration: DF Jdiff singular values 0.998850626 m/rad,
+  alpha95 24.804672 mrad, raw-ray edge 26.375097 mrad. The standalone new
+  acquisition keeps DF Z=2804.15 mm and uses ID/OD=60/100 mm (reference angles
+  30.034522-50.057537 mrad). These rounded example dimensions are specific to
+  this camera length. A strict explicit 30-50 mrad proposal relative to its
+  displaced probe chief would instead be about 60.184/99.633 mm.
+- scripts/run_df_clearance_scan.py uses a separate validated archived catalog,
+  preserves the original optics and near-focus C1=+0.083659 nm, and rescans
+  exact Si CIF [110], diameter10/thickness5 nm at 32x32 / 0.04 nm (same 1.28 nm
+  FOV). The original 2-D archive has no diffraction cube to re-integrate. One
+  fresh CUDA multislice scan used 1024^2 / 4 nm, four phonons seed707, and took
+  430.755 s. All 1024 scan positions x 360 azimuths x 55 radii in 0-27 mrad
+  give zero DF hits; real sequential stops are retained. Probability error
+  is 2.22e-16. Mean source fractions: HAADF .00080167245, DF .00266647700,
+  BF .00035545528. DF's high-angle extension contribution is zero.
+- Valid outputs are under
+  outputs/df_direct_beam_clearance/si110_32px_004nm_df60_100_final, with raw
+  arrays, fractions/count PNG/TIFF, zero-based comparison, source ZIP/hashes,
+  input catalog and profiles. 100 pA / 10 us / seed42 counts are separate
+  readout postprocessing; the original acquisition period remains 1 s.
+  Earlier sibling directories are explicitly PREPARATION_ONLY, not scans.
+  The 32-pixel result is not a spatial/phonon convergence claim; archived
+  high-angle wave/tail limitations remain. Global TOMLs and the running App
+  were not edited; use the UI action after restart for its current camera
+  length. A profile alone does not import the separate catalog's dimensions.
+
+## 2026-09-08: Validate and upload the accumulated Git snapshot
+
+- Ran the complete 2,686-item pytest collection: 2,655 passed, one CUDA ray
+  parity test skipped because that backend was unavailable, and 30 failures
+  were investigated. Updated retired Virtual/schema fixtures to the current
+  reference-CIF or explicit vacuum contract, retained actual edited TOML coil
+  dimensions in diagnostics, and isolated fixed-window/Collins replay fixtures
+  from unrelated automatic padding or inserted-stop defaults. Production code
+  and the user's instrument geometry were not changed during this validation.
+- One offscreen scene test captured its expected range before axis tick layout
+  completed. The same 13-pixel viewport resize and 1.41% range change reproduced
+  without switching tabs. The test now waits for stable viewport geometry and
+  ranges before comparison, keeping its original 1% and 0.2-centre tolerances.
+  Three repeated fallback cases in one process passed.
+- Reran all 30 initially failing cases together, mapping renamed legacy tests
+  to their current equivalents: 30 passed in 99.03 s. Thus all 2,685 executed
+  cases have passing validation; the single CUDA ray skip remains. The complete
+  collection was not run a second time. Compilation, dependency consistency and
+  staged whitespace checks also passed. The existing pyqtgraph teardown warning
+  and CUDA-path advisory remain; they did not fail validation.
+- Updated README to match real CIF sources, STEM's default-enabled wave option,
+  stored Poisson readout, current DF fitting, and the simulator's active 12 mm
+  DPA opening versus its separate 0.2 mm literature reference.
+- Selected completed results and their input/source archives are indexed in
+  outputs/README.md. Failed preparations, obsolete diagnostic branches, build
+  checks and temporary logs remain on disk and are ignored (115 files, about
+  6.1 MB). Reusable caches remain local. EDS diagnostic scripts that depend on
+  machine-local cache manifests disclose that limitation; their incident NPZ
+  evidence is retained. No archived specimen acquisition was rerun.
+- Git attributes preserve exact reference-CIF and archive bytes. All 388 staged
+  files in those groups matched the original bytes; the supplied Si CIF retains
+  SHA256 944c5c81df5d813d051f96102eb9be37fac4b7647c2a9d1492d6333122be42c7.

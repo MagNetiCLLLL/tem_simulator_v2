@@ -71,7 +71,7 @@ def test_retracted_sample_has_zero_interacting_wave_thickness():
     assert effective_sample_thickness_nm(state) == 0.0
 
 
-def test_tem_wave_observable_accepts_virtual_reference_or_real_cif():
+def test_tem_wave_observable_accepts_reference_or_imported_real_cif():
     state = default_state()
     _retract_stem_detectors(state)
     state.sample.wave_enabled = True
@@ -122,12 +122,12 @@ def test_projector_checkpoint_reprojection_matches_fresh_wave_calculation():
     state.projector_mode = "image"
     state.fluorescent_screen.inserted = False
     state.camera.inserted = True
-    state.sample.specimen_preset_key = "si_110"
+    state.sample.reference_sample_key = "si_110"
     state.sample.thickness_nm = 2.0
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 16.0
-    state.sample.wave_multislice_enabled = False
-    state.sample.wave_atomistic_enabled = False
+    state.sample.wave_multislice_enabled = True
+    state.sample.wave_atomistic_enabled = True
     incident = _incident_bundle(
         [0.0, 1.0e-4, -1.0e-4],
         [0.0, 0.0, 0.0],
@@ -361,17 +361,17 @@ def test_si_110_stem_detector_signals_respond_to_position_and_traced_defocus():
     state = default_state()
     state.acceleration_enabled = False
     state.illumination_mode = "STEM"
-    state.sample.specimen_preset_key = "si_110"
-    state.sample.thickness_nm = 10.0
+    state.sample.reference_sample_key = "si_110"
+    state.sample.thickness_nm = 2.0
     state.sample.wave_grid_pixels = 256
     state.sample.wave_field_of_view_angstrom = 40.0
-    state.sample.wave_multislice_enabled = False
-    state.sample.wave_atomistic_enabled = False
+    state.sample.wave_multislice_enabled = True
+    state.sample.wave_atomistic_enabled = True
     state.objective_lens.cs_mm = 0.0
     state.objective_lens.cc_mm = 0.0
     state.probe_corrector_installed = False
-    # Symmetric positions keep the ROI origin fixed: centre is a [110] column
-    # and the two +/-1.92 A samples lie between the configured columns.
+    # Symmetric positions keep the actual CIF ROI origin fixed while sampling
+    # different positions within the projected crystal unit cell.
     scan_x_um = np.asarray([[-1.92e-4, 0.0, 1.92e-4]])
     scan_y_um = np.zeros_like(scan_x_um)
     detectors = (
@@ -412,7 +412,7 @@ def test_tem_wave_image_reports_multislice_model_and_sampling_metrics():
     state = default_state()
     _retract_stem_detectors(state)
     state.illumination_mode = "TEM"
-    state.sample.specimen_preset_key = "vacuum"
+    state.sample.reference_sample_key = "si_110"
     state.sample.thickness_nm = 2.0
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 16.0
@@ -432,11 +432,18 @@ def test_tem_wave_image_reports_multislice_model_and_sampling_metrics():
     assert np.sum(result.linear_diffraction_probability) == pytest.approx(1.0)
     assert result.spatial_frequency_inv_angstrom.shape == (32,)
     assert result.spatial_frequency_y_inv_angstrom.shape == (32,)
-    assert result.metrics["specimen_model"] == "continuous_column_multislice"
+    assert result.metrics["specimen_model"] == "atomistic_static_multislice"
     assert result.metrics["specimen_slice_count"] == 10
     assert result.metrics["specimen_slice_thickness_angstrom"] == pytest.approx(2.0)
     assert result.metrics["convergence_semiangle_rad"] > 0.0
-    assert result.metrics["specimen_maximum_relative_intensity_change"] < 1.0e-10
+    # Real IAM scattering can leave the finite reciprocal-space bandwidth.
+    # Its diagnostic must account for that norm loss without creating charge.
+    initial = result.metrics["specimen_initial_integrated_intensity"]
+    final = result.metrics["specimen_final_integrated_intensity"]
+    assert 0.0 < final <= initial
+    assert result.metrics["specimen_maximum_relative_intensity_change"] == pytest.approx(
+        (initial - final) / initial, abs=1.0e-12
+    )
     assert result.metrics["specimen_compute_backend"] == "NumPy CPU"
     assert result.metrics["fft_compute_backend"] == "NumPy CPU"
     assert 0.0 <= result.metrics[
@@ -447,11 +454,11 @@ def test_tem_wave_image_reports_multislice_model_and_sampling_metrics():
     ] <= 1.0
 
 
-def test_projected_phase_object_remains_available_as_preview_model():
+def test_reference_cif_rejects_projected_phase_preview():
     state = default_state()
     _retract_stem_detectors(state)
     state.illumination_mode = "TEM"
-    state.sample.specimen_preset_key = "vacuum"
+    state.sample.reference_sample_key = "si_110"
     state.sample.thickness_nm = 2.0
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 16.0
@@ -462,16 +469,14 @@ def test_projected_phase_object_remains_available_as_preview_model():
         [0.8, 0.1, 0.1],
     )
 
-    result = simulate_wave_image(state, SimpleNamespace(incident=incident))
-
-    assert result.metrics["specimen_model"] == "projected_phase_object"
-    assert result.metrics["specimen_slice_count"] == 1
+    with pytest.raises(ValueError, match="CIF requires multislice"):
+        simulate_wave_image(state, SimpleNamespace(incident=incident))
 
 
 def test_angle_resolved_stem_uses_the_same_multislice_specimen_model():
     state = default_state()
     state.illumination_mode = "STEM"
-    state.sample.specimen_preset_key = "vacuum"
+    state.sample.reference_sample_key = "si_110"
     state.sample.thickness_nm = 0.4
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 16.0
@@ -494,7 +499,7 @@ def test_angle_resolved_stem_uses_the_same_multislice_specimen_model():
     )
 
     assert result.metrics["model"] == "multislice_angle_resolved"
-    assert result.metrics["specimen_model"] == "continuous_column_multislice"
+    assert result.metrics["specimen_model"] == "atomistic_static_multislice"
     assert result.metrics["specimen_slice_count"] == 2
     assert result.fractions["bf"].shape == (1, 1)
     assert 0.0 <= result.fractions["bf"][0, 0] <= 1.0
@@ -504,7 +509,7 @@ def test_angle_resolved_stem_reports_completed_cpu_probe_batches():
     state = default_state()
     state.acceleration_enabled = False
     state.illumination_mode = "STEM"
-    state.sample.specimen_preset_key = "vacuum"
+    state.sample.reference_sample_key = "si_110"
     state.sample.thickness_nm = 0.0
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 16.0
@@ -542,7 +547,7 @@ def test_angle_resolved_stem_reports_completed_cpu_probe_batches():
 def test_angle_resolved_stem_applies_per_probe_descan_detector_shift():
     state = default_state()
     state.illumination_mode = "STEM"
-    state.sample.specimen_preset_key = "vacuum"
+    state.sample.reference_sample_key = "si_110"
     state.sample.thickness_nm = 0.0
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 16.0
@@ -578,7 +583,7 @@ def test_explicit_cuda_preference_reaches_tem_multislice_and_imaging_fft():
     state.illumination_mode = "TEM"
     state.acceleration_enabled = True
     state.acceleration_backend = "CUDA GPU"
-    state.sample.specimen_preset_key = "vacuum"
+    state.sample.reference_sample_key = "si_110"
     state.sample.thickness_nm = 0.4
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 16.0

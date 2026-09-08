@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "recorded_utc": "2026-09-08T12:17:46.574127+00:00",
+  "task": "Read-only DF image and recording-path diagnosis; downstream 100 nm probe-focus convention and allocation-free padded-window planning.",
+  "execution_scope": "No source or instrument configuration changes. No new full STEM scan or replacement image. This file records completed raw-array/mask checks, a synthetic vacuum Fresnel propagation, and memory-planner calls.",
+  "inputs": [
+    {
+      "path": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\raw_scan.npz",
+      "sha256": "c55f082d3603072346e155073a695581facdbfde450593f454be12bf04ce155f"
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\df.png",
+      "sha256": "ad30e399e9a1c5f2d3ee61da355ee9db6f43ed2e930e09a17e0c702be9354013"
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\metrics.json",
+      "sha256": "331482e20e0bcf66ddb85e5c7de07a19dae7b8ee41fb82bc2fa65533e8be4424"
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\operating_profile.toml",
+      "sha256": "e8ed898ee1d6270ce49aab27d140c647b585d7422e1c61875c3591843912eaae"
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\sampling_comparison.json",
+      "sha256": "fd83aee4f38002599fcce8a17bf3651b7f22a41fa4f02ac3a8881803e75fe13b"
+    }
+  ],
+  "source_hashes_at_recording": [
+    {
+      "path": "E:\\tem_simulator_v2\\src\\temsim\\physics\\stem_wave_imaging.py",
+      "sha256": "e7874b6483d67fcc128f79cd9c3b95f0b052f19c13bccff3f948a3ed09e4d763"
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\src\\temsim\\physics\\stem_cuda_pipeline.py",
+      "sha256": "857cb7a8d7313317517d7707265e6d91b405c7ab8d08ce2a8b623d87622acecf"
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\src\\temsim\\physics\\wave_fft.py",
+      "sha256": "9179f33572bb9af4afa2bdd9d3b78c3738db32863592deb82a680ea9c0b31d3e"
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\src\\temsim\\physics\\record_plane.py",
+      "sha256": "07d4eab3608f010adf802842602c3883714ce7fba7e764770ec41de05202b04d"
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\src\\temsim\\physics\\first_order.py",
+      "sha256": "475059cdb7c346a91574820065ca7922604431ba6a3c96f6168a9132aa6ca1f4"
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\src\\temsim\\physics\\multislice.py",
+      "sha256": "e08528f8dfe5ceb27caf6224935e21d7dbba90a431b70473fc331e46cf8b3205"
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\src\\temsim\\physics\\wave_sampling.py",
+      "sha256": "fe6dce8de3d5d7a7e7ce352b56fe172b55207ef333a4ea994382b2256b5cf30f"
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\src\\temsim\\optics\\aberrations.py",
+      "sha256": "cfd82c7c7ea843754d9530cd85f6d57275fa3109a84b0107f87205a819155e12"
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\src\\temsim\\specimen\\atomistic.py",
+      "sha256": "4d339459f33adc27c3fb6d135d8548ae7572b256d0b1f9de6ef87b15aadab87a"
+    },
+    {
+      "path": "E:\\tem_simulator_v2\\scripts\\generate_si110_cif_stem_scan.py",
+      "sha256": "76bd68c90d1e7541ee4151da639d310f45ffca49d8f9c67182e4eeb78ed82dde"
+    }
+  ],
+  "df_display": {
+    "shape_yx": [
+      64,
+      64
+    ],
+    "sample_pitch_nm": 0.02,
+    "raw_minimum_fraction_of_emitted_electrons": 0.03816563695646728,
+    "raw_maximum_fraction_of_emitted_electrons": 0.052082687408557635,
+    "raw_mean_fraction_of_emitted_electrons": 0.04376677127131853,
+    "raw_zero_pixel_count": 0,
+    "png_zero_code_pixel_count": 1,
+    "encoding": "round((raw - raw.min()) / (raw.max() - raw.min()) * 65535), uint16",
+    "png_matches_encoding_at_every_pixel": true,
+    "method": "Read original float64 DF fraction from raw_scan.npz and the delivered PNG with Pillow; compare all 4096 encoded values exactly.",
+    "interpretation": "Displayed dark valleys are nonzero low intensities enhanced by independent channel min-max contrast stretching. Their appearance alone is not evidence of missing electrons or invalid scattering.",
+    "display_orientation_note": "The standalone PNG stores array row zero at the top. The comparison figure uses imshow(origin=lower), with row zero at minimum sample Y. This Y orientation difference does not create the dark-valley shapes.",
+    "display_source": "scripts/generate_si110_cif_stem_scan.py:216-249; nearest-neighbour display, no spatial smoothing or image synthesis."
+  },
+  "df_recording_path": {
+    "profile": "Archived acquisition_gpu_1024_final/operating_profile.toml, reloaded into default_state and evaluated with build_record_plane_plan.",
+    "illumination_semiangle_mrad": 24.80467235853336,
+    "physical_detector_order": [
+      "projection_chamber_dpa_aperture",
+      "haadf",
+      "df",
+      "bf",
+      "energy_filter_entrance_aperture"
+    ],
+    "reference_angular_bands_mrad": {
+      "haadf": [
+        60.00000002201169,
+        330.0000001210643
+      ],
+      "df": [
+        1.0011507484087907,
+        7.008055238861535
+      ],
+      "bf": [
+        0.0,
+        0.5678851177334857
+      ]
+    },
+    "interpretation": "The DF hardware ring samples a low-angle annulus inside the illumination disk. It is not an annulus excluding the direct-beam disk, so coherent and direct-beam contributions are expected within the implemented model. HAADF interception at high angles does not remove this low-angle DF interval.",
+    "mask_method": "Construct the 1024x1024 reciprocal grid at 40 angstrom FOV using the saved wavelength, convert each component by arcsin(lambda*f), and evaluate prepare_record_plane_detector_masks on the actual signed plan at the scan centre and all four +/-0.63 nm corners. The provider retains every physical stop and evaluates sample-position and affine terms.",
+    "wavelength_angstrom": 0.0196874890068488,
+    "nominal_angular_grid_step_mrad": 0.49218722517122,
+    "specimen_centre_used_nm": [
+      -0.000271428221114,
+      0.000848903360581
+    ],
+    "scan_offsets_tested_nm": [
+      [
+        0,
+        0
+      ],
+      [
+        -0.63,
+        -0.63
+      ],
+      [
+        -0.63,
+        0.63
+      ],
+      [
+        0.63,
+        -0.63
+      ],
+      [
+        0.63,
+        0.63
+      ]
+    ],
+    "df_mask_pixel_count_all_positions": 628,
+    "bf_mask_pixel_count_all_positions": 5,
+    "df_changed_mask_pixels_vs_centre_at_each_corner": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "bf_changed_mask_pixels_vs_centre_at_each_corner": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "uniform_on_axis_pupil_pixel_count": 7989,
+    "uniform_on_axis_pupil_df_fraction": 0.07860808611841281,
+    "uniform_on_axis_pupil_bf_fraction": 0.000625860558267618,
+    "pupil_check_scope": "A geometrical, zero-specimen uniform-pupil reference. Fractions are relative to the pupil population, not to source current, and are not a newly simulated specimen image.",
+    "normalisation_review": "Both CPU wave_fft.stem_diffraction_intensity and CUDA stem_cuda_pipeline divide by the full per-probe diffraction intensity sum, then integrate detector masks. No per-detector intensity normalisation was found. Finite reciprocal-bandwidth loss is separately diagnosed; the saved maximum relative propagation intensity change is 9.891211964672844e-05.",
+    "normalisation_code": [
+      "src/temsim/physics/wave_fft.py:107-152",
+      "src/temsim/physics/stem_cuda_pipeline.py:377-406",
+      "src/temsim/physics/record_plane.py:601-678"
+    ],
+    "finding": "No specific detector ordering, scan-dependent DF mask, per-detector normalisation, or PNG encoding defect was identified that explains the dark-valley shape.",
+    "existing_limited_sampling_check": {
+      "scope": "Existing same-position 4x4 benchmark comparison, 512 versus 1024 wave pixels at fixed 40 angstrom FOV; not a fresh run or a full convergence proof.",
+      "df_mean_relative_difference_512_vs_1024": 0.00616580254009258,
+      "df_contrast_correlation": 0.9999023490051119
+    }
+  },
+  "underfocus_convention": {
+    "geometric_definition": "Probe focus 100 nm downstream of the specimen reference plane.",
+    "effective_c1_nm": -100.0,
+    "combination": "C1_effective_nm = C1_additional_nm - ray_waist_offset_nm. An explicit probe_aberrations.c1_mm overrides sample.wave_defocus_nm as the additional term; lens excitation is already represented in the traced ray waist.",
+    "saved_ray_waist_offset_nm": -0.0836586907314461,
+    "additional_wave_defocus_nm_for_exact_effective_minus_100": -100.08365869073145,
+    "effective_c1_nm_if_additional_is_minus_100": -99.91634130926856,
+    "code": [
+      "src/temsim/optics/aberrations.py:176-194",
+      "src/temsim/physics/stem_wave_imaging.py:289-315",
+      "src/temsim/optics/aberrations.py:455-486",
+      "src/temsim/physics/multislice.py:128-145"
+    ],
+    "actual_sign_verification": {
+      "fixture": "Synthetic zero-potential 512x512 wave, 80 angstrom FOV, wavelength 0.0196874890068488 angstrom, uniform angular pupil 24.80467235853336 mrad. No specimen atoms or instrument changes.",
+      "procedure": "Form the probe using aberration_phase_rad with pure C1=-0.0001 mm and exp(-i*chi). Propagate through 1000 angstrom vacuum with the actual propagate_multislice NumPy CPU implementation. Compare the complex wave with the zero-C1 focus on the same pupil/grid.",
+      "relative_complex_wave_l2_error": 1.3512002551856822e-14,
+      "result": "Negative C1 of -100 nm cancels +100 nm downstream Fresnel propagation to numerical precision."
+    }
+  },
+  "window_planning": {
+    "scope": "Allocation-free calls to production plan_wave_sampling; estimates are not whole-application peak RAM or a guarantee of GPU allocation success.",
+    "candidate_scan": {
+      "pixels_yx": [
+        16,
+        16
+      ],
+      "pitch_nm": 0.08,
+      "pixel_edge_field_of_view_nm": 1.28,
+      "centre_to_centre_span_nm": 1.2
+    },
+    "reference_wave_fov_angstrom": 80.0,
+    "reference_grid": 2048,
+    "spatial_sampling_angstrom": 0.0390625,
+    "specimen_thickness_angstrom": 50.0,
+    "slice_thickness_angstrom": 2.0,
+    "probe_support_estimate": "r = max(1.22*lambda/alpha, abs(C1_effective)*tan(alpha)); at abs(C1)=100 nm the defocus radius is about 2.48 nm. A padding factor of 1.3 with a 1.20 nm scan-centre span requires approximately 7.65 nm, below an 8 nm FFT window.",
+    "memory_plans": [
+      {
+        "fov_nm": 8,
+        "grid_pixels": 2048,
+        "frozen_phonon_configurations": 4,
+        "potential_GiB": 1.59375,
+        "working_GiB": 7.9375,
+        "passes_current_planner_limits": true
+      },
+      {
+        "fov_nm": 8,
+        "grid_pixels": 2048,
+        "frozen_phonon_configurations": 1,
+        "potential_GiB": 0.421875,
+        "working_GiB": 5.03125,
+        "passes_current_planner_limits": true
+      },
+      {
+        "fov_nm": 9,
+        "grid_pixels": 2304,
+        "frozen_phonon_configurations": 1,
+        "potential_GiB": 0.533935546875,
+        "working_GiB": 6.36767578125,
+        "passes_current_planner_limits": true
+      },
+      {
+        "fov_nm": 10,
+        "grid_pixels": 2560,
+        "frozen_phonon_configurations": 1,
+        "potential_GiB": 0.6591796875,
+        "working_GiB": 7.861328125,
+        "passes_current_planner_limits": true
+      }
+    ],
+    "required_accuracy_validation": "The 1.3 padding factor is a candidate, not a validated truncation-error bound. Compare central and extreme scan positions with 8/9/10 nm windows at fixed spatial sampling and common specimen/thermal configuration before a full scan.",
+    "thermal_comparison_caution": "atomistic.py:715-728 generates Gaussian displacements in the current atom-array order. Rebuilding different windows using the same seed need not produce the same displacement for overlapping atoms. Use a static-lattice comparison to isolate boundary error, or reuse one common largest-window frozen configuration with consistent cropping/position identity.",
+    "sampling_caution": "Increasing FOV at fixed spatial step preserves maximum represented scattering angle but changes angular quadrature spacing. The former 4 nm BF disk has only five mask pixels, so low-angle detector integration also merits a fixed-window reference comparison.",
+    "image_expectation": "An approximately 5 nm diameter defocused probe exceeds the 1.28 nm scan field. Clear separated atomic-column spots cannot be promised from this geometry."
+  },
+  "model_limits": [
+    "A physically possible coherent low-angle contrast pattern is not proof that the full calculation is experimentally accurate or converged.",
+    "The recording-plane router is a signed first-order map including position, affine deflection and physical sequential stops. first_order.py:269 explicitly disables spherical aberration in transfer tracing; it is not a full high-angle nonlinear ray transport.",
+    "The four-configuration frozen-phonon model and existing small grid comparison do not establish convergence with respect to all specimen, angular, window and thermal parameters.",
+    "Rutherford high-angle tail is an approximate complement outside the coherent wave grid; it contributes zero to this DF channel.",
+    "The diagnostic records and numerical wave-sign check do not claim a new underfocus STEM acquisition has completed."
+  ]
+}

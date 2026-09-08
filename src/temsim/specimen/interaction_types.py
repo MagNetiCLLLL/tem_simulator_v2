@@ -321,7 +321,13 @@ class ConservationCheck:
 
 @dataclass(frozen=True, slots=True)
 class SpecimenInteractionRequest:
-    """Explicit calculation request; unrequested observables never run."""
+    """Explicit calculation request; unrequested observables never run.
+
+    For point observables, the engine resolves each omitted coordinate to the
+    sample's scan origin and records the resulting explicit acquisition point.
+    This is separate from a raw incident-boundary extraction, which may retain
+    the unshifted beam centroid.
+    """
 
     observables: frozenset[SpecimenObservable] = field(default_factory=frozenset)
     point_x_nm: float | None = None

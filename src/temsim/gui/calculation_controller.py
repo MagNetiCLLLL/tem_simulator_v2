@@ -187,12 +187,7 @@ def estimate_calculation_memory_bytes(
     specimen_mode = str(
         getattr(state.sample, "specimen_mode", "atomic")
     ).strip().lower()
-    scattering_active = (
-        bool(getattr(state.sample, "inserted", True))
-        and bool(getattr(state.sample, "diffraction_enabled", True))
-        and specimen_mode == "virtual"
-    )
-    if specimen_mode == "atomic" and bool(
+    if specimen_mode in {"atomic", "reference"} and bool(
         getattr(state.sample, "inserted", True)
     ):
         from temsim.specimen.inelastic import (
@@ -205,10 +200,6 @@ def estimate_calculation_memory_bytes(
                 real_inelastic_distribution(state), ray_count=rays
             )
         )
-    elif scattering_active:
-        from temsim.specimen.virtual import virtual_scattering_branches
-
-        branch_count = len(virtual_scattering_branches(state.sample))
     else:
         branch_count = 1
     vectorised_branches = min(
@@ -932,7 +923,7 @@ class CalculationController(QObject):
             and str(getattr(sample, "specimen_mode", "atomic"))
             .strip()
             .lower()
-            == "atomic"
+            in {"atomic", "reference"}
             and not bool(getattr(sample, "stem_wave_enabled", False))
             and any(
                 bool(getattr(detector, "inserted", False))

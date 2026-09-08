@@ -31,19 +31,21 @@ def _plan(**overrides):
     return plan_wave_sampling(**inputs)
 
 
-def _qualitative_state():
+def _small_wave_state():
     state = default_state()
     state.acceleration_enabled = False
     state.illumination_mode = "STEM"
-    state.sample.specimen_mode = "virtual"
-    state.sample.specimen_preset_key = "si_110"
+    # A finite reference CIF now supplies matter. The planning tests remain
+    # bounded to a 2 nm / 0.4 nm slab and a 64-pixel base grid.
+    state.sample.specimen_mode = "reference"
+    state.sample.reference_sample_key = "si_110"
     state.sample.envelope_shape = "rectangle"
     state.sample.size_x_nm = 2.0
     state.sample.size_y_nm = 2.0
     state.sample.thickness_nm = 0.4
     state.sample.wave_grid_pixels = 64
     state.sample.wave_field_of_view_angstrom = 40.0
-    state.sample.wave_atomistic_enabled = False
+    state.sample.wave_atomistic_enabled = True
     state.sample.wave_multislice_enabled = True
     state.sample.wave_slice_thickness_angstrom = 2.0
     state.probe_corrector_installed = False
@@ -155,7 +157,7 @@ def test_invalid_domain_inputs_are_rejected(override):
 
 
 def test_finite_material_mask_keeps_the_full_padded_wave_window():
-    state = _qualitative_state()
+    state = _small_wave_state()
     original_settings = deepcopy(asdict(state.sample))
     prepared = prepare_specimen_potentials(
         state,
@@ -180,7 +182,7 @@ def test_finite_material_mask_keeps_the_full_padded_wave_window():
 
 
 def test_square_wave_window_can_intersect_matter_outside_the_scan_rectangle():
-    state = _qualitative_state()
+    state = _small_wave_state()
     # The short scan rectangle misses the specimen, but its 8 nm square FFT
     # window reaches back to it. It must not be replaced with all vacuum.
     prepared = prepare_specimen_potentials(
@@ -196,8 +198,10 @@ def test_square_wave_window_can_intersect_matter_outside_the_scan_rectangle():
     assert np.any(prepared.mean_projected_potential_v_angstrom > 0.0)
 
 
-def test_analytic_crystal_phase_at_common_lab_positions_survives_roi_translation():
-    state = _qualitative_state()
+def test_cif_crystal_phase_at_common_lab_positions_survives_roi_translation():
+    import abtem
+
+    state = _small_wave_state()
     state.sample.centre_x_nm = 3.125
     state.sample.centre_y_nm = -2.5
     preset = load_specimen_preset("si_110")
@@ -212,8 +216,12 @@ def test_analytic_crystal_phase_at_common_lab_positions_survives_roi_translation
             calculation_roi_bounds_nm=(x_nm - 0.1, x_nm + 0.1, y_nm - 0.1, y_nm + 0.1),
         )
 
-    original = prepare_at(cx, cy)
-    shifted = prepare_at(cx + step_nm, cy + step_nm)
+    # The former analytic fixture used float64. Retain its strict translation
+    # tolerance by building this small IAM fixture at the same precision;
+    # ordinary abTEM float32 accumulation need not be bitwise shift invariant.
+    with abtem.config.set({"precision": "float64"}):
+        original = prepare_at(cx, cy)
+        shifted = prepare_at(cx + step_nm, cy + step_nm)
     assert np.any(original.mean_projected_potential_v_angstrom > 0.0)
     # A one-pixel positive shift of the window exposes the same laboratory
     # positions at array indices one lower. Both crystal phase and finite
@@ -228,7 +236,7 @@ def test_analytic_crystal_phase_at_common_lab_positions_survives_roi_translation
 
 
 def test_window_outside_real_specimen_is_full_vacuum_without_opening_cif(monkeypatch):
-    state = _qualitative_state()
+    state = _small_wave_state()
     state.sample.specimen_mode = "atomic"
     state.sample.cif_path = "must-not-be-read.cif"
     state.sample.wave_atomistic_enabled = True
@@ -252,7 +260,7 @@ def test_window_outside_real_specimen_is_full_vacuum_without_opening_cif(monkeyp
 
 
 def test_oversized_defocus_window_fails_before_atoms_without_mutating_prior_result(monkeypatch):
-    state = _qualitative_state()
+    state = _small_wave_state()
     preset = load_specimen_preset("si_110")
     previous = prepare_specimen_potentials(state, preset)
     previous_potential = previous.mean_projected_potential_v_angstrom.copy()
@@ -280,8 +288,8 @@ def test_oversized_defocus_window_fails_before_atoms_without_mutating_prior_resu
 
 
 def test_vacuum_stem_current_is_preserved_when_defocus_expands_the_domain():
-    state = _qualitative_state()
-    state.sample.specimen_preset_key = "vacuum"
+    state = _small_wave_state()
+    state.sample.inserted = False
     state.sample.wave_grid_pixels = 256
     scan = np.zeros((1, 1))
     results = [
@@ -325,8 +333,8 @@ def test_vacuum_stem_current_is_preserved_when_defocus_expands_the_domain():
 
 
 def test_stem_preparation_uses_lab_beam_origin_minus_baseline_scan_offset():
-    state = _qualitative_state()
-    state.sample.specimen_preset_key = "vacuum"
+    state = _small_wave_state()
+    state.sample.inserted = False
     state.sample.wave_grid_pixels = 256
     result = simulate_angle_resolved_stem(
         state,
@@ -353,7 +361,7 @@ def test_finite_silicon_cif_stem_responds_to_focus_with_a_padded_wave_domain(tmp
     # diamond cell contains eight atoms before finite-envelope repetition.
     cif_path = tmp_path / "finite-silicon.cif"
     write(cif_path, bulk("Si", "diamond", a=5.43, cubic=True))
-    state = _qualitative_state()
+    state = _small_wave_state()
     state.sample.specimen_mode = "atomic"
     state.sample.cif_path = str(cif_path)
     state.sample.wave_atomistic_enabled = True

@@ -366,6 +366,31 @@ def test_3d_tab_round_trip_preserves_cached_scene_and_view(qtbot):
     page.display_result(calculation)
     assert page.scene_snapshot is cached_scene
 
+    def wait_for_fallback_layout():
+        if page.opengl_available:
+            return
+        previous = None
+        stable_passes = 0
+
+        def settled():
+            nonlocal previous, stable_passes
+            # New tick text changes AxisItem width during paint. With aspect
+            # lock that resize also changes the data range, independently of
+            # tab restoration. Drain paint/layout before taking either view.
+            page.view.viewport().repaint()
+            page.view.getPlotItem().layout.activate()
+            view_box = page.view.getViewBox()
+            bounds = view_box.sceneBoundingRect()
+            current = (
+                bounds.x(), bounds.y(), bounds.width(), bounds.height(),
+                *(value for axis in view_box.viewRange() for value in axis),
+            )
+            stable_passes = stable_passes + 1 if current == previous else 0
+            previous = current
+            return stable_passes >= 3
+
+        qtbot.waitUntil(settled, timeout=2000)
+
     if page.opengl_available:
         page.view.opts["center"] = QVector3D(11.0, -7.0, 3.0)
         page.view.setCameraPosition(
@@ -380,12 +405,14 @@ def test_3d_tab_round_trip_preserves_cached_scene_and_view(qtbot):
             yRange=(-31.0, 13.0),
             padding=0.0,
         )
+        wait_for_fallback_layout()
         expected = page._capture_view_state()
 
     tabs.setCurrentIndex(1)
     tabs.setCurrentIndex(0)
     qtbot.wait(20)
     qtbot.waitUntil(lambda: page._pending_view_restore is None)
+    wait_for_fallback_layout()
 
     assert page.scene_snapshot is cached_scene
     restored = page._capture_view_state()
@@ -407,7 +434,7 @@ def test_3d_tab_round_trip_preserves_cached_scene_and_view(qtbot):
             )
 
 
-def test_virtual_and_vacuum_scenes_use_the_active_user_selection():
+def test_reference_and_retracted_scenes_use_the_active_user_selection():
     state = default_state()
     state.sample.specimen_mode = "virtual"
     state.sample.specimen_preset_key = "si_110"
@@ -441,9 +468,9 @@ def test_virtual_and_vacuum_scenes_use_the_active_user_selection():
             ty=np.asarray(((0.0,), (0.0,))),
             energy_offset_ev=np.asarray((0.0,)),
         ),
-        "virtual_+g": SimpleNamespace(
-            name="virtual_+g",
-            interaction_kind="diffraction_spots",
+        "elastic_scattered": SimpleNamespace(
+            name="elastic_scattered",
+            interaction_kind="elastic_scattered",
             x=np.asarray(((0.0,), (0.0,))),
             y=np.asarray(((0.0,), (0.0,))),
             tx=np.asarray(((5.0e-3,), (5.0e-3,))),
@@ -459,29 +486,35 @@ def test_virtual_and_vacuum_scenes_use_the_active_user_selection():
         stem_scan=None,
     )
 
-    virtual = build_sample_interaction_scene(calculation)
+    with pytest.raises(ValueError, match="Virtual mode has been retired"):
+        build_sample_interaction_scene(calculation)
 
-    assert virtual.specimen_mode == "virtual"
-    assert virtual.specimen_source_key == "preset:si_110"
-    assert not virtual.specimen_is_vacuum
-    assert len(virtual.virtual_region_outlines_nm) == 1
-    assert {path.category for path in virtual.paths} == {
+    state.sample.specimen_mode = "reference"
+    state.sample.reference_sample_key = "si_110"
+    reference = build_sample_interaction_scene(calculation)
+
+    assert reference.specimen_mode == "reference"
+    assert reference.specimen_source_key == "cif:Si.cif"
+    assert not reference.specimen_is_vacuum
+    # Dormant legacy density rows must not be drawn as real CIF material.
+    assert not reference.virtual_region_outlines_nm
+    assert {path.category for path in reference.paths} == {
         "incident",
         "downstream_primary",
         "downstream_elastic",
     }
     assert all(
         "detector not assigned" in path.provenance
-        for path in virtual.paths
+        for path in reference.paths
         if path.category.startswith("downstream_")
     )
 
-    state.sample.specimen_preset_key = "vacuum"
+    state.sample.inserted = False
     calculation.simulation.branches = {"000": branches["000"]}
     vacuum = build_sample_interaction_scene(calculation)
 
     assert vacuum.specimen_is_vacuum
-    assert vacuum.specimen_source_key == "preset:vacuum"
+    assert vacuum.specimen_source_key == reference.specimen_source_key
     assert not vacuum.virtual_region_outlines_nm
     assert {path.category for path in vacuum.paths} == {
         "incident",

@@ -290,13 +290,13 @@ def test_production_tem_aperture_replay_agrees_with_fresh_projection():
         d.inserted = False
     s.fluorescent_screen.inserted = False
     s.camera.inserted = True
-    s.sample.specimen_mode = "virtual"
-    s.sample.specimen_preset_key = "si_110"
+    s.sample.specimen_mode = "reference"
+    s.sample.reference_sample_key = "si_110"
     s.sample.wave_enabled = True
     s.sample.wave_grid_pixels = 32
     s.sample.wave_field_of_view_angstrom = 16.
-    s.sample.wave_multislice_enabled = False
-    s.sample.wave_atomistic_enabled = False
+    s.sample.wave_multislice_enabled = True
+    s.sample.wave_atomistic_enabled = True
     s.objective_aperture.enabled = True
     c = next(c for c in available_controls(s) if c.key == s.objective_aperture.key and c.field == "diameter_mm")
     plan = InteractivePlan((CalculationRange(c, .02, .06),), 200 * 1024**2)
@@ -323,13 +323,16 @@ def test_production_stem_captures_ram_cube_and_reintegrates_without_multislice(m
     s.ac_deflector.scan_lines = 2
     s.descan_deflector.enabled = True
     s.descan_deflector.scan_enabled = True
-    s.sample.specimen_mode = "virtual"
-    s.sample.specimen_preset_key = "si_110"
+    s.sample.specimen_mode = "reference"
+    s.sample.reference_sample_key = "si_110"
     s.sample.stem_wave_enabled = True
     s.sample.wave_grid_pixels = 32
     s.sample.wave_field_of_view_angstrom = 16.
-    s.sample.wave_multislice_enabled = False
-    s.sample.wave_atomistic_enabled = False
+    # This coarse-ray fixture tests replay/cube identity in a fixed periodic
+    # wave window, not automatic padding of its deliberately uncalibrated probe.
+    s.sample.wave_probe_padding_factor = 0.0
+    s.sample.wave_multislice_enabled = True
+    s.sample.wave_atomistic_enabled = True
     s.sample.stem_rutherford_tail_enabled = False
     for d in s.stem_detectors:
         d.inserted = True

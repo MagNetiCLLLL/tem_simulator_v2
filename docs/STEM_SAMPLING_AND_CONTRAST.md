@@ -28,6 +28,47 @@ The bounds include raster position, affine offsets, anisotropy and square
 detector corners. They are conservative and do not assume that upstream
 aperture clipping establishes sufficient wave sampling.
 
+## Keeping the direct illumination disk out of DF
+
+An annular detector is not dark field merely because its component key is
+`df`. Its active area must lie outside the direct illumination disk for the
+actual camera-length setting. In a centred, isotropic diffraction plane,
+`direct_disk_radius ≈ effective_camera_length * probe_semiangle` and
+`inner_collection_angle ≈ detector_inner_radius / effective_camera_length`.
+The runtime model uses the full signed map instead:
+
+```text
+r_detector = J_img * r_sample + J_diff * theta_sample + offset
+```
+
+The projector excitations and detector Z determine `J_diff`; anisotropy,
+affine offsets, specimen/scan position and time-dependent descan also matter.
+Consequently, changing camera length can bring the direct disk into a DF
+annulus whose physical dimensions have not changed.
+
+**Images > Exclude direct beam…** proposes DF inner/outer diameters using the
+current calculated state and its full raster. Review the proposed dimensions
+and save them to the currently selected recording module's TOML. The action
+keeps the detector Z and lens settings, includes a clearance margin, and
+checks the available chamber bore. An unsuitable transfer or insufficient
+mechanical clearance gives no applicable proposal. A bank result, stale frame,
+or a camera-length/geometry change while reviewing cannot apply an old proposal.
+The previous image remains a previous result until High accuracy is run again.
+
+The fit only excludes the modelled direct disk. Upstream HAADF is allowed to
+overlap the DF angular band and intercept those electrons first. The physical
+sequential-stop masks determine the remaining DF signal; no signal is added
+back to compensate for this shadowing. DF's standalone acceptance band and
+the band that survives all upstream stops need not be identical.
+
+For the archived Si [110] camera-length setting used in the Poisson display
+example, DF's original 2/14 mm inner/outer diameters accepted approximately
+1–7 mrad, within the approximately 24.8 mrad coherent illumination disk.
+At its unchanged Z, 60/100 mm corresponds to approximately 30–50 mrad. These
+dimensions are specific to that archived transfer, not universal DF defaults.
+The separate `outputs/df_direct_beam_clearance` acquisition records its actual
+geometry and preserved projector setting.
+
 ## Correcting insufficient coverage
 
 Use **Match detector sampling** on the Images page. It proposes an increased
@@ -88,6 +129,78 @@ The screenshot's exact acquisition has not been rerun. Quantitative thick-Si
 images still require the saved specimen/beam state and convergence checks in
 grid, slice thickness and thermal configurations. A covered band is not a
 validation of the projector calibration or the underlying material model.
+
+## Geometry preview display (2026-09-08)
+
+New microscope states default to **Calculate STEM detector images (High accuracy)**
+enabled. High accuracy honours this switch; explicitly saved disabled settings
+remain disabled. With the STEM wave checkbox off, `geometric_detector_interception` displays
+scan/descan detector interception. A finite-particle fallback may include
+CIF-derived material composition/density, but it does not propagate the CIF
+lattice independently at each scan pixel. The Images page distinguishes this
+from multislice/thin-phase specimen images and provides **Enable CIF wave
+imaging** followed by **Run High accuracy**. Enabling the setting alone does
+not recompute or relabel the retained image. A paused display remains on its
+previous complete frame until resumed.
+
+Positive constant detector fractions now use mid-grey and a precise
+**Constant signal** label. Varying geometric/particle previews use the fixed
+0–1 emitted-current-fraction range. This prevents a one-ray change, such as
+`3531/15000` to `3532/15000`, being stretched into an apparent black/white
+specimen boundary. Nonconstant specimen wave images retain automatic contrast.
+No raw image values or detector fractions are changed by display scaling.
+
+Image coordinates remain in micrometres internally, with axis labels converted
+to metres before a single automatic SI-prefix selection. At 32×32 pixels,
+0.02 nm/pixel spans 0.64 nm and 0.05 nm/pixel spans 1.6 nm. Frame size, model,
+scale and captured source context follow the displayed complete frame,
+including paused and saved results, rather than later edits to live settings.
+
+## Expected electrons and Poisson image display (2026-09-08)
+
+**Scanning Image > Images > Display** selects three stored image quantities:
+
+- **Ideal intensity**: detector fractions relative to the effective source
+  electron flux, without detector counting noise.
+- **Expected electrons**: the mean detected electrons per scan pixel,
+  `fraction * effective_source_current_A * dwell_time_s / e`.
+- **Poisson counts**: a seeded integer draw from that mean, representing
+  finite-electron shot noise. It does not include detector electronics noise,
+  drift, or beam damage.
+
+In **Scanning Parameters > STEM image statistics**, checking **Generate seeded
+Poisson counts** also selects the Poisson display. Run **High accuracy** to
+produce a result with the enabled readout. A retained frame without the chosen
+arrays shows **Unavailable**, rather than substituting an ideal image. With
+**Pause refresh** checked, resume refresh to see the new result. Historical
+bank results use their own stored arrays and metadata.
+
+The notice above the images shows the displayed quantity, electrons/pixel,
+captured dwell time, and the recorded seed for Poisson data. The tooltip also
+includes captured effective source current when available. Dwell time is the
+scan frame period divided by its pixel count. Numerical ray count is not the
+physical electron dose. The signal fractions already include transport loss;
+no second column-transmission factor is applied to the count conversion.
+
+Expected and Poisson views share a fixed, zero-based count scale for each
+detector, covering both full-frame arrays. Ideal intensity retains its existing
+contrast rules. Switching quantity, changing tabs, or replaying scan lines
+does not sample again: one completed frame contains one fixed realization.
+Changing the seed and recalculating generates a reproducible new realization.
+Angular-coverage and illumination-sampling masks still apply in count views;
+adding counting noise does not supply missing simulated detector angles.
+
+Changing only the Poisson switch/seed reuses cached STEM fractions and updates
+the readout. Current scaling can also use this existing readout path. Frame
+period remains a transport dependency because time-dependent scan/descan
+settings can change trajectories; it is not unconditionally a dose-only edit.
+
+`tests/test_stem_count_display_gui.py`, `tests/test_stem_poisson_statistics.py`,
+and `tests/test_stem_dose_cache.py` cover stored-data display, pause/bank/line
+playback, statistics, normalization and cache reuse. A readout-only Si [110]
+comparison, based on archived corrected fractions, is documented in
+`outputs/stem_poisson_display/README.md`; it is not a new specimen acquisition
+or a convergence validation of those archived probabilities.
 
 ## References
 

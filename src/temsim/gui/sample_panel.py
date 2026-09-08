@@ -47,12 +47,15 @@ from temsim.specimen.geometry import (
     sample_orientation_quaternion,
     set_sample_orientation,
 )
-from temsim.specimen.presets import available_specimen_presets
+from temsim.specimen.reference_catalog import (
+    available_reference_samples, apply_reference_sample, refresh_reference_samples,
+)
+from temsim.specimen.source import active_cif_path
+from temsim.specimen.rutherford import resolve_tail_material
 from temsim.specimen.support import (
     available_support_materials,
     available_support_meshes,
 )
-from temsim.specimen.virtual import resolve_virtual_interactions
 from temsim.gui.sample_scene_labels import sample_scene_labels
 from temsim.gui.sample_display_source import resolve_sample_display_source
 
@@ -801,14 +804,14 @@ class SamplePage(QWidget):
         self.inserted.setObjectName("sampleInsertedControl")
         self.mode = QComboBox()
         self.mode.setObjectName("sampleModeControl")
-        self.mode.addItem("Real sample (CIF / crystal)", "atomic")
-        self.mode.addItem("Virtual sample", "virtual")
+        self.mode.addItem("Reference CIF", "reference")
+        self.mode.addItem("Open CIF", "atomic")
         self.envelope_shape = QComboBox()
         self.envelope_shape.setObjectName("sampleEnvelopeShapeControl")
         self.envelope_shape.addItem("Circular disk", "disk")
         self.envelope_shape.addItem("Rectangle", "rectangle")
         identity_form.addRow("Holder", self.inserted)
-        identity_form.addRow("Mode", self.mode)
+        identity_form.addRow("Structure source", self.mode)
         identity_form.addRow("Envelope", self.envelope_shape)
         self.scalar_controls = {}
         self.scalar_labels = {}
@@ -836,28 +839,45 @@ class SamplePage(QWidget):
             self.scalar_labels[field] = label_widget
         controls_layout.addWidget(identity)
 
-        real = QGroupBox("Real sample — imported CIF / MCIF")
+        real = QGroupBox("Crystal structure — CIF / MCIF")
         real.setObjectName("realSampleControls")
         real_layout = QVBoxLayout(real)
         source_form = QFormLayout()
         source_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        real_note = QLabel("Real sample: imported CIF / MCIF only")
-        real_note.setToolTip(
-            "Real sample mode accepts only a user-imported crystallographic "
-            "structure. Simulator TOML references belong to Virtual sample."
-        )
-        real_note.setWordWrap(True)
-        real_note.setObjectName("sampleRealSourceNote")
-        real_layout.addWidget(real_note)
+        self.source_note = QLabel("Reference and imported samples use their actual CIF structure.")
+        self.source_note.setWordWrap(True)
+        self.source_note.setObjectName("sampleRealSourceNote")
+        self.source_note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        real_layout.addWidget(self.source_note)
         self.preset = QComboBox()
-        self.preset.setObjectName("samplePresetControl")
-        self.preset.addItem("Default TOML reference", "")
-        for key, preset_name in available_specimen_presets():
-            self.preset.addItem(preset_name, key)
+        self.preset.setObjectName("sampleReferenceControl")
+        self.preset.setMinimumContentsLength(18)
+        self.preset.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.reference_sample = self.preset
+        try:
+            references = available_reference_samples()
+        except Exception as exc:
+            references = ()
+            self.source_note.setText(f"Reference catalog unavailable: {exc}")
+        for reference in references:
+            self.preset.addItem(reference.name, reference.key)
+        reference_row = QHBoxLayout()
+        reference_row.setContentsMargins(0, 0, 0, 0)
+        reference_row.addWidget(self.preset, 1)
+        self.refresh_references = QPushButton("Refresh")
+        self.refresh_references.setObjectName("sampleRefreshReferences")
+        self.refresh_references.setToolTip(
+            "Reload CIF / MCIF files and optional metadata from configs/reference_samples."
+        )
+        self.refresh_references.clicked.connect(self._refresh_references)
+        reference_row.addWidget(self.refresh_references)
+        self.reference_source_widget = QWidget()
+        self.reference_source_widget.setLayout(reference_row)
+        source_form.addRow("Reference CIF", self.reference_source_widget)
         path_row = QHBoxLayout()
         self.cif_path = QLineEdit()
         self.cif_path.setObjectName("sampleCifPath")
-        browse = QPushButton("Import CIF...")
+        browse = QPushButton("Open CIF...")
         browse.setObjectName("sampleImportCif")
         browse.clicked.connect(self._browse_cif)
         self.cif_browse = browse
@@ -890,7 +910,7 @@ class SamplePage(QWidget):
         )
         axes_form.addRow("Structure display limit", self.structure_atom_limit)
         real_layout.addLayout(axes_form)
-        apply_zone = QPushButton("Align imported CIF zone axis")
+        apply_zone = QPushButton("Align CIF zone axis")
         apply_zone.setObjectName("sampleApplyZoneAxis")
         apply_zone.clicked.connect(self._apply_zone_axis)
         self.apply_zone = apply_zone
@@ -909,8 +929,8 @@ class SamplePage(QWidget):
             self.tilt_controls.append(control)
         apply_tilt = QPushButton("Apply incremental tilt")
         apply_tilt.clicked.connect(self._apply_incremental_tilt)
-        tilt_row.addWidget(apply_tilt)
         real_layout.addLayout(tilt_row)
+        real_layout.addWidget(apply_tilt)
 
         self.edit_orientation = QCheckBox("Mouse-drag edits sample orientation")
         self.edit_orientation.setObjectName("sampleEditOrientation")
@@ -920,10 +940,8 @@ class SamplePage(QWidget):
         self.apply_draft = QPushButton("Apply draft orientation")
         self.apply_draft.setEnabled(False)
         self.apply_draft.clicked.connect(self._commit_draft_orientation)
-        draft_row = QHBoxLayout()
-        draft_row.addWidget(self.edit_orientation)
-        draft_row.addWidget(self.apply_draft)
-        real_layout.addLayout(draft_row)
+        real_layout.addWidget(self.edit_orientation)
+        real_layout.addWidget(self.apply_draft)
 
         inelastic = QGroupBox("Real inelastic collisions")
         inelastic.setObjectName("sampleRealInelasticControls")
@@ -1066,6 +1084,18 @@ class SamplePage(QWidget):
             "scan and defocused probe; vacuum outside the specimen is retained."
         )
         self.tail_enabled = QCheckBox("Approximate Rutherford high-angle tail")
+        self.tail_material_source = QComboBox()
+        self.tail_material_source.setObjectName("sampleTailMaterialSource")
+        self.tail_material_source.addItem("Auto from structure", "structure")
+        self.tail_material_source.addItem("Manual", "manual")
+        self.tail_screening_source = QComboBox()
+        self.tail_screening_source.setObjectName("sampleTailScreeningSource")
+        self.tail_screening_source.addItem("Auto (Molière)", "moliere")
+        self.tail_screening_source.addItem("Manual", "manual")
+        self.tail_material_summary = QLabel()
+        self.tail_material_summary.setObjectName("sampleTailMaterialSummary")
+        self.tail_material_summary.setWordWrap(True)
+        self.tail_material_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.element_sigma = QLineEdit()
         self.element_sigma.setObjectName("sampleElementThermalRms")
         self.element_sigma.setPlaceholderText('{"Si": 0.075, "O": 0.09}')
@@ -1125,89 +1155,16 @@ class SamplePage(QWidget):
         wave_form.addRow("Random seed", self.frozen_seed)
         wave_form.addRow("Per-element RMS JSON", self.element_sigma)
         wave_form.addRow(self.tail_enabled)
-        wave_form.addRow("Tail atomic number Z", self.tail_atomic_number)
-        wave_form.addRow("Tail areal density", self.tail_density)
-        wave_form.addRow("Tail screening angle", self.tail_screening)
+        wave_form.addRow("Tail material", self.tail_material_source)
+        wave_form.addRow(self.tail_material_summary)
+        wave_form.addRow("Manual atomic number Z", self.tail_atomic_number)
+        wave_form.addRow("Manual areal density", self.tail_density)
+        wave_form.addRow("Tail screening", self.tail_screening_source)
+        wave_form.addRow("Manual screening angle", self.tail_screening)
         wave_form.addRow("Tail maximum angle", self.tail_maximum)
         controls_layout.addWidget(real)
         self.real_group = real
 
-        virtual = QGroupBox(
-            "Virtual reference sample and idealised interactions"
-        )
-        virtual.setObjectName("virtualSampleControls")
-        virtual_layout = QVBoxLayout(virtual)
-        reference_form = QFormLayout()
-        reference_form.setRowWrapPolicy(
-            QFormLayout.RowWrapPolicy.WrapLongRows
-        )
-        reference_form.addRow("Reference sample (TOML)", self.preset)
-        virtual_layout.addLayout(reference_form)
-        reference_note = QLabel("Ideal TOML reference samples")
-        reference_note.setToolTip(
-            "Ideal simulator reference samples such as Silicon [110] and "
-            "Gold [001] are TOML-defined. They are not imported real samples."
-        )
-        reference_note.setWordWrap(True)
-        reference_note.setObjectName("sampleVirtualReferenceNote")
-        virtual_layout.addWidget(reference_note)
-        self.diffraction_enabled = QCheckBox(
-            "Plot enabled virtual interaction channels in Ray Diagram"
-        )
-        self.diffraction_enabled.setObjectName(
-            "sampleVirtualInteractionsEnabled"
-        )
-        self.diffraction_enabled.setToolTip(
-            "Applies only to Virtual sample mode. Real-sample diffraction "
-            "and scattering are calculated by the high-accuracy wave model, "
-            "not by manually defined ray branches."
-        )
-        virtual_layout.addWidget(self.diffraction_enabled)
-        self.interaction_table = self._table(
-            ("On", "Name", "Kind", "Probability", "Parameters (JSON)")
-        )
-        virtual_layout.addWidget(self.interaction_table)
-        interaction_buttons = QHBoxLayout()
-        add_interaction = QPushButton("Add interaction")
-        remove_interaction = QPushButton("Remove selected")
-        apply_interactions = QPushButton("Apply interactions")
-        add_interaction.clicked.connect(self._add_interaction)
-        remove_interaction.clicked.connect(
-            lambda: self._remove_selected(self.interaction_table)
-        )
-        apply_interactions.clicked.connect(self._apply_interactions)
-        for button in (add_interaction, remove_interaction, apply_interactions):
-            interaction_buttons.addWidget(button)
-        virtual_layout.addLayout(interaction_buttons)
-
-        region_label = QLabel(
-            "Finite regions: rectangle, ellipse, or grayscale map (NPY/PNG/TIFF). Outside is vacuum."
-        )
-        region_label.setWordWrap(True)
-        virtual_layout.addWidget(region_label)
-        self.region_table = self._table(
-            ("On", "Name", "Kind", "Density", "Parameters (JSON)")
-        )
-        virtual_layout.addWidget(self.region_table)
-        region_buttons = QHBoxLayout()
-        add_region = QPushButton("Add region")
-        remove_region = QPushButton("Remove selected")
-        apply_regions = QPushButton("Apply regions")
-        add_region.clicked.connect(self._add_region)
-        remove_region.clicked.connect(lambda: self._remove_selected(self.region_table))
-        apply_regions.clicked.connect(self._apply_regions)
-        for button in (add_region, remove_region, apply_regions):
-            region_buttons.addWidget(button)
-        virtual_layout.addLayout(region_buttons)
-        self.virtual_probe_convolution = QCheckBox(
-            "Convolve density with the calculated probe"
-        )
-        self.virtual_probe_convolution.setObjectName(
-            "sampleVirtualProbeConvolution"
-        )
-        virtual_layout.addWidget(self.virtual_probe_convolution)
-        controls_layout.addWidget(virtual)
-        self.virtual_group = virtual
         controls_layout.addWidget(wave)
         self.wave_group = wave
 
@@ -1479,9 +1436,6 @@ class SamplePage(QWidget):
             self._envelope_shape_changed
         )
         self.preset.currentIndexChanged.connect(self._preset_changed)
-        self.diffraction_enabled.toggled.connect(
-            lambda value: self._set_bool("diffraction_enabled", value)
-        )
         for control, field in (
             (self.tem_wave_enabled, "wave_enabled"),
             (self.multislice_enabled, "wave_multislice_enabled"),
@@ -1489,10 +1443,6 @@ class SamplePage(QWidget):
             (self.frozen_enabled, "wave_frozen_phonon_enabled"),
             (self.real_inelastic_enabled, "real_inelastic_enabled"),
             (self.tail_enabled, "real_high_angle_tail_enabled"),
-            (
-                self.virtual_probe_convolution,
-                "virtual_probe_convolution_enabled",
-            ),
             (self.eds_enabled, "eds_enabled"),
             (self.eds_poisson_enabled, "eds_poisson_enabled"),
         ):
@@ -1569,6 +1519,13 @@ class SamplePage(QWidget):
         self.tail_atomic_number.valueChanged.connect(
             lambda value: self._set_integer("real_tail_atomic_number", value)
         )
+        for control, name in (
+            (self.tail_material_source, "real_tail_material_source"),
+            (self.tail_screening_source, "real_tail_screening_source"),
+        ):
+            control.currentIndexChanged.connect(
+                lambda _index, combo=control, field=name: self._set_tail_choice(field, combo.currentData())
+            )
         for control, field in (
             (self.tail_density, "real_tail_areal_density_atoms_nm2"),
             (self.tail_screening, "real_tail_screening_angle_mrad"),
@@ -1617,10 +1574,13 @@ class SamplePage(QWidget):
             for field, control in self.scalar_controls.items():
                 control.setValue(float(getattr(sample, field)))
             preset_index = self.preset.findData(
-                str(sample.specimen_preset_key)
+                str(sample.reference_sample_key)
             )
+            if preset_index < 0:
+                self.preset.addItem(f"Missing reference: {sample.reference_sample_key}", sample.reference_sample_key)
+                preset_index = self.preset.count() - 1
             self.preset.setCurrentIndex(
-                preset_index if preset_index >= 0 else 0
+                preset_index
             )
             self.cif_path.setText(str(sample.cif_path))
             for controls, values in (
@@ -1629,9 +1589,6 @@ class SamplePage(QWidget):
             ):
                 for control, value in zip(controls, values):
                     control.setValue(int(value))
-            self.diffraction_enabled.setChecked(
-                bool(sample.diffraction_enabled)
-            )
             self.tem_wave_enabled.setChecked(bool(sample.wave_enabled))
             self.multislice_enabled.setChecked(
                 bool(sample.wave_multislice_enabled)
@@ -1654,9 +1611,11 @@ class SamplePage(QWidget):
             for field, control in self.inelastic_scalar_controls.items():
                 control.setValue(float(getattr(sample, field)))
             self.tail_enabled.setChecked(bool(sample.real_high_angle_tail_enabled))
-            self.virtual_probe_convolution.setChecked(
-                bool(sample.virtual_probe_convolution_enabled)
-            )
+            for control, name in (
+                (self.tail_material_source, "real_tail_material_source"),
+                (self.tail_screening_source, "real_tail_screening_source"),
+            ):
+                control.setCurrentIndex(control.findData(getattr(sample, name)))
             self.eds_enabled.setChecked(bool(sample.eds_enabled))
             self.eds_poisson_enabled.setChecked(
                 bool(sample.eds_poisson_enabled)
@@ -1693,8 +1652,6 @@ class SamplePage(QWidget):
             self.tail_density.setValue(float(sample.real_tail_areal_density_atoms_nm2))
             self.tail_screening.setValue(float(sample.real_tail_screening_angle_mrad))
             self.tail_maximum.setValue(float(sample.real_tail_max_angle_mrad))
-            self._load_interaction_table(sample.virtual_interactions)
-            self._load_region_table(sample.virtual_regions)
             self._draft_quaternion = sample_orientation_quaternion(sample)
             self.apply_draft.setEnabled(False)
             self._update_mode_controls()
@@ -1702,6 +1659,7 @@ class SamplePage(QWidget):
             self._update_wave_controls()
             self._update_eds_controls()
             self._refresh_inelastic_summary()
+            self._refresh_tail_summary()
         finally:
             self._updating = False
         self.refresh_snapshot()
@@ -1793,11 +1751,42 @@ class SamplePage(QWidget):
     def _preset_changed(self):
         if self._updating or self._state is None:
             return
-        self._state.sample.specimen_preset_key = str(
-            self.preset.currentData() or ""
-        )
+        key = str(self.preset.currentData() or "")
+        try:
+            apply_reference_sample(self._state.sample, key)
+        except Exception as exc:
+            self.error.emit(str(exc))
+            self.set_state(self._state)
+            return
+        self.set_state(self._state)
+        self._changed("sample.reference_sample_key")
+
+    def _refresh_references(self):
+        key = (str(self._state.sample.reference_sample_key)
+               if self._state is not None else str(self.preset.currentData() or ""))
+        try:
+            refresh_reference_samples()
+            references = available_reference_samples()
+        except Exception as exc:
+            self.source_note.setText(f"Reference catalog unavailable: {exc}")
+            self.error.emit(str(exc))
+            return
+        self.preset.blockSignals(True)
+        try:
+            self.preset.clear()
+            for reference in references:
+                self.preset.addItem(reference.name, reference.key)
+            index = self.preset.findData(key)
+            if index < 0:
+                self.preset.addItem(f"Missing reference: {key}", key)
+                index = self.preset.count() - 1
+            self.preset.setCurrentIndex(index)
+        finally:
+            self.preset.blockSignals(False)
+        self._update_mode_controls()
         self._update_wave_controls()
-        self._changed("sample.specimen_preset_key")
+        self._refresh_tail_summary()
+        self.refresh_snapshot()
 
     def _element_sigma_edited(self):
         if self._updating or self._state is None:
@@ -1825,45 +1814,63 @@ class SamplePage(QWidget):
     def _mode_changed(self):
         if self._updating or self._state is None:
             return
-        self._state.sample.specimen_mode = str(self.mode.currentData())
-        self._update_mode_controls()
-        self._update_wave_controls()
+        mode = str(self.mode.currentData())
+        try:
+            if mode == "reference":
+                apply_reference_sample(self._state.sample, self._state.sample.reference_sample_key)
+            else:
+                self._state.sample.specimen_mode = mode
+        except Exception as exc:
+            self.error.emit(str(exc))
+            self.set_state(self._state)
+            return
+        self.set_state(self._state)
         self._changed("sample.specimen_mode")
+
+    def _structure_path(self):
+        if self._state is None:
+            return ""
+        try:
+            return active_cif_path(self._state.sample)
+        except (ValueError, OSError):
+            return ""
 
     def _update_mode_controls(self):
         atomic = str(self.mode.currentData()) == "atomic"
-        self.real_group.setVisible(atomic)
-        self.virtual_group.setVisible(not atomic)
-        self.apply_zone.setEnabled(
-            atomic and bool(self.cif_path.text().strip())
-        )
+        self.reference_source_widget.setEnabled(not atomic)
+        self.cif_source_widget.setEnabled(atomic)
+        path = self._structure_path()
+        self.apply_zone.setEnabled(bool(path))
+        detail = f"Structure: {path}" if path else "No available CIF structure. Select an existing reference or open a CIF."
+        if not path and self._state is not None:
+            try:
+                active_cif_path(self._state.sample)
+            except (ValueError, OSError) as exc:
+                detail = f"CIF structure unavailable: {exc}"
+        self.source_note.setText(f"Structure: {Path(path).name}" if path else detail)
+        self.source_note.setToolTip(detail)
 
     def _update_wave_controls(self):
-        atomic = str(self.mode.currentData()) == "atomic"
         illumination = str(
             getattr(self._state, "illumination_mode", "TEM")
             if self._state is not None
             else "TEM"
         ).upper()
-        structure_available = bool(
-            self.preset.currentIndex() >= 0
-            if not atomic
-            else self.cif_path.text().strip()
-        )
+        structure_available = bool(self._structure_path())
         tem_available = structure_available and illumination == "TEM"
         self.tem_wave_enabled.setEnabled(tem_available)
         self.tem_wave_enabled.setToolTip(
             "Calculate the local specimen-to-Objective image and exit-wave "
             "diffraction diagnostic."
             if tem_available
-            else "TEM wave imaging requires an imported Real CIF or a Virtual "
-            "TOML reference, plus Microprobe (TEM) illumination."
+            else "TEM wave imaging requires a reference or imported CIF "
+            "structure, plus Microprobe (TEM) illumination."
         )
 
         inelastic_enabled = (
-            atomic and self.real_inelastic_enabled.isChecked()
+            structure_available and self.real_inelastic_enabled.isChecked()
         )
-        self.real_inelastic_enabled.setEnabled(atomic)
+        self.real_inelastic_enabled.setEnabled(structure_available)
         for control in self.inelastic_scalar_controls.values():
             control.setEnabled(inelastic_enabled)
 
@@ -2127,8 +2134,45 @@ class SamplePage(QWidget):
         self.eds_lines.setRowCount(0)
         self.eds_trajectory_plot.clear()
         self._refresh_inelastic_summary()
+        self._refresh_tail_summary()
         self.refresh_snapshot()
         self.parameters_changed.emit(name)
+
+    def _set_tail_choice(self, name, value):
+        if self._updating or self._state is None:
+            return
+        setattr(self._state.sample, name, str(value))
+        self._changed(f"sample.{name}")
+
+    def _refresh_tail_summary(self):
+        manual_material = self.tail_material_source.currentData() == "manual"
+        manual_screening = self.tail_screening_source.currentData() == "manual"
+        self.tail_atomic_number.setEnabled(manual_material)
+        self.tail_density.setEnabled(manual_material)
+        self.tail_screening.setEnabled(manual_screening)
+        if self._state is None:
+            return
+        try:
+            material = resolve_tail_material(
+                self._state.sample, self._state.sample.thickness_nm,
+                self._state.beam_voltage_kv,
+            )
+            from ase.data import chemical_symbols
+            rows = [material.provenance]
+            for element in material.elements:
+                density = (f"{element.number_density_atoms_nm3:.6g} atoms/nm³; "
+                           if element.number_density_atoms_nm3 is not None else "")
+                rows.append(
+                    f"{chemical_symbols[element.atomic_number]} (Z={element.atomic_number}): "
+                    f"{density}{element.areal_density_atoms_nm2:.6g} atoms/nm²; "
+                    f"screening {element.screening_angle_mrad:.6g} mrad"
+                )
+            self.tail_material_summary.setText("\n".join(rows))
+            self.tail_material_summary.setToolTip("\n".join((*rows, *material.warnings)))
+        except Exception as exc:
+            message = f"Tail material unavailable: {exc}"
+            self.tail_material_summary.setText(message)
+            self.tail_material_summary.setToolTip(message)
 
     def _browse_cif(self):
         path, _selected = QFileDialog.getOpenFileName(
@@ -2153,8 +2197,8 @@ class SamplePage(QWidget):
     def _apply_zone_axis(self):
         if self._state is None:
             return
-        path = Path(self.cif_path.text()).expanduser()
         try:
+            path = Path(active_cif_path(self._state.sample)).expanduser()
             if not path.is_file():
                 raise ValueError("Select an existing CIF before aligning a zone axis.")
             from ase.io import read
@@ -2214,162 +2258,6 @@ class SamplePage(QWidget):
         set_sample_orientation(self._state.sample, self._draft_quaternion)
         self.apply_draft.setEnabled(False)
         self._changed("sample.specimen_orientation_quaternion_wxyz")
-
-    def _load_interaction_table(self, rows):
-        self.interaction_table.setRowCount(0)
-        for raw in rows or ():
-            self._append_table_row(
-                self.interaction_table,
-                (
-                    bool(raw.get("enabled", True)),
-                    str(raw.get("name", "Interaction")),
-                    str(raw.get("kind", "diffuse_ring")),
-                    float(raw.get("probability", 0.0)),
-                    json.dumps(
-                        {
-                            key: value
-                            for key, value in raw.items()
-                            if key not in {"enabled", "name", "kind", "probability"}
-                        },
-                        sort_keys=True,
-                    ),
-                ),
-            )
-
-    def _load_region_table(self, rows):
-        self.region_table.setRowCount(0)
-        for raw in rows or ():
-            self._append_table_row(
-                self.region_table,
-                (
-                    bool(raw.get("enabled", True)),
-                    str(raw.get("name", "Region")),
-                    str(raw.get("kind", "rectangle")),
-                    float(raw.get("density", 1.0)),
-                    json.dumps(
-                        {
-                            key: value
-                            for key, value in raw.items()
-                            if key not in {"enabled", "name", "kind", "density"}
-                        },
-                        sort_keys=True,
-                    ),
-                ),
-            )
-
-    @staticmethod
-    def _append_table_row(table, values):
-        row = table.rowCount()
-        table.insertRow(row)
-        enabled = QTableWidgetItem()
-        enabled.setFlags(enabled.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-        enabled.setCheckState(
-            Qt.CheckState.Checked if values[0] else Qt.CheckState.Unchecked
-        )
-        table.setItem(row, 0, enabled)
-        for column, value in enumerate(values[1:], 1):
-            table.setItem(row, column, QTableWidgetItem(str(value)))
-
-    def _add_interaction(self):
-        self._append_table_row(
-            self.interaction_table,
-            (True, "New diffuse channel", "gaussian_diffuse", 0.05, '{"sigma_mrad": 10.0}'),
-        )
-
-    def _add_region(self):
-        self._append_table_row(
-            self.region_table,
-            (
-                True,
-                "New region",
-                "rectangle",
-                1.0,
-                json.dumps(
-                    {
-                        "centre_x_nm": 0.0,
-                        "centre_y_nm": 0.0,
-                        "size_x_nm": 100.0,
-                        "size_y_nm": 100.0,
-                        "rotation_deg": 0.0,
-                    }
-                ),
-            ),
-        )
-
-    @staticmethod
-    def _remove_selected(table):
-        rows = sorted({index.row() for index in table.selectedIndexes()}, reverse=True)
-        for row in rows:
-            table.removeRow(row)
-
-    @staticmethod
-    def _cell_text(table, row, column):
-        item = table.item(row, column)
-        return "" if item is None else item.text().strip()
-
-    def _apply_interactions(self):
-        if self._state is None:
-            return
-        try:
-            rows = []
-            for row in range(self.interaction_table.rowCount()):
-                enabled = self.interaction_table.item(row, 0).checkState() == Qt.CheckState.Checked
-                parameters = json.loads(self._cell_text(self.interaction_table, row, 4) or "{}")
-                if not isinstance(parameters, dict):
-                    raise ValueError(f"Interaction row {row + 1}: parameters must be a JSON object.")
-                parameters.update(
-                    {
-                        "enabled": enabled,
-                        "name": self._cell_text(self.interaction_table, row, 1),
-                        "kind": self._cell_text(self.interaction_table, row, 2),
-                        "probability": float(self._cell_text(self.interaction_table, row, 3)),
-                    }
-                )
-                rows.append(parameters)
-            original = self._state.sample.virtual_interactions
-            self._state.sample.virtual_interactions = rows
-            try:
-                resolve_virtual_interactions(
-                    self._state.sample,
-                    beam_energy_kv=self._state.beam_voltage_kv,
-                )
-            except Exception:
-                self._state.sample.virtual_interactions = original
-                raise
-        except Exception as exc:
-            self.error.emit(str(exc))
-            return
-        self._changed("sample.virtual_interactions")
-
-    def _apply_regions(self):
-        if self._state is None:
-            return
-        try:
-            rows = []
-            for row in range(self.region_table.rowCount()):
-                parameters = json.loads(self._cell_text(self.region_table, row, 4) or "{}")
-                if not isinstance(parameters, dict):
-                    raise ValueError(f"Region row {row + 1}: parameters must be a JSON object.")
-                parameters.update(
-                    {
-                        "enabled": self.region_table.item(row, 0).checkState() == Qt.CheckState.Checked,
-                        "name": self._cell_text(self.region_table, row, 1),
-                        "kind": self._cell_text(self.region_table, row, 2),
-                        "density": float(self._cell_text(self.region_table, row, 3)),
-                    }
-                )
-                rows.append(parameters)
-            original = self._state.sample.virtual_regions
-            self._state.sample.virtual_regions = rows
-            try:
-                build_sample_geometry_snapshot(self._state.sample, load_atoms=False)
-            except Exception:
-                self._state.sample.virtual_regions = original
-                raise
-        except Exception as exc:
-            self.error.emit(str(exc))
-            return
-        self._changed("sample.virtual_regions")
 
     def refresh_snapshot(self, calculation_result=None):
         if self._state is None:
@@ -2434,7 +2322,7 @@ class SamplePage(QWidget):
             if self.scene.opengl_available
             else f"safe 2-D fallback ({self.scene.opengl_detail})"
         )
-        mode = "Real sample" if snapshot.mode == "atomic" else "Virtual sample"
+        mode = "Open CIF" if snapshot.mode == "atomic" else "Reference CIF"
         atom_detail = ""
         if snapshot.atomic_numbers.size:
             display_size = snapshot.atom_display_size_nm

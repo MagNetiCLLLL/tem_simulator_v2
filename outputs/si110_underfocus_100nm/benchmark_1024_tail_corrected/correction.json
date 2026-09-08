@@ -1,0 +1,45 @@
+{
+  "method": "Probability recomposition using archived coherent multislice; no new wave propagation",
+  "source_directory": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\benchmark_1024_gpu_calibrated",
+  "input_sha256": {
+    "raw_scan.npz": "beb94e95119dc5b71e77b8e76cd984a2c041720e29f69d0c4746c65942d05b6b",
+    "parameters.json": "dd07a2d42db43cfcdddddfd8e9d8eb1c6d4c46b95606ee56c7f7d8e882bf0a07",
+    "metrics.json": "25e20d742dc35d66a2fc084659c6f17a3cedd738a00c92252b550538f6d7b9ae"
+  },
+  "sigma_nm": 0.07491849574337359,
+  "old_overlap_min": 0.14357981827306193,
+  "old_overlap_max": 0.16354833412981873,
+  "new_overlap_min": 1.0,
+  "old_coherent_scale": "1 - retained_tail_probability * old_overlap",
+  "corrected_coherent_scale": "1 - retained_tail_probability * physical_envelope_overlap",
+  "maximum_probability_conservation_error": 2.220446049250313e-16,
+  "images": {
+    "haadf": {
+      "old_mean": 0.0008687649025628065,
+      "corrected_mean": 0.0009322399057257059,
+      "min_fraction": 0.0009073550748240942,
+      "max_fraction": 0.0009579311656512042,
+      "mean_tail_fraction": 7.509786982270722e-05,
+      "tail_share": 0.08055637756060977
+    },
+    "df": {
+      "old_mean": 0.04975624798049525,
+      "corrected_mean": 0.04975028547117147,
+      "min_fraction": 0.04830643093249588,
+      "max_fraction": 0.05107663586117484,
+      "mean_tail_fraction": 0.0,
+      "tail_share": 0.0
+    },
+    "bf": {
+      "old_mean": 0.0004604705754366209,
+      "corrected_mean": 0.0004604153997096513,
+      "min_fraction": 0.0003227034168442292,
+      "max_fraction": 0.000637696830974346,
+      "mean_tail_fraction": 0.0,
+      "tail_share": 0.0
+    }
+  },
+  "original_DPA_diameter_mm": 0.2,
+  "source_wave_grid": 1024,
+  "no_new_wave_acquisition": true
+}

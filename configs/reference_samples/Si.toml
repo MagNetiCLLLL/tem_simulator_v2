@@ -1,0 +1,10 @@
+key = "si_110"
+name = "Silicon [110]"
+description = "User-supplied Si.cif (2026-09-08), diamond silicon; a = 5.44370237 angstrom."
+zone_axis = [1, 1, 0]
+in_plane_axis = [1, -1, 0]
+chemical_symbol = "Si"
+template_preset_key = "si_110"
+inelastic_preset_key = "si_110"
+thermal_sigma_angstrom = 0.085
+thermal_source = "Si near-room-temperature RMS retained from configs/specimens/10_si_110.toml: Loane, Xu and Silcox, Acta Cryst. A47 (1991), DOI 10.1107/S0108767391000375. A thermal-model assumption, not a displacement measurement in the supplied CIF."

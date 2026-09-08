@@ -37,6 +37,53 @@ The simulator names this subsystem **EDS**. The currently installed six-segment 
   acceptance surrogate, not an invented detector intersection. The spectrum
   uses deterministic detector quadrature, not the finite display-ray population.
 
+## Weighted overlap integration (2026-09-08)
+
+**Sample Interactions 3D > Parameters > Weighted beam / sample overlap (EDS)**
+is enabled by default. `sample.eds_overlap_sampling_points` defaults to 256
+(32–4096); `sample.eds_overlap_sampling_enabled` can restore the original
+discrete-ray estimate. Both settings are saved in operating profiles.
+
+The automatic estimator addresses a small finite specimen illuminated by a
+broad beam when fewer than 32 original histories cross the sample. It estimates
+the continuous incident density using a weighted Gaussian kernel **mixture**
+with Scott bandwidth, and integrates additional Sobol points over the finite
+material intersection. Kernel-posterior selection retains an original ray's
+direction and energy for each point. The local elastic solver still determines
+whether each proposed path actually enters material, its length, and scattering.
+
+For conditional incident density `f(x)`, proposal area `A` and `N` proposed
+points, a point carries `q = f(x) A / N`. Rejecting vacuum points does not change
+`N`. Although auxiliary elastic transport internally normalizes its inputs,
+every resulting EDS material-path and emission-flight weight is multiplied by
+the original `sum(q)` before ionisation. Thus dose remains
+`source electrons × column survival`, and overlap enters exactly once through
+path weights. The unsampled vacuum complement is not reassigned to the sample.
+
+The original elastic histories and downstream terminal electrons remain
+unchanged. `EDSSpectrum.material_quadrature` stores independent auxiliary
+paths, all their emission flights, separate integration IDs and kernel-parent
+source IDs. EDS ledger entries do not claim those integration IDs are original
+electrons. Material paths replace the original EDS sample estimator; they are
+not added to it. Only EDS and dependent combined-result cache identities change.
+
+This first implementation is limited to vacuum supports, sufficiently sampled
+two-dimensional incident density, a small thin specimen, small incident angles,
+and a locally bounded analytic axial field. Material supports, degenerate or
+poorly sampled density, resolved/focused illumination, thick/steep geometries,
+imported field maps and unsupported local fields retain the original estimator
+with a visible reason. The exact guards and their values are exported in
+diagnostics. No intensity floor is imposed.
+
+KDE bandwidth smooths unresolved structure and has Gaussian tails. This is an
+explicit continuous-density approximation, not a unique reconstruction of the
+true beam and not a coherent-wave solver. Increasing integration points tests
+quadrature/trajectory stability; increasing upstream rays and checking the
+beam model is still needed to assess density bias. Nonzero expected counts can
+remain far below one, so Poisson-sampled spectra may still be zero. Coherent
+BF/DF/HAADF retain their full wave domain, including vacuum propagation and
+phase; EDS quadrature is not substituted for those images.
+
 ## Spectrum peak labels
 
 **Peak labels** identifies positive simulated line contributions in the displayed

@@ -1,0 +1,6 @@
+{"elapsed_s": 0.00016270019114017487, "done": 0, "total": 1, "message": "Preparing STEM scan and detector geometry"}
+{"elapsed_s": 63.15764690004289, "done": 1, "total": 6, "message": "STEM specimen potential ready"}
+{"elapsed_s": 76.14628749992698, "done": 2, "total": 6, "message": "STEM GPU probes 1/4"}
+{"elapsed_s": 86.4056183998473, "done": 3, "total": 6, "message": "STEM GPU probes 2/4"}
+{"elapsed_s": 101.67987870005891, "done": 5, "total": 6, "message": "STEM GPU probes 4/4"}
+{"elapsed_s": 101.68541759997606, "done": 6, "total": 6, "message": "STEM detector frame complete"}

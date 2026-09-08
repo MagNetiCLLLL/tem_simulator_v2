@@ -1,0 +1,16 @@
+{
+  "profile": "E:\\tem_simulator_v2\\outputs\\haadf_dpa_clearance\\si110_haadf_dpa_12mm.toml",
+  "seeds": [
+    707,
+    708,
+    709,
+    710
+  ],
+  "scan_side": 16,
+  "step_nm": 0.08,
+  "grid": 2048,
+  "fov_angstrom": 80.0,
+  "effective_c1_nm": -100.0,
+  "padding_factor": 1.3,
+  "execution": "sequential complete-raster single-configuration production CUDA acquisitions"
+}

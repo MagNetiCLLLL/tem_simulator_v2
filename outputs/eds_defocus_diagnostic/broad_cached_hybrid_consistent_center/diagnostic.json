@@ -1,0 +1,401 @@
+{
+  "scope": "Actual cached sample-plane rays plus saved baseline Si/field/current/dwell/detector settings; no cached state available, objective identity unknown.",
+  "cached_manifest": "C:\\Users\\Royal_Gray\\AppData\\Local\\TEM Simulator v2\\high_accuracy_artifacts\\objects\\f4\\f4c443014d2eb40150da1fa094cc564b2eb31312b321308437e1616d5d875eaf\\manifest.json",
+  "cached_manifest_sha256": "2e338138daf1efc0d03d05fb595cdbd4b5389bed064656c9cf921904954f6158",
+  "baseline_profile": "E:\\tem_simulator_v2\\outputs\\haadf_dpa_clearance\\si110_haadf_dpa_12mm.toml",
+  "baseline_field_objective_percent": 68.0,
+  "cached_sample_z_mm": 1679.2,
+  "baseline_sample_z_mm": 1599.2,
+  "global_z_reanchor_mm": -80.0,
+  "ray_count": 15000,
+  "reaching_count": 7635,
+  "surviving_fraction": 0.5090000000000001,
+  "original_centroid_nm": [
+    -7.95875972637917,
+    -2.9393165480511696
+  ],
+  "point_origin": "center",
+  "target_centroid_nm": [
+    0.0,
+    0.0
+  ],
+  "material_hit_count": 1,
+  "eds_track_count": 1,
+  "dwell_time_s": 0.000244140625,
+  "emitted_electrons": 15238059263.82022,
+  "elastic_metrics": {
+    "elastic_trajectory_generation": true,
+    "electron_transport_model": "relativistic_screened_rutherford_demers_2010",
+    "elastic_cross_section_reference": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3165039/",
+    "recommended_high_accuracy_model": "ELSEPA Dirac partial-wave",
+    "recommended_high_accuracy_reference": "https://www.nist.gov/publications/elsepa-dirac-partial-wave-calculation-elastic-scattering-electrons-and-positrons-atoms",
+    "trajectory_count": 7635,
+    "positive_weight_trajectory_count": 7635,
+    "material_hit_trajectory_count": 1,
+    "sample_hit_trajectory_count": 1,
+    "material_hit_weight_fraction": 0.00013097576948264565,
+    "sample_hit_weight_fraction": 0.00013097576948264565,
+    "material_sampling_status": "sampled_material_hits",
+    "material_hit_definition": "Positive-weight trajectories with nonzero material path, not elastic-event counts. Weights are conditional on reaching the specimen plane. Zero sampled hits alone do not establish zero physical beam overlap.",
+    "incident_position_centroid_nm": [
+      -1.0258460747536446e-13,
+      3.7213288006654466e-14
+    ],
+    "incident_position_rms_radius_nm": 3800.339598883546,
+    "sample_centre_xy_nm": [
+      0.0,
+      0.0
+    ],
+    "sample_size_xy_nm": [
+      10.0,
+      10.0
+    ],
+    "sample_thickness_nm": 5.0,
+    "trajectory_seed": 0,
+    "stored_trajectory_count": 49,
+    "maximum_events_per_trajectory": 10000,
+    "total_elastic_events": 0,
+    "mean_elastic_events_per_trajectory": 0.0,
+    "unweighted_mean_elastic_events_per_trajectory": 0.0,
+    "mean_material_path_nm": 0.0006548781926959518,
+    "mean_material_path_by_source_nm": {
+      "sample": 0.0006548781926959518
+    },
+    "outcome_counts": {
+      "transmitted": 7635,
+      "backscattered": 0,
+      "lateral_escape": 0,
+      "event_limit": 0,
+      "path_limit": 0
+    },
+    "outcome_weight_fractions": {
+      "transmitted": 0.9999999999998688,
+      "backscattered": 0.0,
+      "lateral_escape": 0.0,
+      "event_limit": 0.0,
+      "path_limit": 0.0
+    },
+    "transmitted_fraction": 0.9999999999998688,
+    "backscattered_fraction": 0.0,
+    "lateral_escape_fraction": 0.0,
+    "event_limit_fraction": 0.0,
+    "path_limit_fraction": 0.0,
+    "initial_beam_model": "calculated_surviving_sample_plane_phase_space",
+    "sample_axial_field_t": 1.09804088643208,
+    "sample_objective_field_t": 1.09804088643208,
+    "sample_face_fields_t": [
+      1.098040886432063,
+      1.098040886432063
+    ],
+    "sample_field_face_variation_t": 0.0,
+    "sample_field_active_lens_contributions_t": [
+      [
+        "objective_lens",
+        1.09804088643208
+      ]
+    ],
+    "sample_field_transport_model": "shared_vector_field_relativistic_boris",
+    "sample_field_source": "same provisional TOML analytic providers as global column solver; not a pole-shape magnetostatic solve",
+    "sample_field_geometry_material_coupled": false,
+    "sample_field_energy_change_ev": 0.0,
+    "incident_energy_range_ev": [
+      299999.7110259002,
+      300000.55388634047
+    ],
+    "incident_mean_energy_ev": 299999.97478402435,
+    "terminal_mean_energy_ev": 299999.97478402435,
+    "incident_chief_direction": [
+      2.8087354092584285e-05,
+      7.421767273996011e-06,
+      0.9999066634084157
+    ],
+    "incident_weights_normalised": true,
+    "stored_elastic_event_count": 0,
+    "elastic_energy_loss_included": false,
+    "nuclear_recoil_included": false,
+    "inelastic_angular_deflection_included": false,
+    "support_contact_assumption": "support grid begins at specimen downstream face",
+    "finite_sample_envelope": true,
+    "sample_envelope_shape": "disk",
+    "continuous_square_mesh_sidewalls": true,
+    "rutherford_heavy_element_warning": false,
+    "rutherford_stated_energy_range_kev": [
+      100.0,
+      300.0
+    ],
+    "energy_within_stated_range": false,
+    "emitted_ray_count": 15000,
+    "reaching_sample_ray_count": 7635,
+    "sample_plane_surviving_fraction": 0.5090000000000001,
+    "sample_plane_original_centroid_nm": [
+      -7.95875972637917,
+      -2.9393165480511696
+    ],
+    "sample_plane_target_centroid_nm": [
+      0.0,
+      0.0
+    ],
+    "sample_plane_chief_angle_mrad": [
+      0.028081166087610188,
+      0.0074340196250378705
+    ],
+    "sample_plane_energy_range_ev": [
+      299999.7110259002,
+      300000.55388634047
+    ]
+  },
+  "eds_tracks": [
+    {
+      "source_key": "sample",
+      "material": {
+        "key": "cif:input_Si.cif",
+        "name": "input_Si",
+        "density_g_cm3": 2.3127590828153375,
+        "mass_fractions": [
+          [
+            14,
+            1.0
+          ]
+        ],
+        "provenance": "CIF symmetry-expanded, occupancy-weighted unit cell: E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\input_Si.cif"
+      },
+      "path_length_nm": 4.999995001233594,
+      "electron_energy_ev": 299999.97485761496,
+      "electron_weight": 0.00013097576948264565,
+      "emitting_layer_thickness_nm": 5.0,
+      "history": "straight_primary",
+      "source_ray_index": 13918
+    }
+  ],
+  "eds_metrics": {
+    "system_name": "EDS",
+    "signal_kind": "characteristic_x_ray",
+    "incident_electrons": 7756172165.284494,
+    "solid_angle_sr": 4.04,
+    "solid_angle_mode": "installed_analytical_holder",
+    "geometric_collection_fraction": 0.3214929850456286,
+    "detector_efficiency": 1.0,
+    "global_detector_quantum_efficiency": 1.0,
+    "detector_efficiency_model": "global_absolute_qe",
+    "surface_relative_response_applied": false,
+    "surface_relative_response_source": null,
+    "global_detector_efficiency_application_count": 1,
+    "surface_relative_efficiency_application_count": 0,
+    "detector_efficiency_application_count": 1,
+    "detector_efficiency_application_semantics": "one global absolute QE factor",
+    "ionisation_model": "Bote-Salvat K/L/M electron impact",
+    "relaxation_database": "xraylib 4.3.0",
+    "vacancy_cascade_model": "direct fluorescence/Auger yields with explicit unresolved shell-transfer remainder; secondary vacancy cascades omitted",
+    "auger_energy_model": "yield resolved; Auger kinetic energy and direction not assigned",
+    "coster_kronig_model": "not propagated; retained in unresolved relaxation remainder",
+    "self_absorption_model": "finite specimen ray intervals from shared line-emission origins; line field retains legacy uniform-depth reference",
+    "cross_layer_absorption": true,
+    "electron_transport_model": "relativistic_screened_rutherford_demers_2010",
+    "elastic_trajectory_generation": true,
+    "bremsstrahlung_included": false,
+    "secondary_fluorescence_included": false,
+    "poisson_noise_enabled": false,
+    "poisson_seed": null,
+    "poisson_sampling_stage": "after_final_expected_spectrum",
+    "track_segment_count": 1,
+    "photon_transport_applied_to_main_spectrum": true,
+    "photon_transport_model": "EDS photon transport v2",
+    "photon_transport_mode": "aggregate_angular_fallback",
+    "photon_transport_quadrature_order": 1,
+    "photon_transport_geometry_complete": false,
+    "photon_transport_origin_status_counts": {
+      "specimen_reference_plane_no_stored_flight": 4
+    },
+    "photon_transport_expected_unattenuated_counts": 0.9903781903661036,
+    "photon_transport_expected_detected_counts": 0.6073001348661764,
+    "photon_transport_blocked_ray_count": 54,
+    "photon_transport_blocked_by_component_counts": {
+      "sample": 54
+    },
+    "photon_transport_outside_acceptance_count": 0,
+    "photon_transport_stored_path_count": 0,
+    "detector_segment_count": 6,
+    "line_count": 16,
+    "total_expected_counts": 0.6073001348661763,
+    "total_expected_emitted_photons": 3.080559254583866,
+    "spectrum_expected_counts": 0.6073001348661763,
+    "counts_outside_spectrum": 0.0,
+    "maximum_shell_optical_depth_per_electron": 0.0020642948947940205,
+    "constant_energy_thin_track_assumption_credible": true,
+    "energy_resolution_fwhm_ev": 0.0,
+    "energy_bin_width_ev": 10.0,
+    "vacancy_contribution_count": 4,
+    "total_expected_vacancies": 3587.776493732061,
+    "total_expected_radiative_relaxations": 3.0805609088356785,
+    "total_expected_auger_relaxations": 3189.6515869110913,
+    "total_expected_unresolved_relaxations": 395.0443459121342,
+    "shell_cross_section_evaluation_count": 4,
+    "shell_cross_section_reuse": "single vacancy pass feeds radiative lines and event ledger",
+    "duplicate_shell_ionisation_passes": 0,
+    "photon_statistical_weight_conservation": "detector quadrature weights are derived once from each line emission; attenuation/shadowing can only remove weight",
+    "acquisition_kind": "explicit_point",
+    "sample_x_nm": 0.0,
+    "sample_y_nm": 0.0,
+    "dwell_time_s": 0.000244140625,
+    "incident_electron_reference": "emitted source current",
+    "source_electrons_before_column_losses": 15238059263.82022,
+    "electrons_reaching_sample_plane": 7756172165.284494,
+    "requested_transport_mode": "elastic_monte_carlo",
+    "elastic_cross_section_reference": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3165039/",
+    "recommended_high_accuracy_model": "ELSEPA Dirac partial-wave",
+    "recommended_high_accuracy_reference": "https://www.nist.gov/publications/elsepa-dirac-partial-wave-calculation-elastic-scattering-electrons-and-positrons-atoms",
+    "trajectory_count": 7635,
+    "positive_weight_trajectory_count": 7635,
+    "material_hit_trajectory_count": 1,
+    "sample_hit_trajectory_count": 1,
+    "material_hit_weight_fraction": 0.00013097576948264565,
+    "sample_hit_weight_fraction": 0.00013097576948264565,
+    "material_sampling_status": "sampled_material_hits",
+    "material_hit_definition": "Positive-weight trajectories with nonzero material path, not elastic-event counts. Weights are conditional on reaching the specimen plane. Zero sampled hits alone do not establish zero physical beam overlap.",
+    "incident_position_centroid_nm": [
+      -1.0258460747536446e-13,
+      3.7213288006654466e-14
+    ],
+    "incident_position_rms_radius_nm": 3800.339598883546,
+    "sample_centre_xy_nm": [
+      0.0,
+      0.0
+    ],
+    "sample_size_xy_nm": [
+      10.0,
+      10.0
+    ],
+    "sample_thickness_nm": 5.0,
+    "trajectory_seed": 0,
+    "stored_trajectory_count": 49,
+    "maximum_events_per_trajectory": 10000,
+    "total_elastic_events": 0,
+    "mean_elastic_events_per_trajectory": 0.0,
+    "unweighted_mean_elastic_events_per_trajectory": 0.0,
+    "mean_material_path_nm": 0.0006548781926959518,
+    "mean_material_path_by_source_nm": {
+      "sample": 0.0006548781926959518
+    },
+    "outcome_counts": {
+      "transmitted": 7635,
+      "backscattered": 0,
+      "lateral_escape": 0,
+      "event_limit": 0,
+      "path_limit": 0
+    },
+    "outcome_weight_fractions": {
+      "transmitted": 0.9999999999998688,
+      "backscattered": 0.0,
+      "lateral_escape": 0.0,
+      "event_limit": 0.0,
+      "path_limit": 0.0
+    },
+    "transmitted_fraction": 0.9999999999998688,
+    "backscattered_fraction": 0.0,
+    "lateral_escape_fraction": 0.0,
+    "event_limit_fraction": 0.0,
+    "path_limit_fraction": 0.0,
+    "initial_beam_model": "calculated_surviving_sample_plane_phase_space",
+    "sample_axial_field_t": 1.09804088643208,
+    "sample_objective_field_t": 1.09804088643208,
+    "sample_face_fields_t": [
+      1.098040886432063,
+      1.098040886432063
+    ],
+    "sample_field_face_variation_t": 0.0,
+    "sample_field_active_lens_contributions_t": [
+      [
+        "objective_lens",
+        1.09804088643208
+      ]
+    ],
+    "sample_field_transport_model": "shared_vector_field_relativistic_boris",
+    "sample_field_source": "same provisional TOML analytic providers as global column solver; not a pole-shape magnetostatic solve",
+    "sample_field_geometry_material_coupled": false,
+    "sample_field_energy_change_ev": 0.0,
+    "incident_energy_range_ev": [
+      299999.7110259002,
+      300000.55388634047
+    ],
+    "incident_mean_energy_ev": 299999.97478402435,
+    "terminal_mean_energy_ev": 299999.97478402435,
+    "incident_chief_direction": [
+      2.8087354092584285e-05,
+      7.421767273996011e-06,
+      0.9999066634084157
+    ],
+    "incident_weights_normalised": true,
+    "stored_elastic_event_count": 0,
+    "elastic_energy_loss_included": false,
+    "nuclear_recoil_included": false,
+    "inelastic_angular_deflection_included": false,
+    "support_contact_assumption": "support grid begins at specimen downstream face",
+    "finite_sample_envelope": true,
+    "sample_envelope_shape": "disk",
+    "continuous_square_mesh_sidewalls": true,
+    "rutherford_heavy_element_warning": false,
+    "rutherford_stated_energy_range_kev": [
+      100.0,
+      300.0
+    ],
+    "energy_within_stated_range": false,
+    "emitted_ray_count": 15000,
+    "reaching_sample_ray_count": 7635,
+    "sample_plane_surviving_fraction": 0.5090000000000001,
+    "sample_plane_original_centroid_nm": [
+      -7.95875972637917,
+      -2.9393165480511696
+    ],
+    "sample_plane_target_centroid_nm": [
+      0.0,
+      0.0
+    ],
+    "sample_plane_chief_angle_mrad": [
+      0.028081166087610188,
+      0.0074340196250378705
+    ],
+    "sample_plane_energy_range_ev": [
+      299999.7110259002,
+      300000.55388634047
+    ]
+  },
+  "photon_metrics": {
+    "model": "EDS photon transport v2",
+    "coordinate_system": "global right-handed XYZ; +Z downstream",
+    "photon_count": 96,
+    "stored_path_count": 0,
+    "all_paths_stored": false,
+    "total_quadrature_weight": 0.990378190366103,
+    "quadrature_weight_semantics": "input photon weight after isotropic collection and any caller-applied global detector quantum efficiency; before attenuation and sourced-face relative response",
+    "total_detected_weight": 0.6073001348661764,
+    "pole_occluder_count": 2,
+    "holder_occluder_count": 0,
+    "finite_specimen_attenuation": true,
+    "detector_surface_count": 0,
+    "surface_relative_response_applied": false,
+    "surface_relative_response_values": [],
+    "detector_efficiency_semantics": "aggregate detector efficiency applied once at acceptance",
+    "geometry_complete": false,
+    "detector_hit_count": 42,
+    "blocked_photon_count": 54,
+    "blocked_by_component_counts": {
+      "sample": 54
+    },
+    "blocked_input_weight_by_component": {
+      "sample": 0.3827818234469666
+    },
+    "outside_acceptance_count": 0,
+    "specimen_intersection_count": 96,
+    "specimen_path_length_mm_sum": 0.0003720941462255421,
+    "mean_specimen_transmission": 0.4226070967202647,
+    "sensor_geometry_status": "unavailable_no_dimensions_in_installed_definition",
+    "fallback": "measured aggregate solid angle; no fabricated sensor hit point",
+    "pole_material_attenuation": "not evaluated; physical pole intersections are opaque shadows",
+    "support_material_attenuation": true
+  },
+  "total_expected_counts": 0.6073001348661763,
+  "positive_expected_bins": 3,
+  "line_contribution_count": 16,
+  "poisson_zero_total_probability": 0.5448198252408135,
+  "elapsed_total_s": 25.75995279988274
+}

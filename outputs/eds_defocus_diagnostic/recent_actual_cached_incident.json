@@ -1,0 +1,53 @@
+[
+  {
+    "path": "C:\\Users\\Royal_Gray\\AppData\\Local\\TEM Simulator v2\\high_accuracy_artifacts\\objects\\7e\\7e9668b3d869d4d708abef6095dd0724835aa701cb57bd913d3164a189f8f0b8\\manifest.json",
+    "mtime": 1788873300.46638,
+    "ray_count": 15000,
+    "reaching": 7635,
+    "surviving_weight": 0.5090000000000001,
+    "sample_z_mm": 1679.2,
+    "centroid_nm": [
+      -0.31658177187929765,
+      -0.3081658536196162
+    ],
+    "rms_centered_nm": 1.7290963882962704,
+    "minimum_centered_radius_nm": 0.0057695456599975445,
+    "centered_hits_5nm": 7635,
+    "minimum_absolute_radius_nm": 0.014816694543485479,
+    "absolute_hits_5nm": 7635
+  },
+  {
+    "path": "C:\\Users\\Royal_Gray\\AppData\\Local\\TEM Simulator v2\\high_accuracy_artifacts\\objects\\f4\\f4c443014d2eb40150da1fa094cc564b2eb31312b321308437e1616d5d875eaf\\manifest.json",
+    "mtime": 1788872880.435604,
+    "ray_count": 15000,
+    "reaching": 7635,
+    "surviving_weight": 0.5090000000000001,
+    "sample_z_mm": 1679.2,
+    "centroid_nm": [
+      -7.958759726379191,
+      -2.93931654805112
+    ],
+    "rms_centered_nm": 3800.339598883546,
+    "minimum_centered_radius_nm": 2.4513912878261617,
+    "centered_hits_5nm": 1,
+    "minimum_absolute_radius_nm": 6.587636008532035,
+    "absolute_hits_5nm": 0
+  },
+  {
+    "path": "C:\\Users\\Royal_Gray\\AppData\\Local\\TEM Simulator v2\\high_accuracy_artifacts\\objects\\ea\\eafeeff5c5dbf1cfec29b3f3733864b4096758dcd4b2dc7281748f30e2d87ce6\\manifest.json",
+    "mtime": 1788872475.965085,
+    "ray_count": 15000,
+    "reaching": 7635,
+    "surviving_weight": 0.5090000000000001,
+    "sample_z_mm": 1679.2,
+    "centroid_nm": [
+      2.867926465917425e-05,
+      0.0003703079488639796
+    ],
+    "rms_centered_nm": 0.024027281197205055,
+    "minimum_centered_radius_nm": 4.524780458138044e-05,
+    "centered_hits_5nm": 7635,
+    "minimum_absolute_radius_nm": 1.869193510973667e-05,
+    "absolute_hits_5nm": 7635
+  }
+]

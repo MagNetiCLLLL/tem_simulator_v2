@@ -82,14 +82,14 @@ def test_bote_salvat_table_covers_k_l_m_for_z_1_to_99():
 
 def test_eds_material_follows_the_mode_owned_structure_source():
     state = default_state()
-    state.sample.specimen_mode = "virtual"
-    state.sample.specimen_preset_key = "si_110"
+    state.sample.specimen_mode = "reference"
+    state.sample.reference_sample_key = "si_110"
     state.sample.cif_path = "dormant-missing.cif"
 
     material = material_from_sample(state)
 
     assert material is not None
-    assert material.key == "specimen:si_110"
+    assert material.key == "cif:Si.cif"
 
     state.sample.specimen_mode = "atomic"
     state.sample.cif_path = ""
@@ -97,6 +97,10 @@ def test_eds_material_follows_the_mode_owned_structure_source():
 
     state.sample.specimen_mode = "virtual"
     state.sample.specimen_preset_key = "vacuum"
+    with pytest.raises(ValueError, match="Virtual mode has been retired"):
+        material_from_sample(state)
+    state.sample.specimen_mode = "reference"
+    state.sample.inserted = False
     assert material_from_sample(state) is None
 
 
@@ -299,6 +303,8 @@ def test_caller_supplied_elastically_scattered_track_retains_provenance(
 
 def test_support_grid_adds_copper_only_when_track_intersects_material():
     state = default_state()
+    # This geometry test intentionally covers both the opening and the bar.
+    state.sample.size_x_nm = state.sample.size_y_nm = 3_000_000.0
     state.sample.eds_support_material_key = "copper"
     state.sample.eds_support_mesh_key = "square_200"
 

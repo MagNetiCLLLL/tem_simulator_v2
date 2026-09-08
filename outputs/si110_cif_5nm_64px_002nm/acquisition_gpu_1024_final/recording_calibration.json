@@ -1,0 +1,496 @@
+{
+  "source_profile": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\benchmark_1024\\operating_profile.toml",
+  "elapsed_s": 11.70146350003779,
+  "purpose": "Actual four-lens DPA crossover; fixed 0.1 mm radius retained; not a detector-independent diffraction-plane calibration",
+  "strengths": {
+    "diffraction_lens": 21.0525289552772,
+    "intermediate_lens": 93.36936839164477,
+    "projector_lens_1": 46.12308729096934,
+    "projector_lens_2": 32.8005139041144
+  },
+  "radial_matrix": [
+    [
+      -0.21749999833533196,
+      -1.9073162510095318e-12
+    ],
+    [
+      4233.743173478141,
+      -4.59770114747549
+    ]
+  ],
+  "unchanged_upstream_strengths": {
+    "condenser_lens_1": 51.666666666666664,
+    "condenser_lens_2": 25.25772717253661,
+    "condenser_lens_3": 21.273622908333973,
+    "adapter_lens": 86.0039434207,
+    "probe_tl22_lens": 60.0,
+    "probe_tl21_lens": 60.0,
+    "probe_tl12_lens": 60.0,
+    "mini_condenser": 41.5570797718,
+    "objective_lens": 68.9801,
+    "image_ol_post_lens": 60.0,
+    "image_tl11_lens": 60.0,
+    "image_tl12_lens": 60.0,
+    "image_tl21_lens": 60.0,
+    "image_tl22_lens": 60.0,
+    "image_adapter_lens": 60.0
+  },
+  "production_dpa_j_img": [
+    [
+      -0.21580365300178528,
+      -0.027111662551760674
+    ],
+    [
+      0.027111662551760674,
+      -0.21580365300178528
+    ]
+  ],
+  "production_dpa_j_diff_m_per_rad": [
+    [
+      2.3250439767918962e-11,
+      3.3143373028704515e-12
+    ],
+    [
+      -3.3143373028704515e-12,
+      2.3250439767918962e-11
+    ]
+  ],
+  "dpa_radius_mm": 0.1,
+  "bound_at_360mrad_plus_5nm_square_mm": 1.5464121665548676e-06,
+  "detector_reference_angles": {
+    "haadf": {
+      "inner_mrad": 60.00000002201169,
+      "outer_mrad": 330.0000001210643,
+      "inner_range_mrad": [
+        60.00000002201169,
+        60.00000002201169
+      ],
+      "outer_range_mrad": [
+        330.0000001210643,
+        330.0000001210643
+      ],
+      "anisotropic": false
+    },
+    "df": {
+      "inner_mrad": 1.0011507484087907,
+      "outer_mrad": 7.008055238861535,
+      "inner_range_mrad": [
+        1.0011507484087905,
+        1.0011507484087907
+      ],
+      "outer_range_mrad": [
+        7.008055238861534,
+        7.008055238861535
+      ],
+      "anisotropic": false
+    },
+    "bf": {
+      "inner_mrad": 0.0,
+      "outer_mrad": 0.5678851177334857,
+      "inner_range_mrad": [
+        0.0,
+        0.0
+      ],
+      "outer_range_mrad": [
+        0.5678851177334857,
+        0.5678851177334857
+      ],
+      "anisotropic": false
+    }
+  },
+  "sequential_accepted_positive_x_angle_ranges_mrad": {
+    "haadf": [
+      60.0,
+      329.9
+    ],
+    "df": [
+      1.0999999999999999,
+      6.999999999999999
+    ],
+    "bf": [
+      0.0,
+      0.5
+    ]
+  },
+  "angle_range_sampling_step_mrad": 0.1,
+  "scope": "HAADF remains high-angle; DF is a physical low-angle annulus overlapping the incident disk; BF is the small on-axis disk. All real stops retained.",
+  "production_record_plane_plan": {
+    "model": "signed_mixed_plane_first_order_scan_deflection_v2",
+    "axis": "laboratory +Z downstream",
+    "source_z_mm": 1599.2,
+    "fingerprint": "06e2bdc4e88775e55caf4e7f14915ee62bfbf4126b6be9cdd6ae5331d8649c11",
+    "resolved_geometry_fingerprint": "47cfde5fada5bbdd48df721fc13e13a1c2b85fe13531f09775e6a30fba2f6220",
+    "scan_times_s": null,
+    "scan_position_offsets_m": [],
+    "time_dependent_deflection": false,
+    "planes": [
+      {
+        "key": "projection_chamber_dpa_aperture",
+        "name": "Projection-Chamber Differential-Pumping Aperture",
+        "z_mm": 2586.9,
+        "kind": "aperture",
+        "geometry": "disk",
+        "radius_mm": 0.1,
+        "outer_width_mm": 0.0,
+        "inner_diameter_mm": 0.0,
+        "offset_x_mm": 0.0,
+        "offset_y_mm": 0.0,
+        "readout_enabled": false,
+        "non_blocking": false,
+        "authority": "project_and_recording_system/EnergyFilter.toml::parts[projection_chamber_dpa_aperture]"
+      },
+      {
+        "key": "haadf",
+        "name": "HAADF Detector",
+        "z_mm": 2594.15,
+        "kind": "detector",
+        "geometry": "annulus",
+        "radius_mm": 0.0,
+        "outer_width_mm": 22.0,
+        "inner_diameter_mm": 4.0,
+        "offset_x_mm": 0.0,
+        "offset_y_mm": 0.0,
+        "readout_enabled": true,
+        "non_blocking": false,
+        "authority": "project_and_recording_system/EnergyFilter.toml::parts[haadf]"
+      },
+      {
+        "key": "df",
+        "name": "DF Detector",
+        "z_mm": 2804.15,
+        "kind": "detector",
+        "geometry": "annulus",
+        "radius_mm": 0.0,
+        "outer_width_mm": 14.0,
+        "inner_diameter_mm": 2.0,
+        "offset_x_mm": 0.0,
+        "offset_y_mm": 0.0,
+        "readout_enabled": true,
+        "non_blocking": false,
+        "authority": "project_and_recording_system/EnergyFilter.toml::parts[df]"
+      },
+      {
+        "key": "bf",
+        "name": "BF Detector",
+        "z_mm": 2874.15,
+        "kind": "detector",
+        "geometry": "disk",
+        "radius_mm": 0.0,
+        "outer_width_mm": 1.5,
+        "inner_diameter_mm": 0.0,
+        "offset_x_mm": 0.0,
+        "offset_y_mm": 0.0,
+        "readout_enabled": true,
+        "non_blocking": false,
+        "authority": "project_and_recording_system/EnergyFilter.toml::parts[bf]"
+      },
+      {
+        "key": "energy_filter_entrance_aperture",
+        "name": "Iliad Spectrometer Entrance Aperture",
+        "z_mm": 3025.8999999999996,
+        "kind": "aperture",
+        "geometry": "disk",
+        "radius_mm": 2.5,
+        "outer_width_mm": 0.0,
+        "inner_diameter_mm": 0.0,
+        "offset_x_mm": 0.0,
+        "offset_y_mm": 0.0,
+        "readout_enabled": false,
+        "non_blocking": false,
+        "authority": "project_and_recording_system/EnergyFilter.toml::parts[energy_filter_entrance_aperture]"
+      }
+    ],
+    "transfers": [
+      {
+        "source_z_mm": 1599.2,
+        "target_z_mm": 2586.9,
+        "matrix": [
+          [
+            -0.21580365300178528,
+            -0.027111662551760674,
+            2.3250439767918962e-11,
+            3.3143373028704515e-12
+          ],
+          [
+            0.027111662551760674,
+            -0.21580365300178528,
+            -3.3143373028704515e-12,
+            2.3250439767918962e-11
+          ],
+          [
+            4352.66748046875,
+            -681.70947265625,
+            -4.56184196472168,
+            -0.5731096267700195
+          ],
+          [
+            681.70947265625,
+            4352.66748046875,
+            0.5731096267700195,
+            -4.56184196472168
+          ]
+        ],
+        "position_offset_m": [
+          0.0,
+          0.0
+        ],
+        "angle_offset_rad": [
+          0.0,
+          0.0
+        ],
+        "j_img": [
+          [
+            -0.21580365300178528,
+            -0.027111662551760674
+          ],
+          [
+            0.027111662551760674,
+            -0.21580365300178528
+          ]
+        ],
+        "j_diff_m_per_rad": [
+          [
+            2.3250439767918962e-11,
+            3.3143373028704515e-12
+          ],
+          [
+            -3.3143373028704515e-12,
+            2.3250439767918962e-11
+          ]
+        ]
+      },
+      {
+        "source_z_mm": 1599.2,
+        "target_z_mm": 2594.15,
+        "matrix": [
+          [
+            31.341033935546875,
+            -4.969505310058594,
+            -0.03307335451245308,
+            -0.004155044909566641
+          ],
+          [
+            4.969505310058594,
+            31.341033935546875,
+            0.004155044909566641,
+            -0.03307335451245308
+          ],
+          [
+            4352.66748046875,
+            -681.70947265625,
+            -4.56184196472168,
+            -0.5731096267700195
+          ],
+          [
+            681.70947265625,
+            4352.66748046875,
+            0.5731096267700195,
+            -4.56184196472168
+          ]
+        ],
+        "position_offset_m": [
+          0.0,
+          0.0
+        ],
+        "angle_offset_rad": [
+          0.0,
+          0.0
+        ],
+        "j_img": [
+          [
+            31.341033935546875,
+            -4.969505310058594
+          ],
+          [
+            4.969505310058594,
+            31.341033935546875
+          ]
+        ],
+        "j_diff_m_per_rad": [
+          [
+            -0.03307335451245308,
+            -0.004155044909566641
+          ],
+          [
+            0.004155044909566641,
+            -0.03307335451245308
+          ]
+        ]
+      },
+      {
+        "source_z_mm": 1599.2,
+        "target_z_mm": 2804.15,
+        "matrix": [
+          [
+            945.4011840820312,
+            -148.1284942626953,
+            -0.991060197353363,
+            -0.12450806796550751
+          ],
+          [
+            148.1284942626953,
+            945.4011840820312,
+            0.12450806796550751,
+            -0.991060197353363
+          ],
+          [
+            4352.66748046875,
+            -681.70947265625,
+            -4.56184196472168,
+            -0.5731096267700195
+          ],
+          [
+            681.70947265625,
+            4352.66748046875,
+            0.5731096267700195,
+            -4.56184196472168
+          ]
+        ],
+        "position_offset_m": [
+          0.0,
+          0.0
+        ],
+        "angle_offset_rad": [
+          0.0,
+          0.0
+        ],
+        "j_img": [
+          [
+            945.4011840820312,
+            -148.1284942626953
+          ],
+          [
+            148.1284942626953,
+            945.4011840820312
+          ]
+        ],
+        "j_diff_m_per_rad": [
+          [
+            -0.991060197353363,
+            -0.12450806796550751
+          ],
+          [
+            0.12450806796550751,
+            -0.991060197353363
+          ]
+        ]
+      },
+      {
+        "source_z_mm": 1599.2,
+        "target_z_mm": 2874.15,
+        "matrix": [
+          [
+            1250.087890625,
+            -195.84815979003906,
+            -1.3103891611099243,
+            -0.16462574899196625
+          ],
+          [
+            195.84815979003906,
+            1250.087890625,
+            0.16462574899196625,
+            -1.3103891611099243
+          ],
+          [
+            4352.66748046875,
+            -681.70947265625,
+            -4.56184196472168,
+            -0.5731096267700195
+          ],
+          [
+            681.70947265625,
+            4352.66748046875,
+            0.5731096267700195,
+            -4.56184196472168
+          ]
+        ],
+        "position_offset_m": [
+          0.0,
+          0.0
+        ],
+        "angle_offset_rad": [
+          0.0,
+          0.0
+        ],
+        "j_img": [
+          [
+            1250.087890625,
+            -195.84815979003906
+          ],
+          [
+            195.84815979003906,
+            1250.087890625
+          ]
+        ],
+        "j_diff_m_per_rad": [
+          [
+            -1.3103891611099243,
+            -0.16462574899196625
+          ],
+          [
+            0.16462574899196625,
+            -1.3103891611099243
+          ]
+        ]
+      },
+      {
+        "source_z_mm": 1599.2,
+        "target_z_mm": 3025.8999999999996,
+        "matrix": [
+          [
+            1910.6051025390625,
+            -299.2975769042969,
+            -2.0026485919952393,
+            -0.251595139503479
+          ],
+          [
+            299.2975769042969,
+            1910.6051025390625,
+            0.251595139503479,
+            -2.0026485919952393
+          ],
+          [
+            4352.66748046875,
+            -681.70947265625,
+            -4.56184196472168,
+            -0.5731096267700195
+          ],
+          [
+            681.70947265625,
+            4352.66748046875,
+            0.5731096267700195,
+            -4.56184196472168
+          ]
+        ],
+        "position_offset_m": [
+          0.0,
+          0.0
+        ],
+        "angle_offset_rad": [
+          0.0,
+          0.0
+        ],
+        "j_img": [
+          [
+            1910.6051025390625,
+            -299.2975769042969
+          ],
+          [
+            299.2975769042969,
+            1910.6051025390625
+          ]
+        ],
+        "j_diff_m_per_rad": [
+          [
+            -2.0026485919952393,
+            -0.251595139503479
+          ],
+          [
+            0.251595139503479,
+            -2.0026485919952393
+          ]
+        ]
+      }
+    ]
+  }
+}

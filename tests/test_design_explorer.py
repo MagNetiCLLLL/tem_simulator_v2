@@ -509,13 +509,20 @@ def test_displayed_exact_result_is_ready_without_controller_cache_owner():
     assert statuses["diagnostics"] is ArtifactState.CALCULATED
 
 
-def test_virtual_vacuum_does_not_request_specimen_transport_products():
+def test_migrated_vacuum_does_not_request_specimen_transport_products():
     controller = CalculationController()
     state = default_state()
     state.sample.specimen_mode = "virtual"
     state.sample.specimen_preset_key = "vacuum"
     state.sample.inserted = True
     state.sample.eds_enabled = True
+    # A legacy vacuum preset becomes a retracted real-structure source when
+    # loaded; retired modes must not be sent directly to the solver.
+    payload = state.to_dict()
+    payload["schema_version"] = 76
+    state = type(state).from_dict(payload)
+    assert state.sample.specimen_mode == "reference"
+    assert state.sample.inserted is False
 
     described = controller.describe_high_accuracy_reuse(
         state,

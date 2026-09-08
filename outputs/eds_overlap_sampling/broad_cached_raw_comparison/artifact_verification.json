@@ -1,0 +1,57 @@
+{
+  "scope": "Read-only numerical verification plus equivalent profile exports from the benchmark's recorded baseline and overrides; no numerical rerun.",
+  "original_terminal_identical": true,
+  "original_zero_hits": true,
+  "source_hash_matches_current": {
+    "scripts/benchmark_eds_overlap_sampling.py": true,
+    "scripts/diagnose_eds_cached_incident.py": true,
+    "src/temsim/specimen/overlap_sampling.py": true,
+    "src/temsim/specimen/elastic_transport.py": true,
+    "src/temsim/detector/eds_signal.py": false,
+    "src/temsim/detector/eds_photon_transport.py": true
+  },
+  "source_hash_note": "Recorded acquisition hashes are preserved. A false comparison marks code changed after the recorded run; the later eds_signal quadrature-ID provenance addition does not change the numerical estimator.",
+  "cif_original": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\input_Si.cif",
+  "cif_sha256": "944c5c81df5d813d051f96102eb9be37fac4b7647c2a9d1492d6333122be42c7",
+  "cif_copy_identical": true,
+  "spectra": {
+    "disabled": {
+      "finite_nonnegative": true,
+      "sum_matches_metrics": true
+    },
+    "points_256": {
+      "finite_nonnegative": true,
+      "sum_matches_metrics": true
+    },
+    "points_1024": {
+      "finite_nonnegative": true,
+      "sum_matches_metrics": true
+    }
+  },
+  "profiles": {
+    "disabled": {
+      "sampling_settings_reload_match": true,
+      "objective_percent": 68.0,
+      "sample_z_mm": 1599.2,
+      "profile_sha256": "07c29d57132414ec4e67942a6f404eceb03803c5e6da6a3d6d7aa8fe6fc24628",
+      "skipped": [],
+      "limitation": "Loading the profile computes new optical rays; this diagnostic used a separately stored real cached bundle with unknown original column state."
+    },
+    "points_256": {
+      "sampling_settings_reload_match": true,
+      "objective_percent": 68.0,
+      "sample_z_mm": 1599.2,
+      "profile_sha256": "7761a75a42cb8788e2c3ed2d0ce5d60ac63210583acbec623c5e021b9ae4bf5c",
+      "skipped": [],
+      "limitation": "Loading the profile computes new optical rays; this diagnostic used a separately stored real cached bundle with unknown original column state."
+    },
+    "points_1024": {
+      "sampling_settings_reload_match": true,
+      "objective_percent": 68.0,
+      "sample_z_mm": 1599.2,
+      "profile_sha256": "b9c5e254629aff32041572369b623e6f9b8b8444e7c854b30b55a7fc102915e5",
+      "skipped": [],
+      "limitation": "Loading the profile computes new optical rays; this diagnostic used a separately stored real cached bundle with unknown original column state."
+    }
+  }
+}

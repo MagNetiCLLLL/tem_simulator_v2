@@ -47,8 +47,26 @@ _POST_SAMPLE_PROJECTION_LENS_KEYS = frozenset({
 })
 _LOADED_INPUT_DIGEST_CACHE: dict[str, tuple[object, str]] = {}
 _WAVE_COORDINATE_SCHEMA = "centred-real-space-v2"
-_WAVE_SPECIMEN_SCHEMA = "finite-atom-roi-independent-wave-grid-v1"
-_STEM_RECORDING_SCHEMA = "timed-record-plane-kicks-v1"
+_WAVE_SPECIMEN_SCHEMA = "cif-reference-occupancy-v2"
+_STEM_RECORDING_SCHEMA = "physical-envelope-overlap-raster-independent-tail-v4"
+_PARTICLE_POINT_SCHEMA = "resolved-point-material-hit-diagnostics-v2"
+_EDS_SIGNAL_SCHEMA = "eds-only-overlap-importance-v1"
+
+
+def _particle_point_digest(payload):
+    return _digest({
+        "particle_point_schema": _PARTICLE_POINT_SCHEMA,
+        "parameters": payload,
+    })
+
+
+def _eds_digest(payload):
+    # Auxiliary overlap integration changes X-ray estimates, not the original
+    # electron trajectories used by elastic/downstream/geometric STEM products.
+    return _particle_point_digest({
+        "eds_signal_schema": _EDS_SIGNAL_SCHEMA,
+        "parameters": payload,
+    })
 
 
 def _wave_digest(payload):
@@ -321,9 +339,17 @@ def _file_content_identity(raw_path: object) -> dict[str, object] | None:
 
 def _cif_content_identity(payload: dict[str, object]) -> dict[str, object] | None:
     sample = dict(payload.get("sample", {}))
-    if str(sample.get("specimen_mode", "")).strip().lower() != "atomic":
-        return None
-    return _file_content_identity(sample.get("cif_path", ""))
+    from types import SimpleNamespace
+    from temsim.specimen.source import active_cif_path
+    from temsim.specimen.reference_catalog import get_reference_sample
+    try:
+        identity = _file_content_identity(active_cif_path(SimpleNamespace(**sample)))
+        if str(sample.get("specimen_mode", "reference")).strip().lower() == "reference":
+            entry = get_reference_sample(sample.get("reference_sample_key", "si_110"))
+            return {"cif": identity, "metadata": _file_content_identity(entry.metadata_path) if entry.metadata_path else None}
+        return identity
+    except (ValueError, OSError) as exc:
+        return {"available": False, "error": str(exc)}
 
 
 def _virtual_region_map_identities(
@@ -688,7 +714,13 @@ def _calculation_signatures_from_payload(
         prefixes=(*_EDS_PREFIXES, "stem_fourdstem_"),
         keep=elastic_keep,
     )
-    stem_transport = _drop_physical_current_scale(stem)
+    # Shot-noise settings alter only the count readout of already integrated
+    # source fractions. Keep them in the complete STEM identity, but not the
+    # expensive wave/ray transport identity used by reweight_stem_scan.
+    stem_transport = _drop_sample_fields(
+        _drop_physical_current_scale(stem),
+        names=("stem_poisson_enabled", "stem_poisson_seed"),
+    )
     sample_region_base = _drop_energy_filter_controls(full)
     sample_region_base.pop("image_aberrations", None)
     sample_region_full = _drop_sample_fields(
@@ -747,11 +779,13 @@ def _calculation_signatures_from_payload(
             "wave_coordinate_schema": _WAVE_COORDINATE_SCHEMA,
             "wave_specimen_schema": _WAVE_SPECIMEN_SCHEMA,
             "stem_recording_schema": _STEM_RECORDING_SCHEMA,
+            "particle_point_schema": _PARTICLE_POINT_SCHEMA,
+            "eds_signal_schema": _EDS_SIGNAL_SCHEMA,
             "parameters": full,
         }),
         "column": _digest(column),
         "incident": _digest(incident),
-        "elastic": _digest(elastic),
+        "elastic": _particle_point_digest(elastic),
         "wave": _wave_digest(wave),
         "wave_source": _wave_digest(wave_source),
         "fourdstem_cube": _stem_digest(fourdstem_cube),
@@ -759,7 +793,7 @@ def _calculation_signatures_from_payload(
         "fourdstem_physical_recording": _stem_digest(
             fourdstem_physical_recording
         ),
-        "eds": _digest(eds),
+        "eds": _eds_digest(eds),
         "energy_filter": (
             _wave_digest(energy_filter)
             if energy_filter_mode == "eftem"
@@ -769,7 +803,7 @@ def _calculation_signatures_from_payload(
         "scan_ray_paths": _digest(scan_ray_paths),
         "stem": _stem_digest(stem),
         "stem_transport": _stem_digest(stem_transport),
-        "sample_region": _digest(sample_region),
+        "sample_region": _eds_digest(sample_region),
         "sample_downstream": _digest(sample_region_downstream),
     }
 

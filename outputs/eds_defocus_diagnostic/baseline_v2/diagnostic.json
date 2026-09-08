@@ -1,0 +1,582 @@
+{
+  "scope": "Reproducible saved-profile baseline, not the unknown live App state.",
+  "profile": "E:\\tem_simulator_v2\\outputs\\haadf_dpa_clearance\\si110_haadf_dpa_12mm.toml",
+  "baseline_percent": 68.9801,
+  "requested_percentages": [
+    68.9801,
+    68.98055
+  ],
+  "deduplicated_percentages": [
+    68.9801,
+    68.98055
+  ],
+  "point_scope": "AC scan and wobble disabled. Incident centroid explicitly translated to specimen centre (0,0) by production point-acquisition API; unshifted centroid is also recorded.",
+  "sample": {
+    "shape": "disk",
+    "size_xy_nm": [
+      10.0,
+      10.0
+    ],
+    "thickness_nm": 5.0,
+    "material": {
+      "key": "cif:input.cif",
+      "name": "input",
+      "density_g_cm3": 2.3127590828153375,
+      "mass_fractions": [
+        [
+          14,
+          1.0
+        ]
+      ],
+      "provenance": "CIF symmetry-expanded, occupancy-weighted unit cell: E:\\tem_simulator_v2\\outputs\\eds_defocus_diagnostic\\baseline_v2\\input.cif"
+    },
+    "support_material": "vacuum",
+    "cif_sha256": "944c5c81df5d813d051f96102eb9be37fac4b7647c2a9d1492d6333122be42c7"
+  },
+  "voltage_kv": 300.0,
+  "integration_step_mm": 0.05,
+  "script_sha256": "256c995d888459f86484406613b7986d86ddd080d81a49c6ac5d41d7c24f9f07",
+  "source_sha256": {
+    "src/temsim/physics/simulation.py": "d9e15ff71edfe3a609663edd821ad37d67d8b653173d240acb9f64988cc43c89",
+    "src/temsim/specimen/elastic_transport.py": "62d08699f3d5e21d00b3cd329c739cb9657656048076f0c092ccb975b1650216",
+    "src/temsim/specimen/vector_field_transport.py": "38df4e8a3eff0bed058ec34d85ff81edf6b6e96c415e0a62ebe91c42de80cc1f",
+    "src/temsim/specimen/scene.py": "b40fc77b566e0ebc9825d6f5c3c14c94207e96d76721c13cf630a867e222ded6",
+    "src/temsim/specimen/geometry.py": "cdd640488b9cd1ce3e6a63abd1d8fa42ee40da4d540cdbf4824cff96ab3c0629",
+    "src/temsim/detector/eds_signal.py": "90334301d34d5dffeafc0ba62816bf99abe7d65ca0987d01a598e43ba9b6e8b3"
+  },
+  "cases": [
+    {
+      "count_requested": 49,
+      "objective_percent": 68.9801,
+      "baseline": true,
+      "emitted_count": 49,
+      "reaching_count": 25,
+      "reaching_emitted_weight": 0.5102040816326531,
+      "original_centroid_nm": [
+        -0.01431648478694876,
+        0.019982289100294037
+      ],
+      "target_centroid_nm": [
+        0.0,
+        0.0
+      ],
+      "spot_rms_about_centroid_nm": 0.08509712767092546,
+      "minimum_radius_nm": 0.011426779915788141,
+      "maximum_radius_nm": 0.17162064571185753,
+      "unshifted_minimum_radius_nm": 0.004410038128907387,
+      "midpoint_inside_radius_5nm_count": 25,
+      "midpoint_inside_radius_5nm_conditional_weight": 1.0,
+      "sample_material_hit_count": 25,
+      "sample_material_hit_conditional_weight": 1.0,
+      "sample_material_hit_emitted_weight": 0.5102040816326531,
+      "sample_material_path_weighted_nm": 5.000433378165415,
+      "sample_material_path_max_nm": 5.001347317088473,
+      "eds_track_count": 27,
+      "elastic_metrics": {
+        "elastic_trajectory_generation": true,
+        "electron_transport_model": "relativistic_screened_rutherford_demers_2010",
+        "elastic_cross_section_reference": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3165039/",
+        "recommended_high_accuracy_model": "ELSEPA Dirac partial-wave",
+        "recommended_high_accuracy_reference": "https://www.nist.gov/publications/elsepa-dirac-partial-wave-calculation-elastic-scattering-electrons-and-positrons-atoms",
+        "trajectory_count": 25,
+        "trajectory_seed": 0,
+        "stored_trajectory_count": 25,
+        "maximum_events_per_trajectory": 10000,
+        "total_elastic_events": 2,
+        "mean_elastic_events_per_trajectory": 0.08,
+        "unweighted_mean_elastic_events_per_trajectory": 0.08,
+        "mean_material_path_nm": 5.000433378165415,
+        "mean_material_path_by_source_nm": {
+          "sample": 5.000433378165415
+        },
+        "outcome_counts": {
+          "transmitted": 25,
+          "backscattered": 0,
+          "lateral_escape": 0,
+          "event_limit": 0,
+          "path_limit": 0
+        },
+        "outcome_weight_fractions": {
+          "transmitted": 1.0000000000000002,
+          "backscattered": 0.0,
+          "lateral_escape": 0.0,
+          "event_limit": 0.0,
+          "path_limit": 0.0
+        },
+        "transmitted_fraction": 1.0000000000000002,
+        "backscattered_fraction": 0.0,
+        "lateral_escape_fraction": 0.0,
+        "event_limit_fraction": 0.0,
+        "path_limit_fraction": 0.0,
+        "initial_beam_model": "calculated_surviving_sample_plane_phase_space",
+        "sample_axial_field_t": 1.113867208090787,
+        "sample_objective_field_t": 1.113867208090787,
+        "sample_face_fields_t": [
+          1.1138672080907694,
+          1.1138672080907694
+        ],
+        "sample_field_face_variation_t": 0.0,
+        "sample_field_active_lens_contributions_t": [
+          [
+            "objective_lens",
+            1.113867208090787
+          ]
+        ],
+        "sample_field_transport_model": "shared_vector_field_relativistic_boris",
+        "sample_field_source": "same provisional TOML analytic providers as global column solver; not a pole-shape magnetostatic solve",
+        "sample_field_geometry_material_coupled": false,
+        "sample_field_energy_change_ev": 0.0,
+        "incident_energy_range_ev": [
+          299999.75881732185,
+          300000.1609572738
+        ],
+        "incident_mean_energy_ev": 299999.95773967163,
+        "terminal_mean_energy_ev": 299999.95773967163,
+        "incident_chief_direction": [
+          0.0009114194394346938,
+          0.00035354220815784804,
+          0.9999197316784244
+        ],
+        "incident_weights_normalised": true,
+        "stored_elastic_event_count": 2,
+        "elastic_energy_loss_included": false,
+        "nuclear_recoil_included": false,
+        "inelastic_angular_deflection_included": false,
+        "support_contact_assumption": "support grid begins at specimen downstream face",
+        "finite_sample_envelope": true,
+        "sample_envelope_shape": "disk",
+        "continuous_square_mesh_sidewalls": true,
+        "rutherford_heavy_element_warning": false,
+        "rutherford_stated_energy_range_kev": [
+          100.0,
+          300.0
+        ],
+        "energy_within_stated_range": false
+      },
+      "beam_statistics": {
+        "surviving_rays": 25,
+        "surviving_fraction": 0.5102040816326532,
+        "mean_x_m": -1.4316484786948758e-11,
+        "mean_y_m": 1.9982289100294032e-11,
+        "mean_tx_rad": 0.000911492603416099,
+        "mean_ty_rad": 0.0003535705886755595,
+        "convergence_rms_rad": 0.012632702353870049,
+        "convergence_95_rad": 0.022350321137416737,
+        "convergence_99_rad": 0.022364940932017522,
+        "convergence_edge_rad": 0.022364940932017522,
+        "radius_rms_m": 8.509712767092547e-11,
+        "radius_95_m": 1.6247411544057261e-10,
+        "radius_99_m": 1.7162064571185752e-10,
+        "radial_position_angle_covariance_m_rad": 1.4311979086067863e-13,
+        "radial_wavefront_curvature_per_m": 19763774.507648956,
+        "waist_offset_m": -8.966274047204346e-10,
+        "twofold_moment": 0.2377137550154386,
+        "threefold_moment": 0.2874798344469659
+      },
+      "optical_metrics": {},
+      "elapsed_optical_s": 2.588025900069624,
+      "elapsed_transport_s": 0.32409430015832186,
+      "elapsed_case_s": 2.9132921998389065
+    },
+    {
+      "count_requested": 49,
+      "objective_percent": 68.98055,
+      "baseline": false,
+      "emitted_count": 49,
+      "reaching_count": 25,
+      "reaching_emitted_weight": 0.5102040816326531,
+      "original_centroid_nm": [
+        0.100659529635172,
+        0.0645850246547286
+      ],
+      "target_centroid_nm": [
+        0.0,
+        0.0
+      ],
+      "spot_rms_about_centroid_nm": 1.6068740086999198,
+      "minimum_radius_nm": 0.1476589718676971,
+      "maximum_radius_nm": 2.7436826607900335,
+      "unshifted_minimum_radius_nm": 0.04956901249506738,
+      "midpoint_inside_radius_5nm_count": 25,
+      "midpoint_inside_radius_5nm_conditional_weight": 1.0,
+      "sample_material_hit_count": 25,
+      "sample_material_hit_conditional_weight": 1.0,
+      "sample_material_hit_emitted_weight": 0.5102040816326531,
+      "sample_material_path_weighted_nm": 5.000433381588521,
+      "sample_material_path_max_nm": 5.001347326683582,
+      "eds_track_count": 27,
+      "elastic_metrics": {
+        "elastic_trajectory_generation": true,
+        "electron_transport_model": "relativistic_screened_rutherford_demers_2010",
+        "elastic_cross_section_reference": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3165039/",
+        "recommended_high_accuracy_model": "ELSEPA Dirac partial-wave",
+        "recommended_high_accuracy_reference": "https://www.nist.gov/publications/elsepa-dirac-partial-wave-calculation-elastic-scattering-electrons-and-positrons-atoms",
+        "trajectory_count": 25,
+        "trajectory_seed": 0,
+        "stored_trajectory_count": 25,
+        "maximum_events_per_trajectory": 10000,
+        "total_elastic_events": 2,
+        "mean_elastic_events_per_trajectory": 0.08,
+        "unweighted_mean_elastic_events_per_trajectory": 0.08,
+        "mean_material_path_nm": 5.000433381588521,
+        "mean_material_path_by_source_nm": {
+          "sample": 5.000433381588521
+        },
+        "outcome_counts": {
+          "transmitted": 25,
+          "backscattered": 0,
+          "lateral_escape": 0,
+          "event_limit": 0,
+          "path_limit": 0
+        },
+        "outcome_weight_fractions": {
+          "transmitted": 1.0000000000000002,
+          "backscattered": 0.0,
+          "lateral_escape": 0.0,
+          "event_limit": 0.0,
+          "path_limit": 0.0
+        },
+        "transmitted_fraction": 1.0000000000000002,
+        "backscattered_fraction": 0.0,
+        "lateral_escape_fraction": 0.0,
+        "event_limit_fraction": 0.0,
+        "path_limit_fraction": 0.0,
+        "initial_beam_model": "calculated_surviving_sample_plane_phase_space",
+        "sample_axial_field_t": 1.1138744745378297,
+        "sample_objective_field_t": 1.1138744745378297,
+        "sample_face_fields_t": [
+          1.1138744745378122,
+          1.1138744745378122
+        ],
+        "sample_field_face_variation_t": 0.0,
+        "sample_field_active_lens_contributions_t": [
+          [
+            "objective_lens",
+            1.1138744745378297
+          ]
+        ],
+        "sample_field_transport_model": "shared_vector_field_relativistic_boris",
+        "sample_field_source": "same provisional TOML analytic providers as global column solver; not a pole-shape magnetostatic solve",
+        "sample_field_geometry_material_coupled": false,
+        "sample_field_energy_change_ev": 0.0,
+        "incident_energy_range_ev": [
+          299999.75881732185,
+          300000.1609572738
+        ],
+        "incident_mean_energy_ev": 299999.95773967163,
+        "terminal_mean_energy_ev": 299999.95773967163,
+        "incident_chief_direction": [
+          0.0009113984175286819,
+          0.00035360575697053785,
+          0.999919731113243
+        ],
+        "incident_weights_normalised": true,
+        "stored_elastic_event_count": 2,
+        "elastic_energy_loss_included": false,
+        "nuclear_recoil_included": false,
+        "inelastic_angular_deflection_included": false,
+        "support_contact_assumption": "support grid begins at specimen downstream face",
+        "finite_sample_envelope": true,
+        "sample_envelope_shape": "disk",
+        "continuous_square_mesh_sidewalls": true,
+        "rutherford_heavy_element_warning": false,
+        "rutherford_stated_energy_range_kev": [
+          100.0,
+          300.0
+        ],
+        "energy_within_stated_range": false
+      },
+      "beam_statistics": {
+        "surviving_rays": 25,
+        "surviving_fraction": 0.5102040816326532,
+        "mean_x_m": 1.0065952963517198e-10,
+        "mean_y_m": 6.45850246547286e-11,
+        "mean_tx_rad": 0.0009114715803377462,
+        "mean_ty_rad": 0.00035363414278949867,
+        "convergence_rms_rad": 0.012632746833689775,
+        "convergence_95_rad": 0.02235040049260669,
+        "convergence_99_rad": 0.022365019588229857,
+        "convergence_edge_rad": 0.022365019588229857,
+        "radius_rms_m": 1.6068740086999195e-09,
+        "radius_95_m": 2.7428438276593344e-09,
+        "radius_99_m": 2.7436826607900336e-09,
+        "radial_position_angle_covariance_m_rad": 2.0273472377779796e-11,
+        "radial_wavefront_curvature_per_m": 7851714.281761057,
+        "waist_offset_m": -1.2700984803110154e-07,
+        "twofold_moment": 0.22490353103892421,
+        "threefold_moment": 0.4500420163959873
+      },
+      "optical_metrics": {},
+      "elapsed_optical_s": 0.43617000011727214,
+      "elapsed_transport_s": 0.30952939996495843,
+      "elapsed_case_s": 0.7478792001493275
+    },
+    {
+      "count_requested": 1000,
+      "objective_percent": 68.9801,
+      "baseline": true,
+      "emitted_count": 1000,
+      "reaching_count": 561,
+      "reaching_emitted_weight": 0.5609999999999996,
+      "original_centroid_nm": [
+        -0.00026524216866137247,
+        0.0008506908659929553
+      ],
+      "target_centroid_nm": [
+        0.0,
+        0.0
+      ],
+      "spot_rms_about_centroid_nm": 0.1059507750537081,
+      "minimum_radius_nm": 0.0007140753971248378,
+      "maximum_radius_nm": 0.36953117837911725,
+      "unshifted_minimum_radius_nm": 0.00035808325131794387,
+      "midpoint_inside_radius_5nm_count": 561,
+      "midpoint_inside_radius_5nm_conditional_weight": 1.0000000000000002,
+      "sample_material_hit_count": 561,
+      "sample_material_hit_conditional_weight": 1.0000000000000002,
+      "sample_material_hit_emitted_weight": 0.5609999999999997,
+      "sample_material_path_weighted_nm": 5.000648175010488,
+      "sample_material_path_max_nm": 5.034295808969224,
+      "eds_track_count": 578,
+      "elastic_metrics": {
+        "elastic_trajectory_generation": true,
+        "electron_transport_model": "relativistic_screened_rutherford_demers_2010",
+        "elastic_cross_section_reference": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3165039/",
+        "recommended_high_accuracy_model": "ELSEPA Dirac partial-wave",
+        "recommended_high_accuracy_reference": "https://www.nist.gov/publications/elsepa-dirac-partial-wave-calculation-elastic-scattering-electrons-and-positrons-atoms",
+        "trajectory_count": 561,
+        "trajectory_seed": 0,
+        "stored_trajectory_count": 49,
+        "maximum_events_per_trajectory": 10000,
+        "total_elastic_events": 18,
+        "mean_elastic_events_per_trajectory": 0.0320855614973262,
+        "unweighted_mean_elastic_events_per_trajectory": 0.03208556149732621,
+        "mean_material_path_nm": 5.000648175010489,
+        "mean_material_path_by_source_nm": {
+          "sample": 5.000648175010489
+        },
+        "outcome_counts": {
+          "transmitted": 561,
+          "backscattered": 0,
+          "lateral_escape": 0,
+          "event_limit": 0,
+          "path_limit": 0
+        },
+        "outcome_weight_fractions": {
+          "transmitted": 1.00000000000001,
+          "backscattered": 0.0,
+          "lateral_escape": 0.0,
+          "event_limit": 0.0,
+          "path_limit": 0.0
+        },
+        "transmitted_fraction": 1.00000000000001,
+        "backscattered_fraction": 0.0,
+        "lateral_escape_fraction": 0.0,
+        "event_limit_fraction": 0.0,
+        "path_limit_fraction": 0.0,
+        "initial_beam_model": "calculated_surviving_sample_plane_phase_space",
+        "sample_axial_field_t": 1.113867208090787,
+        "sample_objective_field_t": 1.113867208090787,
+        "sample_face_fields_t": [
+          1.1138672080907694,
+          1.1138672080907694
+        ],
+        "sample_field_face_variation_t": 0.0,
+        "sample_field_active_lens_contributions_t": [
+          [
+            "objective_lens",
+            1.113867208090787
+          ]
+        ],
+        "sample_field_transport_model": "shared_vector_field_relativistic_boris",
+        "sample_field_source": "same provisional TOML analytic providers as global column solver; not a pole-shape magnetostatic solve",
+        "sample_field_geometry_material_coupled": false,
+        "sample_field_energy_change_ev": 0.0,
+        "incident_energy_range_ev": [
+          299999.715111432,
+          300000.38409661525
+        ],
+        "incident_mean_energy_ev": 299999.980686949,
+        "terminal_mean_energy_ev": 299999.980686949,
+        "incident_chief_direction": [
+          -5.7409930427076454e-05,
+          -0.00011165299171041937,
+          0.9998985566102028
+        ],
+        "incident_weights_normalised": true,
+        "stored_elastic_event_count": 2,
+        "elastic_energy_loss_included": false,
+        "nuclear_recoil_included": false,
+        "inelastic_angular_deflection_included": false,
+        "support_contact_assumption": "support grid begins at specimen downstream face",
+        "finite_sample_envelope": true,
+        "sample_envelope_shape": "disk",
+        "continuous_square_mesh_sidewalls": true,
+        "rutherford_heavy_element_warning": false,
+        "rutherford_stated_energy_range_kev": [
+          100.0,
+          300.0
+        ],
+        "energy_within_stated_range": false
+      },
+      "beam_statistics": {
+        "surviving_rays": 561,
+        "surviving_fraction": 0.5609999999999998,
+        "mean_x_m": -2.6524216866137235e-13,
+        "mean_y_m": 8.506908659929561e-13,
+        "mean_tx_rad": -5.7415754875878886e-05,
+        "mean_ty_rad": -0.00011166431931749021,
+        "convergence_rms_rad": 0.014243516068335519,
+        "convergence_95_rad": 0.024804672355592975,
+        "convergence_99_rad": 0.02612190408977904,
+        "convergence_edge_rad": 0.026375097389042604,
+        "radius_rms_m": 1.0595077505370808e-10,
+        "radius_95_m": 2.2455305732165163e-10,
+        "radius_99_m": 2.9011974882849905e-10,
+        "radial_position_angle_covariance_m_rad": 1.697951967255211e-14,
+        "radial_wavefront_curvature_per_m": 1512575.7188183921,
+        "waist_offset_m": -8.367113858544976e-11,
+        "twofold_moment": 0.052812758886394216,
+        "threefold_moment": 0.030789583328986746
+      },
+      "optical_metrics": {},
+      "elapsed_optical_s": 5.774521899875253,
+      "elapsed_transport_s": 4.407643499784172,
+      "elapsed_case_s": 10.193465400021523
+    },
+    {
+      "count_requested": 1000,
+      "objective_percent": 68.98055,
+      "baseline": false,
+      "emitted_count": 1000,
+      "reaching_count": 561,
+      "reaching_emitted_weight": 0.5609999999999996,
+      "original_centroid_nm": [
+        -0.007502825822928279,
+        -0.013228164767610746
+      ],
+      "target_centroid_nm": [
+        0.0,
+        0.0
+      ],
+      "spot_rms_about_centroid_nm": 1.8008517002699913,
+      "minimum_radius_nm": 0.0029396009302010357,
+      "maximum_radius_nm": 3.641256150561118,
+      "unshifted_minimum_radius_nm": 0.012482854443424925,
+      "midpoint_inside_radius_5nm_count": 561,
+      "midpoint_inside_radius_5nm_conditional_weight": 1.0000000000000002,
+      "sample_material_hit_count": 561,
+      "sample_material_hit_conditional_weight": 1.0000000000000002,
+      "sample_material_hit_emitted_weight": 0.5609999999999997,
+      "sample_material_path_weighted_nm": 5.000648178077106,
+      "sample_material_path_max_nm": 5.03429582453477,
+      "eds_track_count": 578,
+      "elastic_metrics": {
+        "elastic_trajectory_generation": true,
+        "electron_transport_model": "relativistic_screened_rutherford_demers_2010",
+        "elastic_cross_section_reference": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3165039/",
+        "recommended_high_accuracy_model": "ELSEPA Dirac partial-wave",
+        "recommended_high_accuracy_reference": "https://www.nist.gov/publications/elsepa-dirac-partial-wave-calculation-elastic-scattering-electrons-and-positrons-atoms",
+        "trajectory_count": 561,
+        "trajectory_seed": 0,
+        "stored_trajectory_count": 49,
+        "maximum_events_per_trajectory": 10000,
+        "total_elastic_events": 18,
+        "mean_elastic_events_per_trajectory": 0.0320855614973262,
+        "unweighted_mean_elastic_events_per_trajectory": 0.03208556149732621,
+        "mean_material_path_nm": 5.000648178077102,
+        "mean_material_path_by_source_nm": {
+          "sample": 5.000648178077102
+        },
+        "outcome_counts": {
+          "transmitted": 561,
+          "backscattered": 0,
+          "lateral_escape": 0,
+          "event_limit": 0,
+          "path_limit": 0
+        },
+        "outcome_weight_fractions": {
+          "transmitted": 1.00000000000001,
+          "backscattered": 0.0,
+          "lateral_escape": 0.0,
+          "event_limit": 0.0,
+          "path_limit": 0.0
+        },
+        "transmitted_fraction": 1.00000000000001,
+        "backscattered_fraction": 0.0,
+        "lateral_escape_fraction": 0.0,
+        "event_limit_fraction": 0.0,
+        "path_limit_fraction": 0.0,
+        "initial_beam_model": "calculated_surviving_sample_plane_phase_space",
+        "sample_axial_field_t": 1.1138744745378297,
+        "sample_objective_field_t": 1.1138744745378297,
+        "sample_face_fields_t": [
+          1.1138744745378122,
+          1.1138744745378122
+        ],
+        "sample_field_face_variation_t": 0.0,
+        "sample_field_active_lens_contributions_t": [
+          [
+            "objective_lens",
+            1.1138744745378297
+          ]
+        ],
+        "sample_field_transport_model": "shared_vector_field_relativistic_boris",
+        "sample_field_source": "same provisional TOML analytic providers as global column solver; not a pole-shape magnetostatic solve",
+        "sample_field_geometry_material_coupled": false,
+        "sample_field_energy_change_ev": 0.0,
+        "incident_energy_range_ev": [
+          299999.715111432,
+          300000.38409661525
+        ],
+        "incident_mean_energy_ev": 299999.980686949,
+        "terminal_mean_energy_ev": 299999.980686949,
+        "incident_chief_direction": [
+          -5.740247655475089e-05,
+          -0.00011165730034696201,
+          0.9998985558955229
+        ],
+        "incident_weights_normalised": true,
+        "stored_elastic_event_count": 2,
+        "elastic_energy_loss_included": false,
+        "nuclear_recoil_included": false,
+        "inelastic_angular_deflection_included": false,
+        "support_contact_assumption": "support grid begins at specimen downstream face",
+        "finite_sample_envelope": true,
+        "sample_envelope_shape": "disk",
+        "continuous_square_mesh_sidewalls": true,
+        "rutherford_heavy_element_warning": false,
+        "rutherford_stated_energy_range_kev": [
+          100.0,
+          300.0
+        ],
+        "energy_within_stated_range": false
+      },
+      "beam_statistics": {
+        "surviving_rays": 561,
+        "surviving_fraction": 0.5609999999999998,
+        "mean_x_m": -7.502825822928268e-12,
+        "mean_y_m": -1.3228164767610741e-11,
+        "mean_tx_rad": -5.740830028836327e-05,
+        "mean_ty_rad": -0.00011166862847097546,
+        "convergence_rms_rad": 0.014243566243528887,
+        "convergence_95_rad": 0.02480475909983767,
+        "convergence_99_rad": 0.026121995685836452,
+        "convergence_edge_rad": 0.02637518922073645,
+        "radius_rms_m": 1.800851700269991e-09,
+        "radius_95_m": 3.094972921273574e-09,
+        "radius_99_m": 3.3465258128852475e-09,
+        "radial_position_angle_covariance_m_rad": 2.560952375508097e-11,
+        "radial_wavefront_curvature_per_m": 7896699.318357548,
+        "waist_offset_m": -1.2619690968979016e-07,
+        "twofold_moment": 0.033891993523372195,
+        "threefold_moment": 0.05835700070117777
+      },
+      "optical_metrics": {},
+      "elapsed_optical_s": 1.6224046000279486,
+      "elapsed_transport_s": 4.5932509996928275,
+      "elapsed_case_s": 6.230805399827659
+    }
+  ],
+  "elapsed_s": 30.331082299817353
+}

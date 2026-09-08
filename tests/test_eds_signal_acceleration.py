@@ -165,8 +165,8 @@ def test_empty_tracks_finish_without_photon_work(geometry):
 
 def test_point_progress_reserves_work_after_elastic_histories(geometry):
     state = default_state()
-    state.sample.specimen_mode = "virtual"
-    state.sample.specimen_preset_key = "si_110"
+    state.sample.specimen_mode = "reference"
+    state.sample.reference_sample_key = "si_110"
     state.sample.eds_transport_mode = "elastic_monte_carlo"
     simulation = _simulation()
     events = []
@@ -177,7 +177,9 @@ def test_point_progress_reserves_work_after_elastic_histories(geometry):
     fractions = [done / total for done, total, _ in events]
     assert fractions == sorted(fractions)
     histories = [event for event in events if "Elastic specimen history" in event[2]]
-    assert histories[-1][:2] == (3500, 10000)
+    # The first quarter traces original histories; the following tenth is
+    # reserved for optional EDS overlap integration before shell/photon work.
+    assert histories[-1][:2] == (2500, 10000)
     assert histories[-1][2].endswith("2/2")
     assert events[-1][:2] == (9900, 10000)  # Final event ledger still follows.
     assert result.elastic_transport is not None

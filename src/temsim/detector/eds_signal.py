@@ -265,6 +265,23 @@ class EDSLineSignal:
 
 
 @dataclass(frozen=True, slots=True)
+class EDSMaterialQuadrature:
+    """Auxiliary weighted material paths, never a downstream electron bundle.
+
+    Independent quadrature IDs locate each emission flight. They are not
+    identities of electrons traced through the column; their kernel parents
+    are retained separately for provenance. Weights refer to the full current
+    reaching the specimen plane, including the unsampled vacuum complement.
+    """
+
+    eds_tracks: tuple[ElectronTrackSegment, ...]
+    material_flights: tuple[object, ...]
+    quadrature_source_ray_indices: tuple[int, ...]
+    parent_source_ray_indices: tuple[int, ...]
+    metrics: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
 class EDSSpectrum:
     energy_bin_centres_ev: np.ndarray
     expected_counts: np.ndarray
@@ -274,6 +291,7 @@ class EDSSpectrum:
     vacancies: tuple[EDSVacancySignal, ...] = ()
     elastic_transport: object | None = None
     photon_transport: object | None = None
+    material_quadrature: EDSMaterialQuadrature | None = None
 
     def __post_init__(self) -> None:
         lines = tuple(self.lines)
@@ -339,32 +357,20 @@ def _normalised_mass_fractions(
 
 
 def material_from_cif(cif_path: str | Path) -> EDSMaterial:
-    from ase.io import read
+    from temsim.specimen.rutherford import read_cif_composition
 
-    path = Path(cif_path).expanduser().resolve()
-    if not path.is_file():
-        raise ValueError(f"CIF file does not exist: {path}")
-    unit = read(path)
-    if len(unit) == 0:
-        raise ValueError(f"CIF file contains no atoms: {path}")
-    volume_angstrom3 = abs(float(np.linalg.det(unit.cell.array)))
-    if not math.isfinite(volume_angstrom3) or volume_angstrom3 <= 0.0:
-        raise ValueError("CIF EDS material requires a finite 3-D unit cell")
-    masses = np.asarray(unit.get_masses(), dtype=float)
-    density = float(np.sum(masses)) * ATOMIC_MASS_UNIT_G / (
-        volume_angstrom3 * 1.0e-24
-    )
-    fractions = _normalised_mass_fractions(unit.numbers, masses)
-    if any(z > 99 for z, _fraction in fractions):
+    composition = read_cif_composition(cif_path)
+    path = Path(composition.source_path)
+    if any(z > 99 for z, _fraction in composition.mass_fractions):
         raise ValueError(
             "The Bote-Salvat EDS model currently supports CIF elements Z<=99"
         )
     return EDSMaterial(
         key=f"cif:{path.name}",
         name=path.stem,
-        density_g_cm3=density,
-        mass_fractions=fractions,
-        provenance=f"CIF unit-cell composition and crystallographic density: {path}",
+        density_g_cm3=composition.density_g_cm3,
+        mass_fractions=composition.mass_fractions,
+        provenance=composition.provenance,
     )
 
 
@@ -372,7 +378,7 @@ def material_from_sample(state) -> EDSMaterial | None:
     sample = state.sample
     if not bool(getattr(sample, "inserted", True)):
         return None
-    if specimen_mode(sample) == "atomic":
+    if specimen_mode(sample) in {"atomic", "reference"}:
         cif_path = active_cif_path(sample)
         return material_from_cif(cif_path) if cif_path else None
     preset_key = selected_reference_preset_key(sample)
@@ -590,7 +596,9 @@ def _vacancy_emission_origin_mm(
                 float(local_nm[1]) * 1.0e-6,
                 float(state.sample.z_mm) + float(local_nm[2]) * 1.0e-6,
             ),
-            "stored_elastic_material_flight",
+            ("weighted_overlap_material_flight"
+             if isinstance(elastic_transport, EDSMaterialQuadrature)
+             else "stored_elastic_material_flight"),
         )
 
     scene = SpecimenScene.from_state(state, include_eds_materials=False)
@@ -1043,6 +1051,12 @@ def simulate_eds_tracks(
                 "photon_transport_blocked_ray_count": int(
                     photon_transport.metrics["blocked_photon_count"]
                 ),
+                "photon_transport_blocked_by_component_counts": dict(
+                    photon_transport.metrics["blocked_by_component_counts"]
+                ),
+                "photon_transport_outside_acceptance_count": int(
+                    photon_transport.metrics["outside_acceptance_count"]
+                ),
                 "photon_transport_stored_path_count": int(
                     photon_transport.metrics["stored_path_count"]
                 ),
@@ -1273,6 +1287,8 @@ def simulate_eds_point(
     transport_mode = str(
         getattr(sample, "eds_transport_mode", "elastic_monte_carlo")
     ).strip().lower()
+    material_quadrature = None
+    overlap_metrics = {}
     if transport_mode == "elastic_monte_carlo":
         # Local import keeps the EDS track contract independent and avoids a
         # module-load cycle: elastic_transport consumes EDSMaterial and
@@ -1297,11 +1313,61 @@ def simulate_eds_point(
                 progress_callback=(
                     None if progress_callback is None else
                     lambda done, total, label: _report_phase_progress(
-                        progress_callback, 0.0, 0.35, done, total, label,
+                        progress_callback, 0.0, 0.25, done, total, label,
                     )
                 ),
             )
         tracks = elastic_transport.eds_tracks
+        from temsim.specimen.overlap_sampling import build_overlap_sampling_plan
+
+        plan = build_overlap_sampling_plan(state, incident_bundle, elastic_transport)
+        overlap_metrics.update(plan.metrics)
+        if plan.rays:
+            # The elastic kernel uses conditional unit-sum weights internally.
+            # Restore their *absolute* mass on every EDS track and flight before
+            # ionisation. Source current and column survival are applied below
+            # exactly as for the original histories, with no second overlap
+            # multiplier. Retain all auxiliary flights for correct photon origins.
+            mass = math.fsum(ray.weight for ray in plan.rays)
+            auxiliary = simulate_elastic_point_transport(
+                state, incident_rays=plan.rays,
+                stored_trajectory_count=len(plan.rays),
+                progress_callback=(
+                    None if progress_callback is None else
+                    lambda done, total, label: _report_phase_progress(
+                        progress_callback, 0.25, 0.35, done, total,
+                        "EDS overlap quadrature: " + label,
+                    )
+                ),
+            )
+            tracks = tuple(
+                replace(track, electron_weight=track.electron_weight * mass)
+                for track in auxiliary.eds_tracks
+            )
+            material_quadrature = EDSMaterialQuadrature(
+                eds_tracks=tracks,
+                material_flights=tuple(
+                    replace(flight, electron_weight=flight.electron_weight * mass)
+                    for flight in auxiliary.material_flights
+                ),
+                quadrature_source_ray_indices=tuple(ray.source_ray_index for ray in plan.rays),
+                parent_source_ray_indices=plan.parent_source_ray_indices,
+                metrics={
+                    **plan.metrics,
+                    "eds_overlap_material_weight_fraction": mass * float(
+                        auxiliary.metrics["material_hit_weight_fraction"]
+                    ),
+                    "eds_overlap_material_hit_count": auxiliary.metrics["material_hit_trajectory_count"],
+                    "eds_overlap_weighted_material_path_nm": mass * float(
+                        auxiliary.metrics["mean_material_path_nm"]
+                    ),
+                    "eds_overlap_event_limit_weight": mass * float(auxiliary.metrics["event_limit_fraction"]),
+                    "eds_overlap_path_limit_weight": mass * float(auxiliary.metrics["path_limit_fraction"]),
+                    "eds_overlap_weight_reference": "full current reaching specimen plane; vacuum complement retained",
+                    "eds_overlap_changes_terminal_electrons": False,
+                },
+            )
+            overlap_metrics.update(material_quadrature.metrics)
         electron_count = (
             source_electron_count * incident_bundle.surviving_fraction
         )
@@ -1368,7 +1434,7 @@ def simulate_eds_point(
         ),
         poisson_seed=int(getattr(sample, "eds_poisson_seed", 0)),
         state=state,
-        elastic_transport=elastic_transport,
+        elastic_transport=(material_quadrature if material_quadrature is not None else elastic_transport),
         photon_origin_xy_nm=(x_value, y_value),
         photon_detector_surfaces=photon_detector_surfaces,
         photon_holder_occluders=photon_holder_occluders,
@@ -1400,4 +1466,6 @@ def simulate_eds_point(
     if elastic_transport is not None:
         result.metrics.update(elastic_transport.metrics)
         result = replace(result, elastic_transport=elastic_transport)
+    result.metrics.update(overlap_metrics)
+    result = replace(result, material_quadrature=material_quadrature)
     return result

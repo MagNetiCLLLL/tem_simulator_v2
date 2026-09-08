@@ -1,0 +1,47 @@
+{
+  "source_profile": "E:\\tem_simulator_v2\\outputs\\haadf_dpa_clearance\\si110_haadf_dpa_12mm.toml",
+  "source_profile_sha256": "33b8c955bc4cd0911890d3c2d99c655eb46ac47fab806665a293ee912cb0557c",
+  "preview_profile": "E:\\tem_simulator_v2\\outputs\\si110_sampling_presets\\si110_preview_32px_004nm.toml",
+  "preview_profile_sha256": "659a78fd790b6d7cf18b1f1e7b4e130a8b428704bb80e4b414e1bbcc57eb61e8",
+  "only_changed_fields": {
+    "ac_deflector": {
+      "scan_lines": 32,
+      "scan_pixels_x": 32,
+      "scan_pixel_size_nm": 0.04
+    },
+    "descan_deflector": {
+      "scan_lines": 32,
+      "scan_pixels_x": 32,
+      "scan_pixel_size_nm": 0.04
+    }
+  },
+  "skipped_fields": [],
+  "actual_shape": [
+    32,
+    32
+  ],
+  "actual_x_pitch_nm": [
+    0.0399999999999997,
+    0.04000000000000026
+  ],
+  "actual_y_pitch_nm": [
+    0.0399999999999997,
+    0.04000000000000026
+  ],
+  "actual_x_range_nm": [
+    -0.6200000000000001,
+    0.6200000000000001
+  ],
+  "actual_y_range_nm": [
+    -0.6200000000000001,
+    0.6200000000000001
+  ],
+  "pixel_footprint_fov_nm": 1.28,
+  "scan_positions_before": 4096,
+  "scan_positions_after": 1024,
+  "wave_grid_pixels": 1024,
+  "wave_fov_angstrom": 40.0,
+  "phonons": 4,
+  "dpa_radius_mm": 6.0,
+  "new_wave_acquisition_performed": false
+}

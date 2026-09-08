@@ -82,7 +82,7 @@ def test_draft_sample_edits_cannot_relabel_retained_result_current():
     state.sample.thickness_nm = 80.0
     source = resolve_sample_display_source(state, result, result_is_current=True)
 
-    assert source.sample.thickness_nm == 10.0
+    assert source.sample.thickness_nm == result.state_snapshot.sample.thickness_nm
     assert source.draft_sample_differs
     assert source.provenance_label == "Previous TEM calculation region"
     assert "draft sample differs" in source.provenance_detail
@@ -148,3 +148,17 @@ def test_plain_draft_and_invalid_scan_do_not_produce_a_fictitious_region():
     source = resolve_sample_display_source(state, _result(state, stem=invalid))
     assert source.provenance_label.startswith("Structural preview")
     assert source.scan_x_um is source.scan_y_um is None
+
+
+def test_source_change_without_completed_wave_previews_current_structure():
+    state = _state()
+    result = _result(state, stem=_product(metrics={}))
+    state.sample.specimen_mode = "atomic"
+    state.sample.cif_path = "newly-selected.cif"
+    source = resolve_sample_display_source(state, result)
+    assert source.sample is state.sample
+    assert source.sample.cif_path == "newly-selected.cif"
+    assert source.scan_x_um is source.scan_y_um is None
+    assert source.provenance_label == "Structural preview"
+    assert "current draft structure" in source.provenance_detail
+    assert not source.completed_region

@@ -9,6 +9,12 @@ from temsim.component_keys import FIXED_APERTURE_KEYS
 
 
 SCALAR_TYPES = (bool, int, float, str)
+RETIRED_SAMPLE_FIELDS = frozenset({
+    "specimen_preset_key", "atomic_structure_source", "diffraction_enabled",
+    "g_inv_nm", "excitation_error_inv_nm", "rocking_width_inv_nm",
+    "diffuse_broadening_mrad",
+})
+SAMPLE_SOURCE_FIELDS = frozenset({"specimen_mode", "reference_sample_key", "cif_path"})
 IDENTITY_FIELDS = frozenset({
     "key", "name", "label", "display_name", "colour", "color", "type_key",
     "corrector", "owner", "kind", "shape_profile", "interaction_kind",
@@ -197,6 +203,10 @@ def editable_parameters(target: RuntimeTarget) -> tuple[RuntimeParameter, ...]:
             or name in TOML_OWNED_FIELDS
             or is_geometry_owned(name)
             or (target.key in FIXED_APERTURE_KEYS and name == "enabled")
+            or (target.key == "sample" and (
+                name.startswith("virtual_") or name in RETIRED_SAMPLE_FIELDS
+                or name in SAMPLE_SOURCE_FIELDS
+            ))
         ):
             continue
         if value is None or isinstance(value, SCALAR_TYPES):
@@ -264,11 +274,21 @@ def validate_runtime_assignment(
         raise ValueError(f"{target.key}.{name} must be positive")
     if name == "polarity" and int(converted) not in (-1, 1):
         raise ValueError(f"{target.key}.{name} must be +1 or -1")
-    if name == "specimen_mode" and str(converted).lower() not in {
+    if name == "specimen_mode":
+        converted = str(converted).strip().lower()
+    if name == "specimen_mode" and converted not in {
         "atomic",
-        "virtual",
+        "reference",
     }:
-        raise ValueError("sample.specimen_mode must be atomic or virtual")
+        raise ValueError("sample.specimen_mode must be atomic or reference")
+    if name == "reference_sample_key":
+        from temsim.specimen.reference_catalog import get_reference_sample
+
+        get_reference_sample(str(converted))
+    if name == "real_tail_material_source" and converted not in {"structure", "manual"}:
+        raise ValueError("sample.real_tail_material_source must be structure or manual")
+    if name == "real_tail_screening_source" and converted not in {"moliere", "manual"}:
+        raise ValueError("sample.real_tail_screening_source must be moliere or manual")
     if name == "envelope_shape":
         from temsim.specimen.envelope import canonical_sample_envelope_shape
 
@@ -335,6 +355,10 @@ def validate_runtime_assignment(
         )
     if name == "eds_elastic_seed" and int(converted) < 0:
         raise ValueError("sample.eds_elastic_seed cannot be negative")
+    if name == "eds_overlap_sampling_points" and not (
+        32 <= int(converted) <= 4096
+    ):
+        raise ValueError("sample.eds_overlap_sampling_points must be between 32 and 4096")
     if name == "eds_elastic_max_events" and not (
         1 <= int(converted) <= 1_000_000
     ):

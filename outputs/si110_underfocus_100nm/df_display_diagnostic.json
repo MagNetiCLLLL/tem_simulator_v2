@@ -1,0 +1,13 @@
+{
+  "source_npz": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\raw_scan.npz",
+  "min_emitted_fraction": 0.03816563695646728,
+  "max_emitted_fraction": 0.052082687408557635,
+  "zero_signal_pixels": 0,
+  "line_row": 32,
+  "physical_df_band_mrad": [
+    1.00115,
+    7.00806
+  ],
+  "illumination_semiangle_mrad": 24.8046723585,
+  "image_generation": "Same numerical DF image shown with two linear intensity scales; no smoothing or denoising."
+}

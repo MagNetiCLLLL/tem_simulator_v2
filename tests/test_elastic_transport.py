@@ -230,19 +230,20 @@ def test_finite_geometry_finds_sample_face_and_mesh_sidewall():
 
 def test_finite_geometry_uses_the_circular_disk_sidewall():
     state = default_state()
+    state.sample.size_x_nm = state.sample.size_y_nm = 10.0
     geometry = ElasticTransportGeometry.from_state(state)
     inside = np.asarray((0.0, 0.0, 0.0))
     region = geometry.region_at(inside)
 
     assert region is not None
-    assert geometry.region_at((1_400_000.0, 1_400_000.0, 5.0)) is None
+    assert geometry.region_at((4.5, 4.5, 0.0)) is None
     distance = geometry.next_region_boundary_distance_nm(
         inside,
         (1.0, 0.0, 0.0),
         region,
-        maximum_distance_nm=2_000_000.0,
+        maximum_distance_nm=20.0,
     )
-    assert distance == pytest.approx(1_500_000.0)
+    assert distance == pytest.approx(5.0)
 
 
 def test_tilted_incident_ray_is_back_projected_from_the_reference_plane():
@@ -274,6 +275,10 @@ def test_tilted_incident_ray_is_back_projected_from_the_reference_plane():
 
 def test_point_transport_is_seeded_and_aggregates_real_material_paths():
     state = default_state()
+    # A finite foil thick enough to sample both histories with this small,
+    # deterministic ensemble; independent of the application's 5 nm default.
+    state.sample.thickness_nm = 100.0
+    state.sample.size_x_nm = state.sample.size_y_nm = 1000.0
     state.sample.eds_elastic_seed = 101
     rays = _incident_rays(12)
     first = simulate_elastic_point_transport(state, incident_rays=rays)

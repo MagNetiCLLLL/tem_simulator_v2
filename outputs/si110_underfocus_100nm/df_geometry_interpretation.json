@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "recorded_utc": "2026-09-08T12:46:34.810147+00:00",
+  "scope": "Read-only interpretation of actual completed underfocus seed707 and seed708 records. No new ray/wave/GPU calculation, external literature survey, or change to default/acquisition geometry.",
+  "conclusion_zh": "这两组欠焦扫描中的DF应称为低角、照明盘内环形信号。它的约1–7 mrad角域完全落在24.8 mrad照明盘内，包含直接束盘和相干散射贡献，不能当作已排除直接束的盘外DF。相干对比或盘状强度本身既不证明仿真错误，也不构成全面物理验证。",
+  "actual_completed_records": [
+    {
+      "seed": 707,
+      "sources": [
+        {
+          "path": "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\acquisition_16px_4seeds\\seed_707\\parameters.json",
+          "sha256": "3cc40e65883fcd46b9aea9a05a6abf69849faf9a1fbb1ceb7b4152168fdea84a"
+        },
+        {
+          "path": "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\acquisition_16px_4seeds\\seed_707\\metrics.json",
+          "sha256": "09f9f149725826d479d082b06cec24ed3389c496d21c253e2facccb3ce108d82"
+        }
+      ],
+      "probe_semiangle_mrad": 24.80467235853336,
+      "effective_c1_nm": -100.0,
+      "detector_reference_angles_mrad": {
+        "haadf": {
+          "inner_mrad": 60.00000002201169,
+          "outer_mrad": 330.0000001210643,
+          "inner_range_mrad": [
+            60.00000002201169,
+            60.00000002201169
+          ],
+          "outer_range_mrad": [
+            330.0000001210643,
+            330.0000001210643
+          ],
+          "anisotropic": false
+        },
+        "df": {
+          "inner_mrad": 1.0011507484087907,
+          "outer_mrad": 7.008055238861535,
+          "inner_range_mrad": [
+            1.0011507484087905,
+            1.0011507484087907
+          ],
+          "outer_range_mrad": [
+            7.008055238861534,
+            7.008055238861535
+          ],
+          "anisotropic": false
+        },
+        "bf": {
+          "inner_mrad": 0.0,
+          "outer_mrad": 0.5678851177334857,
+          "inner_range_mrad": [
+            0.0,
+            0.0
+          ],
+          "outer_range_mrad": [
+            0.5678851177334857,
+            0.5678851177334857
+          ],
+          "anisotropic": false
+        }
+      },
+      "full_scan_detector_sampling": {
+        "haadf": {
+          "status": "partial",
+          "required_inner_mrad": 59.99918968972039,
+          "required_outer_mrad": 330.00079876311634,
+          "sampled_outer_mrad": 168.8003858566641,
+          "overlaps_illumination_disk": false
+        },
+        "df": {
+          "status": "full",
+          "required_inner_mrad": 1.0003370161189804,
+          "required_outer_mrad": 7.00886855369312,
+          "sampled_outer_mrad": 7.00886855369312,
+          "overlaps_illumination_disk": true
+        },
+        "bf": {
+          "status": "full",
+          "required_inner_mrad": 0.0,
+          "required_outer_mrad": 0.5686988041822286,
+          "sampled_outer_mrad": 0.5686988041822286,
+          "overlaps_illumination_disk": true
+        }
+      },
+      "recording_model": "full_signed_j_img_r_plus_j_diff_theta_sequential_stops",
+      "DF_tail_mean_fraction": 0.0
+    },
+    {
+      "seed": 708,
+      "sources": [
+        {
+          "path": "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\acquisition_16px_4seeds\\seed_708\\parameters.json",
+          "sha256": "d9e2de6fc44d611d129ecd407ec226da479656f81c6595162965866bc37060f5"
+        },
+        {
+          "path": "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\acquisition_16px_4seeds\\seed_708\\metrics.json",
+          "sha256": "911a35a1e10e47a64eb953f26d8736416de8483d95a328f81d42eb2238877815"
+        }
+      ],
+      "probe_semiangle_mrad": 24.80467235853336,
+      "effective_c1_nm": -100.0,
+      "detector_reference_angles_mrad": {
+        "haadf": {
+          "inner_mrad": 60.00000002201169,
+          "outer_mrad": 330.0000001210643,
+          "inner_range_mrad": [
+            60.00000002201169,
+            60.00000002201169
+          ],
+          "outer_range_mrad": [
+            330.0000001210643,
+            330.0000001210643
+          ],
+          "anisotropic": false
+        },
+        "df": {
+          "inner_mrad": 1.0011507484087907,
+          "outer_mrad": 7.008055238861535,
+          "inner_range_mrad": [
+            1.0011507484087905,
+            1.0011507484087907
+          ],
+          "outer_range_mrad": [
+            7.008055238861534,
+            7.008055238861535
+          ],
+          "anisotropic": false
+        },
+        "bf": {
+          "inner_mrad": 0.0,
+          "outer_mrad": 0.5678851177334857,
+          "inner_range_mrad": [
+            0.0,
+            0.0
+          ],
+          "outer_range_mrad": [
+            0.5678851177334857,
+            0.5678851177334857
+          ],
+          "anisotropic": false
+        }
+      },
+      "full_scan_detector_sampling": {
+        "haadf": {
+          "status": "partial",
+          "required_inner_mrad": 59.99918968972039,
+          "required_outer_mrad": 330.00079876311634,
+          "sampled_outer_mrad": 168.8003858566641,
+          "overlaps_illumination_disk": false
+        },
+        "df": {
+          "status": "full",
+          "required_inner_mrad": 1.0003370161189804,
+          "required_outer_mrad": 7.00886855369312,
+          "sampled_outer_mrad": 7.00886855369312,
+          "overlaps_illumination_disk": true
+        },
+        "bf": {
+          "status": "full",
+          "required_inner_mrad": 0.0,
+          "required_outer_mrad": 0.5686988041822286,
+          "sampled_outer_mrad": 0.5686988041822286,
+          "overlaps_illumination_disk": true
+        }
+      },
+      "recording_model": "full_signed_j_img_r_plus_j_diff_theta_sequential_stops",
+      "DF_tail_mean_fraction": 0.0
+    }
+  ],
+  "recording_geometry": {
+    "mapping_source": {
+      "path": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\recording_calibration.json",
+      "sha256": "d1a2075f0e18227af4bbc9f8ab793f8232de7167ecd877bd6b563bbe55248b19"
+    },
+    "mapping_source_scope": "The archived final calibration supplies the unchanged downstream lens/DF-plane mapping; the completed underfocus records independently report the same detector reference angles. Its historical DPA radius was 0.1 mm; the present underfocus acquisition uses the enlarged 6 mm radius, without changing these lens mappings.",
+    "DF_z_mm": 2804.15,
+    "DF_inner_diameter_mm": 2.0,
+    "DF_outer_diameter_mm": 14.0,
+    "DF_j_diff_m_per_rad": [
+      [
+        -0.991060197353363,
+        -0.12450806796550751
+      ],
+      [
+        0.12450806796550751,
+        -0.991060197353363
+      ]
+    ],
+    "DF_isotropic_scale_m_per_rad": 0.9988506263534054,
+    "DF_geometric_inner_mrad": 1.0011506962265126,
+    "DF_geometric_outer_mrad": 7.008054873585588,
+    "reference_angle_formula": "theta = detector_radius_m / |J_diff|; production collection additionally retains signed J_img*r, affine shifts, every physical stop and scan offsets.",
+    "physical_order": [
+      "projection_chamber_dpa_aperture",
+      "haadf",
+      "df",
+      "bf",
+      "energy_filter_entrance_aperture"
+    ],
+    "HAADF_reference_annulus_mrad": [
+      60.0,
+      330.0
+    ],
+    "DPA_interpretation": "The current calibrated DPA crossover and 12 mm bore pass this DF band. DPA is not converting a previously outside-disk DF band into an inside-disk band; the DF dimensions and its angular-to-position mapping already place its active annulus at 1–7 mrad.",
+    "DF_vs_HAADF_interception": "Current DF 1–7 mrad and upstream HAADF 60–330 mrad do not overlap in the saved reference mapping. The lower DF angle is not caused by HAADF stealing its present 1–7 mrad events.",
+    "underfocus_interpretation": "Additional coherent C1 changes probe phase/focus. It does not by itself alter the downstream detector radii, axial positions or traced lens transfer, and therefore does not turn this ring into outside-disk DF."
+  },
+  "future_outside_disk_DF_requirements": {
+    "goal": "Choose an intended collection annulus with its inner angle safely above the actual illumination semiangle, with scan/chief-direction and finite-grid margins.",
+    "at_current_mapping": {
+      "minimum_inner_diameter_mm_to_exceed_current_probe_semiangle": 49.552325043624094,
+      "existing_outer_diameter_mm": 14.0,
+      "feasible_by_inner_diameter_only": false,
+      "reason": "The required inner diameter is larger than the whole current DF detector. It cannot be achieved by a valid small adjustment of its existing annulus."
+    },
+    "keeping_existing_2mm_inner_diameter": {
+      "mapping_m_per_rad_must_be_less_than": 0.040314985239302215,
+      "example_inner_angle_mrad": 30.0,
+      "example_mapping_m_per_rad": 0.03333333333333333,
+      "example_outer_angle_mrad_with_existing_14mm_outer_diameter": 210.0,
+      "required_work": "Jointly recalibrate D/I/P1/P2 or change the physical DF recording-plane position/optical arrangement. These transfer matrices are coupled; they cannot be independently replaced by a desired camera-length number."
+    },
+    "upstream_HAADF_constraint": "If an eventual DF annulus covered 30–210 mrad while upstream HAADF still physically intercepted 60–330 mrad, DF would receive only its unblocked portion below 60 mrad. High-angle electrons already intercepted by HAADF cannot also be counted at DF. A future design must jointly specify detector insertion/order and non-overlapping accepted angular regions.",
+    "other_rechecks": [
+      "DPA and every physical aperture/beam passage with the newly traced optics",
+      "Detector mechanical inner/outer dimensions and axial placement",
+      "Scan extent, sample position and chief/deflection offsets",
+      "Illumination semiangle and specimen resolution when condenser/aperture settings change",
+      "Reciprocal grid coverage and angular quadrature for the proposed collection band"
+    ],
+    "alternative_illumination_change": "Reducing illumination semiangle below the present approximately 1 mrad DF inner edge would change its relationship to the direct-beam disk, but would abandon the present 24.8 mrad nanoprobe condition and change probe formation/resolution. It is not a cosmetic detector fix.",
+    "insufficient_changes": [
+      "Changing the DF label",
+      "Adding only coherent defocus",
+      "Enlarging only the DPA"
+    ]
+  },
+  "code_sources": [
+    {
+      "path": "src/temsim/detector/stem_signal.py",
+      "lines": "479-517",
+      "role": "Reference angular ranges from actual diffraction-transfer singular values and detector radii."
+    },
+    {
+      "path": "src/temsim/physics/record_plane.py",
+      "lines": "644-676",
+      "role": "Signed position-plus-angle projection and sequential physical interception; downstream masks cannot recover an already intercepted event."
+    },
+    {
+      "path": "src/temsim/physics/stem_wave_imaging.py",
+      "lines": "289-315",
+      "role": "Additional probe C1 plus traced ray-waist defocus."
+    }
+  ],
+  "limits": [
+    "This interpretation concerns the specific completed seed707/708 profiles and their recorded geometry, not arbitrary detector configurations.",
+    "The production recording plan is first order. It does not establish full nonlinear high-angle transport or experimental calibration.",
+    "No claim is made here that all wave-window, grid, phonon, material or detector-response errors are converged. The geometric identification of a 1–7 mrad ring as inside a 24.8 mrad illumination disk does not require such a claim."
+  ]
+}

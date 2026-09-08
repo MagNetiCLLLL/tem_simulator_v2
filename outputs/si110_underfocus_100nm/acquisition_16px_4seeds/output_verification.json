@@ -1,0 +1,124 @@
+{
+  "passed": true,
+  "shape": [
+    16,
+    16
+  ],
+  "step_nm": 0.08,
+  "configuration_seeds": [
+    707,
+    708,
+    709,
+    710
+  ],
+  "arithmetic_means_exact": true,
+  "standard_errors_exact": true,
+  "all_arrays_finite": true,
+  "all_signal_arrays_nonnegative": true,
+  "probability_error": 2.220446049250313e-16,
+  "exports": {
+    "haadf": {
+      "float32_tiff_exact": true,
+      "png_linear_mapping_and_y_flip_exact": true,
+      "coherent_tail_max_sum_error": 2.168404344971009e-19
+    },
+    "df": {
+      "float32_tiff_exact": true,
+      "png_linear_mapping_and_y_flip_exact": true,
+      "coherent_tail_max_sum_error": 0.0
+    },
+    "bf": {
+      "float32_tiff_exact": true,
+      "png_linear_mapping_and_y_flip_exact": true,
+      "coherent_tail_max_sum_error": 0.0
+    }
+  },
+  "profiles": [
+    {
+      "seed": 707,
+      "zero_skipped": true,
+      "effective_c1_nm": -100.0,
+      "configured_c1_nm": -100.08365920070722,
+      "all_startup_source_hashes_match": true,
+      "restored_state_sections_exact": [
+        "lenses",
+        "apertures",
+        "deflectors",
+        "sample",
+        "recording_planes",
+        "probe_aberrations",
+        "image_aberrations"
+      ]
+    },
+    {
+      "seed": 708,
+      "zero_skipped": true,
+      "effective_c1_nm": -100.0,
+      "configured_c1_nm": -100.08365920070722,
+      "all_startup_source_hashes_match": true,
+      "restored_state_sections_exact": [
+        "lenses",
+        "apertures",
+        "deflectors",
+        "sample",
+        "recording_planes",
+        "probe_aberrations",
+        "image_aberrations"
+      ]
+    },
+    {
+      "seed": 709,
+      "zero_skipped": true,
+      "effective_c1_nm": -100.0,
+      "configured_c1_nm": -100.08365920070722,
+      "all_startup_source_hashes_match": true,
+      "restored_state_sections_exact": [
+        "lenses",
+        "apertures",
+        "deflectors",
+        "sample",
+        "recording_planes",
+        "probe_aberrations",
+        "image_aberrations"
+      ]
+    },
+    {
+      "seed": 710,
+      "zero_skipped": true,
+      "effective_c1_nm": -100.0,
+      "configured_c1_nm": -100.08365920070722,
+      "all_startup_source_hashes_match": true,
+      "restored_state_sections_exact": [
+        "lenses",
+        "apertures",
+        "deflectors",
+        "sample",
+        "recording_planes",
+        "probe_aberrations",
+        "image_aberrations"
+      ]
+    }
+  ],
+  "equivalent_profile_zero_skipped": true,
+  "equivalent_profile_scope": "Physical settings/configuration count only, not the independent-seed realisation sequence.",
+  "source_cif_sha256": "944c5c81df5d813d051f96102eb9be37fac4b7647c2a9d1492d6333122be42c7",
+  "source_cif_path": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\input_Si.cif",
+  "source_cif_copy_exact": true,
+  "startup_hash_count": 83,
+  "all_constituent_source_hashes_match": true,
+  "archived_acquisition_and_ensemble_script_hashes_match": true,
+  "verifier_script_sha256": "010e64ac10510744f89858b3c3b683393e8f0c929696ad148e81730a500d6aeb",
+  "artifact_sha256": {
+    "bf.png": "153dada64b85c0c32008df7d33baac35ca005b150508dd40afab235e943b50be",
+    "bf.tiff": "1c8f20016b3ece27763814d053e9272fedafcb9ed29f80cbe16a4892b1c3cd09",
+    "df.png": "8b29be84f046a2dd997936f4387986949c1091813f33a9443fa7df52599058be",
+    "df.tiff": "da3da65b66f04376db4ead4d8af1a7f9855d9a0437152920cd19fa2a6066c8ee",
+    "ensemble_equivalent_profile.toml": "60de9386af01bc98a11553ce92f74b0f2696c25d0481a5fbcf66e06961f5dc02",
+    "ensemble_sem.npz": "2d824b71ae0b63ca06d0ffc676027c6b89267dd4959128c73f5db735594875e3",
+    "haadf.png": "1dda7260ab8ae96394de7484e40643cf09b000214cd08e9fdaee6ae831e6e279",
+    "haadf.tiff": "dd678178fc5786901083f5f0687bd1677e54beda99d43781ee09278a5c3b5a5b",
+    "haadf_df_bf_absolute_scale.png": "689c89294bcd6ee200d505c554cc0552670f22ae8a2b1d58b10c28bfcb42b53b",
+    "haadf_df_bf_comparison.png": "c4ebd1926eb556b4e348b50ad01941cb4789b68176803be9ec9c5b89eb809cfd",
+    "raw_scan.npz": "b66ff825332654fd7718f93f5b8412af58fe4d6f0546f8aaa74634074061a518"
+  }
+}

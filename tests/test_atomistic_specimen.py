@@ -23,6 +23,7 @@ from temsim.specimen.atomistic import (
     build_equilibrium_atoms,
 )
 from temsim.specimen.presets import load_specimen_preset
+from temsim.specimen.reference_catalog import reference_thermal_source
 
 
 def _require_atomistic_backend():
@@ -46,7 +47,7 @@ def _small_atomistic_state():
     state = default_state()
     state.acceleration_enabled = False
     state.acceleration_backend = "CPU"
-    state.sample.specimen_preset_key = "si_110"
+    state.sample.reference_sample_key = "si_110"
     state.sample.thickness_nm = 0.4
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 8.0
@@ -247,7 +248,7 @@ def test_rectangular_atomic_slices_match_between_cpu_and_cuda():
     assert relative_error < 5.0e-5
 
 
-def test_tem_atomistic_frozen_phonons_average_intensities_on_rectangular_grid():
+def test_tem_reference_cif_frozen_phonons_average_intensities_on_finite_roi_grid():
     _require_atomistic_backend()
     state = _small_atomistic_state()
     state.illumination_mode = "TEM"
@@ -271,7 +272,9 @@ def test_tem_atomistic_frozen_phonons_average_intensities_on_rectangular_grid():
         "incoherent frozen-phonon intensity mean"
     )
     assert result.image_intensity.shape == result.projected_potential_v_angstrom.shape
-    assert result.image_intensity.shape[0] != result.image_intensity.shape[1]
+    assert result.image_intensity.shape == (32, 32)
+    assert result.metrics["specimen_thermal_sigma_reference"] == reference_thermal_source(state.sample)
+    assert result.metrics["specimen_thermal_sigma_reference"] != "user override"
     assert np.isfinite(
         result.metrics["image_configuration_relative_standard_error"]
     )
@@ -306,7 +309,7 @@ def test_stem_atomistic_frozen_phonons_average_detector_intensities():
     assert relative_error >= 0.0
 
 
-def test_missing_atomistic_backend_has_an_explicit_legacy_fallback(monkeypatch):
+def test_reference_cif_missing_atomistic_backend_fails_without_analytic_fallback(monkeypatch):
     state = _small_atomistic_state()
     preset = load_specimen_preset("si_110")
 
@@ -317,11 +320,5 @@ def test_missing_atomistic_backend_has_an_explicit_legacy_fallback(monkeypatch):
         "temsim.physics.wave_imaging.build_atomistic_potential_ensemble",
         unavailable,
     )
-    prepared = prepare_specimen_potentials(state, preset)
-
-    assert prepared.metrics["atomistic_requested"] is True
-    assert prepared.metrics["atomistic_applied"] is False
-    assert prepared.metrics["potential_model"] == "analytic_projected_columns"
-    assert "synthetic missing" in prepared.metrics[
-        "atomistic_fallback_reason"
-    ]
+    with pytest.raises(AtomisticBackendUnavailable, match="synthetic missing"):
+        prepare_specimen_potentials(state, preset)

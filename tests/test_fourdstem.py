@@ -335,7 +335,10 @@ def test_stem_wave_solver_streams_configuration_averaged_diffraction_cube(tmp_pa
     state.sample.specimen_preset_key = "vacuum"
     state.sample.thickness_nm = 0.0
     state.sample.wave_grid_pixels = 32
-    state.sample.wave_field_of_view_angstrom = 16.0
+    # This checks fixed-size cube streaming, not automatic probe support.
+    # Match the 40 A template floor and keep this vacuum window at 32 pixels.
+    state.sample.wave_field_of_view_angstrom = 40.0
+    state.sample.wave_probe_padding_factor = 0.0
     state.sample.wave_multislice_enabled = False
     state.sample.wave_atomistic_enabled = False
     incident = SimpleNamespace(

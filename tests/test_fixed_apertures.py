@@ -190,7 +190,7 @@ def test_dpa_is_shared_by_geometric_and_coherent_detector_transport():
     assert sum(a.key == DPA for a in runtime_recording_stops(state)) == 1
     z = np.array([stop.z_mm - 1.0, stop.z_mm + 1.0])
     # Coarse history still interpolates to the actual stop before detectors.
-    x = np.tile([0.0, 0.2e-3], (2, 1))
+    x = np.tile([0.0, 1.1 * stop.radius_mm * 1e-3], (2, 1))
     alive, blocked_z, blocked_key = clip_recording_planes(
         state, z, x, np.zeros_like(x), np.ones(2, dtype=bool),
         np.full(2, np.nan), ["", ""],

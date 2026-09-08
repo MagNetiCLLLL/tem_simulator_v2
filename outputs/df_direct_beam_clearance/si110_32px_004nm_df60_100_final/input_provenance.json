@@ -1,0 +1,309 @@
+{
+  "catalog_pruned_unarchived_modules": {
+    "gun_variants": [
+      {
+        "name": "FEG + Mono",
+        "file": "gun/FEG_Mono.toml",
+        "electron_gun": "FEG",
+        "monochromator": true
+      },
+      {
+        "name": "Thermionic",
+        "file": "gun/Thermionic.toml",
+        "electron_gun": "Thermionic",
+        "monochromator": false
+      }
+    ],
+    "beam_blanker_variants": [
+      {
+        "name": "NanoPulser",
+        "file": "beam_blanker/NanoPulser.toml",
+        "installed": true
+      }
+    ],
+    "column_variants": [
+      {
+        "name": "C2",
+        "file": "column/C2.toml",
+        "c3_lens": false,
+        "probe_corrector": false,
+        "image_corrector": false
+      },
+      {
+        "name": "C3",
+        "file": "column/C3.toml",
+        "c3_lens": true,
+        "probe_corrector": false,
+        "image_corrector": false
+      },
+      {
+        "name": "C3 + Image Corrector",
+        "file": "column/C3_ImageCorrector.toml",
+        "c3_lens": true,
+        "probe_corrector": false,
+        "image_corrector": true
+      },
+      {
+        "name": "C3 + Probe Corrector + Image Corrector",
+        "file": "column/C3_ProbeCorrector_ImageCorrector.toml",
+        "c3_lens": true,
+        "probe_corrector": true,
+        "image_corrector": true
+      }
+    ],
+    "project_and_recording_system_variants": [
+      {
+        "name": "No Energy Filter",
+        "file": "project_and_recording_system/NoEnergyFilter.toml",
+        "energy_filter": false,
+        "selectable": false
+      }
+    ]
+  },
+  "df_before": {
+    "order": 19,
+    "key": "df",
+    "name": "DF Detector",
+    "branch": "detection",
+    "local_start_z_mm": 989.75,
+    "local_center_z_mm": 990.0,
+    "local_end_z_mm": 990.25,
+    "length_mm": 0.5,
+    "vacuum_inner_diameter_mm": 20,
+    "optical_reference_local_z_mm": 989.75,
+    "signal_collection_surface": "upstream_top_surface",
+    "outer_width_mm": 14.0,
+    "inner_diameter_mm": 2.0,
+    "axial_order_index": 2,
+    "axial_order_status": "evidence_backed_relative_order_absolute_z_provisional_non_oem",
+    "axial_order_source": "Figure 1.4 of Exploring electron beam shaping in transmission electron microscopy (University of Antwerp repository) places the BF/DF stack below HAADF and the main screen; the configured single DF channel represents the upstream DF stack location.",
+    "axial_order_source_urls": [
+      "https://repository.uantwerpen.be/docman/irua/6e3afa/130499.pdf",
+      "https://documents.thermofisher.com/TFS-Assets/MSD/manuals/mico-user-guide-1-16.pdf"
+    ],
+    "point_spread_model": "gaussian",
+    "point_spread_sigma_x_mm": 0.12,
+    "point_spread_sigma_y_mm": 0.12,
+    "point_spread_rotation_deg": 0.0,
+    "point_spread_status": "provisional_model_parameter",
+    "point_spread_source": "adjustable_simulator_default_not_instrument_calibration",
+    "mechanical_profile": "retractable_detector_plane",
+    "mechanical_part_role": "interaction_plane",
+    "insertion_axis": "x",
+    "housing_outside_axial_model": true
+  },
+  "df_after": {
+    "order": 19,
+    "key": "df",
+    "name": "DF Detector",
+    "branch": "detection",
+    "local_start_z_mm": 989.75,
+    "local_center_z_mm": 990.0,
+    "local_end_z_mm": 990.25,
+    "length_mm": 0.5,
+    "vacuum_inner_diameter_mm": 20,
+    "optical_reference_local_z_mm": 989.75,
+    "signal_collection_surface": "upstream_top_surface",
+    "outer_width_mm": 100.0,
+    "inner_diameter_mm": 60.0,
+    "axial_order_index": 2,
+    "axial_order_status": "evidence_backed_relative_order_absolute_z_provisional_non_oem",
+    "axial_order_source": "Figure 1.4 of Exploring electron beam shaping in transmission electron microscopy (University of Antwerp repository) places the BF/DF stack below HAADF and the main screen; the configured single DF channel represents the upstream DF stack location.",
+    "axial_order_source_urls": [
+      "https://repository.uantwerpen.be/docman/irua/6e3afa/130499.pdf",
+      "https://documents.thermofisher.com/TFS-Assets/MSD/manuals/mico-user-guide-1-16.pdf"
+    ],
+    "point_spread_model": "gaussian",
+    "point_spread_sigma_x_mm": 0.12,
+    "point_spread_sigma_y_mm": 0.12,
+    "point_spread_rotation_deg": 0.0,
+    "point_spread_status": "provisional_model_parameter",
+    "point_spread_source": "adjustable_simulator_default_not_instrument_calibration",
+    "mechanical_profile": "retractable_detector_plane",
+    "mechanical_part_role": "interaction_plane",
+    "insertion_axis": "x",
+    "housing_outside_axial_model": true
+  },
+  "lens_checks": {
+    "condenser_lens_1": {
+      "percent": {
+        "original": 51.666666666666664,
+        "actual": 51.666666666666664
+      },
+      "b0_t": {
+        "original": 1.7748239349298847,
+        "actual": 1.7748239349298847
+      }
+    },
+    "condenser_lens_2": {
+      "percent": {
+        "original": 25.25772717253661,
+        "actual": 25.25772717253661
+      },
+      "b0_t": {
+        "original": 1.3416407864998738,
+        "actual": 1.3416407864998738
+      }
+    },
+    "condenser_lens_3": {
+      "percent": {
+        "original": 21.273622908333973,
+        "actual": 21.273622908333973
+      },
+      "b0_t": {
+        "original": 0.38,
+        "actual": 0.38
+      }
+    },
+    "adapter_lens": {
+      "percent": {
+        "original": 86.0039434207,
+        "actual": 86.0039434207
+      },
+      "b0_t": {
+        "original": 0.12,
+        "actual": 0.12
+      }
+    },
+    "probe_tl22_lens": {
+      "percent": {
+        "original": 60.0,
+        "actual": 60.0
+      },
+      "b0_t": {
+        "original": 0.5301570833333334,
+        "actual": 0.5301570833333334
+      }
+    },
+    "probe_tl21_lens": {
+      "percent": {
+        "original": 60.0,
+        "actual": 60.0
+      },
+      "b0_t": {
+        "original": 0.49774598333333336,
+        "actual": 0.49774598333333336
+      }
+    },
+    "probe_tl12_lens": {
+      "percent": {
+        "original": 60.0,
+        "actual": 60.0
+      },
+      "b0_t": {
+        "original": 0.55,
+        "actual": 0.55
+      }
+    },
+    "mini_condenser": {
+      "percent": {
+        "original": 41.5570797718,
+        "actual": 41.5570797718
+      },
+      "b0_t": {
+        "original": 0.45,
+        "actual": 0.45
+      }
+    },
+    "objective_lens": {
+      "percent": {
+        "original": 68.9801,
+        "actual": 68.9801
+      }
+    },
+    "diffraction_lens": {
+      "percent": {
+        "original": 21.0525289552772,
+        "actual": 21.0525289552772
+      }
+    },
+    "intermediate_lens": {
+      "percent": {
+        "original": 93.36936839164477,
+        "actual": 93.36936839164477
+      }
+    },
+    "projector_lens_1": {
+      "percent": {
+        "original": 46.12308729096934,
+        "actual": 46.12308729096934
+      }
+    },
+    "projector_lens_2": {
+      "percent": {
+        "original": 32.8005139041144,
+        "actual": 32.8005139041144
+      }
+    },
+    "image_ol_post_lens": {
+      "percent": {
+        "original": 60.0,
+        "actual": 60.0
+      },
+      "b0_t": {
+        "original": 3.0364085833333334,
+        "actual": 3.0364085833333334
+      }
+    },
+    "image_tl11_lens": {
+      "percent": {
+        "original": 60.0,
+        "actual": 60.0
+      },
+      "b0_t": {
+        "original": 0.5609032,
+        "actual": 0.5609032
+      }
+    },
+    "image_tl12_lens": {
+      "percent": {
+        "original": 60.0,
+        "actual": 60.0
+      },
+      "b0_t": {
+        "original": 0.3299537833333333,
+        "actual": 0.3299537833333333
+      }
+    },
+    "image_tl21_lens": {
+      "percent": {
+        "original": 60.0,
+        "actual": 60.0
+      },
+      "b0_t": {
+        "original": 2.1599302,
+        "actual": 2.1599302
+      }
+    },
+    "image_tl22_lens": {
+      "percent": {
+        "original": 60.0,
+        "actual": 60.0
+      },
+      "b0_t": {
+        "original": 2.1261313,
+        "actual": 2.1261313
+      }
+    },
+    "image_adapter_lens": {
+      "percent": {
+        "original": 60.0,
+        "actual": 60.0
+      },
+      "b0_t": {
+        "original": 0.41919165,
+        "actual": 0.41919165
+      }
+    }
+  },
+  "source_cif_sha256": "944c5c81df5d813d051f96102eb9be37fac4b7647c2a9d1492d6333122be42c7",
+  "original_parameters_sha256": "5ee641bfd8f4fc3df4221b03fbdfd43ab1d65ee347f8a425c192bb85f56dac31",
+  "source_archive": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final",
+  "acquisition_frame_period_s": 1.0,
+  "instrument_sha256": {
+    "catalog.toml": "5749e95ecae2b9b9b96b4a2bd8ecdb140c82efb43d73e81bdf5ad9e9e47ff0cb",
+    "column/C3_ProbeCorrector.toml": "de20731f74c71694c2a9ab5aa100055d00d0ab49d685fea1f9d60f5465dd6baa",
+    "gun/FEG.toml": "613557c141ea384f9b64022f5ca09c4d2e4676de1c4786bdca8a7c1a8f977293",
+    "project_and_recording_system/EnergyFilter.toml": "45ba491bf6bf962c5755a53d766ab38b97bd06234d2a604cf19da1e0919b5077"
+  }
+}

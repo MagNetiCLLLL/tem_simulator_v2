@@ -1,0 +1,63 @@
+{
+  "passed": true,
+  "images": {
+    "haadf": {
+      "mean_fraction": 0.0008016724454585585,
+      "range": [
+        0.0007219555941228779,
+        0.0009558754343793214
+      ],
+      "tail_share": 0.09367650122956522,
+      "expected_electrons_mean": 5.003645843074745,
+      "poisson_counts_mean": 4.9462890625,
+      "tif_png_npz_verified": true
+    },
+    "df": {
+      "mean_fraction": 0.0026664769981256825,
+      "range": [
+        0.0024768297009816692,
+        0.003046732366272375
+      ],
+      "tail_share": 0.0,
+      "expected_electrons_mean": 16.642840380642344,
+      "poisson_counts_mean": 16.8310546875,
+      "tif_png_npz_verified": true
+    },
+    "bf": {
+      "mean_fraction": 0.00035545528479580756,
+      "range": [
+        5.414051677386615e-05,
+        0.0007626105289077472
+      ],
+      "tail_share": 0.0,
+      "expected_electrons_mean": 2.2185773856180675,
+      "poisson_counts_mean": 2.2158203125,
+      "tif_png_npz_verified": true
+    }
+  },
+  "probability_error": 2.220446049250313e-16,
+  "array_count": 20,
+  "grid": [
+    1024,
+    1024
+  ],
+  "scan": [
+    32,
+    32
+  ],
+  "pitch_nm": 0.04,
+  "pixel_fov_nm": 1.28,
+  "cuda_resident": true,
+  "frozen_phonons": 4,
+  "seed": 707,
+  "input_cif_sha256": "944c5c81df5d813d051f96102eb9be37fac4b7647c2a9d1492d6333122be42c7",
+  "archive_hashes_verified": true,
+  "mechanical_changes_only_df_2_to_60_14_to_100": true,
+  "profile_with_independent_catalog_import": {
+    "skipped": [],
+    "df_id_mm": 60,
+    "df_od_mm": 100,
+    "lenses_wave_specimen_and_reference_angles_match": true
+  },
+  "scope": "No new ray/wave simulation; array, export, catalog and profile-import checks only."
+}

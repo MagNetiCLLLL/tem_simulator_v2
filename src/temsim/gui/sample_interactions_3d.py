@@ -1325,8 +1325,8 @@ class SampleInteractions3DPage(QWidget):
         specimen_label = (
             "Vacuum reference"
             if scene.specimen_is_vacuum
-            else "Virtual TOML sample"
-            if scene.specimen_mode == "virtual"
+            else "Reference CIF sample"
+            if scene.specimen_mode == "reference"
             else "Real imported CIF sample"
         )
         parts = [

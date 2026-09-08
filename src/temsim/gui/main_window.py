@@ -11,11 +11,16 @@ from temsim.gui.input_policy import (
 
 from pathlib import Path
 from dataclasses import replace
+from copy import copy
+
+import numpy as np
 
 from PySide6.QtCore import QByteArray, QSettings, Qt, QTimer
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QDockWidget,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -26,6 +31,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QToolBar,
     QWidget,
+    QVBoxLayout,
 )
 
 from temsim.assembly_catalog import AssemblyCatalog
@@ -112,6 +118,7 @@ class MainWindow(QMainWindow):
         self._selected_component_key = None
         self._selected_energy_filter_key = "energy_filter"
         self._part_geometry_dialog = None
+        self._df_geometry_dialog = None
 
         self.workspace = VisualizationWorkspace(self)
         self.workspace.model_inspector.set_state(self.state)
@@ -222,6 +229,7 @@ class MainWindow(QMainWindow):
         self.workspace.scan_parameters_changed.connect(
             self._runtime_parameter_changed
         )
+        self.workspace.scan_control.df_geometry_requested.connect(self._review_df_geometry)
         self.workspace.scan_error.connect(self._show_error)
         self.workspace.design_explorer.capture_requested.connect(
             self._capture_design_snapshot
@@ -1899,6 +1907,159 @@ class MainWindow(QMainWindow):
         self._interactive_preview_generation = None
         if self._interactive_preview_pending:
             self.preview_timer.start(0)
+
+    def _df_geometry_result(self, frame):
+        self.workspace.scan_control.require_current_df_frame(frame)
+        result = self.workspace._high_accuracy_result
+        if (result is None or getattr(result, "stem_scan", None) is not frame
+                or getattr(result, "state_snapshot", None) is None):
+            raise ValueError("DF fitting needs the matching High accuracy state and full raster. Run High accuracy first.")
+        return result
+
+    def _df_chamber_diameter(self, part, detector_z_mm):
+        candidates = []
+        for housing in self.assembly.parts:
+            data = housing.data
+            related = (part.key in data.get("contained_recording_plane_keys", ())
+                       or part.parent_key == housing.key)
+            if related and housing.start_z_mm <= detector_z_mm <= housing.end_z_mm:
+                value = data.get("mechanical_inner_diameter_mm")
+                if value is not None and np.isfinite(float(value)) and float(value) > 0:
+                    candidates.append((float(value), housing))
+        if not candidates:
+            raise ValueError("DF chamber mechanical inner diameter is not defined for this plane; cannot guarantee the proposed detector fits.")
+        return min(candidates, key=lambda item: item[0])
+
+    @staticmethod
+    def _df_geometry_plan_inputs(result, frame):
+        """Match the production wave raster origin and timed downstream map."""
+        from temsim.physics.scan_geometry import calibrate_scan_system, paired_kick_response, raster_sample_grid
+        from temsim.physics.record_plane import build_record_plane_plan
+        from temsim.physics.wave_imaging import _weighted_ray_statistics
+        from temsim.physics.stem_sampling import frame_sampling_report
+
+        # Calibration writes private scan couplings. Work on private components
+        # so neither the captured solution nor the live controls are changed.
+        snapshot = copy(result.state_snapshot)
+        snapshot.corrector_elements = [copy(component) for component in snapshot.corrector_elements]
+        snapshot._ac_deflector = None
+        snapshot._descan_deflector = None
+        calibrate_scan_system(snapshot)
+        ac = snapshot.ac_deflector
+        rows, columns = np.asarray(frame.scan_x_um).shape
+        _x, _y, times = raster_sample_grid(ac, pixels_x=columns, pixels_y=rows, maximum_count=None)
+        baseline_kick_rad = np.asarray(ac.scan_kick_mrad(float(getattr(snapshot, "simulation_time_s", 0.0)))) * 1e-3
+        baseline_position_m = paired_kick_response(snapshot, ac, snapshot.sample.z_mm) @ baseline_kick_rad
+        statistics = _weighted_ray_statistics(result.simulation.incident)
+        origin_m = np.asarray((statistics["mean_x_m"], statistics["mean_y_m"])) - baseline_position_m
+        positions_m = np.stack((frame.scan_x_um, frame.scan_y_um), axis=-1) * 1e-6 + origin_m
+        chief_mrad = np.asarray((statistics["mean_tx_rad"], statistics["mean_ty_rad"])) * 1e3
+        report = frame_sampling_report(getattr(frame, "metrics", None) or {})
+        if report is None or report.get("probe_semiangle_mrad") is None:
+            raise ValueError("This frame does not record the model illumination disk. Run High accuracy again.")
+        plan = build_record_plane_plan(snapshot, scan_times_s=times)
+        return plan, positions_m, float(report["probe_semiangle_mrad"]), chief_mrad
+
+    def _review_df_geometry(self, frame):
+        from temsim.physics.dark_field_geometry import propose_dark_field_geometry
+
+        if self._df_geometry_dialog is not None:
+            self._df_geometry_dialog.raise_()
+            self._df_geometry_dialog.activateWindow()
+            return self._df_geometry_dialog
+        try:
+            result = self._df_geometry_result(frame)
+            part = self.assembly.part("df")
+            target = ManifestTarget(part.source_file, "df")
+            source_path = (self.manifest_editor.root / target.module_path).resolve()
+            source_path.relative_to(self.manifest_editor.root)
+            original_source = source_path.read_bytes()
+            detector = next(item for item in result.state_snapshot.stem_detectors if item.key == "df")
+            chamber_diameter, chamber = self._df_chamber_diameter(part, detector.z_mm)
+            plan, positions_m, alpha_mrad, chief_mrad = self._df_geometry_plan_inputs(result, frame)
+            proposal = propose_dark_field_geometry(
+                plan, positions_m, alpha_mrad,
+                chamber_inner_diameter_mm=chamber_diameter, probe_center_mrad=chief_mrad,
+            )
+            if not proposal.supported:
+                raise ValueError(proposal.detail)
+            # Planning may be expensive. Verify authority again before offering
+            # a save, as well as when the user finally applies the proposal.
+            self._df_geometry_result(frame)
+            if source_path.read_bytes() != original_source:
+                raise ValueError("The DF source TOML changed during fitting. Reload and calculate again.")
+        except Exception as exc:
+            self._show_error(f"Unable to fit DF dimensions: {exc}")
+            return None
+
+        dialog = QDialog(self)
+        dialog.setObjectName("dfGeometryReviewDialog")
+        dialog.setWindowTitle("Review DF dimensions for the current camera length")
+        dialog.resize(660, 510)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        layout = QVBoxLayout(dialog)
+        detail = QLabel(
+            f"Target: {target.module_path} · parts.df\n"
+            f"DF collection plane: Z {detector.z_mm:.9g} mm (unchanged)\n\n"
+            f"Inner diameter: {detector.inner_diameter_mm:.9g} → {proposal.inner_diameter_mm:.9g} mm\n"
+            f"Outer diameter: {detector.outer_width_mm:.9g} → {proposal.outer_width_mm:.9g} mm\n"
+            f"Model illumination semi-angle: {alpha_mrad:.6g} mrad\n"
+            f"Angular band relative to probe chief (conservative): {proposal.angular_inner_mrad:.6g}–{proposal.angular_outer_mrad:.6g} mrad\n"
+            f"DF Jdiff effective camera-length range (singular axes): "
+            f"{proposal.camera_length_min_m:.6g}–{proposal.camera_length_max_m:.6g} m\n"
+            f"Maximum projected direct-disk radius: {proposal.direct_disk_max_radius_mm:.6g} mm\n"
+            f"Direct-disk clearance: {proposal.direct_disk_clearance_mm:.6g} mm\n"
+            f"Chamber ID: {chamber_diameter:.6g} mm ({chamber.name})\n\n"
+            "Uses the full signed Jdiff and Jimg maps, beam centre and every raster offset; "
+            "the camera-length range is not a claim of a pure diffraction plane. "
+            "Projector/camera-length or convergence changes require a new calculation and review. "
+            "Upstream HAADF may still intercept DF rays; it is not moved and blocked signal is not restored.\n\n"
+            "Save changes these two physical dimensions in the active module TOML. "
+            "The previous images remain stale until High accuracy is run again."
+        )
+        detail.setObjectName("dfGeometryProposalDetails")
+        detail.setWordWrap(True)
+        detail.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        detail.setToolTip(
+            proposal.detail + " The exclusion bound applies to the supplied illumination "
+            "disk and current first-order model, not every aberrated ray or probe tail."
+        )
+        layout.addWidget(detail)
+        error = QLabel()
+        error.setObjectName("dfGeometryProposalError")
+        error.setWordWrap(True)
+        error.setStyleSheet("color: #fca5a5;")
+        layout.addWidget(error)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Save DF dimensions")
+        buttons.button(QDialogButtonBox.StandardButton.Save).setObjectName("saveDfDimensions")
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        updates = {("parts", "df", "inner_diameter_mm"): proposal.inner_diameter_mm,
+                   ("parts", "df", "outer_width_mm"): proposal.outer_width_mm}
+
+        def save_dimensions():
+            try:
+                self._df_geometry_result(frame)
+                if self.assembly.part("df").source_file != target.module_path:
+                    raise ValueError("The active DF module changed. Close this review and calculate again.")
+                if source_path.read_bytes() != original_source:
+                    raise ValueError("The DF source TOML changed. Close this review, reload and calculate again.")
+                self._save_geometry_updates_preserving_drafts(target, updates)
+                # Assembly reload creates a new live State and clears its scan
+                # view. Retain the original completed frame with its own context.
+                self.workspace.scan_control._set_stem_frame(frame, state_snapshot=result.state_snapshot)
+                self.workspace.scan_control.mark_stem_frame_stale()
+                self.status_label.setText("DF dimensions saved; previous images are stale. Run High accuracy to update them.")
+                dialog.accept()
+            except Exception as exc:
+                error.setText(f"DF dimensions were not saved: {exc}")
+
+        buttons.accepted.connect(save_dimensions)
+        self._df_geometry_dialog = dialog
+        dialog.finished.connect(lambda _code: setattr(self, "_df_geometry_dialog", None))
+        dialog.open()
+        return dialog
 
     def _mark_operating_preset_stale(self) -> None:
         message = (

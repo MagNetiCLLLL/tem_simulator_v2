@@ -163,9 +163,9 @@ actually used. Tiny previews stay on CPU in Auto mode because accelerator
 launch and transfer overhead is larger than the useful work.
 
 The standard project environment includes ASE and abTEM for finite-projection
-Lobato--Van Dyck independent-atom potentials. Silicon and gold use
-commensurate crystal builders, while a user CIF/MCIF is orthogonalised and
-cropped directly to the scan ROI plus probe padding inside the finite X/Y/Z
+Lobato--Van Dyck independent-atom potentials. Bundled reference CIFs and
+user-imported CIF/MCIF files are orthogonalised and cropped directly to the
+scan ROI plus probe padding inside the finite X/Y/Z
 sample envelope. A macroscopic sample therefore does not create a macroscopic
 supercell. The canonical orientation is a unit quaternion; zone-axis `[uvw]`,
 an independent in-plane direction and numeric/mouse rotations all update that
@@ -179,13 +179,19 @@ tracked transmitted beam. It is not an absorptive multislice potential or a
 full energy-differential EELS/dielectric calculation.
 The generic EDS subsystem is separate from that aggregate core-loss model. It
 uses Bote--Salvat K/L/M shell ionisation and xraylib relaxation data, supports
-Cu/Au 3.05 mm commercial support grids or a virtual-vacuum support, and runs
+Cu/Au 3.05 mm commercial support grids or a vacuum support, and runs
 an explicit point spectrum only when requested. Its seeded transport uses
 every weighted upstream ray that survives to the physical sample plane and
 retains its X/Y position, incident slopes/rotation and energy offset while it
 traces event-by-event three-dimensional elastic paths through the finite
 sample, mesh openings/sidewalls, bars and rim, then integrates EDS production
-along those paths. The present relativistic screened-Rutherford fallback is
+along those paths. For a broad beam with sparse hits on a small specimen,
+an optional EDS-only overlap estimate uses a weighted ray-density model and
+Sobol material samples. Its absolute overlap weights retain source and column
+losses; it does not renormalise the intersecting beam to the full current or
+replace the original electron trajectories. This density estimate has explicit
+eligibility checks and is not coherent probe or crystal-channeling physics.
+The present relativistic screened-Rutherford fallback is
 not an ELSEPA/full-Mott or crystal-channeling model and carries an explicit
 `Z > 30` accuracy warning. A straight-primary reference remains selectable;
 editing sample, support or mechanical state never launches the calculation.
@@ -417,8 +423,8 @@ recalculation preserves a user's runtime direction override.
   integration step.
 - Runs the optional TEM wave-imaging backend during a high-accuracy calculation
   and displays the image and diffraction pattern on a dedicated page.
-- Provides a central **Sample** page with insert/retract and Real/Virtual mode
-  controls, a mutually exclusive real-structure source selector, TEM/STEM wave
+- Provides a central **Sample** page with insert/retract and **Reference CIF** /
+  **Open CIF** source controls, TEM/STEM wave
   and multislice settings, finite
   sample/scan/ROI overlays, +Z beam, zone-axis alignment and dual mouse
   behaviour. Sample parameters are not duplicated in the left instrument
@@ -447,7 +453,8 @@ recalculation preserves a user's runtime direction override.
   scan position animates the Ray Diagram without rerunning ray physics, and
   the diagram remains freely rotatable during playback. Preview uses the fast
   geometric detector approximation; High accuracy can use wave/multislice
-  detector integration with first-order descan acceptance shifts. **Pause
+  detector integration through the signed recording-plane maps, including
+  static and timed descan offsets and sequential physical stops. **Pause
   refresh** freezes only the three detector images on the previous complete
   frame; it never leaves a half-written raster on screen, and scan/Ray Diagram
   playback continues.
@@ -462,7 +469,7 @@ recalculation preserves a user's runtime direction override.
 - Names the scan workspace **STEM**, with separate **Geometry** and **Images**
   subtabs. BF/DF/HAADF images use physical scan coordinates, keep one X unit
   equal to one Y unit, and retain unrestricted interactive pan/zoom. The image
-  notice distinguishes geometric detector clipping from virtual-sample and
+  notice distinguishes geometric/particle detector previews from
   CIF/multislice signals. It also warns when the FOV leaves the finite sample
   or the pixel pitch is coarser than half the shortest periodic CIF atom
   spacing. Polygon/wedge patterns from `geometric_detector_interception` are
@@ -471,32 +478,28 @@ recalculation preserves a user's runtime direction override.
   inserted** is cleared. Retracting the holder removes diffraction, diffuse
   ray broadening and atomistic/wave interaction; retained CIF settings are
   dormant until the specimen is inserted again.
-- Supports two explicit, source-owning specimen modes. **Real sample (CIF /
-  crystal)** accepts only an imported CIF/MCIF and never falls back to a TOML
-  material when no file is selected. It never
-  creates artificial `+g/-g` or diffuse diffraction beams. Instead, measured
-  material IMFP anchors and independent-event Poisson statistics create
-  absolute zero-loss, plasmon, core-ionisation and plural-inelastic ray
-  populations with representative energy loss and characteristic scattering
-  angle. User MFP/loss overrides support measured films and custom CIFs;
-  effective absorption is disabled unless explicitly supplied. **Virtual
-  sample** owns simulator TOML reference specimens such as Silicon [110] and
-  Gold [001] for ideal high-accuracy wave/EDS calculations. It also has
-  extensible diffraction-spot/ring, Gaussian/diffuse, arbitrary-angle,
-  user-screened-power-law, physical screened-relativistic-Rutherford and
-  absorption rows. Probabilities are absolute, are never normalised, and must
-  sum to at most one; the remainder is direct beam. Rectangles, ellipses and
-  NPY/PNG/TIFF grayscale maps define local density inside the finite slab,
-  with vacuum outside and optional convolution by the calculated probe. These
-  user-authored ray probabilities remain distinct from the TOML reference's
-  IAM/multislice calculation and are disabled by default until explicitly
-  enabled.
+- Supports two real-structure sources. **Reference CIF** uses files from
+  `configs/reference_samples`, including the user's unchanged Si [110] CIF;
+  **Open CIF** owns the selected external CIF/MCIF and remains unconfigured
+  when no file is selected. Neither substitutes TOML column potentials for
+  missing atoms. The retired Virtual mode and its user-authored diffraction,
+  scattering and density-map controls are no longer active specimen models.
+  Reference metadata supplies documented orientation, thermal assumptions
+  and explicitly assigned material anchors; external structures do not
+  silently inherit silicon material constants. Independent inelastic events
+  produce absolute zero-loss, plasmon, core-ionisation and plural-event ray
+  populations, separately from coherent multislice diffraction. User MFP/loss
+  overrides remain available; effective absorption is disabled unless supplied.
+  CIF bulk composition counts symmetry-expanded, occupancy-weighted sites.
+  Coherent atomistic potentials reject partial/mixed occupancy and require an
+  explicit occupied/disordered supercell instead of silently choosing the
+  majority element.
 - **Sample Interactions 3D** provides the specimen-local electron trajectories
   and characteristic X-ray view, including **Calculate detailed paths + X-rays**
   for explicit calculation. Ray Diagram has no Manual sample result controls
   or specimen-local transport overlays.
-- In Ray Diagram, hue denotes the interaction type: Real energy-loss state or
-  Virtual user channel, with neutral hues for incident/vacuum/zero-loss paths.
+- In Ray Diagram, hue denotes the real energy-loss state, with neutral hues
+  for incident/vacuum/zero-loss paths.
   Five dark-to-bright shades denote each
   ray's 3-D sample-plane convergence semi-angle relative to its branch's
   weighted chief ray; the brightest shade is reached at the calculated
@@ -514,6 +517,13 @@ recalculation preserves a user's runtime direction override.
   position, inner/outer active size and collection angle. Collection angle is
   calculated through the active signed sample-to-detector transfer, including
   rotation or anisotropy rather than assuming angle = radius / axial distance.
+  **Images > Exclude direct beam...** proposes DF dimensions for the current
+  camera-length map, full raster and probe chief, checks mechanical clearance,
+  and saves reviewed ID/OD values to the recording TOML without changing lens
+  strengths or detector Z. Upstream HAADF may shadow DF; sequential routing
+  retains that interception. Dimensions such as 60/100 mm are specific to the
+  archived calibration, not universal defaults. See
+  [`docs/STEM_SAMPLING_AND_CONTRAST.md`](docs/STEM_SAMPLING_AND_CONTRAST.md).
 - Models Camera, Fluorescent Screen and BF/DF/HAADF readout point spread as a
   TOML-owned, forward-only anisotropic Gaussian in detector-plane millimetres.
   Selecting one of these devices in Transverse X-Y overlays the finite-area
@@ -521,27 +531,31 @@ recalculation preserves a user's runtime direction override.
   retained response weight. The supplied widths are adjustable provisional
   simulator defaults, not measured instrument calibration; arbitrary Z and the
   specimen-to-Objective CTF are not convolved.
-- Integrates wave and virtual angular intensity through each detector's actual
-  `hit_mask` after the complete signed 2x2 sample-to-detector transfer, in
+- Integrates coherent-wave and optional high-angle-tail intensity through each
+  detector's actual `hit_mask` after the signed specimen phase-space transfer, in
   axial order so upstream interception cannot be double counted. A STEM frame
   reports source fractions, pA, expected electrons per dwell, optional seeded
   Poisson counts, uncollected/absorbed/truncated fractions and a separately
-  identified optional high-angle tail; it does not retain a full 4D cube.
+  identified optional high-angle tail. **Images > Display** selects stored
+  ideal fractions, expected electrons/pixel or seeded Poisson counts without
+  resampling. Electron dose is effective source current times dwell divided
+  by the electron charge; numerical ray count and random seed are not dose.
+  A 4D cube is retained only when
+  its separate capture option is enabled.
 - Provides a complex128 CPU-reference symmetric split-operator multislice
   engine and an optional complex64 CuPy CUDA path with safe CPU fallback,
   explicit angstrom/inverse-angstrom FFT conventions, 2/3 anti-alias
   bandwidth limiting, per-slice phase diagnostics and integrated-intensity
-  checks. Silicon [110] and gold [001] provide explicit 3-D atomic potential
-  slices; vacuum and presets without an atomistic definition retain the
-  explicitly labelled continuous-column model.
+  checks. Reference and imported CIF atoms provide explicit 3-D atomic
+  potential slices; a retracted or zero-thickness specimen propagates vacuum.
 - Treats the resident STEM CUDA calculation as one atomic operation. Any
   allocation, propagation, FFT or detector-integration failure discards all
   partial GPU output and recomputes the complete observable with the NumPy
   complex128 reference. Metrics report residency, fallback reason, potential
   uploads, batch count, reusable-plan builds/uses/cache bytes and bulk
   host-transfer bytes.
-- Provides reproducible frozen-phonon configurations with preset or user RMS
-  displacement and a user-visible random seed. TEM image/diffraction and STEM
+- Provides reproducible frozen-phonon configurations with reference-metadata
+  or user RMS displacement and a user-visible random seed. TEM image/diffraction and STEM
   detector signals average configuration intensities, never complex exit-wave
   amplitudes. A relative standard-error diagnostic helps judge finite-ensemble
   convergence without claiming a universal configuration count.
@@ -553,16 +567,21 @@ recalculation preserves a user's runtime direction override.
   multislice angular support is the default
   and omitted intensity is not renormalised. An optional screened relativistic
   Rutherford approximation can complete only angles beyond that support; it
-  uses explicit Z/areal-density/screening inputs, is reported separately, and
-  is not described as Mott or silently blended into the wave-supported range.
-- Defines the STEM probe semi-angle as the weighted 99% angular containment
-  about the three-dimensional chief ray and reports RMS/95%/edge angles
-  separately instead of using RMS convergence as a hard pupil radius.
+  derives per-element areal density from CIF composition and thickness, with
+  automatic Thomas--Fermi/Moliere screening from Z and beam energy. Material
+  and screening each have a manual override. Mixtures use one total event
+  probability; finite-sample Gaussian overlap is independent of raster size.
+  The tail uses the same physical stops as the wave, removes overlap with wave
+  support without redistributing its probability, and is reported as an
+  approximation rather than a full Mott model.
+- Defines the coherent STEM probe pupil using weighted 95% angular containment
+  about the chief ray, matching Nanoprobe alignment. RMS, 99% and sampled-edge
+  angles are reported separately; the 95% pupil is a model choice, not an
+  assertion that every geometrical ray lies inside that disk.
 - Defines the operator-facing Nanoprobe convergence control explicitly as the
   current-weighted 95% radial semi-angle about the chief ray. This preserves
   the calibrated 20-40 mrad operating convention and is invariant to a common
-  Larmor rotation; it is intentionally distinct from the wave pupil's more
-  conservative weighted 99% containment. Microprobe area is the corresponding
+  Larmor rotation. Microprobe area is the corresponding
   95%-current diameter and is constrained by sample-plane radial wavefront
   curvature and a 0.5 mrad maximum semi-angle.
 - Keeps gun ray paths on a strict shared-Z grid while retaining equal-time
@@ -637,11 +656,17 @@ At the common P2/projection-chamber boundary, both recording TOMLs now also
 define a separate `projection_chamber_dpa_aperture`. It is displayed as the
 fixed **Projection-Chamber Differential-Pumping Aperture**, upstream of HAADF
 and distinct from the downstream Iliad spectrometer entrance aperture. The
-configured 0.2 mm bore is a documented Tecnai/Talos-family reference, not a
-confirmed Titan production dimension; the unavailable plate thickness remains
+configured bore is **12 mm** (6 mm radius), a user-requested simulator opening.
+The documented 0.2 mm Tecnai/Talos-family bore is retained separately as
+reference metadata, not as the active opening or a confirmed Titan dimension.
+In the ordinary nanoprobe/diffraction preset the new opening passes angles up
+to about 186 mrad at this stop; full 60--330 mrad HAADF coverage still requires
+the saved DPA-crossover lens setting. Differential-pumping performance is not
+modelled. The unavailable plate thickness remains
 a zero-length mechanical reference with schematic display thickness. This
-stop now participates in ray and coherent-wave clipping. Its opening and X/Y
-offsets are editable in **Apertures**; its axial position is editable in TOML.
+stop participates in ray, coherent-wave and high-angle-tail clipping. Its
+opening and X/Y offsets are editable in **Apertures**; its axial position is
+editable in TOML.
 Gun/anode and spectrometer-entrance apertures are also listed there and remain
 **Always inserted** when installed. Movable apertures retain their insertion
 switches. No conjugacy constraint or automatic preset recalculation is added.

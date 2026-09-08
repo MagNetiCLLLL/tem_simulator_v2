@@ -30,6 +30,7 @@ def _state(backend: str, *, atomistic: bool = False):
     state.acceleration_enabled = backend != "CPU"
     state.acceleration_backend = backend
     state.sample.specimen_preset_key = "si_110" if atomistic else "vacuum"
+    state.sample.inserted = atomistic
     state.sample.thickness_nm = 0.4
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 8.0 if atomistic else 16.0

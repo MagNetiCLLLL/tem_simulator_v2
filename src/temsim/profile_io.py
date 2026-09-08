@@ -15,19 +15,22 @@ import tomli_w
 
 from temsim.assembly_catalog import AssemblySelection
 from temsim.runtime_parameters import (
+    RETIRED_SAMPLE_FIELDS,
+    SAMPLE_SOURCE_FIELDS,
     editable_parameters,
     runtime_targets,
     validate_runtime_assignment,
 )
 from temsim.specimen.geometry import (
     normalise_quaternion_wxyz,
+    quaternion_from_euler_xyz_deg,
     sample_orientation_quaternion,
     set_sample_orientation,
 )
 from temsim.specimen.source import migrate_legacy_structure_source
 
 
-PROFILE_FORMAT_VERSION = 4
+PROFILE_FORMAT_VERSION = 5
 _SAMPLE_MODEL_KEY = "__sample_model__"
 _SIMULATION_MODEL_KEY = "__simulation_model__"
 _PROFILE_VERSION_KEY = "__profile_format_version__"
@@ -78,6 +81,8 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
                 none_values.setdefault(key, []).append(parameter.name)
             else:
                 values[parameter.name] = parameter.value
+        if key == "sample":
+            values.update({name: getattr(state.sample, name) for name in sorted(SAMPLE_SOURCE_FIELDS)})
         if values:
             devices[key] = values
     document = {
@@ -105,10 +110,6 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
             ),
             "zone_axis_uvw": list(state.sample.zone_axis_uvw),
             "in_plane_axis_uvw": list(state.sample.in_plane_axis_uvw),
-            "virtual_interactions": deepcopy(
-                state.sample.virtual_interactions
-            ),
-            "virtual_regions": deepcopy(state.sample.virtual_regions),
             "frozen_phonon_sigma_by_element_angstrom": dict(
                 state.sample.wave_frozen_phonon_sigma_by_element_angstrom
             ),
@@ -123,7 +124,7 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
     if not isinstance(document, dict):
         raise ValueError("Operating profile must be a TOML table")
     format_version = int(document.get("format_version", 0))
-    if format_version not in {1, 2, 3, PROFILE_FORMAT_VERSION}:
+    if format_version not in {1, 2, 3, 4, PROFILE_FORMAT_VERSION}:
         raise ValueError("Unsupported operating-profile format")
     assembly = document.get("assembly")
     if not isinstance(assembly, dict):
@@ -185,20 +186,10 @@ def _apply_sample_model(sample, model: dict) -> None:
     )
     if len(zone) != 3 or len(in_plane) != 3 or zone == (0, 0, 0):
         raise ValueError("Operating profile has invalid sample zone-axis metadata")
-    interactions = model.get("virtual_interactions", sample.virtual_interactions)
-    regions = model.get("virtual_regions", sample.virtual_regions)
     element_sigma = model.get(
         "frozen_phonon_sigma_by_element_angstrom",
         sample.wave_frozen_phonon_sigma_by_element_angstrom,
     )
-    if not isinstance(interactions, list) or not all(
-        isinstance(row, dict) for row in interactions
-    ):
-        raise ValueError("Sample virtual_interactions must be an array of tables")
-    if not isinstance(regions, list) or not all(
-        isinstance(row, dict) for row in regions
-    ):
-        raise ValueError("Sample virtual_regions must be an array of tables")
     if not isinstance(element_sigma, dict):
         raise ValueError("Sample frozen-phonon element RMS values must be a table")
     converted_sigma = {}
@@ -212,8 +203,8 @@ def _apply_sample_model(sample, model: dict) -> None:
     set_sample_orientation(sample, quaternion)
     sample.zone_axis_uvw = zone
     sample.in_plane_axis_uvw = in_plane
-    sample.virtual_interactions = deepcopy(interactions)
-    sample.virtual_regions = deepcopy(regions)
+    sample.virtual_interactions = []
+    sample.virtual_regions = []
     sample.wave_frozen_phonon_sigma_by_element_angstrom = converted_sigma
 
 
@@ -237,6 +228,7 @@ def apply_profile_values(state, values: dict) -> list[str]:
     sample_mode_was_explicit = False
     sample_cif_was_explicit = False
     sample_preset_was_explicit = False
+    sample_attributes = values.get("sample", {})
     for key, attributes in values.items():
         target = targets.get(key)
         if target is None:
@@ -249,6 +241,8 @@ def apply_profile_values(state, values: dict) -> list[str]:
         if not isinstance(attributes, dict):
             raise ValueError(f"Operating profile device {key} must be a table")
         allowed = {parameter.name for parameter in editable_parameters(target)}
+        if key == "sample":
+            allowed.update(SAMPLE_SOURCE_FIELDS)
         for name, value in attributes.items():
             if value is None:
                 if name not in allowed or name not in _nullable_fields(type(target.obj)):
@@ -265,10 +259,19 @@ def apply_profile_values(state, values: dict) -> list[str]:
                 continue
             if key == "sample" and name == "specimen_mode":
                 sample_mode_was_explicit = True
+                if format_version < 5 and str(value).lower() == "virtual":
+                    pending.append((target.obj, name, "virtual"))
+                    continue
             if key == "sample" and name == "cif_path":
                 sample_cif_was_explicit = True
             if key == "sample" and name == "specimen_preset_key":
                 sample_preset_was_explicit = True
+                if format_version < 5:
+                    pending.append((target.obj, name, validate_runtime_assignment(target, name, value)))
+                continue
+            if key == "sample" and (name in RETIRED_SAMPLE_FIELDS or name.startswith("virtual_")):
+                # Retired idealized controls have no role in real CIF samples.
+                continue
             if key == "sample" and name == "eds_elastic_trajectory_count":
                 # Retired in schema 69: EDS histories now come from the exact
                 # upstream ray bundle reaching the physical sample plane.
@@ -286,31 +289,41 @@ def apply_profile_values(state, values: dict) -> list[str]:
     for obj, name, value in pending:
         if obj is state.sample:
             setattr(candidate_sample, name, value)
-    if legacy_sample_source:
-        migrated = migrate_legacy_structure_source(
-            {
-                "specimen_mode": candidate_sample.specimen_mode,
-                "cif_path": candidate_sample.cif_path,
-            },
-            legacy_source=legacy_sample_source,
-        )
-        candidate_sample.specimen_mode = migrated["specimen_mode"]
-    elif not sample_mode_was_explicit:
-        if sample_cif_was_explicit and str(candidate_sample.cif_path).strip():
-            candidate_sample.specimen_mode = "atomic"
-        elif sample_preset_was_explicit:
-            candidate_sample.specimen_mode = "virtual"
+    legacy_orientation_fields = tuple(f"specimen_rotation_{axis}_deg" for axis in "xyz")
+    if format_version < 5 and (
+        legacy_sample_source in {"preset", "cif"}
+        or (sample_mode_was_explicit and candidate_sample.specimen_mode in {"atomic", "virtual"})
+        or (sample_cif_was_explicit and not sample_mode_was_explicit)
+        or (sample_preset_was_explicit and not sample_mode_was_explicit and not sample_cif_was_explicit)
+        or any(name in sample_attributes for name in legacy_orientation_fields)
+    ):
+        # Legacy presets started from an identity *relative* rotation, while
+        # a new reference sample already contains its CIF zone alignment.
+        # Never use that new default as an extra legacy tilt.
+        set_sample_orientation(candidate_sample, quaternion_from_euler_xyz_deg(
+            tuple(sample_attributes.get(name, 0.0) for name in legacy_orientation_fields)
+        ))
     if sample_model is not None:
         _apply_sample_model(candidate_sample, sample_model)
-    elif format_version == 1:
-        # V1 stored only the two legacy relative sliders.  Convert them once
-        # to absolute-probability rows while retaining the scalar compatibility
-        # fields for older scripts.
-        from temsim.specimen.virtual import legacy_virtual_interaction_rows
-
-        candidate_sample.virtual_interactions = legacy_virtual_interaction_rows(
-            candidate_sample
+    if format_version < 5:
+        if not sample_mode_was_explicit:
+            if sample_cif_was_explicit and str(candidate_sample.cif_path).strip():
+                candidate_sample.specimen_mode = "atomic"
+            elif sample_preset_was_explicit:
+                candidate_sample.specimen_mode = "virtual"
+        # Older presets applied their crystal zone before the saved relative
+        # orientation. Migrate only after the sample-model quaternion is loaded.
+        migrated = migrate_legacy_structure_source(
+            deepcopy(vars(candidate_sample)), legacy_source=legacy_sample_source,
+            infer_implicit_atomic_preset=False,
         )
+        vars(candidate_sample).update(migrated)
+        if sample_attributes or sample_model is not None:
+            for name in ("real_tail_material_source", "real_tail_screening_source"):
+                if name not in sample_attributes:
+                    setattr(candidate_sample, name, "manual")
+    candidate_sample.virtual_interactions = []
+    candidate_sample.virtual_regions = []
     for obj, name, value in pending:
         if obj is not state.sample:
             setattr(obj, name, value)

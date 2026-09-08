@@ -1,0 +1,81 @@
+{
+  "passed": true,
+  "scope": "Actual saved state and raw scan coordinates; recorded actual probe statistics only. No new source-ray or wave calculation. Real scan calibration and downstream first-order map traces were executed.",
+  "stats_source": "parameters.json['probe'] (561 surviving measured rays)",
+  "input_sha256": {
+    "parameters.json": "faee44216836e56a7a7935ff17610377abf6eca90ebc8993f9721c35ba22b926",
+    "final_acquisition_state.json": "39df4abb4ea27f498ef42284aed9718b378a01ed205861cb98be32e0b4f71b46",
+    "raw_scan.npz": "dcaa8ca1f855d560323226131fbcb38397a202ef8a0149fcf18af098735424b0",
+    "mask_preflight.json": "9755ffbeda6986407f58fecf547ca98e4fe6657e10c1d6d819a2bb29afe2cff2"
+  },
+  "state_serialization_unchanged": true,
+  "scan_shape": [
+    32,
+    32
+  ],
+  "scan_time_range_s": [
+    0.00048828125,
+    0.99951171875
+  ],
+  "scan_times_exact_match": true,
+  "raw_scan_vs_preflight_max_error_um": 5.421010862427522e-20,
+  "ui_positions_vs_preflight_max_error_m": 2.0679515313825692e-25,
+  "raster_origin_um": [
+    -2.713927968854427e-07,
+    8.489680604412868e-07
+  ],
+  "baseline_scan_shift_um": [
+    -0.0006400000000000002,
+    -0.00062
+  ],
+  "probe_chief_angle_mrad": [
+    -0.05741575117736618,
+    -0.11166431955634022
+  ],
+  "modeled_probe_semiangle_mrad": 24.80467235853336,
+  "df_jdiff_m_per_rad": [
+    [
+      -0.991060197353363,
+      -0.12450806796550751
+    ],
+    [
+      0.12450806796550751,
+      -0.991060197353363
+    ]
+  ],
+  "plane_matrix_max_errors": {
+    "projection_chamber_dpa_aperture": {
+      "j_diff_m_per_rad": 0.0,
+      "j_img": 0.0,
+      "position_offset_m": 0.0,
+      "z_mm": 0.0
+    },
+    "haadf": {
+      "j_diff_m_per_rad": 0.0,
+      "j_img": 0.0,
+      "position_offset_m": 0.0,
+      "z_mm": 0.0
+    },
+    "df": {
+      "j_diff_m_per_rad": 0.0,
+      "j_img": 0.0,
+      "position_offset_m": 0.0,
+      "z_mm": 0.0
+    },
+    "bf": {
+      "j_diff_m_per_rad": 0.0,
+      "j_img": 0.0,
+      "position_offset_m": 0.0,
+      "z_mm": 0.0
+    },
+    "energy_filter_entrance_aperture": {
+      "j_diff_m_per_rad": 0.0,
+      "j_img": 0.0,
+      "position_offset_m": 0.0,
+      "z_mm": 4.547473508864641e-13
+    }
+  },
+  "plan_fingerprint": "c294454a5bdccb374aa8e17d515d9068d0ddc6c1acbf4e5b78c725afe0941afd",
+  "recorded_plan_fingerprint": "6eb1b3fa39700d5d5c6427cbb9e034a92020eacd73c841e054dbaa0d058d8ff5",
+  "plan_fingerprint_exact_match": false
+}

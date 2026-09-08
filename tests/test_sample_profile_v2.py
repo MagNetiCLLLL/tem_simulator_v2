@@ -18,7 +18,7 @@ from temsim.specimen.source import (
 )
 
 
-def test_profile_v2_round_trips_sample_tables_and_quaternion(tmp_path: Path):
+def test_profile_round_trips_real_sample_metadata_and_quaternion(tmp_path: Path):
     catalog = AssemblyCatalog()
     selection = catalog.default_selection()
     state = default_state()
@@ -82,8 +82,11 @@ def test_profile_v2_round_trips_sample_tables_and_quaternion(tmp_path: Path):
     )
     assert restored.sample.zone_axis_uvw == (1, 1, 0)
     assert restored.sample.in_plane_axis_uvw == (0, 0, 1)
-    assert restored.sample.virtual_interactions == state.sample.virtual_interactions
-    assert restored.sample.virtual_regions == state.sample.virtual_regions
+    assert restored.sample.virtual_interactions == []
+    assert restored.sample.virtual_regions == []
+    saved = tomllib.loads(path.read_text(encoding="utf-8"))
+    assert "virtual_interactions" not in saved["sample_model"]
+    assert "virtual_regions" not in saved["sample_model"]
     assert restored.sample.wave_frozen_phonon_sigma_by_element_angstrom == {
         "Si": 0.075
     }
@@ -182,7 +185,7 @@ def test_profile_rejects_unknown_retired_atomic_structure_source():
         )
 
 
-def test_profile_v1_is_read_and_legacy_virtual_weights_are_migrated(tmp_path: Path):
+def test_profile_v1_maps_virtual_source_to_real_reference_without_virtual_weights(tmp_path: Path):
     catalog = AssemblyCatalog()
     selection = catalog.default_selection()
     path = tmp_path / "sample-v1.toml"
@@ -208,8 +211,8 @@ def test_profile_v1_is_read_and_legacy_virtual_weights_are_migrated(tmp_path: Pa
     skipped = apply_profile_values(state, values)
 
     assert skipped == []
-    probabilities = [
-        row["probability"] for row in state.sample.virtual_interactions
-    ]
-    assert sum(probabilities) < 1.0
-    assert all(value >= 0.0 for value in probabilities)
+    assert state.sample.specimen_mode == "reference"
+    assert state.sample.reference_sample_key == "si_110"
+    assert state.sample.virtual_interactions == []
+    assert state.sample.virtual_regions == []
+    assert Path(active_cif_path(state.sample)).is_file()

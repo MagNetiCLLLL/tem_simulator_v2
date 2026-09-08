@@ -32,10 +32,10 @@ def isolated_cache():
 
 def _state():
     sample = Sample()
-    sample.specimen_mode = "virtual"
+    sample.specimen_mode = "reference"
     sample.specimen_preset_key = "si_110"
     sample.envelope_shape = "rectangle"
-    sample.wave_atomistic_enabled = False
+    sample.wave_atomistic_enabled = True
     sample.wave_grid_pixels = 32
     sample.wave_field_of_view_angstrom = 16.0
     return SimpleNamespace(sample=sample, lenses=[SimpleNamespace(excitation=67.0)])
@@ -66,7 +66,7 @@ def _assert_same_arrays(left, right):
         np.testing.assert_array_equal(left.slice_thicknesses_angstrom, right.slice_thicknesses_angstrom)
 
 
-def test_actual_analytic_cold_hit_and_uncached_reference_are_exact():
+def test_actual_cif_cold_hit_and_uncached_reference_are_exact():
     state, preset = _state(), _preset()
     expected = wave_imaging._prepare_specimen_potentials_uncached(state, preset)
     cold = wave_imaging.prepare_specimen_potentials(state, preset)

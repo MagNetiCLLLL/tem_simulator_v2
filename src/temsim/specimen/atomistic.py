@@ -424,6 +424,15 @@ def build_cif_equilibrium_atoms(
         raise ValueError(f"CIF file contains no atoms: {path}")
     if np.any(np.asarray(unit.cell.lengths(), dtype=float) <= 0.0):
         raise ValueError("CIF structure must define a finite three-dimensional cell.")
+    from temsim.specimen.rutherford import composition_from_atoms
+
+    composition = composition_from_atoms(unit, source_path=str(path))
+    if composition.partial_occupancy or composition.mixed_occupancy:
+        raise ValueError(
+            "Coherent atomistic potentials cannot represent partial or mixed CIF site occupancy. "
+            "Provide an explicitly occupied/disordered supercell (and an ensemble when needed); "
+            "the bulk Rutherford tail and EDS material composition support occupancy weighting."
+        )
     try:
         unit = abtem.orthogonalize_cell(
             unit,
@@ -593,6 +602,7 @@ def build_atomistic_potential_ensemble(
     specimen_centre_xy_angstrom=(0.0, 0.0),
     calculation_roi_centre_xy_angstrom=(0.0, 0.0),
     thermal_sigma_by_element_angstrom=None,
+    thermal_sigma_source: str = "",
 ) -> AtomisticPotentialEnsemble:
     """Build static or frozen-phonon finite-projection potential slices."""
 
@@ -769,6 +779,8 @@ def build_atomistic_potential_ensemble(
         thermal_sigma_reference=(
             "explicit per-element user table"
             if frozen_phonon_enabled and per_atom_sigma is not None
+            else str(thermal_sigma_source)
+            if frozen_phonon_enabled and thermal_sigma_override_angstrom > 0.0 and thermal_sigma_source
             else "user override"
             if frozen_phonon_enabled and thermal_sigma_override_angstrom > 0.0
             else (

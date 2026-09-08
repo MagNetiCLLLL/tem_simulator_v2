@@ -1,0 +1,222 @@
+[
+  {
+    "strengths": {
+      "diffraction_lens": 13.103501238250214,
+      "intermediate_lens": 0.005849964995074334,
+      "projector_lens_1": 38.53625162241104,
+      "projector_lens_2": 9.289862208547607
+    },
+    "radial_matrix": [
+      [
+        -61.193972484410295,
+        1.0739856904665285e-07
+      ],
+      [
+        -173.93947796332628,
+        -0.016341173461216347
+      ]
+    ],
+    "success": false,
+    "nfev": 160,
+    "distance_from_preset": 6.611891632202233,
+    "elapsed_s": 5.055803199764341
+  },
+  {
+    "strengths": {
+      "diffraction_lens": 14.759308749528019,
+      "intermediate_lens": 93.1096964026728,
+      "projector_lens_1": 47.3635016289638,
+      "projector_lens_2": 40.26994532752851
+    },
+    "radial_matrix": [
+      [
+        -99.2593083636056,
+        4.017684309335835e-07
+      ],
+      [
+        -1551.6298184847944,
+        -0.010068341403923061
+      ]
+    ],
+    "success": false,
+    "nfev": 160,
+    "distance_from_preset": 99.10735217297726,
+    "elapsed_s": 5.664820299949497
+  },
+  {
+    "strengths": {
+      "diffraction_lens": 13.345213547997036,
+      "intermediate_lens": 0.0067190777339439225,
+      "projector_lens_1": 33.40856126642264,
+      "projector_lens_2": 11.89235314669917
+    },
+    "radial_matrix": [
+      [
+        -40.25154679418142,
+        5.152222040006168e-07
+      ],
+      [
+        -102.04789721633384,
+        -0.02484245954000178
+      ]
+    ],
+    "success": false,
+    "nfev": 160,
+    "distance_from_preset": 2.7319659668916327,
+    "elapsed_s": 6.32826909981668
+  },
+  {
+    "strengths": {
+      "diffraction_lens": 13.043484065408673,
+      "intermediate_lens": 0.00028150472019620684,
+      "projector_lens_1": 40.36531619809593,
+      "projector_lens_2": 9.234876671942217
+    },
+    "radial_matrix": [
+      [
+        -68.28447355571495,
+        3.2171379491974425e-07
+      ],
+      [
+        -193.6641911114648,
+        -0.01464370512781531
+      ]
+    ],
+    "success": false,
+    "nfev": 160,
+    "distance_from_preset": 8.414375404337544,
+    "elapsed_s": 6.948429899755865
+  },
+  {
+    "strengths": {
+      "diffraction_lens": 19.632707469907178,
+      "intermediate_lens": 18.275104123687612,
+      "projector_lens_1": 0.7611159232035215,
+      "projector_lens_2": 44.501288489126324
+    },
+    "radial_matrix": [
+      [
+        32.13879996056635,
+        -2.81440311181225e-07
+      ],
+      [
+        332.78616455862743,
+        0.03111212434143867
+      ]
+    ],
+    "success": false,
+    "nfev": 160,
+    "distance_from_preset": 50.43336275472868,
+    "elapsed_s": 7.535243900027126
+  },
+  {
+    "strengths": {
+      "diffraction_lens": 19.35135927482405,
+      "intermediate_lens": 18.46368422852878,
+      "projector_lens_1": 2.7405611202516043,
+      "projector_lens_2": 62.87301725240219
+    },
+    "radial_matrix": [
+      [
+        79.40390663594404,
+        -2.431312365296568e-07
+      ],
+      [
+        691.202481411759,
+        0.012591722365369694
+      ]
+    ],
+    "success": false,
+    "nfev": 160,
+    "distance_from_preset": 63.55352482442494,
+    "elapsed_s": 8.234286400023848
+  },
+  {
+    "strengths": {
+      "diffraction_lens": 12.275749594512769,
+      "intermediate_lens": 5.778577310591695,
+      "projector_lens_1": 57.536079133452176,
+      "projector_lens_2": 38.83854058450159
+    },
+    "radial_matrix": [
+      [
+        54.752632657597964,
+        -9.658746750697719e-09
+      ],
+      [
+        909.2176731330878,
+        0.018263801566400534
+      ]
+    ],
+    "success": false,
+    "nfev": 160,
+    "distance_from_preset": 39.067671675899234,
+    "elapsed_s": 8.816238499712199
+  },
+  {
+    "strengths": {
+      "diffraction_lens": 12.329586301398976,
+      "intermediate_lens": 5.248694860877992,
+      "projector_lens_1": 58.51101294005946,
+      "projector_lens_2": 81.10749600966676
+    },
+    "radial_matrix": [
+      [
+        470.780249158885,
+        2.4568185416297478e-08
+      ],
+      [
+        3863.137457809404,
+        0.002124334893113596
+      ]
+    ],
+    "success": false,
+    "nfev": 160,
+    "distance_from_preset": 76.22338167021556,
+    "elapsed_s": 9.340409100055695
+  },
+  {
+    "strengths": {
+      "diffraction_lens": 14.189587408093782,
+      "intermediate_lens": 0.04352016595516488,
+      "projector_lens_1": 26.129137199135688,
+      "projector_lens_2": 15.012445999707072
+    },
+    "radial_matrix": [
+      [
+        -17.303919266992303,
+        5.950020975149093e-07
+      ],
+      [
+        -11.505852736922487,
+        -0.057789980325462814
+      ]
+    ],
+    "success": false,
+    "nfev": 160,
+    "distance_from_preset": 7.927829711385924,
+    "elapsed_s": 9.938679399900138
+  },
+  {
+    "strengths": {
+      "diffraction_lens": 21.0525289552772,
+      "intermediate_lens": 93.36936839164477,
+      "projector_lens_1": 46.12308729096934,
+      "projector_lens_2": 32.8005139041144
+    },
+    "radial_matrix": [
+      [
+        -0.21749999833533196,
+        -1.9073162510095318e-12
+      ],
+      [
+        4233.743173478141,
+        -4.59770114747549
+      ]
+    ],
+    "success": true,
+    "nfev": 160,
+    "distance_from_preset": 97.35130622649051,
+    "elapsed_s": 10.649294799659401
+  }
+]

@@ -1,0 +1,16 @@
+{
+  "source_profile": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\operating_profile.toml",
+  "source_profile_sha256": "e8ed898ee1d6270ce49aab27d140c647b585d7422e1c61875c3591843912eaae",
+  "new_profile": "E:\\tem_simulator_v2\\outputs\\haadf_dpa_clearance\\si110_haadf_dpa_12mm.toml",
+  "new_profile_sha256": "33b8c955bc4cd0911890d3c2d99c655eb46ac47fab806665a293ee912cb0557c",
+  "only_profile_change": {
+    "field": "devices.projection_chamber_dpa_aperture.radius_mm",
+    "before": 0.1,
+    "after": 6.0
+  },
+  "new_default_radius_mm": 6.0,
+  "loaded_radius_mm": 6.0,
+  "skipped_fields": [],
+  "sample_diameter_nm": 10.0,
+  "sample_thickness_nm": 5.0
+}

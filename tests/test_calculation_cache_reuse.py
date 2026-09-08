@@ -351,11 +351,11 @@ def test_scan_response_products_ignore_emitter_sampling_density():
     assert after["scan_ray_paths"] == before["scan_ray_paths"]
 
 
-def test_virtual_density_map_content_changes_identity_at_same_path(tmp_path):
+def test_retired_virtual_density_map_does_not_change_physical_identity(tmp_path):
     density_path = tmp_path / "density.npy"
     np.save(density_path, np.zeros((4, 4), dtype=np.float32))
     state = default_state()
-    state.sample.specimen_mode = "virtual"
+    state.sample.specimen_mode = "reference"
     state.sample.virtual_regions = [{
         "kind": "map",
         "map_path": str(density_path),
@@ -370,19 +370,7 @@ def test_virtual_density_map_content_changes_identity_at_same_path(tmp_path):
     np.save(density_path, np.ones((4, 4), dtype=np.float32))
     after = calculation_signatures(state)
 
-    assert after["request"] != before["request"]
-    for product in ("incident", "column"):
-        assert after[product] == before[product]
-    for product in (
-        "elastic",
-        "eds",
-        "wave",
-        "wave_source",
-        "stem",
-        "stem_transport",
-        "sample_region",
-    ):
-        assert after[product] != before[product]
+    assert after == before
 
 
 def test_spot_current_limit_reuses_geometry_but_invalidates_counts():
@@ -623,13 +611,13 @@ def test_projector_change_reprojects_saved_objective_wave_without_specimen_recal
     state.projector_mode = "image"
     state.sample.eds_enabled = False
     state.sample.wave_enabled = True
-    state.sample.specimen_mode = "virtual"
+    state.sample.specimen_mode = "reference"
     state.sample.specimen_preset_key = "si_110"
     state.sample.thickness_nm = 2.0
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 16.0
-    state.sample.wave_multislice_enabled = False
-    state.sample.wave_atomistic_enabled = False
+    state.sample.wave_multislice_enabled = True
+    state.sample.wave_atomistic_enabled = True
     state.fluorescent_screen.inserted = False
     state.camera.inserted = True
     emitter = getattr(state.electron_gun, "emitter", None)

@@ -1,0 +1,2415 @@
+{
+  "mode": "run",
+  "created_utc": "2026-09-08T12:31:56.531605+00:00",
+  "command": [
+    "E:\\tem_simulator_v2\\.venv\\Scripts\\python.exe",
+    "scripts/run_stem_profile_ensemble.py",
+    "--profile",
+    "outputs/haadf_dpa_clearance/si110_haadf_dpa_12mm.toml",
+    "--output",
+    "outputs/si110_underfocus_100nm/acquisition_16px_4seeds",
+    "--seeds",
+    "707",
+    "708",
+    "709",
+    "710",
+    "--scan-side",
+    "16",
+    "--step-nm",
+    ".08",
+    "--grid",
+    "2048",
+    "--fov-angstrom",
+    "80",
+    "--padding-factor",
+    "1.3",
+    "--effective-c1-nm",
+    "-100"
+  ],
+  "source_profile": "E:\\tem_simulator_v2\\outputs\\haadf_dpa_clearance\\si110_haadf_dpa_12mm.toml",
+  "source_cif": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final\\input_Si.cif",
+  "cif_sha256": "944c5c81df5d813d051f96102eb9be37fac4b7647c2a9d1492d6333122be42c7",
+  "requested_scan_side": 16,
+  "requested_step_nm": 0.08,
+  "actual_scan_side": 16,
+  "actual_scan_step_nm": 0.08,
+  "representative_point_span_nm": 1.2,
+  "phonons": 4,
+  "seed": 707,
+  "configured_c1_nm": -100.08365920070722,
+  "focus": {
+    "ray_waist_offset_m": -8.365920070721626e-11,
+    "ray_defocus_mm": 8.365920070721627e-08,
+    "configured_defocus_mm": -0.00010008365920070721,
+    "effective_defocus_mm": -0.0001,
+    "source": "sample-plane ray covariance plus additional probe C1; lens excitation is included once through the traced ray bundle"
+  },
+  "probe": {
+    "surviving_rays": 561,
+    "surviving_fraction": 0.5609999999999998,
+    "mean_x_m": -6.402713225916061e-10,
+    "mean_y_m": -5.991509023419376e-10,
+    "mean_tx_rad": -5.741575117736618e-05,
+    "mean_ty_rad": -0.00011166431955634022,
+    "convergence_rms_rad": 0.014243516068378379,
+    "convergence_95_rad": 0.02480467235853336,
+    "convergence_99_rad": 0.026121904092095992,
+    "convergence_edge_rad": 0.026375097386568132,
+    "radius_rms_m": 1.0595038059341445e-10,
+    "radius_95_m": 2.245529730479334e-10,
+    "radius_99_m": 2.9010856478689564e-10,
+    "radial_position_angle_covariance_m_rad": 1.6977097099690207e-14,
+    "radial_wavefront_curvature_per_m": 1512371.171559084,
+    "waist_offset_m": -8.365920070721626e-11,
+    "twofold_moment": 0.052814477518653556,
+    "threefold_moment": 0.0307909343405912
+  },
+  "incident_sample_fraction": 0.561,
+  "sampling_plan": {
+    "field_of_view_angstrom": 80.0,
+    "pixels": 2048,
+    "sampling_angstrom": 0.0390625,
+    "reference_sampling_angstrom": 0.0390625,
+    "estimated_potential_bytes": 452984832,
+    "estimated_working_bytes": 5402263552,
+    "expanded": false
+  },
+  "padding_factor": 1.3,
+  "physical_detector_reference_angles": {
+    "haadf": {
+      "inner_mrad": 60.00000002201169,
+      "outer_mrad": 330.0000001210643,
+      "inner_range_mrad": [
+        60.00000002201169,
+        60.00000002201169
+      ],
+      "outer_range_mrad": [
+        330.0000001210643,
+        330.0000001210643
+      ],
+      "anisotropic": false
+    },
+    "df": {
+      "inner_mrad": 1.0011507484087907,
+      "outer_mrad": 7.008055238861535,
+      "inner_range_mrad": [
+        1.0011507484087905,
+        1.0011507484087907
+      ],
+      "outer_range_mrad": [
+        7.008055238861534,
+        7.008055238861535
+      ],
+      "anisotropic": false
+    },
+    "bf": {
+      "inner_mrad": 0.0,
+      "outer_mrad": 0.5678851177334857,
+      "inner_range_mrad": [
+        0.0,
+        0.0
+      ],
+      "outer_range_mrad": [
+        0.5678851177334857,
+        0.5678851177334857
+      ],
+      "anisotropic": false
+    }
+  },
+  "recording_planes": [
+    {
+      "key": "projection_chamber_dpa_aperture",
+      "z_mm": 2586.9
+    },
+    {
+      "key": "haadf",
+      "z_mm": 2594.15
+    },
+    {
+      "key": "df",
+      "z_mm": 2804.15
+    },
+    {
+      "key": "bf",
+      "z_mm": 2874.15
+    },
+    {
+      "key": "energy_filter_entrance_aperture",
+      "z_mm": 3025.8999999999996
+    }
+  ],
+  "state": {
+    "schema_version": 77,
+    "lenses": [
+      {
+        "name": "C1 Lens",
+        "key": "condenser_lens_1",
+        "b0_t": 1.7748239349298847,
+        "a_mm": 7.142857142857143,
+        "percent": 51.666666666666664,
+        "max_percent": 100.0,
+        "colour": "#1565c0",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": true,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": true
+      },
+      {
+        "name": "C2 Lens",
+        "key": "condenser_lens_2",
+        "b0_t": 1.3416407864998738,
+        "a_mm": 12.5,
+        "percent": 25.25772717253661,
+        "max_percent": 100.0,
+        "colour": "#1976d2",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": true,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": false
+      },
+      {
+        "name": "C3 Lens",
+        "key": "condenser_lens_3",
+        "b0_t": 0.38,
+        "a_mm": 9.0,
+        "percent": 21.273622908333973,
+        "max_percent": 100.0,
+        "colour": "#0288d1",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": true,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": false
+      },
+      {
+        "name": "ADL (Adapter Lens)",
+        "key": "adapter_lens",
+        "b0_t": 0.12,
+        "a_mm": 7.0,
+        "percent": 86.0039434207,
+        "max_percent": 100.0,
+        "colour": "#6a1b9a",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": true,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": false
+      },
+      {
+        "name": "TL22 Transfer Lens",
+        "key": "probe_tl22_lens",
+        "b0_t": 0.5301570833333334,
+        "a_mm": 6.0,
+        "percent": 60.0,
+        "max_percent": 100.0,
+        "colour": "#8e24aa",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": true,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": -1,
+        "normalise_profile_peak": false,
+        "corrector": "probe"
+      },
+      {
+        "name": "TL21 Transfer Lens",
+        "key": "probe_tl21_lens",
+        "b0_t": 0.49774598333333336,
+        "a_mm": 6.0,
+        "percent": 60.0,
+        "max_percent": 100.0,
+        "colour": "#c2185b",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": true,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": false,
+        "corrector": "probe"
+      },
+      {
+        "name": "TL12 Transfer Lens",
+        "key": "probe_tl12_lens",
+        "b0_t": 0.55,
+        "a_mm": 7.0,
+        "percent": 60.0,
+        "max_percent": 100.0,
+        "colour": "#ad1457",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": true,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": false,
+        "corrector": "probe"
+      },
+      {
+        "name": "Mini Condenser Lens",
+        "key": "mini_condenser",
+        "b0_t": 0.45,
+        "a_mm": 8.0,
+        "percent": 41.5570797718,
+        "max_percent": 100.0,
+        "colour": "#0097a7",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": true,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": -1,
+        "normalise_profile_peak": false,
+        "corrector": "shared_column",
+        "standalone_mechanical_length_mm": 20.0,
+        "standalone_mechanical_outer_diameter_mm": 59.0,
+        "standalone_bore_diameter_mm": 20.0,
+        "standalone_pole_gap_mm": 12.0,
+        "active_installation": "integrated"
+      },
+      {
+        "name": "Objective Lens Assembly",
+        "key": "objective_lens",
+        "percent": 68.9801,
+        "enabled": true,
+        "colour": "#d32f2f",
+        "upper_objective_lens_axial_length_mm": 155.0,
+        "lower_objective_lens_axial_length_mm": 155.0,
+        "cs_mm": 1.2,
+        "polarity": 1,
+        "corrector": "objective"
+      },
+      {
+        "name": "Diffraction Lens",
+        "key": "diffraction_lens",
+        "percent": 21.0525289552772,
+        "colour": "#f57c00",
+        "enabled": true,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": false,
+        "anchor_key": "selected_area_aperture",
+        "active_installation": "standalone",
+        "corrector": "projector"
+      },
+      {
+        "name": "Intermediate Lens",
+        "key": "intermediate_lens",
+        "percent": 93.36936839164477,
+        "colour": "#388e3c",
+        "enabled": true,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": false,
+        "anchor_key": "selected_area_aperture",
+        "corrector": "projector"
+      },
+      {
+        "name": "Projector Lens P1",
+        "key": "projector_lens_1",
+        "percent": 46.12308729096934,
+        "colour": "#795548",
+        "enabled": true,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": false,
+        "anchor_key": "selected_area_aperture",
+        "corrector": "projector"
+      },
+      {
+        "name": "Projector Lens P2",
+        "key": "projector_lens_2",
+        "percent": 32.8005139041144,
+        "colour": "#5d4037",
+        "enabled": true,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": false,
+        "anchor_key": "selected_area_aperture",
+        "corrector": "projector"
+      },
+      {
+        "name": "Image Corrector OL Post Lens",
+        "key": "image_ol_post_lens",
+        "b0_t": 3.0364085833333334,
+        "a_mm": 12.338709677419354,
+        "percent": 60.0,
+        "max_percent": 100.0,
+        "colour": "#3949ab",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": false,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": false,
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector TL11",
+        "key": "image_tl11_lens",
+        "b0_t": 0.5609032,
+        "a_mm": 12.61290322580645,
+        "percent": 60.0,
+        "max_percent": 100.0,
+        "colour": "#3949ab",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": false,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": -1,
+        "normalise_profile_peak": false,
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector TL12",
+        "key": "image_tl12_lens",
+        "b0_t": 0.3299537833333333,
+        "a_mm": 0.5,
+        "percent": 60.0,
+        "max_percent": 100.0,
+        "colour": "#3949ab",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": false,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": false,
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector TL21",
+        "key": "image_tl21_lens",
+        "b0_t": 2.1599302,
+        "a_mm": 9.870967741935484,
+        "percent": 60.0,
+        "max_percent": 100.0,
+        "colour": "#3949ab",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": false,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": false,
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector TL22",
+        "key": "image_tl22_lens",
+        "b0_t": 2.1261313,
+        "a_mm": 9.870967741935484,
+        "percent": 60.0,
+        "max_percent": 100.0,
+        "colour": "#3949ab",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": false,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": -1,
+        "normalise_profile_peak": false,
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector ADL",
+        "key": "image_adapter_lens",
+        "b0_t": 0.41919165,
+        "a_mm": 9.870967741935484,
+        "percent": 60.0,
+        "max_percent": 100.0,
+        "colour": "#3949ab",
+        "gaussian": [
+          {
+            "amplitude": 0.09,
+            "offset": -1.0,
+            "sigma": 0.9
+          },
+          {
+            "amplitude": 0.82,
+            "offset": 0.0,
+            "sigma": 0.55
+          },
+          {
+            "amplitude": 0.09,
+            "offset": 1.0,
+            "sigma": 0.9
+          }
+        ],
+        "enabled": false,
+        "cs_mm": null,
+        "cc_mm": null,
+        "polarity": 1,
+        "normalise_profile_peak": false,
+        "corrector": "image"
+      }
+    ],
+    "apertures": [
+      {
+        "name": "C2 Aperture",
+        "key": "condenser_aperture_2",
+        "radius_mm": 0.05,
+        "offset_x_mm": 0.0,
+        "offset_y_mm": 0.0,
+        "enabled": true,
+        "colour": "#00acc1"
+      },
+      {
+        "name": "C3 Aperture",
+        "key": "condenser_aperture_3",
+        "radius_mm": 2.0,
+        "offset_x_mm": 0.0,
+        "offset_y_mm": 0.0,
+        "enabled": true,
+        "colour": "#00897b"
+      },
+      {
+        "name": "Objective Aperture",
+        "key": "objective_aperture",
+        "radius_mm": 0.05,
+        "offset_x_mm": 0.0,
+        "offset_y_mm": 0.0,
+        "enabled": false,
+        "colour": "#e53935"
+      },
+      {
+        "name": "Selected Area Aperture",
+        "key": "selected_area_aperture",
+        "radius_mm": 0.1,
+        "offset_x_mm": 0.0,
+        "offset_y_mm": 0.0,
+        "enabled": false,
+        "colour": "#7cb342",
+        "standalone_mechanical_length_mm": 20.0,
+        "standalone_mechanical_outer_diameter_mm": 80.0,
+        "standalone_mechanical_bore_diameter_mm": 2.0,
+        "standalone_plate_thickness_mm": 0.2,
+        "image_corrected_mechanical_length_mm": 20.0,
+        "image_corrected_mechanical_outer_diameter_mm": 80.0,
+        "image_corrected_mechanical_bore_diameter_mm": 2.0,
+        "image_corrected_plate_thickness_mm": 0.2,
+        "active_installation": "standalone"
+      },
+      {
+        "name": "Iliad Spectrometer Entrance Aperture",
+        "key": "energy_filter_entrance_aperture",
+        "radius_mm": 2.5,
+        "offset_x_mm": 0.0,
+        "offset_y_mm": 0.0,
+        "enabled": true,
+        "installed": true,
+        "colour": "#6d4c41",
+        "anchor_key": "selected_area_aperture"
+      },
+      {
+        "name": "Projection-Chamber Differential-Pumping Aperture",
+        "key": "projection_chamber_dpa_aperture",
+        "radius_mm": 6.0,
+        "offset_x_mm": 0.0,
+        "offset_y_mm": 0.0,
+        "enabled": true,
+        "colour": "tab:orange"
+      }
+    ],
+    "stigmators": [
+      {
+        "name": "Condenser Stigmator",
+        "key": "condenser_stigmator",
+        "length_mm": 6.0,
+        "max_strength_m2": 300.0,
+        "strength_x_percent": 0.0,
+        "strength_y_percent": 0.0,
+        "enabled": true,
+        "colour": "#8e24aa",
+        "corrector": "condenser"
+      },
+      {
+        "name": "Objective Stigmator",
+        "key": "objective_stigmator",
+        "length_mm": 6.0,
+        "max_strength_m2": 300.0,
+        "strength_x_percent": 0.0,
+        "strength_y_percent": 0.0,
+        "enabled": true,
+        "colour": "#d81b60",
+        "corrector": "objective"
+      },
+      {
+        "name": "Diffraction Stigmator",
+        "key": "diffraction_stigmator",
+        "length_mm": 8.0,
+        "max_strength_m2": 300.0,
+        "strength_x_percent": 0.0,
+        "strength_y_percent": 0.0,
+        "enabled": true,
+        "colour": "#fb8c00",
+        "anchor_key": "selected_area_aperture",
+        "active_installation": "standalone",
+        "corrector": "diffraction"
+      }
+    ],
+    "deflectors": [
+      {
+        "name": "Condenser Deflector",
+        "key": "condenser_deflector",
+        "upper_x_mrad": 0.0,
+        "upper_y_mrad": 0.0,
+        "lower_x_mrad": 0.0,
+        "lower_y_mrad": 0.0,
+        "enabled": true,
+        "colour": "#26a69a",
+        "maximum_kick_mrad": 100.0
+      },
+      {
+        "name": "BSh/BTlt Beam Shift/Tilt Deflector",
+        "key": "beam_deflector",
+        "upper_x_mrad": 0.0,
+        "upper_y_mrad": 0.0,
+        "lower_x_mrad": 0.0,
+        "lower_y_mrad": 0.0,
+        "enabled": true,
+        "colour": "#ef6c00",
+        "maximum_kick_mrad": 100.0,
+        "anchor_key": "condenser_aperture_3"
+      },
+      {
+        "name": "DP12 (virtual)",
+        "key": "probe_dp12_scan_deflector",
+        "upper_x_mrad": 0.0,
+        "upper_y_mrad": 0.0,
+        "lower_x_mrad": 0.0,
+        "lower_y_mrad": 0.0,
+        "enabled": true,
+        "colour": "#00838f",
+        "maximum_kick_mrad": 100.0
+      },
+      {
+        "name": "Image/Diffraction Deflectors",
+        "key": "image_diffraction_deflector",
+        "upper_x_mrad": 0.0,
+        "upper_y_mrad": 0.0,
+        "lower_x_mrad": 0.0,
+        "lower_y_mrad": 0.0,
+        "enabled": true,
+        "colour": "#66bb6a",
+        "maximum_kick_mrad": 100.0
+      }
+    ],
+    "electron_gun": {
+      "type": "cold_feg",
+      "integrator": {
+        "method": "boris",
+        "trace_step_mm": 0.2,
+        "drift_step_mm": 2.0,
+        "history_step_mm": 2.0
+      },
+      "components": {
+        "feg_tip": {
+          "name": "Cold Field Emission Tip",
+          "key": "feg_tip",
+          "tip_radius_nm": 100.0,
+          "tip_cone_half_angle_deg": 5.0,
+          "emitter_material": "W(310)",
+          "work_function_ev": 4.4,
+          "vacuum_pa": 1e-08,
+          "emission_current_na": 10000.0,
+          "emission_energy_ev": 0.3,
+          "minimum_kinetic_energy_ev": 0.01,
+          "virtual_source_fwhm_nm": 5.0,
+          "angular_rms_mrad": 1.0,
+          "angular_cutoff_mrad": 3.0,
+          "energy_spread_fwhm_ev": 0.3,
+          "young_decay_width_ev": 0.2,
+          "boersch_sigma_ev": 0.1,
+          "energy_half_range_ev": 1.0,
+          "ray_count": 1000
+        },
+        "feg_extractor": {
+          "name": "Extractor",
+          "key": "feg_extractor",
+          "voltage_kv": 4.0,
+          "transition_start_mm": 0.05,
+          "transition_end_mm": 6.0,
+          "field_center_offset_mm": 0.0
+        },
+        "feg_electrostatic_lens": {
+          "name": "Electrostatic Gun Lens",
+          "key": "feg_electrostatic_lens",
+          "voltage_kv": 1.2,
+          "potential_scale": 4.22125,
+          "soft_edge_mm": 1.5,
+          "field_center_offset_mm": 0.0
+        },
+        "feg_dpa_aperture": {
+          "name": "Gun / DPA Aperture",
+          "key": "feg_dpa_aperture",
+          "radius_mm": 2.0,
+          "maximum_radius_mm": 3.0,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "enabled": true,
+          "colour": "#8e24aa",
+          "field_center_offset_mm": 0.0
+        },
+        "feg_accelerator": {
+          "stages": [
+            {
+              "voltage_fraction": 0.1,
+              "soft_edge_mm": 4.0
+            },
+            {
+              "voltage_fraction": 0.2,
+              "soft_edge_mm": 4.0
+            },
+            {
+              "voltage_fraction": 0.3,
+              "soft_edge_mm": 4.0
+            },
+            {
+              "voltage_fraction": 0.4,
+              "soft_edge_mm": 4.0
+            },
+            {
+              "voltage_fraction": 0.5,
+              "soft_edge_mm": 4.0
+            },
+            {
+              "voltage_fraction": 0.6,
+              "soft_edge_mm": 4.0
+            },
+            {
+              "voltage_fraction": 0.7,
+              "soft_edge_mm": 4.0
+            },
+            {
+              "voltage_fraction": 0.8,
+              "soft_edge_mm": 4.0
+            },
+            {
+              "voltage_fraction": 0.9,
+              "soft_edge_mm": 4.0
+            },
+            {
+              "voltage_fraction": 1.0,
+              "soft_edge_mm": 4.0
+            }
+          ],
+          "name": "Accelerator Tube",
+          "key": "feg_accelerator",
+          "high_tension_kv": 300.0,
+          "field_center_offset_mm": 0.0
+        },
+        "feg_deflector": {
+          "name": "Gun Deflector Pair",
+          "key": "feg_deflector",
+          "soft_edge_mm": 1.0,
+          "upper_field_x_mt": 0.0,
+          "upper_field_y_mt": 0.0,
+          "lower_field_x_mt": 0.0,
+          "lower_field_y_mt": 0.0,
+          "enabled": true,
+          "colour": "#ab47bc",
+          "field_center_offset_mm": 0.0,
+          "beam_blanked": false
+        },
+        "feg_stigmator": {
+          "name": "Gun Stigmator",
+          "key": "feg_stigmator",
+          "soft_edge_mm": 1.0,
+          "gradient_t_per_m": 0.0,
+          "rotation_deg": 0.0,
+          "enabled": true,
+          "colour": "#7b1fa2",
+          "field_center_offset_mm": 0.0
+        },
+        "feg_c1_aperture": {
+          "name": "C1 Aperture",
+          "key": "feg_c1_aperture",
+          "radius_mm": 2.0,
+          "maximum_radius_mm": 3.0,
+          "offset_x_mm": 0.0,
+          "offset_y_mm": 0.0,
+          "enabled": true,
+          "colour": "#1e88e5",
+          "field_center_offset_mm": 0.0
+        }
+      },
+      "monochromator": {
+        "installed": false,
+        "installation_model_version": 3,
+        "requested_pass_window_ev": 0.1,
+        "matched_energy_ev": 4000.0,
+        "trace_step_mm": 0.05,
+        "wien": {
+          "name": "FEG Wien Monochromator",
+          "key": "feg_monochromator_wien",
+          "soft_edge_mm": 2.0,
+          "electric_field_v_per_m": 1118764.9341406245,
+          "magnetic_field_mt": 30.0,
+          "electric_quadrupole_gradient_v_per_m2": 120000000.0,
+          "field_center_offset_mm": 0.0,
+          "enabled": true,
+          "colour": "#00897b"
+        },
+        "slit": {
+          "name": "Monochromator Slit (C1 Aperture)",
+          "gap_um": 0.28,
+          "maximum_gap_um": 1000.0,
+          "centre_offset_um": 0.0,
+          "inserted": true,
+          "colour": "#d81b60"
+        }
+      }
+    },
+    "nanopulser": {
+      "installed": false,
+      "blanked": false,
+      "voltage_v": 500.0,
+      "azimuth_deg": 0.0
+    },
+    "electron_gun_profiles": {},
+    "sample": {
+      "inserted": true,
+      "thickness_nm": 5.0,
+      "envelope_shape": "disk",
+      "size_x_nm": 10.0,
+      "size_y_nm": 10.0,
+      "centre_x_nm": 0.0,
+      "centre_y_nm": 0.0,
+      "scan_origin_x_nm": 0.0,
+      "scan_origin_y_nm": 0.0,
+      "g_inv_nm": 5.0,
+      "excitation_error_inv_nm": 0.0,
+      "rocking_width_inv_nm": 0.12,
+      "diffuse_broadening_mrad": 2.0,
+      "wave_enabled": false,
+      "specimen_mode": "atomic",
+      "reference_sample_key": "si_110",
+      "specimen_preset_key": "si_110",
+      "cif_path": "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\acquisition_16px_4seeds\\seed_707\\input.cif",
+      "specimen_rotation_x_deg": 89.99999999999999,
+      "specimen_rotation_y_deg": -44.99999999999999,
+      "specimen_rotation_z_deg": 4.497983566394945e-15,
+      "specimen_orientation_quaternion_wxyz": [
+        0.6532814824381883,
+        0.6532814824381882,
+        -0.2705980500730985,
+        0.2705980500730985
+      ],
+      "zone_axis_uvw": [
+        1,
+        1,
+        0
+      ],
+      "in_plane_axis_uvw": [
+        1,
+        -1,
+        0
+      ],
+      "wave_defocus_nm": -100.08365920070722,
+      "wave_grid_pixels": 2048,
+      "wave_field_of_view_angstrom": 80.0,
+      "wave_multislice_enabled": true,
+      "wave_slice_thickness_angstrom": 2.0,
+      "wave_bandwidth_fraction": 0.6666666666666666,
+      "wave_atomistic_enabled": true,
+      "wave_frozen_phonon_enabled": true,
+      "wave_frozen_phonon_configurations": 1,
+      "wave_frozen_phonon_sigma_angstrom": 0.0,
+      "wave_frozen_phonon_sigma_by_element_angstrom": {
+        "Si": 0.085
+      },
+      "wave_frozen_phonon_seed": 707,
+      "stem_wave_enabled": true,
+      "stem_poisson_enabled": false,
+      "stem_poisson_seed": 0,
+      "stem_fourdstem_enabled": false,
+      "stem_fourdstem_output_path": "",
+      "stem_fourdstem_overwrite": false,
+      "stem_fourdstem_resume": false,
+      "stem_fourdstem_response_mode": "ideal",
+      "stem_fourdstem_quantum_efficiency": 1.0,
+      "stem_fourdstem_charge_spread_sigma_px": 0.0,
+      "stem_fourdstem_dark_electrons_per_pixel": 0.0,
+      "stem_fourdstem_read_noise_electrons_rms": 0.0,
+      "stem_fourdstem_saturation_electrons": 0.0,
+      "stem_fourdstem_gain_counts_per_electron": 1.0,
+      "stem_fourdstem_offset_counts": 0.0,
+      "stem_fourdstem_poisson_enabled": false,
+      "stem_fourdstem_seed": 0,
+      "stem_fourdstem_virtual_inner_mrad": 0.0,
+      "stem_fourdstem_virtual_outer_mrad": 50.0,
+      "eds_enabled": true,
+      "eds_support_material_key": "vacuum",
+      "eds_support_mesh_key": "square_200",
+      "eds_support_offset_x_um": 0.0,
+      "eds_support_offset_y_um": 0.0,
+      "eds_support_rotation_deg": 0.0,
+      "eds_solid_angle_mode": "installed_holder",
+      "eds_detector_efficiency": 1.0,
+      "eds_spectrum_max_energy_ev": 40000.0,
+      "eds_spectrum_bin_width_ev": 10.0,
+      "eds_energy_resolution_fwhm_ev": 0.0,
+      "eds_poisson_enabled": false,
+      "eds_poisson_seed": 0,
+      "eds_transport_mode": "elastic_monte_carlo",
+      "eds_elastic_seed": 0,
+      "eds_elastic_max_events": 10000,
+      "sample_region_upstream_distance_um": 50.0,
+      "sample_region_downstream_distance_um": 50.0,
+      "sample_region_photon_path_count": 128,
+      "sample_region_secondary_path_count": 48,
+      "sample_region_seed": 0,
+      "wave_probe_padding_factor": 1.3,
+      "real_inelastic_enabled": true,
+      "real_plasmon_mean_free_path_nm": 0.0,
+      "real_ionisation_mean_free_path_nm": 0.0,
+      "real_other_inelastic_mean_free_path_nm": 0.0,
+      "real_absorption_mean_free_path_nm": 0.0,
+      "real_plasmon_energy_ev": 0.0,
+      "real_ionisation_energy_ev": 0.0,
+      "real_other_inelastic_energy_ev": 50.0,
+      "real_high_angle_tail_enabled": true,
+      "real_tail_material_source": "structure",
+      "real_tail_screening_source": "moliere",
+      "real_tail_atomic_number": 14,
+      "real_tail_areal_density_atoms_nm2": 0.0,
+      "real_tail_screening_angle_mrad": 5.0,
+      "real_tail_max_angle_mrad": 360.0
+    },
+    "illumination_mode": "STEM",
+    "component_placements": {},
+    "lens_field_map_descriptors": {},
+    "simulation_mode": "custom",
+    "simulation_mode_profiles": {},
+    "projector_mode": "diffraction",
+    "column_current_limit_percent": 100.0,
+    "equivalent_image_lenses_enabled": false,
+    "step_mm": 0.05,
+    "history_step_mm": 2.0,
+    "acceleration_enabled": true,
+    "acceleration_backend": "CUDA GPU",
+    "active_backend": "Numba CPU (fallback: No usable CUDA device or driver)",
+    "chromatic_aberration_enabled": false,
+    "probe_aberrations": {},
+    "image_aberrations": {},
+    "corrector_mode": "probe_corrector",
+    "energy_filter_mode": "energy_filter",
+    "c2c3_crossover_required": true,
+    "objective_coupled": true,
+    "recording_planes": [
+      {
+        "key": "haadf",
+        "inserted": true,
+        "readout_enabled": true,
+        "centre_offset_x_mm": 0.0,
+        "centre_offset_y_mm": 0.0
+      },
+      {
+        "key": "flu_screen",
+        "inserted": false
+      },
+      {
+        "key": "df",
+        "inserted": true,
+        "readout_enabled": true,
+        "centre_offset_x_mm": 0.0,
+        "centre_offset_y_mm": 0.0
+      },
+      {
+        "key": "bf",
+        "inserted": true,
+        "readout_enabled": true,
+        "centre_offset_x_mm": 0.0,
+        "centre_offset_y_mm": 0.0
+      },
+      {
+        "key": "camera",
+        "inserted": false,
+        "pixels": 2048
+      }
+    ],
+    "corrector_elements": [
+      {
+        "name": "DPH2 Deflector",
+        "key": "probe_dph2_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": true,
+        "colour": "#8e24aa",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "probe"
+      },
+      {
+        "name": "QPH2 Quadrupole",
+        "key": "probe_qph2_quadrupole",
+        "strength_m2": 0.0,
+        "maximum_strength_m2": 300.0,
+        "enabled": true,
+        "colour": "#8e24aa",
+        "corrector": "probe"
+      },
+      {
+        "name": "HP2 Hexapole",
+        "key": "probe_hp2_hexapole",
+        "strength_m3": 626910.5744377297,
+        "maximum_strength_m3": 1000000000.0,
+        "enabled": true,
+        "colour": "#7b1fa2",
+        "corrector": "probe",
+        "orientation_rad": 0.0
+      },
+      {
+        "name": "DP22 Deflector",
+        "key": "probe_dp22_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": true,
+        "colour": "#8e24aa",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "probe"
+      },
+      {
+        "name": "HPC Hexapole",
+        "key": "probe_hpc_hexapole",
+        "strength_m3": 0.0,
+        "maximum_strength_m3": 1000000000.0,
+        "enabled": true,
+        "colour": "#7b1fa2",
+        "corrector": "probe",
+        "orientation_rad": 0.0
+      },
+      {
+        "name": "QPC Quadrupole",
+        "key": "probe_qpc_quadrupole",
+        "strength_m2": 0.0,
+        "maximum_strength_m2": 300.0,
+        "enabled": true,
+        "colour": "#8e24aa",
+        "corrector": "probe"
+      },
+      {
+        "name": "DP21 Deflector",
+        "key": "probe_dp21_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": true,
+        "colour": "#7b1fa2",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "probe"
+      },
+      {
+        "name": "DPH1 Deflector",
+        "key": "probe_dph1_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": true,
+        "colour": "#7b1fa2",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "probe"
+      },
+      {
+        "name": "QPH1 Quadrupole",
+        "key": "probe_qph1_quadrupole",
+        "strength_m2": 0.0,
+        "maximum_strength_m2": 300.0,
+        "enabled": true,
+        "colour": "#8e24aa",
+        "corrector": "probe"
+      },
+      {
+        "name": "HP1 Hexapole",
+        "key": "probe_hp1_hexapole",
+        "strength_m3": 374822.52529434016,
+        "maximum_strength_m3": 1000000000.0,
+        "enabled": true,
+        "colour": "#7b1fa2",
+        "corrector": "probe",
+        "orientation_rad": -0.04231957336232493
+      },
+      {
+        "name": "HPol Hexapole",
+        "key": "probe_hpol_hexapole",
+        "strength_m3": 0.0,
+        "maximum_strength_m3": 1000000000.0,
+        "enabled": true,
+        "colour": "#8e24aa",
+        "corrector": "probe",
+        "orientation_rad": 0.0
+      },
+      {
+        "name": "QPol Quadrupole",
+        "key": "probe_qpol_quadrupole",
+        "strength_m2": 0.0,
+        "maximum_strength_m2": 300.0,
+        "enabled": true,
+        "colour": "#8e24aa",
+        "corrector": "probe"
+      },
+      {
+        "name": "DP11 Deflector",
+        "key": "probe_dp11_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": true,
+        "colour": "#6a1b9a",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "probe"
+      },
+      {
+        "name": "AC Scan Coil",
+        "key": "ac_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": true,
+        "colour": "#26c6da",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "shared_column",
+        "wobble_enabled": false,
+        "wobble_amplitude_x_mrad": 0.1,
+        "wobble_amplitude_y_mrad": 0.0,
+        "wobble_period_s": 1.0,
+        "wobble_phase_deg": 0.0,
+        "scan_enabled": true,
+        "scan_amplitude_x_mrad": 0.1,
+        "scan_amplitude_y_mrad": 0.1,
+        "scan_frame_period_s": 1.0,
+        "scan_pixels_x": 16,
+        "scan_lines": 16,
+        "scan_pixel_size_nm": 0.08,
+        "upper_coil_gain": 0.5,
+        "lower_coil_gain": -0.5433067650015637,
+        "active_installation": "probe"
+      },
+      {
+        "name": "AC Descan Coil",
+        "key": "descan_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": true,
+        "colour": "#00838f",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "shared_column",
+        "scan_enabled": false,
+        "scan_amplitude_x_mrad": -0.1,
+        "scan_amplitude_y_mrad": -0.1,
+        "scan_frame_period_s": 1.0,
+        "scan_pixels_x": 16,
+        "scan_lines": 16,
+        "scan_pixel_size_nm": 0.08,
+        "upper_coil_gain": 0.5,
+        "lower_coil_gain": 0.5
+      },
+      {
+        "name": "Image Corrector HPol Hexapole",
+        "key": "image_hpol_hexapole",
+        "strength_m3": 0.0,
+        "maximum_strength_m3": 1000000000.0,
+        "enabled": false,
+        "colour": "#8e24aa",
+        "corrector": "image",
+        "orientation_rad": 0.0
+      },
+      {
+        "name": "Image Corrector QPol Quadrupole",
+        "key": "image_qpol_quadrupole",
+        "strength_m2": 0.0,
+        "maximum_strength_m2": 300.0,
+        "enabled": false,
+        "colour": "#7b1fa2",
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector DP11 Deflector",
+        "key": "image_dp11_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": false,
+        "colour": "#5c6bc0",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector DP12 Deflector",
+        "key": "image_dp12_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": false,
+        "colour": "#5c6bc0",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector DPH1 Deflector",
+        "key": "image_dph1_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": false,
+        "colour": "#5c6bc0",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector HP1 Hexapole",
+        "key": "image_hp1_hexapole",
+        "strength_m3": 24905024.4,
+        "maximum_strength_m3": 1000000000.0,
+        "enabled": false,
+        "colour": "#8e24aa",
+        "corrector": "image",
+        "orientation_rad": 0.0
+      },
+      {
+        "name": "Image Corrector DP21 Deflector",
+        "key": "image_dp21_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": false,
+        "colour": "#5c6bc0",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector DP22 Deflector",
+        "key": "image_dp22_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": false,
+        "colour": "#5c6bc0",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector DPH2 Deflector",
+        "key": "image_dph2_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": false,
+        "colour": "#5c6bc0",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector HP2 Hexapole",
+        "key": "image_hp2_hexapole",
+        "strength_m3": 14929764.170818225,
+        "maximum_strength_m3": 1000000000.0,
+        "enabled": false,
+        "colour": "#8e24aa",
+        "corrector": "image",
+        "orientation_rad": -2.00126792
+      },
+      {
+        "name": "Image Corrector ISh Deflector",
+        "key": "image_ish_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": false,
+        "colour": "#5c6bc0",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector DSh Deflector",
+        "key": "image_dsh_deflector",
+        "kick_x_mrad": 0.0,
+        "kick_y_mrad": 0.0,
+        "enabled": false,
+        "colour": "#5c6bc0",
+        "maximum_kick_mrad": 100.0,
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector DStg Quadrupole",
+        "key": "image_dstg_quadrupole",
+        "strength_m2": 0.0,
+        "maximum_strength_m2": 300.0,
+        "enabled": false,
+        "colour": "#7b1fa2",
+        "corrector": "image"
+      },
+      {
+        "name": "Image Corrector SAD plane",
+        "key": "image_sad_plane",
+        "enabled": false,
+        "corrector": "image",
+        "colour": "#7cb342"
+      }
+    ],
+    "probe_corrector_installed": true,
+    "image_corrector_installed": false,
+    "energy_filter_installed": true,
+    "energy_filter": {
+      "enabled": false,
+      "operating_mode": "eels",
+      "optical_integration_enabled": true,
+      "multi_eels_enabled": false,
+      "multi_eels_region_count": 1,
+      "calibration_status": "reference_calibration_non_oem_300kv",
+      "slit_width_ev": 10.0,
+      "selected_loss_ev": 0.0,
+      "ray_step_mm": 0.25,
+      "maximum_trace_rays": 256,
+      "output_detector_inserted": false,
+      "alignment_x_mrad": 0.0,
+      "alignment_y_mrad": 0.0,
+      "voltage_reference_kv": 300.0,
+      "matched_voltage_kv": 300.0,
+      "sector_reference_field_t": 0.016840506692564112,
+      "sector_field_t": 0.016840506692564112,
+      "m12_frames_placed": true,
+      "multipoles": [
+        {
+          "name": "Iliad Multipole 01 (model index)",
+          "key": "energy_filter_multipole_01",
+          "role": "m01",
+          "enabled": true,
+          "field": {
+            "normal_coefficients": [
+              0.0,
+              -3.5035068999999996,
+              -109.59044425,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "fringe_expansion_order": 2
+          },
+          "calibration": {
+            "calibration_id": "energy_filter_multipole_01_calibration",
+            "reference_voltage_kv": 300.0,
+            "reference_normal_coefficients": [
+              0.0,
+              -3.5035068999999996,
+              -109.59044425,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reference_skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "name": "Iliad Multipole 02 (model index)",
+          "key": "energy_filter_multipole_02",
+          "role": "m02",
+          "enabled": true,
+          "field": {
+            "normal_coefficients": [
+              0.0,
+              -0.364371805,
+              215.23557200000002,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "fringe_expansion_order": 2
+          },
+          "calibration": {
+            "calibration_id": "energy_filter_multipole_02_calibration",
+            "reference_voltage_kv": 300.0,
+            "reference_normal_coefficients": [
+              0.0,
+              -0.364371805,
+              215.23557200000002,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reference_skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "name": "Iliad Multipole 03 (model index)",
+          "key": "energy_filter_multipole_03",
+          "role": "m03",
+          "enabled": true,
+          "field": {
+            "normal_coefficients": [
+              0.0,
+              2.180722735,
+              70.97701075,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "fringe_expansion_order": 2
+          },
+          "calibration": {
+            "calibration_id": "energy_filter_multipole_03_calibration",
+            "reference_voltage_kv": 300.0,
+            "reference_normal_coefficients": [
+              0.0,
+              2.180722735,
+              70.97701075,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reference_skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "name": "Iliad Multipole 04 (model index)",
+          "key": "energy_filter_multipole_04",
+          "role": "m04",
+          "enabled": true,
+          "field": {
+            "normal_coefficients": [
+              0.0,
+              -0.233503991,
+              13.351847625,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "fringe_expansion_order": 2
+          },
+          "calibration": {
+            "calibration_id": "energy_filter_multipole_04_calibration",
+            "reference_voltage_kv": 300.0,
+            "reference_normal_coefficients": [
+              0.0,
+              -0.233503991,
+              13.351847625,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reference_skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "name": "Iliad Multipole 05 (model index)",
+          "key": "energy_filter_multipole_05",
+          "role": "m05",
+          "enabled": true,
+          "field": {
+            "normal_coefficients": [
+              0.0,
+              -0.61223924,
+              -68.41464075,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "fringe_expansion_order": 2
+          },
+          "calibration": {
+            "calibration_id": "energy_filter_multipole_05_calibration",
+            "reference_voltage_kv": 300.0,
+            "reference_normal_coefficients": [
+              0.0,
+              -0.61223924,
+              -68.41464075,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reference_skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "name": "Iliad Multipole 06 (model index)",
+          "key": "energy_filter_multipole_06",
+          "role": "m06",
+          "enabled": true,
+          "field": {
+            "normal_coefficients": [
+              0.0,
+              0.0002562881465,
+              165.12811775,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "fringe_expansion_order": 2
+          },
+          "calibration": {
+            "calibration_id": "energy_filter_multipole_06_calibration",
+            "reference_voltage_kv": 300.0,
+            "reference_normal_coefficients": [
+              0.0,
+              0.0002562881465,
+              165.12811775,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reference_skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "name": "Iliad Multipole 07 (model index)",
+          "key": "energy_filter_multipole_07",
+          "role": "m07",
+          "enabled": true,
+          "field": {
+            "normal_coefficients": [
+              0.0,
+              3.391499955,
+              119.8366215,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "fringe_expansion_order": 2
+          },
+          "calibration": {
+            "calibration_id": "energy_filter_multipole_07_calibration",
+            "reference_voltage_kv": 300.0,
+            "reference_normal_coefficients": [
+              0.0,
+              3.391499955,
+              119.8366215,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reference_skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "name": "Iliad Multipole 08 (model index)",
+          "key": "energy_filter_multipole_08",
+          "role": "m08",
+          "enabled": true,
+          "field": {
+            "normal_coefficients": [
+              0.0,
+              -3.449635,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "fringe_expansion_order": 2
+          },
+          "calibration": {
+            "calibration_id": "energy_filter_multipole_08_calibration",
+            "reference_voltage_kv": 300.0,
+            "reference_normal_coefficients": [
+              0.0,
+              -3.449635,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reference_skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "name": "Iliad Multipole 09 (model index)",
+          "key": "energy_filter_multipole_09",
+          "role": "m09",
+          "enabled": true,
+          "field": {
+            "normal_coefficients": [
+              0.0,
+              2.7452599999999996,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "fringe_expansion_order": 2
+          },
+          "calibration": {
+            "calibration_id": "energy_filter_multipole_09_calibration",
+            "reference_voltage_kv": 300.0,
+            "reference_normal_coefficients": [
+              0.0,
+              2.7452599999999996,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reference_skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "name": "Iliad Multipole 10 (model index)",
+          "key": "energy_filter_multipole_10",
+          "role": "m10",
+          "enabled": true,
+          "field": {
+            "normal_coefficients": [
+              0.0,
+              -4.1812949999999995,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "fringe_expansion_order": 2
+          },
+          "calibration": {
+            "calibration_id": "energy_filter_multipole_10_calibration",
+            "reference_voltage_kv": 300.0,
+            "reference_normal_coefficients": [
+              0.0,
+              -4.1812949999999995,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reference_skew_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "normal_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "skew_trim_coefficients": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        }
+      ],
+      "entrance_m12": {
+        "name": "Iliad Multipole 03 (model index)",
+        "key": "energy_filter_multipole_03",
+        "role": "m03",
+        "enabled": true,
+        "field": {
+          "normal_coefficients": [
+            0.0,
+            2.180722735,
+            70.97701075,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "skew_coefficients": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "fringe_expansion_order": 2
+        },
+        "calibration": {
+          "calibration_id": "energy_filter_multipole_03_calibration",
+          "reference_voltage_kv": 300.0,
+          "reference_normal_coefficients": [
+            0.0,
+            2.180722735,
+            70.97701075,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "reference_skew_coefficients": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "normal_trim_coefficients": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "skew_trim_coefficients": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "exit_m12": {
+        "name": "Iliad Multipole 04 (model index)",
+        "key": "energy_filter_multipole_04",
+        "role": "m04",
+        "enabled": true,
+        "field": {
+          "normal_coefficients": [
+            0.0,
+            -0.233503991,
+            13.351847625,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "skew_coefficients": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "fringe_expansion_order": 2
+        },
+        "calibration": {
+          "calibration_id": "energy_filter_multipole_04_calibration",
+          "reference_voltage_kv": 300.0,
+          "reference_normal_coefficients": [
+            0.0,
+            -0.233503991,
+            13.351847625,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "reference_skew_coefficients": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "normal_trim_coefficients": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "skew_trim_coefficients": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "energy_slit": {
+        "name": "Iliad XO Crossover / Optional EFTEM Energy-slit Assembly",
+        "key": "energy_filter_slit",
+        "inserted": false,
+        "gap_m": 7.490714e-06,
+        "centre_m": 0.0,
+        "zero_loss_offset_m": 0.0,
+        "requested_width_ev": 10.0,
+        "requested_centre_loss_ev": 0.0,
+        "calibrated_dispersion_um_per_ev": 0.7490714
+      },
+      "bias_tube": {
+        "name": "Iliad MultiEELS Bias Tube",
+        "key": "energy_filter_bias_tube",
+        "enabled": false,
+        "offset_ev": 0.0
+      },
+      "fast_shutter": {
+        "name": "Iliad Fast Electrostatic Shutter",
+        "key": "energy_filter_shutter",
+        "enabled": true,
+        "open": true
+      },
+      "camera_deflector": {
+        "name": "Iliad Zebra Camera Deflector",
+        "key": "energy_filter_camera_deflector",
+        "enabled": true,
+        "active_strip": 1
+      },
+      "zebra_detector": {
+        "name": "Iliad Zebra Five-strip EELS Detector",
+        "key": "energy_filter_zebra",
+        "enabled": true,
+        "inserted": true,
+        "alignment_mode": false
+      }
+    },
+    "column_mode": "three_lens",
+    "layout_c3_hardware": "three_condenser",
+    "layout_c3_excited": true,
+    "wobble_observation_plane_key": "flu_screen",
+    "wobble_custom_observation_z_mm": 1599.2,
+    "virtual_observation_z_mm": 1599.2,
+    "layout_reference_enabled": {
+      "lens:adapter_lens": true,
+      "lens:probe_tl22_lens": true,
+      "lens:probe_tl21_lens": true,
+      "lens:probe_tl12_lens": true,
+      "corrector:probe_dph2_deflector": true,
+      "corrector:probe_dp22_deflector": true,
+      "corrector:probe_qph2_quadrupole": true,
+      "corrector:probe_hp2_hexapole": true,
+      "corrector:probe_hpc_hexapole": true,
+      "corrector:probe_qpc_quadrupole": true,
+      "corrector:probe_dp21_deflector": true,
+      "corrector:probe_dph1_deflector": true,
+      "corrector:probe_qph1_quadrupole": true,
+      "corrector:probe_hp1_hexapole": true,
+      "corrector:probe_hpol_hexapole": true,
+      "corrector:probe_qpol_quadrupole": true,
+      "corrector:probe_dp11_deflector": true,
+      "deflector:probe_dp12_scan_deflector": true,
+      "deflector:condenser_deflector": true,
+      "stigmator:objective_stigmator": true,
+      "stigmator:diffraction_stigmator": true,
+      "lens:diffraction_lens": true,
+      "lens:intermediate_lens": true,
+      "lens:projector_lens_1": true,
+      "lens:projector_lens_2": true,
+      "deflector:image_diffraction_deflector": true,
+      "corrector:descan_deflector": true,
+      "aperture:condenser_aperture_3": true
+    },
+    "monochromator_axis_offset_mm": 0.0
+  },
+  "hardware": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "cpu": "Intel64 Family 6 Model 158 Stepping 10, GenuineIntel",
+    "logical_cpus": 12,
+    "python": "3.12.4 | packaged by Anaconda, Inc. | (main, Jun 18 2024, 15:03:56) [MSC v.1929 64 bit (AMD64)]",
+    "numpy": "2.4.6",
+    "cupy_installed": true,
+    "scientific_packages": {
+      "abTEM": "1.0.10",
+      "ase": "3.29.0",
+      "cuda-pathfinder": "1.8.1",
+      "cuda-toolkit": "12.6.3",
+      "cupy-cuda12x": "14.2.0",
+      "numba": "0.66.0",
+      "numpy": "2.4.6",
+      "nvidia-cublas-cu12": "12.6.4.1",
+      "nvidia-cuda-nvrtc-cu12": "12.6.85",
+      "nvidia-cuda-runtime-cu12": "12.6.77",
+      "nvidia-cufft-cu12": "11.3.0.4",
+      "nvidia-curand-cu12": "10.3.7.77",
+      "nvidia-cusolver-cu12": "11.7.1.2",
+      "nvidia-cusparse-cu12": "12.5.4.2",
+      "nvidia-nvjitlink-cu12": "12.9.86",
+      "scipy": "1.18.0"
+    },
+    "gpu_inventory": "NVIDIA GeForce GTX 1060 3GB, 3072 MiB, 2228 MiB, 560.94"
+  },
+  "implementation": {
+    "sha256_by_file": {
+      "src/temsim/detector/__init__.py": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+      "src/temsim/detector/camera.py": "d8dc42dbe8802615ef9b84ca617f0dca3f0e325f6eb5c94d7a7e592b1958e966",
+      "src/temsim/detector/eds_atomic.py": "70604be4577508817589235f3774370f1b0fa4aa4bd09f9c6e89aa3f28f38a78",
+      "src/temsim/detector/eds_geometry.py": "76127f5559c8c8b3d98d6effd77faedb76f9dea62a4d73913d37fd4d6e9b9f7a",
+      "src/temsim/detector/eds_line_library.py": "89c6b6e642a21cb96e18f10a6a304d8f702bc4d862ea8e31e7f22e281aa8f851",
+      "src/temsim/detector/eds_photon_transport.py": "b6c205ea3fe8413231d8c165a3a10b38bac4e028602f7dec9eaf4e3c8129974f",
+      "src/temsim/detector/eds_signal.py": "90334301d34d5dffeafc0ba62816bf99abe7d65ca0987d01a598e43ba9b6e8b3",
+      "src/temsim/detector/eels_forward.py": "7a991f937e0e71015234f1e74970fac83f126bb9ee00e619685f824c4f7bade7",
+      "src/temsim/detector/fluorescent_screen.py": "33cee220c07a506ab559d2a5f5707283569d3a0c9ecd82618f01e4c452ec67d1",
+      "src/temsim/detector/plane_image.py": "16d633dd7f1df8b76b9508cc08c37b80d717afff6001e8d7193ec812d503df42",
+      "src/temsim/detector/point_spread.py": "3341d9843a56fbb19564bd0f92aef875094d7c155ea4666fb0d527746bac693f",
+      "src/temsim/detector/recording_system.py": "be9ec6071814697e3b18c3b9036298a952f3c0aa913601272b76b552a71d0dff",
+      "src/temsim/detector/stem_detector.py": "41f3b55c7346295af6d6973ab8848a8e98e1868dc9d421d5a022630b689e5101",
+      "src/temsim/detector/stem_signal.py": "bbf39c220e6a70a850f674ac95088053de68ab21dab011c5f45ea6b5c1ccc198",
+      "src/temsim/physics/__init__.py": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+      "src/temsim/physics/acceleration.py": "203207947fda11736ca0be02b424b2afbdc6a713a4697683d15311e7bee3c6c8",
+      "src/temsim/physics/all_lens_crossovers.py": "5b80ffcf87df31b1b4be3ef9024ae5a533790c39e5600c32340a84fe91659c9f",
+      "src/temsim/physics/aperture_clipping.py": "d997c8c7155c9aecbe4a6dda94d5e1349c58375546e94c551b9aaf6c406b3cd7",
+      "src/temsim/physics/axisymmetric_magnetostatics.py": "3f237cd99678ab7ff8e4076acf519f6413de6476f070dde357d3d618a486c987",
+      "src/temsim/physics/beam_current.py": "aad02cddb1512f4943af279a5f3311d6e6684a03afb8b84bd129ac3a92fd12c6",
+      "src/temsim/physics/beam_observation.py": "f64e8cba11a3c169575fe2bc96f7b7835182682b93f3c460f3bb7d4bbba5e951",
+      "src/temsim/physics/beam_statistics.py": "a16d7c8ca94e5988faca6bc0fab3a44600e0d305f4eda3009c76fbb9fd8b31d7",
+      "src/temsim/physics/beam_waist.py": "8b8960ab0bccd28189cce806391e309346081260848619df68285f56b48016ba",
+      "src/temsim/physics/camera_wave.py": "f1a14cd66b6f5eee5d506836d37a2ae32d9ca91a56c2589e4de9d9b89c4e42d0",
+      "src/temsim/physics/chromatic.py": "5a6b1bb78303a2ed683bb5a2353bc4c46acafd053f7d5063e512b746afb78694",
+      "src/temsim/physics/column_wall.py": "402563e10b05953ef1f95c6243fd5ce2d0229cf40a18f29dbf95fb34038fc0e0",
+      "src/temsim/physics/compute_backend.py": "2950636302173ee37b7bca169e66d728edf44c169b828e44274122bf2a0e8552",
+      "src/temsim/physics/core.py": "cb4e0aec7a35ce45577c126fbbd730ccc92b29c25a2ca40d0c3c0a6be27e00df",
+      "src/temsim/physics/corrector_crossovers.py": "5a789b81c849d05d9b2599d2bfe2cf76eb6dd70da1292121bcb98167b28e85ea",
+      "src/temsim/physics/crossovers.py": "fe8f5c4ebff4d14592adc678ad3d130a402f4f956b04fb9995e2a8e303955ad4",
+      "src/temsim/physics/cuda_multislice_plan.py": "8392a21ab60895034135aebe991406a12ac086ed3d8d69a3178235de7b143807",
+      "src/temsim/physics/diffraction_memory.py": "6174602f79fa229f30ec96022784f959f6a4fa233db0f95134e119460e3c49ba",
+      "src/temsim/physics/finite_multipole_field.py": "13dcaa35ec52401e540450aad1462da5b7c7c93aa61c60da73af70fbb459934f",
+      "src/temsim/physics/first_order.py": "475059cdb7c346a91574820065ca7922604431ba6a3c96f6168a9132aa6ca1f4",
+      "src/temsim/physics/fourdstem.py": "a2118ffd812b10dab944438a0c4d1a24db6d7cf19037c7aa18cc81261867ce55",
+      "src/temsim/physics/fourdstem_workflow.py": "dc121c1d457b94cad93411914e05e46bd9df5f32481b538e20593a8fcd16726f",
+      "src/temsim/physics/interaction_budget.py": "2f72a759d10b476edb7ea9748dc857404991d4b1acf53e278568a8e5e285cb93",
+      "src/temsim/physics/lens_field_provider.py": "0cff3c8bc3e14ea313c82e97e94b93ad7213c42f88025c9d6d1aa256330ee7da",
+      "src/temsim/physics/multiplane_wave.py": "314ead7ca042c1ad1c06117a9e11dd2fa2c4ee3ced5d3c16e9a00a64d8947e18",
+      "src/temsim/physics/multipole_field.py": "859f3bee21f875b1eceb1a65993dafb7e6318bee2605f0033c6ca0379339a883",
+      "src/temsim/physics/multislice.py": "e08528f8dfe5ceb27caf6224935e21d7dbba90a431b70473fc331e46cf8b3205",
+      "src/temsim/physics/nonlinear_circuits.py": "8faef35c0862d9f6e1ba5c4b3345955b7c56a8da3ff74cb2035077181ce92c8f",
+      "src/temsim/physics/nonlinear_magnetostatics.py": "2897e55e4cefc2725477aa4c1625ac7ca0cb6fa9802da52d9ce4566557221c51",
+      "src/temsim/physics/optical_tuning.py": "40c7aee7f54bab0b4dc49e20bb49b91223c47857a9565197587658ce617264a1",
+      "src/temsim/physics/prepared_specimen_cache.py": "99766b21cdec620ead2bfb6dc73ced0406f855496648050b6a021f1e12095487",
+      "src/temsim/physics/probe_state.py": "39de9c9f3867e25f103a97a814bd1808f9a6ac817eb099ce782a7d22659f41a0",
+      "src/temsim/physics/ray_integrator.py": "79d120dda71db401157ccf46c5fd4d1ef28a639dad9a03ca96e5ea7010570423",
+      "src/temsim/physics/record_plane.py": "07d4eab3608f010adf802842602c3883714ce7fba7e764770ec41de05202b04d",
+      "src/temsim/physics/recording_clipping.py": "3141d9ba2aad1c317a62cbace996ba1515e666c87ebb0db087964dbc4a654f23",
+      "src/temsim/physics/recording_stop.py": "f1aea26057292013b6cf9346bd0ef1ce58b429620b3ba7509c1b75d656dcf694",
+      "src/temsim/physics/relativistic_lorentz.py": "80de42ca4a0aee23e8b2478eaf1805500973b6d42cd205e684f69c22253de95a",
+      "src/temsim/physics/scan_geometry.py": "5e934ceec052df0cd21f303f509011a373f09444b0572cc382379927b6d06a0e",
+      "src/temsim/physics/simulation.py": "d9e15ff71edfe3a609663edd821ad37d67d8b653173d240acb9f64988cc43c89",
+      "src/temsim/physics/stem_batching.py": "17914b3278de72e30d3361750eee72b7d8d7308e02dec85598ff4a0bcec9b56a",
+      "src/temsim/physics/stem_cuda_pipeline.py": "857cb7a8d7313317517d7707265e6d91b405c7ab8d08ce2a8b623d87622acecf",
+      "src/temsim/physics/stem_sampling.py": "ddcb5a2c206a0bdcafcdfc3e992ff5ce90d6a4d6088ab25a191e61d5743f6828",
+      "src/temsim/physics/stem_wave_imaging.py": "e7874b6483d67fcc128f79cd9c3b95f0b052f19c13bccff3f948a3ed09e4d763",
+      "src/temsim/physics/vector_field_transport.py": "a7e0bb655bfac17e39cdefe54e8704f2a77a5240210c3deed90c6e60df9ebb6b",
+      "src/temsim/physics/wave_fft.py": "9179f33572bb9af4afa2bdd9d3b78c3738db32863592deb82a680ea9c0b31d3e",
+      "src/temsim/physics/wave_imaging.py": "8fb13fffe1dba7f6a630f999d72802b5142e4f05ff52b65b4b295c52f59256d6",
+      "src/temsim/physics/wave_sampling.py": "fe6dce8de3d5d7a7e7ce352b56fe172b55207ef333a4ea994382b2256b5cf30f",
+      "src/temsim/specimen/__init__.py": "31ae6deea3ceef00532b025611207d7c0f2f00078bb373ca84df757d1fd74136",
+      "src/temsim/specimen/atomistic.py": "4d339459f33adc27c3fb6d135d8548ae7572b256d0b1f9de6ef87b15aadab87a",
+      "src/temsim/specimen/axial_field_transport.py": "c67cba76e4e94f21f72f0f30a2ccf00e05c9b2ad50700f19702c92950b8ac119",
+      "src/temsim/specimen/display_cache.py": "b93e1ab8a8e343a1b3f942518d32a10932a0bcf21139f22d2eb10b9ee7082c07",
+      "src/temsim/specimen/downstream_transport.py": "ff66eb8fb5756d6a6182a7dc85fef502231bffec7277545f0eeded0446cc03d3",
+      "src/temsim/specimen/elastic_transport.py": "62d08699f3d5e21d00b3cd329c739cb9657656048076f0c092ccb975b1650216",
+      "src/temsim/specimen/envelope.py": "b46f4e3075c95d11708d45661812bf7dddb72963a2e4f4c136cfa6493a9c34a0",
+      "src/temsim/specimen/geometry.py": "cdd640488b9cd1ce3e6a63abd1d8fa42ee40da4d540cdbf4824cff96ab3c0629",
+      "src/temsim/specimen/inelastic.py": "facc68a1d1bb996cf2f104c9b517d288369bfe5fa9bb8d2cd7828666e550e14b",
+      "src/temsim/specimen/interaction_engine.py": "34c60697fc91d4715983e59e737fb11aba31aec07a92d033e264e2454c71e4f8",
+      "src/temsim/specimen/interaction_types.py": "017e295f487b294f9559d64c6147293ca3d4d5f3c1b6535557936a23720a40d7",
+      "src/temsim/specimen/presets.py": "cc3d559b775f8fd823b669e5fb08f326cd2daf420f8b3abc2c7fc836b800bebc",
+      "src/temsim/specimen/reference_catalog.py": "b0ed6c8b22a0709bca199d2c4f508a14b4e7a5588d89c6bb8f6b7ce4ab077805",
+      "src/temsim/specimen/rutherford.py": "711c49e98360c75db3aea17d4483756080aec49061b98c3dfe500dfcba564675",
+      "src/temsim/specimen/sample_region.py": "1e0193c9fb5b47a2bf084e56b28d78e86e1cf281f59d068289cf1b2478315c5e",
+      "src/temsim/specimen/scene.py": "b40fc77b566e0ebc9825d6f5c3c14c94207e96d76721c13cf630a867e222ded6",
+      "src/temsim/specimen/source.py": "746358258b730681e15f17ea6f2a9bc7fe72b7e2119fc77f5fc82d6d1d80ac26",
+      "src/temsim/specimen/support.py": "e65924857806d8f0c9ea047383d6a20737f733e87622a339149f2c27ec048b19",
+      "src/temsim/specimen/vector_field_transport.py": "38df4e8a3eff0bed058ec34d85ff81edf6b6e96c415e0a62ebe91c42de80cc1f",
+      "src/temsim/specimen/virtual.py": "d60908893b1ed7fbd4f3609a93c7dc9118e25294b7de626b5f33d66fe7bfc456",
+      "src/temsim/optics/model.py": "007020d7818098f5a8b2ae510db402195292393ffa88d9b6d4c263e289a4c99d",
+      "configs/operating_modes/catalog.toml": "3bcca21c8dbb0a5a9c3484cfd25a2741e72bf614e01cadad9127e218b9fa70c4"
+    },
+    "git_revision": "cd12b14489d038c418c6efa213e91d3037f399fd"
+  },
+  "script_sha256": "53416a0bbba99469f68de8526d9d088241c9417ffc1ec31385c260cbf817cf3c",
+  "gpu_failure_policy": "Abort in production progress callback before its CPU retry; require resident metrics.",
+  "phonon_label": "4 independent frozen-phonon configurations; seeds 707, 708, 709, 710",
+  "ensemble_seeds": [
+    707,
+    708,
+    709,
+    710
+  ],
+  "constituent_directories": [
+    "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\acquisition_16px_4seeds\\seed_707",
+    "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\acquisition_16px_4seeds\\seed_708",
+    "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\acquisition_16px_4seeds\\seed_709",
+    "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\acquisition_16px_4seeds\\seed_710"
+  ],
+  "ensemble_recipe": "Arithmetic intensity mean of complete single-configuration production rasters. Not the same random-realisation sequence as one seed with four configurations.",
+  "ensemble_script_sha256": "db07d197e59697962350b12305ec30f18ff41da71984b8b35ff5d1337b99b01b",
+  "state_scope": "First constituent; exact states are in the constituent parameters.json files."
+}

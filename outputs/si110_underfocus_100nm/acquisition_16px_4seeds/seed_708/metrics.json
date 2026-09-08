@@ -1,0 +1,392 @@
+{
+  "elapsed_acquisition_s": 302.5341095998883,
+  "elapsed_total_s": 319.16586530022323,
+  "production_metrics": {
+    "model": "multislice_angle_resolved",
+    "specimen_model": "atomistic_frozen_phonon_multislice",
+    "specimen_slice_count": 25,
+    "specimen_total_thickness_angstrom": 50.0,
+    "specimen_slice_thickness_angstrom": 2.0,
+    "specimen_bandwidth_fraction": 0.6666666666666666,
+    "specimen_maximum_isotropic_angle_mrad": 168.8003858566641,
+    "specimen_maximum_phase_per_slice_rad": 0.6499267816543579,
+    "specimen_initial_integrated_intensity": 0.9999999991523367,
+    "specimen_final_integrated_intensity": 0.9999232457968099,
+    "specimen_maximum_relative_intensity_change": 0.0001212293781348809,
+    "specimen_compute_backend": "CuPy CUDA",
+    "specimen_numeric_precision": "complex64 / float32",
+    "specimen_fallback_reason": null,
+    "specimen_pixel_size_y_angstrom": 0.0390625,
+    "specimen_pixel_size_x_angstrom": 0.0390625,
+    "specimen_wave_sampling_plan": {
+      "field_of_view_angstrom": 80.0,
+      "pixels": 2048,
+      "sampling_angstrom": 0.0390625,
+      "reference_sampling_angstrom": 0.0390625,
+      "estimated_potential_bytes": 452984832,
+      "estimated_working_bytes": 5402263552,
+      "expanded": false
+    },
+    "specimen_wave_window_bounds_nm": [
+      -4.0002713225916064,
+      3.999728677408394,
+      -3.9991509023419374,
+      4.000849097658063
+    ],
+    "specimen_atom_generation_bounds_nm": [
+      -4.0002713225916064,
+      3.999728677408394,
+      -3.9991509023419374,
+      4.000849097658063
+    ],
+    "specimen_potential_model": "atomistic_lobato_iam",
+    "specimen_atomistic_requested": true,
+    "specimen_atomistic_applied": true,
+    "specimen_atomistic_fallback_reason": null,
+    "specimen_atom_count": 14709,
+    "specimen_configuration_count": 1,
+    "specimen_frozen_phonon_requested": true,
+    "specimen_frozen_phonon_applied": true,
+    "specimen_thermal_sigma_angstrom": 0.08499999999999999,
+    "specimen_thermal_seed": 708,
+    "specimen_thermal_model": "independent_isotropic_gaussian_einstein",
+    "specimen_thermal_sigma_reference": "explicit per-element user table",
+    "specimen_parametrization": "Lobato-Van Dyck 2014 neutral-atom IAM",
+    "specimen_projection": "finite Z-slice projection",
+    "specimen_potential_builder_backend": "abTEM 1.0.10; ASE 3.29.0",
+    "specimen_potential_storage_bytes": 452985032,
+    "specimen_atomistic_source_kind": "cif",
+    "specimen_atomistic_source_path": "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\acquisition_16px_4seeds\\seed_708\\input.cif",
+    "specimen_specimen_rotation_deg_xyz": [
+      89.99999999999999,
+      -44.99999999999999,
+      4.497983566394945e-15
+    ],
+    "specimen_specimen_orientation_quaternion_wxyz": [
+      0.6532814824381883,
+      0.6532814824381882,
+      -0.2705980500730985,
+      0.2705980500730985
+    ],
+    "specimen_calculation_roi_centre_nm": [
+      -0.0002713225916060047,
+      0.0008490976580626253
+    ],
+    "specimen_finite_specimen_size_nm": [
+      10.0,
+      10.0,
+      5.0
+    ],
+    "specimen_finite_specimen_shape": "disk",
+    "specimen_lateral_cell_commensurate": false,
+    "specimen_requested_lateral_mismatch_angstrom": [
+      0.0,
+      0.0
+    ],
+    "specimen_realised_lateral_extent_angstrom": [
+      80.0,
+      80.0
+    ],
+    "specimen_requested_field_of_view_angstrom": 80.0,
+    "specimen_requested_thickness_mismatch_angstrom": 0.0,
+    "specimen_requested_thickness_angstrom": 50.0,
+    "specimen_intensity_ensemble_average": true,
+    "specimen_correlated_phonons": false,
+    "specimen_bonding_charge_included": false,
+    "specimen_preparation_seconds": 16.352253299672157,
+    "specimen_preparation_build_seconds": 14.687830800190568,
+    "specimen_prepared_specimen_cache_hit": false,
+    "specimen_prepared_specimen_cache_key": "793c5b15e30100d3d471bc8f87143fea369c08643e0af9ebc2e89e62acd763d3",
+    "specimen_prepared_specimen_cache_retained_bytes": 0,
+    "specimen_sample_geometry_snapshot": {
+      "mode": "atomic",
+      "inserted": true,
+      "centre_nm": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "size_nm": [
+        10.0,
+        10.0,
+        5.0
+      ],
+      "orientation_quaternion_wxyz": [
+        0.6532814824381883,
+        0.6532814824381882,
+        -0.2705980500730985,
+        0.2705980500730985
+      ],
+      "scan_fov_bounds_nm": [
+        -0.6002713225916061,
+        0.5997286774083942,
+        -0.5991509023419376,
+        0.6008490976580627
+      ],
+      "calculation_roi_bounds_nm": [
+        -3.825540228638607,
+        3.824997583455395,
+        -3.8244198083889382,
+        3.8261180037050635
+      ]
+    },
+    "specimen_wave_probe_padding_model": "max(1.22 lambda/alpha, abs(effective C1) tan(alpha)); finite-source ray radius excluded from coherent-wave support",
+    "specimen_wave_probe_padding_radius_nm": 2.480976081574616,
+    "specimen_wave_probe_geometric_ray_radius_99_nm": 0.2901085647868956,
+    "specimen_sample_inserted": true,
+    "specimen_sample_interaction_applied": true,
+    "preset_key": "si_110",
+    "wavelength_angstrom": 0.0196874890068488,
+    "probe_ray_waist_offset_nm": -0.08365920070721626,
+    "physical_detector_routing": "full_signed_j_img_r_plus_j_diff_theta_sequential_stops",
+    "record_plane_plan_fingerprint": "6a7f7fc78f611d87a38330f9d87ce0bd0873f4f0d54dd9819e5edd2eeedbdff6",
+    "probe_ray_defocus_nm": 0.08365920070721627,
+    "probe_configured_defocus_nm": -100.08365920070722,
+    "probe_effective_defocus_nm": -100.0,
+    "probe_radial_wavefront_curvature_per_m": 1512371.171559084,
+    "probe_focus_source": "sample-plane ray covariance plus additional probe C1; lens excitation is included once through the traced ray bundle",
+    "probe_effective_c1_mm": -0.0001,
+    "probe_aperture_semiangle_mrad": 24.80467235853336,
+    "probe_aperture_observable": "sample current-weighted 95 percent semi-angle",
+    "grid_pixels": 2048,
+    "grid_pixels_x": 2048,
+    "grid_pixels_y": 2048,
+    "pixel_size_angstrom": 0.0390625,
+    "pixel_size_x_angstrom": 0.0390625,
+    "pixel_size_y_angstrom": 0.0390625,
+    "field_of_view_angstrom": 80.0,
+    "field_of_view_x_angstrom": 80.0,
+    "field_of_view_y_angstrom": 80.0,
+    "scan_span_x_angstrom": 12.000000000000004,
+    "scan_span_y_angstrom": 12.000000000000004,
+    "scan_exceeds_periodic_field_of_view": false,
+    "maximum_isotropic_angle_mrad": 168.8003858566641,
+    "truncated_detector_keys": [
+      "haadf"
+    ],
+    "angular_coverage_complete": false,
+    "detector_sampling": {
+      "version": 1,
+      "scope": "conservative full-raster angular bounds; before sequential stops",
+      "maximum_simulated_angle_mrad": 168.8003858566641,
+      "probe_semiangle_mrad": 24.80467235853336,
+      "illumination_covered": true,
+      "detectors": {
+        "haadf": {
+          "status": "partial",
+          "required_inner_mrad": 59.99918968972039,
+          "required_outer_mrad": 330.00079876311634,
+          "sampled_outer_mrad": 168.8003858566641,
+          "overlaps_illumination_disk": false
+        },
+        "df": {
+          "status": "full",
+          "required_inner_mrad": 1.0003370161189804,
+          "required_outer_mrad": 7.00886855369312,
+          "sampled_outer_mrad": 7.00886855369312,
+          "overlaps_illumination_disk": true
+        },
+        "bf": {
+          "status": "full",
+          "required_inner_mrad": 0.0,
+          "required_outer_mrad": 0.5686988041822286,
+          "sampled_outer_mrad": 0.5686988041822286,
+          "overlaps_illumination_disk": true
+        }
+      },
+      "coverage_complete": false,
+      "recommended_grid_pixels": 4032,
+      "requested_grid_pixels": 2048,
+      "grid_area_factor": 3.8759765625,
+      "estimated_potential_bytes": 1755759368,
+      "remedy": "Increase Sample wave Grid; preserve FOV, detector geometry and lens strengths. Recheck after calculation.",
+      "execution_grid_pixels": 2048
+    },
+    "truncated_fraction_available": true,
+    "mean_truncated_fraction": 3.8257128999060055e-14,
+    "wave_sampling_truncates_illumination": false,
+    "wave_intensity_conservation_within_0_1_percent": true,
+    "multislice_enabled": true,
+    "rutherford_tail_enabled": true,
+    "descan_detector_shift_applied": true,
+    "record_plane_scan_deflection_applied": false,
+    "displayed_intensity_average": "single configuration",
+    "detector_configuration_relative_standard_error": {
+      "haadf": 0.0,
+      "df": 0.0,
+      "bf": 0.0
+    },
+    "fft_compute_backend": "CuPy CUDA",
+    "fft_numeric_precision": "complex64 / float32",
+    "fft_fallback_reason": null,
+    "wave_compute_backend": "CuPy CUDA",
+    "cuda_resident_pipeline": true,
+    "cuda_pipeline_fallback_reason": null,
+    "cuda_pipeline_elapsed_s": 278.14117919979617,
+    "cuda_probe_batch_size": 1,
+    "cuda_probe_batch_count": 256,
+    "cuda_configuration_count": 1,
+    "cuda_potential_upload_count": 1,
+    "cuda_resident_potential_bytes": 419430400,
+    "cuda_fixed_device_bytes": 159416320,
+    "cuda_bulk_host_transfer_count": 1,
+    "cuda_bulk_host_transfer_bytes": 10240,
+    "cuda_physical_detector_mask_upload_count": 768,
+    "cuda_physical_detector_mask_upload_bytes": 3221225472,
+    "cuda_multislice_diagnostic_count": 256,
+    "cuda_multislice_plan_reused": true,
+    "cuda_multislice_plan_build_count": 1,
+    "cuda_multislice_plan_use_count": 256,
+    "cuda_multislice_plan_cached_bytes": 88080384,
+    "cuda_multislice_cached_propagator_count": 2,
+    "cuda_multislice_plan_build_elapsed_s": 0.2994873998686671,
+    "cuda_potential_phase_scan_count": 1,
+    "cuda_transmission_cache_builds": 0,
+    "cuda_transmission_cache_hits": 0,
+    "cuda_transmission_cache_bypass_count": 1,
+    "cuda_transmission_cache_bytes": 0,
+    "cuda_transmission_cache_limit_bytes": 260866048,
+    "cuda_transmission_cache_build_elapsed_s": 0.0,
+    "incident_sample_fraction": 0.561,
+    "tracked_probability_after_inelastic_absorption": 1.0,
+    "inelastic_angular_transport_in_wave_scan": "energy-loss probabilities included; coherent elastic angular distribution reused for tracked populations; compact inelastic ray angles are reported in Ray Diagram/Energy Filter",
+    "shared_specimen_interactions_used": false,
+    "manual_sample_paths_added_to_stem_signal": false,
+    "scan_frame_period_s": 1.0,
+    "scan_pixels_x": 16,
+    "scan_pixels_y": 16,
+    "scan_pixel_size_nm": 0.08,
+    "scan_field_of_view_x_nm": 1.28,
+    "scan_field_of_view_y_nm": 1.28,
+    "physical_detector_masks": true,
+    "sequential_detector_interception": true,
+    "post_sample_lens_transport_applied": true,
+    "detector_signal_requires_physical_intersection": true,
+    "post_sample_transport_model": "full_signed_j_img_r_plus_j_diff_theta_sequential_stops",
+    "mixed_plane_recording_model": "applied_to_live_stem_frame",
+    "rutherford_tail": {
+      "model": "screened_relativistic_rutherford_approximation_not_mott",
+      "minimum_angle_mrad": 168.8003860254645,
+      "maximum_angle_mrad": 360.0,
+      "material_source": "structure",
+      "screening_source": "moliere",
+      "material_provenance": "CIF symmetry-expanded, occupancy-weighted unit cell: E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\acquisition_16px_4seeds\\seed_708\\input.cif; interacting thickness 5 nm. Thomas-Fermi/Moliere screening at 300 kV (Geant4 eqs. 97-98).",
+      "warnings": [
+        "Screened Rutherford high-angle approximation; not a full Mott or multiple-scattering calculation."
+      ],
+      "thickness_nm": 5.0,
+      "finite_sample_overlap_model": "isotropic_gaussian_integral_over_physical_envelope_independent_of_scan_roi",
+      "probe_sigma_nm": 0.07491823258689893,
+      "probe_sigma_source": "sample-plane geometric ray RMS radius / sqrt(2); Gaussian envelope approximation, not coherent defocused probe intensity",
+      "minimum_sample_overlap": 1.0,
+      "maximum_sample_overlap": 1.0,
+      "elements": [
+        {
+          "atomic_number": 14,
+          "beam_energy_kv": 300.0,
+          "areal_density_atoms_nm2": 247.9572858375573,
+          "screening_angle_mrad": 17.621617785903382,
+          "minimum_angle_mrad": 168.8003860254645,
+          "maximum_angle_mrad": 360.0,
+          "integrated_cross_section_m2": 5.721804350482296e-25,
+          "optical_depth": 0.00014187630768391178,
+          "radial_samples": 128,
+          "azimuth_samples": 64,
+          "probability_before_overlap_removal": 0.0001418662437165226
+        }
+      ],
+      "total_optical_depth": 0.00014187630768391178,
+      "scattered_probability": 0.0001415644798846146,
+      "scattered_probability_before_overlap_removal": 0.00014186624371652262,
+      "overlap_removed_probability": 3.017638319079998e-07,
+      "incident_chief_angle_rad": [
+        -5.741575117736618e-05,
+        -0.00011166431955634022
+      ],
+      "record_plane_plan_fingerprint": "6a7f7fc78f611d87a38330f9d87ce0bd0873f4f0d54dd9819e5edd2eeedbdff6",
+      "physical_detector_routing": "same_signed_record_plane_maps_and_sequential_stops_as_coherent_wave",
+      "atomic_number": 14,
+      "areal_density_atoms_nm2": 247.9572858375573,
+      "screening_angle_mrad": 17.621617785903382,
+      "integrated_cross_section_m2": 5.721804350482296e-25
+    },
+    "fourdstem_capture_enabled": false,
+    "fourdstem_artifact_path": null,
+    "fourdstem_artifact_shape": null,
+    "fourdstem_detector_response": null,
+    "hybrid_tail_nonoverlap_minimum_mrad": 168.8003858566641,
+    "pre_sample_lost_fraction": 0.43899999999999995,
+    "mean_uncollected_fraction": 0.9549993704718951,
+    "maximum_probability_conservation_error": 2.220446049250313e-16,
+    "real_probability_conserved": true,
+    "sampling_state_signature": "a82de9940c5a7de33fff86fad916e94b14c1309fa4ece158d54b47c38b11ee37",
+    "dwell_time_s": 0.00390625,
+    "signal_fraction_reference": "emitted source current",
+    "current_unit": "pA",
+    "expected_electron_model": "current*dwell/e",
+    "poisson_noise_enabled": false,
+    "poisson_seed": null,
+    "array_axis_order": "y,x",
+    "laboratory_orientation": "+X right; +Y up; electron beam +Z",
+    "physically_inserted_detector_keys": [
+      "haadf",
+      "df",
+      "bf"
+    ],
+    "readout_detector_keys": [
+      "haadf",
+      "df",
+      "bf"
+    ],
+    "unreadout_detector_keys": [],
+    "unreadout_intercepted_mean_fraction": {}
+  },
+  "images": {
+    "haadf": {
+      "min_fraction": 0.0006865938931765874,
+      "max_fraction": 0.0012223246969485211,
+      "mean_fraction": 0.000819250858217721,
+      "std_fraction": 7.85958008845799e-05,
+      "relative_std": 0.09593618376618482,
+      "michelson_modulation": 0.2806462289923126,
+      "mean_tail_fraction": 7.509786982270722e-05,
+      "tail_share": 0.09166651346094715,
+      "png": {
+        "min_maps_to_0": 0.0006865938931765874,
+        "max_maps_to_65535": 0.0012223246969485211,
+        "row_zero": "maximum sample Y"
+      }
+    },
+    "df": {
+      "min_fraction": 0.04173891770252806,
+      "max_fraction": 0.0474220122498031,
+      "mean_fraction": 0.0438163584193578,
+      "std_fraction": 0.0010002396129677258,
+      "relative_std": 0.022827995046841368,
+      "michelson_modulation": 0.06373974060514448,
+      "mean_tail_fraction": 0.0,
+      "tail_share": 0.0,
+      "png": {
+        "min_maps_to_0": 0.04173891770252806,
+        "max_maps_to_65535": 0.0474220122498031,
+        "row_zero": "maximum sample Y"
+      }
+    },
+    "bf": {
+      "min_fraction": 0.000165981568347536,
+      "max_fraction": 0.0005925138932554065,
+      "mean_fraction": 0.00036502025052936263,
+      "std_fraction": 8.091599747878183e-05,
+      "relative_std": 0.22167536557611578,
+      "michelson_modulation": 0.5623399829004538,
+      "mean_tail_fraction": 0.0,
+      "tail_share": 0.0,
+      "png": {
+        "min_maps_to_0": 0.000165981568347536,
+        "max_maps_to_65535": 0.0005925138932554065,
+        "row_zero": "maximum sample Y"
+      }
+    }
+  },
+  "probability_error": 2.220446049250313e-16
+}

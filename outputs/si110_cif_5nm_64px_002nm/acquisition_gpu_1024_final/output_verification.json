@@ -1,0 +1,122 @@
+{
+  "shape": [
+    64,
+    64
+  ],
+  "scan_pitch_x_nm": 0.020000000000000018,
+  "scan_pitch_y_nm": 0.020000000000000018,
+  "scan_x_range_nm": [
+    -0.6300000000000002,
+    0.6300000000000002
+  ],
+  "scan_y_range_nm": [
+    -0.6300000000000002,
+    0.6300000000000002
+  ],
+  "all_arrays_finite": true,
+  "channels": {
+    "haadf": {
+      "mean_fraction": 0.000795100104931806,
+      "min_fraction": 0.0006705192861577508,
+      "max_fraction": 0.0009579450802606569,
+      "tiff_float32_exact": true,
+      "png_encoding_exact": true,
+      "tail_share": 0.085886490224588,
+      "tail_min_fraction": 2.2986551050584778e-05,
+      "tail_max_fraction": 7.509786982270722e-05,
+      "coherent_tail_sum_max_error": 0.0,
+      "reference_angles_mrad": {
+        "inner_mrad": 60.00000002201169,
+        "outer_mrad": 330.0000001210643,
+        "inner_range_mrad": [
+          60.00000002201169,
+          60.00000002201169
+        ],
+        "outer_range_mrad": [
+          330.0000001210643,
+          330.0000001210643
+        ],
+        "anisotropic": false
+      }
+    },
+    "df": {
+      "mean_fraction": 0.04376677127131853,
+      "min_fraction": 0.03816563695646728,
+      "max_fraction": 0.052082687408557635,
+      "tiff_float32_exact": true,
+      "png_encoding_exact": true,
+      "tail_share": 0.0,
+      "tail_min_fraction": 0.0,
+      "tail_max_fraction": 0.0,
+      "coherent_tail_sum_max_error": 0.0,
+      "reference_angles_mrad": {
+        "inner_mrad": 1.0011507484087907,
+        "outer_mrad": 7.008055238861535,
+        "inner_range_mrad": [
+          1.0011507484087905,
+          1.0011507484087907
+        ],
+        "outer_range_mrad": [
+          7.008055238861534,
+          7.008055238861535
+        ],
+        "anisotropic": false
+      }
+    },
+    "bf": {
+      "mean_fraction": 0.0003552798551701886,
+      "min_fraction": 5.357012281895436e-05,
+      "max_fraction": 0.0007540543494397484,
+      "tiff_float32_exact": true,
+      "png_encoding_exact": true,
+      "tail_share": 0.0,
+      "tail_min_fraction": 0.0,
+      "tail_max_fraction": 0.0,
+      "coherent_tail_sum_max_error": 0.0,
+      "reference_angles_mrad": {
+        "inner_mrad": 0.0,
+        "outer_mrad": 0.5678851177334857,
+        "inner_range_mrad": [
+          0.0,
+          0.0
+        ],
+        "outer_range_mrad": [
+          0.5678851177334857,
+          0.5678851177334857
+        ],
+        "anisotropic": false
+      }
+    }
+  },
+  "maximum_probability_conservation_error": 2.220446049250313e-16,
+  "raw_truncation_fraction_max": 1.9104781199190164e-14,
+  "backend": {
+    "specimen_slice_count": 25,
+    "specimen_configuration_count": 4,
+    "grid_pixels_x": 1024,
+    "grid_pixels_y": 1024,
+    "field_of_view_angstrom": 40.0,
+    "maximum_isotropic_angle_mrad": 168.8003858566641,
+    "wave_compute_backend": "CuPy CUDA",
+    "cuda_resident_pipeline": true,
+    "cuda_pipeline_elapsed_s": 1578.2179696001112,
+    "cuda_probe_batch_size": 2,
+    "cuda_probe_batch_count": 2048
+  },
+  "source_cif_hash_matches": true,
+  "artifact_sha256": {
+    "bf.png": "dd98361a0f6107330348892fcf753d7adaa2dd32f131b28fca75177cffcb014c",
+    "bf.tiff": "938478e81b62dbb498a7134c25bca3173606de322871df8a64595899686207e6",
+    "df.png": "ad30e399e9a1c5f2d3ee61da355ee9db6f43ed2e930e09a17e0c702be9354013",
+    "df.tiff": "b3f5559cff2cd53639f8366b6654c40caab3f74c3a8cc0b28f4c058a1d3bdd6b",
+    "haadf.png": "0820b87609ca4b9b7721b9577569ff6f97a41498240b3c0e96e12646bf567336",
+    "haadf.tiff": "8be40758479986bbf0981d7d2463a1ab96aa87543ff9cf7c39724883eb2f0399",
+    "haadf_df_bf_comparison.png": "126d938cf7fbec296b2354335872c18d5023af0f2ab6800c8960d05b721255f0",
+    "operating_profile.toml": "e8ed898ee1d6270ce49aab27d140c647b585d7422e1c61875c3591843912eaae",
+    "operating_profile_raw.toml": "7546715e2fa2f482ab1832725b66a8f721ef1a912a78cd6a7a55fad7ed2d47b0",
+    "raw_scan.npz": "c55f082d3603072346e155073a695581facdbfde450593f454be12bf04ce155f"
+  },
+  "elapsed_acquisition_s": 1603.5889194002375,
+  "elapsed_total_s": 1620.5122143998742,
+  "passed": true
+}

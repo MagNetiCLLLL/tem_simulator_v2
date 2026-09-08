@@ -1,0 +1,54 @@
+{
+  "raw_profile": "operating_profile_raw.toml",
+  "clean_profile": "operating_profile.toml",
+  "removed_export_only_fields": {
+    "devices.simulation.last_gun_waist_mm": 52.0,
+    "devices.descan_deflector.wobble_enabled": false
+  },
+  "raw_skipped_fields": [
+    "simulation.last_gun_waist_mm",
+    "descan_deflector.wobble_enabled"
+  ],
+  "skipped_fields": [],
+  "checked": [
+    "sample",
+    "lenses",
+    "apertures",
+    "stigmators",
+    "deflectors",
+    "electron_gun",
+    "recording_planes",
+    "corrector_elements",
+    "energy_filter",
+    "step_mm",
+    "history_step_mm",
+    "acceleration_enabled",
+    "acceleration_backend",
+    "illumination_mode",
+    "projector_mode",
+    "probe_aberrations",
+    "image_aberrations"
+  ],
+  "differences_from_acquisition_state": [
+    {
+      "path": [
+        "corrector_elements",
+        13,
+        "lower_coil_gain"
+      ],
+      "saved": -0.5433067650015637,
+      "reloaded": -0.5
+    }
+  ],
+  "clean_and_raw_restored_states_equal": true,
+  "format_version": 5,
+  "raw_profile_sha256": "7546715e2fa2f482ab1832725b66a8f721ef1a912a78cd6a7a55fad7ed2d47b0",
+  "clean_profile_sha256": "e8ed898ee1d6270ce49aab27d140c647b585d7422e1c61875c3591843912eaae",
+  "derived_scan_recalibration": "Production calibrate_scan_system(state), also run automatically by run(state), restores dynamic descan lower-coil gain.",
+  "differences_after_scan_recalibration": [],
+  "comparison_tolerance": {
+    "relative": 1e-12,
+    "absolute": 1e-14
+  },
+  "all_physical_inputs_and_derived_scan_match": true
+}

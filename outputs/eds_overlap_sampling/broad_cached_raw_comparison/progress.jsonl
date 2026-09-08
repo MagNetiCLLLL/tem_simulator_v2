@@ -1,0 +1,5 @@
+{"elapsed_s": 0.2303192000836134, "phase": "original elastic", "done": 0, "total": 7635, "message": "Preparing elastic specimen histories"}
+{"elapsed_s": 10.29211110016331, "phase": "original elastic", "done": 3648, "total": 7635, "message": "Elastic specimen history 3648/7635"}
+{"elapsed_s": 20.392543300054967, "phase": "original elastic", "done": 7296, "total": 7635, "message": "Elastic specimen history 7296/7635"}
+{"elapsed_s": 21.288230699952692, "phase": "original elastic", "done": 7635, "total": 7635, "message": "Elastic specimen history 7635/7635"}
+{"elapsed_s": 31.332424399908632, "phase": "points_1024", "done": 3283, "total": 10000, "message": "EDS overlap quadrature: Elastic specimen history 616/787"}

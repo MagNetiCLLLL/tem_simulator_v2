@@ -604,6 +604,11 @@ def test_tem_wave_diffraction_uses_canonical_transfer_at_inserted_screen(
         state, "diffraction_camera_length", 0.05
     )
     assert result.success
+    # This fixture tests one canonical Collins transfer with unit collection.
+    # Inserted intermediate apertures select the separate multi-plane path.
+    for aperture in state.apertures:
+        if float(aperture.z_mm) > float(state.sample.z_mm):
+            aperture.inserted = False
     axis = np.linspace(-8.0, 8.0, 32)
     xx, yy = np.meshgrid(axis, axis, indexing="xy")
     wave = np.exp(-(xx * xx + yy * yy) / 16.0).astype(np.complex128)

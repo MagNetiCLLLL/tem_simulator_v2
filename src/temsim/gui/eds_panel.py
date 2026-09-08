@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -140,6 +141,23 @@ class EDSPage(QWidget):
             "Safety guard only. A nonzero event-limit fraction means the "
             "transport result is truncated."
         )
+        self.eds_overlap_sampling_enabled = QCheckBox("Weighted beam / sample overlap (EDS)")
+        self.eds_overlap_sampling_enabled.setObjectName("sampleEdsOverlapSamplingEnabled")
+        self.eds_overlap_sampling_enabled.setToolTip(
+            "For sparse hits on a small, thin sample without a material support, "
+            "estimate the continuous incident density from weighted rays and "
+            "integrate additional material paths. This KDE approximation retains "
+            "the small overlap current and does not change downstream electrons "
+            "or coherent STEM. Unsupported cases retain the original ray estimate."
+        )
+        self.eds_overlap_sampling_points = self._integer_control(
+            "sampleEdsOverlapSamplingPoints", 32, 4096
+        )
+        self.eds_overlap_sampling_points.setToolTip(
+            "Additional EDS integration points; compare larger values for "
+            "quadrature convergence. More points do not remove uncertainty "
+            "in reconstructing the beam density from finite upstream rays."
+        )
         self.incident_summary = QLabel(
             "Run a column calculation to resolve the sample-plane ray bundle."
         )
@@ -176,6 +194,8 @@ class EDSPage(QWidget):
         eds_form.addRow("Acceptance", self.eds_solid_angle)
         eds_form.addRow("Electron paths", self.eds_transport)
         eds_form.addRow("Incident histories", self.incident_summary)
+        eds_form.addRow("Overlap sampling", self.eds_overlap_sampling_enabled)
+        eds_form.addRow("Overlap integration points", self.eds_overlap_sampling_points)
         eds_form.addRow("Elastic seed", self.eds_elastic_seed)
         eds_form.addRow(
             "Maximum events / trajectory", self.eds_elastic_max_events
@@ -286,7 +306,18 @@ class EDSPage(QWidget):
         self.eds_summary.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
+        self.signal_diagnostics = QLabel()
+        self.signal_diagnostics.setObjectName("edsSignalDiagnostics")
+        self.signal_diagnostics.setWordWrap(True)
+        diagnostics_policy = self.signal_diagnostics.sizePolicy()
+        diagnostics_policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        self.signal_diagnostics.setSizePolicy(diagnostics_policy)
+        self.signal_diagnostics.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.signal_diagnostics.hide()
         spectrum_layout.addWidget(self.eds_summary)
+        spectrum_layout.addWidget(self.signal_diagnostics)
         spectrum_layout.addWidget(self.peak_labels)
         spectrum_layout.addWidget(self.spectrum_hover_readout)
         spectrum_layout.addWidget(self.spectrum_plot, 1)
@@ -296,6 +327,12 @@ class EDSPage(QWidget):
         )
         self.eds_poisson_enabled.toggled.connect(
             lambda value: self._set_bool("eds_poisson_enabled", value)
+        )
+        self.eds_overlap_sampling_enabled.toggled.connect(
+            lambda value: self._set_bool("eds_overlap_sampling_enabled", value)
+        )
+        self.eds_overlap_sampling_points.valueChanged.connect(
+            lambda value: self._set_integer("eds_overlap_sampling_points", value)
         )
         for field, control in self.eds_scalar_controls.items():
             control.valueChanged.connect(
@@ -373,6 +410,8 @@ class EDSPage(QWidget):
             sample = state.sample
             self.eds_enabled.setChecked(bool(sample.eds_enabled))
             self.eds_poisson_enabled.setChecked(bool(sample.eds_poisson_enabled))
+            self.eds_overlap_sampling_enabled.setChecked(bool(sample.eds_overlap_sampling_enabled))
+            self.eds_overlap_sampling_points.setValue(int(sample.eds_overlap_sampling_points))
             self.eds_poisson_seed.setValue(int(sample.eds_poisson_seed))
             self.eds_elastic_seed.setValue(int(sample.eds_elastic_seed))
             self.eds_elastic_max_events.setValue(
@@ -403,7 +442,7 @@ class EDSPage(QWidget):
         self._update_controls()
 
     def display_result(self, result):
-        changed = result is not self._result
+        changed = result is not self._result or (result is None and self._eds_result is not None)
         if changed:
             self._clear_result(
                 "No EDS product is available in this shared result."
@@ -480,6 +519,7 @@ class EDSPage(QWidget):
             "The displayed spectrum belongs to the previous High accuracy "
             "state. Run High accuracy before calculating new EDS data."
         )
+        self._update_signal_diagnostics(self._eds_result, stale=True)
         self.sample_region_summary.setText(
             "Previous sample-region result retained | inputs changed"
         )
@@ -602,6 +642,10 @@ class EDSPage(QWidget):
         )
         self.eds_elastic_seed.setEnabled(enabled and elastic)
         self.eds_elastic_max_events.setEnabled(enabled and elastic)
+        self.eds_overlap_sampling_enabled.setEnabled(enabled and elastic)
+        self.eds_overlap_sampling_points.setEnabled(
+            enabled and elastic and self.eds_overlap_sampling_enabled.isChecked()
+        )
 
     def _clear_result(self, text):
         self._eds_result = None
@@ -610,6 +654,7 @@ class EDSPage(QWidget):
         self.eds_summary.setText(text)
         self.spectrum_plot.clear()
         self._reset_spectrum_hover()
+        self._update_signal_diagnostics(None)
         self._clear_sample_region_result(
             "Sample-region result is stale; run the manual calculation again."
         )
@@ -849,7 +894,7 @@ class EDSPage(QWidget):
         )
         source_names = ", ".join(
             dict.fromkeys(line.source_key for line in spectrum.lines)
-        ) or "vacuum only"
+        ) or "no characteristic contributions"
         if self._elastic_result is None:
             transport_text = "Straight-primary reference; no elastic MC."
         else:
@@ -892,6 +937,128 @@ class EDSPage(QWidget):
                 f"{key}: {value}" for key, value in spectrum.metrics.items()
             )
         )
+
+    def _update_signal_diagnostics(self, spectrum, *, stale=False) -> None:
+        """Explain the displayed estimate using its completed transport only."""
+        if spectrum is None:
+            self.signal_diagnostics.clear()
+            self.signal_diagnostics.setToolTip("")
+            self.signal_diagnostics.hide()
+            return
+        metrics = dict(getattr(getattr(spectrum, "elastic_transport", None), "metrics", None) or {})
+        metrics.update(getattr(spectrum, "metrics", None) or {})
+        expected = getattr(spectrum, "total_expected_counts", None)
+        if expected is None:
+            expected = float(np.sum(spectrum.expected_counts))
+        sampled_values = getattr(spectrum, "sampled_counts", None)
+        sampled = None if sampled_values is None else float(np.sum(sampled_values))
+        counts = f"Expected: {expected:.6g} counts"
+        if sampled is not None:
+            counts += f" | Poisson sampled: {sampled:.6g} counts"
+        rows = [counts]
+        overlap_active = metrics.get("eds_overlap_sampling_status") == "active"
+        if overlap_active:
+            fraction = float(metrics.get("eds_overlap_material_weight_fraction", 0.0))
+            points = metrics.get("eds_overlap_sampling_point_count", "?")
+            rows.append(
+                f"Weighted overlap (EDS only): {100.0 * fraction:.6g}% of sample-plane current; "
+                f"{points} integration points. Continuous ray-density estimate (KDE approximation)."
+            )
+            rows.append("Original electron histories remain unchanged; overlap is not renormalised to full beam current.")
+        elif metrics.get("eds_overlap_sampling_status") not in (None, "disabled"):
+            rows.append("Overlap sampling: " + str(metrics.get(
+                "eds_overlap_sampling_detail", metrics["eds_overlap_sampling_status"]
+            )))
+        status = metrics.get("material_sampling_status")
+        warning = status == "no_sampled_material_hits" and not overlap_active
+        if warning:
+            rows.append(
+                "No sampled ray crossed material; zero estimate does not establish zero physical signal. "
+                "Check overlap / increase ray sampling."
+            )
+        elif status == "no_material":
+            rows.append("Transport reports no material.")
+        elif status == "no_sampled_material_hits" and overlap_active:
+            rows.append("Original rays missed material; the EDS estimate uses the weighted overlap integral.")
+        if sampled == 0 and expected > 0:
+            warning = True
+            rows.append("Poisson sample is zero despite a nonzero expected signal.")
+        emitted = metrics.get("total_expected_emitted_photons")
+        collected = metrics.get("photon_transport_expected_detected_counts")
+        outside_energy = metrics.get("counts_outside_spectrum")
+        if expected == 0 and (
+            (collected is not None and collected > 0)
+            or (outside_energy is not None and outside_energy > 0)
+        ):
+            warning = True
+            rows.append("Collected X-rays lie outside the displayed energy range. Check the spectrum energy limits.")
+            if outside_energy is not None:
+                rows.append(f"Expected counts outside spectrum: {outside_energy:.6g}")
+        elif emitted is not None and emitted > 0 and expected == 0 and collected == 0:
+            warning = True
+            rows.append("X-rays generated, none collected.")
+            photon_counts = [f"Generated photons: {emitted:.6g}"]
+            for key, name in (
+                ("photon_transport_expected_unattenuated_counts", "Unattenuated expected counts"),
+                ("photon_transport_expected_detected_counts", "Collected expected counts"),
+            ):
+                value = metrics.get(key)
+                if value is not None:
+                    photon_counts.append(f"{name}: {value:.6g}")
+            rows.append(" | ".join(photon_counts))
+            blocked = metrics.get("photon_transport_blocked_by_component_counts")
+            if isinstance(blocked, Mapping):
+                components = [f"{key} ({count:,})" for key, count in blocked.items() if count > 0]
+                if components:
+                    rows.append("Blocked photon paths: " + ", ".join(components))
+            outside = metrics.get("photon_transport_outside_acceptance_count")
+            if outside is not None:
+                rows.append(f"Photon paths outside acceptance: {outside:,}")
+        elif emitted is not None and emitted > 0 and expected == 0 and collected is None:
+            warning = True
+            rows.append("X-rays generated; collection diagnostics unavailable for this result.")
+        positive_count = metrics.get("positive_weight_trajectory_count")
+        hits = []
+        for prefix, name in (("material", "Material"), ("sample", "Sample")):
+            count = metrics.get(f"{prefix}_hit_trajectory_count")
+            if count is None or positive_count is None:
+                continue
+            text = f"{name} hits: {count:,}/{positive_count:,} positive-weight rays"
+            weight = metrics.get(f"{prefix}_hit_weight_fraction")
+            if weight is not None:
+                text += f" ({100.0 * weight:.6g}% beam weight)"
+            hits.append(text)
+        rows.append(" | ".join(hits) if hits else "Material-hit diagnostics unavailable for this result.")
+        footprint = []
+        rms_radius = metrics.get("incident_position_rms_radius_nm")
+        if rms_radius is not None:
+            footprint.append(f"Incident RMS radius: {rms_radius:.6g} nm")
+        size = metrics.get("sample_size_xy_nm")
+        thickness = metrics.get("sample_thickness_nm")
+        if size is not None and len(size) == 2:
+            dimensions = f"Sample size: {size[0]:.6g} \u00d7 {size[1]:.6g}"
+            if thickness is not None:
+                dimensions += f" \u00d7 {thickness:.6g}"
+            footprint.append(dimensions + " nm")
+        elif thickness is not None:
+            footprint.append(f"Sample thickness: {thickness:.6g} nm")
+        if footprint:
+            rows.append(" | ".join(footprint))
+        if stale:
+            rows.insert(0, "Previous EDS result | inputs changed; recalculate to update these diagnostics.")
+        self.signal_diagnostics.setText("\n".join(rows))
+        self.signal_diagnostics.setToolTip(
+            "Diagnostics describe the displayed completed spectrum, not live settings. "
+            "Hits count positive-weight trajectories that actually crossed material; "
+            "material includes the sample and support. Hit weights are conditional "
+            "fractions of the traced incident beam weight, not emitted source current. "
+            "Sparse or absent crossings do not establish a precise confidence interval. "
+            "Expected and Poisson-sampled counts are distinct; these diagnostics do not change either array."
+        )
+        self.signal_diagnostics.setStyleSheet(
+            "color: #fbbf24;" if warning or stale else "color: #cbd5e1;"
+        )
+        self.signal_diagnostics.show()
 
     def _plot_spectrum(self, spectrum):
         self.spectrum_plot.clear()
@@ -944,6 +1111,7 @@ class EDSPage(QWidget):
         )
         self.spectrum_plot.enableAutoRange()
         self.peak_labels.set_spectrum(spectrum)
+        self._update_signal_diagnostics(spectrum)
 
     def _clear_spectrum_readout(self) -> None:
         """Do not retain an old element identity after changing label scope."""

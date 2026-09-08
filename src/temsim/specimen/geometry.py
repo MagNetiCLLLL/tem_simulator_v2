@@ -543,8 +543,8 @@ def build_sample_geometry_snapshot(
     calculation_roi_bounds_nm_override: tuple[float, float, float, float] | None = None,
 ) -> SampleGeometrySnapshot:
     mode = str(getattr(sample, "specimen_mode", "atomic")).strip().lower()
-    if mode not in {"atomic", "virtual"}:
-        raise ValueError("Sample mode must be atomic or virtual.")
+    if mode not in {"atomic", "reference"}:
+        raise ValueError("Sample mode must be atomic or reference.")
     size = (
         float(getattr(sample, "size_x_nm", 0.0)),
         float(getattr(sample, "size_y_nm", 0.0)),
@@ -584,7 +584,13 @@ def build_sample_geometry_snapshot(
             raise ValueError("Calculation ROI bounds must be ordered.")
         roi = tuple(float(value) for value in supplied)
     warnings: list[str] = []
-    cif = active_cif_path(sample) or None
+    try:
+        cif = active_cif_path(sample) or None
+    except (ValueError, OSError) as exc:
+        if load_atoms:
+            raise
+        cif = None
+        warnings.append(f"CIF structure unavailable: {exc}")
     atom_positions = np.empty((0, 3), dtype=float)
     atomic_numbers = np.empty(0, dtype=int)
     atom_bonds = np.empty((0, 2), dtype=int)
@@ -620,7 +626,7 @@ def build_sample_geometry_snapshot(
         (*display_bounds, centre[2] - size[2] / 2, centre[2] + size[2] / 2)
         if lateral_overlap and size[2] > 0.0 else None
     )
-    if mode == "atomic" and cif and load_atoms:
+    if cif and load_atoms:
         if not lateral_overlap:
             warnings.append(
                 "The requested atomic display range is outside the finite sample; it contains vacuum only."
@@ -669,9 +675,9 @@ def build_sample_geometry_snapshot(
                 ))
     for array in (atom_positions, atomic_numbers, atom_bonds, cell_vectors):
         array.setflags(write=False)
-    if mode == "atomic" and not cif:
+    if not cif:
         warnings.append(
-            "Real sample has no imported CIF/MCIF; specimen interactions are "
+            "Sample has no CIF/MCIF structure; specimen interactions are "
             "disabled until a crystallographic file is selected."
         )
     if not bool(getattr(sample, "inserted", True)):
@@ -707,7 +713,7 @@ def build_sample_geometry_snapshot(
         atoms_are_unit_cell_preview=unit_preview,
         atom_display_centre_nm=atom_display_centre,
         atom_display_size_nm=atom_display_size,
-        regions=_region_snapshots(sample),
+        regions=(),
         scan_fov_bounds_nm=scan_bounds,
         calculation_roi_bounds_nm=roi,
         current_probe_nm=current_probe_nm,

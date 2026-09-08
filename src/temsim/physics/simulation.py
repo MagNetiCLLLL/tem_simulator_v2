@@ -455,8 +455,8 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
 
     sample_inserted = bool(getattr(s.sample, 'inserted', True))
     specimen_mode = str(getattr(s.sample, 'specimen_mode', 'atomic')).strip().lower()
-    if specimen_mode not in {'atomic', 'virtual'}:
-        raise ValueError("Sample specimen mode must be 'atomic' or 'virtual'.")
+    if specimen_mode not in {'atomic', 'reference'}:
+        raise ValueError("Sample specimen mode must be 'atomic' or 'reference'.")
     _,_,lam=electron(s)
 
     branches={}
@@ -471,25 +471,18 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
             resolved_focal_mm=chromatic_focal_mm,
         )
 
-    virtual_branch_weights_are_absolute = False
     real_branch_weights_are_absolute = False
     real_interactions = None
     from temsim.specimen.source import specimen_is_vacuum
 
     sample_is_vacuum = specimen_is_vacuum(s.sample)
-    sample_diffraction_applied = bool(
-        not sample_is_vacuum
-        and specimen_mode == 'virtual'
-        and getattr(s.sample, 'diffraction_enabled', True)
-    )
-
     if optical_only:
         branch_specs = [('000', 0.0, 0.0, 1.0, 'optical_reference', 0.0)]
         scattering_model = 'omitted_for_optical_tuning'
     elif sample_is_vacuum:
         branch_specs = [('000', 0.0, 0.0, 1.0, 'vacuum', 0.0)]
         scattering_model = 'user_selected_vacuum_reference_plane'
-    elif specimen_mode == 'atomic':
+    else:
         # Coherent elastic diffraction remains exclusively in multislice.
         # These branches are instead a material-derived, probability-
         # conserving quadrature of real stochastic energy-loss events.
@@ -515,37 +508,6 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         ]
         real_branch_weights_are_absolute = True
         scattering_model = 'real_material_inelastic_poisson_plus_elastic_wave'
-    elif not bool(getattr(s.sample, 'diffraction_enabled', True)):
-        branch_specs = [
-            ('000', 0.0, 0.0, 1.0, 'virtual_interactions_disabled', 0.0)
-        ]
-        scattering_model = 'virtual_interactions_disabled'
-    else:
-        from temsim.specimen.virtual import (
-            uses_legacy_virtual_controls,
-            virtual_scattering_branches,
-        )
-
-        virtual = virtual_scattering_branches(
-            s.sample,
-            beam_energy_kv=s.beam_voltage_kv,
-        )
-        branch_specs = [
-            (
-                branch.name,
-                branch.kick_x_rad,
-                branch.kick_y_rad,
-                branch.relative_weight,
-                _canonical_interaction_kind(branch.kind),
-                0.0,
-            )
-            for branch in virtual
-        ]
-        scattering_model = 'user_defined_virtual_angular_channels'
-        virtual_branch_weights_are_absolute = not uses_legacy_virtual_controls(
-            s.sample
-        )
-
     # Trace compact batches.  This retains energy-dependent Larmor/chromatic
     # transport, accelerates GUI-sized bundles, and bounds peak memory for
     # high-accuracy production ray counts.
@@ -715,26 +677,16 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         'column_segment_cache': segment_cache_metrics,
         'sample_inserted': sample_inserted,
         'sample_scattering_applied': bool(
-            sample_diffraction_applied
-            or (
-                real_interactions is not None
-                and (
-                    real_interactions.mean_inelastic_events > 0.0
-                    or real_interactions.absorbed_probability > 0.0
-                )
+            real_interactions is not None
+            and (
+                real_interactions.mean_inelastic_events > 0.0
+                or real_interactions.absorbed_probability > 0.0
             )
         ),
         'specimen_mode': specimen_mode,
         'sample_scattering_model': scattering_model,
         'branch_weights_are_absolute': bool(
-            sample_inserted and (
-                (specimen_mode == 'atomic' and real_branch_weights_are_absolute)
-                or (
-                    specimen_mode == 'virtual'
-                    and getattr(s.sample, 'diffraction_enabled', True)
-                    and virtual_branch_weights_are_absolute
-                )
-            )
+            sample_inserted and real_branch_weights_are_absolute
         ),
         'sample_absorbed_probability': (
             float(real_interactions.absorbed_probability)

@@ -1,0 +1,336 @@
+{
+  "recorded_utc": "2026-09-08T12:36:49.821570+00:00",
+  "reviewed_script": {
+    "path": "E:\\tem_simulator_v2\\scripts\\correct_archived_stem_tail_overlap.py",
+    "sha256": "b73c9e97df48eb10d7a02574b2ea0ea646557e9a36195954d09a0697791b4e6a"
+  },
+  "conclusion": "PASS for these three archived homogeneous Si acquisitions: the changed scalar overlap can be recomposed from stored coherent and tail fractions without rerunning multislice, to the precision of archived float64 arrays.",
+  "method": "Independent calculation using the unchanged legacy virtual_density_at_scan evaluator and new physical-envelope helper. Recover each conditional coherent detector population W_i=C_old_i/[available*(1-P*d_old)], recover tail transport coefficients K_i=T_old_i/(available*d_old), and independently form available*[(1-P*d_new)*W_i+d_new*K_i]. Recover the uncollected coherent population after separately removing pre-sample loss and old tail loss. Check all arrays, budget, export encoding and recorded source hashes. The correction script itself was not executed during this review.",
+  "population_formulae": {
+    "available": "incident_fraction*tracked_fraction",
+    "coherent": "available*(1-P*d)*W_i",
+    "tail": "available*d*K_i",
+    "uncollected": "pre_sample_loss + available*((1-P*d)*W_uncollected + d*(P-sum(K_i)))",
+    "absorbed": "unchanged",
+    "truncated": "old_truncated*(1-P*d_new)/(1-P*d_old); already part of uncollected, not an extra budget population"
+  },
+  "scope_and_limits": [
+    "Only the scalar finite-envelope overlap changed; specimen wave potentials, phase, frozen configurations, grid, incident beam, retained tail angular law, physical detector routing and optical settings were reused unchanged.",
+    "All tested probe centres are deep inside the homogeneous 10 nm disk. The legacy density was exactly the Gaussian-filtered raster support; the actual envelope overlap is numerically one.",
+    "Old overlap and old coherent scale must be strictly positive for this inversion. This does not authorize reconstruction of arbitrary older frames without sufficient provenance, nonuniform material, zero-density locations or changed optical/sample physics.",
+    "Corrected images retain the original acquisition lens strengths and DPA diameter 0.2 mm. They are not a new acquisition under the enlarged DPA or the new underfocus setting.",
+    "PNG is flipped vertically to display minimum sample Y at the bottom; TIFF preserves raw row order and declares row_zero=minimum sample Y.",
+    "The validation does not establish convergence or experimental accuracy of the retained multislice/Rutherford models. No new 64x64 wave propagation was run."
+  ],
+  "cases": [
+    {
+      "destination": "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\benchmark_512_tail_corrected",
+      "source": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\benchmark_512_gpu_calibrated",
+      "shape": [
+        4,
+        4
+      ],
+      "source_wave_grid": 512,
+      "sigma_nm": 0.07491849574337359,
+      "minimum_true_sample_edge_distance_in_sigma": 66.16233102562512,
+      "incident_fraction": 0.561,
+      "tracked_fraction": 1.0,
+      "retained_tail_probability": 0.0006673435051002288,
+      "old_overlap_range": [
+        0.14357981827306193,
+        0.16354833412981873
+      ],
+      "true_overlap_range": [
+        1.0,
+        1.0
+      ],
+      "hash_checks": {
+        "raw_scan.npz": {
+          "expected": "5f3b0447e22fcfac76828d3dbb22c07c05786417d97f3acba936457cfe3c6c8a",
+          "actual": "5f3b0447e22fcfac76828d3dbb22c07c05786417d97f3acba936457cfe3c6c8a",
+          "matches": true
+        },
+        "parameters.json": {
+          "expected": "4fc8252f81d34a9409853d86049ee3940c67e350a0c1fd5cfbbb1362af81d4c1",
+          "actual": "4fc8252f81d34a9409853d86049ee3940c67e350a0c1fd5cfbbb1362af81d4c1",
+          "matches": true
+        },
+        "metrics.json": {
+          "expected": "3ac1141149a497d2f77458f6f0bb7ae835dbb9700bee3854969f23c624882b30",
+          "actual": "3ac1141149a497d2f77458f6f0bb7ae835dbb9700bee3854969f23c624882b30",
+          "matches": true
+        }
+      },
+      "source_files_still_match_prior_output_verification": {},
+      "archived_cif_hash_matches": true,
+      "all_corrected_arrays_finite": true,
+      "all_probability_arrays_nonnegative": true,
+      "errors": {
+        "old_overlap_vs_unchanged_legacy_evaluator": 0.0,
+        "new_overlap_vs_actual_envelope_helper": 0.0,
+        "scan_x_unchanged": 0.0,
+        "scan_y_unchanged": 0.0,
+        "absorbed_unchanged": 0.0,
+        "conditional_coherent_population_sum_error": 2.220446049250313e-16,
+        "uncollected_independent_formula_error": 1.1102230246251565e-16,
+        "truncated_reweight_error": 3.1554436208840472e-30,
+        "old_probability_budget_error": 1.1102230246251565e-16,
+        "new_probability_budget_error": 2.220446049250313e-16
+      },
+      "channels": {
+        "haadf": {
+          "old_total_equals_components_error": 0.0,
+          "coherent_formula_error": 5.421010862427522e-20,
+          "tail_formula_error": 5.421010862427522e-20,
+          "total_formula_error": 1.0842021724855044e-19,
+          "new_total_equals_components_error": 0.0,
+          "minimum_fraction": 0.0007185036370779482,
+          "maximum_fraction": 0.0007389381782720597,
+          "tail_minimum_fraction": 0.0003699882268288786,
+          "tail_maximum_fraction": 0.0003699882268288787
+        },
+        "df": {
+          "old_total_equals_components_error": 0.0,
+          "coherent_formula_error": 6.938893903907228e-18,
+          "tail_formula_error": 0.0,
+          "total_formula_error": 6.938893903907228e-18,
+          "new_total_equals_components_error": 0.0,
+          "minimum_fraction": 0.04852374660303411,
+          "maximum_fraction": 0.05140032720630657,
+          "tail_minimum_fraction": 0.0,
+          "tail_maximum_fraction": 0.0
+        },
+        "bf": {
+          "old_total_equals_components_error": 0.0,
+          "coherent_formula_error": 1.0842021724855044e-19,
+          "tail_formula_error": 0.0,
+          "total_formula_error": 1.0842021724855044e-19,
+          "new_total_equals_components_error": 0.0,
+          "minimum_fraction": 0.00032361284595003363,
+          "maximum_fraction": 0.0006408820692534017,
+          "tail_minimum_fraction": 0.0,
+          "tail_maximum_fraction": 0.0
+        }
+      },
+      "output_artifact_sha256": {
+        "correction.json": "4d0e0d6d0580000413a8df41e3ccb5e8bd5d4ec8874c3d7343c5f1e8e181e006",
+        "raw_scan.npz": "6bac5f5ab44ecf732ce17b17a7e12dc9757078be390bb816beb53f5293ee88a0"
+      }
+    },
+    {
+      "destination": "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\benchmark_1024_tail_corrected",
+      "source": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\benchmark_1024_gpu_calibrated",
+      "shape": [
+        4,
+        4
+      ],
+      "source_wave_grid": 1024,
+      "sigma_nm": 0.07491849574337359,
+      "minimum_true_sample_edge_distance_in_sigma": 66.16233102562512,
+      "incident_fraction": 0.561,
+      "tracked_fraction": 1.0,
+      "retained_tail_probability": 0.0001415644798846146,
+      "old_overlap_range": [
+        0.14357981827306193,
+        0.16354833412981873
+      ],
+      "true_overlap_range": [
+        1.0,
+        1.0
+      ],
+      "hash_checks": {
+        "raw_scan.npz": {
+          "expected": "beb94e95119dc5b71e77b8e76cd984a2c041720e29f69d0c4746c65942d05b6b",
+          "actual": "beb94e95119dc5b71e77b8e76cd984a2c041720e29f69d0c4746c65942d05b6b",
+          "matches": true
+        },
+        "parameters.json": {
+          "expected": "dd07a2d42db43cfcdddddfd8e9d8eb1c6d4c46b95606ee56c7f7d8e882bf0a07",
+          "actual": "dd07a2d42db43cfcdddddfd8e9d8eb1c6d4c46b95606ee56c7f7d8e882bf0a07",
+          "matches": true
+        },
+        "metrics.json": {
+          "expected": "25e20d742dc35d66a2fc084659c6f17a3cedd738a00c92252b550538f6d7b9ae",
+          "actual": "25e20d742dc35d66a2fc084659c6f17a3cedd738a00c92252b550538f6d7b9ae",
+          "matches": true
+        }
+      },
+      "source_files_still_match_prior_output_verification": {},
+      "archived_cif_hash_matches": true,
+      "all_corrected_arrays_finite": true,
+      "all_probability_arrays_nonnegative": true,
+      "errors": {
+        "old_overlap_vs_unchanged_legacy_evaluator": 0.0,
+        "new_overlap_vs_actual_envelope_helper": 0.0,
+        "scan_x_unchanged": 0.0,
+        "scan_y_unchanged": 0.0,
+        "absorbed_unchanged": 0.0,
+        "conditional_coherent_population_sum_error": 2.220446049250313e-16,
+        "uncollected_independent_formula_error": 1.1102230246251565e-16,
+        "truncated_reweight_error": 3.1554436208840472e-30,
+        "old_probability_budget_error": 2.220446049250313e-16,
+        "new_probability_budget_error": 2.220446049250313e-16
+      },
+      "channels": {
+        "haadf": {
+          "old_total_equals_components_error": 0.0,
+          "coherent_formula_error": 2.168404344971009e-19,
+          "tail_formula_error": 1.3552527156068805e-20,
+          "total_formula_error": 2.168404344971009e-19,
+          "new_total_equals_components_error": 0.0,
+          "minimum_fraction": 0.0009073550748240942,
+          "maximum_fraction": 0.0009579311656512042,
+          "tail_minimum_fraction": 7.50978698227072e-05,
+          "tail_maximum_fraction": 7.509786982270723e-05
+        },
+        "df": {
+          "old_total_equals_components_error": 0.0,
+          "coherent_formula_error": 1.3877787807814457e-17,
+          "tail_formula_error": 0.0,
+          "total_formula_error": 1.3877787807814457e-17,
+          "new_total_equals_components_error": 0.0,
+          "minimum_fraction": 0.04830643093249588,
+          "maximum_fraction": 0.05107663586117484,
+          "tail_minimum_fraction": 0.0,
+          "tail_maximum_fraction": 0.0
+        },
+        "bf": {
+          "old_total_equals_components_error": 0.0,
+          "coherent_formula_error": 2.168404344971009e-19,
+          "tail_formula_error": 0.0,
+          "total_formula_error": 2.168404344971009e-19,
+          "new_total_equals_components_error": 0.0,
+          "minimum_fraction": 0.0003227034168442292,
+          "maximum_fraction": 0.000637696830974346,
+          "tail_minimum_fraction": 0.0,
+          "tail_maximum_fraction": 0.0
+        }
+      },
+      "output_artifact_sha256": {
+        "correction.json": "dfb2d8424b22db8057d0935c3ecc93730101c3f07594338a2a850eb483fac370",
+        "raw_scan.npz": "4e4775d50f42cfe8754ab88784c40be3401d28f6a2120c2dacd0bbd10ec8c4b8"
+      }
+    },
+    {
+      "destination": "E:\\tem_simulator_v2\\outputs\\si110_underfocus_100nm\\near_focus_tail_corrected",
+      "source": "E:\\tem_simulator_v2\\outputs\\si110_cif_5nm_64px_002nm\\acquisition_gpu_1024_final",
+      "shape": [
+        64,
+        64
+      ],
+      "source_wave_grid": 1024,
+      "sigma_nm": 0.07491822584921076,
+      "minimum_true_sample_edge_distance_in_sigma": 54.83649834988265,
+      "incident_fraction": 0.561,
+      "tracked_fraction": 1.0,
+      "retained_tail_probability": 0.0001415644798846146,
+      "old_overlap_range": [
+        0.30608792373008653,
+        1.0
+      ],
+      "true_overlap_range": [
+        1.0,
+        1.0
+      ],
+      "hash_checks": {
+        "raw_scan.npz": {
+          "expected": "c55f082d3603072346e155073a695581facdbfde450593f454be12bf04ce155f",
+          "actual": "c55f082d3603072346e155073a695581facdbfde450593f454be12bf04ce155f",
+          "matches": true
+        },
+        "parameters.json": {
+          "expected": "5ee641bfd8f4fc3df4221b03fbdfd43ab1d65ee347f8a425c192bb85f56dac31",
+          "actual": "5ee641bfd8f4fc3df4221b03fbdfd43ab1d65ee347f8a425c192bb85f56dac31",
+          "matches": true
+        },
+        "metrics.json": {
+          "expected": "331482e20e0bcf66ddb85e5c7de07a19dae7b8ee41fb82bc2fa65533e8be4424",
+          "actual": "331482e20e0bcf66ddb85e5c7de07a19dae7b8ee41fb82bc2fa65533e8be4424",
+          "matches": true
+        }
+      },
+      "source_files_still_match_prior_output_verification": {
+        "bf.png": true,
+        "bf.tiff": true,
+        "df.png": true,
+        "df.tiff": true,
+        "haadf.png": true,
+        "haadf.tiff": true,
+        "haadf_df_bf_comparison.png": true,
+        "operating_profile.toml": true,
+        "operating_profile_raw.toml": true,
+        "raw_scan.npz": true
+      },
+      "archived_cif_hash_matches": true,
+      "all_corrected_arrays_finite": true,
+      "all_probability_arrays_nonnegative": true,
+      "errors": {
+        "old_overlap_vs_unchanged_legacy_evaluator": 0.0,
+        "new_overlap_vs_actual_envelope_helper": 0.0,
+        "scan_x_unchanged": 0.0,
+        "scan_y_unchanged": 0.0,
+        "absorbed_unchanged": 0.0,
+        "conditional_coherent_population_sum_error": 4.440892098500626e-16,
+        "uncollected_independent_formula_error": 2.220446049250313e-16,
+        "truncated_reweight_error": 3.1554436208840472e-30,
+        "old_probability_budget_error": 2.220446049250313e-16,
+        "new_probability_budget_error": 2.220446049250313e-16
+      },
+      "channels": {
+        "haadf": {
+          "old_total_equals_components_error": 0.0,
+          "coherent_formula_error": 2.168404344971009e-19,
+          "tail_formula_error": 2.710505431213761e-20,
+          "total_formula_error": 2.168404344971009e-19,
+          "new_total_equals_components_error": 0.0,
+          "minimum_fraction": 0.0007195785845827845,
+          "maximum_fraction": 0.0009579450802606569,
+          "tail_minimum_fraction": 7.509786982270719e-05,
+          "tail_maximum_fraction": 7.509786982270723e-05,
+          "tiff_float32_bit_exact": true,
+          "tiff_quantisation_max_absolute_error": 2.91014355625549e-11,
+          "png_y_up_linear_encoding_bit_exact": true
+        },
+        "df": {
+          "old_total_equals_components_error": 0.0,
+          "coherent_formula_error": 1.3877787807814457e-17,
+          "tail_formula_error": 0.0,
+          "total_formula_error": 1.3877787807814457e-17,
+          "new_total_equals_components_error": 0.0,
+          "minimum_fraction": 0.03816563695646728,
+          "maximum_fraction": 0.05208267987644689,
+          "tail_minimum_fraction": 0.0,
+          "tail_maximum_fraction": 0.0,
+          "tiff_float32_bit_exact": true,
+          "tiff_quantisation_max_absolute_error": 1.8619162323041394e-09,
+          "png_y_up_linear_encoding_bit_exact": true
+        },
+        "bf": {
+          "old_total_equals_components_error": 0.0,
+          "coherent_formula_error": 2.168404344971009e-19,
+          "tail_formula_error": 0.0,
+          "total_formula_error": 2.168404344971009e-19,
+          "new_total_equals_components_error": 0.0,
+          "minimum_fraction": 5.357012281895436e-05,
+          "maximum_fraction": 0.0007540421671002781,
+          "tail_minimum_fraction": 0.0,
+          "tail_maximum_fraction": 0.0,
+          "tiff_float32_bit_exact": true,
+          "tiff_quantisation_max_absolute_error": 2.903057601168907e-11,
+          "png_y_up_linear_encoding_bit_exact": true
+        }
+      },
+      "output_artifact_sha256": {
+        "bf.png": "65e5211956be210b9f40306d630372013207732d4fb0fbb7b2efd9020ea6aa80",
+        "bf.tiff": "5d28cc3d1b12ca81de3e851572a0565ef5765ef8268bfa37fa0689da0b9c8bb7",
+        "correction.json": "cc64cbf7432b8f48589c1470484a589d7a7fd821c88e5131b25b803e88dc908c",
+        "df.png": "32ad207dac1c3a7972131b95fa4bff155ae120a064b63fb0f81f29871401bdfd",
+        "df.tiff": "c1fd067d3dc9dbe43a31b8ae8a1e8834e8a9b892c8a715f0eb3878355384b964",
+        "haadf.png": "f96f3012d459a1e503b1b5b7cf38fd8c438badf8049e96e93d7f194bfbb2124c",
+        "haadf.tiff": "fd98e288b1791fa1bf8695f9102fedc7e618a85a49407e7b10c6446ab9f764de",
+        "haadf_df_bf_comparison.png": "4ba49c024d1727f9db36ad13729a8c20d1b48a4aa0e6b9d9fe1852ccc6f8771b",
+        "raw_scan.npz": "d0065416e089d363b1d734d1cef4340bb7702a73f5854d64e8bd6e6db71fa7b4"
+      }
+    }
+  ]
+}

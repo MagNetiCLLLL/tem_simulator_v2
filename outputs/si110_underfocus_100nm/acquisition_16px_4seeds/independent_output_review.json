@@ -1,0 +1,23 @@
+{
+  "status": "passed",
+  "scope": "Independent root review of final arrays, arithmetic mean and SEM, TIFF/PNG orientation, raster pitch, per-constituent C1 and CUDA backend, original user CIF and probability budget",
+  "maximum_probability_error": 2.220446049250313e-16,
+  "user_cif_sha256": "944c5c81df5d813d051f96102eb9be37fac4b7647c2a9d1492d6333122be42c7",
+  "channels": {
+    "haadf": {
+      "min": 0.0006895436591994305,
+      "max": 0.0011519885590058159,
+      "mean": 0.0008113768307782273
+    },
+    "df": {
+      "min": 0.04200661563212209,
+      "max": 0.046731655316500365,
+      "mean": 0.04382185354892596
+    },
+    "bf": {
+      "min": 0.00017939071209944194,
+      "max": 0.0005323024251710825,
+      "mean": 0.00036495010720595815
+    }
+  }
+}

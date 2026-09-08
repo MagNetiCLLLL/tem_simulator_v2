@@ -1,4 +1,4 @@
-"""TOML-defined specimen presets for local wave-optical imaging."""
+"""Real CIF specimen sources, shared geometry and numerical wave templates."""
 
 from temsim.specimen.presets import (
     SpecimenColumn,

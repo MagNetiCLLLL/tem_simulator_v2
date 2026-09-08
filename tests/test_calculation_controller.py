@@ -416,21 +416,27 @@ def test_geometric_real_sample_requests_finite_specimen_transport():
     assert not simulation_pipeline._geometric_specimen_transport_requested(state)
 
     state.sample.stem_wave_enabled = False
+    state.sample.specimen_mode = "reference"
+    assert simulation_pipeline._geometric_specimen_transport_requested(state)
+
+    # Retired modes are rejected by the live routing API, rather than silently
+    # treated as a real source without finite-specimen transport.
     state.sample.specimen_mode = "virtual"
-    assert not simulation_pipeline._geometric_specimen_transport_requested(state)
+    with pytest.raises(ValueError, match="Virtual mode has been retired"):
+        simulation_pipeline._geometric_specimen_transport_requested(state)
 
 
 def test_vacuum_and_zero_thickness_skip_particle_specimen_transport():
     state = default_state()
-    state.sample.specimen_mode = "virtual"
-    state.sample.specimen_preset_key = "vacuum"
-    state.sample.inserted = True
+    state.sample.specimen_mode = "reference"
+    state.sample.inserted = False
     state.sample.eds_enabled = True
 
     assert not simulation_pipeline._eds_point_requested(state)
 
     state.sample.specimen_mode = "atomic"
     state.sample.cif_path = "configured.cif"
+    state.sample.inserted = True
     state.sample.thickness_nm = 0.0
     state.sample.stem_wave_enabled = False
     state.ac_deflector.enabled = True

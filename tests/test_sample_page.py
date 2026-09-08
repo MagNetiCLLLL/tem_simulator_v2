@@ -1,4 +1,3 @@
-import json
 from types import SimpleNamespace
 
 import numpy as np
@@ -22,54 +21,37 @@ def test_sample_page_binds_modes_envelope_and_safe_offscreen_view(qtbot):
     page.set_state(state)
     assert page.envelope_shape.currentData() == "disk"
     assert page.scalar_controls["size_x_nm"].value() == pytest.approx(
-        3_000_000.0
+        10.0
     )
     assert page.scalar_controls["size_y_nm"].isHidden()
-    page.mode.setCurrentIndex(page.mode.findData("virtual"))
+    page.mode.setCurrentIndex(page.mode.findData("reference"))
     page.scalar_controls["size_x_nm"].setValue(250.0)
     page.inserted.setChecked(False)
 
-    assert state.sample.specimen_mode == "virtual"
+    assert state.sample.specimen_mode == "reference"
     assert state.sample.size_x_nm == 250.0
     assert state.sample.size_y_nm == 250.0
     assert state.sample.inserted is False
-    assert page.real_group.isHidden() is True
-    assert page.virtual_group.isHidden() is False
+    assert page.real_group.isHidden() is False
+    assert page.reference_source_widget.isEnabled()
     assert page.scene.opengl_available is False
     assert "offscreen" in page.scene.opengl_detail
 
 
-def test_sample_page_applies_extensible_interaction_table(qtbot):
-    state = default_state()
-    state.sample.specimen_mode = "virtual"
+def test_sample_page_has_no_virtual_interaction_or_region_editor(qtbot):
     page = SamplePage()
     qtbot.addWidget(page)
-    page.set_state(state)
-    page.interaction_table.setRowCount(0)
-    page._append_table_row(
-        page.interaction_table,
-        (
-            True,
-            "absorbed",
-            "absorption",
-            0.2,
-            json.dumps({}),
-        ),
-    )
+    page.set_state(default_state())
 
-    page._apply_interactions()
-
-    assert state.sample.virtual_interactions == [
-        {
-            "enabled": True,
-            "name": "absorbed",
-            "kind": "absorption",
-            "probability": 0.2,
-        }
-    ]
+    assert [page.mode.itemData(index) for index in range(page.mode.count())] == ["reference", "atomic"]
+    assert not hasattr(page, "virtual_group")
+    assert not hasattr(page, "interaction_table")
+    assert not hasattr(page, "region_table")
+    assert not hasattr(page, "diffraction_enabled")
+    assert not hasattr(page, "virtual_probe_convolution")
 
 
-def test_sample_page_owns_shared_wave_and_virtual_interaction_controls(qtbot):
+def test_sample_page_owns_shared_wave_controls_for_reference_cif(qtbot):
     state = default_state()
     state.illumination_mode = "TEM"
     page = SamplePage()
@@ -95,7 +77,7 @@ def test_sample_page_owns_shared_wave_and_virtual_interaction_controls(qtbot):
         "real_absorption_mean_free_path_nm"
     ].setValue(900.0)
 
-    assert state.sample.specimen_preset_key == "si_110"
+    assert state.sample.reference_sample_key == "si_110"
     assert state.sample.wave_enabled is True
     assert state.sample.wave_grid_pixels == 64
     assert state.sample.wave_slice_thickness_angstrom == pytest.approx(1.5)
@@ -109,16 +91,6 @@ def test_sample_page_owns_shared_wave_and_virtual_interaction_controls(qtbot):
     assert state.sample.real_plasmon_mean_free_path_nm == pytest.approx(175.0)
     assert state.sample.real_absorption_mean_free_path_nm == pytest.approx(900.0)
     assert page.findChild(QDoubleSpinBox, "sampleGVector") is None
-
-    page.mode.setCurrentIndex(page.mode.findData("virtual"))
-    page.diffraction_enabled.setChecked(False)
-
-    assert state.sample.specimen_mode == "virtual"
-    assert state.sample.diffraction_enabled is False
-    assert page.real_group.isHidden() is True
-    assert page.virtual_group.isHidden() is False
-
-
 def test_mode_is_the_only_structure_source_selector(qtbot):
     state = default_state()
     state.sample.specimen_preset_key = "si_110"
@@ -128,11 +100,12 @@ def test_mode_is_the_only_structure_source_selector(qtbot):
     page.set_state(state)
 
     assert not hasattr(page, "structure_source")
-    assert page.mode.currentData() == "virtual"
-    assert page.virtual_group.isAncestorOf(page.preset)
+    assert page.mode.currentData() == "reference"
+    assert page.real_group.isAncestorOf(page.preset)
     assert page.preset.isEnabled()
-    assert page.virtual_group.isHidden() is False
-    assert page.real_group.isHidden() is True
+    assert page.real_group.isHidden() is False
+    assert page.reference_source_widget.isEnabled()
+    assert not page.cif_source_widget.isEnabled()
     assert page.preset.currentData() == "si_110"
 
     page.mode.setCurrentIndex(
@@ -143,17 +116,18 @@ def test_mode_is_the_only_structure_source_selector(qtbot):
 
     assert state.sample.specimen_mode == "atomic"
     assert state.sample.cif_path == "ideal-sample.cif"
-    assert state.sample.specimen_preset_key == "si_110"
+    assert state.sample.reference_sample_key == "si_110"
     assert page.real_group.isHidden() is False
-    assert page.virtual_group.isHidden() is True
+    assert not page.reference_source_widget.isEnabled()
+    assert page.cif_source_widget.isEnabled()
     assert page.real_group.isAncestorOf(page.cif_path)
 
     page.mode.setCurrentIndex(
-        page.mode.findData("virtual")
+        page.mode.findData("reference")
     )
 
-    assert state.sample.specimen_mode == "virtual"
-    assert state.sample.specimen_preset_key == "si_110"
+    assert state.sample.specimen_mode == "reference"
+    assert state.sample.reference_sample_key == "si_110"
     assert state.sample.cif_path == "ideal-sample.cif"
 
 
