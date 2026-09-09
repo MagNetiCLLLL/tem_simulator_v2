@@ -1252,12 +1252,12 @@ def test_real_sample_preview_disables_synthetic_ray_scattering():
     assert snapshot.sample.stem_wave_enabled is False
 
 
-def test_virtual_sample_preview_defers_interaction_channels_until_high_accuracy():
+def test_reference_sample_preview_defers_interaction_channels_until_high_accuracy():
     controller = CalculationController()
     captured = []
     controller.pool.start = captured.append
     state = default_state()
-    state.sample.specimen_mode = "virtual"
+    state.sample.specimen_mode = "reference"
     state.sample.diffraction_enabled = True
 
     controller.submit(state, "Preview", 25, 5.0)

@@ -82,6 +82,26 @@ def test_low_angle_annulus_visibly_reports_illumination_overlap(qtbot):
     np.testing.assert_array_equal(view.detector_image_items["df"].image, frame.fractions["df"].T)
 
 
+def test_tilted_direct_disk_exposes_df_adjustment_action(qtbot):
+    view, state, frame = setup(qtbot)
+    frame.metrics["detector_sampling"] = detector_sampling_report(
+        {"bf": (0., 1.), "df": (4., 10.), "haadf": (60., 120.)},
+        illumination_bounds_mrad={"bf": (6., 8.), "df": (0., 17.), "haadf": (53., 127.)},
+        probe_center_mrad=(7., 0.), probe_semiangle_mrad=2.,
+        maximum_angle_mrad=169., wavelength_angstrom=.019687,
+        requested_fov_angstrom=40., requested_grid_pixels=1024,
+        bandwidth_fraction=2/3,
+    )
+    view._set_stem_frame(frame)
+    assert "Overlaps illumination disk" in view.detector_sampling_labels["df"].text()
+    assert not view.exclude_direct_beam.isHidden()
+    assert view.exclude_direct_beam.isEnabled()
+    requested = []
+    view.df_geometry_requested.connect(requested.append)
+    view.exclude_direct_beam.click()
+    assert requested == [frame]
+
+
 def test_auto_contrast_exposes_nonzero_black_level_from_actual_displayed_frame(qtbot):
     view, state, frame = setup(qtbot)
     values = np.array([[.2, .4], [.6, .8]])

@@ -409,10 +409,10 @@ def _read_cif_preview_uncached(
     if path.suffix.lower() not in {".cif", ".mcif"}:
         raise ValueError("Atomic specimen import requires a CIF or MCIF file.")
     try:
-        from ase.io import read
+        from temsim.specimen.cif_io import read_cif_atoms
         from ase.neighborlist import natural_cutoffs, neighbor_list
 
-        unit = read(path)
+        unit = read_cif_atoms(path)
     except Exception as exc:
         raise ValueError(f"Unable to read CIF file {path}: {exc}") from exc
     if len(unit) == 0:

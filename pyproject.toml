@@ -60,7 +60,12 @@ where = ["src"]
 "configs/detectors/eds" = ["configs/detectors/eds/*.toml"]
 "configs/physics/eds" = ["configs/physics/eds/*.json"]
 "configs/specimens" = ["configs/specimens/*.toml"]
-"configs/reference_samples" = ["configs/reference_samples/*.cif", "configs/reference_samples/*.toml", "configs/reference_samples/*.md"]
+"configs/reference_samples" = [
+    "configs/reference_samples/*.[cC][iI][fF]",
+    "configs/reference_samples/*.[mM][cC][iI][fF]",
+    "configs/reference_samples/*.toml",
+    "configs/reference_samples/*.md",
+]
 "configs/specimen_supports" = ["configs/specimen_supports/*.toml"]
 "configs/operating_modes" = ["configs/operating_modes/*.toml"]
 "configs/materials" = ["configs/materials/lens_defaults.toml"]

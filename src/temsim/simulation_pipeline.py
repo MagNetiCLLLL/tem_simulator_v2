@@ -4,6 +4,11 @@ from dataclasses import dataclass, field, replace
 from time import perf_counter
 
 from temsim.calculation_cache import calculation_signatures, matching_products
+from temsim.calculation_manifest import (
+    ExternalInputIdentity,
+    assert_external_input_inventory_unchanged,
+    capture_external_input_identities,
+)
 from temsim.detector.recording_system import ensure_recording_system
 from temsim.detector.stem_signal import (
     StemScanResult,
@@ -75,6 +80,7 @@ class CalculationResult:
     reused_products: frozenset[str] = frozenset()
     cache_hit: bool = False
     performance: dict[str, object] = field(default_factory=dict)
+    external_inputs: tuple[ExternalInputIdentity, ...] | None = None
 
 
 def aperture_stop_records(state) -> tuple[dict[str, object], ...]:
@@ -317,7 +323,9 @@ def calculate(
     ensure_energy_filter(state)
     ensure_corrector_structure(state)
     normalise_component_names(state)
+    external_inputs = capture_external_input_identities(state)
     signatures = calculation_signatures(state)
+    assert_external_input_inventory_unchanged(state, external_inputs)
     reusable = matching_products(
         getattr(existing_result, "signatures", None), signatures
     )
@@ -902,6 +910,7 @@ def calculate(
         lens_crossovers=tuple(lens_crossovers),
         aperture_stops=tuple(aperture_stops),
         signatures=signatures,
+        external_inputs=external_inputs,
         calculated_products=frozenset(calculated_products),
         reused_products=frozenset(reused_products),
     )
@@ -911,4 +920,5 @@ def calculate(
         "stages": tuple(progress.timings),
         "timing_scope": "Current pipeline call; excludes GUI drawing and worker setup",
     }
+    assert_external_input_inventory_unchanged(state, external_inputs)
     return result

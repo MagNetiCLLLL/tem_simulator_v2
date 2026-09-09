@@ -32,6 +32,20 @@ def _write(tmp_path, version, sample, model=None, **document_fields):
     return path
 
 
+@pytest.mark.parametrize("version", [2, PROFILE_FORMAT_VERSION])
+@pytest.mark.parametrize("sigma", [float("nan"), float("inf"), -float("inf"), 0.0, -0.01])
+def test_profile_rejects_invalid_element_rms_without_applying_other_fields(tmp_path, version, sigma):
+    state = default_state()
+    before = deepcopy(state.to_dict())
+    path = _write(
+        tmp_path, version, {"thickness_nm": 17.5, "specimen_mode": "reference"},
+        {"frozen_phonon_sigma_by_element_angstrom": {"Si": sigma}},
+    )
+    with pytest.raises(ValueError, match="finite and positive"):
+        apply_profile_values(state, read_profile(path)[1])
+    assert state.to_dict() == before
+
+
 @pytest.mark.parametrize("version", [1, 2, 3, 4])
 @pytest.mark.parametrize("key", ["si_110", "au_001"])
 def test_legacy_preset_profile_has_one_reference_basis_and_manual_tail(tmp_path, version, key):

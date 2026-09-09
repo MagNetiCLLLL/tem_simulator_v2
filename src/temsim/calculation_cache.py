@@ -47,8 +47,8 @@ _POST_SAMPLE_PROJECTION_LENS_KEYS = frozenset({
 })
 _LOADED_INPUT_DIGEST_CACHE: dict[str, tuple[object, str]] = {}
 _WAVE_COORDINATE_SCHEMA = "centred-real-space-v2"
-_WAVE_SPECIMEN_SCHEMA = "cif-reference-occupancy-v2"
-_STEM_RECORDING_SCHEMA = "physical-envelope-overlap-raster-independent-tail-v4"
+_WAVE_SPECIMEN_SCHEMA = "cif-reference-occupancy-absorption-v3"
+_STEM_RECORDING_SCHEMA = "physical-envelope-overlap-raster-independent-tail-chief-relative-df-v5"
 _PARTICLE_POINT_SCHEMA = "resolved-point-material-hit-diagnostics-v2"
 _EDS_SIGNAL_SCHEMA = "eds-only-overlap-importance-v1"
 

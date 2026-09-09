@@ -28,6 +28,7 @@ LENS = "magnetic_lens_assembly"
 EVIDENCE_LEVELS = frozenset({
     "engineering_assumption", "published_design", "measured_component", "oem_drawing",
 })
+CUSTOM_MECHANICAL_ROLES = frozenset({"custom_mechanical", "custom_mechanical_copy"})
 
 
 def part_data(part) -> dict:
@@ -37,11 +38,18 @@ def part_data(part) -> dict:
     return {**dict(part.data), "key": part.key, "parent_key": part.parent_key}
 
 
+def is_custom_mechanical_part(part) -> bool:
+    """Explicit CAD-only bodies; native mechanical coils still belong to FEM."""
+    return part_data(part).get("mechanical_part_role") in CUSTOM_MECHANICAL_ROLES
+
+
 def optical_owner(part, by_key) -> str | None:
     """Nearest optical ancestor; nested lenses own their own current channel."""
     row = part_data(part)
     seen = set()
     while row:
+        if is_custom_mechanical_part(row):
+            return None
         key = str(row.get("key", ""))
         if key in seen:
             raise ValueError(f"Cyclic magnetic-part ancestry: {key}")
@@ -55,17 +63,22 @@ def optical_owner(part, by_key) -> str | None:
 
 def circuit_channels(by_key, lens_key: str) -> tuple[str, ...]:
     row = part_data(by_key[lens_key]) if lens_key in by_key else {}
+    if is_custom_mechanical_part(row):
+        return ()
     circuit = row.get("magnetic_circuit_id")
     if not circuit:
         return (lens_key,)
     return tuple(sorted(key for key, part in by_key.items()
                         if part_data(part).get("mechanical_profile") == LENS
+                        and not is_custom_mechanical_part(part)
                         and part_data(part).get("magnetic_circuit_id") == circuit))
 
 
 def belongs_to_circuit(part, lens_key: str, by_key, channels=None) -> bool:
     """One body can affect multiple maps without being duplicated in the column."""
     row = part_data(part)
+    if is_custom_mechanical_part(row):
+        return False
     channels = set(circuit_channels(by_key, lens_key)) if channels is None else channels
     return (optical_owner(part, by_key) in channels
             or bool(channels.intersection(row.get("magnetic_lens_keys", ()))))
@@ -113,7 +126,7 @@ def circuit_inventory(parts) -> tuple[MagneticCircuit, ...]:
     seen = set()
     for key, part in by_key.items():
         row = part_data(part)
-        if row.get("mechanical_profile") != LENS:
+        if row.get("mechanical_profile") != LENS or is_custom_mechanical_part(row):
             continue
         circuit = str(row.get("magnetic_circuit_id", key))
         identity = (bool(row.get("magnetic_circuit_id")), circuit)
@@ -139,7 +152,7 @@ def validate_circuit_declarations(parts) -> None:
     Legacy manufacturing heuristics are retained for undeclared assemblies.
     This check establishes geometry/schema consistency, never OEM provenance.
     """
-    rows = [part_data(part) for part in parts]
+    rows = [part_data(part) for part in parts if not is_custom_mechanical_part(part)]
     by_key = {str(row["key"]): row for row in rows}
     lenses = {key for key, row in by_key.items() if row.get("mechanical_profile") == LENS}
     for row in rows:

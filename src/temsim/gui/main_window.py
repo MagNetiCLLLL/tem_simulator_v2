@@ -2072,8 +2072,23 @@ class MainWindow(QMainWindow):
     def _save_model_document(self, path, updates):
         relative = Path(path).resolve().relative_to(self.manifest_editor.root).as_posix()
         page = self.workspace.physical_layout.model_editor
+        if (hasattr(updates, "expected_source_bytes")
+                and (page.session is None or page.session.path != Path(path).resolve())):
+            raise ValueError("The model editor destination changed; reopen the intended file")
         target = ManifestTarget(relative, page._selected_key)
+        active_paths = {(self.manifest_editor.root / source).resolve()
+                        for _kind, source in self.assembly.selected_module_paths}
+        if Path(path).resolve() not in active_paths:
+            # A storage file can be edited without installing its optical
+            # variant or invalidating results for the currently built column.
+            self.manifest_editor.save(
+                target, updates, layout_configuration_from_state(self.state),
+            )
+            self.status_label.setText(f"Saved {relative}; this file is not in the current assembly")
+            self.log_output.appendPlainText(f"Assembly file saved and catalog validated: {relative}")
+            return True
         self._save_geometry_updates_preserving_drafts(target, updates)
+        return True
 
     def _save_geometry_updates_preserving_drafts(self, target, updates):
         """Geometry saves do not own either panel's independent TOML draft."""

@@ -12,6 +12,39 @@ No high-accuracy calculation is required for 3D. A view change does not run
 presets, propagate electrons, invalidate physics caches or replace images.
 The assembly page does not display unsaved 3D Parts drafts; Save them first.
 
+## Components and assembly files
+
+The 3D Parts editor separates a component's shape and ownership from its storage
+file. FEG, C3 Probe Corrector and Energy Filter are existing assembly presets and
+coordinate sections, not restrictions on the kinds of mechanical parts they can
+contain. Their interface order remains compatible with existing instruments.
+
+- **New component** creates a tube (including its bore), box or elliptic cylinder.
+  Choose its name, unique key, dimensions, parent and centre. Materials and further
+  holes/slots can then be edited in the existing parameter tabs.
+- **Place** moves the selected component and, by default, its children. **Local Z**
+  is measured in the destination file. **Global Z** is available only for files
+  in the currently resolved instrument, using that file's actual origin.
+  Moving a component does not automatically extend module ports or move neighbours.
+- **Copy to assembly** makes an independent copy in another existing catalog or
+  external module TOML, or in the same file. The source remains unchanged. Choose
+  a new root key, target parent and centre. Child keys and internal references are
+  remapped; unresolved shared dependencies must be resolved before copying.
+
+Each operation updates a previewable draft and is one Undo/Redo step. **Save**
+persists the destination. Cross-file copying requires resolving any existing
+source draft first. Inactive catalog files can be saved without installing their
+optical preset or replacing current simulation results. Catalog saves validate
+all compatible assemblies in a temporary copy before replacing the destination;
+changed source files and duplicate keys are rejected.
+
+New components and copies are mechanical CAD definitions. Copying a lens or coil
+does not create a new optical control, current source, vacuum stop or FEM region.
+Existing dimensions remain editable; copied pole orientation and split winding
+material intervals are retained. Arbitrary CAD shapes remain excluded from the
+current axisymmetric field solver. Position previews describe axial envelopes,
+not a complete solid-interference or mechanical-fit analysis.
+
 ## Using the assembly view
 
 - Drag to rotate, right-drag to pan, and use the wheel to zoom.

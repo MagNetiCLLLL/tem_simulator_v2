@@ -9,6 +9,10 @@ import tomllib
 
 from temsim import module_manifest
 from temsim.manifest_editor import resized_part_axial_coordinates
+from temsim.component_operations import (
+    PartChangeSet, added_component_document, placed_component_document,
+    copied_component_document, validate_component_graph, CUSTOM_COMPONENT_ROLES,
+)
 
 
 class PartModelDocument:
@@ -68,6 +72,38 @@ class PartModelDocument:
                 return
         raise ValueError(f"Unknown part: {key}")
 
+    def _commit_component_operation(self, candidate):
+        # Structural edits must be valid before replacing any part of the
+        # current draft; validation failure preserves both draft and history.
+        validate_component_graph(candidate)
+        module_manifest.validate_document(candidate)
+        self.document = candidate
+        self._remember()
+
+    def add_component(self, part):
+        """Insert an independent mechanical part as one undoable operation."""
+        candidate, key = added_component_document(self.document, part)
+        self._commit_component_operation(candidate)
+        return key
+
+    def place_component(self, key, center_z_mm, include_children=True):
+        """Translate module-local axial coordinates, optionally with children."""
+        candidate, keys = placed_component_document(
+            self.document, key, center_z_mm, include_children=include_children,
+        )
+        self._commit_component_operation(candidate)
+        return keys
+
+    def copy_component_from(self, source, key, new_key, center_z_mm,
+                            parent_key=None, include_children=True, *, name=None):
+        """Make an independent mechanical copy without adding optical controls."""
+        candidate, new_key = copied_component_document(
+            self.document, source, key, new_key, center_z_mm,
+            parent_key=parent_key, include_children=include_children, name=name,
+        )
+        self._commit_component_operation(candidate)
+        return new_key
+
     @staticmethod
     def _finite_dimension(value):
         try:
@@ -101,6 +137,35 @@ class PartModelDocument:
             raise ValueError("Choose an existing numeric dimension")
         return current, final
 
+    @staticmethod
+    def _resize_copied_axial_geometry(part, length):
+        if part.get("mechanical_part_role") != "custom_mechanical_copy":
+            return
+        previous = float(part["length_mm"])
+        if previous <= 0 or previous == length:
+            return
+        ratio = length / previous
+        center = float(part["local_center_z_mm"])
+        if "material_intervals_mm" in part:
+            part["material_intervals_mm"] = [
+                [center + (float(value) - center) * ratio for value in interval]
+                for interval in part["material_intervals_mm"]
+            ]
+        if "magnetic_radial_profile_mm" in part:
+            part["magnetic_radial_profile_mm"] = [
+                [float(row[0]) * ratio, *row[1:]] for row in part["magnetic_radial_profile_mm"]
+            ]
+
+    @staticmethod
+    def _synchronize_custom_base_length(part):
+        base = part.get("model_3d", {}).get("base", {})
+        if (part.get("mechanical_part_role") in CUSTOM_COMPONENT_ROLES
+                and base.get("kind", "existing") != "existing"):
+            length = float(base["length_mm"])
+            PartModelDocument._resize_copied_axial_geometry(part, length)
+            part.update(resized_part_axial_coordinates(part, length))
+            part["length_mm"] = length
+
     def set_dimension(self, path, value):
         path = tuple(path)
         value = self._finite_dimension(value)
@@ -114,6 +179,8 @@ class PartModelDocument:
             current, final = self._numeric_target(part, path[2:])
             current[final] = value
             validate_model_3d(part)
+            if path[2:] == ("model_3d", "base", "length_mm"):
+                self._synchronize_custom_base_length(part)
             self._commit_part(path[1], part)
             return
         if field not in part or not field.endswith(("_mm", "_um", "_deg")):
@@ -125,7 +192,12 @@ class PartModelDocument:
                 raise ValueError("Choose a numeric dimension")
             if field == "length_mm":
                 endpoints = resized_part_axial_coordinates(part, value)
+                self._resize_copied_axial_geometry(part, value)
                 part.update(endpoints)
+                base = part.get("model_3d", {}).get("base", {})
+                if (part.get("mechanical_part_role") in CUSTOM_COMPONENT_ROLES
+                        and base.get("kind", "existing") != "existing"):
+                    base["length_mm"] = value
             part[field] = float(value)
             if field in {"local_start_z_mm", "local_end_z_mm"}:
                 part["length_mm"] = float(part["local_end_z_mm"]) - float(part["local_start_z_mm"])
@@ -151,6 +223,7 @@ class PartModelDocument:
         else:
             raise ValueError("model_3d must be a table or None")
         validate_model_3d(candidate)
+        self._synchronize_custom_base_length(candidate)
         self._commit_part(key, candidate)
 
     def update_model_3d(self, key, updates):
@@ -224,7 +297,11 @@ class PartModelDocument:
     def updates(self):
         originals = {part["key"]: part for part in self._baseline["parts"]}
         updates = {}
+        additions = []
         for part in self.document["parts"]:
+            if part["key"] not in originals:
+                additions.append(deepcopy(part))
+                continue
             original = originals[part["key"]]
             for field, value in part.items():
                 if field not in original or value != original[field]:
@@ -233,7 +310,9 @@ class PartModelDocument:
                 updates[("parts", part["key"], "material_regions")] = {}
             if "model_3d" in original and "model_3d" not in part:
                 updates[("parts", part["key"], "model_3d")] = None
-        return updates
+        current_keys = {part["key"] for part in self.document["parts"]}
+        removed = tuple(key for key in originals if key not in current_keys)
+        return PartChangeSet(updates, tuple(additions), removed, self._source_bytes)
 
     def reload(self):
         """Read an external source revision only after this draft is resolved."""
@@ -247,6 +326,7 @@ class PartModelDocument:
         self._history_index = 0
 
     def validate(self):
+        validate_component_graph(self.document)
         module_manifest.validate_document(self.document)
 
     def assert_source_current(self):

@@ -32,7 +32,9 @@ from temsim.cache_memory import (
 from temsim.artifact_store import ArtifactStore
 from temsim.calculation_manifest import (
     CalculationManifest,
+    assert_external_input_inventory_unchanged,
     capture_calculation_manifest,
+    capture_external_input_identities,
 )
 from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.design_explorer import (
@@ -310,6 +312,7 @@ class CalculationWorker(QRunnable):
         existing_result: CalculationResult | None = None,
         artifact_store: ArtifactStore | None = None,
         calculation_manifest: CalculationManifest | None = None,
+        external_inputs=None,
         allow_project_artifact_fallback: bool = False,
         artifact_cache_budget_bytes: int = PERSISTENT_ARTIFACT_CACHE_BUDGET_BYTES,
     ) -> None:
@@ -322,6 +325,11 @@ class CalculationWorker(QRunnable):
         self.existing_result = existing_result
         self.artifact_store = artifact_store
         self.calculation_manifest = calculation_manifest
+        if external_inputs is None:
+            external_inputs = (calculation_manifest.external_inputs
+                               if calculation_manifest is not None else
+                               capture_external_input_identities(state))
+        self.external_inputs = tuple(external_inputs)
         self.allow_project_artifact_fallback = bool(
             allow_project_artifact_fallback and quality == "High accuracy"
         )
@@ -428,6 +436,7 @@ class CalculationWorker(QRunnable):
             cancelled = getattr(self, "cancel_event", None)
             if cancelled is not None and cancelled.is_set():
                 return
+            assert_external_input_inventory_unchanged(self.state, self.external_inputs)
             self.state.active_backend = "CPU"
             self.state._active_backends_used = set()
             if is_tuning_quality(self.quality):
@@ -467,9 +476,13 @@ class CalculationWorker(QRunnable):
                 result = calculate(self.state, **calculation_kwargs)
                 if isinstance(result, CalculationResult):
                     result.model_signature = self.model_signature
+                    assert_external_input_inventory_unchanged(self.state, self.external_inputs)
                     self._persist_incident_seed(result)
             if cancelled is not None and cancelled.is_set():
                 return
+            assert_external_input_inventory_unchanged(self.state, self.external_inputs)
+            if isinstance(result, CalculationResult):
+                result.external_inputs = self.external_inputs
             self.signals.result.emit(
                 self.generation,
                 self.quality,
@@ -1099,6 +1112,7 @@ class CalculationController(QObject):
 
     def _begin_request(self) -> int:
         self._generation += 1
+        self._request_input_guard = None
         self._cancel_event.set()
         self._cancel_event = Event()
         self._running_high_key = None
@@ -1150,6 +1164,7 @@ class CalculationController(QObject):
                 prepared.snapshot, quality, prepared.ray_count, prepared.step_mm,
                 model_signature=prepared.model_signature,
                 request_signatures=prepared.request_signatures,
+                external_inputs=prepared.external_inputs,
                 generation=generation, estimate=0, already_started=True,
             )
         except Exception as exc:
@@ -1191,11 +1206,13 @@ class CalculationController(QObject):
         # State contains immutable MappingProxyType values from the resolved
         # TOML assembly, so generic deepcopy cannot be used. Its canonical
         # persistence boundary produces an independent calculation snapshot.
+        external_inputs = capture_external_input_identities(state)
         model_signature = state_model_signature(state)
         snapshot = self._calculation_snapshot(
             state, quality, ray_count, step_mm
         )
         request_signatures = calculation_signatures(snapshot)
+        assert_external_input_inventory_unchanged(snapshot, external_inputs)
         request_key = request_signatures["request"]
         if (
             quality == "High accuracy"
@@ -1213,17 +1230,24 @@ class CalculationController(QObject):
             snapshot, quality, ray_count, step_mm,
             model_signature=model_signature, request_signatures=request_signatures,
             generation=generation, estimate=estimate,
+            external_inputs=external_inputs,
         )
 
     def _dispatch_prepared(
         self, snapshot, quality, ray_count, step_mm, *, model_signature,
         request_signatures, generation, estimate, already_started=False,
+        external_inputs=None,
     ) -> None:
         """GUI-thread-only cache lookup and dispatch for either request path."""
+        external_inputs = tuple(capture_external_input_identities(snapshot)
+                                if external_inputs is None else external_inputs)
+        assert_external_input_inventory_unchanged(snapshot, external_inputs)
+        self._request_input_guard = (generation, snapshot, external_inputs)
         request_key = request_signatures["request"]
-        if quality == "High accuracy" and request_key in self._high_cache:
+        cached = self._high_cache.get(request_key)
+        if (quality == "High accuracy" and cached is not None
+                and getattr(cached, "external_inputs", None) in (None, external_inputs)):
             self._cache_hits["high"] += 1
-            cached = self._high_cache[request_key]
             self._high_cache.move_to_end(request_key)
             summary = summarise_calculation_result(cached)
             reused = set(cached.calculated_products) | set(
@@ -1240,7 +1264,6 @@ class CalculationController(QObject):
                 calculated_products=frozenset(),
                 reused_products=frozenset(reused),
             )
-            self._cache_result(delivered)
             if not already_started:
                 self.started.emit(quality)
 
@@ -1250,7 +1273,7 @@ class CalculationController(QObject):
                 self.progress_changed.emit(
                     quality, 1, 1, "Reusing completed high-accuracy result"
                 )
-                self.result_ready.emit(quality, delivered, 0.0)
+                self._accept_result(generation, quality, delivered, 0.0)
                 self._accept_finished(generation, quality)
 
             QTimer.singleShot(0, deliver_cached)
@@ -1259,20 +1282,20 @@ class CalculationController(QObject):
         if is_tuning_quality(quality):
             tuning_key = (quality, request_key)
             cached = self._tuning_cache.get(tuning_key)
-            if cached is not None:
+            if (cached is not None
+                    and getattr(cached, "external_inputs", None) in (None, external_inputs)):
                 self._cache_hits["tuning"] += 1
                 delivered = replace(
                     cached, model_signature=model_signature, cache_hit=True,
                     calculated_products=frozenset(),
                 )
-                self._cache_tuning_result(quality, delivered)
                 if not already_started:
                     self.started.emit(quality)
 
                 def deliver_tuning_cache() -> None:
                     if generation != self._generation:
                         return
-                    self.result_ready.emit(quality, delivered, 0.0)
+                    self._accept_result(generation, quality, delivered, 0.0)
                     self._accept_finished(generation, quality)
 
                 QTimer.singleShot(0, deliver_tuning_cache)
@@ -1316,6 +1339,7 @@ class CalculationController(QObject):
                 self._artifact_store if quality == "High accuracy" else None
             ),
             calculation_manifest=calculation_manifest,
+            external_inputs=external_inputs,
             allow_project_artifact_fallback=self._allow_project_artifact_fallback,
             artifact_cache_budget_bytes=self._artifact_cache_budget_bytes,
         )
@@ -1333,6 +1357,7 @@ class CalculationController(QObject):
         """Ignore queued/running results after the live state has changed."""
 
         self._generation += 1
+        self._request_input_guard = None
         self._cancel_event.set()
         self.pool.clear()
         self._running_high_key = None
@@ -1340,6 +1365,19 @@ class CalculationController(QObject):
 
     def _accept_result(self, generation, quality, result, duration) -> None:
         if generation == self._generation:
+            try:
+                guard = getattr(self, "_request_input_guard", None)
+                if guard is not None and guard[0] == generation:
+                    assert_external_input_inventory_unchanged(guard[1], guard[2])
+                inputs = getattr(result, "external_inputs", None)
+                if inputs is not None:
+                    input_state = getattr(result, "state_snapshot", None)
+                    if input_state is None and guard is not None and guard[0] == generation:
+                        input_state = guard[1]
+                    assert_external_input_inventory_unchanged(input_state, inputs)
+            except (OSError, RuntimeError, ValueError) as exc:
+                self._accept_error(generation, quality, str(exc))
+                return
             if quality == "High accuracy":
                 self._cache_result(result)
             else:
@@ -1368,6 +1406,9 @@ class CalculationController(QObject):
 
     def _accept_finished(self, generation, quality) -> None:
         if generation == self._generation:
+            # A completed request must not pin its mutable solver State after
+            # the result/cache owners release it. Results carry their own list.
+            self._request_input_guard = None
             if quality == "High accuracy":
                 self._running_high_key = None
                 self._running_high_generation = None

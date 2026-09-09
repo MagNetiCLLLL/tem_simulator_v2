@@ -69,8 +69,25 @@ def recollect_stem(state, frame):
     artifact = frame.fourdstem_artifact
     # The artifact contains probabilities per incident electron; do not turn
     # them into source fractions by renormalising the newly surviving signal.
-    scale = float(frame.metrics["incident_sample_fraction"]) * float(
-        frame.metrics["tracked_probability_after_inelastic_absorption"])
+    incident_fraction = float(frame.metrics["incident_sample_fraction"])
+    if not np.isfinite(incident_fraction) or not -1e-12 <= incident_fraction <= 1.0 + 1e-12:
+        raise ValueError("Cached incident sample fraction must be finite and in [0, 1]")
+    incident_fraction = min(max(incident_fraction, 0.0), 1.0)
+    if frame.absorbed_fraction is None:
+        # Older frames without an absorption map used a uniform slab.
+        bulk_survival = float(
+            frame.metrics["tracked_probability_after_inelastic_absorption"])
+        if not np.isfinite(bulk_survival) or not -1e-12 <= bulk_survival <= 1.0 + 1e-12:
+            raise ValueError("Cached bulk specimen survival must be finite and in [0, 1]")
+        bulk_survival = min(max(bulk_survival, 0.0), 1.0)
+        absorbed = np.full(artifact.data.shape[:2], incident_fraction * (1.0 - bulk_survival))
+    else:
+        absorbed = np.asarray(frame.absorbed_fraction, dtype=float)
+        if (absorbed.shape != artifact.data.shape[:2] or not np.all(np.isfinite(absorbed))
+                or np.any(absorbed < -1e-12) or np.any(absorbed > incident_fraction + 1e-12)):
+            raise ValueError("Cached STEM absorption must be a finite source-fraction map matching the raster")
+        absorbed = np.clip(absorbed, 0.0, incident_fraction)
+    scale = incident_fraction - absorbed
     routed = integrate_runtime_recording_planes(
         artifact, None, build_record_plane_plan(
             state, scan_times_s=artifact.calibration.scan_times_s, recalibrate_scan=True,
@@ -86,13 +103,24 @@ def recollect_stem(state, frame):
     metrics = dict(frame.metrics)
     valid_probability = np.sum(artifact.data, axis=(-2, -1), dtype=np.float64)
     recorded = sum(fractions.values(), np.zeros_like(valid_probability))
-    uncollected = routed.surviving_weight * scale
-    other_stops = np.maximum(valid_probability * scale - recorded - uncollected, 0)
+    surviving = routed.surviving_weight * scale
+    other_stops = np.maximum(valid_probability * scale - recorded - surviving, 0)
+    # Match live source-fraction accounting: upstream losses, out-of-band
+    # intensity, other stops and the surviving unrecorded beam all belong to
+    # this remainder. Truncation is a diagnostic subset, not an extra loss.
+    uncollected = np.maximum(1.0 - absorbed - recorded, 0.0)
+    conservation_error = float(np.max(np.abs(absorbed + recorded + uncollected - 1.0)))
     metrics.update({"interactive_cube_reused": True, "record_plane_plan_fingerprint": routed.plan_fingerprint,
                     "readout_model": "angle_resolved_first_order_sequential_stops",
-                    "other_stop_loss_mean_source_fraction": float(np.mean(other_stops))})
+                    "other_stop_loss_mean_source_fraction": float(np.mean(other_stops)),
+                    "post_recording_surviving_mean_source_fraction": float(np.mean(surviving)),
+                    "pre_sample_lost_fraction": 1.0 - incident_fraction,
+                    "mean_uncollected_fraction": float(np.mean(uncollected)),
+                    "maximum_probability_conservation_error": conservation_error,
+                    "real_probability_conserved": conservation_error <= 5.0e-10})
     result = replace(frame, fractions=fractions, detector_signals=signals, metrics=metrics,
                      uncollected_fraction=uncollected,
+                     absorbed_fraction=absorbed,
                      truncated_fraction=np.maximum(1 - valid_probability, 0) * scale,
                      high_angle_tail_fraction=None)
     return reweight_stem_scan(state, result)

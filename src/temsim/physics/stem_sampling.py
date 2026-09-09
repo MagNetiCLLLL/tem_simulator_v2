@@ -12,8 +12,16 @@ import numpy as np
 
 
 def detector_angular_bounds(detectors, *, positions_m, record_plane_plan=None,
-                            detector_center_shifts_mrad=None):
-    """Return conservative radial acceptance bounds over all scan positions."""
+                            detector_center_shifts_mrad=None,
+                            angular_origin_mrad=(0.0, 0.0)):
+    """Bound acceptance about an angular origin over the complete raster.
+
+    Use the optical axis for FFT coverage, and the probe chief for direct-disk
+    overlap. The signed camera map and all physical offsets apply to both.
+    """
+    origin = np.asarray(angular_origin_mrad, dtype=float)
+    if origin.shape != (2,) or not np.all(np.isfinite(origin)):
+        raise ValueError("Angular origin must contain two finite values in mrad")
     planes = {} if record_plane_plan is None else {
         plane.key: (index, plane, transfer)
         for index, (plane, transfer) in enumerate(zip(record_plane_plan.planes, record_plane_plan.transfers))
@@ -47,9 +55,11 @@ def detector_angular_bounds(detectors, *, positions_m, record_plane_plan=None,
             displaced = centre_m[None, :]
         else:
             shift = (detector_center_shifts_mrad or {}).get(key)
-            distance = 0.0 if shift is None else float(np.max(np.hypot(*shift)))
-            bounds[key] = (max(0.0, detector.inner_mrad - distance),
-                           detector.outer_mrad + distance)
+            centres = np.zeros((1, 2)) if shift is None else np.stack(shift, axis=-1).reshape(-1, 2)
+            distance = np.linalg.norm(centres - origin, axis=-1)
+            bounds[key] = (max(0.0, detector.inner_mrad - float(np.max(distance)),
+                               float(np.min(distance)) - detector.outer_mrad),
+                           detector.outer_mrad + float(np.max(distance)))
             continue
         singular = np.linalg.svd(matrix, compute_uv=False)
         if singular[-1] <= 1e-15:
@@ -59,7 +69,7 @@ def detector_angular_bounds(detectors, *, positions_m, record_plane_plan=None,
         if geometry in {"square", "rectangle", "camera"}:
             outer_m *= math.sqrt(2.0)
         centres = np.linalg.solve(matrix, np.asarray(displaced).reshape(-1, 2).T).T
-        distance = np.linalg.norm(centres, axis=-1)
+        distance = np.linalg.norm(centres - origin * 1e-3, axis=-1)
         extra = (detector_center_shifts_mrad or {}).get(key)
         # The record-plane route already owns its affine offsets. Do not add
         # the legacy descan diagnostic a second time.
@@ -76,28 +86,47 @@ def detector_angular_bounds(detectors, *, positions_m, record_plane_plan=None,
 def detector_sampling_report(bounds_mrad, *, maximum_angle_mrad,
                              wavelength_angstrom, requested_fov_angstrom,
                              requested_grid_pixels, bandwidth_fraction,
-                             probe_semiangle_mrad, potential_storage_bytes=0):
+                             probe_semiangle_mrad, potential_storage_bytes=0,
+                             probe_center_mrad=(0.0, 0.0),
+                             illumination_bounds_mrad=None):
     """JSON-compatible diagnostics and a grid proposal, not an automatic resize.
 
     A theta-radius <= sin(FFT angular cutoff) is conservatively contained by
     the reciprocal disk even for diagonal angles. Two extra pixels per side
     protect against grid rounding by a commensurate atomistic cell.
+    ``bounds_mrad`` is about the optical axis; ``illumination_bounds_mrad``
+    must instead be about ``probe_center_mrad`` for a tilted probe.
     """
     maximum = float(maximum_angle_mrad)
     wavelength = float(wavelength_angstrom)
     fov = float(requested_fov_angstrom)
     bandwidth = float(bandwidth_fraction)
+    chief = np.asarray(probe_center_mrad, dtype=float)
+    if chief.shape != (2,) or not np.all(np.isfinite(chief)):
+        raise ValueError("Probe angular centre must contain two finite values in mrad")
+    if illumination_bounds_mrad is None:
+        if np.any(chief != 0.0):
+            raise ValueError("Tilted-probe overlap requires acceptance bounds relative to the probe chief")
+        illumination_bounds_mrad = bounds_mrad
     if not (math.isfinite(maximum) and 0 < maximum < 1571
             and math.isfinite(wavelength) and wavelength > 0
             and math.isfinite(fov) and fov > 0 and 0 < bandwidth <= 1
-            and math.isfinite(probe_semiangle_mrad) and probe_semiangle_mrad >= 0
+            and math.isfinite(probe_semiangle_mrad) and 0 <= probe_semiangle_mrad < 1571
             and int(requested_grid_pixels) >= 16):
         raise ValueError("Invalid STEM wave-grid sampling inputs")
     supported = math.sin(maximum * 1e-3) * 1e3
+    # The wave pupil is a disk in reciprocal space centred at sin(chief).
+    # Convert its outer radius back to a conservative absolute angular bound.
+    pupil_radius = float(np.linalg.norm(np.sin(chief * 1e-3))) + math.sin(probe_semiangle_mrad * 1e-3)
+    illumination_extent = math.asin(min(1.0, pupil_radius)) * 1e3
     rows = {}
     for key, (lower, upper) in bounds_mrad.items():
         if not (math.isfinite(lower) and lower >= 0 and upper > lower):
             raise ValueError(f"{key}: invalid angular acceptance bounds")
+        illumination_lower, illumination_upper = illumination_bounds_mrad[key]
+        if not (math.isfinite(illumination_lower) and illumination_lower >= 0
+                and illumination_upper > illumination_lower):
+            raise ValueError(f"{key}: invalid probe-relative angular acceptance bounds")
         if not math.isfinite(upper):
             status = "unknown"
         elif upper <= supported:
@@ -111,23 +140,27 @@ def detector_sampling_report(bounds_mrad, *, maximum_angle_mrad,
             "required_inner_mrad": float(lower),
             "required_outer_mrad": float(upper) if math.isfinite(upper) else None,
             "sampled_outer_mrad": min(float(upper), maximum),
-            "overlaps_illumination_disk": float(lower) < float(probe_semiangle_mrad),
+            "probe_relative_inner_mrad": float(illumination_lower),
+            "probe_relative_outer_mrad": float(illumination_upper) if math.isfinite(illumination_upper) else None,
+            "overlaps_illumination_disk": float(illumination_lower) < float(probe_semiangle_mrad),
         }
     complete = all(row["status"] == "full" for row in rows.values())
-    required = max([float(probe_semiangle_mrad)] + [value[1] for value in bounds_mrad.values()])
+    required = max([illumination_extent] + [value[1] for value in bounds_mrad.values()])
     pixels = None
     if math.isfinite(required) and required < 1570:
         raw = math.ceil(2 * fov * required * 1e-3 / (wavelength * bandwidth)) + 4
         pixels = max(32, int(requested_grid_pixels), int(math.ceil(raw / 32) * 32))
     factor = None if pixels is None else (pixels / int(requested_grid_pixels)) ** 2
     return {
-        "version": 1,
+        "version": 2,
         "scope": "conservative full-raster angular bounds; before sequential stops",
         "maximum_simulated_angle_mrad": maximum,
         "probe_semiangle_mrad": float(probe_semiangle_mrad),
-        "illumination_covered": float(probe_semiangle_mrad) <= supported,
+        "probe_center_mrad": chief.tolist(),
+        "illumination_extent_mrad": illumination_extent,
+        "illumination_covered": illumination_extent <= supported,
         "detectors": rows,
-        "coverage_complete": complete and float(probe_semiangle_mrad) <= supported,
+        "coverage_complete": complete and illumination_extent <= supported,
         "recommended_grid_pixels": pixels,
         "requested_grid_pixels": int(requested_grid_pixels),
         "grid_area_factor": factor,

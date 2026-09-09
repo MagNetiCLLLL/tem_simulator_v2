@@ -13,6 +13,11 @@ from threading import Event
 from types import SimpleNamespace
 
 from temsim.calculation_cache import calculation_signatures, state_model_signature
+from temsim.calculation_manifest import (
+    ExternalInputIdentity,
+    assert_external_input_inventory_unchanged,
+    capture_external_input_identities,
+)
 from temsim.column.state_layout import apply_physical_layout_to_state
 
 
@@ -60,6 +65,7 @@ class PreparedCalculationRequest:
     request_signatures: dict[str, str]
     ray_count: int
     step_mm: float
+    external_inputs: tuple[ExternalInputIdentity, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +100,7 @@ class CapturedCalculationRequest:
             "corrector_elements", "recording_planes", "stem_detectors",
             "sample", "_upper_objective_package_resolved_positions_mm",
             "_ac_downstream_resolved_positions_mm",
+            "lens_field_map_descriptors",
         )
         values = {
             name: deepcopy(getattr(state, name), memo)
@@ -117,6 +124,7 @@ class CapturedCalculationRequest:
                 raise PreparationCancelled()
 
         check_cancelled()
+        external_inputs = capture_external_input_identities(self._model_state)
         model_signature = state_model_signature(self._model_state)
         check_cancelled()
         snapshot = reconstruct_calculation_state(
@@ -127,6 +135,8 @@ class CapturedCalculationRequest:
         check_cancelled()
         signatures = calculation_signatures(snapshot)
         check_cancelled()
+        assert_external_input_inventory_unchanged(snapshot, external_inputs)
         return PreparedCalculationRequest(
             snapshot, model_signature, signatures, self.ray_count, self.step_mm,
+            external_inputs,
         )

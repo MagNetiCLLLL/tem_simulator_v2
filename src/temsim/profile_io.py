@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import math
 from pathlib import Path
 import tempfile
 import tomllib
@@ -195,9 +196,9 @@ def _apply_sample_model(sample, model: dict) -> None:
     converted_sigma = {}
     for symbol, value in element_sigma.items():
         converted = float(value)
-        if converted <= 0.0:
+        if not math.isfinite(converted) or converted <= 0.0:
             raise ValueError(
-                f"Frozen-phonon RMS for {symbol} must be positive"
+                f"Frozen-phonon RMS for {symbol} must be finite and positive"
             )
         converted_sigma[str(symbol)] = converted
     set_sample_orientation(sample, quaternion)

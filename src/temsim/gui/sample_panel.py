@@ -9,6 +9,7 @@ from temsim.gui.input_policy import (
 )
 
 import json
+import hashlib
 import math
 import os
 from dataclasses import fields
@@ -48,7 +49,8 @@ from temsim.specimen.geometry import (
     set_sample_orientation,
 )
 from temsim.specimen.reference_catalog import (
-    available_reference_samples, apply_reference_sample, refresh_reference_samples,
+    available_reference_samples, apply_reference_sample, get_reference_sample,
+    refresh_reference_samples,
 )
 from temsim.specimen.source import active_cif_path
 from temsim.specimen.rutherford import resolve_tail_material
@@ -781,6 +783,7 @@ class SamplePage(QWidget):
         super().__init__(parent)
         self.setObjectName("samplePage")
         self._state = None
+        self._reference_revision = None
         self._result = None
         self._snapshot = None
         self._refresh_pending = False
@@ -1662,6 +1665,7 @@ class SamplePage(QWidget):
             self._refresh_tail_summary()
         finally:
             self._updating = False
+        self._reference_revision = self._reference_source_revision()
         self.refresh_snapshot()
 
     def _set_scalar(self, name, value):
@@ -1761,6 +1765,35 @@ class SamplePage(QWidget):
         self.set_state(self._state)
         self._changed("sample.reference_sample_key")
 
+    def _reference_source_revision(self):
+        if self._state is None or str(self._state.sample.specimen_mode).strip().lower() != "reference":
+            return None
+        key = str(self._state.sample.reference_sample_key)
+        try:
+            reference = get_reference_sample(key)
+            revision = [key]
+            for path in (reference.cif_path, reference.metadata_path):
+                if path is None:
+                    revision.append(None)
+                else:
+                    with path.open("rb") as stream:
+                        revision.append((str(path), hashlib.file_digest(stream, "sha256").hexdigest()))
+            return tuple(revision)
+        except Exception as exc:
+            return (key, "unavailable", str(exc))
+
+    def _reference_source_refreshed(self):
+        revision = self._reference_source_revision()
+        changed = revision != self._reference_revision
+        self._reference_revision = revision
+        if changed and revision is not None:
+            # This is a file-content change rather than a selection change.
+            # Preserve the user's orientation/dimensions while invalidating
+            # calculations and notifying the normal main-window update path.
+            self._changed("sample.reference_source")
+            return True
+        return False
+
     def _refresh_references(self):
         key = (str(self._state.sample.reference_sample_key)
                if self._state is not None else str(self.preset.currentData() or ""))
@@ -1770,6 +1803,7 @@ class SamplePage(QWidget):
         except Exception as exc:
             self.source_note.setText(f"Reference catalog unavailable: {exc}")
             self.error.emit(str(exc))
+            self._reference_source_refreshed()
             return
         self.preset.blockSignals(True)
         try:
@@ -1785,8 +1819,9 @@ class SamplePage(QWidget):
             self.preset.blockSignals(False)
         self._update_mode_controls()
         self._update_wave_controls()
-        self._refresh_tail_summary()
-        self.refresh_snapshot()
+        if not self._reference_source_refreshed():
+            self._refresh_tail_summary()
+            self.refresh_snapshot()
 
     def _element_sigma_edited(self):
         if self._updating or self._state is None:
@@ -2201,9 +2236,9 @@ class SamplePage(QWidget):
             path = Path(active_cif_path(self._state.sample)).expanduser()
             if not path.is_file():
                 raise ValueError("Select an existing CIF before aligning a zone axis.")
-            from ase.io import read
+            from temsim.specimen.cif_io import read_cif_atoms
 
-            atoms = read(path)
+            atoms = read_cif_atoms(path)
             zone = tuple(control.value() for control in self.zone_controls[1])
             in_plane = tuple(control.value() for control in self.in_plane_controls[1])
             quaternion = quaternion_from_zone_axes(

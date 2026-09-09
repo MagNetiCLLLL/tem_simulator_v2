@@ -407,6 +407,9 @@ def part_requires_optical_reference(part):
     """
 
     if isinstance(part, dict):
+        from temsim.magnetic_circuits import is_custom_mechanical_part
+        if is_custom_mechanical_part(part):
+            return False
         if bool(part.get("branch_path_only", False)):
             return False
         key = str(part["key"])
@@ -614,9 +617,58 @@ def _replace_part_table(lines, start, end, field, value, newline):
         lines[start:start] = [f"{field} = {_format_toml_value(value)}{newline}"]
 
 
+def _stage_part_structure(text, changes):
+    """Insert/remove complete part blocks without rewriting neighbouring TOML.
+
+    Nested part tables belong to their owning array entry. Unrelated tables,
+    including tables after the final part, must survive removal/Undo.
+    """
+    added = tuple(getattr(changes, "added_parts", ()))
+    removed = tuple(getattr(changes, "removed_keys", ()))
+    if not added and not removed:
+        return text
+    original = tomllib.loads(text)
+    keys = {part["key"] for part in original.get("parts", ())}
+    added_keys = [part["key"] for part in added]
+    if len(set(added_keys)) != len(added_keys) or len(set(removed)) != len(removed):
+        raise ValueError("Duplicate component in structural changes")
+    if set(removed) - keys:
+        raise ValueError("Cannot remove a component missing from the source file")
+    if set(added_keys) & keys:
+        raise ValueError("A new component key already exists in the source file")
+    if any(path[:1] == ("parts",) and path[1] in set(removed) | set(added_keys)
+           for path in changes):
+        raise ValueError("Structural components must not also have field updates")
+    newline = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines(keepends=True)
+    for key in removed:
+        start, end = _part_span(lines, key)
+        headers = [(first, header) for first, _, header in
+                   _toml_statement_spans(lines, start - 1, end) if header is not None]
+        # TOML can leave an array entry for an unrelated table, then reopen a
+        # nested table on that same entry. Remove every owned section through
+        # the next [[parts]], otherwise a surviving table attaches to a sibling.
+        spans = [(first, headers[index + 1][0] if index + 1 < len(headers) else end)
+                 for index, (first, header) in enumerate(headers) if header[0] == "parts"]
+        for first, last in reversed(spans):
+            lines[first:last] = _retained_toml_comments(lines[first:last], newline)
+    staged = "".join(lines)
+    for part in added:
+        if not all(isinstance(field, str) for field in part):
+            raise ValueError("Component field names must be strings")
+        staged += ("" if not staged or staged.endswith("\n") else newline) + newline
+        staged += "[[parts]]" + newline
+        staged += "".join(
+            f"{field if re.fullmatch(r'[A-Za-z0-9_-]+', field) else json.dumps(field, ensure_ascii=False)} = {_format_toml_value(value)}{newline}"
+            for field, value in part.items()
+        )
+    return staged
+
+
 def stage_manifest_text(text, updates):
     """Return TOML text with targeted section/part fields replaced."""
 
+    text = _stage_part_structure(text, updates)
     lines = text.splitlines(keepends=True)
     newline = "\r\n" if "\r\n" in text else "\n"
     for path, value in updates.items():
@@ -644,6 +696,7 @@ def stage_manifest_text(text, updates):
 
 
 def validate_document(document):
+    from temsim.magnetic_circuits import is_custom_mechanical_part
     document = dict(document)
     document["parts"] = [
         (
@@ -669,6 +722,7 @@ def validate_document(document):
         part_orders.append(order)
     if len(set(part_orders)) != len(part_orders):
         raise ValueError("Duplicate part order in module TOML")
+    _validate_custom_mechanical_parts(parts)
     for part in parts:
         key = str(part["key"])
         start = float(part["local_start_z_mm"])
@@ -823,44 +877,47 @@ def validate_document(document):
         ) from exc
     if not math.isfinite(liner_wall) or liner_wall <= 0.0:
         raise ValueError("Vacuum liner wall thickness must be positive")
-    _validate_aperture_mechanism_metadata(parts)
-    _validate_simple_magnetic_layer_geometry(parts)
+    # Independent CAD copies keep their legacy shape fields, not the original
+    # optical role. Built-in assemblies retain every existing physics check.
+    physical_parts = tuple(part for part in parts if not is_custom_mechanical_part(part))
+    _validate_aperture_mechanism_metadata(physical_parts)
+    _validate_simple_magnetic_layer_geometry(physical_parts)
     from temsim.part_materials import validate_part_materials
     validate_part_materials(parts)
     from temsim.magnetic_circuits import validate_circuit_declarations
-    validate_circuit_declarations(parts)
-    _validate_accelerator_stack_metadata(parts)
+    validate_circuit_declarations(physical_parts)
+    _validate_accelerator_stack_metadata(physical_parts)
     if document.get("module", {}).get("type") == "gun":
-        _validate_gun_mechanical_relationships(parts)
+        _validate_gun_mechanical_relationships(physical_parts)
     if document.get("module", {}).get("type") == "beam_blanker":
         _validate_nanopulser_module(document)
     if document.get("module", {}).get("type") == "column":
-        _validate_column_order(parts)
-        _validate_objective_assembly(parts)
-        _validate_eds_detector_geometry(parts)
-        _validate_two_pole_lens_assemblies(parts)
+        _validate_column_order(physical_parts)
+        _validate_objective_assembly(physical_parts)
+        _validate_eds_detector_geometry(physical_parts)
+        _validate_two_pole_lens_assemblies(physical_parts)
         _validate_condenser_field_calibrations(
-            parts, document["geometry"]
+            physical_parts, document["geometry"]
         )
         _validate_magnetic_lens_mechanical_parts(
-            parts, document["geometry"]
+            physical_parts, document["geometry"]
         )
-        _validate_shared_lens_housings(parts)
+        _validate_shared_lens_housings(physical_parts)
         _validate_c1_c2_cartridge_and_vacuum_tube(
-            parts, document["geometry"]
+            physical_parts, document["geometry"]
         )
-        _validate_column_mechanical_overlaps(parts)
+        _validate_column_mechanical_overlaps(physical_parts)
     if document.get("module", {}).get("type") == "project_and_recording_system":
-        _validate_projector_lens_clearances(parts, document["geometry"])
-        _validate_projector_lens_geometry_provenance(parts)
-        _validate_projector_field_calibrations(parts)
-        _validate_two_pole_lens_assemblies(parts)
+        _validate_projector_lens_clearances(physical_parts, document["geometry"])
+        _validate_projector_lens_geometry_provenance(physical_parts)
+        _validate_projector_field_calibrations(physical_parts)
+        _validate_two_pole_lens_assemblies(physical_parts)
         _validate_magnetic_lens_mechanical_parts(
-            parts, document["geometry"]
+            physical_parts, document["geometry"]
         )
-        _validate_recording_plane_geometry(parts)
-        _validate_post_projector_detector_chamber(parts)
-        _validate_energy_filter_geometry(parts)
+        _validate_recording_plane_geometry(physical_parts)
+        _validate_post_projector_detector_chamber(physical_parts)
+        _validate_energy_filter_geometry(physical_parts)
     entrance = float(document["ports"]["entrance"]["local_z_mm"])
     exit_z = float(document["ports"]["exit"]["local_z_mm"])
     length = float(document["geometry"]["length_mm"])
@@ -869,18 +926,112 @@ def validate_document(document):
             "Module length mismatch: "
             f"length_mm={length}, port_span={exit_z - entrance}"
         )
-    if any("model_3d" in part for part in parts):
+    if any("model_3d" in part or is_custom_mechanical_part(part) for part in parts):
         from temsim.part_model_features import validate_model_3d
         from temsim.part_model_3d import part_model_from_document
 
         for part in parts:
-            if "model_3d" not in part:
+            if "model_3d" not in part and not is_custom_mechanical_part(part):
                 continue
             validate_model_3d(part)
             # Confirm cuts produce real, nonempty geometry. This does not make
             # the existing axisymmetric physics consume an arbitrary CAD model.
             part_model_from_document(document, part["key"], include_children=False)
     return document
+
+
+def _validate_custom_mechanical_parts(parts):
+    """Validate independent mechanical additions without inventing field domains."""
+    from temsim.magnetic_circuits import is_custom_mechanical_part, radial_profile_mm
+    from temsim import component_keys
+
+    # Fixed runtime identifiers, never the live catalog (which also contains
+    # newly saved custom rows). Protect alternate, currently uninstalled guns
+    # and correctors as well as the selected assembly.
+    reserved = set()
+    for name, value in vars(component_keys).items():
+        if name.isupper() and not name.startswith("_"):
+            if isinstance(value, str):
+                reserved.add(value)
+            elif isinstance(value, (tuple, frozenset)):
+                reserved.update(item for item in value if isinstance(item, str))
+    reserved.update(REFERENCE_FREE_PART_KEYS)
+    reserved.update({"sample", "energy_filter", "objective_upper_pole", "objective_lower_pole",
+                     "c1_c2_pole_piece_cartridge", "c1_c2_shared_housing", "c1_c2_vacuum_tube"})
+    reserved.update(child for key in tuple(reserved) for child in lens_mechanical_part_keys(key))
+
+    by_key = {part["key"]: part for part in parts}
+    for part in parts:
+        key = part["key"]
+        parent_key = part.get("parent_key")
+        if not is_custom_mechanical_part(part):
+            if parent_key in by_key and is_custom_mechanical_part(by_key[parent_key]):
+                raise ValueError(f"{key}: a built-in physical part cannot be owned by a custom mechanical copy")
+            continue
+        if key in reserved or component_keys.canonical_component_placement_key(key) in reserved or component_keys.canonical_recording_plane_key(key) in reserved:
+            raise ValueError(f"{key}: custom mechanical keys cannot replace reserved built-in components")
+        if part.get("mechanical_only") is not True or part.get("axial_vacuum_context_only") is not True:
+            raise ValueError(f"{key}: custom mechanical parts require mechanical_only=True and axial_vacuum_context_only=True")
+        if ("material_class" in part or part["mechanical_part_role"] == "custom_mechanical") and (
+            not isinstance(part.get("material_class"), str) or not part["material_class"].strip()
+        ):
+            raise ValueError(f"{key}: a custom mechanical part requires material_class")
+        if "geometry_template_key" in part and (
+            not isinstance(part["geometry_template_key"], str) or not part["geometry_template_key"].strip()
+        ):
+            raise ValueError(f"{key}: geometry_template_key must be a nonempty shape identifier")
+        if part["mechanical_part_role"] == "custom_mechanical_copy" and "geometry_template_key" not in part:
+            raise ValueError(f"{key}: a mechanical copy requires geometry_template_key to preserve legacy shape")
+        seen = {key}
+        ancestor = parent_key
+        while ancestor:
+            if ancestor not in by_key:
+                raise ValueError(f"{key}: unknown parent {ancestor}")
+            if ancestor in seen:
+                raise ValueError(f"{key}: cyclic component ownership")
+            seen.add(ancestor)
+            ancestor = by_key[ancestor].get("parent_key")
+        forbidden = [name for name in part if name.startswith("magnetic_circuit_") or name == "field_source_key"]
+        if forbidden:
+            raise ValueError(f"{key}: custom mechanical parts cannot bind optical current/circuit fields: {forbidden}")
+        for name in ("magnetic_lens_keys", "contained_recording_plane_keys", "nested_lens_parent_key", "shared_housing_key", "upstream_boundary_aperture_key"):
+            if name not in part:
+                continue
+            references = part[name] if name in {"magnetic_lens_keys", "contained_recording_plane_keys"} else [part[name]]
+            if not isinstance(references, (list, tuple)) or any(
+                not isinstance(ref, str) or (ref and (ref not in by_key or not is_custom_mechanical_part(by_key[ref])))
+                for ref in references
+            ):
+                raise ValueError(f"{key}: {name} must refer only to independent copied components")
+        start, center, end, length = (float(part[name]) for name in (
+            "local_start_z_mm", "local_center_z_mm", "local_end_z_mm", "length_mm"))
+        if not all(math.isfinite(value) for value in (start, center, end, length)) or length < 0:
+            raise ValueError(f"{key}: custom mechanical extents must be finite and nonnegative")
+        for name in ("mechanical_inner_diameter_mm", "mechanical_bore_diameter_mm", "mechanical_outer_diameter_mm"):
+            if name in part and (not math.isfinite(float(part[name])) or float(part[name]) < 0):
+                raise ValueError(f"{key}: {name} must be finite and nonnegative")
+        if "mechanical_outer_diameter_mm" in part:
+            outer = float(part["mechanical_outer_diameter_mm"])
+            inner = float(part.get("mechanical_inner_diameter_mm", part.get("mechanical_bore_diameter_mm", 0)))
+            if not 0 <= inner < outer:
+                raise ValueError(f"{key}: mechanical radii require 0 <= inner diameter < outer diameter")
+        if "material_intervals_mm" in part:
+            intervals = part["material_intervals_mm"]
+            if not isinstance(intervals, (list, tuple)) or not intervals:
+                raise ValueError(f"{key}: material intervals must be nonempty pairs")
+            previous_end = -math.inf
+            for interval in intervals:
+                if not isinstance(interval, (list, tuple)) or len(interval) != 2:
+                    raise ValueError(f"{key}: material intervals must be start/end pairs")
+                first, last = map(float, interval)
+                # The legacy objective coil envelope describes its nominal
+                # middle package, while the real split sections extend beyond
+                # it. Preserve that recorded geometry instead of clipping it.
+                if not all(math.isfinite(value) for value in (first, last)) or not first < last or first < previous_end:
+                    raise ValueError(f"{key}: material intervals must be finite, ordered and disjoint")
+                previous_end = last
+        if "magnetic_radial_profile_mm" in part:
+            radial_profile_mm(part, length)
 
 
 def _validate_nanopulser_module(document):
@@ -903,7 +1054,9 @@ def _validate_nanopulser_module(document):
         for port in ("entrance", "exit")
     ):
         raise ValueError("NanoPulser must connect the gun-to-column interface")
-    parts = sorted(document["parts"], key=lambda part: part["order"])
+    from temsim.magnetic_circuits import is_custom_mechanical_part
+    parts = sorted((part for part in document["parts"] if not is_custom_mechanical_part(part)),
+                   key=lambda part: part["order"])
     if tuple(part["key"] for part in parts) != (
         NANOPULSER_DEFLECTOR, NANOPULSER_APERTURE,
     ):

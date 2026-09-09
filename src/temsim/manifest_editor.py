@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from numbers import Real
 from pathlib import Path
@@ -170,6 +170,16 @@ class ManifestEditor:
     def save(self, target: ManifestTarget, updates: dict[tuple[str, ...], object], configuration):
         if not updates:
             return
+        from temsim.component_operations import PartChangeSet
+
+        if isinstance(updates, PartChangeSet):
+            from temsim.component_persistence import save_component_changes
+
+            document = module_manifest.read_document(self.root / target.module_path)
+            completed = _complete_part_length_updates(document, updates)
+            return save_component_changes(
+                self.root, target.module_path, replace(updates, fields=completed), configuration,
+            )
         document = module_manifest.read_document(self.root / target.module_path)
         updates = _complete_part_length_updates(document, updates)
         originals = module_manifest.update_manifest_values(

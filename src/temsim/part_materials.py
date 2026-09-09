@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 import math
 
-from temsim.magnetic_circuits import MAGNETIC_BODIES, optical_owner, part_data
+from temsim.magnetic_circuits import MAGNETIC_BODIES, is_custom_mechanical_part, optical_owner, part_data
 from temsim.magnetic_geometry import objective_layer_intervals_mm
 from temsim.magnetic_materials import lens_material_defaults, validate_bh_material
 from temsim.mechanical_profiles import MAGNETIC_EXCITATION_COIL, MAGNETIC_LENS_HOUSING
@@ -121,7 +121,7 @@ def configured_region_colour(part, region="body", fallback=(0.55, 0.61, 0.69, 1.
 def material_application_scope(part) -> str:
     """Describe this component's actual solver participation for editors/reports."""
     profile = part_data(part).get("mechanical_profile")
-    if profile not in MATERIAL_PROFILES:
+    if is_custom_mechanical_part(part) or profile not in MATERIAL_PROFILES:
         return ("Material definition only: this component has no modeled magnetostatic solid. "
                 "The assignment does not change magnetic fields, electrical/thermal response, "
                 "beam-passage cutoffs or scattering.")
@@ -164,13 +164,18 @@ def validate_part_materials(parts) -> None:
         parent = by_key.get(row.get("parent_key"), {})
         split = ()
         if row.get("mechanical_profile") in {"magnetic_lens_yoke", MAGNETIC_EXCITATION_COIL}:
-            split = objective_layer_intervals_mm(parent, float(parent.get("local_start_z_mm", 0)), row["mechanical_profile"])
+            if is_custom_mechanical_part(row):
+                split = row.get("material_intervals_mm", ())
+            else:
+                split = objective_layer_intervals_mm(parent, float(parent.get("local_start_z_mm", 0)), row["mechanical_profile"])
         if len(split) != 2 or "magnetic_radial_profile_mm" in row:
             raise ValueError(f"{row['key']}: upper/lower material assignments require existing split material intervals")
 
 
 def is_magnetostatic_body(data) -> bool:
     """Include a housing only when an explicit magnetic response is assigned."""
+    if is_custom_mechanical_part(data):
+        return False
     profile = data.get("mechanical_profile")
     if profile in MAGNETIC_BODIES:
         return True

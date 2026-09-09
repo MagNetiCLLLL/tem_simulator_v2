@@ -79,12 +79,12 @@ def get_reference_sample(key: str) -> ReferenceSample:
 
 
 def apply_reference_sample(sample, key: str) -> ReferenceSample:
-    from ase.io import read
+    from temsim.specimen.cif_io import read_cif_atoms
     from temsim.specimen.geometry import quaternion_from_zone_axes, set_sample_orientation
     from temsim.specimen.rutherford import composition_from_atoms
 
     entry = get_reference_sample(key)
-    unit = read(str(entry.cif_path), index=0)
+    unit = read_cif_atoms(str(entry.cif_path), index=0)
     composition = composition_from_atoms(unit, source_path=str(entry.cif_path))
     from ase.data import atomic_numbers
     if entry.chemical_symbol and {z for z, _ in composition.number_densities_atoms_nm3} != {atomic_numbers[entry.chemical_symbol]}:

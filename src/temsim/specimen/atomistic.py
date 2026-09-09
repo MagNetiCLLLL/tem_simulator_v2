@@ -409,7 +409,7 @@ def build_cif_equilibrium_atoms(
     """Load a CIF and crop a finite sample inside the calculation ROI."""
 
     abtem, Atoms, *_ = _require_backend()
-    from ase.io import read
+    from temsim.specimen.cif_io import read_cif_atoms
 
     path = Path(cif_path).expanduser().resolve()
     if not path.is_file():
@@ -417,7 +417,7 @@ def build_cif_equilibrium_atoms(
     if path.suffix.lower() not in {".cif", ".mcif"}:
         raise ValueError("Atomic specimen import requires a CIF or MCIF file.")
     try:
-        unit = read(path)
+        unit = read_cif_atoms(path)
     except Exception as exc:
         raise ValueError(f"Unable to read CIF file {path}: {exc}") from exc
     if len(unit) == 0:

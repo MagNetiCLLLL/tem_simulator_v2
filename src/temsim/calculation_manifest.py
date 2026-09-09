@@ -588,6 +588,27 @@ def assert_external_input_identities_unchanged(
         )
 
 
+def assert_external_input_inventory_unchanged(
+    state: object,
+    expected_inputs: Sequence[ExternalInputIdentity],
+) -> None:
+    """Check old files and newly selected/discovered inputs before publication.
+
+    Checking only captured paths misses a reference sidecar created during
+    calculation and a catalog lookup that now resolves to another CIF.
+    """
+    expected = tuple(expected_inputs)
+    assert_external_input_identities_unchanged(expected)
+    try:
+        actual = capture_external_input_identities(state)
+    except (OSError, ValueError, KeyError, TypeError, OverflowError) as exc:
+        raise RuntimeError(f"Captured external inputs changed: {exc}") from exc
+    if actual != expected:
+        changed = set(actual).symmetric_difference(expected)
+        roles = ", ".join(sorted({row.role for row in changed}))
+        raise RuntimeError("Captured external inputs changed: " + roles)
+
+
 def _selection_payload(selection: object | None) -> dict[str, str]:
     if selection is None:
         return {}
@@ -732,6 +753,7 @@ __all__ = (
     "ExternalInputIdentity",
     "SolverIdentity",
     "assert_external_input_identities_unchanged",
+    "assert_external_input_inventory_unchanged",
     "assert_external_inputs_unchanged",
     "capture_external_input_identities",
     "capture_calculation_manifest",

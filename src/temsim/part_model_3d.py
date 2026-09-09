@@ -13,7 +13,7 @@ from numbers import Integral, Real
 
 import numpy as np
 
-from temsim.magnetic_circuits import radial_profile_mm
+from temsim.magnetic_circuits import is_custom_mechanical_part, radial_profile_mm
 from temsim.magnetic_geometry import objective_layer_intervals_mm
 from temsim.mechanical_profiles import MAGNETIC_LENS_MECHANICAL_PROFILES
 
@@ -202,6 +202,10 @@ def _dimensions(part, by_key=None):
             fields.append(DimensionSpec(path, label, _number(value, str(path)), unit))
 
     for name, value in part.items():
+        if is_custom_mechanical_part(part) and name == "vacuum_inner_diameter_mm":
+            # Required schema context, not a material bore or active cutoff.
+            # The complete TOML remains available in All parameters.
+            continue
         unit = next((unit for unit in ("mm", "um", "deg") if name.endswith("_" + unit)), None)
         if unit is None:
             continue
@@ -212,8 +216,13 @@ def _dimensions(part, by_key=None):
     parent = (by_key or {}).get(part.get("parent_key"), {})
     source_fields = [f"{side}_yoke_{edge}_local_z_mm" for side in ("upper", "lower") for edge in ("start", "end")]
     # Introspection must work even while the draft's dimensions are invalid.
-    split = (part.get("mechanical_profile") in {"magnetic_excitation_coil", "magnetic_lens_yoke"}
+    explicit_intervals = is_custom_mechanical_part(part) and "material_intervals_mm" in part
+    split = (not is_custom_mechanical_part(part) and part.get("mechanical_profile") in {"magnetic_excitation_coil", "magnetic_lens_yoke"}
              and all(name in parent for name in source_fields))
+    if explicit_intervals:
+        reason = "Scale the copied material sections axially about the fixed centre in proportion to the nominal length; radial dimensions stay unchanged."
+        fields = [replace(field, reason=reason) if field.path[-1] == "length_mm" else field
+                  for field in fields]
     if split:
         reason = "Display-envelope length; physical sections use the parent yoke endpoints and coil inset below."
         fields = [replace(field, editable=False, reason=reason) if field.path[-1] == "length_mm" else field
@@ -286,10 +295,11 @@ def _pole_section(part, start, end):
         section = [(0, bore), (0, outer), (length - nose, outer), (length, tip), (length, bore)]
     # The shared C1/C2 cartridge's two pole faces are reversed relative to their
     # optical names, as in the existing physical-layout projection.
-    face_at_end = "upper" in part["key"]
-    if part["key"] == "condenser_lens_1_lower_pole":
+    template_key = part.get("geometry_template_key", part["key"]) if is_custom_mechanical_part(part) else part["key"]
+    face_at_end = "upper" in template_key
+    if template_key == "condenser_lens_1_lower_pole":
         face_at_end = True
-    elif part["key"] == "condenser_lens_2_upper_pole":
+    elif template_key == "condenser_lens_2_upper_pole":
         face_at_end = False
     return [(start + z if face_at_end else end - z, radius) for z, radius in section]
 
@@ -346,11 +356,14 @@ def _legacy_part_meshes(part, by_key, count, aperture_index=0, runtime=None):
     if profile in MAGNETIC_LENS_MECHANICAL_PROFILES and outer is not None and inner is not None:
         parent = by_key.get(part.get("parent_key"), {})
         intervals = ()
-        if profile in {"magnetic_excitation_coil", "magnetic_lens_yoke"}:
+        explicit_intervals = is_custom_mechanical_part(part) and "material_intervals_mm" in part
+        if explicit_intervals:
+            intervals = part["material_intervals_mm"]
+        elif not is_custom_mechanical_part(part) and profile in {"magnetic_excitation_coil", "magnetic_lens_yoke"}:
             intervals = objective_layer_intervals_mm(parent, parent.get("local_start_z_mm", 0), profile)
-        if intervals:
+        if intervals and (not explicit_intervals or len(intervals) == 2):
             return tuple(emit(_annulus(a, b, inner, outer), region,
-                              description="Parent-defined physical material interval")
+                              description="Copied physical material interval" if explicit_intervals else "Parent-defined physical material interval")
                          for region, (a, b) in zip(("upper", "lower"), intervals)), ()
         if part.get("material_intervals_mm") is not None:
             intervals = part["material_intervals_mm"]

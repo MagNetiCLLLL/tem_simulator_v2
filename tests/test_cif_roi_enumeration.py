@@ -19,7 +19,7 @@ def finite_cif(monkeypatch, tmp_path):
     )
     path = tmp_path / "fixture.cif"
     path.touch()
-    monkeypatch.setattr(ase.io, "read", lambda _path: unit.copy())
+    monkeypatch.setattr(ase.io, "read", lambda _path, **_kwargs: unit.copy())
     backend = SimpleNamespace(orthogonalize_cell=lambda value, **_kw: value)
     monkeypatch.setattr(atomistic, "_require_backend", lambda: (backend, ase.Atoms))
     return path, unit

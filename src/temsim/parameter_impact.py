@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 import math
 
 from temsim.component_keys import APERTURE_KEYS, FIXED_APERTURE_KEYS
-from temsim.magnetic_circuits import circuit_channels, optical_owner, part_data
+from temsim.magnetic_circuits import circuit_channels, is_custom_mechanical_part, optical_owner, part_data
 from temsim.part_materials import MATERIAL_PROFILES, is_magnetostatic_body
 from temsim.parameter_semantics import describe_parameter
 from temsim.simulation_modes import MODE_BY_KEY
@@ -384,6 +384,13 @@ def describe_parameter_impact(part, path, *, by_key=None, simulation_mode="ideal
     No map file is read, field solved, runtime state changed or cache updated.
     """
     try:
+        row, _, _, _, field = _context(part, path, by_key)
+        if is_custom_mechanical_part(row):
+            return _impact("inactive", "Independent mechanical geometry only",
+                           "This custom mechanical component is excluded from optical controls, magnetic circuits/FEM and axial vacuum cutoffs. "
+                           "Its geometry and saved material definition affect the mechanical preview only; no new field or scattering model is created.",
+                           effects=("display", "geometry"),
+                           results=("3d_preview", "physical_layout", "material_definition") if field in _MATERIAL_FIELDS else ("3d_preview", "physical_layout"))
         return _describe_parameter_impact(part, path, by_key=by_key,
                     simulation_mode=simulation_mode, descriptors=descriptors)
     except (KeyError, TypeError, ValueError, AttributeError, OverflowError) as exc:

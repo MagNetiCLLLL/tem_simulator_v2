@@ -2,6 +2,8 @@
 
 from pathlib import Path
 from copy import deepcopy
+import math
+import tomllib
 
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QBrush, QColor, QKeySequence, QShortcut
@@ -34,6 +36,11 @@ class PartModelEditorPage(QWidget):
         self.session = None
         self._project_root = None
         self._project_paths = ()
+        self._catalog_paths = ()
+        self._module_origins = {}
+        self._coordinate_source_bytes = {}
+        self._component_dialog = None
+        self._removed_selection_key = None
         self._project_save = None
         self._pending_part = None
         self._pending_reveal = False
@@ -60,6 +67,12 @@ class PartModelEditorPage(QWidget):
         self.undo_button = QPushButton("Undo")
         self.redo_button = QPushButton("Redo")
         self.revert_button = QPushButton("Revert")
+        self.new_component_button = QPushButton("New component…")
+        self.place_component_button = QPushButton("Place…")
+        self.copy_component_button = QPushButton("Copy to assembly…")
+        self.new_component_button.setToolTip("Add independent mechanical CAD geometry to this file's draft")
+        self.place_component_button.setToolTip("Translate the selected component and its children; review local or resolved global Z")
+        self.copy_component_button.setToolTip("Create an independent copy in this file or another assembly TOML; Save writes it")
         self.audit_button = QPushButton("Dimension audit…")
         self.audit_button.setToolTip("Review dimension meanings, evidence and missing definitions across saved modules")
         self.source_label = QLabel("Open an instrument module or select a component in Physical Layout")
@@ -69,7 +82,7 @@ class PartModelEditorPage(QWidget):
         self.modules.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.modules.setMinimumContentsLength(12)
         self.modules.setToolTip("Source module for the current component. Components in one module share its TOML file.")
-        self.load_module_button = QPushButton("Open active module")
+        self.load_module_button = QPushButton("Open storage file")
         self.load_module_button.setEnabled(False)
         self.scope = QComboBox()
         for label, key in (("Selected part", "part"), ("Part + neighbours", "context"), ("Entire module", "module")):
@@ -203,6 +216,11 @@ class PartModelEditorPage(QWidget):
         module_row.addWidget(self.modules, 1)
         module_row.addWidget(self.load_module_button)
         layout.addLayout(module_row)
+        component_row = QHBoxLayout()
+        for widget in (self.new_component_button, self.place_component_button, self.copy_component_button):
+            component_row.addWidget(widget)
+        component_row.addStretch(1)
+        layout.addLayout(component_row)
         view_row = QHBoxLayout()
         for widget in (self.scope, self.fit_button,
                        self.iso_button, self.front_button, self.section):
@@ -222,6 +240,9 @@ class PartModelEditorPage(QWidget):
         self.revert_button.clicked.connect(self.revert)
         self.audit_button.clicked.connect(self.show_dimension_audit)
         self.load_module_button.clicked.connect(self._open_active_module)
+        self.new_component_button.clicked.connect(lambda: self._open_component_dialog("new"))
+        self.place_component_button.clicked.connect(lambda: self._open_component_dialog("place"))
+        self.copy_component_button.clicked.connect(lambda: self._open_component_dialog("copy"))
         self.modules.activated.connect(self._open_active_module)
         self.scope.currentIndexChanged.connect(lambda: self._render())
         self.fit_button.clicked.connect(self.view.fit_all)
@@ -257,14 +278,29 @@ class PartModelEditorPage(QWidget):
         self._project_root = Path(root).resolve()
         self._project_save = save_callback
         self._runtime_values = deepcopy(runtime_values or {})
-        paths = tuple(str(path) for _kind, path in assembly.selected_module_paths)
+        paths = tuple((self._project_root / path).resolve().relative_to(self._project_root).as_posix()
+                      for _kind, path in assembly.selected_module_paths)
         self._project_paths = paths
-        self.load_module_button.setEnabled(bool(paths))
+        self._catalog_paths = self._catalog_component_paths(paths)
+        self._module_origins = {}
+        self._coordinate_source_bytes = {}
+        for relative in (*paths, "catalog.toml"):
+            path = (self._project_root / relative).resolve()
+            try:
+                self._coordinate_source_bytes[path] = path.read_bytes()
+            except OSError:
+                self._coordinate_source_bytes[path] = None
+        for part in getattr(assembly, "parts", ()):
+            path = (self._project_root / part.source_file).resolve()
+            origin = float(part.center_z_mm) - float(part.data["local_center_z_mm"])
+            if math.isfinite(origin):
+                self._module_origins[path] = origin
+        self.load_module_button.setEnabled(bool(self._catalog_paths))
         selected = self.modules.currentData()
         blocked = self.modules.blockSignals(True)
         self.modules.clear()
-        for path in paths:
-            self.modules.addItem(Path(path).stem, path)
+        for path in self._catalog_paths:
+            self.modules.addItem(path + (" · installed" if path in paths else ""), path)
         self.modules.setCurrentIndex(max(0, self.modules.findData(selected)))
         self.modules.blockSignals(blocked)
         source_reloaded = False
@@ -295,6 +331,126 @@ class PartModelEditorPage(QWidget):
             # transition may leave the old instrument's aperture in the mesh.
             self._refresh_runtime_dependencies(previous_mesh, previous_parameters)
         self._sync_source_context()
+
+    def _catalog_component_paths(self, fallback=()):
+        """Module names describe storage, never a whitelist of component kinds."""
+        paths = list(fallback)
+        try:
+            catalog = tomllib.loads((self._project_root / "catalog.toml").read_text(encoding="utf-8-sig"))
+            for group, rows in catalog.items():
+                if group.endswith("_variants") and isinstance(rows, list):
+                    for row in rows:
+                        if isinstance(row, dict) and row.get("file"):
+                            path = (self._project_root / str(row["file"])).resolve()
+                            if path.is_relative_to(self._project_root) and path.is_file():
+                                paths.append(path.relative_to(self._project_root).as_posix())
+        except (OSError, ValueError):
+            # Existing active context remains usable if a catalog is temporarily
+            # unavailable; saving still goes through full project validation.
+            pass
+        return tuple(dict.fromkeys(paths))
+
+    def _open_component_dialog(self, action):
+        if self.session is None or self._selected_key is None:
+            return None
+        if self._invalid_inputs:
+            self._message("Correct the invalid dimension entries before changing component structure.", error=True)
+            return None
+        if self._component_dialog is not None:
+            self._component_dialog.raise_()
+            self._component_dialog.activateWindow()
+            return self._component_dialog
+        from temsim.gui.component_dialog import ComponentDialog
+        source = self.session
+        source_snapshot = deepcopy(source)
+        source_key = self._selected_key
+        coordinate_sources = dict(self._coordinate_source_bytes)
+        target_documents = {}
+
+        def document_for_target(path):
+            path = Path(path).resolve()
+            if path == source.path:
+                return source_snapshot.document
+            if path not in target_documents:
+                target_documents[path] = PartModelDocument(path)
+            return target_documents[path].document
+
+        def stage(values):
+            if self.session is not source or self._selected_key != source_key:
+                raise ValueError("The selected source changed. Close and reopen this operation.")
+            if source.document != source_snapshot.document:
+                raise ValueError("The source draft changed. Reopen this operation to review it.")
+            source_snapshot.assert_source_current()
+            path = values["target_path"]
+            same_file = path == source.path
+            if not same_file and (source.dirty or self._invalid_inputs):
+                raise ValueError("Save or Revert the source draft before copying to another file. "
+                                 "A copy in the same file can include the current draft.")
+            if values["coordinate_system"] == "global":
+                origin = self._module_origins.get(path)
+                if origin is None or origin != values["module_origin_z_mm"]:
+                    raise ValueError("The installed coordinate frame changed. Reopen the operation to review its new origin.")
+                for source_path, expected in coordinate_sources.items():
+                    try:
+                        current = source_path.read_bytes()
+                    except OSError:
+                        current = None
+                    if current != expected or current is None:
+                        raise ValueError("An installed assembly source changed or is unavailable. Reload the catalog before using global coordinates.")
+            if same_file:
+                candidate = deepcopy(source_snapshot)
+            else:
+                document_for_target(path)
+                candidate = deepcopy(target_documents[path])
+                candidate.assert_source_current()
+            if action == "new":
+                from temsim.component_operations import make_component
+                fields = {key: value for key, value in values.items() if key in {
+                    "key", "name", "shape", "center_z_mm", "length_mm", "inner_diameter_mm",
+                    "outer_diameter_mm", "width_mm", "height_mm", "parent_key"}}
+                selected = candidate.add_component(make_component(**fields))
+            elif action == "place":
+                candidate.place_component(source_key, values["center_z_mm"], include_children=values["include_children"])
+                selected = source_key
+            else:
+                selected = candidate.copy_component_from(source_snapshot, source_key, values["key"], values["center_z_mm"],
+                    parent_key=values["parent_key"], include_children=values["include_children"], name=values["name"])
+            # A malformed or unsupported CAD operation keeps the review dialog
+            # open, instead of accepting then clearing the previous viewport.
+            from temsim.part_model_3d import part_model_from_document
+            part_model_from_document(candidate.document, selected,
+                runtime_values=self._model_runtime_values() if same_file else {})
+            candidate.assert_source_current()
+            return candidate, selected
+
+        targets = tuple(self._project_root / path for path in self._catalog_paths) if self._project_root else ()
+        dialog = ComponentDialog(action, source_path=source.path, part=source.part(source_key),
+            target_paths=targets, module_origins=self._module_origins,
+            parts_for_target=lambda path: document_for_target(path)["parts"],
+            document_for_target=document_for_target, submit=stage, parent=self)
+        self._component_dialog = dialog
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+
+        def finished(result):
+            self._component_dialog = None
+            if result == dialog.DialogCode.Accepted and dialog.result_value is not None:
+                self.session, selected = dialog.result_value
+                self._invalid_inputs = {}
+                self._topology_selection = ()
+                self._pending_part = None
+                self._pending_reveal = False
+                self._removed_selection_key = None
+                self._load_tree()
+                self.select_part(selected, emit=False)
+                if not self.view.fit_selection():
+                    self.view.fit_all()
+                self._message("Component draft preview updated. Save writes " + str(self.session.path))
+                self._update_buttons()
+            dialog.deleteLater()
+
+        dialog.finished.connect(finished)
+        dialog.open()
+        return dialog
 
     def _model_runtime_values(self):
         if self.session is None or self._project_root is None:
@@ -417,6 +573,8 @@ class PartModelEditorPage(QWidget):
     def _refresh_parameter_annotations(self):
         if self.session is None:
             return
+        from temsim.magnetic_circuits import is_custom_mechanical_part
+        parts_by_key = {part["key"]: part for part in self.session.document["parts"]}
         blocked = self.dimensions.blockSignals(True)
         try:
             for row in range(self.dimensions.rowCount()):
@@ -428,7 +586,8 @@ class PartModelEditorPage(QWidget):
                 meaning, impact, text = self._parameter_information(path, field)
                 short = {"active": "Active", "inactive": "Inactive", "unsupported": "Unsupported",
                          "configuration_required": "Setup", "unknown": "Check"}.get(impact.status, "Check")
-                if meaning.category == "cad":
+                parameter_part = parts_by_key.get(path[1], {}) if len(path) > 1 and path[0] == "parts" else {}
+                if meaning.category == "cad" or is_custom_mechanical_part(parameter_part):
                     short = "CAD only"
                 # A short status remains visible; the full evidence and routing
                 # are available for every row and in the selection inspector.
@@ -920,6 +1079,7 @@ class PartModelEditorPage(QWidget):
         self.session = candidate
         self._invalid_inputs = {}
         self._topology_selection = ()
+        self._removed_selection_key = None
         self._pending_part = None
         self._pending_reveal = False
         self._selected_key = selected_key or candidate.document["parts"][0]["key"]
@@ -1262,10 +1422,10 @@ class PartModelEditorPage(QWidget):
             callback = None
             if self._project_root is not None and self.session.path.is_relative_to(self._project_root):
                 relative = self.session.path.relative_to(self._project_root).as_posix()
-                if relative in self._project_paths:
+                if relative in self._catalog_paths:
                     callback = self._project_save
                 else:
-                    raise ValueError("This file is outside the active module selection. Save a copy outside the instrument catalog.")
+                    raise ValueError("This file is not registered in the instrument catalog. Save a copy outside the instrument catalog.")
             self.session.save(project_save=callback)
             self._load_parameters()
             self._message("Saved and validated. Geometry and material assignments are up to date.")
@@ -1315,6 +1475,9 @@ class PartModelEditorPage(QWidget):
     def redo(self):
         if self.session is not None:
             self.session.redo()
+            if self._removed_selection_key in {part["key"] for part in self.session.document["parts"]}:
+                self._selected_key = self._removed_selection_key
+                self._removed_selection_key = None
             self._draft_changed()
 
     def revert(self):
@@ -1332,6 +1495,18 @@ class PartModelEditorPage(QWidget):
                 self._emit_project_selection()
 
     def _draft_changed(self):
+        keys = {part["key"] for part in self.session.document["parts"]}
+        if self._selected_key not in keys:
+            self._removed_selection_key = self._selected_key
+            self._selected_key = self.session.document["parts"][0]["key"]
+            self._selected_region = "body"
+            self._topology_selection = ()
+        if keys != set(getattr(self, "_tree_nodes", {})):
+            self._load_tree()
+        self._loading = True
+        self.tree.setCurrentItem(self._tree_nodes[self._selected_key])
+        self._loading = False
+        self.selection_label.setText(self.session.part(self._selected_key).get("name", self._selected_key))
         self._load_parameters()
         rendered = self._render(preserve_view=True)
         self._update_buttons()
@@ -1354,6 +1529,8 @@ class PartModelEditorPage(QWidget):
         self.base_shape.setEnabled(loaded)
         self.add_hole_button.setEnabled(loaded)
         self.add_slot_button.setEnabled(loaded)
+        for button in (self.new_component_button, self.place_component_button, self.copy_component_button):
+            button.setEnabled(loaded and self._selected_key is not None and not self._invalid_inputs)
         if loaded:
             self._sync_source_context()
         self._refresh_calculation_status()

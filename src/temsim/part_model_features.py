@@ -157,9 +157,14 @@ def annotate_legacy_mesh(mesh, part, by_key=None):
     parent = (by_key or {}).get(part.get("parent_key"), {})
     if mesh.region in {"upper", "lower"} and part.get("mechanical_profile") in {
             "magnetic_lens_yoke", "magnetic_excitation_coil"}:
+        from temsim.magnetic_circuits import is_custom_mechanical_part
         start_field = mesh.region + "_yoke_start_local_z_mm"
         end_field = mesh.region + "_yoke_end_local_z_mm"
-        if start_field in parent and end_field in parent:
+        if is_custom_mechanical_part(part) and "material_intervals_mm" in part:
+            index = 0 if mesh.region == "upper" else 1
+            upstream_axial = (("parts", part["key"], "material_intervals_mm", index, 0),)
+            downstream_axial = (("parts", part["key"], "material_intervals_mm", index, 1),)
+        elif start_field in parent and end_field in parent:
             inset = (("mechanical_coil_axial_inset_mm",) if
                      part["mechanical_profile"] == "magnetic_excitation_coil" else ())
             upstream_axial = _paths(parent, (start_field, *inset))

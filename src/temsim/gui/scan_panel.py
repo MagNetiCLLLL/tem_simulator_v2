@@ -2132,9 +2132,9 @@ class ScanControlView(QWidget):
             cif_path = active_cif_path(sample)
         if check_cif and cif_path and pixel_nm is not None:
             try:
-                from ase.io import read
+                from temsim.specimen.cif_io import read_cif_atoms
 
-                atoms = read(Path(cif_path).expanduser())
+                atoms = read_cif_atoms(Path(cif_path).expanduser())
                 distances = np.asarray(
                     atoms.get_all_distances(mic=True),
                     dtype=float,

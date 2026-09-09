@@ -26,7 +26,7 @@ def _worker(primary=None, *, enabled=True, manifest=None, quality="High accuracy
         artifact_store=primary,
         calculation_manifest=(
             manifest if manifest is not None else
-            SimpleNamespace(calculation_signatures={"incident": "exact incident"})
+            SimpleNamespace(calculation_signatures={"incident": "exact incident"}, external_inputs=())
         ),
         allow_project_artifact_fallback=enabled,
         artifact_cache_budget_bytes=123456,

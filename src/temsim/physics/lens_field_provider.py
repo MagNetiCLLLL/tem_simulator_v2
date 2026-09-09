@@ -312,6 +312,9 @@ def _overlaps_support(item, support: tuple[float, float]) -> bool:
 
 
 def _is_field_structure_part(part, lens_key: str) -> bool:
+    from temsim.magnetic_circuits import is_custom_mechanical_part
+    if is_custom_mechanical_part(part):
+        return False
     key = str(getattr(part, "key", "")).lower()
     data = dict(getattr(part, "data", {}))
     profile = str(data.get("mechanical_profile", ""))
@@ -343,7 +346,7 @@ def _lens_assembly_payload(
         str(getattr(part, "key", "")): part for part in all_parts
     }
     lens_part = parts_by_key.get(str(lens_key))
-    from temsim.magnetic_circuits import belongs_to_circuit, circuit_channels, optical_owner
+    from temsim.magnetic_circuits import belongs_to_circuit, circuit_channels, is_custom_mechanical_part, optical_owner
     channels = set(circuit_channels(parts_by_key, str(lens_key)))
     module_key = str(getattr(lens_part, "module_key", ""))
     module = next(
@@ -356,6 +359,8 @@ def _lens_assembly_payload(
     )
     related_parts = []
     for part in all_parts:
+        if is_custom_mechanical_part(part):
+            continue
         key = str(getattr(part, "key", ""))
         belongs = (
             key == lens_key

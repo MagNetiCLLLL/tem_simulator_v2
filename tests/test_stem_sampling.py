@@ -78,7 +78,8 @@ def test_legacy_wave_results_are_unchecked_not_implicitly_full():
 
 
 @pytest.mark.parametrize("kwargs", [dict(maximum_angle_mrad=float("nan")),
-                                    dict(wavelength_angstrom=0.), dict(bandwidth_fraction=2.)])
+                                    dict(wavelength_angstrom=0.), dict(bandwidth_fraction=2.),
+                                    dict(probe_semiangle_mrad=10000.)])
 def test_invalid_sampling_rejected(kwargs):
     with pytest.raises(ValueError):
         report(**kwargs)
@@ -108,3 +109,80 @@ def test_coordinate_schema_does_not_invalidate_incident_or_eds(monkeypatch):
         assert before[key] == after[key]
     for key in ("stem", "wave", "wave_source", "fourdstem_cube"):
         assert before[key] != after[key]
+
+
+@pytest.mark.parametrize("camera_length, chief_mrad, centre_mm, expected_overlap", [
+    (1., 0., 0., False),
+    (1., 7., 0., True),
+    (.25, 7., 0., False),
+    (3., 7., 0., False),
+    (1., 7., 7., False),
+    (-1., 7., -14., True),
+])
+def test_direct_disk_overlap_matches_physical_routing_for_tilt_camera_and_offset(
+        camera_length, chief_mrad, centre_mm, expected_overlap):
+    from temsim.physics.first_order import TransverseTransfer
+    from temsim.physics.record_plane import PlaneStop, RecordPlanePlan, route_record_planes
+
+    plane = PlaneStop("df", "DF", 100., "detector", "annulus",
+                      inner_diameter_mm=8., outer_width_mm=20.,
+                      offset_x_mm=centre_mm, readout_enabled=True)
+    transfer = TransverseTransfer(0., 100., np.zeros((2, 2)),
+                                 np.eye(2) * camera_length, np.zeros((2, 2)), np.eye(2))
+    plan = RecordPlanePlan(0., (plane,), (transfer,), "a" * 64, "b" * 64)
+    positions = np.zeros((1, 2))
+    detectors = [SimpleNamespace(key="df")]
+    axis_bounds = detector_angular_bounds(detectors, positions_m=positions, record_plane_plan=plan)
+    chief_bounds = detector_angular_bounds(detectors, positions_m=positions, record_plane_plan=plan,
+                                          angular_origin_mrad=(chief_mrad, 0.))
+    result = report(axis_bounds, probe_semiangle_mrad=2.,
+                    probe_center_mrad=(chief_mrad, 0.), illumination_bounds_mrad=chief_bounds)
+    phi = np.arange(180) * 2 * np.pi / 180
+    disk = (np.linspace(0., 2., 21)[:, None, None]
+            * np.stack((np.cos(phi), np.sin(phi)), axis=-1)).reshape(-1, 2)
+    angles = (disk + [chief_mrad, 0.]) * 1e-3
+    routed = route_record_planes(plan, positions, angles)
+    assert bool(np.any(routed.interactions[0].signal_mask)) is expected_overlap
+    assert result["detectors"]["df"]["overlaps_illumination_disk"] is expected_overlap
+    # Reciprocal coverage must retain the absolute angular acceptance.
+    assert result["detectors"]["df"]["required_inner_mrad"] == axis_bounds["df"][0]
+
+
+def test_tilted_pupil_outside_fft_requires_more_sampling_even_with_covered_detector():
+    result = report({"bf": (0., 10.)}, probe_semiangle_mrad=5., probe_center_mrad=(40., 0.),
+                    illumination_bounds_mrad={"bf": (30., 50.)})
+    assert result["detectors"]["bf"]["status"] == "full"
+    assert not result["illumination_covered"]
+    assert not result["coverage_complete"]
+    assert result["illumination_extent_mrad"] > 45.
+    assert result["recommended_grid_pixels"] > 256
+
+
+def test_probe_relative_bounds_include_timed_raster_offsets_only_once():
+    plane = SimpleNamespace(key="df", kind="detector", geometry="annulus",
+                            inner_diameter_mm=8., outer_width_mm=20.,
+                            offset_x_mm=0., offset_y_mm=0.)
+    transfer = SimpleNamespace(j_diff_m_per_rad=np.eye(2), j_img=np.eye(2),
+                               position_offset_m=np.zeros(2))
+    positions = np.array([[0., 0.], [-.002, 0.]])
+    plan = SimpleNamespace(planes=[plane], transfers=[transfer],
+                           scan_position_offsets_m=(np.array([[0., 0.], [.009, 0.]]),))
+    bounds = detector_angular_bounds(
+        [SimpleNamespace(key="df")], positions_m=positions, record_plane_plan=plan,
+        angular_origin_mrad=(-7., 0.),
+        detector_center_shifts_mrad={"df": (np.array([999., 999.]), np.zeros(2))})
+    # The first scan position accepts the chief; the second centres the bore on it.
+    assert bounds["df"] == pytest.approx((0., 17.))
+
+
+def test_legacy_shifted_angular_detector_can_miss_a_tilted_disk_entirely():
+    bounds = detector_angular_bounds(
+        [AngularDetector("df", 4., 10.)], positions_m=np.zeros((1, 2)),
+        detector_center_shifts_mrad={"df": (np.array([-7.]), np.array([0.]))},
+        angular_origin_mrad=(7., 0.))
+    assert bounds["df"] == pytest.approx((4., 24.))
+
+
+def test_nonzero_probe_chief_requires_matching_overlap_coordinate_frame():
+    with pytest.raises(ValueError, match="probe chief"):
+        report(probe_center_mrad=(7., 0.))

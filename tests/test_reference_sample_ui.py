@@ -1,10 +1,13 @@
 """Real CIF sources drive the visible structure and read-only material summary."""
 from copy import deepcopy
 from pathlib import Path
+import shutil
+import tomllib
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import tomli_w
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel
 
@@ -190,3 +193,119 @@ def test_reference_refresh_and_source_controls_fit_visible_sidebar(qtbot):
         left = control.mapTo(viewport, control.rect().topLeft()).x()
         right = control.mapTo(viewport, control.rect().topRight()).x()
         assert 0 <= left <= right < viewport.width()
+
+
+@pytest.fixture
+def copied_reference_library(tmp_path, monkeypatch):
+    from temsim.specimen import reference_catalog
+
+    reference = get_reference_sample("si_110")
+    shutil.copyfile(reference.cif_path, tmp_path / "Si.cif")
+    shutil.copyfile(reference.metadata_path, tmp_path / "Si.toml")
+    monkeypatch.setattr(reference_catalog, "REFERENCE_DIRECTORY", tmp_path)
+    return tmp_path
+
+
+@pytest.mark.parametrize("change", ["cif", "metadata", "missing_cif", "invalid_metadata"])
+def test_refresh_active_reference_invalidates_results_without_changing_sample(
+    qtbot, copied_reference_library, change,
+):
+    page, state = _page(qtbot)
+    state.sample.wave_frozen_phonon_enabled = True
+    before = deepcopy(vars(state.sample))
+    sentinel = object()
+    page._eds_result = page._elastic_result = page._specimen_interactions = sentinel
+    changes = []
+    page.parameters_changed.connect(changes.append)
+    directory = copied_reference_library
+    if change == "cif":
+        path = directory / "Si.cif"
+        path.write_bytes(path.read_bytes() + b"\n# file revision\n")
+    elif change == "metadata":
+        path = directory / "Si.toml"
+        metadata = tomllib.loads(path.read_text(encoding="utf-8"))
+        metadata["thermal_sigma_angstrom"] = 0.095
+        path.write_text(tomli_w.dumps(metadata), encoding="utf-8")
+    elif change == "missing_cif":
+        (directory / "Si.cif").unlink()
+    else:
+        (directory / "Si.toml").write_text("invalid = [", encoding="utf-8")
+    qtbot.mouseClick(page.refresh_references, Qt.MouseButton.LeftButton)
+    assert changes == ["sample.reference_source"]
+    assert page._eds_result is page._elastic_result is page._specimen_interactions is None
+    assert vars(state.sample) == before
+    qtbot.mouseClick(page.refresh_references, Qt.MouseButton.LeftButton)
+    assert changes == ["sample.reference_source"]
+
+
+@pytest.mark.parametrize("mode", ["reference", "atomic"])
+def test_refresh_unmodified_or_unselected_reference_preserves_results(
+    qtbot, copied_reference_library, mode,
+):
+    state = default_state()
+    state.sample.specimen_mode = mode
+    state.sample.cif_path = str(copied_reference_library / "Si.cif")
+    page, _ = _page(qtbot, state)
+    sentinel = object()
+    page._eds_result = sentinel
+    changes = []
+    page.parameters_changed.connect(changes.append)
+    qtbot.mouseClick(page.refresh_references, Qt.MouseButton.LeftButton)
+    shutil.copyfile(copied_reference_library / "Si.cif", copied_reference_library / "other.cif")
+    qtbot.mouseClick(page.refresh_references, Qt.MouseButton.LeftButton)
+    assert changes == []
+    assert page._eds_result is sentinel
+    if mode == "reference":
+        assert page.preset.findData("other") >= 0
+    else:
+        # Reference refresh is disabled while an external CIF owns the source.
+        assert not page.refresh_references.isEnabled()
+        assert page.preset.findData("other") == -1
+
+
+def test_reference_refresh_reaches_main_window_stale_path(
+    qtbot, monkeypatch, copied_reference_library, tmp_path,
+):
+    from PySide6.QtCore import QSettings
+    from temsim.gui import main_window
+
+    settings = str(tmp_path / "window.ini")
+    monkeypatch.setattr(main_window, "QSettings", lambda: QSettings(settings, QSettings.Format.IniFormat))
+    window = main_window.MainWindow()
+    qtbot.addWidget(window)
+    window.preview_timer.stop()
+    monkeypatch.setattr(window.calculations, "submit_background", lambda *_args, **_kwargs: None)
+    stale = []
+    monkeypatch.setattr(window.workspace, "mark_high_accuracy_stale", lambda: stale.append(True))
+    path = copied_reference_library / "Si.toml"
+    metadata = tomllib.loads(path.read_text(encoding="utf-8"))
+    metadata["thermal_sigma_angstrom"] = 0.095
+    path.write_text(tomli_w.dumps(metadata), encoding="utf-8")
+    qtbot.mouseClick(window.workspace.sample_page.refresh_references, Qt.MouseButton.LeftButton)
+    window.preview_timer.stop()
+    assert stale == [True]
+
+
+def test_open_mcif_zone_alignment_and_visible_atoms(qtbot, tmp_path):
+    source = get_reference_sample("si_110").cif_path
+    imported = tmp_path / "structure.mcif"
+    shutil.copyfile(source, imported)
+    state = default_state()
+    state.sample.specimen_mode = "atomic"
+    state.sample.cif_path = str(imported)
+    state.sample.size_x_nm = state.sample.size_y_nm = state.sample.thickness_nm = 1
+    page, state = _page(qtbot, state)
+    errors = []
+    page.error.connect(errors.append)
+    for control, value in zip(page.zone_controls[1], (0, 0, 1)):
+        control.setValue(value)
+    for control, value in zip(page.in_plane_controls[1], (1, 0, 0)):
+        control.setValue(value)
+    qtbot.mouseClick(page.apply_zone, Qt.MouseButton.LeftButton)
+    assert errors == []
+    assert state.sample.zone_axis_uvw == (0, 0, 1)
+    page.show()
+    qtbot.waitUntil(lambda: page._snapshot is not None)
+    assert page._snapshot.atomic_numbers.size > 0
+    assert set(page._snapshot.atomic_numbers) == {14}
+    assert "Spheres unavailable" not in page.atom_display_label.text()

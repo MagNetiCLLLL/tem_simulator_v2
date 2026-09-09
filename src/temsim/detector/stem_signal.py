@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1319,6 +1320,15 @@ def acquire_stem_scan(
             from temsim.physics.record_plane import build_record_plane_plan
 
             record_plane_plan = build_record_plane_plan(state, scan_times_s=scan_times_s)
+        tracked_sample_probability = (
+            float(real_interactions.tracked_probability)
+            if real_interactions is not None else 1.0
+        )
+        if (not math.isfinite(tracked_sample_probability)
+                or not -1.0e-12 <= tracked_sample_probability <= 1.0 + 1.0e-12):
+            raise ValueError("Bulk specimen survival probability must be finite and in [0, 1].")
+        tracked_sample_probability = min(max(tracked_sample_probability, 0.0), 1.0)
+        absorption_active = tracked_sample_probability < 1.0 - 1.0e-12
         try:
             wave = simulate_angle_resolved_stem(
                 state,
@@ -1332,6 +1342,7 @@ def acquire_stem_scan(
                 diffraction_sink=active_diffraction_sink,
                 record_plane_plan=record_plane_plan,
                 scan_times_s=scan_times_s,
+                **({"compute_sample_overlap": True} if absorption_active else {}),
             )
         except Exception:
             if prepared_fourdstem is not None:
@@ -1340,18 +1351,21 @@ def acquire_stem_scan(
         incident_fraction = measure_sample_current(
             simulation, state
         ).fraction
-        tracked_sample_probability = (
-            float(real_interactions.tracked_probability)
-            if real_interactions is not None else 1.0
-        )
-        available_fraction = (
-            incident_fraction * tracked_sample_probability
-        )
-        absorbed_source = np.full_like(
-            scan_x_um,
-            incident_fraction * (1.0 - tracked_sample_probability),
-            dtype=float,
-        )
+        sample_overlap = None
+        local_survival = np.ones_like(scan_x_um, dtype=float)
+        if absorption_active:
+            overlap = getattr(wave, "sample_overlap_fraction", None)
+            if overlap is None:
+                raise ValueError("Finite-sample STEM absorption requires incident coherent-wave/envelope overlap.")
+            sample_overlap = np.asarray(overlap, dtype=float)
+            if (sample_overlap.shape != scan_x_um.shape or not np.all(np.isfinite(sample_overlap))
+                    or np.any(sample_overlap < 0.0) or np.any(sample_overlap > 1.0)):
+                raise ValueError("STEM sample overlap must match the raster and contain finite probabilities in [0, 1].")
+            # Vacuum transmits fully. Only the incident intensity over the
+            # finite projected material receives the uniform-slab absorption.
+            local_survival -= sample_overlap * (1.0 - tracked_sample_probability)
+        available_fraction = incident_fraction * local_survival
+        absorbed_source = incident_fraction * (1.0 - local_survival)
         (
             tail_images,
             tail_uncollected,
@@ -1369,6 +1383,9 @@ def acquire_stem_scan(
             baseline_sample_offset_um,
         )
         tail_images = {
+            # The tail already includes its own finite-material overlap.
+            # Its material-conditioned survival is the bulk value, never
+            # the beam-average mixture containing unabsorbed vacuum rays.
             key: values * tracked_sample_probability
             for key, values in tail_images.items()
         }
@@ -1381,7 +1398,7 @@ def acquire_stem_scan(
         wave_scale = np.maximum(
             1.0
             - tail_probability_source
-            / max(available_fraction, 1.0e-30),
+            / np.maximum(available_fraction, 1.0e-30),
             0.0,
         )
         images = {
@@ -1408,6 +1425,26 @@ def acquire_stem_scan(
         metrics["tracked_probability_after_inelastic_absorption"] = (
             tracked_sample_probability
         )
+        metrics["finite_sample_absorption_model"] = (
+            "incident_coherent_intensity_projected_envelope_uniform_slab_mixture"
+            if absorption_active else "no_active_absorption"
+        )
+        metrics["finite_sample_absorption_scope"] = (
+            "Per-scan count-budget mixture of vacuum transmission and uniform-thickness material survival. "
+            "The elastic angular distribution is scaled by its local total survival; "
+            "this is not a spatial absorptive potential or a slice-resolved absorption calculation. "
+            "Projected incident-plane overlap does not resolve in-slab intensity redistribution "
+            "or oblique side-entry path lengths."
+        )
+        metrics["finite_sample_absorption_overlap"] = (
+            None if sample_overlap is None else {
+                "minimum": float(np.min(sample_overlap)),
+                "maximum": float(np.max(sample_overlap)),
+                "mean": float(np.mean(sample_overlap)),
+            }
+        )
+        metrics["minimum_local_survival_after_absorption"] = float(np.min(local_survival))
+        metrics["maximum_local_survival_after_absorption"] = float(np.max(local_survival))
         metrics["inelastic_angular_transport_in_wave_scan"] = (
             "energy-loss probabilities included; coherent elastic angular "
             "distribution reused for tracked populations; compact inelastic "

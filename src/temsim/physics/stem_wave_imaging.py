@@ -47,6 +47,7 @@ from temsim.specimen.source import (
     wave_template_preset_key,
 )
 from temsim.specimen.geometry import build_sample_geometry_snapshot
+from temsim.specimen.envelope import sample_envelope_contains_xy
 from temsim.physics.stem_sampling import (
     detector_angular_bounds,
     detector_sampling_report,
@@ -122,6 +123,7 @@ class AngleResolvedStemResult:
     truncated_fraction: np.ndarray | None
     metrics: dict
     fourdstem_artifact: object | None = None
+    sample_overlap_fraction: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -359,6 +361,22 @@ def _probe_spectrum(
     return aperture.astype(complex) * np.exp(-1j * chi)
 
 
+def _normalised_shifted_probe(base_spectrum, fx, fy, x_angstrom, y_angstrom):
+    """Use the same translated, centred incident wave for transport and overlap."""
+    x0 = np.asarray(x_angstrom, dtype=float)[:, None, None]
+    y0 = np.asarray(y_angstrom, dtype=float)[:, None, None]
+    shifted_spectrum = base_spectrum[None, :, :] * np.exp(
+        -2j * math.pi * (fx[None, :, :] * x0 + fy[None, :, :] * y0)
+    )
+    probe = np.fft.ifft2(
+        np.fft.ifftshift(shifted_spectrum, axes=(-2, -1)), axes=(-2, -1),
+    )
+    # Prepared potentials use (arange(N) - N//2) * spacing axes.
+    probe = np.fft.fftshift(probe, axes=(-2, -1))
+    norm = np.sqrt(np.maximum(np.sum(np.abs(probe)**2, axis=(-2, -1)), 1e-30))
+    return probe / norm[:, None, None]
+
+
 def simulate_angle_resolved_stem(
     state,
     simulation,
@@ -372,6 +390,7 @@ def simulate_angle_resolved_stem(
     diffraction_sink=None,
     record_plane_plan=None,
     scan_times_s=None,
+    compute_sample_overlap=False,
 ):
     """Form STEM images and optionally stream the complete diffraction cube.
 
@@ -554,14 +573,24 @@ def simulate_angle_resolved_stem(
     }
     uncollected = np.zeros(scan_x_um.shape, dtype=float)
     truncated_fraction = np.zeros(scan_x_um.shape, dtype=float)
+    probe_center_mrad = np.array((ray_stats["mean_tx_rad"], ray_stats["mean_ty_rad"])) * 1e3
+    sampling_positions_m = np.stack((origin_x_um + scan_x_um.ravel(),
+                                     origin_y_um + scan_y_um.ravel()), axis=-1) * 1e-6
     sampling = detector_sampling_report(
         detector_angular_bounds(
             detectors,
-            positions_m=np.stack((origin_x_um + scan_x_um.ravel(),
-                                  origin_y_um + scan_y_um.ravel()), axis=-1) * 1e-6,
+            positions_m=sampling_positions_m,
             record_plane_plan=record_plane_plan,
             detector_center_shifts_mrad=detector_center_shifts_mrad,
         ),
+        illumination_bounds_mrad=detector_angular_bounds(
+            detectors,
+            positions_m=sampling_positions_m,
+            record_plane_plan=record_plane_plan,
+            detector_center_shifts_mrad=detector_center_shifts_mrad,
+            angular_origin_mrad=probe_center_mrad,
+        ),
+        probe_center_mrad=probe_center_mrad,
         maximum_angle_mrad=maximum_isotropic_angle_mrad,
         wavelength_angstrom=wavelength_angstrom,
         requested_fov_angstrom=float(prepared.metrics.get(
@@ -716,6 +745,25 @@ def simulate_angle_resolved_stem(
         + scan_y_um.ravel()
         - float(roi_centre_nm[1]) * 1.0e-3
     ) * 1.0e4
+    # This is the incident coherent intensity integrated over the physical
+    # projected envelope, including the configured probe defocus and shifts.
+    # It supports a uniform-slab *count-budget* absorption approximation; it
+    # is not an imaginary potential or slice-resolved absorptive wave solve.
+    sample_overlap = None
+    overlap_mask = None
+    if compute_sample_overlap:
+        sample_overlap = np.zeros(scan_x_um.shape, dtype=float)
+        if total_thickness_nm > 0.0 and not specimen_is_vacuum(state.sample):
+            overlap_mask = np.asarray(sample_envelope_contains_xy(
+                state.sample,
+                x_axis[None, :] * 0.1 + float(roi_centre_nm[0]),
+                y_axis[:, None] * 0.1 + float(roi_centre_nm[1]),
+            ), dtype=bool)
+            if np.all(overlap_mask):
+                sample_overlap.fill(1.0)
+                overlap_mask = None
+            elif not np.any(overlap_mask):
+                overlap_mask = None
     flat_fractions = {
         key: values.ravel() for key, values in fractions.items()
     }
@@ -847,23 +895,29 @@ def simulate_angle_resolved_stem(
         if resident_cuda_result is not None
         else range(0, flat_x_angstrom.size, batch_size)
     )
+    if resident_cuda_result is not None and overlap_mask is not None:
+        # The resident CUDA reduction does not retain the incident probes.
+        # Only an enabled absorption channel needs this small bounded CPU
+        # pass; no potential generation or multislice is repeated.
+        for start in range(0, flat_x_angstrom.size, 2):
+            stop = min(start + 2, flat_x_angstrom.size)
+            probe = _normalised_shifted_probe(
+                base_spectrum, fx, fy,
+                flat_x_angstrom[start:stop], flat_y_angstrom[start:stop],
+            )
+            sample_overlap.ravel()[start:stop] = np.clip(
+                np.sum(np.abs(probe)**2 * overlap_mask, axis=(-2, -1)), 0.0, 1.0,
+            )
     for batch_index, start in enumerate(batch_starts):
         stop = min(start + batch_size, flat_x_angstrom.size)
-        x0 = flat_x_angstrom[start:stop, None, None]
-        y0 = flat_y_angstrom[start:stop, None, None]
-        shifted_spectrum = base_spectrum[None, :, :] * np.exp(
-            -2j * math.pi * (fx[None, :, :] * x0 + fy[None, :, :] * y0)
+        normalised_probe = _normalised_shifted_probe(
+            base_spectrum, fx, fy,
+            flat_x_angstrom[start:stop], flat_y_angstrom[start:stop],
         )
-        probe = np.fft.ifft2(
-            np.fft.ifftshift(shifted_spectrum, axes=(-2, -1)),
-            axes=(-2, -1),
-        )
-        # All prepared potentials use (arange(N) - N//2) * spacing axes.
-        probe = np.fft.fftshift(probe, axes=(-2, -1))
-        probe_norm = np.sqrt(
-            np.maximum(np.sum(np.abs(probe) ** 2, axis=(-2, -1)), 1.0e-30)
-        )
-        normalised_probe = probe / probe_norm[:, None, None]
+        if overlap_mask is not None:
+            sample_overlap.ravel()[start:stop] = np.clip(
+                np.sum(np.abs(normalised_probe)**2 * overlap_mask, axis=(-2, -1)), 0.0, 1.0,
+            )
         configuration_values = {
             detector.key: [] for detector in detectors
         }
@@ -1262,6 +1316,7 @@ def simulate_angle_resolved_stem(
             **resident_pipeline_metrics,
         },
         fourdstem_artifact=fourdstem_artifact,
+        sample_overlap_fraction=sample_overlap,
     )
     report_progress(
         final_progress_total,
