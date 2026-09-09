@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -208,6 +209,57 @@ def test_geometric_exit_back_projects_terminal_line_to_common_sample_plane(
     assert result.metrics["terminal_state_projection_model"] == (
         "inverse shared-vector-field reference-plane matching"
     )
+
+
+def test_grouped_specimen_exit_preserves_sparse_repeated_source_lineage(monkeypatch):
+    def fake_propagate(_s, start, stop, x, tx, y, ty, _events, _energy, **_kw):
+        return (np.asarray((start, stop)),) + tuple(
+            np.tile(values, (2, 1)) for values in (x, tx, y, ty)
+        )
+
+    monkeypatch.setattr(downstream_transport, "determine_tem_stop_z", lambda _s: 3.0)
+    monkeypatch.setattr(downstream_transport, "propagate", fake_propagate)
+    for name in ("clip_recording_planes", "clip_column_wall"):
+        monkeypatch.setattr(
+            downstream_transport, name,
+            lambda _s, _z, _x, _y, alive, blocked, keys: (alive, blocked, keys),
+        )
+    simulation = _test_simulation()
+    simulation.incident.source_ray_id = np.asarray((101, 303, 707))
+    simulation.incident.source_azimuth_rad = np.asarray((0.1, 0.5, 4.0))
+    terminal = ElasticTerminalBundle(
+        source_ray_index=np.asarray((2, 0, 2, 1, 2)),
+        position_nm=np.zeros((5, 3)),
+        direction=np.tile((0.0, 0.0, 1.0), (5, 1)),
+        kinetic_energy_ev=np.full(5, 200_000.0),
+        weight=np.full(5, 0.2),
+        outcome=("transmitted", "transmitted", "transmitted", "absorbed", "transmitted"),
+        event_count=np.asarray((1, 0, 0, 1, 1)),
+        has_scattered=np.asarray((True, False, False, True, True)),
+    )
+    transport = replace(_test_transport(), terminal_electrons=terminal)
+    result = build_geometric_specimen_exit(
+        _test_state(), simulation, transport, _test_inelastic_distribution()
+    )
+    baseline = build_geometric_specimen_exit(
+        _test_state(), _test_simulation(), transport, _test_inelastic_distribution()
+    )
+    assert len(result.branches) == 4
+    assert result.metrics == baseline.metrics
+    for branch, plain in zip(result.branches, baseline.branches, strict=True):
+        primary = branch.name.startswith("specimen_primary:")
+        indices = [0, 2] if primary else [2, 2]
+        np.testing.assert_array_equal(
+            branch.source_ray_id, simulation.incident.source_ray_id[indices]
+        )
+        np.testing.assert_array_equal(
+            branch.source_azimuth_rad, simulation.incident.source_azimuth_rad[indices]
+        )
+        assert not branch.source_ray_id.flags.writeable
+        assert not branch.source_azimuth_rad.flags.writeable
+        for field in ("z", "x", "y", "tx", "ty", "energy_offset_ev", "ray_weight"):
+            np.testing.assert_array_equal(getattr(branch, field), getattr(plain, field))
+        assert branch.weight == plain.weight
 
 
 def test_geometric_exit_requires_matching_internal_provenance():

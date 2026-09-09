@@ -129,6 +129,10 @@ def _sample_to_stop_larmor_rotation_rad(state, stop_z_mm):
 
 class Branch:
     name:str; colour:tuple; z:np.ndarray; x:np.ndarray; y:np.ndarray; tx:np.ndarray; ty:np.ndarray; alive:np.ndarray; blocked_z:np.ndarray; blocked_key:list; weight:float; energy_offset_ev:np.ndarray; ray_weight:np.ndarray|None=None; interaction_kind:str='unknown'; interaction_kick_x_rad:np.ndarray|None=None; interaction_kick_y_rad:np.ndarray|None=None
+    # Display lineage only: gun ray IDs and source-position azimuth in radians.
+    # Neither value is an instantaneous velocity angle or a physical weight.
+    source_ray_id: np.ndarray | None = None
+    source_azimuth_rad: np.ndarray | None = None
 
 @dataclass
 
@@ -414,6 +418,11 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         blocked,keys,1.,dE,emitted.weight,
         interaction_kind=incident_kind,
     )
+    from temsim.physics.ray_identity import source_identity
+
+    incident.source_ray_id, incident.source_azimuth_rad = source_identity(
+        incident, gun_trace
+    )
     retained_checkpoint_count = (
         int(len(incident_checkpoints.z_mm))
         if incident_checkpoints is not None else 0
@@ -569,6 +578,8 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
                 interaction_kind=interaction_kind,
                 interaction_kick_x_rad=kick_x_array,
                 interaction_kick_y_rad=kick_y_array,
+                source_ray_id=incident.source_ray_id,
+                source_azimuth_rad=incident.source_azimuth_rad,
             )
 
     if optical_only:

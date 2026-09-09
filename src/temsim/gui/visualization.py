@@ -10,12 +10,13 @@ from temsim.gui.input_policy import (
 from html import escape
 from collections import OrderedDict
 from time import perf_counter
+from types import SimpleNamespace
 import weakref
 
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QEvent, QSignalBlocker, QTimer, Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -41,6 +42,9 @@ from temsim.gui.diagnostic_tabs import (
     PhysicalLayoutView,
     TransverseBeamView,
 )
+from temsim.gui.beam_display_source import downstream_display_branches
+from temsim.gui.beam_tracking_modes import branch_interaction_style
+from temsim.physics.ray_identity import branch_identity
 from temsim.gui.scan_panel import ScanControlView
 from temsim.gui.sample_panel import SamplePage
 from temsim.gui.sample_interactions_3d import SampleInteractions3DPage
@@ -589,6 +593,15 @@ class VisualizationWorkspace(QWidget):
         self.crossovers.setCheckable(True)
         self.crossovers.setChecked(True)
         self.crossovers.setToolTip("Show detected ray crossovers")
+        self.ray_colour_mode = QComboBox()
+        self.ray_colour_mode.setObjectName("rayColourMode")
+        self.ray_colour_mode.addItem("Source position", "source")
+        self.ray_colour_mode.addItem("Interaction type", "interaction")
+        self.ray_colour_mode.setToolTip(
+            "Source position keeps each electron's emitted-position colour "
+            "through scattering and downstream lenses. Grey means undefined "
+            "source azimuth. Interaction type uses channel hue and convergence shade."
+        )
         self.auto_zoom = QPushButton("Auto")
         self.auto_zoom.setObjectName("autoZoomToggle")
         self.auto_zoom.setCheckable(True)
@@ -631,13 +644,13 @@ class VisualizationWorkspace(QWidget):
         self.magnetic_field_toggle.setToolTip(
             "Show or hide the axial magnetic-field panel below the ray diagram"
         )
-        self.transverse_beam_toggle = QPushButton("Transverse beam")
+        self.transverse_beam_toggle = QPushButton("Beam analysis")
         self.transverse_beam_toggle.setObjectName("rayTransverseBeamToggle")
         self.transverse_beam_toggle.setCheckable(True)
         self.transverse_beam_toggle.setChecked(True)
         self.transverse_beam_toggle.setToolTip(
-            "Show or hide the origin-centred Transverse X-Y panel on the "
-            "right"
+            "Show or hide the right-hand beam panel: position, angles, "
+            "weighted intensity and interaction channels."
         )
         for option_button in (
             self.projection_xz,
@@ -689,6 +702,8 @@ class VisualizationWorkspace(QWidget):
                 QSizePolicy.Policy.Fixed,
             )
             view_controls.addWidget(button)
+        view_controls.addWidget(QLabel("Colour by"))
+        view_controls.addWidget(self.ray_colour_mode)
         view_controls.addStretch(1)
         self.view_controls_panel.adjustSize()
         self.view_controls_scroll = QScrollArea()
@@ -720,7 +735,7 @@ class VisualizationWorkspace(QWidget):
         )
 
         navigation_hint = QLabel(
-            "Double-click any axial plot to update Transverse X-Y"
+            "Double-click any axial plot to update Beam analysis"
         )
         navigation_hint.setToolTip(
             "Double-click in Ray Diagram or Magnetic Field to inspect an axial position. "
@@ -958,7 +973,7 @@ class VisualizationWorkspace(QWidget):
         )
         self.ray_workspace_splitter.setToolTip(
             "Drag the vertical separator to resize Ray Diagram and "
-            "Transverse X-Y."
+            "Beam analysis."
         )
         self.ray_workspace_splitter.addWidget(self.ray_vertical_splitter)
         self.ray_workspace_splitter.addWidget(self.transverse_beam)
@@ -1054,6 +1069,7 @@ class VisualizationWorkspace(QWidget):
         self.component_centres.toggled.connect(self._redraw_last_result)
         self.crossovers.toggled.connect(self._redraw_last_result)
         self.column_walls.toggled.connect(self._redraw_last_result)
+        self.ray_colour_mode.currentIndexChanged.connect(self._ray_colour_mode_changed)
         self.magnetic_field_toggle.toggled.connect(
             lambda visible: self._set_ray_panel_visible(self.magnetic_field, visible)
         )
@@ -1617,12 +1633,10 @@ class VisualizationWorkspace(QWidget):
             indices = self._display_ray_indices(branch)
             if indices.size == 0:
                 continue
-            kind = self._branch_interaction_kind(branch)
+            kind, _label, base_colour, _symbol = branch_interaction_style(branch)
             if kind not in base_colours:
                 kind_order.append(kind)
-                base_colours[kind] = getattr(
-                    branch, "colour", (0.89, 0.91, 0.94)
-                )
+                base_colours[kind] = base_colour
             angles = self._sample_convergence_semiangles_mrad(
                 branch, indices
             )
@@ -1681,9 +1695,28 @@ class VisualizationWorkspace(QWidget):
                 preserve_view=True,
             )
 
+    def _display_ray_bundles(self):
+        simulation = getattr(self._last_result, "simulation", None)
+        incident = getattr(simulation, "incident", None)
+        if incident is None:
+            return ()
+        downstream, _status = downstream_display_branches(self._last_result)
+        return (incident, *downstream)
+
+    def _ray_colour_mode_changed(self, *_args) -> None:
+        bundles = self._display_ray_bundles()
+        if not bundles:
+            return
+        # A style change must not retrace rays, recompute plane diagnostics,
+        # or fit the plot. Line bases remain reusable across colour modes.
+        self.plot.disableAutoRange()
+        self._sync_ray_curves(self._last_result.simulation, bundles)
+        self._update_scale_notice()
+
     def _set_sample_region_result(
         self, result, *, mark_calculated: bool = True
     ) -> None:
+        previous_display = tuple(id(branch) for branch in self._display_ray_bundles())
         self._sample_region_result = result
         if self._high_accuracy_result is not None:
             self._high_accuracy_result.sample_region = result
@@ -1736,6 +1769,14 @@ class VisualizationWorkspace(QWidget):
             )
             self._high_accuracy_result.reused_products = frozenset(reused)
         self.sample_interactions_3d.set_sample_region_result(result)
+        if (self._last_result is self._high_accuracy_result and self._last_result is not None
+                and previous_display != tuple(id(branch) for branch in self._display_ray_bundles())):
+            # Publication enriches the same result object. Mark this panel dirty
+            # explicitly, including while hidden, so its retained scatter does
+            # not keep the previous optical reference when reopened.
+            self._pending_ray_panels[self.transverse_beam] = self._last_result
+            self._redraw_last_result()
+            self._refresh_visible_ray_panels()
         self._update_sample_region_control_availability()
         self.calculation_artifacts_changed.emit(self._high_accuracy_result)
 
@@ -1796,9 +1837,12 @@ class VisualizationWorkspace(QWidget):
         return bool(calculated and self._sample_region_result is not None)
 
     def _update_projection_text(self) -> None:
+        _downstream, display_status = downstream_display_branches(self._last_result)
         scan_text = ""
         if self._scan_ray_paths is not None:
-            if self._scan_playback_time_s is None:
+            if display_status == "Specimen exit":
+                scan_text = " | captured rays; scan animation off"
+            elif self._scan_playback_time_s is None:
                 scan_text = " | scan frame cached"
             else:
                 period_s = max(
@@ -1831,7 +1875,15 @@ class VisualizationWorkspace(QWidget):
             f"{self._format_angle(self._projection_angle_deg)}° | "
             f"{self._crossover_count} crossovers | "
             f"{self._wall_stop_count} column-wall stops"
-            f"{scan_text}{tuning_text}"
+            f"{scan_text}{tuning_text} | {display_status}"
+        )
+        self.heading.setToolTip(
+            "Detailed specimen trajectories show the captured beam state. "
+            "Cached raster offsets describe optical-reference rays only, so "
+            "the complete detailed ray display remains fixed. STEM image "
+            "playback is separate."
+            if display_status == "Specimen exit" and self._scan_ray_paths is not None
+            else ""
         )
         if self._selected_z_mm is None:
             self.stop_detail.setText(
@@ -1933,6 +1985,20 @@ class VisualizationWorkspace(QWidget):
         paths = self._scan_ray_paths
         result = self._last_result
         if paths is None or result is None:
+            return
+        _branches, display_status = downstream_display_branches(result)
+        if display_status == "Specimen exit":
+            # No detailed scan-response checkpoint currently exists. Applying
+            # offsets only to the incident reference disconnects it from the
+            # fixed scattering paths. Keep the entire captured bundle static.
+            had_offsets = bool(self._scan_ray_offsets_m)
+            self._scan_ray_offsets_m = {}
+            self._scan_playback_time_s = float(time_s)
+            if had_offsets:
+                for item, payload in self._ray_bundle_records:
+                    z_values, transverse = self._ray_record_lines(payload)
+                    item.setData(z_values, transverse, connect="finite")
+            self._update_projection_text()
             return
         state = getattr(result, "state_snapshot", None)
         if state is None:
@@ -2126,8 +2192,12 @@ class VisualizationWorkspace(QWidget):
     def _simulation_x_limits(self) -> tuple[float, float] | None:
         if self._last_result is None:
             return None
-        branches = [self._last_result.simulation.incident]
-        branches.extend(self._last_result.simulation.branches.values())
+        # Preserve the whole column's navigable Z extent even when the valid
+        # detailed exit is empty. Reference histories supply only axis bounds,
+        # never downstream coordinates, colours, or displayed electron paths.
+        simulation = self._last_result.simulation
+        branches = (simulation.incident, *simulation.branches.values(),
+                    *self._display_ray_bundles()[1:])
         minima = [float(np.nanmin(branch.z)) for branch in branches]
         maxima = [float(np.nanmax(branch.z)) for branch in branches]
         return min(minima), max(maxima)
@@ -2205,6 +2275,22 @@ class VisualizationWorkspace(QWidget):
                 "interaction fractions."
             )
             self.interaction_detail.setToolTip("")
+            return
+        _branches, display_status = downstream_display_branches(self._last_result)
+        sample = getattr(getattr(self._last_result, "state_snapshot", None), "sample", None)
+        sample_z = float(getattr(sample, "z_mm", float("inf")))
+        if (display_status == "Specimen exit"
+                and float(self._selected_z_mm) >= sample_z - 1.0e-9):
+            self.interaction_detail.setHtml(
+                "<b>Selected-plane budget</b><br>"
+                "Detailed specimen-exit rays are shown. The optical-reference "
+                "budget does not describe this population and is not displayed."
+            )
+            self.interaction_detail.setToolTip(
+                "The current budget reader assumes incident-width optical "
+                "branches; detailed exits may be compacted, split or empty. "
+                "An incident-current budget remains available before the sample."
+            )
             return
         try:
             from temsim.physics.interaction_budget import (
@@ -2518,8 +2604,7 @@ class VisualizationWorkspace(QWidget):
     ) -> tuple[float, float] | None:
         if self._last_result is None:
             return None
-        simulation = self._last_result.simulation
-        branches = [simulation.incident, *simulation.branches.values()]
+        branches = self._display_ray_bundles()
         local_values = []
         for branch in branches:
             z_values = np.asarray(branch.z, dtype=float)
@@ -2567,8 +2652,7 @@ class VisualizationWorkspace(QWidget):
         if self._last_result is None:
             return 0.0
         x_min, x_max = self.plot.getViewBox().viewRange()[0]
-        simulation = self._last_result.simulation
-        branches = [simulation.incident, *simulation.branches.values()]
+        branches = self._display_ray_bundles()
         maximum = 0.0
         for branch in branches:
             z_values = np.asarray(branch.z, dtype=float)
@@ -2628,7 +2712,9 @@ class VisualizationWorkspace(QWidget):
             magnification_text = f"{transverse_magnification:.0f}×"
         else:
             magnification_text = f"{transverse_magnification:.2f}×"
-        if self._convergence_colour_reference_mrad > 0.0:
+        if self.ray_colour_mode.currentData() == "source":
+            colour_text = "Hue = fixed emitted-position azimuth | grey = undefined source azimuth"
+        elif self._convergence_colour_reference_mrad > 0.0:
             colour_text = (
                 "Hue = interaction type | shade = sample convergence "
                 "(dark α≈0 → bright at/above α99 "
@@ -3493,14 +3579,20 @@ class VisualizationWorkspace(QWidget):
                     self.plot.removeItem(item)
 
     def _sync_ray_curves(self, simulation, bundles) -> None:
+        if self.ray_colour_mode.currentData() == "source":
+            self._sync_source_ray_curves(simulation, bundles)
+            return
         self._convergence_colour_reference_mrad = self._convergence_reference_mrad(simulation)
         kind_order, base_colours, colour_groups = self._ray_colour_groups(
             bundles, self._convergence_colour_reference_mrad,
         )
+        labels = {
+            style[0]: style[1] for style in map(branch_interaction_style, bundles)
+        }
         for kind in kind_order:
             pen = pg.mkPen(self._shade_colour(base_colours[kind], 1.0), width=1.8)
             if kind not in self._ray_legend_items:
-                label = self.INTERACTION_LABELS.get(kind, kind.replace("_", " ").title())
+                label = labels[kind]
                 self._ray_legend_items[kind] = self.plot.plot([], [], pen=pen, name=label)
             else:
                 if self._ray_legend_items[kind].opts["pen"] != pen:
@@ -3526,7 +3618,7 @@ class VisualizationWorkspace(QWidget):
             elif item.opts["pen"] != pen:
                 item.setPen(pen)
             item.setData(z, transverse, connect="finite")
-            label = self.INTERACTION_LABELS.get(kind, kind.replace("_", " ").title())
+            label = labels[kind]
             if self._convergence_colour_reference_mrad > 0.0:
                 detail = (
                     f"Convergence shade {bin_index + 1}/{self.CONVERGENCE_SHADE_BINS}; "
@@ -3538,6 +3630,53 @@ class VisualizationWorkspace(QWidget):
                 f"Interaction: {label}\n{detail}\n"
                 "Semi-angle is measured relative to this branch's "
                 "weighted chief ray at the sample plane."
+            )
+            self._ray_bundle_records.append((item, payload))
+        for key in tuple(self._ray_items_by_group):
+            if key not in active:
+                self.plot.removeItem(self._ray_items_by_group.pop(key))
+
+    def _source_colour_groups(self, simulation, bundles):
+        """Group exact source colours within the existing drawn-ray budget."""
+        groups = {}
+        for branch in bundles:
+            indices = self._display_ray_indices(branch)
+            _ids, angles = branch_identity(branch, simulation)
+            by_rgb = {}
+            for index in indices:
+                angle = float(angles[index])
+                colour = (QColor.fromHsvF((angle % (2 * np.pi)) / (2 * np.pi), 0.88, 1.0)
+                          if _ids[index] >= 0 and np.isfinite(angle) else QColor("#94a3b8"))
+                rgb = (colour.red(), colour.green(), colour.blue())
+                by_rgb.setdefault(rgb, []).append(index)
+            for rgb, selected in by_rgb.items():
+                groups.setdefault(("source", rgb), []).append(
+                    (branch, np.asarray(selected, dtype=int))
+                )
+        return groups
+
+    def _sync_source_ray_curves(self, simulation, bundles) -> None:
+        self._convergence_colour_reference_mrad = 0.0
+        for item in self._ray_legend_items.values():
+            self.plot.removeItem(item)
+        self._ray_legend_items.clear()
+        active = set()
+        self._ray_bundle_records = []
+        for key, segments in self._source_colour_groups(simulation, bundles).items():
+            payload = tuple(segments)
+            z, transverse = self._ray_record_lines(payload)
+            if not z.size:
+                continue
+            active.add(key)
+            item = self._ray_items_by_group.get(key)
+            if item is None:
+                item = self.plot.plot([], [], pen=pg.mkPen(key[1], width=1.35), connect="finite")
+                self._ray_items_by_group[key] = item
+            item.setData(z, transverse, connect="finite")
+            item.setToolTip(
+                "Source position colour: fixed azimuth about the emitted bundle centre.\n"
+                "Retained through scattering; not instantaneous direction or signal type.\n"
+                "Grey: source-centre ray or unavailable source lineage."
             )
             self._ray_bundle_records.append((item, payload))
         for key in tuple(self._ray_items_by_group):
@@ -3576,10 +3715,19 @@ class VisualizationWorkspace(QWidget):
             for record in getattr(result, "aperture_stops", ())
         }
         simulation = result.simulation
-        bundles = [simulation.incident, *simulation.branches.values()]
+        downstream, _display_status = downstream_display_branches(result)
+        bundles = (simulation.incident, *downstream)
+        if _display_status == "Specimen exit":
+            # Publication can replace the optical reference between animation
+            # ticks. Never carry its offsets into the first detailed frame.
+            self._scan_ray_offsets_m = {}
+        display_simulation = SimpleNamespace(
+            incident=simulation.incident,
+            branches={index: branch for index, branch in enumerate(downstream)},
+        )
         self._sync_tuning_envelopes(simulation, bundles)
         self._sync_ray_curves(simulation, bundles)
-        self._add_stop_markers(simulation)
+        self._add_stop_markers(display_simulation)
         self._sync_ray_static_layers(result)
         limits = self._simulation_x_limits()
         if limits is not None:
@@ -3625,7 +3773,7 @@ class VisualizationWorkspace(QWidget):
         self._update_aperture_spans()
         self._update_scale_notice()
         self._crossover_count = len(self._all_crossovers(result))
-        self._wall_stop_count = self._column_wall_stop_count(simulation)
+        self._wall_stop_count = self._column_wall_stop_count(display_simulation)
         self._update_projection_text()
         self._update_interaction_detail()
         self._ray_scene_last_update_ms = (perf_counter() - started) * 1000.0

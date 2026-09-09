@@ -18,6 +18,7 @@ from temsim.specimen.vector_field_transport import SpecimenFieldTransport
 from dataclasses import dataclass
 import math
 import os
+from types import SimpleNamespace
 
 import numpy as np
 import pyqtgraph as pg
@@ -26,6 +27,7 @@ from PySide6.QtGui import QColor, QGuiApplication, QVector3D
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
+    QComboBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -40,6 +42,12 @@ from PySide6.QtWidgets import (
 )
 
 from temsim.specimen.scene import SpecimenScene
+from temsim.gui.beam_display_source import downstream_display_branches
+from temsim.physics.ray_identity import (
+    branch_identity,
+    select_identity,
+    source_identity,
+)
 from temsim.specimen.axial_field_transport import (
     sample_axial_field_diagnostic,
 )
@@ -109,11 +117,18 @@ SIGNAL_GROUPS = (
 
 @dataclass(frozen=True, slots=True)
 class ScenePath:
-    """One immutable path in specimen-local nanometres."""
+    """One immutable path in specimen-local nm, with optional source lineage.
+
+    Source azimuth labels the emission position, not the instantaneous velocity.
+    The incident-column index is separate from the stable source-ray ID.
+    """
 
     positions_nm: np.ndarray
     category: str
     provenance: str = ""
+    source_ray_index: int = -1
+    source_ray_id: int = -1
+    source_azimuth_rad: float = math.nan
 
     def __post_init__(self) -> None:
         positions = np.asarray(self.positions_nm, dtype=float)
@@ -126,6 +141,16 @@ class ScenePath:
             raise ValueError("A 3-D scene path must be a finite N by 3 array")
         positions.setflags(write=False)
         object.__setattr__(self, "positions_nm", positions)
+
+
+def _source_metadata(source_ids, source_angles, source_index: int) -> dict:
+    """Resolve an incident-column index without inventing missing lineage."""
+    ids, angles = select_identity(source_ids, source_angles, [source_index])
+    return {
+        "source_ray_index": int(source_index),
+        "source_ray_id": int(ids[0]),
+        "source_azimuth_rad": float(angles[0]),
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +196,7 @@ class SampleInteractionScene:
     sample_field_face_variation_t: float
     sample_field_transport_model: str
     sample_field_geometry_material_coupled: bool
+    downstream_source: str = "Optical reference"
 
 
 def _bounds(points, fallback_half_nm: float) -> tuple[np.ndarray, np.ndarray]:
@@ -257,14 +283,21 @@ def _downstream_scene_paths(
     sample_z_mm: float,
     *,
     maximum_paths: int = 192,
+    simulation=None,
+    branches=None,
+    provenance: str = "cached downstream branch",
 ) -> list[ScenePath]:
     """Extract exact cached branch histories only as far as the chosen exit."""
 
     candidates: list[tuple[object, int]] = []
-    for branch in tuple(getattr(sample_region_result, "downstream_branches", ())):
+    identities = {}
+    if branches is None:
+        branches = tuple(getattr(sample_region_result, "downstream_branches", ()))
+    for branch in branches:
         x = np.asarray(getattr(branch, "x", ()), dtype=float)
         if x.ndim != 2:
             continue
+        identities[id(branch)] = branch_identity(branch, simulation)
         candidates.extend((branch, index) for index in range(x.shape[1]))
     if len(candidates) > int(maximum_paths):
         indices = np.linspace(
@@ -299,7 +332,12 @@ def _downstream_scene_paths(
             if kind == "sample_region_elastic"
             else "downstream_primary"
         )
-        rows.append(ScenePath(points, category, "cached downstream branch"))
+        ids, angles = identities[id(branch)]
+        rows.append(ScenePath(
+            points, category, provenance,
+            source_ray_id=int(ids[ray_index]),
+            source_azimuth_rad=float(angles[ray_index]),
+        ))
     return rows
 
 
@@ -385,6 +423,7 @@ def _sample_boundary_paths(
     scene: SpecimenScene,
     *,
     maximum_paths: int = 160,
+    include_incident: bool = True,
 ) -> list[ScenePath]:
     """Expose cached sample-input/output states without assigning detectors.
 
@@ -396,8 +435,8 @@ def _sample_boundary_paths(
 
     simulation = getattr(calculation_result, "simulation", None)
     incident = getattr(simulation, "incident", None)
-    branches = tuple(getattr(simulation, "branches", {}).values())
-    if incident is None or not branches:
+    branches, downstream_source = downstream_display_branches(calculation_result)
+    if incident is None:
         return []
 
     state = getattr(calculation_result, "state_snapshot", None)
@@ -407,7 +446,6 @@ def _sample_boundary_paths(
     field_transport = SpecimenFieldTransport(state)
     length_nm = max(4.0 * float(scene.interacting_thickness_nm), 100.0)
     alive = np.asarray(getattr(incident, "alive", ()), dtype=bool)
-    ray_count = int(alive.size)
     valid_indices = np.flatnonzero(alive)
     if valid_indices.size == 0:
         return []
@@ -417,7 +455,10 @@ def _sample_boundary_paths(
         np.linspace(0, valid_indices.size - 1, incident_budget, dtype=int)
     ]
     rows: list[ScenePath] = []
-    for index in incident_indices:
+    source_ids, source_angles = source_identity(
+        incident, getattr(simulation, "gun_trace", None)
+    )
+    for index in incident_indices if include_incident else ():
         x_nm = float(incident.x[-1, index]) * 1.0e9
         y_nm = float(incident.y[-1, index]) * 1.0e9
         tx = float(incident.tx[-1, index])
@@ -440,6 +481,7 @@ def _sample_boundary_paths(
                     points,
                     "incident",
                     "cached specimen-input state; shared vector field",
+                    **_source_metadata(source_ids, source_angles, int(index)),
                 )
             )
 
@@ -453,9 +495,23 @@ def _sample_boundary_paths(
     for branch_index in branch_indices:
         branch = branches[int(branch_index)]
         branch_x = np.asarray(getattr(branch, "x", ()), dtype=float)
-        if branch_x.ndim != 2 or branch_x.shape[1] != ray_count:
+        if branch_x.ndim != 2 or not branch_x.shape[0]:
             continue
-        candidates = valid_indices
+        # Detailed sample branches may be compacted or split by energy/outcome;
+        # their column index is not an incident-column index.
+        source_ids, source_angles = branch_identity(branch, simulation)
+        raw_weights = getattr(branch, "ray_weight", None)
+        weights = (
+            np.ones(branch_x.shape[1]) if raw_weights is None
+            else np.asarray(raw_weights, dtype=float)
+        )
+        candidates = np.flatnonzero(
+            np.isfinite(branch_x[0])
+            & np.isfinite(np.asarray(branch.y)[0])
+            & np.isfinite(np.asarray(branch.tx)[0])
+            & np.isfinite(np.asarray(branch.ty)[0])
+            & (weights > 0.0)
+        )
         if candidates.size > per_branch:
             candidates = candidates[
                 np.linspace(0, candidates.size - 1, per_branch, dtype=int)
@@ -465,6 +521,7 @@ def _sample_boundary_paths(
             "transmitted",
             "vacuum",
             "virtual_interactions_disabled",
+            "sample_region_primary",
         } or str(getattr(branch, "name", "")) == "000"
         category = "downstream_primary" if direct else "downstream_elastic"
         for index in candidates:
@@ -488,8 +545,10 @@ def _sample_boundary_paths(
                     ScenePath(
                         points,
                         category,
-                        "cached specimen-exit state; shared vector field; "
+                        f"{downstream_source}; shared vector field; "
                         "detector not assigned",
+                        source_ray_id=int(source_ids[index]),
+                        source_azimuth_rad=float(source_angles[index]),
                     )
                 )
     return rows
@@ -521,6 +580,27 @@ def build_sample_interaction_scene(
             )
         specimen_scene = SpecimenScene.from_state(state)
     field_diagnostic = sample_axial_field_diagnostic(state)
+    simulation = getattr(calculation_result, "simulation", None)
+    source_ids, source_angles = source_identity(
+        getattr(simulation, "incident", None),
+        getattr(simulation, "gun_trace", None),
+    )
+    # A manual bounded result may be supplied before the caller attaches it to
+    # the shared calculation. Validate its checkpoint against that calculation,
+    # exactly as the main ray and transverse views do; do not mutate either.
+    display_context = SimpleNamespace(
+        signatures=getattr(calculation_result, "signatures", {}) or {},
+        state_snapshot=state,
+        simulation=simulation,
+        specimen_exit=getattr(calculation_result, "specimen_exit", None),
+        sample_region=(
+            sample_region_result if sample_region_result is not None
+            else getattr(calculation_result, "sample_region", None)
+        ),
+    )
+    downstream_branches, downstream_source = downstream_display_branches(
+        display_context
+    )
 
     paths: list[ScenePath] = []
     if sample_region_result is not None:
@@ -541,10 +621,17 @@ def build_sample_interaction_scene(
                     _global_mm_to_local_nm(path.positions_mm, sample_z_mm),
                     category,
                     str(getattr(path, "provenance", "")),
+                    source_ray_index=int(getattr(path, "source_ray_index", -1)),
+                    source_ray_id=int(getattr(path, "source_ray_id", -1)),
+                    source_azimuth_rad=float(getattr(path, "source_azimuth_rad", math.nan)),
                 )
             )
         paths.extend(
-            _downstream_scene_paths(sample_region_result, sample_z_mm)
+            _downstream_scene_paths(
+                sample_region_result, sample_z_mm, simulation=simulation,
+                branches=downstream_branches,
+                provenance=f"{downstream_source}; cached downstream branch",
+            )
         )
         boundary_length_nm = max(
             abs(float(sample_region_result.entry_z_mm) - sample_z_mm),
@@ -640,7 +727,13 @@ def build_sample_interaction_scene(
             else:
                 category = "primary"
             paths.append(
-                ScenePath(points, category, "cached elastic Monte Carlo")
+                ScenePath(
+                    points, category, "cached elastic Monte Carlo",
+                    **_source_metadata(
+                        source_ids, source_angles,
+                        int(getattr(trajectory, "source_ray_index", -1)),
+                    ),
+                )
             )
 
         bundle = getattr(interactions, "incident_bundle", None)
@@ -674,11 +767,20 @@ def build_sample_interaction_scene(
                     top_to_start[::-1],
                     "incident",
                     "cached sample-plane phase space; shared vector field",
+                    **_source_metadata(
+                        source_ids, source_angles,
+                        int(getattr(ray, "source_ray_index", -1)),
+                    ),
                 )
             )
 
+        if downstream_source == "Specimen exit":
+            paths.extend(_sample_boundary_paths(
+                display_context, specimen_scene, include_incident=False
+            ))
+
     if not paths:
-        paths.extend(_sample_boundary_paths(calculation_result, specimen_scene))
+        paths.extend(_sample_boundary_paths(display_context, specimen_scene))
 
     event_groups: dict[str, list[tuple[float, float, float]]] = {
         key: [] for key in EVENT_STYLES
@@ -745,6 +847,7 @@ def build_sample_interaction_scene(
         sample_field_geometry_material_coupled=(
             field_diagnostic.geometry_material_coupled
         ),
+        downstream_source=downstream_source,
     )
 
 
@@ -913,6 +1016,18 @@ class SampleInteractions3DPage(QWidget):
             lambda _checked=False: self._redraw(refit=False)
         )
 
+        self.colour_by = QComboBox()
+        self.colour_by.setObjectName("sampleInteractionsColourBy")
+        self.colour_by.addItem("Source position", "source")
+        self.colour_by.addItem("Interaction type", "interaction")
+        self.colour_by.setToolTip(
+            "Source position: preserve each electron's emission-position hue "
+            "through scattering and downstream transport; unknown source is grey. "
+            "X-rays and event sites retain their category colours. "
+            "Changing colour does not recalculate physics."
+        )
+        self.colour_by.currentIndexChanged.connect(self._colour_mode_changed)
+
         self.calculate_paths = QPushButton("Calculate detailed paths + X-rays")
         self.calculate_paths.setObjectName("sampleInteractions3DCalculate")
         self.calculate_paths.setEnabled(False)
@@ -942,6 +1057,8 @@ class SampleInteractions3DPage(QWidget):
         visibility_controls = QHBoxLayout()
         visibility_controls.addWidget(self.signal_filter)
         visibility_controls.addWidget(self.context_toggle)
+        visibility_controls.addWidget(QLabel("Colour by"))
+        visibility_controls.addWidget(self.colour_by)
         visibility_controls.addStretch(1)
         action_controls = QGridLayout()
         for index, widget in enumerate((
@@ -961,7 +1078,11 @@ class SampleInteractions3DPage(QWidget):
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
         self.legend.setToolTip(
-            "\n".join(
+            "Source position: electron hue is fixed by emission position; "
+            "grey means source unavailable. Category names below are filters, "
+            "not electron colour keys in this mode. X-rays and sites always "
+            "retain category colours.\n\n"
+            + "\n".join(
                 f"{LEGEND_LABELS[category]}: {label}"
                 for category, (label, _colour) in (
                     *PATH_STYLES.items(),
@@ -1112,17 +1233,41 @@ class SampleInteractions3DPage(QWidget):
             for category, toggle in self.signal_actions.items()
             if toggle.isChecked()
         }
-        entries = [
-            f'<span style="color:{colour}">●</span> {LEGEND_LABELS[category]}'
-            for category, (label, colour) in (
-                *PATH_STYLES.items(),
-                *EVENT_STYLES.items(),
-            )
-            if category in visible
-        ]
+        by_source = self.colour_by.currentData() == "source"
+        entries = []
+        for category, (_label, colour) in (
+            *PATH_STYLES.items(), *EVENT_STYLES.items()
+        ):
+            if category not in visible:
+                continue
+            if by_source and category in SIGNAL_GROUPS[0][1]:
+                entries.append(LEGEND_LABELS[category])
+            else:
+                entries.append(
+                    f'<span style="color:{colour}">●</span> {LEGEND_LABELS[category]}'
+                )
         if not entries:
             return '<span style="color:#94a3b8">No signal types selected.</span>'
+        if by_source and visible.intersection(SIGNAL_GROUPS[0][1]):
+            entries.insert(0, "Electron hue: source position (unknown: grey)")
         return "&nbsp;&nbsp; ".join(entries)
+
+    def _colour_mode_changed(self, _index=0) -> None:
+        if hasattr(self, "legend"):
+            self.legend.setText(self._legend_html())
+        self._redraw(refit=False)
+
+    def _path_colour(self, path: ScenePath) -> QColor:
+        """Return display colour only; never relabel or alter physical paths."""
+        if (
+            self.colour_by.currentData() == "source"
+            and path.category in SIGNAL_GROUPS[0][1]
+        ):
+            if path.source_ray_id >= 0 and math.isfinite(path.source_azimuth_rad):
+                hue = (path.source_azimuth_rad / (2.0 * math.pi)) % 1.0
+                return QColor.fromHsvF(hue, 0.88, 1.0)
+            return QColor("#94a3b8")
+        return QColor(PATH_STYLES[path.category][1])
 
     @property
     def visible_signal_categories(self) -> frozenset[str]:
@@ -1340,7 +1485,8 @@ class SampleInteractions3DPage(QWidget):
                 + f"{scene.sample_thickness_nm:.6g} nm."
             ),
             f"Cached local view: {electron_count:,} electron paths, "
-            f"{event_count:,} interaction sites, {xray_count:,} X-ray paths."
+            f"{event_count:,} interaction sites, {xray_count:,} X-ray paths.",
+            f"Downstream path source: {scene.downstream_source}.",
         ]
         focus_text = _focus_diagnostic_text(self._calculation_result)
         if focus_text:
@@ -1460,7 +1606,7 @@ class SampleInteractions3DPage(QWidget):
         self._items = []
 
     @staticmethod
-    def _rgba(colour: str, alpha: float = 1.0):
+    def _rgba(colour: str | QColor, alpha: float = 1.0):
         value = QColor(colour)
         return (
             value.redF(),
@@ -1493,7 +1639,7 @@ class SampleInteractions3DPage(QWidget):
         for path in scene.paths:
             if not self._path_visible(path.category):
                 continue
-            _label, colour = PATH_STYLES[path.category]
+            colour = self._path_colour(path)
             item = gl.GLLinePlotItem(
                 pos=_gl_display_positions(path.positions_nm),
                 color=self._rgba(colour, 0.92),
@@ -1543,7 +1689,7 @@ class SampleInteractions3DPage(QWidget):
         for path in scene.paths:
             if not self._path_visible(path.category):
                 continue
-            _label, colour = PATH_STYLES[path.category]
+            colour = self._path_colour(path)
             self.view.plot(
                 path.positions_nm[:, axis],
                 path.positions_nm[:, 2],

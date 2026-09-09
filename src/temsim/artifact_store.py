@@ -100,6 +100,8 @@ _INCIDENT_BRANCH_ARRAY_FIELDS = (
     "blocked_z",
     "energy_offset_ev",
     "ray_weight",
+    "source_ray_id",
+    "source_azimuth_rad",
 )
 
 
@@ -855,6 +857,13 @@ class ArtifactStore:
                     metadata["incident_interaction_kind"]
                 ),
                 **incident_arrays,
+            )
+            # Legacy v1 seeds have no display-lineage arrays. Reconstruct from
+            # retained gun/source history without invalidating physical caches.
+            from temsim.physics.ray_identity import source_identity
+
+            incident.source_ray_id, incident.source_azimuth_rad = source_identity(
+                incident, gun_trace
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ArtifactIntegrityError(

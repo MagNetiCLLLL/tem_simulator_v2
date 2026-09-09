@@ -26,6 +26,7 @@ import numpy as np
 
 from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
 from temsim.detector.eds_signal import EDSSpectrum
+from temsim.physics.ray_identity import select_identity, source_identity
 from temsim.physics.simulation import Branch
 from temsim.specimen.downstream_transport import (
     GeometricSpecimenExit,
@@ -52,6 +53,9 @@ class SampleRegionElectronPath:
     kinetic_energy_ev: float | None
     provenance: str
     downstream_eligible: bool
+    source_ray_index: int = -1
+    source_ray_id: int = -1
+    source_azimuth_rad: float = math.nan
 
     def __post_init__(self) -> None:
         positions = np.asarray(self.positions_mm, dtype=float)
@@ -410,6 +414,19 @@ def _electron_paths(
     )
     field_diagnostic = sample_axial_field_diagnostic(state)
     field_transport = SpecimenFieldTransport(state)
+    source_ids, source_angles = source_identity(
+        getattr(simulation, "incident", None),
+        getattr(simulation, "gun_trace", None),
+    )
+
+    def lineage(source_index: int) -> dict[str, int | float]:
+        ids, angles = select_identity(source_ids, source_angles, [source_index])
+        return {
+            "source_ray_index": source_index,
+            "source_ray_id": int(ids[0]),
+            "source_azimuth_rad": float(angles[0]),
+        }
+
     rows: list[SampleRegionElectronPath] = []
     entry_local_z_nm = (
         float(entry_z_mm) - float(state.sample.z_mm)
@@ -448,6 +465,7 @@ def _electron_paths(
                     "boundary transport"
                 ),
                 downstream_eligible=True,
+                **lineage(int(getattr(sample_ray, "source_ray_index", -1))),
             )
         )
     for trajectory in elastic_result.trajectories:
@@ -475,6 +493,7 @@ def _electron_paths(
                 kinetic_energy_ev=float(trajectory.initial_energy_ev),
                 provenance="screened-Rutherford elastic material transport",
                 downstream_eligible=trajectory.outcome == "transmitted",
+                **lineage(int(getattr(trajectory, "source_ray_index", -1))),
             )
         )
 

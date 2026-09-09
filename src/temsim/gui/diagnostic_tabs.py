@@ -57,6 +57,9 @@ from temsim.diagnostics import (
     vacuum_bore_plot_points,
 )
 from temsim.detector.plane_image import detector_response_image
+from temsim.gui.beam_display_source import downstream_display_branches
+from temsim.gui.beam_tracking_modes import branch_interaction_style
+from temsim.physics.ray_identity import branch_identity, source_identity
 from temsim.detector.eds_geometry import (
     EDSDetectorArrayGeometry,
     assess_axisymmetric_pole_centerline,
@@ -4080,11 +4083,13 @@ class InitialDirectionColourWheel(QWidget):
                 f"{orthogonal_name}."
             )
         description = (
-            "Continuous colour = initial polar angle about the starting "
-            "bundle centroid. +X is 0 degrees and the angle increases "
-            "counter-clockwise toward +Y. Colour tracks direction only; "
+            "Continuous colour = source-position polar angle about the emitted "
+            "bundle centroid, fixed for the entire trajectory. +X is 0 degrees and the angle increases "
+            "counter-clockwise toward +Y. This is position azimuth, not velocity direction; "
             "it does not represent ray radius, energy, intensity or "
-            "survival state. The displayed basis follows Ray Diagram: "
+            "survival state. Scattered weighted paths inherit their source colour; "
+            "grey means an undefined azimuth or unavailable source identity. "
+            "The displayed basis follows Ray Diagram: "
             f"{basis_description} At a selected detector, the greyscale "
             "underlay is the peak-normalized forward PSF response; "
             "coloured dots remain the original rays."
@@ -4139,7 +4144,7 @@ class InitialDirectionColourWheel(QWidget):
         painter.drawText(
             inner_rect,
             Qt.AlignmentFlag.AlignCenter,
-            "initial\nangle",
+            "source\nposition",
         )
 
         painter.setPen(QColor("#cbd5e1"))
@@ -4202,6 +4207,7 @@ class TransverseBeamView(QWidget):
         )
 
         self.heading = QLabel("Transverse beam X-Y")
+        self.heading.setWordWrap(True)
         self.summary = QLabel(
             "Select a component to inspect the beam at its centre plane."
         )
@@ -4215,20 +4221,28 @@ class TransverseBeamView(QWidget):
         )
 
         heading_row = QHBoxLayout()
-        heading_row.addWidget(self.heading)
-        heading_row.addStretch(1)
+        heading_row.addWidget(self.heading, 1)
 
         self.plot = pg.PlotWidget(background="#050816")
         self.plot.setObjectName("transverseBeamPlot")
         for axis_name in ("bottom", "left"):
             axis = self.plot.getAxis(axis_name)
+            # AxisItem.updateAutoSIPrefix can run during label changes even
+            # with autoSIPrefix=False; never scale values already in µm/mrad.
+            axis.setSIPrefixEnableRanges(())
             axis.enableAutoSIPrefix(False)
+        # Tick/axis-label changes must not resize the ViewBox and alter the
+        # origin-centred range when changing Z or projection while hidden.
+        self.plot.getAxis("left").setWidth(76)
+        self.plot.getAxis("bottom").setHeight(46)
         self._update_projection_labels()
         self.plot.showGrid(x=True, y=True, alpha=0.18)
         self.plot.setAspectLocked(True, ratio=1.0)
         self.plot.setMenuEnabled(False)
-        self.plot.setMinimumHeight(250)
-        self.plot.setMaximumHeight(360)
+        # A compact, stable plot avoids aspect-driven zoom from transient
+        # wrapped-label height changes when this optional panel is reshown.
+        self.plot.setFixedHeight(360)
+        self.plot.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.plot.getViewBox().disableAutoRange()
         self._apply_centered_view_ranges(
             self.DEFAULT_HALF_RANGE_DISPLAY,
@@ -4239,7 +4253,7 @@ class TransverseBeamView(QWidget):
         )
 
         self.angle_colour_wheel = InitialDirectionColourWheel()
-        self.initial_beam_heading = QLabel("Initial beam direction")
+        self.initial_beam_heading = QLabel("Source position colour")
         self.initial_beam_heading.setStyleSheet(
             "color: #e2e8f0; font-weight: 700;"
         )
@@ -4283,21 +4297,31 @@ class TransverseBeamView(QWidget):
         layout.addWidget(
             self.section_beam_panel,
             0,
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
+            Qt.AlignmentFlag.AlignTop,
         )
         layout.addStretch(1)
         self.fit_beam.clicked.connect(self._fit_beam_view)
+        from temsim.gui.beam_analysis import BeamAnalysisControls
+
+        self.analysis = BeamAnalysisControls(self)
+        self.analysis_mode = self.analysis.mode_combo
+        self.colour_mode = self.analysis.colour_combo
 
     def _update_projection_labels(self) -> None:
+        if hasattr(self, "analysis") and self.analysis.mode != "position":
+            self.analysis.update_labels()
+            return
         primary_name = projection_axis_name(self._projection_angle_deg)
         orthogonal_name = orthogonal_axis_name(self._projection_angle_deg)
         self.plot.getAxis("bottom").setLabel(
             f"{primary_name} displacement",
             units=self.DISPLAY_UNIT,
+            siPrefixEnableRanges=(),
         )
         self.plot.getAxis("left").setLabel(
             f"{orthogonal_name} displacement",
             units=self.DISPLAY_UNIT,
+            siPrefixEnableRanges=(),
         )
         self.plot.setToolTip(
             "Display coordinates follow Ray Diagram: "
@@ -4352,10 +4376,19 @@ class TransverseBeamView(QWidget):
             0.5 * (y_range[1] - y_range[0]),
         )
 
+    def _settle_panel_layout(self) -> None:
+        """Resolve wrapped labels before fitting an aspect-locked ViewBox."""
+        self.layout().invalidate()
+        self.layout().activate()
+        self.section_beam_panel.layout().activate()
+
     def _manual_view_range_changed(self, _axis_mask) -> None:
         """Keep a user-selected scale but reject transverse panning."""
 
         if self._view_change_guard:
+            return
+        if hasattr(self, "analysis") and self.analysis.mode != "position":
+            self.analysis.capture_manual_range()
             return
         x_range, y_range = self.plot.getViewBox().viewRange()
         self._view_scale_initialized = True
@@ -4367,6 +4400,9 @@ class TransverseBeamView(QWidget):
     def _fit_beam_view(self) -> None:
         """Fit current surviving rays symmetrically about physical zero."""
 
+        if hasattr(self, "analysis") and self.analysis.mode != "position":
+            self.analysis.fit()
+            return
         if self._fit_coordinates is None:
             return
         x_values, y_values = self._fit_coordinates
@@ -4418,6 +4454,7 @@ class TransverseBeamView(QWidget):
         )
 
     def display_result(self, result, *, focus=None) -> None:
+        self.analysis.invalidate()
         self._result = result
         if focus is not None:
             kind, value = focus
@@ -4519,56 +4556,83 @@ class TransverseBeamView(QWidget):
         return response
 
     def _redraw(self) -> None:
+        if self.analysis.mode != "position":
+            self.analysis.redraw()
+            return
         self.plot.clear()
         self._scatter = None
         self._point_spread_image = None
         self._point_spread_response = None
         self._fit_coordinates = None
+        self._display_source_ids = np.empty(0, dtype=np.int64)
         if self._result is None or self._plane_z_mm is None:
+            self.analysis.finish_position([])
             return
         simulation = self._result.simulation
-        branch = self._branch_at_plane(simulation, self._plane_z_mm)
-        z_values = np.asarray(branch.z, dtype=float)
-        plane = float(np.clip(self._plane_z_mm, z_values[0], z_values[-1]))
-        x_m = self._interpolate(branch.x, z_values, plane)
-        y_m = self._interpolate(branch.y, z_values, plane)
-        blocked = np.asarray(branch.blocked_z, dtype=float)
-        keep = np.isnan(blocked) | (blocked >= plane - 1.0e-9)
-        indices = np.flatnonzero(keep)
-        if indices.size > self.MAX_DISPLAY_RAYS:
-            indices = indices[np.unique(np.linspace(
-                0, indices.size - 1, self.MAX_DISPLAY_RAYS, dtype=int
-            ))]
-        if indices.size == 0:
+        if self._plane_z_mm <= float(simulation.incident.z[-1]) + 1.0e-9:
+            branches, source_label = (simulation.incident,), "incident"
+        else:
+            branches, source_label = downstream_display_branches(self._result)
+        # Select a bounded, fixed set before clipping. Moving Z must not replace
+        # stopped rays with unrelated representatives from the surviving set.
+        counts = [np.asarray(branch.x).shape[1] for branch in branches]
+        total = sum(counts)
+        pool = np.unique(np.linspace(0, total - 1, min(total, self.MAX_DISPLAY_RAYS), dtype=int))
+        source_ids, _ = source_identity(simulation.incident, getattr(simulation, "gun_trace", None))
+        source_lookup = {int(value): index for index, value in enumerate(source_ids) if value >= 0}
+        parts = []
+        interaction_styles = []
+        offset = 0
+        plane = float(self._plane_z_mm)
+        for branch, count in zip(branches, counts):
+            z_values = np.asarray(branch.z, dtype=float)
+            selected = pool[(pool >= offset) & (pool < offset + count)] - offset
+            offset += count
+            if selected.size == 0 or plane < z_values[0] - 1.0e-9 or plane > z_values[-1] + 1.0e-9:
+                continue
+            blocked = np.asarray(branch.blocked_z, dtype=float)
+            selected = selected[np.isnan(blocked[selected]) | (blocked[selected] >= plane - 1.0e-9)]
+            if selected.size == 0:
+                continue
+            ids, azimuth = branch_identity(branch, simulation)
+            ids, azimuth = ids[selected], azimuth[selected]
+            sx, sy = np.full(selected.size, np.nan), np.full(selected.size, np.nan)
+            for row, ray_id in enumerate(ids):
+                source_index = source_lookup.get(int(ray_id))
+                if source_index is not None:
+                    sx[row] = simulation.incident.x[0, source_index]
+                    sy[row] = simulation.incident.y[0, source_index]
+            parts.append((
+                self._interpolate(branch.x, z_values, plane)[selected],
+                self._interpolate(branch.y, z_values, plane)[selected],
+                ids, azimuth, sx, sy,
+            ))
+            interaction_styles.extend([branch_interaction_style(branch)] * selected.size)
+        if not parts:
+            self._display_source_ids = np.empty(0, dtype=np.int64)
+            self.heading.setText(f"Transverse beam at Z = {plane:.6g} mm")
             self.summary.setText(
-                f"Z {plane:.6g} mm | no rays survive to this plane."
+                f"{source_label} | Z {plane:.6g} mm | no displayed rays reach this plane."
             )
+            self.analysis.finish_position([])
+            self._settle_panel_layout()
             self._restore_centered_view_ranges()
             return
-
-        point_spread_response = self._add_point_spread_response()
-
-        start_x = np.asarray(branch.x[0], dtype=float)
-        start_y = np.asarray(branch.y[0], dtype=float)
-        branch_start = float(z_values[0])
-        reference_mask = np.isnan(blocked) | (
-            blocked >= branch_start - 1.0e-9
+        x_m, y_m, ids, initial_angle, start_x, start_y = (
+            np.concatenate([part[column] for part in parts]) for column in range(6)
         )
-        reference_x = start_x[reference_mask]
-        reference_y = start_y[reference_mask]
-        centre_x = float(np.mean(reference_x)) if reference_x.size else 0.0
-        centre_y = float(np.mean(reference_y)) if reference_y.size else 0.0
-        relative_x = start_x - centre_x
-        relative_y = start_y - centre_y
-        initial_angle = np.mod(
-            np.arctan2(relative_y, relative_x), 2.0 * math.pi
+        self._display_source_ids = ids
+        indices = np.arange(x_m.size)
+        # The legacy PSF helper consumes optical-reference branches. Do not
+        # overlay that different population on a detailed specimen exit.
+        point_spread_response = (
+            self._add_point_spread_response() if source_label != "Specimen exit" else None
         )
-        initial_radius = np.hypot(relative_x, relative_y)
         brushes = []
         for index in indices:
             colour = (
                 InitialDirectionColourWheel.NEUTRAL_COLOUR
-                if initial_radius[index] <= self.CENTRE_DIRECTION_TOLERANCE_M
+                if ids[index] < 0 or not np.isfinite(initial_angle[index])
                 else InitialDirectionColourWheel.colour_for_angle(
                     initial_angle[index]
                 )
@@ -4588,28 +4652,38 @@ class TransverseBeamView(QWidget):
             size=5,
             pen=pg.mkPen(None),
             brush=brushes,
+            data=[{"source_ray_id": int(value), "interaction": style[1]}
+                  for value, style in zip(ids, interaction_styles)],
+            hoverable=True,
+            tip=lambda x, y, data: (
+                f"Source ray {data['source_ray_id']} | "
+                f"{projection_axis_name(self._projection_angle_deg)} {x:.6g} µm | "
+                f"{orthogonal_axis_name(self._projection_angle_deg)} {y:.6g} µm"
+                + (f" | {data['interaction']}" if "interaction" in data else "")
+                if data["source_ray_id"] >= 0 else "Source identity unavailable"
+            ),
             pxMode=True,
         )
         self.plot.addItem(self._scatter)
         self.plot.addLine(x=0.0, pen=pg.mkPen("#94a3b8", width=0.8))
         self.plot.addLine(y=0.0, pen=pg.mkPen("#94a3b8", width=0.8))
-        if self._view_scale_initialized:
-            self._restore_centered_view_ranges()
-        else:
-            self._fit_beam_view()
-
+        comparable = np.isfinite(start_x) & np.isfinite(start_y)
         start = (
-            start_x[indices] - float(np.mean(start_x[indices]))
-            + 1j * (start_y[indices] - float(np.mean(start_y[indices])))
+            start_x[comparable] - float(np.mean(start_x[comparable]))
+            + 1j * (start_y[comparable] - float(np.mean(start_y[comparable])))
+            if np.any(comparable) else np.array([], dtype=complex)
         )
         current = (
-            x_m[indices] - float(np.mean(x_m[indices]))
-            + 1j * (y_m[indices] - float(np.mean(y_m[indices])))
+            x_m[comparable] - float(np.mean(x_m[comparable]))
+            + 1j * (y_m[comparable] - float(np.mean(y_m[comparable])))
+            if np.any(comparable) else np.array([], dtype=complex)
         )
         correlation = np.sum(current * np.conjugate(start))
+        correlation_scale = float(np.linalg.norm(current) * np.linalg.norm(start))
         relative_rotation = (
             float(np.degrees(np.angle(correlation)))
-            if abs(correlation) > 1.0e-30 else float("nan")
+            if correlation_scale > 1.0e-30 and abs(correlation) / correlation_scale > 0.1
+            else float("nan")
         )
         rms_radius_display = self.METRES_TO_DISPLAY * float(np.sqrt(np.mean(
             (x_m[indices] - np.mean(x_m[indices])) ** 2
@@ -4644,21 +4718,29 @@ class TransverseBeamView(QWidget):
             f"Z = {plane:.6g} mm"
         )
         detail_text = (
-            f"{branch.name} | {indices.size} surviving rays | "
+            f"{source_label} | {indices.size} displayed rays | "
             f"RMS radius {rms_radius_display:.6g} {self.DISPLAY_UNIT} | "
-            f"orientation relative to bundle start {rotation_text} | "
+            f"pattern orientation relative to the source {rotation_text} | "
             f"display basis U={primary_name}, V={orthogonal_name} | "
-            "continuous colour identifies initial direction about the "
-            "bundle centroid"
+            "colour identifies fixed source-position azimuth about the emitted "
+            "bundle centroid. Pattern rotation includes inversion/deformation; "
+            "it is not the integrated Larmor angle. Weighted descendants may "
+            "share a source identity. Grey means undefined or unavailable lineage."
             + point_spread_text
         )
         self.summary.setText(
-            f"{branch.name} | {indices.size} rays | "
+            f"{source_label} | {indices.size} rays | "
             f"RMS {rms_radius_display:.6g} {self.DISPLAY_UNIT} | "
-            f"rotation {rotation_text}"
+            f"pattern rotation {rotation_text}"
             + point_spread_compact
         )
         self.summary.setToolTip(detail_text)
+        self.analysis.finish_position(interaction_styles)
+        self._settle_panel_layout()
+        if self._view_scale_initialized:
+            self._restore_centered_view_ranges()
+        else:
+            self._fit_beam_view()
 
 
 @dataclass(frozen=True)

@@ -40,6 +40,41 @@ def _assert_incident_equal(actual, expected):
         actual.blocked_z, expected.blocked_z, atol=1e-9, equal_nan=True
     )
     assert actual.blocked_key == expected.blocked_key
+    np.testing.assert_array_equal(actual.source_ray_id, expected.source_ray_id)
+    np.testing.assert_array_equal(
+        actual.source_azimuth_rad, expected.source_azimuth_rad
+    )
+
+
+def test_source_colour_identity_survives_a_vacuum_sample_boundary():
+    state = _small_vacuum_state()
+    simulation = run(state)
+    incident = simulation.incident
+    source_x = np.asarray(simulation.gun_trace.x_m[0])
+    source_y = np.asarray(simulation.gun_trace.y_m[0])
+    expected_azimuth = np.mod(
+        np.arctan2(source_y - source_y.mean(), source_x - source_x.mean()),
+        2.0 * np.pi,
+    )
+    expected_azimuth[np.hypot(
+        source_x - source_x.mean(), source_y - source_y.mean()
+    ) <= 1.0e-15] = np.nan  # The source-centre ray has no spatial azimuth.
+
+    np.testing.assert_array_equal(
+        incident.source_ray_id, simulation.gun_trace.exit_bundle.ray_id
+    )
+    np.testing.assert_allclose(incident.source_azimuth_rad, expected_azimuth)
+    assert not incident.source_ray_id.flags.writeable
+    assert not incident.source_azimuth_rad.flags.writeable
+    for branch in simulation.branches.values():
+        np.testing.assert_array_equal(branch.x[0], incident.x[-1])
+        np.testing.assert_array_equal(branch.y[0], incident.y[-1])
+        np.testing.assert_array_equal(branch.source_ray_id, incident.source_ray_id)
+        np.testing.assert_array_equal(
+            branch.source_azimuth_rad, incident.source_azimuth_rad
+        )
+        assert not branch.source_ray_id.flags.writeable
+        assert not branch.source_azimuth_rad.flags.writeable
 
 
 def test_changed_c2_reuses_prefix_and_matches_a_fresh_full_trace():

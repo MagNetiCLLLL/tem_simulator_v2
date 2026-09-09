@@ -276,6 +276,11 @@ def build_geometric_specimen_exit(
         or np.any(source_indices >= source_ray_count)
     ):
         raise ValueError("Elastic terminal source indices are outside the incident bundle")
+    from temsim.physics.ray_identity import select_identity, source_identity
+
+    source_ids, source_azimuths = source_identity(
+        simulation.incident, getattr(simulation, "gun_trace", None)
+    )
     specs, inelastic_tracked, inelastic_absorbed = _inelastic_specs(
         inelastic_distribution,
         source_ray_count,
@@ -442,6 +447,11 @@ def build_geometric_specimen_exit(
                     if kind == "real_zero_loss"
                     else str(kind)
                 )
+                # Terminal/group rows may be reordered, repeated, or sparse.
+                # Retain their original gun lineage, never the compact row ID.
+                group_source_ids, group_source_azimuths = select_identity(
+                    source_ids, source_azimuths, terminal_indices[mask]
+                )
                 branches.append(
                     Branch(
                         name=f"specimen_{elastic_label}:{channel_name}",
@@ -463,6 +473,8 @@ def build_geometric_specimen_exit(
                         interaction_kind=interaction_kind,
                         interaction_kick_x_rad=kick_x_values[mask],
                         interaction_kick_y_rad=kick_y_values[mask],
+                        source_ray_id=group_source_ids,
+                        source_azimuth_rad=group_source_azimuths,
                     )
                 )
                 progress_completed += 1

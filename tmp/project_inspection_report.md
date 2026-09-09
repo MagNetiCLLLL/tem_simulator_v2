@@ -1,5 +1,11 @@
 # 项目检查报告
 
+> Historical audit of commit `704ee3f`, not the current verification status.
+> Maintenance on 2026-09-07 removed the one-off reproduction scripts after
+> confirming their coverage in the formal tests linked below. Original logs
+> are retained; obsolete scripts remain recoverable from commit `12ff7e3`.
+> Generated packaging/pytest directories have now been cleaned successfully.
+
 日期：2026-09-07。项目：`E:\tem_simulator_v2`。检查基线：`704ee3f`。
 
 发现 4 个可复现的功能问题。未修改项目源代码、测试代码或仪器配置；本次新增文件均为检查日志、复现脚本和临时验证产物。
@@ -16,7 +22,7 @@
 
 建议根据实际掩码维度处理积分，覆盖 plan + 无偏移及 plan + 有偏移两条路径。
 
-[复现脚本](E:/tem_simulator_v2/tmp/project_inspection_repro_stem.py) · [运行日志](E:/tem_simulator_v2/tmp/project_inspection_repro_stem.log)
+[Maintained recording regressions](../tests/test_stem_recording_deflection.py) · [Historical log](project_inspection_repro_stem.log)
 
 ## 2. [P1] 探测平面路径漏掉 Descan 位移
 
@@ -31,7 +37,7 @@
 
 现有 `test_angle_resolved_stem_applies_per_probe_descan_detector_shift` 单测通过，但没有传入 plan，未覆盖此组合。建议在新路由中正确纳入静态和逐扫描位置的偏转贡献，避免遗漏或重复计入。
 
-[波动积分复现](E:/tem_simulator_v2/tmp/project_inspection_repro_stem.py) · [真实 Descan 复现](E:/tem_simulator_v2/tmp/project_inspection_repro_descan.py) · [Descan 日志](E:/tem_simulator_v2/tmp/project_inspection_repro_descan.log)
+[Maintained Descan/record-plane regressions](../tests/test_stem_recording_deflection.py) · [Wave regressions](../tests/test_wave_imaging.py) · [Historical Descan log](project_inspection_repro_descan.log)
 
 ## 3. [P2] 保存配置丢失透镜像差估算模式
 
@@ -41,7 +47,7 @@ GUI 用 `cs_mm = cc_mm = None` 表示“Focal-length estimate (provisional)”�
 
 按 GUI 完整加载顺序复现，Objective 有效 Cc 从 `2.7996476885 mm` 变为 `2.0 mm`，状态从 `provisional principle model` 变为 `configured`，跳过字段列表仍为空。建议明确持久化估算模式标记，并在装配默认值加载后恢复；不能依靠省略字段表达此状态。
 
-[复现脚本](E:/tem_simulator_v2/tmp/project_inspection_repro_profile.py) · [运行日志](E:/tem_simulator_v2/tmp/project_inspection_repro_profile.log)
+[Maintained profile regressions](../tests/test_profile_optional_values.py) · [Historical log](project_inspection_repro_profile.log)
 
 ## 4. [P2] 拒绝超限缓存写入时丢失旧缓存
 
@@ -51,7 +57,7 @@ GUI 用 `cs_mm = cc_mm = None` 表示“Focal-length estimate (provisional)”�
 
 在合法的 1 MiB 配额下先保存小数组，再写入 2 MiB 数组：收到 `ArtifactTooLargeError` 后，旧缓存读回为 `None`，引用数量从 1 变为 0。建议先检查新对象及必需元数据独立占用是否超额，再执行历史缓存淘汰。
 
-[复现脚本](E:/tem_simulator_v2/tmp/project_inspection_repro_cache.py) · [运行日志](E:/tem_simulator_v2/tmp/project_inspection_repro_cache.log)。此脚本用退出码 1 明确表示复现到缺陷。
+[Maintained quota regressions](../tests/test_artifact_quota.py) · [Historical log](project_inspection_repro_cache.log). The retired script deliberately returned exit code 1 when reproducing the former defect.
 
 ## 验证结果
 

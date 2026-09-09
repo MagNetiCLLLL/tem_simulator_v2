@@ -236,8 +236,11 @@ def test_checkpoint_store_survives_restart_and_returns_read_only_arrays(tmp_path
     assert not restored.x_m.flags.writeable
 
 
-@pytest.mark.parametrize("with_vector_map", [False, True])
-def test_complete_incident_seed_restarts_ray_solver(tmp_path, with_vector_map):
+@pytest.mark.parametrize(
+    ("with_vector_map", "legacy_lineage"),
+    [(False, False), (True, False), (False, True)],
+)
+def test_complete_incident_seed_restarts_ray_solver(tmp_path, with_vector_map, legacy_lineage):
     state, selection = _assembled_state()
     state.electron_gun.emitter.ray_count = 9
     state.step_mm = 5.0
@@ -270,7 +273,17 @@ def test_complete_incident_seed_restarts_ray_solver(tmp_path, with_vector_map):
     first = run_ray_simulation(state)
     store = ArtifactStore(tmp_path / "cache", quota_bytes=100_000_000)
 
+    expected_identity = {
+        field: getattr(first.incident, field)
+        for field in ("source_ray_id", "source_azimuth_rad")
+    }
+    if legacy_lineage:
+        # v1 seeds written before source-colour tracking omitted these arrays.
+        first.incident.source_ray_id = None
+        first.incident.source_azimuth_rad = None
     store.put_incident_simulation_seed(manifest, first)
+    for field, expected in expected_identity.items():
+        setattr(first.incident, field, expected)
     restored = ArtifactStore(
         tmp_path / "cache", quota_bytes=100_000_000
     ).get_incident_simulation_seed(manifest)
@@ -278,6 +291,12 @@ def test_complete_incident_seed_restarts_ray_solver(tmp_path, with_vector_map):
 
     assert restored is not None
     assert restored.incident_plan.signature == first.incident_plan.signature
+    for field in ("source_ray_id", "source_azimuth_rad"):
+        expected = getattr(first.incident, field)
+        np.testing.assert_array_equal(getattr(restored.incident, field), expected)
+        np.testing.assert_array_equal(getattr(second.incident, field), expected)
+        assert not getattr(restored.incident, field).flags.writeable
+        assert not getattr(second.incident, field).flags.writeable
     if with_vector_map:
         before_map = first.incident_plan.mapped_fields[0]
         restored_map = restored.incident_plan.mapped_fields[0]
