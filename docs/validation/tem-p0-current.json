@@ -1,0 +1,899 @@
+{
+  "schema": "tem-p0-validation-v1",
+  "started_utc": "2026-09-10T09:08:34.278197+00:00",
+  "git_base": "efc648ddbdcfa8d008c26048dde93ef52613fffe",
+  "working_tree_modified": true,
+  "command": [
+    "E:\\tem_simulator_v2\\.venv\\Scripts\\python.exe",
+    "-m",
+    "pytest",
+    "tests/test_tem_flux_contract.py",
+    "tests/test_record_plane.py",
+    "tests/test_record_plane_detector_masks.py",
+    "tests/test_tem_result_sources.py",
+    "tests/test_wave_imaging.py",
+    "tests/test_six_stage_physics.py",
+    "tests/test_interactive_calculation.py",
+    "tests/test_calculation_cache_reuse.py",
+    "tests/test_calculation_manifest_artifacts.py",
+    "tests/test_wave_specimen_cache_version.py",
+    "tests/test_stem_dose_cache.py",
+    "tests/test_eels_forward.py",
+    "tests/test_wave_fft.py",
+    "--tb=short",
+    "--junitxml=E:\\tem_simulator_v2\\outputs\\tem-p0-final\\pytest.xml"
+  ],
+  "return_code": 0,
+  "status": "PASS",
+  "counts": {
+    "PASS": 178,
+    "FAIL": 0,
+    "NOT_RUN": 0
+  },
+  "acceptance": {
+    "fixture": "manufactured two-order and phase-grating production TEM",
+    "backend": "NumPy CPU / complex128",
+    "absolute_probability_tolerance": 1e-10
+  },
+  "norm_guard_tolerances": {
+    "complex128_rtol": 1e-10,
+    "complex64_rtol": 2e-05,
+    "atol": 1e-14
+  },
+  "independent_material_validation": "NOT_RUN",
+  "cuda_physical_parity": "NOT_RUN",
+  "arbitrary_wavefront_and_A5": "NOT_RUN (later work packages)",
+  "python": "3.12.4 | packaged by Anaconda, Inc. | (main, Jun 18 2024, 15:03:56) [MSC v.1929 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "installed_versions": {
+    "abTEM": "1.0.10",
+    "ase": "3.29.0",
+    "asttokens": "3.0.2",
+    "click": "8.4.2",
+    "cloudpickle": "3.1.2",
+    "colorama": "0.4.6",
+    "comm": "0.2.3",
+    "contourpy": "1.3.3",
+    "cuda-pathfinder": "1.8.1",
+    "cuda-toolkit": "12.6.3",
+    "cupy-cuda12x": "14.2.0",
+    "cycler": "0.12.1",
+    "dask": "2026.7.1",
+    "distributed": "2026.7.1",
+    "donfig": "0.8.1.post1",
+    "executing": "2.2.1",
+    "fonttools": "4.63.0",
+    "fsspec": "2026.7.0",
+    "google-crc32c": "1.8.0",
+    "ImageIO": "2.37.4",
+    "iniconfig": "2.3.0",
+    "ipympl": "0.10.0",
+    "ipython": "9.16.1",
+    "ipython_pygments_lexers": "1.1.1",
+    "ipywidgets": "8.1.8",
+    "jedi": "0.20.0",
+    "Jinja2": "3.1.6",
+    "jupyterlab_widgets": "3.0.16",
+    "kiwisolver": "1.5.0",
+    "llvmlite": "0.48.0",
+    "locket": "1.0.0",
+    "manifold3d": "3.5.3",
+    "MarkupSafe": "3.0.3",
+    "matplotlib": "3.11.1",
+    "matplotlib-inline": "0.2.2",
+    "msgpack": "1.2.1",
+    "numba": "0.66.0",
+    "numcodecs": "0.16.5",
+    "numpy": "2.4.6",
+    "nvidia-cublas-cu12": "12.6.4.1",
+    "nvidia-cuda-nvrtc-cu12": "12.6.85",
+    "nvidia-cuda-runtime-cu12": "12.6.77",
+    "nvidia-cufft-cu12": "11.3.0.4",
+    "nvidia-curand-cu12": "10.3.7.77",
+    "nvidia-cusolver-cu12": "11.7.1.2",
+    "nvidia-cusparse-cu12": "12.5.4.2",
+    "nvidia-nvjitlink-cu12": "12.9.86",
+    "packaging": "26.3",
+    "pandas": "3.0.5",
+    "parso": "0.8.7",
+    "partd": "1.4.2",
+    "pillow": "12.3.0",
+    "pip": "26.2.1",
+    "pluggy": "1.6.0",
+    "prompt_toolkit": "3.0.53",
+    "psutil": "7.2.2",
+    "pure_eval": "0.2.3",
+    "pyFFTW": "0.15.1",
+    "Pygments": "2.20.0",
+    "PyOpenGL": "3.1.10",
+    "pyparsing": "3.3.2",
+    "pyqtgraph": "0.14.0",
+    "PySide6": "6.8.3",
+    "PySide6_Addons": "6.8.3",
+    "PySide6_Essentials": "6.8.3",
+    "pytest": "9.1.1",
+    "pytest-qt": "4.5.0",
+    "python-dateutil": "2.9.0.post0",
+    "PyYAML": "6.0.3",
+    "scipy": "1.18.0",
+    "setuptools": "84.0.0",
+    "shiboken6": "6.8.3",
+    "six": "1.17.0",
+    "sortedcontainers": "2.4.0",
+    "stack-data": "0.6.3",
+    "tabulate": "0.10.0",
+    "tblib": "3.2.2",
+    "tem-simulator-v2": "0.1.0",
+    "threadpoolctl": "3.6.0",
+    "tifffile": "2026.7.31",
+    "tomli_w": "1.2.0",
+    "toolz": "1.1.0",
+    "tornado": "6.5.8",
+    "tqdm": "4.70.0",
+    "traitlets": "5.16.1",
+    "typing_extensions": "4.16.0",
+    "tzdata": "2026.3",
+    "wcwidth": "0.8.2",
+    "wheel": "0.48.0",
+    "widgetsnbextension": "4.0.15",
+    "xraylib": "4.3.0",
+    "zarr": "3.3.0",
+    "zict": "3.0.0"
+  },
+  "cases": [
+    {
+      "test": "tests.test_tem_flux_contract.test_at06_known_aperture_transmission_is_not_renormalised",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at02_offset_aperture_selects_nonzero_diffraction_order",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at04_closed_aperture_is_valid_zero_result[physical_plane]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at04_closed_aperture_is_valid_zero_result[equivalent_pupil]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at04_inactive_aperture_does_not_clip[enabled]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at04_inactive_aperture_does_not_clip[installed]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at04_inactive_aperture_does_not_clip[inserted]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at01_at03_actual_map_and_one_execution_per_branch",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at05_equivalent_fourier_pupil_matches_physical_plane",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at05_non_fourier_equivalent_pupil_fails_explicitly",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at08_real_phase_grating_ensemble_keeps_prior_and_loss",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_replay_offset_expansion_strategy_matches_fresh_without_mutation",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at07_explicit_weight_and_reference_current_count_scaling",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at09_lossless_guard_detects_corrupted_propagation",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_duplicate_physical_execution_rejected",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_numerical_bandwidth_loss_is_retained_and_not_physical_absorption",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_export_preserves_raw_flux_and_execution_graph",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_provenance_binding_does_not_initialise_or_change_hardware",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_single_precision_norm_tolerance_is_explicit_without_repair",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_tem_projection_cache_version_does_not_expire_other_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_policy_reuses_source_but_mechanical_edits_keep_geometry_dependencies",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane.test_signed_mixed_plane_projection_uses_both_position_and_angle_blocks",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane.test_sequential_aperture_and_detectors_conserve_weight_without_double_counting",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane.test_transverse_field_affine_offset_moves_beam_outside_detector",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane.test_overlapping_virtual_observers_are_not_exclusive_electron_sinks",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane.test_inserted_detector_blocks_even_when_readout_is_disabled",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane.test_resolved_geometry_fingerprint_changes_with_pole_piece_geometry",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane.test_real_plan_reads_runtime_plane_positions_and_rejects_lens_position_edit",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_prepared_masks_exactly_match_signed_mixed_plane_reference[1-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_prepared_masks_exactly_match_signed_mixed_plane_reference[1-True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_prepared_masks_exactly_match_signed_mixed_plane_reference[3-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_prepared_masks_exactly_match_signed_mixed_plane_reference[3-True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_prepared_masks_exactly_match_signed_mixed_plane_reference[7-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_prepared_masks_exactly_match_signed_mixed_plane_reference[7-True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_disabled_readout_still_blocks_and_nonblocking_monitor_does_not",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_preparation_reuses_angular_maps_and_owns_its_input_snapshot",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_preparation_rejects_invalid_angles[angle0]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_preparation_rejects_invalid_angles[angle1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_prepared_router_rejects_invalid_positions[position0]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_prepared_router_rejects_invalid_positions[position1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_prepared_router_rejects_invalid_positions[position2]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_prepared_router_rejects_mismatched_raster_slice",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_record_plane_detector_masks.test_zero_aperture_and_empty_plan_are_supported",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_result_sources.test_switching_reuses_main_and_bank_products_without_editing_parameters",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_result_sources.test_new_main_result_is_retained_without_overwriting_selected_bank",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_result_sources.test_pending_bank_and_stale_current_are_independent",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_result_sources.test_missing_bank_product_clears_bank_only",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_result_sources.test_raw_export_uses_displayed_bank_and_disables_when_missing",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_result_sources.test_returning_to_source_preserves_its_user_plot_ranges",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_retracted_sample_has_zero_interacting_wave_thickness",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_tem_wave_observable_accepts_reference_or_imported_real_cif",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_tem_recording_plane_stops_at_screen_and_alignment_falls_back_to_camera",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_tem_recording_rejects_an_inserted_upstream_stem_detector",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_projector_checkpoint_reprojection_matches_fresh_wave_calculation",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_defocused_image_wave_uses_symplectic_specimen_canonical_transfer",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_tem_wave_memory_estimate_accounts_for_large_fft_grid",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_retracted_sample_ignores_dormant_custom_cif_settings",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_weighted_convergence_uses_chief_ray_and_99_percent_semiangle",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_probe_focus_uses_traced_waist_once_with_fresnel_sign",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_tem_incident_wave_uses_traced_condenser_focus_curvature",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_si_110_stem_detector_signals_respond_to_position_and_traced_defocus",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_tem_wave_image_reports_multislice_model_and_sampling_metrics",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_reference_cif_rejects_projected_phase_preview",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_angle_resolved_stem_uses_the_same_multislice_specimen_model",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_angle_resolved_stem_reports_completed_cpu_probe_batches",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_angle_resolved_stem_applies_per_probe_descan_detector_shift",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_explicit_cuda_preference_reaches_tem_multislice_and_imaging_fft",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_six_stage_physics.test_vector_specimen_flight_transverse_field_and_plane_reversal",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_six_stage_physics.test_magnetostatics_manufactured_solution_converges",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_six_stage_physics.test_generated_coil_field_is_cached_and_scales_with_current",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_six_stage_physics.test_coherent_intermediate_fourier_and_mask_preserve_absolute_flux",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_six_stage_physics.test_wave_gradient_fit_recovers_cs_and_threefold_term",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_six_stage_physics.test_intermediate_apertures_use_existing_stop_units",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_six_stage_physics.test_camera_pipeline_applies_intermediate_mask_without_renormalising",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_six_stage_physics.test_field_derived_mode_is_exclusive_and_invalidates_on_mode_change",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_six_stage_physics.test_field_aberrations_use_production_vector_rays",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_ranges_are_explicit_finite_unique_and_bounded",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_shrink_and_reopen_preserve_weights_and_upstream_stops",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_first_detector_wins_and_readout_does_not_run_the_solver",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_wall_stops_survive_reopening",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_detector_z_replays_retained_coordinates_without_changing_source",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_zero_diameter_blocks_even_the_exactly_on_axis_electron",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_optical_bank_is_detached_and_exact_nodes_only",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_build_cancellation_budget_and_external_change_do_not_return_partial_bank",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_readout_rejects_changed_external_inputs",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_memory_cube_budget_completion_and_raw_probability",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_legacy_wave_checkpoint_requires_explicit_pre_loss_reference",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_page_requires_range_endpoints_and_does_not_auto_calculate",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_production_bank_reuses_incident_and_never_mutates_source",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_production_tem_aperture_replay_agrees_with_fresh_projection",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_production_stem_captures_ram_cube_and_reintegrates_without_multislice",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_controller_failure_and_cancel_preserve_previous_complete_bank",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_high_accuracy_cache_keeps_multiple_results_and_uses_true_lru",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_result_cache_budget_counts_shared_numpy_storage_once",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_checkpoint_candidate_survives_when_no_complete_product_matches",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_exact_product_seed_outranks_newer_checkpoint_only_candidate",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_result_cache_byte_budget_evicts_oldest_until_it_fits",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_oversized_result_does_not_erase_smaller_cached_results",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_identical_completed_high_request_hits_cache_without_second_worker",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_identical_inflight_high_requests_share_one_worker",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_preview_supersedes_high_without_leaving_a_stale_running_token",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_sample_region_controls_invalidate_only_the_region_artifact[sample_region_upstream_distance_um-75.0-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_sample_region_controls_invalidate_only_the_region_artifact[sample_region_downstream_distance_um-80.0-True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_sample_region_controls_invalidate_only_the_region_artifact[sample_region_photon_path_count-257-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_sample_region_controls_invalidate_only_the_region_artifact[sample_region_secondary_path_count-97-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_sample_region_controls_invalidate_only_the_region_artifact[sample_region_seed-13-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_eds_only_parameter_changes_only_request_and_eds_signatures",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_energy_filter_setting_changes_only_filter_product",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_tem_objective_pupil_and_image_aberration_invalidate_wave_source",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_elastic_transport_controls_also_invalidate_geometric_stem",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_dynamic_simulation_time_is_part_of_calculation_identity",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_scan_response_products_ignore_emitter_sampling_density",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_retired_virtual_density_map_does_not_change_physical_identity",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_spot_current_limit_reuses_geometry_but_invalidates_counts",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_post_sample_lens_change_keeps_specimen_checkpoint_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_post_sample_projector_geometry_keeps_local_stage_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_projector_field_map_descriptor_does_not_invalidate_upstream_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_upstream_pole_geometry_invalidates_local_stage_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_projector_mode_change_keeps_specimen_checkpoint_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_tem_recording_plane_switch_keeps_specimen_checkpoint_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_projector_change_reprojects_saved_objective_wave_without_specimen_recalc",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_seed_selection_prefers_reusable_incident_and_wave_source",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_scan_calibration_does_not_change_cache_identity[False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_scan_calibration_does_not_change_cache_identity[True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_legacy_ac_scan_amplitudes_do_not_invalidate_calibrated_scan",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_cif_content_change_at_same_path_changes_calculation_identity",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_loaded_specimen_data_only_invalidates_post_column_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_same_state_preview_does_not_replace_high_accuracy_tab_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_manifest_is_repeatable_and_timestamp_is_not_scientific_identity",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_manifest_export_is_detached_json_without_changing_cache_identity",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_geometry_fingerprint_ignores_percent_but_tracks_position_and_poles",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_geometry_fingerprint_normalises_only_binary_roundoff",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_geometry_fingerprints_expose_stage_scopes",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_manifest_detects_external_cif_mutation",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_field_map_descriptor_and_current_source_bytes_enter_identity",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_checkpoint_store_survives_restart_and_returns_read_only_arrays",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_complete_incident_seed_restarts_ray_solver[False-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_complete_incident_seed_restarts_ray_solver[True-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_complete_incident_seed_restarts_ray_solver[False-True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_calculation_controller_exposes_manifest_and_persistence_hooks",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_checkpoint_store_uses_scoped_geometry_and_rejects_tampering",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_store_rejects_object_arrays_and_prunes_oldest_reference",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_store_mutex_is_reentrant_and_released_after_exception",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_store_mutex_serialises_independent_processes",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_two_store_instances_can_publish_and_read_concurrently",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_prune_reclaims_crash_orphan_before_quota_decision",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_store_initialisation_reclaims_unreferenced_objects",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_solver_implementation_bump_does_not_reuse_legacy_seed[temsim-solver-2026-09-segmented-v1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_solver_implementation_bump_does_not_reuse_legacy_seed[temsim-solver-2026-09-segmented-v2]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_solver_implementation_bump_does_not_reuse_legacy_seed[temsim-solver-2026-09-vector-fields-v3]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_solver_implementation_bump_does_not_reuse_legacy_seed[temsim-solver-2026-09-six-stage-physics-v1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_solver_implementation_bump_does_not_reuse_legacy_seed[temsim-solver-2026-09-magnetic-circuits-v2]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_manifest_artifacts.test_solver_implementation_bump_does_not_reuse_legacy_seed[temsim-solver-2026-09-simulation-modes-v1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_specimen_cache_version.test_specimen_algorithm_versions_all_and_only_wave_products[eels]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_specimen_cache_version.test_specimen_algorithm_versions_all_and_only_wave_products[eftem]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_specimen_cache_version.test_complete_request_cannot_bypass_wave_algorithm_invalidation",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_specimen_cache_version.test_disk_wave_products_miss_but_unchanged_incident_artifact_survives",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_dose_cache.test_poisson_settings_invalidate_counts_but_not_transport[stem_poisson_enabled-True-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_dose_cache.test_poisson_settings_invalidate_counts_but_not_transport[stem_poisson_enabled-True-True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_dose_cache.test_poisson_settings_invalidate_counts_but_not_transport[stem_poisson_seed-47-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_dose_cache.test_poisson_settings_invalidate_counts_but_not_transport[stem_poisson_seed-47-True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_dose_cache.test_frame_period_retains_real_dynamic_transport_dependency",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_dose_cache.test_pipeline_reweights_counts_without_repeating_transport[enable]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_dose_cache.test_pipeline_reweights_counts_without_repeating_transport[disable]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_dose_cache.test_pipeline_reweights_counts_without_repeating_transport[seed]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_dose_cache.test_pipeline_reweights_counts_without_repeating_transport[current]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_dose_cache.test_bank_readout_retains_actual_completed_count_arrays",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_dose_cache.test_bank_changed_stop_recollection_refreshes_expected_and_poisson_counts",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_eels_forward.test_raw_axis_mapping_keeps_zero_loss_peak_on_zero_starting_axis",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_eels_forward.test_raw_axis_mapping_accounts_for_both_narrow_window_boundaries",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_eels_forward.test_forward_axis_and_broadening_losses_are_explicitly_accounted",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_eels_forward.test_forward_chain_uses_shared_distribution_and_conserves_components",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_eels_forward.test_eels_and_eftem_use_their_own_active_detector_boundaries",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_eels_forward.test_eftem_image_uses_same_forward_spectrum_without_full_cube",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_eels_forward.test_energy_filter_runtime_exposes_forward_result_from_same_distribution",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_fft.test_cupy_tem_image_fft_matches_numpy_reference",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_fft.test_cupy_stem_detector_fft_matches_numpy_reference",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_fft.test_cupy_fft_failure_falls_back_without_losing_the_result",
+      "status": "PASS"
+    }
+  ],
+  "post_audit_core_regression": {
+    "command": [
+      "E:\\tem_simulator_v2\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "tests/test_tem_flux_contract.py",
+      "tests/test_record_plane.py",
+      "tests/test_record_plane_detector_masks.py",
+      "tests/test_tem_result_sources.py",
+      "--tb=short",
+      "--junitxml=E:\\tem_simulator_v2\\outputs\\tem-p0-core-final\\pytest.xml"
+    ],
+    "started_utc": "2026-09-10T09:12:29.684387+00:00",
+    "status": "PASS",
+    "counts": {
+      "PASS": 49,
+      "FAIL": 0,
+      "NOT_RUN": 0
+    }
+  },
+  "note": "The 49 core rechecks overlap the 178 extended regressions; do not add these as distinct tests. The core recheck includes the final flux-continuity guard and aperture-state execution metadata.",
+  "source_sha256": {
+    "requirements/validation-cpu-constraints.txt": "a82c50e6ea3d8cf02e6ff7cb4f74429ca86fdd69c337e760c33bae1579aa78bc",
+    "scripts/validate_tem_p0.py": "620c3bf264cd977f05dd2fb34f0854b59c31d6feaf9a47f357faf2595e5a0765",
+    "src/temsim/calculation_cache.py": "58248ea3b87d85c7469c559a52aae62c7ac97b6831ea822cad05b4bc99e2d157",
+    "src/temsim/calculation_manifest.py": "1f6fcfb9b7a0555ac3b707f8249bcea3089c8b41fc86c5cff3b791ce89d3d838",
+    "src/temsim/gui/calculation_controller.py": "b61a6bd34525d0f51f386e4834e206e4386fa7b731fa2b1535d34ff71c0984b1",
+    "src/temsim/gui/visualization.py": "a2d963c0c2bbc04d520bf89dc5f227b43b3f515af6981b7698d10d0fa873fe7e",
+    "src/temsim/optics/model.py": "59ce6cb7cf1c89e87fe08dbc6ff2d9957c2d19dccf8932fc29b895ed799dfbae",
+    "src/temsim/physics/camera_wave.py": "41da26369d39eb6effe184501f43c8f82dbb854e5c644a6ec9816a40bf1a3c45",
+    "src/temsim/physics/multiplane_wave.py": "78eef030b29b102de2028c738819d1c840800ce7441a3c490fcc9710db24ca95",
+    "src/temsim/physics/objective_aperture.py": "2781917a25c8cc45a187f81a778d0df1597dab38e56f72d9a0c201f5710d36fb",
+    "src/temsim/physics/wave_export.py": "120e266a8536d4da9dfdfd6eb6729a906448c0d50cf3b7d00eac9b6bfb821165",
+    "src/temsim/physics/wave_flux.py": "fac281e9163770263f12d8fb0a009638ae318549d4c9ecb5c614487da9800326",
+    "src/temsim/physics/wave_imaging.py": "a020f9478b9888b560c22282497ef278c7be98d6e2b569bdf82340e4d2151b0b",
+    "src/temsim/runtime_parameters.py": "ccfc57809c6b721f0246c213cf2c1ab9a01eedcce5f08c93d0b8d470473991b6",
+    "tests/test_interactive_calculation.py": "ea9d8945a8041ebbb9ef2cec64d47b3d67bd279f640463dfecf4660982e2ff48",
+    "tests/test_record_plane.py": "a497bcb0eaa0133cd1a0696bb8ecf00883e81c4ffe1bec9648c90f7c7232a053",
+    "tests/test_tem_flux_contract.py": "95b21b5093393d79ff211f866cbec07573119433d726378758723bb209fdeeaa",
+    "tests/test_tem_result_sources.py": "c65078374c38923a1d192fe7239019a2e9392d9c604e715f84995019612fb99e",
+    "tests/test_wave_imaging.py": "7ac803a375cc95068c12f6dd22dd4a24b25d743c96ad836db7f285eb9cd75bab"
+  }
+}

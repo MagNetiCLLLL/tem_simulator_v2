@@ -260,5 +260,7 @@ def solve_geometry_field_map(binding, settings):
 
 def solve_geometry_field_details(binding, settings):
     """The same cached solve plus immutable potential and residual diagnostics."""
+    from temsim.excitation_calibration import validate_excitation_recipe
+    validate_excitation_recipe(settings)
     return _solve_bound_geometry(binding.canonical_geometry_json,
                                  json.dumps(dict(settings), sort_keys=True, allow_nan=False))

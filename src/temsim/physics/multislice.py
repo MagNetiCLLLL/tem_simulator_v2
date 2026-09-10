@@ -459,7 +459,8 @@ def propagate_multislice(
             )
             return cp.asnumpy(result), diagnostics
         except Exception as exc:
-            runtime_reason = f"CuPy CUDA failed: {type(exc).__name__}: {exc}"
+            from temsim.physics.compute_backend import gpu_retry_reason
+            runtime_reason = "CuPy CUDA failed: " + gpu_retry_reason(exc, "auto")
             fallback_reason = _combined_reason(
                 fallback_reason, runtime_reason
             )

@@ -1329,6 +1329,13 @@ def acquire_stem_scan(
             raise ValueError("Bulk specimen survival probability must be finite and in [0, 1].")
         tracked_sample_probability = min(max(tracked_sample_probability, 0.0), 1.0)
         absorption_active = tracked_sample_probability < 1.0 - 1.0e-12
+        from temsim.physics.illumination import explicit_illumination, illumination_config, source_nodes
+        if explicit_illumination(state):
+            nodes = source_nodes(illumination_config(state))
+            if bool(getattr(state.sample, "real_high_angle_tail_enabled", False)):
+                raise ValueError("Explicit pupil modes currently support elastic wave detector images; disable the ray-based Rutherford tail for this illumination model")
+            if absorption_active and (len(nodes) > 1 or nodes[0].energy_offset_ev != 0):
+                raise ValueError("Source/energy ensembles with bulk absorption require mode-resolved survival; disable bulk absorption or use one nominal-energy mode")
         try:
             wave = simulate_angle_resolved_stem(
                 state,

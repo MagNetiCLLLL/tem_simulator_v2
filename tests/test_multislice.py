@@ -179,7 +179,7 @@ def test_cupy_runtime_failure_retries_the_complex128_cpu_reference(monkeypatch):
     monkeypatch.setattr(
         multislice,
         "cupy_module",
-        lambda: (_ for _ in ()).throw(RuntimeError("synthetic GPU failure")),
+        lambda: (_ for _ in ()).throw(compute_backend.GPUExecutionError("kernel_or_runtime_failure", "synthetic GPU failure")),
     )
     wave = _normalised_plane_wave(24)
     result, diagnostics = _propagate(

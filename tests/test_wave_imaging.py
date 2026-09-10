@@ -177,6 +177,7 @@ def test_projector_checkpoint_reprojection_matches_fresh_wave_calculation():
             projector_checkpoint=replace(
                 checkpoint,
                 objective_wave_configurations=(first_wave, second_wave),
+                unapertured_wave_configurations=(first_wave, second_wave),
             ),
         ),
     )
@@ -187,6 +188,7 @@ def test_projector_checkpoint_reprojection_matches_fresh_wave_calculation():
             projector_checkpoint=replace(
                 checkpoint,
                 objective_wave_configurations=(second_wave, first_wave),
+                unapertured_wave_configurations=(second_wave, first_wave),
             ),
         ),
     )

@@ -1499,6 +1499,11 @@ def resolve_runtime_lens_field_provider(state, lens_key: str, native_provider):
     selected_mode = mode_key(state)
     current = lens_geometry_binding(state, key, native_provider)
     descriptor = getattr(state, "lens_field_map_descriptors", {}).get(key, {})
+    from temsim.excitation_calibration import validate_excitation_recipe
+    validate_excitation_recipe(descriptor)
+    if uses_field_maps(state) and descriptor.get("solver") in {"axisymmetric_linear_fem", "axisymmetric_nonlinear_fem"}:
+        from temsim.geometry_effects import field_geometry_admission
+        field_geometry_admission(state, current, descriptor)
     if selected_mode == "nonlinear_material" and descriptor.get("solver") != "axisymmetric_nonlinear_fem":
         raise FieldMapError(f"{key}: Nonlinear Material Field requires an explicit B-H recipe")
     if uses_field_maps(state) and descriptor.get("solver") == "axisymmetric_nonlinear_fem":

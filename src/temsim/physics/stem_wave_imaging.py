@@ -25,6 +25,11 @@ from temsim.physics.compute_backend import (
     choose_wave_backend,
 )
 from temsim.physics.core import electron
+from temsim.physics.illumination import (
+    explicit_illumination, illumination_config, illumination_metadata,
+    illumination_ray_statistics, explicit_pupil_spectrum, source_nodes,
+    state_for_source_node, state_at_energy, current_angle_quantiles, PupilState,
+)
 from temsim.physics.multislice import propagate_multislice
 from temsim.physics.stem_batching import resident_stem_batch_size
 from temsim.physics.stem_cuda_pipeline import (
@@ -140,7 +145,7 @@ class ProbeFocusState:
 def _coherent_probe_semiangle_rad(ray_stats) -> float:
     """Use the same current-robust aperture observable as Nanoprobe alignment."""
 
-    return max(float(ray_stats["convergence_95_rad"]), 0.0)
+    return max(float(ray_stats["explicit_pupil_support_rad"] if "explicit_pupil_support_rad" in ray_stats else ray_stats["convergence_95_rad"]), 0.0)
 
 
 def _detector_mask(detector, angles, angle_x_mrad=None, angle_y_mrad=None):
@@ -206,7 +211,7 @@ def _wave_grid(state, simulation, scan_x_um, scan_y_um):
         inserted=sample_inserted,
     )
     preset = load_specimen_preset(preset_key)
-    ray_stats = _weighted_ray_statistics(simulation.incident)
+    ray_stats = illumination_ray_statistics(state, _weighted_ray_statistics(simulation.incident))
     # The coherent STEM probe is formed from the angular aperture below.  The
     # finite-source geometric ray radius is a source-size diagnostic, not the
     # support radius of that coherent wave; using it here can inflate the FOV
@@ -220,6 +225,20 @@ def _wave_grid(state, simulation, scan_x_um, scan_y_um):
         - float(ray_stats["waist_offset_m"]) * 1.0e9
     )
     diffraction_support_nm = 1.22 * wavelength_nm / convergence_rad
+    if explicit_illumination(state):
+        pupil = PupilState.from_dict(illumination_config(state)["pupil"])
+        if pupil.shape != "sampled":
+            smallest = np.linalg.svd(np.asarray(pupil.basis) @ np.diag(pupil.semi_axes_mrad), compute_uv=False)[-1]
+            diffraction_support_nm = 1.22 * wavelength_nm / (smallest * 1e-3)
+        # Union all source positions on one common material ROI. Each mode
+        # shifts the beam over that ROI, never the crystal with the beam.
+        nodes = source_nodes(illumination_config(state))
+        current = state._wave_source_node
+        scan_x_um = np.concatenate([np.asarray(scan_x_um).ravel() + (n.position_nm[0]-current.position_nm[0])*1e-3 for n in nodes])
+        scan_y_um = np.concatenate([np.asarray(scan_y_um).ravel() + (n.position_nm[1]-current.position_nm[1])*1e-3 for n in nodes])
+        # Longest wavelength defines a common conservative support estimate.
+        minimum_energy = state.beam_voltage_kv + (min(n.energy_offset_ev for n in nodes)-current.energy_offset_ev)/1000
+        diffraction_support_nm *= electron(state_at_energy(state, minimum_energy))[2] / wavelength_nm
     defocus_support_nm = abs(effective_defocus_nm) * math.tan(convergence_rad)
     probe_radius_99_nm = max(
         diffraction_support_nm,
@@ -313,6 +332,8 @@ def probe_focus_aberrations(state, ray_stats):
         configured_defocus_mm=configured_defocus_mm,
         effective_defocus_mm=effective_defocus_mm,
         source=(
+            "declared specimen-entrance pupil plus explicit probe C1; no ray-derived focus"
+            if explicit_illumination(state) else
             "sample-plane ray covariance plus additional probe C1; "
             "lens excitation is included once through the traced ray bundle"
         ),
@@ -352,6 +373,8 @@ def _probe_spectrum(
         aperture[nearest] = True
 
     coefficients, _focus = probe_focus_aberrations(state, ray_stats)
+    if explicit_illumination(state):
+        aperture = explicit_pupil_spectrum(state, fx, fy, wavelength_angstrom)
     chi = aberration_phase_rad(
         fx,
         fy,
@@ -377,7 +400,90 @@ def _normalised_shifted_probe(base_spectrum, fx, fy, x_angstrom, y_angstrom):
     return probe / norm[:, None, None]
 
 
-def simulate_angle_resolved_stem(
+def _simulate_angle_resolved_stem(state, simulation, detectors, scan_x_um, scan_y_um, **kwargs):
+    """Integrate independent source/energy modes, then phonons, as intensities."""
+    if not explicit_illumination(state):
+        return _simulate_angle_resolved_stem_single(state, simulation, detectors, scan_x_um, scan_y_um, **kwargs)
+    nodes = source_nodes(illumination_config(state))
+    if kwargs.get("diffraction_sink") is not None and (len(nodes) != 1 or nodes[0].energy_offset_ev != 0):
+        raise ValueError("Multi-mode 4D-STEM capture requires mode-resolved angular calibration; use detector images or a single nominal-energy mode")
+    plan = kwargs.get("record_plane_plan")
+    if any(n.energy_offset_ev != 0 for n in nodes) and plan is None and any(isinstance(d, PhysicalAngularDetector) for d in detectors):
+        raise ValueError("Energy-dependent physical STEM detectors need a recording plan rebuilt at each energy")
+    first = None
+    fractions, records = {}, []
+    uncollected = truncated = overlap = None
+    callback = kwargs.get("progress_callback")
+    for index, node in enumerate(nodes):
+        mode_state = state_for_source_node(state, node)
+        options = dict(kwargs)
+        if callback:
+            options["progress_callback"] = lambda done, total, label, i=index: callback(
+                int((i + done/max(total, 1))*1000), len(nodes)*1000, f"Source mode {i+1}/{len(nodes)} | {label}")
+        if plan is not None and node.energy_offset_ev != 0:
+            from temsim.physics.record_plane import build_record_plane_plan
+            options["record_plane_plan"] = build_record_plane_plan(mode_state, source_z_mm=plan.source_z_mm,
+                                        scan_times_s=plan.scan_times_s if plan.scan_times_s is not None else options.get("scan_times_s"))
+        # Explicit positions already define the specimen-plane reference.
+        options["baseline_scan_offset_um"] = (0., 0.)
+        result = _simulate_angle_resolved_stem_single(mode_state, simulation, detectors, scan_x_um, scan_y_um, **options)
+        if first is None:
+            first = result
+            fractions = {k: np.zeros_like(v) for k, v in result.fractions.items()}
+            uncollected = np.zeros_like(result.uncollected_fraction)
+            truncated = None if result.truncated_fraction is None else np.zeros_like(result.truncated_fraction)
+            overlap = None if result.sample_overlap_fraction is None else np.zeros_like(result.sample_overlap_fraction)
+        for key in fractions:
+            fractions[key] += node.weight * result.fractions[key]
+        uncollected += node.weight * result.uncollected_fraction
+        if result.truncated_fraction is None:
+            truncated = None
+        if truncated is not None:
+            truncated += node.weight * result.truncated_fraction
+        if overlap is not None:
+            overlap += node.weight * result.sample_overlap_fraction
+        records.append({**asdict(node), "energy_kev": mode_state.beam_voltage_kv,
+                        "wavelength_angstrom": result.metrics["wavelength_angstrom"],
+                        "interaction_constant_rad_per_v_angstrom": interaction_constant_rad_per_v_angstrom(mode_state.beam_voltage_kv),
+                        "record_plane_plan_fingerprint": result.metrics["record_plane_plan_fingerprint"],
+                        "detector_sampling": result.metrics["detector_sampling"],
+                        "wave_compute_backend": result.metrics["wave_compute_backend"],
+                        "maximum_isotropic_angle_mrad": result.maximum_isotropic_angle_mrad,
+                        "detector_means": {k: float(v.mean()) for k, v in result.fractions.items()}})
+    metadata = illumination_metadata(state)
+    metadata["illumination_executed_modes"] = records
+    if len(nodes) == 1:
+        metadata.update({key: first.metrics[key] for key in ("alpha_95_current_rad", "alpha_99_current_rad", "pupil_effective_bandwidth_rad", "pupil_wave_grid_extent_inv_angstrom")})
+    minimum = min(r["maximum_isotropic_angle_mrad"] for r in records)
+    metrics = {**first.metrics, **metadata,
+               "representative_scalar_diagnostics_mode_id": nodes[0].mode_id,
+               "maximum_isotropic_angle_mrad": minimum,
+               "mean_truncated_fraction": None if truncated is None else float(truncated.mean()),
+               "angular_coverage_complete": all(r["detector_sampling"]["coverage_complete"] for r in records),
+               "displayed_intensity_average": "incoherent source × energy × frozen-phonon weighted intensities",
+               "source_ensemble_uncertainty_status": "NOT_ESTIMATED: source/energy quadrature convergence requires separate refinement",
+               "detector_configuration_relative_standard_error": (first.metrics["detector_configuration_relative_standard_error"] if len(nodes) == 1 else {k: 0. for k in fractions})}
+    # Report the worst angular coverage over all modes, never the first mode
+    # as if it certified every energy and direction.
+    import copy
+    metrics["detector_sampling"] = copy.deepcopy(first.metrics["detector_sampling"])
+    metrics["detector_sampling"]["coverage_complete"] = metrics["angular_coverage_complete"]
+    metrics["detector_sampling"]["illumination_covered"] = all(r["detector_sampling"]["illumination_covered"] for r in records)
+    metrics["detector_sampling"]["recommended_grid_pixels"] = (
+        max(r["detector_sampling"]["recommended_grid_pixels"] for r in records)
+        if all(r["detector_sampling"]["recommended_grid_pixels"] is not None for r in records) else None)
+    metrics["detector_sampling"]["maximum_simulated_angle_mrad"] = minimum
+    for key in fractions:
+        rows = [r["detector_sampling"]["detectors"][key] for r in records]
+        worst = max(rows, key=lambda r: {"full": 0, "partial": 1, "outside": 2}.get(r["status"], 3))
+        status = "outside" if all(r["status"] == "outside" for r in rows) else "full" if all(r["status"] == "full" for r in rows) else "partial"
+        metrics["detector_sampling"]["detectors"][key] = {**worst, "status": status, "overlaps_illumination_disk": any(r["overlaps_illumination_disk"] for r in rows)}
+    metrics["truncated_detector_keys"] = tuple(k for k in fractions if metrics["detector_sampling"]["detectors"][k]["status"] != "full")
+    return replace(first, fractions=fractions, uncollected_fraction=uncollected, truncated_fraction=truncated,
+                   sample_overlap_fraction=overlap, maximum_isotropic_angle_mrad=minimum, metrics=metrics)
+
+
+def _simulate_angle_resolved_stem_single(
     state,
     simulation,
     detectors,
@@ -446,7 +552,9 @@ def simulate_angle_resolved_stem(
             and record_plane_plan.scan_times_s is None):
         raise ValueError("Dynamic STEM recording requires a plan built with scan times")
 
-    ray_stats = _weighted_ray_statistics(simulation.incident)
+    raw_ray_stats = _weighted_ray_statistics(simulation.incident)
+    ray_stats = illumination_ray_statistics(state, raw_ray_stats)
+    illumination = illumination_metadata(state, raw_ray_stats)
     origin_x_um = float(ray_stats["mean_x_m"]) * 1.0e6 - float(
         baseline_scan_offset_um[0]
     )
@@ -517,8 +625,11 @@ def simulate_angle_resolved_stem(
     configuration_count = len(
         prepared.potential_configurations_v_angstrom
     )
+    execution_policy = getattr(state.sample, "stem_execution_policy", "auto")
+    if execution_policy not in {"auto", "prefer_gpu", "require_gpu"}:
+        raise ValueError("Unknown STEM execution policy")
     wave_backend, wave_fallback_reason = choose_wave_backend(
-        getattr(state, "acceleration_backend", "Auto"),
+        getattr(state, "acceleration_backend", "Auto") if execution_policy == "auto" else execution_policy,
         acceleration_enabled=bool(
             getattr(state, "acceleration_enabled", True)
         ),
@@ -638,7 +749,16 @@ def simulate_angle_resolved_stem(
                 + ", ".join(sorted(missing_physical))
             )
     if diffraction_sink is not None:
-        from temsim.physics.fourdstem import FourDSTEMCalibration
+        from temsim.physics.fourdstem import FourDSTEMCalibration, _array_digest
+        from temsim.calculation_manifest import solver_source_identity
+
+        if hasattr(diffraction_sink, "provenance"):
+            diffraction_sink.provenance.update({
+                "solver_source_sha256": solver_source_identity(),
+                "actual_wave_backend": wave_backend,
+                "potential_sha256": [_array_digest(p) for p in prepared.potential_configurations_v_angstrom],
+                "incident_pupil_sha256": _array_digest(base_spectrum),
+            })
 
         # Mixed-plane propagation needs the actual specimen-plane position,
         # including the incident-bundle centroid.  ``scan_x/y_um`` alone are
@@ -781,22 +901,17 @@ def simulate_angle_resolved_stem(
         "cuda_resident_pipeline": False,
         "cuda_pipeline_fallback_reason": None,
     }
-    if wave_backend == WAVE_BACKEND_CUPY and diffraction_sink is not None:
-        capture_reason = (
-            "4D-STEM capture uses the complete NumPy diffraction frames; "
-            "the resident GPU detector reduction does not return a 4-D cube."
-        )
-        wave_backend = WAVE_BACKEND_NUMPY
-        fft_backend = WAVE_BACKEND_NUMPY
-        wave_fallback_reason = "; ".join(
-            reason
-            for reason in (wave_fallback_reason, capture_reason)
-            if reason
-        )
-        fft_fallback_reason = wave_fallback_reason
-        resident_pipeline_metrics["cuda_pipeline_fallback_reason"] = (
-            capture_reason
-        )
+    def capture_batch(start, frames):
+        for offset, frame in enumerate(frames):
+            y, x = divmod(start + offset, int(scan_x_um.shape[1]))
+            diffraction_sink.write_frame(y, x, frame)
+
+    host_budget = int(getattr(state.sample, "stem_fourdstem_host_budget_mb", 64)) * 1024**2
+    if diffraction_sink is not None:
+        capacity = (host_budget - 64*nx*ny) // (8*nx*ny)
+        if capacity < 1:
+            raise MemoryError("4D-STEM host output budget cannot hold a frame and writer workspace")
+        batch_size = min(batch_size, capacity)
     if wave_backend == WAVE_BACKEND_CUPY:
         try:
             dynamic_masks = record_plane_plan is not None or flat_detector_centers is not None
@@ -840,6 +955,9 @@ def simulate_angle_resolved_stem(
                     )
                 ),
                 batch_size=cuda_batch_size,
+                diffraction_batch_callback=capture_batch if diffraction_sink is not None else None,
+                host_output_budget_bytes=host_budget,
+                cancellation_check=getattr(diffraction_sink, "check_cancelled", None),
                 fallback_reason=wave_fallback_reason,
                 progress_callback=(
                     None
@@ -852,10 +970,17 @@ def simulate_angle_resolved_stem(
                 ),
             )
         except Exception as exc:
+            from temsim.physics.compute_backend import gpu_retry_reason
+            failure_detail = gpu_retry_reason(exc, execution_policy)
             cuda_failure = (
                 "Resident CuPy STEM pipeline failed: "
-                f"{type(exc).__name__}: {exc}"
+                + failure_detail
             )
+            if diffraction_sink is not None and diffraction_sink.writer is not None and diffraction_sink.writer.completed_frames:
+                # Preserve a homogeneous cube. A new attempt may explicitly
+                # resume this backend; never mix prior CUDA frames with CPU.
+                diffraction_sink.close_partial()
+                raise RuntimeError("GPU failed after captured frames; checkpoint retained for explicit resume: " + cuda_failure) from exc
             wave_fallback_reason = "; ".join(
                 dict.fromkeys(
                     reason
@@ -866,6 +991,9 @@ def simulate_angle_resolved_stem(
             fft_fallback_reason = wave_fallback_reason
             wave_backend = WAVE_BACKEND_NUMPY
             fft_backend = WAVE_BACKEND_NUMPY
+            if diffraction_sink is not None and diffraction_sink.writer is not None:
+                diffraction_sink.writer.provenance["actual_wave_backend"] = WAVE_BACKEND_NUMPY
+                diffraction_sink.writer.checkpoint()
             resident_pipeline_metrics[
                 "cuda_pipeline_fallback_reason"
             ] = cuda_failure
@@ -895,6 +1023,9 @@ def simulate_angle_resolved_stem(
         if resident_cuda_result is not None
         else range(0, flat_x_angstrom.size, batch_size)
     )
+    if explicit_illumination(state):
+        illumination.update(current_angle_quantiles(fx, fy, base_spectrum, wavelength_angstrom,
+                            (ray_stats["mean_tx_rad"]*1e3, ray_stats["mean_ty_rad"]*1e3)))
     if resident_cuda_result is not None and overlap_mask is not None:
         # The resident CUDA reduction does not retain the incident probes.
         # Only an enabled absorption channel needs this small bounded CPU
@@ -909,6 +1040,8 @@ def simulate_angle_resolved_stem(
                 np.sum(np.abs(probe)**2 * overlap_mask, axis=(-2, -1)), 0.0, 1.0,
             )
     for batch_index, start in enumerate(batch_starts):
+        if diffraction_sink is not None and hasattr(diffraction_sink, "check_cancelled"):
+            diffraction_sink.check_cancelled()
         stop = min(start + batch_size, flat_x_angstrom.size)
         normalised_probe = _normalised_shifted_probe(
             base_spectrum, fx, fy,
@@ -975,6 +1108,7 @@ def simulate_angle_resolved_stem(
                 exit_wave,
                 compute_backend=fft_backend,
                 fallback_reason=fft_fallback_reason,
+                reference_norm=1.,
             )
             fft_records.append(fft_diagnostics)
             if fft_diagnostics.compute_backend != fft_backend:
@@ -1216,6 +1350,7 @@ def simulate_angle_resolved_stem(
         uncollected_fraction=uncollected,
         truncated_fraction=truncated_fraction if truncation_available else None,
         metrics={
+            **illumination,
             "model": (
                 "multislice_angle_resolved"
                 if multislice_enabled else "thin_phase_angle_resolved"
@@ -1251,11 +1386,14 @@ def simulate_angle_resolved_stem(
             ),
             "probe_focus_source": probe_focus.source,
             "probe_effective_c1_mm": probe_aberrations.c1_mm,
+            "effective_aberrations": asdict(probe_aberrations),
             "probe_aperture_semiangle_mrad": (
                 _coherent_probe_semiangle_rad(ray_stats) * 1.0e3
             ),
             "probe_aperture_observable": (
-                "sample current-weighted 95 percent semi-angle"
+                "declared pupil support; full noncircular complex pupil used"
+                if explicit_illumination(state) else
+                "95%-current ray quantile used as reduced-order disk radius; physical edge unknown"
             ),
             "grid_pixels": max(nx, ny),
             "grid_pixels_x": nx,
@@ -1313,6 +1451,7 @@ def simulate_angle_resolved_stem(
             "fft_numeric_precision": fft_numeric_precision,
             "fft_fallback_reason": fft_fallback_reason,
             "wave_compute_backend": wave_compute_backend,
+            "diffraction_reference": "unit incident probe before specimen; numerical bandwidth loss retained",
             **resident_pipeline_metrics,
         },
         fourdstem_artifact=fourdstem_artifact,
@@ -1324,3 +1463,9 @@ def simulate_angle_resolved_stem(
         "STEM detector frame complete",
     )
     return result
+
+
+def simulate_angle_resolved_stem(state, simulation, detectors, scan_x_um, scan_y_um, **kwargs):
+    from temsim.execution_evidence import attach_execution_evidence
+    result = _simulate_angle_resolved_stem(state, simulation, detectors, scan_x_um, scan_y_um, **kwargs)
+    return attach_execution_evidence(result, state, "STEM")

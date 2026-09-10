@@ -29,6 +29,38 @@ AUTO_NUMBA_MIN_RAYS = 256
 # cost more than the FFT work in an interactive preview.
 AUTO_CUPY_MIN_WORK_ITEMS = 1_000_000
 
+class GPUExecutionError(RuntimeError):
+    def __init__(self, category, detail):
+        self.category = category
+        super().__init__(f"GPU {category}: {detail}")
+
+
+def gpu_failure_category(error):
+    """Only accelerator resource/runtime failures are eligible for retry.
+
+    I/O, cancellation, malformed inputs and numerical/programming errors must
+    propagate with their original meaning instead of becoming CPU fallbacks.
+    """
+    if isinstance(error, GPUExecutionError):
+        return error.category
+    module = type(error).__module__
+    name = type(error).__name__
+    if module.startswith(("cupy", "cupy_backends")):
+        if name == "OutOfMemoryError" or getattr(error, "status", None) == 2:
+            return "out_of_memory"
+        if name in {"CUDARuntimeError", "CUDADriverError", "NVRTCError", "CompileException", "CuFFTError"}:
+            return "kernel_or_runtime_failure"
+    return None
+
+
+def gpu_retry_reason(error, policy):
+    category = gpu_failure_category(error)
+    if category is None:
+        raise error
+    if str(policy).lower() == "require_gpu":
+        raise GPUExecutionError(category, str(error)) from error
+    return f"{category}: {type(error).__name__}: {error}"
+
 
 @dataclass(frozen=True)
 class BackendCapability:
@@ -99,7 +131,7 @@ def cupy_module():
 
     capability = cupy_capability()
     if not capability.available:
-        raise RuntimeError(capability.detail)
+        raise GPUExecutionError("unavailable", capability.detail)
     import cupy as cp
 
     return cp
@@ -134,6 +166,14 @@ def choose_wave_backend(
     grid-point-by-slice work is large enough to amortise setup and transfers.
     """
 
+    policy = str(requested).lower()
+    if policy in {"prefer_gpu", "require_gpu"}:
+        status = cupy_capability()
+        if status.available:
+            return WAVE_BACKEND_CUPY, None
+        if policy == "require_gpu":
+            raise GPUExecutionError("unavailable", status.detail)
+        return WAVE_BACKEND_NUMPY, "unavailable: " + status.detail
     choice = normalise_backend(requested)
     if not acceleration_enabled or choice in (BACKEND_CPU, BACKEND_NUMBA):
         return WAVE_BACKEND_NUMPY, None

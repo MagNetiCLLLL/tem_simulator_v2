@@ -91,9 +91,6 @@ def resolve_nonlinear_provider(state, key, native, binding, *, prepare_only=Fals
         cache = {}
         state._runtime_nonlinear_provider_cache = cache
     cached = cache.get(key)
-    if not prepare_only and cached is not None and cached[0] == token and cached[1].native_provider is native:
-        cached[1].excitation_scale()
-        return cached[1]
     parts, neighbours = {}, {}
     for item in bindings:
         assembly = json.loads(item.canonical_geometry_json)["lens_assembly"]
@@ -129,8 +126,19 @@ def resolve_nonlinear_provider(state, key, native, binding, *, prepare_only=Fals
         magnetic_circuit_topology="joint_nonlinear", magnetic_circuit_channels=keys,
         parts=[parts[k] for k in sorted(parts)],
         magnetostatic_neighbours=[neighbours[k] for k in sorted(neighbours) if k not in parts]))
+    # CAD-only edits are deliberately outside the field fingerprint. Admission
+    # must therefore inspect the complete joint domain before a cache hit too.
+    from temsim.geometry_effects import field_geometry_admission
+    joint_binding = SimpleNamespace(canonical_geometry_json=json.dumps(geometry))
+    for channel in keys:
+        field_geometry_admission(state, joint_binding, recipes[channel])
+    if not prepare_only and cached is not None and cached[0] == token and cached[1].native_provider is native:
+        cached[1].excitation_scale()
+        return cached[1]
     currents = {}
     for channel, (enabled, percent, polarity) in zip(keys, point):
+        from temsim.excitation_calibration import validate_excitation_recipe
+        validate_excitation_recipe(recipes[channel])
         ni = float(recipes[channel]["ampere_turns"])
         if not np.isfinite(ni) or ni < 0:
             raise FieldMapError("Ampere-turns at 100% must be finite and nonnegative; use polarity for direction")

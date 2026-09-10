@@ -323,6 +323,8 @@ def calculate(
     ensure_energy_filter(state)
     ensure_corrector_structure(state)
     normalise_component_names(state)
+    from temsim.geometry_effects import admit_state_geometry
+    admit_state_geometry(state)
     external_inputs = capture_external_input_identities(state)
     signatures = calculation_signatures(state)
     assert_external_input_inventory_unchanged(state, external_inputs)

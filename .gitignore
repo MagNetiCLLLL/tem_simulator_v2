@@ -12,6 +12,10 @@ dist/
 /tmp/
 /outputs/high_accuracy/
 /outputs/high_accuracy_artifacts/
+/outputs/tem-p0/
+/outputs/tem-p0-final/
+/outputs/tem-p0-core-final/
+/outputs/tem-p0-core.xml
 
 # Build checks and transient validation logs (selected result archives are tracked).
 /outputs/reference_packaging_validation/
@@ -41,3 +45,19 @@ dist/
 /outputs/eds_defocus_diagnostic/photon_quadrature/
 /outputs/eds_defocus_diagnostic/latest_cached_baseline_eds/
 /outputs/eds_defocus_diagnostic/baseline/
+
+# WP-03 local validation logs / UI rendering; curated reports live in docs/validation.
+/outputs/illumination-final/
+/outputs/illumination-audit/
+/outputs/illumination/
+/outputs/illumination-dialog.png
+/outputs/render_illumination_dialog.py
+
+# WP-04 local logs and UI renders; curated report lives in docs/validation.
+/outputs/aberrations/
+/outputs/aberration-audit/
+
+# Development-spec acceptance workspaces; final reports are curated separately.
+/outputs/spec-acceptance*/
+/outputs/wp06-exploration.xml
+/outputs/acceptance-install/

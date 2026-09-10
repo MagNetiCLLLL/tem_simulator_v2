@@ -1,0 +1,15 @@
+{
+  "baseline_commit": "efc648ddbdcfa8d008c26048dde93ef52613fffe",
+  "date": "2026-09-10",
+  "command": ".venv/Scripts/python.exe -m pytest tests/test_tem_flux_contract.py -q",
+  "implementation_modified": false,
+  "backend": "NumPy CPU, float64/complex128",
+  "fixture": "32 x 32, 1 angstrom spacing, two discrete Fourier orders (0 and 4), canonical Fourier map B=0.01 m, objective aperture radius 0.003 mm",
+  "absolute_tolerance": 1e-10,
+  "results": [
+    {"acceptance": "AT-06", "expected": 0.2, "actual": 0.9999999999999998, "status": "FAIL"},
+    {"acceptance": "AT-02", "expected": 0.8, "actual": 0.0, "status": "FAIL"},
+    {"acceptance": "AT-04 closed aperture", "expected": 0.0, "actual": 0.0, "status": "PASS"}
+  ],
+  "scope": "Manufactured production-entry integration, not independent material validation. Input wave and column map are analytical fixtures; FFT, aperture and camera code are unmodified production code."
+}

@@ -15,7 +15,7 @@ def _state():
     return State.from_dict(default_state().to_dict())
 
 
-def test_mode_shelves_restore_excitation_without_geometry_or_resolution_changes():
+def test_mode_switch_preserves_current_controls_geometry_and_resolution():
     state = _state()
     initial = deepcopy(state.to_dict())
     positions = [(lens.key, lens.z_mm) for lens in state.lenses]
@@ -27,13 +27,13 @@ def test_mode_shelves_restore_excitation_without_geometry_or_resolution_changes(
     switch_mode(state, "analytical")
     state.lenses[0].percent = 25
     switch_mode(state, "ideal")
-    assert state.lenses[0].percent == 12.5
+    assert state.lenses[0].percent == 25
     assert state.probe_aberrations["c3_mm"] == 5
     assert [(lens.key, lens.z_mm) for lens in state.lenses] == positions
     assert state.step_mm == initial["step_mm"]
     assert state.electron_gun.emitter.ray_count == _state().electron_gun.emitter.ray_count
     switch_mode(state, "custom")
-    assert state.lenses[0].percent == original
+    assert state.lenses[0].percent == 25
     assert state.probe_aberrations == initial["probe_aberrations"]
 
 

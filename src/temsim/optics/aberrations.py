@@ -17,6 +17,7 @@ import math
 import numpy as np
 
 from temsim.optics.lens_focal_length import focal_length_mm
+from temsim.optics.aberration_basis import ABERRATION_SCHEMA, WAVE_TERMS, UNIMPLEMENTED_TERMS
 
 
 DEFAULT_CS_TO_FOCAL_LENGTH_RATIO = 3.0 / 7.0
@@ -42,7 +43,8 @@ class EffectiveAberrationSet:
     simulator's right-handed X-Y frame.  ``C1`` is defocus, ``A1`` two-fold
     astigmatism, ``B2`` axial coma, ``A2`` three-fold astigmatism, ``C3``
     spherical aberration, ``S3`` star aberration, ``A3`` four-fold
-    astigmatism, ``C5`` fifth-order spherical aberration, and ``Cc`` the
+    astigmatism, ``C5`` fifth-order spherical aberration, ``A5`` six-fold
+    astigmatism (C56), and ``Cc`` the
     first-order chromatic coefficient.
     """
 
@@ -61,6 +63,8 @@ class EffectiveAberrationSet:
     a3_mm: float = 0.0
     a3_azimuth_deg: float = 0.0
     c5_mm: float = 0.0
+    a5_mm: float = 0.0
+    a5_azimuth_deg: float = 0.0
     cc_mm: float = 0.0
     status: str = "principle_model"
     source: str = "simulator state; non-OEM calibration"
@@ -83,6 +87,7 @@ SYSTEM_COEFFICIENT_ROWS = (
     ("S3", "s3_mm", "s3_azimuth_deg"),
     ("A3", "a3_mm", "a3_azimuth_deg"),
     ("C5", "c5_mm", None),
+    ("A5", "a5_mm", "a5_azimuth_deg"),
     ("Cc", "cc_mm", None),
 )
 
@@ -331,6 +336,7 @@ def _aberration_cache_signature(state, system: str) -> str:
         key: value.content_fingerprint
         for key, value in getattr(state, "_lens_field_map_bindings", {}).items()
     }
+    snapshot["aberration_schema"] = ABERRATION_SCHEMA
     return hashlib.sha256(repr(_public_optical_value(snapshot)).encode("utf-8")).hexdigest()
 
 
@@ -355,6 +361,7 @@ def effective_aberration_comparison(state, system: str) -> tuple[EffectiveAberra
             "coefficient_status": {term: "configured defocus" if term == "C1" else "disabled by Ideal Optics"
                                    for term, _, _ in SYSTEM_COEFFICIENT_ROWS},
             "inferred_coefficients": (), "unmeasured_coefficients": (),
+            "unimplemented_terms": UNIMPLEMENTED_TERMS,
         }
     if hasattr(state, "sync_objective"):
         state.sync_objective()
@@ -411,6 +418,7 @@ def effective_aberration_comparison(state, system: str) -> tuple[EffectiveAberra
         "coefficient_status": coefficient_status,
         "inferred_coefficients": inferred,
         "unmeasured_coefficients": tuple(unmeasured),
+        "unimplemented_terms": UNIMPLEMENTED_TERMS,
         "diagnostic_scope": (
             "Compact reference ring with nonlinear fields off/on; C3 only. "
             "Other residual coefficients are not fitted from the actual probe."
@@ -458,7 +466,10 @@ def aberration_phase_rad(
     wavelength_angstrom: float,
     coefficients: EffectiveAberrationSet,
 ):
-    """Evaluate the coherent wave-aberration phase through fifth order."""
+    """Evaluate the declared wave basis; transfer uses exp(-i chi).
+
+    C5 and A5 are supported; C41, C43, C45, C52 and C54 are not implemented.
+    """
 
     coefficients.validate()
     fx = np.asarray(frequency_x_inv_angstrom, dtype=float)
@@ -472,16 +483,11 @@ def aberration_phase_rad(
     theta_y = wavelength_m * fy * 1.0e10
     theta = np.hypot(theta_x, theta_y)
     phi = np.arctan2(theta_y, theta_x)
-    mm_to_m = 1.0e-3
-    angle = lambda degrees: math.radians(float(degrees))
-    wave_m = 0.5 * coefficients.c1_mm * mm_to_m * theta**2
-    wave_m += 0.5 * coefficients.a1_mm * mm_to_m * theta**2 * np.cos(2.0 * (phi - angle(coefficients.a1_azimuth_deg)))
-    wave_m += (coefficients.b2_mm * mm_to_m / 3.0) * theta**3 * np.cos(phi - angle(coefficients.b2_azimuth_deg))
-    wave_m += (coefficients.a2_mm * mm_to_m / 3.0) * theta**3 * np.cos(3.0 * (phi - angle(coefficients.a2_azimuth_deg)))
-    wave_m += 0.25 * coefficients.c3_mm * mm_to_m * theta**4
-    wave_m += 0.25 * coefficients.s3_mm * mm_to_m * theta**4 * np.cos(2.0 * (phi - angle(coefficients.s3_azimuth_deg)))
-    wave_m += 0.25 * coefficients.a3_mm * mm_to_m * theta**4 * np.cos(4.0 * (phi - angle(coefficients.a3_azimuth_deg)))
-    wave_m += (coefficients.c5_mm * mm_to_m / 6.0) * theta**6
+    wave_m = np.zeros_like(theta)
+    for term in WAVE_TERMS:
+        azimuth = math.radians(getattr(coefficients, term.azimuth_field)) if term.azimuth_field else 0.0
+        wave_m += (getattr(coefficients, term.field) * 1e-3 / term.power * theta**term.power
+                   * np.cos(term.harmonic * (phi - azimuth)))
     return (2.0 * math.pi / wavelength_m) * wave_m
 
 

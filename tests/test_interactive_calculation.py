@@ -205,28 +205,23 @@ def test_memory_cube_budget_completion_and_raw_probability():
     assert not artifact.data.flags.writeable
 
 
-def test_pre_aperture_wave_checkpoint_reopens_pupil_without_specimen_solver(monkeypatch):
+def test_legacy_wave_checkpoint_requires_explicit_pre_loss_reference():
+    # Actual pre-pupil replay, expansion and offset are covered through the
+    # production projector in test_tem_flux_contract.py. Old amplitude-only
+    # checkpoints cannot reconstruct their missing flux convention safely.
     import temsim.physics.wave_imaging as wave
     n = 16
     axis = np.arange(n, dtype=float)
-    unapertured = np.exp(2j * np.pi * np.arange(n)[None, :] * 3/n) * np.ones((n, 1))
-    checkpoint = wave.ProjectorWaveCheckpoint((np.zeros((n, n), complex),), axis, axis, .02, .01,
-                                              (unapertured,), .001)
-    result = wave.WaveImagingResult("test", "test", axis, axis, np.zeros((n,n)), unapertured,
+    amplitude = np.ones((n, n), complex)
+    checkpoint = wave.ProjectorWaveCheckpoint((amplitude,), axis, axis, .02, .01,
+                                               (amplitude,), .001)
+    result = wave.WaveImagingResult("test", "test", axis, axis, np.zeros((n,n)), amplitude,
                                    np.zeros((n,n)), np.zeros((n,n)), np.zeros((n,n)), np.zeros((n,n)),
                                    axis, axis, axis, axis, {}, checkpoint)
     state = SimpleNamespace(objective_aperture=SimpleNamespace(enabled=True, radius_mm=1, z_mm=1),
                             sample=SimpleNamespace(z_mm=0))
-    def project(s, cp):
-        intensity = abs(cp.objective_wave_configurations[0])**2
-        return intensity, intensity, np.zeros_like(intensity), SimpleNamespace(x_mm=axis, y_mm=axis, metrics={})
-    monkeypatch.setattr(wave, "_project_objective_configurations", project)
-    opened = wave.reproject_wave_image(state, result)
-    np.testing.assert_allclose(opened.camera_electron_optical_intensity, 1, atol=1e-12)
-    assert not np.any(result.camera_electron_optical_intensity)
-    state.objective_aperture.radius_mm = .001
-    closed = wave.reproject_wave_image(state, opened)
-    assert closed.camera_electron_optical_intensity.max() < 1e-25
+    with pytest.raises(ValueError, match="pre-loss reference norm"):
+        wave.reproject_wave_image(state, result)
 
 
 def test_page_requires_range_endpoints_and_does_not_auto_calculate(toy):

@@ -140,6 +140,18 @@ class ScanControlView(QWidget):
             "Runs only during an explicit High accuracy wave-STEM scan."
         )
         fourdstem_form.addRow(self.fourdstem_enabled)
+        self.stem_execution_policy = QComboBox()
+        for label, policy in (("Auto (toolbar backend)", "auto"), ("Prefer GPU; report fallback", "prefer_gpu"), ("Require GPU; stop on failure", "require_gpu")):
+            self.stem_execution_policy.addItem(label, policy)
+        self.stem_execution_policy.currentIndexChanged.connect(self._stem_execution_policy_changed)
+        fourdstem_form.addRow("STEM compute policy", self.stem_execution_policy)
+        self.fourdstem_host_budget = QSpinBox()
+        self.fourdstem_host_budget.setRange(1, 4096)
+        self.fourdstem_host_budget.setSuffix(" MiB")
+        self.fourdstem_host_budget.setValue(64)
+        self.fourdstem_host_budget.valueChanged.connect(self._fourdstem_host_budget_changed)
+        self.fourdstem_host_budget.setToolTip("Maximum diffraction transfer batch and writer workspace. Synchronous writing applies backpressure; specimen and plotting memory are separate.")
+        fourdstem_form.addRow("Host output budget", self.fourdstem_host_budget)
         self.fourdstem_path = QLineEdit()
         self.fourdstem_path.setObjectName("stemFourDSTEMOutputPath")
         self.fourdstem_path.setPlaceholderText("Choose a .npy output file")
@@ -852,6 +864,8 @@ class ScanControlView(QWidget):
             self.fourdstem_enabled.setChecked(bool(getattr(
                 state.sample, "stem_fourdstem_enabled", False
             )))
+            self.stem_execution_policy.setCurrentIndex(self.stem_execution_policy.findData(getattr(state.sample, "stem_execution_policy", "auto")))
+            self.fourdstem_host_budget.setValue(getattr(state.sample, "stem_fourdstem_host_budget_mb", 64))
             self.fourdstem_path.setText(str(getattr(
                 state.sample, "stem_fourdstem_output_path", ""
             )))
@@ -956,6 +970,18 @@ class ScanControlView(QWidget):
             widget.setEnabled(adjustable)
         self.fourdstem_response_poisson.setEnabled(adjustable)
         self.fourdstem_response_seed.setEnabled(adjustable)
+
+    def _stem_execution_policy_changed(self, index):
+        if self._state is None or self._updating:
+            return
+        self._state.sample.stem_execution_policy = self.stem_execution_policy.itemData(index)
+        self.parameters_changed.emit("sample.stem_execution_policy")
+
+    def _fourdstem_host_budget_changed(self, value):
+        if self._state is None or self._updating:
+            return
+        self._state.sample.stem_fourdstem_host_budget_mb = value
+        self.parameters_changed.emit("sample.stem_fourdstem_host_budget_mb")
 
     def _fourdstem_enabled_changed(self, enabled: bool) -> None:
         self._sync_fourdstem_control_state()
@@ -2347,6 +2373,11 @@ class ScanControlView(QWidget):
                     + (f" [{status} band]" if status and status != "full" else "")
                 )
         detail = " | ".join(values) if values else "no inserted detector"
+        illumination = metrics.get("illumination_model")
+        if illumination:
+            detail += f" | {illumination}"
+            if metrics.get("illumination_mode_count"):
+                detail += f" | {metrics['illumination_mode_count']} source modes; convergence not assessed"
         return f"{playback} | {model} | {detail}"
 
     @staticmethod

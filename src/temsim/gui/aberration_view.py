@@ -134,6 +134,7 @@ class AberrationComparisonView(QWidget):
             "S3": "star aberration",
             "A3": "four-fold astigmatism",
             "C5": "fifth-order spherical",
+            "A5": "six-fold astigmatism",
             "Cc": "first-order chromatic",
         }[term]
 
@@ -169,14 +170,23 @@ class AberrationComparisonView(QWidget):
             self.summary.setText("Ideal Optics | lens aberrations disabled | defocus retained")
             detail_text = diagnostics["diagnostic_scope"]
         elif field_mode:
+            holdout = diagnostics.get("holdout_rms_m")
+            validation = f" | holdout RMS {holdout * 1e9:.4g} nm" if holdout is not None else ""
+            support = diagnostics.get("field_support_status", "support not assessed")
             self.summary.setText(
                 f"{after.reference_plane} | Field-derived | fit RMS "
-                f"{diagnostics['fit_rms_m'] * 1e9:.4g} nm | correction comparison not calculated"
+                f"{diagnostics['fit_rms_m'] * 1e9:.4g} nm{validation} | {support}\n"
+                "correction comparison not calculated"
             )
             detail_text = (
                 f"{diagnostics['source']}. {diagnostics['diagnostic_scope']}. "
                 f"Fit condition number: {diagnostics['fit_condition_number']:.4g}. "
                 "Fit residual is model approximation error, not a corrected beam size."
+                f" Semi-angle: {diagnostics.get('fit_semiangle_mrad', 'unknown')} mrad; "
+                f"step: {diagnostics.get('fit_step_mm', 'unknown')} mm. "
+                f"Cc energy convergence: {diagnostics.get('chromatic_convergence', {}).get('status', 'NOT_ASSESSED')}. "
+                f"Unmapped lenses: {', '.join(diagnostics.get('unmapped_round_lenses', ()))}. "
+                f"Not implemented: {', '.join(diagnostics.get('unimplemented_terms', ()))}."
             )
         else:
             ratio = float(diagnostics["c3_residual_ratio"])

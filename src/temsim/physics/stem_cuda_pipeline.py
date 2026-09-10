@@ -148,6 +148,9 @@ def run_resident_stem_cuda(
     detector_mask_provider: Callable[[int, int], dict[str, np.ndarray]] | None = None,
     valid_reciprocal_mask: np.ndarray | None = None,
     transmission_cache_limit_bytes: int | None = None,
+    diffraction_batch_callback: Callable[[int, np.ndarray], None] | None = None,
+    host_output_budget_bytes: int = 64 * 1024**2,
+    cancellation_check: Callable[[], None] | None = None,
 ) -> ResidentStemCudaResult:
     """Calculate all STEM detector fractions with one bulk host transfer.
 
@@ -292,11 +295,25 @@ def run_resident_stem_cuda(
     maximum_intensity_change = 0.0
     diagnostic_count = 0
     effective_batch_size = min(int(batch_size), scan_count)
+    if diffraction_batch_callback is not None:
+        # One float32 transfer batch plus a conservative float64 writer frame
+        # workspace. The synchronous consumer provides backpressure: there is
+        # no unbounded host queue and no whole-cube device allocation.
+        pixels = int(spectrum.size)
+        capacity = (int(host_output_budget_bytes) - 64 * pixels) // (4 * pixels)
+        if capacity < 1:
+            raise MemoryError("4D-STEM host output budget cannot hold one diffraction frame and writer workspace")
+        effective_batch_size = min(effective_batch_size, capacity)
+    transfer_bytes = 0
     batch_count = int(math.ceil(scan_count / effective_batch_size))
     for batch_index, start in enumerate(
         range(0, scan_count, effective_batch_size)
     ):
         stop = min(start + effective_batch_size, scan_count)
+        if cancellation_check is not None:
+            cancellation_check()
+        average_diffraction = (cp.zeros((stop-start, *spectrum.shape), dtype=cp.float32)
+                               if diffraction_batch_callback is not None else None)
         if detector_mask_provider is None:
             batch_masks = device_masks
         else:
@@ -380,14 +397,11 @@ def run_resident_stem_cuda(
                     axes=(-2, -1),
                 )
             ) ** 2
-            diffraction /= cp.maximum(
-                cp.sum(
-                    diffraction,
-                    axis=(-2, -1),
-                    keepdims=True,
-                ),
-                cp.float32(1.0e-30),
-            )
+            # Parseval against the unit probe BEFORE the specimen. Do not
+            # normalize the surviving exit wave back to one after band loss.
+            diffraction /= spectrum.size
+            if average_diffraction is not None:
+                average_diffraction += diffraction / configuration_count
             for key in detector_keys:
                 if detector_mask_provider is None:
                     values = cp.sum(
@@ -408,6 +422,11 @@ def run_resident_stem_cuda(
                 truncation_sums[start:stop] += cp.sum(
                     diffraction[:, device_invalid_mask], axis=1, dtype=cp.float64,
                 )
+        if average_diffraction is not None:
+            host_frames = cp.asnumpy(average_diffraction)
+            transfer_bytes += host_frames.nbytes
+            diffraction_batch_callback(start, host_frames)
+            del host_frames, average_diffraction
         if progress_callback is not None:
             # CuPy launches asynchronously. Synchronise only when a caller
             # explicitly requests truthful completed-work progress.
@@ -525,6 +544,10 @@ def run_resident_stem_cuda(
             "cuda_fixed_device_bytes": fixed_device_bytes,
             "cuda_bulk_host_transfer_count": 1,
             "cuda_bulk_host_transfer_bytes": int(host_output.nbytes),
+            "cuda_diffraction_batch_transfer_count": batch_count if diffraction_batch_callback is not None else 0,
+            "cuda_diffraction_transfer_bytes": int(transfer_bytes),
+            "cuda_diffraction_host_budget_bytes": int(host_output_budget_bytes),
+            "cuda_diffraction_host_bound_bytes": (int((4*effective_batch_size+64)*spectrum.size) if diffraction_batch_callback is not None else 0),
             "cuda_physical_detector_mask_upload_count": mask_upload_count,
             "cuda_physical_detector_mask_upload_bytes": mask_upload_bytes,
             "cuda_multislice_diagnostic_count": diagnostic_count,

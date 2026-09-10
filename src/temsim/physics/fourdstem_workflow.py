@@ -160,7 +160,7 @@ def prepare_fourdstem_capture(
     state_signatures = calculation_signatures(state)
     source_signature = state_signatures["wave_source"]
     cube_signature = _digest({
-        "model": "configuration_averaged_4dstem_v1",
+        "model": "configuration_averaged_4dstem_pre_specimen_flux_v2",
         "stem_source_signature": source_signature,
         "stored_frame_quantity": "diffraction_probability",
     })

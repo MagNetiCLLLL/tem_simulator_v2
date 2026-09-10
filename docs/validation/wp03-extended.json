@@ -1,0 +1,1441 @@
+{
+  "schema": "wp03-illumination-validation-v1",
+  "started_utc": "2026-09-10T10:01:01.005902+00:00",
+  "git_base": "efc648ddbdcfa8d008c26048dde93ef52613fffe",
+  "command": [
+    "E:\\tem_simulator_v2\\.venv\\Scripts\\python.exe",
+    "-m",
+    "pytest",
+    "tests/test_illumination_modes.py",
+    "tests/test_tem_flux_contract.py",
+    "tests/test_stem_wave_control_ownership.py",
+    "tests/test_wave_imaging.py",
+    "tests/test_interactive_calculation.py",
+    "tests/test_stem_finite_absorption.py",
+    "tests/test_stem_recording_deflection.py",
+    "tests/test_aberration_model.py",
+    "tests/test_fourdstem.py",
+    "tests/test_fourdstem_cache_products.py",
+    "tests/test_tem_result_sources.py",
+    "tests/test_calculation_cache_reuse.py",
+    "tests/test_sample_profile_v2.py",
+    "tests/test_reference_sample_profile.py",
+    "tests/test_profile_optional_values.py",
+    "--tb=short",
+    "--junitxml=E:\\tem_simulator_v2\\outputs\\illumination-final\\pytest.xml"
+  ],
+  "exit_code": 0,
+  "status": "PASS",
+  "counts": {
+    "PASS": 237,
+    "FAIL": 0,
+    "NOT_RUN": 0
+  },
+  "source_energy_convergence": {
+    "wp03_convergence_position": {
+      "observable": "BF probability and incident finite-material overlap",
+      "unit": "probability per conditional incident electron",
+      "orders": [
+        3,
+        5,
+        7
+      ],
+      "values": [
+        [
+          [
+            [
+              0.2027316686736333,
+              0.19649259856223375,
+              0.19036749674121453,
+              0.18459067699032583,
+              0.17936457733465772
+            ]
+          ],
+          [
+            [
+              0.38532932087939525,
+              0.4682349407454657,
+              0.552823578584973,
+              0.6346233607639353,
+              0.7095415151263835
+            ]
+          ]
+        ],
+        [
+          [
+            [
+              0.2027316588562525,
+              0.19649261350699512,
+              0.19036753393123704,
+              0.18459073027001194,
+              0.1793646381464621
+            ]
+          ],
+          [
+            [
+              0.3853307207533466,
+              0.4682353499128292,
+              0.5528229032881807,
+              0.6346217555717636,
+              0.7095393436500549
+            ]
+          ]
+        ],
+        [
+          [
+            [
+              0.20273165885468739,
+              0.19649261350897618,
+              0.19036753393634548,
+              0.18459073027702988,
+              0.17936463815370446
+            ]
+          ],
+          [
+            [
+              0.3853307210876765,
+              0.46823535001193356,
+              0.5528229031249359,
+              0.63462175519082,
+              0.7095393431549936
+            ]
+          ]
+        ]
+      ],
+      "relative_target": 0.01,
+      "absolute_floor": 1e-07,
+      "reference": "next refined quadrature on the same specimen/wave/recording grid",
+      "comparisons": [
+        {
+          "order": 5,
+          "max_absolute_change": 2.1714763286384553e-06,
+          "reference_scale": 0.7095393436500549,
+          "acceptance_bound": 0.00709549343650055,
+          "status": "PASS"
+        },
+        {
+          "order": 7,
+          "max_absolute_change": 4.95061325267443e-10,
+          "reference_scale": 0.7095393431549936,
+          "acceptance_bound": 0.007095493431549936,
+          "status": "PASS"
+        }
+      ],
+      "status": "PASS",
+      "scope": "fixture-local source/energy quadrature only; does not certify spatial-grid, phonon or material convergence"
+    },
+    "wp03_convergence_energy": {
+      "observable": "BF probability and incident finite-material overlap",
+      "unit": "probability per conditional incident electron",
+      "orders": [
+        3,
+        5,
+        7
+      ],
+      "values": [
+        [
+          [
+            [
+              0.2027993073180089,
+              0.19643340697728237,
+              0.19018768489745538,
+              0.18430689378445322,
+              0.179001747362523
+            ]
+          ],
+          [
+            [
+              0.3822282584236308,
+              0.4673534884483903,
+              0.5542840375586855,
+              0.638223559128974,
+              0.7147936056411417
+            ]
+          ]
+        ],
+        [
+          [
+            [
+              0.20279930731800883,
+              0.19643340697728226,
+              0.1901876848974552,
+              0.18430689378445306,
+              0.17900174736252283
+            ]
+          ],
+          [
+            [
+              0.38222825842363073,
+              0.4673534884483903,
+              0.5542840375586854,
+              0.6382235591289739,
+              0.7147936056411415
+            ]
+          ]
+        ],
+        [
+          [
+            [
+              0.20279930731800883,
+              0.1964334069772823,
+              0.19018768489745522,
+              0.18430689378445306,
+              0.17900174736252283
+            ]
+          ],
+          [
+            [
+              0.38222825842363073,
+              0.4673534884483904,
+              0.5542840375586855,
+              0.6382235591289739,
+              0.7147936056411416
+            ]
+          ]
+        ]
+      ],
+      "relative_target": 0.01,
+      "absolute_floor": 1e-07,
+      "reference": "next refined quadrature on the same specimen/wave/recording grid",
+      "comparisons": [
+        {
+          "order": 5,
+          "max_absolute_change": 2.220446049250313e-16,
+          "reference_scale": 0.7147936056411415,
+          "acceptance_bound": 0.0071480360564114154,
+          "status": "PASS"
+        },
+        {
+          "order": 7,
+          "max_absolute_change": 1.1102230246251565e-16,
+          "reference_scale": 0.7147936056411416,
+          "acceptance_bound": 0.007148036056411416,
+          "status": "PASS"
+        }
+      ],
+      "status": "PASS",
+      "scope": "fixture-local source/energy quadrature only; does not certify spatial-grid, phonon or material convergence"
+    }
+  },
+  "cases": [
+    {
+      "test": "tests.test_illumination_modes.test_at11_uniform_disk_has_distinct_current_quantiles",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_illumination_modes.test_at12_rotated_offset_pupil_reaches_production_tem",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_illumination_modes.test_at13_tem_two_modes_are_incoherent_and_replayable",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_illumination_modes.test_sampled_intensity_and_amplitude_semantics",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_illumination_modes.test_source_priors_and_independent_dimensions",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_illumination_modes.test_clipped_declared_pupil_is_rejected_before_normalisation",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_illumination_modes.test_legacy_reports_unknown_edge",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_illumination_modes.test_at13_beam_state_intensity_sum_excludes_interference",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_illumination_modes.test_at15_analytic_gaussian_lct_centre_width_and_curvature",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_illumination_modes.test_energy_modes_update_wavelength_scattering_and_keep_hardware",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_illumination_modes.test_stem_source_energy_modes_match_separate_detector_integrations",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_illumination_modes.test_illumination_serialization_cache_and_dialog",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_illumination_modes.test_at14_source_and_energy_quadrature_convergence[position]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_illumination_modes.test_at14_source_and_energy_quadrature_convergence[energy]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at06_known_aperture_transmission_is_not_renormalised",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at02_offset_aperture_selects_nonzero_diffraction_order",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at04_closed_aperture_is_valid_zero_result[physical_plane]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at04_closed_aperture_is_valid_zero_result[equivalent_pupil]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at04_inactive_aperture_does_not_clip[enabled]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at04_inactive_aperture_does_not_clip[installed]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at04_inactive_aperture_does_not_clip[inserted]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at01_at03_actual_map_and_one_execution_per_branch",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at05_equivalent_fourier_pupil_matches_physical_plane",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at05_non_fourier_equivalent_pupil_fails_explicitly",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at08_real_phase_grating_ensemble_keeps_prior_and_loss",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_replay_offset_expansion_strategy_matches_fresh_without_mutation",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at07_explicit_weight_and_reference_current_count_scaling",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_at09_lossless_guard_detects_corrupted_propagation",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_duplicate_physical_execution_rejected",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_numerical_bandwidth_loss_is_retained_and_not_physical_absorption",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_export_preserves_raw_flux_and_execution_graph",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_provenance_binding_does_not_initialise_or_change_hardware",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_single_precision_norm_tolerance_is_explicit_without_repair",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_tem_projection_cache_version_does_not_expire_other_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_flux_contract.test_policy_reuses_source_but_mechanical_edits_keep_geometry_dependencies",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_wave_control_ownership.test_stem_wave_toggle_has_only_scanning_image_owner",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_wave_control_ownership.test_scanning_toggle_updates_shared_field_and_emits_once[False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_wave_control_ownership.test_scanning_toggle_updates_shared_field_and_emits_once[True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_wave_control_ownership.test_panel_refresh_preserves_stem_request_without_emitting[False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_wave_control_ownership.test_panel_refresh_preserves_stem_request_without_emitting[True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_wave_control_ownership.test_operating_profile_restores_stem_request_to_sole_toggle[False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_wave_control_ownership.test_operating_profile_restores_stem_request_to_sole_toggle[True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_wave_control_ownership.test_scanning_wave_control_keeps_existing_illumination_support[TEM]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_wave_control_ownership.test_scanning_wave_control_keeps_existing_illumination_support[STEM]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_retracted_sample_has_zero_interacting_wave_thickness",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_tem_wave_observable_accepts_reference_or_imported_real_cif",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_tem_recording_plane_stops_at_screen_and_alignment_falls_back_to_camera",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_tem_recording_rejects_an_inserted_upstream_stem_detector",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_projector_checkpoint_reprojection_matches_fresh_wave_calculation",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_defocused_image_wave_uses_symplectic_specimen_canonical_transfer",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_tem_wave_memory_estimate_accounts_for_large_fft_grid",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_retracted_sample_ignores_dormant_custom_cif_settings",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_weighted_convergence_uses_chief_ray_and_99_percent_semiangle",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_probe_focus_uses_traced_waist_once_with_fresnel_sign",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_tem_incident_wave_uses_traced_condenser_focus_curvature",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_si_110_stem_detector_signals_respond_to_position_and_traced_defocus",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_tem_wave_image_reports_multislice_model_and_sampling_metrics",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_reference_cif_rejects_projected_phase_preview",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_angle_resolved_stem_uses_the_same_multislice_specimen_model",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_angle_resolved_stem_reports_completed_cpu_probe_batches",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_angle_resolved_stem_applies_per_probe_descan_detector_shift",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_wave_imaging.test_explicit_cuda_preference_reaches_tem_multislice_and_imaging_fft",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_ranges_are_explicit_finite_unique_and_bounded",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_shrink_and_reopen_preserve_weights_and_upstream_stops",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_first_detector_wins_and_readout_does_not_run_the_solver",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_wall_stops_survive_reopening",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_detector_z_replays_retained_coordinates_without_changing_source",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_zero_diameter_blocks_even_the_exactly_on_axis_electron",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_optical_bank_is_detached_and_exact_nodes_only",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_build_cancellation_budget_and_external_change_do_not_return_partial_bank",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_readout_rejects_changed_external_inputs",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_memory_cube_budget_completion_and_raw_probability",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_legacy_wave_checkpoint_requires_explicit_pre_loss_reference",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_page_requires_range_endpoints_and_does_not_auto_calculate",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_production_bank_reuses_incident_and_never_mutates_source",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_production_tem_aperture_replay_agrees_with_fresh_projection",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_production_stem_captures_ram_cube_and_reintegrates_without_multislice",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_interactive_calculation.test_controller_failure_and_cancel_preserve_previous_complete_bank",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_actual_vacuum_window_has_no_absorption_and_keeps_detector_signal",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_partial_overlap_follows_translated_gaussian_intensity_and_physical_edge[centre_nm0]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_partial_overlap_follows_translated_gaussian_intensity_and_physical_edge[centre_nm1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_overlap_includes_configured_coherent_defocus_not_geometric_ray_rms",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_full_projected_coverage_recovers_bulk_survival",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_inactive_material_overlap_is_zero[inserted-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_inactive_material_overlap_is_zero[thickness_nm-0.0]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_full_survival_channel_sum_tolerates_roundoff",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_resident_cuda_path_uses_the_same_incident_overlap_without_another_transport",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_partial_absorption_preserves_source_budget_and_material_conditioned_tail",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_diffraction_recollection_preserves_local_absorption_in_source_units",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_physical_replay_counts_upstream_loss_when_bf_collects_every_arriving_electron",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_physical_replay_keeps_bandwidth_and_other_stops_inside_uncollected_budget[False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_finite_absorption.test_physical_replay_keeps_bandwidth_and_other_stops_inside_uncollected_budget[True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_recording_deflection.test_static_and_raster_descan_match_ray_propagation_and_conserve_weight[False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_recording_deflection.test_static_and_raster_descan_match_ray_propagation_and_conserve_weight[True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_recording_deflection.test_wave_plan_without_legacy_shifts_matches_stored_cube_and_ray_reference",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_recording_deflection.test_legacy_cube_identity_is_preserved_but_dynamic_replay_requires_times",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_recording_deflection.test_sampling_bounds_include_scan_deflection_exactly_once",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_recording_deflection.test_resident_cuda_keeps_exact_physical_recording_masks[False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_recording_deflection.test_resident_cuda_keeps_exact_physical_recording_masks[True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_stem_recording_deflection.test_legacy_pair_and_wobble_events_follow_the_same_recording_path",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_aberration_model.test_intrinsic_round_lens_profile_distinguishes_explicit_and_estimated",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_aberration_model.test_aberration_phase_has_exact_zero_and_c3_alpha_four_scaling",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_aberration_model.test_c5_and_oriented_a1_follow_order_and_azimuth",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_aberration_model.test_chromatic_defocus_uses_relative_energy_offset",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_aberration_model.test_effective_coefficients_persist_and_inactive_corrector_is_identity",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_aberration_model.test_active_probe_corrector_reduces_c3_ray_error",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_aberration_model.test_configured_probe_c1_excludes_lens_focus_already_carried_by_rays",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_aberration_model.test_lens_panel_shows_estimate_instead_of_none_as_zero",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem.test_detector_response_applies_calibrated_order_and_saturation",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem.test_detector_response_seed_makes_poisson_and_read_noise_reproducible",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem.test_streaming_writer_finalizes_valid_memmap_and_preserves_provenance",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem.test_partial_stream_resumes_without_overwriting_completed_frames",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem.test_resume_rejects_a_different_source_or_dose_provenance",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem.test_resume_preserves_detector_random_stream",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem.test_arbitrary_virtual_detector_integration_is_chunk_invariant",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem.test_runtime_detector_integration_uses_j_img_and_sequential_interception",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem.test_virtual_detector_applies_dose_and_pixel_response_after_raw_cube",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem.test_raw_cube_can_be_rerouted_but_cached_detector_images_reject_old_plan",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem.test_physical_routing_rejects_cube_after_non_neutral_pixel_response",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem.test_stem_wave_solver_streams_configuration_averaged_diffraction_cube",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem.test_high_accuracy_adapter_separates_cube_and_downstream_plan_signatures",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem_cache_products.test_fourdstem_cache_scopes_separate_capture_mask_and_recording_geometry",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem_cache_products.test_energy_filter_cache_retains_wave_inputs_only_for_eftem",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem_cache_products.test_design_summary_tracks_cube_and_two_derived_products_independently",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem_cache_products.test_design_stage_request_is_explicit_wave_stem_only",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_fourdstem_cache_products.test_high_accuracy_reuses_raw_cube_for_response_and_dose_changes",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_result_sources.test_switching_reuses_main_and_bank_products_without_editing_parameters",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_result_sources.test_new_main_result_is_retained_without_overwriting_selected_bank",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_result_sources.test_pending_bank_and_stale_current_are_independent",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_result_sources.test_missing_bank_product_clears_bank_only",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_result_sources.test_raw_export_uses_displayed_bank_and_disables_when_missing",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_tem_result_sources.test_returning_to_source_preserves_its_user_plot_ranges",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_high_accuracy_cache_keeps_multiple_results_and_uses_true_lru",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_result_cache_budget_counts_shared_numpy_storage_once",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_checkpoint_candidate_survives_when_no_complete_product_matches",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_exact_product_seed_outranks_newer_checkpoint_only_candidate",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_result_cache_byte_budget_evicts_oldest_until_it_fits",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_oversized_result_does_not_erase_smaller_cached_results",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_identical_completed_high_request_hits_cache_without_second_worker",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_identical_inflight_high_requests_share_one_worker",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_preview_supersedes_high_without_leaving_a_stale_running_token",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_sample_region_controls_invalidate_only_the_region_artifact[sample_region_upstream_distance_um-75.0-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_sample_region_controls_invalidate_only_the_region_artifact[sample_region_downstream_distance_um-80.0-True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_sample_region_controls_invalidate_only_the_region_artifact[sample_region_photon_path_count-257-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_sample_region_controls_invalidate_only_the_region_artifact[sample_region_secondary_path_count-97-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_sample_region_controls_invalidate_only_the_region_artifact[sample_region_seed-13-False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_eds_only_parameter_changes_only_request_and_eds_signatures",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_energy_filter_setting_changes_only_filter_product",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_tem_objective_pupil_and_image_aberration_invalidate_wave_source",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_elastic_transport_controls_also_invalidate_geometric_stem",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_dynamic_simulation_time_is_part_of_calculation_identity",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_scan_response_products_ignore_emitter_sampling_density",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_retired_virtual_density_map_does_not_change_physical_identity",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_spot_current_limit_reuses_geometry_but_invalidates_counts",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_post_sample_lens_change_keeps_specimen_checkpoint_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_post_sample_projector_geometry_keeps_local_stage_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_projector_field_map_descriptor_does_not_invalidate_upstream_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_upstream_pole_geometry_invalidates_local_stage_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_projector_mode_change_keeps_specimen_checkpoint_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_tem_recording_plane_switch_keeps_specimen_checkpoint_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_projector_change_reprojects_saved_objective_wave_without_specimen_recalc",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_seed_selection_prefers_reusable_incident_and_wave_source",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_scan_calibration_does_not_change_cache_identity[False]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_scan_calibration_does_not_change_cache_identity[True]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_legacy_ac_scan_amplitudes_do_not_invalidate_calibrated_scan",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_cif_content_change_at_same_path_changes_calculation_identity",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_loaded_specimen_data_only_invalidates_post_column_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_calculation_cache_reuse.test_same_state_preview_does_not_replace_high_accuracy_tab_products",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_sample_profile_v2.test_profile_round_trips_real_sample_metadata_and_quaternion",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_sample_profile_v2.test_retired_eds_trajectory_count_is_a_clean_profile_no_op",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_sample_profile_v2.test_profile_round_trips_mode_owned_structure_sources",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_sample_profile_v2.test_legacy_profile_with_cif_migrates_to_real_mode",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_sample_profile_v2.test_profile_rejects_unknown_retired_atomic_structure_source",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_sample_profile_v2.test_profile_v1_maps_virtual_source_to_real_reference_without_virtual_weights",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_profile_rejects_invalid_element_rms_without_applying_other_fields[nan-2]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_profile_rejects_invalid_element_rms_without_applying_other_fields[nan-5]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_profile_rejects_invalid_element_rms_without_applying_other_fields[inf-2]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_profile_rejects_invalid_element_rms_without_applying_other_fields[inf-5]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_profile_rejects_invalid_element_rms_without_applying_other_fields[-inf-2]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_profile_rejects_invalid_element_rms_without_applying_other_fields[-inf-5]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_profile_rejects_invalid_element_rms_without_applying_other_fields[0.0-2]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_profile_rejects_invalid_element_rms_without_applying_other_fields[0.0-5]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_profile_rejects_invalid_element_rms_without_applying_other_fields[-0.01-2]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_profile_rejects_invalid_element_rms_without_applying_other_fields[-0.01-5]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_legacy_preset_profile_has_one_reference_basis_and_manual_tail[si_110-1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_legacy_preset_profile_has_one_reference_basis_and_manual_tail[si_110-2]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_legacy_preset_profile_has_one_reference_basis_and_manual_tail[si_110-3]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_legacy_preset_profile_has_one_reference_basis_and_manual_tail[si_110-4]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_legacy_preset_profile_has_one_reference_basis_and_manual_tail[au_001-1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_legacy_preset_profile_has_one_reference_basis_and_manual_tail[au_001-2]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_legacy_preset_profile_has_one_reference_basis_and_manual_tail[au_001-3]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_legacy_preset_profile_has_one_reference_basis_and_manual_tail[au_001-4]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_legacy_missing_relative_orientation_does_not_reuse_new_reference_default",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_old_atomic_preset_source_is_converted_after_sample_model_rotation",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_external_cif_keeps_path_and_absolute_orientation[1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_external_cif_keeps_path_and_absolute_orientation[4]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_external_cif_keeps_path_and_absolute_orientation[5]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_unavailable_legacy_reference_does_not_partially_apply_profile",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_sample_runtime_hides_retired_controls_and_source_workflow",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_runtime_source_enums_reject_invalid_values[specimen_mode-reference-virtual]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_runtime_source_enums_reject_invalid_values[real_tail_material_source-structure-preset]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_runtime_source_enums_reject_invalid_values[real_tail_screening_source-moliere-auto]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_format_five_explicit_virtual_mode_is_rejected",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_format_four_none_coefficients_survive_reference_migration",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_new_profile_preserves_tail_source_choices_and_manual_overrides[structure-moliere]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_new_profile_preserves_tail_source_choices_and_manual_overrides[manual-manual]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_old_imported_cif_without_rotation_has_legacy_identity[fields0-1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_old_imported_cif_without_rotation_has_legacy_identity[fields0-4]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_old_imported_cif_without_rotation_has_legacy_identity[fields1-1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_old_imported_cif_without_rotation_has_legacy_identity[fields1-4]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_old_imported_cif_without_rotation_has_legacy_identity[fields2-1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_old_imported_cif_without_rotation_has_legacy_identity[fields2-4]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_partial_legacy_profile_without_source_or_rotation_retains_current_orientation[values0]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_reference_sample_profile.test_partial_legacy_profile_without_source_or_rotation_retains_current_orientation[values1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_profile_preserves_aberration_mode_through_gui_assembly_reload[None-None]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_profile_preserves_aberration_mode_through_gui_assembly_reload[0.85-1.25]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_profile_preserves_aberration_mode_through_gui_assembly_reload[None-1.25]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_profile_preserves_aberration_mode_through_gui_assembly_reload[0.85-None]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_profile_restores_estimates_on_all_runtime_lens_types",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_legacy_profile_keeps_omitted_coefficients_and_explicit_numbers[1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_legacy_profile_keeps_omitted_coefficients_and_explicit_numbers[2]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_legacy_profile_keeps_omitted_coefficients_and_explicit_numbers[3]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_legacy_profile_keeps_omitted_coefficients_and_explicit_numbers[4]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_profile_rejects_malformed_or_conflicting_none_values[none_values0-devices0-none_values must be a table]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_profile_rejects_malformed_or_conflicting_none_values[none_values1-devices1-array of names]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_profile_rejects_malformed_or_conflicting_none_values[none_values2-devices2-array of names]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_profile_rejects_malformed_or_conflicting_none_values[none_values3-devices3-duplicate names]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_profile_rejects_malformed_or_conflicting_none_values[none_values4-devices4-conflicting none values]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_optional_assignments_are_validated_before_any_state_changes[invalid0]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_optional_assignments_are_validated_before_any_state_changes[invalid1]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_optional_assignments_are_validated_before_any_state_changes[invalid2]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_optional_assignments_are_validated_before_any_state_changes[invalid3]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_optional_assignments_are_validated_before_any_state_changes[invalid4]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_optional_assignments_are_validated_before_any_state_changes[invalid5]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_optional_assignments_are_validated_before_any_state_changes[invalid6]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_optional_assignments_are_validated_before_any_state_changes[invalid7]",
+      "status": "PASS"
+    },
+    {
+      "test": "tests.test_profile_optional_values.test_explicit_none_clears_a_numeric_optional_field_without_replacing_sample",
+      "status": "PASS"
+    }
+  ],
+  "python": "3.12.4 | packaged by Anaconda, Inc. | (main, Jun 18 2024, 15:03:56) [MSC v.1929 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "versions": {
+    "numpy": "2.4.6",
+    "scipy": "1.18.0",
+    "PySide6": "6.8.3",
+    "abtem": "1.0.10",
+    "pytest": "9.1.1"
+  },
+  "source_sha256": {
+    "src/temsim/__init__.py": "2b91ce929c7d485cddfcc4c3ab908f5ddd28f67910bef54fee85bab6b13dd1f2",
+    "src/temsim/app.py": "ef122dfce987af6f55120e11e114629bcb0187867bfbde8ed240e8586455265f",
+    "src/temsim/artifact_store.py": "1d4356c56f50abff34b35fdadeb683d5f05d7fbc6b0d05144fb07f582effd079",
+    "src/temsim/assembly_catalog.py": "67111163046f5833661d1c3df02b9c731d911c89a5b2bce3a34b5b44e69449a7",
+    "src/temsim/assembly_model_3d.py": "68c2cafa17bd9434c4920ee9cb0de6b51f9218f825e0b683677619aa925c2751",
+    "src/temsim/cache_memory.py": "ad38288a2f653fba455dc9a5c0b061c1f30559c5f699a90491bdc84dc28677df",
+    "src/temsim/cache_preferences.py": "f6ea77ecb4b9bd86276da30eb380d229c14cc0425d77393115e2d5d0acdb328e",
+    "src/temsim/calculation_cache.py": "e84c5edf1f052c4d912f6f10143b71ea4620e7cb85009ede0fd379675a52a389",
+    "src/temsim/calculation_manifest.py": "1f6fcfb9b7a0555ac3b707f8249bcea3089c8b41fc86c5cff3b791ce89d3d838",
+    "src/temsim/calculation_performance.py": "e84d22e008085536a4fbe831ee5605181156a9fa52f67ff14b68e17e97012c48",
+    "src/temsim/column/__init__.py": "1838d369eac2a4139ea397677a5340eb8b5de8b90883c0c17ec0be2dfebf9ac0",
+    "src/temsim/column/builder.py": "9c59ee446d4076590c3abcbccd33fecd47e2b2960012242494bd6d140155356c",
+    "src/temsim/column/effective_axis.py": "800ea0cb0b8fa184dd4bb39c0a12cf80cb8a2ac9f3c2f1274050398f14da9370",
+    "src/temsim/column/layout.py": "cb82a8aacfa4af47e3b602b35f15f0e9bf5e541fcd5a8bbc355ea53f300e2f8b",
+    "src/temsim/column/module_assembly.py": "a56f04c52cfcf894d00eb6937e58dd2cc949e03ff5b8900d6a19b806d8d093d2",
+    "src/temsim/column/state_layout.py": "6ebcaabdbd92137e94ef352e1299b304c129cd6278b9138191bf2dd35f68b596",
+    "src/temsim/component_keys.py": "09d12f5bd676ada677a288ea4c144602e1699b5e7bcdae3b55505f12be7131e1",
+    "src/temsim/component_names.py": "66aabd2b7d770ced6a24cea6bcd4fdf0c38f96a60b6a426eafb2b5da1cfe1979",
+    "src/temsim/component_operations.py": "adcb147c928b5531b6d995b9983e2d0b7b532a47c42b12b419aa53f8194d47c7",
+    "src/temsim/component_persistence.py": "0b85c94e352607d3f227f9e9e2fbc7aa87563dcbac5614e4fad1c1cc3b8ecba2",
+    "src/temsim/configuration.py": "8de237d0b8c9cbfa3181901a98a2fb5ba6a72703eb7c25bd8e029767a8bf0a98",
+    "src/temsim/design_experiments.py": "960b349fd74eb7c075135b263ea00e352dab4daf7950866273dc85b426620b91",
+    "src/temsim/design_explorer.py": "21624356a7a126e68712ba068a3eb5a83d932f14dcf006911f050584cc751982",
+    "src/temsim/design_sweep_execution.py": "7b4839d46d90136e9183d6a095f51bb4160c8092566f8e65149810680c3fc733",
+    "src/temsim/detector/__init__.py": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+    "src/temsim/detector/camera.py": "d8dc42dbe8802615ef9b84ca617f0dca3f0e325f6eb5c94d7a7e592b1958e966",
+    "src/temsim/detector/eds_atomic.py": "70604be4577508817589235f3774370f1b0fa4aa4bd09f9c6e89aa3f28f38a78",
+    "src/temsim/detector/eds_geometry.py": "76127f5559c8c8b3d98d6effd77faedb76f9dea62a4d73913d37fd4d6e9b9f7a",
+    "src/temsim/detector/eds_line_library.py": "89c6b6e642a21cb96e18f10a6a304d8f702bc4d862ea8e31e7f22e281aa8f851",
+    "src/temsim/detector/eds_photon_transport.py": "b6c205ea3fe8413231d8c165a3a10b38bac4e028602f7dec9eaf4e3c8129974f",
+    "src/temsim/detector/eds_signal.py": "b80367287f644cf59557c494e140ae21c7c702223774417d91babd6c457d0605",
+    "src/temsim/detector/eels_forward.py": "7a991f937e0e71015234f1e74970fac83f126bb9ee00e619685f824c4f7bade7",
+    "src/temsim/detector/fluorescent_screen.py": "33cee220c07a506ab559d2a5f5707283569d3a0c9ecd82618f01e4c452ec67d1",
+    "src/temsim/detector/plane_image.py": "16d633dd7f1df8b76b9508cc08c37b80d717afff6001e8d7193ec812d503df42",
+    "src/temsim/detector/point_spread.py": "3341d9843a56fbb19564bd0f92aef875094d7c155ea4666fb0d527746bac693f",
+    "src/temsim/detector/recording_system.py": "be9ec6071814697e3b18c3b9036298a952f3c0aa913601272b76b552a71d0dff",
+    "src/temsim/detector/stem_detector.py": "41f3b55c7346295af6d6973ab8848a8e98e1868dc9d421d5a022630b689e5101",
+    "src/temsim/detector/stem_signal.py": "53f909b5bc3aa94929e082c865b2be374ef3f060e2346891101e9d405f7ca37b",
+    "src/temsim/diagnostics.py": "cae71d3fa608c01012afc476f772c14a9dc7274712352ce4bef9feba55111ddc",
+    "src/temsim/dimension_audit.py": "a59f757df70708c170498df4a9da91c45b3edea2cbe0f91d8d174a1627335774",
+    "src/temsim/gui/__init__.py": "0616081608c16715abeb280b94bc92e47b9c3a96b9da932801e7a8f3a8f133f2",
+    "src/temsim/gui/aberration_view.py": "e0fe76b2ba0b1ed58de8afb153043708170b806a80d501f95d4c78e32eb212ea",
+    "src/temsim/gui/aligned_control_table.py": "64f08b0b692fc877bd1e44c287adaa99516fe400b7951f14cd83426288302699",
+    "src/temsim/gui/assembly_model_page.py": "d81cbd607e25717746e08baff7e58ce95b1f709f85fd58836b24423deb3c7f03",
+    "src/temsim/gui/assembly_panel.py": "2e496109c6cf0c2431379a227d9c891aa58cda2020bbfdf584ae32191a9a280c",
+    "src/temsim/gui/beam_analysis.py": "0624be49e9942d37c01af230f8a8487a6636d3f4ec7d2142b5f071e5582feca8",
+    "src/temsim/gui/beam_display_source.py": "3e25e9d55a08f233d41496fb1ce6f1c170ab1cc6f7e558c40a7f730bdeff3f00",
+    "src/temsim/gui/beam_plane_data.py": "b5038d2124c51fdde654c9a2cf3562b56b5981539180e6ea8c0325682e29c2b1",
+    "src/temsim/gui/beam_tracking_modes.py": "a9e69800ef4ab03d5e4415db96ee21cf0002fbf249f68ce0986243bf5930a24a",
+    "src/temsim/gui/cache_settings.py": "3e189614cab5eedfc603db1dbafa09a37bb4593f442a6627f437f3c7027a25c7",
+    "src/temsim/gui/calculation_controller.py": "b61a6bd34525d0f51f386e4834e206e4386fa7b731fa2b1535d34ff71c0984b1",
+    "src/temsim/gui/calculation_request.py": "5d7cd499916967e460b527febc50de226f9de9cea2dea9038804568fc9e45588",
+    "src/temsim/gui/component_dialog.py": "2614a2caa587a1cf2ca5c7da82fff5d6830a4401b6ff2f1d63c2388fd515d9b5",
+    "src/temsim/gui/design_explorer.py": "9f9e9d696c2ba02ea7e5c992cc4c04de30d5c9658ec59e566cf5719dced8d2af",
+    "src/temsim/gui/design_sweep_controller.py": "f12e014fd7cc6efafbdc461ea330ec64bbfd8cfbe58bbcbd07fbe82150411da9",
+    "src/temsim/gui/diagnostic_tabs.py": "52579605655511f9d04ef4adcde29230e15cb280115faeb0a6cfa749c8beb2bd",
+    "src/temsim/gui/dimension_audit.py": "658ee96781853dd05f0e477dac4f6f693123b1b584e97d6af43d0d2daf1dc672",
+    "src/temsim/gui/direct_alignment_controller.py": "9db74008a0c8323ad7c603cc25e6183991abd19be58ff3e158d7dd82eb7601f7",
+    "src/temsim/gui/direct_alignment_panel.py": "1bdcd1340f8dce9ebc3b060a2578e2530ac9ebfb5a8ba27031270cf39e13d20a",
+    "src/temsim/gui/eds_panel.py": "476f5a5a39e7c9d6712aecd5010634d7ed6f27dbbcbe3f573a9f4e88366ef704",
+    "src/temsim/gui/eds_peak_labels.py": "7d6d3182c4406f0739f9232a45a9b69551273048171281106e4c78276b32675b",
+    "src/temsim/gui/illumination_dialog.py": "4a55b2d0bedf13439345cfe91014e43ebda90112e928a3330db4630ebd113f95",
+    "src/temsim/gui/input_policy.py": "e5b497115ec87628844dc0271b4d8c92a54438f913cea4d738d66f7f98d2b413",
+    "src/temsim/gui/instrument_tree.py": "a7e2d8337312028c2d4dd9f1db11c63d04e685912f09a0e3d27fb19df29d705c",
+    "src/temsim/gui/interactive_calculation.py": "d1d34bdd09d503b89b1e25ba513603bb46601d749c5f329afe042293e17c3792",
+    "src/temsim/gui/interactive_controller.py": "4bf0ba3b2309f0cc3036dbb289c58afa64c956ccde191f3173bc37a7ed33d8ea",
+    "src/temsim/gui/magnetic_validation.py": "a485861324fca6a0047aa23fa67fec21fca385cb5eaa66440a306418070703c1",
+    "src/temsim/gui/main_window.py": "ab9c6e16e82e76bdb58fbb4dbfbc3d0ca1535d97bcdc741672029f1fffa6de9b",
+    "src/temsim/gui/model_inspector.py": "929d1c85a216931175a762dff87899030ce207269a6a26b026159808aa04df4f",
+    "src/temsim/gui/operating_preset_controller.py": "d4c8928ffac653031ffc3c0caf7b6c7e5077cad53fa553b4933567395d868ab3",
+    "src/temsim/gui/parameter_panel.py": "4558782f84a33bb9f03e17bd5ed96fbd775f6f9c7abf680f6252a820b2052cc2",
+    "src/temsim/gui/part_feature_dialog.py": "27267a182d3a58867647a419c8cbb40af91c690e5eb28e1401e798696d3dc393",
+    "src/temsim/gui/part_geometry_editor.py": "598daf303fc19b0b4275a13b6eb41248bbf78dad2a0344be5849b0dec6986c33",
+    "src/temsim/gui/part_model_editor.py": "de8254fc6b1b7eed9d7cb806ec440889d82f293e63c48eb35da9dbf75684f11b",
+    "src/temsim/gui/part_model_view.py": "2e2ac343dbd656f89e6a4a16973a9bbdb3c17182dbd55dcf11bfb0a2614d168a",
+    "src/temsim/gui/ray_scene.py": "299ba37f45b001be84510cd423504658c93131274df9c0f9423279a7d291e879",
+    "src/temsim/gui/sample_display_source.py": "98268cbae829777d767a6da085993f90dea5ea1595e3861308160d1eedb60e54",
+    "src/temsim/gui/sample_interactions_3d.py": "3297c3943f90dd8eac5fc76a8000a7571230c4c1ea2531dd8eb051e0b6a96131",
+    "src/temsim/gui/sample_panel.py": "d4cae30dc294791cddd98f107eca245078118fc51ad40c8234003582aaa15f32",
+    "src/temsim/gui/sample_scene_labels.py": "1d707c42fd979493bd485fbf2a8c2fb0a71f2c9db7cb400bc9ea8a7a98178d60",
+    "src/temsim/gui/scan_panel.py": "d48f6c93912f16e5965f6721dd350453200613e2ae35d3492ff99248721dabcc",
+    "src/temsim/gui/simulation_menu.py": "cff4797e8a776193fda0c517e25b680c16b851e402821a76d357145c42eb5778",
+    "src/temsim/gui/transverse_projection.py": "e49eba5997a319846fd4ddda6f1a9f1719bd23f25aece4fb9381552a39d7f7d0",
+    "src/temsim/gui/visualization.py": "2c12f1c39c5ca14e2f32b1e3aef18d3adb2371f329ff71a4de23a59ad1f4f8d0",
+    "src/temsim/gui/workspace_layouts.py": "75b1947c6cffcb5767bcd9578b94d5e2e90a35e6f32272d310ca9769239f5513",
+    "src/temsim/immutable_json.py": "9baa3a165b73fb59c37343d81c483976e459da739848b70f13a48fd40619e0d8",
+    "src/temsim/interactive_calculation.py": "dfaf8488b8fcbaa307c53b24ec82460c9e5265c77abacf724a40644fe3ca2ae7",
+    "src/temsim/magnetic_circuits.py": "7e8079090ae3260e85fece50f5d7805dbc91b8a53114f2304e9c7554174a614b",
+    "src/temsim/magnetic_geometry.py": "356dcff656a108fa45a1e9e386875ac20f1de1ec6b7a302e96db80d81cafd3fb",
+    "src/temsim/magnetic_materials.py": "c70b43ae18746ba8c61586273f029106f8662fd52fe24e0b425e00276a216661",
+    "src/temsim/magnetic_validation.py": "afa2faa4f0b67ff1dc8cc379f6f5e2a8903fbddbfa596047a6d51c2ce09b3b55",
+    "src/temsim/manifest_editor.py": "6b4e25e7ab580056531ff5d6802c54b8bcec896ae77a15e35329eb3cfbe51fba",
+    "src/temsim/mechanical_axis.py": "621c0c9e575bf1f87130eb751648166624d888ec228ca84ad0b381591f033b3f",
+    "src/temsim/mechanical_profiles.py": "b2f01737f8e317a33689f5df407637b64f12912495ffcb43bb34a21cf12746c3",
+    "src/temsim/module_manifest.py": "90cb274e55385235686e47176941f9fa07f9f06a3deaef8541b958351d7cb4b9",
+    "src/temsim/operating_modes.py": "bb0527073e7504e839644997f35d9e093991cacd03a7617c5a24dab0587c2f47",
+    "src/temsim/optics/__init__.py": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+    "src/temsim/optics/aberrations.py": "cfd82c7c7ea843754d9530cd85f6d57275fa3109a84b0107f87205a819155e12",
+    "src/temsim/optics/ac_deflector.py": "5bf0ed1570484e345f1f24c9fcc6648765fe1db8d3fe45409c3ed3f52e2cfaa0",
+    "src/temsim/optics/aperture_policy.py": "194a8aba088b25c0525d51f35cf4219723c2e508a14713490829da06afa42913",
+    "src/temsim/optics/beam_deflector.py": "9c20b227fbe508da86671954ff54587773b3cf9370daf54b9bfa81099d4a7c1b",
+    "src/temsim/optics/calibration_beam.py": "525960ff0b0903dc18968a800585e0161685eae0b78bbac79dd5d15b4dabfd88",
+    "src/temsim/optics/column.py": "606f11e6fa2318a0bebc727bffa7d32ea85a0e2a2d837f2d76f02c96edf8f3fd",
+    "src/temsim/optics/condenser_aperture.py": "380150ce825b19748b16be094f6a147b09dd7a544231cd41205b1c5f624029e8",
+    "src/temsim/optics/condenser_deflector.py": "71eb71d221cd1c65d86f894ad5d9b5a5ab4a19229848c50e274d564720c3d4f0",
+    "src/temsim/optics/condenser_lens.py": "4d2fa05b4c8fa4d0881f6d9ed781e44368da0c1d8fa9bf381b2413869195527b",
+    "src/temsim/optics/condenser_recalibration.py": "81ebafd0650f0cc19449255d2db77e3d7b5e634dd8f84be5938d9589c179a197",
+    "src/temsim/optics/condenser_stigmator.py": "d5b26d587b3ae4771049974af8debca09c177b8623c3fcd7d5962e333626bc60",
+    "src/temsim/optics/corrector_structure.py": "608241d13a38c057d611af3eb9307c2fd9539029568d8a29bfab83dd240f2b7e",
+    "src/temsim/optics/descan_deflector.py": "5bffa31673e99a654f467ee01ed6397f55c98b64ae1caae6e7634d9dd2894d09",
+    "src/temsim/optics/diffraction_lens.py": "af3478201ad2a576f02f0edd4fd4098c5a0400ccf034ae631813ddd393ffab1a",
+    "src/temsim/optics/diffraction_stigmator.py": "a1c71bb457a71b6109d55076aa52d782162849e6b28e0ad65c18e804afc4ff64",
+    "src/temsim/optics/direct_alignment.py": "67f308fd488b66b6116a188ad1cc604aa7b6f475cf7558d35cef8283e69c521b",
+    "src/temsim/optics/direct_alignment_precalibration.py": "7660d4b3bea9b57a4a21979a2daa4dba849b77a77870fe3e5e2761725627f6e0",
+    "src/temsim/optics/electron_gun/__init__.py": "b6bd2c3ca3fc59cbab13844aaf33ed75d1e7a01100401c3c5b7eeda0d289eb13",
+    "src/temsim/optics/electron_gun/alignment.py": "88d59f6267bc7fcfd061e62ddb66b609231a48c9e3f0731d5e28f55703d4de4d",
+    "src/temsim/optics/electron_gun/aperture.py": "bbd0b0b4c4878d3cd22d9ed89e036c9ec3e61b82f20fb5d9bbf59c69ea8a9c85",
+    "src/temsim/optics/electron_gun/base.py": "2d85e1eebd15681f433c82b1a77f37d81715aa80fb5821001e0ab7ea5f40b9e0",
+    "src/temsim/optics/electron_gun/electrostatic.py": "7479ce29d09bd33a76d26e029f51bba6170fd80fda37dc49dff88e5d2c04635d",
+    "src/temsim/optics/electron_gun/emitter.py": "d4a828f060b3b8918fa8eaaa9ca2a1928aec33d3cc58130368ab80051e7c1705",
+    "src/temsim/optics/electron_gun/field_emission.py": "f75f47af7020d3a638d3812043565818e36a6d589afce7fd1ded83c8d91726a5",
+    "src/temsim/optics/electron_gun/monochromator.py": "d9b4b589bca5e861e44969d78e41492a29c8469deb511be91f55d2de9870bc45",
+    "src/temsim/optics/electron_gun/thermionic.py": "6bc6099017a92f63636f82eee8f0560588cc2f5f3b1138d29db956fec6facefb",
+    "src/temsim/optics/electron_gun/tracing.py": "c2ea6423cd27e729612696dd7b0c9ace12e6c60b3fd23aafc9cf28b3d5944a8b",
+    "src/temsim/optics/electron_gun/validation.py": "264b04e4c403b22d3546c50406dd2d68adc5546965e6c2c18e62891ed935e591",
+    "src/temsim/optics/energy_filter.py": "6b22dd97124c35e375c08dc8645cc0a877e2e7027580f9d33ab227b5da5e36ae",
+    "src/temsim/optics/energy_filter_detector.py": "23517b1261f4e4f3457bb7189fddbc5315fa3bc5ffdd123ee054be0c690692c4",
+    "src/temsim/optics/energy_filter_entrance_aperture.py": "db03c55dccca82cf50e2803f8f522c95673d73ae77478ff309cb50f18105f75c",
+    "src/temsim/optics/energy_filter_m12.py": "9878481a3dd13c412c897c3e5ece67ee5707101af84ee98ab628385a15ae7ba0",
+    "src/temsim/optics/energy_filter_metrics.py": "9d5c2e301214abc823cfe8be38e478bfacf459ed99c0e3a4e0728e9cc1cd9d32",
+    "src/temsim/optics/energy_filter_optimizer.py": "2a3f6fc76472eda3cab2c3dca463f932ac993d633eff2557d1dcba62a52242d1",
+    "src/temsim/optics/energy_filter_raytrace.py": "5ff623a207b638d88d3e6e43582d3f29adc2cfeb5ea1c5f0231a309e97f10809",
+    "src/temsim/optics/energy_filter_sector.py": "af0941ed172e39831d3f38e90b1a8590d16ab87bdc4d22c9c6039c231e00655d",
+    "src/temsim/optics/energy_filter_slit.py": "e229f0dc7dcd02b1629daca6483012828c1e98a7812ef2592d1e2cf0ff1ca7ed",
+    "src/temsim/optics/energy_filter_validation.py": "974af226ad3cd93fba219107b17c3f1f44ce18fdffa8b60ab098d281405ea12a",
+    "src/temsim/optics/equivalent_image_lenses.py": "f1da926d7dd1e48fb018f7cc470637b7ee9171b5b141608898dd5d44cdae9828",
+    "src/temsim/optics/excitation_policy.py": "0490757e4e968ba3bee60888d8d31dc40ee0b51fff852aaa5386dc002a657499",
+    "src/temsim/optics/field_aberrations.py": "84a15a031799276385adfd41a752a51fc658a2fc45b83c9c13b0257712ae7675",
+    "src/temsim/optics/hexapole.py": "f4c2288b45cdbbb112278ae2b48aaf56ae27c77bcf1d82882c94f2be1c0334bc",
+    "src/temsim/optics/image_corrector.py": "ef19cecd68a9ce542f9711d54882d2487ebb534ca0122776308f6606bd3b3b53",
+    "src/temsim/optics/image_diffraction_deflector.py": "04f3504eba16e57358bb106b6e774a9f6e5d035f84f8061474713df0d8dc62f2",
+    "src/temsim/optics/intermediate_lens.py": "22db02025467c4270bd606ba68de421c61d42c4476448645c10f68416f4012e4",
+    "src/temsim/optics/lens_focal_length.py": "4c92059fe25345a882df37dc94392621045319dbbe2bf0e069097771a650fef8",
+    "src/temsim/optics/magnetic_lens_aberration.py": "49d13e68100822b6b25bfc4adc4441a32b3482a24c869fad13fa8d2d720fafe9",
+    "src/temsim/optics/magnification_controller.py": "4f657feb28a3f6740cfc074a0da52d2145f4cfc90ad1a189d8f1d1b0eb09265e",
+    "src/temsim/optics/mini_condenser.py": "0c87729a320cba9ca75a8522c65695ddd884d275eb0255abc76241856f40e06d",
+    "src/temsim/optics/model.py": "f8cf9cf362368029833574315c17dd5a25b610ed7e53cd683b1e1e1fe6ed0b97",
+    "src/temsim/optics/nanopulser.py": "2d7197fdfe47dee627c1859431ae9f56459853d9b9a99482b9d273612a6fe6ff",
+    "src/temsim/optics/objective_aperture.py": "7abb942196c423bf09080ecabdd063495773a5bcba72ca06545a34405d6a1d39",
+    "src/temsim/optics/objective_lens.py": "5bc1098d344a2f3c8fee4a6218df639cf673222d6d42287c2c717826122431ca",
+    "src/temsim/optics/objective_stigmator.py": "59a7749cdd3c04aad908dc30c01285e277a99cd27f13a7d8697abd51229a11b3",
+    "src/temsim/optics/paired_deflector.py": "b981cd6a562285983346575778100122dde5fdfbfada37f9825b381ed48f81b7",
+    "src/temsim/optics/probe_calibration.py": "14786d99b0c98c42e5348e0236bfd4cb5bc68e2cf929280167936340c452fa9b",
+    "src/temsim/optics/probe_corrector.py": "97743649cf2de70d781eee3c370adafed547c7bbcadca1c8f1fe7e353a5c375a",
+    "src/temsim/optics/projector_lens_p1.py": "16d64484c5b59be5037cbeadbfd8bf3a2503a251111e6332406bfe6e82611a04",
+    "src/temsim/optics/projector_lens_p2.py": "c89a6f9321c95d4a833175f1badd92ed8685294bc1f38e7e00b2753bb8de94c8",
+    "src/temsim/optics/quadrupole.py": "59276ee2762bf2644ba787f92ceb4a59a1dfa3462ae774933136eb45657aa766",
+    "src/temsim/optics/round_lens.py": "d7bac84f81da452014b24e6177863eabadb4cd132e8e8146ab0907e4dcb6e6ca",
+    "src/temsim/optics/selected_area_aperture.py": "3951e7fa46d134d054da629bb2c3404fbbe53a17b3ac4946b26551e0947baa42",
+    "src/temsim/optics/selected_area_downstream.py": "526767229bd0d515a98e7180d4c0dd499f285e8d470eb239a77b128702989047",
+    "src/temsim/optics/single_plane_deflector.py": "58dd424eb3bcb9a552511314a7d3e53fce7d8987cafe1ad217e252fdd3cfd619",
+    "src/temsim/optics/twelve_pole_element.py": "51c8f57b6729092f275338cc7ed329ae0c499509456cdd47a4a6db37256856aa",
+    "src/temsim/optics/upper_objective_package.py": "1e16d0abb2f8fe6b6f4eeeac7b3198f234cd2c2e51b632e8f522d01a881106eb",
+    "src/temsim/parameter_impact.py": "fb9e235a96e55f96d27be67c49e014845333b3c5948de578c16ab9a218525bf0",
+    "src/temsim/parameter_semantics.py": "cce672557db5e87cfb5d5e3d23b54c174214382f3c4037260e2d737e64a344f8",
+    "src/temsim/part_geometry.py": "a0914b35e604fed5e3d469dc007db5c8e313781d453ee787ab80737d8233b2c1",
+    "src/temsim/part_materials.py": "2a96384b8c512db57ea7573c525baea9721622cdd950d008a83d0f55714f310d",
+    "src/temsim/part_model_3d.py": "32aea6ac7f21b99bd51159605d8fc5f2cde56638cf963c30939e88f6879cd090",
+    "src/temsim/part_model_apertures.py": "5da4fba15551c9a5f8c4c9ffe9bc170f12935bd679261e1929e6718bf2b99e4c",
+    "src/temsim/part_model_document.py": "8699417301239c1d3ebb7cf2e1cb472929dc320480c3bb345bb47f197f3d1ad2",
+    "src/temsim/part_model_features.py": "ff662888f549d4233df7b38b412a516822ec2e8be06f53b615b8a6975c584634",
+    "src/temsim/paths.py": "417251c4584781640ed5b448b4f32b0386d0ce276b63694680f77bca6ea5500e",
+    "src/temsim/physics/__init__.py": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+    "src/temsim/physics/acceleration.py": "203207947fda11736ca0be02b424b2afbdc6a713a4697683d15311e7bee3c6c8",
+    "src/temsim/physics/all_lens_crossovers.py": "5b80ffcf87df31b1b4be3ef9024ae5a533790c39e5600c32340a84fe91659c9f",
+    "src/temsim/physics/aperture_clipping.py": "d997c8c7155c9aecbe4a6dda94d5e1349c58375546e94c551b9aaf6c406b3cd7",
+    "src/temsim/physics/axisymmetric_magnetostatics.py": "3f237cd99678ab7ff8e4076acf519f6413de6476f070dde357d3d618a486c987",
+    "src/temsim/physics/beam_current.py": "aad02cddb1512f4943af279a5f3311d6e6684a03afb8b84bd129ac3a92fd12c6",
+    "src/temsim/physics/beam_observation.py": "f64e8cba11a3c169575fe2bc96f7b7835182682b93f3c460f3bb7d4bbba5e951",
+    "src/temsim/physics/beam_statistics.py": "405458c8d83bd75ee93f4e64a868b831e3b856bc408a7978851f88271555c58b",
+    "src/temsim/physics/beam_waist.py": "8b8960ab0bccd28189cce806391e309346081260848619df68285f56b48016ba",
+    "src/temsim/physics/camera_wave.py": "41da26369d39eb6effe184501f43c8f82dbb854e5c644a6ec9816a40bf1a3c45",
+    "src/temsim/physics/chromatic.py": "5a6b1bb78303a2ed683bb5a2353bc4c46acafd053f7d5063e512b746afb78694",
+    "src/temsim/physics/column_wall.py": "402563e10b05953ef1f95c6243fd5ce2d0229cf40a18f29dbf95fb34038fc0e0",
+    "src/temsim/physics/compute_backend.py": "2950636302173ee37b7bca169e66d728edf44c169b828e44274122bf2a0e8552",
+    "src/temsim/physics/core.py": "cb4e0aec7a35ce45577c126fbbd730ccc92b29c25a2ca40d0c3c0a6be27e00df",
+    "src/temsim/physics/corrector_crossovers.py": "5a789b81c849d05d9b2599d2bfe2cf76eb6dd70da1292121bcb98167b28e85ea",
+    "src/temsim/physics/crossovers.py": "fe8f5c4ebff4d14592adc678ad3d130a402f4f956b04fb9995e2a8e303955ad4",
+    "src/temsim/physics/cuda_multislice_plan.py": "8392a21ab60895034135aebe991406a12ac086ed3d8d69a3178235de7b143807",
+    "src/temsim/physics/dark_field_geometry.py": "e0d9d54e7b41d10cd72aea916ee839323c28024a6435416362d0ec23bab1c43c",
+    "src/temsim/physics/diffraction_memory.py": "7518cca27efcc8e2e79019759d05d66b89f507fd381a55e31f645e062309fee9",
+    "src/temsim/physics/finite_multipole_field.py": "13dcaa35ec52401e540450aad1462da5b7c7c93aa61c60da73af70fbb459934f",
+    "src/temsim/physics/first_order.py": "475059cdb7c346a91574820065ca7922604431ba6a3c96f6168a9132aa6ca1f4",
+    "src/temsim/physics/fourdstem.py": "a2118ffd812b10dab944438a0c4d1a24db6d7cf19037c7aa18cc81261867ce55",
+    "src/temsim/physics/fourdstem_workflow.py": "dc121c1d457b94cad93411914e05e46bd9df5f32481b538e20593a8fcd16726f",
+    "src/temsim/physics/illumination.py": "50b279a1095bcbdf86a98b6c40f24699e61c7912635716104cc444a49031c551",
+    "src/temsim/physics/interaction_budget.py": "2f72a759d10b476edb7ea9748dc857404991d4b1acf53e278568a8e5e285cb93",
+    "src/temsim/physics/lens_field_provider.py": "989d086a56ff8bdd5df3a336c60d6d4396903d03de8a32fa62a3f4aa889879b4",
+    "src/temsim/physics/multiplane_wave.py": "78eef030b29b102de2028c738819d1c840800ce7441a3c490fcc9710db24ca95",
+    "src/temsim/physics/multipole_field.py": "859f3bee21f875b1eceb1a65993dafb7e6318bee2605f0033c6ca0379339a883",
+    "src/temsim/physics/multislice.py": "e08528f8dfe5ceb27caf6224935e21d7dbba90a431b70473fc331e46cf8b3205",
+    "src/temsim/physics/nonlinear_circuits.py": "8faef35c0862d9f6e1ba5c4b3345955b7c56a8da3ff74cb2035077181ce92c8f",
+    "src/temsim/physics/nonlinear_magnetostatics.py": "2897e55e4cefc2725477aa4c1625ac7ca0cb6fa9802da52d9ce4566557221c51",
+    "src/temsim/physics/objective_aperture.py": "2781917a25c8cc45a187f81a778d0df1597dab38e56f72d9a0c201f5710d36fb",
+    "src/temsim/physics/optical_tuning.py": "40c7aee7f54bab0b4dc49e20bb49b91223c47857a9565197587658ce617264a1",
+    "src/temsim/physics/prepared_specimen_cache.py": "99766b21cdec620ead2bfb6dc73ced0406f855496648050b6a021f1e12095487",
+    "src/temsim/physics/probe_state.py": "39de9c9f3867e25f103a97a814bd1808f9a6ac817eb099ce782a7d22659f41a0",
+    "src/temsim/physics/ray_identity.py": "11329b82dbb4fdddb59afc75037de7894bf543168180206e0491a93597f67c99",
+    "src/temsim/physics/ray_integrator.py": "79d120dda71db401157ccf46c5fd4d1ef28a639dad9a03ca96e5ea7010570423",
+    "src/temsim/physics/record_plane.py": "07d4eab3608f010adf802842602c3883714ce7fba7e764770ec41de05202b04d",
+    "src/temsim/physics/recording_clipping.py": "3141d9ba2aad1c317a62cbace996ba1515e666c87ebb0db087964dbc4a654f23",
+    "src/temsim/physics/recording_stop.py": "f1aea26057292013b6cf9346bd0ef1ce58b429620b3ba7509c1b75d656dcf694",
+    "src/temsim/physics/relativistic_lorentz.py": "80de42ca4a0aee23e8b2478eaf1805500973b6d42cd205e684f69c22253de95a",
+    "src/temsim/physics/scan_geometry.py": "5e934ceec052df0cd21f303f509011a373f09444b0572cc382379927b6d06a0e",
+    "src/temsim/physics/simulation.py": "f052085f1d123e1f79de01fc9975e2230b725cfba260ae024a0a2d18459673fd",
+    "src/temsim/physics/stem_batching.py": "17914b3278de72e30d3361750eee72b7d8d7308e02dec85598ff4a0bcec9b56a",
+    "src/temsim/physics/stem_cuda_pipeline.py": "857cb7a8d7313317517d7707265e6d91b405c7ab8d08ce2a8b623d87622acecf",
+    "src/temsim/physics/stem_sampling.py": "d69f5f8e1d0f8a0aa8afc39edd1f803d672f418df59eeab25bb4d2d0f491d7df",
+    "src/temsim/physics/stem_wave_imaging.py": "98987534eaac9c1b47c90c3d4e49581b6a0b4a007bacff1602678e1f9a6f76dc",
+    "src/temsim/physics/vector_field_transport.py": "a7e0bb655bfac17e39cdefe54e8704f2a77a5240210c3deed90c6e60df9ebb6b",
+    "src/temsim/physics/wave_export.py": "120e266a8536d4da9dfdfd6eb6729a906448c0d50cf3b7d00eac9b6bfb821165",
+    "src/temsim/physics/wave_fft.py": "9179f33572bb9af4afa2bdd9d3b78c3738db32863592deb82a680ea9c0b31d3e",
+    "src/temsim/physics/wave_flux.py": "e3ee44b1d66b1e26ab0973e690d03e73ac4203c09f16a5c09d59b243648e9730",
+    "src/temsim/physics/wave_imaging.py": "878bf01c27814178fc6ac8249bed32b06297fdb2011a3aae2084c42a6cf4c98d",
+    "src/temsim/physics/wave_sampling.py": "fe6dce8de3d5d7a7e7ce352b56fe172b55207ef333a4ea994382b2256b5cf30f",
+    "src/temsim/presets.py": "e4d3661aa3f11e2a3e0a86d8d3a5199f9a828bacf7a6e4bfaac47e425feac116",
+    "src/temsim/profile_io.py": "066f772662d2847cb3e946f5e065f29ea2c6f9a552820e67c8de14fceeedb2f9",
+    "src/temsim/runtime_parameters.py": "13311264b5f32a2b5b493484ec53058ba24874899ef7f2a3fe00284738635bda",
+    "src/temsim/simulation_modes.py": "e2cc89c0f2cc81daf82397419ddf89a7c17346c9c443b37b3ab267658faf07fa",
+    "src/temsim/simulation_pipeline.py": "cb88da4096845678a416a968fe472874eab2b72286d3a408f6727b98077ed165",
+    "src/temsim/specimen/__init__.py": "31ae6deea3ceef00532b025611207d7c0f2f00078bb373ca84df757d1fd74136",
+    "src/temsim/specimen/atomistic.py": "cd9c41ec8b4af338674568dd72807d07d3ac47dd54c2f3f0a20423ef4223fcdb",
+    "src/temsim/specimen/axial_field_transport.py": "c67cba76e4e94f21f72f0f30a2ccf00e05c9b2ad50700f19702c92950b8ac119",
+    "src/temsim/specimen/cif_io.py": "25e5b15a4161a128ba3957521f9ca911b267fd2784752b24bae6a81ac6f56fc9",
+    "src/temsim/specimen/display_cache.py": "b93e1ab8a8e343a1b3f942518d32a10932a0bcf21139f22d2eb10b9ee7082c07",
+    "src/temsim/specimen/downstream_transport.py": "3e2ee7547b22a2fe0a72f4824a64b71b2d73240c223fb7491d99deb531980e54",
+    "src/temsim/specimen/elastic_transport.py": "37f9ac7717e7efc298a8031dc1377a3fe01883b14c7dbd0e94338a978d50b5f1",
+    "src/temsim/specimen/envelope.py": "b46f4e3075c95d11708d45661812bf7dddb72963a2e4f4c136cfa6493a9c34a0",
+    "src/temsim/specimen/geometry.py": "30aa86cbeb3c421099650bb7be4cf9bccefecc63f87248d71155c718e3b7dcb1",
+    "src/temsim/specimen/inelastic.py": "facc68a1d1bb996cf2f104c9b517d288369bfe5fa9bb8d2cd7828666e550e14b",
+    "src/temsim/specimen/interaction_engine.py": "27afe26536290e3a22bc40cd2812fcb26daa718c149f010e075bb4d7c0c5b07a",
+    "src/temsim/specimen/interaction_types.py": "5f4f55adee61f73ae7cbb350b1ff099939e82841ad1770343d37ba292a27bf70",
+    "src/temsim/specimen/overlap_sampling.py": "739add9b718d23eb2d7491f3ca4246190462ebf9c4f19f9d01479771211d1f59",
+    "src/temsim/specimen/presets.py": "cc3d559b775f8fd823b669e5fb08f326cd2daf420f8b3abc2c7fc836b800bebc",
+    "src/temsim/specimen/reference_catalog.py": "3300fd9bbda1de6a906e54af4028ba4321b82411b85488d5d5053a0a21d31fed",
+    "src/temsim/specimen/rutherford.py": "711c49e98360c75db3aea17d4483756080aec49061b98c3dfe500dfcba564675",
+    "src/temsim/specimen/sample_region.py": "208fab7c4b83d9ffd1471b15009dccd86e8651aa62b6bcecac68014179e9e115",
+    "src/temsim/specimen/scene.py": "b40fc77b566e0ebc9825d6f5c3c14c94207e96d76721c13cf630a867e222ded6",
+    "src/temsim/specimen/source.py": "746358258b730681e15f17ea6f2a9bc7fe72b7e2119fc77f5fc82d6d1d80ac26",
+    "src/temsim/specimen/support.py": "e65924857806d8f0c9ea047383d6a20737f733e87622a339149f2c27ec048b19",
+    "src/temsim/specimen/vector_field_transport.py": "38df4e8a3eff0bed058ec34d85ff81edf6b6e96c415e0a62ebe91c42de80cc1f",
+    "src/temsim/specimen/virtual.py": "d60908893b1ed7fbd4f3609a93c7dc9118e25294b7de626b5f33d66fe7bfc456",
+    "src/temsim/state.py": "bf8b47e8cb3d2bdbe52cd340dc30fa62740c37ec006147953a902bd33315c6e4"
+  },
+  "external_material_validation": "NOT_RUN",
+  "GPU_mode_parity": "NOT_RUN",
+  "limitations": [
+    "Declared specimen-entrance modes, not full gun coherence or upstream chromatic source transport",
+    "Multi-mode 4D-STEM, ray-based Rutherford tail coupling and bulk absorption mixtures unsupported",
+    "Fixture-local quadrature convergence does not certify wave-grid or frozen-phonon convergence"
+  ]
+}

@@ -643,6 +643,7 @@ def test_store_initialisation_reclaims_unreferenced_objects(tmp_path):
     "temsim-solver-2026-09-six-stage-physics-v1",
     "temsim-solver-2026-09-magnetic-circuits-v2",
     "temsim-solver-2026-09-simulation-modes-v1",
+    "temsim-solver-2026-09-static-bh-v1",
 ])
 def test_solver_implementation_bump_does_not_reuse_legacy_seed(tmp_path, legacy_schema):
     state, selection = _assembled_state()
@@ -662,7 +663,7 @@ def test_solver_implementation_bump_does_not_reuse_legacy_seed(tmp_path, legacy_
         arrays={"values": np.arange(32, dtype=np.float64)},
     )
 
-    assert SOLVER_IMPLEMENTATION_SCHEMA == "temsim-solver-2026-09-static-bh-v1"
+    assert SOLVER_IMPLEMENTATION_SCHEMA == "temsim-solver-2026-09-wave-contract-v2"
     assert legacy.solver.digest != current.solver.digest
     assert store.get_array_bundle(
         current,

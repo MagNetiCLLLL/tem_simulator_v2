@@ -101,8 +101,10 @@ def _camera_affine_offset_m(state, camera) -> np.ndarray:
 
 def _normalise_wave(wave: np.ndarray, dx_m: float, dy_m: float) -> np.ndarray:
     norm = float(np.sum(np.abs(wave) ** 2) * dx_m * dy_m)
-    if not math.isfinite(norm) or norm <= 0.0:
-        raise ValueError("Specimen exit wave has no finite positive intensity.")
+    if not math.isfinite(norm):
+        raise ValueError("Specimen exit wave has non-finite intensity.")
+    if norm == 0:
+        return np.zeros_like(wave, dtype=np.complex128)
     return np.asarray(wave, dtype=np.complex128) / math.sqrt(norm)
 
 
@@ -277,6 +279,8 @@ def _project_wave_to_plane(
     *,
     recording_plane,
     convergence_semiangle_rad: float = 0.0,
+    input_convention: str = "legacy_unit_shape",
+    excluded_aperture_keys: tuple[str, ...] = (),
 ) -> CameraWaveProjection:
     """Propagate a specimen wave through the full projector to one stop."""
 
@@ -297,7 +301,15 @@ def _project_wave_to_plane(
     wavelength_m = float(wavelength_angstrom) * 1.0e-10
     if not math.isfinite(wavelength_m) or wavelength_m <= 0.0:
         raise ValueError("Electron wavelength must be finite and positive.")
-    wave = _normalise_wave(wave, dx_m, dy_m)
+    if input_convention == "legacy_unit_shape":
+        # Compatibility for standalone callers with arbitrary shape units.
+        # Production TEM passes an explicitly weighted SI density instead.
+        wave = _normalise_wave(wave, dx_m, dy_m)
+    elif input_convention != "weighted_density_per_m":
+        raise ValueError(f"Unknown wave input convention: {input_convention}")
+    if not np.all(np.isfinite(wave)):
+        raise ValueError("Specimen exit wave contains non-finite amplitudes")
+    input_probability = float(np.sum(np.abs(wave)**2) * dx_m * dy_m)
 
     projector_mode = str(getattr(state, "projector_mode", "image")).lower()
     # The specimen lies inside the Objective field, so the Fourier coordinate
@@ -373,15 +385,18 @@ def _project_wave_to_plane(
     camera_pixel_m = max(pixel_x_m, pixel_y_m)
     from temsim.physics.multiplane_wave import intermediate_apertures, project_through_apertures
     aperture_rows = ()
-    if intermediate_apertures(state, float(recording_plane.z_mm)):
+    active_apertures = intermediate_apertures(state, float(recording_plane.z_mm), excluded_keys=excluded_aperture_keys)
+    if active_apertures or input_convention == "weighted_density_per_m":
         final_wave, aperture_rows = project_through_apertures(
             state, wave, x_m, y_m, wavelength_m, float(recording_plane.z_mm),
+            excluded_keys=excluded_aperture_keys,
         )
         coordinates = np.einsum("ij,jyx->iyx", rotation, final_wave.coordinates_m())
         electron_optical_intensity = _deposit_mapped_probability(
             np.abs(final_wave.amplitude) ** 2, coordinates[0], coordinates[1], camera_x_m, camera_y_m,
         )
-        method = "multiplane_coherent_lct_with_apertures"
+        method = ("multiplane_coherent_lct_with_apertures" if active_apertures
+                  else "multiplane_coherent_lct")
     elif (
         projector_mode != "diffraction"
         and blur_m <= 0.25 * camera_pixel_m
@@ -432,7 +447,28 @@ def _project_wave_to_plane(
         np.sum(detector_intensity) * pixel_x_m * pixel_y_m
     )
     properties = linear_map_properties(a_block)
+    from temsim.physics.wave_flux import FluxLedger
+    ledger = FluxLedger(branch_id="camera")
+    remaining = input_probability
+    for row in aperture_rows:
+        ledger.record("physical_aperture:" + row["key"], row["incoming_probability"],
+                      row["transmitted_probability"], "physical_stop",
+                      physical_element_id=row["physical_element_id"],
+                      parameters={k: row[k] for k in ("z_mm", "radius_mm", "offset_x_mm", "offset_y_mm", "transfer_matrix")})
+        remaining = row["transmitted_probability"]
+    before_psf = float(np.sum(electron_optical_intensity) * pixel_x_m * pixel_y_m)
+    ledger.record("recording_plane:" + str(recording_plane.key), remaining, before_psf,
+                  "missed_detector", physical_element_id="detector:" + str(recording_plane.key),
+                  parameters={"z_mm": float(recording_plane.z_mm), "width_mm": width_mm,
+                              "transfer_matrix": transfer.matrix.tolist()})
+    ledger.record("detector_response", before_psf, camera_integral, "detector_response_crop",
+                  parameters={"psf_model": point_spread.model, "sigma_x_mm": point_spread.sigma_x_mm,
+                              "sigma_y_mm": point_spread.sigma_y_mm})
     metrics = {
+        "camera_input_convention": input_convention,
+        "camera_input_probability": input_probability,
+        "camera_pre_psf_probability": before_psf,
+        "camera_flux_ledger": ledger.weighted_rows(1.),
         "recording_plane_key": str(recording_plane.key),
         "recording_plane_name": str(recording_plane.name),
         "recording_plane_z_mm": float(recording_plane.z_mm),
@@ -519,6 +555,8 @@ def project_wave_to_recording_plane(
     wavelength_angstrom: float,
     *,
     convergence_semiangle_rad: float = 0.0,
+    input_convention: str = "legacy_unit_shape",
+    excluded_aperture_keys: tuple[str, ...] = (),
 ) -> CameraWaveProjection:
     """Project to the first inserted Fluorescent Screen or Camera."""
 
@@ -530,6 +568,8 @@ def project_wave_to_recording_plane(
         wavelength_angstrom,
         recording_plane=active_tem_recording_plane(state),
         convergence_semiangle_rad=convergence_semiangle_rad,
+        input_convention=input_convention,
+        excluded_aperture_keys=excluded_aperture_keys,
     )
 
 
@@ -541,6 +581,8 @@ def project_wave_to_camera(
     wavelength_angstrom: float,
     *,
     convergence_semiangle_rad: float = 0.0,
+    input_convention: str = "legacy_unit_shape",
+    excluded_aperture_keys: tuple[str, ...] = (),
 ) -> CameraWaveProjection:
     """Backward-compatible explicit Camera projection entry point."""
 
@@ -553,4 +595,6 @@ def project_wave_to_camera(
         wavelength_angstrom,
         recording_plane=camera,
         convergence_semiangle_rad=convergence_semiangle_rad,
+        input_convention=input_convention,
+        excluded_aperture_keys=excluded_aperture_keys,
     )

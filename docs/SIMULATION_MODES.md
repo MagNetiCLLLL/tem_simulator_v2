@@ -52,11 +52,11 @@ does not certify the TEM/STEM image's wave-aberration model.
 - Nonlinear Material Field similarly requires B-H recipes for all enabled round
   lenses. See [static nonlinear fields](STATIC_NONLINEAR_MAGNETICS.md) for reference
   materials, joint-current routing and the distinction from multiphysics.
-- Each mode retains round-lens excitation percentages/polarities, field recipes,
-  probe/image coefficient options, the additional chromatic-kick setting and the
-  existing equivalent-image-lens option. Its first visit inherits current values;
-  subsequent visits restore its retained values. No cross-model strength matching
-  or lens-preset optimisation is performed.
+- Each mode retains field recipes, probe/image coefficient options, the additional
+  chromatic-kick setting and the existing equivalent-image-lens option. Switching
+  models preserves the current lens percentages and polarities. Historical shelf
+  excitation records remain readable; only an explicit operating-profile load
+  applies saved excitation. No cross-model strength matching is performed.
 - Geometry, installations, enabled hardware, source, apertures, specimen,
   detector controls and numerical resolution are shared, not copied into model
   shelves. A shelf cannot restore an old mechanical layout.
@@ -64,8 +64,8 @@ does not certify the TEM/STEM image's wave-aberration model.
   Model changes invalidate pending workers immediately; previous plots remain
   explicitly stale until a new result is accepted. Other complete results stay
   in the existing bounded result cache.
-- State schema 76 and operating-profile format 4 persist the selection and
-  shelves. Profile formats 1-3 remain readable. Format 4 also preserves nullable
+- Operating-profile format 6 persists the selection and shelves with an explicit
+  migration report; formats 1-5 remain readable. Format 4 also preserves nullable
   operating values, including automatic Cs/Cc estimation. Imported arrays are not
   embedded in TOML; their original file descriptors retain the normal provenance
   and geometry checks.

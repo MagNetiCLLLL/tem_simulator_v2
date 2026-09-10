@@ -235,6 +235,9 @@ def validate_runtime_assignment(
     """Type-check and domain-check one profile/runtime assignment."""
 
     old_value = getattr(target.obj, name)
+    if name == "wave_illumination" and target.key == "sample":
+        from temsim.physics.illumination import validate_illumination_config
+        return validate_illumination_config(value)
     if target.key in FIXED_APERTURE_KEYS and name == "enabled" and value is not True:
         raise ValueError(f"{target.label} is always inserted")
     if isinstance(old_value, bool):
@@ -328,6 +331,12 @@ def validate_runtime_assignment(
         0.0 < float(converted) <= 1.0
     ):
         raise ValueError(f"{target.key}.{name} must be in (0, 1]")
+    if name == "wave_objective_aperture_strategy" and converted not in {"physical_plane", "equivalent_pupil"}:
+        raise ValueError("Objective aperture strategy must be physical_plane or equivalent_pupil")
+    if name == "stem_execution_policy" and converted not in {"auto", "prefer_gpu", "require_gpu"}:
+        raise ValueError("STEM execution policy must be auto, prefer_gpu or require_gpu")
+    if name == "stem_fourdstem_host_budget_mb" and not 1 <= int(converted) <= 4096:
+        raise ValueError("STEM host output budget must be 1–4096 MiB")
     if name == "wave_frozen_phonon_configurations" and not (
         1 <= int(converted) <= 64
     ):

@@ -18,6 +18,19 @@ class PlaneWave:
     curvature_m1: np.ndarray | None = None
     tilt_rad: np.ndarray | None = None
 
+    def __post_init__(self):
+        amplitude = np.asarray(self.amplitude)
+        if amplitude.ndim != 2 or min(amplitude.shape) < 2 or not np.all(np.isfinite(amplitude)):
+            raise ValueError("Plane wave must be a finite two-dimensional sampled amplitude")
+        basis, origin = np.asarray(self.basis_m), np.asarray(self.origin_m)
+        if (basis.shape != (2, 2) or origin.shape != (2,)
+                or not np.all(np.isfinite(basis)) or not np.all(np.isfinite(origin))
+                or abs(np.linalg.det(basis)) == 0):
+            raise ValueError("Plane wave needs a finite non-singular SI lattice and origin")
+        for value, shape in ((self.curvature_m1, (2, 2)), (self.tilt_rad, (2,))):
+            if value is not None and (np.shape(value) != shape or not np.all(np.isfinite(value))):
+                raise ValueError("Plane-wave phase carriers have invalid shape or values")
+
     def coordinates_m(self):
         ny, nx = self.amplitude.shape
         yy, xx = np.meshgrid(np.arange(ny) - ny // 2, np.arange(nx) - nx // 2, indexing="ij")
@@ -29,6 +42,21 @@ class PlaneWave:
 
 
 def propagate_plane_wave(wave, matrix, translation, wavelength_m):
+    """Lossless propagation must conserve cell probability, without repair."""
+    from temsim.physics.wave_flux import check_lossless_norm
+    if (np.shape(matrix) != (4, 4) or np.shape(translation) != (4,)
+            or not np.all(np.isfinite(matrix)) or not np.all(np.isfinite(translation))):
+        raise ValueError("Canonical wave map and translation must be finite 4-D arrays")
+    if (not np.all(np.isfinite(wave.amplitude)) or not np.all(np.isfinite(wave.basis_m))
+            or abs(np.linalg.det(wave.basis_m)) == 0
+            or not np.isfinite(wavelength_m) or wavelength_m <= 0):
+        raise ValueError("Invalid wave, sampling lattice or wavelength")
+    result = _propagate_plane_wave(wave, matrix, translation, wavelength_m)
+    check_lossless_norm(wave.probability, result.probability, context="Canonical plane propagation")
+    return result
+
+
+def _propagate_plane_wave(wave, matrix, translation, wavelength_m):
     """Apply one canonical affine map, retaining complex phase and flux."""
     matrix, shift = np.asarray(matrix, float), np.asarray(translation, float)
     a, b, c, d = matrix[:2, :2], matrix[:2, 2:], matrix[2:, :2], matrix[2:, 2:]
@@ -119,22 +147,26 @@ def _canonical_map_and_offset(state, z_mm):
     return result
 
 
-def intermediate_apertures(state, stop_z_mm):
+def intermediate_apertures(state, stop_z_mm, *, excluded_keys=()):
     from temsim.physics.record_plane import _aperture_stop
-    return tuple(sorted((_aperture_stop(state, aperture) for aperture in getattr(state, "apertures", ())
+    planes = tuple(sorted((_aperture_stop(state, aperture) for aperture in getattr(state, "apertures", ())
                          if bool(getattr(aperture, "enabled", True))
                          and bool(getattr(aperture, "installed", True))
                          and bool(getattr(aperture, "inserted", True))
+                         and str(aperture.key) not in excluded_keys
                          and float(state.sample.z_mm) < float(aperture.z_mm) < stop_z_mm), key=lambda item: item.z_mm))
+    if len({plane.key for plane in planes}) != len(planes):
+        raise ValueError("Duplicate physical aperture identity in propagation branch")
+    return planes
 
 
-def project_through_apertures(state, wave, x_m, y_m, wavelength_m, target_z_mm):
+def project_through_apertures(state, wave, x_m, y_m, wavelength_m, target_z_mm, *, excluded_keys=()):
     dx, dy = float(x_m[1] - x_m[0]), float(y_m[1] - y_m[0])
     current = PlaneWave(np.asarray(wave) * np.sqrt(dx * dy), np.diag((dx, dy)),
                         np.array((x_m[len(x_m)//2], y_m[len(y_m)//2])))
     previous, previous_offset = np.eye(4), np.zeros(4)
     rows = []
-    for plane in (*intermediate_apertures(state, target_z_mm), SimpleNamespace(z_mm=target_z_mm)):
+    for plane in (*intermediate_apertures(state, target_z_mm, excluded_keys=excluded_keys), SimpleNamespace(z_mm=target_z_mm)):
         matrix, offset = _canonical_map_and_offset(state, float(plane.z_mm))
         segment = matrix @ np.linalg.inv(previous)
         current = propagate_plane_wave(current, segment, offset - segment @ previous_offset, wavelength_m)
@@ -146,7 +178,10 @@ def project_through_apertures(state, wave, x_m, y_m, wavelength_m, target_z_mm):
             before = current.probability
             current = PlaneWave(np.where(mask, current.amplitude, 0j), current.basis_m, current.origin_m,
                                 current.curvature_m1, current.tilt_rad)
-            rows.append({"key": plane.key, "z_mm": float(plane.z_mm), "incoming_probability": before,
+            rows.append({"key": plane.key, "physical_element_id": "aperture:" + plane.key,
+                         "strategy": "physical_plane", "z_mm": float(plane.z_mm), "incoming_probability": before,
+                         "radius_mm": plane.radius_mm, "offset_x_mm": plane.offset_x_mm,
+                         "offset_y_mm": plane.offset_y_mm, "transfer_matrix": matrix.tolist(),
                          "transmitted_probability": current.probability,
                          "aperture_diameter_pixels": 2*plane.radius_mm*1e-3 / np.linalg.norm(current.basis_m, ord=2)})
         previous, previous_offset = matrix, offset

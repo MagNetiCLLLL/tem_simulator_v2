@@ -19,7 +19,7 @@ class TransverseBeamStatistics:
     convergence_rms_rad: float
     convergence_95_rad: float
     convergence_99_rad: float
-    convergence_edge_rad: float
+    convergence_edge_rad: float  # Legacy name: maximum sampled ray angle, NOT a known physical edge.
     radius_rms_m: float
     radius_95_m: float
     radius_99_m: float
@@ -28,6 +28,18 @@ class TransverseBeamStatistics:
     waist_offset_m: float
     twofold_moment: float = 0.0
     threefold_moment: float = 0.0
+
+    @property
+    def alpha_edge_rad(self):
+        return None  # A ray population does not identify a physical aperture edge.
+
+    @property
+    def alpha_95_current_rad(self):
+        return self.convergence_95_rad
+
+    @property
+    def alpha_99_current_rad(self):
+        return self.convergence_99_rad
 
     @property
     def illumination_diameter_95_um(self) -> float:

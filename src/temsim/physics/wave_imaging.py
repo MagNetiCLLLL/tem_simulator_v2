@@ -1,11 +1,11 @@
-"""Gun-conditioned TEM wave propagation to a physical recording plane.
+"""Declared or ray-conditioned reduced-order TEM illumination.
 
-The complete source-to-specimen ray bundle defines the incident coherent mode,
-including clipping, focusing, affine steering, Larmor rotation and enabled
-stigmators/correctors.  The specimen uses the selected multislice or phase
-object model.  Its exit wave is then transferred through the Objective pupil
-and higher-order image aberrations and through the complete post-specimen
-projector Jacobian to the active FluScreen/Camera and detector PSF.
+Ray moments constrain a reduced-order mode; they do not determine arbitrary
+source coherence. Explicit specimen-entrance pupils support independent
+position, direction and energy mixtures. The specimen uses multislice or phase
+object model. Residual image aberrations and the actual ordered post-specimen
+apertures act before the active FluScreen/Camera and detector PSF. The explicit
+Fourier-plane equivalent-pupil option has mutually exclusive stop ownership.
 
 This is a non-OEM paraxial/multislice model, not a bonded-charge,
 first-principles-potential or full Maxwell field solution.
@@ -13,6 +13,7 @@ first-principles-potential or full Maxwell field solution.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
+from copy import deepcopy
 import math
 from pathlib import Path
 from time import perf_counter
@@ -34,6 +35,15 @@ from temsim.physics.prepared_specimen_cache import (
     exact_identity,
 )
 from temsim.physics.camera_wave import project_wave_to_recording_plane
+from temsim.physics.objective_aperture import objective_aperture_plan
+from temsim.physics.wave_flux import (
+    WaveMode, FluxLedger, TEM_REFERENCE_PLANE, check_lossless_norm, FLUX_RTOL, FLOAT32_FLUX_RTOL,
+)
+from temsim.physics.illumination import (
+    explicit_illumination, illumination_config, illumination_metadata,
+    illumination_ray_statistics, explicit_pupil_spectrum, source_nodes,
+    state_for_source_node, state_at_energy, current_angle_quantiles,
+)
 from temsim.physics.recording_stop import active_tem_recording_plane
 from temsim.optics.aberrations import (
     aberration_phase_rad,
@@ -73,14 +83,17 @@ class WaveImagingResult:
     spatial_frequency_y_inv_angstrom: np.ndarray
     metrics: dict
     projector_checkpoint: "ProjectorWaveCheckpoint | None" = None
+    camera_intensity: np.ndarray | None = None  # Raw post-PSF probability density / mÂ².
+    absolute_diffraction_probability: np.ndarray | None = None  # Per Fourier cell, before objective stop.
+    request_manifest: dict | None = None
 
 
 @dataclass(frozen=True)
 class ProjectorWaveCheckpoint:
     """Reusable Objective-side waves for downstream D/I/P reprojection.
 
-    Each entry is one frozen-phonon configuration after the Objective pupil
-    and residual image-aberration phase.  Keeping the configurations separate
+    Each entry is one frozen-phonon configuration after the residual
+    image-aberration phase and BEFORE the Objective stop. Keeping configurations separate
     is required: detector intensities are averaged incoherently, so projecting
     only their coherent mean would change the physical observable.
     """
@@ -94,12 +107,33 @@ class ProjectorWaveCheckpoint:
     # widening a readout aperture without inventing previously deleted phase.
     unapertured_wave_configurations: tuple[np.ndarray, ...] = ()
     objective_aperture_rad: float | None = None
+    reference_discrete_norm: float | None = None
+    numerical_bandwidth_applied: bool = False
+    norm_relative_tolerance: float = FLUX_RTOL
+    configuration_prior_weights: tuple[float, ...] = ()
+    configuration_energies_kev: tuple[float, ...] = ()
+    configuration_ids: tuple[str, ...] = ()
+    illumination_metadata: dict | None = None
 
 
 def _readonly_array(values, *, dtype=None) -> np.ndarray:
     result = np.array(values, dtype=dtype, order="C", copy=True)
     result.setflags(write=False)
     return result
+
+
+def bind_wave_request_manifest(result, manifest):
+    """Bind the request already frozen by the submission controller.
+
+    Do not serialize live State inside a wave solver: legacy serializers can
+    initialise optional hardware. Direct numerical callers may leave this
+    provenance unavailable and still retain the complete executed wave graph.
+    """
+    payload = manifest.to_dict()
+    metrics = dict(result.metrics)
+    if not metrics.get("wave_source_request_digest"):
+        metrics["wave_source_request_digest"] = payload["digest"]
+    return replace(result, metrics=metrics, request_manifest=payload)
 
 
 def _project_objective_configurations(state, checkpoint):
@@ -109,19 +143,69 @@ def _project_objective_configurations(state, checkpoint):
     raw_electron_optical_image = None
     image_m2 = None
     camera_projection = None
+    if checkpoint.reference_discrete_norm is None:
+        raise ValueError("Recalculate TEM once: legacy checkpoint has no pre-loss reference norm")
+    configurations = checkpoint.unapertured_wave_configurations
+    if not configurations:
+        raise ValueError("Recalculate TEM once to retain the pre-aperture wave configurations")
+    priors = checkpoint.configuration_prior_weights or tuple(1 / len(configurations) for _ in configurations)
+    energies = checkpoint.configuration_energies_kev or tuple(state.beam_voltage_kv for _ in configurations)
+    ids = checkpoint.configuration_ids or tuple(f"frozen_phonon:{i}" for i in range(len(configurations)))
+    if (len(priors) != len(configurations) or len(energies) != len(configurations) or len(ids) != len(configurations)
+            or len(set(ids)) != len(ids) or not np.all(np.isfinite(priors)) or min(priors) <= 0
+            or not math.isclose(sum(priors), 1., rel_tol=0, abs_tol=1e-10)):
+        raise ValueError("Invalid projector mode priors, energies or IDs")
+    plans_by_energy = {}
+    all_rows = []
+    branch_weights = []
+    camera_input_weights = []
+    accumulated_prior = 0.
     for configuration_index, objective_wave in enumerate(
-        checkpoint.objective_wave_configurations, start=1
+        configurations, start=1
     ):
+        idx = configuration_index - 1
+        prior, energy, branch_id = priors[idx], energies[idx], ids[idx]
+        if energy not in plans_by_energy:
+            mode_state = state_at_energy(state, energy) if energy != state.beam_voltage_kv else state
+            wavelength = electron(mode_state)[2] * 10.
+            plan = objective_aperture_plan(mode_state, checkpoint.x_angstrom, checkpoint.y_angstrom, wavelength)
+            plans_by_energy[energy] = (mode_state, wavelength, plan)
+        mode_state, wavelength, plan = plans_by_energy[energy]
+        ledger = FluxLedger(branch_id=branch_id, relative_tolerance=checkpoint.norm_relative_tolerance)
+        reference = checkpoint.reference_discrete_norm
+        before = float(np.sum(np.abs(np.asarray(objective_wave, complex))**2) / reference)
+        if not checkpoint.numerical_bandwidth_applied:
+            check_lossless_norm(1., before, context="Elastic specimen and residual phase",
+                                rtol=checkpoint.norm_relative_tolerance)
+        ledger.record("specimen_and_bandwidth", 1., before,
+                      "numerical_bandwidth" if checkpoint.numerical_bandwidth_applied else "lossless")
+        if plan.equivalent_mask is not None:
+            objective_wave = np.fft.ifft2(np.fft.fft2(objective_wave) * plan.equivalent_mask)
+            after = float(np.sum(np.abs(objective_wave)**2) / reference)
+            ledger.record("equivalent_objective_pupil", before, after, "physical_stop",
+                          physical_element_id=plan.metadata["physical_element_id"], parameters=plan.metadata)
+        mode = WaveMode.from_legacy(objective_wave, checkpoint.x_angstrom, checkpoint.y_angstrom,
+                                    reference_discrete_norm=reference, mode_id=branch_id,
+                                    energy_kev=energy)
+        camera_input_weights.append(mode.weight_per_reference_electron * prior)
         camera_projection = project_wave_to_recording_plane(
-            state,
-            objective_wave,
+            mode_state,
+            mode.weighted_density_amplitude(),
             checkpoint.x_angstrom,
             checkpoint.y_angstrom,
-            checkpoint.wavelength_angstrom,
+            wavelength,
             convergence_semiangle_rad=(
                 checkpoint.convergence_semiangle_rad
             ),
+            input_convention="weighted_density_per_m",
+            excluded_aperture_keys=plan.excluded_keys,
         )
+        for row in camera_projection.metrics["camera_flux_ledger"]:
+            ledger.record(row["node_id"], row["input_weight"], row["output_weight"],
+                          row["loss_category"], physical_element_id=row["physical_element_id"],
+                          parameters=row.get("parameters"))
+        all_rows.extend(ledger.weighted_rows(prior))
+        branch_weights.append(camera_projection.metrics["camera_collected_zero_loss_relative_intensity"] * prior)
         image_configuration = np.asarray(
             camera_projection.intensity, dtype=np.float64
         )
@@ -135,15 +219,50 @@ def _project_objective_configurations(state, checkpoint):
                 electron_optical_configuration
             )
             image_m2 = np.zeros_like(image_configuration)
+        # Fixed priors carry losses. They are never conditioned on survival.
+        accumulated_prior += prior
         image_delta = image_configuration - raw_image
-        raw_image += image_delta / configuration_index
-        image_m2 += image_delta * (image_configuration - raw_image)
-        raw_electron_optical_image += (
-            electron_optical_configuration - raw_electron_optical_image
-        ) / configuration_index
+        raw_image += (prior / accumulated_prior) * image_delta
+        image_m2 += prior * image_delta * (image_configuration - raw_image)
+        raw_electron_optical_image += prior * electron_optical_configuration
 
     if camera_projection is None:
         raise ValueError("Projector checkpoint contains no wave configurations.")
+    from temsim.calculation_manifest import WaveExecutionManifest
+    execution = WaveExecutionManifest(TEM_REFERENCE_PLANE, plan.metadata, tuple(all_rows),
+                                       "NumPy CPU / complex128 projector").to_dict()
+    illumination = checkpoint.illumination_metadata or illumination_metadata(state)
+    execution["illumination"] = illumination
+    execution["aperture_policies_by_energy_kev"] = {str(e): p[2].metadata for e, p in plans_by_energy.items()}
+    execution["summary"] = illumination["illumination_scope"] + " " + execution["summary"].split(";", 1)[1]
+    image_m2 *= len(configurations)
+    raw_image *= accumulated_prior  # Preserve declared priors, including tiny sum roundoff.
+    # Replace per-configuration camera diagnostics with the ensemble ledger;
+    # never report the last configuration as if it described the ensemble.
+    aggregate_metrics = dict(camera_projection.metrics)
+    aggregate_metrics.update({
+        "wave_execution_manifest": execution,
+        "image_formation_scope": execution["summary"],
+        "wave_reference_plane": TEM_REFERENCE_PLANE,
+        "wave_norm_relative_tolerance": checkpoint.norm_relative_tolerance,
+        "objective_aperture_strategy": plan.strategy,
+        "objective_aperture_mrad_semantics": "nominal radius/axial-distance diagnostic only; actual acceptance uses the physical transfer map",
+        "configuration_prior_weights": tuple(priors),
+        "configuration_energies_kev": tuple(energies),
+        "configuration_recorded_weights": tuple(branch_weights),
+        "camera_flux_ledger": tuple(all_rows),
+        "camera_input_probability": sum(camera_input_weights),
+        "camera_pre_psf_probability": _detector_probability(raw_electron_optical_image,
+                                                             camera_projection.x_mm, camera_projection.y_mm),
+    })
+    aggregate_metrics["intermediate_aperture_transmissions"] = tuple(
+        {"key": r["physical_element_id"].removeprefix("aperture:"),
+         "physical_element_id": r["physical_element_id"], "branch_id": r["branch_id"],
+         "incoming_probability": r["input_weight"], "transmitted_probability": r["output_weight"],
+         "strategy": plan.strategy if r["node_id"] == "equivalent_objective_pupil" else "physical_plane"}
+        for r in all_rows if r["physical_element_id"] and r["physical_element_id"].startswith("aperture:"))
+    aggregate_metrics["intermediate_post_sample_masks_applied"] = bool(aggregate_metrics["intermediate_aperture_transmissions"])
+    camera_projection = replace(camera_projection, metrics=aggregate_metrics)
     return (
         raw_image,
         raw_electron_optical_image,
@@ -176,23 +295,9 @@ def reproject_wave_image(state, result: WaveImagingResult) -> WaveImagingResult:
             "The cached TEM result has no Objective-side projector checkpoint."
         )
     aperture_rad = _objective_aperture_rad(state)
-    if checkpoint.objective_aperture_rad != aperture_rad:
-        if not checkpoint.unapertured_wave_configurations:
-            # Legacy checkpoints cannot restore a wider pupil. An unchanged
-            # legacy aperture remains compatible with ordinary D/I/P replay.
-            previous = float(result.metrics.get("objective_aperture_mrad", math.inf)) * 1.0e-3
-            if not math.isclose(previous, aperture_rad, rel_tol=1.0e-12, abs_tol=1.0e-15):
-                raise ValueError("Recalculate TEM once to retain the pre-aperture wave configurations")
-        else:
-            dx = float(checkpoint.x_angstrom[1] - checkpoint.x_angstrom[0])
-            dy = float(checkpoint.y_angstrom[1] - checkpoint.y_angstrom[0])
-            fx, fy = np.meshgrid(np.fft.fftfreq(len(checkpoint.x_angstrom), dx),
-                                 np.fft.fftfreq(len(checkpoint.y_angstrom), dy))
-            mask = (fx**2 + fy**2 <= (aperture_rad / checkpoint.wavelength_angstrom)**2)
-            configurations = tuple(_readonly_array(np.fft.ifft2(np.fft.fft2(w) * mask))
-                                   for w in checkpoint.unapertured_wave_configurations)
-            checkpoint = replace(checkpoint, objective_wave_configurations=configurations,
-                                 objective_aperture_rad=aperture_rad)
+    # Rebuild the selected readout policy from the PRE-pupil checkpoint.
+    # Radius, offset, insertion, strategy and optical transfer can all change.
+    checkpoint = replace(checkpoint, objective_aperture_rad=aperture_rad)
     (
         raw_image,
         raw_electron_optical_image,
@@ -230,15 +335,24 @@ def reproject_wave_image(state, result: WaveImagingResult) -> WaveImagingResult:
         "objective_aperture_mrad": aperture_rad * 1.0e3,
         "projector_checkpoint_configuration_count": configuration_count,
     })
-    return replace(
+    if checkpoint.illumination_metadata:
+        metrics.update(checkpoint.illumination_metadata)
+        if checkpoint.illumination_metadata.get("illumination_mode_count", 1) > 1:
+            metrics["image_configuration_relative_standard_error"] = 0.
+            metrics["image_configuration_uncertainty_status"] = "NOT_ESTIMATED: deterministic source quadrature is not iid phonon sampling"
+    updated = replace(
         result,
+        request_manifest=None,  # The caller can bind its new readout request.
         image_intensity=_normalise_image(raw_image),
         camera_electron_optical_intensity=raw_electron_optical_image,
+        camera_intensity=raw_image,
         camera_x_mm=camera_projection.x_mm,
         camera_y_mm=camera_projection.y_mm,
         metrics=metrics,
         projector_checkpoint=checkpoint,
     )
+    from temsim.execution_evidence import attach_execution_evidence
+    return attach_execution_evidence(updated, state, "TEM")
 
 
 @dataclass(frozen=True)
@@ -263,9 +377,8 @@ _COMPLEX_EXIT_WAVE_BYTES_PER_PIXEL = np.dtype(np.complex128).itemsize
 def tem_wave_imaging_enabled(state) -> bool:
     """Return whether this state requests the local TEM wave observable.
 
-    The separate STEM wave path owns raster detector images. Real mode obtains
-    its potential only from an imported CIF/MCIF; Virtual mode obtains it only
-    from the selected TOML reference specimen.
+    The separate STEM wave path owns raster detector images. Reference and
+    imported specimens both obtain their atomic structure from CIF/MCIF.
     """
 
     scene = SpecimenScene.from_state(state)
@@ -361,6 +474,7 @@ def estimate_tem_wave_memory_bytes(state) -> int:
         * grid_points
         * _COMPLEX_EXIT_WAVE_BYTES_PER_PIXEL
     )
+    retained_exit_waves *= len(source_nodes(illumination_config(state)))
     return int(working_bytes + potential_bytes + retained_exit_waves)
 
 
@@ -955,6 +1069,18 @@ def _incident_wave(
     nx = frequencies_x.size
     ny = frequencies_y.size
     fx, fy = np.meshgrid(frequencies_x, frequencies_y, indexing="xy")
+    if explicit_illumination(state):
+        spectrum = explicit_pupil_spectrum(state, fx, fy, wavelength_angstrom)
+        # A Fourier shift is periodic. Reject out-of-domain declared positions
+        # rather than wrapping a remote source back onto the specimen.
+        half_x_m = .5 / abs(frequencies_x[1]-frequencies_x[0]) * 1e-10
+        half_y_m = .5 / abs(frequencies_y[1]-frequencies_y[0]) * 1e-10
+        if abs(ray_stats["mean_x_m"]) >= half_x_m or abs(ray_stats["mean_y_m"]) >= half_y_m:
+            raise ValueError("Declared TEM source position is outside the wave FOV; enlarge the calculation domain")
+        phase = np.exp(-2j * np.pi * (fx * ray_stats["mean_x_m"] * 1e10 + fy * ray_stats["mean_y_m"] * 1e10))
+        wave = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(spectrum * phase)))
+        # Define one conditional input electron before all specimen/stops.
+        return wave / np.sqrt(np.mean(np.abs(wave)**2))
     tilt_fx = ray_stats["mean_tx_rad"] / wavelength_angstrom
     tilt_fy = ray_stats["mean_ty_rad"] / wavelength_angstrom
     if str(getattr(state, "illumination_mode", "TEM")).upper() != "STEM":
@@ -1046,7 +1172,97 @@ def _objective_aperture_rad(state) -> float:
     return max(float(aperture.radius_mm), 0.0) / distance_mm
 
 
-def simulate_wave_image(state, simulation) -> WaveImagingResult:
+def _simulate_illumination_ensemble(state, simulation):
+    """Stream source modes; retain only the exit checkpoints needed for replay."""
+    nodes = source_nodes(illumination_config(state))
+    first = None
+    checkpoints, priors, energies, ids, records, ledger_rows = [], [], [], [], [], []
+    raw_image = raw_optical = diffraction = mean_wave = None
+    input_probability = 0.
+    recorded_weights = []
+    norm_rtol = FLUX_RTOL
+    for node in nodes:
+        mode_state = state_for_source_node(state, node)
+        result = simulate_wave_image(mode_state, simulation)
+        cp = result.projector_checkpoint
+        norm_rtol = max(norm_rtol, cp.norm_relative_tolerance)
+        if first is None:
+            first = result
+            raw_image = np.zeros_like(result.camera_intensity)
+            raw_optical = np.zeros_like(result.camera_electron_optical_intensity)
+            diffraction = np.zeros_like(result.absolute_diffraction_probability)
+            mean_wave = np.zeros_like(result.exit_wave)
+        else:
+            for name in ("x_angstrom", "y_angstrom", "camera_x_mm", "camera_y_mm"):
+                if not np.array_equal(getattr(first, name), getattr(result, name)):
+                    raise ValueError("Illumination modes require a common physical image grid; implicit resampling is disabled")
+            if not math.isclose(cp.reference_discrete_norm, first.projector_checkpoint.reference_discrete_norm, rel_tol=1e-10):
+                raise ValueError("Illumination modes have inconsistent entrance reference norms")
+        raw_image += node.weight * result.camera_intensity
+        input_probability += node.weight * result.metrics["camera_input_probability"]
+        recorded_weights.extend(node.weight * w for w in result.metrics["configuration_recorded_weights"])
+        raw_optical += node.weight * result.camera_electron_optical_intensity
+        diffraction += node.weight * result.absolute_diffraction_probability
+        mean_wave += node.weight * result.exit_wave
+        waves = cp.unapertured_wave_configurations
+        checkpoints.extend(waves)
+        priors.extend([node.weight / len(waves)] * len(waves))
+        energies.extend([mode_state.beam_voltage_kv] * len(waves))
+        ids.extend(f"{node.mode_id}/frozen_phonon:{i}" for i in range(len(waves)))
+        for row in result.metrics["camera_flux_ledger"]:
+            ledger_rows.append({**row, "branch_id": node.mode_id + "/" + row["branch_id"],
+                                **{key: row[key] * node.weight for key in ("input_weight", "output_weight", "lost_weight", "positive_numerical_residual")}})
+        records.append({**asdict(node), "energy_kev": mode_state.beam_voltage_kv,
+                        **{key: result.metrics[key] for key in (
+                            "wavelength_angstrom", "interaction_constant_rad_per_v_angstrom",
+                            "alpha_95_current_rad", "alpha_99_current_rad", "pupil_effective_bandwidth_rad", "wave_compute_backend",
+                            "camera_collected_zero_loss_relative_intensity", "effective_aberrations")},
+                        "objective_aperture_policy": result.metrics["wave_execution_manifest"]["aperture_policy"]})
+    illumination = illumination_metadata(state)
+    # These records survive source-checkpoint replay. Keep only source-side
+    # quantities here; current readout geometry belongs to the execution graph.
+    illumination["illumination_executed_modes"] = [
+        {k: v for k, v in record.items() if k not in {"camera_collected_zero_loss_relative_intensity", "objective_aperture_policy"}}
+        for record in records]
+    if len(nodes) == 1:
+        illumination.update({key: first.metrics[key] for key in ("alpha_95_current_rad", "alpha_99_current_rad", "pupil_effective_bandwidth_rad", "pupil_wave_grid_extent_inv_angstrom")})
+    cp = replace(first.projector_checkpoint, objective_wave_configurations=tuple(checkpoints),
+                 unapertured_wave_configurations=tuple(checkpoints), configuration_prior_weights=tuple(priors),
+                 configuration_energies_kev=tuple(energies), configuration_ids=tuple(ids),
+                 illumination_metadata=illumination, norm_relative_tolerance=norm_rtol)
+    metrics = {**first.metrics, **illumination}
+    execution = deepcopy(metrics["wave_execution_manifest"])
+    execution.update(illumination=illumination, flux_ledger=ledger_rows)
+    execution["aperture_policies_by_energy_kev"] = {str(r["energy_kev"]): r["objective_aperture_policy"] for r in records}
+    metrics.update(wave_execution_manifest=execution, camera_flux_ledger=tuple(ledger_rows),
+                   configuration_prior_weights=tuple(priors), configuration_energies_kev=tuple(energies),
+                   configuration_recorded_weights=tuple(recorded_weights),
+                   camera_collected_zero_loss_relative_intensity=_detector_probability(raw_image, first.camera_x_mm, first.camera_y_mm),
+                   camera_pre_psf_probability=_detector_probability(raw_optical, first.camera_x_mm, first.camera_y_mm),
+                   camera_input_probability=input_probability,
+                   projector_checkpoint_configuration_count=len(checkpoints),
+                   displayed_intensity_average="incoherent source × energy × frozen-phonon weighted intensities",
+                   representative_scalar_diagnostics_mode_id=nodes[0].mode_id,
+                   image_configuration_uncertainty_status="NOT_ESTIMATED: refine source/energy quadratures independently; phonons are shared across source nodes",
+                   image_configuration_relative_standard_error=(first.metrics["image_configuration_relative_standard_error"] if len(nodes) == 1 else 0.))
+    metrics["intermediate_aperture_transmissions"] = tuple(
+        {"key": r["physical_element_id"].removeprefix("aperture:"),
+         "physical_element_id": r["physical_element_id"], "branch_id": r["branch_id"],
+         "incoming_probability": r["input_weight"], "transmitted_probability": r["output_weight"],
+         "strategy": "equivalent_pupil" if r["node_id"] == "equivalent_objective_pupil" else "physical_plane"}
+        for r in ledger_rows if r["physical_element_id"] and r["physical_element_id"].startswith("aperture:"))
+    # A conditional display distribution stays separate from absolute flux.
+    conditional = diffraction / max(float(np.sum(diffraction)), 1e-30)
+    display = np.log1p(diffraction / max(float(np.max(diffraction)), 1e-30) * 1e4)
+    return replace(first, camera_intensity=raw_image, camera_electron_optical_intensity=raw_optical,
+                   image_intensity=_normalise_image(raw_image), absolute_diffraction_probability=diffraction,
+                   linear_diffraction_probability=conditional, diffraction_intensity=display / max(float(display.max()), 1e-30),
+                   exit_wave=mean_wave, metrics=metrics, projector_checkpoint=cp)
+
+
+def _simulate_wave_image(state, simulation) -> WaveImagingResult:
+    if explicit_illumination(state) and not hasattr(state, "_wave_source_node"):
+        return _simulate_illumination_ensemble(state, simulation)
     scene = SpecimenScene.from_state(state)
     specimen_interaction = bool(
         not scene.is_vacuum and scene.structure_available
@@ -1067,7 +1283,9 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
     frequency_squared = fx * fx + fy * fy
     _, _, wavelength_nm = electron(state)
     wavelength_angstrom = wavelength_nm * 10.0
-    ray_stats = _weighted_ray_statistics(simulation.incident)
+    raw_ray_stats = _weighted_ray_statistics(simulation.incident)
+    ray_stats = illumination_ray_statistics(state, raw_ray_stats)
+    illumination = illumination_metadata(state, raw_ray_stats)
     incident_wave = _incident_wave(
         state,
         ray_stats,
@@ -1075,6 +1293,9 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         frequencies_y,
         wavelength_angstrom,
     )
+    if explicit_illumination(state):
+        illumination.update(current_angle_quantiles(fx, fy, np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(incident_wave))),
+                            wavelength_angstrom, (ray_stats["mean_tx_rad"]*1e3, ray_stats["mean_ty_rad"]*1e3)))
     sigma = interaction_constant_rad_per_v_angstrom(state.beam_voltage_kv)
     multislice_enabled = bool(
         getattr(state.sample, "wave_multislice_enabled", True)
@@ -1261,10 +1482,9 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         # return the aperture-limited exit-wave intensity without NaNs.
         chi = np.zeros_like(frequency_squared)
     aperture_rad = _objective_aperture_rad(state)
-    aperture_mask = np.ones_like(frequency_squared, dtype=bool)
-    if math.isfinite(aperture_rad):
-        aperture_mask = frequency_squared <= (aperture_rad / wavelength_angstrom) ** 2
-    transfer = aperture_mask * np.exp(-1j * chi)
+    # The projector owns the physical stop. Equivalent pupils, when explicitly
+    # selected and valid, also execute there exactly once.
+    transfer = np.exp(-1j * chi)
     specimen_backend = str(specimen_metrics["compute_backend"])
     fft_backend = (
         specimen_backend
@@ -1280,11 +1500,6 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
     unapertured_wave_configurations = []
     fft_records = []
     for exit_configuration in exit_waves:
-        # Retain the residual aberration phase, but not the removable pupil.
-        unapertured, _, _ = apply_coherent_transfer(
-            exit_configuration, np.exp(-1j * chi),
-            compute_backend=fft_backend, fallback_reason=fft_fallback_seed)
-        unapertured_wave_configurations.append(_readonly_array(unapertured))
         objective_image_wave, diffraction_configuration, fft_diagnostics = (
             apply_coherent_transfer(
                 exit_configuration,
@@ -1293,9 +1508,13 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
                 fallback_reason=fft_fallback_seed,
             )
         )
-        objective_wave_configurations.append(
-            _readonly_array(objective_image_wave)
-        )
+        phase_rtol = FLOAT32_FLUX_RTOL if "complex64" in fft_diagnostics.numeric_precision else FLUX_RTOL
+        check_lossless_norm(float(np.sum(np.abs(exit_configuration.astype(complex))**2)),
+                            float(np.sum(np.abs(objective_image_wave.astype(complex))**2)),
+                            context="Residual aberration phase", rtol=phase_rtol)
+        retained_wave = _readonly_array(objective_image_wave)
+        unapertured_wave_configurations.append(retained_wave)
+        objective_wave_configurations.append(retained_wave)
         raw_diffraction += diffraction_configuration
         coherent_exit_wave += exit_configuration
         fft_records.append(fft_diagnostics)
@@ -1303,8 +1522,15 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
             fft_backend = fft_diagnostics.compute_backend
             fft_fallback_seed = fft_diagnostics.fallback_reason
     projector_checkpoint = ProjectorWaveCheckpoint(
+        illumination_metadata=illumination,
         unapertured_wave_configurations=tuple(unapertured_wave_configurations),
         objective_aperture_rad=float(aperture_rad),
+        reference_discrete_norm=float(np.sum(np.abs(incident_wave)**2)),
+        numerical_bandwidth_applied=bool(multislice_enabled and
+            float(getattr(state.sample, "wave_bandwidth_fraction", 2/3)) < 1.),
+        norm_relative_tolerance=(FLOAT32_FLUX_RTOL if
+            "complex64" in str(specimen_metrics["numeric_precision"]) or any(
+                "complex64" in record.numeric_precision for record in fft_records) else FLUX_RTOL),
         objective_wave_configurations=tuple(objective_wave_configurations),
         x_angstrom=_readonly_array(x_axis, dtype=np.float64),
         y_angstrom=_readonly_array(y_axis, dtype=np.float64),
@@ -1404,6 +1630,8 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         )
 
     metrics = {
+        **illumination,
+        "wave_source_request_digest": None,
         **ray_stats,
         **{
             f"specimen_{key}": value
@@ -1435,14 +1663,8 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         "wave_compute_backend": wave_compute_backend,
         "image_display_scaling": "0.5-99.5 percentile clipped to [0, 1]",
         "diffraction_display_scaling": "log1p contrast, normalised to [0, 1]",
-        "image_formation_scope": (
-            "electron gun through complete illumination column to specimen; "
-            "multislice interaction; Objective pupil and complete projector "
-            "field transfer to the active recording plane with terminal mask "
-            "and detector PSF; intermediate post-sample aperture wave masks "
-            "are not yet applied"
-        ),
-        "exit_wave_representation": "coherent ensemble mean",
+        "exit_wave_representation": "diagnostic coherent ensemble mean; not a pure state for mixed configurations",
+        "linear_diffraction_probability_semantics": "conditional on represented exit-wave band; use absolute_diffraction_probability for flux",
         "displayed_intensity_average": (
             "incoherent frozen-phonon intensity mean"
             if len(exit_waves) > 1
@@ -1479,8 +1701,8 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
             projector_checkpoint.objective_wave_configurations
         ),
         "projector_checkpoint_scope": (
-            "specimen and Objective pupil/aberration output retained before "
-            "the Diffraction/Intermediate/P1/P2 recording-plane transfer"
+            "per-configuration specimen waves with residual aberration phase retained "
+            "BEFORE any objective stop, with the pre-loss specimen-entrance reference norm"
         ),
         "wave_sampling_truncates_illumination": bool(
             ray_stats["convergence_semiangle_rad"] * 1.0e3
@@ -1521,11 +1743,13 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         projected_potential_v_angstrom=potential,
         exit_wave=exit_wave,
         linear_diffraction_probability=linear_diffraction,
+        absolute_diffraction_probability=raw_diffraction / (nx * ny * projector_checkpoint.reference_discrete_norm),
         diffraction_intensity=(
             diffraction / max(float(diffraction.max()), 1.0e-30)
         ),
         image_intensity=_normalise_image(raw_image),
         camera_electron_optical_intensity=raw_electron_optical_image,
+        camera_intensity=raw_image,
         camera_x_mm=camera_projection.x_mm,
         camera_y_mm=camera_projection.y_mm,
         spatial_frequency_inv_angstrom=frequencies_x,
@@ -1533,3 +1757,8 @@ def simulate_wave_image(state, simulation) -> WaveImagingResult:
         metrics=metrics,
         projector_checkpoint=projector_checkpoint,
     )
+
+
+def simulate_wave_image(state, simulation) -> WaveImagingResult:
+    from temsim.execution_evidence import attach_execution_evidence
+    return attach_execution_evidence(_simulate_wave_image(state, simulation), state, "TEM")

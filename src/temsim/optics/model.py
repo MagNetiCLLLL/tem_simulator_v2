@@ -285,6 +285,8 @@ class Sample:
     in_plane_axis_uvw: tuple = (1, -1, 0)
 
     wave_defocus_nm: float = 0.0
+    wave_objective_aperture_strategy: str = "physical_plane"
+    wave_illumination: dict = field(default_factory=lambda: {"model": "ray_conditioned_reduced_order"})
 
     wave_grid_pixels: int = 0
 
@@ -329,6 +331,8 @@ class Sample:
     # acquisition.  Detector-response defaults are ideal simulator values,
     # not an OEM pixel-detector calibration.
     stem_fourdstem_enabled: bool = False
+    stem_execution_policy: str = "auto"
+    stem_fourdstem_host_budget_mb: int = 64
 
     stem_fourdstem_output_path: str = ""
 
@@ -705,6 +709,8 @@ class State:
 
     @property
     def beam_voltage_kv(self):
+        if hasattr(self, "_propagation_energy_kev"):
+            return self._propagation_energy_kev
         return float(self.electron_gun.nominal_exit_energy_ev) / 1000.0
 
     @property

@@ -82,9 +82,10 @@ def apply_coherent_transfer(
                 fallback_reason=fallback_reason,
             )
         except Exception as exc:
+            from temsim.physics.compute_backend import gpu_retry_reason
             fallback_reason = _combined_reason(
                 fallback_reason,
-                f"CuPy CUDA FFT failed: {type(exc).__name__}: {exc}",
+                "CuPy CUDA FFT failed: " + gpu_retry_reason(exc, "auto"),
             )
             if cp is not None:
                 _release_cupy_pools(cp)
@@ -109,8 +110,15 @@ def stem_diffraction_intensity(
     *,
     compute_backend: str = WAVE_BACKEND_NUMPY,
     fallback_reason: str | None = None,
+    reference_norm: float | None = None,
 ) -> tuple[np.ndarray, WaveFftDiagnostics]:
-    """Return normalised, shifted STEM diffraction intensities on the host."""
+    """Return shifted diffraction. Production passes the pre-specimen norm.
+
+    Omitting it retains the standalone legacy conditional-distribution API.
+    Explicit reference normalization never restores electrons lost upstream.
+    """
+    if reference_norm is not None and (not np.isfinite(reference_norm) or reference_norm <= 0):
+        raise ValueError("Diffraction reference norm must be positive and finite")
 
     if str(compute_backend) == WAVE_BACKEND_CUPY:
         cp = None
@@ -123,19 +131,20 @@ def stem_diffraction_intensity(
                     axes=(-2, -1),
                 )
             ) ** 2
-            diffraction /= cp.maximum(
+            diffraction /= (float(reference_norm) * int(device_wave.shape[-2]*device_wave.shape[-1]) if reference_norm is not None else cp.maximum(
                 cp.sum(diffraction, axis=(-2, -1), keepdims=True),
                 cp.float32(1.0e-30),
-            )
+            ))
             return cp.asnumpy(diffraction), WaveFftDiagnostics(
                 compute_backend=WAVE_BACKEND_CUPY,
                 numeric_precision="complex64 / float32",
                 fallback_reason=fallback_reason,
             )
         except Exception as exc:
+            from temsim.physics.compute_backend import gpu_retry_reason
             fallback_reason = _combined_reason(
                 fallback_reason,
-                f"CuPy CUDA FFT failed: {type(exc).__name__}: {exc}",
+                "CuPy CUDA FFT failed: " + gpu_retry_reason(exc, "auto"),
             )
             if cp is not None:
                 _release_cupy_pools(cp)
@@ -147,9 +156,9 @@ def stem_diffraction_intensity(
             axes=(-2, -1),
         )
     ) ** 2
-    diffraction /= np.maximum(
+    diffraction /= (float(reference_norm) * int(host_wave.shape[-2]*host_wave.shape[-1]) if reference_norm is not None else np.maximum(
         np.sum(diffraction, axis=(-2, -1), keepdims=True), 1.0e-30
-    )
+    ))
     return diffraction, WaveFftDiagnostics(
         compute_backend=WAVE_BACKEND_NUMPY,
         numeric_precision="complex128 / float64",

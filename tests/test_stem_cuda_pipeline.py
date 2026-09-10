@@ -132,7 +132,11 @@ def test_resident_cuda_frozen_phonon_detector_signals_match_cpu_reference():
             cpu.fractions[key], rel=2.0e-4, abs=2.0e-7
         )
     assert gpu.uncollected_fraction == pytest.approx(
-        cpu.uncollected_fraction, rel=2.0e-4, abs=2.0e-7
+        # This is 1 - collected, not an independently normalized tail. The
+        # retained float32 propagation norm now contributes to the remainder.
+        # Budget ~16 float32 eps per incident electron for these short FFT
+        # chains; the former 0.2 ppm test hid this error by exit renormalization.
+        cpu.uncollected_fraction, rel=2.0e-4, abs=2.0e-6
     )
     assert gpu.metrics["cuda_resident_pipeline"] is True
     assert gpu.metrics["cuda_configuration_count"] == 2
@@ -204,7 +208,7 @@ def test_resident_cuda_failure_discards_partial_work_and_recomputes_on_cpu(
         stem_wave_imaging,
         "run_resident_stem_cuda",
         lambda **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("synthetic resident pipeline failure")
+            compute_backend.GPUExecutionError("out_of_memory", "synthetic resident pipeline failure")
         ),
     )
     monkeypatch.setattr(
@@ -253,7 +257,7 @@ def test_dynamic_detector_centres_match_cpu_even_after_partial_cuda_failure(monk
         def checked_masks(start, stop):
             callback_starts.append(start)
             if start > 0 and fail_after_first_batch:
-                raise RuntimeError("synthetic failure after completed GPU batch")
+                raise compute_backend.GPUExecutionError("kernel_or_runtime_failure", "synthetic failure after completed GPU batch")
             return provider(start, stop)
 
         kwargs["detector_mask_provider"] = checked_masks

@@ -48,7 +48,8 @@ _POST_SAMPLE_PROJECTION_LENS_KEYS = frozenset({
 _LOADED_INPUT_DIGEST_CACHE: dict[str, tuple[object, str]] = {}
 _WAVE_COORDINATE_SCHEMA = "centred-real-space-v2"
 _WAVE_SPECIMEN_SCHEMA = "cif-reference-occupancy-absorption-v3"
-_STEM_RECORDING_SCHEMA = "physical-envelope-overlap-raster-independent-tail-chief-relative-df-v5"
+_TEM_PROJECTION_SCHEMA = "physical-aperture-pre-loss-flux-v1"
+_STEM_RECORDING_SCHEMA = "physical-envelope-pre-specimen-flux-gpu-capture-v6"
 _PARTICLE_POINT_SCHEMA = "resolved-point-material-hit-diagnostics-v2"
 _EDS_SIGNAL_SCHEMA = "eds-only-overlap-importance-v1"
 
@@ -74,11 +75,20 @@ def _wave_digest(payload):
     # arrays. The specimen schema also versions finite atom ROI and potential
     # sampling independently of wave extent. Neither correction changes the
     # incident, particle-interaction or EDS checkpoint calculations.
+    from temsim.physics.illumination import ILLUMINATION_SCHEMA
+    from temsim.optics.aberration_basis import ABERRATION_SCHEMA
     return _digest({
+        "illumination_schema": ILLUMINATION_SCHEMA,
+        "aberration_schema": ABERRATION_SCHEMA,
         "wave_coordinate_schema": _WAVE_COORDINATE_SCHEMA,
         "wave_specimen_schema": _WAVE_SPECIMEN_SCHEMA,
         "parameters": payload,
     })
+
+
+def _tem_wave_digest(payload):
+    # TEM readout semantics changed; preserve unrelated STEM/specimen caches.
+    return _wave_digest({"tem_projection_schema": _TEM_PROJECTION_SCHEMA, "payload": payload})
 
 
 def _stem_digest(payload):
@@ -636,6 +646,9 @@ def _calculation_signatures_from_payload(
     incident = _incident_only_payload(
         _drop_post_sample_projection_controls(column)
     )
+    # These coefficients alter coherent waves, not incident/column ray forces.
+    column.pop("probe_aberrations", None)
+    incident.pop("probe_aberrations", None)
     # Elastic particle transport uses holder/support geometry and its own
     # stochastic controls, but not spectrum binning, detector response or
     # Poisson presentation settings.
@@ -664,6 +677,10 @@ def _calculation_signatures_from_payload(
         keep={"stem_wave_enabled"},
     ))
     wave_source = _drop_post_sample_projection_controls(wave)
+    wave_source["sample"].pop("wave_objective_aperture_strategy", None)
+    # Mechanical aperture edits conservatively invalidate this source key:
+    # the sample module's resolved geometry also controls local lens fields.
+    # Explicit readout replay still uses the retained pre-pupil checkpoint.
     fourdstem_cube = _drop_post_sample_projection_controls(
         _drop_physical_current_scale(
             _drop_sample_fields(
@@ -773,11 +790,16 @@ def _calculation_signatures_from_payload(
             energy_filter_base,
             prefixes=(*_EDS_PREFIXES, "wave_", *_STEM_PREFIXES),
         )
+    from temsim.optics.aberration_basis import ABERRATION_SCHEMA
+    from temsim.physics.illumination import ILLUMINATION_SCHEMA
     return {
         "request": _digest({
             # Complete-result lookup precedes individual product checks.
+            "aberration_schema": ABERRATION_SCHEMA,
+            "illumination_schema": ILLUMINATION_SCHEMA,
             "wave_coordinate_schema": _WAVE_COORDINATE_SCHEMA,
             "wave_specimen_schema": _WAVE_SPECIMEN_SCHEMA,
+            "tem_projection_schema": _TEM_PROJECTION_SCHEMA,
             "stem_recording_schema": _STEM_RECORDING_SCHEMA,
             "particle_point_schema": _PARTICLE_POINT_SCHEMA,
             "eds_signal_schema": _EDS_SIGNAL_SCHEMA,
@@ -786,8 +808,8 @@ def _calculation_signatures_from_payload(
         "column": _digest(column),
         "incident": _digest(incident),
         "elastic": _particle_point_digest(elastic),
-        "wave": _wave_digest(wave),
-        "wave_source": _wave_digest(wave_source),
+        "wave": _tem_wave_digest(wave),
+        "wave_source": _tem_wave_digest(wave_source),
         "fourdstem_cube": _stem_digest(fourdstem_cube),
         "fourdstem_virtual_detectors": _stem_digest(fourdstem_virtual_detectors),
         "fourdstem_physical_recording": _stem_digest(
@@ -795,7 +817,7 @@ def _calculation_signatures_from_payload(
         ),
         "eds": _eds_digest(eds),
         "energy_filter": (
-            _wave_digest(energy_filter)
+            _tem_wave_digest(energy_filter)
             if energy_filter_mode == "eftem"
             else _digest(energy_filter)
         ),

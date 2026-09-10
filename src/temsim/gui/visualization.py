@@ -18,6 +18,8 @@ import pyqtgraph as pg
 from PySide6.QtCore import QEvent, QSignalBlocker, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
+    QFileDialog,
+    QMessageBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -88,6 +90,12 @@ class WaveImagingView(QWidget):
         source_row.addWidget(QLabel("Result source"))
         source_row.addWidget(self.image_source)
         source_row.addWidget(self.image_source_status, 1)
+        self.export_raw_button = QPushButton("Export raw TEM…")
+        self.export_raw_button.setToolTip("Export the displayed result's raw probabilities, axes and execution record as NPZ.")
+        self.export_raw_button.setEnabled(False)
+        self._displayed_wave_result = None
+        source_row.addWidget(self.export_raw_button)
+        self.export_raw_button.clicked.connect(self._export_raw_result)
         self.summary = QLabel(
             "No TEM wave image | enable it on Sample and run High accuracy"
         )
@@ -131,6 +139,18 @@ class WaveImagingView(QWidget):
                 self.image.getView().viewRange(), self.diffraction.getView().viewRange(),
             )
 
+    def _export_raw_result(self):
+        if self._displayed_wave_result is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export displayed TEM result", "tem_raw.npz", "NumPy archive (*.npz)")
+        if not path:
+            return
+        from temsim.physics.wave_export import export_wave_image
+        try:
+            export_wave_image(self._displayed_wave_result, path)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "TEM export", str(exc))
+
     def _source_changed(self, *_args) -> None:
         self._remember_source_ranges()
         self._display_source = str(self.image_source.currentData())
@@ -141,6 +161,8 @@ class WaveImagingView(QWidget):
             readout = self._bank_readout
             wave = getattr(readout, "wave", None)
             if wave is None:
+                self._displayed_wave_result = None
+                self.export_raw_button.setEnabled(False)
                 self.image.clear()
                 self.diffraction.clear()
                 self.summary.setText("No TEM image in this Advanced bank readout")
@@ -224,6 +246,9 @@ class WaveImagingView(QWidget):
     def _display_wave_result(
         self, wave_result, state=None, quality: str = "", *, no_illumination=False,
     ) -> None:
+        self._displayed_wave_result = wave_result
+        self.export_raw_button.setEnabled(getattr(wave_result, "camera_intensity", None) is not None
+                                          and getattr(wave_result, "absolute_diffraction_probability", None) is not None)
         if wave_result is None:
             self.image.clear()
             self.diffraction.clear()
@@ -380,11 +405,16 @@ class WaveImagingView(QWidget):
             f"{configurations} configuration(s){thermal_text} | "
             f"{plane_name} {observable.lower()} | "
             f"{backend}"
-            f"{warning_text}"
+            f" | {metrics.get('illumination_model', 'legacy illumination')}"
+            + (f" | {metrics.get('illumination_mode_count', 1)} source mode(s); convergence not assessed"
+               if metrics.get("illumination_mode_count") else "")
+            + warning_text
         )
         details = [
-            "Scope: gun-conditioned illumination, specimen interaction, "
-            "complete projector transfer and physical recording response.",
+            "Scope: " + str(metrics.get("image_formation_scope", "not recorded")),
+            "Electron reference: " + str(metrics.get("wave_reference_plane", "legacy / not recorded")),
+            "Collected probability at that reference: "
+            f"{float(metrics.get('camera_collected_zero_loss_relative_intensity', 0.)):.6g}",
             "Recording propagation: "
             f"{metrics.get('camera_wave_propagation_method', 'unknown')}",
             "Recording sampling: "

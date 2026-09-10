@@ -108,6 +108,20 @@ def test_transverse_field_affine_offset_moves_beam_outside_detector():
     assert result.surviving_weight == 1
 
 
+def test_overlapping_virtual_observers_are_not_exclusive_electron_sinks():
+    monitors = tuple(PlaneStop(key, key, z, "detector", "square", outer_width_mm=10.,
+                               readout_enabled=True, non_blocking=True)
+                     for key, z in (("virtual_1", 1.), ("virtual_2", 2.)))
+    camera = PlaneStop("camera", "camera", 3., "detector", "square", outer_width_mm=10.,
+                       readout_enabled=True)
+    result = route_record_planes(
+        _plan((*monitors, camera), (_transfer(1.), _transfer(2.), _transfer(3.))),
+        np.zeros((2, 2)), np.zeros((2, 2)), weights=np.array([.25, .75]))
+    assert [r.signal_weight for r in result.interactions] == pytest.approx([1., 1., 1.])
+    assert result.physically_intercepted_weight == pytest.approx(1.)
+    assert result.surviving_weight == 0.
+
+
 def test_inserted_detector_blocks_even_when_readout_is_disabled():
     detector = PlaneStop(
         "screen", "Screen", 1.0, "detector", "disk", outer_width_mm=10.0,

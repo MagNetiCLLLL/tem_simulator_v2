@@ -31,7 +31,7 @@ from temsim.specimen.geometry import (
 from temsim.specimen.source import migrate_legacy_structure_source
 
 
-PROFILE_FORMAT_VERSION = 5
+PROFILE_FORMAT_VERSION = 6
 _SAMPLE_MODEL_KEY = "__sample_model__"
 _SIMULATION_MODEL_KEY = "__simulation_model__"
 _PROFILE_VERSION_KEY = "__profile_format_version__"
@@ -104,6 +104,7 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
             "settings": capture_mode_settings(state),
         },
         "sample_model": {
+            "wave_illumination": deepcopy(state.sample.wave_illumination),
             "orientation_quaternion_wxyz": list(
                 normalise_quaternion_wxyz(
                     sample_orientation_quaternion(state.sample)
@@ -125,7 +126,7 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
     if not isinstance(document, dict):
         raise ValueError("Operating profile must be a TOML table")
     format_version = int(document.get("format_version", 0))
-    if format_version not in {1, 2, 3, 4, PROFILE_FORMAT_VERSION}:
+    if format_version not in {1, 2, 3, 4, 5, PROFILE_FORMAT_VERSION}:
         raise ValueError("Unsupported operating-profile format")
     assembly = document.get("assembly")
     if not isinstance(assembly, dict):
@@ -172,8 +173,10 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
 
 
 def _apply_sample_model(sample, model: dict) -> None:
+    from temsim.physics.illumination import validate_illumination_config
     if not isinstance(model, dict):
         raise ValueError("Operating profile sample_model must be a table")
+    illumination = validate_illumination_config(model.get("wave_illumination", sample.wave_illumination))
     quaternion = normalise_quaternion_wxyz(
         model.get(
             "orientation_quaternion_wxyz",
@@ -207,6 +210,7 @@ def _apply_sample_model(sample, model: dict) -> None:
     sample.virtual_interactions = []
     sample.virtual_regions = []
     sample.wave_frozen_phonon_sigma_by_element_angstrom = converted_sigma
+    sample.wave_illumination = illumination
 
 
 def apply_profile_values(state, values: dict) -> list[str]:
@@ -287,6 +291,15 @@ def apply_profile_values(state, values: dict) -> list[str]:
     # Validate sample tables and legacy migration on a separate sample before
     # committing any device changes, including optional coefficient resets.
     candidate_sample = copy(state.sample)
+    migration_notes = []
+    if format_version < 6:
+        migration_notes.append("Model switches preserve current lens excitation and polarity; historical shelves do not retune hardware.")
+        if not isinstance(sample_model, dict) or "wave_illumination" not in sample_model:
+            candidate_sample.wave_illumination = {"model": "ray_conditioned_reduced_order"}
+            migration_notes.append("Missing illumination definition retained as legacy ray-conditioned reduced-order mode.")
+        if "stem_execution_policy" not in sample_attributes:
+            candidate_sample.stem_execution_policy = "auto"
+            migration_notes.append("STEM execution uses the existing toolbar backend (auto policy).")
     for obj, name, value in pending:
         if obj is state.sample:
             setattr(candidate_sample, name, value)
@@ -319,6 +332,7 @@ def apply_profile_values(state, values: dict) -> list[str]:
             infer_implicit_atomic_preset=False,
         )
         vars(candidate_sample).update(migrated)
+        migration_notes.append("Legacy specimen selection/orientation converted to the real-structure schema; virtual interaction controls retired.")
         if sample_attributes or sample_model is not None:
             for name in ("real_tail_material_source", "real_tail_screening_source"):
                 if name not in sample_attributes:
@@ -341,4 +355,11 @@ def apply_profile_values(state, values: dict) -> list[str]:
     state._runtime_lens_field_provider_cache = {}
     state._lens_field_map_bindings = {}
     state._simulation_mode_maps = {}
+    state._profile_migration_report = {
+        "from_version":format_version,"to_version":PROFILE_FORMAT_VERSION,
+        "status":"migrated" if format_version < PROFILE_FORMAT_VERSION else "current",
+        "notes":migration_notes,"skipped_fields":list(skipped),
+        "hardware_policy":"Only explicit profile operating values applied; no automatic geometry or lens retuning to preserve an image",
+        "geometry_policy":"Catalog TOML remains authoritative",
+    }
     return skipped

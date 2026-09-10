@@ -81,7 +81,7 @@ def test_legacy_preset_profile_has_one_reference_basis_and_manual_tail(tmp_path,
     # compose the reference basis a second time.
     save_profile(path, state, AssemblyCatalog().default_selection())
     document = tomllib.loads(path.read_text(encoding="utf-8"))
-    assert document["format_version"] == PROFILE_FORMAT_VERSION == 5
+    assert document["format_version"] == PROFILE_FORMAT_VERSION == 6
     assert not any(name.startswith("virtual_") for name in document["devices"]["sample"])
     assert "diffraction_enabled" not in document["devices"]["sample"]
     assert "specimen_preset_key" not in document["devices"]["sample"]

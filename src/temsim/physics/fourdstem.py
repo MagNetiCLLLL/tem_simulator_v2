@@ -28,7 +28,11 @@ from temsim.physics.record_plane import (
 )
 
 
-FOURDSTEM_FORMAT_VERSION = 1
+FOURDSTEM_FORMAT_VERSION = 2
+
+
+class FourDSTEMCancelled(RuntimeError):
+    """An explicitly cancelled capture retains its durable checkpoint."""
 
 
 def _readonly(values, *, dtype=float) -> np.ndarray:
@@ -49,10 +53,10 @@ def _array_digest(*arrays: np.ndarray) -> str:
 
 def _atomic_json(path: Path, payload: Mapping) -> None:
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(payload, sort_keys=True, indent=2, allow_nan=False),
-        encoding="utf-8",
-    )
+    with temporary.open("w", encoding="utf-8") as stream:
+        stream.write(json.dumps(payload, sort_keys=True, indent=2, allow_nan=False))
+        stream.flush()
+        os.fsync(stream.fileno())
     os.replace(temporary, path)
 
 
@@ -363,7 +367,7 @@ class FourDSTEMWriter:
         except (TypeError, ValueError) as error:
             raise ValueError("4D-STEM provenance must be finite JSON data") from error
         self._rng = np.random.default_rng(self.response.seed)
-        self._closed = False
+        self._closed = True  # failed admission must never checkpoint from __del__
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
         if resume:
@@ -394,7 +398,9 @@ class FourDSTEMWriter:
             shape=calibration.shape,
         )
         self._completed = np.zeros(calibration.scan_x_um.shape, dtype=bool)
+        self._frame_hashes = {}
         calibration.save(self.partial_calibration_path)
+        self._closed = False
         self.checkpoint()
 
     def _base_metadata(self, status: str) -> dict:
@@ -416,18 +422,22 @@ class FourDSTEMWriter:
             "completed_frames": int(np.count_nonzero(self._completed)),
             "total_frames": int(self._completed.size),
             "provenance": self.provenance,
+            "completed_frame_sha256": dict(self._frame_hashes),
         }
 
     def _resume(self) -> None:
         required = (
-            self.partial_path,
             self.partial_metadata_path,
-            self.partial_calibration_path,
-            self.progress_path,
         )
         if not all(path.exists() for path in required):
             raise FileNotFoundError("A complete 4D-STEM partial checkpoint was not found")
         metadata = json.loads(self.partial_metadata_path.read_text(encoding="utf-8"))
+        if metadata.get("format_version") != FOURDSTEM_FORMAT_VERSION:
+            raise ValueError("Legacy checkpoints lack frame integrity records; restart capture explicitly")
+        if not self.partial_path.exists() and self.path.exists():
+            os.replace(self.path, self.partial_path)
+        if not self.partial_calibration_path.exists() and self.calibration_path.exists():
+            os.replace(self.calibration_path, self.partial_calibration_path)
         disk_calibration = FourDSTEMCalibration.load(self.partial_calibration_path)
         if disk_calibration.digest != self.calibration.digest:
             raise ValueError("Cannot resume 4D-STEM output with different calibration")
@@ -448,9 +458,21 @@ class FourDSTEMWriter:
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError("4D-STEM checkpoint has an invalid detector RNG state") from error
         self._data = np.load(self.partial_path, mmap_mode="r+")
-        self._completed = np.asarray(np.load(self.progress_path, allow_pickle=False), dtype=bool)
-        if self._completed.shape != self.calibration.scan_x_um.shape:
-            raise ValueError("4D-STEM completion bitmap has the wrong shape")
+        if self._data.shape != self.calibration.shape or self._data.dtype != self.dtype:
+            raise ValueError("4D-STEM checkpoint data header does not match calibration/dtype")
+        self._completed = np.zeros(self.calibration.scan_x_um.shape, dtype=bool)
+        self._frame_hashes = dict(metadata["completed_frame_sha256"])
+        for index, checksum in self._frame_hashes.items():
+            flat_index = int(index)
+            if str(flat_index) != index or not 0 <= flat_index < self._completed.size:
+                raise ValueError("4D-STEM completion index is outside raster")
+            y, x = divmod(flat_index, self._completed.shape[1])
+            if _array_digest(self._data[y, x]) != checksum:
+                raise ValueError(f"4D-STEM frame checksum mismatch at ({y}, {x})")
+            self._completed[y, x] = True
+        if int(np.count_nonzero(self._completed)) != metadata["completed_frames"]:
+            raise ValueError("4D-STEM checkpoint completion count does not match integrity record")
+        self._closed = False
 
     @property
     def completed_frames(self) -> int:
@@ -461,7 +483,7 @@ class FourDSTEMWriter:
         return int(self._completed.size)
 
     def frame_completed(self, scan_y: int, scan_x: int) -> bool:
-        """Return whether one scan frame is already durable in this checkpoint."""
+        """Whether this writer has accepted the frame (durable after checkpoint)."""
 
         y_index = int(scan_y)
         x_index = int(scan_x)
@@ -477,10 +499,14 @@ class FourDSTEMWriter:
         if not (0 <= y_index < self._completed.shape[0] and 0 <= x_index < self._completed.shape[1]):
             raise IndexError("4D-STEM scan index is outside the calibrated raster")
         frame = np.asarray(expected_electrons, dtype=float)
+        if self._completed[y_index, x_index]:
+            raise ValueError("4D-STEM frame already completed; duplicate writes are not allowed")
         if frame.shape != self.calibration.angle_x_mrad.shape:
             raise ValueError("4D-STEM diffraction frame has the wrong detector shape")
         response = self.response.apply(frame, rng=self._rng)
         self._data[y_index, x_index] = response.astype(self.dtype, copy=False)
+        index = y_index * self._completed.shape[1] + x_index
+        self._frame_hashes[str(index)] = _array_digest(self._data[y_index, x_index])
         self._completed[y_index, x_index] = True
 
     def write_stream(self, frames: Iterable[tuple[int, int, np.ndarray]], *, checkpoint_every: int = 32) -> None:
@@ -501,6 +527,8 @@ class FourDSTEMWriter:
         if self._closed:
             raise RuntimeError("4D-STEM writer is closed")
         self._data.flush()
+        with self.partial_path.open("r+b") as stream:
+            os.fsync(stream.fileno())
         temporary_progress = self.progress_path.with_name(self.progress_path.name + ".tmp")
         with temporary_progress.open("wb") as stream:
             np.save(stream, self._completed, allow_pickle=False)
@@ -525,8 +553,8 @@ class FourDSTEMWriter:
         final_metadata = self._base_metadata("complete")
         self._close_memmap()
         os.replace(self.partial_calibration_path, self.calibration_path)
-        _atomic_json(self.metadata_path, final_metadata)
         os.replace(self.partial_path, self.path)
+        _atomic_json(self.metadata_path, final_metadata)
         self.partial_metadata_path.unlink(missing_ok=True)
         self.progress_path.unlink(missing_ok=True)
         return open_fourdstem(self.path)
@@ -568,7 +596,7 @@ def open_fourdstem(path: str | Path, *, mmap_mode: str = "r") -> FourDSTEMArtifa
     if not target.exists() or not metadata_path.exists() or not calibration_path.exists():
         raise FileNotFoundError("Completed 4D-STEM data or sidecar files are missing")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    if metadata.get("format_version") != FOURDSTEM_FORMAT_VERSION or metadata.get("status") != "complete":
+    if metadata.get("format_version") not in (1, FOURDSTEM_FORMAT_VERSION) or metadata.get("status") != "complete":
         raise ValueError("Unsupported or incomplete 4D-STEM artifact")
     calibration = FourDSTEMCalibration.load(calibration_path)
     if metadata.get("calibration_sha256") != calibration.digest:
@@ -610,6 +638,7 @@ class FourDSTEMCaptureSink:
         resume: bool = False,
         checkpoint_every: int = 32,
         provenance: Mapping | None = None,
+        cancellation_requested: Callable[[], bool] | None = None,
     ) -> None:
         electrons = np.asarray(electrons_per_frame, dtype=float)
         if electrons.ndim > 2 or not np.all(np.isfinite(electrons)) or np.any(electrons < 0.0):
@@ -627,6 +656,7 @@ class FourDSTEMCaptureSink:
         self.resume = bool(resume)
         self.checkpoint_every = interval
         self.provenance = dict(provenance or {})
+        self.cancellation_requested = cancellation_requested
         self.writer: FourDSTEMWriter | None = None
         self.calibration: FourDSTEMCalibration | None = None
         self.valid_reciprocal_mask: np.ndarray | None = None
@@ -688,6 +718,7 @@ class FourDSTEMCaptureSink:
         )
 
     def write_frame(self, scan_y: int, scan_x: int, diffraction_probability) -> None:
+        self.check_cancelled()
         if self.writer is None or self.calibration is None or self.valid_reciprocal_mask is None:
             raise RuntimeError("4D-STEM capture sink has not been started")
         if self.writer.frame_completed(scan_y, scan_x):
@@ -698,8 +729,8 @@ class FourDSTEMCaptureSink:
         if not np.all(np.isfinite(probability)) or np.any(probability < 0.0):
             raise ValueError("4D-STEM diffraction probability must be finite and non-negative")
         total = float(np.sum(probability, dtype=np.float64))
-        if not math.isclose(total, 1.0, rel_tol=2.0e-6, abs_tol=2.0e-8):
-            raise ValueError(f"4D-STEM diffraction probability must sum to one; got {total:.9g}")
+        if total > 1.0 + 2e-5:
+            raise ValueError(f"4D-STEM diffraction exceeds its pre-specimen reference probability; got {total:.9g}")
         stored = np.where(self.valid_reciprocal_mask, probability, 0.0)
         if not self.store_raw_probability:
             electrons = (
@@ -715,6 +746,11 @@ class FourDSTEMCaptureSink:
         if self._frames_since_checkpoint >= self.checkpoint_every:
             self.writer.checkpoint()
             self._frames_since_checkpoint = 0
+
+    def check_cancelled(self):
+        if self.cancellation_requested is not None and self.cancellation_requested():
+            self.close_partial()
+            raise FourDSTEMCancelled("4D-STEM capture cancelled; durable partial retained")
 
     def finish(self) -> FourDSTEMArtifact:
         if self.writer is None:

@@ -1,0 +1,262 @@
+{
+  "schema": "acceptance-index-v1",
+  "criteria": {
+    "AT-01": {
+      "description": "Physical aperture identity executes once",
+      "test_prefixes": [
+        "test_tem_flux_contract.test_at01_at03",
+        "test_tem_flux_contract.test_duplicate"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-02": {
+      "description": "Offset objective aperture",
+      "test_prefixes": [
+        "test_tem_flux_contract.test_at02"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-03": {
+      "description": "Transfer-dependent aperture acceptance",
+      "test_prefixes": [
+        "test_tem_flux_contract.test_at01_at03"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-04": {
+      "description": "Closed, removed, disabled, uninstalled",
+      "test_prefixes": [
+        "test_tem_flux_contract.test_at04"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-05": {
+      "description": "Exclusive physical/equivalent strategies",
+      "test_prefixes": [
+        "test_tem_flux_contract.test_at05"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-06": {
+      "description": "Known absolute transmitted probability",
+      "test_prefixes": [
+        "test_tem_flux_contract.test_at06",
+        "test_gpu_capture_contract.test_stem_known_bandwidth"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-07": {
+      "description": "Weight/current/dose scaling",
+      "test_prefixes": [
+        "test_tem_flux_contract.test_at07"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-08": {
+      "description": "Incoherent configuration intensity sum",
+      "test_prefixes": [
+        "test_tem_flux_contract.test_at08"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-09": {
+      "description": "Lossless norm drift guard",
+      "test_prefixes": [
+        "test_tem_flux_contract.test_at09"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-10": {
+      "description": "Exclusive physical sinks; overlapping virtual observers",
+      "test_prefixes": [
+        "test_record_plane.test_sequential",
+        "test_record_plane.test_overlapping_virtual"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-11": {
+      "description": "Distinct angular current quantiles",
+      "test_prefixes": [
+        "test_illumination_modes.test_at11"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-12": {
+      "description": "Noncircular offset complex pupil",
+      "test_prefixes": [
+        "test_illumination_modes.test_at12",
+        "test_illumination_modes.test_sampled_intensity"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-13": {
+      "description": "Independent source mode sum",
+      "test_prefixes": [
+        "test_illumination_modes.test_at13",
+        "test_illumination_modes.test_stem_source_energy"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-14": {
+      "description": "Source/energy quadrature refinement",
+      "test_prefixes": [
+        "test_illumination_modes.test_at14"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-15": {
+      "description": "Gaussian width, centre and curvature under LCT",
+      "test_prefixes": [
+        "test_illumination_modes.test_at15"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-16": {
+      "description": "A5 angular rotation and scale",
+      "test_prefixes": [
+        "test_aberration_wp04.test_a5_rotation",
+        "test_aberration_wp04.test_phase_matches_abtem"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-17": {
+      "description": "Mixed coefficients and independent holdout",
+      "test_prefixes": [
+        "test_aberration_wp04.test_mixed_coefficients",
+        "test_aberration_wp04.test_missing_term"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-18": {
+      "description": "Pupil, step and field-grid convergence with observables",
+      "test_prefixes": [
+        "test_aberration_wp04.test_aperture_step",
+        "test_aberration_wp04.test_local_response_reaches"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-19": {
+      "description": "Cc fixed-hardware energy study",
+      "test_prefixes": [
+        "test_aberration_wp04.test_field_fit_reports",
+        "test_illumination_modes.test_energy_override"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-20": {
+      "description": "Known N/I/NI conversion; unknown turns unavailable",
+      "test_prefixes": [
+        "test_control_geometry_contract.test_known_turns",
+        "test_control_geometry_contract.test_unknown_turns",
+        "test_simulation_modes.test_mode_switch_preserves"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-21": {
+      "description": "Joint saturation current vector, polarity and cache",
+      "test_prefixes": [
+        "test_nonlinear_magnetostatics.test_joint_field",
+        "test_nonlinear_magnetostatics.test_reference_saturation",
+        "test_nonlinear_magnetostatics.test_shared_recipe"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-22": {
+      "description": "Queryable geometry effects and unsupported CAD admission",
+      "test_prefixes": [
+        "test_control_geometry_contract.test_geometry_",
+        "test_execution_migration_contract.test_cad_display"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-23": {
+      "description": "Finite solenoid and simplified pole references",
+      "test_prefixes": [
+        "test_scientific_wp06.test_finite_solenoid",
+        "test_scientific_wp06.test_simplified_pole"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-24": {
+      "description": "Multislice grid/FOV/slices/bandwidth/phonon convergence",
+      "test_prefixes": [
+        "test_scientific_wp06.test_si_multislice"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-25": {
+      "description": "Actual CPU/GPU and independent propagation parity",
+      "test_prefixes": [
+        "test_gpu_capture_contract.test_actual_gpu",
+        "test_scientific_wp06.test_external_abtem"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-26": {
+      "description": "Resident GPU full diffraction capture and reintegration",
+      "test_prefixes": [
+        "test_gpu_capture_contract.test_actual_gpu"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-27": {
+      "description": "Bounded host output, integrity, cancellation, resume",
+      "test_prefixes": [
+        "test_gpu_capture_contract.test_capture_host",
+        "test_gpu_capture_contract.test_failed_checkpoint",
+        "test_gpu_capture_contract.test_resume_detects",
+        "test_gpu_capture_contract.test_cancel_resume"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-28": {
+      "description": "Explicit backend policy failures",
+      "test_prefixes": [
+        "test_gpu_capture_contract.test_policy"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-29": {
+      "description": "One actual execution description and separate verification",
+      "test_prefixes": [
+        "test_execution_migration_contract.test_execution_export",
+        "test_tem_flux_contract.test_export"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-30": {
+      "description": "Scoped identities and display-only reuse",
+      "test_prefixes": [
+        "test_execution_migration_contract.test_cad_display",
+        "test_calculation_manifest_artifacts.test_geometry_fingerprint",
+        "test_fourdstem.test_resume_rejects",
+        "test_fourdstem.test_raw_cube_can"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-31": {
+      "description": "Locked isolated CPU install/import/GUI/small case",
+      "test_prefixes": [],
+      "status": "NOT_RUN"
+    },
+    "AT-32": {
+      "description": "Explicit migration without automatic hardware retuning",
+      "test_prefixes": [
+        "test_execution_migration_contract.test_old_profile",
+        "test_simulation_modes.test_mode_switch_preserves",
+        "test_profile_optional_values.test_legacy_profile"
+      ],
+      "status": "NOT_RUN"
+    },
+    "AT-33": {
+      "description": "Fixed control to field to crystal to aperture to camera",
+      "test_prefixes": [
+        "test_scientific_wp06.test_at33"
+      ],
+      "status": "NOT_RUN"
+    }
+  },
+  "results": "See current acceptance report for executed status; this index defines the gates.",
+  "latest_executed_report": "development-spec-current.json",
+  "note": "Static requirement/test mapping; NOT_RUN entries are template states. Executed criterion status, provenance and limitations are in latest_executed_report."
+}

@@ -1131,6 +1131,13 @@ class SamplePage(QWidget):
         wave_form.addRow(stem_location)
         wave_form.addRow(self.multislice_enabled)
         wave_form.addRow(self.atomistic_enabled)
+        self.illumination_button = QPushButton("Configure illumination pupil / source modes…")
+        self.illumination_button.setObjectName("configureIllumination")
+        self.illumination_button.clicked.connect(self._configure_illumination)
+        self.illumination_summary = QLabel()
+        self.illumination_summary.setWordWrap(True)
+        wave_form.addRow(self.illumination_button)
+        wave_form.addRow(self.illumination_summary)
         wave_form.addRow("Grid", self.wave_grid)
         wave_form.addRow(
             "Field of view",
@@ -1593,6 +1600,7 @@ class SamplePage(QWidget):
                 for control, value in zip(controls, values):
                     control.setValue(int(value))
             self.tem_wave_enabled.setChecked(bool(sample.wave_enabled))
+            self._refresh_illumination_summary()
             self.multislice_enabled.setChecked(
                 bool(sample.wave_multislice_enabled)
             )
@@ -2158,6 +2166,24 @@ class SamplePage(QWidget):
                 f"Inelastic model unavailable: {exc}"
             )
             self.inelastic_summary.setToolTip(str(exc))
+
+    def _refresh_illumination_summary(self):
+        from temsim.physics.illumination import illumination_config, source_nodes
+        try:
+            config = illumination_config(self._state)
+            self.illumination_summary.setText(f"{config['model']} | {len(source_nodes(config))} source mode(s)")
+        except (ValueError, TypeError) as exc:
+            self.illumination_summary.setText(str(exc))
+
+    def _configure_illumination(self):
+        if self._state is None or self._updating:
+            return
+        from temsim.gui.illumination_dialog import IlluminationDialog
+        dialog = IlluminationDialog(self._state.sample.wave_illumination, self._state.beam_voltage_kv, self)
+        if dialog.exec():
+            self._state.sample.wave_illumination = dialog.config
+            self._refresh_illumination_summary()
+            self._changed("wave_illumination")
 
     def _changed(self, name):
         self._eds_result = None

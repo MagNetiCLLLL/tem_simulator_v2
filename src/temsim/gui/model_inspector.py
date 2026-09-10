@@ -3,7 +3,7 @@
 from copy import deepcopy
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QPushButton, QLineEdit, QTabWidget, QFileDialog
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QPushButton, QLineEdit, QTabWidget, QFileDialog, QPlainTextEdit, QCheckBox
 from temsim.gui.input_policy import WheelSafeComboBox as QComboBox, WheelSafeSpinBox as QSpinBox
 
 
@@ -16,6 +16,7 @@ class ModelInspectorPage(QWidget):
         self._state = None
         self._completed_diagnostics = {}
         self._completed_mode = None
+        self._completed_aberrations = {}
         self.lens = QComboBox()
         self.field_solver = QComboBox()
         self.field_solver.addItem("Linear geometry", "axisymmetric_linear_fem")
@@ -64,6 +65,15 @@ class ModelInspectorPage(QWidget):
         for widget in (self.mesh, self.padding, generate, reset):
             numerical_controls.addWidget(widget)
         numerical_controls.addStretch(1)
+        self.dimension_approximation = QCheckBox("Use authoritative axisymmetric dimensions; ignore CAD-only features")
+        self.dimension_approximation.setToolTip("Explicit approximation for features/transforms that are not consumed by the magnetic solver. Without it, new field recipes reject unrepresented CAD geometry.")
+        self.current_summary = QLabel("Current unavailable — configure reference ampere-turns")
+        self.current_summary.setWordWrap(True)
+        calibration_button = QPushButton("Coil calibration / current…")
+        calibration_button.clicked.connect(self._edit_excitation)
+        electrical_controls = QHBoxLayout()
+        electrical_controls.addWidget(self.current_summary, 1)
+        electrical_controls.addWidget(calibration_button)
         hint = QLabel("Axisymmetric field · explicit material and coil inputs · calculated on next run")
         hint.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         hint.setWordWrap(True)
@@ -87,6 +97,9 @@ class ModelInspectorPage(QWidget):
         for widget in (QLabel("Semi-angle (mrad)"), self.fit_angle, apply_mode):
             fit_controls.addWidget(widget)
         fit_controls.addStretch(1)
+        edit_coefficients = QPushButton("Coefficients / fit settings…")
+        edit_coefficients.clicked.connect(self._edit_aberrations)
+        fit_controls.addWidget(edit_coefficients)
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(("Model / check", "Status", "Evidence"))
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -108,11 +121,27 @@ class ModelInspectorPage(QWidget):
         from temsim.gui.magnetic_validation import MagneticValidationPage
         self.validation_page = MagneticValidationPage()
         tables.addTab(self.validation_page, "Field validation")
+        fit_evidence_page = QWidget()
+        fit_evidence_layout = QVBoxLayout(fit_evidence_page)
+        fit_note = QLabel("Last completed field fits, with their original inputs. Select Probe or Image above. New controls take effect on the next calculation.")
+        fit_note.setWordWrap(True)
+        fit_evidence_layout.addWidget(fit_note)
+        self.fit_evidence = QPlainTextEdit()
+        self.fit_evidence.setReadOnly(True)
+        self.fit_evidence.setObjectName("aberrationFitEvidence")
+        fit_evidence_layout.addWidget(self.fit_evidence)
+        self.export_fit = QPushButton("Export fit evidence…")
+        self.export_fit.setEnabled(False)
+        self.export_fit.clicked.connect(self._export_fit_evidence)
+        fit_evidence_layout.addWidget(self.export_fit)
+        tables.addTab(fit_evidence_page, "Aberration evidence")
         layout = QVBoxLayout(self)
         layout.addLayout(controls)
         layout.addLayout(material_controls)
         layout.addWidget(self.material_hint)
         layout.addLayout(numerical_controls)
+        layout.addWidget(self.dimension_approximation)
+        layout.addLayout(electrical_controls)
         layout.addWidget(hint)
         layout.addLayout(modes)
         layout.addLayout(fit_controls)
@@ -141,6 +170,17 @@ class ModelInspectorPage(QWidget):
         self._linear_material_reference = deepcopy(row.get("linear_material_reference")) if "relative_permeability" in row else deepcopy(reference)
         self.permeability.setText(str(row.get("relative_permeability", reference["relative_permeability"])))
         self.ampere_turns.setText(str(row.get("ampere_turns", "")))
+        self.ampere_turns.setReadOnly("excitation_calibration" in row)
+        self.dimension_approximation.setChecked(row.get("geometry_policy") in {"authoritative_dimensions", "legacy_authoritative_dimensions"})
+        try:
+            from temsim.excitation_calibration import calibration_from_recipe
+            lens = next(item for item in self._state.lenses if item.key == self.lens.currentData())
+            operating = calibration_from_recipe(row).at_control(lens.percent, getattr(lens, "polarity", 1), enabled=lens.enabled)
+            current = operating["current_A"]
+            self.current_summary.setText(f"NI {operating['ampere_turns']:.6g} A-turn | " +
+                ("Current unavailable: winding turns unknown" if current is None else f"I {current:.6g} A | {operating['current_status']}"))
+        except (KeyError, ValueError, StopIteration):
+            self.current_summary.setText("Current unavailable — configure reference ampere-turns")
         self.mesh.setValue(int(row.get("radial_nodes", 40)))
         self.padding.setText(str(row.get("padding_factor", 2)))
         self.field_solver.setCurrentIndex(max(0, self.field_solver.findData(row.get("solver", "axisymmetric_linear_fem"))))
@@ -207,6 +247,26 @@ class ModelInspectorPage(QWidget):
         row = getattr(self._state, f"{self.aberration_system.currentData()}_aberrations")
         self.aberration_mode.setCurrentIndex(max(self.aberration_mode.findData(row.get("mode", "manual")), 0))
         self.fit_angle.setText(str(row.get("fit_semiangle_mrad", 10)))
+        self._show_fit_evidence()
+
+    def _show_fit_evidence(self):
+        import json
+        evidence = self._completed_aberrations.get(self.aberration_system.currentData())
+        self.fit_evidence.setPlainText(json.dumps(evidence, indent=2) if evidence is not None else "No completed field fit. Choose Field-derived, then run a calculation.")
+        self.export_fit.setEnabled(evidence is not None)
+
+    def _export_fit_evidence(self):
+        import json
+        from pathlib import Path
+        evidence = self._completed_aberrations.get(self.aberration_system.currentData())
+        if evidence is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export completed aberration fit", "aberration-fit.json", "JSON (*.json)")
+        if path:
+            try:
+                Path(path).write_text(json.dumps(evidence, indent=2), encoding="utf-8")
+            except OSError as exc:
+                self.error.emit(str(exc))
 
     def _apply_field(self):
         import math
@@ -228,8 +288,11 @@ class ModelInspectorPage(QWidget):
             recipe = {
                 "solver": self.field_solver.currentData(), "ampere_turns": turns,
                 "radial_nodes": self.mesh.value(), "axial_nodes": self.mesh.value()*2, "padding_factor": padding,
+                "geometry_policy": "authoritative_dimensions" if self.dimension_approximation.isChecked() else "require_full_geometry",
             }
             previous = self._state.lens_field_map_descriptors.get(key, {})
+            if "excitation_calibration" in previous:
+                recipe["excitation_calibration"] = deepcopy(previous["excitation_calibration"])
             if nonlinear:
                 from temsim.magnetic_materials import validate_bh_material
                 recipe["bh_material"] = validate_bh_material(self.bh_material.currentData())
@@ -242,6 +305,8 @@ class ModelInspectorPage(QWidget):
                     recipe["linear_material_reference"] = deepcopy(self._linear_reference())
                 if "material_permeabilities" in previous:
                     recipe["material_permeabilities"] = previous["material_permeabilities"]
+            from temsim.excitation_calibration import validate_excitation_recipe
+            validate_excitation_recipe(recipe)
             from temsim.simulation_modes import promote_custom_mode
             promote_custom_mode(self._state)
             self._state.lens_field_map_descriptors[key] = recipe
@@ -279,6 +344,22 @@ class ModelInspectorPage(QWidget):
             self.refresh()
         except ValueError as exc:
             self.error.emit(str(exc))
+
+    def _edit_aberrations(self):
+        if self._state is None:
+            return
+        from temsim.gui.aberration_dialog import AberrationSettingsDialog
+        from temsim.simulation_modes import promote_custom_mode
+        system = self.aberration_system.currentData()
+        dialog = AberrationSettingsDialog(getattr(self._state, f"{system}_aberrations"),
+                                         system=system, state_step_mm=self._state.step_mm, parent=self)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            promote_custom_mode(self._state)
+            setattr(self._state, f"{system}_aberrations", dialog.result_options)
+            getattr(self._state, "_effective_aberration_cache", {}).pop(system, None)
+            self._load_mode()
+            self.changed.emit(f"{system}_aberrations")
+            self.refresh()
 
     def refresh(self):
         if self._state is None:
@@ -355,8 +436,43 @@ class ModelInspectorPage(QWidget):
                 self.table.setItem(row, column, item)
 
     def display_result(self, result):
+        from dataclasses import asdict
         snapshot = getattr(result, "state_snapshot", None)
         from temsim.simulation_modes import mode_key
         self._completed_mode = mode_key(snapshot)
         self._completed_diagnostics = dict(getattr(snapshot, "_field_provider_diagnostics", {}))
+        self._completed_aberrations = {
+            system: {"system": system, "signature": signature, "coefficients": asdict(values[1]),
+                     "diagnostics": values[2], "beam_energy_kev": snapshot.beam_voltage_kv,
+                     "options": deepcopy(getattr(snapshot, f"{system}_aberrations", {}))}
+            for system, (signature, values) in getattr(snapshot, "_effective_aberration_cache", {}).items()
+            if values[1].correction_state == "field-derived"
+        }
+        self._show_fit_evidence()
         self.refresh()
+
+    def _edit_excitation(self):
+        if self._state is None:
+            return
+        from temsim.excitation_calibration import calibration_from_recipe, recipe_with_calibration
+        from temsim.gui.excitation_dialog import ExcitationDialog
+        key = self.lens.currentData()
+        recipe = self._state.lens_field_map_descriptors.get(key, {})
+        try:
+            calibration = calibration_from_recipe(recipe)
+        except (KeyError, ValueError) as exc:
+            self.error.emit("Configure reference ampere-turns with Use geometry field first. " + str(exc))
+            return
+        lens = next(item for item in self._state.lenses if item.key == key)
+        dialog = ExcitationDialog(calibration, lens, self)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            from temsim.simulation_modes import promote_custom_mode
+            from temsim.excitation_calibration import validate_excitation_recipe
+            validate_excitation_recipe(recipe)
+            promote_custom_mode(self._state)
+            self._state.lens_field_map_descriptors[key] = recipe_with_calibration(recipe, dialog.calibration)
+            if dialog.control is not None:
+                lens.percent, lens.polarity = dialog.control
+            self.changed.emit("lens_field_map_descriptors")
+            self._load_field()
+            self.refresh()

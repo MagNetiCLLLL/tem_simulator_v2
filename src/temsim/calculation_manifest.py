@@ -29,7 +29,52 @@ from temsim.immutable_json import freeze_json, json_digest, thaw_json
 
 
 CALCULATION_MANIFEST_SCHEMA_VERSION = 1
-SOLVER_IMPLEMENTATION_SCHEMA = "temsim-solver-2026-09-static-bh-v1"
+TEM_EXECUTION_SCHEMA = "tem-physical-aperture-flux-v1"
+SOLVER_IMPLEMENTATION_SCHEMA = "temsim-solver-2026-09-wave-contract-v2"
+
+
+def solver_source_identity():
+    """Hash the installed solver code, including an uncommitted working tree."""
+    import hashlib
+    from pathlib import Path
+    root = Path(__file__).resolve().parent
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*.py")):
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+@dataclass(frozen=True)
+class WaveExecutionManifest:
+    """Executed wave operations supplement the immutable request manifest.
+
+    Stored in result metrics, so GUI diagnostics and artifact exports consume
+    the same graph. This records model execution, not external validation.
+    """
+    reference_plane: str
+    aperture_policy: Mapping
+    flux_ledger: tuple
+    backend: str
+    schema: str = TEM_EXECUTION_SCHEMA
+
+    def __post_init__(self):
+        object.__setattr__(self, "aperture_policy", freeze_json(self.aperture_policy))
+        object.__setattr__(self, "flux_ledger", freeze_json(self.flux_ledger))
+
+    def to_dict(self):
+        payload = thaw_json(freeze_json(self))
+        physical_ids = sorted({r["physical_element_id"] for r in self.flux_ledger
+                               if r["physical_element_id"] is not None})
+        payload["nodes"] = [dict(row) for row in thaw_json(self.flux_ledger)]
+        payload["summary"] = (
+            "Wave reference " + self.reference_plane + "; " + str(self.aperture_policy["strategy"]) +
+            "; executed elements: " + (", ".join(physical_ids) or "none") +
+            "; backend: " + self.backend
+        )
+        payload["external_validation"] = "NOT_RUN"
+        payload["numerical_domain_loss"] = "not independently estimated; periodic sampled wave domain"
+        return payload
 
 _GEOMETRY_NAME_PARTS = (
     "anchor",

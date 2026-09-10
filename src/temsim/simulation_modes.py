@@ -81,6 +81,8 @@ def normalise_profiles(profiles):
 def validate_model_recipes(descriptors):
     """Check B-H snapshots at state/profile boundaries, without solving fields."""
     for row in descriptors.values():
+        from temsim.excitation_calibration import validate_excitation_recipe
+        validate_excitation_recipe(row)
         if isinstance(row, dict) and row.get("solver") == "axisymmetric_nonlinear_fem":
             from temsim.physics.nonlinear_circuits import operator_settings
             operator_settings(row)
@@ -143,10 +145,9 @@ def switch_mode(state, target):
     for name in MODEL_SETTINGS:
         if name in incoming:
             setattr(state, name, deepcopy(incoming[name]))
-    for lens in state.lenses:
-        values = incoming.get("lens_excitation", {}).get(lens.key)
-        if values is not None:
-            lens.percent, lens.polarity = values["percent"], values["polarity"]
+    # A model switch changes the field law, not the electrical operating point.
+    # Historical shelves remain readable, but their stored currents are only
+    # applied by an explicit operating-profile load.
     state.simulation_mode_profiles = profiles
     state.simulation_mode = target
     state._simulation_mode_maps = maps

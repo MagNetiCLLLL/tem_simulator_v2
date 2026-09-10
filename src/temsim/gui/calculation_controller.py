@@ -483,6 +483,9 @@ class CalculationWorker(QRunnable):
             assert_external_input_inventory_unchanged(self.state, self.external_inputs)
             if isinstance(result, CalculationResult):
                 result.external_inputs = self.external_inputs
+                if result.wave_imaging is not None and self.calculation_manifest is not None:
+                    from temsim.physics.wave_imaging import bind_wave_request_manifest
+                    result.wave_imaging = bind_wave_request_manifest(result.wave_imaging, self.calculation_manifest)
             self.signals.result.emit(
                 self.generation,
                 self.quality,

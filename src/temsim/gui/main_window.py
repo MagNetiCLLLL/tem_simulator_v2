@@ -2262,6 +2262,9 @@ class MainWindow(QMainWindow):
             self.log_output.appendPlainText(
                 f"Loaded profile: {path}; skipped values: {len(skipped)}."
             )
+            migration = getattr(self.state, "_profile_migration_report", {})
+            for note in migration.get("notes", ()):
+                self.log_output.appendPlainText("Profile migration: " + note)
             self.schedule_preview()
         except Exception as exc:
             self._show_error(f"Unable to open profile: {exc}")

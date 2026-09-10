@@ -111,6 +111,24 @@ def test_missing_bank_product_clears_bank_only(view):
     np.testing.assert_array_equal(view.image.image, main.image_intensity.T)
 
 
+def test_raw_export_uses_displayed_bank_and_disables_when_missing(view, monkeypatch, tmp_path):
+    main, bank = wave(1), wave(2)
+    for result in (main, bank):
+        result.camera_intensity = np.ones((3, 3))
+        result.absolute_diffraction_probability = np.ones((3, 3))/9
+    captured = []
+    path = tmp_path / "displayed.npz"
+    monkeypatch.setattr("temsim.gui.visualization.QFileDialog.getSaveFileName", lambda *_: (str(path), ""))
+    monkeypatch.setattr("temsim.physics.wave_export.export_wave_image", lambda result, path: captured.append(result))
+    view.display_result(main)
+    view.set_bank_readout(readout(bank))
+    select(view, "bank")
+    view.export_raw_button.click()
+    assert captured == [bank]
+    view.set_bank_readout(readout(None))
+    assert not view.export_raw_button.isEnabled()
+
+
 def test_returning_to_source_preserves_its_user_plot_ranges(view, qtbot):
     view.resize(1000, 700)
     view.show()

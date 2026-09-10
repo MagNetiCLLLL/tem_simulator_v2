@@ -59,7 +59,7 @@ def test_cupy_fft_failure_falls_back_without_losing_the_result(monkeypatch):
     monkeypatch.setattr(
         wave_fft,
         "cupy_module",
-        lambda: (_ for _ in ()).throw(RuntimeError("synthetic FFT failure")),
+        lambda: (_ for _ in ()).throw(compute_backend.GPUExecutionError("kernel_or_runtime_failure", "synthetic FFT failure")),
     )
     wave, xx, yy = _test_wave(32)
     transfer = np.exp(-1j * 0.02 * (xx**2 + yy**2))

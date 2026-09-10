@@ -37,8 +37,8 @@ class MemoryDiffractionSink:
         p = np.asarray(diffraction_probability)
         if p.shape != self.valid.shape or not np.all(np.isfinite(p)) or np.any(p < 0):
             raise ValueError("Invalid diffraction probability frame")
-        if not np.isclose(p.sum(), 1, rtol=2e-6, atol=2e-8):
-            raise ValueError("Diffraction probability must sum to one before bandwidth clipping")
+        if p.sum() > 1 + 2e-5:
+            raise ValueError("Diffraction probability exceeds its pre-specimen reference")
         self.data[scan_y, scan_x] = np.where(self.valid, p, 0)
         self.complete[scan_y, scan_x] = True
 
