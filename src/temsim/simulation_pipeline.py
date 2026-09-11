@@ -81,6 +81,7 @@ class CalculationResult:
     cache_hit: bool = False
     performance: dict[str, object] = field(default_factory=dict)
     external_inputs: tuple[ExternalInputIdentity, ...] | None = None
+    calculation_manifest: object | None = None
 
 
 def aperture_stop_records(state) -> tuple[dict[str, object], ...]:
@@ -319,6 +320,10 @@ def calculate(
     """
 
     calculation_started = perf_counter()
+    from temsim.physics.illumination import illumination_config
+    illumination_config(state)
+    from temsim.physics.source_admission import admit_requested_wave_products
+    admit_requested_wave_products(state)
     ensure_recording_system(state)
     ensure_energy_filter(state)
     ensure_corrector_structure(state)

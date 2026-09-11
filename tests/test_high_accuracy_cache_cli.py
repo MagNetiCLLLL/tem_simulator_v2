@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from dataclasses import dataclass
+from dataclasses import replace
 import importlib.util
 import json
 from pathlib import Path
@@ -62,6 +63,35 @@ def test_missing_seed_is_not_success(cli):
         cli.verify_incident_seed(_seed(), None)
 
 
+def test_manifest_readback_preserves_complete_working_point(cli, tmp_path):
+    from temsim.optics.column import default_state
+    from temsim.calculation_manifest import capture_calculation_manifest
+    original = capture_calculation_manifest(default_state(), ray_count=9, step_mm=2.)
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(original.to_dict()), encoding="utf-8")
+    restored = cli.read_manifest(path)
+    assert restored.digest == original.digest
+    assert restored.instrument_snapshot.digest == original.instrument_snapshot.digest
+    assert restored.instrument_snapshot.restore().lenses[0].percent == original.instrument_snapshot.restore().lenses[0].percent
+
+
+def test_legacy_manifest_remains_inspectable_without_becoming_a_complete_snapshot(cli, tmp_path):
+    from temsim.optics.column import default_state
+    from temsim.calculation_manifest import capture_calculation_manifest
+    current = capture_calculation_manifest(default_state(), ray_count=9, step_mm=2.)
+    old = replace(current, instrument_snapshot=None,
+                  solver=replace(current.solver, source_digest="",
+                                 implementation_schema="temsim-solver-2026-09-wave-contract-v2"))
+    document = old.to_dict()
+    document["solver"].pop("source_digest")
+    assert "instrument_snapshot" not in document
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    restored = cli.read_manifest(path)
+    assert restored.digest == old.digest
+    assert restored.instrument_snapshot is None
+
+
 def test_verify_existing_never_repeats_physics(cli, tmp_path, monkeypatch):
     manifest = SimpleNamespace(digest="manifest", calculation_signatures={"request": "request"})
     monkeypatch.setattr(cli, "read_manifest", lambda *_: manifest)
@@ -84,3 +114,22 @@ def test_verify_missing_cache_does_not_publish_success(cli, tmp_path, monkeypatc
         cli.main(["--verify-existing", "--output", str(tmp_path),
                   "--cache-root", str(tmp_path / "cache")])
     assert not (tmp_path / "verification.json").exists()
+
+
+def test_gun_wave_describe_loads_explicit_profile_without_physics_or_rebinding(cli, tmp_path, monkeypatch):
+    from temsim.optics.electron_gun.effective_source import EffectiveGunSource, bind_effective_source
+    state = cli.default_state()
+    catalog = cli.AssemblyCatalog()
+    selection = catalog.default_selection()
+    catalog.apply(state, selection)
+    cli.switch_mode(state, "ideal")
+    state.electron_gun.effective_source = bind_effective_source(state.electron_gun,
+        EffectiveGunSource(1e-9, energy_fwhm_ev=0))
+    state.electron_gun.source_representation = "effective_gaussian_schell"
+    path = tmp_path / "source.toml"
+    cli.save_profile(path, state, selection)
+    before = path.read_bytes()
+    monkeypatch.setattr(cli, "calculate", lambda *_args, **_kwargs: pytest.fail("Describe must not calculate"))
+    assert cli.main(["--profile", str(path), "--gun-wave-only", "--describe"]) == 0
+    assert path.read_bytes() == before
+    assert not (tmp_path / "manifest.json").exists()

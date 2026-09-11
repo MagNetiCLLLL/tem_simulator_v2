@@ -481,7 +481,7 @@ def test_post_sample_projector_geometry_keeps_local_stage_products():
     assert after["sample_downstream"] != before["sample_downstream"]
 
 
-def test_projector_field_map_descriptor_does_not_invalidate_upstream_products(
+def test_projector_field_map_descriptor_with_unknown_support_invalidates_upstream_products(
     tmp_path,
 ):
     first_map = tmp_path / "projector-first.npz"
@@ -516,7 +516,7 @@ def test_projector_field_map_descriptor_does_not_invalidate_upstream_products(
         "fourdstem_cube",
         "fourdstem_virtual_detectors",
     ):
-        assert after[product] == before[product]
+        assert after[product] != before[product]
     assert after["request"] != before["request"]
     assert after["column"] != before["column"]
 
@@ -599,7 +599,7 @@ def test_tem_recording_plane_switch_keeps_specimen_checkpoint_products():
         assert after[invalidated_product] != before[invalidated_product]
 
 
-def test_projector_change_reprojects_saved_objective_wave_without_specimen_recalc():
+def test_new_tem_calculation_rejects_legacy_source_before_cache_reprojection():
     state = default_state()
     for detector in state.stem_detectors:
         detector.inserted = False
@@ -626,17 +626,12 @@ def test_projector_change_reprojects_saved_objective_wave_without_specimen_recal
     else:
         emitter.ray_count = 9
 
-    previous = calculate(state)
-    state.intermediate_lens.percent += 2.0
-    updated = calculate(state, existing_result=previous)
-
-    assert updated.wave_imaging is not previous.wave_imaging
-    assert updated.wave_imaging.exit_wave is previous.wave_imaging.exit_wave
-    assert updated.specimen_interactions.wave_imaging is updated.wave_imaging
-    assert "wave_projection" in updated.calculated_products
-    assert "wave" not in updated.calculated_products
-    assert {"incident", "wave_source"} <= updated.reused_products
-    assert updated.wave_imaging.metrics["projector_checkpoint_reused"] is True
+    from temsim.physics.source_admission import UnsupportedWaveSource
+    from temsim.instrument_snapshot import capture_instrument_snapshot
+    before = capture_instrument_snapshot(state)
+    with pytest.raises(UnsupportedWaveSource, match="gun-to-specimen"):
+        calculate(state)
+    assert capture_instrument_snapshot(state).digest == before.digest
 
 
 def test_seed_selection_prefers_reusable_incident_and_wave_source():

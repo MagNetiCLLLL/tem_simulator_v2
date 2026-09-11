@@ -17,6 +17,8 @@ class ModelInspectorPage(QWidget):
         self._completed_diagnostics = {}
         self._completed_mode = None
         self._completed_aberrations = {}
+        self.gun_source_button = QPushButton("Electron-gun source model…")
+        self.gun_source_button.clicked.connect(self._edit_gun_source)
         self.lens = QComboBox()
         self.field_solver = QComboBox()
         self.field_solver.addItem("Linear geometry", "axisymmetric_linear_fem")
@@ -136,6 +138,7 @@ class ModelInspectorPage(QWidget):
         fit_evidence_layout.addWidget(self.export_fit)
         tables.addTab(fit_evidence_page, "Aberration evidence")
         layout = QVBoxLayout(self)
+        layout.addWidget(self.gun_source_button)
         layout.addLayout(controls)
         layout.addLayout(material_controls)
         layout.addWidget(self.material_hint)
@@ -160,6 +163,19 @@ class ModelInspectorPage(QWidget):
         self.lens.blockSignals(False)
         self._load_field()
         self._load_mode()
+        self.refresh()
+
+    def _edit_gun_source(self):
+        if self._state is None:
+            return
+        from temsim.gui.gun_source_dialog import GunSourceDialog
+        dialog = GunSourceDialog(self._state.electron_gun, self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        representation, parameters = dialog.value()
+        gun = self._state.electron_gun
+        gun.source_representation, gun.effective_source = representation, parameters
+        self.changed.emit("Electron-gun source model")
         self.refresh()
 
     def _load_field(self):

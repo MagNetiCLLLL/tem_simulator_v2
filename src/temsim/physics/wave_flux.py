@@ -33,6 +33,8 @@ class WaveMode:
     energy_kev: float
 
     def __post_init__(self):
+        if not isinstance(self.plane, PlaneWave):
+            raise TypeError("A wave mode requires an immutable PlaneWave")
         if (not math.isfinite(self.weight_per_reference_electron)
                 or self.weight_per_reference_electron < 0):
             raise ValueError("Wave-mode weight must be finite and non-negative")
@@ -76,10 +78,21 @@ class WaveMode:
                    reference_plane, mode_id, energy_kev)
 
     def weighted_density_amplitude(self):
+        """Full complex density amplitude, not just its envelope (SI m^-1)."""
+        from types import SimpleNamespace
+        from temsim.physics.core import electron
+        wavelength_m = electron(SimpleNamespace(beam_voltage_kv=self.energy_kev))[2] * 1e-9
+        return self.plane.full_amplitude(wavelength_m) * self._density_scale()
+
+    def weighted_density_envelope(self):
+        """Envelope only; not a valid input to specimen scattering by itself."""
+        return self.plane.amplitude * self._density_scale()
+
+    def _density_scale(self):
         area = abs(float(np.linalg.det(self.plane.basis_m)))
         if not math.isfinite(area) or area <= 0:
             raise ValueError("Wave cell area must be finite and positive")
-        return self.plane.amplitude * math.sqrt(self.weight_per_reference_electron / area)
+        return math.sqrt(self.weight_per_reference_electron / area)
 
 
 @dataclass(frozen=True)
@@ -89,10 +102,16 @@ class BeamState:
     reference_plane: str = TEM_REFERENCE_PLANE
 
     def __post_init__(self):
-        if not self.modes or any(m.reference_plane != self.reference_plane for m in self.modes):
+        # A frozen dataclass does not freeze a caller-owned list. Copy the
+        # container as well as retaining the modes' immutable numeric buffers.
+        modes = tuple(self.modes)
+        if any(not isinstance(mode, WaveMode) for mode in modes):
+            raise TypeError("Beam modes must be immutable WaveMode records")
+        if not modes or any(m.reference_plane != self.reference_plane for m in modes):
             raise ValueError("Beam modes must share one declared electron reference")
-        if len({m.mode_id for m in self.modes}) != len(self.modes):
+        if len({m.mode_id for m in modes}) != len(modes):
             raise ValueError("Beam mode IDs must be unique")
+        object.__setattr__(self, "modes", modes)
 
     @property
     def total_weight(self):

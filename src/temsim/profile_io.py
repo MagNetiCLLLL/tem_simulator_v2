@@ -31,7 +31,8 @@ from temsim.specimen.geometry import (
 from temsim.specimen.source import migrate_legacy_structure_source
 
 
-PROFILE_FORMAT_VERSION = 6
+PROFILE_FORMAT_VERSION = 7
+_GUN_SOURCE_MODEL_KEY = "__gun_source_model__"
 _SAMPLE_MODEL_KEY = "__sample_model__"
 _SIMULATION_MODEL_KEY = "__simulation_model__"
 _PROFILE_VERSION_KEY = "__profile_format_version__"
@@ -70,6 +71,7 @@ def _atomic_write_profile(path: Path, document: dict) -> None:
 
 
 def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
+    from dataclasses import asdict
     from temsim.simulation_modes import capture_mode_settings, mode_key
     devices = {}
     none_values = {}
@@ -95,6 +97,11 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
             "beam_blanker": selection.beam_blanker,
         },
         "devices": devices,
+        "gun_source_model": {
+            "representation": getattr(state.electron_gun, "source_representation", "classical_particles"),
+            **({"effective": asdict(state.electron_gun.effective_source)}
+               if getattr(state.electron_gun, "effective_source", None) is not None else {}),
+        },
         # TOML has no null literal. Keep absence (legacy/default behaviour)
         # distinct from explicitly clearing an optional runtime coefficient.
         "none_values": none_values,
@@ -126,7 +133,7 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
     if not isinstance(document, dict):
         raise ValueError("Operating profile must be a TOML table")
     format_version = int(document.get("format_version", 0))
-    if format_version not in {1, 2, 3, 4, 5, PROFILE_FORMAT_VERSION}:
+    if format_version not in {1, 2, 3, 4, 5, 6, PROFILE_FORMAT_VERSION}:
         raise ValueError("Unsupported operating-profile format")
     assembly = document.get("assembly")
     if not isinstance(assembly, dict):
@@ -164,6 +171,7 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
     if not isinstance(model, dict):
         raise ValueError("Operating profile simulation_model must be a table")
     values[_SIMULATION_MODEL_KEY] = model
+    values[_GUN_SOURCE_MODEL_KEY] = document.get("gun_source_model", {"representation": "classical_particles"})
     if format_version >= 2:
         sample_model = document.get("sample_model", {})
         if not isinstance(sample_model, dict):
@@ -173,10 +181,11 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
 
 
 def _apply_sample_model(sample, model: dict) -> None:
-    from temsim.physics.illumination import validate_illumination_config
+    from temsim.physics.illumination import validate_illumination_config, require_production_illumination
     if not isinstance(model, dict):
         raise ValueError("Operating profile sample_model must be a table")
     illumination = validate_illumination_config(model.get("wave_illumination", sample.wave_illumination))
+    require_production_illumination(illumination)
     quaternion = normalise_quaternion_wxyz(
         model.get(
             "orientation_quaternion_wxyz",
@@ -219,6 +228,19 @@ def apply_profile_values(state, values: dict) -> list[str]:
     values = dict(values)
     format_version = int(values.pop(_PROFILE_VERSION_KEY, 1))
     sample_model = values.pop(_SAMPLE_MODEL_KEY, None)
+    gun_source = values.pop(_GUN_SOURCE_MODEL_KEY, {"representation": "classical_particles"})
+    if not isinstance(gun_source, dict) or set(gun_source)-{"representation", "effective"}:
+        raise ValueError("Operating profile has invalid electron-gun source fields")
+    representation = gun_source.get("representation")
+    if representation not in {"classical_particles", "effective_gaussian_schell"}:
+        raise ValueError("Operating profile has an unknown electron-gun source model")
+    parameters = getattr(state.electron_gun, "effective_source", None)
+    if "effective" in gun_source:
+        from temsim.optics.electron_gun.effective_source import EffectiveGunSource
+        parameters = EffectiveGunSource(**gun_source["effective"])
+    if representation == "effective_gaussian_schell" and (
+            parameters is None or state.electron_gun.type_key != "cold_feg"):
+        raise ValueError("Effective gun source requires its saved configuration and a cold FEG")
     from temsim.simulation_modes import validate_mode, normalise_profiles, MODEL_SETTINGS
     model = values.pop(_SIMULATION_MODEL_KEY, {"mode": "custom"})
     if not isinstance(model, dict):
@@ -355,6 +377,15 @@ def apply_profile_values(state, values: dict) -> list[str]:
     state._runtime_lens_field_provider_cache = {}
     state._lens_field_map_bindings = {}
     state._simulation_mode_maps = {}
+    if hasattr(state.electron_gun, "source_representation"):
+        state.electron_gun.source_representation = representation
+        state.electron_gun.effective_source = parameters
+    if representation == "effective_gaussian_schell":
+        from temsim.optics.electron_gun.effective_source import validate_binding
+        try:
+            validate_binding(state.electron_gun, parameters)
+        except ValueError:
+            migration_notes.append("Saved effective source retained unchanged; its gun binding is stale. Rebind explicitly before new calculations.")
     state._profile_migration_report = {
         "from_version":format_version,"to_version":PROFILE_FORMAT_VERSION,
         "status":"migrated" if format_version < PROFILE_FORMAT_VERSION else "current",

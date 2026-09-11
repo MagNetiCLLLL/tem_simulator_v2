@@ -1,0 +1,513 @@
+{
+  "schema": "handoff-v2-local-acceptance-progress-v1",
+  "updated": "2026-09-11",
+  "baseline": "5eac9855ff8eefa2a3d68ddba3029f7c23e03b0c",
+  "scope": "Progress inventory, not a release qualification or complete PASS matrix",
+  "release_gates": {
+    "G1": "OPEN",
+    "G2": "OPEN",
+    "G3": "OPEN"
+  },
+  "evidence_runs": [
+    {
+      "path": "docs/development/evidence/handoff-canonical-final-regression.xml",
+      "passed": 141,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 188.48,
+      "scope": "Current source, affine/metaplectic phase, incident stage reuse, immutable mode container, working-point, CLI, observable, transaction and isolated camera/flux regression; not a full suite or source-to-image qualification",
+      "notes": "Serial compileall over src, scripts and tests passed. Test wall time is not an isolated performance benchmark."
+    },
+    {
+      "path": "docs/development/evidence/handoff-explicit-projector-model.xml",
+      "passed": 6,
+      "failed": 0,
+      "deselected": 38,
+      "seconds": 78.93,
+      "scope": "Original six magnification targets and tolerances after explicitly selecting the equivalent-lens model before alignment; not distributed-field qualification"
+    },
+    {
+      "path": "docs/development/evidence/handoff-isolated-wave-migration.xml",
+      "passed": 3,
+      "failed": 0,
+      "seconds": 13.42,
+      "scope": "Production synthetic-source rejection followed by test-local historical A5 and frozen-phonon algorithm checks; not production source-to-image acceptance"
+    },
+    {
+      "path": ".pytest_cache/handoff-phase-cache-image-final.xml",
+      "passed": 63,
+      "failed": 0,
+      "seconds": 139.44,
+      "scope": "Affine/metaplectic phase, exact incident reuse including same-path CIF replacement, package roundtrip and existing isolated camera/flux regression; before the final BeamState container-ownership guard"
+    },
+    {
+      "path": ".pytest_cache/handoff-phase-and-stage-reuse.xml",
+      "passed": 72,
+      "failed": 0,
+      "seconds": 146.56,
+      "scope": "Phase, actual assembled incident-wave cold/reuse comparison, CLI, snapshot and read-only diagnostics; preceding the additional same-path CIF and atomic rejection cases"
+    },
+    {
+      "path": ".pytest_cache/handoff-current-regression.xml",
+      "passed": 189,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 196.11,
+      "scope": "Final scoped source, exact-aperture, canonical propagation, controller, alignment, working-point, cache and observable regression; not the full suite or source-to-image qualification",
+      "notes": "Pyqtgraph emitted a teardown signal-disconnection warning after success. Serial compileall over src, scripts and tests passed."
+    },
+    {
+      "path": "docs/development/evidence/handoff-regression-audit.xml",
+      "passed": 720,
+      "failed": 15,
+      "seconds": 414.23,
+      "scope": "Preserved original broad audit stopped at 15 failures; those cases have scoped follow-up evidence, but the complete suite has not been rerun"
+    },
+    {
+      "path": ".pytest_cache/handoff-controller-and-models.xml",
+      "passed": 62,
+      "failed": 0,
+      "seconds": 53.40,
+      "scope": "Controller contracts, source setup and detached alignment-model construction; before exact-aperture planner change"
+    },
+    {
+      "path": ".pytest_cache/handoff-exact-planes-regression.xml",
+      "passed": 127,
+      "failed": 0,
+      "seconds": 68.09,
+      "scope": "Exact aperture planes, canonical integration, segmented ray reuse, controller, source and alignment contracts"
+    },
+    {
+      "path": ".pytest_cache/handoff-source-profile-regression.xml",
+      "passed": 96,
+      "failed": 0,
+      "seconds": 45.39,
+      "scope": "Earlier source/profile subset; subsequent changes require fresh regression"
+    },
+    {
+      "path": ".pytest_cache/handoff-source-integration.xml",
+      "passed": 124,
+      "failed": 1,
+      "seconds": 225.06,
+      "scope": "Earlier integration audit; legacy source expectation subsequently migrated, not an all-pass report"
+    },
+    {
+      "path": ".pytest_cache/handoff-source-packages.xml",
+      "passed": 45,
+      "failed": 0,
+      "seconds": 43.74,
+      "scope": "Scoped source, CLI, snapshot, transaction and wave-observable tests"
+    },
+    {
+      "path": ".pytest_cache/handoff-source-interface.xml",
+      "passed": 8,
+      "failed": 0,
+      "seconds": 61.41,
+      "scope": "Actual quadratic assembled source checkpoint plus exact cache/package and CLI profile description; not specimen imaging"
+    }
+  ],
+  "tests": [
+    {
+      "id": "T2-01",
+      "name": "Production source entry gates",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_source_admission.py::test_t201_api_refuses_legacy_pupil_before_specimen_preparation"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "GUI, CLI and private-path inventory and the new image adapters are incomplete."
+    },
+    {
+      "id": "T2-02",
+      "name": "Historical independent illumination migration",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_contract.py::test_retired_illumination_cannot_be_enabled_by_labels_or_private_nodes"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Broader profile and historical-image migration coverage remains."
+    },
+    {
+      "id": "T2-03",
+      "name": "Provenance beyond a source label",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_source_admission.py::test_t203_origin_label_and_private_array_do_not_admit_a_wave"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "No complete source-to-image execution graph yet."
+    },
+    {
+      "id": "T2-04",
+      "name": "Complete component capture",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_contract.py::test_complete_snapshot_roundtrip_does_not_use_profiles_defaults_or_setters",
+        "tests/test_working_point_contract.py::test_snapshot_preserves_new_public_model_inputs_and_audits_schema"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Expand model and assembly coverage."
+    },
+    {
+      "id": "T2-05",
+      "name": "Immutable cached data",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_contract.py::test_checkpoint_and_artifact_buffers_cannot_be_unfrozen_or_aliased",
+        "tests/test_working_point_phase.py::test_beam_modes_do_not_retain_a_mutable_caller_container",
+        "tests/test_gun_wave_transport.py::test_gun_wave_portable_working_point_keeps_full_phase_and_readonly_diagnostics"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Full image-payload ownership audit remains."
+    },
+    {
+      "id": "T2-06",
+      "name": "Same-path dependency changes",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_contract.py::test_changed_or_missing_external_bytes_block_restore_but_keep_view"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Shared model inventory expansion remains."
+    },
+    {
+      "id": "T2-07",
+      "name": "Cross-process restore",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_packages.py::test_t207_package_cross_process_and_exact_restore"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Archived external bytes are retained but missing-file loaders are not remapped."
+    },
+    {
+      "id": "T2-08",
+      "name": "Exact restoration without presets",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_alignment_transactions.py::test_t208_gui_restore_no_preset_and_no_recalculation"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Restored image products are not republished automatically."
+    },
+    {
+      "id": "T2-09",
+      "name": "Distinct convergence definitions",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_packages.py::test_t209_12_frozen_observables_and_component_tables",
+        "tests/test_wave_checkpoint_observables.py::test_gaussian_contained_radius_and_canonical_angle_have_explicit_sampling_tolerance"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Canonical wave angles and mechanical ray angles remain separate; hardware target evidence is outstanding."
+    },
+    {
+      "id": "T2-10",
+      "name": "Diagnostics isolated from live controls",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_alignment_transactions.py::test_t234_working_point_browser_never_reads_active_state"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Complete restored GUI workflow remains."
+    },
+    {
+      "id": "T2-11",
+      "name": "Read-only and unavailable diagnostics",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_packages.py::test_t209_12_frozen_observables_and_component_tables",
+        "tests/test_wave_checkpoint_observables.py::test_wave_angle_aliasing_is_unavailable_not_a_zero_angle"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Unimplemented observables remain unavailable."
+    },
+    {
+      "id": "T2-12",
+      "name": "Lazy diagnostics",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_gun_wave_transport.py::test_gun_wave_portable_working_point_keeps_full_phase_and_readonly_diagnostics"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Large mode ensembles may exceed the explicit diagnostic scratch budget."
+    },
+    {
+      "id": "T2-13",
+      "name": "Linear phase carrier",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_phase.py::test_t213_tilt_materializes_the_full_fourier_centroid"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Isolated numerical fixture; full image-chain conversion remains."
+    },
+    {
+      "id": "T2-14",
+      "name": "Quadratic phase and sampling",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_phase.py::test_t214_curvature_conversion_preserves_phase_and_rejects_aliasing"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Full specimen interface is not integrated."
+    },
+    {
+      "id": "T2-15",
+      "name": "Canonical and symplectic admission",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_phase.py::test_t215_rejects_noncanonical_and_nonsymplectic_maps",
+        "tests/test_working_point_phase.py::test_t215_mechanical_basis_converts_both_fields_and_reference_momenta"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Validated isolated domain only."
+    },
+    {
+      "id": "T2-16",
+      "name": "Composition and inverse propagation",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_phase.py::test_t216_segment_composition_inverse_and_phase",
+        "tests/test_canonical_action.py::test_affine_path_split_whole_inverse_preserve_complex_field_and_weight",
+        "tests/test_canonical_action.py::test_endpoint_identity_does_not_erase_metaplectic_winding",
+        "tests/test_canonical_action.py::test_non_gaussian_carried_wave_matches_direct_fft_without_phase_fitting",
+        "tests/test_canonical_action.py::test_auxiliary_reference_length_does_not_change_the_physical_wave",
+        "tests/test_canonical_action.py::test_rejected_lift_validation_is_atomic"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Affine scalar action, continuous lift and complex phase now covered in bounded analytic/FFT cases; mixed-conjugacy and complete source-to-image domain validation remain."
+    },
+    {
+      "id": "T2-17",
+      "name": "Single-count flux reference",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_phase.py::test_t217_wave_density_never_drops_the_carrier_or_restores_lost_weight"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Gun-to-specimen-to-camera count reference adapter is incomplete."
+    },
+    {
+      "id": "T2-18",
+      "name": "Upstream perturbation through image",
+      "status": "NOT_IMPLEMENTED",
+      "test_ids": [],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Gun particle and coherent upstream chains exist; image adapter is missing."
+    },
+    {
+      "id": "T2-19",
+      "name": "Gun energy and correlations",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_effective_gun_source.py::test_correlated_energy_samples_are_deterministic_and_readonly"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Energy quadrature and downstream specimen/detector convergence remain unvalidated."
+    },
+    {
+      "id": "T2-20",
+      "name": "Physical upstream aperture shape",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_gun_wave_transport.py::test_actual_assembled_ideal_gun_field_chain_keeps_source_and_snapshot"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Actual upstream masks execute; dedicated asymmetric full-wave reference comparison remains."
+    },
+    {
+      "id": "T2-21",
+      "name": "Source modes and physical scan coils",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_effective_gun_source.py::test_mixed_modes_match_analytic_gaussian_and_omit_not_renormalise"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "STEM scan-coil-to-wave adapter is not integrated."
+    },
+    {
+      "id": "T2-22",
+      "name": "Specimen-change upstream reuse",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_gun_wave_transport.py::test_specimen_change_reuses_exact_upper_face_operator_and_retains_old_point",
+        "tests/test_gun_wave_transport.py::test_replaced_cif_reuses_only_incident_operator_not_the_old_specimen"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Exact coherent incident-operator reuse now compared with full cold execution; specimen scattering and image adapter continuation remain incomplete."
+    },
+    {
+      "id": "T2-23",
+      "name": "Shared-field invalidation",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_gun_wave_transport.py::test_incident_operator_cache_misses_changed_physical_dependencies"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Actual field arrays, shared-provider inputs and external content identify the quadratic operator. Unsupported mapped/nonlinear wave operators are rejected; broader shared-circuit proof remains."
+    },
+    {
+      "id": "T2-24",
+      "name": "Display versus physical readout",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_alignment_transactions.py::test_display_plane_does_not_stale_alignment_or_get_reset",
+        "tests/test_gun_wave_transport.py::test_gun_wave_uses_existing_persistent_store_exactly_and_never_recomputes"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Full detector-response/source-wave integration remains."
+    },
+    {
+      "id": "T2-25",
+      "name": "New specimen entrance plane",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_gun_wave_transport.py::test_incident_operator_cache_misses_changed_physical_dependencies",
+        "tests/test_gun_wave_transport.py::test_incident_plane_is_a_physical_face_and_excludes_actions_inside_material"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "No completed cold/reuse comparison at a changed physical specimen plane."
+    },
+    {
+      "id": "T2-26",
+      "name": "Exact cache integrity and cancellation",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_packages.py::test_t226_package_corruption_and_memory_limit",
+        "tests/test_gun_wave_transport.py::test_source_transport_cancel_never_publishes_checkpoint"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Mid-run crash/streaming continuation evidence remains."
+    },
+    {
+      "id": "T2-27",
+      "name": "Registered inverse permissions",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_alignment_transactions.py::test_t227_rejects_unregistered_or_modified_catalog_definition"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Real physical target acceptance remains."
+    },
+    {
+      "id": "T2-28",
+      "name": "Target versus achieved",
+      "status": "PARTIAL",
+      "test_ids": [],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Private forward-validation implementation exists; actual registered-target acceptance is not complete."
+    },
+    {
+      "id": "T2-29",
+      "name": "Unreachable and unauthorized candidates",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_alignment_transactions.py::test_t229_30_failed_or_tampered_candidate_never_applies"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Synthetic transaction fixtures do not certify physical reachability."
+    },
+    {
+      "id": "T2-30",
+      "name": "Final forward validation",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_alignment_transactions.py::test_t229_30_failed_or_tampered_candidate_never_applies"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Actual refined-source target evidence remains."
+    },
+    {
+      "id": "T2-31",
+      "name": "Cancel stale and undo",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_alignment_transactions.py::test_t231_32_atomic_apply_idempotence_undo_and_aba_revision",
+        "tests/test_alignment_transactions.py::test_alignment_cancel_button_and_generation_discard_late_result"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Broader GUI concurrency acceptance remains."
+    },
+    {
+      "id": "T2-32",
+      "name": "Idempotent apply and old cache",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_alignment_transactions.py::test_t231_32_atomic_apply_idempotence_undo_and_aba_revision"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Full source-to-image workflow remains."
+    },
+    {
+      "id": "T2-33",
+      "name": "Unified GUI CLI gates",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_high_accuracy_cache_cli.py::test_gun_wave_describe_loads_explicit_profile_without_physics_or_rebinding"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "New TEM/STEM products remain gated in all normal entry paths."
+    },
+    {
+      "id": "T2-34",
+      "name": "Historical reading with missing dependencies",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_working_point_packages.py::test_t234_incompatible_dependency_keeps_historical_reading"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Portable archived-loader restoration remains unavailable."
+    },
+    {
+      "id": "T2-35",
+      "name": "Actual 32 and 40 mrad workpoints",
+      "status": "NOT_RUN",
+      "test_ids": [],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "No final source-to-image operating-point refinement study."
+    },
+    {
+      "id": "T2-36",
+      "name": "Independent specimen comparison",
+      "status": "NOT_RUN",
+      "test_ids": [],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "New source-chain specimen adapter is missing."
+    },
+    {
+      "id": "T2-37",
+      "name": "GPU scale streaming and resume",
+      "status": "NOT_RUN",
+      "test_ids": [],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "No new-chain GPU/CPU scale, resource or resume evidence."
+    },
+    {
+      "id": "T2-38",
+      "name": "Model-domain admission",
+      "status": "PARTIAL",
+      "test_ids": [
+        "tests/test_wave_checkpoint_observables.py::test_wave_angle_aliasing_is_unavailable_not_a_zero_angle"
+      ],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Unimplemented nonlinear/mapped coherent fields explicitly reject; full working-domain validation remains."
+    },
+    {
+      "id": "T2-39",
+      "name": "Nonconflicting regression",
+      "status": "IN_PROGRESS",
+      "test_ids": [],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "Broad audit stopped at 720 passed / 15 failed. Scoped repairs have passed; the complete post-repair suite and legacy wave-entry migration are not complete."
+    },
+    {
+      "id": "T2-40",
+      "name": "Complete final workflow",
+      "status": "NOT_IMPLEMENTED",
+      "test_ids": [],
+      "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
+      "remaining": "New specimen, scan-coil and detector adapters and full end-to-end evidence remain."
+    }
+  ]
+}

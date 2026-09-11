@@ -64,6 +64,21 @@ class PropagationCheckpoints:
     y_m: np.ndarray
     ty_rad: np.ndarray
 
+    def __post_init__(self):
+        z = np.asarray(self.z_mm)
+        shape = np.shape(self.x_m)
+        if z.ndim != 1 or len(shape) != 2 or shape[0] != z.size:
+            raise ValueError("Checkpoint planes and phase-space shapes do not match")
+        if not np.all(np.isfinite(z)) or np.any(np.diff(z) <= 0):
+            raise ValueError("Checkpoint planes must be finite and strictly increasing")
+        for name in ("z_mm", "x_m", "tx_rad", "y_m", "ty_rad"):
+            value = np.asarray(getattr(self, name), dtype=np.float64)
+            if name != "z_mm" and value.shape != shape:
+                raise ValueError("Checkpoint phase-space arrays do not align")
+            # Immutable bytes, not only a reversible NumPy writeable flag.
+            frozen = np.frombuffer(value.tobytes(order="C"), dtype=value.dtype).reshape(value.shape)
+            object.__setattr__(self, name, frozen)
+
 
 @dataclass(frozen=True, slots=True)
 class AxialPropagationPlan:
@@ -515,6 +530,16 @@ def build_propagation_plan(
 
     events = tuple(events)
     save_z_mm = tuple(save_z_mm)
+    # Physical clipping must never depend on the sparse plotting history.
+    # Keep each active aperture at its exact plane in every caller, including
+    # full-column runs and Direct Alignment. Adding a saved plane is not a
+    # second aperture action; the existing clipping owner still applies it.
+    save_z_mm += tuple(
+        float(aperture.z_mm) for aperture in getattr(state, "apertures", ())
+        if bool(getattr(aperture, "enabled", True))
+        and bool(getattr(aperture, "installed", True))
+        and float(z0) <= float(aperture.z_mm) <= float(z1)
+    )
     if is_ideal(state):
         include_spherical_aberration = include_hexapole = False
     nanopulser = getattr(state, "nanopulser", None)

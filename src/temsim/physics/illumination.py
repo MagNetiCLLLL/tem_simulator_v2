@@ -1,8 +1,7 @@
-"""Declared specimen-entrance illumination, separate from ray diagnostics.
+"""Historical illumination metadata and explicit production-migration gates.
 
-Source positions, directions and energies are independent quadratures. Their
-Cartesian product is incoherent; frozen phonons remain a separate inner
-ensemble. This is not a reconstruction of arbitrary gun phase from rays.
+Independent-pupil numerical fixtures live in tests/fixtures/illumination.py.
+This module must not reconstruct missing gun phase from particle diagnostics.
 """
 from __future__ import annotations
 
@@ -17,7 +16,7 @@ from temsim.physics.wave_flux import TEM_REFERENCE_PLANE
 
 LEGACY_MODEL = "ray_conditioned_reduced_order"
 EXPLICIT_MODEL = "specimen_entrance_pupil_modes"
-ILLUMINATION_SCHEMA = "declared-pupil-incoherent-modes-v1"
+ILLUMINATION_SCHEMA = "gun-source-policy-v2-reduced-order-transition"
 MAX_SOURCE_MODES = 256
 
 
@@ -102,46 +101,8 @@ class PupilState:
         corners = np.array(list(product((-1., 1.), repeat=2))) * self.half_extent_local
         return float(np.max(np.linalg.norm(corners @ np.asarray(self.basis).T, axis=1)))
 
-    def spectrum(self, fx, fy, wavelength_angstrom, *, tilt_mrad=(0., 0.)):
-        """Evaluate without replacing a rotated or off-axis shape by a disk.
-
-        An undersized wave band is rejected before source normalization. Thus
-        losing part of the declared source cannot silently regain unit flux.
-        """
-        self.validate()
-        fx, fy = np.asarray(fx, float), np.asarray(fy, float)
-        if fx.shape != fy.shape or fx.ndim != 2 or min(fx.shape) < 2:
-            raise ValueError("Pupil frequency coordinates must be matching 2-D grids")
-        if not math.isfinite(wavelength_angstrom) or wavelength_angstrom <= 0:
-            raise ValueError("Pupil wavelength must be positive")
-        offset = np.asarray(self.offset_mrad) + _finite(tilt_mrad, (2,), "mode tilt")
-        basis = np.asarray(self.basis, float)
-        if self.shape == "ellipse":
-            extent = np.sqrt(np.sum((basis @ np.diag(self.semi_axes_mrad))**2, axis=1))
-        else:
-            extent = np.abs(basis) @ self.half_extent_local
-        angles = np.stack((fx, fy), axis=-1) * wavelength_angstrom * 1e3
-        lo, hi = angles.reshape(-1, 2).min(axis=0), angles.reshape(-1, 2).max(axis=0)
-        if np.any(offset - extent < lo - 1e-10) or np.any(offset + extent > hi + 1e-10):
-            raise ValueError("Declared pupil is outside the wave grid; increase wave grid pixels or reduce wave FOV")
-        local = np.einsum("ij,...j->...i", np.linalg.inv(basis), angles - offset)
-        if self.shape == "sampled":
-            from scipy.ndimage import map_coordinates
-            values = np.asarray(self.values, float)
-            amplitude = np.sqrt(values) if self.semantics == "intensity" else values
-            phase = np.asarray(self.phase_rad) if len(self.phase_rad) else 0.
-            field = amplitude * np.exp(1j * phase)
-            coords = np.array((local[..., 1] + values.shape[0] // 2,
-                               local[..., 0] + values.shape[1] // 2))
-            result = (map_coordinates(field.real, coords, order=1, mode="grid-constant", cval=0.)
-                      + 1j * map_coordinates(field.imag, coords, order=1, mode="grid-constant", cval=0.))
-        else:
-            scaled = local / self.semi_axes_mrad
-            mask = (np.sum(scaled**2, axis=-1) <= 1.) if self.shape == "ellipse" else np.all(np.abs(scaled) <= 1., axis=-1)
-            result = mask.astype(complex)
-        if np.count_nonzero(np.abs(result) > 0) < 4:
-            raise ValueError("Pupil is under-resolved (fewer than four frequency cells); enlarge FOV and grid together")
-        return result
+    def spectrum(self, *args, **kwargs):
+        raise ValueError("Independent pupil generation is historical only; numerical fixtures live under tests/")
 
     def metadata(self):
         return {**asdict(self), "alpha_edge_rad": self.support_radius_mrad * 1e-3,
@@ -219,7 +180,25 @@ def validate_illumination_config(config, voltage_kev=None):
 
 def illumination_config(state):
     reference_energy = getattr(state, "_illumination_reference_energy_kev", state.beam_voltage_kv)
-    return validate_illumination_config(getattr(state.sample, "wave_illumination", {}), reference_energy)
+    config = validate_illumination_config(getattr(state.sample, "wave_illumination", {}), reference_energy)
+    require_production_illumination(config)
+    return config
+
+
+def require_production_illumination(config):
+    """One gate for GUI, profiles and numerical entry points.
+
+    The old config parser remains available for historical metadata inspection.
+    A label or a private source-node attribute cannot enable independent input.
+    The retained ray-conditioned path is explicitly reduced-order, not a
+    validated gun-to-specimen coherent-wave chain.
+    """
+    if config.get("model", LEGACY_MODEL) != LEGACY_MODEL:
+        raise ValueError(
+            "Independent specimen-entrance illumination is historical only. "
+            "It cannot be used for a new calculation or restored as a gun source. "
+            "Configure the electron gun and physical column instead."
+        )
 
 
 def explicit_illumination(state):
@@ -228,22 +207,12 @@ def explicit_illumination(state):
 
 def source_nodes(config):
     config = validate_illumination_config(config)
-    if config["model"] == LEGACY_MODEL:
-        return (SourceNode((0., 0.), (0., 0.), 0., 1., "ray_reduced:0"),)
-    return tuple(SourceNode(tuple(p[:2]), tuple(a[:2]), e[0], p[-1]*a[-1]*e[-1], f"source:{i}")
-                 for i, (p, a, e) in enumerate(product(config["positions_nm"], config["angles_mrad"], config["energies_ev"])))
+    require_production_illumination(config)
+    return (SourceNode((0., 0.), (0., 0.), 0., 1., "ray_reduced:0"),)
 
 
 def state_for_source_node(state, node):
-    """Private instrument at fixed hardware settings, changed electron energy.
-
-    Do not call State.to_dict/from_dict or apply an optical preset: those may
-    rebuild hardware or refocus. Lens/field transfer receives the new voltage.
-    """
-    result = state_at_energy(state, float(state.beam_voltage_kv) + node.energy_offset_ev / 1000.)
-    result._illumination_reference_energy_kev = float(state.beam_voltage_kv)
-    result._wave_source_node = node
-    return result
+    raise ValueError("Independent source-mode generation is historical only; use the gun model")
 
 
 def state_at_energy(state, energy_kev):
@@ -273,10 +242,8 @@ def illumination_ray_statistics(state, ray_stats):
     return stats
 
 
-def explicit_pupil_spectrum(state, fx, fy, wavelength_angstrom):
-    config = illumination_config(state)
-    node = getattr(state, "_wave_source_node", source_nodes(config)[0])
-    return PupilState.from_dict(config["pupil"]).spectrum(fx, fy, wavelength_angstrom, tilt_mrad=node.tilt_mrad)
+def explicit_pupil_spectrum(state, *args, **kwargs):
+    raise ValueError("Independent pupil generation is historical only; use a gun-owned phase checkpoint")
 
 
 def illumination_metadata(state, ray_stats=None):

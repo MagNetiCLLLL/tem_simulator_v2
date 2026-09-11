@@ -405,11 +405,16 @@ def test_c2_aperture_plane_follows_the_shared_cartridge_before_c3(
 @pytest.mark.parametrize(
     "target", (10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0)
 )
-def test_image_working_points_commit_the_five_lens_solution(
+def test_explicit_equivalent_image_working_points_commit_the_five_lens_solution(
     assembled_state, target
 ):
     state = _state_copy(assembled_state)
     apply_operating_mode_pair(state, "nano_probe", "imaging")
+    # HANDOFF v2 forbids choosing an optical model as a hidden side effect of
+    # alignment. This existing equivalent-lens target sweep now declares its
+    # model before solving. Targets, constraints and tolerances are unchanged;
+    # it is not evidence for distributed-field or source-to-image accuracy.
+    state.equivalent_image_lenses_enabled = True
     before = _lens_values(state)
 
     result = apply_direct_alignment(state, "image_magnification", target)

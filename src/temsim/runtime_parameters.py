@@ -20,6 +20,7 @@ IDENTITY_FIELDS = frozenset({
     "corrector", "owner", "kind", "shape_profile", "interaction_kind",
 })
 INTERNAL_FIELDS = frozenset({
+    "source_representation", "effective_source",
     "active_backend",
     "active_installation",
     "accelerator_restore_profile",
@@ -143,7 +144,7 @@ def runtime_targets(state) -> dict[str, RuntimeTarget]:
 
     def add_children(parent_key: str, parent: object) -> None:
         for attribute, obj in vars(parent).items():
-            if attribute.startswith("_") or isinstance(
+            if attribute.startswith("_") or attribute == "effective_source" or isinstance(
                 obj, (type(None), bool, int, float, str, bytes, tuple, list, dict)
             ):
                 continue
@@ -236,8 +237,10 @@ def validate_runtime_assignment(
 
     old_value = getattr(target.obj, name)
     if name == "wave_illumination" and target.key == "sample":
-        from temsim.physics.illumination import validate_illumination_config
-        return validate_illumination_config(value)
+        from temsim.physics.illumination import validate_illumination_config, require_production_illumination
+        config = validate_illumination_config(value)
+        require_production_illumination(config)
+        return config
     if target.key in FIXED_APERTURE_KEYS and name == "enabled" and value is not True:
         raise ValueError(f"{target.label} is always inserted")
     if isinstance(old_value, bool):

@@ -483,6 +483,7 @@ class CalculationWorker(QRunnable):
             assert_external_input_inventory_unchanged(self.state, self.external_inputs)
             if isinstance(result, CalculationResult):
                 result.external_inputs = self.external_inputs
+                result.calculation_manifest = self.calculation_manifest
                 if result.wave_imaging is not None and self.calculation_manifest is not None:
                     from temsim.physics.wave_imaging import bind_wave_request_manifest
                     result.wave_imaging = bind_wave_request_manifest(result.wave_imaging, self.calculation_manifest)
@@ -762,6 +763,13 @@ class CalculationController(QObject):
 
     @staticmethod
     def _calculation_snapshot(state, quality, ray_count, step_mm):
+        if quality == "High accuracy" or getattr(getattr(state, "electron_gun", None), "source_representation", "") == "effective_gaussian_schell":
+            from temsim.optics.model import State
+            if isinstance(state, State):
+                from temsim.instrument_snapshot import encode_instrument, decode_instrument
+                from temsim.gui.calculation_request import apply_request_numerics
+                return apply_request_numerics(decode_instrument(encode_instrument(state)),
+                                              quality, ray_count, step_mm)
         return reconstruct_calculation_state(
             type(state), state.to_dict(),
             getattr(state, "_resolved_assembly", None),
@@ -1183,6 +1191,15 @@ class CalculationController(QObject):
     ) -> None:
         if not is_tuning_quality(quality) and quality != "High accuracy":
             raise ValueError("Unknown calculation quality")
+        if quality == "High accuracy":
+            from temsim.optics.model import State
+            if isinstance(state, State):
+                from temsim.instrument_snapshot import decode_instrument, encode_instrument
+                # Preflight/signature helpers can refresh derived values. They
+                # must not touch the live controls before capture or on failure.
+                state = decode_instrument(encode_instrument(state))
+                from temsim.physics.source_admission import admit_requested_wave_products
+                admit_requested_wave_products(state)
         estimate = estimate_calculation_memory_bytes(
             state, quality, ray_count, step_mm
         )
@@ -1224,6 +1241,15 @@ class CalculationController(QObject):
         ):
             return
 
+        calculation_manifest = None
+        if quality == "High accuracy":
+            try:
+                calculation_manifest = capture_calculation_manifest(
+                    snapshot, ray_count=ray_count, step_mm=step_mm,
+                )
+            except Exception as exc:
+                raise ValueError(f"Could not capture the complete working point: {exc}") from exc
+
         # Any accepted submission supersedes the previous worker.  Its queued
         # signals are ignored by generation, so its High-accuracy token must
         # be retired here as well; otherwise High -> Preview could leave a
@@ -1234,14 +1260,17 @@ class CalculationController(QObject):
             model_signature=model_signature, request_signatures=request_signatures,
             generation=generation, estimate=estimate,
             external_inputs=external_inputs,
+            calculation_manifest=calculation_manifest,
         )
 
     def _dispatch_prepared(
         self, snapshot, quality, ray_count, step_mm, *, model_signature,
         request_signatures, generation, estimate, already_started=False,
-        external_inputs=None,
+        external_inputs=None, calculation_manifest=None,
     ) -> None:
         """GUI-thread-only cache lookup and dispatch for either request path."""
+        if quality == "High accuracy" and calculation_manifest is None:
+            raise ValueError("A complete working point is required before high-accuracy dispatch")
         external_inputs = tuple(capture_external_input_identities(snapshot)
                                 if external_inputs is None else external_inputs)
         assert_external_input_inventory_unchanged(snapshot, external_inputs)
@@ -1319,18 +1348,6 @@ class CalculationController(QObject):
         else:
             self._running_high_key = request_key
             self._running_high_generation = generation
-        calculation_manifest = None
-        if quality == "High accuracy" and (
-            self._artifact_store is not None or self._allow_project_artifact_fallback
-        ):
-            try:
-                calculation_manifest = capture_calculation_manifest(
-                    snapshot,
-                    ray_count=ray_count,
-                    step_mm=step_mm,
-                )
-            except Exception:
-                calculation_manifest = None
         worker = CalculationWorker(
             generation,
             quality,

@@ -9,7 +9,7 @@ transactional: an unreachable target never changes the microscope state.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 
 import numpy as np
@@ -47,7 +47,7 @@ from temsim.physics.recording_stop import tem_projection_reference_plane
 from temsim.optics.equivalent_image_lenses import (
     equivalent_image_calibrations,
     equivalent_image_transfer_matrix,
-    equivalent_image_maps_supported,
+    equivalent_image_lenses_enabled,
 )
 from temsim.optics.direct_alignment_precalibration import (
     interpolated_precalculated_seed,
@@ -91,6 +91,7 @@ class DirectAlignmentMeasurement:
     illumination_diameter_95_um: float | None = None
     relay_error_um: float | None = None
     diffraction_conjugacy_residual: float | None = None
+    execution_backend: str = "not_recorded"
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +119,13 @@ class DirectAlignmentResult:
     candidate_strengths: dict[str, float] | None = None
     candidate_limit_fractions: dict[str, float] | None = None
     state_updates: dict[str, float] | None = None
+
+    def __post_init__(self):
+        from temsim.immutable_json import freeze_json
+        for name in ("strengths", "candidate_strengths", "candidate_limit_fractions", "state_updates"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, freeze_json(value))
 
 
 def diffraction_reference_plane(state):
@@ -671,6 +679,8 @@ class _LiveFirstOrderModel:
 
 class _CondenserMeasurementModel:
     def __init__(self, state, *, step_mm: float) -> None:
+        from temsim.instrument_snapshot import capture_instrument_snapshot
+        state = capture_instrument_snapshot(state).restore()
         self.state = state
         self.source_z_mm = float(state.electron_gun.exit_plane_z_mm)
         self.sample_z_mm = float(state.sample.z_mm)
@@ -680,7 +690,8 @@ class _CondenserMeasurementModel:
             # Match production's permanent stop in the transmitted state;
             # otherwise a small NanoPulser pupil is absent from the solve.
             apertures += (nanopulser.aperture,)
-        gun_trace = state.electron_gun.trace_to_exit()
+        from temsim.optics.electron_gun.source import trace_source_to_exit
+        gun_trace = trace_source_to_exit(state)
         emitted = gun_trace.exit_bundle
         self.source_rays = np.vstack((
             emitted.x_m,
@@ -784,6 +795,11 @@ class _ProjectorMeasurementModel:
     def __init__(
         self, state, definition: DirectAlignmentDefinition, *, step_mm: float
     ) -> None:
+        from temsim.instrument_snapshot import capture_instrument_snapshot
+        # Constructing basis fields temporarily varies lens excitations and
+        # invalidates derived objective planes. Own that scratch graph too,
+        # so read-only measurement cannot disturb the caller's working point.
+        state = capture_instrument_snapshot(state).restore()
         self.state = state
         self.definition = definition
         stop_z_mm = float(tem_projection_reference_plane(state).z_mm)
@@ -794,7 +810,9 @@ class _ProjectorMeasurementModel:
             # transfer B=0, with total signed magnification in A.
             self.plane_z_mm = None
             self.variable_keys = IMAGE_KEYS
-            if equivalent_image_maps_supported(state):
+            # Geometric support does not authorize selecting the thin-lens
+            # model. Search and validation must respect the captured choice.
+            if equivalent_image_lenses_enabled(state):
                 self.sample_model = _EquivalentImageFirstOrderModel(
                     state, float(state.sample.z_mm), stop_z_mm,
                 )
@@ -863,6 +881,8 @@ class _ProjectorMeasurementModel:
 
 
 def _get_vector(state, keys: tuple[str, ...]) -> np.ndarray:
+    from temsim.alignment_transaction import check_alignment_cancelled
+    check_alignment_cancelled()
     lenses = _lens_map(state)
     return np.asarray([float(lenses[key].percent) for key in keys], dtype=float)
 
@@ -1532,8 +1552,6 @@ def _production_validation_state(
         state.acceleration_enabled = False
         state.acceleration_backend = "CPU"
         state.active_backend = "CPU"
-        if tuple(keys) == IMAGE_KEYS:
-            state.equivalent_image_lenses_enabled = True
         state._active_backends_used = set()
         yield
     finally:
@@ -1562,7 +1580,8 @@ def _validate_condenser_production(
     with _production_validation_state(
         state, CONDENSER_KEYS, vector, step_mm
     ):
-        gun_trace = state.electron_gun.trace_to_exit()
+        from temsim.optics.electron_gun.source import trace_source_to_exit
+        gun_trace = trace_source_to_exit(state)
         emitted = gun_trace.exit_bundle
         source_z_mm = float(state.electron_gun.exit_plane_z_mm)
         sample_z_mm = float(state.sample.z_mm)
@@ -1614,7 +1633,8 @@ def _validate_condenser_production(
             alive=alive,
             weights=getattr(emitted, "weight", None),
         )
-    return _condenser_measurement(definition, statistics)
+        execution_backend = str(state.active_backend)
+    return replace(_condenser_measurement(definition, statistics), execution_backend=execution_backend)
 
 
 def _refine_nanoprobe_production_focus(
@@ -1787,10 +1807,12 @@ def _validate_projector_production(
             relay_error_um = None
             conjugacy_residual = constraint_value
         value = math.sqrt(abs(float(np.linalg.det(block))))
+        execution_backend = str(state.active_backend)
     return DirectAlignmentMeasurement(
         key=definition.key,
         value=value,
         unit=definition.unit,
+        execution_backend=execution_backend,
         constraint_value=constraint_value,
         constraint_unit=constraint_unit,
         relay_error_um=relay_error_um,
@@ -1916,7 +1938,9 @@ def _solve_direct_alignment(
                     allow_global_fallback=False,
                 )
                 iterations += refinement_iterations
-            coarse = _validate_projector(
+            # Compare numerical resolutions of the same production model,
+            # not an optimiser surrogate against the physical forward trace.
+            coarse = _validate_projector_production(
                 state, definition, candidate, optimiser_step
             )
             fine = _validate_projector_production(
@@ -1993,8 +2017,6 @@ def _solve_direct_alignment(
         )
         if success:
             _set_vector(state, keys, candidate)
-            if definition.key == IMAGE_MAGNIFICATION:
-                state.equivalent_image_lenses_enabled = True
             committed = candidate
         else:
             _set_vector(state, keys, initial)
@@ -2120,17 +2142,17 @@ def apply_direct_alignment(
     *,
     definition: DirectAlignmentDefinition | None = None,
 ) -> DirectAlignmentResult:
-    """Solve transmitted-beam optics while preserving both blanking gates.
+    """Synchronous API using the same request/validation/commit gate as the GUI.
 
-    Condenser solves on the GUI worker snapshot temporarily open its ordinary
-    and optional blankers. Actual beam measurements and image calculation keep
-    their configured gate states and still report a blank specimen correctly.
+    Numerical fixtures may call the private solver. Production callers cannot
+    replace catalog permissions with a caller-supplied target definition.
     """
-    definition = definition or direct_alignment_by_key(key)
-    if definition.family != "condenser":
-        return _solve_direct_alignment(state, key, target, definition=definition)
-
-    from temsim.optics.calibration_beam import transmitted_calibration_beam
-
-    with transmitted_calibration_beam(state):
-        return _solve_direct_alignment(state, key, target, definition=definition)
+    if definition is not None and definition != direct_alignment_by_key(key):
+        raise ValueError("Production Direct Alignment requires the registered catalog definition")
+    from temsim.alignment_transaction import AlignmentRequest, AlignmentCommitGate, solve_alignment_candidate
+    request = AlignmentRequest.capture(state, key, target, revision=0)
+    candidate = solve_alignment_candidate(request)
+    if candidate.result.success:
+        restored = AlignmentCommitGate().apply(state, candidate, revision=0)
+        state.__dict__ = restored.__dict__
+    return candidate.result

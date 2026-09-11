@@ -138,8 +138,8 @@ class GunTraceResult:
     blocked_z_mm: np.ndarray
     blocked_key: tuple[str, ...]
     emitted_current_a: float
-    dpa_transmitted_current_a: float
-    c1_transmitted_current_a: float
+    dpa_transmitted_current_a: float | None
+    c1_transmitted_current_a: float | None
     monochromator_transmitted_current_a: float | None = None
     output_energy_fwhm_ev: float | None = None
     slit_dispersion_um_per_ev: float | None = None
@@ -147,6 +147,7 @@ class GunTraceResult:
     slit_reached: np.ndarray | None = None
     equal_time_history: GunEqualTimeHistory | None = None
     plane_arrivals: tuple[GunPlaneArrival, ...] = ()
+    source_record: object | None = None
 
     def equal_time_front_at_plane(self, key: str) -> GunEqualTimeFront:
         """Sample the beam when the median ray reaches an important plane."""

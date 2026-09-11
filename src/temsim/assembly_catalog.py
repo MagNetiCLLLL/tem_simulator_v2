@@ -199,6 +199,20 @@ class AssemblyCatalog:
             recording=self.recording_systems[0].name,
         )
 
+    def selection_for_resolved(self, assembly) -> AssemblySelection:
+        """Read the captured module identities without applying defaults."""
+        paths = dict(assembly.selected_module_paths)
+        def selected(kind, options):
+            path = paths.get(kind, "")
+            matches = [option.name for option in options if option.file == path]
+            if len(matches) != 1:
+                raise ValueError(f"Captured {kind} module is not uniquely available in this catalog")
+            return matches[0]
+        return AssemblySelection(
+            gun=selected("gun", self.guns), column=selected("column", self.columns),
+            recording=selected("project_and_recording_system", self._recording_system_modules),
+            beam_blanker=selected("beam_blanker", self.beam_blankers))
+
     def normalise_selection(
         self, selection: AssemblySelection
     ) -> AssemblySelection:

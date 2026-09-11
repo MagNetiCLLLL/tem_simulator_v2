@@ -70,7 +70,7 @@ def test_profile_restores_estimates_on_all_runtime_lens_types(tmp_path):
 
     assert all(lens.cs_mm is None and lens.cc_mm is None for lens in restored.lenses)
     document = tomllib.loads(path.read_text(encoding="utf-8"))
-    assert document["format_version"] == PROFILE_FORMAT_VERSION == 6
+    assert document["format_version"] == PROFILE_FORMAT_VERSION == 7
 
 
 @pytest.mark.parametrize("version", [1, 2, 3, 4])

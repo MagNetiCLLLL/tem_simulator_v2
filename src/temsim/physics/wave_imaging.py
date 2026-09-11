@@ -288,7 +288,12 @@ def _detector_probability(image, x_mm, y_mm) -> float:
 
 def reproject_wave_image(state, result: WaveImagingResult) -> WaveImagingResult:
     """Reuse specimen/Objective work and recompute only the recording plane."""
-
+    from temsim.physics.illumination import require_production_illumination
+    illumination_config(state)
+    require_production_illumination({"model": result.metrics.get(
+        "illumination_model", "ray_conditioned_reduced_order")})
+    from temsim.physics.source_admission import require_gun_wave_source
+    require_gun_wave_source(state, product="TEM reprojection")
     checkpoint = result.projector_checkpoint
     if checkpoint is None:
         raise ValueError(
@@ -1066,6 +1071,8 @@ def _incident_wave(
     frequencies_y: np.ndarray,
     wavelength_angstrom: float,
 ) -> np.ndarray:
+    from temsim.physics.source_admission import require_gun_wave_source
+    require_gun_wave_source(state, product="TEM incident wave")
     nx = frequencies_x.size
     ny = frequencies_y.size
     fx, fy = np.meshgrid(frequencies_x, frequencies_y, indexing="xy")
@@ -1261,6 +1268,9 @@ def _simulate_illumination_ensemble(state, simulation):
 
 
 def _simulate_wave_image(state, simulation) -> WaveImagingResult:
+    illumination_config(state)
+    from temsim.physics.source_admission import require_gun_wave_source
+    require_gun_wave_source(state, product="TEM image")
     if explicit_illumination(state) and not hasattr(state, "_wave_source_node"):
         return _simulate_illumination_ensemble(state, simulation)
     scene = SpecimenScene.from_state(state)
@@ -1760,5 +1770,8 @@ def _simulate_wave_image(state, simulation) -> WaveImagingResult:
 
 
 def simulate_wave_image(state, simulation) -> WaveImagingResult:
+    illumination_config(state)
+    from temsim.physics.source_admission import require_gun_wave_source
+    require_gun_wave_source(state, product="TEM image")
     from temsim.execution_evidence import attach_execution_evidence
     return attach_execution_evidence(_simulate_wave_image(state, simulation), state, "TEM")

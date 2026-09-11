@@ -216,7 +216,7 @@ def test_settings_dialog_validates_a5_and_preserves_disabled_defaults(qtbot):
     assert "c3_mm" not in dialog.result_options
 
 
-def test_a5_state_profile_cache_and_production_stem_phase(tmp_path):
+def test_a5_state_profile_cache_and_isolated_historical_stem_phase(tmp_path, monkeypatch):
     from temsim.optics.column import default_state
     from temsim.optics.model import State
     from temsim.assembly_catalog import AssemblyCatalog
@@ -227,6 +227,12 @@ def test_a5_state_profile_cache_and_production_stem_phase(tmp_path):
     state.probe_aberrations = {"c3_mm": 0, "c1_mm": 0}
     axis = np.linspace(-1.5, 1.5, 32)
     stats = {"mean_tx_rad": 0, "mean_ty_rad": 0, "convergence_95_rad": .025, "waist_offset_m": 1e-8}
+    from temsim.physics.source_admission import UnsupportedWaveSource
+    with pytest.raises(UnsupportedWaveSource):
+        _probe_spectrum(state, stats, axis, axis, .0197)
+    # Only this historical algorithm fixture may use the synthetic incident
+    # statistics. It is not evidence for an executable gun-to-STEM source.
+    monkeypatch.setattr("temsim.physics.source_admission.require_gun_wave_source", lambda *args, **kwargs: None)
     first = _probe_spectrum(state, stats, axis, axis, .0197)
     # Resolve optical component ownership before taking signatures.
     baseline = calculation_signatures(state)

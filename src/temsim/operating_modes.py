@@ -58,6 +58,14 @@ class DirectAlignmentDefinition:
     state_parameters: tuple[str, ...]
 
     @property
+    def definition_id(self) -> str:
+        if self.observable == "sample_current_weighted_95_percent_semi_angle":
+            return "chief-ray-current-contained-semiangle-95-v1"
+        if self.observable == "sample_current_weighted_95_percent_diameter":
+            return "chief-ray-current-contained-diameter-95-v1"
+        return self.observable + "-v1"
+
+    @property
     def active_mode_keys(self) -> tuple[str, ...]:
         return self.applies_to_modes or (self.mode_key,)
 

@@ -348,6 +348,8 @@ def _probe_spectrum(
     frequencies_y,
     wavelength_angstrom,
 ):
+    from temsim.physics.source_admission import require_gun_wave_source
+    require_gun_wave_source(state, product="STEM probe")
     fx, fy = np.meshgrid(frequencies_x, frequencies_y, indexing="xy")
     frequency_squared = fx * fx + fy * fy
     frequency_step = max(
@@ -402,6 +404,8 @@ def _normalised_shifted_probe(base_spectrum, fx, fy, x_angstrom, y_angstrom):
 
 def _simulate_angle_resolved_stem(state, simulation, detectors, scan_x_um, scan_y_um, **kwargs):
     """Integrate independent source/energy modes, then phonons, as intensities."""
+    from temsim.physics.source_admission import require_gun_wave_source
+    require_gun_wave_source(state, product="STEM image")
     if not explicit_illumination(state):
         return _simulate_angle_resolved_stem_single(state, simulation, detectors, scan_x_um, scan_y_um, **kwargs)
     nodes = source_nodes(illumination_config(state))
@@ -1466,6 +1470,9 @@ def _simulate_angle_resolved_stem_single(
 
 
 def simulate_angle_resolved_stem(state, simulation, detectors, scan_x_um, scan_y_um, **kwargs):
+    illumination_config(state)
+    from temsim.physics.source_admission import require_gun_wave_source
+    require_gun_wave_source(state, product="STEM image")
     from temsim.execution_evidence import attach_execution_evidence
     result = _simulate_angle_resolved_stem(state, simulation, detectors, scan_x_um, scan_y_um, **kwargs)
     return attach_execution_evidence(result, state, "STEM")

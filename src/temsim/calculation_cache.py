@@ -500,6 +500,10 @@ def _state_payload(state) -> dict[str, object]:
     payload["simulation_time_s"] = float(
         getattr(state, "simulation_time_s", 0.0)
     )
+    # A post-specimen mechanical centre does not prove that its field is
+    # downstream. Retain overlapping analytic fields and conservatively all
+    # mapped/shared-circuit inputs before removing projection-only controls.
+    payload["_incident_field_dependencies"] = incident_field_dependencies(state)
     assembly = getattr(state, "_resolved_assembly", None)
     if assembly is not None:
         payload["_resolved_assembly"] = _json_value(assembly)
@@ -533,6 +537,48 @@ def _state_payload(state) -> dict[str, object]:
     if loaded_inputs:
         payload["_loaded_solver_input_identities"] = loaded_inputs
     return payload
+
+
+def incident_field_dependencies(state):
+    """Field-support dependency inventory; never solve a field to hash it.
+
+    Unknown support and mapped/nonlinear circuits invalidate conservatively.
+    Exact source bytes/geometry remain included by the normal payload as well.
+    """
+    from temsim.instrument_snapshot import encode_instrument
+    from temsim.immutable_json import json_digest
+    sample_z = float(state.sample.z_mm)
+    recipes = getattr(state, "lens_field_map_descriptors", {})
+    conservative = bool(recipes) and str(getattr(state, "simulation_mode", "custom")) not in {"ideal", "analytical"}
+    assembly = getattr(state, "_resolved_assembly", None)
+    if assembly is not None:
+        from temsim.magnetic_circuits import circuit_channels
+        parts = {p.key: p for p in assembly.parts}
+        conservative = conservative or any(len(circuit_channels(parts, lens.key)) > 1 for lens in state.lenses)
+    rows = []
+    for lens in state.lenses:
+        if lens.key not in _POST_SAMPLE_PROJECTION_LENS_KEYS:
+            continue  # Already retained by the upstream payload.
+        support = None
+        support_method = getattr(lens, "field_support_mm", None)
+        if callable(support_method):
+            try:
+                support = tuple(float(v) for v in support_method())
+            except (ValueError, TypeError):
+                pass
+        if conservative or support is None or support[0] <= sample_z:
+            rows.append({"key": lens.key, "model_digest": json_digest(encode_instrument(lens)),
+                         "support_mm": support, "reason": "mapped/shared/unknown support" if conservative or support is None else "field overlaps incident region"})
+    return {"schema": "incident-field-support-v1", "plane_z_mm": sample_z, "rows": rows,
+            "coupled_recipes": recipes if conservative else {}}
+
+
+def explain_product_reuse(previous, current):
+    """Exact matches only; nearest values are not calculation results."""
+    return {key: {"reusable": (previous or {}).get(key) == signature,
+                  "reason": "Exact stage dependencies" if (previous or {}).get(key) == signature
+                  else "Stage inputs, field support, model content or numerical quality changed"}
+            for key, signature in current.items()}
 
 
 def _digest(payload: dict[str, object]) -> str:

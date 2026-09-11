@@ -71,7 +71,7 @@ note = "The crossover target is the mid-plane of the opposing C1-lower and C2-up
 
 [[direct_alignments]]
 key = "nanoprobe_convergence"
-name = "Nanoprobe convergence semi-angle"
+name = "Nanoprobe convergence (current-weighted alpha95)"
 family = "condenser"
 mode_key = "nano_probe"
 unit = "mrad"

@@ -119,7 +119,11 @@ def test_worker_snapshot_keeps_exact_selected_assembly_and_layout(
     workers[0].run()
 
     assert not failures, failures
-    assert captured["assembly"] is installed_assembly
+    from temsim.instrument_snapshot import encode_instrument
+    # High accuracy now owns a complete detached graph. Object identity was a
+    # legacy optimization, not evidence that the same assembly was preserved.
+    assert captured["assembly"] is not installed_assembly
+    assert encode_instrument(captured["assembly"]) == encode_instrument(installed_assembly)
     assert captured["assembly"].root == root.resolve()
     assert captured["assembly"].selected_module_paths == (
         installed_assembly.selected_module_paths
@@ -221,6 +225,8 @@ def test_high_accuracy_pipeline_reports_completed_real_stages(monkeypatch):
 def test_scan_geometry_and_playback_are_reused_independently(monkeypatch):
     state = default_state()
     state.sample.wave_enabled = False
+    state.sample.stem_wave_enabled = False  # Geometry-only cache fixture.
+    state.sample.inserted = False
     state.sample.eds_enabled = False
     state.ac_deflector.enabled = True
     state.ac_deflector.scan_enabled = True
@@ -321,6 +327,8 @@ def test_scan_geometry_and_playback_are_reused_independently(monkeypatch):
 def test_matching_scan_signature_without_artifact_recalculates(monkeypatch):
     state = default_state()
     state.sample.wave_enabled = False
+    state.sample.stem_wave_enabled = False  # Geometry-only cache fixture.
+    state.sample.inserted = False
     state.sample.eds_enabled = False
     state.ac_deflector.enabled = True
     state.ac_deflector.scan_enabled = True
@@ -911,6 +919,9 @@ def test_pipeline_builds_one_first_class_specimen_exit_for_geometric_stem(
 
 
 def test_high_accuracy_pipeline_maps_stem_batches_inside_stage(monkeypatch):
+    # A mocked progress producer, not a physical STEM/source validation. The
+    # production-source refusal is tested separately in test_source_admission.
+    monkeypatch.setattr("temsim.physics.source_admission.admit_requested_wave_products", lambda state: None)
     state = default_state()
     state.sample.wave_enabled = False
     state.sample.eds_enabled = False
@@ -1196,7 +1207,9 @@ def test_step_refinement_memory_tracks_axial_fields_not_z_by_ray_matrices():
     assert fine < HIGH_ACCURACY_MEMORY_BUDGET_BYTES
 
 
-def test_high_accuracy_memory_guard_includes_tem_wave_grid():
+def test_high_accuracy_memory_guard_includes_tem_wave_grid(monkeypatch):
+    # Isolate the allocation guard from source admission; no wave is generated.
+    monkeypatch.setattr("temsim.physics.source_admission.admit_requested_wave_products", lambda state: None)
     state = default_state()
     for detector in state.stem_detectors:
         detector.inserted = False

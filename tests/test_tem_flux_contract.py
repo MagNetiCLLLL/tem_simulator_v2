@@ -1,8 +1,9 @@
-"""Manufactured CPU benchmarks through the production TEM entry point.
+"""Isolated numerical CPU benchmarks, not full-source-chain acceptance.
 
-Only the input specimen/illumination and analytically known column map are
-fixtures. FFT transfer, aperture ownership, camera deposition and ensemble
-reduction are production code. These are not independent material validation.
+Source admission is replaced ONLY in this fixture: the input specimen/wave
+and known column map are synthetic. FFT transfer, aperture ownership, camera
+deposition and ensemble reduction remain production code. These checks do not
+certify a gun source or independently validate a material model.
 """
 from types import SimpleNamespace
 
@@ -15,6 +16,7 @@ from temsim.physics import wave_imaging as imaging
 
 @pytest.fixture
 def tem_benchmark(monkeypatch):
+    monkeypatch.setattr("temsim.physics.source_admission.require_gun_wave_source", lambda *args, **kwargs: None)
     from temsim.optics import direct_alignment
     from temsim.physics import camera_wave, multiplane_wave
     from temsim.physics.core import electron
@@ -199,7 +201,9 @@ def test_at09_lossless_guard_detects_corrupted_propagation(monkeypatch):
     wave = mp.PlaneWave(np.ones((4, 4), complex)/4, np.eye(2)*1e-9, np.zeros(2))
     good = mp.propagate_plane_wave(wave, np.eye(4), np.zeros(4), 2e-12)
     assert good.probability == pytest.approx(1., abs=1e-12)
-    monkeypatch.setattr(mp, "_propagate_plane_wave", lambda *args: replace(wave, amplitude=wave.amplitude*.9))
+    # The kernel returns the propagated wave and its analytic chart phase.
+    # Corrupt amplitude only; the public lossless guard must still detect it.
+    monkeypatch.setattr(mp, "_propagate_plane_wave", lambda *args: (replace(wave, amplitude=wave.amplitude*.9), 0.))
     with pytest.raises(ValueError, match="lossless wave norm changed"):
         mp.propagate_plane_wave(wave, np.eye(4), np.zeros(4), 2e-12)
 

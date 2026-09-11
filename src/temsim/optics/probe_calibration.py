@@ -40,7 +40,8 @@ class IncidentProbeModel:
 
     def __init__(self, state):
         self.state = state
-        self.gun_trace = state.electron_gun.trace_to_exit()
+        from temsim.optics.electron_gun.source import trace_source_to_exit
+        self.gun_trace = trace_source_to_exit(state)
         self.emitted = self.gun_trace.exit_bundle
 
     def trace(self, *, spherical=True, hexapoles=True, step_mm=None):

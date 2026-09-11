@@ -2,8 +2,8 @@
 
 This uses the same snapshot, pipeline and incident-seed codec as the desktop
 controller. It does not solve lens presets or change an open GUI's state.
-Only incident propagation is currently restartable from disk; full signals
-are not serialized by this utility. No pickle or arbitrary object codec is used.
+Incident particles and optional gun coherent checkpoints are restartable from
+disk; full signals are not serialized by this utility. No pickle is used.
 """
 
 from __future__ import annotations
@@ -70,7 +70,11 @@ def verify_incident_seed(original, restored) -> list[str]:
 def read_manifest(path: Path) -> CalculationManifest:
     """Restore only the explicit JSON manifest schema, never Python objects."""
     document = json.loads(path.read_text(encoding="utf-8"))
-    values = {field.name: document[field.name] for field in fields(CalculationManifest)}
+    values = {field.name: document[field.name] for field in fields(CalculationManifest)
+              if field.name != "instrument_snapshot"}
+    from temsim.instrument_snapshot import InstrumentSnapshot
+    snapshot = document.get("instrument_snapshot")
+    values["instrument_snapshot"] = InstrumentSnapshot.from_dict(snapshot) if snapshot is not None else None
     values["solver"] = SolverIdentity(**document["solver"])
     values["external_inputs"] = tuple(ExternalInputIdentity(**row) for row in document["external_inputs"])
     result = CalculationManifest(**values)
@@ -88,6 +92,8 @@ def main(argv=None) -> int:
     parser.add_argument("--rays", type=int, default=15000)
     parser.add_argument("--step-mm", type=float, default=0.1)
     parser.add_argument("--describe", action="store_true", help="Inspect without computing or writing")
+    parser.add_argument("--gun-wave-only", action="store_true",
+                        help="Cache gun-owned coherent modes to the specimen; requires an explicitly configured effective gun profile")
     parser.add_argument("--verify-existing", action="store_true",
                         help="Verify a saved request's disk seed without repeating any physics")
     parser.add_argument("--cache-root", type=Path, help="Explicit cache store; default: application user cache")
@@ -108,6 +114,17 @@ def main(argv=None) -> int:
     if args.verify_existing:
         manifest = read_manifest(args.output / "manifest.json")
         store = ArtifactStore(cache_root, quota_bytes=preferences.disk_cache_budget_bytes)
+        from temsim.physics.gun_wave_cache import PRODUCT, load_gun_wave_checkpoint
+        if PRODUCT in getattr(manifest, "calculation_signatures", {}):
+            checkpoint = load_gun_wave_checkpoint(store, manifest)
+            if checkpoint is None:
+                raise RuntimeError("No matching gun-wave checkpoint; no physics was run")
+            report = {"cache_readback_verified": True, "physics_repeated": False,
+                      "checkpoint_digest": checkpoint.digest, "mode_count": len(checkpoint.beam.modes),
+                      "validation_status": checkpoint.execution["validation_status"]}
+            (args.output / "verification.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+            print(json.dumps(report, indent=2), flush=True)
+            return 0
         seed = CalculationController.load_persisted_incident_seed(store, manifest)
         if seed is None:
             raise RuntimeError("No matching incident seed is present; no physics was run")
@@ -148,7 +165,14 @@ def main(argv=None) -> int:
         switch_mode(state, "ideal")
     apply_physical_layout_to_state(state, preserve_operating_parameters=True)
     snapshot = CalculationController._calculation_snapshot(state, "High accuracy", args.rays, args.step_mm)
-    estimate = estimate_calculation_memory_bytes(snapshot, "High accuracy", args.rays, args.step_mm)
+    if args.gun_wave_only:
+        from temsim.optics.electron_gun.effective_source import generate_gun_emission
+        if snapshot.electron_gun.source_representation != "effective_gaussian_schell":
+            raise ValueError("Select the new effective gun model explicitly; legacy source parameters are not converted")
+        emission = generate_gun_emission(snapshot.electron_gun)
+        estimate = emission.record["mode_count"]*emission.source_parameters.grid_pixels**2*16*4 + 256*1024**2
+    else:
+        estimate = estimate_calculation_memory_bytes(snapshot, "High accuracy", args.rays, args.step_mm)
     if estimate > HIGH_ACCURACY_MEMORY_BUDGET_BYTES:
         raise ValueError(f"Estimated peak {estimate} exceeds the application's memory allowance")
     description = {
@@ -164,6 +188,10 @@ def main(argv=None) -> int:
         "disk_cache_quota_bytes": preferences.disk_cache_budget_bytes,
         "persistent_scope": "incident propagation seed only; not complete TEM/STEM/EDS products",
     }
+    if args.gun_wave_only:
+        description.update(persistent_scope="Gun coherent modes at the specimen; no TEM/STEM signal calculation",
+                           gun_source_model=emission.source_parameters.model_id,
+                           mode_count=emission.record["mode_count"], reference_current_a=emission.reference_current_a)
     print(json.dumps(description, indent=2), flush=True)
     if args.describe:
         return 0
@@ -172,6 +200,9 @@ def main(argv=None) -> int:
     store = ArtifactStore(cache_root, quota_bytes=preferences.disk_cache_budget_bytes)
     manifest = capture_calculation_manifest(snapshot, ray_count=args.rays, step_mm=args.step_mm,
                                             selection=selection)
+    if args.gun_wave_only:
+        from temsim.physics.gun_wave_cache import gun_wave_manifest
+        manifest = gun_wave_manifest(snapshot)
     serialized_manifest = json.dumps(manifest.to_dict(), indent=2)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -186,6 +217,25 @@ def main(argv=None) -> int:
             last_progress[:] = [now, stage]
 
     started = perf_counter()
+    if args.gun_wave_only:
+        from temsim.physics.gun_wave_cache import cached_gun_wave_checkpoint, load_gun_wave_checkpoint
+        from temsim.working_point import WorkingPointCheckpoint
+        checkpoint, reused = cached_gun_wave_checkpoint(snapshot, store, progress_callback=progress)
+        reopened = ArtifactStore(store.root, quota_bytes=preferences.disk_cache_budget_bytes)
+        restored = load_gun_wave_checkpoint(reopened, manifest)
+        if restored is None or restored.digest != checkpoint.digest:
+            raise RuntimeError("Gun-wave cache readback did not preserve the computed checkpoint")
+        WorkingPointCheckpoint.from_gun_wave(checkpoint).write_package(output / "working-point.temwp")
+        report = {**description, "calculation_seconds": perf_counter()-started,
+                  "cache_readback_verified": True, "physics_executed": not reused,
+                  "readback_physics_repeated": False,
+                  "reused": reused, "checkpoint_digest": checkpoint.digest,
+                  "retained_source_fraction": checkpoint.beam.total_weight,
+                  "validation_status": checkpoint.execution["validation_status"]}
+        (output / "calculation.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        (output / "verification.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(json.dumps(report, indent=2), flush=True)
+        return 0
     result = calculate(snapshot, progress_callback=progress)
     calculation_seconds = perf_counter() - started
     report = {

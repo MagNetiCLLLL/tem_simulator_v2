@@ -80,6 +80,9 @@ from temsim.physics.compute_backend import (
 from temsim.runtime_parameters import editable_parameters, runtime_targets
 from temsim.simulation_modes import MODE_BY_KEY, mode_key, switch_mode, promote_custom_mode
 from temsim.gui.simulation_menu import SimulationMenu
+from temsim.instrument_snapshot import capture_instrument_snapshot
+from temsim.alignment_transaction import AlignmentCommitGate
+from temsim.gui.working_point_panel import WorkingPointPanel
 
 
 class MainWindow(QMainWindow):
@@ -121,6 +124,15 @@ class MainWindow(QMainWindow):
         self._df_geometry_dialog = None
 
         self.workspace = VisualizationWorkspace(self)
+        self._physical_revision = 0
+        self._alignment_commits = AlignmentCommitGate()
+        self._active_working_checkpoint = None
+        self.working_points = WorkingPointPanel(self)
+        self.workspace.tabs.addTab(self.working_points, "Working Points")
+        self.working_points.current_snapshot = lambda: capture_instrument_snapshot(self.state)
+        self.working_points.restore_requested.connect(self._restore_working_point)
+        self.working_points.undo_requested.connect(self._undo_alignment)
+        self.working_points.error.connect(self._show_error)
         self.workspace.model_inspector.set_state(self.state)
         self.workspace.model_inspector.changed.connect(self._runtime_parameter_changed)
         self.workspace.model_inspector.error.connect(self._show_error)
@@ -301,6 +313,7 @@ class MainWindow(QMainWindow):
         self.direct_alignments.started.connect(
             self._direct_alignment_started
         )
+        self.assembly_panel.direct_alignment_panel.cancellation_requested.connect(self._cancel_direct_alignment)
         self.direct_alignments.result_ready.connect(
             self._direct_alignment_ready
         )
@@ -1255,8 +1268,8 @@ class MainWindow(QMainWindow):
         self.calculations.invalidate_pending()
         self._set_progress_active("calculation", False)
         try:
-            self._direct_alignment_state_token = repr(self.state.to_dict())
-            self.direct_alignments.submit(self.state, key, target)
+            self._direct_alignment_state_token = capture_instrument_snapshot(self.state).digest
+            self.direct_alignments.submit(self.state, key, target, revision=self._physical_revision)
         except Exception as exc:
             self._direct_alignment_state_token = None
             self.assembly_panel.set_direct_alignment_busy(None)
@@ -1275,195 +1288,80 @@ class MainWindow(QMainWindow):
             f"Direct Alignment solving {key}: {target:g}..."
         )
 
-    def _direct_alignment_ready(
-        self, key: str, result, duration: float
-    ) -> None:
-        definition = direct_alignment_by_key(key)
-        expected_keys = set(definition.devices)
-        expected_state_parameters = set(definition.state_parameters)
-        result_keys = set(result.strengths)
-        result_state_updates = dict(result.state_updates or {})
-        if (
-            result.key != key
-            or result_keys != expected_keys
-            or set(result_state_updates) != expected_state_parameters
-        ):
-            lenses = {lens.key: lens for lens in self.state.lenses}
-            current = {
-                lens_key: float(lenses[lens_key].percent)
-                for lens_key in expected_keys
-                if lens_key in lenses
-            }
-            current_state_updates = {
-                name: float(getattr(self.state, name))
-                for name in expected_state_parameters
-                if hasattr(self.state, name)
-            }
-            result = replace(
-                result,
-                key=key,
-                success=False,
-                strengths=current,
-                state_updates=current_state_updates,
-                message=(
-                    "The background result did not match the submitted "
-                    "Direct Alignment key and exact coupled-device set; it "
-                    "was rejected without changing any lens."
-                ),
-            )
-        state_is_current = (
-            self._direct_alignment_state_token is not None
-            and repr(self.state.to_dict())
-            == self._direct_alignment_state_token
-        )
-        if not state_is_current:
-            current = {
-                lens.key: float(lens.percent)
-                for lens in self.state.lenses
-                if lens.key in result.strengths
-            }
-            result = replace(
-                result,
-                success=False,
-                strengths=current,
-                state_updates={
-                    name: float(getattr(self.state, name))
-                    for name in expected_state_parameters
-                    if hasattr(self.state, name)
-                },
-                message=(
-                    "The microscope state changed while the background solve "
-                    "was running; the stale result was discarded and no "
-                    "lens value was changed."
-                ),
-            )
+    def _cancel_direct_alignment(self):
+        self.direct_alignments.invalidate_pending()
+        self._direct_alignment_finished("")
+        message = "Alignment cancelled; working point unchanged."
+        self.assembly_panel.set_direct_alignment_message(message)
+        self.status_label.setText(message)
 
+    def _direct_alignment_ready(self, key: str, candidate, duration: float) -> None:
+        result = candidate.result
+        if candidate.checkpoint is not None:
+            self.working_points.add_checkpoint(candidate.checkpoint, label="Candidate")
         if result.success:
-            # Reject any ordinary calculation snapshot that may have been
-            # submitted while the Direct Alignment worker was running.
-            self.calculations.invalidate_pending()
-            self._set_progress_active("calculation", False)
-            lenses = {lens.key: lens for lens in self.state.lenses}
-            updates = []
-            state_updates = []
+            previous = self.state
             try:
-                for lens_key, value in result.strengths.items():
-                    lens = lenses.get(lens_key)
-                    if lens is None or not bool(
-                        getattr(lens, "enabled", True)
-                    ):
-                        raise ValueError(
-                            f"Coupled lens {lens_key!r} is no longer available"
-                        )
-                    numeric = float(value)
-                    if not 0.0 <= numeric <= float(lens.max_percent):
-                        raise ValueError(
-                            f"Coupled lens {lens_key!r} result is outside limits"
-                        )
-                    updates.append((lens, numeric))
-                for name, value in result_state_updates.items():
-                    if name != "column_current_limit_percent":
-                        raise ValueError(
-                            f"Unsupported state update {name!r}"
-                        )
-                    numeric = float(value)
-                    if not definition.minimum <= numeric <= definition.maximum:
-                        raise ValueError(
-                            f"State update {name!r} is outside limits"
-                        )
-                    state_updates.append((name, numeric))
+                updated = self._alignment_commits.apply(
+                    self.state, candidate, revision=self._physical_revision,
+                    previous_checkpoint=self._active_working_checkpoint)
+                self._install_working_point(updated, candidate.checkpoint, fork=False)
+                self._physical_revision += 1
             except Exception as exc:
-                current = {
-                    lens_key: float(lenses[lens_key].percent)
-                    for lens_key in result.strengths
-                    if lens_key in lenses
-                }
-                result = replace(
-                    result,
-                    success=False,
-                    strengths=current,
-                    state_updates={
-                        name: float(getattr(self.state, name))
-                        for name in expected_state_parameters
-                        if hasattr(self.state, name)
-                    },
-                    message=(
-                        f"The background result could not be committed: {exc}. "
-                        "No lens value was changed."
-                    ),
-                )
-
-        if result.success:
-            previous = [(lens, float(lens.percent)) for lens, _ in updates]
-            previous_state = [
-                (name, float(getattr(self.state, name)))
-                for name, _ in state_updates
-            ]
-            previous_equivalent_image_lenses = bool(
-                getattr(
-                    self.state, "equivalent_image_lenses_enabled", False
-                )
-            )
-            try:
-                for lens, numeric in updates:
-                    lens.percent = numeric
-                for name, numeric in state_updates:
-                    setattr(self.state, name, numeric)
-                if key == "image_magnification":
-                    self.state.equivalent_image_lenses_enabled = True
-                self._refresh_assembly_views()
-            except Exception as exc:
-                for lens, numeric in previous:
-                    lens.percent = numeric
-                for name, numeric in previous_state:
-                    setattr(self.state, name, numeric)
-                self.state.equivalent_image_lenses_enabled = (
-                    previous_equivalent_image_lenses
-                )
-                result = replace(
-                    result,
-                    success=False,
-                    strengths={lens.key: numeric for lens, numeric in previous},
-                    state_updates={
-                        name: numeric for name, numeric in previous_state
-                    },
-                    message=(
-                        f"The coupled values passed optical validation but "
-                        f"the live GUI refresh failed: {exc}. The exact "
-                        "previous lens values were restored."
-                    ),
-                )
-
-        if result.success:
-            strengths = ", ".join(
-                f"{lens_key}={value:.5g}%"
-                for lens_key, value in result.strengths.items()
-            )
-            state_values = ", ".join(
-                f"{name}={value:.6g}"
-                for name, value in result_state_updates.items()
-            )
-            applied_values = "; ".join(
-                value for value in (strengths, state_values) if value
-            )
-            self.log_output.appendPlainText(
-                f"Direct Alignment applied in {duration:.3f} s: "
-                f"{result.message} Applied values: {applied_values}."
-            )
-            self.status_label.setText(
-                f"Direct Alignment applied: {result.achieved:.6g} "
-                f"{result.unit}"
-            )
-            self.schedule_preview()
-        else:
-            self.log_output.appendPlainText(
-                f"Direct Alignment not applied after {duration:.3f} s: "
-                f"{result.message}"
-            )
-            self.status_label.setText(
-                "Direct Alignment not applied; live lens values are unchanged"
-            )
+                self.state = previous
+                self._alignment_commits.reject_application(candidate.request.request_id)
+                result = replace(result, success=False,
+                                 message=f"Candidate not applied: {exc}")
+        self.log_output.appendPlainText(
+            f"Direct Alignment {key} | {duration:.3f} s | {result.message}")
+        self.status_label.setText(result.message)
         self.assembly_panel.show_direct_alignment_result(result)
+
+    def _install_working_point(self, state, checkpoint, *, fork=False) -> None:
+        """Replace physical state and checkpoint together; never apply presets."""
+        previous = (self.state, self.assembly, self.selection,
+                    getattr(self, "_active_working_checkpoint", None),
+                    getattr(self, "_working_point_parent", None))
+        captured = capture_instrument_snapshot(state)
+        try:
+            assembly = getattr(state, "_resolved_assembly", None)
+            if assembly is None:
+                raise ValueError("Working point has no captured assembly")
+            self.preview_timer.stop()
+            self.calculations.invalidate_pending()
+            self.state, self.assembly = state, assembly
+            self.selection = self.catalog.selection_for_resolved(assembly)
+            self._active_working_checkpoint = checkpoint
+            self._working_point_parent = checkpoint.digest if fork else None
+            self._refresh_assembly_views()
+            # UI refresh may read the graph but must not normalize saved values.
+            if capture_instrument_snapshot(state).digest != captured.digest:
+                raise ValueError("UI refresh attempted to change captured physical parameters")
+            self.workspace.mark_high_accuracy_stale()
+        except Exception:
+            (self.state, self.assembly, self.selection, self._active_working_checkpoint,
+             self._working_point_parent) = previous
+            self._refresh_assembly_views()
+            raise
+
+    def _restore_working_point(self, checkpoint, fork=False) -> None:
+        try:
+            state = checkpoint.compatible_state()
+            self._invalidate_direct_alignment()
+            self._install_working_point(state, checkpoint, fork=fork)
+            self.status_label.setText("Working point restored exactly; no preset or calculation applied")
+        except Exception as exc:
+            self._show_error(f"Working point remains read-only: {exc}")
+
+    def _undo_alignment(self) -> None:
+        try:
+            state, checkpoint = self._alignment_commits.peek_undo()
+            self._invalidate_direct_alignment()
+            self._install_working_point(state, checkpoint, fork=False)
+            self._alignment_commits.finish_undo()
+            self.status_label.setText("Direct Alignment undone; original working point restored")
+        except Exception as exc:
+            self._show_error(str(exc))
 
     def _direct_alignment_failed(self, key: str, message: str) -> None:
         self.assembly_panel.set_direct_alignment_message(
@@ -1655,6 +1553,7 @@ class MainWindow(QMainWindow):
         self.schedule_preview(parameter)
 
     def _invalidate_direct_alignment(self) -> None:
+        self._physical_revision += 1
         self._invalidate_operating_preset()
         was_running = self._direct_alignment_state_token is not None
         self.direct_alignments.invalidate_pending()
@@ -1817,6 +1716,14 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"{quality}: {stage}...")
 
     def _calculation_ready(self, quality: str, result, duration: float) -> None:
+        if quality not in ("Preview", "Medium") and getattr(result, "calculation_manifest", None) is not None:
+            from temsim.working_point import WorkingPointCheckpoint
+            try:
+                checkpoint = WorkingPointCheckpoint.from_result(result, parent_id=getattr(self, "_working_point_parent", None))
+                self.working_points.add_checkpoint(checkpoint)
+                self._active_working_checkpoint = checkpoint
+            except (ValueError, TypeError) as exc:
+                self.log_output.appendPlainText(f"Working-point checkpoint not published: {exc}")
         self.workspace.display_result(result, quality)
         if quality in ("Preview", "Medium"):
             self.workspace.interactive_calculation.display_tuning_status(result)

@@ -83,7 +83,7 @@ def tuning_metrics(state, incident):
     return {
         "mode": state.projector_mode,
         "optical_tuning": True,
-        "tuning_quality": state._tuning_quality,
+        "tuning_quality": getattr(state, "_tuning_quality", "requested_resolution"),
         "tuning_model": "sampled_field_rays_without_specimen_interactions",
         "sample_scattering_applied": False,
         "sample_scattering_model": "omitted_for_optical_tuning",

@@ -316,11 +316,14 @@ def test_complete_incident_seed_restarts_ray_solver(tmp_path, with_vector_map, l
         ray_count=9,
         step_mm=5.0,
     )
-    assert (
-        downstream_manifest.calculation_signatures["incident"]
-        == manifest.calculation_signatures["incident"]
-    )
-    assert store.get_incident_simulation_seed(downstream_manifest) is not None
+    if with_vector_map:
+        # No certified local/shared-field dependency graph exists for this
+        # imported-map fixture. HANDOFF v2 requires conservative invalidation.
+        assert downstream_manifest.calculation_signatures["incident"] != manifest.calculation_signatures["incident"]
+        assert store.get_incident_simulation_seed(downstream_manifest) is None
+    else:
+        assert downstream_manifest.calculation_signatures["incident"] == manifest.calculation_signatures["incident"]
+        assert store.get_incident_simulation_seed(downstream_manifest) is not None
 
     assembly = state._resolved_assembly
     pole = assembly.part("condenser_lens_1_lower_pole")
@@ -637,6 +640,36 @@ def test_store_initialisation_reclaims_unreferenced_objects(tmp_path):
     assert not pending_reference.exists()
 
 
+def test_many_mode_array_filename_roundtrip(tmp_path, monkeypatch):
+    """Exercise a five-digit index without allocating ten thousand files."""
+    import builtins
+    import temsim.artifact_store as artifacts
+    state, selection = _assembled_state()
+    manifest = _manifest(state, selection)
+    store = ArtifactStore(tmp_path / "cache", quota_bytes=100_000_000)
+    monkeypatch.setattr(artifacts, "enumerate", lambda items: builtins.enumerate(items, 10000), raising=False)
+    signature = manifest.calculation_signatures["incident"]
+    values = np.arange(12)
+    store.put_array_bundle(manifest, product_key="incident", dependency_signature=signature, arrays={"mode": values})
+    loaded = store.get_array_bundle(manifest, product_key="incident", dependency_signature=signature)
+    np.testing.assert_array_equal(loaded.arrays["mode"], values)
+    assert artifacts._ARRAY_FILENAME.fullmatch("array-10000.npy")
+    assert not artifacts._ARRAY_FILENAME.fullmatch("../array-10000.npy")
+
+
+def test_source_code_change_blocks_numeric_reuse_without_a_schema_bump(tmp_path):
+    state, selection = _assembled_state()
+    current = _manifest(state, selection)
+    assert current.solver.source_digest == current.instrument_snapshot.implementation
+    older_code = replace(current, solver=replace(current.solver, source_digest="0" * 64))
+    signature = current.calculation_signatures["incident"]
+    store = ArtifactStore(tmp_path / "cache", quota_bytes=10_000_000)
+    store.put_array_bundle(older_code, product_key="incident",
+                           dependency_signature=signature, arrays={"values": np.arange(3.)})
+    assert store.get_array_bundle(current, product_key="incident",
+                                  dependency_signature=signature) is None
+
+
 @pytest.mark.parametrize("legacy_schema", [
     "temsim-solver-2026-09-segmented-v1", "temsim-solver-2026-09-segmented-v2",
     "temsim-solver-2026-09-vector-fields-v3",
@@ -663,7 +696,7 @@ def test_solver_implementation_bump_does_not_reuse_legacy_seed(tmp_path, legacy_
         arrays={"values": np.arange(32, dtype=np.float64)},
     )
 
-    assert SOLVER_IMPLEMENTATION_SCHEMA == "temsim-solver-2026-09-wave-contract-v2"
+    assert SOLVER_IMPLEMENTATION_SCHEMA == "temsim-solver-2026-09-working-point-v3"
     assert legacy.solver.digest != current.solver.digest
     assert store.get_array_bundle(
         current,

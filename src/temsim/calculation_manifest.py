@@ -26,11 +26,12 @@ from temsim.calculation_cache import (
     state_model_signature,
 )
 from temsim.immutable_json import freeze_json, json_digest, thaw_json
+from temsim.instrument_snapshot import InstrumentSnapshot, capture_instrument_snapshot
 
 
 CALCULATION_MANIFEST_SCHEMA_VERSION = 1
 TEM_EXECUTION_SCHEMA = "tem-physical-aperture-flux-v1"
-SOLVER_IMPLEMENTATION_SCHEMA = "temsim-solver-2026-09-wave-contract-v2"
+SOLVER_IMPLEMENTATION_SCHEMA = "temsim-solver-2026-09-working-point-v3"
 
 
 def solver_source_identity():
@@ -489,17 +490,23 @@ class SolverIdentity:
     implementation_schema: str = SOLVER_IMPLEMENTATION_SCHEMA
     python_version: str = platform.python_version()
     numpy_version: str = np.__version__
+    source_digest: str = ""
 
     @property
     def digest(self) -> str:
-        return json_digest({
+        payload = {
             "package_version": self.package_version,
             "state_schema_version": self.state_schema_version,
             "manifest_schema_version": self.manifest_schema_version,
             "implementation_schema": self.implementation_schema,
             "python_version": self.python_version,
             "numpy_version": self.numpy_version,
-        })
+        }
+        # Preserve the identity of historical manifests that predate this
+        # field, while preventing reuse across unversioned source edits.
+        if self.source_digest:
+            payload["source_digest"] = self.source_digest
+        return json_digest(payload)
 
 
 @dataclass(frozen=True, slots=True)
@@ -682,6 +689,7 @@ class CalculationManifest:
     geometry_fingerprint: str
     solver: SolverIdentity
     external_inputs: tuple[ExternalInputIdentity, ...]
+    instrument_snapshot: InstrumentSnapshot | None = None
     schema_version: int = CALCULATION_MANIFEST_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -700,7 +708,7 @@ class CalculationManifest:
     def identity_payload(self) -> dict[str, object]:
         """Return deterministic scientific identity, excluding wall-clock time."""
 
-        return {
+        payload = {
             "schema_version": self.schema_version,
             "state_payload": self.state_payload,
             "selection": self.selection,
@@ -711,6 +719,9 @@ class CalculationManifest:
             "solver_digest": self.solver.digest,
             "external_inputs": self.external_inputs,
         }
+        if self.instrument_snapshot is not None:
+            payload["instrument_snapshot"] = self.instrument_snapshot.to_dict()
+        return payload
 
     @property
     def digest(self) -> str:
@@ -738,12 +749,29 @@ def capture_calculation_manifest(
     serializer = getattr(state, "to_dict", None)
     if not callable(serializer):
         raise TypeError("Calculation state must provide to_dict()")
+    if (ray_count is None) != (step_mm is None):
+        raise ValueError("ray_count and step_mm must be supplied together")
+    from temsim.optics.model import State
+    instrument_snapshot = None
+    if isinstance(state, State):
+        # Legacy profile/signature serializers may refresh derived fields.
+        # Never let those operations modify the instrument being captured.
+        from temsim.instrument_snapshot import decode_instrument, encode_instrument
+        state = decode_instrument(encode_instrument(state))
+        if ray_count is not None:
+            if (isinstance(ray_count, bool) or int(ray_count) != ray_count or int(ray_count) <= 0
+                    or not np.isfinite(float(step_mm)) or float(step_mm) <= 0):
+                raise ValueError("Calculation resolution must be a positive ray count and finite positive step")
+            emitter = getattr(state.electron_gun, "emitter", state.electron_gun)
+            emitter.ray_count = int(ray_count)
+            state.step_mm = float(step_mm)
+            state.history_step_mm = max(float(step_mm), 0.5)
+        instrument_snapshot = capture_instrument_snapshot(state)
+        serializer = state.to_dict
     state_payload = dict(serializer())
     state_payload["simulation_time_s"] = float(
         getattr(state, "simulation_time_s", 0.0)
     )
-    if (ray_count is None) != (step_mm is None):
-        raise ValueError("ray_count and step_mm must be supplied together")
     if ray_count is None:
         signatures = calculation_signatures(state)
     else:
@@ -755,6 +783,8 @@ def capture_calculation_manifest(
     solver = SolverIdentity(
         package_version=str(__version__),
         state_schema_version=int(getattr(state, "schema_version", 0)),
+        source_digest=(instrument_snapshot.implementation if instrument_snapshot
+                       is not None else solver_source_identity()),
     )
     timestamp = created_at_utc or datetime.now(timezone.utc).isoformat(
         timespec="seconds"
@@ -769,6 +799,7 @@ def capture_calculation_manifest(
         geometry_fingerprint=resolved_assembly_geometry_fingerprint(state),
         solver=solver,
         external_inputs=_external_inputs(state),
+        instrument_snapshot=instrument_snapshot,
     )
 
 

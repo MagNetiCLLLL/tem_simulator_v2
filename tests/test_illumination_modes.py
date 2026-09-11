@@ -1,4 +1,8 @@
-"""WP-03 manufactured illumination benchmarks; not a material calibration."""
+"""Retained illumination mathematics and the HANDOFF v2 production gate.
+
+Withdrawn production-pupil acceptance is preserved in historical/, not reported
+as current source-chain validation. Flux/aperture acceptance remains unchanged.
+"""
 from copy import deepcopy
 from dataclasses import replace
 from types import SimpleNamespace
@@ -8,12 +12,11 @@ import pytest
 
 from temsim.physics import wave_imaging as imaging
 from temsim.physics.illumination import (
-    PupilState, default_illumination_config, gaussian_quadrature,
-    current_angle_quantiles, source_nodes, validate_illumination_config,
+    default_illumination_config, gaussian_quadrature,
+    current_angle_quantiles, validate_illumination_config,
 )
-from test_tem_flux_contract import tem_benchmark  # shared analytic column fixture
-
-_real_incident_wave = imaging._incident_wave
+from fixtures.illumination import PupilState, source_nodes
+from test_tem_flux_contract import tem_benchmark
 
 
 def test_at11_uniform_disk_has_distinct_current_quantiles():
@@ -25,47 +28,6 @@ def test_at11_uniform_disk_has_distinct_current_quantiles():
     assert q["alpha_95_current_rad"] == pytest.approx(np.sqrt(.95)*.02, abs=2e-5)
     assert q["alpha_99_current_rad"] == pytest.approx(np.sqrt(.99)*.02, abs=2e-5)
     assert pupil.metadata()["alpha_edge_rad"] == .02
-
-
-def test_at12_rotated_offset_pupil_reaches_production_tem(tem_benchmark, monkeypatch):
-    f = tem_benchmark
-    monkeypatch.setattr(imaging, "_incident_wave", _real_incident_wave)
-    f.state.objective_aperture.enabled = False
-    config = default_illumination_config()
-    config["pupil"].update(shape="rectangle", semi_axes_mrad=[4., 1.5], offset_mrad=[3., -2.], basis=[[0., -1.], [1., 0.]])
-    f.state.sample.wave_illumination = config
-    result = f.run()
-    weight = result.absolute_diffraction_probability
-    from temsim.physics.core import electron
-    a = result.spatial_frequency_inv_angstrom * electron(f.state)[2] * 10 * 1000
-    ax, ay = np.meshgrid(a, a)
-    cx, cy = np.sum(ax*weight), np.sum(ay*weight)
-    assert cx == pytest.approx(3., abs=.4) and cy == pytest.approx(-2., abs=.4)
-    assert np.sum((ay-cy)**2*weight) > 3*np.sum((ax-cx)**2*weight)
-    assert result.metrics["illumination_model"] == "specimen_entrance_pupil_modes"
-
-
-def test_at13_tem_two_modes_are_incoherent_and_replayable(tem_benchmark, monkeypatch):
-    f = tem_benchmark
-    monkeypatch.setattr(imaging, "_incident_wave", _real_incident_wave)
-    f.state.objective_aperture.enabled = False
-    config = default_illumination_config()
-    config["pupil"]["semi_axes_mrad"] = [3., 2.]
-    config["angles_mrad"] = [[-4., 0., .25], [4., 0., .75]]
-    f.state.sample.wave_illumination = config
-    mixed = f.run()
-    singles = []
-    for x, y, _ in config["angles_mrad"]:
-        f.state.sample.wave_illumination = {**config, "angles_mrad": [[x, y, 1.]]}
-        singles.append(f.run())
-    expected = .25*singles[0].camera_intensity + .75*singles[1].camera_intensity
-    np.testing.assert_allclose(mixed.camera_intensity, expected, rtol=1e-10, atol=1e-12)
-    expected_diffraction = .25*singles[0].absolute_diffraction_probability + .75*singles[1].absolute_diffraction_probability
-    np.testing.assert_allclose(mixed.absolute_diffraction_probability, expected_diffraction, atol=1e-12)
-    f.state.sample.wave_illumination = config
-    replay = imaging.reproject_wave_image(f.state, mixed)
-    np.testing.assert_allclose(replay.camera_intensity, mixed.camera_intensity, rtol=1e-10, atol=1e-12*np.max(mixed.camera_intensity))
-    assert mixed.metrics["illumination_mode_count"] == 2
 
 
 def test_sampled_intensity_and_amplitude_semantics():
@@ -156,131 +118,6 @@ def test_at15_analytic_gaussian_lct_centre_width_and_curvature():
     assert output.total_weight == .7
 
 
-def test_energy_modes_update_wavelength_scattering_and_keep_hardware(tem_benchmark, monkeypatch):
-    f = tem_benchmark
-    monkeypatch.setattr(imaging, "_incident_wave", _real_incident_wave)
-    f.state.objective_aperture.enabled = False
-    config = default_illumination_config()
-    config["pupil"]["semi_axes_mrad"] = [3., 2.]
-    config["energies_ev"] = [[-1000., .4], [1000., .6]]
-    f.state.sample.wave_illumination = config
-    controls = [(l.key, l.percent, l.z_mm) for l in f.state.lenses]
-    voltage = f.state.beam_voltage_kv
-    result = f.run()
-    records = result.metrics["illumination_executed_modes"]
-    assert records[0]["wavelength_angstrom"] > records[1]["wavelength_angstrom"]
-    assert records[0]["interaction_constant_rad_per_v_angstrom"] != records[1]["interaction_constant_rad_per_v_angstrom"]
-    assert result.projector_checkpoint.configuration_energies_kev == (voltage-1., voltage+1.)
-    assert [(l.key, l.percent, l.z_mm) for l in f.state.lenses] == controls
-    assert f.state.beam_voltage_kv == voltage and not hasattr(f.state, "_propagation_energy_kev")
-    replay = imaging.reproject_wave_image(f.state, result)
-    np.testing.assert_allclose(replay.camera_intensity, result.camera_intensity, rtol=1e-10, atol=1e-12*result.camera_intensity.max())
-    for record in replay.metrics["wave_execution_manifest"]["illumination"]["illumination_executed_modes"]:
-        assert "objective_aperture_policy" not in record
-        assert "camera_collected_zero_loss_relative_intensity" not in record
-
-
-def test_stem_source_energy_modes_match_separate_detector_integrations(monkeypatch):
-    from test_stem_finite_absorption import _state, _simulation, _empty_grid
-    from temsim.physics import stem_wave_imaging as stem
-    state = _state()
-    state.sample.wave_multislice_enabled = False
-    _empty_grid(monkeypatch, pixels=128, fov_nm=8.)
-    config = default_illumination_config()
-    config["pupil"].update(shape="rectangle", semi_axes_mrad=[3., 1.5], offset_mrad=[2., 0.])
-    config["positions_nm"] = [[-.1, 0., .25], [.1, 0., .75]]
-    config["energies_ev"] = [[-1000., .4], [1000., .6]]
-    state.sample.wave_illumination = config
-    scan = np.array([[-.0001, 0., .0001]])
-    detectors = (stem.AngularDetector("BF", 0., 2.), stem.AngularDetector("DF", 2., 8.))
-    def run():
-        return stem.simulate_angle_resolved_stem(state, _simulation(), detectors, scan, np.zeros_like(scan), compute_sample_overlap=True)
-    mixed = run()
-    separate = {k: np.zeros_like(scan) for k in mixed.fractions}
-    for node in source_nodes(config):
-        state.sample.wave_illumination = {**config, "positions_nm": [[*node.position_nm, 1.]],
-                                         "angles_mrad": [[*node.tilt_mrad, 1.]], "energies_ev": [[node.energy_offset_ev, 1.]]}
-        result = run()
-        for k in separate:
-            separate[k] += node.weight*result.fractions[k]
-    for k in separate:
-        np.testing.assert_allclose(mixed.fractions[k], separate[k], atol=1e-12)
-    assert mixed.metrics["illumination_mode_count"] == 4
-    assert np.mean(mixed.fractions["DF"]) > 0
-
-
-def test_illumination_serialization_cache_and_dialog(qtbot, tmp_path):
-    from temsim.optics.column import default_state
-    from temsim.optics.model import State
-    from temsim.calculation_cache import calculation_signatures
-    from temsim.gui.illumination_dialog import IlluminationDialog
-    state = default_state()
-    before = calculation_signatures(state)
-    config = default_illumination_config()
-    config["pupil"]["semi_axes_mrad"] = [3., 2.]
-    state.sample.wave_illumination = config
-    after = calculation_signatures(state)
-    assert before["incident"] == after["incident"]
-    assert before["wave_source"] != after["wave_source"]
-    assert before["stem"] != after["stem"]
-    restored = State.from_dict(state.to_dict())
-    assert restored.sample.wave_illumination == config
-    from temsim.assembly_catalog import AssemblyCatalog
-    from temsim.profile_io import save_profile, read_profile, apply_profile_values
-    selection = AssemblyCatalog().default_selection()
-    path = tmp_path / "illumination.toml"
-    save_profile(path, state, selection)
-    _, values = read_profile(path)
-    other = default_state()
-    apply_profile_values(other, values)
-    assert validate_illumination_config(other.sample.wave_illumination) == validate_illumination_config(config)
-    dialog = IlluminationDialog(config, state.beam_voltage_kv)
-    qtbot.addWidget(dialog)
-    dialog.accept()
-    assert dialog.config == validate_illumination_config(config)
-    dialog.editor.setPlainText('{"model": "specimen_entrance_pupil_modes", "energies_ev": [[0, -1]]}')
-    assert not dialog.buttons.button(dialog.buttons.StandardButton.Ok).isEnabled()
-
-
-@pytest.mark.parametrize("dimension", ["position", "energy"])
-def test_at14_source_and_energy_quadrature_convergence(monkeypatch, record_property, dimension):
-    import json
-    from test_stem_finite_absorption import _state, _simulation
-    from temsim.physics import stem_wave_imaging as stem
-    from temsim.physics.illumination import convergence_report
-    state = _state()
-    state.sample.wave_multislice_enabled = False
-    state.sample.centre_x_nm = 3.
-    state.sample.size_x_nm = 6.  # A physical edge at x=0; source overlap is nontrivial.
-    n, fov = 128, 80.
-    axis = (np.arange(n)-n//2) * fov/n
-    xx, yy = np.meshgrid(axis, axis)
-    potential = 1200*np.cos(2*np.pi*xx/4.) * (xx >= 0)
-    prepared = SimpleNamespace(x_angstrom=axis, y_angstrom=axis,
-        potential_configurations_v_angstrom=(potential,), mean_projected_potential_v_angstrom=potential,
-        slice_thicknesses_angstrom=None, metrics={"calculation_roi_centre_nm": (0., 0.), "atomistic_applied": False, "frozen_phonon_applied": False})
-    preset = SimpleNamespace(key="manufactured_edge_grating", pixels=n, field_of_view_angstrom=fov)
-    monkeypatch.setattr(stem, "_wave_grid", lambda *_: (preset, prepared))
-    config = default_illumination_config()
-    config["pupil"]["semi_axes_mrad"] = [2., 2.]
-    scan = np.linspace(-.0001, .0001, 5)[None, :]
-    values, orders = [], [3, 5, 7]
-    for order in orders:
-        if dimension == "position":
-            config["positions_nm"] = gaussian_quadrature([.05, 0.], order)
-        else:
-            config["energies_ev"] = gaussian_quadrature([1000.], order)
-        state.sample.wave_illumination = config
-        result = stem.simulate_angle_resolved_stem(state, _simulation(), (stem.AngularDetector("BF", 0., 1.),),
-                              scan, np.zeros_like(scan), compute_sample_overlap=True)
-        values.append(np.stack((result.fractions["BF"], result.sample_overlap_fraction)))
-    report = convergence_report(values, orders, observable="BF probability and incident finite-material overlap", unit="probability per conditional incident electron",
-                                absolute_floor=1e-7, relative_target=.01)
-    record_property("wp03_convergence_" + dimension, json.dumps(report))
-    assert report["status"] == "PASS", report
-    assert np.ptp(values[-1][1]) > .01  # not a constant all-vacuum or all-material fixture
-
-
 def test_energy_override_changes_actual_lens_map_without_retuning():
     from temsim.optics.column import default_state
     from temsim.physics.illumination import state_at_energy
@@ -293,49 +130,37 @@ def test_energy_override_changes_actual_lens_map_without_retuning():
     assert np.max(np.abs(shifted.matrix-nominal.matrix)) > 1e-6
     assert tuple((l.key, l.percent) for l in state.lenses) == excitation
 
+@pytest.mark.parametrize("shape", ["ellipse", "rectangle"])
+def test_independent_pupils_rejected_by_production_tem(tem_benchmark, shape):
+    config = default_illumination_config()
+    config["pupil"]["shape"] = shape
+    tem_benchmark.state.sample.wave_illumination = config
+    with pytest.raises(ValueError, match="historical only"):
+        tem_benchmark.run()
 
-def test_mode_energy_validation_uses_nominal_reference_once():
+
+def test_independent_modes_rejected_before_stem_capture():
+    from test_stem_finite_absorption import _state, _simulation
+    from temsim.physics import stem_wave_imaging as stem
+    state = _state()
+    state.sample.wave_illumination = default_illumination_config()
+    sink = SimpleNamespace(begin=lambda *a: pytest.fail("No partial cube should be started"))
+    with pytest.raises(ValueError, match="historical only"):
+        stem.simulate_angle_resolved_stem(state, _simulation(), [],
+            np.array([[0.]]), np.array([[0.]]), diffraction_sink=sink)
+
+
+def test_historical_profile_parser_does_not_enable_old_source(tmp_path):
     from temsim.optics.column import default_state
-    from temsim.physics.illumination import state_for_source_node, illumination_config
+    from temsim.profile_io import save_profile, read_profile, apply_profile_values
+    from temsim.assembly_catalog import AssemblyCatalog
     state = default_state()
-    config = default_illumination_config()
-    config["energies_ev"] = [[-299000., .5], [0., .5]]
-    state.sample.wave_illumination = config
-    mode = state_for_source_node(state, source_nodes(config)[0])
-    assert mode.beam_voltage_kv == 1.
-    assert illumination_config(mode)["energies_ev"] == config["energies_ev"]
-
-
-def test_explicit_stem_grid_covers_all_source_positions(monkeypatch):
-    from test_stem_finite_absorption import _state, _simulation
-    from temsim.physics import stem_wave_imaging as stem
-    from temsim.physics.illumination import state_for_source_node
-    state = _state()
-    state.sample.wave_multislice_enabled = False
-    config = default_illumination_config()
-    config["pupil"]["semi_axes_mrad"] = [2., 1.]
-    config["positions_nm"] = [[-1., 0., .5], [1., 0., .5]]
-    state.sample.wave_illumination = config
-    seen = []
-    def prepare(*args, **kwargs):
-        seen.append(kwargs)
-        return SimpleNamespace(metrics={})
-    monkeypatch.setattr(stem, "prepare_specimen_potentials", prepare)
-    for node in source_nodes(config):
-        mode = state_for_source_node(state, node)
-        stem._wave_grid(mode, _simulation(), np.array([[node.position_nm[0]*1e-3]]), np.array([[0.]]))
-    assert seen[0] == seen[1]
-    x0, x1, _, _ = seen[0]["calculation_roi_bounds_nm"]
-    assert x0 < -1. and x1 > 1.
-
-
-def test_multimode_capture_rejects_before_writing(monkeypatch):
-    from test_stem_finite_absorption import _state, _simulation
-    from temsim.physics import stem_wave_imaging as stem
-    state = _state()
-    config = default_illumination_config()
-    config["positions_nm"] = [[-1., 0., .5], [1., 0., .5]]
-    state.sample.wave_illumination = config
-    sink = SimpleNamespace(begin=lambda *args: pytest.fail("No partial cube should be started"))
-    with pytest.raises(ValueError, match="mode-resolved angular calibration"):
-        stem.simulate_angle_resolved_stem(state, _simulation(), [], np.zeros((1, 1)), np.zeros((1, 1)), diffraction_sink=sink)
+    state.sample.wave_illumination = default_illumination_config()
+    path = tmp_path / "historical.json"
+    save_profile(path, state, AssemblyCatalog().default_selection())
+    _, payload = read_profile(path)
+    target = default_state()
+    before = deepcopy(target.sample.wave_illumination)
+    with pytest.raises(ValueError, match="historical only"):
+        apply_profile_values(target, payload)
+    assert target.sample.wave_illumination == before

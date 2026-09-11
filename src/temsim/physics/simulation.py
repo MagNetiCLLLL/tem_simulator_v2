@@ -173,7 +173,7 @@ def _gun_traces_match(previous, current):
     scalar_names = (
         "emitted_current_a", "dpa_transmitted_current_a",
         "c1_transmitted_current_a", "monochromator_transmitted_current_a",
-        "output_energy_fwhm_ev", "slit_dispersion_um_per_ev",
+        "output_energy_fwhm_ev", "slit_dispersion_um_per_ev", "source_record",
     )
     if any(
         getattr(previous, name, None) != getattr(current, name, None)
@@ -240,7 +240,8 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         calibrate_scan_system(s)
 
     gun=s.electron_gun.validate()
-    gun_trace=gun.trace_to_exit()
+    from temsim.optics.electron_gun.source import trace_source_to_exit
+    gun_trace = trace_source_to_exit(s)
     emitted=gun_trace.exit_bundle
     x,y=emitted.x_m,emitted.y_m
     tx,ty=emitted.tx_rad,emitted.ty_rad

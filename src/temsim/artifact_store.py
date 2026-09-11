@@ -46,7 +46,7 @@ from temsim.optics.electron_gun.base import GunExitBundle, GunTraceResult
 
 ARTIFACT_STORE_SCHEMA_VERSION = 1
 _ARRAY_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,95}$")
-_ARRAY_FILENAME = re.compile(r"^array-[0-9]{4}\.npy$")
+_ARRAY_FILENAME = re.compile(r"^array-[0-9]{4,}\.npy$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _STORE_LOCKS_GUARD = Lock()
 _STORE_LOCKS: dict[str, "_StoreMutex"] = {}
@@ -218,10 +218,10 @@ class ArtifactBundle:
     def __post_init__(self) -> None:
         frozen_arrays: dict[str, np.ndarray] = {}
         for name, values in self.arrays.items():
-            array = np.ascontiguousarray(values).copy()
+            array = np.ascontiguousarray(values)
             if array.dtype.hasobject:
                 raise TypeError("Persistent artifacts cannot contain objects")
-            array.setflags(write=False)
+            array = np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
             frozen_arrays[str(name)] = array
         object.__setattr__(
             self, "arrays", MappingProxyType(frozen_arrays)
@@ -420,7 +420,12 @@ class ArtifactStore:
             )
         assert_external_inputs_unchanged(manifest)
         prepared = _prepared_arrays(arrays)
-        frozen_metadata = freeze_json(metadata or {})
+        complete_metadata = dict(metadata or {})
+        if manifest.instrument_snapshot is not None and codec in {
+            "incident-propagation-checkpoints-v1", "incident-simulation-seed-v1"
+        }:
+            complete_metadata["working_point"] = manifest.instrument_snapshot.to_dict()
+        frozen_metadata = freeze_json(complete_metadata)
         content_digest = _logical_content_digest(
             codec=codec,
             arrays=prepared,
@@ -707,6 +712,20 @@ class ArtifactStore:
         exit_bundle = getattr(gun_trace, "exit_bundle", None)
         if exit_bundle is None:
             raise ValueError("Incident restart seed has no gun exit bundle")
+        from temsim.checkpoint_observables import incident_checkpoint_observables
+        # Restart planes intentionally stop before the specimen. Read sample
+        # diagnostics from the retained final incident plane, with that plane's
+        # survival mask, not the last upstream restart plane.
+        sample_plane = PropagationCheckpoints(
+            z_mm=np.asarray([incident.z[-1]]),
+            x_m=np.asarray(incident.x[-1])[None, :],
+            tx_rad=np.asarray(incident.tx[-1])[None, :],
+            y_m=np.asarray(incident.y[-1])[None, :],
+            ty_rad=np.asarray(incident.ty[-1])[None, :],
+        )
+        observables = incident_checkpoint_observables(
+            sample_plane, alive=incident.alive, weights=incident.ray_weight,
+        )
         arrays: dict[str, object] = {}
         map_metadata = []
         for index, item in enumerate(plan.mapped_fields):
@@ -750,6 +769,12 @@ class ArtifactStore:
             metadata={
                 "coordinate_system": "column-z-downstream",
                 "plan_solver_signature": str(plan.solver_signature),
+                "beam_observables": observables,
+                "observable_coordinate_precision": np.asarray(incident.x).dtype.str,
+                "full_snapshot_id": (
+                    manifest.instrument_snapshot.digest if manifest.instrument_snapshot else None
+                ),
+                "source_model": "gun-ray-trace; not a coherent-wave source checkpoint",
                 "plan_signature": str(plan.signature),
                 "plan_mapped_fields": map_metadata,
                 "gun_blocked_key": list(gun_trace.blocked_key),
@@ -762,6 +787,7 @@ class ArtifactStore:
                         "monochromator_transmitted_current_a",
                         "output_energy_fwhm_ev",
                         "slit_dispersion_um_per_ev",
+                        "source_record",
                     )
                 },
                 "incident_name": str(incident.name),

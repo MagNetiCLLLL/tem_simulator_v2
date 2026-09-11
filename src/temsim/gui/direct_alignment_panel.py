@@ -75,6 +75,7 @@ class DirectAlignmentPanel(QWidget):
     """Catalog-backed, mode-gated user alignment controls."""
 
     adjustment_requested = Signal(str, float)
+    cancellation_requested = Signal()
 
     def __init__(
         self,
@@ -163,6 +164,11 @@ class DirectAlignmentPanel(QWidget):
         layout.addWidget(self.mode_status)
         layout.addWidget(scroll, 1)
         layout.addWidget(self.result_status)
+        self.cancel_button = QPushButton("Cancel alignment")
+        self.cancel_button.setObjectName("cancelDirectAlignment")
+        self.cancel_button.setEnabled(False)
+        self.cancel_button.clicked.connect(self.cancellation_requested.emit)
+        layout.addWidget(self.cancel_button)
 
         self.set_catalog(self._catalog)
 
@@ -463,6 +469,7 @@ class DirectAlignmentPanel(QWidget):
         """Disable all requests while one background solve is active."""
 
         self._busy_key = None if key is None else str(key)
+        self.cancel_button.setEnabled(self._busy_key is not None)
         self._update_mode_gating()
 
     def show_status_message(self, message: str, *, error: bool = False) -> None:

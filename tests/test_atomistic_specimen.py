@@ -248,7 +248,7 @@ def test_rectangular_atomic_slices_match_between_cpu_and_cuda():
     assert relative_error < 5.0e-5
 
 
-def test_tem_reference_cif_frozen_phonons_average_intensities_on_finite_roi_grid():
+def test_isolated_tem_reference_cif_frozen_phonons_average_intensities_on_finite_roi_grid(monkeypatch):
     _require_atomistic_backend()
     state = _small_atomistic_state()
     state.illumination_mode = "TEM"
@@ -258,6 +258,13 @@ def test_tem_reference_cif_frozen_phonons_average_intensities_on_finite_roi_grid
     state.sample.wave_frozen_phonon_enabled = True
     state.sample.wave_frozen_phonon_configurations = 2
     state.sample.wave_frozen_phonon_seed = 77
+
+    from temsim.physics.source_admission import UnsupportedWaveSource
+    with pytest.raises(UnsupportedWaveSource):
+        simulate_wave_image(state, SimpleNamespace(incident=_incident_bundle()))
+    # The synthetic incident bundle isolates the historical ensemble reducer.
+    # Production still rejects it; this fixture is not source-chain evidence.
+    monkeypatch.setattr("temsim.physics.source_admission.require_gun_wave_source", lambda *args, **kwargs: None)
 
     result = simulate_wave_image(
         state, SimpleNamespace(incident=_incident_bundle())
@@ -281,12 +288,19 @@ def test_tem_reference_cif_frozen_phonons_average_intensities_on_finite_roi_grid
     assert result.metrics["image_configuration_relative_standard_error"] > 0.0
 
 
-def test_stem_atomistic_frozen_phonons_average_detector_intensities():
+def test_isolated_stem_atomistic_frozen_phonons_average_detector_intensities(monkeypatch):
     _require_atomistic_backend()
     state = _small_atomistic_state()
     state.illumination_mode = "STEM"
     state.sample.wave_frozen_phonon_enabled = True
     state.sample.wave_frozen_phonon_configurations = 2
+    from temsim.physics.source_admission import UnsupportedWaveSource
+    with pytest.raises(UnsupportedWaveSource):
+        simulate_angle_resolved_stem(state, SimpleNamespace(incident=_incident_bundle()),
+                                    (AngularDetector("bf", 0.0, 20.0),), np.zeros((1, 1)), np.zeros((1, 1)))
+    # Test intensity averaging from a known numerical input, not a substitute
+    # gun source. The admission override exists only for this test's lifetime.
+    monkeypatch.setattr("temsim.physics.source_admission.require_gun_wave_source", lambda *args, **kwargs: None)
     result = simulate_angle_resolved_stem(
         state,
         SimpleNamespace(incident=_incident_bundle()),
