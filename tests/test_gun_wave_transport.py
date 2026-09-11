@@ -1,4 +1,8 @@
-"""Shared-field coherent transport evidence; domain limits remain explicit."""
+"""Isolated historical exit-wave/column mathematics; not tip-origin acceptance.
+
+Only this module injects the retired exit fixture to preserve numerical tests.
+Production rejection is exercised separately in test_tip_source_contract.py.
+"""
 from dataclasses import replace
 from pathlib import Path
 
@@ -9,11 +13,24 @@ from scipy.linalg import expm
 from temsim.assembly_catalog import AssemblyCatalog
 from temsim.instrument_snapshot import capture_instrument_snapshot
 from temsim.optics.column import default_state
-from temsim.optics.electron_gun.effective_source import EffectiveGunSource, bind_effective_source
+from temsim.optics.electron_gun.effective_source import EffectiveGunSource
+from test_effective_gun_source import historical_parameters as bind_effective_source
 from temsim.physics.canonical_phase import canonical_basis_matrix, validate_canonical_map
 from temsim.physics.gun_wave_transport import canonical_magnus_step, _generator, build_gun_wave_checkpoint
 from temsim.physics.ray_integrator import canonical_rk4_step
 from temsim.simulation_modes import switch_mode
+
+
+@pytest.fixture(scope="module", autouse=True)
+def isolated_column_fixture():
+    from temsim.optics.electron_gun import source_policy, effective_source
+    from temsim.physics import gun_wave_transport
+    with pytest.raises(source_policy.UnsupportedSourceModel):
+        source_policy.require_tip_coherent_source(_state().electron_gun)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(source_policy, "require_tip_coherent_source", lambda gun: None)
+        patch.setattr(gun_wave_transport, "generate_gun_emission", effective_source._reconstruct_historical_emission)
+        yield
 
 
 def test_quadratic_generator_matches_shared_canonical_particle_equations():
@@ -80,7 +97,7 @@ def assembled_checkpoint():
     return checkpoint
 
 
-def test_actual_assembled_ideal_gun_field_chain_keeps_source_and_snapshot(assembled_checkpoint):
+def test_isolated_assembled_column_keeps_historical_source_and_snapshot(assembled_checkpoint):
     checkpoint = assembled_checkpoint
     state = checkpoint.snapshot.restore()
     assert checkpoint.plane_z_mm == state.sample.upper_surface_z_mm
@@ -210,17 +227,14 @@ def test_incident_operator_cache_misses_changed_physical_dependencies(assembled_
     assert gun_wave_manifest(state).calculation_signatures[PRODUCT] != before
 
 
-def test_effective_source_particles_reach_actual_column_without_mutating_old_gun():
+def test_historical_column_fixture_does_not_enable_exit_source_particles():
     from temsim.physics.simulation import run
     state = _state()
     state.electron_gun.emitter.ray_count = 49
-    source = state.electron_gun.effective_source
     from temsim.instrument_snapshot import encode_instrument
     legacy = encode_instrument(state.electron_gun.emitter)
-    result = run(state, optical_only=True)
-    assert result.gun_trace.source_record["model_id"] == source.model_id
-    assert result.incident.x.shape[1] == 49
-    assert np.all(np.isfinite(result.incident.x))
+    with pytest.raises(ValueError, match="Custom exit sources are not permitted"):
+        run(state, optical_only=True)
     assert encode_instrument(state.electron_gun.emitter) == legacy
 
 

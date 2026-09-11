@@ -98,8 +98,10 @@ class CapturedCalculationRequest:
     def capture(
         cls, state: object, quality: str, ray_count: int, step_mm: float,
     ) -> CapturedCalculationRequest:
+        from temsim.optics.electron_gun.source_policy import require_physical_gun_source
+        require_physical_gun_source(getattr(state, "electron_gun", None))
         graph = None
-        if quality == "High accuracy" or getattr(getattr(state, "electron_gun", None), "source_representation", "") == "effective_gaussian_schell":
+        if quality == "High accuracy":
             from temsim.optics.model import State
             if isinstance(state, State):
                 graph = encode_instrument(state)

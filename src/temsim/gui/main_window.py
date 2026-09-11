@@ -15,7 +15,7 @@ from copy import copy
 
 import numpy as np
 
-from PySide6.QtCore import QByteArray, QSettings, Qt, QTimer
+from PySide6.QtCore import QByteArray, QSettings, QSignalBlocker, Qt, QTimer
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -1317,8 +1317,21 @@ class MainWindow(QMainWindow):
         self.status_label.setText(result.message)
         self.assembly_panel.show_direct_alignment_result(result)
 
+    def _sync_working_point_selectors(self) -> None:
+        """Display captured controls without emitting a new physical edit."""
+        with (QSignalBlocker(self.assembly_panel.gun),
+              QSignalBlocker(self.assembly_panel.column),
+              QSignalBlocker(self.assembly_panel.beam_blanker),
+              QSignalBlocker(self.compute_backend)):
+            self.assembly_panel.set_selection(self.selection)
+            self.compute_backend.setCurrentIndex(
+                self.compute_backend.findData(self.state.acceleration_backend)
+            )
+
     def _install_working_point(self, state, checkpoint, *, fork=False) -> None:
         """Replace physical state and checkpoint together; never apply presets."""
+        from temsim.optics.electron_gun.source_policy import require_physical_gun_source
+        require_physical_gun_source(state.electron_gun)
         previous = (self.state, self.assembly, self.selection,
                     getattr(self, "_active_working_checkpoint", None),
                     getattr(self, "_working_point_parent", None))
@@ -1334,6 +1347,7 @@ class MainWindow(QMainWindow):
             self._active_working_checkpoint = checkpoint
             self._working_point_parent = checkpoint.digest if fork else None
             self._refresh_assembly_views()
+            self._sync_working_point_selectors()
             # UI refresh may read the graph but must not normalize saved values.
             if capture_instrument_snapshot(state).digest != captured.digest:
                 raise ValueError("UI refresh attempted to change captured physical parameters")
@@ -1342,6 +1356,7 @@ class MainWindow(QMainWindow):
             (self.state, self.assembly, self.selection, self._active_working_checkpoint,
              self._working_point_parent) = previous
             self._refresh_assembly_views()
+            self._sync_working_point_selectors()
             raise
 
     def _restore_working_point(self, checkpoint, fork=False) -> None:

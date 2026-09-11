@@ -763,7 +763,9 @@ class CalculationController(QObject):
 
     @staticmethod
     def _calculation_snapshot(state, quality, ray_count, step_mm):
-        if quality == "High accuracy" or getattr(getattr(state, "electron_gun", None), "source_representation", "") == "effective_gaussian_schell":
+        from temsim.optics.electron_gun.source_policy import require_physical_gun_source
+        require_physical_gun_source(getattr(state, "electron_gun", None))
+        if quality == "High accuracy":
             from temsim.optics.model import State
             if isinstance(state, State):
                 from temsim.instrument_snapshot import encode_instrument, decode_instrument
@@ -1189,6 +1191,8 @@ class CalculationController(QObject):
         ray_count: int,
         step_mm: float,
     ) -> None:
+        from temsim.optics.electron_gun.source_policy import require_physical_gun_source
+        require_physical_gun_source(getattr(state, "electron_gun", None))
         if not is_tuning_quality(quality) and quality != "High accuracy":
             raise ValueError("Unknown calculation quality")
         if quality == "High accuracy":

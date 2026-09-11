@@ -101,6 +101,8 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
             "representation": getattr(state.electron_gun, "source_representation", "classical_particles"),
             **({"effective": asdict(state.electron_gun.effective_source)}
                if getattr(state.electron_gun, "effective_source", None) is not None else {}),
+            **({"tip_coherence": asdict(state.electron_gun.emitter.coherence)}
+               if getattr(state.electron_gun.emitter, "coherence", None) is not None else {}),
         },
         # TOML has no null literal. Keep absence (legacy/default behaviour)
         # distinct from explicitly clearing an optional runtime coefficient.
@@ -229,18 +231,27 @@ def apply_profile_values(state, values: dict) -> list[str]:
     format_version = int(values.pop(_PROFILE_VERSION_KEY, 1))
     sample_model = values.pop(_SAMPLE_MODEL_KEY, None)
     gun_source = values.pop(_GUN_SOURCE_MODEL_KEY, {"representation": "classical_particles"})
-    if not isinstance(gun_source, dict) or set(gun_source)-{"representation", "effective"}:
+    if not isinstance(gun_source, dict) or set(gun_source)-{"representation", "effective", "tip_coherence"}:
         raise ValueError("Operating profile has invalid electron-gun source fields")
     representation = gun_source.get("representation")
     if representation not in {"classical_particles", "effective_gaussian_schell"}:
         raise ValueError("Operating profile has an unknown electron-gun source model")
+    if representation != "classical_particles":
+        from temsim.optics.electron_gun.source_policy import UnsupportedSourceModel, EXIT_SOURCE_REJECTION
+        raise UnsupportedSourceModel(EXIT_SOURCE_REJECTION + " This historical profile cannot be activated.")
     parameters = getattr(state.electron_gun, "effective_source", None)
     if "effective" in gun_source:
         from temsim.optics.electron_gun.effective_source import EffectiveGunSource
         parameters = EffectiveGunSource(**gun_source["effective"])
-    if representation == "effective_gaussian_schell" and (
-            parameters is None or state.electron_gun.type_key != "cold_feg"):
-        raise ValueError("Effective gun source requires its saved configuration and a cold FEG")
+    tip_coherence = None
+    if "tip_coherence" in gun_source:
+        from temsim.optics.electron_gun.tip_coherence import TipCoherence
+        if state.electron_gun.type_key != "cold_feg" or not isinstance(gun_source["tip_coherence"], dict):
+            raise ValueError("Tip coherence requires a cold FEG parameter table")
+        try:
+            tip_coherence = TipCoherence(**gun_source["tip_coherence"]).validate()
+        except TypeError as error:
+            raise ValueError("Operating profile has invalid tip coherence fields") from error
     from temsim.simulation_modes import validate_mode, normalise_profiles, MODEL_SETTINGS
     model = values.pop(_SIMULATION_MODEL_KEY, {"mode": "custom"})
     if not isinstance(model, dict):
@@ -322,6 +333,13 @@ def apply_profile_values(state, values: dict) -> list[str]:
         if "stem_execution_policy" not in sample_attributes:
             candidate_sample.stem_execution_policy = "auto"
             migration_notes.append("STEM execution uses the existing toolbar backend (auto policy).")
+    if state.electron_gun.type_key == "cold_feg":
+        candidate_emitter = copy(state.electron_gun.emitter)
+        for obj, name, value in pending:
+            if obj is state.electron_gun.emitter:
+                setattr(candidate_emitter, name, value)
+        candidate_emitter.coherence = tip_coherence
+        candidate_emitter.validate()
     for obj, name, value in pending:
         if obj is state.sample:
             setattr(candidate_sample, name, value)
@@ -364,6 +382,8 @@ def apply_profile_values(state, values: dict) -> list[str]:
     for obj, name, value in pending:
         if obj is not state.sample:
             setattr(obj, name, value)
+    if state.electron_gun.type_key == "cold_feg":
+        state.electron_gun.emitter.coherence = tip_coherence
     vars(state.sample).update(vars(candidate_sample))
     state.simulation_mode = selected_mode
     state.simulation_mode_profiles = model_profiles
@@ -380,12 +400,6 @@ def apply_profile_values(state, values: dict) -> list[str]:
     if hasattr(state.electron_gun, "source_representation"):
         state.electron_gun.source_representation = representation
         state.electron_gun.effective_source = parameters
-    if representation == "effective_gaussian_schell":
-        from temsim.optics.electron_gun.effective_source import validate_binding
-        try:
-            validate_binding(state.electron_gun, parameters)
-        except ValueError:
-            migration_notes.append("Saved effective source retained unchanged; its gun binding is stale. Rebind explicitly before new calculations.")
     state._profile_migration_report = {
         "from_version":format_version,"to_version":PROFILE_FORMAT_VERSION,
         "status":"migrated" if format_version < PROFILE_FORMAT_VERSION else "current",

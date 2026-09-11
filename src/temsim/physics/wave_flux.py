@@ -10,6 +10,8 @@ import math
 import numpy as np
 
 from temsim.physics.multiplane_wave import PlaneWave
+from temsim.physics.wave_reference import AxialWaveReference
+from temsim.immutable_json import freeze_json
 
 
 TEM_REFERENCE_PLANE = "specimen_entrance_conditional_zero_loss"
@@ -31,10 +33,15 @@ class WaveMode:
     reference_plane: str
     mode_id: str
     energy_kev: float
+    axial_reference: AxialWaveReference | None = None
+    scattering_history: tuple = ()
 
     def __post_init__(self):
+        object.__setattr__(self, "scattering_history", freeze_json(tuple(self.scattering_history)))
         if not isinstance(self.plane, PlaneWave):
             raise TypeError("A wave mode requires an immutable PlaneWave")
+        if self.axial_reference is not None and not isinstance(self.axial_reference, AxialWaveReference):
+            raise TypeError("A wave mode axial reference must be immutable or explicitly unknown")
         if (not math.isfinite(self.weight_per_reference_electron)
                 or self.weight_per_reference_electron < 0):
             raise ValueError("Wave-mode weight must be finite and non-negative")
@@ -136,6 +143,8 @@ class BeamState:
         from temsim.physics.multiplane_wave import propagate_plane_wave
         modes = []
         for mode in self.modes:
+            if mode.axial_reference is not None:
+                raise ValueError("A matrix-only propagation cannot advance an executed axial reference; use the physical column path")
             matrix, offset = transfer_for_energy(mode.energy_kev)
             wavelength = electron(SimpleNamespace(beam_voltage_kv=mode.energy_kev))[2] * 1e-9
             modes.append(replace(mode, plane=propagate_plane_wave(mode.plane, matrix, offset, wavelength)))

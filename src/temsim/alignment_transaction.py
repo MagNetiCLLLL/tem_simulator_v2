@@ -44,6 +44,8 @@ class AlignmentRequest:
 
     @classmethod
     def capture(cls, state, key, target, *, revision):
+        from temsim.optics.electron_gun.source_policy import require_physical_gun_source
+        require_physical_gun_source(state.electron_gun)
         from temsim.optics.direct_alignment import _mode_matches
         try:
             definition = direct_alignment_by_key(key)

@@ -93,7 +93,7 @@ def main(argv=None) -> int:
     parser.add_argument("--step-mm", type=float, default=0.1)
     parser.add_argument("--describe", action="store_true", help="Inspect without computing or writing")
     parser.add_argument("--gun-wave-only", action="store_true",
-                        help="Cache gun-owned coherent modes to the specimen; requires an explicitly configured effective gun profile")
+                        help="Request a complete tip-to-specimen wave checkpoint (currently unavailable)")
     parser.add_argument("--verify-existing", action="store_true",
                         help="Verify a saved request's disk seed without repeating any physics")
     parser.add_argument("--cache-root", type=Path, help="Explicit cache store; default: application user cache")
@@ -166,9 +166,9 @@ def main(argv=None) -> int:
     apply_physical_layout_to_state(state, preserve_operating_parameters=True)
     snapshot = CalculationController._calculation_snapshot(state, "High accuracy", args.rays, args.step_mm)
     if args.gun_wave_only:
+        from temsim.optics.electron_gun.source_policy import require_tip_coherent_source
+        require_tip_coherent_source(snapshot.electron_gun)
         from temsim.optics.electron_gun.effective_source import generate_gun_emission
-        if snapshot.electron_gun.source_representation != "effective_gaussian_schell":
-            raise ValueError("Select the new effective gun model explicitly; legacy source parameters are not converted")
         emission = generate_gun_emission(snapshot.electron_gun)
         estimate = emission.record["mode_count"]*emission.source_parameters.grid_pixels**2*16*4 + 256*1024**2
     else:

@@ -222,6 +222,8 @@ def _merge_checkpoints(previous, suffix, resume_z_mm):
 
 
 def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False):
+    from temsim.optics.electron_gun.source_policy import require_physical_gun_source
+    require_physical_gun_source(s.electron_gun)
     # The low-level entry point is also public and is used directly by tests
     # and scripts, so it must enforce the same TOML-owned geometry contract as
     # the application-facing calculation pipeline.

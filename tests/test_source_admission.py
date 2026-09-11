@@ -41,12 +41,12 @@ def test_launch_audit_is_deterministic_and_does_not_change_gun():
     assert capture_instrument_snapshot(state).digest == before
 
 
-def test_stale_effective_source_reports_the_actual_setup_problem():
-    from temsim.optics.electron_gun.effective_source import EffectiveGunSource, bind_effective_source
+def test_exit_source_is_prohibited_rather_than_rebindable():
+    from temsim.optics.electron_gun.effective_source import EffectiveGunSource
     state = default_state()
     gun = state.electron_gun
-    gun.effective_source = bind_effective_source(gun, EffectiveGunSource(1e-9))
+    gun.effective_source = EffectiveGunSource(1e-9)
     gun.source_representation = "effective_gaussian_schell"
     gun.dpa_aperture.radius_mm *= .9
-    with pytest.raises(UnsupportedWaveSource, match="calibration is stale"):
+    with pytest.raises(UnsupportedWaveSource, match="Custom exit sources are not permitted"):
         require_gun_wave_source(state, product="TEM")

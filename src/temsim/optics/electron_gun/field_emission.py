@@ -344,6 +344,8 @@ def _apply_resolved_part_geometry(component, part):
 
 def _component_payload(component):
     payload = asdict(component)
+    if isinstance(component, ColdFieldEmitter) and component.coherence is not None:
+        payload["coherence"] = asdict(component.coherence)
     if component.key in _TOML_GEOMETRY_COMPONENT_KEYS:
         for attribute in _TOML_GEOMETRY_ATTRIBUTES:
             payload.pop(attribute, None)
@@ -359,6 +361,10 @@ def _component_payload(component):
 def _restore_component_settings(component, row):
     allowed = component.__dataclass_fields__
     for attribute, value in row.items():
+        if isinstance(component, ColdFieldEmitter) and attribute == "coherence":
+            from temsim.optics.electron_gun.tip_coherence import TipCoherence
+            component.coherence = None if value is None else TipCoherence(**value).validate()
+            continue
         if attribute not in allowed:
             continue
         if (
@@ -618,11 +624,8 @@ class FieldEmissionGun:
         return next(item for item in self.components if item.key == key)
 
     def validate(self):
-        if self.source_representation not in {"classical_particles", "effective_gaussian_schell"}:
-            raise ValueError("Unknown electron-gun source representation")
-        if self.source_representation == "effective_gaussian_schell":
-            from temsim.optics.electron_gun.effective_source import validate_binding
-            validate_binding(self, self.effective_source)
+        from temsim.optics.electron_gun.source_policy import require_physical_gun_source
+        require_physical_gun_source(self)
         for component in self.base_components:
             component.validate()
         if self.monochromator is not None:
@@ -639,8 +642,8 @@ class FieldEmissionGun:
         return self
 
     def emit(self, count=None):
-        if self.source_representation == "effective_gaussian_schell":
-            raise ValueError("The effective source is defined at the installed gun exit, not the legacy emitter; use physics.simulation.run")
+        from temsim.optics.electron_gun.source_policy import require_physical_gun_source
+        require_physical_gun_source(self)
         return self.emitter.emit(count)
 
     def _cache_key(self, count):
@@ -652,8 +655,6 @@ class FieldEmissionGun:
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
     def trace_to_exit(self, count=None):
-        if self.source_representation == "effective_gaussian_schell":
-            raise ValueError("Effective-source rays need the installed column exit field; use physics.simulation.run")
         self.validate()
         key = self._cache_key(count)
         if key != self._trace_cache_key:
@@ -902,8 +903,7 @@ def field_emission_gun_from_dict(data=None):
         gun.migrate_legacy_monochromator_bay()
     gun.apply_manifest_geometry(gun.monochromator_installed)
     gun.validate()
-    # Profile reading may precede installation of the complete saved assembly.
-    # Preserve the source and binding, even if stale, without re-calibration.
-    # Every production source producer validates it against the final gun.
+    # Preserve historical data without activation. Production source guards
+    # reject an exit source; its binding cannot replace actual gun transport.
     gun.source_representation, gun.effective_source = representation, parameters
     return gun

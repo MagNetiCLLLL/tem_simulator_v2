@@ -2,6 +2,24 @@
 
 Clean PySide6 reconstruction of the TEM simulator.
 
+**Current source migration status:** particle calculations and existing-image
+viewing are available. New production TEM/STEM wave images remain unavailable
+until coherent transport from the physical tip through the gun, column,
+specimen and detectors is implemented and validated. Custom exit sources are
+prohibited. See [tip emission and computed checkpoints](docs/development/GUN_SOURCE_V1.md)
+and the [acceptance ledger](docs/development/HANDOFF_V2_ACCEPTANCE.md).
+
+An explicit FEG tip coherence editor and a development wave pipeline
+now share the physical emitter, gun and distributed column settings. The new
+CLI connects arrival-time physical scan coils, finite-specimen conditional
+inelastic trajectories, and optional mode-resolved detector phase/complex readout.
+Column segments and trajectory slices can resume from executed disk checkpoints;
+wave budgets default to 72 GiB, with an 8 GiB RAM cache limit for this 96 GB host.
+General fields, atomic inelastic transition potentials and full product
+acceptance remain open. Its scope, required tip
+parameters and remaining full-chain work are listed in
+[Tip-to-image wave development](docs/development/TIP_TO_IMAGE_WAVE.md).
+
 The **Live tuning** dock beside **Ray Diagram** supports continuous Preview/Medium optical
 tuning inside explicit lens/aperture ranges, followed by one final
 high-accuracy calculation. An optional advanced RAM bank separates physical stop

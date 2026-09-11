@@ -1,10 +1,8 @@
-"""Versioned, gun-owned Gaussian--Schell effective exit source.
+"""Historical Gaussian--Schell exit-source data and numerical representation.
 
-This is a NEW phenomenological gun model, not a quantum interpretation of the
-legacy 0.3 eV launch rays. The reference plane is fixed by the installed gun's
-exit port. Its calibration binding is invalidated by changes to the gun; it
-cannot be placed at an arbitrary column/specimen plane. A full wave chain must
-still propagate every downstream component before requesting specimen images.
+Withdrawn: a user-defined exit ensemble bypasses the physical gun. The data
+types remain readable for historical evidence. Public production and binding
+entry points reject this model; it is not a source for new calculations.
 
 Hermite--Gaussian eigenmodes and their geometric weights implement a positive
 Gaussian density operator (Starikov & Wolf, JOSA 72, 923, 1982). Truncated weight
@@ -13,7 +11,7 @@ the SAME analytic Gaussian Wigner distribution, not its modal truncation.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 import math
 
 import numpy as np
@@ -87,12 +85,9 @@ def gun_binding_digest(gun):
 
 
 def bind_effective_source(gun, parameters):
-    """Explicit model selection; never changes legacy emitter/optical values."""
-    if not isinstance(parameters, EffectiveGunSource):
-        raise TypeError("Expected versioned effective gun parameters")
-    if getattr(gun, "type_key", "") != "cold_feg":
-        raise ValueError("The first effective-source calibration contract supports cold FEG only")
-    return replace(parameters, bound_gun_digest=gun_binding_digest(gun))
+    """Retired API: binding a label cannot replace upstream physics."""
+    from temsim.optics.electron_gun.source_policy import UnsupportedSourceModel, EXIT_SOURCE_REJECTION
+    raise UnsupportedSourceModel(EXIT_SOURCE_REJECTION)
 
 
 def validate_binding(gun, parameters):
@@ -220,7 +215,16 @@ class GunEmissionState:
 
 
 def generate_gun_emission(gun, parameters=None):
-    """Only the installed gun owns this source and its immutable exit plane."""
+    """Retired producer; never synthesize a new beam at the gun exit."""
+    from temsim.optics.electron_gun.source_policy import UnsupportedSourceModel, EXIT_SOURCE_REJECTION
+    raise UnsupportedSourceModel(EXIT_SOURCE_REJECTION)
+
+
+def _reconstruct_historical_emission(gun, parameters=None):
+    """Decode old source metadata for read-only evidence and isolated math tests.
+
+    This is not an admission path for transport, active profiles or cache reuse.
+    """
     p = parameters if parameters is not None else getattr(gun, "effective_source", None)
     validate_binding(gun, p)
     mean_energy = float(gun.nominal_exit_energy_ev)
@@ -252,40 +256,6 @@ def generate_gun_emission(gun, parameters=None):
 
 
 def trace_effective_source(state, count=None):
-    """Expose the same gun density operator to the existing particle column.
-
-    Only the EXIT reference is known for an equivalent gun. Do not fabricate
-    internal rays, DPA throughput or gun arrival times. Canonical source
-    directions are converted to mechanical slopes in the actual exit field.
-    """
-    from temsim.optics.electron_gun.base import GunExitBundle, GunTraceResult
-    from temsim.physics.core import electron, fields
-    from temsim.simulation_modes import is_ideal
-    from types import SimpleNamespace
-    gun = state.electron_gun
-    source = generate_gun_emission(gun)
-    emitted = source.particle_samples(gun.ray_count if count is None else count)
-    n = emitted.x_m.size
-    bz = float(fields(np.array([source.plane_z_mm]), state)[0][0])
-    if is_ideal(state):
-        q, momentum, _ = electron(state)
-        g = q*bz/(2*momentum)
-    else:
-        momenta = np.array([electron(SimpleNamespace(beam_voltage_kv=(source.record["mean_energy_ev"]+d)*1e-3))[1]
-                            for d in emitted.energy_offset_ev])
-        q = electron(state)[0]
-        g = q*bz/(2*momenta)
-    tx = _readonly(emitted.tx_rad + g*emitted.y_m)
-    ty = _readonly(emitted.ty_rad - g*emitted.x_m)
-    bundle = GunExitBundle(emitted.x_m, emitted.y_m, tx, ty, emitted.energy_offset_ev,
-                          emitted.weight, emitted.ray_id, _readonly(np.ones(n, bool)))
-    return GunTraceResult(_readonly(np.array([source.plane_z_mm])),
-        _readonly(emitted.x_m[None, :]), _readonly(emitted.y_m[None, :]),
-        _readonly(tx[None, :]), _readonly(ty[None, :]), bundle,
-        _readonly(np.full(n, np.nan)), ("",)*n, source.reference_current_a,
-        None, None, output_energy_fwhm_ev=source.source_parameters.energy_fwhm_ev,
-        source_record=freeze_json({"source_id": source.digest, "model_id": MODEL_ID,
-                       "reference_plane": source.record["reference_plane"],
-                       "gun_internal_trajectories": "UNAVAILABLE_EFFECTIVE_MODEL",
-                       "basis": "mechanical slopes converted from canonical Gaussian Wigner samples",
-                       "exit_bz_t": bz}))
+    """Retired API: every particle must traverse the physical gun."""
+    from temsim.optics.electron_gun.source_policy import UnsupportedSourceModel, EXIT_SOURCE_REJECTION
+    raise UnsupportedSourceModel(EXIT_SOURCE_REJECTION)

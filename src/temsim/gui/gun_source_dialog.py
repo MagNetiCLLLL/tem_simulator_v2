@@ -1,87 +1,118 @@
-"""Explicit, reversible selection of a versioned gun-owned source model."""
-from dataclasses import asdict
+"""Draft edits to the physical FEG tip; no independent exit-source controls."""
+from copy import copy
+import math
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLabel,
-                               QLineEdit, QVBoxLayout)
-from temsim.gui.input_policy import WheelSafeComboBox
-from temsim.optics.electron_gun.effective_source import (
-    EffectiveGunSource, bind_effective_source, generate_gun_emission)
+from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget
+from temsim.optics.electron_gun.tip_coherence import TipCoherence, tip_covariance
 
 
 class GunSourceDialog(QDialog):
-    """Draft-only UI. No gun mutation until the owning page applies value()."""
+    coherence_fields = (
+        ("incoherent_angle_rms_mrad", "Incoherent angular RMS per axis (mrad)"),
+        ("curvature_x_m1", "Wavefront curvature xx (1/m)"),
+        ("curvature_xy_m1", "Wavefront curvature xy (1/m)"),
+        ("curvature_y_m1", "Wavefront curvature yy (1/m)"),
+        ("offset_x_nm", "Tip emission centre x (nm)"),
+        ("offset_y_nm", "Tip emission centre y (nm)"),
+        ("tilt_x_mrad", "Mean transverse momentum px/p (mrad)"),
+        ("tilt_y_mrad", "Mean transverse momentum py/p (mrad)"),
+    )
     fields = (
-        ("reference_current_a", "Exit reference current (A)", float),
-        ("source_fwhm_nm", "Exit source FWHM (nm)", float),
-        ("incoherent_angle_rms_mrad", "Extra incoherent angular RMS (mrad)", float),
-        ("energy_fwhm_ev", "Exit energy FWHM (eV)", float),
-        ("energy_nodes", "Energy nodes", int),
-        ("dispersion_nm_per_ev", "Exit X dispersion (nm/eV)", float),
-        ("angular_dispersion_mrad_per_ev", "Exit X angular dispersion (mrad/eV)", float),
-        ("mode_tail_tolerance", "Omitted mode weight limit", float),
-        ("maximum_modes", "Mode budget", int),
-        ("grid_pixels", "Source grid pixels", int),
+        ("emission_current_na", "Tip emission current (nA)"),
+        ("emission_energy_ev", "Tip launch mean kinetic energy (eV)"),
+        ("minimum_kinetic_energy_ev", "Minimum launch kinetic energy (eV)"),
+        ("virtual_source_fwhm_nm", "Tip launch spatial FWHM (nm)"),
+        ("angular_rms_mrad", "Tip angular RMS (mrad)"),
+        ("angular_cutoff_mrad", "Tip angular cutoff (mrad)"),
+        ("energy_spread_fwhm_ev", "Tip energy spread FWHM (eV)"),
+        ("young_decay_width_ev", "Young energy decay width (eV)"),
+        ("boersch_sigma_ev", "Boersch energy sigma (eV)"),
+        ("energy_half_range_ev", "Energy sampling half-range (eV)"),
     )
 
     def __init__(self, gun, parent=None):
         super().__init__(parent)
+        if gun.type_key != "cold_feg":
+            raise ValueError("This editor controls FEG tip emission only")
         self._gun = gun
         self._value = None
-        self.setWindowTitle("Electron-gun source model")
+        self.setWindowTitle("FEG tip emission")
         self.resize(620, 520)
         layout = QVBoxLayout(self)
-        self.representation = WheelSafeComboBox()
-        self.representation.addItem("Legacy classical particles", "classical_particles")
-        self.representation.addItem("Effective exit Gaussian-Schell v1", "effective_gaussian_schell")
-        self.representation.setCurrentIndex(max(0, self.representation.findData(getattr(gun, "source_representation", "classical_particles"))))
-        layout.addWidget(self.representation)
-        note = QLabel(f"Reference: installed gun exit at Z = {gun.exit_plane_z_mm:g} mm. Legacy parameters are retained.")
+        note = QLabel(
+            "All inputs describe emission at the FEG tip. Electrons then pass through "
+            "the installed extractor, gun lens, accelerator, deflectors and apertures. "
+            "Downstream beam states are calculated from those components and may be cached."
+        )
         note.setWordWrap(True)
         note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        note.setToolTip("The new phenomenological source is not a resolved quantum gun or measured calibration. Its coherent modes and particle samples describe the same exit distribution. Extra angular RMS adds to diffraction, not a specimen convergence target. Apply explicitly binds these inputs to the current gun; a subsequent gun change requires a new explicit binding.")
         layout.addWidget(note)
-        form = QFormLayout()
-        existing = getattr(gun, "effective_source", None)
-        # A required current has no inferred calibration or default value.
-        defaults = asdict(existing) if existing else asdict(EffectiveGunSource(0.))
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        panel = QWidget()
+        form = QFormLayout(panel)
+        scroll.setWidget(panel)
         self.inputs = {}
-        for key, label, _ in self.fields:
-            edit = QLineEdit(str(defaults[key]) if existing or key != "reference_current_a" else "")
+        for key, label in self.fields:
+            edit = QLineEdit(str(getattr(gun.emitter, key)))
             self.inputs[key] = edit
             form.addRow(label, edit)
-        self.inputs["reference_current_a"].setPlaceholderText("Required: current at the gun exit")
-        layout.addLayout(form)
+        self.coherence_enabled = QCheckBox("Use Gaussian-Schell emission at the physical tip")
+        self.coherence_enabled.setChecked(gun.emitter.coherence is not None)
+        form.addRow(self.coherence_enabled)
+        description = QLabel(
+            "This explicitly selects an untruncated quantum tip distribution for both waves and ray diagnostics. "
+            "Spatial FWHM, current and energy inputs above still apply. Classical angular RMS/cutoff apply only "
+            "when this option is off. Total angular spread includes diffraction, incoherent spread and curvature. "
+            "All physical apertures remain active. Full TEM/STEM wave imaging is still under development.")
+        description.setWordWrap(True)
+        form.addRow(description)
+        parameters = gun.emitter.coherence or TipCoherence()
+        self.coherence_inputs = {}
+        for key, label in self.coherence_fields:
+            edit = QLineEdit(str(getattr(parameters, key)))
+            self.coherence_inputs[key] = edit
+            form.addRow(label, edit)
+        self.coherence_enabled.toggled.connect(self._sync_fields)
+        self._sync_fields()
+        layout.addWidget(scroll)
         self.error = QLabel()
         self.error.setWordWrap(True)
-        self.error.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.error)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-        self.representation.currentIndexChanged.connect(self._update_enabled)
-        self._update_enabled()
 
-    def _update_enabled(self):
-        for edit in self.inputs.values():
-            edit.setEnabled(self.representation.currentData() == "effective_gaussian_schell")
+    def _sync_fields(self):
+        enabled = self.coherence_enabled.isChecked()
+        for edit in self.coherence_inputs.values():
+            edit.setEnabled(enabled)
+        for key in ("angular_rms_mrad", "angular_cutoff_mrad"):
+            self.inputs[key].setEnabled(not enabled)
 
     def accept(self):
-        representation = self.representation.currentData()
-        parameters = getattr(self._gun, "effective_source", None)
-        if representation == "effective_gaussian_schell":
-            try:
-                parameters = bind_effective_source(self._gun, EffectiveGunSource(**{
-                    key: parse(self.inputs[key].text()) for key, _, parse in self.fields}))
-                generate_gun_emission(self._gun, parameters)  # Binding/budget, no wave allocation.
-            except (TypeError, ValueError) as error:
-                self.error.setText(str(error))
-                return
-        self._value = representation, parameters
+        candidate = copy(self._gun.emitter)
+        try:
+            values = {key: float(self.inputs[key].text()) for key, _ in self.fields}
+            if not all(math.isfinite(value) for value in values.values()):
+                raise ValueError("Tip emission values must be finite")
+            for key, value in values.items():
+                setattr(candidate, key, value)
+            candidate.coherence = (TipCoherence(**{key: float(edit.text()) for key, edit in self.coherence_inputs.items()})
+                                   if self.coherence_enabled.isChecked() else None)
+            candidate.validate()
+            if candidate.coherence is not None:
+                tip_covariance(candidate, candidate.emission_energy_ev)
+            values["coherence"] = candidate.coherence
+        except (TypeError, ValueError) as error:
+            self.error.setText(str(error))
+            return
+        self._value = values
         super().accept()
 
     def value(self):
         if self._value is None:
-            raise ValueError("No electron-gun source selection was applied")
-        return self._value
+            raise ValueError("No tip emission values were applied")
+        return dict(self._value)

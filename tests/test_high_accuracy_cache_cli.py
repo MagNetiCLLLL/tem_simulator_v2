@@ -116,20 +116,20 @@ def test_verify_missing_cache_does_not_publish_success(cli, tmp_path, monkeypatc
     assert not (tmp_path / "verification.json").exists()
 
 
-def test_gun_wave_describe_loads_explicit_profile_without_physics_or_rebinding(cli, tmp_path, monkeypatch):
-    from temsim.optics.electron_gun.effective_source import EffectiveGunSource, bind_effective_source
+def test_gun_wave_describe_rejects_historical_exit_source_without_physics(cli, tmp_path, monkeypatch):
+    from temsim.optics.electron_gun.effective_source import EffectiveGunSource
     state = cli.default_state()
     catalog = cli.AssemblyCatalog()
     selection = catalog.default_selection()
     catalog.apply(state, selection)
     cli.switch_mode(state, "ideal")
-    state.electron_gun.effective_source = bind_effective_source(state.electron_gun,
-        EffectiveGunSource(1e-9, energy_fwhm_ev=0))
+    state.electron_gun.effective_source = EffectiveGunSource(1e-9, energy_fwhm_ev=0)
     state.electron_gun.source_representation = "effective_gaussian_schell"
     path = tmp_path / "source.toml"
     cli.save_profile(path, state, selection)
     before = path.read_bytes()
     monkeypatch.setattr(cli, "calculate", lambda *_args, **_kwargs: pytest.fail("Describe must not calculate"))
-    assert cli.main(["--profile", str(path), "--gun-wave-only", "--describe"]) == 0
+    with pytest.raises(ValueError, match="Custom exit sources are not permitted"):
+        cli.main(["--profile", str(path), "--gun-wave-only", "--describe"])
     assert path.read_bytes() == before
     assert not (tmp_path / "manifest.json").exists()

@@ -1,4 +1,7 @@
-"""Gun-owned coherent modes through the shared, linear column field graph.
+"""Historical exit-wave mathematics through the linear column field graph.
+
+Production entry points reject the retired exit source. The separate development
+tip_gun_wave operator is not yet connected here; this historical path stays closed.
 
 The first supported domain is quadratic paraxial optics (including continuous
 round-lens rotation, quadrupoles and physical deflector kicks). Nonlinear or
@@ -173,8 +176,10 @@ def _prepare_gun_wave_plan(snapshot):
     from temsim.physics.column_wall import _vacuum_segments, _expanded_profile_axis
     working = snapshot.restore()
     gun = working.electron_gun
+    from temsim.optics.electron_gun.source_policy import require_tip_coherent_source
+    require_tip_coherent_source(gun)
     if gun.source_representation != "effective_gaussian_schell":
-        raise ValueError("Select the versioned effective gun model before coherent propagation")
+        raise ValueError("No validated tip-to-exit coherent producer is available")
     emission = generate_gun_emission(gun)
     start, stop = emission.plane_z_mm, specimen_entrance_z_mm(working)
     if stop <= start:
@@ -231,6 +236,8 @@ def build_gun_wave_checkpoint(state, *, cancelled=lambda: False, progress_callba
 
 
 def _execute_gun_wave_plan(prepared, *, cancelled=lambda: False, progress_callback=None):
+    from temsim.optics.electron_gun.source_policy import require_tip_coherent_source
+    require_tip_coherent_source(prepared.working.electron_gun)
     from temsim.physics.core import electron
     from temsim.simulation_modes import is_ideal
     snapshot, working, emission, plan = prepared.snapshot, prepared.working, prepared.emission, prepared.plan

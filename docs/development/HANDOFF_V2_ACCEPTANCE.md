@@ -4,6 +4,45 @@ Authoritative request: user-supplied `HANDOFF.md`, design dated 2026-09-10,
 baseline `5eac9855ff8eefa2a3d68ddba3029f7c23e03b0c`.
 This ledger supplements, and does not replace, the original design.
 
+## Current user constraint: physical tip origin (2026-09-11)
+
+The user withdrew permission for an independent effective exit source. This
+requirement supersedes the effective-source authorization described in the
+historical implementation notes below. Electrons must originate at the FEG
+tip and undergo the existing extraction, acceleration, focusing, deflection
+and aperture operations. Changes to numerical methods may not remove existing
+capabilities. Equivalent states are only cached upstream computation results.
+
+The exit-source UI/production paths are withdrawn. The source editor now edits
+the existing tip emitter. Historical exit-source profiles cannot be activated,
+and labels or matching bindings do not qualify them for calculation or reuse.
+Historical Gaussian/column tests remain explicitly isolated numerical evidence.
+They do not validate coherent propagation through the physical gun.
+
+The tip mutual-intensity model and a development variable-energy quadratic
+gun phase solver are now implemented. The development API also
+connects axial column-field tails inside the gun, distributed multipole phase,
+finite-specimen propagation and selectable detector complex/phase readout.
+Physical AC/Descan coils now use per-energy axial arrival times; conditional
+material-model inelastic histories propagate at their changed energy. Column
+segments and specimen trajectory slices stream through executed disk caches.
+General-angle/imported-field physics, longitudinal packets, atomic transition
+potentials and the installed post-column energy filter remain unfinished.
+See [the current parameter and implementation inventory](TIP_TO_IMAGE_WAVE.md).
+The full scientific release remains incomplete. Module tests and these
+development connections do not close its release gates; the actual 128-grid
+tip profile previously stopped at a column Cs sampling budget before the specimen.
+The 96 GB host now has larger bounded work/cache settings, but this alone is not
+evidence of successful full-grid or full-microscope convergence.
+
+Working-point Restore/Continue/Undo now synchronizes assembly and backend
+selectors with the captured state, including rollback on failure. Obsolete DA
+error/validation-step expectations were corrected without changing tolerances.
+The development acceptance report identifies missing prefixes and explicit
+source-migration blockers. Installation smoke covers physical particles, a
+separate Si multislice kernel and the GUI; it does not qualify the installed
+production image case (AT-31 remains blocked).
+
 ## Required delivery order
 
 1. Complete snapshot, immutable numeric products and observable definitions.
@@ -14,7 +53,7 @@ This ledger supplements, and does not replace, the original design.
 6. Read-only working-point browser, explicit restore/fork and unified entry gates.
 7. Actual operating-point, specimen, CPU/GPU and regression evidence.
 
-## Current implementation (2026-09-11)
+## Historical implementation before the tip-origin constraint
 
 The user authorized a **new versioned effective gun source**, keeping the legacy
 model, its parameters and historical results unchanged. The cold-FEG exit

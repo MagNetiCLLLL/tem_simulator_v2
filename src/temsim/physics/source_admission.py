@@ -1,9 +1,9 @@
 """Honest admission for the gun-to-specimen coherent source-chain migration.
 
-The currently registered guns implement classical particle emission and Lorentz
-transport. Neither an origin label nor a fitted specimen pupil supplies their
-missing mutual intensity and coherent gun transfer. This module never promotes
-such data to a production wave checkpoint.
+Tip mutual intensity and a development quadratic gun operator are available.
+Column/specimen/detector, timed scan and conditional material-wave development
+stages now exist; general-field and full-chain qualification remain open. Neither
+a tip parameter label nor a development checkpoint qualifies a full image.
 """
 from __future__ import annotations
 
@@ -20,57 +20,56 @@ class UnsupportedWaveSource(ValueError):
 
 def gun_phase_readiness(state):
     gun = state.electron_gun
-    if getattr(gun, "source_representation", "classical_particles") == "effective_gaussian_schell":
-        from temsim.optics.electron_gun.effective_source import generate_gun_emission
-        try:
-            source = generate_gun_emission(gun)
-        except (ValueError, TypeError) as error:
-            return freeze_json({"status": "UNAVAILABLE", "code": "GUN_SOURCE_SETUP_REQUIRED",
-                "gun_model": str(gun.type_key), "reason": str(error),
-                "coherent_source": "UNAVAILABLE", "gun_phase_transfer": "NOT_COMPUTED",
-                "validation_status": "NOT_RUN"})
-        return freeze_json({"status": "PARTIAL", "code": "GUN_IMAGE_ADAPTER_NOT_INTEGRATED",
-            "gun_model": source.source_parameters.model_id, "source_id": source.digest,
-            "coherent_source": "AVAILABLE_EFFECTIVE_EXIT_MODEL",
-            "gun_phase_transfer": "QUADRATIC_COMPONENT_DOMAIN_ONLY",
-            "validation_status": "PARTIAL_NUMERICAL_TESTS",
-            "missing": ["Production TEM/STEM specimen and detector adapters",
-                        "Complete-domain, scan and independent specimen validation"]})
+    from temsim.optics.electron_gun.source_policy import require_physical_gun_source, UnsupportedSourceModel
+    try:
+        require_physical_gun_source(gun)
+    except UnsupportedSourceModel as error:
+        return freeze_json({"status": "UNAVAILABLE", "code": error.code,
+            "gun_model": str(gun.type_key), "reason": str(error),
+            "coherent_source": "PROHIBITED_CUSTOM_EXIT_SOURCE",
+            "gun_phase_transfer": "NOT_COMPUTED", "validation_status": "NOT_RUN"})
+    from temsim.optics.electron_gun.tip_coherence import TipCoherence
+    configured = isinstance(getattr(gun.emitter, "coherence", None), TipCoherence)
     return freeze_json({
         "status": "NOT_COMPUTED", "code": UnsupportedWaveSource.code,
         "gun_model": str(gun.type_key), "particle_source": "gun emission and relativistic Lorentz transport",
-        "coherent_source": "UNAVAILABLE", "gun_phase_transfer": "UNAVAILABLE",
+        "coherent_source": "TIP_GAUSSIAN_SCHELL_CONFIGURED" if configured else "TIP_COHERENCE_NOT_CONFIGURED",
+        "gun_phase_transfer": "DEVELOPMENT_QUADRATIC_OPERATOR_AVAILABLE_NOT_COMPUTED",
+        "stationary_zero_loss_pipeline": "DEVELOPMENT_AVAILABLE_NOT_FULL_PRODUCT_ACCEPTANCE",
+        "dynamic_scan_and_inelastic_waves": "DEVELOPMENT_ARRIVAL_TIME_COILS_AND_CONDITIONAL_MATERIAL_TRAJECTORIES",
         "validation_status": "NOT_RUN",
-        "missing": ["Gun-owned mutual-intensity/coherent-mode model",
-                    "Validated gun-to-column phase and canonical transport",
-                    "Validated component phase operators through the specimen entrance"],
+        "missing": (["Explicit tip coherence parameters"] if not configured else []) +
+                   ["General non-paraxial/imported-field gun phase operators",
+                    "Converged physical-tip column/specimen/scanned-detector benchmarks",
+                    "Longitudinal pulse wavepackets and atomic inelastic transition potentials",
+                    "Energy-filter wave integration after upstream completion"],
     })
 
 
 def require_gun_wave_source(state, *, product):
-    """Closed production boundary until an actual producer is implemented.
+    """Closed production boundary until the full requested product is qualified.
 
     Do not accept arbitrary private attributes, metadata or caller-supplied
     arrays as proof. This deliberately cannot be enabled with origin='gun'.
     Ray tracing, EDS particle transport and historical viewing remain available.
     """
     readiness = gun_phase_readiness(state)
-    if readiness["code"] == "GUN_SOURCE_SETUP_REQUIRED":
+    if readiness["code"] == "TIP_ORIGIN_REQUIRED":
         raise UnsupportedWaveSource(f"{product}: {readiness['reason']}")
-    if readiness["status"] == "PARTIAL":
-        raise UnsupportedWaveSource(
-            f"{product}: the versioned gun source and quadratic column propagation are available, "
-            "but the new TEM/STEM adapters are not integrated yet. No legacy specimen pupil is used as a substitute.")
     raise UnsupportedWaveSource(
         f"{product}: gun-to-specimen coherent phase is unavailable for {readiness['gun_model']}. "
         "The existing ray-conditioned pupil is historical/reduced-order only. "
-        "Ray calculations and existing images remain available; a gun-owned phase model is required for new wave images."
+        "Tip coherence and a development quadratic gun operator are available, but are not full image admission. "
+        "Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. "
+        "An effective exit source is not permitted."
     )
 
 
 def admit_requested_wave_products(state):
     """Reject unsupported new wave work before heavy preparation/cache reuse."""
     from temsim.physics.wave_imaging import tem_wave_imaging_enabled
+    from temsim.optics.electron_gun.source_policy import require_physical_gun_source
+    require_physical_gun_source(state.electron_gun)
     sample = state.sample
     scan = getattr(state, "ac_deflector", None)
     if tem_wave_imaging_enabled(state) or (scan is not None and scan.enabled and scan.scan_enabled

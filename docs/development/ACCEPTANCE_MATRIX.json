@@ -3,12 +3,77 @@
   "updated": "2026-09-11",
   "baseline": "5eac9855ff8eefa2a3d68ddba3029f7c23e03b0c",
   "scope": "Progress inventory, not a release qualification or complete PASS matrix",
+  "current_source_policy": {
+    "origin": "Physical FEG tip only; preserve the existing gun component operations",
+    "effective_exit_source": "WITHDRAWN by explicit user requirement on 2026-09-11",
+    "equivalent_state": "Cache of executed upstream optics, never an independently configurable source",
+    "coherent_tip_emission": "IMPLEMENTED_GAUSSIAN_SCHELL_AT_PHYSICAL_TIP",
+    "coherent_tip_to_exit": "DEVELOPMENT_QUADRATIC_ANALYTIC_FIELD_OPERATOR; not complete general-field transport",
+    "stationary_zero_loss_pipeline": "DEVELOPMENT analytic column, finite specimen and detector readout; filter guard applies only to paths reaching its physical entrance",
+    "detector_phase": "SIMULATED_PER_COHERENT_MODE; optional readout preserves full propagated state",
+    "wave_grid_refinement": "DEVELOPMENT_UNITARY_FOURIER; bounded nonlinear phase retry, no physical changes or cropping",
+    "axial_mode_reference": "CARRIED_FROM_TIP; elapsed axial time and integral p dz, not a longitudinal pulse wavepacket",
+    "specimen_probability_balance": "CONDITIONAL_MATERIAL_TRAJECTORIES with per-history loss accounting; legacy zero-loss first-event ledger retained",
+    "outgoing_inelastic_waves": "DEVELOPMENT_LOCAL_MARKOV_KRAUS of existing representative material losses/angles; no atomic transition potentials or resolved EELS",
+    "dynamic_scan": "DEVELOPMENT_ACTUAL_COIL_ARRIVAL_TIMES; streamed hardware raster/dwell samples, no longitudinal pulse wavepacket",
+    "segmented_execution": "EXECUTED_DISK_CHECKPOINTS; column nodes and conditional specimen slices, checksums and dependency identity, mode-at-a-time loading",
+    "memory_budgets": "72 GiB wave/readout work, 8 GiB RAM stage/gun cache, 192 GiB disk cache; available-memory preflight, not a total-RSS cap",
+    "development_order": "Resolve upstream column, scan and specimen work before energy-filter integration",
+    "complete_tip_to_image": "NOT_IMPLEMENTED; production admission remains closed",
+    "historical_evidence": "Earlier effective-exit and isolated-column runs do not qualify the required physical gun chain"
+  },
   "release_gates": {
     "G1": "OPEN",
     "G2": "OPEN",
     "G3": "OPEN"
   },
   "evidence_runs": [
+    {
+      "path": "tmp/tip_scan_final_contract_20260911.xml",
+      "passed": 68,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 69.271,
+      "source_identity": "1e2cd110c0c6d13102a5c88054c8b592329e401ccb0581e165eccdf0c51ef734",
+      "scope": "Final streaming/resume/scan/inelastic/export kernels, actual FEG cache and source/filter/acceptance boundaries; not a full physical-tip image benchmark"
+    },
+    {
+      "path": "tmp/tip_scan_inelastic_regression_20260911.xml",
+      "passed": 261,
+      "failed": 3,
+      "skipped": 0,
+      "seconds": 377.850,
+      "source_identity": "de99db8542f9da97daf704302fec22eea0c0fa9d044543ccd0600d4b364b5978",
+      "scope": "Broad new and existing wave/gun/cache/domain regression before final cache-accounting/status changes",
+      "notes": "Three legacy pupil-driven STEM image tests in test_wave_domain_planning.py fail at the closed source-admission boundary; retained as migration failures, not skipped or counted as passes"
+    },
+    {
+      "path": "tmp/tip_scan_resume_final_20260911.xml",
+      "passed": 21,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 29.942,
+      "source_identity": "de99db8542f9da97daf704302fec22eea0c0fa9d044543ccd0600d4b364b5978",
+      "scope": "Additional scan cache invalidation, interrupted material-history resume, geometry-only domain planning and streamed raster export; overlaps the broad run"
+    },
+    {
+      "path": "tmp/tip_final_boundaries_20260911.xml",
+      "passed": 49,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 40.702,
+      "source_identity": "37a79f25fd1a023db0ab6f0608ac36819de885418cf213479b2c8ea0e6fd551d",
+      "scope": "Final physical filter-boundary guards, actual gun and specimen pipeline checks, CLI failure/description, source restrictions and development acceptance; not full microscope qualification"
+    },
+    {
+      "path": "tmp/tip_adaptive_channels_regression_20260911.xml",
+      "passed": 215,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 311.882,
+      "source_identity": "d7959a398bb172b0f40ced58750fd40d6c756c2d48a90aa8ffdbbd99d23fea73",
+      "scope": "Bounded complex grid refinement, axial references, first-event probability accounting, existing gun/column/phase/flux/cache/profile and historical regression before the final filter-boundary correction; not full microscope qualification"
+    },
     {
       "path": "docs/development/evidence/handoff-canonical-final-regression.xml",
       "passed": 141,
@@ -321,10 +386,12 @@
       "name": "Source modes and physical scan coils",
       "status": "PARTIAL",
       "test_ids": [
-        "tests/test_effective_gun_source.py::test_mixed_modes_match_analytic_gaussian_and_omit_not_renormalise"
+        "tests/test_effective_gun_source.py::test_mixed_modes_match_analytic_gaussian_and_omit_not_renormalise",
+        "tests/test_segmented_tip_wave.py::test_actual_scan_coils_use_distinct_energy_dependent_arrival_times",
+        "tests/test_segmented_tip_wave.py::test_timed_segment_cache_reuses_static_prefix_but_not_new_coil_actions"
       ],
       "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
-      "remaining": "STEM scan-coil-to-wave adapter is not integrated."
+      "remaining": "Development adapter uses actual AC/Descan arrival times; a converged full physical-tip STEM image and longitudinal wavepacket remain unqualified."
     },
     {
       "id": "T2-22",
@@ -507,7 +574,7 @@
       "status": "NOT_IMPLEMENTED",
       "test_ids": [],
       "tolerances": "Specified in the linked test assertions and comments; not a common numerical tolerance",
-      "remaining": "New specimen, scan-coil and detector adapters and full end-to-end evidence remain."
+      "remaining": "Development specimen, timed-coil, conditional-inelastic and detector adapters are connected. General fields, atomic inelastic transitions, energy-filter integration and full physical-tip end-to-end convergence remain."
     }
   ]
 }

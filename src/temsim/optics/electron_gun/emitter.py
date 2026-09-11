@@ -10,6 +10,7 @@ import numpy as np
 from temsim.component_keys import FEG_TIP
 from temsim.optics.electron_gun.base import EmissionBundle
 from temsim.physics.chromatic import cold_feg_energy_offsets
+from temsim.optics.electron_gun.tip_coherence import TipCoherence
 
 
 def _radical_inverse(indices: np.ndarray, base: int) -> np.ndarray:
@@ -64,6 +65,20 @@ class ColdFieldEmitter:
     ray_count: int = 1000
 
     @property
+    def coherence(self) -> TipCoherence | None:
+        # Keep the pre-existing dataclass field schema and absent-parameter
+        # graph byte-for-byte compatible with archived classical gun data.
+        # A selected tip model is an explicit captured instance attribute.
+        return self.__dict__.get("_tip_coherence")
+
+    @coherence.setter
+    def coherence(self, value):
+        if value is None:
+            self.__dict__.pop("_tip_coherence", None)
+        else:
+            self.__dict__["_tip_coherence"] = value
+
+    @property
     def label(self):
         return self.name
 
@@ -104,8 +119,15 @@ class ColdFieldEmitter:
             "energy_half_range_ev",
         )
         for attribute in nonnegative:
-            if float(getattr(self, attribute)) < 0.0:
-                raise ValueError(f"{self.name} {attribute} must not be negative.")
+            value = float(getattr(self, attribute))
+            if not np.isfinite(value) or value < 0.0:
+                raise ValueError(f"{self.name} {attribute} must be finite and non-negative.")
+        if self.coherence is not None:
+            if not isinstance(self.coherence, TipCoherence):
+                raise ValueError("FEG tip coherence must be a TipCoherence parameter record")
+            self.coherence.validate()
+            if self.virtual_source_fwhm_nm <= 0.0:
+                raise ValueError("A coherent tip needs positive spatial FWHM")
         if int(self.ray_count) < 9:
             raise ValueError("Cold FEG ray count must be at least 9.")
         if self.emission_energy_ev <= 0.0:
@@ -124,6 +146,13 @@ class ColdFieldEmitter:
         n = int(self.ray_count if count is None else count)
         if n < 9:
             raise ValueError("Cold FEG emission requires at least 9 rays.")
+        if self.coherence is not None:
+            from temsim.optics.electron_gun.tip_coherence import tip_particle_samples
+            bundle = tip_particle_samples(self, n)
+            if getattr(self, "_tuning_boundary_probes", 0):
+                from temsim.physics.optical_tuning import add_source_support_probes
+                bundle = add_source_support_probes(bundle, self)
+            return bundle
         u_r, u_phi, u_a, u_theta, u_young, u_boersch = _halton_dimensions(
             n, (2, 3, 5, 7, 11, 13)
         )

@@ -25,9 +25,9 @@ CRITERIA={
 9:("Lossless norm drift guard",["test_tem_flux_contract.test_at09"]),
 10:("Exclusive physical sinks; overlapping virtual observers",["test_record_plane.test_sequential", "test_record_plane.test_overlapping_virtual"]),
 11:("Distinct angular current quantiles",["test_illumination_modes.test_at11"]),
-12:("Noncircular offset complex pupil",["test_illumination_modes.test_at12", "test_illumination_modes.test_sampled_intensity"]),
-13:("Independent source mode sum",["test_illumination_modes.test_at13", "test_illumination_modes.test_stem_source_energy"]),
-14:("Source/energy quadrature refinement",["test_illumination_modes.test_at14"]),
+12:("Noncircular offset complex pupil",["test_illumination_modes.test_sampled_intensity", "test_source_admission.test_t201_api_refuses_legacy_pupil", "test_tip_source_contract.test_even_a_matching_exit_binding"]),
+13:("Independent source mode sum",["test_illumination_modes.test_at13", "test_effective_gun_source.test_correlated_energy_samples"]),
+14:("Source/energy quadrature refinement",["test_illumination_modes.test_source_priors_and_independent_dimensions", "test_effective_gun_source.test_tiny_mode_tail_tolerances"]),
 15:("Gaussian width, centre and curvature under LCT",["test_illumination_modes.test_at15"]),
 16:("A5 angular rotation and scale",["test_aberration_wp04.test_a5_rotation", "test_aberration_wp04.test_phase_matches_abtem"]),
 17:("Mixed coefficients and independent holdout",["test_aberration_wp04.test_mixed_coefficients", "test_aberration_wp04.test_missing_term"]),
@@ -50,9 +50,54 @@ CRITERIA={
 }
 
 
+# Current tests provide partial mathematics/admission evidence only. The
+# withdrawn specimen-pupil producer cannot qualify a gun-to-image chain.
+SOURCE_MIGRATION_BLOCKERS = {
+    12: "Independent exit/specimen sources are prohibited. Noncircular illumination requires coherent transport from the tip through the entire gun and image chain.",
+    13: "Mode addition and historical exit-source mathematics are covered separately; the required physical tip-origin multi-mode image chain is not implemented.",
+    14: "Tip-source modes and a development quadratic accelerating-gun operator have scoped tests; energy/source refinement through the complete production image chain is not implemented.",
+}
+
+
+def evaluate_criteria(cases, installation):
+    """Retain failures and missing evidence; partial tests never close a blocker."""
+    criteria = {}
+    for number, (title, prefixes) in CRITERIA.items():
+        matches = [row for row in cases if any(row["test"].startswith(prefix) for prefix in prefixes)]
+        missing = [prefix for prefix in prefixes if not any(row["test"].startswith(prefix) for row in cases)]
+        if number == 31:
+            status = installation["status"]
+        elif any(row["status"] == "FAIL" for row in matches):
+            status = "FAIL"
+        elif missing or not matches or any(row["status"] != "PASS" for row in matches):
+            status = "NOT_RUN"
+        elif number in SOURCE_MIGRATION_BLOCKERS:
+            status = "BLOCKED"
+        else:
+            status = "PASS"
+        row = {"description": title, "status": status, "tests": [item["test"] for item in matches],
+               "missing_test_prefixes": missing}
+        if number in SOURCE_MIGRATION_BLOCKERS:
+            row["blocked_reason"] = SOURCE_MIGRATION_BLOCKERS[number]
+            row["evidence_scope"] = "Partial numerical/admission tests; production image acceptance remains open"
+        if number == 31 and status == "PASS" and installation.get("wave_images", {}).get("status") != "PASS":
+            row["status"] = "BLOCKED"
+            row["blocked_reason"] = "Package checks pass, but the installed production wave-image case has not been validated"
+            row["evidence_scope"] = installation.get("scope", "Installation receipt lacks explicit wave-image evidence")
+        criteria[f"AT-{number:02}"] = row
+    return criteria
+
+
+def acceptance_exit_code(criteria, *, source_unchanged, pytest_exit_code, allow_no_gpu=False):
+    acceptable = all(row["status"] == "PASS" or (
+        allow_no_gpu and key in {"AT-25", "AT-26"} and row["status"] == "NOT_RUN"
+    ) for key, row in criteria.items())
+    return 0 if source_unchanged and pytest_exit_code == 0 and acceptable else 1
+
+
 def source_hashes(root):
     paths=sorted((root/"src/temsim").rglob("*.py"))+sorted((root/"configs").rglob("*.toml"))+sorted((root/"configs/reference_samples").glob("*.cif"))
-    paths+=sorted((root/"tests").glob("test_*.py"))+[Path(__file__).resolve()]
+    paths+=sorted((root/"tests").glob("test_*.py"))+[Path(__file__).resolve(), root/"scripts/installation_smoke.py"]
     return {p.relative_to(root).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
 
 
@@ -65,7 +110,7 @@ def main():
     args=parser.parse_args(); root=Path(__file__).resolve().parents[1]; out=args.output.resolve(); out.mkdir(parents=True,exist_ok=True)
     before=source_hashes(root); started=datetime.now(timezone.utc).isoformat()
     files=sorted({"tests/"+prefix.split(".")[0]+".py" for _,prefixes in CRITERIA.values() for prefix in prefixes})
-    files+= ["tests/test_model_inspector.py","tests/test_parameter_impact.py","tests/test_fourdstem_user_wiring.py","tests/test_fourdstem_cache_products.py","tests/test_stem_cuda_pipeline.py","tests/test_wave_fft.py","tests/test_multislice.py"]
+    files+= ["tests/test_development_acceptance.py","tests/test_model_inspector.py","tests/test_parameter_impact.py","tests/test_fourdstem_user_wiring.py","tests/test_fourdstem_cache_products.py","tests/test_stem_cuda_pipeline.py","tests/test_wave_fft.py","tests/test_multislice.py"]
     command=[sys.executable,"-m","pytest",*( ["tests"] if args.full_suite else files),"--tb=short","-o","junit_family=legacy","--junitxml="+str(out/"pytest.xml")]
     print("Running development acceptance:",out,flush=True)
     with (out/"pytest.log").open("w",encoding="utf-8") as log:
@@ -88,26 +133,21 @@ def main():
         from temsim.calculation_manifest import solver_source_identity
         if install.get("status")=="PASS" and install["solver_source_sha256"]!=solver_source_identity():
             install["status"]="INCONCLUSIVE"; install["reason"]="installed wheel differs from current source"
-    criteria={}
-    for number,(title,prefixes) in CRITERIA.items():
-        matches=[row for row in cases if any(row["test"].startswith(prefix) for prefix in prefixes)]
-        all_found=all(any(row["test"].startswith(prefix) for row in cases) for prefix in prefixes)
-        status=("FAIL" if any(row["status"]=="FAIL" for row in matches) else "PASS" if matches and all_found and all(row["status"]=="PASS" for row in matches) else "NOT_RUN")
-        criteria[f"AT-{number:02}"]={"description":title,"status":install["status"] if number==31 else status,"tests":[row["test"] for row in matches]}
+    criteria=evaluate_criteria(cases, install)
     unchanged=before==source_hashes(root)
     all_pass=all(row["status"]=="PASS" for row in criteria.values())
-    report={"schema":"development-spec-acceptance-v1","started_utc":started,"completed_utc":datetime.now(timezone.utc).isoformat(),
+    report={"schema":"development-spec-acceptance-v2","started_utc":started,"completed_utc":datetime.now(timezone.utc).isoformat(),
         "status":"PASS" if all_pass and unchanged and run.returncode==0 else "INCOMPLETE", "criteria":criteria,
         "counts":{s:sum(row["status"]==s for row in cases) for s in ("PASS","FAIL","NOT_RUN")},"cases":cases,"measurements":evidence,
         "installation":install,"command":command,"pytest_exit_code":run.returncode,"source_unchanged_during_tests":unchanged,
         "source_sha256":before,"python":sys.version,"platform":platform.platform(),
         "versions":{n:metadata.version(n) for n in ("numpy","scipy","abtem","PySide6","pytest")},
-        "scope":"Acceptance of declared computational models and fixtures; external experimental calibration remains NOT_RUN. A5 is a partial higher-order basis. 3D CAD requires explicit supported field approximation. Multi-energy/multisource 4D capture remains UNSUPPORTED.",
+        "scope":"Partial numerical and engineering evidence during the gun-source migration. BLOCKED criteria are not release acceptance even when all their listed tests pass. Installation smoke covers particles and a separate specimen kernel, not production TEM/STEM images. External experimental calibration remains NOT_RUN. A5 is a partial higher-order basis; 3D CAD requires a supported field approximation.",
         "external_experimental_calibration":"NOT_RUN"}
     (out/"report.json").write_text(json.dumps(report,indent=2,ensure_ascii=False),encoding="utf-8")
     print(json.dumps({"status":report["status"],"counts":report["counts"],"criteria":{k:v["status"] for k,v in criteria.items()}},ensure_ascii=False),flush=True)
-    cpu_allowed=args.allow_no_gpu and all(row["status"]=="PASS" or (key in {"AT-25","AT-26"} and row["status"]=="NOT_RUN") for key,row in criteria.items())
-    return 0 if unchanged and run.returncode==0 and (all_pass or cpu_allowed) else 1
+    return acceptance_exit_code(criteria, source_unchanged=unchanged,
+        pytest_exit_code=run.returncode, allow_no_gpu=args.allow_no_gpu)
 
 
 if __name__=="__main__": raise SystemExit(main())

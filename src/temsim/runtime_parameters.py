@@ -20,7 +20,7 @@ IDENTITY_FIELDS = frozenset({
     "corrector", "owner", "kind", "shape_profile", "interaction_kind",
 })
 INTERNAL_FIELDS = frozenset({
-    "source_representation", "effective_source",
+    "source_representation", "effective_source", "coherence",
     "active_backend",
     "active_installation",
     "accelerator_restore_profile",

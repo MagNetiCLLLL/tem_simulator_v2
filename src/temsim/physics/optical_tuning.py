@@ -68,6 +68,24 @@ def add_source_support_probes(bundle, emitter):
                          ("tx_rad", angle*np.cos(phi+phase)), ("ty_rad", angle*np.sin(phi+phase))):
         arrays[name][interior:-1] = values
         arrays[name][-1] = 0
+    coherence = getattr(emitter, "coherence", None)
+    if coherence is not None:
+        from temsim.optics.electron_gun.tip_coherence import wavelength_m
+        sigma = emitter.virtual_source_fwhm_nm / np.sqrt(8*np.log(2))*1e-9
+        angle = 3*np.hypot(float(wavelength_m(emitter.emission_energy_ev))/(4*np.pi*sigma),
+                           coherence.incoherent_angle_rms_mrad*1e-3)
+        xy = radius*np.array((np.cos(phi), np.sin(phi)))
+        xy = np.column_stack((xy, np.zeros(2)))
+        momentum = angle*np.array((np.cos(phi+phase), np.sin(phi+phase)))
+        momentum = np.column_stack((momentum, np.zeros(2))) + coherence.curvature@xy
+        momentum += np.array((coherence.tilt_x_mrad, coherence.tilt_y_mrad))[:, None]*1e-3
+        transverse2 = np.sum(momentum**2, axis=0)
+        if np.any(transverse2 >= 1):
+            raise ValueError("Tip coherence support probes require a non-paraxial source model")
+        tangent = momentum/np.sqrt(1-transverse2)
+        xy += np.array((coherence.offset_x_nm, coherence.offset_y_nm))[:, None]*1e-9
+        arrays["x_m"][interior:], arrays["y_m"][interior:] = xy
+        arrays["tx_rad"][interior:], arrays["ty_rad"][interior:] = tangent
     arrays["energy_offset_ev"][interior:] = 0
     arrays["weight"][:interior] = 1/interior
     arrays["weight"][interior:] = 0

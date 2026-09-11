@@ -31,12 +31,9 @@ def effective_source_current_a(state) -> float:
     """Physical current represented by a complete normalized ray bundle."""
 
     gun = state.electron_gun
-    if getattr(gun, "source_representation", "classical_particles") == "effective_gaussian_schell":
-        from temsim.optics.electron_gun.effective_source import validate_binding
-        validate_binding(gun, gun.effective_source)
-        emitted_current_a = gun.effective_source.reference_current_a
-    else:
-        emitted_current_a = max(float(gun.emitted_current_a), 0.0)
+    from temsim.optics.electron_gun.source_policy import require_physical_gun_source
+    require_physical_gun_source(gun)
+    emitted_current_a = max(float(gun.emitted_current_a), 0.0)
     return emitted_current_a * column_current_limit_percent(state) / 100.0
 
 

@@ -483,7 +483,7 @@ def test_retired_spot_alignment_cannot_change_current_or_optics(
     before_ray_count = state.electron_gun.ray_count
 
     before_current_limit = state.column_current_limit_percent
-    with pytest.raises(KeyError, match="Unknown direct alignment"):
+    with pytest.raises(ValueError, match="Unregistered inverse target"):
         apply_direct_alignment(state, "spot_size_current_limit", 37.5)
     assert state.column_current_limit_percent == before_current_limit
     assert state.electron_gun.ray_count == before_ray_count
@@ -540,12 +540,13 @@ def test_camera_length_uses_main_screen_reference_and_commits(
         0.0 <= fraction <= 1.0
         for fraction in result.candidate_limit_fractions.values()
     )
-    assert result.validation_step_mm == pytest.approx(0.025)
+    # The transaction independently refines the original 0.025 mm validation.
+    assert result.validation_step_mm == pytest.approx(0.0125)
     assert after != before
     assert {
         key: after[key] for key in PROJECTOR_KEYS
     } == pytest.approx(result.strengths)
-    assert "validated at 0.025 mm" in result.message
+    assert "Forward validation passed" in result.message
 
 
 @pytest.mark.parametrize("target_m", (0.005, 2.5))
@@ -562,7 +563,7 @@ def test_microprobe_diffraction_camera_length_endpoints_commit(
     assert result.success
     assert result.achieved == pytest.approx(target_m, rel=0.03)
     assert result.diffraction_conjugacy_residual <= 1.0e-3
-    assert result.validation_step_mm == pytest.approx(0.025)
+    assert result.validation_step_mm == pytest.approx(0.0125)
 
 
 def test_canonical_diffraction_basis_removes_objective_field_position_term(

@@ -17,7 +17,7 @@ class ModelInspectorPage(QWidget):
         self._completed_diagnostics = {}
         self._completed_mode = None
         self._completed_aberrations = {}
-        self.gun_source_button = QPushButton("Electron-gun source model…")
+        self.gun_source_button = QPushButton("FEG tip emission…")
         self.gun_source_button.clicked.connect(self._edit_gun_source)
         self.lens = QComboBox()
         self.field_solver = QComboBox()
@@ -154,6 +154,7 @@ class ModelInspectorPage(QWidget):
 
     def set_state(self, state):
         self._state = state
+        self.gun_source_button.setEnabled(state.electron_gun.type_key == "cold_feg")
         selected = self.lens.currentData()
         self.lens.blockSignals(True)
         self.lens.clear()
@@ -172,10 +173,11 @@ class ModelInspectorPage(QWidget):
         dialog = GunSourceDialog(self._state.electron_gun, self)
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
-        representation, parameters = dialog.value()
         gun = self._state.electron_gun
-        gun.source_representation, gun.effective_source = representation, parameters
-        self.changed.emit("Electron-gun source model")
+        for key, value in dialog.value().items():
+            setattr(gun.emitter, key, value)
+        gun.source_representation = "classical_particles"
+        self.changed.emit("FEG tip emission")
         self.refresh()
 
     def _load_field(self):

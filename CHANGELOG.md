@@ -2,6 +2,55 @@
 
 ## Unreleased
 
+- Connected physical AC/Descan coil laws to each mode's axial arrival time,
+  streamed raster/dwell execution, and existing-material conditional inelastic
+  waves that continue through subsequent specimen/column optics at their new
+  energy. Preserved per-history complex phase, provenance and probability loss
+  accounting; this is not an atomic transition-potential or resolved EELS model.
+  Added dependency/checksum-bound column and trajectory-slice disk checkpoints,
+  mode-at-a-time detector readout/NPZ export, dwell-weighted raster summaries,
+  and 72 GiB working / 8 GiB RAM cache / 192 GiB disk cache defaults with available
+  memory checks. Gun and specimen-potential builders retain their bounded live
+  products; a single transverse FFT is not distributed. Energy filter remains last.
+
+- Added bounded, lossless Fourier refinement before unresolved column Cs and
+  hexapole phase operators, with CLI grid/memory controls and recorded retries.
+  Carried each mode's axial time/action through gun, column, specimen branches,
+  detectors and exports. Split specimen zero-loss removal into exclusive first
+  inelastic events and effective absorption, with an explicit probability balance.
+  Energy-filter wave integration is deferred until the upstream work is resolved.
+  Corrected the energy-filter guard to follow the physical entrance boundary:
+  detectors before that boundary can be computed without disabling the filter.
+
+- Continued the physical-tip development wave chain through shared axial gun
+  field tails, distributed column multipoles/apertures, finite-specimen phase
+  and material-IMFP zero-loss attenuation, and downstream recording optics.
+  Added independently selectable intensity, per-mode phase, complex amplitude
+  and covariance readouts with immutable propagated state and stage caching.
+  The CLI exposes numerical/resource controls. Arbitrary field maps, atomic
+  inelastic wave transition operators and production image acceptance remain open.
+
+- Added explicit tip Gaussian-Schell coherence parameters, matching Wigner
+  particle diagnostics, profile persistence and zero-current tuning guides.
+  Added a variable-energy quadratic gun wave solver using the installed
+  extraction/acceleration/focusing/deflection/stigmation/Wien fields and masks,
+  with execution-dependent caching and inspectable development exports.
+  Added complete cubic/ quartic column phase kernels. Full general-field
+  tip-to-image integration and production TEM/STEM acceptance remain open.
+
+- Withdrew the independently configured effective gun-exit source. FEG source
+  inputs now edit the existing tip emitter; active profiles, calculations,
+  alignment and coherent cache reuse reject an exit-source bypass. Physical
+  gun tracing and its cache remain in use; the new quadratic gun operator
+  does not qualify full general-field wave transport. Historical data remain readable.
+- Restoring, continuing or undoing a working point now synchronizes assembly
+  and compute-backend selectors without emitting physical edits; a failed
+  restore also rolls those selectors back. Updated Direct Alignment regression
+  expectations for registered-target errors and refined forward validation.
+- Replaced retired acceptance-test references with scoped current evidence.
+  Partial source tests and installation checks explicitly leave wave-image
+  acceptance blocked. The installation smoke separately checks particle
+  transport, a CIF/multislice kernel and the offscreen GUI.
 - Unified parameter meanings and declared evidence across the 2D, 3D and TOML
   inspectors. Added a searchable/exportable catalog dimension audit without
   changing configured values. The 3D Use column reports active-mode parameter

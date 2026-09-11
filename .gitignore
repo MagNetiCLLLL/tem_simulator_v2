@@ -61,3 +61,6 @@ dist/
 /outputs/spec-acceptance*/
 /outputs/wp06-exploration.xml
 /outputs/acceptance-install/
+
+# Executed physical-tip checkpoints; never source inputs or repository assets.
+/.temsim-wave-cache/

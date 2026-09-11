@@ -1,116 +1,93 @@
-# Versioned effective electron-gun source
+# Tip-origin electron source and computed checkpoints
 
-Status: partial HANDOFF v2 implementation. This is not a complete TEM/STEM
-wave-image release or a calibrated microscope model.
+Status: the physical particle gun, an explicit tip mutual-intensity model and
+a development variable-energy quadratic gun wave solver are available.
+The stationary development path now also includes analytic column propagation,
+finite-specimen zero-loss interaction and optional per-mode detector phase.
+Complete general-field tip-to-image TEM/STEM propagation is not implemented.
+The user withdrew the independent effective exit-source design on 2026-09-11.
+See [tip parameters, equations and implementation status](TIP_TO_IMAGE_WAVE.md).
 
-## Select a model
+## Physical boundary
 
-Open **Model Inspector → Electron-gun source model…**.
+In this project the FEG gun contains the emitting tip, extraction electrode,
+electrostatic gun lens, accelerator (including the DPA aperture), gun deflector,
+gun stigmator and C1 aperture. The monochromated variant also includes its Wien
+monochromator. The C1 condenser lens belongs to the downstream column.
 
-- **Legacy classical particles** keeps the original emitter and its parameters.
-- **Effective exit Gaussian-Schell v1** is a separate, versioned cold-FEG model.
-  Its plane is the installed gun exit, not an independently movable illumination
-  plane. Enter the current at that exit explicitly; it is not inferred from the
-  old emission-current setting.
+The ordinary FEG configuration places the C1 aperture centre at gun-local
+445 mm and the exit at 450 mm. These are simulator geometry values, not OEM
+measurements or a universal microscope boundary. A filament/tip is only the
+emitting part; it is not the complete gun.
 
-Apply binds the new parameters to the current gun. Changing gun geometry or
-physical controls invalidates that binding and requires another explicit Apply.
-Changing ray sampling or C2/C3 strengths does not recalibrate the gun. Cancel
-does not change either model. Switching back to the legacy model retains the new
-model's parameters on a separate shelf. Profile format 7 saves both; old profiles
-remain legacy and are not silently converted.
+## Customizable emission
 
-## Parameter meaning
+Open **Model Inspector → FEG tip emission…**. This edits the existing emitter's
+current, spatial width, angular distribution and launch-energy distribution.
+All values refer to the tip launch plane, including the energy spread. Apply
+changes the tip parameters; Cancel and invalid input leave the instrument
+unchanged. The downstream energy is obtained through the accelerating fields.
 
-| Input | Reference and meaning |
-| --- | --- |
-| Exit reference current | Amperes at the gun exit, before column losses |
-| Exit source FWHM | Gaussian spatial intensity FWHM at the gun exit, nm |
-| Extra incoherent angular RMS | Additional per-axis angular RMS, mrad; adds in quadrature to the diffraction-limited spread |
-| Exit energy FWHM | Gaussian energy spread, eV, around the gun's nominal exit energy |
-| Energy nodes | Gauss-Hermite quadrature; convergence must be checked separately |
-| X dispersion / angular dispersion | Correlated position/angle shifts per eV, at the same exit plane |
-| Omitted mode weight limit | Upper bound on the omitted Gaussian-Schell eigenmode weight; retained weights are not renormalized |
-| Mode budget / source grid pixels | Numerical resource and sampling limits, not physical controls |
+An explicit Gaussian-Schell tip option adds incoherent angular spread,
+wavefront curvature, emission centre and mean transverse momentum. It also
+selects the same tip distribution's Wigner samples for particle diagnostics.
+The old truncated classical emission law remains available when it is off.
+This option supplies no exit energy, exit current or downstream source plane.
 
-This is a phenomenological equivalent source, not a resolved quantum calculation
-of the emitter/accelerator. It has no measured calibration by default. Source
-positions and canonical directions have a quantum-consistent covariance. The
-particle column samples the same full positive Gaussian Wigner distribution;
-coherent modes represent its explicitly truncated density operator. Energy
-dispersion remains correlated rather than being discarded after propagation.
-Gun-internal trajectories, DPA throughput and launch-to-exit time are unavailable
-for this equivalent model and are not fabricated.
+Extraction, acceleration, focusing, deflection, stigmation, physical apertures
+and an installed monochromator remain part of the physical particle path.
+Gun trajectories, DPA/C1 transmitted currents and arrival-time history are
+preserved. Existing thermionic-gun controls and transport also remain available.
 
-## Available computation and cache
+The old Gaussian–Schell dialog described a high-energy ensemble at the gun
+exit and bypassed those upstream operations. This is prohibited even when its
+parameters are bound to a digest of the gun. It is no longer an active model,
+and the application does not offer a rebind/calibrate shortcut.
 
-Preview, Medium and particle High accuracy use the selected source. The coherent
-producer transports gun modes through the shared quadratic paraxial field graph,
-physical deflector actions and aperture planes to the finite specimen's upper
-face (`centre Z - thickness / 2`). It does not propagate through half the
-material as vacuum to reach its centre. The envelope reference stays fixed on
-retraction; a thickness change moves this entrance and invalidates its cache.
-Sampled finite vacuum bores are absorbing boundaries. Their axial sampling needs
-an independent convergence check. Imported 3-D fields, unsupported nonlinear
-phase terms and equivalent thin-lens actions are rejected explicitly.
+## Equivalent states mean cached computation only
 
-The disk cache stores all complex mode arrays, affine grids, origins, quadratic
-phase/tilt carriers, energy labels and surviving electron weights. It uses the
-existing quota/checksum store. Complete-snapshot identity is separate from the
-actual incident-operator signature. A specimen-content change can reuse the
-incident modes when the entrance plane and all operator inputs are identical;
-the new result records its new snapshot and original execution/parent links.
-Changed fields (including overlapping downstream tails), apertures, entrance
-plane or numerical sampling invalidate this incident cache. Warm requests
-resolve dependencies but do not repeat coherent propagation.
+A downstream state may be reused only when it came from actual upstream
+transport and the relevant inputs match. The required dependencies include:
 
-With a saved profile selecting the new source:
+- Tip emission distribution and its current/energy reference.
+- All consumed upstream geometry, fields, voltages, lens controls, apertures,
+  deflectors and material/model inputs.
+- Propagation boundaries, numerical settings and solver implementation.
 
-```powershell
-.\.venv\Scripts\python.exe scripts/cache_high_accuracy.py --profile SOURCE_PROFILE.toml --gun-wave-only --step-mm 0.2 --output outputs/gun-checkpoint-001
-```
+An upstream change invalidates the affected result. Unchanged stages may be
+reused to avoid repeating their computation; this never grants permission to
+specify their output independently. The existing physical gun trajectory cache
+continues to execute `trace_feg_to_exit` on a cache miss.
 
-This writes `working-point.temwp`, the exact request manifest/profile and a
-readback report. **Working Points → Import…** opens the package read-only.
-Explicit Restore/Continue restores its compatible captured parameters without
-presets or refocusing. To verify the disk product without repeating propagation:
+Historical exit-source configuration data and numeric wave arrays remain
+readable as evidence. Activating an exit-source profile, restoring it into the
+live instrument, generating a new exit beam, or using an old exit-wave cache
+for a new physical calculation is rejected. Profiles are not silently converted.
 
-```powershell
-.\.venv\Scripts\python.exe scripts/cache_high_accuracy.py --verify-existing --output outputs/gun-checkpoint-001
-```
+## Remaining coherent-wave work
 
-Wave diagnostics read the saved numeric modes, not the active instrument.
-`canonical_alpha95/99` are canonical Fourier-angle diagnostics. They do not
-replace the mechanical-ray `alpha95` used by the existing Direct Alignment
-target. In a magnetic field those bases differ. Unresolved phase sampling or
-excessive diagnostic scratch space returns an explicit unavailable/out-of-range
-status. It does not return a fabricated zero angle.
+A tip-origin Gaussian-Schell mutual intensity and corresponding Wigner particle
+samples are now implemented. The new `tip_gun_wave` development operator
+executes extraction, acceleration, focusing, deflectors, stigmation, analytic
+Wien fields and physical gun masks with variable longitudinal momentum.
+Its scalar quadratic paraxial domain must not be confused with the original
+Lorentz solver's general-angle dynamics or arbitrary imported field providers.
 
-## Still unavailable
+After that, the column, finite specimen entrance, specimen scattering, scan
+coils and downstream detector/image adapters must consume the same derived
+state. Independent phase, energy/current conservation, aperture-loss and
+numerical-convergence checks are required. Existing specimen and propagation
+kernels remain useful, but are not proof that this full chain exists.
 
-New production TEM/STEM images remain gated: their specimen, scan-coil and
-post-specimen adapters have not yet been integrated with this coherent producer.
-The old specimen-plane pupil is not used as a replacement. Existing images can
-still be viewed; ray/particle calculations remain available with wave-image
-products disabled. No source-grid, 32/40 mrad, specimen, CPU/GPU or full-domain
-validation is implied by a successful cache readback.
+New production wave images therefore remain unavailable. `--gun-wave-only`
+does not generate an independent exit-source replacement. The separate
+`scripts/trace_tip_wave.py` exports development tip-to-exit evidence from an
+explicit tip-coherence profile; its archives do not qualify image admission.
 
-Affine scalar phase and continuous metaplectic lift are now retained along the
-quadratic field path. Complex analytic/FFT, composition/inverse and winding
-tests cover a bounded domain; see `CANONICAL_PATH_PHASE.md`. Unresolved
-mixed-conjugacy maps and complete-domain phase validation,
-portable remapping of missing external model files, complete GUI/CLI workflow
-acceptance and production-scale GPU/streaming evidence remain open. See
-`HANDOFF_V2_ACCEPTANCE.md` for the current acceptance scope.
+`test_effective_gun_source.py` retains historical source-math checks only;
+`test_gun_wave_transport.py` explicitly injects an isolated historical fixture
+to retain column mathematics and codec tests. Production source-policy tests
+run without that override. No isolated fixture qualifies tip-to-image acceptance.
 
-## Method references
-
-- Starikov and Wolf (1982), coherent-mode representation of Gaussian-Schell
-  model sources: https://doi.org/10.1364/JOSA.72.000923
-- Collins (1970), ray-matrix diffraction integral:
-  https://opg.optica.org/josa/abstract.cfm?uri=josa-60-9-1168
-- abTEM, incoherent intensity averaging across source/thermal ensembles:
-  https://abtem.readthedocs.io/en/latest/user_guide/tutorials/partial_coherence.html
-
-These support numerical methods, not an independent specimen-illumination
-production interface or an OEM source calibration.
+See [the acceptance ledger](HANDOFF_V2_ACCEPTANCE.md) and the project rules in
+[AGENTS.md](../../AGENTS.md).

@@ -15,7 +15,7 @@ from temsim.physics.gun_wave_transport import (
 )
 from temsim.physics.multiplane_wave import PlaneWave
 from temsim.physics.wave_flux import BeamState, WaveMode
-from temsim.optics.electron_gun.effective_source import generate_gun_emission
+from temsim.optics.electron_gun.effective_source import _reconstruct_historical_emission
 
 PRODUCT = "gun_wave_incident"
 CODEC = "gun-wave-modes-v1"
@@ -41,6 +41,10 @@ def gun_wave_payload(checkpoint):
     snapshot = checkpoint.snapshot
     arrays, modes = {}, []
     for i, mode in enumerate(checkpoint.beam.modes):
+        if mode.axial_reference is not None:
+            raise ValueError("The historical exit-wave codec cannot discard a physical-tip axial reference")
+        if mode.scattering_history:
+            raise ValueError("The historical exit-wave codec cannot discard a scattering history")
         row = {"mode_id": mode.mode_id, "energy_kev": mode.energy_kev,
                "weight": mode.weight_per_reference_electron, "fields": []}
         for field in FIELDS:
@@ -88,15 +92,16 @@ def beam_from_gun_wave_payload(data, arrays):
 
 
 def gun_wave_from_payload(data, arrays, *, _compatible_emission=None):
+    from temsim.instrument_snapshot import decode_instrument
     snapshot = InstrumentSnapshot.from_dict(data["snapshot"])
     if _compatible_emission is None:
-        emission = generate_gun_emission(snapshot.restore().electron_gun)
+        emission = _reconstruct_historical_emission(decode_instrument(snapshot.graph).electron_gun)
     else:
         # Only the cached gun graph is evaluated here, not a former specimen
         # CIF or the user's now-changed live optical controls. Compatibility
         # was established from the current exact operator dependencies below.
         from temsim.instrument_snapshot import decode_instrument
-        emission = generate_gun_emission(decode_instrument(snapshot.graph).electron_gun)
+        emission = _reconstruct_historical_emission(decode_instrument(snapshot.graph).electron_gun)
         if emission.digest != _compatible_emission.digest:
             raise ValueError("Cached and requested gun emissions differ")
     if emission.digest != data["source_id"]:
@@ -110,6 +115,9 @@ def gun_wave_from_payload(data, arrays, *, _compatible_emission=None):
 
 def load_gun_wave_checkpoint(store, manifest, *, _prepared=None):
     """Read an exact compatible product and bind a new result if needed."""
+    from temsim.instrument_snapshot import decode_instrument
+    from temsim.optics.electron_gun.source_policy import require_tip_coherent_source
+    require_tip_coherent_source(decode_instrument(manifest.instrument_snapshot.graph).electron_gun)
     prepared = _prepared if _prepared is not None else _prepare_gun_wave_plan(manifest.instrument_snapshot)
     if (prepared.snapshot.digest != manifest.instrument_snapshot.digest
             or prepared.stage_signature != manifest.calculation_signatures[PRODUCT]):
