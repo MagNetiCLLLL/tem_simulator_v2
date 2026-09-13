@@ -64,7 +64,20 @@ dist/
 
 # Executed physical-tip checkpoints; never source inputs or repository assets.
 /.temsim-wave-cache/
-# Large numerical wave caches are retained locally, not uploaded to GitHub.
-/docs/development/evidence/20260913-quartic-growth0075/complex_states.npz
-/docs/development/evidence/20260913-quartic-growth01/complex_states.npz
-/docs/development/evidence/20260913-quartic-following0075/complex_states.npz
+# Generated numerical arrays and checkpoints stay local regardless of size.
+# Scope these rules to calculation outputs; instrument_records/, data/ and
+# test input fixtures are NOT excluded by extension.
+/docs/development/evidence/**/*.npz
+/docs/development/evidence/**/*.npy
+/docs/development/evidence/**/*.pkl
+/docs/development/evidence/**/*.pickle
+/docs/development/evidence/**/*.h5
+/docs/development/evidence/**/*.hdf5
+/docs/development/evidence/**/*.zarr/
+/outputs/**/*.npz
+/outputs/**/*.npy
+/outputs/**/*.pkl
+/outputs/**/*.pickle
+/outputs/**/*.h5
+/outputs/**/*.hdf5
+/outputs/**/*.zarr/

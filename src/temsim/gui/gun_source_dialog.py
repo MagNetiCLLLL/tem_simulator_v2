@@ -7,6 +7,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget, QPushButton
 from temsim.optics.electron_gun.tip_coherence import TipCoherence, tip_covariance
 from temsim.optics.electron_gun.tip_surface import SurfaceCoherence, load_tip_surface_reference, reference_path_for_gun
+from temsim.optics.electron_gun.tip_patch import patch_dimensions
+from temsim.gui.tip_geometry_preview import TipGeometryPreview
 
 
 class GunSourceDialog(QDialog):
@@ -40,8 +42,8 @@ class GunSourceDialog(QDialog):
         self._gun = gun
         self._instrument_state = instrument_state
         self._value = None
-        self.setWindowTitle("FEG tip emission")
-        self.resize(620, 520)
+        self.setWindowTitle("FEG tip geometry and emission")
+        self.resize(680, 760)
         layout = QVBoxLayout(self)
         note = QLabel(
             "Define emission at the tip. Extraction, acceleration and downstream optics are calculated."
@@ -53,7 +55,11 @@ class GunSourceDialog(QDialog):
         scroll.setWidgetResizable(True)
         panel = QWidget()
         panel_layout = QVBoxLayout(panel)
-        self.surface_enabled = QCheckBox("Grounded tip surface model (reference)")
+        self.particle_button = QPushButton("Use curved-tip particles")
+        self.particle_button.setToolTip("Select classical emission from the editable curved surface. Apply is required; historical source settings are retained.")
+        self.particle_button.clicked.connect(self._use_particles)
+        panel_layout.addWidget(self.particle_button)
+        self.surface_enabled = QCheckBox("Curved tip surface")
         self.surface_enabled.setChecked(gun.emitter.surface_model is not None)
         panel_layout.addWidget(self.surface_enabled)
         self.surface_panel = QWidget()
@@ -73,16 +79,37 @@ class GunSourceDialog(QDialog):
         reload_reference = QPushButton("Reload reference TOML")
         reload_reference.clicked.connect(self._reload_surface)
         surface_form.addRow(reload_reference)
+        self.geometry_inputs = {}
+        for key, label in (("apex_radius_nm", "Apex radius of curvature (nm)"),
+                           ("cone_half_angle_deg", "Cone half-angle (deg)"),
+                           ("shank_length_um", "Shank length (µm)")):
+            edit = QLineEdit(str(getattr(self._surface_draft.geometry, key)))
+            self.geometry_inputs[key] = edit
+            surface_form.addRow(label, edit)
+            edit.textChanged.connect(self._surface_summary)
+        self.geometry_inputs["apex_radius_nm"].setToolTip("Physical spherical apex radius, not the emission-patch radius. Changes the surface positions, normals and extraction-field boundary.")
+        self.geometry_inputs["cone_half_angle_deg"].setToolTip("Cone angle relative to the axis. The spherical surface joins the cone tangentially; the emitting patch must remain inside that join.")
+        self.geometry_inputs["shank_length_um"].setToolTip("Physical metal length upstream of the apex; not an independently placed electron source.")
+        self.geometry_preview = TipGeometryPreview()
+        surface_form.addRow(self.geometry_preview)
+        self.patch_summary = QLabel()
+        self.patch_summary.setWordWrap(True)
+        self.patch_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard)
+        surface_form.addRow("Derived patch geometry", self.patch_summary)
         self.surface_inputs = {}
         for key, label in (("current_na", "Prescribed surface current (nA)"),
-                           ("cap_half_angle_deg", "Emission cap half-angle (deg)"),
+                           ("cap_half_angle_deg", "Emitting cap half-angle (deg)"),
                            ("normal_mean_energy_ev", "Mean normal kinetic energy (eV)"),
                            ("tangential_mean_energy_ev", "Mean tangential kinetic energy (eV)")):
             edit = QLineEdit(str(getattr(self._surface_draft.emission, key)))
             self.surface_inputs[key] = edit
             surface_form.addRow(label, edit)
             edit.textChanged.connect(self._surface_summary)
-        self.surface_coherent = QCheckBox("Coherent surface reservoir (development)")
+        self.surface_inputs["cap_half_angle_deg"].setToolTip("Geometric polar half-angle measured from the sphere centre. This defines emitting area, not the angular spread of electrons about each local normal.")
+        self.wave_options = QCheckBox("Show wave development (paused)")
+        self.wave_options.setChecked(self._surface_draft.coherence is not None)
+        surface_form.addRow(self.wave_options)
+        self.surface_coherent = QCheckBox("Coherent surface reservoir (development, paused)")
         self.surface_coherent.setChecked(self._surface_draft.coherence is not None)
         surface_form.addRow(self.surface_coherent)
         self.quantum_inputs = {}
@@ -120,6 +147,7 @@ class GunSourceDialog(QDialog):
         panel_layout.addWidget(self.surface_panel)
         self.legacy_panel = QWidget()
         form = QFormLayout(self.legacy_panel)
+        self.legacy_form = form
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form.addRow(QLabel("Historical emission model — not converted to a surface source"))
         panel_layout.addWidget(self.legacy_panel)
@@ -138,6 +166,7 @@ class GunSourceDialog(QDialog):
             "when this option is off. Total angular spread includes diffraction, incoherent spread and curvature. "
             "All physical apertures remain active. Full TEM/STEM wave imaging is still under development.")
         description.setWordWrap(True)
+        self.legacy_coherent_description = description
         form.addRow(description)
         parameters = gun.emitter.coherence or TipCoherence()
         self.coherence_inputs = {}
@@ -148,6 +177,7 @@ class GunSourceDialog(QDialog):
         self.coherence_enabled.toggled.connect(self._sync_fields)
         self.surface_enabled.toggled.connect(self._sync_fields)
         self.surface_coherent.toggled.connect(self._sync_fields)
+        self.wave_options.toggled.connect(self._sync_fields)
         self._sync_fields()
         self._surface_summary()
         layout.addWidget(scroll)
@@ -166,9 +196,16 @@ class GunSourceDialog(QDialog):
         enabled = self.coherence_enabled.isChecked()
         for edit in self.coherence_inputs.values():
             edit.setEnabled(enabled)
+            self.legacy_form.setRowVisible(edit, enabled)
+        self.legacy_coherent_description.setVisible(enabled)
+        self.coherence_enabled.setVisible(enabled)
         for key in ("angular_rms_mrad", "angular_cutoff_mrad"):
             self.inputs[key].setEnabled(not enabled)
         quantum = self.surface_coherent.isChecked()
+        # Hiding development controls must not convert an archived source.
+        if quantum and not self.wave_options.isChecked():
+            self.wave_options.setChecked(True)
+        self.surface_form.setRowVisible(self.surface_coherent, self.wave_options.isChecked())
         self.surface_status.setText(
             "Development near-field preview only. Ray Diagram and TEM/STEM imaging are unavailable."
             if quantum else "Classical rays available; no coherent phase for TEM/STEM wave imaging.")
@@ -182,12 +219,24 @@ class GunSourceDialog(QDialog):
             self.surface_form.setRowVisible(self.surface_inputs[key], not quantum)
         for edit in self.quantum_inputs.values():
             self.surface_form.setRowVisible(edit, quantum)
-        self.near_field_button.setEnabled(quantum and self._instrument_state is not None)
+        self.near_field_button.setVisible(quantum)
+        self.near_field_button.setEnabled(False)
+        self.near_field_button.setToolTip("Wave propagation development is paused. Existing profiles and code are retained; this editor does not start a wave calculation.")
         self._surface_summary()
+
+    def _use_particles(self):
+        """Explicit draft conversion; never changes the live instrument itself."""
+        self.surface_coherent.setChecked(False)
+        self.coherence_enabled.setChecked(False)
+        self.wave_options.setChecked(False)
+        self.surface_enabled.setChecked(True)
+        self._sync_fields()
 
     def _reload_surface(self):
         try:
             self._surface_draft = load_tip_surface_reference(self._reference_path)
+            for key, edit in self.geometry_inputs.items():
+                edit.setText(str(getattr(self._surface_draft.geometry, key)))
             for key, edit in self.surface_inputs.items():
                 edit.setText(str(getattr(self._surface_draft.emission, key)))
             self.surface_coherent.setChecked(self._surface_draft.coherence is not None)
@@ -204,7 +253,9 @@ class GunSourceDialog(QDialog):
                            **{key: float(edit.text()) for key, edit in self.surface_inputs.items()
                               if not quantum or key in ("current_na", "cap_half_angle_deg")})
         coherence = SurfaceCoherence(**{key: float(edit.text()) for key, edit in self.quantum_inputs.items()}) if quantum else None
-        return replace(self._surface_draft, emission=emission, coherence=coherence).validate()
+        geometry = replace(self._surface_draft.geometry,
+                           **{key: float(edit.text()) for key, edit in self.geometry_inputs.items()})
+        return replace(self._surface_draft, geometry=geometry, emission=emission, coherence=coherence).validate()
 
     def _surface_summary(self):
         if not hasattr(self, "surface_derived"):
@@ -212,7 +263,16 @@ class GunSourceDialog(QDialog):
         try:
             value = self._surface_value()
             g, e = value.geometry, value.emission
-            self.surface_geometry.setText(f"{g.material} | spherical cap + cone | R {g.apex_radius_nm:g} nm | cone {g.cone_half_angle_deg:g}° | reference, uncalibrated")
+            dimensions = patch_dimensions(g, e.cap_half_angle_deg)
+            self.geometry_preview.set_model(value)
+            self.surface_geometry.setText(f"{g.material} | spherical cap + tangent cone | reference, uncalibrated")
+            self.patch_summary.setText(
+                f"Diameter {dimensions['projected_diameter_nm']:.5g} nm | depth {dimensions['cap_depth_nm']:.5g} nm\n"
+                f"Half-angle {dimensions['half_angle_rad']:.5g} rad | apex-to-edge arc {dimensions['apex_to_edge_arc_nm']:.5g} nm")
+            self.patch_summary.setToolTip(
+                f"Derived from radius R and cap half-angle θ; not independent inputs. Curvature = 1/R = {dimensions['apex_curvature_nm_inv']:.5g} nm⁻¹. "
+                "Diameter = 2R sin θ; depth = R(1−cos θ); apex-to-edge arc = Rθ; area = 2πR²(1−cos θ). "
+                "All angles are geometric. Normal/tangential energy components below define the particle direction distribution.")
             self.surface_derived.setToolTip(self._classical_surface_tooltip)
             self.surface_derived.setText(f"Mean energy {e.mean_energy_ev:g} eV | energy RMS {e.energy_sigma_ev:.4g} eV\n"
                 f"Patch area {e.area_nm2(g):.4g} nm² | directions from local normal + tangential energy")
@@ -225,6 +285,8 @@ class GunSourceDialog(QDialog):
                 f"Extraction difference {ext:g} kV. Change voltages on the existing electrodes.")
         except (TypeError, ValueError) as error:
             self.surface_derived.setText(str(error))
+            self.patch_summary.setText("Invalid geometry or emission inputs")
+            self.geometry_preview.set_model(None)
 
     def _preview_surface(self):
         try:

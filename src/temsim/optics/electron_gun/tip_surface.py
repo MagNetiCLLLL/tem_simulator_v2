@@ -80,7 +80,8 @@ class SurfaceEmission:
         return math.hypot(self.normal_mean_energy_ev, self.tangential_mean_energy_ev)
 
     def area_nm2(self, geometry):
-        return 2 * math.pi * geometry.apex_radius_nm**2 * (1 - math.cos(math.radians(self.cap_half_angle_deg)))
+        from temsim.optics.electron_gun.tip_patch import patch_dimensions
+        return patch_dimensions(geometry, self.cap_half_angle_deg)["surface_area_nm2"]
 
 
 @dataclass(frozen=True)
@@ -221,15 +222,8 @@ def emit_surface(model, count):
         raise ValueError("Surface emission requires at least 9 samples")
     u, a, en, et, b = _halton_dimensions(int(count), (2, 3, 5, 7, 11))
     p = model.emission
-    cos_theta = 1 - u * (1 - math.cos(math.radians(p.cap_half_angle_deg)))
-    sin_theta = np.sqrt(1 - cos_theta**2)
-    phi = 2 * np.pi * a
-    normals = np.column_stack((sin_theta*np.cos(phi), sin_theta*np.sin(phi), cos_theta))
-    radius = model.geometry.apex_radius_nm * 1e-9
-    positions = radius * normals
-    positions[:, 2] -= radius
-    tangent1 = np.column_stack((cos_theta*np.cos(phi), cos_theta*np.sin(phi), -sin_theta))
-    tangent2 = np.column_stack((-np.sin(phi), np.cos(phi), np.zeros(int(count))))
+    from temsim.optics.electron_gun.tip_patch import sample_cap_frame
+    positions, normals, tangent1, tangent2 = sample_cap_frame(model.geometry, p.cap_half_angle_deg, u, a)
     normal_energy = -p.normal_mean_energy_ev * np.log1p(-en)
     tangent_energy = -p.tangential_mean_energy_ev * np.log1p(-et)
     tangent = np.cos(2*np.pi*b)[:, None]*tangent1 + np.sin(2*np.pi*b)[:, None]*tangent2

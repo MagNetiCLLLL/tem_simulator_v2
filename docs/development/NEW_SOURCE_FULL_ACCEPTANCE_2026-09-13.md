@@ -1,5 +1,10 @@
 # New tip-source full-product acceptance work
 
+**Current status: paused by the user.** Current work is limited to classical
+particle tip geometry; see [the particle-tip guide](PARTICLE_TIP_GEOMETRY_2026-09-13.md).
+The original request and pending acceptance table below are historical context,
+not authorization to restart wave propagation or a claim of full completion.
+
 User request: continue until the new source supports Ray Diagram and all
 signals available from the historical source. Ask the user before stopping
 while required work remains. This document is a work record, not a PASS.

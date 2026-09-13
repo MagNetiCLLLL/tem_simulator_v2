@@ -33,3 +33,18 @@ These requirements were explicitly specified by the user on 2026-09-11.
   resource choices must not silently remove modelled physical effects.
 - Integrate the energy filter last. A detector physically before its entrance
   does not traverse it; a requested path reaching it must not bypass it.
+
+## Current scope and generated data (2026-09-13)
+
+- Coherent tip-to-column wave development is paused at the user's request.
+  Do not restart long wave calculations or silently enable a coherent source.
+  Keep historical wave code and profiles readable. Current work uses classical
+  particle emission with editable physical tip geometry and local emission.
+- Curvature radius, cone angle and emitting-cap angle are distinct quantities.
+  Derived patch diameter, depth, surface area and arc length are not independent
+  downstream source inputs. Preserve extraction, acceleration and apertures.
+- Do not commit generated calculation caches or numerical array outputs.
+  Keep them locally; retain lightweight reports, source code and input settings.
+  Actual microscope acquisition records are not calculation caches and remain
+  eligible for version control. Do not rewrite published Git history without
+  explicit authorization.
