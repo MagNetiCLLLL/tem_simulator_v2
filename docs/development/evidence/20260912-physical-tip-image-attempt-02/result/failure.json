@@ -1,0 +1,79 @@
+{
+  "schema": "tip-wave-development-failure-v1",
+  "status": "FAILED",
+  "elapsed_s": 0.5564951000014844,
+  "request": {
+    "stop": "detector",
+    "source": {
+      "grid_pixels": 128,
+      "energy_samples": 9,
+      "mode_tail_tolerance": 1e-06,
+      "maximum_modes": 1024
+    },
+    "gun": {
+      "field_step_mm": 0.05,
+      "bore_step_mm": 1.0,
+      "max_steps": 100000,
+      "maximum_checkpoint_bytes": 8589934592
+    },
+    "column_step_mm": 0.5,
+    "wave_grid": {
+      "automatic_refinement": true,
+      "maximum_pixels": 32768,
+      "maximum_working_bytes": 77309411328,
+      "specimen_phase_method": "galerkin",
+      "specimen_quadrature_factor": 2
+    },
+    "readout": {
+      "intensity": true,
+      "phase": false,
+      "complex_amplitude": false,
+      "covariance": false,
+      "phase_relative_threshold": 1e-10
+    },
+    "detector_pixels": 512,
+    "detector_key": "haadf",
+    "maximum_readout_bytes": 77309411328,
+    "execution": {
+      "segmented": true,
+      "segment_steps": 128,
+      "cache_directory": ".temsim-wave-cache",
+      "maximum_ram_cache_bytes": 8589934592,
+      "maximum_disk_cache_bytes": 206158430208
+    },
+    "inelastic": {
+      "method": "trajectories",
+      "trajectories_per_mode": 32,
+      "seed": 0
+    },
+    "tip_time_s": null,
+    "detector_keys": []
+  },
+  "implementation_at_start": "24623567a701f88f82e8118082154b9ebcfe98d5cabedb793a5d4139f21cf0c9",
+  "implementation_at_failure": "24623567a701f88f82e8118082154b9ebcfe98d5cabedb793a5d4139f21cf0c9",
+  "error_type": "TipSourceDomainError",
+  "error": "Tip source domain cannot establish forward support at the declared tail budget (p_transverse/p bound=2.78989); a non-paraxial source model is required. Saved tip parameters were not changed.",
+  "causes": [
+    {
+      "type": "TipSourceDomainError",
+      "message": "Tip source domain cannot establish forward support at the declared tail budget (p_transverse/p bound=2.78989); a non-paraxial source model is required. Saved tip parameters were not changed."
+    }
+  ],
+  "last_progress": null,
+  "source_domain": {
+    "maximum_momentum_std_over_p": 0.45964145438472825,
+    "mean_transverse_momentum_over_p": 0.0,
+    "minimum_evaluated_energy_ev": 0.01,
+    "nonforward_probability_upper_bound": 0.09379564445481596,
+    "paraxial_generator_relative_error_bound": null,
+    "paraxial_generator_relative_error_budget": 0.01,
+    "reference_plane": "physical FEG tip before extraction",
+    "schema": "gaussian-tip-forward-paraxial-v1",
+    "scope": "Source-domain bound only; not propagation or image acceptance",
+    "support_radius_over_p": 2.789889650693728,
+    "tail_policy": "No truncation or renormalisation; outside-region phase accuracy is not qualified",
+    "tail_probability_budget": 1e-08
+  },
+  "requested_checkpoint_published": false,
+  "archive_use": "Failure diagnostics only; contains no replacement electron source"
+}

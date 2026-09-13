@@ -1,0 +1,9 @@
+F...................                                                     [100%]
+================================== FAILURES ===================================
+_______ test_action_coordinate_retains_reflection_and_derivative_knots ________
+tests\test_liouville_wave.py:47: in test_action_coordinate_retains_reflection_and_derivative_knots
+    assert errors[-1] < 2e-6
+E   assert np.float64(3.940827327228687e-06) < 2e-06
+=========================== short test summary info ===========================
+FAILED tests/test_liouville_wave.py::test_action_coordinate_retains_reflection_and_derivative_knots
+1 failed, 19 passed in 0.85s

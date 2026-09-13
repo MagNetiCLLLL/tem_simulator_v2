@@ -1,0 +1,21 @@
+FF..........................................                             [100%]
+================================== FAILURES ===================================
+_____________ test_uniform_costs_keep_small_physical_order_groups _____________
+tests\test_wave_process_scheduling.py:15: in test_uniform_costs_keep_small_physical_order_groups
+    assert balanced_interval_groups(roots([1]*35)) == (tuple(range(12)), tuple(range(12, 24)), tuple(range(24, 35)))
+E   assert ((0, 1, 2, 3,.....), (33, 34)) == ((0, 1, 2, 3,... 28, 29, ...))
+E     
+E     At index 0 diff: (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10) != (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+E     Left contains one more item: (33, 34)
+E     Use -v to get more diff
+__________ test_heavy_neighbours_are_dispatched_independently_first ___________
+tests\test_wave_process_scheduling.py:21: in test_heavy_neighbours_are_dispatched_independently_first
+    assert groups[:4] == ((32,), (33,), (34,), (35,))
+E   assert ((32,), (33,)...2, 3, 4, ...)) == ((32,), (33,), (34,), (35,))
+E     
+E     At index 3 diff: (35, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) != (35,)
+E     Use -v to get more diff
+=========================== short test summary info ===========================
+FAILED tests/test_wave_process_scheduling.py::test_uniform_costs_keep_small_physical_order_groups
+FAILED tests/test_wave_process_scheduling.py::test_heavy_neighbours_are_dispatched_independently_first
+2 failed, 42 passed in 53.01s

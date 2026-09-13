@@ -131,3 +131,34 @@ def test_detector_offset_is_physical_and_not_a_phase_reset():
     shifted = read_wave_detector(c, d, WaveReadoutOptions(phase=True))
     assert shifted.optical_probability.sum() < centered.optical_probability.sum()*1e-6
     assert shifted.modes[0].plane is centered.modes[0].plane
+
+
+def test_per_mode_received_energy_uses_physical_acceptance_not_incident_weight():
+    from temsim.detector.wave_readout import read_wave_detector_streamed
+    c = checkpoint(.2, two=True)
+    first, second = c.beam.modes
+    second = replace(second, energy_kev=299.985,
+        plane=replace(second.plane, origin_m=np.array([50e-6, 0.])),
+        scattering_history=({"kind": "real_plasmon", "energy_loss_ev": 15.},))
+    c = replace(c, beam=replace(c.beam, modes=(first, second)))
+    d = detector(); d.outer_width_mm = .02
+    direct = read_wave_detector(c, d)
+    streamed = read_wave_detector_streamed(c, d, pixels=64)
+    for result in (direct, streamed):
+        rows = result.record["mode_collection"]
+        assert len(rows) == 2
+        assert rows[0]["mode_id"] == first.mode_id
+        assert rows[1]["energy_kev"] == 299.985
+        assert rows[1]["scattering_history"][0]["energy_loss_ev"] == 15.
+        assert rows[1]["optical_received_weight"] < 1e-6*rows[0]["optical_received_weight"]
+        assert sum(row["optical_received_weight"] for row in rows) == pytest.approx(
+            result.optical_probability.sum(), abs=1e-14)
+    assert direct.record["mode_collection"] == streamed.record["mode_collection"]
+    assert c.beam.modes[1].plane is second.plane
+
+
+def test_phase_only_does_not_invent_energy_collection():
+    from temsim.detector.wave_readout import read_wave_detector_streamed
+    for function in (read_wave_detector, read_wave_detector_streamed):
+        result = function(checkpoint(two=True), detector(), WaveReadoutOptions(intensity=False, phase=True))
+        assert "mode_collection" not in result.record

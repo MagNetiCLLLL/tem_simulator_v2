@@ -1,0 +1,9 @@
+.F.                                                                      [100%]
+================================== FAILURES ===================================
+_ test_radial_phase_coordinates_converge_to_the_same_physical_plane_wave[20.0] _
+tests\test_radial_phase_fem.py:32: in test_radial_phase_coordinates_converge_to_the_same_physical_plane_wave
+    assert errors[-1] < 5e-4
+E   assert 0.0007470849397104994 < 0.0005
+=========================== short test summary info ===========================
+FAILED tests/test_radial_phase_fem.py::test_radial_phase_coordinates_converge_to_the_same_physical_plane_wave[20.0]
+1 failed, 2 passed in 0.79s

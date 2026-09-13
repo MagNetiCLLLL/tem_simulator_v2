@@ -1,0 +1,10 @@
+{
+  "elapsed_s": 4.364958999998635,
+  "error": "Covariant carrier slab current residual 1.00446e-09; refine its representation",
+  "implementation": "7ef3b2fce8541dbe3e527998f0d1a25019db4d02d5d6110060834e9117f46f76",
+  "implementation_unchanged": true,
+  "instrument_digest": "034619ed069593958fbc916565a68cf591ce012c8a5b44e73a93123d810d22fd",
+  "scope": "DEVELOPMENT_ROUND_PREFIX_NOT_IMAGE_ACCEPTANCE",
+  "status": "FAILED",
+  "traceback": "Traceback (most recent call last):\n  File \"F:\\tem_simulator_v2\\scripts\\inspect_surface_column.py\", line 53, in main\n    checkpoint, near = build_surface_gun_checkpoint(state.electron_gun,\n                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"F:\\tem_simulator_v2\\src\\temsim\\physics\\surface_gun_wave.py\", line 116, in build_surface_gun_checkpoint\n    load, frame = prepare_round_gun(working, surface.exit_height_nm, float(energy), radial,\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"F:\\tem_simulator_v2\\src\\temsim\\physics\\radial_gun_wave.py\", line 277, in prepare_round_gun\n    scatter, diagnostic = hermitian_slab(residual, connection, float(dz), k_ref,\n                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"F:\\tem_simulator_v2\\src\\temsim\\physics\\scattering_load.py\", line 118, in hermitian_slab\n    return covariant_carrier_slab(q, connection, width, kappa, carrier_k)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"F:\\tem_simulator_v2\\src\\temsim\\physics\\scattering_load.py\", line 102, in covariant_carrier_slab\n    raise ValueError(f\"Covariant carrier slab current residual {error:.6g}; refine its representation\")\nValueError: Covariant carrier slab current residual 1.00446e-09; refine its representation\n"
+}

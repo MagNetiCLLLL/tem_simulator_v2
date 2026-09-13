@@ -107,11 +107,13 @@ def _feg_part_data(key):
 def _create_emitter():
     geometry = _feg_part_geometry(FEG_TIP)
     part = _feg_part_data(FEG_TIP)
-    return ColdFieldEmitter(
+    emitter = ColdFieldEmitter(
         mechanical_center_from_tip_mm=geometry.center_z_mm,
         mechanical_length_mm=geometry.length_mm,
         mechanical_outer_diameter_mm=float(part["outer_diameter_mm"]),
     )
+    emitter._tip_reference_file = str(part.get("tip_surface_reference_file", "sources/cold_feg_tip.toml"))
+    return emitter
 
 
 def _create_extractor():
@@ -202,6 +204,8 @@ def _create_stigmator():
 def _apply_part_geometry(component, module_path):
     geometry = module_manifest.part_geometry(module_path, component.key)
     part = module_manifest.part_data(module_path, component.key)
+    if isinstance(component, ColdFieldEmitter):
+        component._tip_reference_file = str(part.get("tip_surface_reference_file", "sources/cold_feg_tip.toml"))
     component.mechanical_center_from_tip_mm = geometry.center_z_mm
     component.mechanical_length_mm = geometry.length_mm
     if (
@@ -266,6 +270,8 @@ def _apply_resolved_part_geometry(component, part):
     """Apply one already-resolved assembly part without reopening a TOML."""
 
     data = part.data
+    if isinstance(component, ColdFieldEmitter):
+        component._tip_reference_file = str(data.get("tip_surface_reference_file", "sources/cold_feg_tip.toml"))
     local_shift_mm = (
         float(part.center_z_mm) - float(data["local_center_z_mm"])
     )
@@ -346,6 +352,8 @@ def _component_payload(component):
     payload = asdict(component)
     if isinstance(component, ColdFieldEmitter) and component.coherence is not None:
         payload["coherence"] = asdict(component.coherence)
+    if isinstance(component, ColdFieldEmitter) and component.surface_model is not None:
+        payload["surface_model"] = component.surface_model.to_dict()
     if component.key in _TOML_GEOMETRY_COMPONENT_KEYS:
         for attribute in _TOML_GEOMETRY_ATTRIBUTES:
             payload.pop(attribute, None)
@@ -361,6 +369,10 @@ def _component_payload(component):
 def _restore_component_settings(component, row):
     allowed = component.__dataclass_fields__
     for attribute, value in row.items():
+        if isinstance(component, ColdFieldEmitter) and attribute == "surface_model":
+            from temsim.optics.electron_gun.tip_surface import TipSurfaceModel
+            component.surface_model = None if value is None else TipSurfaceModel.from_dict(value)
+            continue
         if isinstance(component, ColdFieldEmitter) and attribute == "coherence":
             from temsim.optics.electron_gun.tip_coherence import TipCoherence
             component.coherence = None if value is None else TipCoherence(**value).validate()
@@ -590,6 +602,9 @@ class FieldEmissionGun:
     @property
     def diagnostic_waist_region_mm(self):
         lens = self.electrostatic_lens
+        if getattr(self.emitter, "surface_model", None) is not None:
+            # A search region, not an assertion that the electric field ends.
+            return lens.mechanical_center_from_tip_mm + .5*lens.mechanical_length_mm, self.exit_plane_z_mm
         start = (
             lens.optical_reference_from_tip_mm
             + 0.5 * lens.mechanical_length_mm
@@ -599,12 +614,13 @@ class FieldEmissionGun:
 
     @property
     def electric_field(self):
-        base = FegElectrostaticField(
-            self.emitter,
-            self.extractor,
-            self.electrostatic_lens,
-            self.accelerator,
-        )
+        if self.type_key == "cold_feg" and self.emitter.surface_model is not None:
+            from temsim.physics.grounded_tip_field import grounded_field
+            base = grounded_field(self)
+        else:
+            base = FegElectrostaticField(
+                self.emitter, self.extractor, self.electrostatic_lens, self.accelerator,
+            )
         if not self.monochromator_installed:
             return base
         return CombinedElectricField(
@@ -626,8 +642,15 @@ class FieldEmissionGun:
     def validate(self):
         from temsim.optics.electron_gun.source_policy import require_physical_gun_source
         require_physical_gun_source(self)
+        surface = getattr(self.emitter, "surface_model", None) is not None
         for component in self.base_components:
-            component.validate()
+            if surface and any(component is item for item in (self.extractor, self.electrostatic_lens, self.accelerator)):
+                component.validate(grounded=True)
+            else:
+                component.validate()
+        if surface:
+            from temsim.physics.grounded_tip_field import field_request
+            field_request(self)  # validate physical boundary inputs, not old ramps
         if self.monochromator is not None:
             self.monochromator.validate()
         self._bind_c1_mechanism()
@@ -652,6 +675,9 @@ class FieldEmissionGun:
         # This field is TOML-owned and deliberately omitted from profiles,
         # but changing its calibration must invalidate cached gun trajectories.
         payload["blanking_field_y_mt"] = float(self.deflector.blanking_field_y_mt)
+        if self.type_key == "cold_feg" and self.emitter.surface_model is not None:
+            from temsim.physics.grounded_tip_field import field_request
+            payload["grounded_field"] = field_request(self)
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
     def trace_to_exit(self, count=None):
@@ -674,6 +700,11 @@ class FieldEmissionGun:
     def local_wien_reference_energy_ev(self):
         if self.type_key != "cold_feg" or self.monochromator is None:
             raise ValueError("Only a cold FEG can own a monochromator.")
+        if self.emitter.surface_model is not None:
+            from temsim.physics.grounded_tip_field import grounded_field
+            base = grounded_field(self)
+            position = np.array([[0., 0., self.monochromator.wien.optical_reference_from_tip_mm*1e-3]])
+            return float(base.potential_v_at_global_positions(position)[0]) + self.nominal_exit_energy_ev + self.emitter.surface_model.emission.mean_energy_ev
         base = FegElectrostaticField(
             self.emitter,
             self.extractor,
@@ -747,6 +778,10 @@ class FieldEmissionGun:
 
     @property
     def field_supports_mm(self):
+        if getattr(self.emitter, "surface_model", None) is not None:
+            # Laplace fields extend through the vacuum domain; legacy compact
+            # ramps cannot declare a field-free section of this solved gun.
+            return ((-self.emitter.surface_model.geometry.shank_length_um*.001, self.exit_plane_z_mm),)
         lens = self.electrostatic_lens
         supports = [
             (
@@ -836,7 +871,7 @@ class FieldEmissionGun:
         payload = {
             "type": self.type_key,
             "integrator": {
-                "method": "boris",
+                "method": ("static_discrete_gradient" if getattr(self.emitter, "surface_model", None) is not None else "boris"),
                 "trace_step_mm": self.trace_step_mm,
                 "drift_step_mm": self.drift_step_mm,
                 "history_step_mm": self.history_step_mm,
@@ -880,8 +915,9 @@ def field_emission_gun_from_dict(data=None):
             raise ValueError(f"Missing electron-gun component: {component.key}")
         _restore_component_settings(component, row)
     integrator = dict(values.get("integrator", {}))
-    if integrator.get("method", "boris") != "boris":
-        raise ValueError("Production FEG integrator must be Boris.")
+    expected_method = "static_discrete_gradient" if gun.emitter.surface_model is not None else "boris"
+    if integrator.get("method", "boris") != expected_method:
+        raise ValueError("Saved FEG integrator does not match its tip model.")
     gun.trace_step_mm = float(
         integrator.get("trace_step_mm", gun.trace_step_mm)
     )

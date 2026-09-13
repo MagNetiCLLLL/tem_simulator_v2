@@ -1,0 +1,15 @@
+.........F........................................                       [100%]
+================================== FAILURES ===================================
+_ test_graph_coordinates_preserve_tiny_transverse_phase_without_subtracting_large_carrier _
+tests\test_carrier_subspaces.py:29: in test_graph_coordinates_preserve_tiny_transverse_phase_without_subtracting_large_carrier
+    blocks, _ = covariant_carrier_slab(residual, connection, width, carrier, carrier, current_coordinates="graph")
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\scattering_load.py:98: in covariant_carrier_slab
+    graph_bases, graph_record = graph_current_subspaces(vectors, eigen, h, connection, carrier, width)
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\carrier_subspaces.py:23: in graph_current_subspaces
+    raise ValueError(f"Carrier graph invariant-subspace phase defect {defect*abs(width):.6g} exceeds 1e-9")
+E   ValueError: Carrier graph invariant-subspace phase defect 1203.47 exceeds 1e-9
+=========================== short test summary info ===========================
+FAILED tests/test_carrier_subspaces.py::test_graph_coordinates_preserve_tiny_transverse_phase_without_subtracting_large_carrier
+1 failed, 49 passed in 2.05s

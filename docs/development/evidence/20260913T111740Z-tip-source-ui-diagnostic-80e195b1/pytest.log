@@ -1,0 +1,56 @@
+..............Timeout (0:00:40)!
+Thread 0x00009e34 (most recent call first):
+  File "C:\Users\54019\anaconda3\Lib\copy.py", line 118 in deepcopy
+  File "C:\Users\54019\anaconda3\Lib\copy.py", line 221 in _deepcopy_dict
+  File "C:\Users\54019\anaconda3\Lib\copy.py", line 136 in deepcopy
+  File "C:\Users\54019\anaconda3\Lib\copy.py", line 196 in _deepcopy_list
+  File "C:\Users\54019\anaconda3\Lib\copy.py", line 136 in deepcopy
+  File "C:\Users\54019\anaconda3\Lib\copy.py", line 221 in _deepcopy_dict
+  File "C:\Users\54019\anaconda3\Lib\copy.py", line 136 in deepcopy
+  File "F:\tem_simulator_v2\src\temsim\calculation_cache.py", line 249 in _select_geometry_scope
+  File "F:\tem_simulator_v2\src\temsim\calculation_cache.py", line 314 in _drop_post_sample_projection_controls
+  File "F:\tem_simulator_v2\src\temsim\calculation_cache.py", line 759 in _calculation_signatures_from_payload
+  File "F:\tem_simulator_v2\src\temsim\calculation_cache.py", line 644 in calculation_signatures
+  File "F:\tem_simulator_v2\src\temsim\gui\calculation_request.py", line 157 in prepare
+  File "F:\tem_simulator_v2\tests\test_background_preview_gui.py", line 106 in held_prepare
+  File "F:\tem_simulator_v2\src\temsim\gui\calculation_controller.py", line 290 in run
+
+Thread 0x00000838 (most recent call first):
+  File "F:\tem_simulator_v2\src\temsim\gui\input_policy.py", line 25 in eventFilter
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pytestqt\qt_compat.py", line 160 in exec
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pytestqt\wait_signal.py", line 58 in wait
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pytestqt\qtbot.py", line 503 in wait
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pytestqt\qtbot.py", line 600 in waitUntil
+  File "F:\tem_simulator_v2\tests\test_background_preview_gui.py", line 143 in test_live_edits_during_preparation_keep_one_frame_and_latest_pending
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\python.py", line 167 in pytest_pyfunc_call
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_callers.py", line 121 in _multicall
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_manager.py", line 120 in _hookexec
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_hooks.py", line 512 in __call__
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\python.py", line 1707 in runtest
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\runner.py", line 184 in pytest_runtest_call
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_callers.py", line 121 in _multicall
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_manager.py", line 120 in _hookexec
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_hooks.py", line 512 in __call__
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\runner.py", line 250 in <lambda>
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\runner.py", line 361 in from_call
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\runner.py", line 249 in call_and_report
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\runner.py", line 139 in runtestprotocol
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\runner.py", line 118 in pytest_runtest_protocol
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_callers.py", line 121 in _multicall
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_manager.py", line 120 in _hookexec
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_hooks.py", line 512 in __call__
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\main.py", line 408 in pytest_runtestloop
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_callers.py", line 121 in _multicall
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_manager.py", line 120 in _hookexec
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_hooks.py", line 512 in __call__
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\main.py", line 384 in _main
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\main.py", line 330 in wrap_session
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\main.py", line 377 in pytest_cmdline_main
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_callers.py", line 121 in _multicall
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_manager.py", line 120 in _hookexec
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pluggy\_hooks.py", line 512 in __call__
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\config\__init__.py", line 229 in _main
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\_pytest\config\__init__.py", line 253 in _console_main
+  File "F:\tem_simulator_v2\.venv\Lib\site-packages\pytest\__main__.py", line 9 in <module>
+  File "<frozen runpy>", line 88 in _run_code
+  File "<frozen runpy>", line 198 in _run_module_as_main

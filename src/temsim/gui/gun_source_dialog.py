@@ -1,10 +1,12 @@
 """Draft edits to the physical FEG tip; no independent exit-source controls."""
 from copy import copy
+from dataclasses import replace
 import math
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget, QPushButton
 from temsim.optics.electron_gun.tip_coherence import TipCoherence, tip_covariance
+from temsim.optics.electron_gun.tip_surface import SurfaceCoherence, load_tip_surface_reference, reference_path_for_gun
 
 
 class GunSourceDialog(QDialog):
@@ -31,19 +33,18 @@ class GunSourceDialog(QDialog):
         ("energy_half_range_ev", "Energy sampling half-range (eV)"),
     )
 
-    def __init__(self, gun, parent=None):
+    def __init__(self, gun, parent=None, *, instrument_state=None):
         super().__init__(parent)
         if gun.type_key != "cold_feg":
             raise ValueError("This editor controls FEG tip emission only")
         self._gun = gun
+        self._instrument_state = instrument_state
         self._value = None
         self.setWindowTitle("FEG tip emission")
         self.resize(620, 520)
         layout = QVBoxLayout(self)
         note = QLabel(
-            "All inputs describe emission at the FEG tip. Electrons then pass through "
-            "the installed extractor, gun lens, accelerator, deflectors and apertures. "
-            "Downstream beam states are calculated from those components and may be cached."
+            "Define emission at the tip. Extraction, acceleration and downstream optics are calculated."
         )
         note.setWordWrap(True)
         note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -51,7 +52,77 @@ class GunSourceDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         panel = QWidget()
-        form = QFormLayout(panel)
+        panel_layout = QVBoxLayout(panel)
+        self.surface_enabled = QCheckBox("Grounded tip surface model (reference)")
+        self.surface_enabled.setChecked(gun.emitter.surface_model is not None)
+        panel_layout.addWidget(self.surface_enabled)
+        self.surface_panel = QWidget()
+        surface_form = QFormLayout(self.surface_panel)
+        self.surface_form = surface_form
+        surface_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self._reference_path = reference_path_for_gun(gun)
+        self._surface_draft = gun.emitter.surface_model or load_tip_surface_reference(self._reference_path)
+        reference = QLabel(str(self._reference_path))
+        reference.setWordWrap(True)
+        reference.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        surface_form.addRow("Geometry reference", reference)
+        self.surface_geometry = QLabel()
+        self.surface_geometry.setWordWrap(True)
+        self.surface_geometry.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        surface_form.addRow(self.surface_geometry)
+        reload_reference = QPushButton("Reload reference TOML")
+        reload_reference.clicked.connect(self._reload_surface)
+        surface_form.addRow(reload_reference)
+        self.surface_inputs = {}
+        for key, label in (("current_na", "Prescribed surface current (nA)"),
+                           ("cap_half_angle_deg", "Emission cap half-angle (deg)"),
+                           ("normal_mean_energy_ev", "Mean normal kinetic energy (eV)"),
+                           ("tangential_mean_energy_ev", "Mean tangential kinetic energy (eV)")):
+            edit = QLineEdit(str(getattr(self._surface_draft.emission, key)))
+            self.surface_inputs[key] = edit
+            surface_form.addRow(label, edit)
+            edit.textChanged.connect(self._surface_summary)
+        self.surface_coherent = QCheckBox("Coherent surface reservoir (development)")
+        self.surface_coherent.setChecked(self._surface_draft.coherence is not None)
+        surface_form.addRow(self.surface_coherent)
+        self.quantum_inputs = {}
+        quantum = self._surface_draft.coherence or SurfaceCoherence()
+        for key, label in (("mean_energy_ev", "Mean total kinetic energy at tip (eV)"),
+                           ("energy_rms_ev", "Energy RMS at tip (eV)"),
+                           ("edge_phase_rad", "Surface edge phase relative to apex (rad)")):
+            edit = QLineEdit(str(getattr(quantum, key)))
+            self.quantum_inputs[key] = edit
+            surface_form.addRow(label, edit)
+            edit.textChanged.connect(self._surface_summary)
+        self.surface_derived = QLabel()
+        self.surface_derived.setWordWrap(True)
+        self.surface_derived.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        surface_form.addRow("Derived — not independent", self.surface_derived)
+        self.surface_derived.setToolTip(
+            "Uniform area on the curved tip cap. Normal and tangential energies have exponential distributions; "
+            "directions are relative to the local surface normal. Total energy, RMS energy width, angular spread "
+            "and current density follow from these inputs. Brightness/virtual-source size are downstream results. "
+            "No independent angular cutoff, energy FWHM, Young or Boersch broadening is applied. "
+            "This prescribed classical flux does not predict tunnelling current or coherent phase.")
+        self._classical_surface_tooltip = self.surface_derived.toolTip()
+        self.surface_voltage = QLabel()
+        self.surface_voltage.setWordWrap(True)
+        self.surface_voltage.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        surface_form.addRow("Electrical reference", self.surface_voltage)
+        self.surface_status = QLabel()
+        self.surface_status.setWordWrap(True)
+        self.surface_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        surface_form.addRow(self.surface_status)
+        self.near_field_button = QPushButton("Preview coherent tip near field...")
+        self.near_field_button.setToolTip("Calculate this draft in a separate window without changing current instrument or image results. Classical ray sampling is unavailable for this coherent source.")
+        self.near_field_button.clicked.connect(self._preview_surface)
+        surface_form.addRow(self.near_field_button)
+        panel_layout.addWidget(self.surface_panel)
+        self.legacy_panel = QWidget()
+        form = QFormLayout(self.legacy_panel)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.addRow(QLabel("Historical emission model — not converted to a surface source"))
+        panel_layout.addWidget(self.legacy_panel)
         scroll.setWidget(panel)
         self.inputs = {}
         for key, label in self.fields:
@@ -75,10 +146,14 @@ class GunSourceDialog(QDialog):
             self.coherence_inputs[key] = edit
             form.addRow(label, edit)
         self.coherence_enabled.toggled.connect(self._sync_fields)
+        self.surface_enabled.toggled.connect(self._sync_fields)
+        self.surface_coherent.toggled.connect(self._sync_fields)
         self._sync_fields()
+        self._surface_summary()
         layout.addWidget(scroll)
         self.error = QLabel()
         self.error.setWordWrap(True)
+        self.error.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.error)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self.accept)
@@ -86,15 +161,98 @@ class GunSourceDialog(QDialog):
         layout.addWidget(buttons)
 
     def _sync_fields(self):
+        self.surface_panel.setVisible(self.surface_enabled.isChecked())
+        self.legacy_panel.setVisible(not self.surface_enabled.isChecked())
         enabled = self.coherence_enabled.isChecked()
         for edit in self.coherence_inputs.values():
             edit.setEnabled(enabled)
         for key in ("angular_rms_mrad", "angular_cutoff_mrad"):
             self.inputs[key].setEnabled(not enabled)
+        quantum = self.surface_coherent.isChecked()
+        self.surface_status.setText(
+            "Development near-field preview only. Ray Diagram and TEM/STEM imaging are unavailable."
+            if quantum else "Classical rays available; no coherent phase for TEM/STEM wave imaging.")
+        self.surface_status.setToolTip(
+            "Apply saves this source selection even if a calculation is rejected. "
+            "Coherent tip/gun boundary, basis and column convergence remain unqualified. "
+            "The near-field preview does not change the applied source or previous images.")
+        self.surface_form.labelForField(self.surface_inputs["current_na"]).setText(
+            "Incoming reservoir current (nA)" if quantum else "Prescribed surface current (nA)")
+        for key in ("normal_mean_energy_ev", "tangential_mean_energy_ev"):
+            self.surface_form.setRowVisible(self.surface_inputs[key], not quantum)
+        for edit in self.quantum_inputs.values():
+            self.surface_form.setRowVisible(edit, quantum)
+        self.near_field_button.setEnabled(quantum and self._instrument_state is not None)
+        self._surface_summary()
+
+    def _reload_surface(self):
+        try:
+            self._surface_draft = load_tip_surface_reference(self._reference_path)
+            for key, edit in self.surface_inputs.items():
+                edit.setText(str(getattr(self._surface_draft.emission, key)))
+            self.surface_coherent.setChecked(self._surface_draft.coherence is not None)
+            quantum = self._surface_draft.coherence or SurfaceCoherence()
+            for key, edit in self.quantum_inputs.items():
+                edit.setText(str(getattr(quantum, key)))
+            self._surface_summary()
+        except (OSError, ValueError) as error:
+            self.error.setText(str(error))
+
+    def _surface_value(self):
+        quantum = self.surface_coherent.isChecked()
+        emission = replace(self._surface_draft.emission,
+                           **{key: float(edit.text()) for key, edit in self.surface_inputs.items()
+                              if not quantum or key in ("current_na", "cap_half_angle_deg")})
+        coherence = SurfaceCoherence(**{key: float(edit.text()) for key, edit in self.quantum_inputs.items()}) if quantum else None
+        return replace(self._surface_draft, emission=emission, coherence=coherence).validate()
+
+    def _surface_summary(self):
+        if not hasattr(self, "surface_derived"):
+            return
+        try:
+            value = self._surface_value()
+            g, e = value.geometry, value.emission
+            self.surface_geometry.setText(f"{g.material} | spherical cap + cone | R {g.apex_radius_nm:g} nm | cone {g.cone_half_angle_deg:g}° | reference, uncalibrated")
+            self.surface_derived.setToolTip(self._classical_surface_tooltip)
+            self.surface_derived.setText(f"Mean energy {e.mean_energy_ev:g} eV | energy RMS {e.energy_sigma_ev:.4g} eV\n"
+                f"Patch area {e.area_nm2(g):.4g} nm² | directions from local normal + tangential energy")
+            if value.coherence is not None:
+                self.surface_derived.setText(f"Patch area {e.area_nm2(g):.4g} nm² | one spatial mode per energy\n"
+                    "Angles follow the wave; not an independent angular spread. Different energies are incoherent.")
+                self.surface_derived.setToolTip("Prescribed post-emission reservoir, not a tunnelling prediction. Cosine-squared surface amplitude, quadratic surface-arc phase, positive gamma total-energy law. Normal/tangential classical energy inputs are inactive. No single phase exists for the energy mixture.")
+            ht, ext = self._gun.accelerator.high_tension_kv, self._gun.extractor.voltage_kv
+            self.surface_voltage.setText(f"Final anode 0 V | Tip {-ht:g} kV | Extractor {-ht+ext:g} kV\n"
+                f"Extraction difference {ext:g} kV. Change voltages on the existing electrodes.")
+        except (TypeError, ValueError) as error:
+            self.surface_derived.setText(str(error))
+
+    def _preview_surface(self):
+        try:
+            from temsim.gui.surface_wave_dialog import SurfaceWaveDialog
+            from temsim.instrument_snapshot import decode_instrument, encode_instrument
+            # Installed assemblies contain immutable mapping proxies. Preserve
+            # the complete live graph without deepcopy or manifest reloading.
+            state = decode_instrument(encode_instrument(self._instrument_state))
+            state.electron_gun.emitter.surface_model = self._surface_value()
+            state.electron_gun.emitter.coherence = None
+            state.electron_gun.source_representation = "classical_particles"
+            dialog = SurfaceWaveDialog(state, self)
+            dialog.exec()
+        except (TypeError, ValueError, RuntimeError) as error:
+            self.error.setText(str(error))
 
     def accept(self):
         candidate = copy(self._gun.emitter)
         try:
+            if self.surface_enabled.isChecked():
+                model = self._surface_value()
+                candidate.coherence = None
+                candidate.surface_model = model
+                candidate.validate()
+                self._value = {"coherence": None, "surface_model": model}
+                super().accept()
+                return
+            candidate.surface_model = None
             values = {key: float(self.inputs[key].text()) for key, _ in self.fields}
             if not all(math.isfinite(value) for value in values.values()):
                 raise ValueError("Tip emission values must be finite")
@@ -106,6 +264,7 @@ class GunSourceDialog(QDialog):
             if candidate.coherence is not None:
                 tip_covariance(candidate, candidate.emission_energy_ev)
             values["coherence"] = candidate.coherence
+            values["surface_model"] = None
         except (TypeError, ValueError) as error:
             self.error.setText(str(error))
             return

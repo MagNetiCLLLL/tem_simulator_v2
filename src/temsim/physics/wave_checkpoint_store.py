@@ -89,6 +89,24 @@ class _ModeWriter:
         self.directory.mkdir()
         self.rows, self.bytes = [], 0
         self.mode_ids = set()
+        self.auxiliary = {}
+
+    def append_auxiliary(self, name, value):
+        """Retain mandatory non-plane state in the same atomic checkpoint."""
+        if (not isinstance(name, str) or not name or len(name) > 80
+                or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789_" for c in name)
+                or name in self.auxiliary):
+            raise ValueError("Auxiliary wave state needs a unique plain array name")
+        array = np.asarray(value)
+        if array.dtype.hasobject:
+            raise ValueError("Executed auxiliary state cannot contain Python objects")
+        self.store.check_space(array.nbytes+256)
+        path = self.directory/("aux_"+name+".npy")
+        np.save(path, array, allow_pickle=False)
+        self.auxiliary[name] = {"file": path.name, "sha256": _hash_file(path),
+                                "shape": array.shape, "nbytes": array.nbytes}
+        self.bytes += path.stat().st_size
+        self.store._used_bytes += path.stat().st_size
 
     def append(self, mode):
         if mode.reference_plane != self.reference:
@@ -120,6 +138,8 @@ class _ModeWriter:
         data = {"schema": "executed-tip-wave-disk-v1", "dependency": self.store.dependency, "key": self.key,
                 "reference_plane": self.reference, "plane_z_mm": float(z_mm), "current_a": current_a,
                 "modes": self.rows, "record": thaw_json(freeze_json(record))}
+        if self.auxiliary:
+            data["auxiliary"] = self.auxiliary
         data["manifest_digest"] = json_digest(data)
         path = self.directory/"manifest.json"
         payload = json.dumps(data, ensure_ascii=False, allow_nan=False).encode("utf-8")
@@ -163,8 +183,7 @@ class ExecutedWaveStore:
     def writer(self, key, reference):
         return _ModeWriter(self, key, reference)
 
-    def get(self, key):
-        from temsim.physics.tip_gun_wave import TipGunCheckpoint
+    def _manifest(self, key):
         if len(key) != 64 or any(c not in "0123456789abcdef" for c in key):
             raise ValueError("Executed cache keys must be calculated dependency digests")
         index = self.root/(key+".json")
@@ -180,6 +199,23 @@ class ExecutedWaveStore:
             raise ValueError("Executed wave cache identity/dependency changed")
         if data["schema"] != "executed-tip-wave-disk-v1":
             raise ValueError("Unsupported executed wave cache schema")
+        return directory, data, identity
+
+    def auxiliary_arrays(self, key):
+        """Read only arrays indexed by a committed, dependency-bound result."""
+        result = self._manifest(key)
+        if result is None:
+            return None
+        directory, data, _ = result
+        reader = _StoredModes(directory, (), data["reference_plane"])
+        return {name: reader._array(item) for name, item in data.get("auxiliary", {}).items()}
+
+    def get(self, key):
+        from temsim.physics.tip_gun_wave import TipGunCheckpoint
+        result = self._manifest(key)
+        if result is None:
+            return None
+        directory, data, identity = result
         beam = _StoredBeam(_StoredModes(directory, data["modes"], data["reference_plane"]), data["reference_plane"], identity)
         return TipGunCheckpoint(beam, data["plane_z_mm"], data["current_a"],
             {**data["record"], "storage": {"manifest_digest": identity, "key": key,

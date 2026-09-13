@@ -1,0 +1,42 @@
+.F...........................................F..FF.................      [100%]
+================================== FAILURES ===================================
+_ test_all_requested_specimen_products_skip_empty_probe_and_progress_completes _
+tests\test_no_illumination.py:58: in test_all_requested_specimen_products_skip_empty_probe_and_progress_completes
+    result = pipeline.calculate(
+src\temsim\simulation_pipeline.py:326: in calculate
+    admit_requested_wave_products(state)
+src\temsim\physics\source_admission.py:91: in admit_requested_wave_products
+    require_gun_wave_source(state, product="Wave imaging")
+src\temsim\physics\source_admission.py:73: in require_gun_wave_source
+    raise UnsupportedWaveSource(
+E   temsim.physics.source_admission.UnsupportedWaveSource: Wave imaging: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.
+_ test_wave_plan_without_legacy_shifts_matches_stored_cube_and_ray_reference __
+tests\test_stem_recording_deflection.py:128: in test_wave_plan_without_legacy_shifts_matches_stored_cube_and_ray_reference
+    wave = simulate_angle_resolved_stem(
+src\temsim\physics\stem_wave_imaging.py:1475: in simulate_angle_resolved_stem
+    require_gun_wave_source(state, product="STEM image")
+src\temsim\physics\source_admission.py:73: in require_gun_wave_source
+    raise UnsupportedWaveSource(
+E   temsim.physics.source_admission.UnsupportedWaveSource: STEM image: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.
+_______ test_resident_cuda_keeps_exact_physical_recording_masks[False] ________
+tests\test_stem_recording_deflection.py:230: in test_resident_cuda_keeps_exact_physical_recording_masks
+    cpu = simulate_angle_resolved_stem(
+src\temsim\physics\stem_wave_imaging.py:1475: in simulate_angle_resolved_stem
+    require_gun_wave_source(state, product="STEM image")
+src\temsim\physics\source_admission.py:73: in require_gun_wave_source
+    raise UnsupportedWaveSource(
+E   temsim.physics.source_admission.UnsupportedWaveSource: STEM image: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.
+________ test_resident_cuda_keeps_exact_physical_recording_masks[True] ________
+tests\test_stem_recording_deflection.py:230: in test_resident_cuda_keeps_exact_physical_recording_masks
+    cpu = simulate_angle_resolved_stem(
+src\temsim\physics\stem_wave_imaging.py:1475: in simulate_angle_resolved_stem
+    require_gun_wave_source(state, product="STEM image")
+src\temsim\physics\source_admission.py:73: in require_gun_wave_source
+    raise UnsupportedWaveSource(
+E   temsim.physics.source_admission.UnsupportedWaveSource: STEM image: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.
+=========================== short test summary info ===========================
+FAILED tests/test_no_illumination.py::test_all_requested_specimen_products_skip_empty_probe_and_progress_completes
+FAILED tests/test_stem_recording_deflection.py::test_wave_plan_without_legacy_shifts_matches_stored_cube_and_ray_reference
+FAILED tests/test_stem_recording_deflection.py::test_resident_cuda_keeps_exact_physical_recording_masks[False]
+FAILED tests/test_stem_recording_deflection.py::test_resident_cuda_keeps_exact_physical_recording_masks[True]
+4 failed, 63 passed in 13.70s

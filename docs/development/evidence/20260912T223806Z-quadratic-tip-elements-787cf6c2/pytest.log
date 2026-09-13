@@ -1,0 +1,9 @@
+.F...........                                                            [100%]
+================================== FAILURES ===================================
+___________ test_quadratic_complex_wave_converges_without_phase_fit ___________
+tests\test_quadratic_axisymmetric_fem.py:33: in test_quadratic_complex_wave_converges_without_phase_fit
+    assert errors[-1] < 1e-5
+E   assert np.float64(8.37060197686519e-05) < 1e-05
+=========================== short test summary info ===========================
+FAILED tests/test_quadratic_axisymmetric_fem.py::test_quadratic_complex_wave_converges_without_phase_fit
+1 failed, 12 passed in 3.34s

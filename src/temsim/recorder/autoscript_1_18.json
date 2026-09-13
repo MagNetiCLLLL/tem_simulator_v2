@@ -1,0 +1,2072 @@
+{
+  "sdk_version": "1.18.0",
+  "wheel_sha256": "85aafc37d6b106ddbafffe3491c3ffcca695b9e38b3ed6d26e9272a3c0487eab",
+  "properties": [
+    {
+      "path": "detectors.screen.position",
+      "type": "str",
+      "description": "The position of the screen. Maps to ScreenPosition enumeration."
+    },
+    {
+      "path": "detectors.scanning_detectors",
+      "type": "List[str]",
+      "description": "Returns the list of available scanning detectors on the microscope. Uses values from DetectorType."
+    },
+    {
+      "path": "detectors.camera_detectors",
+      "type": "List[str]",
+      "description": "Returns the list of available camera detectors on the microscope. Uses values from CameraType."
+    },
+    {
+      "path": "detectors.eds_detectors",
+      "type": "List[str]",
+      "description": "Returns the list of available EDS detectors on the microscope. Uses values from EdsDetectorType."
+    },
+    {
+      "path": "detectors.eels_detectors",
+      "type": "List[str]",
+      "description": "Returns the list of available EELS detectors on the microscope. Uses values from EelsDetectorType."
+    },
+    {
+      "path": "optics.deflectors.gun_tilt",
+      "type": "Point",
+      "description": "The tilt beam in the gun as a unitless 2D vector (x, y). Ranges from -1 to +1 for both x and y."
+    },
+    {
+      "path": "optics.deflectors.gun_shift",
+      "type": "Point",
+      "description": "The shift of the beam as a unitless 2D vector (x, y). Ranges from -1 to +1 for both x and y."
+    },
+    {
+      "path": "optics.deflectors.beam_shift",
+      "type": "Point",
+      "description": "The shift of the beam as a 2D vector in meters (x, y)."
+    },
+    {
+      "path": "optics.deflectors.beam_tilt",
+      "type": "Point",
+      "description": "The tilt of the beam as a unitless 2D vector (x, y). Ranges from -1 to +1 for both x and y."
+    },
+    {
+      "path": "optics.deflectors.image_tilt",
+      "type": "Point",
+      "description": "The tilt of the image as a 2D vector in radians (x, y), equivalent to diffraction shift."
+    },
+    {
+      "path": "optics.deflectors.image_shift",
+      "type": "Point",
+      "description": "The shift of the image as a 2D vector in meters (x, y)."
+    },
+    {
+      "path": "optics.deflectors_raw.beam_lower",
+      "type": "Point",
+      "description": "Lower beam deflector output value as a 2D vector in optical units (x, y). Range: -1 to +1 for both x and y."
+    },
+    {
+      "path": "optics.deflectors_raw.beam_upper",
+      "type": "Point",
+      "description": "Upper beam deflector output as a 2D vector in optical units (x, y). Range: -1 to +1 for x and y."
+    },
+    {
+      "path": "optics.deflectors_raw.gun_lower",
+      "type": "Point",
+      "description": "Lower gun deflector output as a 2D vector in optical units (x, y). Range: -1 to +1 for x and y."
+    },
+    {
+      "path": "optics.deflectors_raw.gun_upper",
+      "type": "Point",
+      "description": "Upper gun deflector output as a 2D vector in optical units (x, y). Range: -1 to +1 for x and y."
+    },
+    {
+      "path": "optics.deflectors_raw.image_lower",
+      "type": "Point",
+      "description": "Lower image deflector output as a 2D vector in optical units (x, y). Range: -1 to +1 for x and y."
+    },
+    {
+      "path": "optics.deflectors_raw.image_upper",
+      "type": "Point",
+      "description": "Upper image deflector output as a 2D vector in optical units (x, y). Range: -1 to +1 for x and y."
+    },
+    {
+      "path": "optics.deflectors_raw.x_lower",
+      "type": "Point",
+      "description": "Lower X deflector output as a 2D vector in optical units (x, y). Range: -1 to +1 for x and y."
+    },
+    {
+      "path": "optics.deflectors_raw.x_upper",
+      "type": "Point",
+      "description": "Upper X deflector output as a 2D vector in optical units (x, y). Range: -1 to +1 for x and y."
+    },
+    {
+      "path": "optics.stigmators.objective_stigmator",
+      "type": "Point",
+      "description": "The objective stigmator value as a 2D vector in optical units (x, y). The maximum value range for both x and y is influenced by optical conditions and approaches (-1, +1)."
+    },
+    {
+      "path": "optics.stigmators.diffraction_stigmator",
+      "type": "Point",
+      "description": "The diffraction stigmator value as a 2D vector in optical units (x, y). The maximum value range for both x and y is influenced by optical conditions and approaches (-1, +1)."
+    },
+    {
+      "path": "optics.stigmators.condenser_stigmator",
+      "type": "Point",
+      "description": "The condenser stigmator value as a 2D vector in optical units (x, y). The maximum value range for both x and y is influenced by optical conditions and approaches (-1, +1)."
+    },
+    {
+      "path": "optics.stigmators.gun_stigmator",
+      "type": "Point",
+      "description": "The gun stigmator value as a 2D vector in optical units (x, y). The maximum value range for both x and y is influenced by optical conditions and approaches (-1, +1)."
+    },
+    {
+      "path": "optics.stigmators_raw.objective_stigmator",
+      "type": "Point",
+      "description": "The objective stigmator as a 2D vector in optical units (x, y). Value ranges from -1 to +1 for both x and y, but may vary on some systems."
+    },
+    {
+      "path": "optics.stigmators_raw.condenser_stigmator",
+      "type": "Point",
+      "description": "The condenser stigmator value as a 2D vector in optical units (x, y). Value ranges from -1 to +1 for both x and y, but may vary on some systems."
+    },
+    {
+      "path": "optics.stigmators_raw.diffraction_stigmator",
+      "type": "Point",
+      "description": "The diffraction stigmator value as a 2D vector in optical units (x, y). Value ranges from -1 to +1 for both x and y, but may vary on some systems."
+    },
+    {
+      "path": "optics.stigmators_raw.gun_stigmator",
+      "type": "Point",
+      "description": "The gun stigmator value as a 2D vector in optical units (x, y). Value ranges from -1 to +1 for both x and y, but may vary on some systems."
+    },
+    {
+      "path": "optics.stigmators_raw.x_stigmator",
+      "type": "Point",
+      "description": "The x stigmator value as a 2D vector in optical units (x, y). Value ranges from -1 to +1 for both x and y, but may vary on some systems."
+    },
+    {
+      "path": "optics.monochromator.shift",
+      "type": "Point",
+      "description": "The shift of the monochromator as a 2D vector in scaled units (x, y)."
+    },
+    {
+      "path": "optics.monochromator.focus",
+      "type": "float",
+      "description": "The focus of the monochromator in volts."
+    },
+    {
+      "path": "optics.acceleration_voltage.value",
+      "type": "float",
+      "description": "Value of the acceleration voltage in volts. [The property is deprecated and will be removed in version 1.21]"
+    },
+    {
+      "path": "optics.acceleration_voltage.limits",
+      "type": "Limits",
+      "description": "The limits of the acceleration_voltage in volts. [The property is deprecated and will be removed in version 1.21]"
+    },
+    {
+      "path": "optics.camera_length.available_values",
+      "type": "List[CameraLengthData]",
+      "description": "Returns the full collection of camera lengths for the current optical state."
+    },
+    {
+      "path": "optics.camera_length.value",
+      "type": "CameraLengthData",
+      "description": "The current camera length. Accepts values from available_values property."
+    },
+    {
+      "path": "optics.magnification.available_values",
+      "type": "List[MagnificationData]",
+      "description": "Returns the full collection of magnifications for the current optical state."
+    },
+    {
+      "path": "optics.magnification.value",
+      "type": "MagnificationData",
+      "description": "The current magnification. Accepts values from available_values property."
+    },
+    {
+      "path": "optics.blanker.auto_beam_blank.mode.value",
+      "type": "str",
+      "description": "Gets or sets the current Auto Beam Blank mode. Maps to values of the AutoBeamBlankMode enumeration."
+    },
+    {
+      "path": "optics.blanker.auto_beam_blank.mode.available_values",
+      "type": "List[str]",
+      "description": "Returns a list of supported Auto Beam Blank modes. Maps to values of the AutoBeamBlankMode enumeration."
+    },
+    {
+      "path": "optics.blanker.beam_modulator.frequency.value",
+      "type": "float",
+      "description": "The frequency of the modulation in Hz."
+    },
+    {
+      "path": "optics.blanker.beam_modulator.frequency.limits",
+      "type": "Limits",
+      "description": "The permissible frequency range of the modulation in Hz."
+    },
+    {
+      "path": "optics.blanker.beam_modulator.is_modulation_on",
+      "type": "bool",
+      "description": "True when pulse width modulation is running."
+    },
+    {
+      "path": "optics.blanker.beam_modulator.duty_cycle",
+      "type": "float",
+      "description": "A fraction of one period in which a signal is active. Ranges between values larger than 0 but less than 1."
+    },
+    {
+      "path": "optics.blanker.is_beam_blanked",
+      "type": "bool",
+      "description": "Returns true when the beam blanker is active."
+    },
+    {
+      "path": "optics.beam_stopper.insertion_state",
+      "type": "str",
+      "description": "Returns the insertion state of the beam stopper. Maps to BeamStopperInsertionState enumeration."
+    },
+    {
+      "path": "optics.focusing.tem.focus",
+      "type": "float",
+      "description": "Focus value of the main imaging lens (in meters)."
+    },
+    {
+      "path": "optics.focusing.tem.defocus",
+      "type": "float",
+      "description": "Defocus value - focus with an offset (in meters)."
+    },
+    {
+      "path": "optics.focusing.stem.objective.focus",
+      "type": "float",
+      "description": "Focus value of the objective lens (in meters)."
+    },
+    {
+      "path": "optics.focusing.stem.objective.defocus",
+      "type": "float",
+      "description": "Defocus value - offset from the objective focus value (in meters)."
+    },
+    {
+      "path": "optics.focusing.stem.intensity.focus",
+      "type": "float",
+      "description": "Focus value of the condenser lens (in meters)."
+    },
+    {
+      "path": "optics.focusing.stem.intensity.defocus",
+      "type": "float",
+      "description": "Defocus value - offset from the condenser focus value (in meters)."
+    },
+    {
+      "path": "optics.energy_filter.mode.available_values",
+      "type": "List[str]",
+      "description": "Returns a list of supported energy filter modes. Uses values from EnergyFilterMode enumeration."
+    },
+    {
+      "path": "optics.energy_filter.mode.value",
+      "type": "str",
+      "description": "Gets or sets the current mode of the energy filter. Uses values from EnergyFilterMode enumeration. Prefer using prepare_mode unless your use case requires skipping the internal state setup."
+    },
+    {
+      "path": "optics.energy_filter.slit.width.value",
+      "type": "float",
+      "description": "Gets/sets the value in eV."
+    },
+    {
+      "path": "optics.energy_filter.slit.width.limits",
+      "type": "Limits",
+      "description": "Returns range in eV."
+    },
+    {
+      "path": "optics.energy_filter.slit.is_inserted",
+      "type": "bool",
+      "description": "Returns true if the slit is inserted."
+    },
+    {
+      "path": "optics.energy_filter.energy_shift.value",
+      "type": "float",
+      "description": "Gets or sets the value in eV."
+    },
+    {
+      "path": "optics.energy_filter.energy_shift.limits",
+      "type": "Limits",
+      "description": "Returns range in eV."
+    },
+    {
+      "path": "optics.energy_filter.high_tension_offset.value",
+      "type": "float",
+      "description": "Gets or sets the value in eV."
+    },
+    {
+      "path": "optics.energy_filter.high_tension_offset.limits",
+      "type": "Limits",
+      "description": "Returns range in eV."
+    },
+    {
+      "path": "optics.energy_filter.apertures.available_values",
+      "type": "List[str]",
+      "description": "Returns a list of supported apertures."
+    },
+    {
+      "path": "optics.energy_filter.apertures.value",
+      "type": "str",
+      "description": "Gets or sets the selected aperture."
+    },
+    {
+      "path": "optics.optical_mode",
+      "type": "str",
+      "description": "The optical mode of the microscope. Maps to OpticalMode enumeration."
+    },
+    {
+      "path": "optics.is_eftem_on",
+      "type": "bool",
+      "description": "The EFTEM (Energy Filtered TEM) mode."
+    },
+    {
+      "path": "optics.projector_mode",
+      "type": "str",
+      "description": "The mode of the projector. Maps to ProjectorMode enumeration."
+    },
+    {
+      "path": "optics.objective_lens_mode",
+      "type": "str",
+      "description": "The objective lens mode. Maps to enumeration ObjectiveLensMode."
+    },
+    {
+      "path": "optics.is_xl_mode_on",
+      "type": "bool",
+      "description": "The X Lens mode."
+    },
+    {
+      "path": "optics.is_holography_mode_on",
+      "type": "bool",
+      "description": "The holography mode."
+    },
+    {
+      "path": "optics.scan_field_of_view",
+      "type": "float",
+      "description": "The field of view of the scan in meters. Applicable only in STEM mode."
+    },
+    {
+      "path": "optics.scan_rotation",
+      "type": "float",
+      "description": "The rotation of the scan in radians. Applicable only in STEM mode."
+    },
+    {
+      "path": "optics.is_accelerator_on",
+      "type": "bool",
+      "description": "Returns true if the high voltage accelerator is on. [The property is deprecated and will be removed in version 1.21]"
+    },
+    {
+      "path": "optics.is_beam_blanked",
+      "type": "bool",
+      "description": "Returns true when the beam blanker is active. [The property is deprecated and will be removed in version 1.21]"
+    },
+    {
+      "path": "optics.illumination_mode",
+      "type": "str",
+      "description": "The illumination mode of the condenser system. Maps to IlluminationMode enumeration. Only available on systems with three condenser lenses."
+    },
+    {
+      "path": "optics.convergence_angle",
+      "type": "float",
+      "description": "The beam convergence angle in radians. Setting the value is only available on systems with three condenser lenses."
+    },
+    {
+      "path": "optics.probe_mode",
+      "type": "str",
+      "description": "The probe mode of the condenser system. Maps to ProbeMode enumeration."
+    },
+    {
+      "path": "optics.beam_diameter",
+      "type": "float",
+      "description": "The beam diameter in meters. Only available on systems with three condenser lenses."
+    },
+    {
+      "path": "optics.paused_scan_beam_position",
+      "type": "Point",
+      "description": "Gets or sets the position where the beam is paused. X and Y components are expressed as a proportion of the full scan area. Range: 0 to +1 for both x and y"
+    },
+    {
+      "path": "optics.intensity",
+      "type": "float",
+      "description": "Intensity value (not available in STEM mode)."
+    },
+    {
+      "path": "optics.spot_size_index",
+      "type": "int",
+      "description": "Index of currently selected spot size."
+    },
+    {
+      "path": "service.autoscript.server.version",
+      "type": "str",
+      "description": "Returns the AutoScript server version."
+    },
+    {
+      "path": "service.autoscript.server.is_offline",
+      "type": "bool",
+      "description": "Tells whether the AutoScript server is running in the simulation (offline) mode."
+    },
+    {
+      "path": "service.autoscript.client.version",
+      "type": "str",
+      "description": "Returns the AutoScript client version."
+    },
+    {
+      "path": "service.autoscript.client.is_stop_requested",
+      "type": "bool",
+      "description": "Returns true if a graceful stop of the currently executing script was requested."
+    },
+    {
+      "path": "service.autoscript.client.is_pause_requested",
+      "type": "bool",
+      "description": "Returns true if a pause of the currently executing script was requested."
+    },
+    {
+      "path": "service.system.name",
+      "type": "str",
+      "description": "Returns the microscope system name."
+    },
+    {
+      "path": "service.system.serial_number",
+      "type": "str",
+      "description": "Returns the microscope serial number."
+    },
+    {
+      "path": "service.system.version",
+      "type": "str",
+      "description": "Returns the TEM server software version."
+    },
+    {
+      "path": "source.acceleration_voltage.value",
+      "type": "float",
+      "description": "Value of the acceleration voltage in volts."
+    },
+    {
+      "path": "source.acceleration_voltage.limits",
+      "type": "Limits",
+      "description": "The limits of the acceleration_voltage in volts."
+    },
+    {
+      "path": "source.field_emission_gun.extractor_voltage.value",
+      "type": "float",
+      "description": "Value of the extractor votlage in volts."
+    },
+    {
+      "path": "source.field_emission_gun.extractor_voltage.limits",
+      "type": "Limits",
+      "description": "The limits of the extractor_voltage in volts."
+    },
+    {
+      "path": "source.field_emission_gun.is_flashing_advised",
+      "type": "bool",
+      "description": ""
+    },
+    {
+      "path": "source.field_emission_gun.gun_lens_value",
+      "type": "float",
+      "description": "Provides access to gun lens settings. Accepts values in a range of [1, 8]."
+    },
+    {
+      "path": "source.type",
+      "type": "str",
+      "description": "Returns type of source. Values from enumeration SourceType are used."
+    },
+    {
+      "path": "source.is_accelerator_on",
+      "type": "bool",
+      "description": "Returns true if the high voltage accelerator is on."
+    },
+    {
+      "path": "specimen.stage.is_enabled",
+      "type": "bool",
+      "description": "Returns true if the stage is ready, false otherwise."
+    },
+    {
+      "path": "specimen.stage.position",
+      "type": "StagePosition",
+      "description": "Returns the stage position (X, Y, Z) in meters, A and B in radians."
+    },
+    {
+      "path": "specimen.stage.is_moving",
+      "type": "bool",
+      "description": "Returns true if the stage is currently moving, jogging, or wobbling. False otherwise."
+    },
+    {
+      "path": "specimen.piezo_stage.is_enabled",
+      "type": "bool",
+      "description": "Returns true if the piezo stage is enabled, false otherwise."
+    },
+    {
+      "path": "specimen.piezo_stage.position",
+      "type": "StagePosition",
+      "description": "Returns the piezo stage position X, Y, Z in meters, A and B in radians."
+    },
+    {
+      "path": "specimen.piezo_stage.jogging_velocity",
+      "type": "StageVelocity",
+      "description": "Returns the current jogging velocity X, Y, Z in meters per second, A and B in radians per second."
+    },
+    {
+      "path": "specimen.piezo_stage.is_moving",
+      "type": "bool",
+      "description": "Returns true if the piezo stage is currently moving (jogging velocity is non-zero), false otherwise."
+    },
+    {
+      "path": "specimen.temperature_control.solid_state_cooler.specimen_temperature",
+      "type": "float",
+      "description": "Gets the actual temperature of the specimen in Kelvin."
+    },
+    {
+      "path": "specimen.temperature_control.solid_state_cooler.remaining_capacity",
+      "type": "float",
+      "description": "The Remaining capacity of the cooler as a percentage."
+    },
+    {
+      "path": "specimen.temperature_control.solid_state_cooler.charging_state",
+      "type": "str",
+      "description": "The current battery charging state. Returns values from enumeration CoolerChargingState."
+    },
+    {
+      "path": "vacuum.column_valves.state",
+      "type": "str",
+      "description": "The state of column valves. Values from enumeration ColumnValvesState are used."
+    },
+    {
+      "path": "vacuum.state",
+      "type": "str",
+      "description": "A string describing the vacuum state. Values from enumeration VacuumState are used."
+    }
+  ],
+  "dynamic_properties": {
+    "ApertureMechanism": [
+      {
+        "name": "position",
+        "type": "Point",
+        "description": "Gets or sets the X and Y position of the selected aperture. 2D vector in meters (x, y)."
+      },
+      {
+        "name": "aperture",
+        "type": "Aperture",
+        "description": "Gets or sets the selected aperture on this mechanism."
+      },
+      {
+        "name": "apertures",
+        "type": "List[Aperture]",
+        "description": "Returns available apertures on this mechanism."
+      },
+      {
+        "name": "is_retractable",
+        "type": "bool",
+        "description": "Whether this aperture mechanism is a retractable device."
+      },
+      {
+        "name": "insertion_state",
+        "type": "str",
+        "description": "The insertion state of the aperture mechanism. Maps to ApertureMechanismInsertionState enumeration."
+      },
+      {
+        "name": "is_enabled",
+        "type": "bool",
+        "description": "Whether this aperture mechanism is currently enabled."
+      }
+    ],
+    "BiPrism": [
+      {
+        "name": "name",
+        "type": "str",
+        "description": "The name of the bi-prism."
+      },
+      {
+        "name": "voltage",
+        "type": "BiPrismVoltage",
+        "description": "The voltage control of the bi-prism."
+      },
+      {
+        "name": "rotation",
+        "type": "BiPrismRotation",
+        "description": "The rotation control of the bi-prism."
+      },
+      {
+        "name": "is_enabled",
+        "type": "bool",
+        "description": "Whether the bi-prism is currently enabled."
+      }
+    ],
+    "BiPrismVoltage": [
+      {
+        "name": "value",
+        "type": "float",
+        "description": "The voltage of the bi-prism in volts."
+      },
+      {
+        "name": "limits",
+        "type": "Limits",
+        "description": "The range of valid voltage values."
+      }
+    ],
+    "BiPrismRotation": [
+      {
+        "name": "is_available",
+        "type": "bool",
+        "description": "Whether the bi-prism is motorized and can be rotated."
+      },
+      {
+        "name": "value",
+        "type": "float",
+        "description": "The rotation of the bi-prism in radians."
+      },
+      {
+        "name": "limits",
+        "type": "Limits",
+        "description": "The range of valid rotation values."
+      }
+    ],
+    "ScanningDetector": [
+      {
+        "name": "name",
+        "type": "str",
+        "description": "The identifier of the detector."
+      },
+      {
+        "name": "display_name",
+        "type": "str",
+        "description": "The commercial name of the detector."
+      },
+      {
+        "name": "insertion_state",
+        "type": "str",
+        "description": "The insertion state of the detector. Maps to DetectorInsertionState enumeration."
+      },
+      {
+        "name": "is_insertable",
+        "type": "bool",
+        "description": "Whether the detector can be inserted/retracted."
+      },
+      {
+        "name": "gain",
+        "type": "float",
+        "description": "The gain of the detector. The unit depends on the detector type."
+      },
+      {
+        "name": "gain_limits",
+        "type": "Limits",
+        "description": "The range of valid gain values. The unit depends on the detector type."
+      },
+      {
+        "name": "relative_gain",
+        "type": "float",
+        "description": "Gain value relative to its range. The range is from 0 to 1."
+      },
+      {
+        "name": "offset",
+        "type": "float",
+        "description": "The offset of the detector. The unit depends on the detector type."
+      },
+      {
+        "name": "offset_limits",
+        "type": "Limits",
+        "description": "The range of valid offset values. The unit depends on the detector type."
+      },
+      {
+        "name": "relative_offset",
+        "type": "float",
+        "description": "Offset value relative to its range. The range is from 0 to 1."
+      },
+      {
+        "name": "collection_angle_limits",
+        "type": "Limits",
+        "description": "The range of the collection angles (annular detectors) in radians."
+      }
+    ],
+    "DetectorSegment": [
+      {
+        "name": "name",
+        "type": "str",
+        "description": "Name of the segment. Uses values from DetectorSegmentType."
+      },
+      {
+        "name": "detector_name",
+        "type": "str",
+        "description": "Name of the detector containing this segment. Uses values from DetectorType."
+      },
+      {
+        "name": "is_enabled",
+        "type": "bool",
+        "description": "Whether this segment is currently enabled."
+      },
+      {
+        "name": "gain",
+        "type": "float",
+        "description": "The gain of the segment. The unit depends on the detector type."
+      },
+      {
+        "name": "offset",
+        "type": "float",
+        "description": "The offset of the segment. The unit depends on the detector type."
+      }
+    ],
+    "EdsDetector": [
+      {
+        "name": "name",
+        "type": "str",
+        "description": "The identifier of the detector."
+      },
+      {
+        "name": "display_name",
+        "type": "str",
+        "description": "The commercial name of the detector."
+      },
+      {
+        "name": "insertion_state",
+        "type": "str",
+        "description": "The insertion state of the detector. Maps to DetectorInsertionState enumeration."
+      },
+      {
+        "name": "is_insertable",
+        "type": "bool",
+        "description": "Whether the detector can be inserted/retracted."
+      },
+      {
+        "name": "bin_counts",
+        "type": "List[int]",
+        "description": "List of all supported energy bin counts."
+      },
+      {
+        "name": "dispersions",
+        "type": "List[float]",
+        "description": "List of all supported dispersions in eV."
+      },
+      {
+        "name": "shaping_times",
+        "type": "List[float]",
+        "description": "List of all supported shaping times in seconds."
+      }
+    ],
+    "EdsDetectorSegment": [
+      {
+        "name": "name",
+        "type": "str",
+        "description": "Name of the segment. Uses values from EdsDetectorSegmentType."
+      },
+      {
+        "name": "detector_name",
+        "type": "str",
+        "description": "Name of the detector containing this segment. Uses values from EdsDetectorType."
+      },
+      {
+        "name": "is_enabled",
+        "type": "bool",
+        "description": "Whether this segment is currently enabled."
+      },
+      {
+        "name": "dead_time_fraction",
+        "type": "float",
+        "description": "Current dead time fraction."
+      },
+      {
+        "name": "input_count_rate",
+        "type": "int",
+        "description": "Current input count rate in counts/second."
+      },
+      {
+        "name": "output_count_rate",
+        "type": "int",
+        "description": "Current output count rate in counts/second."
+      }
+    ],
+    "EelsDetector": [
+      {
+        "name": "name",
+        "type": "str",
+        "description": "The identifier of the detector."
+      },
+      {
+        "name": "display_name",
+        "type": "str",
+        "description": "The commercial name of the detector."
+      },
+      {
+        "name": "maximum_bin_count",
+        "type": "int",
+        "description": "Returns the maximum number of bins supported by the detector."
+      }
+    ],
+    "CameraDetector": [
+      {
+        "name": "name",
+        "type": "str",
+        "description": "The identifier of the detector."
+      },
+      {
+        "name": "display_name",
+        "type": "str",
+        "description": "The commercial name of the detector."
+      },
+      {
+        "name": "insertion_state",
+        "type": "str",
+        "description": "The insertion state of the detector. Maps to DetectorInsertionState enumeration."
+      },
+      {
+        "name": "is_insertable",
+        "type": "bool",
+        "description": "Whether the detector can be inserted/retracted."
+      },
+      {
+        "name": "is_dose_sensitive",
+        "type": "bool",
+        "description": "Whether the camera is dose sensitive."
+      },
+      {
+        "name": "is_operational",
+        "type": "bool",
+        "description": "Whether the camera is operational."
+      },
+      {
+        "name": "pixel_size",
+        "type": "Point",
+        "description": "Pixel size as a 2D vector in meters (x, y)."
+      },
+      {
+        "name": "exposure_time_limits",
+        "type": "Limits",
+        "description": "Minimum and maximum exposure times in seconds. Flucam only."
+      }
+    ],
+    "Lens": [
+      {
+        "name": "name",
+        "type": "str",
+        "description": "Name of the Lens. Uses values from LensType."
+      },
+      {
+        "name": "value",
+        "type": "float",
+        "description": "Output value as a ratio of the raw output and the limit value."
+      },
+      {
+        "name": "value_raw",
+        "type": "float",
+        "description": "Raw output in optical units. Scalar float / wire DOUBLE in SDK 1.18.0; the vendor getter's 2D-vector docstring is inconsistent with its signature and wire type."
+      },
+      {
+        "name": "limits_raw",
+        "type": "Limits",
+        "description": "Minimum and maximum raw output value."
+      }
+    ],
+    "AdornedSpectrumImage": [
+      {
+        "name": "acquisition_start_date_time",
+        "type": "str",
+        "description": "Date and time of the start of acquisition in ISO 8601 format (YYYY-MM-DDThh:mm:ss)."
+      }
+    ],
+    "PresetRaw": [
+      {
+        "name": "value",
+        "type": "float",
+        "description": "The raw value of the preset."
+      },
+      {
+        "name": "limits",
+        "type": "Limits",
+        "description": "The range of the preset."
+      }
+    ],
+    "XLensAlignment": [
+      {
+        "name": "preset_raw",
+        "type": "PresetRaw",
+        "description": "The X lens alignment preset."
+      }
+    ],
+    "ContinuousCameraAcquisition": [],
+    "ContinuousStemAcquisition": [
+      {
+        "name": "state",
+        "type": "str",
+        "description": "Returns the state of the acquisition. Maps to ScanState enumeration."
+      }
+    ]
+  },
+  "structures": {
+    "AdornedImage": [
+      {
+        "name": "width",
+        "type": "int",
+        "description": "The width of the image in pixels."
+      },
+      {
+        "name": "height",
+        "type": "int",
+        "description": "The height of the image in pixels."
+      },
+      {
+        "name": "bit_depth",
+        "type": "int",
+        "description": "Bit depth of the image data."
+      },
+      {
+        "name": "metadata",
+        "type": "Optional[structures.AdornedImageMetadata]",
+        "description": "Metadata containing information about the system setup at the time the image was captured."
+      }
+    ],
+    "AdornedSpectrum": [
+      {
+        "name": "encoding",
+        "type": "str",
+        "description": "Encoding of the spectrum. Uses values from enumeration SpectrumEncoding."
+      },
+      {
+        "name": "metadata",
+        "type": "Optional[structures.AdornedImageMetadata]",
+        "description": "Metadata describing the EDS spectrum."
+      }
+    ],
+    "EmdStemFeature": [
+      {
+        "name": "images",
+        "type": "List[AdornedImage]",
+        "description": ""
+      },
+      {
+        "name": "detector_name",
+        "type": "unknown",
+        "description": ""
+      }
+    ],
+    "AdornedImageMetadataStagePosition": [
+      {
+        "name": "r",
+        "type": "unknown",
+        "description": ""
+      }
+    ],
+    "AdornedImageMetadata": [
+      {
+        "name": "metadata_as_xml",
+        "type": "str",
+        "description": "Provides all available metadata in single XML file."
+      },
+      {
+        "name": "metadata_as_ini",
+        "type": "Optional[str]",
+        "description": "INI metadata loaded from image. Edit and parsing is not supported."
+      }
+    ],
+    "Region": [
+      {
+        "name": "coordinate_system",
+        "type": "Optional[str]",
+        "description": "Specifies Region's unit. Values from enumeration RegionCoordinateSystem are used."
+      },
+      {
+        "name": "rectangle",
+        "type": "Optional[structures.Rectangle]",
+        "description": "A Rectangular region."
+      }
+    ],
+    "Rectangle": [
+      {
+        "name": "left",
+        "type": "Optional[float]",
+        "description": "The left side of a rectangle."
+      },
+      {
+        "name": "top",
+        "type": "Optional[float]",
+        "description": "The top side of a rectangle."
+      },
+      {
+        "name": "width",
+        "type": "Optional[float]",
+        "description": "The width of a rectangle."
+      },
+      {
+        "name": "height",
+        "type": "Optional[float]",
+        "description": "The height of a rectangle."
+      }
+    ],
+    "StagePosition": [
+      {
+        "name": "x",
+        "type": "Optional[float]",
+        "description": "X coordinate in meters."
+      },
+      {
+        "name": "y",
+        "type": "Optional[float]",
+        "description": "Y coordinate in meters."
+      },
+      {
+        "name": "z",
+        "type": "Optional[float]",
+        "description": "Z coordinate in meters."
+      },
+      {
+        "name": "a",
+        "type": "Optional[float]",
+        "description": "Alpha coordinate in radians."
+      },
+      {
+        "name": "b",
+        "type": "Optional[float]",
+        "description": "Beta coordinate in radians."
+      }
+    ],
+    "StageVelocity": [
+      {
+        "name": "x",
+        "type": "Optional[float]",
+        "description": "X axis in meters per second."
+      },
+      {
+        "name": "y",
+        "type": "Optional[float]",
+        "description": "Y axis in meters per second."
+      },
+      {
+        "name": "z",
+        "type": "Optional[float]",
+        "description": "Z axis in meters per second."
+      },
+      {
+        "name": "a",
+        "type": "Optional[float]",
+        "description": "Alpha axis in radians per second."
+      },
+      {
+        "name": "b",
+        "type": "Optional[float]",
+        "description": "Beta axis in radians per second."
+      }
+    ],
+    "CameraLengthData": [
+      {
+        "name": "nominal",
+        "type": "float",
+        "description": "The nominal camera length in meters."
+      },
+      {
+        "name": "calibrated",
+        "type": "float",
+        "description": "The calibrated camera length in meters."
+      },
+      {
+        "name": "rotation",
+        "type": "float",
+        "description": "The rotation of the camera length in radians."
+      },
+      {
+        "name": "label",
+        "type": "str",
+        "description": "A label fully describing the camera length."
+      },
+      {
+        "name": "objective_lens_mode",
+        "type": "str",
+        "description": "The objective lens mode. Values from enumeration ObjectiveLensMode are used."
+      }
+    ],
+    "MagnificationData": [
+      {
+        "name": "nominal",
+        "type": "float",
+        "description": "The nominal magnification of the projector."
+      },
+      {
+        "name": "calibrated",
+        "type": "float",
+        "description": "The calibrated magnification of the projector."
+      },
+      {
+        "name": "rotation",
+        "type": "float",
+        "description": "The rotation of the magnification."
+      },
+      {
+        "name": "label",
+        "type": "str",
+        "description": "A label fully describing the magnification in radians."
+      },
+      {
+        "name": "magnification_sub_mode",
+        "type": "Optional[str]",
+        "description": "The magnification sub-mode. Values from enumeration MagnificationSubMode are used."
+      },
+      {
+        "name": "objective_lens_mode",
+        "type": "str",
+        "description": "The objective lens mode. Values from enumeration ObjectiveLensMode are used."
+      }
+    ],
+    "Limits": [
+      {
+        "name": "min",
+        "type": "Optional[float]",
+        "description": "Minimal value."
+      },
+      {
+        "name": "max",
+        "type": "Optional[float]",
+        "description": "Maximal value."
+      }
+    ],
+    "Point": [
+      {
+        "name": "x",
+        "type": "Optional[float]",
+        "description": "X coordinate of the point."
+      },
+      {
+        "name": "y",
+        "type": "Optional[float]",
+        "description": "Y coordinate of the point."
+      }
+    ],
+    "Aperture": [
+      {
+        "name": "name",
+        "type": "str",
+        "description": "Aperture name."
+      },
+      {
+        "name": "type",
+        "type": "str",
+        "description": "Aperture type. Uses values from ApertureType."
+      },
+      {
+        "name": "diameter",
+        "type": "Optional[float]",
+        "description": "Diameter in meters if type is circular, None otherwise."
+      }
+    ],
+    "Unit": [
+      {
+        "name": "name",
+        "type": "Optional[str]",
+        "description": ""
+      },
+      {
+        "name": "prefix_power",
+        "type": "Optional[int]",
+        "description": ""
+      }
+    ],
+    "ValueAndType": [
+      {
+        "name": "value",
+        "type": "Optional[str]",
+        "description": ""
+      },
+      {
+        "name": "type",
+        "type": "Optional[str]",
+        "description": ""
+      }
+    ],
+    "ImageMatch": [
+      {
+        "name": "center",
+        "type": "structures.Point",
+        "description": "The Point structure containing coordinates of the center of the match in the original image, in pixels."
+      },
+      {
+        "name": "score",
+        "type": "Optional[float]",
+        "description": "The confidence level with which the template matching algorithm found the template, in the range between [0, 1] corresponding to 0% - 100%."
+      }
+    ],
+    "CameraImageSize": [
+      {
+        "name": "size",
+        "type": "int",
+        "description": "Square image size in pixels."
+      },
+      {
+        "name": "fixed_readout_area",
+        "type": "str",
+        "description": "Readout area of the sensor. Uses FixedReadoutArea."
+      }
+    ],
+    "RunBeamTiltAutoFocusSettings": [
+      {
+        "name": "camera_detector",
+        "type": "str",
+        "description": "The name of the detector. Enumeration CameraType can be used."
+      },
+      {
+        "name": "size",
+        "type": "Optional[int]",
+        "description": "Square image size in pixels. Default is 1024. Enumeration ImageSize can be used."
+      },
+      {
+        "name": "exposure_time",
+        "type": "Optional[float]",
+        "description": "The exposure time in seconds. Default is 1."
+      },
+      {
+        "name": "focus_method",
+        "type": "Optional[str]",
+        "description": "Focus correction method to be used. Maps to enumeration FocusMethod. Default is OBJECTIVE_LENS."
+      },
+      {
+        "name": "auto_stigmate",
+        "type": "Optional[bool]",
+        "description": "Whether the procedure should optimize astigmatism or not. False by default."
+      },
+      {
+        "name": "use_three_image_method",
+        "type": "Optional[bool]",
+        "description": "Whether the procedure should use 3 images to be less sensitive to drift. False by default."
+      },
+      {
+        "name": "maximum_focus_change",
+        "type": "Optional[float]",
+        "description": "A new iteration is started as long as the applied focus change is larger than this value. Default is 0.25e-6."
+      },
+      {
+        "name": "maximum_iterations",
+        "type": "Optional[int]",
+        "description": "Maximum number of iterations that is applied. Default is 4."
+      },
+      {
+        "name": "maximum_astigmatism_change",
+        "type": "Optional[float]",
+        "description": "A new iteration is started as long as the applied astigmatism change is larger than this value. Default is 0.1e-6."
+      },
+      {
+        "name": "iterate_to_defocus",
+        "type": "Optional[float]",
+        "description": "Iterate to defocus value in meters. Makes the procedure more robust for samples where the contrast at focus is too low. Default is 0."
+      }
+    ],
+    "RunBeamTiltAutoFocusResults": [
+      {
+        "name": "astigmatism",
+        "type": "float",
+        "description": "Measured objective astigmatism in meters."
+      },
+      {
+        "name": "defocus",
+        "type": "float",
+        "description": "Measured defocus value in meters."
+      },
+      {
+        "name": "drift",
+        "type": "structures.Point",
+        "description": "Measured drift in meters."
+      }
+    ],
+    "RunStemAutoFocusSettings": [
+      {
+        "name": "scanning_detector",
+        "type": "str",
+        "description": "The name of the detector. Enumeration DetectorType can be used."
+      },
+      {
+        "name": "size",
+        "type": "Optional[int]",
+        "description": "Square image size in pixels. Default is 1024. Enumeration ImageSize can be used."
+      },
+      {
+        "name": "dwell_time",
+        "type": "Optional[float]",
+        "description": "The dwell time in seconds. Default is 1e-6."
+      },
+      {
+        "name": "auto_stigmate",
+        "type": "Optional[bool]",
+        "description": "Whether the procedure should optimize stigmation or not. False by default."
+      },
+      {
+        "name": "accuracy_level",
+        "type": "Optional[str]",
+        "description": "Specifies level of accuracy. Enumeration AccuracyLevel can be used. Default is COARSE."
+      },
+      {
+        "name": "reset_beam_blanker_afterwards",
+        "type": "Optional[bool]",
+        "description": "If true, beam blanker will will be set to its previous status after the task completes. If false, beam will be left blanked. False by default."
+      }
+    ],
+    "RunStemAutoFocusResults": [
+      {
+        "name": "astigmatism",
+        "type": "float",
+        "description": "Measured condenser astigmatism in meters."
+      },
+      {
+        "name": "defocus",
+        "type": "float",
+        "description": "Measured defocus value in meters."
+      }
+    ],
+    "RunObjectiveAutoStigmatorSettings": [
+      {
+        "name": "camera_detector",
+        "type": "str",
+        "description": "The name of the detector. Enumeration CameraType can be used."
+      },
+      {
+        "name": "size",
+        "type": "Optional[int]",
+        "description": "Square image size in pixels. Default is 1024. Enumeration ImageSize can be used."
+      },
+      {
+        "name": "exposure_time",
+        "type": "Optional[float]",
+        "description": "The exposure time in seconds. Default is 1."
+      },
+      {
+        "name": "maximum_iterations",
+        "type": "Optional[int]",
+        "description": "Maximum number of iterations that is applied. Default is 10."
+      },
+      {
+        "name": "maximum_remaining_astigmatism",
+        "type": "Optional[float]",
+        "description": "Maximum remaining astigmatism in meters. Default is 5e-9."
+      },
+      {
+        "name": "defocus_step",
+        "type": "Optional[float]",
+        "description": "Defocus step in meters. Default is -1e-6."
+      },
+      {
+        "name": "maximum_anisotropy",
+        "type": "Optional[float]",
+        "description": "Maximum anisotropy. Default is 2."
+      },
+      {
+        "name": "maximum_astigmatism_fit_error",
+        "type": "Optional[float]",
+        "description": "Maximum astigmatism fit error. Default is 0.9."
+      },
+      {
+        "name": "tile_size",
+        "type": "Optional[int]",
+        "description": "Tile size. Default is 512."
+      },
+      {
+        "name": "is_thon_ring_mask_image_crossed_out_when_fitting_fails",
+        "type": "Optional[bool]",
+        "description": "Whether the Thon ring mask image is crossed out when fitting fails. True by default."
+      }
+    ],
+    "RunObjectiveAutoStigmatorResults": [
+      {
+        "name": "astigmatism",
+        "type": "float",
+        "description": "Measured objective astigmatism in meters."
+      },
+      {
+        "name": "astigmatism_orientation",
+        "type": "float",
+        "description": "Measured objective astigmatism angle in radians."
+      },
+      {
+        "name": "astigmatism_fit_error",
+        "type": "float",
+        "description": "A value between 0 and 1 as a measure for quality: 0 = perfect fit, 1 = poor fit."
+      },
+      {
+        "name": "is_reliable",
+        "type": "bool",
+        "description": "Indication whether the result is reliable."
+      }
+    ],
+    "RunAutoComaCorrectionSettings": [
+      {
+        "name": "camera_detector",
+        "type": "str",
+        "description": "The name of the detector. Enumeration CameraType can be used."
+      },
+      {
+        "name": "size",
+        "type": "Optional[int]",
+        "description": "Square image size in pixels. Default is 1024. Enumeration ImageSize can be used."
+      },
+      {
+        "name": "exposure_time",
+        "type": "Optional[float]",
+        "description": "The exposure time in seconds. Default is 1."
+      },
+      {
+        "name": "maximum_iterations",
+        "type": "Optional[int]",
+        "description": "Maximum number of iterations that is applied. Default is 10."
+      },
+      {
+        "name": "maximum_remaining_coma_error",
+        "type": "Optional[float]",
+        "description": "Maximum remaining coma error in meters. Default is 5e-7."
+      },
+      {
+        "name": "maximum_remaining_defocus_error",
+        "type": "Optional[float]",
+        "description": "Maximum remaining defocus error in meters. Default is 5e-8."
+      },
+      {
+        "name": "maximum_remaining_astigmatism",
+        "type": "Optional[float]",
+        "description": "Maximum remaining astigmatism in meters. Default is 5e-9."
+      },
+      {
+        "name": "maximum_anisotropy",
+        "type": "Optional[float]",
+        "description": "Maximum anisotropy. Default is 2."
+      },
+      {
+        "name": "maximum_astigmatism_fit_error",
+        "type": "Optional[float]",
+        "description": "Maximum astigmatism fit error. Default is 0.9."
+      },
+      {
+        "name": "maximum_defocus_fit_error",
+        "type": "Optional[float]",
+        "description": "Maximum defocus fit error. Default is 0.2."
+      },
+      {
+        "name": "tile_size",
+        "type": "Optional[int]",
+        "description": "Tile size. Default is 512."
+      },
+      {
+        "name": "is_thon_ring_mask_image_crossed_out_when_fitting_fails",
+        "type": "Optional[bool]",
+        "description": "Whether the Thon ring mask image is crossed out when fitting fails. True by default."
+      },
+      {
+        "name": "adjust_focus",
+        "type": "Optional[bool]",
+        "description": "Whether the focus should be adjusted after successful execution (as measured from Thon rings). False by default."
+      },
+      {
+        "name": "correct_astigmatism",
+        "type": "Optional[bool]",
+        "description": "Whether the astigmatism should be adjusted after successful execution (as measured from Thon rings). False by default."
+      }
+    ],
+    "RunAutoComaCorrectionResults": [
+      {
+        "name": "astigmatism",
+        "type": "float",
+        "description": "Measured objective astigmatism in meters."
+      },
+      {
+        "name": "astigmatism_orientation",
+        "type": "float",
+        "description": "Measured objective astigmatism angle in radians."
+      },
+      {
+        "name": "threefold_astigmatism",
+        "type": "float",
+        "description": "Measured threefold objective astigmatism in meters."
+      },
+      {
+        "name": "threefold_astigmatism_orientation",
+        "type": "float",
+        "description": "Measured threefold objective astigmatism angle in radians."
+      },
+      {
+        "name": "coma",
+        "type": "float",
+        "description": "Measured coma in meters."
+      },
+      {
+        "name": "coma_orientation",
+        "type": "float",
+        "description": "Measured coma angle in meters."
+      },
+      {
+        "name": "defocus",
+        "type": "float",
+        "description": "Measured defocus in meters."
+      },
+      {
+        "name": "tableau_fit_error",
+        "type": "float",
+        "description": "A value between 0 and 1 as a measure for quality: 0 = perfect fit, 1 = poor fit."
+      },
+      {
+        "name": "is_reliable",
+        "type": "bool",
+        "description": "Indication whether the result is reliable."
+      }
+    ],
+    "CameraAcquisitionSettings": [
+      {
+        "name": "camera_detector",
+        "type": "str",
+        "description": "The name of the detector. Enumeration CameraType can be used."
+      },
+      {
+        "name": "size",
+        "type": "int",
+        "description": "Square image size in pixels. Enumeration ImageSize can be used."
+      },
+      {
+        "name": "exposure_time",
+        "type": "float",
+        "description": "The exposure time in seconds."
+      },
+      {
+        "name": "fixed_readout_area",
+        "type": "Optional[str]",
+        "description": "Readout area of the sensor. Enumeration FixedReadoutArea can be used. FULL by default."
+      },
+      {
+        "name": "frame_combining",
+        "type": "Optional[int]",
+        "description": "The number of sub-frames the camera will combine (Ceta only). Default value is 1."
+      },
+      {
+        "name": "electron_counting",
+        "type": "Optional[bool]",
+        "description": "Whether or not an electron counted image is produced (single acquisition on counting detectors only). True by default."
+      }
+    ],
+    "StemAcquisitionSettings": [
+      {
+        "name": "dwell_time",
+        "type": "float",
+        "description": "STEM dwell time in seconds."
+      },
+      {
+        "name": "detector_types",
+        "type": "Optional[List[str]]",
+        "description": "The name(s) of the detector(s) used for the acquisition. Enumeration DetectorType can be used."
+      },
+      {
+        "name": "detector_segments",
+        "type": "Optional[List[DetectorSegment]]",
+        "description": "The detector segment(s) used for the acquisition."
+      },
+      {
+        "name": "region",
+        "type": "Optional[structures.Region]",
+        "description": "Acquisition area to be scanned. Use Region."
+      },
+      {
+        "name": "size",
+        "type": "Optional[int]",
+        "description": "Square image size in pixels. Enumeration ImageSize can be used."
+      },
+      {
+        "name": "auto_beam_blank",
+        "type": "Optional[bool]",
+        "description": "Automatic beam blanking. False by default. [The property is deprecated and will be removed in version 1.21]"
+      }
+    ],
+    "StemDataSettings": [
+      {
+        "name": "dwell_time",
+        "type": "float",
+        "description": "STEM dwell time in seconds."
+      },
+      {
+        "name": "detector_types",
+        "type": "Optional[List[str]]",
+        "description": "The name(s) of the detector(s) used for the acquisition. Enumeration CameraType can be used."
+      },
+      {
+        "name": "region",
+        "type": "Optional[structures.Region]",
+        "description": "Acquisition area to be scanned. Use Region."
+      },
+      {
+        "name": "size",
+        "type": "Optional[int]",
+        "description": "Square scan size in pixels. Enumeration ImageSize can be used."
+      }
+    ],
+    "MoveToPixelSettings": [
+      {
+        "name": "image_size",
+        "type": "Optional[int]",
+        "description": "Square image size in pixels. Enumeration ImageSize can be used. Default value is the maximum size supported by the camera (with the given fixed readout area in mind), or the maximum supported scanning resolution."
+      },
+      {
+        "name": "fixed_readout_area",
+        "type": "Optional[str]",
+        "description": "Readout area used to acquire the image (camera acquisition only). Enumeration FixedReadoutArea can be used. FULL by default."
+      },
+      {
+        "name": "method",
+        "type": "Optional[str]",
+        "description": "Method of the move to pixel. Enumeration MoveToPixelMethod can be used. Default value is STAGE."
+      },
+      {
+        "name": "use_safe_stage_moves",
+        "type": "Optional[bool]",
+        "description": "Whether the stage should be moved safely by setting the tilt to zero before moving the stage to avoid pole touches. True by default."
+      }
+    ],
+    "EdsAcquisitionSettings": [
+      {
+        "name": "eds_detector",
+        "type": "str",
+        "description": "The name of the EDS detector. Enumeration EdsDetectorType can be used."
+      },
+      {
+        "name": "dispersion",
+        "type": "float",
+        "description": "Dispersion in eV."
+      },
+      {
+        "name": "shaping_time",
+        "type": "float",
+        "description": "Shaping time in seconds."
+      },
+      {
+        "name": "exposure_time",
+        "type": "float",
+        "description": "Exposure time in seconds."
+      },
+      {
+        "name": "exposure_time_type",
+        "type": "str",
+        "description": "Exposure time type. Enumeration ExposureTimeType can be used."
+      },
+      {
+        "name": "detector_segments",
+        "type": "Optional[List[EdsDetectorSegment]]",
+        "description": "The list of enabled detector segments. If not provided, all segments are assumed."
+      }
+    ],
+    "EdsSpectrumImageSettings": [
+      {
+        "name": "eds_detector",
+        "type": "str",
+        "description": "The name of the EDS detector. Enumeration EdsDetectorType can be used."
+      },
+      {
+        "name": "dispersion",
+        "type": "float",
+        "description": "Dispersion in eV."
+      },
+      {
+        "name": "shaping_time",
+        "type": "float",
+        "description": "Shaping time in seconds."
+      },
+      {
+        "name": "dwell_time",
+        "type": "float",
+        "description": "Scan dwell time in seconds."
+      },
+      {
+        "name": "size",
+        "type": "Optional[int]",
+        "description": "Square image size in pixels. Enumeration ImageSize can be used."
+      },
+      {
+        "name": "region",
+        "type": "Optional[structures.Region]",
+        "description": "Acquisition area to be scanned."
+      },
+      {
+        "name": "scanning_detectors",
+        "type": "Optional[List[str]]",
+        "description": "The name(s) of the STEM detector(s). Enumeration DetectorType can be used."
+      },
+      {
+        "name": "scanning_detector_segments",
+        "type": "Optional[List[DetectorSegment]]",
+        "description": "The detector segment(s) used for the acquisition."
+      },
+      {
+        "name": "eds_detector_segments",
+        "type": "Optional[List[EdsDetectorSegment]]",
+        "description": "The list of enabled EDS detector segments. If not provided, all segments are assumed."
+      },
+      {
+        "name": "save_eds_event_stream",
+        "type": "Optional[bool]",
+        "description": "Defines whether EDS data events are to be saved. True by default."
+      }
+    ],
+    "EelsExposureSettings": [
+      {
+        "name": "exposure_time",
+        "type": "float",
+        "description": "Exposure time in seconds."
+      },
+      {
+        "name": "drift_tube_energy_offset",
+        "type": "Optional[float]",
+        "description": "Drift tube energy offset in electronvolts. Default is 0."
+      }
+    ],
+    "EelsAcquisitionSettings": [
+      {
+        "name": "eels_detector",
+        "type": "str",
+        "description": "The name of the EELS detector. Enumeration EelsDetectorType can be used."
+      },
+      {
+        "name": "eels_exposure_settings",
+        "type": "List[structures.EelsExposureSettings]",
+        "description": "Exposure settings for the acquisition. Must contain at least one element."
+      }
+    ],
+    "EelsSpectrumImageSettings": [
+      {
+        "name": "eels_detector",
+        "type": "str",
+        "description": "The name of the EELS detector. Enumeration EelsDetectorType can be used."
+      },
+      {
+        "name": "eels_exposure_settings",
+        "type": "List[structures.EelsExposureSettings]",
+        "description": "Exposure settings for the acquisition. Must contain exactly one element."
+      },
+      {
+        "name": "dwell_time",
+        "type": "Optional[float]",
+        "description": "Scan dwell time in seconds. When not provided, the value is calculated from the exposure times."
+      },
+      {
+        "name": "size",
+        "type": "Optional[int]",
+        "description": "Square image size in pixels. Enumeration ImageSize can be used."
+      },
+      {
+        "name": "region",
+        "type": "Optional[structures.Region]",
+        "description": "Acquisition area to be scanned."
+      },
+      {
+        "name": "scanning_detectors",
+        "type": "Optional[List[str]]",
+        "description": "The name(s) of the STEM detector(s). Enumeration DetectorType can be used."
+      },
+      {
+        "name": "scanning_detector_segments",
+        "type": "Optional[List[DetectorSegment]]",
+        "description": "The detector segment(s) used for the acquisition."
+      }
+    ],
+    "RunOptiStemSettings": [
+      {
+        "name": "method",
+        "type": "Optional[str]",
+        "description": "Specifies what OptiStemMethod should be used. The default value is C1A1."
+      },
+      {
+        "name": "dwell_time",
+        "type": "Optional[float]",
+        "description": "STEM dwell time in seconds. The default value depends on method."
+      },
+      {
+        "name": "cutoff_in_pixels",
+        "type": "Optional[int]",
+        "description": "Interval between any two adjacent samples - Nyquist interval in pixels. The default value is 4 pixels. This parameter is not used for B2A2 method and will result in exception if set."
+      },
+      {
+        "name": "cutoff_spatial_frequency",
+        "type": "Optional[float]",
+        "description": "Amount of cycles per meter. The default value is 2.85e+9. This parameter is not used for B2A2 method and will result in exception if set."
+      }
+    ],
+    "RunOptiStemResults": [
+      {
+        "name": "quality",
+        "type": "str",
+        "description": "Evaluation of the resulting tuning procedure quality. Uses values from ResultQuality."
+      }
+    ],
+    "RunImageCorrectorSettings": [
+      {
+        "name": "phase_contrast_transfer_function_target_g_max_inverse",
+        "type": "Optional[float]",
+        "description": "Value of 1/g_desired of the PCTF [m]. Represents the smallest intended spatial detail to be transferred with good contrast."
+      },
+      {
+        "name": "phase_contrast_transfer_function_target_phase_sign",
+        "type": "Optional[str]",
+        "description": "Target phase type of the phase contrast transfer function. Uses values from RunImageCorrectorTargetPhaseSignType."
+      }
+    ],
+    "RunImageCorrectorResults": [
+      {
+        "name": "quality",
+        "type": "str",
+        "description": "Evaluation of the resulting tuning procedure quality. Uses values from ResultQuality."
+      }
+    ],
+    "RunProbeCorrectorSettings": [
+      {
+        "name": "probe_semi_aperture_angle",
+        "type": "Optional[float]",
+        "description": "Probe semi aperture angle [rad]. Half of the opening (convergence) angle of the electron probe with respect to the specimen plane with a given condenser aperture for STEM imaging."
+      },
+      {
+        "name": "probe_current",
+        "type": "Optional[float]",
+        "description": "Electrical current of the electron probe [A]."
+      }
+    ],
+    "RunProbeCorrectorResults": [
+      {
+        "name": "quality",
+        "type": "str",
+        "description": "Evaluation of the resulting tuning procedure quality. Uses values from ResultQuality."
+      },
+      {
+        "name": "probe_optimum_d50",
+        "type": "float",
+        "description": "Theoretical optimum diameter of the electron probe that contains 50% of the intensity, calculated for a perfectly aligned system (no correctable aberrations remaining) [m]. This is the calculated limit of the intended resolution."
+      },
+      {
+        "name": "probe_total_d50",
+        "type": "float",
+        "description": "Measured diameter of the electron probe that contains 50% of the intensity [m]. This is the actual limit of the intended resolution. A well-tuned corrector will show a Total D50 that approaches the Optimum D50 value."
+      }
+    ],
+    "RunBeamCenteringSettings": [
+      {
+        "name": "maximum_allowed_distance",
+        "type": "Optional[float]",
+        "description": "The maximum allowed distance from the desired position in meters. Default value is 0."
+      },
+      {
+        "name": "target_position",
+        "type": "Optional[structures.Point]",
+        "description": "Target position as a unitless 2D vector (x, y). (0, 0) is the centered position on the optical axis, (1, 1) is top right, (-1,-1) is bottom left."
+      },
+      {
+        "name": "maximum_iterations",
+        "type": "Optional[int]",
+        "description": "The maximum number of beam-center iterations."
+      },
+      {
+        "name": "beam_diameter_change_allowed",
+        "type": "Optional[bool]",
+        "description": "If True, the alignment is allowed to change the diameter of the beam. Beam diameter is restored to initial when the ResultQuality is 'Bad' or when execution fails."
+      },
+      {
+        "name": "stage_movement_allowed",
+        "type": "Optional[bool]",
+        "description": "If True, the alignment is allowed to move the stage. Stage position is restored to initial when the ResultQuality is 'Bad' or when execution fails."
+      },
+      {
+        "name": "check_only_mode",
+        "type": "Optional[bool]",
+        "description": "Runs the procedure in CheckOnly mode to retrieve the value of the aligned parameter. The Alignment is not executed in CheckOnly mode."
+      }
+    ],
+    "RunBeamCenteringResults": [
+      {
+        "name": "quality",
+        "type": "str",
+        "description": "Procedure's result quality. Uses values from ResultQuality."
+      },
+      {
+        "name": "off_center_distance",
+        "type": "Optional[float]",
+        "description": "The beam centering offset from final to target position in meters."
+      },
+      {
+        "name": "message",
+        "type": "Optional[str]",
+        "description": "Optional message regarding the result of the alignment."
+      }
+    ],
+    "RunApertureCenteringSettings": [
+      {
+        "name": "aperture_mechanism_type",
+        "type": "str",
+        "description": "The type of the aperture mechanism to be centered. Uses values from ApertureMechanismType. Currently only C2 is supported."
+      },
+      {
+        "name": "maximum_allowed_distance",
+        "type": "Optional[float]",
+        "description": "The maximum allowed distance from the desired position in meters. Default value is 0."
+      },
+      {
+        "name": "aperture_names",
+        "type": "Optional[List[str]]",
+        "description": "A collection of apertures to be centered. When empty, only the currently selected aperture is centered."
+      },
+      {
+        "name": "maximum_iterations",
+        "type": "Optional[int]",
+        "description": "The maximum number of aperture-center iterations."
+      },
+      {
+        "name": "beam_diameter_change_allowed",
+        "type": "Optional[bool]",
+        "description": "If True, the alignment is allowed to change the beam's diameter."
+      },
+      {
+        "name": "stage_movement_allowed",
+        "type": "Optional[bool]",
+        "description": "If True, the alignment is allowed to move the stage."
+      },
+      {
+        "name": "check_only_mode",
+        "type": "Optional[bool]",
+        "description": "Runs the procedure in CheckOnly mode to retrieve the alignment's execution state. Procedure is ready to run when the state is 'execute'. The Alignment is not executed in CheckOnly mode."
+      }
+    ],
+    "RunApertureCenteringResults": [
+      {
+        "name": "quality",
+        "type": "str",
+        "description": "Procedure's result quality. Uses values from ResultQuality."
+      },
+      {
+        "name": "off_center_distances",
+        "type": "List[structures.CenteringResult]",
+        "description": "The centering offsets the target position for each aperture in meters."
+      },
+      {
+        "name": "message",
+        "type": "Optional[str]",
+        "description": "Optional message regarding the result of the alignment."
+      }
+    ],
+    "CenteringResult": [
+      {
+        "name": "name",
+        "type": "str",
+        "description": ""
+      },
+      {
+        "name": "off_center_distance",
+        "type": "float",
+        "description": "The offset from the target position in meters."
+      }
+    ],
+    "OpticsAlignmentParameter": [
+      {
+        "name": "element",
+        "type": "str",
+        "description": "Optical function element."
+      },
+      {
+        "name": "parameter",
+        "type": "Optional[str]",
+        "description": "Optical element parameter."
+      }
+    ],
+    "Variant": [
+      {
+        "name": "value",
+        "type": "Union[None, bool, float, int, str]",
+        "description": "Returns the value of the variant as a boolean, float, int, or string."
+      }
+    ],
+    "RunRotationCenterAlignmentSettings": [
+      {
+        "name": "maximum_number_of_iterations",
+        "type": "Optional[int]",
+        "description": "The maximum number of rotation center alignment iterations."
+      }
+    ],
+    "RunRotationCenterAlignmentResults": [
+      {
+        "name": "quality",
+        "type": "str",
+        "description": "Procedure's result quality. Uses values from ResultQuality."
+      },
+      {
+        "name": "message",
+        "type": "Optional[str]",
+        "description": "Optional message regarding the result of the alignment."
+      }
+    ],
+    "ContinuousCameraAcquisitionSettings": [
+      {
+        "name": "buffer_size",
+        "type": "Optional[int]",
+        "description": "Number of frames saved in the acquisition buffer, 1 by default."
+      },
+      {
+        "name": "buffer_type",
+        "type": "Optional[str]",
+        "description": "Type of the acquisition buffer. Uses values from AcquisitionBufferType. Default is CIRCULAR."
+      },
+      {
+        "name": "frame_rate",
+        "type": "Optional[int]",
+        "description": "The acquisition frame rate in frames per second. Limits maximal exposure time. Default is the maximum frame rate for the given CameraAcquisitionSettings."
+      }
+    ],
+    "ContinuousScanSettings": [
+      {
+        "name": "buffer_size",
+        "type": "Optional[int]",
+        "description": "Number of frames per detector or segment saved in the acquisition buffer, 1 by default."
+      },
+      {
+        "name": "buffer_type",
+        "type": "Optional[str]",
+        "description": "Type of the acquisition buffer. Uses values from AcquisitionBufferType. Default is CIRCULAR."
+      },
+      {
+        "name": "synchronization_type",
+        "type": "Optional[str]",
+        "description": "Type of the synchronization. Uses values from ScanSynchronizationType. Default is NONE."
+      }
+    ],
+    "EmdImageSeries": [
+      {
+        "name": "frame_count",
+        "type": "int",
+        "description": ""
+      },
+      {
+        "name": "width",
+        "type": "int",
+        "description": ""
+      },
+      {
+        "name": "height",
+        "type": "int",
+        "description": ""
+      },
+      {
+        "name": "bit_depth",
+        "type": "int",
+        "description": ""
+      },
+      {
+        "name": "pixel_format",
+        "type": "str",
+        "description": ""
+      }
+    ],
+    "EmdFeature": [
+      {
+        "name": "type",
+        "type": "EmdFeatureType",
+        "description": ""
+      }
+    ],
+    "EmdReader": [
+      {
+        "name": "is_open",
+        "type": "bool",
+        "description": ""
+      }
+    ]
+  },
+  "exclusions": {
+    "service.simulator": "Simulator control is not instrument metrology.",
+    "service.internal": "Undocumented internal interface.",
+    "service.offline": "Offline service is not a real microscope.",
+    "service.toolkit": "Toolkit service is not an optical readback.",
+    "optics.aperture_mechanisms.condenser_1": "Read via enumerated mechanisms.",
+    "optics.aperture_mechanisms.condenser_2": "Read via enumerated mechanisms.",
+    "optics.aperture_mechanisms.condenser_3": "Read via enumerated mechanisms.",
+    "optics.aperture_mechanisms.objective": "Read via enumerated mechanisms.",
+    "optics.aperture_mechanisms.selected_area": "Read via enumerated mechanisms.",
+    "acquisition / auto_functions": "Actions, not passive machine parameters.",
+    "analysis": "Acquisition streams and jobs, not passive machine parameters.",
+    "state": "Saved state / APT experiments are not live optical readbacks.",
+    "service.autoscript.server.configuration.get_value": "Requires a caller-supplied key; SDK provides no key enumerator.",
+    "methods": "Only explicitly implemented enumerators and read methods are invoked."
+  }
+}

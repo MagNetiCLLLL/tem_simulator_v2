@@ -1,5 +1,31 @@
 # 从 FEG tip 到成像的波动计算
 
+Latest connection: [Coherent grounded-tip near field](COHERENT_SURFACE_2026-09-12.md).
+The opt-in curved-tip reservoir now executes a complex near-field segment
+using the grounded electrode potential, with a separate viewer and export.
+Wave/electric mesh convergence and full relativistic gun matching remain open;
+this is not a complete TEM/STEM image calculation. Classical surface and
+historical source profiles remain readable without automatic conversion.
+
+Historical correctness update: [Review P0 implementation and evidence](REVIEW_P0_2026-09-12.md).
+The selected coherent tip now has shared forward/paraxial domain checks;
+historical default-source execution claims do not supersede those checks.
+
+Previous development step: [Covariant boundary kernel and actual image attempt](COVARIANT_TIP_IMAGE_ATTEMPT_2026-09-12.md).
+The covariant kernel has independent gauge/current tests, but is not yet a
+complete installed-field gun solver. The unchanged default-source image
+attempt failed at source admission; no image was generated. A full physical
+tip-field/flux boundary definition and its integration remain outstanding.
+
+Previous step: [Transversely coupled low-energy boundary propagation](COUPLED_LOW_ENERGY_2026-09-12.md).
+The two-way electric-field kernel retains transverse coupling, reflection and
+evanescent components and samples the installed FEG electric field. It is not
+yet a complete gun operator; magnetic coupling, physical boundaries and full
+source-chain integration remain outstanding. Source parameters are unchanged.
+The earlier [non-circular specimen step](GALERKIN_SPECIMEN_2026-09-12.md) resolved
+the two atomistic execution failures. Physical-tip TEM/STEM imaging remains
+unavailable pending full gun integration and image validation.
+
 当前已有 **tip 发射、实际枪内近轴传播、柱内传播与到达时间扫描线圈、有限样品条件非弹性波和逐模式探测器读出**
 的开发路径。完整的 tip → 样品 → TEM/STEM 探测器链尚未完成；生产成像入口继续拒绝不完整的计算。允许增加 tip 参数，不允许增加
 独立的已加速源、枪出口源或样品入射源。
@@ -104,6 +130,12 @@ TEM/STEM 产品验收通过；主界面的正式成像入口仍保留验收限�
 .venv\Scripts\python.exe scripts\trace_tip_wave.py --profile my_tip.toml --stop detector --observables intensity phase complex --output tmp\tip_detector_run
 ```
 
+Development update (2026-09-12): `--stop detector --detectors haadf df bf`
+reads several installed detectors in one physical pass per dwell. Intermediate
+detectors still absorb electrons even without readout. Separate channel images
+and complete native modes are exported; this does not open production STEM
+admission. See [implementation and validation](STEM_DETECTOR_BANK_2026-09-12.md).
+
 当前默认安装的 **Energy Filter** 尚无接入该链的波动算子。只在所选路径到达其实际
 入口或更下游时拒绝请求；默认 HAADF、DF、BF、屏幕和普通相机位于其入口之前，
 不应因为下游安装了过滤器而被拦截。上面的命令说明开发接口的调用方式，并不表示当前默认配置已能输出
@@ -128,7 +160,7 @@ TEM/STEM 产品验收通过；主界面的正式成像入口仍保留验收限�
 | 聚光镜至有限样品入口 | 已接入解析场开发路径 | 共享场、校正器、实际孔径和偏转事件；任意三维场图仍未接入 |
 | 样品作用 | 已接入开发路径 | 上游复波重网格、实际势与冻结声子、逐片柱内传播、零损失衰减；完整链收敛仍待验证 |
 | TEM 样品后柱、相机与屏幕 | 已接入开发路径 | 使用同一柱算子，逐模式相位和传感器强度分开读出；完整链尚未验收 |
-| STEM 动态扫描成像 | 已有部分内核，未接通 | 扫描线圈实际作用于上游波；每个扫描位置传播至物理探测器 |
+| Dynamic STEM scanning | Development chain connected; full product not qualified | Actual coil arrival times and dwell samples; propagation to the physical detector |
 | 静态 BF/DF/HAADF 探测器链 | 已接入开发路径 | 按实际 Z 依次吸收；读出开关不改变实际阻挡；扫描图仍未接入 |
 | 后柱能量过滤器 | 波动算子未接入，按实际入口限制路径 | 上游探测器可请求计算；进入过滤器的路径不能绕过扇区场/多极/狭缝 |
 | 非弹性、EDS/EELS、时间与统计通道 | 原有功能保留 | 与弹性相干通道划分事件和通量，不重复计算同一次散射 |

@@ -23,6 +23,7 @@ from temsim.calculation_cache import (
     calculation_signatures,
     calculation_signatures_for_request,
     external_model_signature,
+    live_lens_parameters,
     state_model_signature,
 )
 from temsim.immutable_json import freeze_json, json_digest, thaw_json
@@ -370,6 +371,12 @@ def _live_component_geometry(
             if not key:
                 continue
             row = rows.setdefault(key, {"key": key})
+            if collection_name == "lenses":
+                # Share the exact field inventory with calculation identities.
+                # Excitation and operating switches still live in the stage
+                # payload, not the assembly geometry fingerprint.
+                row["field_parameters"] = {name: value for name, value in live_lens_parameters(component).items()
+                    if name not in {"percent", "enabled", "cs_mm", "cc_mm", "polarity"}}
             for name in scalar_names:
                 if hasattr(component, name):
                     value = getattr(component, name)
@@ -379,6 +386,7 @@ def _live_component_geometry(
             if gaussian:
                 row["field_profile_geometry"] = [
                     {
+                        "amplitude": float(getattr(item, "amplitude")),
                         "offset": float(getattr(item, "offset")),
                         "sigma": float(getattr(item, "sigma")),
                     }

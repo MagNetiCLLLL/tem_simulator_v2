@@ -1,0 +1,31 @@
+FFF..                                                                    [100%]
+================================== FAILURES ===================================
+__ test_complex_free_gaussian_has_absolute_phase_and_conserved_current[0.2] ___
+tests\test_radial_column_wave.py:20: in test_complex_free_gaussian_has_absolute_phase_and_conserved_current
+    result = propagate_radial(wave, m, 2*np.pi, reference_phase_rad=path.reference_phase_rad,
+src\temsim\physics\radial_column_wave.py:149: in propagate_radial
+    _check_hankel_edges(transformed)
+src\temsim\physics\radial_column_wave.py:99: in _check_hankel_edges
+    raise RadialDomainError("The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain")
+E   temsim.physics.radial_column_wave.RadialDomainError: The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain
+__ test_complex_free_gaussian_has_absolute_phase_and_conserved_current[-0.2] __
+tests\test_radial_column_wave.py:20: in test_complex_free_gaussian_has_absolute_phase_and_conserved_current
+    result = propagate_radial(wave, m, 2*np.pi, reference_phase_rad=path.reference_phase_rad,
+src\temsim\physics\radial_column_wave.py:149: in propagate_radial
+    _check_hankel_edges(transformed)
+src\temsim\physics\radial_column_wave.py:99: in _check_hankel_edges
+    raise RadialDomainError("The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain")
+E   temsim.physics.radial_column_wave.RadialDomainError: The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain
+__ test_complex_free_gaussian_has_absolute_phase_and_conserved_current[2.0] ___
+tests\test_radial_column_wave.py:20: in test_complex_free_gaussian_has_absolute_phase_and_conserved_current
+    result = propagate_radial(wave, m, 2*np.pi, reference_phase_rad=path.reference_phase_rad,
+src\temsim\physics\radial_column_wave.py:165: in propagate_radial
+    _check_hankel_edges(transformed)
+src\temsim\physics\radial_column_wave.py:99: in _check_hankel_edges
+    raise RadialDomainError("The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain")
+E   temsim.physics.radial_column_wave.RadialDomainError: The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain
+=========================== short test summary info ===========================
+FAILED tests/test_radial_column_wave.py::test_complex_free_gaussian_has_absolute_phase_and_conserved_current[0.2]
+FAILED tests/test_radial_column_wave.py::test_complex_free_gaussian_has_absolute_phase_and_conserved_current[-0.2]
+FAILED tests/test_radial_column_wave.py::test_complex_free_gaussian_has_absolute_phase_and_conserved_current[2.0]
+3 failed, 2 passed in 1.09s

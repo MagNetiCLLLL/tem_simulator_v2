@@ -1,0 +1,59 @@
+FF.....F.......................                                          [100%]
+================================== FAILURES ===================================
+__ test_real_gun_with_shared_lens_tail_and_readout_independent_cache[False] ___
+tests\test_tip_wave_pipeline.py:22: in test_real_gun_with_shared_lens_tail_and_readout_independent_cache
+    result = simulate_tip_wave(state, request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:201: in simulate_tip_wave
+    gun = stage("gun_exit", lambda: build_tip_gun_checkpoint(working.electron_gun, source_numerics=request.source,
+src\temsim\physics\tip_wave_pipeline.py:181: in stage
+    result = producer()
+             ^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:201: in <lambda>
+    gun = stage("gun_exit", lambda: build_tip_gun_checkpoint(working.electron_gun, source_numerics=request.source,
+src\temsim\physics\tip_gun_wave.py:314: in build_tip_gun_checkpoint
+    emission = generate_tip_emission(working, source_numerics)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:247: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+___ test_real_gun_with_shared_lens_tail_and_readout_independent_cache[True] ___
+tests\test_tip_wave_pipeline.py:22: in test_real_gun_with_shared_lens_tail_and_readout_independent_cache
+    result = simulate_tip_wave(state, request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:201: in simulate_tip_wave
+    gun = stage("gun_exit", lambda: build_tip_gun_checkpoint(working.electron_gun, source_numerics=request.source,
+src\temsim\physics\tip_wave_pipeline.py:181: in stage
+    result = producer()
+             ^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:201: in <lambda>
+    gun = stage("gun_exit", lambda: build_tip_gun_checkpoint(working.electron_gun, source_numerics=request.source,
+src\temsim\physics\tip_gun_wave.py:314: in build_tip_gun_checkpoint
+    emission = generate_tip_emission(working, source_numerics)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:247: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+_ test_material_multislice_with_actual_atomistic_potential_preserves_branches _
+tests\test_tip_wave_pipeline.py:121: in test_material_multislice_with_actual_atomistic_potential_preserves_branches
+    result = _propagate_specimen(state, checkpoint)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\specimen_wave_transport.py:187: in _propagate_specimen
+    mode = _slice_phase(mode, projected, x, y, sigma, .5)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\specimen_wave_transport.py:90: in _slice_phase
+    check_combined_phase_sampling(wave, phase, float(wavelength_m(mode.energy_kev*1000)))
+src\temsim\physics\wave_grid.py:80: in check_combined_phase_sampling
+    raise WaveSamplingError(
+E   temsim.physics.wave_grid.WaveSamplingError: Combined specimen/carrier/envelope bandwidth 3.63247 rad exceeds the 0.8*pi sampling budget; refine the incoming wave and independently regenerate/verify the potential grid before retrying
+=========================== short test summary info ===========================
+FAILED tests/test_tip_wave_pipeline.py::test_real_gun_with_shared_lens_tail_and_readout_independent_cache[False]
+FAILED tests/test_tip_wave_pipeline.py::test_real_gun_with_shared_lens_tail_and_readout_independent_cache[True]
+FAILED tests/test_tip_wave_pipeline.py::test_material_multislice_with_actual_atomistic_potential_preserves_branches
+3 failed, 28 passed in 41.19s

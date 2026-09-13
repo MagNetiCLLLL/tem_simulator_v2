@@ -1,6 +1,114 @@
 # TEM Simulator v2 — Project Handoff
 
-Last updated: 2026-09-08
+Last updated: 2026-09-13
+
+## Active full-product continuation (not a completed handoff)
+
+The user now requests continued work until the physical tip source supports
+Ray Diagram and all historical signal products, with confirmation before
+stopping unfinished work. Historical shutdown instructions below are not
+active instructions. Read [the live acceptance work record](docs/development/NEW_SOURCE_FULL_ACCEPTANCE_2026-09-13.md).
+Production imaging is still unqualified; no full source or image PASS is
+claimed. Current work adds source-specific two-way axial refinement, bounded
+process execution, exact repeated boundary solves and complete-energy evidence.
+Verify live process/report status before resuming any listed diagnostic.
+
+## Current attribution and local axial audit (2026-09-13)
+
+Read [the current-cause report](docs/development/GUN_CURRENT_CAUSE_2026-09-13.md)
+first. The 54.02615/67.58085 nA discrepancy is now accounted for: almost equal
+net injection (~75.95 nA), 12.56847 nA difference in DPA/C1 computed absorption,
+and 1.00496 nA difference in unresolved masked wave. The physical apertures
+did not change; different unconverged incident fields change their calculated
+transmission. These absorption numbers are not qualified physical predictions.
+
+Independent actual-potential integration agrees to 1.37e-13 relative matrix
+error at 18 checked settings/planes. Local axial subdivision exposes strong
+propagation-operator sensitivity after quartic wave-following adaptation;
+current conservation alone does not detect the spatial/phase error. On the
+actual occupied first-energy wave, the 398.108--402.089 nm interval changes
+by 58.47% in complex norm between the original step and CF4/16; CF4/8 versus
+CF4/16 still differs by 2.24%, so the refined value is not certified exact.
+This confirms underresolved axial propagation after the coordinate adaptation,
+not just an unoccupied-channel matrix error. New
+observers retain raw complex two-port operators and separately test the
+actually occupied incoming wave. This is not a completed solver repair or
+source-to-image acceptance. No physical/default/production model was changed.
+The report contains the evidence, limitations and validation receipts.
+
+## Quartic radial-phase round (2026-09-13)
+
+Read [the quartic phase report](docs/development/QUARTIC_GUN_PHASE_2026-09-13.md)
+first. Optional fourth-order numerical radial phase is now retained in the
+operators, derivative closure, diagnostics, Cartesian export and radial replay.
+A captured scattering-doubling roundoff failure was repaired without changing
+the operator, deleting channels or relaxing the 1e-9 unitarity gate.
+
+Both full three-energy gun runs now finish, but independent-coordinate
+convergence **FAILED**: 54.02615 versus 67.58085 nA, **25.09%** current and
+**145.75%** complex-field disagreement. This is not a cure or reliable imaging.
+All 395 physical mask events per energy match; source/fields were unchanged.
+The new adaptation remains optional/off by default; source admission stays
+closed. The next investigation is independently checked radial partitioning
+and local complex-field/derivative error control in the first 100--1000 nm.
+
+Final focused receipt: 116 checks passed with unchanged inputs, then serial
+compilation passed. Broader compatibility: 68 passed / 15 failed. Those
+failures reproduce earlier image-admission and legacy paraxial-domain failures,
+not a full-suite pass. See the report for exact receipts, failure captures,
+raw physical records, and the unchanged-configuration scope. No commit, push,
+application restart or shutdown was requested/performed in this round.
+
+## Wave-following chart round (2026-09-13)
+
+Read [the wave-following chart report](docs/development/WAVE_FOLLOWING_GUN_CHART_2026-09-13.md)
+first for the latest optional numerical method and its 80-test focused
+receipt. It derives coordinate width/curvature from the executed full complex
+wave, then re-executes the physical tip/gun with its reflected load. It is
+not a downstream source or a production-imaging admission. Both complete
+three-energy physical comparisons finished with unchanged implementations:
+57.01457 versus 64.56747 nA (13.25% difference), with 145.74% complex-field
+L2 disagreement. Local error at 10 micrometres increased, so this is NOT a
+completed repair despite the smaller current difference. The optional method
+is not promoted; default methods and physical source/component settings are
+unchanged. The next investigation needs richer radial phase/basis resolution,
+not more width-only tuning. See the linked report for raw results and scope.
+
+## Subsequent repair investigation (2026-09-13)
+
+Read [the radial-chart repair report](docs/development/GUN_RADIAL_CHART_REPAIR_2026-09-13.md)
+for the newer local-error control, smooth numerical chart transition and
+68-test scoped receipt. The first large discrepancy is now located between
+1 and 10 micrometres. A common-terminal-chart comparison improved to 0.044%
+current disagreement, but the independent terminal-chart comparison still
+fails at 18.66%; the convergence defect is not closed. The physical source
+is still not qualified for imaging.
+The older shutdown requests/status below are historical, not instructions
+for this repair turn. No new shutdown, commit or push was requested.
+
+## Current round: physical-tip coherent imaging (2026-09-13)
+
+**TEM/STEM imaging with the new physical-tip source is NOT complete. Production
+admission remains closed because the executed gun output is not converged.**
+
+Start with [the current round handoff](docs/development/HANDOFF_2026-09-13.md),
+[the detailed numerical report](docs/development/JOINT_SURFACE_GUN_2026-09-13.md)
+and `AGENTS.md`. The dated handoff supersedes older status and validation counts
+below for this source-development round; historical entries remain intact.
+
+- Implemented joint near-tip/grounded-gun propagation improvements, analytic
+  radial phase coordinates, aperture-aware replay refinement and CPU/CUDA
+  complex FFTLog support. These are development capabilities, not image acceptance.
+- Latest focused receipt: 106 passed, zero failures/errors/skips. Before handoff,
+  all 656 recorded input hashes still matched and serial compilation passed.
+- At identical physical settings, changing only numerical radial coordinate
+  width changed gun output from 29.2522 to 58.1572 nA; full complex L2 difference
+  was 1.239. Do not admit either result as a qualified imaging source.
+- Changes and raw diagnostic evidence remain local and uncommitted. This wrap-up
+  did not delete previous work, commit, push or retune physical parameters.
+- The user requested a handoff followed by forced shutdown of `Royal_Gray`.
+  The shutdown command result is reported in the conversation; this file does
+  not assert that the machine's final power state was verified.
 
 ## Purpose
 

@@ -65,6 +65,22 @@ class ColdFieldEmitter:
     ray_count: int = 1000
 
     @property
+    def surface_model(self):
+        """Explicit v1 surface model; absent on historical parameter records."""
+        return self.__dict__.get("_surface_model")
+
+    @surface_model.setter
+    def surface_model(self, value):
+        if value is None:
+            self.__dict__.pop("_surface_model", None)
+        else:
+            from temsim.optics.electron_gun.tip_surface import TipSurfaceModel
+            if not isinstance(value, TipSurfaceModel):
+                raise ValueError("Expected a versioned tip surface model")
+            value.validate()
+            self.__dict__["_surface_model"] = value
+
+    @property
     def coherence(self) -> TipCoherence | None:
         # Keep the pre-existing dataclass field schema and absent-parameter
         # graph byte-for-byte compatible with archived classical gun data.
@@ -88,6 +104,8 @@ class ColdFieldEmitter:
 
     @property
     def emitted_current_a(self):
+        if self.surface_model is not None:
+            return self.surface_model.emission.current_na * 1e-9
         return float(self.emission_current_na) * 1.0e-9
 
     @property
@@ -103,6 +121,13 @@ class ColdFieldEmitter:
         return "feg_tip"
 
     def validate(self):
+        if self.surface_model is not None:
+            self.surface_model.validate()
+            if self.coherence is not None:
+                raise ValueError("Surface emission and historical Gaussian-Schell emission cannot both be selected")
+            if int(self.ray_count) < 9:
+                raise ValueError("Surface emission requires at least 9 rays")
+            return self
         nonnegative = (
             "tip_radius_nm",
             "work_function_ev",
@@ -146,6 +171,9 @@ class ColdFieldEmitter:
         n = int(self.ray_count if count is None else count)
         if n < 9:
             raise ValueError("Cold FEG emission requires at least 9 rays.")
+        if self.surface_model is not None:
+            from temsim.optics.electron_gun.tip_surface import surface_bundle
+            return surface_bundle(self.surface_model, n)
         if self.coherence is not None:
             from temsim.optics.electron_gun.tip_coherence import tip_particle_samples
             bundle = tip_particle_samples(self, n)

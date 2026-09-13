@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="47" time="53.432" timestamp="2026-09-12T14:52:39.578142+01:00" hostname="Royal_Gray"><testcase classname="tests.test_low_energy_boundary" name="test_uniform_medium_exact_large_angle_and_evanescent_branches" time="0.003"><failure message="AssertionError: &#10;Not equal to tolerance rtol=1e-07, atol=1e-05&#10;&#10;Mismatched elements: 1 / 6 (16.7%)&#10;Mismatch at index:&#10; [3]: (-31.99999795200007+0j) (ACTUAL), 0j (DESIRED)&#10;Max absolute difference among violations: 31.99999795&#10;Max relative difference among violations: inf&#10; ACTUAL: array([ 1.744812e+09+2.197654e+09j,  2.145054e+09+1.601290e+09j,&#10;       -8.617888e+08-1.582411e+08j, -3.200000e+01+0.000000e+00j,&#10;       -4.498699e+07+0.000000e+00j, -2.918024e+05+0.000000e+00j])&#10; DESIRED: array([ 1.744812e+09+2.197654e+09j,  2.145054e+09+1.601290e+09j,&#10;       -8.617888e+08-1.582411e+08j,  0.000000e+00+0.000000e+00j,&#10;       -4.498699e+07+0.000000e+00j, -2.918024e+05+0.000000e+00j])">tests\test_low_energy_boundary.py:21: in test_uniform_medium_exact_large_angle_and_evanescent_branches
+    np.testing.assert_allclose(result.boundary_derivative_per_m[-1], 1j*kz*expected, atol=1e-5)
+E   AssertionError: 
+E   Not equal to tolerance rtol=1e-07, atol=1e-05
+E   
+E   Mismatched elements: 1 / 6 (16.7%)
+E   Mismatch at index:
+E    [3]: (-31.99999795200007+0j) (ACTUAL), 0j (DESIRED)
+E   Max absolute difference among violations: 31.99999795
+E   Max relative difference among violations: inf
+E    ACTUAL: array([ 1.744812e+09+2.197654e+09j,  2.145054e+09+1.601290e+09j,
+E          -8.617888e+08-1.582411e+08j, -3.200000e+01+0.000000e+00j,
+E          -4.498699e+07+0.000000e+00j, -2.918024e+05+0.000000e+00j])
+E    DESIRED: array([ 1.744812e+09+2.197654e+09j,  2.145054e+09+1.601290e+09j,
+E          -8.617888e+08-1.582411e+08j,  0.000000e+00+0.000000e+00j,
+E          -4.498699e+07+0.000000e+00j, -2.918024e+05+0.000000e+00j])</failure></testcase><testcase classname="tests.test_low_energy_boundary" name="test_accelerating_step_has_reflection_and_conserves_current" time="0.001" /><testcase classname="tests.test_low_energy_boundary" name="test_evanescent_entrance_can_couple_to_propagating_exit_without_clipping" time="0.000" /><testcase classname="tests.test_low_energy_boundary" name="test_thick_forbidden_layer_does_not_overflow_or_restore_flux" time="0.000" /><testcase classname="tests.test_low_energy_boundary" name="test_linear_accelerating_potential_converges_against_independent_ode" time="0.009"><failure message="assert np.float64(4.1327980679651105e-05) &lt; 2e-05">tests\test_low_energy_boundary.py:78: in test_linear_accelerating_potential_converges_against_independent_ode
+    assert errors[-1] &lt; 2e-5
+E   assert np.float64(4.1327980679651105e-05) &lt; 2e-05</failure></testcase><testcase classname="tests.test_low_energy_boundary" name="test_invalid_physical_inputs_rejected[arguments0]" time="0.000" /><testcase classname="tests.test_low_energy_boundary" name="test_invalid_physical_inputs_rejected[arguments1]" time="0.000" /><testcase classname="tests.test_low_energy_boundary" name="test_invalid_physical_inputs_rejected[arguments2]" time="0.000" /><testcase classname="tests.test_low_energy_boundary" name="test_invalid_physical_inputs_rejected[arguments3]" time="0.000" /><testcase classname="tests.test_low_energy_boundary" name="test_cancellation_and_memory_limits" time="0.000" /><testcase classname="tests.test_review_p0_regressions" name="test_combined_specimen_bandwidth_rejects_before_aliasing[False]" time="0.002" /><testcase classname="tests.test_review_p0_regressions" name="test_combined_specimen_bandwidth_rejects_before_aliasing[True]" time="0.001" /><testcase classname="tests.test_review_p0_regressions" name="test_independent_fine_grids_retain_correct_complex_phase_and_frequency" time="0.034" /><testcase classname="tests.test_review_p0_regressions" name="test_undersampled_analytic_carrier_cannot_be_folded_by_band_filter" time="0.001" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[False-upper_b0_t]" time="5.789" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[False-lower_b0_t]" time="0.649" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[False-upper_a_mm]" time="0.621" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[False-lower_a_mm]" time="0.642" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[False-upper_field_center_z_mm]" time="0.641" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[False-lower_field_center_z_mm]" time="0.678" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[False-cc_mm]" time="0.702" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[True-upper_b0_t]" time="0.991" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[True-lower_b0_t]" time="1.158" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[True-upper_a_mm]" time="1.025" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[True-lower_a_mm]" time="0.992" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[True-upper_field_center_z_mm]" time="1.062" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[True-lower_field_center_z_mm]" time="1.098" /><testcase classname="tests.test_review_p0_regressions" name="test_every_live_objective_field_parameter_invalidates_incident[True-cc_mm]" time="1.117" /><testcase classname="tests.test_review_p0_regressions" name="test_both_objective_profiles_are_fully_bound[amplitude-upper_gaussian]" time="1.035" /><testcase classname="tests.test_review_p0_regressions" name="test_both_objective_profiles_are_fully_bound[amplitude-lower_gaussian]" time="1.114" /><testcase classname="tests.test_review_p0_regressions" name="test_both_objective_profiles_are_fully_bound[offset-upper_gaussian]" time="1.143" /><testcase classname="tests.test_review_p0_regressions" name="test_both_objective_profiles_are_fully_bound[offset-lower_gaussian]" time="1.043" /><testcase classname="tests.test_review_p0_regressions" name="test_both_objective_profiles_are_fully_bound[sigma-upper_gaussian]" time="1.051" /><testcase classname="tests.test_review_p0_regressions" name="test_both_objective_profiles_are_fully_bound[sigma-lower_gaussian]" time="1.172" /><testcase classname="tests.test_review_p0_regressions" name="test_artifact_store_rejects_old_lower_pole_but_keeps_history" time="3.035" /><testcase classname="tests.test_review_p0_regressions" name="test_display_only_lens_changes_do_not_invalidate_physics" time="0.819" /><testcase classname="tests.test_review_p0_regressions" name="test_wave_and_particle_reject_nonforward_tip_without_changing_parameters" time="0.018" /><testcase classname="tests.test_review_p0_regressions" name="test_small_phase_modulation_still_checks_its_diffraction_sidebands" time="0.002" /><testcase classname="tests.test_review_p0_regressions" name="test_legal_tip_domain_preserves_statistics_and_records_error_budget" time="0.055" /><testcase classname="tests.test_review_p0_regressions" name="test_unqualified_default_coherent_tip_is_not_silently_recalibrated" time="0.589" /><testcase classname="tests.test_review_p0_regressions" name="test_forward_domain_check_does_not_depend_on_lucky_finite_sampling" time="0.019" /><testcase classname="tests.test_review_p0_regressions" name="test_changed_lower_pole_warm_trace_matches_cold_and_gui_has_no_whole_product_hit" time="3.459" /><testcase classname="tests.test_tip_wave_pipeline" name="test_material_multislice_with_actual_atomistic_potential_preserves_branches" time="11.837"><failure message="ValueError: Wave grid 4,096 x 4,096 needs approximately 18.2 GiB of wave working memory (limit 8 GiB), including FFT/probe buffers. Reduce probe defocus or scan extent; the grid will not be silently coarsened.">tests\test_tip_wave_pipeline.py:121: in test_material_multislice_with_actual_atomistic_potential_preserves_branches
+    result = _propagate_specimen(state, checkpoint)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\specimen_wave_transport.py:214: in _propagate_specimen
+    return _with_material_refinement(state, checkpoint,
+src\temsim\physics\specimen_wave_transport.py:181: in _with_material_refinement
+    material = _prepare_material_grid(state, checkpoint,
+src\temsim\physics\specimen_wave_transport.py:145: in _prepare_material_grid
+    prepared = prepare_specimen_potentials(numerical_state, preset,
+src\temsim\physics\wave_imaging.py:629: in prepare_specimen_potentials
+    prepared, hit, build_seconds, retained_bytes = cached_prepared_specimen(
+src\temsim\physics\prepared_specimen_cache.py:262: in cached_prepared_specimen
+    return _CACHE.get_or_build(key, builder, still_valid=still_valid)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\prepared_specimen_cache.py:194: in get_or_build
+    value = builder()
+            ^^^^^^^^^
+src\temsim\physics\wave_imaging.py:631: in &lt;lambda&gt;
+    lambda: _prepare_specimen_potentials_uncached(state, preset, **arguments),
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\wave_imaging.py:721: in _prepare_specimen_potentials_uncached
+    sampling_plan = plan_wave_sampling(
+src\temsim\physics\wave_sampling.py:96: in plan_wave_sampling
+    raise ValueError(
+E   ValueError: Wave grid 4,096 x 4,096 needs approximately 18.2 GiB of wave working memory (limit 8 GiB), including FFT/probe buffers. Reduce probe defocus or scan extent; the grid will not be silently coarsened.</failure></testcase><testcase classname="tests.test_inelastic_wave" name="test_inelastic_jump_keeps_full_phase_changes_energy_and_canonical_carrier_units" time="0.003" /><testcase classname="tests.test_inelastic_wave" name="test_sampled_instrument_matches_born_probabilities_in_finite_material" time="0.523" /><testcase classname="tests.test_inelastic_wave" name="test_counter_rng_is_independent_of_preceding_slices" time="0.001" /><testcase classname="tests.test_inelastic_wave" name="test_outgoing_wave_propagates_remaining_material_at_new_energy_and_resumes" time="7.089"><failure message="ValueError: Wave grid 4,096 x 4,096 needs approximately 17.2 GiB of wave working memory (limit 8 GiB), including FFT/probe buffers. Reduce probe defocus or scan extent; the grid will not be silently coarsened.">tests\test_inelastic_wave.py:96: in test_outgoing_wave_propagates_remaining_material_at_new_energy_and_resumes
+    result = _propagate_inelastic_specimen(state, checkpoint, **kw)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\inelastic_wave.py:98: in _propagate_inelastic_specimen
+    return _with_material_refinement(state, checkpoint,
+src\temsim\physics\specimen_wave_transport.py:181: in _with_material_refinement
+    material = _prepare_material_grid(state, checkpoint,
+src\temsim\physics\specimen_wave_transport.py:145: in _prepare_material_grid
+    prepared = prepare_specimen_potentials(numerical_state, preset,
+src\temsim\physics\wave_imaging.py:629: in prepare_specimen_potentials
+    prepared, hit, build_seconds, retained_bytes = cached_prepared_specimen(
+src\temsim\physics\prepared_specimen_cache.py:262: in cached_prepared_specimen
+    return _CACHE.get_or_build(key, builder, still_valid=still_valid)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\prepared_specimen_cache.py:194: in get_or_build
+    value = builder()
+            ^^^^^^^^^
+src\temsim\physics\wave_imaging.py:631: in &lt;lambda&gt;
+    lambda: _prepare_specimen_potentials_uncached(state, preset, **arguments),
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\wave_imaging.py:721: in _prepare_specimen_potentials_uncached
+    sampling_plan = plan_wave_sampling(
+src\temsim\physics\wave_sampling.py:96: in plan_wave_sampling
+    raise ValueError(
+E   ValueError: Wave grid 4,096 x 4,096 needs approximately 17.2 GiB of wave working memory (limit 8 GiB), including FFT/probe buffers. Reduce probe defocus or scan extent; the grid will not be silently coarsened.</failure></testcase></testsuite></testsuites>

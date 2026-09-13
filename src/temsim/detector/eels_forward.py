@@ -410,12 +410,18 @@ def first_order_energy_filter_transmission(
 
 
 def source_energy_fwhm_ev(state, simulation=None) -> tuple[float, str]:
+    gun = getattr(state, "electron_gun", None)
+    emitter = getattr(gun, "emitter", None)
+    if getattr(emitter, "surface_model", None) is not None:
+        raise ValueError(
+            "The analytical EELS Gaussian source-width model does not support the grounded tip's "
+            "non-Gaussian surface spectrum. Use a transported energy distribution; historical "
+            "source FWHM is not substituted."
+        )
     gun_trace = getattr(simulation, "gun_trace", None)
     traced = getattr(gun_trace, "output_energy_fwhm_ev", None)
     if traced is not None and math.isfinite(float(traced)) and traced >= 0.0:
         return float(traced), "electron-gun exit trace"
-    gun = getattr(state, "electron_gun", None)
-    emitter = getattr(gun, "emitter", None)
     value = getattr(
         emitter,
         "energy_spread_fwhm_ev",

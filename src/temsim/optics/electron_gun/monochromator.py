@@ -273,6 +273,13 @@ class CombinedElectricField:
             + self.wien_field.potential_v_at_global_positions(positions_m)
         )
 
+    def potential_rise_v_at_global_positions(self, positions_m):
+        # A constant voltage gauge improves small-work differences without
+        # dropping the installed Wien electric potential from transport.
+        potential = getattr(self.base_field, "potential_rise_v_at_global_positions",
+                            self.base_field.potential_v_at_global_positions)
+        return potential(positions_m) + self.wien_field.potential_v_at_global_positions(positions_m)
+
 
 class CombinedMagneticField:
     def __init__(self, base_field, wien_field):

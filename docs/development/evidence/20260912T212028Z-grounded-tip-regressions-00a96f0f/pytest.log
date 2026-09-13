@@ -1,0 +1,66 @@
+..............................................F.FF.F.F....F............. [ 86%]
+...........                                                              [100%]
+================================== FAILURES ===================================
+_ test_actual_gun_transports_tip_energy_phase_and_reuses_only_executed_inputs _
+tests\test_tip_gun_wave.py:98: in test_actual_gun_transports_tip_energy_phase_and_reuses_only_executed_inputs
+    result = build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_gun_wave.py:314: in build_tip_gun_checkpoint
+    emission = generate_tip_emission(working, source_numerics)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:249: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+______ test_accelerator_and_focusing_are_inputs_not_exit_fit_parameters _______
+tests\test_tip_gun_wave.py:140: in test_accelerator_and_focusing_are_inputs_not_exit_fit_parameters
+    first = build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_gun_wave.py:314: in build_tip_gun_checkpoint
+    emission = generate_tip_emission(working, source_numerics)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:249: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+________________ test_installed_wien_and_c1_slit_are_executed _________________
+tests\test_tip_gun_wave.py:156: in test_installed_wien_and_c1_slit_are_executed
+    result = build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_gun_wave.py:314: in build_tip_gun_checkpoint
+    emission = generate_tip_emission(working, source_numerics)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:249: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+___________ test_imported_wien_provider_cannot_be_silently_omitted ____________
+tests\test_tip_gun_wave.py:178: in test_imported_wien_provider_cannot_be_silently_omitted
+    with pytest.raises(ValueError, match="Imported Wien"):
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'Imported Wien'
+E     Actual message: 'Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.'
+____________ test_wave_memory_budget_is_checked_before_allocation _____________
+tests\test_tip_gun_wave.py:198: in test_wave_memory_budget_is_checked_before_allocation
+    with pytest.raises(ValueError, match="maximum_checkpoint_bytes"):
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'maximum_checkpoint_bytes'
+E     Actual message: 'Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.'
+__________ test_profile_restores_estimates_on_all_runtime_lens_types __________
+tests\test_profile_optional_values.py:73: in test_profile_restores_estimates_on_all_runtime_lens_types
+    assert document["format_version"] == PROFILE_FORMAT_VERSION == 7
+E   assert 8 == 7
+=========================== short test summary info ===========================
+FAILED tests/test_tip_gun_wave.py::test_actual_gun_transports_tip_energy_phase_and_reuses_only_executed_inputs
+FAILED tests/test_tip_gun_wave.py::test_accelerator_and_focusing_are_inputs_not_exit_fit_parameters
+FAILED tests/test_tip_gun_wave.py::test_installed_wien_and_c1_slit_are_executed
+FAILED tests/test_tip_gun_wave.py::test_imported_wien_provider_cannot_be_silently_omitted
+FAILED tests/test_tip_gun_wave.py::test_wave_memory_budget_is_checked_before_allocation
+FAILED tests/test_profile_optional_values.py::test_profile_restores_estimates_on_all_runtime_lens_types
+6 failed, 77 passed in 166.37s (0:02:46)

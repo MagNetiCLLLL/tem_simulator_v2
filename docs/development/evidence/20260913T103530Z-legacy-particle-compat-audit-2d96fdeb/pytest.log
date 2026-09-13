@@ -1,0 +1,6 @@
+........................................................................ [ 33%]
+........................................................................ [ 67%]
+....................................................................     [100%]
+212 passed in 88.83s (0:01:28)
+F:\tem_simulator_v2\.venv\Lib\site-packages\pyqtgraph\graphicsItems\ViewBox\ViewBox.py:1818: RuntimeWarning: Failed to disconnect (NoneType) from signal "destroyed()".
+  k.destroyed.disconnect()

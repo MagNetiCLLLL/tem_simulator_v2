@@ -1,5 +1,15 @@
 # TEM Simulator v2
 
+## Real microscope data recording
+
+**Microscope > Instrument Recorder...** opens an independent window for real
+Flucam, Ceta and STEM current-signal collection with linked system readbacks.
+Three buttons and one preview replace manual acquisition/sample inputs. Signals
+must be exposed as existing AutoScript streams; no default exposure is started.
+It does not modify simulator settings or caches. A standalone entry
+is also available: `python -m temsim.recorder`.
+See [Instrument Recorder workflow and limits](docs/instrument_recorder.md).
+
 Clean PySide6 reconstruction of the TEM simulator.
 
 **Current source migration status:** particle calculations and existing-image

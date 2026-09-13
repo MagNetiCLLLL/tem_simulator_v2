@@ -17,7 +17,8 @@ class ModelInspectorPage(QWidget):
         self._completed_diagnostics = {}
         self._completed_mode = None
         self._completed_aberrations = {}
-        self.gun_source_button = QPushButton("FEG tip emission…")
+        self.gun_source_button = QPushButton("FEG tip…")
+        self.gun_source_button.setToolTip("Edit FEG tip emission. Apply changes in the source editor.")
         self.gun_source_button.clicked.connect(self._edit_gun_source)
         self.lens = QComboBox()
         self.field_solver = QComboBox()
@@ -56,6 +57,7 @@ class ModelInspectorPage(QWidget):
         controls = QHBoxLayout()
         for widget in (self.lens, self.permeability, self.ampere_turns):
             controls.addWidget(widget)
+        controls.addWidget(self.gun_source_button, 0, Qt.AlignmentFlag.AlignRight)
         material_controls = QHBoxLayout()
         for widget in (self.field_solver, self.bh_material, self.import_bh, self.default_material):
             material_controls.addWidget(widget)
@@ -138,7 +140,6 @@ class ModelInspectorPage(QWidget):
         fit_evidence_layout.addWidget(self.export_fit)
         tables.addTab(fit_evidence_page, "Aberration evidence")
         layout = QVBoxLayout(self)
-        layout.addWidget(self.gun_source_button)
         layout.addLayout(controls)
         layout.addLayout(material_controls)
         layout.addWidget(self.material_hint)
@@ -170,7 +171,7 @@ class ModelInspectorPage(QWidget):
         if self._state is None:
             return
         from temsim.gui.gun_source_dialog import GunSourceDialog
-        dialog = GunSourceDialog(self._state.electron_gun, self)
+        dialog = GunSourceDialog(self._state.electron_gun, self, instrument_state=self._state)
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
         gun = self._state.electron_gun

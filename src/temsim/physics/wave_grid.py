@@ -22,11 +22,77 @@ class WaveSamplingError(ValueError):
         self.required_scale = float(required_scale)
 
 
+def check_combined_phase_sampling(wave, phase, wavelength_m):
+    """Preflight the envelope + analytical carrier + added phase together.
+
+    Frequencies are radians per lattice step (also valid on affine grids).
+    The marginal envelope support excludes at most 1e-12 probability per
+    axis for the CHECK only; no wave data or weight is removed. The 0.8*pi
+    budget leaves a 20% Nyquist guard. Check both the unwrapped local phase
+    increments and the COMPLEX transmission spectrum (phase modulation has
+    harmonics even when its local slope is small). The support-sum condition
+    is sufficient for resolved trigonometric interpolants up to the declared
+    tail; it is NOT potential-grid convergence certification. Unknown detail
+    already absent from the input potential needs an independent finer grid.
+    No wrapped phase of the incoming wave is differentiated at its zeros.
+    """
+    phase = np.asarray(phase, dtype=float)
+    if phase.shape != wave.amplitude.shape or not np.all(np.isfinite(phase)):
+        raise ValueError("Added phase must be finite and match the wave lattice")
+    if not math.isfinite(wavelength_m) or wavelength_m <= 0:
+        raise ValueError("Phase sampling requires a positive finite wavelength")
+    delta = wave.coordinates_m()-wave.origin_m[:, None, None]
+    curvature = np.zeros((2, 2)) if wave.curvature_m1 is None else wave.curvature_m1
+    tilt = np.zeros(2) if wave.tilt_rad is None else wave.tilt_rad
+    carrier = (np.einsum("iyx,ij,jyx->yx", delta, curvature, delta)/2
+               + np.einsum("i,iyx->yx", tilt, delta))*2*np.pi/wavelength_m
+    unwrapped = phase+carrier
+    if not np.all(np.isfinite(unwrapped)):
+        raise ValueError("Combined phase is outside the finite numerical range")
+    spectrum = abs(np.fft.fft2(wave.amplitude, norm="ortho"))**2
+    # An affine phase has known (possibly non-bin-centred) frequency. FFT of
+    # its periodic extension would invent a boundary jump and reject resolved
+    # carriers. Only sample the non-affine specimen transmission here; keep
+    # analytical carrier increments separate on the physical lattice.
+    affine = all(np.allclose(np.diff(phase, axis=axis), np.diff(phase, axis=axis).flat[0],
+                             rtol=1e-10, atol=1e-10) for axis in (0, 1))
+    transmission_spectrum = (None if affine else
+        abs(np.fft.fft2(np.exp(1j*phase), norm="ortho"))**2)
+    total = float(spectrum.sum())
+    transmission_total = 0. if affine else float(transmission_spectrum.sum())
+    bounds = []
+    for axis in (0, 1):
+        frequency = abs(2*np.pi*np.fft.fftfreq(wave.amplitude.shape[axis]))
+        marginal = spectrum.sum(axis=1-axis)
+        order = np.argsort(frequency)
+        tail = np.cumsum(marginal[order][::-1])[::-1]
+        support = float(frequency[order][tail > total*1e-12].max(initial=0.))
+        added = float(abs(np.diff(unwrapped, axis=axis)).max(initial=0.))
+        transmission_support = 0.
+        if transmission_spectrum is not None:
+            transmission_marginal = transmission_spectrum.sum(axis=1-axis)
+            transmission_tail = np.cumsum(transmission_marginal[order][::-1])[::-1]
+            transmission_support = float(frequency[order][transmission_tail > transmission_total*1e-12].max(initial=0.))
+            transmission_support += float(abs(np.diff(carrier, axis=axis)).max(initial=0.))
+        bounds.append(support+max(added, transmission_support))
+    largest = max(bounds)
+    if largest >= .8*np.pi:
+        raise WaveSamplingError(
+            f"Combined specimen/carrier/envelope bandwidth {largest:.6g} rad exceeds the 0.8*pi sampling budget; "
+            "refine the incoming wave and independently regenerate/verify the potential grid before retrying",
+            largest/(.8*np.pi))
+    return {"schema": "combined-phase-bandwidth-v1", "bounds_rad_per_step_yx": bounds,
+            "budget_rad_per_step": .8*np.pi, "spectral_tail_probability_per_axis": 1e-12,
+            "potential_grid_convergence": "NOT_ESTABLISHED_BY_THIS_CHECK"}
+
+
 @dataclass(frozen=True)
 class WaveGridNumerics:
     automatic_refinement: bool = True
     maximum_pixels: int = 32768
     maximum_working_bytes: int = 72*1024**3
+    specimen_phase_method: str = "galerkin"
+    specimen_quadrature_factor: int = 2
 
     def validate(self):
         if not isinstance(self.automatic_refinement, bool):
@@ -35,6 +101,11 @@ class WaveGridNumerics:
             raise ValueError("Maximum wave grid pixels must be an integer from 32 to 65536")
         if isinstance(self.maximum_working_bytes, bool) or not isinstance(self.maximum_working_bytes, int) or self.maximum_working_bytes <= 0:
             raise ValueError("Wave working memory budget must be a positive integer")
+        if self.specimen_phase_method not in ("sampled", "galerkin"):
+            raise ValueError("Specimen phase method must be sampled or galerkin")
+        if (type(self.specimen_quadrature_factor) is not int
+                or not 2 <= self.specimen_quadrature_factor <= 16):
+            raise ValueError("Specimen potential quadrature factor must be an integer from 2 to 16")
         return self
 
     def check(self, shape, *, retained_bytes=0):
@@ -48,6 +119,13 @@ class WaveGridNumerics:
                              "The unresolved optical operator was not applied; increase the numerical budget.")
         check_available_memory(required-int(retained_bytes))
         return required
+
+    def column_identity(self):
+        """Consumed column numerics only; specimen quadrature is downstream."""
+        self.validate()
+        return {"automatic_refinement": self.automatic_refinement,
+                "maximum_pixels": self.maximum_pixels,
+                "maximum_working_bytes": self.maximum_working_bytes}
 
 
 def refine_plane_wave(wave, shape, *, numerics=WaveGridNumerics(), retained_bytes=0):

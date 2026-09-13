@@ -1,0 +1,46 @@
+FF.......................                                                [100%]
+================================== FAILURES ===================================
+__ test_real_gun_with_shared_lens_tail_and_readout_independent_cache[False] ___
+tests\test_tip_wave_pipeline.py:22: in test_real_gun_with_shared_lens_tail_and_readout_independent_cache
+    result = simulate_tip_wave(state, request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:201: in simulate_tip_wave
+    gun = stage("gun_exit", lambda: build_tip_gun_checkpoint(working.electron_gun, source_numerics=request.source,
+src\temsim\physics\tip_wave_pipeline.py:181: in stage
+    result = producer()
+             ^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:201: in <lambda>
+    gun = stage("gun_exit", lambda: build_tip_gun_checkpoint(working.electron_gun, source_numerics=request.source,
+src\temsim\physics\tip_gun_wave.py:314: in build_tip_gun_checkpoint
+    emission = generate_tip_emission(working, source_numerics)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:247: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+___ test_real_gun_with_shared_lens_tail_and_readout_independent_cache[True] ___
+tests\test_tip_wave_pipeline.py:22: in test_real_gun_with_shared_lens_tail_and_readout_independent_cache
+    result = simulate_tip_wave(state, request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:201: in simulate_tip_wave
+    gun = stage("gun_exit", lambda: build_tip_gun_checkpoint(working.electron_gun, source_numerics=request.source,
+src\temsim\physics\tip_wave_pipeline.py:181: in stage
+    result = producer()
+             ^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:201: in <lambda>
+    gun = stage("gun_exit", lambda: build_tip_gun_checkpoint(working.electron_gun, source_numerics=request.source,
+src\temsim\physics\tip_gun_wave.py:314: in build_tip_gun_checkpoint
+    emission = generate_tip_emission(working, source_numerics)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:247: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+=========================== short test summary info ===========================
+FAILED tests/test_tip_wave_pipeline.py::test_real_gun_with_shared_lens_tail_and_readout_independent_cache[False]
+FAILED tests/test_tip_wave_pipeline.py::test_real_gun_with_shared_lens_tail_and_readout_independent_cache[True]
+2 failed, 23 passed in 16.89s

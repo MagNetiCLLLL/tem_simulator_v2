@@ -31,7 +31,7 @@ from temsim.specimen.geometry import (
 from temsim.specimen.source import migrate_legacy_structure_source
 
 
-PROFILE_FORMAT_VERSION = 7
+PROFILE_FORMAT_VERSION = 9
 _GUN_SOURCE_MODEL_KEY = "__gun_source_model__"
 _SAMPLE_MODEL_KEY = "__sample_model__"
 _SIMULATION_MODEL_KEY = "__simulation_model__"
@@ -103,6 +103,8 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
                if getattr(state.electron_gun, "effective_source", None) is not None else {}),
             **({"tip_coherence": asdict(state.electron_gun.emitter.coherence)}
                if getattr(state.electron_gun.emitter, "coherence", None) is not None else {}),
+            **({"surface_model": state.electron_gun.emitter.surface_model.to_dict()}
+               if getattr(state.electron_gun.emitter, "surface_model", None) is not None else {}),
         },
         # TOML has no null literal. Keep absence (legacy/default behaviour)
         # distinct from explicitly clearing an optional runtime coefficient.
@@ -135,7 +137,7 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
     if not isinstance(document, dict):
         raise ValueError("Operating profile must be a TOML table")
     format_version = int(document.get("format_version", 0))
-    if format_version not in {1, 2, 3, 4, 5, 6, PROFILE_FORMAT_VERSION}:
+    if format_version not in {1, 2, 3, 4, 5, 6, 7, 8, PROFILE_FORMAT_VERSION}:
         raise ValueError("Unsupported operating-profile format")
     assembly = document.get("assembly")
     if not isinstance(assembly, dict):
@@ -231,7 +233,7 @@ def apply_profile_values(state, values: dict) -> list[str]:
     format_version = int(values.pop(_PROFILE_VERSION_KEY, 1))
     sample_model = values.pop(_SAMPLE_MODEL_KEY, None)
     gun_source = values.pop(_GUN_SOURCE_MODEL_KEY, {"representation": "classical_particles"})
-    if not isinstance(gun_source, dict) or set(gun_source)-{"representation", "effective", "tip_coherence"}:
+    if not isinstance(gun_source, dict) or set(gun_source)-{"representation", "effective", "tip_coherence", "surface_model"}:
         raise ValueError("Operating profile has invalid electron-gun source fields")
     representation = gun_source.get("representation")
     if representation not in {"classical_particles", "effective_gaussian_schell"}:
@@ -244,6 +246,12 @@ def apply_profile_values(state, values: dict) -> list[str]:
         from temsim.optics.electron_gun.effective_source import EffectiveGunSource
         parameters = EffectiveGunSource(**gun_source["effective"])
     tip_coherence = None
+    surface_model = None
+    if "surface_model" in gun_source:
+        from temsim.optics.electron_gun.tip_surface import TipSurfaceModel
+        if state.electron_gun.type_key != "cold_feg" or "tip_coherence" in gun_source:
+            raise ValueError("Select one FEG tip emission model; surface and historical coherent inputs cannot coexist")
+        surface_model = TipSurfaceModel.from_dict(gun_source["surface_model"])
     if "tip_coherence" in gun_source:
         from temsim.optics.electron_gun.tip_coherence import TipCoherence
         if state.electron_gun.type_key != "cold_feg" or not isinstance(gun_source["tip_coherence"], dict):
@@ -279,6 +287,16 @@ def apply_profile_values(state, values: dict) -> list[str]:
         if not isinstance(attributes, dict):
             raise ValueError(f"Operating profile device {key} must be a table")
         allowed = {parameter.name for parameter in editable_parameters(target)}
+        if key == getattr(state.electron_gun.emitter, "key", None) and state.electron_gun.type_key == "cold_feg":
+            # The incoming model, not the currently active one, determines
+            # which historical fields may be restored. No implicit migration.
+            from temsim.runtime_parameters import RuntimeTarget
+            incoming_emitter = copy(target.obj)
+            incoming_emitter.surface_model = surface_model
+            allowed = {p.name for p in editable_parameters(RuntimeTarget(key, target.label, incoming_emitter))}
+        if surface_model is None and target.hidden_parameters:
+            from temsim.runtime_parameters import RuntimeTarget
+            allowed = {p.name for p in editable_parameters(RuntimeTarget(key, target.label, target.obj))}
         if key == "sample":
             allowed.update(SAMPLE_SOURCE_FIELDS)
         for name, value in attributes.items():
@@ -339,6 +357,7 @@ def apply_profile_values(state, values: dict) -> list[str]:
             if obj is state.electron_gun.emitter:
                 setattr(candidate_emitter, name, value)
         candidate_emitter.coherence = tip_coherence
+        candidate_emitter.surface_model = surface_model
         candidate_emitter.validate()
     for obj, name, value in pending:
         if obj is state.sample:
@@ -384,6 +403,7 @@ def apply_profile_values(state, values: dict) -> list[str]:
             setattr(obj, name, value)
     if state.electron_gun.type_key == "cold_feg":
         state.electron_gun.emitter.coherence = tip_coherence
+        state.electron_gun.emitter.surface_model = surface_model
     vars(state.sample).update(vars(candidate_sample))
     state.simulation_mode = selected_mode
     state.simulation_mode_profiles = model_profiles

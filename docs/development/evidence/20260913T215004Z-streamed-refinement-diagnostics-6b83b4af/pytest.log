@@ -1,0 +1,22 @@
+.FF...........................................                           [100%]
+================================== FAILURES ===================================
+_ test_each_completed_round_is_observed_without_affecting_acceptance[global_embedded] _
+tests\test_refinement_progress.py:32: in test_each_completed_round_is_observed_without_affecting_acceptance
+    assert [dict(row) for _, row in rows] == result["rounds"]
+E   AssertionError: assert [{'coarse_sub...ps': 16, ...}] == [{'round': 0,...117e-08, ...}]
+E     
+E     At index 0 diff: {'coarse_substeps': 1, 'complex_comparison': mappingproxy({'maximum_relative_difference': 0.6822379803432793, 'worst_boundaries': (mappingproxy({'absolute_difference': 0.4821893336601536, 'boundary_index': 1, 'comparison_scale': 0.7067758576230717, 'component': 'complex_field', 'diagnostic_scope': 'Overlap and norms describe the error only; acceptance uses the original unfitted complex difference', 'norm_relative_change_diagnostic': 0.00015835251820606574, 'normalised_overlap_magnitude_diagnostic': 0.9976489793740608, 'overlap_phase_rad_diagnostic': 0.6...
+E     
+E     ...Full output truncated (2 lines hidden), use '-vv' to show
+_ test_each_completed_round_is_observed_without_affecting_acceptance[spatial_embedded] _
+tests\test_refinement_progress.py:32: in test_each_completed_round_is_observed_without_affecting_acceptance
+    assert [dict(row) for _, row in rows] == result["rounds"]
+E   AssertionError: assert [{'coarse_sub...451e-08, ...}] == [{'round': 0,...363e-08, ...}]
+E     
+E     At index 0 diff: {'coarse_substeps': 1, 'exit_net_flux': 0.9987478422176901, 'fine_substeps': 2, 'maximum_complex_boundary_change': 0.6822379803432792, 'maximum_depth': 1, 'maximum_local_indicator': 0.6825472550265024, 'numerical_boundary_comparison': mappingproxy({'maximum_relative_difference': 0.6822379803432792, 'worst_boundaries': (mappingproxy({'absolute_difference': 0.4821893336601535, 'boundary_index': 1, 'comparison_scale': 0.7067758576230717, 'component': 'complex_field', 'diagnostic_scope': 'Overlap and norms describe the error only; acceptance uses the origin...
+E     
+E     ...Full output truncated (2 lines hidden), use '-vv' to show
+=========================== short test summary info ===========================
+FAILED tests/test_refinement_progress.py::test_each_completed_round_is_observed_without_affecting_acceptance[global_embedded]
+FAILED tests/test_refinement_progress.py::test_each_completed_round_is_observed_without_affecting_acceptance[spatial_embedded]
+2 failed, 44 passed in 56.22s

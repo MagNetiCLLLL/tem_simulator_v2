@@ -1,0 +1,101 @@
+{
+  "scope": "Retained actual constant operator; NOT_SOURCE_ACCEPTANCE",
+  "solver_identity": "1a67133f1557585bbe304d3e0c46f1c4921dca6601391947e03dd014943dd4d6",
+  "input_file": "F:\\tem_simulator_v2\\docs\\development\\evidence\\20260913-quartic-failure-capture\\failed_slab.npz",
+  "input_sha256": "9d82a2232648173d3405c203c7400d442465e963a1a187b01656ba53c3e7bef8",
+  "repeats": 15,
+  "blas_threads": 1,
+  "results": {
+    "spectral": {
+      "seconds": [
+        0.035494999996444676,
+        0.03028690000064671,
+        0.030778199994529132,
+        0.03620019999652868,
+        0.0403398999987985,
+        0.03346530000271741,
+        0.03021689999877708,
+        0.0315374999991036,
+        0.030011099996045232,
+        0.028333400005067233,
+        0.02796459999808576,
+        0.028794899997592438,
+        0.03370339999673888,
+        0.043711500002245884,
+        0.0306884000019636
+      ],
+      "median_s": 0.030778199994529132,
+      "full_complex_difference_from_spectral": 0.0,
+      "repeat_difference": 0.0,
+      "diagnostics": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 1.2136888591187384e-10,
+        "seed_scaling": "hermitian-growth-and-phase-v1",
+        "maximum_seed_log_growth": 0.5,
+        "seed_log_growth_bound": 0.4491167694155892,
+        "seed_generator_norm": 1.2139224686890073
+      }
+    },
+    "graph": {
+      "seconds": [
+        0.03209159999823896,
+        0.04052600000431994,
+        0.046014699997613207,
+        0.040249300000141375,
+        0.03511969999817666,
+        0.03400500000134343,
+        0.03992609999841079,
+        0.03599680000479566,
+        0.0346270000009099,
+        0.02831509999668924,
+        0.034019099999568425,
+        0.033740600003511645,
+        0.03711690000636736,
+        0.04629440000280738,
+        0.03800559999945108
+      ],
+      "median_s": 0.03599680000479566,
+      "full_complex_difference_from_spectral": 0.0,
+      "repeat_difference": 0.0,
+      "diagnostics": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 1.2136888591187384e-10,
+        "seed_scaling": "hermitian-growth-and-phase-v1",
+        "maximum_seed_log_growth": 0.5,
+        "seed_log_growth_bound": 0.4491167694155892,
+        "seed_generator_norm": 1.2139224686890073
+      }
+    },
+    "riccati": {
+      "seconds": [
+        0.029075899998133536,
+        0.03607860000192886,
+        0.03366950000054203,
+        0.04070320000028005,
+        0.03598960000090301,
+        0.039927500001795124,
+        0.03720379999867873,
+        0.038170500003616326,
+        0.0314042000027257,
+        0.030206999996153172,
+        0.03716970000095898,
+        0.04042730000219308,
+        0.03411059999780264,
+        0.03748479999921983,
+        0.04255810000177007
+      ],
+      "median_s": 0.03716970000095898,
+      "full_complex_difference_from_spectral": 0.0,
+      "repeat_difference": 0.0,
+      "diagnostics": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 1.2136888591187384e-10,
+        "seed_scaling": "hermitian-growth-and-phase-v1",
+        "maximum_seed_log_growth": 0.5,
+        "seed_log_growth_bound": 0.4491167694155892,
+        "seed_generator_norm": 1.2139224686890073
+      }
+    }
+  },
+  "inputs_unchanged": true
+}

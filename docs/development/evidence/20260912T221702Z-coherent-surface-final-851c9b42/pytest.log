@@ -1,0 +1,122 @@
+........................................................................ [ 66%]
+..FFFFFF...F.F..F....................                                    [100%]
+================================== FAILURES ===================================
+______________ test_tip_is_explicit_and_never_uses_exit_voltage _______________
+tests\test_tip_coherent_emission.py:25: in test_tip_is_explicit_and_never_uses_exit_voltage
+    emitted = generate_tip_emission(gun, numerics)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:251: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+____ test_modes_reconstruct_full_quantum_covariance_and_preserve_tail[0.0] ____
+tests\test_tip_coherent_emission.py:41: in test_modes_reconstruct_full_quantum_covariance_and_preserve_tail
+    emission = generate_tip_emission(gun, TipWaveNumerics(grid_pixels=256, energy_samples=1,
+src\temsim\optics\electron_gun\tip_coherence.py:251: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.998% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+___ test_modes_reconstruct_full_quantum_covariance_and_preserve_tail[45.0] ____
+tests\test_tip_coherent_emission.py:41: in test_modes_reconstruct_full_quantum_covariance_and_preserve_tail
+    emission = generate_tip_emission(gun, TipWaveNumerics(grid_pixels=256, energy_samples=1,
+src\temsim\optics\electron_gun\tip_coherence.py:251: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 9.224% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+________ test_wigner_particles_use_the_same_tip_momentum_distribution _________
+tests\test_tip_coherent_emission.py:60: in test_wigner_particles_use_the_same_tip_momentum_distribution
+    bundle = gun.emit(count)
+             ^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\field_emission.py:670: in emit
+    return self.emitter.emit(count)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\emitter.py:179: in emit
+    bundle = tip_particle_samples(self, n)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:144: in tip_particle_samples
+    validate_tip_source_domain(emitter)
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 7.531% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+____________ test_existing_energy_spread_and_current_are_retained _____________
+tests\test_tip_coherent_emission.py:75: in test_existing_energy_spread_and_current_are_retained
+    source = generate_tip_emission(gun, TipWaveNumerics(energy_samples=33))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:251: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:70: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source domain cannot establish forward support at the declared tail budget (p_transverse/p bound=2.7899); a non-paraxial source model is required. Saved tip parameters were not changed.
+_______________ test_no_silent_mode_budget_or_sampling_fallback _______________
+tests\test_tip_coherent_emission.py:92: in test_no_silent_mode_budget_or_sampling_fallback
+    emission = generate_tip_emission(gun, TipWaveNumerics(energy_samples=1, grid_pixels=32))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:251: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+_____________ test_profile_and_exact_snapshot_preserve_tip_model ______________
+tests\test_tip_coherent_emission.py:115: in test_profile_and_exact_snapshot_preserve_tip_model
+    np.testing.assert_array_equal(exact.emit(9).x_m, gun.emit(9).x_m)
+                                  ^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\field_emission.py:670: in emit
+    return self.emitter.emit(count)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\emitter.py:179: in emit
+    bundle = tip_particle_samples(self, n)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:144: in tip_particle_samples
+    validate_tip_source_domain(emitter)
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.987% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+_________ test_disabled_coherence_retains_the_old_truncated_emission __________
+tests\test_tip_coherent_emission.py:137: in test_disabled_coherence_retains_the_old_truncated_emission
+    assert np.max(np.abs(gun.emit(33).tx_rad)) > .01
+                         ^^^^^^^^^^^^
+src\temsim\optics\electron_gun\field_emission.py:670: in emit
+    return self.emitter.emit(count)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\emitter.py:179: in emit
+    bundle = tip_particle_samples(self, n)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:144: in tip_particle_samples
+    validate_tip_source_domain(emitter)
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+____ test_medium_tuning_keeps_zero_current_guides_for_the_selected_tip_law ____
+tests\test_tip_coherent_emission.py:187: in test_medium_tuning_keeps_zero_current_guides_for_the_selected_tip_law
+    bundle = gun.emit(193)
+             ^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\field_emission.py:670: in emit
+    return self.emitter.emit(count)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\emitter.py:179: in emit
+    bundle = tip_particle_samples(self, n)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:144: in tip_particle_samples
+    validate_tip_source_domain(emitter)
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 7.091% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+=========================== short test summary info ===========================
+FAILED tests/test_tip_coherent_emission.py::test_tip_is_explicit_and_never_uses_exit_voltage
+FAILED tests/test_tip_coherent_emission.py::test_modes_reconstruct_full_quantum_covariance_and_preserve_tail[0.0]
+FAILED tests/test_tip_coherent_emission.py::test_modes_reconstruct_full_quantum_covariance_and_preserve_tail[45.0]
+FAILED tests/test_tip_coherent_emission.py::test_wigner_particles_use_the_same_tip_momentum_distribution
+FAILED tests/test_tip_coherent_emission.py::test_existing_energy_spread_and_current_are_retained
+FAILED tests/test_tip_coherent_emission.py::test_no_silent_mode_budget_or_sampling_fallback
+FAILED tests/test_tip_coherent_emission.py::test_profile_and_exact_snapshot_preserve_tip_model
+FAILED tests/test_tip_coherent_emission.py::test_disabled_coherence_retains_the_old_truncated_emission
+FAILED tests/test_tip_coherent_emission.py::test_medium_tuning_keeps_zero_current_guides_for_the_selected_tip_law
+9 failed, 100 passed in 123.02s (0:02:03)

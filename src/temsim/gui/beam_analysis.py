@@ -48,6 +48,7 @@ class BeamAnalysisControls:
     def __init__(self, owner):
         self.owner = owner
         self.mode = "position"
+        self.wave = None
         self._cache = None
         self._cache_key = None
         self._ranges = {}
@@ -135,6 +136,9 @@ class BeamAnalysisControls:
         return self._cache
 
     def _mode_changed(self):
+        if self.wave is not None:
+            self.wave.selection_changed()
+            return
         if self.mode != "position" and self.mode != "interactions":
             self._ranges[self.mode] = self.owner.plot.viewRange()
         self.mode = self.mode_combo.currentData()
@@ -147,6 +151,9 @@ class BeamAnalysisControls:
         self.owner._redraw()
 
     def _colour_changed(self):
+        if self.wave is not None:
+            self.wave.selection_changed()
+            return
         self._update_controls()
         self.owner._redraw()
 
@@ -412,6 +419,9 @@ class BeamAnalysisControls:
         self._summary(data)
 
     def _mouse_moved(self, position):
+        if self.wave is not None:
+            self.wave.mouse_moved(position)
+            return
         if self._hover_payload is None or not self.owner.plot.sceneBoundingRect().contains(position):
             return
         point = self.owner.plot.getViewBox().mapSceneToView(position)

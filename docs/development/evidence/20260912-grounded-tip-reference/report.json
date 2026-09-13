@@ -1,0 +1,301 @@
+{
+  "schema": "grounded-tip-reference-evidence-v1",
+  "reference_sha256": "e3a7c8ce5094589c8f27a444310998875f1fcd6fda09769a8bc35a733aa0e848",
+  "model": {
+    "geometry": {
+      "shape": "spherical_cap_tangent_cone",
+      "material": "W(310)",
+      "apex_radius_nm": 100.0,
+      "cone_half_angle_deg": 5.0,
+      "shank_length_um": 1000.0
+    },
+    "emission": {
+      "current_na": 100.0,
+      "cap_half_angle_deg": 10.0,
+      "normal_mean_energy_ev": 0.2,
+      "tangential_mean_energy_ev": 0.1
+    },
+    "field_numerics": {
+      "radial_nodes": 160,
+      "axial_nodes": 320,
+      "apex_cells_per_radius": 20,
+      "outer_radius_factor": 1.25,
+      "linear_residual_tolerance": 1e-09,
+      "accelerator_ring_thickness_mm": 1.0
+    },
+    "schema": "grounded-cold-feg-surface-v1",
+    "status": "idealised_reference_not_calibrated",
+    "potential_reference": "final_accelerating_anode_ground_0V",
+    "geometry_reference": "https://www.jeol.com/words/semterms/20121024.062458.php"
+  },
+  "field_request": {
+    "schema": "axisymmetric-grounded-feg-laplace-v1",
+    "geometry": {
+      "shape": "spherical_cap_tangent_cone",
+      "material": "W(310)",
+      "apex_radius_nm": 100.0,
+      "cone_half_angle_deg": 5.0,
+      "shank_length_um": 1000.0
+    },
+    "numerics": {
+      "radial_nodes": 160,
+      "axial_nodes": 320,
+      "apex_cells_per_radius": 20,
+      "outer_radius_factor": 1.25,
+      "linear_residual_tolerance": 1e-09,
+      "accelerator_ring_thickness_mm": 1.0
+    },
+    "rings": [
+      [
+        "feg_extractor",
+        0.006,
+        0.01,
+        0.002,
+        0.01,
+        4000.0
+      ],
+      [
+        "feg_electrostatic_lens",
+        0.014000000000000002,
+        0.022000000000000002,
+        0.004,
+        0.03,
+        5200.0
+      ],
+      [
+        "accelerator:0",
+        0.0415,
+        0.0425,
+        0.005,
+        0.15,
+        33600.0
+      ],
+      [
+        "accelerator:1",
+        0.07705555555555556,
+        0.07805555555555556,
+        0.005,
+        0.15,
+        63200.0
+      ],
+      [
+        "accelerator:2",
+        0.11261111111111112,
+        0.11361111111111112,
+        0.005,
+        0.15,
+        92800.0
+      ],
+      [
+        "accelerator:3",
+        0.1481666666666667,
+        0.1491666666666667,
+        0.005,
+        0.15,
+        122400.0
+      ],
+      [
+        "accelerator:4",
+        0.18372222222222223,
+        0.18472222222222223,
+        0.005,
+        0.15,
+        152000.0
+      ],
+      [
+        "accelerator:5",
+        0.21927777777777777,
+        0.22027777777777777,
+        0.005,
+        0.15,
+        181600.0
+      ],
+      [
+        "accelerator:6",
+        0.25483333333333336,
+        0.25583333333333336,
+        0.005,
+        0.15,
+        211200.0
+      ],
+      [
+        "accelerator:7",
+        0.2903888888888889,
+        0.2913888888888889,
+        0.005,
+        0.15,
+        240800.0
+      ],
+      [
+        "accelerator:8",
+        0.3259444444444445,
+        0.3269444444444445,
+        0.005,
+        0.15,
+        270400.0
+      ],
+      [
+        "accelerator:9",
+        0.3615,
+        0.3625,
+        0.005,
+        0.15,
+        300000.0
+      ]
+    ],
+    "high_tension_v": 300000.0,
+    "exit_m": 0.45
+  },
+  "scope": "CPU reference fields and classical gun trajectories only",
+  "coherent_image_generated": false,
+  "field_refinement": [
+    {
+      "factor": 1,
+      "report": {
+        "schema": "axisymmetric-grounded-feg-laplace-v1",
+        "potential_reference": "final_anode_ground_0V",
+        "tip_potential_v": -300000.0,
+        "extractor_potential_v": -296000.0,
+        "final_anode_potential_v": 0.0,
+        "grid_shape": [
+          166,
+          461
+        ],
+        "linear_residual": 5.396335230519374e-16,
+        "space_charge": "neglected",
+        "boundary_model": "reference annuli; insulating radial/back boundary; grounded exit plane",
+        "convergence": "not_certified_by_linear_residual"
+      },
+      "z_m": [
+        0.0,
+        1e-09,
+        1e-08,
+        1e-07,
+        1e-06,
+        0.001,
+        0.45
+      ],
+      "potential_v": [
+        -300000.0,
+        -299989.0671555136,
+        -299895.58062793734,
+        -299410.38963465125,
+        -298669.1485472068,
+        -295999.97272710263,
+        0.0
+      ],
+      "field_z_v_per_m": [
+        -10932844486.397003,
+        -10932844486.397003,
+        -9452241488.591333,
+        -3097581109.943054,
+        -317097064.5894965,
+        -363715.4433101872,
+        0.0
+      ]
+    },
+    {
+      "factor": 2,
+      "report": {
+        "schema": "axisymmetric-grounded-feg-laplace-v1",
+        "potential_reference": "final_anode_ground_0V",
+        "tip_potential_v": -300000.0,
+        "extractor_potential_v": -296000.0,
+        "final_anode_potential_v": 0.0,
+        "grid_shape": [
+          326,
+          888
+        ],
+        "linear_residual": 8.731149137020111e-16,
+        "space_charge": "neglected",
+        "boundary_model": "reference annuli; insulating radial/back boundary; grounded exit plane",
+        "convergence": "not_certified_by_linear_residual"
+      },
+      "z_m": [
+        0.0,
+        1e-09,
+        1e-08,
+        1e-07,
+        1e-06,
+        0.001,
+        0.45
+      ],
+      "potential_v": [
+        -300000.0,
+        -299988.7671530272,
+        -299895.30739760376,
+        -299408.68144468503,
+        -298665.5442215603,
+        -295990.5189890771,
+        0.0
+      ],
+      "field_z_v_per_m": [
+        -11232846972.81709,
+        -11232846972.81709,
+        -9525567646.079256,
+        -3206593407.5354238,
+        -305070518.2689286,
+        -357501.59520406235,
+        0.0
+      ]
+    },
+    {
+      "factor": 4,
+      "report": {
+        "schema": "axisymmetric-grounded-feg-laplace-v1",
+        "potential_reference": "final_anode_ground_0V",
+        "tip_potential_v": -300000.0,
+        "extractor_potential_v": -296000.0,
+        "final_anode_potential_v": 0.0,
+        "grid_shape": [
+          646,
+          1741
+        ],
+        "linear_residual": 9.701276818911235e-16,
+        "space_charge": "neglected",
+        "boundary_model": "reference annuli; insulating radial/back boundary; grounded exit plane",
+        "convergence": "not_certified_by_linear_residual"
+      },
+      "z_m": [
+        0.0,
+        1e-09,
+        1e-08,
+        1e-07,
+        1e-06,
+        0.001,
+        0.45
+      ],
+      "potential_v": [
+        -300000.0,
+        -299988.6187651542,
+        -299895.21094910754,
+        -299408.0184333854,
+        -298664.1331904541,
+        -295986.7370900219,
+        0.0
+      ],
+      "field_z_v_per_m": [
+        -11381234845.77653,
+        -11381234845.77653,
+        -9545696045.139307,
+        -3174448303.388464,
+        -309714386.3953074,
+        -351899.9004084235,
+        0.0
+      ]
+    }
+  ],
+  "trace": {
+    "model": "grounded-cold-feg-surface-v1",
+    "surface_mesh_displacement_m": 4.857572684489449e-09,
+    "potential_reference": "final_anode_ground_0V",
+    "maximum_exit_energy_error_ev": 2.561137080192566e-09,
+    "exit_energy_error_budget_ev": 0.001,
+    "scope": "classical prescribed outgoing flux; no coherent phase or tunnelling prediction",
+    "ray_count": 9,
+    "surviving_count": 4,
+    "elapsed_s": 27.014512699999614,
+    "emitted_current_a": 1.0000000000000001e-07,
+    "exit_current_a": 4.444444444444445e-08
+  }
+}

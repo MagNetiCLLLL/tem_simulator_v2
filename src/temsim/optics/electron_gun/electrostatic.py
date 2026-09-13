@@ -112,10 +112,10 @@ class ExtractorElectrode:
         )
         return tuple(self.voltage_kv * 1000.0 * value for value in values)
 
-    def validate(self):
+    def validate(self, *, grounded=False):
         if not 0.0 <= self.voltage_kv <= 20.0:
             raise ValueError("Extractor voltage must lie between 0 and 20 kV.")
-        if self.transition_end_mm <= self.transition_start_mm:
+        if not grounded and self.transition_end_mm <= self.transition_start_mm:
             raise ValueError("Extractor field transition must have finite length.")
         if self.mechanical_clear_bore_diameter_mm <= 0.0:
             raise ValueError("Extractor clear bore must be positive.")
@@ -167,12 +167,12 @@ class ElectrostaticGunLens:
         amplitude = self.voltage_kv * 1000.0 * self.potential_scale
         return tuple(amplitude * value for value in values)
 
-    def validate(self):
-        if self.mechanical_length_mm <= 0.0 or self.soft_edge_mm <= 0.0:
+    def validate(self, *, grounded=False):
+        if self.mechanical_length_mm <= 0.0 or (not grounded and self.soft_edge_mm <= 0.0):
             raise ValueError("Electrostatic gun lens lengths must be positive.")
         if self.mechanical_clear_bore_diameter_mm <= 0.0:
             raise ValueError("Electrostatic gun lens clear bore must be positive.")
-        if self.potential_scale < 0.0:
+        if not grounded and self.potential_scale < 0.0:
             raise ValueError("Electrostatic gun lens scale must not be negative.")
         return self
 
@@ -186,12 +186,12 @@ class AcceleratorStage:
     voltage_fraction: float
     soft_edge_mm: float = 3.0
 
-    def validate(self):
+    def validate(self, *, grounded=False):
         if self.center_from_tip_mm <= 0.0:
             raise ValueError("Accelerator stage must follow the emitter.")
         if not 0.0 < self.voltage_fraction <= 1.0:
             raise ValueError("Accelerator voltage fraction must lie in (0, 1].")
-        if self.soft_edge_mm <= 0.0:
+        if not grounded and self.soft_edge_mm <= 0.0:
             raise ValueError("Accelerator soft edge must be positive.")
         return self
 
@@ -260,7 +260,7 @@ class AcceleratorColumn:
             previous_fraction = stage.voltage_fraction
         return tuple(result)
 
-    def validate(self):
+    def validate(self, *, grounded=False):
         if not 30.0 <= self.high_tension_kv <= 300.0:
             raise ValueError(
                 "Electron-gun high tension must lie between 30 and 300 kV."
@@ -272,7 +272,7 @@ class AcceleratorColumn:
         previous_z = -np.inf
         previous_fraction = 0.0
         for stage in self.stages:
-            stage.validate()
+            stage.validate(grounded=grounded)
             if stage.center_from_tip_mm <= previous_z:
                 raise ValueError("Accelerator stages must be ordered by position.")
             if stage.voltage_fraction <= previous_fraction:

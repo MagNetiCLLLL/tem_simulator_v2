@@ -1,0 +1,264 @@
+{
+  "scope": "EXECUTED_GROUNDED_COHERENT_TIP_NEAR_FIELD_ONLY",
+  "full_image": "NOT_CONNECTED",
+  "implementation": "db1045cca744e186515796479522f154233880d487c87572396e9e484b41bcba",
+  "implementation_unchanged": true,
+  "cases": [
+    {
+      "name": "wave_49",
+      "elapsed_s": 1.4116482000026735,
+      "wave_numerics": {
+        "radial_nodes": 49,
+        "axial_nodes": 97,
+        "outer_radius_factor": 1.5,
+        "exit_height_nm": 2.0,
+        "energy_samples": 3,
+        "maximum_nodes": 1000000,
+        "maximum_working_bytes": 8589934592,
+        "linear_tolerance": 1e-09,
+        "flux_tolerance": 1e-08
+      },
+      "field_numerics": {
+        "radial_nodes": 160,
+        "axial_nodes": 320,
+        "apex_cells_per_radius": 20,
+        "outer_radius_factor": 1.25,
+        "linear_residual_tolerance": 1e-09,
+        "accelerator_ring_thickness_mm": 1.0
+      },
+      "digest": "e1c4c977277175a70e2292cff33c1c965d90af0e2b288b99f9231bc3ef7d178a",
+      "flux": {
+        "reflected": 0.24608665706241237,
+        "top": 0.7538914174597688,
+        "side": 2.1925477818702896e-05
+      },
+      "maximum_flux_balance_error": 3.733382418318054e-16
+    },
+    {
+      "name": "wave_97",
+      "elapsed_s": 5.4475308999972185,
+      "wave_numerics": {
+        "radial_nodes": 97,
+        "axial_nodes": 193,
+        "outer_radius_factor": 1.5,
+        "exit_height_nm": 2.0,
+        "energy_samples": 3,
+        "maximum_nodes": 1000000,
+        "maximum_working_bytes": 8589934592,
+        "linear_tolerance": 1e-09,
+        "flux_tolerance": 1e-08
+      },
+      "field_numerics": {
+        "radial_nodes": 160,
+        "axial_nodes": 320,
+        "apex_cells_per_radius": 20,
+        "outer_radius_factor": 1.25,
+        "linear_residual_tolerance": 1e-09,
+        "accelerator_ring_thickness_mm": 1.0
+      },
+      "digest": "b1afca419a4fed199a08eab1021398eac21d1859f3c6aaf74f42696af96c58d6",
+      "flux": {
+        "reflected": 0.24518091574452844,
+        "top": 0.7548177394662883,
+        "side": 1.3447891832652366e-06
+      },
+      "maximum_flux_balance_error": 5.935265740529289e-16
+    },
+    {
+      "name": "wave_193",
+      "elapsed_s": 33.5610558000044,
+      "wave_numerics": {
+        "radial_nodes": 193,
+        "axial_nodes": 385,
+        "outer_radius_factor": 1.5,
+        "exit_height_nm": 2.0,
+        "energy_samples": 3,
+        "maximum_nodes": 1000000,
+        "maximum_working_bytes": 8589934592,
+        "linear_tolerance": 1e-09,
+        "flux_tolerance": 1e-08
+      },
+      "field_numerics": {
+        "radial_nodes": 160,
+        "axial_nodes": 320,
+        "apex_cells_per_radius": 20,
+        "outer_radius_factor": 1.25,
+        "linear_residual_tolerance": 1e-09,
+        "accelerator_ring_thickness_mm": 1.0
+      },
+      "digest": "2a9a5d7fe50dec3a340002b09f361798a0d6c2044832030847195c90e4d724a1",
+      "flux": {
+        "reflected": 0.24479561661585336,
+        "top": 0.755204348446255,
+        "side": 3.4937887588077914e-08
+      },
+      "maximum_flux_balance_error": 1.1972300517672602e-14
+    },
+    {
+      "name": "radial_domain",
+      "elapsed_s": 76.42189960000542,
+      "wave_numerics": {
+        "radial_nodes": 257,
+        "axial_nodes": 513,
+        "outer_radius_factor": 2.0,
+        "exit_height_nm": 2.0,
+        "energy_samples": 3,
+        "maximum_nodes": 1000000,
+        "maximum_working_bytes": 8589934592,
+        "linear_tolerance": 1e-09,
+        "flux_tolerance": 1e-08
+      },
+      "field_numerics": {
+        "radial_nodes": 160,
+        "axial_nodes": 320,
+        "apex_cells_per_radius": 20,
+        "outer_radius_factor": 1.25,
+        "linear_residual_tolerance": 1e-09,
+        "accelerator_ring_thickness_mm": 1.0
+      },
+      "digest": "9a68038f7e89b282e0699bd4e030f15641f90e0da35c8ddbb0f62fcb80a95f19",
+      "flux": {
+        "reflected": 0.24468810056693724,
+        "top": 0.7553118993596073,
+        "side": 7.345106899092356e-11
+      },
+      "maximum_flux_balance_error": 5.021437616655826e-15
+    },
+    {
+      "name": "axial_domain",
+      "elapsed_s": 49.55231559999811,
+      "wave_numerics": {
+        "radial_nodes": 193,
+        "axial_nodes": 513,
+        "outer_radius_factor": 1.5,
+        "exit_height_nm": 4.0,
+        "energy_samples": 3,
+        "maximum_nodes": 1000000,
+        "maximum_working_bytes": 8589934592,
+        "linear_tolerance": 1e-09,
+        "flux_tolerance": 1e-08
+      },
+      "field_numerics": {
+        "radial_nodes": 160,
+        "axial_nodes": 320,
+        "apex_cells_per_radius": 20,
+        "outer_radius_factor": 1.25,
+        "linear_residual_tolerance": 1e-09,
+        "accelerator_ring_thickness_mm": 1.0
+      },
+      "digest": "e83abb65dbddc1cbe68da10fec001d8b0c929994e60584d0f640602121a97bfd",
+      "flux": {
+        "reflected": 0.2450194549984888,
+        "top": 0.7549776226652151,
+        "side": 2.9223362913297906e-06
+      },
+      "maximum_flux_balance_error": 1.1243412850866965e-14
+    },
+    {
+      "name": "field_grid",
+      "elapsed_s": 32.13957389999996,
+      "wave_numerics": {
+        "radial_nodes": 193,
+        "axial_nodes": 385,
+        "outer_radius_factor": 1.5,
+        "exit_height_nm": 2.0,
+        "energy_samples": 3,
+        "maximum_nodes": 1000000,
+        "maximum_working_bytes": 8589934592,
+        "linear_tolerance": 1e-09,
+        "flux_tolerance": 1e-08
+      },
+      "field_numerics": {
+        "radial_nodes": 320,
+        "axial_nodes": 640,
+        "apex_cells_per_radius": 40,
+        "outer_radius_factor": 1.25,
+        "linear_residual_tolerance": 1e-09,
+        "accelerator_ring_thickness_mm": 1.0
+      },
+      "digest": "55187a3effdb8ac516eaf3f2b0b4c0b706211bdb0125568b1f4669b4b8e3e48b",
+      "flux": {
+        "reflected": 0.22952659137202358,
+        "top": 0.7704733916150912,
+        "side": 1.7012892665422853e-08
+      },
+      "maximum_flux_balance_error": 1.2218736170850205e-14
+    },
+    {
+      "name": "energy_5",
+      "elapsed_s": 49.80568499999936,
+      "wave_numerics": {
+        "radial_nodes": 193,
+        "axial_nodes": 385,
+        "outer_radius_factor": 1.5,
+        "exit_height_nm": 2.0,
+        "energy_samples": 5,
+        "maximum_nodes": 1000000,
+        "maximum_working_bytes": 8589934592,
+        "linear_tolerance": 1e-09,
+        "flux_tolerance": 1e-08
+      },
+      "field_numerics": {
+        "radial_nodes": 160,
+        "axial_nodes": 320,
+        "apex_cells_per_radius": 20,
+        "outer_radius_factor": 1.25,
+        "linear_residual_tolerance": 1e-09,
+        "accelerator_ring_thickness_mm": 1.0
+      },
+      "digest": "891486926bc7382f3fcf24015e855736a712436c41980708d47a4645829227ea",
+      "flux": {
+        "reflected": 0.24495407697438834,
+        "top": 0.7550458880970858,
+        "side": 3.492851613787479e-08
+      },
+      "maximum_flux_balance_error": 9.624996679870063e-14
+    }
+  ],
+  "comparisons": [
+    {
+      "from": "wave_49",
+      "to": "wave_97",
+      "relative_density_l2_change": 0.043134478167389245,
+      "relative_complex_l2_change_no_phase_fit": 0.24879643782427893,
+      "below_one_percent": false
+    },
+    {
+      "from": "wave_97",
+      "to": "wave_193",
+      "relative_density_l2_change": 0.014274466080478785,
+      "relative_complex_l2_change_no_phase_fit": 0.08041597776061724,
+      "below_one_percent": false
+    },
+    {
+      "from": "wave_193",
+      "to": "radial_domain",
+      "relative_density_l2_change": 0.001053038034265386,
+      "relative_complex_l2_change_no_phase_fit": 0.0068849832029875685,
+      "below_one_percent": true
+    },
+    {
+      "from": "wave_193",
+      "to": "axial_domain",
+      "relative_density_l2_change": 0.0031599163519700113,
+      "relative_complex_l2_change_no_phase_fit": 0.007980383593338162,
+      "below_one_percent": true
+    },
+    {
+      "from": "wave_193",
+      "to": "field_grid",
+      "relative_density_l2_change": 0.0448371619649959,
+      "relative_complex_l2_change_no_phase_fit": 0.17895427095941685,
+      "below_one_percent": false
+    },
+    {
+      "from": "wave_193",
+      "to": "energy_5",
+      "relative_density_l2_change": 0.0002327596813517131,
+      "relative_complex_l2_change_no_phase_fit": null,
+      "below_one_percent": true
+    }
+  ],
+  "metric": "Fixed 0<=r<=15 nm, 0<=z<=1 nm; cylindrical weighted L2; no global phase fit; interpolated observation grid",
+  "qualification": "Flux balance is not mesh/field/energy/Robin-domain convergence. No full-image qualification."
+}

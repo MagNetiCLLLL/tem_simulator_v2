@@ -30,6 +30,18 @@ def gun_phase_readiness(state):
             "gun_phase_transfer": "NOT_COMPUTED", "validation_status": "NOT_RUN"})
     from temsim.optics.electron_gun.tip_coherence import TipCoherence
     configured = isinstance(getattr(gun.emitter, "coherence", None), TipCoherence)
+    if getattr(gun.emitter, "surface_model", None) is not None:
+        if gun.emitter.surface_model.coherence is not None:
+            return freeze_json({"status": "UNAVAILABLE", "code": UnsupportedWaveSource.code,
+                "gun_model": str(gun.type_key), "coherent_source": "COHERENT_SURFACE_NEAR_FIELD_AVAILABLE",
+                "gun_phase_transfer": "DEVELOPMENT_TWO_WAY_ROUND_GUN_AVAILABLE_NOT_QUALIFIED",
+                "validation_status": "FULL_IMAGE_NOT_VALIDATED",
+                "reason": "The coherent surface and development two-way relativistic round-gun solvers are available. Full-state boundary, basis and column convergence are not yet qualified for TEM/STEM imaging."})
+        return freeze_json({"status": "UNAVAILABLE", "code": UnsupportedWaveSource.code,
+            "gun_model": str(gun.type_key), "coherent_source": "SURFACE_CLASSICAL_FLUX_ONLY",
+            "gun_phase_transfer": "NOT_IMPLEMENTED_FOR_GROUNDED_SURFACE",
+            "validation_status": "NOT_RUN",
+            "reason": "Classical surface emission is selected; no coherent phase is defined. Coherent near-field work is available separately, but full TEM/STEM imaging is not yet qualified."})
     return freeze_json({
         "status": "NOT_COMPUTED", "code": UnsupportedWaveSource.code,
         "gun_model": str(gun.type_key), "particle_source": "gun emission and relativistic Lorentz transport",
@@ -55,6 +67,8 @@ def require_gun_wave_source(state, *, product):
     """
     readiness = gun_phase_readiness(state)
     if readiness["code"] == "TIP_ORIGIN_REQUIRED":
+        raise UnsupportedWaveSource(f"{product}: {readiness['reason']}")
+    if readiness.get("coherent_source") in {"SURFACE_CLASSICAL_FLUX_ONLY", "COHERENT_SURFACE_NEAR_FIELD_AVAILABLE"}:
         raise UnsupportedWaveSource(f"{product}: {readiness['reason']}")
     raise UnsupportedWaveSource(
         f"{product}: gun-to-specimen coherent phase is unavailable for {readiness['gun_model']}. "
@@ -89,6 +103,8 @@ def launch_emittance_audit(gun, *, count=4096):
     emitted = gun.emit(count)
     energy = float(gun.emitter.emission_energy_ev) + emitted.energy_offset_ev
     direction = np.column_stack((emitted.tx_rad, emitted.ty_rad, np.ones(energy.size)))
+    if getattr(gun.emitter, "surface_model", None) is not None:
+        energy, direction = emitted.surface_energy_ev, emitted.surface_direction
     momentum = momentum_from_kinetic_energy_ev(energy, direction)
     weight = np.asarray(emitted.weight, float)
     weight = weight / weight.sum()
@@ -98,9 +114,12 @@ def launch_emittance_audit(gun, *, count=4096):
     covariance = (centred.T * weight) @ centred
     minimum_action = PLANCK_J_S / (4*np.pi)
     action = [float(np.sqrt(max(0., covariance[k, k]*covariance[k+2, k+2]-covariance[k, k+2]**2))) for k in (0, 1)]
+    surface = getattr(gun.emitter, "surface_model", None) is not None
     return {"schema": "classical-launch-emittance-audit-v1", "sample_count": int(count),
-            "reference_plane": "gun launch z=0 mm", "energy_min_ev": float(energy.min()), "energy_max_ev": float(energy.max()),
+            "reference_plane": "curved tip surface; Cartesian projection" if surface else "gun launch z=0 mm",
+            "energy_min_ev": float(energy.min()), "energy_max_ev": float(energy.max()),
             "action_rms_j_s": action, "quantum_minimum_action_j_s": minimum_action,
             "quantum_bound_ratio_xy": [v/minimum_action for v in action],
-            "necessary_quantum_covariance_condition": "PASS" if min(action) >= minimum_action else "FAIL",
+            "necessary_quantum_covariance_condition": ("NOT_APPLICABLE_CURVED_CLASSICAL_SURFACE" if surface
+                                                       else "PASS" if min(action) >= minimum_action else "FAIL"),
             "scope": "Classical model interpretation audit only; does not create or validate coherent modes"}

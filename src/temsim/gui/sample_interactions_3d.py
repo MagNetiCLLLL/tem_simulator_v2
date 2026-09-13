@@ -912,6 +912,11 @@ def _beam_model_diagnostic_text(calculation_result) -> str:
         if value is not None and math.isfinite(float(value)):
             source_parts.append(f"{label} {float(value):.4g} {unit}")
     source_text = "; ".join(source_parts)
+    surface = getattr(emitter, "surface_model", None)
+    if surface is not None:
+        source_text = (f"surface cap {surface.emission.cap_half_angle_deg:g} deg; "
+            f"launch mean {surface.emission.mean_energy_ev:g} eV; "
+            f"energy RMS {surface.emission.energy_sigma_ev:.4g} eV; prescribed classical flux")
     if source_text:
         source_text = "; " + source_text
     return (

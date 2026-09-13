@@ -1,0 +1,99 @@
+FFFF...FFFFF............F..............                                  [100%]
+================================== FAILURES ===================================
+_ test_joint_refinement_preserves_reflection_and_matches_direct_ode[uniform-cf4] _
+tests\test_occupied_axial_refinement.py:49: in test_joint_refinement_preserves_reflection_and_matches_direct_ode
+    load, result, record = refine_joint_mode(plan, boundary,
+src\temsim\physics\occupied_axial_refinement.py:331: in refine_joint_mode
+    updates = _refine_intervals(roots, incoming, local_budget, work)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\occupied_axial_refinement.py:240: in _refine_intervals
+    raise
+E   RuntimeError: No active exception to reraise
+_ test_joint_refinement_preserves_reflection_and_matches_direct_ode[uniform-cf6] _
+tests\test_occupied_axial_refinement.py:49: in test_joint_refinement_preserves_reflection_and_matches_direct_ode
+    load, result, record = refine_joint_mode(plan, boundary,
+src\temsim\physics\occupied_axial_refinement.py:331: in refine_joint_mode
+    updates = _refine_intervals(roots, incoming, local_budget, work)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\occupied_axial_refinement.py:240: in _refine_intervals
+    raise
+E   RuntimeError: No active exception to reraise
+_ test_joint_refinement_preserves_reflection_and_matches_direct_ode[initial_indicator-cf4] _
+tests\test_occupied_axial_refinement.py:49: in test_joint_refinement_preserves_reflection_and_matches_direct_ode
+    load, result, record = refine_joint_mode(plan, boundary,
+src\temsim\physics\occupied_axial_refinement.py:322: in refine_joint_mode
+    probes = _refine_intervals(roots, incoming, math.inf, work)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\occupied_axial_refinement.py:240: in _refine_intervals
+    raise
+E   RuntimeError: No active exception to reraise
+_ test_joint_refinement_preserves_reflection_and_matches_direct_ode[initial_indicator-cf6] _
+tests\test_occupied_axial_refinement.py:49: in test_joint_refinement_preserves_reflection_and_matches_direct_ode
+    load, result, record = refine_joint_mode(plan, boundary,
+src\temsim\physics\occupied_axial_refinement.py:322: in refine_joint_mode
+    probes = _refine_intervals(roots, incoming, math.inf, work)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\occupied_axial_refinement.py:240: in _refine_intervals
+    raise
+E   RuntimeError: No active exception to reraise
+_______ test_budget_cancellation_and_round_limit_do_not_publish_source ________
+tests\test_occupied_axial_refinement.py:117: in test_budget_cancellation_and_round_limit_do_not_publish_source
+    refine_joint_mode(plan, boundary, OccupiedAxialRefinement(enabled=True, maximum_evaluations=2))
+src\temsim\physics\occupied_axial_refinement.py:331: in refine_joint_mode
+    updates = _refine_intervals(roots, incoming, local_budget, work)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\occupied_axial_refinement.py:240: in _refine_intervals
+    raise
+E   RuntimeError: No active exception to reraise
+___ test_parallel_intervals_reproduce_serial_full_complex_solution[thread] ____
+tests\test_occupied_axial_refinement.py:143: in test_parallel_intervals_reproduce_serial_full_complex_solution
+    load, result, record = refine_joint_mode(plan, boundary,
+src\temsim\physics\occupied_axial_refinement.py:331: in refine_joint_mode
+    updates = _refine_intervals(roots, incoming, local_budget, work)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\occupied_axial_refinement.py:240: in _refine_intervals
+    raise
+E   RuntimeError: No active exception to reraise
+___ test_parallel_intervals_reproduce_serial_full_complex_solution[process] ___
+tests\test_occupied_axial_refinement.py:143: in test_parallel_intervals_reproduce_serial_full_complex_solution
+    load, result, record = refine_joint_mode(plan, boundary,
+src\temsim\physics\occupied_axial_refinement.py:331: in refine_joint_mode
+    updates = _refine_intervals(roots, incoming, local_budget, work)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\occupied_axial_refinement.py:240: in _refine_intervals
+    raise
+E   RuntimeError: No active exception to reraise
+_____ test_parallel_budget_failure_cannot_publish_a_partial_load[thread] ______
+tests\test_occupied_axial_refinement.py:156: in test_parallel_budget_failure_cannot_publish_a_partial_load
+    refine_joint_mode(plan, boundary,
+src\temsim\physics\occupied_axial_refinement.py:331: in refine_joint_mode
+    updates = _refine_intervals(roots, incoming, local_budget, work)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\occupied_axial_refinement.py:240: in _refine_intervals
+    raise
+E   RuntimeError: No active exception to reraise
+_____ test_parallel_budget_failure_cannot_publish_a_partial_load[process] _____
+tests\test_occupied_axial_refinement.py:156: in test_parallel_budget_failure_cannot_publish_a_partial_load
+    refine_joint_mode(plan, boundary,
+src\temsim\physics\occupied_axial_refinement.py:331: in refine_joint_mode
+    updates = _refine_intervals(roots, incoming, local_budget, work)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\occupied_axial_refinement.py:240: in _refine_intervals
+    raise
+E   RuntimeError: No active exception to reraise
+_ test_adaptive_allocations_preserve_total_budget_and_keep_empty_channels_testable _
+tests\test_occupied_axial_refinement.py:199: in test_adaptive_allocations_preserve_total_budget_and_keep_empty_channels_testable
+    assert budget[6] > budget[4] > budget[0]
+E   assert 1.2499999999999979e-05 > 1.2499999999999979e-05
+=========================== short test summary info ===========================
+FAILED tests/test_occupied_axial_refinement.py::test_joint_refinement_preserves_reflection_and_matches_direct_ode[uniform-cf4]
+FAILED tests/test_occupied_axial_refinement.py::test_joint_refinement_preserves_reflection_and_matches_direct_ode[uniform-cf6]
+FAILED tests/test_occupied_axial_refinement.py::test_joint_refinement_preserves_reflection_and_matches_direct_ode[initial_indicator-cf4]
+FAILED tests/test_occupied_axial_refinement.py::test_joint_refinement_preserves_reflection_and_matches_direct_ode[initial_indicator-cf6]
+FAILED tests/test_occupied_axial_refinement.py::test_budget_cancellation_and_round_limit_do_not_publish_source
+FAILED tests/test_occupied_axial_refinement.py::test_parallel_intervals_reproduce_serial_full_complex_solution[thread]
+FAILED tests/test_occupied_axial_refinement.py::test_parallel_intervals_reproduce_serial_full_complex_solution[process]
+FAILED tests/test_occupied_axial_refinement.py::test_parallel_budget_failure_cannot_publish_a_partial_load[thread]
+FAILED tests/test_occupied_axial_refinement.py::test_parallel_budget_failure_cannot_publish_a_partial_load[process]
+FAILED tests/test_occupied_axial_refinement.py::test_adaptive_allocations_preserve_total_budget_and_keep_empty_channels_testable
+10 failed, 29 passed in 7.50s

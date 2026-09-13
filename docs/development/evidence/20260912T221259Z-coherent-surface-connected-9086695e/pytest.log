@@ -1,0 +1,12 @@
+...........F....................................................         [100%]
+================================== FAILURES ===================================
+_______ test_column_aperture_and_filter_moved_to_tip_cannot_be_skipped ________
+tests\test_surface_wave_integration.py:54: in test_column_aperture_and_filter_moved_to_tip_cannot_be_skipped
+    aperture.z_mm = 1e-6
+    ^^^^^^^^^^^^^
+src\temsim\optics\condenser_aperture.py:113: in __setattr__
+    raise AttributeError(
+E   AttributeError: C2 Aperture geometry is owned by the selected Column TOML
+=========================== short test summary info ===========================
+FAILED tests/test_surface_wave_integration.py::test_column_aperture_and_filter_moved_to_tip_cannot_be_skipped
+1 failed, 63 passed in 68.97s (0:01:08)

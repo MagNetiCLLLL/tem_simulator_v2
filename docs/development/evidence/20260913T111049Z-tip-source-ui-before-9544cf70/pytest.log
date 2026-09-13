@@ -1,0 +1,97 @@
+FFFFFFF........                                                          [100%]
+================================== FAILURES ===================================
+______ test_tip_button_shares_existing_controls_without_a_full_width_row ______
+tests\test_tip_source_gui.py:29: in test_tip_button_shares_existing_controls_without_a_full_width_row
+    assert row.indexOf(page.gun_source_button) >= 0
+E   assert -1 >= 0
+E    +  where -1 = <built-in method indexOf of PySide6.QtWidgets.QHBoxLayout object at 0x0000026C5E533DC0>(<PySide6.QtWidgets.QPushButton(0x26c5d1c8620) at 0x0000026C5E122480>)
+E    +    where <built-in method indexOf of PySide6.QtWidgets.QHBoxLayout object at 0x0000026C5E533DC0> = <PySide6.QtWidgets.QHBoxLayout(0x26c5d0ef800) at 0x0000026C5E533DC0>.indexOf
+E    +    and   <PySide6.QtWidgets.QPushButton(0x26c5d1c8620) at 0x0000026C5E122480> = <temsim.gui.model_inspector.ModelInspectorPage(0x26c7d6b4ff0) at 0x0000026C7E0B2240>.gun_source_button
+---------------------------- Captured Qt messages -----------------------------
+QtWarningMsg: QFontDatabase: Cannot find font directory F:/tem_simulator_v2/.venv/Lib/site-packages/PySide6/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+QtWarningMsg: This plugin does not support propagateSizeHints()
+___ test_near_field_preview_clones_installed_assembly_and_keeps_live_source ___
+tests\test_tip_source_gui.py:59: in test_near_field_preview_clones_installed_assembly_and_keeps_live_source
+    dialog._preview_surface()
+src\temsim\gui\gun_source_dialog.py:225: in _preview_surface
+    state = deepcopy(self._instrument_state)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\54019\anaconda3\Lib\copy.py:162: in deepcopy
+    y = _reconstruct(x, memo, *rv)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\54019\anaconda3\Lib\copy.py:259: in _reconstruct
+    state = deepcopy(state, memo)
+            ^^^^^^^^^^^^^^^^^^^^^
+C:\Users\54019\anaconda3\Lib\copy.py:136: in deepcopy
+    y = copier(x, memo)
+        ^^^^^^^^^^^^^^^
+C:\Users\54019\anaconda3\Lib\copy.py:221: in _deepcopy_dict
+    y[deepcopy(key, memo)] = deepcopy(value, memo)
+                             ^^^^^^^^^^^^^^^^^^^^^
+C:\Users\54019\anaconda3\Lib\copy.py:136: in deepcopy
+    y = copier(x, memo)
+        ^^^^^^^^^^^^^^^
+C:\Users\54019\anaconda3\Lib\copy.py:221: in _deepcopy_dict
+    y[deepcopy(key, memo)] = deepcopy(value, memo)
+                             ^^^^^^^^^^^^^^^^^^^^^
+C:\Users\54019\anaconda3\Lib\copy.py:162: in deepcopy
+    y = _reconstruct(x, memo, *rv)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\54019\anaconda3\Lib\copy.py:259: in _reconstruct
+    state = deepcopy(state, memo)
+            ^^^^^^^^^^^^^^^^^^^^^
+C:\Users\54019\anaconda3\Lib\copy.py:136: in deepcopy
+    y = copier(x, memo)
+        ^^^^^^^^^^^^^^^
+C:\Users\54019\anaconda3\Lib\copy.py:221: in _deepcopy_dict
+    y[deepcopy(key, memo)] = deepcopy(value, memo)
+                             ^^^^^^^^^^^^^^^^^^^^^
+C:\Users\54019\anaconda3\Lib\copy.py:151: in deepcopy
+    rv = reductor(4)
+         ^^^^^^^^^^^
+E   TypeError: cannot pickle 'mappingproxy' object
+___ test_surface_status_distinguishes_ray_source_from_coherent_development ____
+tests\test_tip_source_gui.py:77: in test_surface_status_distinguishes_ray_source_from_coherent_development
+    assert "Classical rays" in dialog.surface_status.text()
+                               ^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'GunSourceDialog' object has no attribute 'surface_status'. Did you mean: '_surface_value'?
+_ test_calculation_snapshots_preserve_applied_surface_selection[Preview-False] _
+tests\test_tip_source_gui.py:99: in test_calculation_snapshots_preserve_applied_surface_selection
+    assert capture_instrument_snapshot(state).digest == before
+E   AssertionError: assert '3f29e768d174...6af680ff33d75' == 'fcd2a11e44ce...e553970946aa9'
+E     
+E     - fcd2a11e44ce78a459276b02f7233fde86e5487ae4360144984e553970946aa9
+E     + 3f29e768d1741efea75380d353907220dce7f6c416dacddd0b96af680ff33d75
+_ test_calculation_snapshots_preserve_applied_surface_selection[Preview-True] _
+tests\test_tip_source_gui.py:99: in test_calculation_snapshots_preserve_applied_surface_selection
+    assert capture_instrument_snapshot(state).digest == before
+E   AssertionError: assert '6f623ab2b8b5...a58523e33c962' == '4e8bb9c09797...1bbbe1a6c0bbc'
+E     
+E     - 4e8bb9c09797164dc4c155820bb0ba38c02efa9445cdcb659491bbbe1a6c0bbc
+E     + 6f623ab2b8b5cc4dc9e741651e214566acb48d38369cce74d5fa58523e33c962
+_ test_calculation_snapshots_preserve_applied_surface_selection[Medium-False] _
+tests\test_tip_source_gui.py:99: in test_calculation_snapshots_preserve_applied_surface_selection
+    assert capture_instrument_snapshot(state).digest == before
+E   AssertionError: assert '3f29e768d174...6af680ff33d75' == 'fcd2a11e44ce...e553970946aa9'
+E     
+E     - fcd2a11e44ce78a459276b02f7233fde86e5487ae4360144984e553970946aa9
+E     + 3f29e768d1741efea75380d353907220dce7f6c416dacddd0b96af680ff33d75
+_ test_calculation_snapshots_preserve_applied_surface_selection[Medium-True] __
+tests\test_tip_source_gui.py:99: in test_calculation_snapshots_preserve_applied_surface_selection
+    assert capture_instrument_snapshot(state).digest == before
+E   AssertionError: assert '6f623ab2b8b5...a58523e33c962' == '4e8bb9c09797...1bbbe1a6c0bbc'
+E     
+E     - 4e8bb9c09797164dc4c155820bb0ba38c02efa9445cdcb659491bbbe1a6c0bbc
+E     + 6f623ab2b8b5cc4dc9e741651e214566acb48d38369cce74d5fa58523e33c962
+=========================== short test summary info ===========================
+FAILED tests/test_tip_source_gui.py::test_tip_button_shares_existing_controls_without_a_full_width_row
+FAILED tests/test_tip_source_gui.py::test_near_field_preview_clones_installed_assembly_and_keeps_live_source
+FAILED tests/test_tip_source_gui.py::test_surface_status_distinguishes_ray_source_from_coherent_development
+FAILED tests/test_tip_source_gui.py::test_calculation_snapshots_preserve_applied_surface_selection[Preview-False]
+FAILED tests/test_tip_source_gui.py::test_calculation_snapshots_preserve_applied_surface_selection[Preview-True]
+FAILED tests/test_tip_source_gui.py::test_calculation_snapshots_preserve_applied_surface_selection[Medium-False]
+FAILED tests/test_tip_source_gui.py::test_calculation_snapshots_preserve_applied_surface_selection[Medium-True]
+7 failed, 8 passed in 24.47s
+F:\tem_simulator_v2\.venv\Lib\site-packages\pyqtgraph\graphicsItems\ViewBox\ViewBox.py:1818: RuntimeWarning: Failed to disconnect (NoneType) from signal "destroyed()".
+  k.destroyed.disconnect()

@@ -1,0 +1,1408 @@
+{
+  "scope": "ACTUAL_OPERATOR_DIAGNOSTIC_NOT_SOURCE_ACCEPTANCE",
+  "solver_identity": "7648343c1f68dab72e8ac379b60d83408f553f4c7ecab9ce5fde6c2d7f7e6231",
+  "implementation_unchanged": true,
+  "elapsed_s": 6.677184900000611,
+  "slabs": [
+    {
+      "start_nm": 501.2302833189828,
+      "end_nm": 503.2754372585447,
+      "complex_operator_difference": 1.7213322662857568e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.3848252702479701e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 11,
+        "maximum_unitarity_residual": 2.3378404016353856e-12
+      }
+    },
+    {
+      "start_nm": 503.2754372585447,
+      "end_nm": 530.9463548297989,
+      "complex_operator_difference": 3.9018146817561776e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.3403917844575953e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 3.042719451946936e-11
+      }
+    },
+    {
+      "start_nm": 530.9463548297989,
+      "end_nm": 553.6029809843992,
+      "complex_operator_difference": 2.915676913443382e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.2688052572660508e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 3.063296124677971e-11
+      }
+    },
+    {
+      "start_nm": 553.6029809843992,
+      "end_nm": 562.4241812373624,
+      "complex_operator_difference": 2.626134327960116e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.8071506132253198e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 13,
+        "maximum_unitarity_residual": 7.364097156179756e-12
+      }
+    },
+    {
+      "start_nm": 562.4241812373624,
+      "end_nm": 595.7682104097275,
+      "complex_operator_difference": 4.249008482119304e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.6049029306305726e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 2.8790247355672867e-11
+      }
+    },
+    {
+      "start_nm": 595.7682104097275,
+      "end_nm": 608.9632790828392,
+      "complex_operator_difference": 2.2556920806958932e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.568810835974904e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 14,
+        "maximum_unitarity_residual": 1.7692624901166046e-11
+      }
+    },
+    {
+      "start_nm": 608.9632790828392,
+      "end_nm": 631.0890825389553,
+      "complex_operator_difference": 3.517282941819329e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.8314527223937484e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 2.429065542063058e-11
+      }
+    },
+    {
+      "start_nm": 631.0890825389553,
+      "end_nm": 668.5039972608727,
+      "complex_operator_difference": 4.494576120677139e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.589279140342227e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 3.2262300953984534e-11
+      }
+    },
+    {
+      "start_nm": 668.5039972608727,
+      "end_nm": 669.8596069911231,
+      "complex_operator_difference": 1.3772556155340965e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.3157403338552328e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 11,
+        "maximum_unitarity_residual": 1.6679789758256112e-12
+      }
+    },
+    {
+      "start_nm": 669.8596069911231,
+      "end_nm": 708.1371025400048,
+      "complex_operator_difference": 5.602113059099376e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.7740446044744076e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 3.76601673021309e-11
+      }
+    },
+    {
+      "start_nm": 708.1371025400048,
+      "end_nm": 736.8455676902355,
+      "complex_operator_difference": 3.639384247317508e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.7381724512931515e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 3.2042555167890123e-11
+      }
+    },
+    {
+      "start_nm": 736.8455676902355,
+      "end_nm": 750.119906610022,
+      "complex_operator_difference": 3.310968120843107e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.9347050995621116e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 14,
+        "maximum_unitarity_residual": 1.4524734841345038e-11
+      }
+    },
+    {
+      "start_nm": 750.119906610022,
+      "end_nm": 794.5917143366185,
+      "complex_operator_difference": 4.4052492908794145e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.4819144367789544e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 6.592531665697459e-11
+      }
+    },
+    {
+      "start_nm": 794.5917143366185,
+      "end_nm": 810.5301244592591,
+      "complex_operator_difference": 2.1125130944517483e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.3892582014864172e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 14,
+        "maximum_unitarity_residual": 1.3988244865960568e-11
+      }
+    },
+    {
+      "start_nm": 810.5301244592591,
+      "end_nm": 841.7000894507016,
+      "complex_operator_difference": 4.319023051335332e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.0073541107178142e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 3.041443505404494e-11
+      }
+    },
+    {
+      "start_nm": 841.7000894507016,
+      "end_nm": 891.5831369051851,
+      "complex_operator_difference": 5.981006506724446e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.7512336139999533e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 5.608871633534165e-11
+      }
+    },
+    {
+      "start_nm": 891.5831369051851,
+      "end_nm": 891.6013441856628,
+      "complex_operator_difference": 2.3006391339606023e-13,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 3.4620054040882626e-14,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 4,
+        "maximum_unitarity_residual": 1.5746908088572208e-14
+      }
+    },
+    {
+      "start_nm": 891.6013441856628,
+      "end_nm": 944.4610579434179,
+      "complex_operator_difference": 7.213872874119065e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.6619140093567202e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 6.965013962766888e-11
+      }
+    },
+    {
+      "start_nm": 944.4610579434179,
+      "end_nm": 980.7414505957038,
+      "complex_operator_difference": 5.096778570479382e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.329723251654965e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 2.3710610287768905e-11
+      }
+    },
+    {
+      "start_nm": 980.7414505957038,
+      "end_nm": 1000.4546267102227,
+      "complex_operator_difference": 2.969082465874452e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.5008964833924406e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 14,
+        "maximum_unitarity_residual": 1.2622720789758794e-11
+      }
+    },
+    {
+      "start_nm": 1000.4546267102227,
+      "end_nm": 1059.7678450452904,
+      "complex_operator_difference": 6.92983333625577e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.456194152041792e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 6.133280329429723e-11
+      }
+    },
+    {
+      "start_nm": 1059.7678450452904,
+      "end_nm": 1078.8155956552744,
+      "complex_operator_difference": 4.0822160413198314e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.195334142881215e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 14,
+        "maximum_unitarity_residual": 1.681453654510515e-11
+      }
+    },
+    {
+      "start_nm": 1078.8155956552744,
+      "end_nm": 1122.5975225733494,
+      "complex_operator_difference": 5.419438305919187e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.4487346829891607e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 4.806029008088571e-11
+      }
+    },
+    {
+      "start_nm": 1122.5975225733494,
+      "end_nm": 1186.697155220802,
+      "complex_operator_difference": 7.342609866698546e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 9.093758490701247e-13,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 5.6011823605237334e-11
+      }
+    },
+    {
+      "start_nm": 1186.697155220802,
+      "end_nm": 1189.152137026732,
+      "complex_operator_difference": 1.9257052003758997e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.3374595385521955e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 12,
+        "maximum_unitarity_residual": 3.646734379649556e-12
+      }
+    },
+    {
+      "start_nm": 1189.152137026732,
+      "end_nm": 1259.6525260039007,
+      "complex_operator_difference": 6.856599651875361e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.2666416060194267e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 6.163525434323186e-11
+      }
+    },
+    {
+      "start_nm": 1259.6525260039007,
+      "end_nm": 1305.3668707428822,
+      "complex_operator_difference": 6.084673871888306e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.490208345663593e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 6.098187307179392e-11
+      }
+    },
+    {
+      "start_nm": 1305.3668707428822,
+      "end_nm": 1334.3326197397553,
+      "complex_operator_difference": 4.561344658417724e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.617188084884486e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 2.688472421452462e-11
+      }
+    },
+    {
+      "start_nm": 1334.3326197397553,
+      "end_nm": 1413.440217319141,
+      "complex_operator_difference": 1.0509920963383635e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.0973036605796726e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 8.712329874254945e-11
+      }
+    },
+    {
+      "start_nm": 1413.440217319141,
+      "end_nm": 1435.9035578171706,
+      "complex_operator_difference": 3.2070317822676453e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.6292014791543236e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 1.9424726529645023e-11
+      }
+    },
+    {
+      "start_nm": 1435.9035578171706,
+      "end_nm": 1497.2378089091708,
+      "complex_operator_difference": 6.957345107271647e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.8132594672615971e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 5.777140187220354e-11
+      }
+    },
+    {
+      "start_nm": 1497.2378089091708,
+      "end_nm": 1579.4939135988877,
+      "complex_operator_difference": 1.0483889136125524e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.9319270362223603e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 8.941260085247472e-11
+      }
+    },
+    {
+      "start_nm": 1579.4939135988877,
+      "end_nm": 1586.0034467386147,
+      "complex_operator_difference": 3.685667908153064e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.4759528545484766e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 13,
+        "maximum_unitarity_residual": 7.01578620828574e-12
+      }
+    },
+    {
+      "start_nm": 1586.0034467386147,
+      "end_nm": 1680.031667714422,
+      "complex_operator_difference": 1.308010927668094e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.4848309927979442e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 9.092448255865902e-11
+      }
+    },
+    {
+      "start_nm": 1680.031667714422,
+      "end_nm": 1737.4433049587765,
+      "complex_operator_difference": 6.175893303490564e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.2483600031582183e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 5.1143701723374765e-11
+      }
+    },
+    {
+      "start_nm": 1737.4433049587765,
+      "end_nm": 1779.6344707367282,
+      "complex_operator_difference": 5.37637114010592e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.099991378066681e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 4.8181326684216103e-11
+      }
+    },
+    {
+      "start_nm": 1779.6344707367282,
+      "end_nm": 1885.1423519552077,
+      "complex_operator_difference": 1.368897204789808e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.293415619621243e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 9.88148233215378e-11
+      }
+    },
+    {
+      "start_nm": 1885.1423519552077,
+      "end_nm": 1911.1876354546544,
+      "complex_operator_difference": 3.529583814346445e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.0829202772323144e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 3.2927260814423876e-11
+      }
+    },
+    {
+      "start_nm": 1911.1876354546544,
+      "end_nm": 1996.9054014019196,
+      "complex_operator_difference": 1.306854028903149e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.4717753149424898e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 1.018968746622553e-10
+      }
+    },
+    {
+      "start_nm": 1996.9054014019196,
+      "end_nm": 2102.3063990001197,
+      "complex_operator_difference": 1.4508743021980406e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.4915854694581762e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 1.0076858045962832e-10
+      }
+    },
+    {
+      "start_nm": 2102.3063990001197,
+      "end_nm": 2115.2944646394058,
+      "complex_operator_difference": 1.8401818790796426e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.3142067636022065e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 14,
+        "maximum_unitarity_residual": 1.1599092939503954e-11
+      }
+    },
+    {
+      "start_nm": 2115.2944646394058,
+      "end_nm": 2240.702373278583,
+      "complex_operator_difference": 1.5414446353761918e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.2905240819239336e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 1.2733559399881235e-10
+      }
+    },
+    {
+      "start_nm": 2240.702373278583,
+      "end_nm": 2312.5370389001323,
+      "complex_operator_difference": 5.212608349521564e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.4152264782126758e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 4.397612297830401e-11
+      }
+    },
+    {
+      "start_nm": 2312.5370389001323,
+      "end_nm": 2373.545248449444,
+      "complex_operator_difference": 7.891765718046604e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.0599749780678943e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 5.799560886504551e-11
+      }
+    },
+    {
+      "start_nm": 2373.545248449444,
+      "end_nm": 2514.2638815496553,
+      "complex_operator_difference": 1.7088265494864294e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.3679548063635955e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 9.256582391381134e-11
+      }
+    },
+    {
+      "start_nm": 2514.2638815496553,
+      "end_nm": 2543.7907427901455,
+      "complex_operator_difference": 2.8804998519990448e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.2060596797506304e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 2.3771836011124312e-11
+      }
+    },
+    {
+      "start_nm": 2543.7907427901455,
+      "end_nm": 2663.3251968525924,
+      "complex_operator_difference": 1.4376783073518677e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.3241331354819888e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 1.0643332811003126e-10
+      }
+    },
+    {
+      "start_nm": 2663.3251968525924,
+      "end_nm": 2798.16981706916,
+      "complex_operator_difference": 1.6894475119037218e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.8115911747176635e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 1.0474307515660459e-10
+      }
+    },
+    {
+      "start_nm": 2798.16981706916,
+      "end_nm": 2821.223800827929,
+      "complex_operator_difference": 2.963831304700845e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.0071956838176156e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 2.7666132407087513e-11
+      }
+    },
+    {
+      "start_nm": 2821.223800827929,
+      "end_nm": 2988.4836233156757,
+      "complex_operator_difference": 2.503129792956801e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.2861935092640985e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 1.9743974659500796e-10
+      }
+    },
+    {
+      "start_nm": 2988.4836233156757,
+      "end_nm": 3077.9867987760767,
+      "complex_operator_difference": 1.215874844128142e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 9.670951520480518e-13,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 9.609901784827406e-11
+      }
+    },
+    {
+      "start_nm": 3077.9867987760767,
+      "end_nm": 3165.659655999303,
+      "complex_operator_difference": 1.2206544703760116e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.6409032448846748e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 1.1336291962528079e-10
+      }
+    },
+    {
+      "start_nm": 3165.659655999303,
+      "end_nm": 3353.339793946423,
+      "complex_operator_difference": 2.2741007459913302e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 8.996603605425361e-13,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 1.5307115172590663e-10
+      }
+    },
+    {
+      "start_nm": 3353.339793946423,
+      "end_nm": 3385.7854786536845,
+      "complex_operator_difference": 3.1161832534179756e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 9.287475647776463e-13,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 2.846533835441063e-11
+      }
+    },
+    {
+      "start_nm": 3385.7854786536845,
+      "end_nm": 3552.1467863275225,
+      "complex_operator_difference": 2.7195562473523263e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 7.790990186303085e-13,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 2.465798309354014e-10
+      }
+    },
+    {
+      "start_nm": 3552.1467863275225,
+      "end_nm": 3724.3640265190534,
+      "complex_operator_difference": 2.497989680304208e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.1354480482826859e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 1.5280686760097757e-10
+      }
+    },
+    {
+      "start_nm": 3724.3640265190534,
+      "end_nm": 3762.740302785602,
+      "complex_operator_difference": 4.682167859939666e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.189065986063563e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 4.273712701041598e-11
+      }
+    },
+    {
+      "start_nm": 3762.740302785602,
+      "end_nm": 3985.819122313041,
+      "complex_operator_difference": 2.468384039638205e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.3796316719834282e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 1.9961078103883598e-10
+      }
+    },
+    {
+      "start_nm": 3985.819122313041,
+      "end_nm": 4096.800429170959,
+      "complex_operator_difference": 1.2127085656765395e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.935007674591601e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 9.344288315512382e-11
+      }
+    },
+    {
+      "start_nm": 4096.800429170959,
+      "end_nm": 4222.123451898911,
+      "complex_operator_difference": 1.1823567058844806e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.033169996280917e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 8.655659481541474e-11
+      }
+    },
+    {
+      "start_nm": 4222.123451898911,
+      "end_nm": 4472.437382640154,
+      "complex_operator_difference": 2.3497149112683127e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.047677161035198e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 2.048166577085943e-10
+      }
+    },
+    {
+      "start_nm": 4472.437382640154,
+      "end_nm": 4506.480472088056,
+      "complex_operator_difference": 3.1716747102038924e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.2412248194808298e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 2.357605218343599e-11
+      }
+    },
+    {
+      "start_nm": 4506.480472088056,
+      "end_nm": 4737.591491466421,
+      "complex_operator_difference": 3.150065421994202e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.5896693588273957e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 2.4379579079688666e-10
+      }
+    },
+    {
+      "start_nm": 4737.591491466421,
+      "end_nm": 4957.128519296862,
+      "complex_operator_difference": 2.2163728711394903e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.446303549706411e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 2.2904166235188654e-10
+      }
+    },
+    {
+      "start_nm": 4957.128519296862,
+      "end_nm": 5018.465597111492,
+      "complex_operator_difference": 5.95529526210087e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.6126129359226082e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 16,
+        "maximum_unitarity_residual": 4.767080150780252e-11
+      }
+    },
+    {
+      "start_nm": 5018.465597111492,
+      "end_nm": 5315.991679475961,
+      "complex_operator_difference": 3.734629953724676e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 3.096757562428425e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 19,
+        "maximum_unitarity_residual": 3.515867634725344e-10
+      }
+    },
+    {
+      "start_nm": 5315.991679475961,
+      "end_nm": 5452.841371226547,
+      "complex_operator_difference": 1.7944575091459946e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.2583030684333009e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 1.7856714047408576e-10
+      }
+    },
+    {
+      "start_nm": 5452.841371226547,
+      "end_nm": 5631.1569720679745,
+      "complex_operator_difference": 2.1640534375076356e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.147009914822249e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 1.5769916529800726e-10
+      }
+    },
+    {
+      "start_nm": 5631.1569720679745,
+      "end_nm": 5965.007237783284,
+      "complex_operator_difference": 4.12445524228475e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.524119289323834e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 19,
+        "maximum_unitarity_residual": 3.5027786166617154e-10
+      }
+    },
+    {
+      "start_nm": 5965.007237783284,
+      "end_nm": 5998.125508349203,
+      "complex_operator_difference": 3.143784997545672e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.3070166737918194e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 3.4092542506728364e-11
+      }
+    },
+    {
+      "start_nm": 5998.125508349203,
+      "end_nm": 6318.650238894007,
+      "complex_operator_difference": 4.12529704859131e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 7.003857508586163e-13,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 19,
+        "maximum_unitarity_residual": 3.533215808366943e-10
+      }
+    },
+    {
+      "start_nm": 6318.650238894007,
+      "end_nm": 6597.938059184124,
+      "complex_operator_difference": 3.206935220548498e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.6438259659104856e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 19,
+        "maximum_unitarity_residual": 3.246470246301558e-10
+      }
+    },
+    {
+      "start_nm": 6597.938059184124,
+      "end_nm": 6693.259412760121,
+      "complex_operator_difference": 1.0351534915261903e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.9973416592376516e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 17,
+        "maximum_unitarity_residual": 1.164724257744245e-10
+      }
+    },
+    {
+      "start_nm": 6693.259412760121,
+      "end_nm": 7090.077765460166,
+      "complex_operator_difference": 4.49044685936394e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.453750677502022e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 19,
+        "maximum_unitarity_residual": 4.0088906632382623e-10
+      }
+    },
+    {
+      "start_nm": 7090.077765460166,
+      "end_nm": 7257.731865102537,
+      "complex_operator_difference": 2.567039561672383e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.6362897796102947e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 1.9738626659247644e-10
+      }
+    },
+    {
+      "start_nm": 7257.731865102537,
+      "end_nm": 7510.421996260703,
+      "complex_operator_difference": 2.2962058442659372e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.0507156046539777e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 1.910787180748752e-10
+      }
+    },
+    {
+      "start_nm": 7510.421996260703,
+      "end_nm": 7955.686866610241,
+      "complex_operator_difference": 4.668024047038557e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.1637873275983697e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 19,
+        "maximum_unitarity_residual": 4.284974287552796e-10
+      }
+    },
+    {
+      "start_nm": 7955.686866610241,
+      "end_nm": 7983.505051612792,
+      "complex_operator_difference": 2.441199381921005e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.0901328418378435e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 15,
+        "maximum_unitarity_residual": 3.14453154605066e-11
+      }
+    },
+    {
+      "start_nm": 7983.505051612792,
+      "end_nm": 8427.349828154402,
+      "complex_operator_difference": 5.454114855009604e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.4986320290765708e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 19,
+        "maximum_unitarity_residual": 4.1696849150009044e-10
+      }
+    },
+    {
+      "start_nm": 8427.349828154402,
+      "end_nm": 8781.855556774073,
+      "complex_operator_difference": 3.7776236334186604e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.2415617953643015e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 19,
+        "maximum_unitarity_residual": 3.3011772255703693e-10
+      }
+    },
+    {
+      "start_nm": 8781.855556774073,
+      "end_nm": 8926.97592512891,
+      "complex_operator_difference": 1.3273463957024582e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.965384573246851e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 1.7329802040333818e-10
+      }
+    },
+    {
+      "start_nm": 8926.97592512891,
+      "end_nm": 9456.22298739716,
+      "complex_operator_difference": 5.530535800076917e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.3166795003145133e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 20,
+        "maximum_unitarity_residual": 5.777147791703944e-10
+      }
+    },
+    {
+      "start_nm": 9456.22298739716,
+      "end_nm": 9660.041112451481,
+      "complex_operator_difference": 2.178687453452319e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.4746130510220172e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 2.050995814450658e-10
+      }
+    },
+    {
+      "start_nm": 9660.041112451481,
+      "end_nm": 10016.847131363491,
+      "complex_operator_difference": 4.405907705008477e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.43943330920736e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 19,
+        "maximum_unitarity_residual": 3.635001911264624e-10
+      }
+    },
+    {
+      "start_nm": 10016.847131363491,
+      "end_nm": 10610.70858701516,
+      "complex_operator_difference": 6.884950266139941e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.1661503096889584e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 20,
+        "maximum_unitarity_residual": 7.887485411125015e-10
+      }
+    },
+    {
+      "start_nm": 10610.70858701516,
+      "end_nm": 10626.045223696632,
+      "complex_operator_difference": 1.8608389928571496e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.3354809238414187e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 14,
+        "maximum_unitarity_residual": 1.4925714937126327e-11
+      }
+    },
+    {
+      "start_nm": 10626.045223696632,
+      "end_nm": 11239.777870427772,
+      "complex_operator_difference": 6.69661781185075e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 9.451761787411578e-13,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 20,
+        "maximum_unitarity_residual": 6.440770476676229e-10
+      }
+    },
+    {
+      "start_nm": 11239.777870427772,
+      "end_nm": 11688.649746066296,
+      "complex_operator_difference": 3.555769991887064e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 2.5673118068316452e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 19,
+        "maximum_unitarity_residual": 4.113916691019165e-10
+      }
+    },
+    {
+      "start_nm": 11688.649746066296,
+      "end_nm": 11906.142322215592,
+      "complex_operator_difference": 2.9373715125719225e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.4623328076334617e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 2.144352063692355e-10
+      }
+    },
+    {
+      "start_nm": 11906.142322215592,
+      "end_nm": 12612.013033622185,
+      "complex_operator_difference": 7.406912163279258e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 9.191191754394536e-13,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 20,
+        "maximum_unitarity_residual": 6.533712729163794e-10
+      }
+    },
+    {
+      "start_nm": 12612.013033622185,
+      "end_nm": 12857.514720672927,
+      "complex_operator_difference": 1.6890442952711379e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.5174848970980732e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 18,
+        "maximum_unitarity_residual": 1.7324186913733398e-10
+      }
+    },
+    {
+      "start_nm": 12857.514720672927,
+      "end_nm": 13359.732183232978,
+      "complex_operator_difference": 4.3650826391440056e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.224808295279404e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 19,
+        "maximum_unitarity_residual": 3.8559234113048773e-10
+      }
+    },
+    {
+      "start_nm": 13359.732183232978,
+      "end_nm": 14143.266192740219,
+      "complex_operator_difference": 8.841511063887246e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.3663285899783202e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 20,
+        "maximum_unitarity_residual": 6.494281324363081e-10
+      }
+    },
+    {
+      "start_nm": 14143.266192740219,
+      "end_nm": 14151.780808654225,
+      "complex_operator_difference": 1.967528530939071e-11,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.0632438819687402e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 14,
+        "maximum_unitarity_residual": 1.1741379797229063e-11
+      }
+    },
+    {
+      "start_nm": 14151.780808654225,
+      "end_nm": 14990.78703894565,
+      "complex_operator_difference": 6.727848844690562e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 9.760225951139629e-13,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 20,
+        "maximum_unitarity_residual": 7.183622470634868e-10
+      }
+    },
+    {
+      "start_nm": 14990.78703894565,
+      "end_nm": 15557.592812014243,
+      "complex_operator_difference": 7.026687936471359e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.097909743857668e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 20,
+        "maximum_unitarity_residual": 7.429095224298291e-10
+      }
+    },
+    {
+      "start_nm": 15557.592812014243,
+      "end_nm": 15879.534815123436,
+      "complex_operator_difference": 3.978785754137212e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.5768539051077578e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 19,
+        "maximum_unitarity_residual": 4.1278388700607334e-10
+      }
+    },
+    {
+      "start_nm": 15879.534815123436,
+      "end_nm": 16820.97312766925,
+      "complex_operator_difference": 7.138580888868635e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.6127006529632402e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 20,
+        "maximum_unitarity_residual": 7.130812622268114e-10
+      }
+    },
+    {
+      "start_nm": 16820.97312766925,
+      "end_nm": 17113.352093215668,
+      "complex_operator_difference": 4.0344775170334923e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.9940975405133717e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 19,
+        "maximum_unitarity_residual": 4.033585454140257e-10
+      }
+    },
+    {
+      "start_nm": 17113.352093215668,
+      "end_nm": 17818.225801696586,
+      "complex_operator_difference": 8.607437259373674e-10,
+      "method": {
+        "covariant_carrier_spectral_slab": true,
+        "slab_unitarity_residual": 1.95604008414364e-12,
+        "connection_split": false
+      },
+      "reference": {
+        "scattering_doublings": 20,
+        "maximum_unitarity_residual": 8.404143668146748e-10
+      }
+    }
+  ]
+}

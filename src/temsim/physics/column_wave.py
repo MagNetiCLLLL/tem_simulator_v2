@@ -239,7 +239,7 @@ def _propagate_column(state, checkpoint, stop_z_mm, *, maximum_step_mm=.5,
         checkpoint.reference_current_a, {"schema": "executed-column-wave-v1", "upstream_digest": checkpoint.digest,
         "upstream": checkpoint.record, "field_plan_signature": plan.signature, "step_count": len(plan.step_m),
         "maximum_step_mm": maximum_step_mm, "deflector_actions": owners, "modes": records,
-        "grid_numerics": asdict(grid_numerics),
+        "grid_numerics": grid_numerics.column_identity(),
         "integrator": "second-order midpoint quadratic Hamiltonian / symmetric cubic split / discrete Cs",
         "coordinate_basis": "laboratory normalized canonical; continuous symmetric axial-field gauge",
         "time_model": "actual coil laws at per-mode axial arrival times; frozen transverse slices, no longitudinal pulse wavepacket",
@@ -274,7 +274,7 @@ def _propagate_column_segmented(state, checkpoint, stop_z_mm, *, store, segment_
         last = min(first+segment_steps, len(plan.step_m))
         segment = _slice_prepared(prepared, first, last)
         time_key = tip_time_s if any(row["dynamic"] for row in segment[3]) else None
-        key = store.key("column-segment", result.digest, segment[0].signature, asdict(grid_numerics), time_key)
+        key = store.key("column-segment", result.digest, segment[0].signature, grid_numerics.column_identity(), time_key)
         cached = store.get(key) if use_cache else None
         if cached is not None:
             result, hit = cached, True

@@ -85,6 +85,10 @@ class TipWaveNumerics:
 
 
 def _require_emitter(emitter):
+    if getattr(emitter, "surface_model", None) is not None:
+        if emitter.surface_model.coherence is not None:
+            raise ValueError("Coherent surface near-field calculation is available via stop='tip_near_field'. Matching that complex field to full relativistic gun transport is not yet connected; no legacy source will be substituted.")
+        raise ValueError("The grounded surface model specifies classical outgoing flux, not coherent amplitudes. Surface-to-wave transport is not yet available; no legacy source will be substituted.")
     if getattr(emitter, "kind", None) != "cold_field_emitter":
         raise ValueError("Coherent emission is implemented only at a cold FEG tip")
     parameters = getattr(emitter, "coherence", None)
@@ -136,6 +140,8 @@ def tip_particle_samples(emitter, count):
     from temsim.optics.electron_gun.base import EmissionBundle
     from temsim.optics.electron_gun.emitter import _halton_dimensions
     p = _require_emitter(emitter)
+    from temsim.optics.electron_gun.tip_source_domain import validate_tip_source_domain
+    validate_tip_source_domain(emitter)
     if isinstance(count, bool) or int(count) != count or count < 9:
         raise ValueError("Tip particle diagnostics require at least nine samples")
     n = int(count)
@@ -241,6 +247,8 @@ def generate_tip_emission(gun, numerics=TipWaveNumerics()):
     emitter = gun.emitter
     _require_emitter(emitter)
     numerics.validate()
+    from temsim.optics.electron_gun.tip_source_domain import validate_tip_source_domain
+    source_domain = validate_tip_source_domain(emitter)
     energies = tip_energy_samples(emitter, numerics.energy_samples)
     rows = [_mode_row(emitter, energy, numerics) for energy in energies]
     count = sum(row["modes_per_axis"]**2 for row in rows)
@@ -252,7 +260,8 @@ def generate_tip_emission(gun, numerics=TipWaveNumerics()):
         "boersch_sigma_ev", "energy_half_range_ev")}
     parameters["coherence"] = asdict(emitter.coherence)
     return TipEmission(parameters, numerics, {
-        "schema": "physical-tip-mutual-intensity-v1", "plane_z_mm": 0.,
+        "schema": "physical-tip-mutual-intensity-v2", "plane_z_mm": 0.,
+        "source_domain": source_domain,
         "reference_id": TIP_REFERENCE, "model": "circular Gaussian-Schell at FEG tip",
         "energy_modes": rows, "mode_count": count,
         "omitted_probability": float(np.mean([row["omitted_probability"] for row in rows])),

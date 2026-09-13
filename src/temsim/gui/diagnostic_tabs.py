@@ -4308,6 +4308,8 @@ class TransverseBeamView(QWidget):
         self.colour_mode = self.analysis.colour_combo
 
     def _update_projection_labels(self) -> None:
+        if hasattr(self, "analysis") and self.analysis.wave is not None:
+            return
         if hasattr(self, "analysis") and self.analysis.mode != "position":
             self.analysis.update_labels()
             return
@@ -4339,7 +4341,7 @@ class TransverseBeamView(QWidget):
         self._projection_angle_deg = angle
         self.angle_colour_wheel.set_projection_angle(angle)
         self._update_projection_labels()
-        if redraw and changed and self._result is not None:
+        if redraw and changed and (self._result is not None or self.analysis.wave is not None):
             self._redraw()
 
     def _apply_centered_view_ranges(
@@ -4387,6 +4389,9 @@ class TransverseBeamView(QWidget):
 
         if self._view_change_guard:
             return
+        if self.analysis.wave is not None:
+            self.analysis.wave.capture_range()
+            return
         if hasattr(self, "analysis") and self.analysis.mode != "position":
             self.analysis.capture_manual_range()
             return
@@ -4400,6 +4405,9 @@ class TransverseBeamView(QWidget):
     def _fit_beam_view(self) -> None:
         """Fit current surviving rays symmetrically about physical zero."""
 
+        if self.analysis.wave is not None:
+            self.analysis.wave.fit()
+            return
         if hasattr(self, "analysis") and self.analysis.mode != "position":
             self.analysis.fit()
             return
@@ -4454,6 +4462,9 @@ class TransverseBeamView(QWidget):
         )
 
     def display_result(self, result, *, focus=None) -> None:
+        if self.analysis.wave is not None:
+            wave, self.analysis.wave = self.analysis.wave, None
+            wave.deactivate()
         self.analysis.invalidate()
         self._result = result
         if focus is not None:
@@ -4467,6 +4478,23 @@ class TransverseBeamView(QWidget):
         if self._plane_z_mm is None:
             self._plane_z_mm = float(result.simulation.incident.z[-1])
         self._redraw()
+
+    def display_wave_checkpoint(self, checkpoint, *, axial_bz_t, maximum_working_bytes=512*1024**2):
+        """Internal readout of an executed forward-column wave, not admission.
+
+        No source, propagation, detector simulation or old-result replacement.
+        Missing Z planes remain explicit instead of being interpolated.
+        """
+        from temsim.gui.wave_beam_analysis import WaveBeamAnalysis
+        previous_ranges = {}
+        if self.analysis.wave is not None:
+            wave, self.analysis.wave = self.analysis.wave, None
+            previous_ranges = dict(wave.ranges)
+            wave.deactivate()
+        self._plane_z_mm = float(checkpoint.plane_z_mm)
+        self.analysis.wave = WaveBeamAnalysis(self.analysis, checkpoint, axial_bz_t, maximum_working_bytes)
+        self.analysis.wave.ranges.update(previous_ranges)
+        self.analysis.wave.activate()
 
     def focus_component(self, part, *, redraw: bool = True) -> None:
         key = str(part.key)
@@ -4497,7 +4525,7 @@ class TransverseBeamView(QWidget):
             return
         changed = self._plane_z_mm != float(z_mm)
         self._plane_z_mm = float(z_mm)
-        if redraw and (changed or force_redraw) and self._result is not None:
+        if redraw and (changed or force_redraw) and (self._result is not None or self.analysis.wave is not None):
             self._redraw()
 
     def _add_point_spread_response(self):
@@ -4556,6 +4584,9 @@ class TransverseBeamView(QWidget):
         return response
 
     def _redraw(self) -> None:
+        if self.analysis.wave is not None:
+            self.analysis.wave.redraw()
+            return
         if self.analysis.mode != "position":
             self.analysis.redraw()
             return

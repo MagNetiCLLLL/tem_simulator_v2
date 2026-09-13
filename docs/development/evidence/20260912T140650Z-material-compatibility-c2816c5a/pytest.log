@@ -1,0 +1,58 @@
+FF                                                                       [100%]
+================================== FAILURES ===================================
+_ test_material_multislice_with_actual_atomistic_potential_preserves_branches _
+tests\test_tip_wave_pipeline.py:121: in test_material_multislice_with_actual_atomistic_potential_preserves_branches
+    result = _propagate_specimen(state, checkpoint)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\specimen_wave_transport.py:214: in _propagate_specimen
+    return _with_material_refinement(state, checkpoint,
+src\temsim\physics\specimen_wave_transport.py:181: in _with_material_refinement
+    material = _prepare_material_grid(state, checkpoint,
+src\temsim\physics\specimen_wave_transport.py:145: in _prepare_material_grid
+    prepared = prepare_specimen_potentials(numerical_state, preset,
+src\temsim\physics\wave_imaging.py:629: in prepare_specimen_potentials
+    prepared, hit, build_seconds, retained_bytes = cached_prepared_specimen(
+src\temsim\physics\prepared_specimen_cache.py:262: in cached_prepared_specimen
+    return _CACHE.get_or_build(key, builder, still_valid=still_valid)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\prepared_specimen_cache.py:194: in get_or_build
+    value = builder()
+            ^^^^^^^^^
+src\temsim\physics\wave_imaging.py:631: in <lambda>
+    lambda: _prepare_specimen_potentials_uncached(state, preset, **arguments),
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\wave_imaging.py:721: in _prepare_specimen_potentials_uncached
+    sampling_plan = plan_wave_sampling(
+src\temsim\physics\wave_sampling.py:96: in plan_wave_sampling
+    raise ValueError(
+E   ValueError: Wave grid 4,096 x 4,096 needs approximately 18.2 GiB of wave working memory (limit 8 GiB), including FFT/probe buffers. Reduce probe defocus or scan extent; the grid will not be silently coarsened.
+_ test_outgoing_wave_propagates_remaining_material_at_new_energy_and_resumes __
+tests\test_inelastic_wave.py:96: in test_outgoing_wave_propagates_remaining_material_at_new_energy_and_resumes
+    result = _propagate_inelastic_specimen(state, checkpoint, **kw)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\inelastic_wave.py:98: in _propagate_inelastic_specimen
+    return _with_material_refinement(state, checkpoint,
+src\temsim\physics\specimen_wave_transport.py:181: in _with_material_refinement
+    material = _prepare_material_grid(state, checkpoint,
+src\temsim\physics\specimen_wave_transport.py:145: in _prepare_material_grid
+    prepared = prepare_specimen_potentials(numerical_state, preset,
+src\temsim\physics\wave_imaging.py:629: in prepare_specimen_potentials
+    prepared, hit, build_seconds, retained_bytes = cached_prepared_specimen(
+src\temsim\physics\prepared_specimen_cache.py:262: in cached_prepared_specimen
+    return _CACHE.get_or_build(key, builder, still_valid=still_valid)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\prepared_specimen_cache.py:194: in get_or_build
+    value = builder()
+            ^^^^^^^^^
+src\temsim\physics\wave_imaging.py:631: in <lambda>
+    lambda: _prepare_specimen_potentials_uncached(state, preset, **arguments),
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\wave_imaging.py:721: in _prepare_specimen_potentials_uncached
+    sampling_plan = plan_wave_sampling(
+src\temsim\physics\wave_sampling.py:96: in plan_wave_sampling
+    raise ValueError(
+E   ValueError: Wave grid 4,096 x 4,096 needs approximately 17.2 GiB of wave working memory (limit 8 GiB), including FFT/probe buffers. Reduce probe defocus or scan extent; the grid will not be silently coarsened.
+=========================== short test summary info ===========================
+FAILED tests/test_tip_wave_pipeline.py::test_material_multislice_with_actual_atomistic_potential_preserves_branches
+FAILED tests/test_inelastic_wave.py::test_outgoing_wave_propagates_remaining_material_at_new_energy_and_resumes
+2 failed in 24.11s

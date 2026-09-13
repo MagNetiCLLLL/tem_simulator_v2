@@ -52,6 +52,7 @@ _TEM_PROJECTION_SCHEMA = "physical-aperture-pre-loss-flux-v1"
 _STEM_RECORDING_SCHEMA = "physical-envelope-pre-specimen-flux-gpu-capture-v6"
 _PARTICLE_POINT_SCHEMA = "resolved-point-material-hit-diagnostics-v2"
 _EDS_SIGNAL_SCHEMA = "eds-only-overlap-importance-v1"
+_STAGE_INPUT_SCHEMA = "live-lens-components-v2"
 
 
 def _particle_point_digest(payload):
@@ -493,8 +494,27 @@ def _json_value(value):
     return value
 
 
+def live_lens_parameters(lens) -> dict[str, object]:
+    """One live component source for stage inputs and geometry fingerprints.
+
+    Profile serialization deliberately omits assembly-owned fields; it is not
+    a solver identity. Retain all declared component fields, including both
+    objective poles, disabled components and complete Gaussian terms. Only
+    presentation labels/colours are excluded. External model bytes and shared
+    circuits remain bound by the existing assembly/content inventories.
+    """
+    if not is_dataclass(lens):
+        raise TypeError(f"No declared lens parameter inventory for {type(lens).__name__}")
+    return {field.name: _json_value(getattr(lens, field.name)) for field in fields(lens)
+            if field.name not in {"name", "label", "colour", "color"}}
+
+
 def _state_payload(state) -> dict[str, object]:
     payload = _drop_runtime_solver_state(state.to_dict())
+    # Version every affected product, including states without a catalog.
+    # This does not migrate saved profiles or admit historical stage keys.
+    payload["_stage_input_schema"] = _STAGE_INPUT_SCHEMA
+    payload["lenses"] = [live_lens_parameters(lens) for lens in state.lenses]
     # Dynamic scan/deflector phase is deliberately not persisted by State,
     # but it is read by ray, wave, scan and detector propagation.
     payload["simulation_time_s"] = float(

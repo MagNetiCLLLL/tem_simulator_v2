@@ -1,0 +1,32 @@
+.........F............................................                   [100%]
+================================== FAILURES ===================================
+_______ test_graph_preserves_complete_constant_operator[riccati-0.01-2] _______
+tests\test_carrier_subspaces.py:20: in test_graph_preserves_complete_constant_operator
+    np.testing.assert_allclose(actual, expected, atol=3e-12, rtol=3e-12)
+E   AssertionError: 
+E   Not equal to tolerance rtol=3e-12, atol=3e-12
+E   
+E   Mismatched elements: 6 / 16 (37.5%)
+E   First 5 mismatches are at indices:
+E    [0, 0, 0]: (-0.0001151581599394281+0.0056175902583022646j) (ACTUAL), (-0.00011515816254105304+0.005617590252411409j) (DESIRED)
+E    [0, 0, 1]: (-0.0032188024489368467-0.0003970690898027665j) (ACTUAL), (-0.003218802454891765-0.00039706909172409886j) (DESIRED)
+E    [0, 1, 0]: (0.003235887251922542-0.00021703677187128557j) (ACTUAL), (0.003235887254500219-0.00021703677025898186j) (DESIRED)
+E    [3, 0, 0]: (-0.00011468601624535145+0.005602937654756306j) (ACTUAL), (-0.0001146860134608984+0.005602937648958561j) (DESIRED)
+E    [3, 0, 1]: (-0.003209310122071525-0.00040598016142902153j) (ACTUAL), (-0.0032093101247003316-0.00040598015991161245j) (DESIRED)
+E   Max absolute difference among violations: 6.43976948e-12
+E   Max relative difference among violations: 1.93468371e-09
+E    ACTUAL: array([[[-1.151582e-04+0.005618j, -3.218802e-03-0.000397j],
+E           [ 3.235887e-03-0.000217j, -2.165621e-04+0.009256j]],
+E   ...
+E    DESIRED: array([[[-1.151582e-04+0.005618j, -3.218802e-03-0.000397j],
+E           [ 3.235887e-03-0.000217j, -2.165621e-04+0.009256j]],
+E   ...
+============================== warnings summary ===============================
+tests/test_carrier_subspaces.py::test_nonpropagating_graph_is_not_admitted_by_orthogonalisation
+  F:\tem_simulator_v2\src\temsim\physics\carrier_subspaces.py:37: RuntimeWarning: overflow encountered in matmul
+    residual = -h-(h+connection)@x-x@(h-connection)-x@h@x-2*carrier*x
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_carrier_subspaces.py::test_graph_preserves_complete_constant_operator[riccati-0.01-2]
+1 failed, 53 passed, 1 warning in 2.94s

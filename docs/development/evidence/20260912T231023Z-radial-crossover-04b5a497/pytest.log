@@ -1,0 +1,9 @@
+..F.....                                                                 [100%]
+================================== FAILURES ===================================
+__ test_complex_free_gaussian_has_absolute_phase_and_conserved_current[2.0] ___
+tests\test_radial_column_wave.py:25: in test_complex_free_gaussian_has_absolute_phase_and_conserved_current
+    assert error < 1e-6
+E   assert np.float64(1.1043152612920841) < 1e-06
+=========================== short test summary info ===========================
+FAILED tests/test_radial_column_wave.py::test_complex_free_gaussian_has_absolute_phase_and_conserved_current[2.0]
+1 failed, 7 passed in 1.45s

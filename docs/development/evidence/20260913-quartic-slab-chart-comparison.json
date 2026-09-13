@@ -1,0 +1,30 @@
+{
+  "scope": "Numerical constant-slab comparison, not physical source acceptance",
+  "input": "docs\\development\\evidence\\20260913-quartic-failure-capture\\failed_slab.npz",
+  "results": [
+    {
+      "inner_kappa": 24.05904473325174,
+      "outer_kappa": 24.05904473325174,
+      "status": "FAILED",
+      "error": "Covariant slab lost current unitarity; refine the numerical representation"
+    },
+    {
+      "inner_kappa": 161.5621260703663,
+      "outer_kappa": 24.05904473325174,
+      "status": "FAILED",
+      "error": "Covariant slab lost current unitarity; refine the numerical representation"
+    },
+    {
+      "inner_kappa": 323.1242521407326,
+      "outer_kappa": 24.05904473325174,
+      "status": "FAILED",
+      "error": "Covariant slab lost current unitarity; refine the numerical representation"
+    },
+    {
+      "inner_kappa": 646.2485042814652,
+      "outer_kappa": 24.05904473325174,
+      "status": "FAILED",
+      "error": "Covariant slab lost current unitarity; refine the numerical representation"
+    }
+  ]
+}

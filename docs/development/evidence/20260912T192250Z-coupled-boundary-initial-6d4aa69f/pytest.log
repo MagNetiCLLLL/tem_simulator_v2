@@ -1,0 +1,9 @@
+...F...                                                                  [100%]
+================================== FAILURES ===================================
+_ test_smooth_transverse_coupling_converges_against_independent_adaptive_ode __
+tests\test_coupled_low_energy.py:102: in test_smooth_transverse_coupling_converges_against_independent_adaptive_ode
+    assert errors[-1] < 1e-5
+E   assert 1.2286453238889103e-05 < 1e-05
+=========================== short test summary info ===========================
+FAILED tests/test_coupled_low_energy.py::test_smooth_transverse_coupling_converges_against_independent_adaptive_ode
+1 failed, 6 passed in 0.57s

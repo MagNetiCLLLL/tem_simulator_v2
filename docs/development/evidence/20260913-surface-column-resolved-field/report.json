@@ -1,0 +1,14 @@
+{
+  "scope": "DEVELOPMENT_ROUND_PREFIX_NOT_IMAGE_ACCEPTANCE",
+  "implementation": "37be4af56dfb6f1d7d45ed4fc085d7cc686607d9481182b7d2a3adfa594a5fdc",
+  "instrument_digest": "dd81758709503f6acc0cb254c81aa57832948d08682ff866b516831cdbfc10b4",
+  "gun": {
+    "digest": "643a8a57208822c343a76ffe0593e24e0bb451e4e9f46074d01f6c055c5ad72f",
+    "current_a": 5.448792445373932e-08
+  },
+  "status": "FAILED",
+  "error": "Radial wave needs 33554432 samples, above its 8388608 budget",
+  "traceback": "Traceback (most recent call last):\n  File \"F:\\tem_simulator_v2\\src\\temsim\\physics\\radial_column_wave.py\", line 254, in resolved\n    return operator(value)\n           ^^^^^^^^^^^^^^^\n  File \"F:\\tem_simulator_v2\\src\\temsim\\physics\\radial_column_wave.py\", line 295, in <lambda>\n    wave = resolved(wave, lambda w: radial_cs(w, wavelength, plan.cs_kick_m3[j]))\n                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"F:\\tem_simulator_v2\\src\\temsim\\physics\\radial_column_wave.py\", line 191, in radial_cs\n    _phase_sampling(wave.radius_m*wave.amplitude, phase, \"spherical aberration\")\n  File \"F:\\tem_simulator_v2\\src\\temsim\\physics\\radial_column_wave.py\", line 55, in _phase_sampling\n    raise WaveSamplingError(f\"Radial {label} phase needs refinement: {largest:.6g} rad per sample\",\ntemsim.physics.wave_grid.WaveSamplingError: Radial spherical aberration phase needs refinement: 5.75653 rad per sample\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"F:\\tem_simulator_v2\\scripts\\inspect_surface_column.py\", line 46, in main\n    z, modes, record = round_column_prefix(state, checkpoint, state.sample.z_mm,\n                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"F:\\tem_simulator_v2\\src\\temsim\\physics\\radial_column_wave.py\", line 295, in round_column_prefix\n    wave = resolved(wave, lambda w: radial_cs(w, wavelength, plan.cs_kick_m3[j]))\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"F:\\tem_simulator_v2\\src\\temsim\\physics\\radial_column_wave.py\", line 257, in resolved\n    value = refine_radial(value, error.required_scale, maximum_samples=maximum_samples)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"F:\\tem_simulator_v2\\src\\temsim\\physics\\radial_column_wave.py\", line 116, in refine_radial\n    raise ValueError(f\"Radial wave needs {count} samples, above its {maximum_samples} budget\")\nValueError: Radial wave needs 33554432 samples, above its 8388608 budget\n",
+  "elapsed_s": 18.737462599994615,
+  "implementation_unchanged": true
+}

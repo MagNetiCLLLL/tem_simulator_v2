@@ -1,0 +1,525 @@
+{
+  "scope": "Local operator audit on first energy; NOT a full source or image calculation",
+  "input": "docs\\development\\evidence\\20260913-quartic-growth01\\report.json",
+  "input_sha256": "3108f8de271c1abfd9521bccaa4bfcbc76d923fe674445b305570b99eee11a3c",
+  "driver_sha256": "2c40add9fedb0c13de2f9ec92a6e2a28b5389e4bfff5610d8021fc266edbb409",
+  "implementation": "39ffef601b75999a68b571448b514d789fa1d32b2225db831cab13a3115589ef",
+  "physical_settings_digest": "a6c8acde8bb0a8dcfd86a256a5e30f0de3affa49d174d306b5040552462064b0",
+  "surface_numerics": {
+    "radial_nodes": 769,
+    "axial_nodes": 257,
+    "outer_radius_factor": 5.0,
+    "exit_height_nm": 2.0,
+    "energy_samples": 3,
+    "maximum_nodes": 1000000,
+    "maximum_working_bytes": 8589934592,
+    "linear_tolerance": 1e-09,
+    "flux_tolerance": 1e-08,
+    "element_order": 2,
+    "joint_radial_phase": true
+  },
+  "radial_numerics": {
+    "radial_modes": 64,
+    "potential_quadrature": 128,
+    "relative_axial_step": 0.01,
+    "field_step_mm": 0.5,
+    "bore_step_mm": 1.0,
+    "maximum_steps": 100000,
+    "maximum_working_bytes": 17179869184,
+    "coordinate_width_over_cap_radius": 0.2,
+    "axial_integrator": "midpoint",
+    "axial_refinement": {
+      "tolerance": 1e-06,
+      "maximum_evaluations": 4096,
+      "maximum_depth": 20
+    },
+    "adaptive_until_mm": null,
+    "diagnostic_planes_mm": [
+      1e-05,
+      0.0001,
+      0.001,
+      0.01,
+      0.1,
+      0.5,
+      1.0,
+      2.0,
+      3.0,
+      4.0,
+      5.0,
+      6.0
+    ],
+    "coordinate_blend": {
+      "target_width_over_cap_radius": 0.1,
+      "start_mm": 0.0001,
+      "end_mm": 0.001
+    },
+    "wave_following": {
+      "iterations": 1,
+      "transition_start_nm": 10.0,
+      "transition_end_nm": 100.0,
+      "width_multiplier": 1.0,
+      "phase_order": 4
+    }
+  },
+  "status": "LOCAL_OPERATOR_AUDIT_COMPLETE_NOT_SOURCE",
+  "intervals": [
+    {
+      "stage": "pilot",
+      "start_nm": 100.0,
+      "stop_nm": 100.84427917452312,
+      "energy_ev": 0.18744544167837376,
+      "action_width_nm": 4.372241779996507,
+      "reference_k_per_nm": 24.05904473325174,
+      "same_midpoint_difference": 2.2981137422123586e-05,
+      "comparisons": [
+        {
+          "method": "midpoint",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 0.0023594110227583643
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 0.0005682126948225564,
+          "change_from_previous": 0.0020254811430966257
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 0.00012484353757198988,
+          "change_from_previous": 0.00044735441403925694
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 3.080142783242807e-05,
+          "change_from_previous": 9.404284237711054e-05
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 0.0004060992028584962
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 3.439556090747384e-05,
+          "change_from_previous": 0.00042772145305128653
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 7.94042313910441e-07,
+          "change_from_previous": 3.363633061079563e-05
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 0.0,
+          "change_from_previous": 7.94042313910441e-07
+        }
+      ]
+    },
+    {
+      "stage": "pilot",
+      "start_nm": 398.1079479225426,
+      "stop_nm": 402.089027401768,
+      "energy_ev": 0.18744544167837376,
+      "action_width_nm": 27.399272152945862,
+      "reference_k_per_nm": 24.05904473325174,
+      "same_midpoint_difference": 0.0006438787583778507,
+      "comparisons": [
+        {
+          "method": "midpoint",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 0.006553877319862371
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 0.0020965022598432147,
+          "change_from_previous": 0.0056965694848781934
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 0.0009561481663588531,
+          "change_from_previous": 0.0018145025091287265
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 0.0006732536994716568,
+          "change_from_previous": 0.0007575016693830017
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 0.0020596984996304963
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 0.0010253453090511297,
+          "change_from_previous": 0.0022318139788518186
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 0.0006685640138202983,
+          "change_from_previous": 0.001043461428089764
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 0.0,
+          "change_from_previous": 0.0006685640138202983
+        }
+      ]
+    },
+    {
+      "stage": "pilot",
+      "start_nm": 1000.0,
+      "stop_nm": 1000.4546267102227,
+      "energy_ev": 0.18744544167837376,
+      "action_width_nm": 3.534311908483581,
+      "reference_k_per_nm": 24.05904473325174,
+      "same_midpoint_difference": 2.033393373278297e-09,
+      "comparisons": [
+        {
+          "method": "midpoint",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 5.526893950272455e-06
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 1.4935163854970082e-06,
+          "change_from_previous": 4.1797486578725555e-06
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 3.435147099563133e-07,
+          "change_from_previous": 1.1648361822912756e-06
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 1.1973380160505305e-07,
+          "change_from_previous": 2.9228009450570026e-07
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 4.055248381815908e-07
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 1.1427491411329728e-07,
+          "change_from_previous": 5.12924351421947e-07
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 9.496347281082502e-08,
+          "change_from_previous": 2.0689448078555127e-07
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 0.0,
+          "change_from_previous": 9.496347281082502e-08
+        }
+      ]
+    },
+    {
+      "stage": "pilot",
+      "start_nm": 10000.0,
+      "stop_nm": 10002.900609551943,
+      "energy_ev": 0.18744544167837376,
+      "action_width_nm": 28.101914652779982,
+      "reference_k_per_nm": 24.05904473325174,
+      "same_midpoint_difference": 6.335345555198849e-09,
+      "comparisons": [
+        {
+          "method": "midpoint",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 7.483213304102187e-06
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 2.114733117778646e-06,
+          "change_from_previous": 6.4403375103856176e-06
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 6.476175614161898e-07,
+          "change_from_previous": 1.737115629517309e-06
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 1.1321296292063878e-07,
+          "change_from_previous": 5.609382759111292e-07
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 1.5726033406121152e-06
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 5.57114222523009e-07,
+          "change_from_previous": 1.7194026437472156e-06
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 1.454110541829385e-07,
+          "change_from_previous": 6.486683641312694e-07
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 0.0,
+          "change_from_previous": 1.454110541829385e-07
+        }
+      ]
+    },
+    {
+      "stage": "wave_following",
+      "start_nm": 100.0,
+      "stop_nm": 100.84427917452312,
+      "energy_ev": 0.18744544167837376,
+      "action_width_nm": 4.372241779996507,
+      "reference_k_per_nm": 24.05904473325174,
+      "same_midpoint_difference": 0.4472927062243012,
+      "comparisons": [
+        {
+          "method": "midpoint",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 10.848632832217199
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 10.630794586612287,
+          "change_from_previous": 11.613603015931062
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 9.659809389081119,
+          "change_from_previous": 11.43546823237915
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 5.1770146282846214,
+          "change_from_previous": 8.208970345487916
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 9.750755536187924
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 6.846074422058542,
+          "change_from_previous": 10.210636419714467
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 3.7114657087372023,
+          "change_from_previous": 6.790061649090671
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 0.0,
+          "change_from_previous": 3.7114657087372023
+        }
+      ]
+    },
+    {
+      "stage": "wave_following",
+      "start_nm": 398.1079479225426,
+      "stop_nm": 402.089027401768,
+      "energy_ev": 0.18744544167837376,
+      "action_width_nm": 27.399272152945862,
+      "reference_k_per_nm": 24.05904473325174,
+      "same_midpoint_difference": 5.525010984593196,
+      "comparisons": [
+        {
+          "method": "midpoint",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 14.447896546945948
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 12.949109875809892,
+          "change_from_previous": 14.270484097149213
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 13.981055416369356,
+          "change_from_previous": 13.666798450235994
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 13.02973440553394,
+          "change_from_previous": 12.700273940771794
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 14.394890046228134
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 12.863108798449108,
+          "change_from_previous": 13.142572083418068
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 13.216546595145585,
+          "change_from_previous": 12.895443601641096
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 0.0,
+          "change_from_previous": 13.216546595145585
+        }
+      ]
+    },
+    {
+      "stage": "wave_following",
+      "start_nm": 1000.0,
+      "stop_nm": 1000.4546267102227,
+      "energy_ev": 0.18744544167837376,
+      "action_width_nm": 3.534311908483581,
+      "reference_k_per_nm": 24.05904473325174,
+      "same_midpoint_difference": 0.00026459869150654333,
+      "comparisons": [
+        {
+          "method": "midpoint",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 11.023648659889417
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 4.17387573388242,
+          "change_from_previous": 9.407526411890103
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 1.1332483226702876,
+          "change_from_previous": 3.1902489460048225
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 0.3398788799211029,
+          "change_from_previous": 0.8219171003058334
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 1.667900280700784
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 0.6299461969550135,
+          "change_from_previous": 1.8532485350462338
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 0.21396299494232046,
+          "change_from_previous": 0.656454364213383
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 0.0,
+          "change_from_previous": 0.21396299494232046
+        }
+      ]
+    },
+    {
+      "stage": "wave_following",
+      "start_nm": 10000.0,
+      "stop_nm": 10002.900609551943,
+      "energy_ev": 0.18744544167837376,
+      "action_width_nm": 28.101914652779982,
+      "reference_k_per_nm": 24.05904473325174,
+      "same_midpoint_difference": 1.6475763329693867e-06,
+      "comparisons": [
+        {
+          "method": "midpoint",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 0.0598419410041178
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 0.015174777054377071,
+          "change_from_previous": 0.04469954260311531
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 0.0038599079198482177,
+          "change_from_previous": 0.011332916817923182
+        },
+        {
+          "method": "midpoint",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 0.0009523207781015533,
+          "change_from_previous": 0.0029092775762269525
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 1,
+          "difference_from_cf4_eight": 0.0020288723056137506
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 2,
+          "difference_from_cf4_eight": 0.0005137173365750093,
+          "change_from_previous": 0.0024736462493968187
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 4,
+          "difference_from_cf4_eight": 8.149361828877494e-05,
+          "change_from_previous": 0.000558535580253336
+        },
+        {
+          "method": "cf4",
+          "subdivisions": 8,
+          "difference_from_cf4_eight": 0.0,
+          "change_from_previous": 8.149361828877494e-05
+        }
+      ]
+    }
+  ],
+  "elapsed_s": 156.65799320000042,
+  "implementation_unchanged": true
+}

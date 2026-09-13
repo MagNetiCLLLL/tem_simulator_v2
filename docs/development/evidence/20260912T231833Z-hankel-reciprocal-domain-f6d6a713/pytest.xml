@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="5" time="1.342" timestamp="2026-09-13T00:18:34.416646+01:00" hostname="Royal_Gray"><testcase classname="tests.test_radial_column_wave" name="test_complex_free_gaussian_has_absolute_phase_and_conserved_current[0.2]" file="tests\test_radial_column_wave.py" line="13" time="0.012"><failure message="temsim.physics.wave_grid.WaveSamplingError: Radial Fresnel phase needs refinement: 13.3581 rad per sample">tests\test_radial_column_wave.py:20: in test_complex_free_gaussian_has_absolute_phase_and_conserved_current
+    result = propagate_radial(wave, m, 2*np.pi, reference_phase_rad=path.reference_phase_rad,
+src\temsim\physics\radial_column_wave.py:122: in propagate_radial
+    _phase_sampling(transformed, phase, "Fresnel")
+src\temsim\physics\radial_column_wave.py:43: in _phase_sampling
+    raise WaveSamplingError(f"Radial {label} phase needs refinement: {largest:.6g} rad per sample",
+E   temsim.physics.wave_grid.WaveSamplingError: Radial Fresnel phase needs refinement: 13.3581 rad per sample</failure></testcase><testcase classname="tests.test_radial_column_wave" name="test_complex_free_gaussian_has_absolute_phase_and_conserved_current[-0.2]" file="tests\test_radial_column_wave.py" line="13" time="0.011"><failure message="temsim.physics.wave_grid.WaveSamplingError: Radial Fresnel phase needs refinement: 13.3581 rad per sample">tests\test_radial_column_wave.py:20: in test_complex_free_gaussian_has_absolute_phase_and_conserved_current
+    result = propagate_radial(wave, m, 2*np.pi, reference_phase_rad=path.reference_phase_rad,
+src\temsim\physics\radial_column_wave.py:122: in propagate_radial
+    _phase_sampling(transformed, phase, "Fresnel")
+src\temsim\physics\radial_column_wave.py:43: in _phase_sampling
+    raise WaveSamplingError(f"Radial {label} phase needs refinement: {largest:.6g} rad per sample",
+E   temsim.physics.wave_grid.WaveSamplingError: Radial Fresnel phase needs refinement: 13.3581 rad per sample</failure></testcase><testcase classname="tests.test_radial_column_wave" name="test_complex_free_gaussian_has_absolute_phase_and_conserved_current[2.0]" file="tests\test_radial_column_wave.py" line="13" time="0.014" /><testcase classname="tests.test_radial_column_wave" name="test_spherical_phase_is_kept_not_fitted_into_quadratic_curvature" file="tests\test_radial_column_wave.py" line="29" time="0.005" /><testcase classname="tests.test_radial_column_wave" name="test_log_grid_refinement_preserves_complex_wave_not_just_current" file="tests\test_radial_column_wave.py" line="37" time="0.004" /></testsuite></testsuites>

@@ -1,0 +1,25 @@
+.......F.........................                                        [100%]
+================================== FAILURES ===================================
+_ test_pipeline_routes_and_caches_round_prefix_without_repeating_the_gun[True] _
+tests\test_round_column_checkpoint.py:117: in test_pipeline_routes_and_caches_round_prefix_without_repeating_the_gun
+    first = simulate_tip_wave(state, request)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:272: in simulate_tip_wave
+    result = column(result, entrance)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:233: in column
+    upstream = stage("round_column_prefix", lambda: execute_round_prefix(working, original, stop,
+src\temsim\physics\tip_wave_pipeline.py:219: in stage
+    result = producer()
+             ^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:233: in <lambda>
+    upstream = stage("round_column_prefix", lambda: execute_round_prefix(working, original, stop,
+tests\test_round_column_checkpoint.py:101: in radial
+    assert incoming.digest == checkpoint.digest
+E   AssertionError: assert '3d7fcbadf10d...de97e0de0950c' == '8f2bb6935c85...e1205b4b1928f'
+E     
+E     - 8f2bb6935c859472d147a4f57b890b14dfb18778a130a9a10d5e1205b4b1928f
+E     + 3d7fcbadf10d55d67e691be08dcee5c4e60d62b0572b4d5d0f0de97e0de0950c
+=========================== short test summary info ===========================
+FAILED tests/test_round_column_checkpoint.py::test_pipeline_routes_and_caches_round_prefix_without_repeating_the_gun[True]
+1 failed, 32 passed in 30.38s

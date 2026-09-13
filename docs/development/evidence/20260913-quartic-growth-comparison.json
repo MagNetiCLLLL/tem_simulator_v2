@@ -1,0 +1,335 @@
+{
+  "first": "docs\\development\\evidence\\20260913-quartic-growth0075\\report.json",
+  "second": "docs\\development\\evidence\\20260913-quartic-growth01\\report.json",
+  "mode_comparisons": [
+    {
+      "energy_ev": 0.18744544167837376,
+      "relative_complex_l2": 1.6420344872249286
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "relative_complex_l2": 1.3673337512586174
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "relative_complex_l2": 1.4009758986522503
+    }
+  ],
+  "current_a": [
+    6.758085043760444e-08,
+    5.4026145277649254e-08
+  ],
+  "relative_current_change": 0.25089158388582655,
+  "relative_complex_l2": 1.4575191027914784,
+  "radial_comparison_samples": 32769,
+  "metric": "Cylindrical complex L2 with recorded far-gun carrier restored; matching energy and near-reference only; no phase/curvature/current fit",
+  "scope": "GUN_COMPARISON_NOT_TEM_STEM_ACCEPTANCE",
+  "boundary_comparisons": [
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 2.0,
+      "side": "first",
+      "relative_complex_l2": 0.010951747957785623,
+      "relative_amplitude_l2": 0.008213011476164808,
+      "relative_density_l1": 0.005769173102654084,
+      "comparison_quadrature_change": 1.0183908811731146e-09,
+      "current_fractions": [
+        0.6955420773362939,
+        0.6961042904896948
+      ]
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 10.0,
+      "side": "first",
+      "relative_complex_l2": 0.012119830442207734,
+      "relative_amplitude_l2": 0.008993628095748779,
+      "relative_density_l1": 0.007376764245913807,
+      "comparison_quadrature_change": 3.140527316241454e-08,
+      "current_fractions": [
+        0.6955420773362676,
+        0.6961042904896692
+      ]
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 100.0,
+      "side": "first",
+      "relative_complex_l2": 0.21627176077041138,
+      "relative_amplitude_l2": 0.023268110807972253,
+      "relative_density_l1": 0.023462722822531187,
+      "comparison_quadrature_change": 1.836167412561096e-08,
+      "current_fractions": [
+        0.6955420773368116,
+        0.6961042904909386
+      ]
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 1000.0,
+      "side": "first",
+      "relative_complex_l2": 0.6333322303831805,
+      "relative_amplitude_l2": 0.24106835720173445,
+      "relative_density_l1": 0.3302005666247493,
+      "comparison_quadrature_change": 1.5587622304025217e-07,
+      "current_fractions": [
+        0.695542077336801,
+        0.6961042905109438
+      ]
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 10000.0,
+      "side": "first",
+      "relative_complex_l2": 0.6018366766445287,
+      "relative_amplitude_l2": 0.4638083484276624,
+      "relative_density_l1": 0.7283547621236858,
+      "comparison_quadrature_change": 4.572983545170217e-07,
+      "current_fractions": [
+        0.6955420773367975,
+        0.6961042905105173
+      ]
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 100000.0,
+      "side": "first",
+      "relative_complex_l2": 1.350700340804268,
+      "relative_amplitude_l2": 0.5391517042890296,
+      "relative_density_l1": 0.7736486314047296,
+      "comparison_quadrature_change": 6.050340431995593e-07,
+      "current_fractions": [
+        0.6955420773368098,
+        0.6961042905105125
+      ]
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 2.0,
+      "side": "first",
+      "relative_complex_l2": 0.00625231565629745,
+      "relative_amplitude_l2": 0.003517617757066098,
+      "relative_density_l1": 0.004064691765915229,
+      "comparison_quadrature_change": 1.2084103139138602e-08,
+      "current_fractions": [
+        0.7901238026064336,
+        0.7900916735663552
+      ]
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 10.0,
+      "side": "first",
+      "relative_complex_l2": 0.006694694492274716,
+      "relative_amplitude_l2": 0.0037448945774182147,
+      "relative_density_l1": 0.00394254656629089,
+      "comparison_quadrature_change": 2.146679208524238e-09,
+      "current_fractions": [
+        0.7901238026063965,
+        0.7900916735663244
+      ]
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 100.0,
+      "side": "first",
+      "relative_complex_l2": 0.017597325612452384,
+      "relative_amplitude_l2": 0.005592647531110974,
+      "relative_density_l1": 0.0018992484585567567,
+      "comparison_quadrature_change": 7.796958122977676e-09,
+      "current_fractions": [
+        0.7901238026074429,
+        0.7900916735670639
+      ]
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 1000.0,
+      "side": "first",
+      "relative_complex_l2": 0.05468551750635907,
+      "relative_amplitude_l2": 0.022395584770239285,
+      "relative_density_l1": 0.030567521243364034,
+      "comparison_quadrature_change": 3.763930819800088e-09,
+      "current_fractions": [
+        0.7901238026073829,
+        0.7900916735660988
+      ]
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 10000.0,
+      "side": "first",
+      "relative_complex_l2": 0.9728553430029777,
+      "relative_amplitude_l2": 0.6033266284311402,
+      "relative_density_l1": 0.858078033277338,
+      "comparison_quadrature_change": 8.772425097447467e-07,
+      "current_fractions": [
+        0.7901238026073893,
+        0.7900916735660148
+      ]
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 100000.0,
+      "side": "first",
+      "relative_complex_l2": 1.4159878178747423,
+      "relative_amplitude_l2": 0.5603319137662689,
+      "relative_density_l1": 0.8420439232836444,
+      "comparison_quadrature_change": 2.249567959689003e-06,
+      "current_fractions": [
+        0.7901238026074062,
+        0.7900916735660116
+      ]
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 2.0,
+      "side": "first",
+      "relative_complex_l2": 0.006570840551321055,
+      "relative_amplitude_l2": 0.004112970706172807,
+      "relative_density_l1": 0.0046776987024435114,
+      "comparison_quadrature_change": 2.2138211212135994e-09,
+      "current_fractions": [
+        0.8565333240381628,
+        0.8565340188154074
+      ]
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 10.0,
+      "side": "first",
+      "relative_complex_l2": 0.007498996757091139,
+      "relative_amplitude_l2": 0.004387252329619767,
+      "relative_density_l1": 0.003687410197775519,
+      "comparison_quadrature_change": 5.272452956867069e-09,
+      "current_fractions": [
+        0.8565333240381172,
+        0.8565340188153633
+      ]
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 100.0,
+      "side": "first",
+      "relative_complex_l2": 0.11047487410298816,
+      "relative_amplitude_l2": 0.010506150882165414,
+      "relative_density_l1": 0.010147912408931677,
+      "comparison_quadrature_change": 9.206773204928353e-09,
+      "current_fractions": [
+        0.8565333240395784,
+        0.8565340188164294
+      ]
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 1000.0,
+      "side": "first",
+      "relative_complex_l2": 0.26838038695822436,
+      "relative_amplitude_l2": 0.010388981262161147,
+      "relative_density_l1": 0.005646512998010291,
+      "comparison_quadrature_change": 2.1927940352384212e-08,
+      "current_fractions": [
+        0.8565333240406243,
+        0.8565340188164566
+      ]
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 10000.0,
+      "side": "first",
+      "relative_complex_l2": 0.5379021010636338,
+      "relative_amplitude_l2": 0.11900531947801143,
+      "relative_density_l1": 0.18035111601326817,
+      "comparison_quadrature_change": 6.214932910808546e-07,
+      "current_fractions": [
+        0.8565333240406251,
+        0.8565340188164421
+      ]
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 100000.0,
+      "side": "first",
+      "relative_complex_l2": 1.450685798494225,
+      "relative_amplitude_l2": 0.6490960449794441,
+      "relative_density_l1": 0.9757928302517926,
+      "comparison_quadrature_change": 2.404580916159915e-06,
+      "current_fractions": [
+        0.8565333240406722,
+        0.8565340188164032
+      ]
+    }
+  ],
+  "boundary_metric": "Physical field L2; exact matching planes; axial/radial phase retained; quadrature doubled",
+  "maximum_compared_boundary_z_nm": 100000.0,
+  "exit_comparison_quadrature_change": 2.525100302186445e-07,
+  "mask_ledger": [
+    {
+      "energy_ev": 0.18744544167837376,
+      "physical_mask_events": 395,
+      "physical_mask_absorbed_fractions": [
+        0.04526816067259437,
+        0.23742965940902946
+      ],
+      "unresolved_mask_fractions": [
+        0.0035133910265181733,
+        0.014921304081282793
+      ],
+      "near_side_fractions": [
+        2.2714953839458812e-08,
+        1.2911108277945682e-07
+      ]
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "physical_mask_events": 395,
+      "physical_mask_absorbed_fractions": [
+        0.09373822965420017,
+        0.18225272865385578
+      ],
+      "unresolved_mask_fractions": [
+        0.0038261257381385647,
+        0.014048609417690013
+      ],
+      "near_side_fractions": [
+        5.802395873741732e-09,
+        5.082316976178011e-09
+      ]
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "physical_mask_events": 395,
+      "physical_mask_absorbed_fractions": [
+        0.15739163367795744,
+        0.23298143734873372
+      ],
+      "unresolved_mask_fractions": [
+        0.006412698109842603,
+        0.006334485269270589
+      ],
+      "near_side_fractions": [
+        4.0304888376350675e-09,
+        1.8135661689871184e-08
+      ]
+    }
+  ],
+  "thresholds": {
+    "relative_current": 0.01,
+    "relative_complex_l2": 0.01
+  },
+  "inputs": [
+    {
+      "report": "docs\\development\\evidence\\20260913-quartic-growth0075\\report.json",
+      "report_sha256": "48e10ea70f9e66351dee6c33fe3a0af8c067df052c1885c009f0800f5655b282",
+      "complex_states_sha256": "5b6ccbbe82ae96e66416ee4b77fcd2667c6c30f6c57185655262091b4afafd83"
+    },
+    {
+      "report": "docs\\development\\evidence\\20260913-quartic-growth01\\report.json",
+      "report_sha256": "3108f8de271c1abfd9521bccaa4bfcbc76d923fe674445b305570b99eee11a3c",
+      "complex_states_sha256": "0bec6dc6b639d340e16856a78de2bd80217695ddc9c4cecf3ca870697329d1cc"
+    }
+  ],
+  "comparison_driver_sha256": "587bca7ab991d9de4251feb8da5fa319bc57f63abd79a13992f87f4fd59cb531",
+  "source_to_image_admission": "NOT_GRANTED",
+  "coordinate_comparison_status": "FAILED"
+}

@@ -201,12 +201,18 @@ mode. Incoherent mode phases cannot be compared or averaged across modes.
         x = (np.arange(count)-(count-1)/2)*width/count
         y = x.copy()
         optical = np.zeros((count, count))
+        collection = []
         cell_area_m2 = (width/count*1e-3)**2
         for mode in checkpoint.beam.modes:
             xy = _sensor_coordinates(mode.plane, detector, frame)
             mask = _sensor_mask(xy[0], xy[1], detector)
             probability = mode.weight_per_reference_electron*abs(mode.plane.amplitude)**2*mask
-            optical += _deposit_mapped_probability(probability, xy[0], xy[1], x*1e-3, y*1e-3)*cell_area_m2
+            local = _deposit_mapped_probability(probability, xy[0], xy[1], x*1e-3, y*1e-3)*cell_area_m2
+            optical += local
+            collection.append({"mode_id": mode.mode_id, "energy_kev": mode.energy_kev,
+                "incident_weight": mode.weight_per_reference_electron,
+                "optical_received_weight": float(local.sum()),
+                "scattering_history": mode.scattering_history})
         psf = DetectorPointSpread.from_component(detector)
         detected = apply_point_spread(optical, psf, pixel_size_x_mm=width/count, pixel_size_y_mm=width/count)
         xx, yy = np.meshgrid(x, y)
@@ -214,6 +220,8 @@ mode. Incoherent mode phases cannot be compared or averaged across modes.
         detected *= sensor
         metadata.update({"pixels": count, "optical_received_weight": float(optical.sum()),
             "response_weight": float(detected.sum()), "psf": asdict(psf),
+            "mode_collection": collection,
+            "mode_collection_scope": "Physical sensor and pixel acceptance before spatial PSF; not an energy-filter spectrum",
             "pixel_integration": "conservative bilinear deposition of incident wave cell probabilities; refine wave and readout grids independently"})
     return WaveDetectorReadout(tuple(modes), x, y, optical, detected, metadata)
 
@@ -266,7 +274,7 @@ def read_wave_detector_streamed(checkpoint, detector, options=WaveReadoutOptions
         raise ValueError("Detector aggregate exceeds readout memory budget")
     x = y = optical = detected = None
     metadata = None
-    groups = {}
+    groups, collection = {}, []
     # Even phase-only calls verify physical placement before returning a lazy view.
     if not math.isclose(checkpoint.plane_z_mm, detector.z_mm, abs_tol=1e-9, rel_tol=0) or not detector.inserted:
         raise ValueError("Detector readout needs the inserted physical detector plane")
@@ -285,6 +293,7 @@ def read_wave_detector_streamed(checkpoint, detector, options=WaveReadoutOptions
             else:
                 optical += result.optical_probability
                 detected += result.detected_probability
+            collection.extend(result.record["mode_collection"])
             if "/trajectory:" in mode.mode_id:
                 group = mode.mode_id.rsplit("/trajectory:", 1)[0]
                 values = groups.setdefault(group, [])
@@ -298,7 +307,8 @@ def read_wave_detector_streamed(checkpoint, detector, options=WaveReadoutOptions
         phase_reference="conditional mode envelope plus retained analytic carriers; axial action separate",
         hardware_phase_measurement="NOT_SIMULATED; simulated wave state only")
     if optical is not None:
-        metadata.update(optical_received_weight=float(optical.sum()), response_weight=float(detected.sum()))
+        metadata.update(optical_received_weight=float(optical.sum()), response_weight=float(detected.sum()),
+                        mode_collection=collection)
         metadata["inelastic_response_standard_error"] = (math.sqrt(sum(len(v)*float(np.var(v, ddof=1)) for v in groups.values()))
             if groups and all(len(v) > 1 for v in groups.values()) else None)
         metadata["statistical_error_scope"] = "conditional inelastic trajectory sampling only; excludes source/phonon/grid/dwell/model errors"

@@ -1,0 +1,34 @@
+FF...........................F.......................................... [ 85%]
+............                                                             [100%]
+================================== FAILURES ===================================
+_____ test_bank_executes_upstream_once_and_reads_in_physical_order[False] _____
+tests\test_tip_detector_bank.py:94: in test_bank_executes_upstream_once_and_reads_in_physical_order
+    assert sum(r.record["optical_received_weight"] for r in result.detector_readouts) == pytest.approx(
+E   assert 0.7999999760782391 == 0.8 ± 1.0e-12
+E     
+E     comparison failed
+E     Obtained: 0.7999999760782391
+E     Expected: 0.8 ± 1.0e-12
+_____ test_bank_executes_upstream_once_and_reads_in_physical_order[True] ______
+tests\test_tip_detector_bank.py:94: in test_bank_executes_upstream_once_and_reads_in_physical_order
+    assert sum(r.record["optical_received_weight"] for r in result.detector_readouts) == pytest.approx(
+E   assert 0.7999999760782391 == 0.8 ± 1.0e-12
+E     
+E     comparison failed
+E     Obtained: 0.7999999760782391
+E     Expected: 0.8 ± 1.0e-12
+_____ test_default_coherent_domain_failure_is_saved_without_changing_tip ______
+tests\test_trace_tip_wave_cli.py:137: in test_default_coherent_domain_failure_is_saved_without_changing_tip
+    assert read_profile(output/"request.toml") == read_profile(profile)
+E   AssertionError: assert (AssemblySele...': 4.0}, ...}) == (AssemblySele...': 4.0}, ...})
+E     
+E     At index 1 diff: {'simulation': {'acceleration_backend': 'Auto', 'acceleration_enabled': True, 'c2c3_crossover_required': True, 'chromatic_aberration_enabled': False, 'equivalent_image_lenses_enabled': False, 'history_step_mm': 2.0, 'illumination_mode': 'STEM', 'monochromator_axis_offset_mm': 0.0, 'monochromator_column_offset_mm': 0.0, 'objective_coupled': True, 'objective_stigmator_symmetry_offset_mm': 0.0, 'projector_mode': 'diffraction', 'selected_area_aperture_offset_from_sad_mm': 0.0, 'show_field_diagram': True, 'standalone_selected_area_aperture_gap_after_descan_m...
+E     
+E     ...Full output truncated (2 lines hidden), use '-vv' to show
+---------------------------- Captured stdout call -----------------------------
+{"status": "FAILED", "output": "C:\\Users\\54019\\AppData\\Local\\Temp\\pytest-of-Xuzhao_Liu\\pytest-834\\test_default_coherent_domain_f0\\source_failure", "error": "Tip source domain cannot establish forward support at the declared tail budget (p_transverse/p bound=2.78989); a non-paraxial source model is required. Saved tip parameters were not changed."}
+=========================== short test summary info ===========================
+FAILED tests/test_tip_detector_bank.py::test_bank_executes_upstream_once_and_reads_in_physical_order[False]
+FAILED tests/test_tip_detector_bank.py::test_bank_executes_upstream_once_and_reads_in_physical_order[True]
+FAILED tests/test_trace_tip_wave_cli.py::test_default_coherent_domain_failure_is_saved_without_changing_tip
+3 failed, 81 passed in 71.27s (0:01:11)

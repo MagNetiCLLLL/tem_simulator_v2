@@ -1,0 +1,20 @@
+.........F..F.......                                                     [100%]
+================================== FAILURES ===================================
+_ test_voltage_reference_is_independent_of_source_energy_and_cache_is_segmented _
+tests\test_grounded_tip_surface.py:108: in test_voltage_reference_is_independent_of_source_energy_and_cache_is_segmented
+    assert gun.electric_field is first
+E   AssertionError: assert <temsim.physics.grounded_tip_field.GroundedTipField object at 0x000001A7F22A0920> is <temsim.physics.grounded_tip_field.GroundedTipField object at 0x000001A7F1E36000>
+E    +  where <temsim.physics.grounded_tip_field.GroundedTipField object at 0x000001A7F22A0920> = FieldEmissionGun(emitter=ColdFieldEmitter(mechanical_center_from_tip_mm=0.0, mechanical_length_mm=2.0, mechanical_oute...tep_mm=0.2, drift_step_mm=2.0, history_step_mm=2.0, source_representation='classical_particles', effective_source=None).electric_field
+_____________ test_profile_and_snapshot_preserve_surface_identity _____________
+tests\test_grounded_tip_surface.py:146: in test_profile_and_snapshot_preserve_surface_identity
+    save_profile(path, state, AssemblyCatalog().default_selection())
+                              ^^^^^^^^^^^^^^^^^
+src\temsim\assembly_catalog.py:35: in __init__
+    self._validate_document(document)
+src\temsim\assembly_catalog.py:167: in _validate_document
+    raise ValueError(
+E   ValueError: Instrument TOML/catalog mismatch: unlisted=['gun/cold_feg_tip.toml'], missing=[]
+=========================== short test summary info ===========================
+FAILED tests/test_grounded_tip_surface.py::test_voltage_reference_is_independent_of_source_energy_and_cache_is_segmented
+FAILED tests/test_grounded_tip_surface.py::test_profile_and_snapshot_preserve_surface_identity
+2 failed, 18 passed in 39.27s

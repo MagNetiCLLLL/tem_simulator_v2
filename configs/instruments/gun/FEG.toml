@@ -31,6 +31,7 @@ parts_end_z_mm = 446.0
 order = 1
 key = "feg_tip"
 name = "Cold Field Emission Tip"
+tip_surface_reference_file = "sources/cold_feg_tip.toml"
 branch = "common"
 local_start_z_mm = -1.0
 local_center_z_mm = 0.0

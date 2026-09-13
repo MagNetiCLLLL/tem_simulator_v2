@@ -1,0 +1,196 @@
+{
+  "scope": "Actual-field radial integration audit, not transported source acceptance",
+  "driver_sha256": "1daf3ebd56ffc8c84a1259726e3576437a87a8236b1f549c4f64d25f1308af52",
+  "inputs": [
+    {
+      "path": "docs\\development\\evidence\\20260913-quartic-growth01\\report.json",
+      "sha256": "3108f8de271c1abfd9521bccaa4bfcbc76d923fe674445b305570b99eee11a3c"
+    },
+    {
+      "path": "docs\\development\\evidence\\20260913-quartic-growth0075\\report.json",
+      "sha256": "48e10ea70f9e66351dee6c33fe3a0af8c067df052c1885c009f0800f5655b282"
+    }
+  ],
+  "rows": [
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth01\\report.json",
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 100.0,
+      "analytic_matrix_norm_per_nm2": 4027.7137764717336,
+      "matrix_error_norm_per_nm2": 1.805819226614555e-11,
+      "relative_matrix_error": 3.401008055089883e-15,
+      "wave_action_error_per_nm2": 1.4459660608560879e-12,
+      "quadrature_change_per_nm2": 1.5839830007408956e-11
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth01\\report.json",
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 1000.0,
+      "analytic_matrix_norm_per_nm2": 1485.294211470635,
+      "matrix_error_norm_per_nm2": 9.434273037894507e-12,
+      "relative_matrix_error": 4.61423756261681e-15,
+      "wave_action_error_per_nm2": 2.1818532920515624e-12,
+      "quadrature_change_per_nm2": 5.351798135332092e-12
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth01\\report.json",
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 10000.0,
+      "analytic_matrix_norm_per_nm2": 103.5615829798979,
+      "matrix_error_norm_per_nm2": 9.706093774882153e-12,
+      "relative_matrix_error": 1.110936238488603e-13,
+      "wave_action_error_per_nm2": 4.887532726945851e-12,
+      "quadrature_change_per_nm2": 4.216310590697095e-12
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth01\\report.json",
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 100.0,
+      "analytic_matrix_norm_per_nm2": 4112.012071197376,
+      "matrix_error_norm_per_nm2": 3.337504543780922e-11,
+      "relative_matrix_error": 5.52507966310445e-15,
+      "wave_action_error_per_nm2": 1.251582640002733e-12,
+      "quadrature_change_per_nm2": 1.5636323696285905e-11
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth01\\report.json",
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 1000.0,
+      "analytic_matrix_norm_per_nm2": 1509.442767920879,
+      "matrix_error_norm_per_nm2": 1.7431556276152627e-11,
+      "relative_matrix_error": 7.219381733158888e-15,
+      "wave_action_error_per_nm2": 2.2355273765406796e-12,
+      "quadrature_change_per_nm2": 5.1062072967965035e-12
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth01\\report.json",
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 10000.0,
+      "analytic_matrix_norm_per_nm2": 102.13183206771194,
+      "matrix_error_norm_per_nm2": 9.793611804654599e-12,
+      "relative_matrix_error": 1.0897021879974409e-13,
+      "wave_action_error_per_nm2": 4.725257151877688e-12,
+      "quadrature_change_per_nm2": 3.4691810641686763e-12
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth01\\report.json",
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 100.0,
+      "analytic_matrix_norm_per_nm2": 4176.810380392382,
+      "matrix_error_norm_per_nm2": 2.6943765325198424e-11,
+      "relative_matrix_error": 5.2050295392796124e-15,
+      "wave_action_error_per_nm2": 1.4418302293872978e-12,
+      "quadrature_change_per_nm2": 1.6618447463524898e-11
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth01\\report.json",
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 1000.0,
+      "analytic_matrix_norm_per_nm2": 1555.1816445925522,
+      "matrix_error_norm_per_nm2": 7.752808156468119e-12,
+      "relative_matrix_error": 4.793455095746861e-15,
+      "wave_action_error_per_nm2": 2.1981038322039615e-12,
+      "quadrature_change_per_nm2": 5.5784083010860684e-12
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth01\\report.json",
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 10000.0,
+      "analytic_matrix_norm_per_nm2": 100.94397921784761,
+      "matrix_error_norm_per_nm2": 1.0201422978897382e-11,
+      "relative_matrix_error": 1.1351351341103347e-13,
+      "wave_action_error_per_nm2": 5.218403789460696e-12,
+      "quadrature_change_per_nm2": 3.6045105310052883e-12
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth0075\\report.json",
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 100.0,
+      "analytic_matrix_norm_per_nm2": 4030.891587177845,
+      "matrix_error_norm_per_nm2": 3.412834404687955e-11,
+      "relative_matrix_error": 7.333286455845624e-15,
+      "wave_action_error_per_nm2": 1.2144860908132043e-12,
+      "quadrature_change_per_nm2": 1.7630421927684655e-11
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth0075\\report.json",
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 1000.0,
+      "analytic_matrix_norm_per_nm2": 1515.58367337061,
+      "matrix_error_norm_per_nm2": 7.064636212085832e-12,
+      "relative_matrix_error": 4.635602779963422e-15,
+      "wave_action_error_per_nm2": 2.1687988019752874e-12,
+      "quadrature_change_per_nm2": 4.832571733291902e-12
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth0075\\report.json",
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 10000.0,
+      "analytic_matrix_norm_per_nm2": 85.49943770216454,
+      "matrix_error_norm_per_nm2": 9.83408301538053e-12,
+      "relative_matrix_error": 1.371821406933334e-13,
+      "wave_action_error_per_nm2": 5.297385072653415e-12,
+      "quadrature_change_per_nm2": 3.840072820500525e-12
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth0075\\report.json",
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 100.0,
+      "analytic_matrix_norm_per_nm2": 4118.6273635792195,
+      "matrix_error_norm_per_nm2": 3.036395650676468e-11,
+      "relative_matrix_error": 4.845926407743155e-15,
+      "wave_action_error_per_nm2": 1.396033872226255e-12,
+      "quadrature_change_per_nm2": 1.6014070585401596e-11
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth0075\\report.json",
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 1000.0,
+      "analytic_matrix_norm_per_nm2": 1553.09010271797,
+      "matrix_error_norm_per_nm2": 1.211403871850983e-11,
+      "relative_matrix_error": 6.2689379135922785e-15,
+      "wave_action_error_per_nm2": 2.105723788333125e-12,
+      "quadrature_change_per_nm2": 6.056853980205041e-12
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth0075\\report.json",
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 10000.0,
+      "analytic_matrix_norm_per_nm2": 84.23829713694549,
+      "matrix_error_norm_per_nm2": 9.635279349586116e-12,
+      "relative_matrix_error": 1.3427112879257432e-13,
+      "wave_action_error_per_nm2": 5.444917721584293e-12,
+      "quadrature_change_per_nm2": 3.3698112373834233e-12
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth0075\\report.json",
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 100.0,
+      "analytic_matrix_norm_per_nm2": 4183.954470155582,
+      "matrix_error_norm_per_nm2": 2.206115694861451e-11,
+      "relative_matrix_error": 4.381601066803913e-15,
+      "wave_action_error_per_nm2": 1.479241825949561e-12,
+      "quadrature_change_per_nm2": 1.691346714950029e-11
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth0075\\report.json",
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 1000.0,
+      "analytic_matrix_norm_per_nm2": 1583.5446674891105,
+      "matrix_error_norm_per_nm2": 8.75501087384857e-12,
+      "relative_matrix_error": 5.26982628236725e-15,
+      "wave_action_error_per_nm2": 2.0538098121861787e-12,
+      "quadrature_change_per_nm2": 7.317839697449641e-12
+    },
+    {
+      "input": "docs\\development\\evidence\\20260913-quartic-growth0075\\report.json",
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 10000.0,
+      "analytic_matrix_norm_per_nm2": 83.18282584874083,
+      "matrix_error_norm_per_nm2": 9.754830775356269e-12,
+      "relative_matrix_error": 1.3550223807698353e-13,
+      "wave_action_error_per_nm2": 5.206960630826299e-12,
+      "quadrature_change_per_nm2": 2.9139987343354614e-12
+    }
+  ]
+}

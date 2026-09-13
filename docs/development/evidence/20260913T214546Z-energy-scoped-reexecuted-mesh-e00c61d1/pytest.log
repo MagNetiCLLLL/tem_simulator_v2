@@ -1,0 +1,18 @@
+........FF...............................................                [100%]
+================================== FAILURES ===================================
+_ test_multi_energy_source_rejects_ambiguous_or_unconsumed_hint[None-explicit emission energy] _
+tests\test_energy_scoped_mesh_seed.py:59: in test_multi_energy_source_rejects_ambiguous_or_unconsumed_hint
+    with pytest.raises(ValueError, match=message):
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'explicit emission energy'
+E     Actual message: 'Joined radial basis extends outside the near-field face (defect 0.26679); enlarge the numerical domain or refine the coordinate basis before executing the gun'
+_ test_multi_energy_source_rejects_ambiguous_or_unconsumed_hint[0.5-not one of] _
+tests\test_energy_scoped_mesh_seed.py:59: in test_multi_energy_source_rejects_ambiguous_or_unconsumed_hint
+    with pytest.raises(ValueError, match=message):
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'not one of'
+E     Actual message: 'Joined radial basis extends outside the near-field face (defect 0.26679); enlarge the numerical domain or refine the coordinate basis before executing the gun'
+=========================== short test summary info ===========================
+FAILED tests/test_energy_scoped_mesh_seed.py::test_multi_energy_source_rejects_ambiguous_or_unconsumed_hint[None-explicit emission energy]
+FAILED tests/test_energy_scoped_mesh_seed.py::test_multi_energy_source_rejects_ambiguous_or_unconsumed_hint[0.5-not one of]
+2 failed, 55 passed in 59.34s

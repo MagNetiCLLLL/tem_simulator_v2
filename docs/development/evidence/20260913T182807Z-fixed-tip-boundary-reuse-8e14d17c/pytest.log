@@ -1,0 +1,25 @@
+..................FF.......F........................                     [100%]
+================================== FAILURES ===================================
+______ test_actual_tip_and_full_round_gun_match_direct_boundary_solution ______
+tests\test_condensed_wave_boundary.py:63: in test_actual_tip_and_full_round_gun_match_direct_boundary_solution
+    from temsim.physics.surface_gun_wave import solve_joint_boundary
+E     File "F:\tem_simulator_v2\src\temsim\physics\surface_gun_wave.py", line 78
+E       residual = linear_record["linear_residual"]
+E   IndentationError: unexpected indent
+_ test_actual_completed_energy_resumes_without_reexecuting_it_or_losing_phase _
+tests\test_surface_mode_cache.py:18: in test_actual_completed_energy_resumes_without_reexecuting_it_or_losing_phase
+    import temsim.physics.surface_gun_wave as module
+E     File "F:\tem_simulator_v2\src\temsim\physics\surface_gun_wave.py", line 78
+E       residual = linear_record["linear_residual"]
+E   IndentationError: unexpected indent
+__ test_actual_energy_outputs_survive_later_interruption_and_keep_full_state __
+tests\test_surface_mode_evidence.py:13: in test_actual_energy_outputs_survive_later_interruption_and_keep_full_state
+    from temsim.physics.surface_gun_wave import build_surface_gun_checkpoint
+E     File "F:\tem_simulator_v2\src\temsim\physics\surface_gun_wave.py", line 78
+E       residual = linear_record["linear_residual"]
+E   IndentationError: unexpected indent
+=========================== short test summary info ===========================
+FAILED tests/test_condensed_wave_boundary.py::test_actual_tip_and_full_round_gun_match_direct_boundary_solution
+FAILED tests/test_surface_mode_cache.py::test_actual_completed_energy_resumes_without_reexecuting_it_or_losing_phase
+FAILED tests/test_surface_mode_evidence.py::test_actual_energy_outputs_survive_later_interruption_and_keep_full_state
+3 failed, 49 passed in 59.78s

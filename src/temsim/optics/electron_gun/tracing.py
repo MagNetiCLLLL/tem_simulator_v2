@@ -23,6 +23,9 @@ from temsim.physics.relativistic_lorentz import (
 
 def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
     emitted = gun.emit(count)
+    surface_model = getattr(gun.emitter, "surface_model", None)
+    electric_provider = gun.electric_field
+    magnetic_provider = gun.magnetic_field
     n = emitted.x_m.size
     direction = np.column_stack((
         emitted.tx_rad,
@@ -32,6 +35,8 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
     launch_energy = (
         float(gun.emitter.emission_energy_ev) + emitted.energy_offset_ev
     )
+    if surface_model is not None:
+        launch_energy = emitted.surface_energy_ev
     if np.any(~np.isfinite(launch_energy)) or np.any(launch_energy <= 0.0):
         raise ValueError(
             f"{gun.display_name} emitter produced non-positive launch "
@@ -42,6 +47,14 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
         emitted.y_m,
         np.zeros(n, dtype=float),
     ))
+    surface_mesh_error = None
+    surface_field = None
+    if surface_model is not None:
+        from temsim.physics.grounded_tip_field import grounded_field
+        surface_field = grounded_field(gun)
+        position, surface_mesh_error = surface_field.surface_mesh_positions(emitted.surface_position_m)
+        direction = emitted.surface_direction
+        launch_energy = emitted.surface_energy_ev
     momentum = momentum_from_kinetic_energy_ev(launch_energy, direction)
     phase = RelativisticPhaseSpace(position, momentum)
     alive = np.ones(n, dtype=bool)
@@ -88,6 +101,8 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
         else None
     )
     maximum_steps = int(np.ceil(gun.exit_plane_z_mm / gun.trace_step_mm)) * 8
+    if surface_model is not None:
+        maximum_steps = max(maximum_steps, 100000)
 
     for step_index in range(maximum_steps):
         active = alive & ~completed
@@ -97,7 +112,7 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
             phase.momentum_kg_m_per_s[active]
         )
         forward = velocity[:, 2] > 0.0
-        if not np.all(forward):
+        if surface_model is None and not np.all(forward):
             indices = np.flatnonzero(active)[~forward]
             alive[indices] = False
             for index in indices:
@@ -119,24 +134,39 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
         previous_position = phase.position_m.copy()
         previous_momentum = phase.momentum_kg_m_per_s.copy()
         previous_time_s = float(phase.time_s)
-        advanced = boris_step(
-            phase,
-            dt,
-            gun.magnetic_field,
-            electric_field=gun.electric_field,
-        )
+        if surface_model is not None:
+            # Tip-scale stepping and local momentum-change control execute the
+            # strong extraction field rather than injecting accelerated rays.
+            from temsim.physics.relativistic_lorentz import ELEMENTARY_CHARGE_C
+            nearest = max(0., float(np.min(phase.position_m[active, 2])))
+            spatial_step = min(step_m, .025*(surface_model.geometry.apex_radius_nm*1e-9+nearest))
+            dt = min(dt, spatial_step/max(np.max(np.linalg.norm(velocity, axis=1)), 1.))
+            field_strength = np.linalg.norm(electric_provider.field_at_global_positions_v_per_m(phase.position_m[active]), axis=1)
+            momentum_size = np.linalg.norm(phase.momentum_kg_m_per_s[active], axis=1)
+            if np.any(field_strength > 0):
+                dt = min(dt, float(np.min(.025*momentum_size[field_strength>0]/(ELEMENTARY_CHARGE_C*field_strength[field_strength>0]))))
+            advanced, dt = _surface_step(phase, dt, active, magnetic_provider, electric_provider)
+        else:
+            advanced = boris_step(phase, dt, magnetic_provider, electric_field=electric_provider)
         new_position = phase.position_m.copy()
         new_momentum = phase.momentum_kg_m_per_s.copy()
         new_position[active] = advanced.position_m[active]
-        new_momentum[active] = _enforce_static_field_energy(
-            gun,
-            advanced.position_m[active],
-            advanced.momentum_kg_m_per_s[active],
-            launch_energy[active],
-        )
+        if surface_model is not None:
+            # No energy projection or forced nominal exit energy in this model.
+            new_momentum[active] = advanced.momentum_kg_m_per_s[active]
+        else:
+            new_momentum[active] = _enforce_static_field_energy(
+                gun, advanced.position_m[active], advanced.momentum_kg_m_per_s[active], launch_energy[active])
         phase = RelativisticPhaseSpace(
             new_position, new_momentum, phase.time_s + dt
         )
+
+        if surface_field is not None:
+            returned = np.flatnonzero(alive & ~completed & surface_field.tip_material_mask(phase.position_m))
+            alive[returned] = False
+            blocked_z[returned] = phase.position_m[returned, 2]*1000
+            for index in returned:
+                blocked_key[index] = "feg_tip_reabsorbed"
 
         _clip_body_bores(
             gun, previous_position, phase.position_m,
@@ -179,7 +209,9 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
                 arrival_time_s=slit_arrival_time,
                 arrival_y_m=slit_arrival_y,
             )
-        _resolve_exit_crossing(
+        exit_resolver = _resolve_surface_exit_crossing if surface_model is not None else _resolve_exit_crossing
+        extra = {"electric": electric_provider, "magnetic": magnetic_provider} if surface_model is not None else {}
+        exit_resolver(
             gun.c1_aperture,
             exit_z_m,
             previous_position,
@@ -197,6 +229,7 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
             arrival_time_s=exit_arrival_time,
             arrival_x_m=exit_arrival_x,
             arrival_y_m=exit_arrival_y,
+            **extra,
         )
         if (
             step_index % history_stride == 0
@@ -219,7 +252,7 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
         )
 
     passed_c1 = alive & completed
-    if np.any(passed_c1):
+    if surface_model is None and np.any(passed_c1):
         exit_momentum[passed_c1] = _enforce_static_field_energy(
             gun,
             exit_position[passed_c1],
@@ -321,6 +354,10 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
     # Static fields preserve each emitted energy offset exactly.  Keep that
     # invariant directly instead of subtracting two ~300 keV float values.
     energy_offset = emitted.energy_offset_ev.copy()
+    if surface_model is not None:
+        # Relative to e*HT: surface kinetic energy is additional, not cancelled
+        # by changing the field. This is the static-energy invariant.
+        energy_offset = launch_energy.copy()
     current = gun.emitted_current_a
     monochromator_current = None
     slit_dispersion = None
@@ -344,7 +381,7 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
         energy_offset[passed_c1],
         emitted.weight[passed_c1],
     )
-    return GunTraceResult(
+    result = GunTraceResult(
         z_mm=common_z,
         x_m=path_x,
         y_m=path_y,
@@ -377,6 +414,86 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
         equal_time_history=equal_time_history,
         plane_arrivals=tuple(plane_arrivals),
     )
+    if surface_model is not None:
+        from scipy.constants import c, m_e, e
+        scale = np.sum((exit_momentum[passed_c1]/(m_e*c))**2, axis=1)
+        kinetic = (m_e*c*c/e)*scale/(np.sqrt(1+scale)+1)
+        expected = gun.nominal_exit_energy_ev+launch_energy[passed_c1]
+        energy_error = float(np.max(np.abs(kinetic-expected), initial=0))
+        if energy_error > 1e-3:
+            raise ValueError(f"Surface trace exit energy error {energy_error:.6g} eV exceeds 0.001 eV; result not accepted")
+        object.__setattr__(result, "surface_model_report", {
+            "model": surface_model.schema, "surface_mesh_displacement_m": surface_mesh_error,
+            "potential_reference": "final_anode_ground_0V",
+            "maximum_exit_energy_error_ev": energy_error,
+            "exit_energy_error_budget_ev": 1e-3,
+            "scope": "classical prescribed outgoing flux; no coherent phase or tunnelling prediction",
+        })
+    return result
+
+
+def _surface_step(phase, dt, active, magnetic, electric):
+    """Step-doubled discrete-gradient Lorentz update, without energy projection."""
+    from temsim.physics.static_energy_lorentz import static_energy_step
+    # Evaluate only live trajectories: stopped rays must not constrain later
+    # time steps or sample fields outside the physical domain.
+    local = RelativisticPhaseSpace(phase.position_m[active], phase.momentum_kg_m_per_s[active], phase.time_s)
+    for _ in range(32):
+        try:
+            full = static_energy_step(local, dt, magnetic, electric)
+            half = static_energy_step(local, .5*dt, magnetic, electric)
+            fine = static_energy_step(half, .5*dt, magnetic, electric)
+        except ValueError as error:
+            if "iteration did not converge" not in str(error):
+                raise
+            dt *= .5
+            continue
+        pscale = np.maximum(np.linalg.norm(fine.momentum_kg_m_per_s, axis=1), 1e-30)
+        perr = np.max(np.linalg.norm(fine.momentum_kg_m_per_s-full.momentum_kg_m_per_s, axis=1)/pscale)
+        xerr = np.max(np.linalg.norm(fine.position_m-full.position_m, axis=1))
+        if perr <= 1e-6 and xerr <= max(1e-13, np.max(np.linalg.norm(fine.position_m-local.position_m, axis=1))*1e-5):
+            positions, momenta = phase.position_m.copy(), phase.momentum_kg_m_per_s.copy()
+            positions[active], momenta[active] = fine.position_m, fine.momentum_kg_m_per_s
+            return RelativisticPhaseSpace(positions, momenta, phase.time_s+dt), dt
+        dt *= .5
+    raise ValueError("Surface extraction integration did not meet the local error budget")
+
+
+def _resolve_surface_exit_crossing(aperture, exit_z_m, previous_position, previous_momentum,
+        new_position, new_momentum, alive, completed, blocked_z, blocked_key,
+        exit_position, exit_momentum, *, previous_time_s, new_time_s,
+        arrival_time_s, arrival_x_m, arrival_y_m, electric, magnetic):
+    """Resolve the actual exit event; linear momentum interpolation loses work
+    when a step crosses the end of the accelerating field.
+    """
+    from scipy.optimize import brentq
+    from temsim.physics.static_energy_lorentz import static_energy_step
+    indices = np.flatnonzero(alive & ~completed & (previous_position[:, 2] < exit_z_m)
+                             & (new_position[:, 2] >= exit_z_m))
+    duration = new_time_s-previous_time_s
+    for index in indices:
+        start = RelativisticPhaseSpace(previous_position[index:index+1], previous_momentum[index:index+1], previous_time_s)
+        def at_fraction(fraction):
+            if fraction == 0:
+                return start
+            half = static_energy_step(start, .5*duration*fraction, magnetic, electric)
+            return static_energy_step(half, .5*duration*fraction, magnetic, electric)
+        def residual(fraction):
+            return float(at_fraction(fraction).position_m[0, 2]-exit_z_m)
+        # Use the same two-half-step path as the accepted update. Arrival may
+        # not occur after the completed step recorded in the history.
+        fraction = brentq(residual, 0., 1., xtol=1e-12)
+        crossing = at_fraction(fraction)
+        position = crossing.position_m[0]
+        arrival_time_s[index] = crossing.time_s
+        arrival_x_m[index], arrival_y_m[index] = position[:2]
+        if aperture.transmission_mask(np.array([position[0]*1000]), np.array([position[1]*1000]))[0]:
+            exit_position[index] = position
+            exit_momentum[index] = crossing.momentum_kg_m_per_s[0]
+            completed[index] = True
+        else:
+            alive[index] = False
+            blocked_z[index], blocked_key[index] = exit_z_m*1000, aperture.key
 
 
 def _resample_gun_paths(

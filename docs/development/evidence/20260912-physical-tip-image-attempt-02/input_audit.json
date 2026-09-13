@@ -1,0 +1,115 @@
+{
+  "schema": "default-physical-tip-attempt-input-v1",
+  "implementation": "24623567a701f88f82e8118082154b9ebcfe98d5cabedb793a5d4139f21cf0c9",
+  "emitter": {
+    "mechanical_center_from_tip_mm": 0.0,
+    "mechanical_length_mm": 2.0,
+    "mechanical_outer_diameter_mm": 0.25,
+    "name": "Cold Field Emission Tip",
+    "key": "feg_tip",
+    "tip_radius_nm": 100.0,
+    "tip_cone_half_angle_deg": 5.0,
+    "emitter_material": "W(310)",
+    "work_function_ev": 4.4,
+    "vacuum_pa": 1e-08,
+    "emission_current_na": 10000.0,
+    "emission_energy_ev": 0.3,
+    "minimum_kinetic_energy_ev": 0.01,
+    "virtual_source_fwhm_nm": 5.0,
+    "angular_rms_mrad": 1.0,
+    "angular_cutoff_mrad": 3.0,
+    "energy_spread_fwhm_ev": 0.3,
+    "young_decay_width_ev": 0.2,
+    "boersch_sigma_ev": 0.1,
+    "energy_half_range_ev": 1.0,
+    "ray_count": 1000
+  },
+  "explicit_model_selection": {
+    "incoherent_angle_rms_mrad": 0.0,
+    "curvature_x_m1": 0.0,
+    "curvature_xy_m1": 0.0,
+    "curvature_y_m1": 0.0,
+    "offset_x_nm": 0.0,
+    "offset_y_nm": 0.0,
+    "tilt_x_mrad": 0.0,
+    "tilt_y_mrad": 0.0
+  },
+  "energy_samples_ev": [
+    0.35934434469740645,
+    0.39505049964133254,
+    0.42971249117808585,
+    0.4640988450900568,
+    0.06662149186787777,
+    0.18748070864929473,
+    0.272813692537173,
+    0.3601013550190265,
+    0.16477657131963866
+  ],
+  "gaussian_closed_spectrum_weight": [
+    1.163999905028323e-37,
+    2.488913446510922e-41,
+    6.813768910740357e-45,
+    1.991110227823252e-48,
+    1.420781334150862e-07,
+    5.3753227630638735e-20,
+    9.114413568994262e-29,
+    9.730744249039352e-38,
+    1.1587130689627973e-17
+  ],
+  "spectrum_note": "Boundary-density spectral weight, NOT emitted electron current or discarded probability",
+  "field_sample_z_mm": [
+    0.0,
+    1e-06,
+    0.01,
+    0.05,
+    0.1,
+    0.5
+  ],
+  "actual_gun_potential_v": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.023438437034661426,
+    15.400332405692133
+  ],
+  "actual_gun_electric_field_v_per_m": [
+    [
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      -1400.3624258024001
+    ],
+    [
+      0.0,
+      0.0,
+      -98570.46922787507
+    ]
+  ],
+  "requested_detector": "haadf",
+  "detector_reason": "First inserted STEM detector, before the energy filter; no detector moved or removed",
+  "sample": {
+    "preset": "si_110",
+    "thickness_nm": 5.0
+  },
+  "status": "INPUT_AUDIT_ONLY; see result/failure.json or result/receipt.json for execution"
+}

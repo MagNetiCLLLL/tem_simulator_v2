@@ -8,6 +8,7 @@ column at their new energy. Independent histories never interfere.
 """
 from dataclasses import asdict, replace
 from copy import copy
+from hashlib import sha256
 import math
 from types import SimpleNamespace
 
@@ -87,7 +88,26 @@ def _collide_slice(mode, inside, distribution, rng, z_mm):
 
 def _propagate_inelastic_specimen(state, checkpoint, *, numerics, store, maximum_step_mm,
         grid_numerics, tip_time_s, cancelled, progress_callback, verify, use_cache):
-    from temsim.physics.specimen_wave_transport import (_prepare_material_grid, _regrid_mode, _slice_phase, _bandlimit_mode)
+    from temsim.physics.specimen_wave_transport import _with_material_refinement
+    numerics.validate()
+    key = store.key("inelastic-specimen-adaptive-grid-v2", checkpoint.digest, asdict(numerics),
+                    maximum_step_mm, asdict(grid_numerics), tip_time_s)
+    cached = store.get(key) if use_cache else None
+    if cached is not None:
+        return cached
+    return _with_material_refinement(state, checkpoint,
+        lambda material, factor, history: _propagate_inelastic_attempt(state, checkpoint,
+            numerics=numerics, store=store, maximum_step_mm=maximum_step_mm,
+            grid_numerics=grid_numerics, tip_time_s=tip_time_s, cancelled=cancelled,
+            progress_callback=progress_callback, verify=verify, use_cache=use_cache,
+            key=key, material=material, refinement_factor=factor, refinement_history=history),
+        grid_numerics=grid_numerics, cancelled=cancelled, progress_callback=progress_callback)
+
+
+def _propagate_inelastic_attempt(state, checkpoint, *, numerics, store, maximum_step_mm,
+        grid_numerics, tip_time_s, cancelled, progress_callback, verify, use_cache,
+        key, material, refinement_factor, refinement_history):
+    from temsim.physics.specimen_wave_transport import (_regrid_refined_mode, _material_phase, _material_wave_axes, _bandlimit_mode)
     from temsim.physics.column_wave import _propagate_column
     from temsim.physics.wave_imaging import interaction_constant_rad_per_v_angstrom
     from temsim.specimen.inelastic import real_inelastic_distribution
@@ -95,12 +115,17 @@ def _propagate_inelastic_specimen(state, checkpoint, *, numerics, store, maximum
     start = checkpoint.plane_z_mm
     stop = state.sample.z_mm+state.sample.thickness_nm*.5e-6
     parent_id = checkpoint.digest
-    key = store.key("inelastic-specimen", parent_id, asdict(numerics), maximum_step_mm, asdict(grid_numerics), tip_time_s)
-    cached = store.get(key) if use_cache else None
-    if cached is not None:
-        return cached
-    scene, prepared, x, y, dzs = _prepare_material_grid(state, checkpoint)
+    scene, prepared, x, y, dzs = material
     configs = prepared.potential_configurations_v_angstrom
+    wave_x, wave_y = _material_wave_axes(x, y, grid_numerics)
+    # Bind consumed arrays, not cache-hit/timing diagnostics (nor process-local
+    # function ids). Interrupted slices must remain reusable after restart.
+    digest = sha256()
+    for value in (*configs, x, y, dzs):
+        array = np.ascontiguousarray(value)
+        digest.update(json_digest((array.shape, array.dtype.str)).encode())
+        digest.update(array.view(np.uint8))
+    material_id = json_digest((digest.hexdigest(), refinement_factor))
     retained_potential_bytes = sum(p.nbytes for p in configs)
     grid_numerics.check((len(y), len(x)), retained_bytes=retained_potential_bytes+48*len(x)*len(y))
     writer = store.writer(key, checkpoint.beam.reference_plane)
@@ -108,7 +133,7 @@ def _propagate_inelastic_specimen(state, checkpoint, *, numerics, store, maximum
     total = len(checkpoint.beam.modes)*len(configs)*numerics.trajectories_per_mode
     try:
         for source in checkpoint.beam.modes:
-            base, regrid = _regrid_mode(source, x, y)
+            base, regrid = _regrid_refined_mode(source, wave_x, wave_y, refinement_factor, grid_numerics)
             for ci, potential in enumerate(configs):
                 for ti in range(numerics.trajectories_per_mode):
                     if cancelled():
@@ -122,7 +147,7 @@ def _propagate_inelastic_specimen(state, checkpoint, *, numerics, store, maximum
                         if cancelled():
                             raise InterruptedError("Inelastic trajectory slice cancelled")
                         next_z = stop if si == len(dzs)-1 else current_z+float(dz)*1e-7
-                        step_key = store.key("trajectory-slice", key, source.mode_id, ci, ti, si)
+                        step_key = store.key("trajectory-slice", key, material_id, source.mode_id, ci, ti, si)
                         cached_slice = store.get(step_key) if use_cache else None
                         if cached_slice is not None:
                             mode = cached_slice.beam.modes[0]
@@ -133,8 +158,10 @@ def _propagate_inelastic_specimen(state, checkpoint, *, numerics, store, maximum
                             continue
                         projected = potential[si] if potential.ndim == 3 else potential*dz/sum(dzs)
                         sigma = interaction_constant_rad_per_v_angstrom(mode.energy_kev)
+                        phase_before = phase_after = {"method": "no surviving wave"}
                         if mode.weight_per_reference_electron:
-                            mode = _slice_phase(mode, projected, x, y, sigma, .5)
+                            mode, phase_before = _material_phase(mode, projected, x, y, sigma, .5,
+                                numerics=grid_numerics, cancelled=cancelled)
                             mode, lost = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction); band_loss += lost
                         local = TipGunCheckpoint(BeamState((mode,), checkpoint.beam.reference_plane), current_z,
                             checkpoint.reference_current_a, {"specimen_parent": parent_id})
@@ -145,7 +172,8 @@ def _propagate_inelastic_specimen(state, checkpoint, *, numerics, store, maximum
                         mode = propagated.beam.modes[0]
                         event = {"kind": "already_absorbed", "absorbed_weight": 0.}
                         if mode.weight_per_reference_electron:
-                            mode = _slice_phase(mode, projected, x, y, sigma, .5)
+                            mode, phase_after = _material_phase(mode, projected, x, y, sigma, .5,
+                                numerics=grid_numerics, cancelled=cancelled)
                             sample = copy(state.sample)
                             sample.thickness_nm = float(dz)*.1
                             distribution = real_inelastic_distribution(SimpleNamespace(sample=sample, beam_voltage_kv=mode.energy_kev))
@@ -155,7 +183,8 @@ def _propagate_inelastic_specimen(state, checkpoint, *, numerics, store, maximum
                                 _trajectory_rng(numerics.seed, source.mode_id, ci, ti, si), next_z)
                             absorption += event["absorbed_weight"]
                             mode, lost = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction); band_loss += lost
-                        steps.append({"slice": si, "event": event, "column": propagated.record["modes"]})
+                        steps.append({"slice": si, "event": event, "column": propagated.record["modes"],
+                                      "phase_before": phase_before, "phase_after": phase_after})
                         verify()
                         saved = store.put(step_key, TipGunCheckpoint(BeamState((mode,), checkpoint.beam.reference_plane), next_z,
                             checkpoint.reference_current_a, {"steps": steps, "band_loss": band_loss,
@@ -180,6 +209,8 @@ def _propagate_inelastic_specimen(state, checkpoint, *, numerics, store, maximum
         return writer.finish(stop, checkpoint.reference_current_a,
             {"schema": "executed-inelastic-trajectories-v1", "upstream_digest": parent_id, "upstream": checkpoint.record,
              "potential": prepared.metrics, "modes": records, "numerics": asdict(numerics),
+             "material_grid_refinement": {"factor": refinement_factor, "attempts": refinement_history},
+             "specimen_phase_method": grid_numerics.specimen_phase_method,
              "model": "local Markov momentum-transfer Kraus instrument of existing material Poisson channels",
              "phase": "conditional within each trajectory; no phase between environmental outcomes",
              "statistics": "independent trajectories; converge count and seed, errors scale as N^-1/2",

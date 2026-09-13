@@ -395,6 +395,23 @@ class MainWindow(QMainWindow):
         self.cache_settings_action.setObjectName("performanceCacheAction")
         self.cache_settings_action.triggered.connect(self._show_cache_settings)
 
+        microscope_menu = self.menuBar().addMenu("Microscope")
+        recorder_action = microscope_menu.addAction("Instrument Recorder...")
+        recorder_action.setObjectName("instrumentRecorderAction")
+        recorder_action.triggered.connect(self._open_instrument_recorder)
+
+    def _open_instrument_recorder(self) -> None:
+        from temsim.gui.instrument_recorder import InstrumentRecorderWindow
+
+        recorder = getattr(self, "_instrument_recorder", None)
+        if recorder is None or recorder._shutdown:
+            if recorder is not None:
+                recorder.deleteLater()
+            recorder = self._instrument_recorder = InstrumentRecorderWindow(self)
+        recorder.show()
+        recorder.raise_()
+        recorder.activateWindow()
+
     def _apply_cache_preferences(self, preferences) -> None:
         """Change retention only; never invalidate results or request a solve."""
         from temsim.physics.prepared_specimen_cache import configure_prepared_specimen_cache
@@ -1694,7 +1711,11 @@ class MainWindow(QMainWindow):
                 self.high_step.value(),
             )
         except ValueError as exc:
-            self._show_error(str(exc))
+            from temsim.physics.source_admission import UnsupportedWaveSource
+            message = str(exc)
+            if isinstance(exc, UnsupportedWaveSource):
+                message += "\nSource selection and previous results are unchanged."
+            self._show_error(message)
 
     def _calculation_started(self, quality: str) -> None:
         self.workspace.physical_layout.model_editor.set_calculation_status("running", f"{quality} calculation running for the saved instrument and active model.")
@@ -2262,6 +2283,12 @@ class MainWindow(QMainWindow):
         self.resize(1500, 920)
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        recorder = getattr(self, "_instrument_recorder", None)
+        if recorder is not None and not recorder._shutdown and not recorder.close():
+            recorder.show()
+            recorder.raise_()
+            event.ignore()
+            return
         self.workspace_layouts.close()
         self.workspace.interactive_calculation.shutdown()
         self.workspace.model_inspector.validation_page.shutdown()

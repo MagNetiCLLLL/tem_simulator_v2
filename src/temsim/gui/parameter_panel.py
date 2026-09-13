@@ -630,6 +630,8 @@ class ParameterPanel(QWidget):
     @staticmethod
     def _quick_specs(target) -> tuple[tuple[str, str, float, str], ...]:
         obj = getattr(target, "obj", None)
+        if getattr(obj, "surface_model", None) is not None:
+            return ()
         if obj is None:
             return ()
         if getattr(target, "key", None) == "nanopulser_deflector":
@@ -717,6 +719,11 @@ class ParameterPanel(QWidget):
     def _load_quick_controls(self) -> None:
         self._clear_quick_controls()
         obj = getattr(self._runtime_target, "obj", None)
+        if getattr(obj, "surface_model", None) is not None:
+            source_note = QLabel("Surface inputs: Model Inspector → FEG tip emission")
+            source_note.setWordWrap(True)
+            source_note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            self.quick_form.addRow(source_note)
         fixed = (
             getattr(self._runtime_target, "key", None) in FIXED_APERTURE_KEYS
             or getattr(self._manifest_target, "part_key", None) in FIXED_APERTURE_KEYS

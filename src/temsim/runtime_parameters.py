@@ -20,7 +20,7 @@ IDENTITY_FIELDS = frozenset({
     "corrector", "owner", "kind", "shape_profile", "interaction_kind",
 })
 INTERNAL_FIELDS = frozenset({
-    "source_representation", "effective_source", "coherence",
+    "source_representation", "effective_source", "coherence", "surface_model",
     "active_backend",
     "active_installation",
     "accelerator_restore_profile",
@@ -114,6 +114,7 @@ class RuntimeTarget:
     key: str
     label: str
     obj: object
+    hidden_parameters: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,7 +135,15 @@ def runtime_targets(state) -> dict[str, RuntimeTarget]:
     targets: dict[str, RuntimeTarget] = {}
 
     def add(key: str, obj: object) -> None:
-        targets.setdefault(key, RuntimeTarget(key, _label(obj, key), obj))
+        hidden = frozenset()
+        if getattr(getattr(state.electron_gun, "emitter", None), "surface_model", None) is not None:
+            if obj is getattr(state.electron_gun, "extractor", None):
+                hidden = frozenset({"transition_start_mm", "transition_end_mm", "field_center_offset_mm"})
+            elif obj is getattr(state.electron_gun, "electrostatic_lens", None):
+                hidden = frozenset({"potential_scale", "soft_edge_mm", "field_center_offset_mm"})
+            elif obj is getattr(state.electron_gun, "accelerator", None):
+                hidden = frozenset({"field_center_offset_mm"})
+        targets.setdefault(key, RuntimeTarget(key, _label(obj, key), obj, hidden))
 
     add("simulation", state)
     add("electron_gun", state.electron_gun)
@@ -197,8 +206,13 @@ def is_geometry_owned(name: str) -> bool:
 def editable_parameters(target: RuntimeTarget) -> tuple[RuntimeParameter, ...]:
     result = []
     for name, value in vars(target.obj).items():
+        if getattr(target.obj, "surface_model", None) is not None and name not in {"ray_count"}:
+            # New source has one editor and one persisted model table. Do not
+            # expose inactive historical source energies/widths as live inputs.
+            continue
         if (
             name.startswith("_")
+            or name in target.hidden_parameters
             or name in IDENTITY_FIELDS
             or name in INTERNAL_FIELDS
             or name in TOML_OWNED_FIELDS

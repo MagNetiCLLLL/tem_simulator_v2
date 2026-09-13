@@ -1,0 +1,153 @@
+...........................................F..F..FFFFFFFF............... [ 86%]
+...F.FF.F.F                                                              [100%]
+================================== FAILURES ===================================
+____ test_projector_checkpoint_reprojection_matches_fresh_wave_calculation ____
+tests\test_wave_imaging.py:138: in test_projector_checkpoint_reprojection_matches_fresh_wave_calculation
+    previous = simulate_wave_image(state, simulation)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\wave_imaging.py:1775: in simulate_wave_image
+    require_gun_wave_source(state, product="TEM image")
+src\temsim\physics\source_admission.py:73: in require_gun_wave_source
+    raise UnsupportedWaveSource(
+E   temsim.physics.source_admission.UnsupportedWaveSource: TEM image: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.
+__________ test_retracted_sample_ignores_dormant_custom_cif_settings __________
+tests\test_wave_imaging.py:295: in test_retracted_sample_ignores_dormant_custom_cif_settings
+    result = simulate_wave_image(state, SimpleNamespace(incident=incident))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\wave_imaging.py:1775: in simulate_wave_image
+    require_gun_wave_source(state, product="TEM image")
+src\temsim\physics\source_admission.py:73: in require_gun_wave_source
+    raise UnsupportedWaveSource(
+E   temsim.physics.source_admission.UnsupportedWaveSource: TEM image: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.
+________ test_tem_incident_wave_uses_traced_condenser_focus_curvature _________
+tests\test_wave_imaging.py:348: in test_tem_incident_wave_uses_traced_condenser_focus_curvature
+    focused = _incident_wave(
+src\temsim\physics\wave_imaging.py:1075: in _incident_wave
+    require_gun_wave_source(state, product="TEM incident wave")
+src\temsim\physics\source_admission.py:73: in require_gun_wave_source
+    raise UnsupportedWaveSource(
+E   temsim.physics.source_admission.UnsupportedWaveSource: TEM incident wave: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.
+__ test_si_110_stem_detector_signals_respond_to_position_and_traced_defocus ___
+tests\test_wave_imaging.py:385: in test_si_110_stem_detector_signals_respond_to_position_and_traced_defocus
+    focused = simulate_angle_resolved_stem(
+src\temsim\physics\stem_wave_imaging.py:1475: in simulate_angle_resolved_stem
+    require_gun_wave_source(state, product="STEM image")
+src\temsim\physics\source_admission.py:73: in require_gun_wave_source
+    raise UnsupportedWaveSource(
+E   temsim.physics.source_admission.UnsupportedWaveSource: STEM image: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.
+______ test_tem_wave_image_reports_multislice_model_and_sampling_metrics ______
+tests\test_wave_imaging.py:429: in test_tem_wave_image_reports_multislice_model_and_sampling_metrics
+    result = simulate_wave_image(state, SimpleNamespace(incident=incident))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\wave_imaging.py:1775: in simulate_wave_image
+    require_gun_wave_source(state, product="TEM image")
+src\temsim\physics\source_admission.py:73: in require_gun_wave_source
+    raise UnsupportedWaveSource(
+E   temsim.physics.source_admission.UnsupportedWaveSource: TEM image: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.
+_____________ test_reference_cif_rejects_projected_phase_preview ______________
+tests\test_wave_imaging.py:474: in test_reference_cif_rejects_projected_phase_preview
+    with pytest.raises(ValueError, match="CIF requires multislice"):
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'CIF requires multislice'
+E     Actual message: 'TEM image: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.'
+______ test_angle_resolved_stem_uses_the_same_multislice_specimen_model _______
+tests\test_wave_imaging.py:495: in test_angle_resolved_stem_uses_the_same_multislice_specimen_model
+    result = simulate_angle_resolved_stem(
+src\temsim\physics\stem_wave_imaging.py:1475: in simulate_angle_resolved_stem
+    require_gun_wave_source(state, product="STEM image")
+src\temsim\physics\source_admission.py:73: in require_gun_wave_source
+    raise UnsupportedWaveSource(
+E   temsim.physics.source_admission.UnsupportedWaveSource: STEM image: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.
+________ test_angle_resolved_stem_reports_completed_cpu_probe_batches _________
+tests\test_wave_imaging.py:529: in test_angle_resolved_stem_reports_completed_cpu_probe_batches
+    simulate_angle_resolved_stem(
+src\temsim\physics\stem_wave_imaging.py:1475: in simulate_angle_resolved_stem
+    require_gun_wave_source(state, product="STEM image")
+src\temsim\physics\source_admission.py:73: in require_gun_wave_source
+    raise UnsupportedWaveSource(
+E   temsim.physics.source_admission.UnsupportedWaveSource: STEM image: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.
+______ test_angle_resolved_stem_applies_per_probe_descan_detector_shift _______
+tests\test_wave_imaging.py:565: in test_angle_resolved_stem_applies_per_probe_descan_detector_shift
+    result = simulate_angle_resolved_stem(
+src\temsim\physics\stem_wave_imaging.py:1475: in simulate_angle_resolved_stem
+    require_gun_wave_source(state, product="STEM image")
+src\temsim\physics\source_admission.py:73: in require_gun_wave_source
+    raise UnsupportedWaveSource(
+E   temsim.physics.source_admission.UnsupportedWaveSource: STEM image: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.
+____ test_explicit_cuda_preference_reaches_tem_multislice_and_imaging_fft _____
+tests\test_wave_imaging.py:600: in test_explicit_cuda_preference_reaches_tem_multislice_and_imaging_fft
+    result = simulate_wave_image(state, SimpleNamespace(incident=incident))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\wave_imaging.py:1775: in simulate_wave_image
+    require_gun_wave_source(state, product="TEM image")
+src\temsim\physics\source_admission.py:73: in require_gun_wave_source
+    raise UnsupportedWaveSource(
+E   temsim.physics.source_admission.UnsupportedWaveSource: TEM image: gun-to-specimen coherent phase is unavailable for cold_feg. The existing ray-conditioned pupil is historical/reduced-order only. Tip coherence and a development quadratic gun operator are available, but are not full image admission. Development timed scan coils and conditional material-model inelastic waves are connected; full image qualification remains open. An effective exit source is not permitted.
+_ test_actual_gun_transports_tip_energy_phase_and_reuses_only_executed_inputs _
+tests\test_tip_gun_wave.py:98: in test_actual_gun_transports_tip_energy_phase_and_reuses_only_executed_inputs
+    result = build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_gun_wave.py:314: in build_tip_gun_checkpoint
+    emission = generate_tip_emission(working, source_numerics)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:251: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+______ test_accelerator_and_focusing_are_inputs_not_exit_fit_parameters _______
+tests\test_tip_gun_wave.py:140: in test_accelerator_and_focusing_are_inputs_not_exit_fit_parameters
+    first = build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_gun_wave.py:314: in build_tip_gun_checkpoint
+    emission = generate_tip_emission(working, source_numerics)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:251: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+________________ test_installed_wien_and_c1_slit_are_executed _________________
+tests\test_tip_gun_wave.py:156: in test_installed_wien_and_c1_slit_are_executed
+    result = build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_gun_wave.py:314: in build_tip_gun_checkpoint
+    emission = generate_tip_emission(working, source_numerics)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:251: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.
+___________ test_imported_wien_provider_cannot_be_silently_omitted ____________
+tests\test_tip_gun_wave.py:178: in test_imported_wien_provider_cannot_be_silently_omitted
+    with pytest.raises(ValueError, match="Imported Wien"):
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'Imported Wien'
+E     Actual message: 'Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.'
+____________ test_wave_memory_budget_is_checked_before_allocation _____________
+tests\test_tip_gun_wave.py:198: in test_wave_memory_budget_is_checked_before_allocation
+    with pytest.raises(ValueError, match="maximum_checkpoint_bytes"):
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'maximum_checkpoint_bytes'
+E     Actual message: 'Tip source exceeds the paraxial domain: generator error bound 6.972% > 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.'
+=========================== short test summary info ===========================
+FAILED tests/test_wave_imaging.py::test_projector_checkpoint_reprojection_matches_fresh_wave_calculation
+FAILED tests/test_wave_imaging.py::test_retracted_sample_ignores_dormant_custom_cif_settings
+FAILED tests/test_wave_imaging.py::test_tem_incident_wave_uses_traced_condenser_focus_curvature
+FAILED tests/test_wave_imaging.py::test_si_110_stem_detector_signals_respond_to_position_and_traced_defocus
+FAILED tests/test_wave_imaging.py::test_tem_wave_image_reports_multislice_model_and_sampling_metrics
+FAILED tests/test_wave_imaging.py::test_reference_cif_rejects_projected_phase_preview
+FAILED tests/test_wave_imaging.py::test_angle_resolved_stem_uses_the_same_multislice_specimen_model
+FAILED tests/test_wave_imaging.py::test_angle_resolved_stem_reports_completed_cpu_probe_batches
+FAILED tests/test_wave_imaging.py::test_angle_resolved_stem_applies_per_probe_descan_detector_shift
+FAILED tests/test_wave_imaging.py::test_explicit_cuda_preference_reaches_tem_multislice_and_imaging_fft
+FAILED tests/test_tip_gun_wave.py::test_actual_gun_transports_tip_energy_phase_and_reuses_only_executed_inputs
+FAILED tests/test_tip_gun_wave.py::test_accelerator_and_focusing_are_inputs_not_exit_fit_parameters
+FAILED tests/test_tip_gun_wave.py::test_installed_wien_and_c1_slit_are_executed
+FAILED tests/test_tip_gun_wave.py::test_imported_wien_provider_cannot_be_silently_omitted
+FAILED tests/test_tip_gun_wave.py::test_wave_memory_budget_is_checked_before_allocation
+15 failed, 68 passed in 298.24s (0:04:58)

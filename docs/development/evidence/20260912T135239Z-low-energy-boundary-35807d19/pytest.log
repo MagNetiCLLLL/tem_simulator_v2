@@ -1,0 +1,81 @@
+F...F.....................................F...F                          [100%]
+================================== FAILURES ===================================
+________ test_uniform_medium_exact_large_angle_and_evanescent_branches ________
+tests\test_low_energy_boundary.py:21: in test_uniform_medium_exact_large_angle_and_evanescent_branches
+    np.testing.assert_allclose(result.boundary_derivative_per_m[-1], 1j*kz*expected, atol=1e-5)
+E   AssertionError: 
+E   Not equal to tolerance rtol=1e-07, atol=1e-05
+E   
+E   Mismatched elements: 1 / 6 (16.7%)
+E   Mismatch at index:
+E    [3]: (-31.99999795200007+0j) (ACTUAL), 0j (DESIRED)
+E   Max absolute difference among violations: 31.99999795
+E   Max relative difference among violations: inf
+E    ACTUAL: array([ 1.744812e+09+2.197654e+09j,  2.145054e+09+1.601290e+09j,
+E          -8.617888e+08-1.582411e+08j, -3.200000e+01+0.000000e+00j,
+E          -4.498699e+07+0.000000e+00j, -2.918024e+05+0.000000e+00j])
+E    DESIRED: array([ 1.744812e+09+2.197654e+09j,  2.145054e+09+1.601290e+09j,
+E          -8.617888e+08-1.582411e+08j,  0.000000e+00+0.000000e+00j,
+E          -4.498699e+07+0.000000e+00j, -2.918024e+05+0.000000e+00j])
+____ test_linear_accelerating_potential_converges_against_independent_ode _____
+tests\test_low_energy_boundary.py:78: in test_linear_accelerating_potential_converges_against_independent_ode
+    assert errors[-1] < 2e-5
+E   assert np.float64(4.1327980679651105e-05) < 2e-05
+_ test_material_multislice_with_actual_atomistic_potential_preserves_branches _
+tests\test_tip_wave_pipeline.py:121: in test_material_multislice_with_actual_atomistic_potential_preserves_branches
+    result = _propagate_specimen(state, checkpoint)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\specimen_wave_transport.py:214: in _propagate_specimen
+    return _with_material_refinement(state, checkpoint,
+src\temsim\physics\specimen_wave_transport.py:181: in _with_material_refinement
+    material = _prepare_material_grid(state, checkpoint,
+src\temsim\physics\specimen_wave_transport.py:145: in _prepare_material_grid
+    prepared = prepare_specimen_potentials(numerical_state, preset,
+src\temsim\physics\wave_imaging.py:629: in prepare_specimen_potentials
+    prepared, hit, build_seconds, retained_bytes = cached_prepared_specimen(
+src\temsim\physics\prepared_specimen_cache.py:262: in cached_prepared_specimen
+    return _CACHE.get_or_build(key, builder, still_valid=still_valid)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\prepared_specimen_cache.py:194: in get_or_build
+    value = builder()
+            ^^^^^^^^^
+src\temsim\physics\wave_imaging.py:631: in <lambda>
+    lambda: _prepare_specimen_potentials_uncached(state, preset, **arguments),
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\wave_imaging.py:721: in _prepare_specimen_potentials_uncached
+    sampling_plan = plan_wave_sampling(
+src\temsim\physics\wave_sampling.py:96: in plan_wave_sampling
+    raise ValueError(
+E   ValueError: Wave grid 4,096 x 4,096 needs approximately 18.2 GiB of wave working memory (limit 8 GiB), including FFT/probe buffers. Reduce probe defocus or scan extent; the grid will not be silently coarsened.
+_ test_outgoing_wave_propagates_remaining_material_at_new_energy_and_resumes __
+tests\test_inelastic_wave.py:96: in test_outgoing_wave_propagates_remaining_material_at_new_energy_and_resumes
+    result = _propagate_inelastic_specimen(state, checkpoint, **kw)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\inelastic_wave.py:98: in _propagate_inelastic_specimen
+    return _with_material_refinement(state, checkpoint,
+src\temsim\physics\specimen_wave_transport.py:181: in _with_material_refinement
+    material = _prepare_material_grid(state, checkpoint,
+src\temsim\physics\specimen_wave_transport.py:145: in _prepare_material_grid
+    prepared = prepare_specimen_potentials(numerical_state, preset,
+src\temsim\physics\wave_imaging.py:629: in prepare_specimen_potentials
+    prepared, hit, build_seconds, retained_bytes = cached_prepared_specimen(
+src\temsim\physics\prepared_specimen_cache.py:262: in cached_prepared_specimen
+    return _CACHE.get_or_build(key, builder, still_valid=still_valid)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\prepared_specimen_cache.py:194: in get_or_build
+    value = builder()
+            ^^^^^^^^^
+src\temsim\physics\wave_imaging.py:631: in <lambda>
+    lambda: _prepare_specimen_potentials_uncached(state, preset, **arguments),
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\wave_imaging.py:721: in _prepare_specimen_potentials_uncached
+    sampling_plan = plan_wave_sampling(
+src\temsim\physics\wave_sampling.py:96: in plan_wave_sampling
+    raise ValueError(
+E   ValueError: Wave grid 4,096 x 4,096 needs approximately 17.2 GiB of wave working memory (limit 8 GiB), including FFT/probe buffers. Reduce probe defocus or scan extent; the grid will not be silently coarsened.
+=========================== short test summary info ===========================
+FAILED tests/test_low_energy_boundary.py::test_uniform_medium_exact_large_angle_and_evanescent_branches
+FAILED tests/test_low_energy_boundary.py::test_linear_accelerating_potential_converges_against_independent_ode
+FAILED tests/test_tip_wave_pipeline.py::test_material_multislice_with_actual_atomistic_potential_preserves_branches
+FAILED tests/test_inelastic_wave.py::test_outgoing_wave_propagates_remaining_material_at_new_energy_and_resumes
+4 failed, 43 passed in 53.65s

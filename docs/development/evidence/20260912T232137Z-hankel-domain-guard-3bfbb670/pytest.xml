@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="5" time="1.091" timestamp="2026-09-13T00:21:37.765307+01:00" hostname="Royal_Gray"><testcase classname="tests.test_radial_column_wave" name="test_complex_free_gaussian_has_absolute_phase_and_conserved_current[0.2]" file="tests\test_radial_column_wave.py" line="13" time="0.010"><failure message="temsim.physics.radial_column_wave.RadialDomainError: The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain">tests\test_radial_column_wave.py:20: in test_complex_free_gaussian_has_absolute_phase_and_conserved_current
+    result = propagate_radial(wave, m, 2*np.pi, reference_phase_rad=path.reference_phase_rad,
+src\temsim\physics\radial_column_wave.py:149: in propagate_radial
+    _check_hankel_edges(transformed)
+src\temsim\physics\radial_column_wave.py:99: in _check_hankel_edges
+    raise RadialDomainError("The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain")
+E   temsim.physics.radial_column_wave.RadialDomainError: The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain</failure></testcase><testcase classname="tests.test_radial_column_wave" name="test_complex_free_gaussian_has_absolute_phase_and_conserved_current[-0.2]" file="tests\test_radial_column_wave.py" line="13" time="0.009"><failure message="temsim.physics.radial_column_wave.RadialDomainError: The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain">tests\test_radial_column_wave.py:20: in test_complex_free_gaussian_has_absolute_phase_and_conserved_current
+    result = propagate_radial(wave, m, 2*np.pi, reference_phase_rad=path.reference_phase_rad,
+src\temsim\physics\radial_column_wave.py:149: in propagate_radial
+    _check_hankel_edges(transformed)
+src\temsim\physics\radial_column_wave.py:99: in _check_hankel_edges
+    raise RadialDomainError("The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain")
+E   temsim.physics.radial_column_wave.RadialDomainError: The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain</failure></testcase><testcase classname="tests.test_radial_column_wave" name="test_complex_free_gaussian_has_absolute_phase_and_conserved_current[2.0]" file="tests\test_radial_column_wave.py" line="13" time="0.009"><failure message="temsim.physics.radial_column_wave.RadialDomainError: The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain">tests\test_radial_column_wave.py:20: in test_complex_free_gaussian_has_absolute_phase_and_conserved_current
+    result = propagate_radial(wave, m, 2*np.pi, reference_phase_rad=path.reference_phase_rad,
+src\temsim\physics\radial_column_wave.py:165: in propagate_radial
+    _check_hankel_edges(transformed)
+src\temsim\physics\radial_column_wave.py:99: in _check_hankel_edges
+    raise RadialDomainError("The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain")
+E   temsim.physics.radial_column_wave.RadialDomainError: The reciprocal Hankel interval reaches non-negligible boundary amplitude; expand the input domain</failure></testcase><testcase classname="tests.test_radial_column_wave" name="test_spherical_phase_is_kept_not_fitted_into_quadratic_curvature" file="tests\test_radial_column_wave.py" line="29" time="0.003" /><testcase classname="tests.test_radial_column_wave" name="test_log_grid_refinement_preserves_complex_wave_not_just_current" file="tests\test_radial_column_wave.py" line="37" time="0.003" /></testsuite></testsuites>

@@ -1,0 +1,8 @@
+............................................................             [100%]
+============================== warnings summary ===============================
+tests/test_carrier_subspaces.py::test_nonpropagating_graph_is_not_admitted_by_orthogonalisation
+  F:\tem_simulator_v2\src\temsim\physics\carrier_subspaces.py:25: RuntimeWarning: overflow encountered in matmul
+    residual = -h-(h+connection)@x-x@(h-connection)-x@h@x-2*carrier*x
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+60 passed, 1 warning in 20.40s

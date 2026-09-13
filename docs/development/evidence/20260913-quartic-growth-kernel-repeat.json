@@ -1,0 +1,27 @@
+{
+  "first": "docs\\development\\evidence\\20260913-quartic-growth0075\\report.json",
+  "second": "docs\\development\\evidence\\20260913-quartic-following0075\\report.json",
+  "mode_comparisons": [
+    {
+      "energy_ev": 0.18744544167837376,
+      "relative_complex_l2": 4.6730803511471935e-08
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "relative_complex_l2": 3.881596560611498e-08
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "relative_complex_l2": 3.5017302601591134e-08
+    }
+  ],
+  "current_a": [
+    6.758085043760444e-08,
+    6.758085041276093e-08
+  ],
+  "relative_current_change": 3.6761177013757974e-10,
+  "relative_complex_l2": 4.1555852600865834e-08,
+  "radial_comparison_samples": 16385,
+  "metric": "Cylindrical complex L2 with recorded far-gun carrier restored; matching energy and near-reference only; no phase/curvature/current fit",
+  "scope": "GUN_COMPARISON_NOT_TEM_STEM_ACCEPTANCE"
+}

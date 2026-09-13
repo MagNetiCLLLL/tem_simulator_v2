@@ -32,6 +32,7 @@ _MODEL_MODULES = (
     "optics.electron_gun.electrostatic", "optics.electron_gun.emitter",
     "optics.electron_gun.effective_source",
     "optics.electron_gun.tip_coherence",
+    "optics.electron_gun.tip_surface",
     "optics.electron_gun.field_emission", "optics.electron_gun.thermionic",
     "optics.electron_gun.monochromator", "optics.energy_filter",
     "optics.energy_filter_detector", "optics.energy_filter_entrance_aperture",

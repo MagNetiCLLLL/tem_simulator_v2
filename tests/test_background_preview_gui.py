@@ -50,6 +50,41 @@ def test_capture_error_does_not_leave_live_queue_running(window, monkeypatch):
     assert window.workspace._last_result is old_plot
 
 
+@pytest.mark.parametrize("coherent", [False, True])
+def test_rejected_surface_image_keeps_applied_source_and_previous_result(window, qtbot, monkeypatch, coherent):
+    from temsim.gui.gun_source_dialog import GunSourceDialog
+    from temsim.instrument_snapshot import capture_instrument_snapshot
+
+    def apply(dialog):
+        dialog.surface_enabled.setChecked(True)
+        dialog.surface_coherent.setChecked(coherent)
+        dialog.accept()
+        assert dialog.result() == dialog.DialogCode.Accepted, dialog.error.text()
+        return dialog.result()
+
+    monkeypatch.setattr(GunSourceDialog, "exec", apply)
+    window.workspace.model_inspector._edit_gun_source()
+    window.preview_timer.stop()
+    window.state.ac_deflector.enabled = True
+    window.state.ac_deflector.scan_enabled = True
+    window.state.sample.stem_wave_enabled = True
+    before = capture_instrument_snapshot(window.state).digest
+    previous = object()
+    window.workspace._last_result = previous
+    errors = []
+    monkeypatch.setattr(window, "_show_error", errors.append)
+    monkeypatch.setattr(window.calculations.pool, "start", lambda *_: pytest.fail("Unsupported imaging must not start a worker"))
+    window.run_high_accuracy()
+    assert len(errors) == 1 and "Wave imaging" in errors[0]
+    assert "Source selection and previous results are unchanged" in errors[0]
+    assert capture_instrument_snapshot(window.state).digest == before
+    assert window.workspace._last_result is previous
+    reopened = GunSourceDialog(window.state.electron_gun, instrument_state=window.state)
+    qtbot.addWidget(reopened)
+    assert reopened.surface_enabled.isChecked()
+    assert reopened.surface_coherent.isChecked() == coherent
+
+
 def test_live_edits_during_preparation_keep_one_frame_and_latest_pending(window, qtbot, monkeypatch):
     from threading import Event
     from types import SimpleNamespace

@@ -1,0 +1,62 @@
+....F.F.....                                                             [100%]
+================================== FAILURES ===================================
+_____ test_constant_propagating_grazing_and_evanescent_channels[-4.0-0.3] _____
+src\temsim\physics\scattering_load.py:83: in covariant_carrier_slab
+    factor = cholesky(metric_h, lower=True, check_finite=False)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\scipy\linalg\_decomp_cholesky.py:120: in cholesky
+    c = _cholesky(a, lower=lower, overwrite_a=overwrite_a, clean=True,
+.venv\Lib\site-packages\scipy\linalg\_decomp_cholesky.py:53: in _cholesky
+    _check_format_errors_warnings("potrf", err_lst)
+.venv\Lib\site-packages\scipy\linalg\_decomp_cholesky.py:23: in _check_format_errors_warnings
+    raise LinAlgError(msg)
+E   numpy.linalg.LinAlgError: Internal potrf return info = [3] for slices [0].
+
+During handling of the above exception, another exception occurred:
+tests\test_magnus_sixth.py:55: in test_constant_propagating_grazing_and_evanescent_channels
+    actual, _ = cf6_slab([sample]*4, width, 2.)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\magnus_sixth.py:54: in cf6_slab
+    piece, record = hermitian_slab(residual, connection, width*fraction,
+src\temsim\physics\scattering_load.py:135: in hermitian_slab
+    return covariant_carrier_slab(q, connection, width, kappa, carrier_k)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\scattering_load.py:86: in covariant_carrier_slab
+    return _slab(carrier**2*eye+residual, connection, width, kappa, cancelled)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\covariant_boundary.py:103: in _slab
+    doublings = max(0, math.ceil(math.log2(scale))) if scale else 0
+                                 ^^^^^^^^^^^^^^^^
+E   ValueError: math domain error
+____ test_constant_propagating_grazing_and_evanescent_channels[-10.0-0.3] _____
+src\temsim\physics\scattering_load.py:83: in covariant_carrier_slab
+    factor = cholesky(metric_h, lower=True, check_finite=False)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\scipy\linalg\_decomp_cholesky.py:120: in cholesky
+    c = _cholesky(a, lower=lower, overwrite_a=overwrite_a, clean=True,
+.venv\Lib\site-packages\scipy\linalg\_decomp_cholesky.py:53: in _cholesky
+    _check_format_errors_warnings("potrf", err_lst)
+.venv\Lib\site-packages\scipy\linalg\_decomp_cholesky.py:23: in _check_format_errors_warnings
+    raise LinAlgError(msg)
+E   numpy.linalg.LinAlgError: Internal potrf return info = [1] for slices [0].
+
+During handling of the above exception, another exception occurred:
+tests\test_magnus_sixth.py:55: in test_constant_propagating_grazing_and_evanescent_channels
+    actual, _ = cf6_slab([sample]*4, width, 2.)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\magnus_sixth.py:54: in cf6_slab
+    piece, record = hermitian_slab(residual, connection, width*fraction,
+src\temsim\physics\scattering_load.py:135: in hermitian_slab
+    return covariant_carrier_slab(q, connection, width, kappa, carrier_k)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\scattering_load.py:86: in covariant_carrier_slab
+    return _slab(carrier**2*eye+residual, connection, width, kappa, cancelled)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\covariant_boundary.py:103: in _slab
+    doublings = max(0, math.ceil(math.log2(scale))) if scale else 0
+                                 ^^^^^^^^^^^^^^^^
+E   ValueError: math domain error
+=========================== short test summary info ===========================
+FAILED tests/test_magnus_sixth.py::test_constant_propagating_grazing_and_evanescent_channels[-4.0-0.3]
+FAILED tests/test_magnus_sixth.py::test_constant_propagating_grazing_and_evanescent_channels[-10.0-0.3]
+2 failed, 10 passed in 1.57s

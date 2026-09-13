@@ -1,0 +1,295 @@
+{
+  "scope": "BEST_APPROXIMATION_DIAGNOSTIC_NOT_TRANSPORT_OR_ACCEPTANCE",
+  "first": "docs\\development\\evidence\\20260913-fine-relative02\\report.json",
+  "second": "docs\\development\\evidence\\20260913-fine-relative01\\report.json",
+  "rows": [
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 2.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.002309149944398094,
+      "quadrature_gram_defect": 1.653051877450284e-05,
+      "quadrature_change": 5.854180508413354e-11
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 2.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.006033473435312167,
+      "quadrature_gram_defect": 4.132598952215316e-06,
+      "quadrature_change": 1.719611754727457e-08
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 10.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.0024705522683620097,
+      "quadrature_gram_defect": 1.646685706989989e-05,
+      "quadrature_change": 5.988211272331401e-11
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 10.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.0032582011576059444,
+      "quadrature_gram_defect": 4.132598951880176e-06,
+      "quadrature_change": 1.4002939489800997e-08
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 100.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.0024124010246219627,
+      "quadrature_gram_defect": 1.578632325864615e-05,
+      "quadrature_change": 3.538514403364501e-11
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 100.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.004134069795479608,
+      "quadrature_gram_defect": 4.132598952477981e-06,
+      "quadrature_change": 1.5974549547742578e-10
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 1000.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.002036137020072113,
+      "quadrature_gram_defect": 1.5060986667164908e-05,
+      "quadrature_change": 4.6483139819891717e-11
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 1000.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.003383865657690271,
+      "quadrature_gram_defect": 4.132598951848515e-06,
+      "quadrature_change": 7.532339942745159e-11
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 10000.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.003260216220323689,
+      "quadrature_gram_defect": 1.4914678415191928e-05,
+      "quadrature_change": 1.0318891748017922e-10
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 10000.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.2909001880251763,
+      "quadrature_gram_defect": 4.132598951802465e-06,
+      "quadrature_change": 5.459895369153145e-09
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 100000.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.0027553697845018772,
+      "quadrature_gram_defect": 1.4898120298065644e-05,
+      "quadrature_change": 1.8738859032182975e-10
+    },
+    {
+      "energy_ev": 0.18744544167837376,
+      "z_nm": 100000.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.5991820685020688,
+      "quadrature_gram_defect": 4.13259895192586e-06,
+      "quadrature_change": 1.2130997528725374e-07
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 2.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.0018092871851351118,
+      "quadrature_gram_defect": 1.6530518774480563e-05,
+      "quadrature_change": 4.4929424330292234e-11
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 2.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.004983382313940622,
+      "quadrature_gram_defect": 4.132598952119038e-06,
+      "quadrature_change": 2.5449213006921434e-08
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 10.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.0022023755136655917,
+      "quadrature_gram_defect": 1.6467063112517254e-05,
+      "quadrature_change": 5.2726159809751705e-11
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 10.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.004634631199749545,
+      "quadrature_gram_defect": 4.132598952165029e-06,
+      "quadrature_change": 6.26444591513009e-09
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 100.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.0013215701317377607,
+      "quadrature_gram_defect": 1.5787310016122826e-05,
+      "quadrature_change": 3.07728406558766e-11
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 100.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.003307955302401981,
+      "quadrature_gram_defect": 4.132598951611079e-06,
+      "quadrature_change": 3.333991602759434e-10
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 1000.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.0017880985515345185,
+      "quadrature_gram_defect": 1.5062374257540453e-05,
+      "quadrature_change": 3.773295152893763e-11
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 1000.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.00346027930402998,
+      "quadrature_gram_defect": 4.132598951868075e-06,
+      "quadrature_change": 2.874529776535073e-10
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 10000.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.0030731215311846126,
+      "quadrature_gram_defect": 1.4916128002456322e-05,
+      "quadrature_change": 1.2049732565910798e-10
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 10000.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.3003477210641491,
+      "quadrature_gram_defect": 4.132598951836465e-06,
+      "quadrature_change": 6.042064071287712e-09
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 100000.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.002451912349449758,
+      "quadrature_gram_defect": 1.489957670341619e-05,
+      "quadrature_change": 1.840998920150938e-10
+    },
+    {
+      "energy_ev": 0.34413236821101373,
+      "z_nm": 100000.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.6004037531704488,
+      "quadrature_gram_defect": 4.132598951703851e-06,
+      "quadrature_change": 1.2115864733708293e-07
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 2.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.0015914537554181762,
+      "quadrature_gram_defect": 1.6530518774424984e-05,
+      "quadrature_change": 3.7896615099480835e-11
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 2.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.0036665077993024977,
+      "quadrature_gram_defect": 4.132598952127336e-06,
+      "quadrature_change": 4.230116118497662e-09
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 10.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.0019040776713320107,
+      "quadrature_gram_defect": 1.646735537813845e-05,
+      "quadrature_change": 4.371996579870252e-11
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 10.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.005289165460346589,
+      "quadrature_gram_defect": 4.13259895183851e-06,
+      "quadrature_change": 5.374380787626087e-09
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 100.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.0020800766418613927,
+      "quadrature_gram_defect": 1.5788714137042367e-05,
+      "quadrature_change": 3.538820061640968e-11
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 100.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.0035424317989059917,
+      "quadrature_gram_defect": 4.132598952151285e-06,
+      "quadrature_change": 1.357937560141076e-10
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 1000.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.0017301055652027954,
+      "quadrature_gram_defect": 1.5064350026146698e-05,
+      "quadrature_change": 3.7284127608200324e-11
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 1000.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.002808853594755003,
+      "quadrature_gram_defect": 4.132598951953061e-06,
+      "quadrature_change": 5.440044682086809e-12
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 10000.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.003118839727536843,
+      "quadrature_gram_defect": 1.4918192244487438e-05,
+      "quadrature_change": 1.066927969584075e-10
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 10000.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.30835920340149137,
+      "quadrature_gram_defect": 4.132598951919015e-06,
+      "quadrature_change": 6.6584927571611274e-09
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 100000.0,
+      "direction": "first_into_second",
+      "best_approximation_relative_l2": 0.0023775430586507004,
+      "quadrature_gram_defect": 1.490165068092747e-05,
+      "quadrature_change": 1.8128168844527837e-10
+    },
+    {
+      "energy_ev": 0.5684221901106126,
+      "z_nm": 100000.0,
+      "direction": "second_into_first",
+      "best_approximation_relative_l2": 0.6012785147918558,
+      "quadrature_gram_defect": 4.132598952085491e-06,
+      "quadrature_change": 1.215463947268347e-07
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+........................................................................ [ 73%]
+..........................                                               [100%]
+============================== warnings summary ===============================
+tests/test_galerkin_specimen.py::test_actual_atomistic_complex_field_and_fixed_observation_band_converge
+  tests\test_galerkin_specimen.py:27: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    def test_actual_atomistic_complex_field_and_fixed_observation_band_converge(record_property):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+98 passed, 1 warning in 77.90s (0:01:17)

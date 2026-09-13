@@ -1,0 +1,8 @@
+{
+  "observer_sha256": "e98302aae74efce49f3813e7054f2f1a045deccf1e555125ee93e82d1c278414",
+  "start_nm": 394.16628507182435,
+  "end_nm": 398.0924466404796,
+  "energy_ev": 0.18744544167837376,
+  "method_error": "Covariant slab lost current unitarity; refine the numerical representation",
+  "scope": "Unmodified failing operator; no accepted result or omitted channels"
+}

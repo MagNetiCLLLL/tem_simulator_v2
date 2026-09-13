@@ -1,0 +1,9 @@
+F........                                                                [100%]
+================================== FAILURES ===================================
+_______ test_uniform_waveguide_converges_to_analytic_complex_plane_wave _______
+tests\test_surface_wave.py:38: in test_uniform_waveguide_converges_to_analytic_complex_plane_wave
+    assert errors[-1] < .005
+E   assert np.float64(0.007673868919301015) < 0.005
+=========================== short test summary info ===========================
+FAILED tests/test_surface_wave.py::test_uniform_waveguide_converges_to_analytic_complex_plane_wave
+1 failed, 8 passed in 3.20s

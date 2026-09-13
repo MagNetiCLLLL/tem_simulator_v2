@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="31" time="41.165" timestamp="2026-09-12T14:34:45.115185+01:00" hostname="Royal_Gray"><testcase classname="tests.test_tip_wave_pipeline" name="test_real_gun_with_shared_lens_tail_and_readout_independent_cache[False]" time="5.892"><failure message="temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% &gt; 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.">tests\test_tip_wave_pipeline.py:22: in test_real_gun_with_shared_lens_tail_and_readout_independent_cache
+    result = simulate_tip_wave(state, request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:201: in simulate_tip_wave
+    gun = stage("gun_exit", lambda: build_tip_gun_checkpoint(working.electron_gun, source_numerics=request.source,
+src\temsim\physics\tip_wave_pipeline.py:181: in stage
+    result = producer()
+             ^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:201: in &lt;lambda&gt;
+    gun = stage("gun_exit", lambda: build_tip_gun_checkpoint(working.electron_gun, source_numerics=request.source,
+src\temsim\physics\tip_gun_wave.py:314: in build_tip_gun_checkpoint
+    emission = generate_tip_emission(working, source_numerics)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:247: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% &gt; 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.</failure></testcase><testcase classname="tests.test_tip_wave_pipeline" name="test_real_gun_with_shared_lens_tail_and_readout_independent_cache[True]" time="0.690"><failure message="temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% &gt; 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.">tests\test_tip_wave_pipeline.py:22: in test_real_gun_with_shared_lens_tail_and_readout_independent_cache
+    result = simulate_tip_wave(state, request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:201: in simulate_tip_wave
+    gun = stage("gun_exit", lambda: build_tip_gun_checkpoint(working.electron_gun, source_numerics=request.source,
+src\temsim\physics\tip_wave_pipeline.py:181: in stage
+    result = producer()
+             ^^^^^^^^^^
+src\temsim\physics\tip_wave_pipeline.py:201: in &lt;lambda&gt;
+    gun = stage("gun_exit", lambda: build_tip_gun_checkpoint(working.electron_gun, source_numerics=request.source,
+src\temsim\physics\tip_gun_wave.py:314: in build_tip_gun_checkpoint
+    emission = generate_tip_emission(working, source_numerics)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_coherence.py:247: in generate_tip_emission
+    source_domain = validate_tip_source_domain(emitter)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\optics\electron_gun\tip_source_domain.py:74: in validate_tip_source_domain
+    raise TipSourceDomainError(
+E   temsim.optics.electron_gun.tip_source_domain.TipSourceDomainError: Tip source exceeds the paraxial domain: generator error bound 6.972% &gt; 1% at tail probability 1e-08. A wider-domain physical model is required; saved tip parameters were not changed.</failure></testcase><testcase classname="tests.test_tip_wave_pipeline" name="test_cancel_and_invalid_numerics_do_not_start_transport" time="0.107" /><testcase classname="tests.test_tip_wave_pipeline" name="test_unexecuted_equivalent_state_is_not_a_pipeline_option" time="0.628" /><testcase classname="tests.test_tip_wave_pipeline" name="test_installed_energy_filter_is_not_silently_bypassed" time="0.571" /><testcase classname="tests.test_tip_wave_pipeline" name="test_filter_after_selected_detector_does_not_prevent_upstream_calculation" time="2.435" /><testcase classname="tests.test_tip_wave_pipeline" name="test_partial_stage_cannot_cross_a_filter_moved_upstream" time="0.581" /><testcase classname="tests.test_tip_wave_pipeline" name="test_material_multislice_with_actual_atomistic_potential_preserves_branches" time="4.159"><failure message="temsim.physics.wave_grid.WaveSamplingError: Combined specimen/carrier/envelope bandwidth 3.63247 rad exceeds the 0.8*pi sampling budget; refine the incoming wave and independently regenerate/verify the potential grid before retrying">tests\test_tip_wave_pipeline.py:121: in test_material_multislice_with_actual_atomistic_potential_preserves_branches
+    result = _propagate_specimen(state, checkpoint)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\specimen_wave_transport.py:187: in _propagate_specimen
+    mode = _slice_phase(mode, projected, x, y, sigma, .5)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\temsim\physics\specimen_wave_transport.py:90: in _slice_phase
+    check_combined_phase_sampling(wave, phase, float(wavelength_m(mode.energy_kev*1000)))
+src\temsim\physics\wave_grid.py:80: in check_combined_phase_sampling
+    raise WaveSamplingError(
+E   temsim.physics.wave_grid.WaveSamplingError: Combined specimen/carrier/envelope bandwidth 3.63247 rad exceeds the 0.8*pi sampling budget; refine the incoming wave and independently regenerate/verify the potential grid before retrying</failure></testcase><testcase classname="tests.test_source_admission" name="test_t203_origin_label_and_private_array_do_not_admit_a_wave" time="0.108" /><testcase classname="tests.test_source_admission" name="test_t201_api_refuses_legacy_pupil_before_specimen_preparation" time="0.110" /><testcase classname="tests.test_source_admission" name="test_launch_audit_is_deterministic_and_does_not_change_gun" time="1.028" /><testcase classname="tests.test_source_admission" name="test_exit_source_is_prohibited_rather_than_rebindable" time="0.109" /><testcase classname="tests.test_tip_source_contract" name="test_even_a_matching_exit_binding_cannot_bypass_the_gun[bind]" time="0.966" /><testcase classname="tests.test_tip_source_contract" name="test_even_a_matching_exit_binding_cannot_bypass_the_gun[generate]" time="0.917" /><testcase classname="tests.test_tip_source_contract" name="test_even_a_matching_exit_binding_cannot_bypass_the_gun[trace]" time="0.920" /><testcase classname="tests.test_tip_source_contract" name="test_even_a_matching_exit_binding_cannot_bypass_the_gun[dispatch]" time="0.916" /><testcase classname="tests.test_tip_source_contract" name="test_even_a_matching_exit_binding_cannot_bypass_the_gun[gun_trace]" time="0.912" /><testcase classname="tests.test_tip_source_contract" name="test_even_a_matching_exit_binding_cannot_bypass_the_gun[current]" time="0.733" /><testcase classname="tests.test_tip_source_contract" name="test_even_a_matching_exit_binding_cannot_bypass_the_gun[run]" time="0.898" /><testcase classname="tests.test_tip_source_contract" name="test_even_a_matching_exit_binding_cannot_bypass_the_gun[calculate]" time="0.920" /><testcase classname="tests.test_tip_source_contract" name="test_even_a_matching_exit_binding_cannot_bypass_the_gun[alignment]" time="0.895" /><testcase classname="tests.test_tip_source_contract" name="test_all_request_qualities_reject_exit_source_before_reuse[Preview]" time="0.346" /><testcase classname="tests.test_tip_source_contract" name="test_all_request_qualities_reject_exit_source_before_reuse[Medium]" time="0.323" /><testcase classname="tests.test_tip_source_contract" name="test_all_request_qualities_reject_exit_source_before_reuse[High accuracy]" time="0.343" /><testcase classname="tests.test_tip_source_contract" name="test_historical_profile_is_readable_but_cannot_mutate_active_state" time="1.126" /><testcase classname="tests.test_tip_source_contract" name="test_coherent_cache_cannot_substitute_an_exit_source[False]" time="2.348" /><testcase classname="tests.test_tip_source_contract" name="test_coherent_cache_cannot_substitute_an_exit_source[True]" time="2.475" /><testcase classname="tests.test_tip_source_contract" name="test_physical_dispatch_preserves_gun_history_and_cached_upstream_work" time="2.999" /><testcase classname="tests.test_tip_source_contract" name="test_acceleration_and_gun_focusing_change_the_computed_exit_and_cache" time="2.902" /><testcase classname="tests.test_tip_source_contract" name="test_tip_dialog_changes_only_tip_draft_and_rejects_invalid_inputs" time="0.793" /><testcase classname="tests.test_tip_source_contract" name="test_model_inspector_applies_tip_parameters_without_editing_gun_optics" time="0.862" /></testsuite></testsuites>
