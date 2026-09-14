@@ -113,40 +113,42 @@ def _create_emitter():
         mechanical_outer_diameter_mm=float(part["outer_diameter_mm"]),
     )
     emitter._tip_reference_file = str(part.get("tip_surface_reference_file", "sources/cold_feg_tip.toml"))
+    from temsim.optics.electron_gun.tip_assembly import apply_tip_part
+    apply_tip_part(emitter, part)
     return emitter
 
 
 def _create_extractor():
     geometry = _feg_part_geometry(FEG_EXTRACTOR)
     part = _feg_part_data(FEG_EXTRACTOR)
-    return ExtractorElectrode(
+    return _apply_electrical_defaults(ExtractorElectrode(
         mechanical_center_from_tip_mm=geometry.center_z_mm,
         mechanical_length_mm=geometry.length_mm,
         mechanical_outer_diameter_mm=float(part["outer_diameter_mm"]),
         mechanical_clear_bore_diameter_mm=float(
             part["bore_diameter_mm"]
         ),
-    )
+    ), part)
 
 
 def _create_electrostatic_lens():
     geometry = _feg_part_geometry(FEG_ELECTROSTATIC_LENS)
     part = _feg_part_data(FEG_ELECTROSTATIC_LENS)
-    return ElectrostaticGunLens(
+    return _apply_electrical_defaults(ElectrostaticGunLens(
         mechanical_center_from_tip_mm=geometry.center_z_mm,
         mechanical_length_mm=geometry.length_mm,
         mechanical_outer_diameter_mm=float(part["outer_diameter_mm"]),
         mechanical_clear_bore_diameter_mm=float(
             part["bore_diameter_mm"]
         ),
-    )
+    ), part)
 
 
 def _create_accelerator():
     geometry = _feg_part_geometry(FEG_ACCELERATOR)
     part = _feg_part_data(FEG_ACCELERATOR)
     centers = [float(value) for value in part["stage_centers_z_mm"]]
-    return AcceleratorColumn(
+    return _apply_electrical_defaults(AcceleratorColumn(
         mechanical_center_from_tip_mm=geometry.center_z_mm,
         mechanical_length_mm=geometry.length_mm,
         mechanical_outer_diameter_mm=float(part["outer_diameter_mm"]),
@@ -161,7 +163,19 @@ def _create_accelerator():
             )
             for index, center in enumerate(centers)
         ],
-    )
+    ), part)
+
+
+def _apply_electrical_defaults(component, part):
+    """Apply a changed TOML default, retaining runtime edits on geometry reload."""
+    if isinstance(component, AcceleratorColumn) and "electrode_thickness_mm" in part:
+        component._electrode_thickness_mm = float(part["electrode_thickness_mm"])
+    for field, attribute in (("default_voltage_kv", "voltage_kv"),
+                             ("default_high_tension_kv", "high_tension_kv")):
+        if field in part and getattr(component, "_assembly_"+field, None) != part[field]:
+            setattr(component, attribute, float(part[field]))
+            setattr(component, "_assembly_"+field, part[field])
+    return component
 
 
 def _create_deflector():
@@ -204,7 +218,10 @@ def _create_stigmator():
 def _apply_part_geometry(component, module_path):
     geometry = module_manifest.part_geometry(module_path, component.key)
     part = module_manifest.part_data(module_path, component.key)
+    _apply_electrical_defaults(component, part)
     if isinstance(component, ColdFieldEmitter):
+        from temsim.optics.electron_gun.tip_assembly import apply_tip_part
+        apply_tip_part(component, part)
         component._tip_reference_file = str(part.get("tip_surface_reference_file", "sources/cold_feg_tip.toml"))
     component.mechanical_center_from_tip_mm = geometry.center_z_mm
     component.mechanical_length_mm = geometry.length_mm
@@ -270,7 +287,10 @@ def _apply_resolved_part_geometry(component, part):
     """Apply one already-resolved assembly part without reopening a TOML."""
 
     data = part.data
+    _apply_electrical_defaults(component, data)
     if isinstance(component, ColdFieldEmitter):
+        from temsim.optics.electron_gun.tip_assembly import apply_tip_part
+        apply_tip_part(component, data)
         component._tip_reference_file = str(data.get("tip_surface_reference_file", "sources/cold_feg_tip.toml"))
     local_shift_mm = (
         float(part.center_z_mm) - float(data["local_center_z_mm"])
@@ -368,6 +388,8 @@ def _component_payload(component):
 
 def _restore_component_settings(component, row):
     allowed = component.__dataclass_fields__
+    if isinstance(component, ColdFieldEmitter) and "surface_model" not in row:
+        component.surface_model = None  # historical source, not today's default
     for attribute, value in row.items():
         if isinstance(component, ColdFieldEmitter) and attribute == "surface_model":
             from temsim.optics.electron_gun.tip_surface import TipSurfaceModel
@@ -670,8 +692,19 @@ class FieldEmissionGun:
         return self.emitter.emit(count)
 
     def _cache_key(self, count):
+        from temsim.vacuum import ensure_standalone_gun_environment
+        ensure_standalone_gun_environment(self)
         payload = self.to_dict()
         payload["requested_count"] = count
+        payload["tuning_sampling_schema"] = "physical-tip-support-v1"
+        payload["tuning_surface_probes"] = int(getattr(self.emitter, "_tuning_surface_probes", 0))
+        payload["tuning_boundary_probes"] = int(getattr(self.emitter, "_tuning_boundary_probes", 0))
+        from dataclasses import asdict
+        payload["vacuum_regions"] = [asdict(r) for r in getattr(self, "_vacuum_regions", ())]
+        payload["vacuum_seed"] = getattr(self, "_vacuum_seed", 914)
+        payload["vacuum_max_step_tau"] = getattr(self, "_vacuum_max_step_tau", .02)
+        from temsim.physics.residual_medium import MODEL
+        payload["vacuum_model"] = MODEL
         # This field is TOML-owned and deliberately omitted from profiles,
         # but changing its calibration must invalidate cached gun trajectories.
         payload["blanking_field_y_mt"] = float(self.deflector.blanking_field_y_mt)
@@ -756,6 +789,8 @@ class FieldEmissionGun:
 
         if self.type_key != "cold_feg" or self.monochromator is None:
             return None
+        if not self.monochromator_installed:
+            return self.monochromator
         self.monochromator.installed = False
         self.monochromator.accelerator_restore_profile = None
         self.apply_manifest_geometry(False)

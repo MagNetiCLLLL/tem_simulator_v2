@@ -52,6 +52,13 @@ _FRIENDLY = {
     "plate_thickness_mm": "Aperture plate thickness",
     "radial_thickness_mm": "Radial thickness",
     "length_mm": "Length", "percent": "Excitation strength",
+    "tip_radius_nm": "Apex curvature radius",
+    "tip_cone_half_angle_deg": "Tip cone half-angle",
+    "emission_cap_half_angle_deg": "Emitting surface cap half-angle",
+    "emission_maximum_angle_deg": "Maximum emission angle from local normal",
+    "emission_flux_electrons_per_nm2_s": "Emitted electrons per unit area per second",
+    "default_voltage_kv": "Default electrode voltage difference",
+    "default_high_tension_kv": "Default accelerating voltage",
 }
 
 
@@ -61,6 +68,12 @@ def parameter_unit(path):
     if "scale_xy" in words:
         return "×"
     for word in reversed(words):
+        if word == "emission_flux_electrons_per_nm2_s":
+            return "electrons/(nm² s)"
+        if word.endswith("_ev"):
+            return "eV"
+        if word.endswith("_kv"):
+            return "kV"
         for unit in _UNITS:
             if word.endswith("_" + unit):
                 return "µm" if unit == "um" else unit
@@ -107,6 +120,19 @@ def _meaning(part, path, by_key):
         name = next((str(item) for item in reversed(path[3:]) if isinstance(item, str)), "model")
         return "3D model: " + _label(name, ("parts", "", name, *[p for p in path[3:] if isinstance(p, int)])), "cad", (
             "Explicit user CAD base, transform or Boolean feature. This controls the 3D solid; the optical/magnetic solver does not infer a new field law from the mesh.")
+    if part.get("tip_particle_model") == "curved_surface_particles":
+        if field in {"tip_radius_nm", "tip_cone_half_angle_deg", "length_mm", "tip_shape"}:
+            return label, "physical", "Actual conducting tip geometry used by the 3D shape, emission surface and extraction-field boundary. Apex curvature is 1/radius; the apex remains at the gun origin."
+        if field == "tip_material":
+            return label, "material", "Tip material identity. Electron flux is prescribed; this model does not infer tunnelling current from the material."
+        if field.startswith("emission_"):
+            return label, "operating", "Emission at the physical tip. Flux is per curved surface area; electron direction is relative to each local outward normal. Total current follows area times flux times electron charge."
+        if field.startswith("tip_field_"):
+            return label, "operating", "Numerical resolution or tolerance of the connected tip-to-anode electrostatic solution."
+        if field == "outer_diameter_mm":
+            return "Derived shank diameter", "physical", "Computed from curvature radius, cone angle and physical length; edit those independent dimensions."
+    if part.get("key") == "feg_accelerator" and field == "electrode_thickness_mm":
+        return "Accelerator ring thickness", "physical", "Axial thickness of each annular accelerator electrode, consumed by the connected electrostatic boundary. The overall assembly envelope is separate."
     if field in {"material_class", "material_regions", "bh_material", "relative_permeability"} or field.startswith("material_"):
         if field == "material_intervals_mm":
             return label, "physical", "Explicit axial material intervals, which define occupied material independently of the display envelope."

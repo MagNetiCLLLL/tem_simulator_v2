@@ -97,6 +97,7 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
             "beam_blanker": selection.beam_blanker,
         },
         "devices": devices,
+        "vacuum_map": state.vacuum_map.to_dict(),
         "gun_source_model": {
             "representation": getattr(state.electron_gun, "source_representation", "classical_particles"),
             **({"effective": asdict(state.electron_gun.effective_source)}
@@ -171,6 +172,7 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
             raise ValueError(f"Operating profile device {key} has conflicting none values")
         values[key] = {**attributes, **dict.fromkeys(names)}
     values[_PROFILE_VERSION_KEY] = format_version
+    values["__vacuum_map__"] = document.get("vacuum_map")
     model = document.get("simulation_model", {"mode": "custom"})
     if not isinstance(model, dict):
         raise ValueError("Operating profile simulation_model must be a table")
@@ -230,6 +232,9 @@ def apply_profile_values(state, values: dict) -> list[str]:
     if not isinstance(values, dict):
         raise ValueError("Operating profile devices must be a table")
     values = dict(values)
+    from temsim.vacuum import VacuumMap
+    vacuum_data = values.pop("__vacuum_map__", None)
+    vacuum_candidate = VacuumMap.from_dict(vacuum_data) if vacuum_data is not None else VacuumMap.historical()
     format_version = int(values.pop(_PROFILE_VERSION_KEY, 1))
     sample_model = values.pop(_SAMPLE_MODEL_KEY, None)
     gun_source = values.pop(_GUN_SOURCE_MODEL_KEY, {"representation": "classical_particles"})
@@ -405,6 +410,7 @@ def apply_profile_values(state, values: dict) -> list[str]:
         state.electron_gun.emitter.coherence = tip_coherence
         state.electron_gun.emitter.surface_model = surface_model
     vars(state.sample).update(vars(candidate_sample))
+    state.vacuum_map = vacuum_candidate
     state.simulation_mode = selected_mode
     state.simulation_mode_profiles = model_profiles
     for name in MODEL_SETTINGS:

@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-14",
+  "scope": "Shared physical FEG tip defaults, live editors, cache identity and stopped particle histories",
+  "shared_definition": "configs/sources/FEG_tip.toml",
+  "linked_assemblies": [
+    "configs/instruments/gun/FEG.toml",
+    "configs/instruments/gun/FEG_Mono.toml"
+  ],
+  "catalog_combinations_validated_on_save": 30,
+  "unique_tests_with_passing_latest_result": 309,
+  "shared_tip_test_cases": 20,
+  "unresolved_failures": [],
+  "runs": [
+    {
+      "log": "outputs/shared-tip-checks.xml",
+      "tests": 236,
+      "failures": [
+        "tests.test_calculation_controller::test_preview_runs_off_the_gui_thread"
+      ]
+    },
+    {
+      "log": "outputs/shared-tip-input-checks.xml",
+      "tests": 54,
+      "failures": [
+        "tests.test_calculation_manifest_artifacts::test_complete_incident_seed_restarts_ray_solver[True-False]"
+      ]
+    },
+    {
+      "log": "outputs/shared-tip-stop-unit-checks.xml",
+      "tests": 18,
+      "failures": []
+    },
+    {
+      "log": "outputs/shared-tip-final-transport-checks.xml",
+      "tests": 22,
+      "failures": []
+    },
+    {
+      "log": "outputs/shared-tip-path-checks.xml",
+      "tests": 2,
+      "failures": []
+    }
+  ],
+  "count_note": "Runs overlap. Initial preview/vector-map failures were fixed and passed in the final transport run; counts must not be added.",
+  "coherent_wave_calculations_run": false,
+  "historical_profiles_and_independent_mechanical_copies_preserved": true,
+  "install_smoke": "Isolated installed wheel: shared radius edited to 125 nm, both FEG variants and a new physical emitter resolved 125 nm. Repository defaults remain 100 nm.",
+  "wheel_sha256": "d85284344d492a49a52e82cf58c3e5a1784ad5174290e3f26bde213caa09d8f7",
+  "final_wheel_source_and_shared_definition_bytes_verified": true,
+  "numerical_limit": "Stored post-absorption histories can contain overflow/NaN placeholders. Only data up to each physical stop are validated and used; non-finite live mapped trajectories remain errors.",
+  "acceptance_limit": "These are synchronization/transport regressions, not a new spatial convergence or full TEM/STEM wave acceptance."
+}

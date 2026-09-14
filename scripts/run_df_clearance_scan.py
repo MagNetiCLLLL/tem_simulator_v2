@@ -60,7 +60,8 @@ def prepare_inputs(archive, output):
     shutil.copyfile(archive / "input_Si.cif", output / "input_Si.cif")
     source_root = archive / "instrument_inputs"
     input_root = output / "instrument_inputs"
-    shutil.copytree(source_root, input_root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(source_root, input_root)
     shutil.copyfile(source_root / "catalog.toml", output / "original_catalog.toml")
     catalog_doc = tomllib.loads((input_root / "catalog.toml").read_text())
     removed = {}

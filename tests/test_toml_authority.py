@@ -82,7 +82,8 @@ def test_custom_catalog_root_is_the_final_geometry_and_gun_exit_authority(
     tmp_path: Path,
 ):
     root = tmp_path / "instruments"
-    shutil.copytree(module_manifest.MODULE_ROOT, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(module_manifest.MODULE_ROOT, root)
     path = root / "gun" / "FEG.toml"
     text = path.read_text(encoding="utf-8")
     staged = module_manifest.stage_manifest_text(text, {
@@ -160,7 +161,8 @@ def test_module_manifest_rejects_duplicate_part_key_and_order():
 
 def test_catalog_rejects_a_module_file_listed_twice(tmp_path: Path):
     root = tmp_path / "instruments"
-    shutil.copytree(module_manifest.MODULE_ROOT, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(module_manifest.MODULE_ROOT, root)
     path = root / "catalog.toml"
     document = tomllib.loads(path.read_text(encoding="utf-8"))
     duplicate = deepcopy(document["gun_variants"][0])
@@ -199,7 +201,8 @@ def test_missing_toml_structure_cannot_fall_back_to_python(
     tmp_path: Path,
 ):
     root = tmp_path / "instruments"
-    shutil.copytree(module_manifest.MODULE_ROOT, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(module_manifest.MODULE_ROOT, root)
     path = root / "project_and_recording_system" / "EnergyFilter.toml"
     text = path.read_text(encoding="utf-8")
     field = "mechanical_outer_diameter_mm = 80.0\n"

@@ -1,0 +1,40 @@
+{
+  "scope": "Classical residual-medium transport; no coherent wave calculations",
+  "unique_latest_tests": 116,
+  "passed": 116,
+  "runs": [
+    {
+      "file": "outputs/vacuum-validation/regression.xml",
+      "tests": 116,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 212.66
+    },
+    {
+      "file": "outputs/vacuum-validation/tests.xml",
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 21.249
+    },
+    {
+      "file": "outputs/vacuum-validation/preview.xml",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 83.359
+    }
+  ],
+  "assembly_combinations": 30,
+  "wheel_sha256": "8d534e01cbd281b374de91f57e1bab8ba924d331e78c6bf70e59a16a27f2f21b",
+  "config_sha256": "026bad337d71f4d8c8d7ba08291f2805d9f8ddcfa6e250dfcc109c8c3c8e9b88",
+  "gun_evidence": "vacuum-gun-2026-09-14.json",
+  "limits": [
+    "Independent-atom elastic approximation; low-energy extrapolation reported",
+    "Liquid inelastic processes and cell windows not implemented",
+    "Affine raster does not resample medium at every pixel",
+    "Bent energy-filter residual gas not added",
+    "Mesh and cross-section experimental validation not claimed"
+  ],
+  "legacy_test_warnings": "Post-stop diagnostic optical histories may overflow in medium-disabled checkpoint fixtures; live-path checks passed."
+}

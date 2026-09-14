@@ -72,7 +72,8 @@ def test_df_action_guards_bank_stale_paused_and_changed_camera_length(qtbot):
 def window(qtbot, tmp_path, monkeypatch):
     source_bytes = {path: path.read_bytes() for path in INSTRUMENT_CONFIG_ROOT.rglob("*.toml")}
     root = tmp_path / "instruments"
-    shutil.copytree(INSTRUMENT_CONFIG_ROOT, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, root)
     monkeypatch.setattr(main_window, "AssemblyCatalog", lambda: AssemblyCatalog(root))
     monkeypatch.setattr(main_window, "ManifestEditor", lambda: ManifestEditor(root))
     monkeypatch.setattr(main_window, "QSettings", lambda: QSettings(str(tmp_path / "ui.ini"), QSettings.Format.IniFormat))

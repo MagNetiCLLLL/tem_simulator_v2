@@ -1,0 +1,292 @@
+{
+  "scope": "classical tip-to-exit particles; coherent imaging paused",
+  "manifest": "E:\\tem_simulator_v2\\configs\\instruments\\gun\\FEG.toml",
+  "manifest_sha256": "9374ccba067e9c8d13eefc271a128d43be63891c9e3c87dfe2b54f14104c4494",
+  "mesh_convergence_certified": false,
+  "cases": [
+    {
+      "model": "grounded-cold-feg-surface-v1",
+      "surface_mesh_displacement_m": 4.857572684489451e-09,
+      "potential_reference": "final_anode_ground_0V",
+      "exit_energy_status": "verified",
+      "transmitted_particle_count": 3,
+      "minimum_exit_kinetic_energy_ev": 200000.19603128146,
+      "maximum_exit_kinetic_energy_ev": 200000.7110696131,
+      "minimum_expected_exit_kinetic_energy_ev": 200000.19603127998,
+      "maximum_expected_exit_kinetic_energy_ev": 200000.7110696123,
+      "maximum_exit_energy_error_ev": 1.4842953532934189e-09,
+      "exit_energy_error_budget_ev": 0.001,
+      "accelerating_voltage_kv": 200.0,
+      "extraction_voltage_kv": 2.66666666666667,
+      "electrostatic_field": {
+        "schema": "axisymmetric-grounded-feg-laplace-v1",
+        "potential_reference": "final_anode_ground_0V",
+        "tip_potential_v": -200000.0,
+        "extractor_potential_v": -197333.33333333334,
+        "final_anode_potential_v": 0.0,
+        "grid_shape": [
+          166,
+          461
+        ],
+        "linear_residual": 5.820766091346741e-16,
+        "space_charge": "neglected",
+        "potential_interpolation": "bilinear-radius-squared-z-v1",
+        "boundary_model": "reference annuli; insulating radial/back boundary; grounded exit plane",
+        "convergence": "not_certified_by_linear_residual"
+      },
+      "scope": "classical prescribed outgoing flux; no coherent phase or tunnelling prediction",
+      "elapsed_seconds": 42.322081300022546,
+      "emitted_particles": 9,
+      "emitted_current_a": 1.0000000000000002e-07,
+      "exit_current_a": 3.333333333333334e-08,
+      "blocked_counts": {
+        "feg_dpa_aperture": 3,
+        "feg_c1_aperture": 3
+      },
+      "inputs": {
+        "type": "cold_feg",
+        "integrator": {
+          "method": "static_discrete_gradient",
+          "trace_step_mm": 0.2,
+          "drift_step_mm": 2.0,
+          "history_step_mm": 2.0
+        },
+        "components": {
+          "feg_tip": {
+            "name": "Cold Field Emission Tip",
+            "key": "feg_tip",
+            "tip_radius_nm": 100.0,
+            "tip_cone_half_angle_deg": 5.0,
+            "emitter_material": "W(310)",
+            "work_function_ev": 4.4,
+            "vacuum_pa": 1e-08,
+            "emission_current_na": 10000.0,
+            "emission_energy_ev": 0.3,
+            "minimum_kinetic_energy_ev": 0.01,
+            "virtual_source_fwhm_nm": 5.0,
+            "angular_rms_mrad": 1.0,
+            "angular_cutoff_mrad": 3.0,
+            "energy_spread_fwhm_ev": 0.3,
+            "young_decay_width_ev": 0.2,
+            "boersch_sigma_ev": 0.1,
+            "energy_half_range_ev": 1.0,
+            "ray_count": 1000,
+            "surface_model": {
+              "geometry": {
+                "shape": "spherical_cap_tangent_cone",
+                "material": "W(310)",
+                "apex_radius_nm": 100.0,
+                "cone_half_angle_deg": 5.0,
+                "shank_length_um": 1000.0
+              },
+              "emission": {
+                "cap_half_angle_deg": 10.0,
+                "normal_mean_energy_ev": 0.2,
+                "tangential_mean_energy_ev": 0.1,
+                "flux_electrons_per_nm2_s": 653864449.6443435,
+                "maximum_angle_deg": 90.0,
+                "energy_distribution": "normal_tangential_exponential",
+                "kinetic_mean_ev": 0.3,
+                "kinetic_sigma_ev": 0.1
+              },
+              "field_numerics": {
+                "radial_nodes": 160,
+                "axial_nodes": 320,
+                "apex_cells_per_radius": 20,
+                "outer_radius_factor": 1.25,
+                "linear_residual_tolerance": 1e-09,
+                "accelerator_ring_thickness_mm": 1.0
+              },
+              "schema": "grounded-cold-feg-surface-v1",
+              "status": "idealised_reference_not_calibrated",
+              "potential_reference": "final_accelerating_anode_ground_0V",
+              "geometry_reference": ""
+            }
+          },
+          "feg_extractor": {
+            "name": "Extractor",
+            "key": "feg_extractor",
+            "voltage_kv": 2.66666666666667,
+            "transition_start_mm": 0.05,
+            "transition_end_mm": 6.0,
+            "field_center_offset_mm": 0.0
+          },
+          "feg_electrostatic_lens": {
+            "name": "Electrostatic Gun Lens",
+            "key": "feg_electrostatic_lens",
+            "voltage_kv": 0.8,
+            "potential_scale": 4.22125,
+            "soft_edge_mm": 1.5,
+            "field_center_offset_mm": 0.0
+          },
+          "feg_dpa_aperture": {
+            "name": "Gun / DPA Aperture",
+            "key": "feg_dpa_aperture",
+            "radius_mm": 2.0,
+            "maximum_radius_mm": 3.0,
+            "offset_x_mm": 0.0,
+            "offset_y_mm": 0.0,
+            "enabled": true,
+            "colour": "#8e24aa",
+            "field_center_offset_mm": 0.0
+          },
+          "feg_accelerator": {
+            "stages": [
+              {
+                "voltage_fraction": 0.1,
+                "soft_edge_mm": 4.0
+              },
+              {
+                "voltage_fraction": 0.2,
+                "soft_edge_mm": 4.0
+              },
+              {
+                "voltage_fraction": 0.3,
+                "soft_edge_mm": 4.0
+              },
+              {
+                "voltage_fraction": 0.4,
+                "soft_edge_mm": 4.0
+              },
+              {
+                "voltage_fraction": 0.5,
+                "soft_edge_mm": 4.0
+              },
+              {
+                "voltage_fraction": 0.6,
+                "soft_edge_mm": 4.0
+              },
+              {
+                "voltage_fraction": 0.7,
+                "soft_edge_mm": 4.0
+              },
+              {
+                "voltage_fraction": 0.8,
+                "soft_edge_mm": 4.0
+              },
+              {
+                "voltage_fraction": 0.9,
+                "soft_edge_mm": 4.0
+              },
+              {
+                "voltage_fraction": 1.0,
+                "soft_edge_mm": 4.0
+              }
+            ],
+            "name": "Accelerator Tube",
+            "key": "feg_accelerator",
+            "high_tension_kv": 200.0,
+            "field_center_offset_mm": 0.0
+          },
+          "feg_deflector": {
+            "name": "Gun Deflector Pair",
+            "key": "feg_deflector",
+            "soft_edge_mm": 1.0,
+            "upper_field_x_mt": 0.0,
+            "upper_field_y_mt": 0.0,
+            "lower_field_x_mt": 0.0,
+            "lower_field_y_mt": 0.0,
+            "enabled": true,
+            "colour": "#ab47bc",
+            "field_center_offset_mm": 0.0,
+            "beam_blanked": false
+          },
+          "feg_stigmator": {
+            "name": "Gun Stigmator",
+            "key": "feg_stigmator",
+            "soft_edge_mm": 1.0,
+            "gradient_t_per_m": 0.0,
+            "rotation_deg": 0.0,
+            "enabled": true,
+            "colour": "#7b1fa2",
+            "field_center_offset_mm": 0.0
+          },
+          "feg_c1_aperture": {
+            "name": "C1 Aperture",
+            "key": "feg_c1_aperture",
+            "radius_mm": 2.0,
+            "maximum_radius_mm": 3.0,
+            "offset_x_mm": 0.0,
+            "offset_y_mm": 0.0,
+            "enabled": true,
+            "colour": "#1e88e5",
+            "field_center_offset_mm": 0.0
+          }
+        },
+        "monochromator": {
+          "installed": false,
+          "installation_model_version": 3,
+          "requested_pass_window_ev": 0.1,
+          "matched_energy_ev": 4000.0,
+          "trace_step_mm": 0.05,
+          "wien": {
+            "name": "FEG Wien Monochromator",
+            "key": "feg_monochromator_wien",
+            "soft_edge_mm": 2.0,
+            "electric_field_v_per_m": 1118764.9341406245,
+            "magnetic_field_mt": 30.0,
+            "electric_quadrupole_gradient_v_per_m2": 120000000.0,
+            "field_center_offset_mm": 0.0,
+            "enabled": true,
+            "colour": "#00897b"
+          },
+          "slit": {
+            "name": "Monochromator Slit (C1 Aperture)",
+            "gap_um": 0.28,
+            "maximum_gap_um": 1000.0,
+            "centre_offset_um": 0.0,
+            "inserted": true,
+            "colour": "#d81b60"
+          }
+        }
+      },
+      "connected_field_samples": [
+        {
+          "z_mm": 0.01,
+          "potential_v": -198622.93490368375,
+          "electric_z_v_per_m": -23718358.63409604
+        },
+        {
+          "z_mm": 1.0,
+          "potential_v": -197333.31515638792,
+          "electric_z_v_per_m": -242476.9628860572
+        },
+        {
+          "z_mm": 6.0,
+          "potential_v": -197296.9546585344,
+          "electric_z_v_per_m": 27294.639442736785
+        },
+        {
+          "z_mm": 10.0,
+          "potential_v": -197239.12911555427,
+          "electric_z_v_per_m": -88706.39352458963
+        },
+        {
+          "z_mm": 12.0,
+          "potential_v": -196986.6066570476,
+          "electric_z_v_per_m": -139113.7882398315
+        },
+        {
+          "z_mm": 22.0,
+          "potential_v": -195445.77056528174,
+          "electric_z_v_per_m": -451783.8352465867
+        },
+        {
+          "z_mm": 26.0,
+          "potential_v": -192376.15787188357,
+          "electric_z_v_per_m": -904852.3013547293
+        },
+        {
+          "z_mm": 30.0,
+          "potential_v": -188633.2185682973,
+          "electric_z_v_per_m": -949067.6450764328
+        },
+        {
+          "z_mm": 40.0,
+          "potential_v": -179502.87160252786,
+          "electric_z_v_per_m": -844529.2372677726
+        }
+      ]
+    }
+  ]
+}

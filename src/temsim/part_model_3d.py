@@ -206,7 +206,7 @@ def _dimensions(part, by_key=None):
             # Required schema context, not a material bore or active cutoff.
             # The complete TOML remains available in All parameters.
             continue
-        unit = next((unit for unit in ("mm", "um", "deg") if name.endswith("_" + unit)), None)
+        unit = next((unit for unit in ("mm", "um", "nm", "deg") if name.endswith("_" + unit)), None)
         if unit is None:
             continue
         if not any(token in name for token in ("diameter", "radius", "length", "width", "height", "thickness", "gap", "inset", "angle", "radial_profile", "material_intervals")):
@@ -240,6 +240,8 @@ def _dimensions(part, by_key=None):
         label = meaning.label if len(item.path) == 3 else item.label
         if item.path[1] != part["key"]:
             label = "Parent: " + label
+        if part.get("tip_particle_model") and item.path[-1] == "outer_diameter_mm":
+            item = replace(item, editable=False, reason="Derived from the physical cap/cone, shank length and curvature radius.")
         annotated.append(replace(item, label=label, reason=item.reason or meaning.description, meaning=meaning))
     return tuple(annotated)
 
@@ -305,6 +307,21 @@ def _pole_section(part, start, end):
 
 
 def _legacy_part_meshes(part, by_key, count, aperture_index=0, runtime=None):
+    from temsim.optics.electron_gun.tip_assembly import is_tip_part, model_from_part, tip_apex_z_mm
+    if is_tip_part(part):
+        model = model_from_part(part)
+        g = model.geometry
+        radius = g.apex_radius_nm*1e-6
+        # Resolve the spherical cap independently of the much longer shank.
+        theta = np.linspace(0, math.pi/2-math.radians(g.cone_half_angle_deg), 33)
+        section = [(0.0, 0.0)]
+        section += [(-2*radius*math.sin(t/2)**2, radius*math.sin(t)) for t in theta[1:]]
+        length = g.shank_length_um*.001
+        section += [(-length, float(g.radius_m(-length*.001)*1000)), (-length, 0.0)]
+        section = [(z + tip_apex_z_mm(part), r) for z, r in section]
+        mesh = revolve_section(section, key=part["key"], angular_segments=count,
+            material_class=g.material, description="Physical spherical tip with tangent cone; same geometry as particle emission and Laplace boundary")
+        return (mesh,), ("Curvature = 1/R; emission cap and particle angular cutoff are distinct. Tip apex remains at the gun origin.",)
     from temsim.part_model_apertures import is_strip_aperture, strip_meshes
     if is_strip_aperture(part):
         return strip_meshes(part, count, runtime, aperture_index)

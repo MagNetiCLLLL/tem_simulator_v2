@@ -39,6 +39,7 @@ def prepare_tuning_snapshot(state, quality):
     emitter = getattr(state.electron_gun, "emitter", None)
     if emitter is not None:
         emitter._tuning_boundary_probes = profile.boundary_probes
+        emitter._tuning_surface_probes = (33 if quality == "Medium" else 1)
     # Static user offsets still act. Time-dependent raster calibration,
     # multislice, inelastic branches and spectra are not tuning products.
     state.ac_deflector.scan_enabled = False
@@ -94,7 +95,12 @@ def add_source_support_probes(bundle, emitter):
 
 def tuning_metrics(state, incident):
     from temsim.physics.beam_statistics import branch_sample_statistics
-    finite = np.isfinite(incident.x).all() and np.isfinite(incident.y).all()
+    # Stored arrays retain source lineage after physical absorption. Those
+    # post-stop placeholders no longer represent a propagated electron.
+    visible = (~np.isfinite(incident.blocked_z)[None, :]
+               | (incident.z[:, None] <= incident.blocked_z[None, :]))
+    finite = all(np.all(np.isfinite(values) | ~visible)
+                 for values in (incident.x, incident.y, incident.tx, incident.ty))
     if not finite:
         raise ValueError("Non-finite tuning trajectory; reduce excitation or use a finer calculation")
     beam = branch_sample_statistics(incident) if np.any(incident.alive & (incident.ray_weight > 0)) else None
@@ -107,7 +113,8 @@ def tuning_metrics(state, incident):
         "sample_scattering_model": "omitted_for_optical_tuning",
         "sample_inserted": bool(state.sample.inserted),
         "specimen_mode": state.sample.specimen_mode,
-        "sample_beam_surviving_rays": int(np.count_nonzero(incident.alive)),
+        "sample_beam_surviving_rays": int(np.count_nonzero(incident.alive & (incident.ray_weight > 0))),
+        "sample_support_probe_survivors": int(np.count_nonzero(incident.alive & (incident.ray_weight == 0))),
         "sample_beam_surviving_fraction": beam.surviving_fraction if beam else 0.,
         "sample_convergence_95_mrad": beam.convergence_95_mrad if beam else float("nan"),
         "sample_convergence_99_mrad": beam.convergence_99_mrad if beam else float("nan"),

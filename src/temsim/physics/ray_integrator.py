@@ -135,7 +135,7 @@ serial_rk4 = (njit(cache=True, nogil=True)(parallel_rk4.py_func)
 def vectorised_rk4(
     kx, ky, hn, hs, larmor_axis, inverse_momentum, cs_kick,
     thin_power, thin_rotation, step_m, x, tx, y, ty,
-    kickx, kicky, save_index, checkpoint_index,
+    kickx, kicky, save_index, checkpoint_index, *, step_operator=None,
 ):
     nr, ns, nc = x.size, save_index.size, checkpoint_index.size
     X, TX, Y, TY = (np.empty((ns, nr), np.float32) for _ in range(4))
@@ -163,6 +163,7 @@ def vectorised_rk4(
         if j == step_m.size:
             continue
         a, b, c = 2 * j, 2 * j + 1, 2 * j + 2
+        before = (x.copy(), tx.copy(), y.copy(), ty.copy()) if step_operator is not None else None
         x, tx, y, ty = canonical_rk4_step(
             x, tx, y, ty, step_m[j],
             larmor_axis[a] * inverse_momentum,
@@ -171,6 +172,8 @@ def vectorised_rk4(
             kx[a], kx[b], kx[c], ky[a], ky[b], ky[c],
             hn[a], hn[b], hn[c], hs[a], hs[b], hs[c],
         )
+        if step_operator is not None:
+            x, tx, y, ty = step_operator(j, before, (x, tx, y, ty))
     return X, TX, Y, TY, CX, CTX, CY, CTY
 
 

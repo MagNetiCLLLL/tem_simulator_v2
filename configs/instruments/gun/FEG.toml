@@ -31,15 +31,40 @@ parts_end_z_mm = 446.0
 order = 1
 key = "feg_tip"
 name = "Cold Field Emission Tip"
+# Shared geometry/emission authority; values below are portable snapshots.
+tip_definition_file = "../../sources/FEG_tip.toml"
 tip_surface_reference_file = "sources/cold_feg_tip.toml"
 branch = "common"
 local_start_z_mm = -1.0
-local_center_z_mm = 0.0
-local_end_z_mm = 1.0
-length_mm = 2.0
+local_center_z_mm = -0.5
+local_end_z_mm = 0.0
+length_mm = 1.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 0.0
-outer_diameter_mm = 0.25
+outer_diameter_mm = 0.1751605932866515
+# Actual particle tip definition. Curvature = 1/tip_radius_nm (nm^-1).
+# Electron flux is per physical emitting area per second, within the angular
+# limit. It is prescribed emission, not a tunnelling-current prediction.
+tip_particle_model = "curved_surface_particles"
+tip_shape = "spherical_cap_tangent_cone"
+tip_material = "W(310)"
+tip_radius_nm = 100.0
+tip_cone_half_angle_deg = 5.0
+emission_flux_electrons_per_nm2_s = 653864449.6443435
+emission_cap_half_angle_deg = 10.0
+emission_maximum_angle_deg = 90.0
+emission_energy_distribution = "normal_tangential_exponential"
+emission_normal_mean_energy_ev = 0.2
+emission_tangential_mean_energy_ev = 0.1
+# Used by gamma / monoenergetic laws; their directions are uniform solid angle
+# inside emission_maximum_angle_deg about each local outward surface normal.
+emission_kinetic_mean_ev = 0.3
+emission_kinetic_sigma_ev = 0.1
+tip_field_radial_nodes = 160
+tip_field_axial_nodes = 320
+tip_apex_cells_per_radius = 20
+tip_field_outer_radius_factor = 1.25
+tip_field_residual_tolerance = 1e-9
 
 [[parts]]
 order = 2
@@ -54,6 +79,7 @@ vacuum_inner_diameter_mm = 4
 optical_reference_local_z_mm = 8.0
 outer_diameter_mm = 20.0
 bore_diameter_mm = 4.0
+default_voltage_kv = 4.0
 
 [[parts]]
 order = 3
@@ -68,6 +94,7 @@ vacuum_inner_diameter_mm = 8
 optical_reference_local_z_mm = 18.0
 outer_diameter_mm = 60.0
 bore_diameter_mm = 8.0
+default_voltage_kv = 1.2
 
 [[parts]]
 order = 4
@@ -90,6 +117,8 @@ stage_centers_z_mm = [
 accelerator_electrode_stack_form = "repeated_annular_electrode_stages"
 accelerator_electrode_stack_evidence_status = "user_supplied_side_view_topology_not_dimensionally_calibrated"
 accelerator_electrode_stack_evidence_source = "User-supplied accelerator side-view photograph, 2026-08-30; confirms repeated external ring-stage appearance without an OEM scale or material calibration."
+default_high_tension_kv = 300.0
+electrode_thickness_mm = 1.0
 
 [[parts]]
 order = 5

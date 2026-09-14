@@ -274,9 +274,11 @@ class AssemblyCatalog:
         )
         if state.electron_gun.type_key != gun_type:
             state.select_electron_gun(gun_type)
-        state.monochromator_installed = bool(
-            gun.properties.get("monochromator", False)
-        )
+        installed = bool(gun.properties.get("monochromator", False))
+        if state.monochromator_installed != installed:
+            # The setter reloads the global catalog. An unchanged selection
+            # must keep this catalog's resolved defaults and live overrides.
+            state.monochromator_installed = installed
 
         has_c3 = bool(column.properties["c3_lens"])
         has_probe = bool(column.properties["probe_corrector"])
@@ -308,6 +310,7 @@ class AssemblyCatalog:
             preserve_operating_parameters=preserve_operating_parameters,
             assembly_root=self.root,
         )
+        state.electron_gun._manifest_catalog_root = self.root
         from temsim.component_keys import (
             CAMERA,
             FLUORESCENT_SCREEN,

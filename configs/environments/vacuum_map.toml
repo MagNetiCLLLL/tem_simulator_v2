@@ -1,0 +1,86 @@
+schema = "classical-vacuum-map-v1"
+enabled = true
+seed = 914
+provenance = "Rounded pressure magnitudes from user vacuum overview photos, 2026-09-14. Gauge-to-zone mapping is approximate; valve state is not inferred. IGPf zero and foreline/manifold/load-lock pressures are excluded. N2 composition and 293 K are editable assumptions, not measured values."
+max_optical_depth_per_step = 0.02
+max_transport_nodes = 2000000
+
+[[regions]]
+key = "gun_tip"
+name = "Gun — tip and extraction"
+start_anchor = "source"
+end_anchor = "gun_acceleration_start"
+pressure_reference = "IGPa 3.25e-11 mbar, rounded; approximate tip/extraction assignment"
+[regions.medium]
+formula = "N2"
+pressure_mbar = 3e-11
+
+[[regions]]
+key = "gun_accelerator"
+name = "Gun — accelerator"
+start_anchor = "gun_acceleration_start"
+end_anchor = "gun_exit"
+pressure_reference = "IGPb 2.24e-8 mbar, rounded; approximate accelerator assignment"
+[regions.medium]
+formula = "N2"
+pressure_mbar = 2e-8
+
+[[regions]]
+key = "column"
+name = "Column before specimen"
+start_anchor = "gun_exit"
+end_anchor = "sample"
+end_offset_mm = -5.0
+pressure_reference = "IGPcl 1.39e-7 mbar, rounded"
+[regions.medium]
+formula = "N2"
+pressure_mbar = 1e-7
+
+[[regions]]
+key = "specimen"
+name = "Specimen surroundings"
+start_anchor = "sample"
+end_anchor = "sample"
+start_offset_mm = -5.0
+end_offset_mm = 5.0
+pressure_reference = "Assumed same ambient as column; 10 mm editable reserved span, not a measured cell size"
+[regions.medium]
+formula = "N2"
+pressure_mbar = 1e-7
+
+[[regions]]
+key = "post_column"
+name = "Column after specimen"
+start_anchor = "sample"
+start_offset_mm = 5.0
+end_anchor = "projection_dpa"
+pressure_reference = "IGPco 3.84e-8 mbar, rounded; approximate downstream column assignment"
+[regions.medium]
+formula = "N2"
+pressure_mbar = 4e-8
+
+[[regions]]
+key = "projection"
+name = "Projection / camera chamber"
+start_anchor = "projection_dpa"
+end_anchor = "column_end"
+pressure_reference = "CCGp 7.56e-7 mbar, rounded; projection chamber begins at installed DPA"
+[regions.medium]
+formula = "N2"
+pressure_mbar = 8e-7
+
+[cell]
+inserted = false
+diameter_mm = 0.01
+length_mm = 0.001
+offset_x_mm = 0.0
+offset_y_mm = 0.0
+offset_z_mm = 0.0
+[cell.medium]
+phase = "gas"
+formula = "N2"
+pressure_mbar = 1.0
+temperature_k = 293.0
+density_kg_m3 = 1000.0
+removal_cross_section_m2 = 0.0
+removal_reference = ""

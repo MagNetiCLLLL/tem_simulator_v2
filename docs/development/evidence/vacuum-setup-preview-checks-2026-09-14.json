@@ -1,0 +1,61 @@
+{
+  "scope": "Horizontal vacuum map, analytic gap transport, central calculation setup, classical tip preview diagnostics",
+  "latest_unique_tests": 83,
+  "passed": 83,
+  "runs": [
+    {
+      "file": "update-tests.xml",
+      "tests": 46,
+      "failures": 1,
+      "errors": 0,
+      "seconds": 148.188
+    },
+    {
+      "file": "tip-preview-update.xml",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 124.102
+    },
+    {
+      "file": "display-update.xml",
+      "tests": 38,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 121.382
+    },
+    {
+      "file": "probe-display.xml",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 6.003
+    }
+  ],
+  "resolved_test_failure": "The first full-chain test used a nonexistent convenience property state.bf_detector. Corrected the test to select the actual bf recording plane. Production transport already reached and stopped at BF.",
+  "additional_regression": "Calculation-cache and operating-profile regression tests also passed in the preceding run; legacy UI assertions were updated for the explicitly paused coherent mode.",
+  "gui": "MainWindow initialized, tab order verified, setup changes synchronized into live pages, dark-theme screenshots inspected.",
+  "physical_comparison": {
+    "ordinary_samples_before_fix": 49,
+    "gun_exit_samples": 21,
+    "specimen_samples": 0,
+    "checks": [
+      "vacuum on / 1 mm step",
+      "vacuum off / 1 mm step",
+      "vacuum on / 0.1 mm step"
+    ],
+    "maximum_C1_stop_change_mm": 0.004
+  },
+  "current_preview": {
+    "ordinary_samples": 48,
+    "zero_current_apex_probes": 1,
+    "probe_reaches_specimen": true,
+    "first_downstream_probe_absorber": "bf",
+    "ordinary_specimen_samples": 0
+  },
+  "limits": [
+    "The transmitted physical beam has not been calibrated for the new curved tip; a zero-current diagnostic path is not signal acceptance.",
+    "No coherent calculations run.",
+    "Gas gap interpolation is prescribed, not a vacuum pumping solver."
+  ]
+}

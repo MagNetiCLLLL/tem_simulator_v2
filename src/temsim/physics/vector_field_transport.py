@@ -19,6 +19,8 @@ def vector_map_rk4(
     kx, ky, hn, hs, larmor_axis, inverse_momentum, cs_kick,
     thin_power, thin_rotation, step_m, x, tx, y, ty,
     kickx, kicky, save_index, checkpoint_index, *, z_mm, mapped_fields,
+    defer_nonfinite_until_clipping=False,
+    step_operator=None,
 ):
     nr, ns, nc = x.size, save_index.size, checkpoint_index.size
     # Finite-difference transfer Jacobians need float64 even in saved history.
@@ -46,6 +48,7 @@ def vector_map_rk4(
         if j == step_m.size:
             continue
         a, b, c = 2*j, 2*j+1, 2*j+2
+        before = (x.copy(), tx.copy(), y.copy(), ty.copy()) if step_operator is not None else None
         g = larmor_axis[[a,b,c], None] * inverse_momentum[None, :]
         active = tuple(item for item, lower, upper in supports
                        if lower < z_mm[j+1] and upper > z_mm[j])
@@ -55,6 +58,8 @@ def vector_map_rk4(
                 kx[a], kx[b], kx[c], ky[a], ky[b], ky[c],
                 hn[a], hn[b], hn[c], hs[a], hs[b], hs[c],
             )
+            if step_operator is not None:
+                x, tx, y, ty = step_operator(j, before, (x, tx, y, ty))
             continue
 
         def derivative(values, stage, axial_mm):
@@ -62,8 +67,18 @@ def vector_map_rk4(
             gg = g[stage]
             ux, uy = px + gg*yy, py - gg*xx
             pos = np.column_stack((xx, yy, np.full(nr, axial_mm*1e-3)))
-            field = sum((item.field_at_global_positions_t(pos) for item in active),
-                        start=np.zeros((nr,3)))
+            if defer_nonfinite_until_clipping:
+                # Preserve NaN placeholders for divergent histories until the
+                # caller applies physical stops. Never submit them as XYZ map
+                # queries; a non-finite *pre-stop* state must still be rejected.
+                valid = np.all(np.isfinite(values), axis=0)
+                field = np.full((nr, 3), np.nan)
+                if np.any(valid):
+                    field[valid] = sum((item.field_at_global_positions_t(pos[valid]) for item in active),
+                                       start=np.zeros((np.count_nonzero(valid), 3)))
+            else:
+                field = sum((item.field_at_global_positions_t(pos) for item in active),
+                            start=np.zeros((nr,3)))
             bx, by, bz = field.T
             factor = charge_over_p * np.sqrt(1.0 + ux*ux + uy*uy)
             fx = factor * (uy*bz - (1.0+ux*ux)*by + ux*uy*bx)
@@ -89,7 +104,11 @@ def vector_map_rk4(
         k4 = derivative(initial+h*k3, 2, zc)
         xx, px, yy, py = initial + h*(k1+2*k2+2*k3+k4)/6.0
         x, tx, y, ty = xx, px+g[2]*yy, yy, py-g[2]*xx
-        if (not np.all(np.isfinite((x,tx,y,ty)))
-                or np.any(np.hypot(tx,ty) > 100.0)):
-            raise ValueError("Vector field trajectory leaves the forward-Z domain; reduce the step or use time-domain transport")
+        if step_operator is not None:
+            x, tx, y, ty = step_operator(j, before, (x, tx, y, ty))
+        invalid = ~np.all(np.isfinite((x, tx, y, ty)), axis=0) | (np.hypot(tx, ty) > 100.0)
+        if np.any(invalid):
+            if not defer_nonfinite_until_clipping:
+                raise ValueError("Vector field trajectory leaves the forward-Z domain; reduce the step or use time-domain transport")
+            x[invalid] = tx[invalid] = y[invalid] = ty[invalid] = np.nan
     return X, TX, Y, TY, CX, CTX, CY, CTY

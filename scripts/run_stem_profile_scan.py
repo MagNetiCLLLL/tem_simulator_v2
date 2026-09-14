@@ -230,9 +230,9 @@ def main(argv=None):
     for key,field in (("simulation","last_gun_waist_mm"),("descan_deflector","wobble_enabled")):
         profile.get("devices",{}).get(key,{}).pop(field,None)
     (output / "operating_profile.toml").write_text(tomli_w.dumps(profile),encoding="utf-8")
-    for relative in ("catalog.toml",*catalog.selected_paths(selection).values()):
-        target=output / "instrument_inputs" / relative; target.parent.mkdir(parents=True,exist_ok=True)
-        shutil.copyfile(catalog.root / relative,target)
+    from temsim.shared_tip import copy_catalog_inputs
+    copy_catalog_inputs(catalog.root, output / "instrument_inputs",
+                        ("catalog.toml", *catalog.selected_paths(selection).values()))
     print(json.dumps(dict(configured_c1_nm=sample.wave_defocus_nm,effective_c1_nm=focus.effective_defocus_mm*1e6,
         alpha_mrad=probe.convergence_95_mrad,sampling_plan=asdict(sampling_plan))),flush=True)
     if args.mode == "prepare":

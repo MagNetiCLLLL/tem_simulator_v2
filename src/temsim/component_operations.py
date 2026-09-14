@@ -11,7 +11,6 @@ import math
 from numbers import Real
 from pathlib import Path
 import re
-import tomllib
 
 
 CUSTOM_COMPONENT_ROLES = frozenset({"custom_mechanical", "custom_mechanical_copy"})
@@ -25,6 +24,7 @@ class PartChangeSet(Mapping):
     added_parts: tuple = ()
     removed_keys: tuple = ()
     expected_source_bytes: bytes | None = None
+    expected_dependency_bytes: dict | None = None
 
     def __getitem__(self, key):
         return self.fields[key]
@@ -78,8 +78,8 @@ def source_document(source):
         source = source.document
     if isinstance(source, Mapping):
         return _plain(source)
-    with Path(source).open("rb") as stream:
-        return tomllib.load(stream)
+    from temsim import module_manifest
+    return module_manifest.read_document(source)
 
 
 def validate_component_graph(document):
@@ -265,6 +265,7 @@ def copied_component_document(document, source, key, new_key, center_z_mm, *, pa
     for index, old in enumerate(selected):
         original = source_by_key[old]
         row = _plain(original)
+        row.pop("tip_definition_file", None)  # copies retain resolved geometry, not a live source link
         source_parent = source_by_key.get(original.get("parent_key"), {})
         if (row.get("mechanical_part_role") not in CUSTOM_COMPONENT_ROLES
                 and row.get("mechanical_profile") in {"magnetic_excitation_coil", "magnetic_lens_yoke"}):

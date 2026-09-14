@@ -24,7 +24,8 @@ def window(qtbot, tmp_path, monkeypatch):
     source = INSTRUMENT_CONFIG_ROOT / MODULE
     original = source.read_bytes()
     root = tmp_path / "instruments"
-    shutil.copytree(INSTRUMENT_CONFIG_ROOT, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, root)
     monkeypatch.setattr(main_window, "AssemblyCatalog", lambda: AssemblyCatalog(root))
     monkeypatch.setattr(main_window, "ManifestEditor", lambda: ManifestEditor(root))
     monkeypatch.setattr(main_window, "QSettings", lambda: QSettings(

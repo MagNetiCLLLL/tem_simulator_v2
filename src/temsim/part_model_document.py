@@ -21,7 +21,10 @@ class PartModelDocument:
     def __init__(self, path):
         self.path = Path(path).resolve()
         self._source_bytes = self.path.read_bytes()
-        self._baseline = tomllib.loads(self._source_bytes.decode("utf-8-sig"))
+        from temsim.shared_tip import materialized_text, dependencies
+        self._dependency_bytes = dependencies(self.path)
+        self._editable_text = materialized_text(self._source_bytes.decode("utf-8-sig"), self.path)
+        self._baseline = tomllib.loads(self._editable_text)
         if not isinstance(self._baseline.get("parts"), list) or not self._baseline["parts"]:
             raise ValueError("Open an instrument module TOML containing [[parts]] definitions")
         keys = [part.get("key") for part in self._baseline["parts"]]
@@ -65,6 +68,13 @@ class PartModelDocument:
         self._history_index = len(self._history) - 1
 
     def _commit_part(self, key, candidate):
+        from temsim.optics.electron_gun.tip_assembly import complete_tip_updates, validate_tip_part
+        previous = self.part(key)
+        updates = {("parts", key, field): value for field, value in candidate.items()
+                   if previous.get(field) != value}
+        for path, value in complete_tip_updates(self.document, updates).items():
+            candidate[path[2]] = value
+        validate_tip_part(candidate)
         for index, part in enumerate(self.document["parts"]):
             if part["key"] == key:
                 self.document["parts"][index] = candidate
@@ -183,8 +193,15 @@ class PartModelDocument:
                 self._synchronize_custom_base_length(part)
             self._commit_part(path[1], part)
             return
-        if field not in part or not field.endswith(("_mm", "_um", "_deg")):
-            raise ValueError("Choose an existing dimension in millimetres or degrees")
+        if field not in part or not field.endswith(("_mm", "_um", "_nm", "_deg")):
+            raise ValueError("Choose an existing dimension in mm, µm, nm or degrees")
+        from temsim.optics.electron_gun.tip_assembly import is_tip_part
+        if is_tip_part(part) and len(path) == 3:
+            if isinstance(part[field], bool) or not isinstance(part[field], Real):
+                raise ValueError("Choose a numeric dimension")
+            part[field] = value
+            self._commit_part(path[1], part)
+            return
         if field == "local_center_z_mm":
             raise ValueError("The axial centre is fixed; edit the existing length or endpoints")
         if len(path) == 3:
@@ -312,7 +329,7 @@ class PartModelDocument:
                 updates[("parts", part["key"], "model_3d")] = None
         current_keys = {part["key"] for part in self.document["parts"]}
         removed = tuple(key for key in originals if key not in current_keys)
-        return PartChangeSet(updates, tuple(additions), removed, self._source_bytes)
+        return PartChangeSet(updates, tuple(additions), removed, self._source_bytes, dict(self._dependency_bytes))
 
     def reload(self):
         """Read an external source revision only after this draft is resolved."""
@@ -320,6 +337,8 @@ class PartModelDocument:
             raise ValueError("Save a copy or Revert the current draft before reloading")
         candidate = type(self)(self.path)
         self._source_bytes = candidate._source_bytes
+        self._dependency_bytes = candidate._dependency_bytes
+        self._editable_text = candidate._editable_text
         self._baseline = candidate._baseline
         self.document = candidate.document
         self._history = candidate._history
@@ -332,6 +351,9 @@ class PartModelDocument:
     def assert_source_current(self):
         if self.path.read_bytes() != self._source_bytes:
             raise ValueError("The source file changed outside this editor. Save a copy or reopen it before saving.")
+        from temsim.shared_tip import dependencies
+        if dependencies(self.path) != self._dependency_bytes:
+            raise ValueError("The shared FEG tip changed outside this editor. Save a copy or reopen it before saving.")
 
     def save(self, *, project_save=None):
         self.assert_source_current()
@@ -340,7 +362,7 @@ class PartModelDocument:
         if not updates:
             return
         staged = module_manifest.stage_manifest_text(
-            self._source_bytes.decode("utf-8-sig"), updates
+            self._editable_text, updates
         )
         # Schema, Boolean and catalog preparation may take time. Recheck the
         # source before either persistence route can write the staged edit.
@@ -349,17 +371,36 @@ class PartModelDocument:
             if project_save(self.path, updates) is False:
                 raise ValueError("The project did not save the model draft")
         else:
-            module_manifest._atomic_write_text(self.path, staged)
+            from temsim.shared_tip import catalog_root_for, catalog_definitions
+            root = catalog_root_for(self.path)
+            if root is not None and (self._dependency_bytes or self.path in catalog_definitions(root)):
+                from temsim.component_persistence import save_component_changes
+                import os
+                save_component_changes(root, os.path.relpath(self.path, root), updates, None)
+            else:
+                module_manifest._atomic_write_text(self.path, staged)
         self._accept_saved_file(self.path, expected=tomllib.loads(staged))
 
     def save_copy(self, path):
         destination = Path(path).resolve()
         if destination == self.path:
             raise ValueError("Use Save for the current file")
+        from temsim.shared_tip import catalog_root_for, catalog_definitions
+        root = catalog_root_for(destination)
+        if root is not None and destination in catalog_definitions(root):
+            raise ValueError("Use Save to edit the shared tip definition; choose an independent destination for a copy")
         self.validate()
         staged = module_manifest.stage_manifest_text(
-            self._source_bytes.decode("utf-8-sig"), self.updates()
+            self._editable_text, self.updates()
         )
+        # Save copy is explicitly independent, including a module with shared
+        # sources. Resolve its values before removing the source link.
+        parsed = tomllib.loads(staged)
+        if any("tip_definition_file" in part for part in parsed["parts"]):
+            import tomli_w
+            for part in parsed["parts"]:
+                part.pop("tip_definition_file", None)
+            staged = tomli_w.dumps(parsed)
         module_manifest._atomic_write_text(destination, staged)
         self._accept_saved_file(destination, expected=tomllib.loads(staged))
 
@@ -370,6 +411,9 @@ class PartModelDocument:
             raise ValueError("The saved file does not match the draft. The draft is retained; inspect the source before saving again.")
         self.path = path
         self._source_bytes = source
-        self._baseline = parsed
+        from temsim.shared_tip import materialized_text, dependencies
+        self._dependency_bytes = dependencies(path)
+        self._editable_text = materialized_text(source.decode("utf-8-sig"), path)
+        self._baseline = tomllib.loads(self._editable_text)
         self.document = deepcopy(self._baseline)
         self._history[self._history_index] = deepcopy(self.document)

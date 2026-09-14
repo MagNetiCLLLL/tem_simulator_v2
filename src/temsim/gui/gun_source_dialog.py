@@ -2,9 +2,10 @@
 from copy import copy
 from dataclasses import replace
 import math
+from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget, QPushButton
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget, QPushButton
 from temsim.optics.electron_gun.tip_coherence import TipCoherence, tip_covariance
 from temsim.optics.electron_gun.tip_surface import SurfaceCoherence, load_tip_surface_reference, reference_path_for_gun
 from temsim.optics.electron_gun.tip_patch import patch_dimensions
@@ -46,7 +47,8 @@ class GunSourceDialog(QDialog):
         self.resize(680, 760)
         layout = QVBoxLayout(self)
         note = QLabel(
-            "Define emission at the tip. Extraction, acceleration and downstream optics are calculated."
+            "Define emission at the tip. Extraction, acceleration and downstream optics are calculated. "
+            "These are operating overrides. Edit the installed tip in Physical Layout / TOML to save assembly defaults."
         )
         note.setWordWrap(True)
         note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -67,16 +69,28 @@ class GunSourceDialog(QDialog):
         self.surface_form = surface_form
         surface_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self._reference_path = reference_path_for_gun(gun)
-        self._surface_draft = gun.emitter.surface_model or load_tip_surface_reference(self._reference_path)
-        reference = QLabel(str(self._reference_path))
+        from temsim.paths import INSTRUMENT_CONFIG_ROOT
+        self._assembly_tip_path = Path(getattr(gun.emitter, "_manifest_source_file",
+            INSTRUMENT_CONFIG_ROOT / "gun" / ("FEG_Mono.toml" if gun.monochromator_installed else "FEG.toml")))
+        if not self._assembly_tip_path.is_absolute():
+            self._assembly_tip_path = Path(getattr(gun, "_manifest_catalog_root", INSTRUMENT_CONFIG_ROOT)) / self._assembly_tip_path
+        from temsim.shared_tip import definition_path, raw_document
+        installed = next(part for part in raw_document(self._assembly_tip_path)["parts"] if part["key"] == "feg_tip")
+        self._assembly_tip_path = definition_path(self._assembly_tip_path, installed) or self._assembly_tip_path
+        from temsim.optics.electron_gun.tip_assembly import model_from_part
+        from temsim import module_manifest
+        self._surface_draft = (gun.emitter.surface_model
+            or model_from_part(module_manifest.part_data(self._assembly_tip_path, "feg_tip"))
+            or load_tip_surface_reference(self._reference_path))
+        reference = QLabel(str(self._assembly_tip_path) + " : feg_tip")
         reference.setWordWrap(True)
         reference.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        surface_form.addRow("Geometry reference", reference)
+        surface_form.addRow("Shared tip TOML", reference)
         self.surface_geometry = QLabel()
         self.surface_geometry.setWordWrap(True)
         self.surface_geometry.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         surface_form.addRow(self.surface_geometry)
-        reload_reference = QPushButton("Reload reference TOML")
+        reload_reference = QPushButton("Reload installed tip TOML defaults")
         reload_reference.clicked.connect(self._reload_surface)
         surface_form.addRow(reload_reference)
         self.geometry_inputs = {}
@@ -97,11 +111,28 @@ class GunSourceDialog(QDialog):
         self.patch_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard)
         surface_form.addRow("Derived patch geometry", self.patch_summary)
         self.surface_inputs = {}
+        self.flux_density_enabled = QCheckBox("Prescribe electrons per unit surface area per second")
+        self.flux_density_enabled.setChecked(self._surface_draft.emission.flux_electrons_per_nm2_s is not None)
+        surface_form.addRow(self.flux_density_enabled)
+        self.energy_law = QComboBox()
+        for label, key in (("Normal / tangential exponential", "normal_tangential_exponential"),
+                           ("Positive gamma energy", "gamma"), ("Monoenergetic", "monoenergetic")):
+            self.energy_law.addItem(label, key)
+        self.energy_law.setCurrentIndex(self.energy_law.findData(self._surface_draft.emission.energy_distribution))
+        surface_form.addRow("Particle energy distribution", self.energy_law)
         for key, label in (("current_na", "Prescribed surface current (nA)"),
+                           ("flux_electrons_per_nm2_s", "Emitted electrons / (nm² s)"),
                            ("cap_half_angle_deg", "Emitting cap half-angle (deg)"),
+                           ("maximum_angle_deg", "Maximum angle from local normal (deg)"),
                            ("normal_mean_energy_ev", "Mean normal kinetic energy (eV)"),
-                           ("tangential_mean_energy_ev", "Mean tangential kinetic energy (eV)")):
-            edit = QLineEdit(str(getattr(self._surface_draft.emission, key)))
+                           ("tangential_mean_energy_ev", "Mean tangential kinetic energy (eV)"),
+                           ("kinetic_mean_ev", "Mean total kinetic energy (eV)"),
+                           ("kinetic_sigma_ev", "Total kinetic energy RMS (eV)")):
+            value = getattr(self._surface_draft.emission, key)
+            if value is None:
+                value = (self._surface_draft.current_na if key == "current_na" else
+                         self._surface_draft.current_na / (1.602176634e-10 * self._surface_draft.emission.area_nm2(self._surface_draft.geometry)))
+            edit = QLineEdit(str(value))
             self.surface_inputs[key] = edit
             surface_form.addRow(label, edit)
             edit.textChanged.connect(self._surface_summary)
@@ -129,7 +160,7 @@ class GunSourceDialog(QDialog):
             "Uniform area on the curved tip cap. Normal and tangential energies have exponential distributions; "
             "directions are relative to the local surface normal. Total energy, RMS energy width, angular spread "
             "and current density follow from these inputs. Brightness/virtual-source size are downstream results. "
-            "No independent angular cutoff, energy FWHM, Young or Boersch broadening is applied. "
+            "The local angular limit conditions the exponential energy law. Gamma / monoenergetic laws use uniform solid-angle directions within that limit. "
             "This prescribed classical flux does not predict tunnelling current or coherent phase.")
         self._classical_surface_tooltip = self.surface_derived.toolTip()
         self.surface_voltage = QLabel()
@@ -178,6 +209,8 @@ class GunSourceDialog(QDialog):
         self.surface_enabled.toggled.connect(self._sync_fields)
         self.surface_coherent.toggled.connect(self._sync_fields)
         self.wave_options.toggled.connect(self._sync_fields)
+        self.flux_density_enabled.toggled.connect(self._sync_fields)
+        self.energy_law.currentIndexChanged.connect(self._sync_fields)
         self._sync_fields()
         self._surface_summary()
         layout.addWidget(scroll)
@@ -215,8 +248,16 @@ class GunSourceDialog(QDialog):
             "The near-field preview does not change the applied source or previous images.")
         self.surface_form.labelForField(self.surface_inputs["current_na"]).setText(
             "Incoming reservoir current (nA)" if quantum else "Prescribed surface current (nA)")
+        density = self.flux_density_enabled.isChecked()
+        self.surface_form.setRowVisible(self.surface_inputs["current_na"], not density)
+        self.surface_form.setRowVisible(self.surface_inputs["flux_electrons_per_nm2_s"], density)
+        law = self.energy_law.currentData()
+        self.surface_form.setRowVisible(self.energy_law, not quantum)
+        self.surface_form.setRowVisible(self.surface_inputs["maximum_angle_deg"], not quantum)
         for key in ("normal_mean_energy_ev", "tangential_mean_energy_ev"):
-            self.surface_form.setRowVisible(self.surface_inputs[key], not quantum)
+            self.surface_form.setRowVisible(self.surface_inputs[key], not quantum and law == "normal_tangential_exponential")
+        self.surface_form.setRowVisible(self.surface_inputs["kinetic_mean_ev"], not quantum and law != "normal_tangential_exponential")
+        self.surface_form.setRowVisible(self.surface_inputs["kinetic_sigma_ev"], not quantum and law == "gamma")
         for edit in self.quantum_inputs.values():
             self.surface_form.setRowVisible(edit, quantum)
         self.near_field_button.setVisible(quantum)
@@ -234,11 +275,17 @@ class GunSourceDialog(QDialog):
 
     def _reload_surface(self):
         try:
-            self._surface_draft = load_tip_surface_reference(self._reference_path)
+            from temsim import module_manifest
+            from temsim.optics.electron_gun.tip_assembly import model_from_part
+            part = module_manifest.part_data(self._assembly_tip_path, "feg_tip")
+            self._surface_draft = model_from_part(part) or load_tip_surface_reference(self._reference_path)
             for key, edit in self.geometry_inputs.items():
                 edit.setText(str(getattr(self._surface_draft.geometry, key)))
             for key, edit in self.surface_inputs.items():
-                edit.setText(str(getattr(self._surface_draft.emission, key)))
+                value = getattr(self._surface_draft.emission, key)
+                edit.setText(str(value if value is not None else 0.0))
+            self.flux_density_enabled.setChecked(self._surface_draft.emission.flux_electrons_per_nm2_s is not None)
+            self.energy_law.setCurrentIndex(self.energy_law.findData(self._surface_draft.emission.energy_distribution))
             self.surface_coherent.setChecked(self._surface_draft.coherence is not None)
             quantum = self._surface_draft.coherence or SurfaceCoherence()
             for key, edit in self.quantum_inputs.items():
@@ -249,9 +296,17 @@ class GunSourceDialog(QDialog):
 
     def _surface_value(self):
         quantum = self.surface_coherent.isChecked()
+        density = self.flux_density_enabled.isChecked()
+        active = {"cap_half_angle_deg", "flux_electrons_per_nm2_s" if density else "current_na"}
+        law = self.energy_law.currentData()
+        if not quantum:
+            active.add("maximum_angle_deg")
+            active.update(("normal_mean_energy_ev", "tangential_mean_energy_ev") if law == "normal_tangential_exponential"
+                          else ("kinetic_mean_ev", "kinetic_sigma_ev") if law == "gamma" else ("kinetic_mean_ev",))
+        values = {key: float(self.surface_inputs[key].text()) for key in active}
+        values["current_na" if density else "flux_electrons_per_nm2_s"] = None
         emission = replace(self._surface_draft.emission,
-                           **{key: float(edit.text()) for key, edit in self.surface_inputs.items()
-                              if not quantum or key in ("current_na", "cap_half_angle_deg")})
+                           **values, energy_distribution=law)
         coherence = SurfaceCoherence(**{key: float(edit.text()) for key, edit in self.quantum_inputs.items()}) if quantum else None
         geometry = replace(self._surface_draft.geometry,
                            **{key: float(edit.text()) for key, edit in self.geometry_inputs.items()})
@@ -275,7 +330,8 @@ class GunSourceDialog(QDialog):
                 "All angles are geometric. Normal/tangential energy components below define the particle direction distribution.")
             self.surface_derived.setToolTip(self._classical_surface_tooltip)
             self.surface_derived.setText(f"Mean energy {e.mean_energy_ev:g} eV | energy RMS {e.energy_sigma_ev:.4g} eV\n"
-                f"Patch area {e.area_nm2(g):.4g} nm² | directions from local normal + tangential energy")
+                f"Patch area {e.area_nm2(g):.4g} nm² | total current {value.current_na:.5g} nA\n"
+                f"Maximum outgoing angle {e.maximum_angle_deg:g}° from the local normal")
             if value.coherence is not None:
                 self.surface_derived.setText(f"Patch area {e.area_nm2(g):.4g} nm² | one spatial mode per energy\n"
                     "Angles follow the wave; not an independent angular spread. Different energies are incoherent.")

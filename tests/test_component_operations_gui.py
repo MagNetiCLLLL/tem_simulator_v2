@@ -22,7 +22,8 @@ COIL = "intermediate_lens_excitation_coil"
 @pytest.fixture
 def page(qtbot, tmp_path):
     catalog = tmp_path / "instruments"
-    shutil.copytree(INSTRUMENT_CONFIG_ROOT, catalog)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, catalog)
     document = module_manifest.read_document(catalog / MODULE)
     part = next(part for part in document["parts"] if part["key"] == COIL)
     origin = 500.0

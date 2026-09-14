@@ -98,7 +98,8 @@ def test_physical_layout_exposes_installed_electrostatic_blanker():
 
 def test_blanker_toml_geometry_rebuild_preserves_operating_settings(tmp_path: Path):
     root = tmp_path / "instruments"
-    shutil.copytree(INSTRUMENT_CONFIG_ROOT, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, root)
     catalog = AssemblyCatalog(root)
     state = default_state()
     selection = replace(catalog.default_selection(), beam_blanker="NanoPulser")

@@ -340,7 +340,7 @@ def build_surface_gun_checkpoint(gun, *, surface=SurfaceWaveNumerics(element_ord
                 from temsim.physics.surface_mode_cache import preserve_mode
                 preserve_mode(_energy_cache, identity, modes[-1], near_modes[-1], records[-1],
                     radial_payload[-1], history, z_mm=working.exit_plane_z_mm,
-                    current_a=problem["model"].emission.current_na*1e-9, verify=verify_inputs)
+                    current_a=problem["model"].current_na*1e-9, verify=verify_inputs)
             if _mode_completed is not None:
                 _mode_completed(modes[-1], near_modes[-1], freeze_json(records[-1]),
                     freeze_json(radial_payload[-1]), {key: _immutable(value) for key, value in history.items()}, identity)
@@ -349,7 +349,7 @@ def build_surface_gun_checkpoint(gun, *, surface=SurfaceWaveNumerics(element_ord
     verify_inputs()
     near = SurfaceWaveCheckpoint(_immutable(problem["radius_nm"]), _immutable(problem["z"]),
         _immutable(problem["potential"].reshape(problem["z"].shape)), tuple(near_modes),
-        problem["model"].emission.current_na*1e-9, freeze_json({"schema": "joint-tip-gun-near-field-v1",
+        problem["model"].current_na*1e-9, freeze_json({"schema": "joint-tip-gun-near-field-v1",
         "source": problem["model"].to_dict(), "grounded_field": problem["grounded_field"],
         "implementation": implementation, "numerics": asdict(surface), "radial_numerics": asdict(radial),
         "ports": "Driven physical tip, local side port, two-way complete round-gun top load",

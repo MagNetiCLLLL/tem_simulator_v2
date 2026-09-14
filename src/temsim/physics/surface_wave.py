@@ -374,7 +374,7 @@ def _compute_surface_wave(gun, numerics, *, use_cache, cancelled, progress_callb
     if solver_source_identity() != implementation or json_digest(encode_instrument(gun)) != json_digest(encode_instrument(working)):
         raise RuntimeError("Coherent surface inputs changed during execution; result not published")
     result = SurfaceWaveCheckpoint(_immutable(r), _immutable(z), _immutable(potential.reshape(z.shape)),
-        tuple(modes), model.emission.current_na*1e-9, freeze_json({
+        tuple(modes), model.current_na*1e-9, freeze_json({
             "schema": "executed-coherent-tip-near-field-v1", "identity": identity,
             "source": model.to_dict(), "grounded_field": boundary, "implementation": implementation,
             "numerics": asdict(numerics), "estimated_working_bytes": estimated,

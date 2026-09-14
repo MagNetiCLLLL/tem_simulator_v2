@@ -181,7 +181,8 @@ def test_background_preset_solves_selected_catalog_geometry(qtbot, monkeypatch, 
 
     original = AssemblyCatalog()
     root = tmp_path / "instruments"
-    shutil.copytree(original.root, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(original.root, root)
     path = root / "beam_blanker" / "NanoPulser.toml"
     document = tomllib.loads(path.read_text(encoding="utf-8"))
     document["geometry"]["length_mm"] = 100.0

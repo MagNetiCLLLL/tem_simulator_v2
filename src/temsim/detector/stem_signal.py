@@ -1798,6 +1798,10 @@ def acquire_stem_scan(
         signals,
         {
             "model": "geometric_detector_interception",
+            "vacuum_transport_scope": (
+                "Reference particle trajectories include residual-medium transport; affine raster preview does not resample cell collisions at every pixel"
+                if state.vacuum_map.enabled else "disabled"
+            ),
             "shared_specimen_interactions_used": shared_interactions_used,
             "shared_specimen_exit_transport_used": (
                 shared_specimen_exit_used

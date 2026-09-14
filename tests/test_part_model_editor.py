@@ -32,7 +32,8 @@ COLUMN = "column/C3_ProbeCorrector_ImageCorrector.toml"
 def root(tmp_path):
     originals = {path: path.read_bytes() for path in INSTRUMENT_CONFIG_ROOT.rglob("*.toml")}
     copied = tmp_path / "instruments"
-    shutil.copytree(INSTRUMENT_CONFIG_ROOT, copied)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, copied)
     yield copied
     assert all(path.read_bytes() == content for path, content in originals.items())
 
@@ -102,6 +103,18 @@ def _double_click_scene(qtbot, layout, scene_position):
     qtbot.mouseDClick(viewport, Qt.MouseButton.LeftButton, pos=point)
     # PyQtGraph creates its MouseClickEvent on release of the double press.
     qtbot.mouseRelease(viewport, Qt.MouseButton.LeftButton, pos=point)
+    QApplication.processEvents()
+
+
+def _navigate_scene(qtbot, layout, scene_position, target="parts"):
+    viewport = layout.plot.viewport()
+    point = layout.plot.mapFromScene(scene_position)
+    qtbot.mouseClick(viewport, Qt.MouseButton.RightButton, pos=point)
+    QApplication.processEvents()
+    menu = layout._navigation_menu
+    assert menu.isVisible()
+    action = next(a for a in menu.actions() if a.data() == target)
+    qtbot.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(action).center())
     QApplication.processEvents()
 
 
@@ -528,7 +541,41 @@ def test_mainwindow_keeps_original_2d_view_and_binds_model_selection_and_project
     assert page._selected_key == HOUSING and page.session.part(COIL)["mechanical_inner_diameter_mm"] == 70
 
 
-def test_actual_coil_double_click_opens_3d_without_visiting_ray_diagram(
+def test_physical_double_click_stays_in_2d(navigation_window, qtbot):
+    window = navigation_window
+    layout = window.workspace.physical_layout
+    activated = []
+    layout.navigation_requested.connect(lambda *args: activated.append(args))
+    layout.component_activated.connect(lambda *args: activated.append(args))
+    _double_click_scene(qtbot, layout, _coil_scene_point(layout))
+    assert activated == []
+    assert window.workspace.tabs.currentWidget() is layout
+    assert layout.tabs.currentWidget() is layout.section_page
+    assert window._selected_component_key == COIL
+
+
+@pytest.mark.parametrize("target", ["ray", "vacuum"])
+def test_component_context_menu_other_destinations(navigation_window, qtbot, target):
+    window = navigation_window
+    workspace, layout = window.workspace, window.workspace.physical_layout
+    before = layout.plot.getViewBox().viewRange()[0]
+    _navigate_scene(qtbot, layout, _coil_scene_point(layout), target)
+    assert window._selected_component_key == COIL
+    if target == "vacuum":
+        assert workspace.tabs.currentWidget() is workspace.vacuum_map
+        assert workspace.vacuum_map.current_key == "post_column"
+        assert workspace.vacuum_map.diagram.component.key == COIL
+        assert workspace.vacuum_map.diagram.getViewBox().viewRange()[0] == pytest.approx(before)
+        workspace.vacuum_map.pressure.setText("6e-7")
+        assert workspace.vacuum_map.apply()
+        region = next(r for r in window.state.vacuum_map.regions if r.key == "post_column")
+        assert region.medium.pressure_mbar == 6e-7
+    else:
+        assert workspace.tabs.currentWidget() is workspace.ray_page
+        assert workspace._ray_component_highlight.component_key == COIL
+
+
+def test_actual_coil_context_menu_opens_3d_without_visiting_ray_diagram(
     navigation_window, qtbot, monkeypatch,
 ):
     window = navigation_window
@@ -538,11 +585,11 @@ def test_actual_coil_double_click_opens_3d_without_visiting_ray_diagram(
     monkeypatch.setattr(layout, "component_key_at", lambda *args: pytest.fail("An exact coil hit must not use the nearest-part fallback"))
     monkeypatch.setattr(workspace, "show_ray_diagram", lambda: pytest.fail("Physical Layout activation must not open Ray Diagram"))
     activated, visited = [], []
-    layout.component_activated.connect(lambda *values: activated.append(values))
+    layout.navigation_requested.connect(lambda key, target, z: activated.append((key, z)))
     workspace.tabs.currentChanged.connect(lambda index: visited.append(workspace.tabs.widget(index)))
     original = (window.manifest_editor.root / MODULE).read_bytes()
 
-    _double_click_scene(qtbot, layout, point)
+    _navigate_scene(qtbot, layout, point)
 
     assert len(activated) == 1 and activated[0][0] == COIL
     page = layout.model_editor
@@ -559,7 +606,7 @@ def test_actual_coil_double_click_opens_3d_without_visiting_ray_diagram(
     assert page.session.path.read_bytes() == original and not page.session.dirty
 
 
-def test_actual_blank_axis_double_click_uses_nearby_geometry_and_opens_3d(
+def test_actual_blank_axis_context_menu_uses_nearby_geometry_and_opens_3d(
     navigation_window, qtbot, monkeypatch,
 ):
     window = navigation_window
@@ -576,8 +623,8 @@ def test_actual_blank_axis_double_click_uses_nearby_geometry_and_opens_3d(
         return nearest(z, radius)
 
     monkeypatch.setattr(layout, "component_key_at", record_fallback)
-    layout.component_activated.connect(lambda *values: activated.append(values))
-    _double_click_scene(qtbot, layout, scene)
+    layout.navigation_requested.connect(lambda key, target, z: activated.append((key, z)))
+    _navigate_scene(qtbot, layout, scene)
 
     assert len(calls) == len(activated) == 1
     assert calls[0] == pytest.approx((z_mm, 0.0), abs=0.5)
@@ -619,13 +666,17 @@ def test_special_component_first_click_stays_in_physical_layout_and_syncs_pendin
 def test_2d_3d_and_ray_selection_markers_survive_manual_tab_switches(navigation_window, qtbot):
     window = navigation_window
     workspace, layout = window.workspace, window.workspace.physical_layout
-    _double_click_scene(qtbot, layout, _coil_scene_point(layout))
+    _navigate_scene(qtbot, layout, _coil_scene_point(layout))
     part = window.assembly.part(COIL)
     expected_span = (part.start_z_mm, part.end_z_mm)
     selected_z = workspace._selected_z_mm
 
-    for destination in ("2d", "ray", "3d", "ray", "2d", "3d"):
-        if destination == "ray":
+    for destination in ("2d", "ray", "vacuum", "3d", "ray", "2d", "3d"):
+        if destination == "vacuum":
+            workspace.tabs.setCurrentWidget(workspace.vacuum_map)
+            assert workspace.vacuum_map.diagram.component.key == COIL
+            assert workspace.vacuum_map.current_key == "post_column"
+        elif destination == "ray":
             workspace.tabs.setCurrentWidget(workspace.ray_page)
         else:
             workspace.tabs.setCurrentWidget(layout)
@@ -671,7 +722,7 @@ def test_repeated_project_reveal_refits_the_same_mesh_in_module_scope_without_ro
 def test_cross_file_activation_keeps_dirty_3d_document_and_invalid_text(navigation_window, qtbot):
     window = navigation_window
     layout = window.workspace.physical_layout
-    _double_click_scene(qtbot, layout, _coil_scene_point(layout))
+    _navigate_scene(qtbot, layout, _coil_scene_point(layout))
     page = layout.model_editor
     _edit(page, COIL, "mechanical_inner_diameter_mm", 70)
     _edit(page, COIL, "mechanical_outer_diameter_mm", "unfinished")

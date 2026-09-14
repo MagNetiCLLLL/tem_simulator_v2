@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Transmission electron microscope simulation and control GUI"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "abtem==1.0.10",
     "ase>=3.29,<4",
@@ -53,6 +53,8 @@ where = ["src"]
 "temsim.recorder" = ["autoscript_1_18.json"]
 
 [tool.setuptools.data-files]
+"configs/environments" = ["configs/environments/*.toml"]
+"configs/sources" = ["configs/sources/*.toml"]
 "configs/instruments" = ["configs/instruments/catalog.toml"]
 "configs/instruments/column" = ["configs/instruments/column/*.toml"]
 "configs/instruments/gun" = ["configs/instruments/gun/*.toml"]

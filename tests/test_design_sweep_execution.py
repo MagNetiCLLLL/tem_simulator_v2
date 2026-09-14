@@ -290,7 +290,8 @@ def test_sweep_rechecks_field_map_bytes_before_each_point(tmp_path):
 
 def test_sweep_rejects_assembly_toml_content_drift(tmp_path):
     root = tmp_path / "instrument"
-    shutil.copytree(INSTRUMENT_CONFIG_ROOT, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, root)
     catalog = AssemblyCatalog(root)
     selection = catalog.default_selection()
     state = default_state()

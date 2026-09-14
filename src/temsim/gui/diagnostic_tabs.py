@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
@@ -1214,6 +1215,7 @@ class _PhysicalLayoutLabelCallout:
 class PhysicalLayoutView(QWidget):
     component_selected = Signal(str)
     component_activated = Signal(str, float)
+    navigation_requested = Signal(str, str, float)
     axial_position_selected = Signal(float)
     RECORDING_SURFACE_PROFILES = frozenset({
         "retractable_detector_plane",
@@ -1381,9 +1383,10 @@ class PhysicalLayoutView(QWidget):
         self.plot = pg.PlotWidget(background="#050816")
         self.plot.setObjectName("physicalLayoutPlot")
         self.plot.setToolTip(
-            "Click to select a component. Double-click to locate it in 3D Parts."
+            "Click to select a component. Right-click for Ray Diagram, 3D Parts or Vacuum map."
         )
         self.plot.setLabel("bottom", "Axial position", units="mm")
+        self.plot.setMenuEnabled(False)
         self.plot.setLabel("left", "Mechanical radius", units="mm")
         self.plot.showGrid(x=True, y=True, alpha=0.16)
         view_box = self.plot.getViewBox()
@@ -1432,10 +1435,7 @@ class PhysicalLayoutView(QWidget):
         self.plot.getViewBox().sigResized.connect(self._layout_component_labels)
 
     def _plot_position_clicked(self, event) -> None:
-        if (
-            event.button() != Qt.MouseButton.LeftButton
-            or not event.double()
-        ):
+        if event.button() != Qt.MouseButton.RightButton:
             return
         view_box = self.plot.getViewBox()
         if not view_box.sceneBoundingRect().contains(event.scenePos()):
@@ -1447,9 +1447,23 @@ class PhysicalLayoutView(QWidget):
         if key is None:
             key = self.component_key_at(float(position.x()), float(position.y()))
         if key is not None:
-            self.component_activated.emit(key, float(position.x()))
-        self.axial_position_selected.emit(float(position.x()))
+            self.component_selected.emit(key)
+            self._navigation_menu = self.component_navigation_menu(key, float(position.x()))
+            self._navigation_menu.popup(event.screenPos().toPoint())
         event.accept()
+
+    def component_navigation_menu(self, key: str, z_mm: float) -> QMenu:
+        menu = QMenu(self)
+        record = self._record_by_key.get(key)
+        menu.addSection(record.name if record else key)
+        for title, target in (("Go to Ray Diagram", "ray"), ("Go to 3D Parts", "parts"),
+                              ("Go to Vacuum map", "vacuum")):
+            action = menu.addAction(title)
+            action.setData(target)
+            action.triggered.connect(lambda checked=False, destination=target:
+                                     self.navigation_requested.emit(key, destination, z_mm))
+        menu.aboutToHide.connect(menu.deleteLater)
+        return menu
 
     def component_key_at(self, z_mm: float, radius_mm: float = 0.0) -> str | None:
         """Resolve empty section space to the nearest component envelope.

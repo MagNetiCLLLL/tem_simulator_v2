@@ -179,10 +179,9 @@ def build_inputs(args, output):
     # The source input files are archived, so later geometry/preset edits do
     # not erase which column and numerical defaults produced this acquisition.
     catalog = AssemblyCatalog()
-    for relative in ("catalog.toml", *catalog.selected_paths(selection).values()):
-        archived = output / "instrument_inputs" / relative
-        archived.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(catalog.root / relative, archived)
+    from temsim.shared_tip import copy_catalog_inputs
+    copy_catalog_inputs(catalog.root, output / "instrument_inputs",
+                        ("catalog.toml", *catalog.selected_paths(selection).values()))
     provenance = {
         "source_file": str(source), "archived_source_file": str(cif_copy.resolve()),
         "sha256": hashlib.sha256(source_bytes).hexdigest(),
@@ -305,7 +304,8 @@ def _merge_ensemble(output, child_dirs, seeds, args, elapsed):
                        "individual_profiles": [str((folder / "operating_profile.toml").resolve()) for folder in child_dirs],
                        "merged_profile_reproduction": "Equivalent sampling inputs only. Exact reproduction uses the listed individual profiles/seeds and this script; a single base seed with config_count=4 uses a different SeedSequence child set."})
     shutil.copyfile(child_dirs[0] / "input_Si.cif", output / "input_Si.cif")
-    shutil.copytree(child_dirs[0] / "instrument_inputs", output / "instrument_inputs", dirs_exist_ok=True)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(child_dirs[0] / "instrument_inputs", output / "instrument_inputs", dirs_exist_ok=True)
     parameters["specimen"]["archived_source_file"] = str((output / "input_Si.cif").resolve())
     profile = tomllib.loads((child_dirs[0] / "operating_profile.toml").read_text(encoding="utf-8"))
     profile["devices"]["sample"]["wave_frozen_phonon_configurations"] = len(seeds)

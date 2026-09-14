@@ -82,6 +82,20 @@ def test_source_hue_survives_reordered_scattering_and_is_bounded(view):
     assert len(groups) <= view.MAX_DISPLAY_RAYS
 
 
+def test_zero_current_probes_are_separate_dashed_paths(view):
+    from PySide6.QtCore import Qt
+    result = _result()
+    branch = result.simulation.incident
+    branch.ray_weight[-1] = 0.
+    view._sync_source_ray_curves(result.simulation, (branch,))
+    key = ("support", (248, 250, 252))
+    assert view._ray_items_by_group[key].opts["pen"].style() == Qt.PenStyle.DashLine
+    assert "Zero-current" in view._ray_items_by_group[key].toolTip()
+    kinds, colours, groups = view._ray_colour_groups((branch,), 1.)
+    assert "support" in kinds
+    np.testing.assert_array_equal(groups[("support", 0)][0][1], [branch.x.shape[1]-1])
+
+
 def test_colour_switch_preserves_ranges_arrays_and_skips_calculation(view, monkeypatch):
     result = _result()
     view._last_result = result

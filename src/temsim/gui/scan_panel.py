@@ -116,8 +116,12 @@ class ScanControlView(QWidget):
             title="Descan Foils",
             prefix="descan",
         )
+        self.image_enabled = QCheckBox("Generate STEM detector images (High accuracy)")
+        self.image_enabled.setObjectName("stemImageEnabled")
+        self.image_enabled.toggled.connect(self._image_readout_changed)
+        controls_layout.addWidget(self.image_enabled)
         self.wave_scan_enabled = QCheckBox(
-            "Calculate STEM detector images (High accuracy)"
+            "Coherent STEM wave imaging (paused)"
         )
         self.wave_scan_enabled.setObjectName("stemWaveScanEnabled")
         self.wave_scan_enabled.setToolTip(
@@ -503,7 +507,7 @@ class ScanControlView(QWidget):
         self.enable_wave_images = QPushButton("Enable CIF wave imaging")
         self.enable_wave_images.setObjectName("stemEnableCifWaveImages")
         self.enable_wave_images.setToolTip(
-            "Enable the existing STEM wave-image setting for the current calculation. "
+            "Coherent tip-to-column imaging is paused. "
             "Run High accuracy separately; the displayed frame remains unchanged."
         )
         self.enable_wave_images.clicked.connect(lambda: self.wave_scan_enabled.setChecked(True))
@@ -858,9 +862,11 @@ class ScanControlView(QWidget):
                 self.descan_controls,
             )
             self._update_fov_labels()
+            self.image_enabled.setChecked(bool(getattr(state.sample, "stem_image_enabled", True)))
             self.wave_scan_enabled.setChecked(
                 bool(getattr(state.sample, "stem_wave_enabled", False))
             )
+            self.wave_scan_enabled.setEnabled(self.wave_scan_enabled.isChecked())
             self.fourdstem_enabled.setChecked(bool(getattr(
                 state.sample, "stem_fourdstem_enabled", False
             )))
@@ -929,10 +935,17 @@ class ScanControlView(QWidget):
         self._update_wave_image_action()
         self._update_fourdstem_summary(self._stem_frame)
 
+    def _image_readout_changed(self, enabled):
+        if self._updating or self._state is None:
+            return
+        self._state.sample.stem_image_enabled = bool(enabled)
+        self.parameters_changed.emit("sample.stem_image_enabled")
+
     def _wave_scan_model_changed(self, enabled: bool) -> None:
         if self._updating or self._state is None:
             return
         self._state.sample.stem_wave_enabled = bool(enabled)
+        self.wave_scan_enabled.setEnabled(bool(enabled))
         self._update_wave_image_action()
         self.parameters_changed.emit("sample.stem_wave_enabled")
 
@@ -941,11 +954,9 @@ class ScanControlView(QWidget):
         enabled = bool(getattr(sample, "stem_wave_enabled", False))
         self.enable_wave_images.setVisible(self._wave_action_needed)
         self.wave_image_action_note.setVisible(self._wave_action_needed)
-        self.enable_wave_images.setEnabled(sample is not None and not enabled)
-        self.enable_wave_images.setText("CIF wave imaging enabled" if enabled else "Enable CIF wave imaging")
-        note = "For current settings: run High accuracy to calculate new CIF wave images."
-        if not enabled:
-            note = "Enable the wave model, then run High accuracy for CIF atomic contrast."
+        self.enable_wave_images.setEnabled(False)
+        self.enable_wave_images.setText("Coherent imaging paused")
+        note = "Classical tip particles are active. Coherent tip-to-column imaging is not qualified; historical images remain viewable."
         if self.pause_image_refresh.isChecked():
             note += " Resume refresh to show new frames."
         if self._showing_bank_images():
@@ -1904,11 +1915,11 @@ class ScanControlView(QWidget):
             self._wave_action_needed = True
             self._update_wave_image_action()
             self.image_model_notice.setText(
-                "No STEM frame | Preview: geometry · High accuracy + wave model: specimen contrast"
+                "No STEM frame | High accuracy: selected particle readouts · coherent imaging paused"
             )
             self.image_model_notice.setToolTip(
-                "Run Preview for scan/detector geometry or High accuracy with "
-                "wave/multislice enabled for specimen-dependent contrast."
+                "Select STEM images in Calculate setup and enable the AC raster, then run High accuracy. "
+                "Current calculations use classical particles; atomic wave contrast is paused."
             )
             return
         metrics = getattr(frame, "metrics", None) or {}
@@ -1963,14 +1974,17 @@ class ScanControlView(QWidget):
                 + ("CIF-derived material composition and density may enter finite-particle transport; "
                    "the CIF lattice is not propagated at each scan pixel. " if material_transport
                    else "The selected CIF structure is not used by this geometry preview. ")
-                + f"{cif_note} Enable CIF wave imaging and run High accuracy "
-                f"to calculate pixel-resolved atomic contrast.{scale}"
+                + f"{cif_note} Coherent atomic-contrast imaging is currently paused.{scale}"
             )
             text = (
                 ("Material particle preview | CIF atomic contrast not calculated" if material_transport
                  else "Geometry preview only | selected CIF not used")
                 + compact_scale
             )
+            medium_scope = str(metrics.get("vacuum_transport_scope", "disabled"))
+            if medium_scope != "disabled":
+                detail_text += " " + medium_scope + "."
+                text += " | medium: reference trajectories"
             colour = (
                 "color: #92400e; background: #fffbeb; border: 1px solid #f59e0b;"
             )

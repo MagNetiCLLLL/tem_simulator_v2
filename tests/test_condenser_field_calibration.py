@@ -68,7 +68,8 @@ def test_c1_c2_ratio_and_field_calibration_are_toml_authoritative(column):
 
 def test_custom_column_toml_overrides_python_c1_field_defaults(tmp_path: Path):
     root = tmp_path / "instruments"
-    shutil.copytree(module_manifest.MODULE_ROOT, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(module_manifest.MODULE_ROOT, root)
     path = root / "column" / "C3_ProbeCorrector.toml"
     text = path.read_text(encoding="utf-8")
     text = text.replace(

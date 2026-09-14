@@ -13,6 +13,9 @@ from temsim.physics.simulation import (
 
 def _small_vacuum_state():
     state = default_state()
+    # This fixture tests phase-only optical restarts. Residual-medium histories
+    # additionally need collision clocks; tested separately in test_vacuum_transport.
+    state.vacuum_map.enabled = False
     state.step_mm = 5.0
     state.history_step_mm = 5.0
     state.acceleration_enabled = False

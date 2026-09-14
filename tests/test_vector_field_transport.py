@@ -66,6 +66,21 @@ def _trace(state, inputs=None, start=0.0, stop=1.0, **kwargs):
                      include_spherical_aberration=False, include_hexapole=False, **kwargs)
 
 
+def test_deferred_stopped_history_keeps_other_vector_map_rays_finite():
+    from temsim.physics.core import build_propagation_plan, execute_propagation_plan
+    state = _state()
+    _map(state)
+    plan = build_propagation_plan(state, 0., 1., (),
+        include_spherical_aberration=False, include_hexapole=False)
+    arrays = [np.array([np.nan, 0.]) for _ in range(4)]
+    with pytest.raises(ValueError, match="finite XYZ"):
+        execute_propagation_plan(state, plan, *arrays)
+    result = execute_propagation_plan(state, plan, *arrays, defer_nonfinite_until_clipping=True)
+    for values in result[1:5]:
+        assert np.isnan(values[:, 0]).all()
+        assert np.isfinite(values[:, 1]).all()
+
+
 @pytest.mark.parametrize("field,coordinate,sign", [
     ((0.03, 0.0, 0.0), 2, -1), ((0.0, 0.03, 0.0), 0, 1),
 ])

@@ -45,7 +45,8 @@ def test_stem_wave_toggle_has_only_scanning_image_owner(wave_panels):
     ]
     assert toggles == [scan_view.wave_scan_enabled]
     assert not hasattr(sample_page, "stem_wave_enabled")
-    assert scan_view.wave_scan_enabled.text() == "Calculate STEM detector images (High accuracy)"
+    assert scan_view.wave_scan_enabled.text() == "Coherent STEM wave imaging (paused)"
+    assert scan_view.image_enabled.isChecked()
     assert sample_page.findChild(QCheckBox, "sampleTemWaveEnabled") is sample_page.tem_wave_enabled
     assert sample_page.findChild(QGroupBox, "sampleWaveControls").title() == "Wave imaging settings"
     location = sample_page.findChild(QLabel, "sampleStemImageLocation")
@@ -125,7 +126,7 @@ def test_operating_profile_restores_stem_request_to_sole_toggle(
 
 
 @pytest.mark.parametrize("illumination", ["TEM", "STEM"])
-def test_scanning_wave_control_keeps_existing_illumination_support(
+def test_new_wave_requests_stay_paused_in_both_illumination_modes(
     wave_panels, illumination
 ):
     sample_page, scan_view = wave_panels
@@ -135,8 +136,8 @@ def test_scanning_wave_control_keeps_existing_illumination_support(
     sample_page.set_state(state)
     scan_view.set_state(state)
 
-    assert scan_view.wave_scan_enabled.isEnabled()
-    scan_view.wave_scan_enabled.setChecked(True)
+    assert not scan_view.wave_scan_enabled.isEnabled()
+    scan_view.wave_scan_enabled.click()
 
-    assert state.sample.stem_wave_enabled is True
-    assert sample_page.tem_wave_enabled.isEnabled() is (illumination == "TEM")
+    assert state.sample.stem_wave_enabled is False
+    assert not sample_page.tem_wave_enabled.isEnabled()

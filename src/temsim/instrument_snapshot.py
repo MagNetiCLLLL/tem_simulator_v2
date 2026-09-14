@@ -61,7 +61,7 @@ _RUNTIME_NAMES = frozenset({
 @lru_cache(maxsize=1)
 def _model_types():
     result = {}
-    for suffix in _MODEL_MODULES:
+    for suffix in (*_MODEL_MODULES, "vacuum"):
         module = import_module("temsim." + suffix)
         for name, cls in vars(module).items():
             if (isinstance(cls, type) and cls.__module__ == module.__name__

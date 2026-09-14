@@ -1,0 +1,55 @@
+{
+  "scope": "Focused classical tip/assembly regression; no coherent wave imaging",
+  "runs_overlap_do_not_add_counts": true,
+  "runs": [
+    {
+      "receipt": "tip-regression.xml",
+      "tests": "287",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "227.549"
+    },
+    {
+      "receipt": "tip-final.xml",
+      "tests": "65",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "74.095"
+    },
+    {
+      "receipt": "tip-final-edits.xml",
+      "tests": "89",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "23.480"
+    },
+    {
+      "receipt": "tip-assembly-final.xml",
+      "tests": "96",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "19.269"
+    }
+  ],
+  "catalog": {
+    "modules": 11,
+    "part_definitions": 482,
+    "assembly_combinations": 30
+  },
+  "packaging": {
+    "source_tomls_included": [
+      "FEG_tip.toml",
+      "cold_feg_tip.toml"
+    ],
+    "isolated_installed_editor_opened": true
+  },
+  "checks": [
+    "Changed Python compiled",
+    "git diff --check passed",
+    "3D and emission widgets rendered and inspected"
+  ]
+}

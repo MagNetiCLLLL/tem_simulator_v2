@@ -5,6 +5,7 @@ import math
 from temsim import module_manifest
 from temsim.optics.nanopulser import NanoPulser
 from temsim.optics.aperture_policy import ApertureInsertionPolicy
+from temsim.vacuum import VacuumMap
 
 
 _DEFAULT_COLUMN_MODULE = "column/C3_ProbeCorrector.toml"
@@ -318,9 +319,11 @@ class Sample:
 
     wave_frozen_phonon_seed: int = 100
 
-    # High accuracy requests specimen STEM images by default. Preview/live
-    # tuning disables wave calculations in its separate calculation snapshot.
-    stem_wave_enabled: bool = True
+    # Readout selection is independent of scan coils / detector absorption.
+    stem_image_enabled: bool = True
+    # Current defaults use classical tip particles. Historical explicit wave
+    # requests remain readable and subject to coherent-source admission.
+    stem_wave_enabled: bool = False
 
     stem_poisson_enabled: bool = False
 
@@ -509,6 +512,7 @@ class State:
 
     electron_gun: object = None
     electron_gun_profiles: dict = field(default_factory=dict, repr=False)
+    vacuum_map: VacuumMap = field(default_factory=VacuumMap.load)
 
     nanopulser: NanoPulser = field(default_factory=NanoPulser)
 
@@ -1700,6 +1704,7 @@ class State:
             "deflectors":[component_payload(x) for x in self.deflectors],
 
             "electron_gun":self.electron_gun.to_dict(),
+            "vacuum_map":self.vacuum_map.to_dict(),
             "nanopulser":self.nanopulser.to_dict(),
             "electron_gun_profiles":{
                 str(key):dict(value)
@@ -2679,6 +2684,7 @@ class State:
             stigmators=loaded_stigmators,
             deflectors=loaded_deflectors,
             electron_gun=electron_gun,
+            vacuum_map=(VacuumMap.from_dict(d["vacuum_map"]) if "vacuum_map" in d else VacuumMap.historical()),
             electron_gun_profiles={
                 str(key):dict(value)
                 for key,value in d.get(

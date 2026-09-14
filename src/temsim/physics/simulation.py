@@ -133,6 +133,7 @@ class Branch:
     # Neither value is an instantaneous velocity angle or a physical weight.
     source_ray_id: np.ndarray | None = None
     source_azimuth_rad: np.ndarray | None = None
+    vacuum_report: dict | None = None
 
 @dataclass
 
@@ -297,7 +298,14 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
     incident_plan = build_propagation_plan(
         s, gun.exit_plane_z_mm, s.sample.z_mm, pre_events,
         checkpoint_z_mm=checkpoint_planes,
+        particle_medium=s.vacuum_map.enabled,
+        medium_energy_ev=s.beam_voltage_kv*1000+dE,
     )
+    incident_medium = None
+    if s.vacuum_map.enabled:
+        from temsim.physics.residual_medium import ColumnMediumTransport
+        incident_medium = ColumnMediumTransport(s, incident_plan, n, s.beam_voltage_kv*1000+dE,
+                                                alive=emitted.alive, stream=1)
     cache_mode = "none"
     resume_z_mm = float(gun.exit_plane_z_mm)
     reused_prefix_rows = 0
@@ -310,6 +318,11 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
     source_matches = _gun_traces_match(
         getattr(existing_simulation, "gun_trace", None), gun_trace
     )
+    # Phase-only checkpoints do not contain collision clocks or path budgets.
+    # Whole calculation products are reusable through their full signatures;
+    # do not restart stochastic transport from an incomplete optical checkpoint.
+    if incident_medium is not None:
+        source_matches = False
 
     if (
         source_matches
@@ -367,7 +380,9 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
 
         if resume is None:
             column_result = execute_propagation_plan(
-                s, incident_plan, x, tx, y, ty, dE
+                s, incident_plan, x, tx, y, ty, dE,
+                defer_nonfinite_until_clipping=True,
+                medium_transport=incident_medium,
             )
             (
                 z_column, X_column, TX_column, Y_column, TY_column,
@@ -388,6 +403,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
                 np.asarray(previous_checkpoints.ty_rad[old_row]).copy(),
                 dE, start_index=start_index,
                 include_initial_plane_kicks=False,
+                defer_nonfinite_until_clipping=True,
             )
             (
                 z_suffix, X_suffix, TX_suffix, Y_suffix, TY_suffix,
@@ -409,17 +425,25 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
     alive=emitted.alive.copy()
     blocked=gun_trace.blocked_z_mm.copy()
     keys=list(gun_trace.blocked_key)
+    if incident_medium is not None:
+        alive, blocked, keys = incident_medium.merge_stops(alive, blocked, keys)
     alive,blocked,keys=_clip_aperture_segment(
         s,z,X,Y,alive,blocked,keys
     )
 
     alive,blocked,keys=clip_column_wall(s,z,X,Y,alive,blocked,keys)
 
+    if incident_plan.mapped_fields:
+        visible = ~np.isfinite(blocked)[None, :] | (z[:, None] <= blocked[None, :])
+        if any(np.any(~np.isfinite(values) & visible) for values in (X, TX, Y, TY)):
+            raise ValueError("Non-finite vector-field trajectory before a physical stop; reduce the step or use time-domain transport")
+
     incident_kind = 'incident'
     incident=Branch(
         'incident',_interaction_colour(incident_kind),z,X,Y,TX,TY,alive,
         blocked,keys,1.,dE,emitted.weight,
         interaction_kind=incident_kind,
+        vacuum_report=incident_medium.report() if incident_medium is not None else None,
     )
     from temsim.physics.ray_identity import source_identity
 
@@ -553,12 +577,16 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
             post_ty.append(TY[-1]+kick_y+chromatic_ty)
             post_energy.append(branch_energy_offset)
 
+        downstream_media = []
         zp,XP_all,TP_all,YP_all,TYP_all=propagate(
             s,s.sample.z_mm,determine_tem_stop_z(s),
             np.concatenate(post_x),np.concatenate(post_tx),
             np.concatenate(post_y),np.concatenate(post_ty),
             post_events,np.concatenate(post_energy),
             include_initial_plane_kicks=False,
+            defer_nonfinite_until_clipping=True,
+            particle_medium=s.vacuum_map.enabled,
+            medium_alive=np.tile(alive, len(post_payloads)), medium_output=downstream_media,
         )
 
         for branch_index,(name,w,interaction_kind,branch_energy_offset,kick_x_array,kick_y_array) in enumerate(post_payloads):
@@ -569,11 +597,16 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
             # Post-sample apertures and recording planes are resolved together
             # below so upstream stops always win over downstream stops.
             al=alive.copy();bl=blocked.copy();ks=list(keys)
+            if downstream_media:
+                al, bl, ks = downstream_media[0].merge_stops(al, bl, ks, branch_slice)
 
             # Resolve detector and wall candidates, then keep the earliest
             # axial intercept. A later wall cannot hide an earlier detector.
             al,bl,ks=clip_recording_planes(s,zp,XP,YP,al,bl,ks)
             al,bl,ks=clip_column_wall(s,zp,XP,YP,al,bl,ks)
+            visible = ~np.isfinite(bl)[None, :] | (zp[:, None] <= bl[None, :])
+            if any(np.any(~np.isfinite(values) & visible) for values in (XP, TP, YP, TYP)):
+                raise ValueError("Non-finite outgoing trajectory before a physical stop; reduce the step or use time-domain transport")
 
             branches[name]=Branch(
                 name,_interaction_colour(interaction_kind),zp,XP,YP,TP,TYP,al,
@@ -583,12 +616,14 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
                 interaction_kick_y_rad=kick_y_array,
                 source_ray_id=incident.source_ray_id,
                 source_azimuth_rad=incident.source_azimuth_rad,
+                vacuum_report=downstream_media[0].report(branch_slice) if downstream_media else None,
             )
 
     if optical_only:
         from temsim.physics.optical_tuning import tuning_metrics
         metrics = tuning_metrics(s, incident)
         metrics['column_segment_cache'] = segment_cache_metrics
+        metrics['vacuum_transport'] = {"gun": gun_trace.vacuum_report, "incident": incident.vacuum_report}
         return Simulation(incident, branches, metrics, gun_waist=gun_waist,
                           gun_trace=gun_trace, incident_plan=incident_plan,
                           incident_checkpoints=incident_checkpoints)
@@ -689,6 +724,8 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
     )
     metrics.update({
         'column_segment_cache': segment_cache_metrics,
+        'vacuum_transport': {"gun": gun_trace.vacuum_report, "incident": incident.vacuum_report,
+                             "downstream": [b.vacuum_report for b in branches.values() if b.vacuum_report]},
         'sample_inserted': sample_inserted,
         'sample_scattering_applied': bool(
             real_interactions is not None

@@ -13,6 +13,7 @@ def state():
     value = default_state()
     catalog = AssemblyCatalog()
     catalog.apply(value, catalog.default_selection())
+    value.electron_gun.emitter.surface_model = None  # historical source editor fixture
     value.electron_gun.emitter.ray_count = 9
     # Existing preview serialization snaps an aperture anchor by one ULP.
     # Establish that canonical layout before measuring source-edit ownership.

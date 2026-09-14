@@ -54,7 +54,8 @@ def test_custom_recording_toml_overrides_python_projector_defaults(
     tmp_path: Path,
 ):
     root = tmp_path / "instruments"
-    shutil.copytree(module_manifest.MODULE_ROOT, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(module_manifest.MODULE_ROOT, root)
     path = root / "project_and_recording_system" / "EnergyFilter.toml"
     text = path.read_text(encoding="utf-8")
     text = text.replace(

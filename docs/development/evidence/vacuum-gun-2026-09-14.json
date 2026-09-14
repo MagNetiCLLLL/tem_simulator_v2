@@ -1,0 +1,77 @@
+{
+  "surface": {
+    "model": "grounded-cold-feg-surface-v1",
+    "surface_mesh_displacement_m": 4.857572684489451e-09,
+    "potential_reference": "final_anode_ground_0V",
+    "exit_energy_status": "verified",
+    "transmitted_particle_count": 3,
+    "minimum_exit_kinetic_energy_ev": 300000.1960312806,
+    "maximum_exit_kinetic_energy_ev": 300000.7110696132,
+    "minimum_expected_exit_kinetic_energy_ev": 300000.19603128,
+    "maximum_expected_exit_kinetic_energy_ev": 300000.7110696123,
+    "maximum_exit_energy_error_ev": 8.731149137020111e-10,
+    "exit_energy_error_budget_ev": 0.001,
+    "accelerating_voltage_kv": 300.0,
+    "extraction_voltage_kv": 4.0,
+    "electrostatic_field": {
+      "schema": "axisymmetric-grounded-feg-laplace-v1",
+      "potential_reference": "final_anode_ground_0V",
+      "tip_potential_v": -300000.0,
+      "extractor_potential_v": -296000.0,
+      "final_anode_potential_v": 0.0,
+      "grid_shape": [
+        166,
+        461
+      ],
+      "linear_residual": 4.8506384094556175e-16,
+      "space_charge": "neglected",
+      "potential_interpolation": "bilinear-radius-squared-z-v1",
+      "boundary_model": "reference annuli; insulating radial/back boundary; grounded exit plane",
+      "convergence": "not_certified_by_linear_residual"
+    },
+    "scope": "classical prescribed outgoing flux; no coherent phase or tunnelling prediction"
+  },
+  "vacuum": {
+    "model": "independent-atom-Wentzel-Moliere-elastic-v1",
+    "scope": "Independent-atom screened elastic approximation; low-energy extrapolation, no molecular bonding, recoil, ionisation, stopping power or cell windows. Liquid is an elastic density surrogate. Scattered electrons retain weight; removal requires a separate supplied cross section. Column uses forward-Z optics.",
+    "regions": [
+      {
+        "key": "gun_tip",
+        "name": "Gun \u2014 tip and extraction",
+        "medium": {
+          "phase": "gas",
+          "formula": "N2",
+          "pressure_mbar": 3e-11,
+          "temperature_k": 293.0,
+          "density_kg_m3": 1000.0,
+          "removal_cross_section_m2": 0.0,
+          "removal_reference": ""
+        },
+        "mean_path_m": 0.030090424655888855,
+        "mean_elastic_optical_depth": 2.562830709904324e-11,
+        "mean_uncollided_fraction": 0.9999999999743717,
+        "elastic_events": 0
+      },
+      {
+        "key": "gun_accelerator",
+        "name": "Gun \u2014 accelerator",
+        "medium": {
+          "phase": "gas",
+          "formula": "N2",
+          "pressure_mbar": 2e-08,
+          "temperature_k": 293.0,
+          "density_kg_m3": 1000.0,
+          "removal_cross_section_m2": 0.0,
+          "removal_reference": ""
+        },
+        "mean_path_m": 0.3466672132853852,
+        "mean_elastic_optical_depth": 1.742036192421309e-08,
+        "mean_uncollided_fraction": 0.9999999825796384,
+        "elastic_events": 0
+      }
+    ],
+    "low_energy_extrapolation_path_m": 3.373735706014276e-08,
+    "removal_events": 0,
+    "backscatter_exits": 0
+  }
+}

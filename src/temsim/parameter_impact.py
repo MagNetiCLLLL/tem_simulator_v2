@@ -270,6 +270,28 @@ def _describe_parameter_impact(part, path, *, by_key=None, simulation_mode="idea
     row, index, path, kind, field = _context(part, path, by_key)
     if not row:
         return _impact("unknown", "Source part not connected", "The parameter's source part is unavailable; its physical route needs verification.")
+    from temsim.optics.electron_gun.tip_assembly import is_tip_part, PART_FIELDS
+    connected = simulation_mode in MODE_BY_KEY and MODE_BY_KEY[simulation_mode].available
+    if connected and kind == "parts" and row.get("key") == "feg_accelerator" and field == "electrode_thickness_mm":
+        return _impact("active", "Accelerator conducting boundary",
+                       "Each ring's thickness enters the connected tip-to-anode electrostatic boundary and field cache identity for the curved-tip particle source.",
+                       effects=("geometry", "electric_field"), results=("ray_transport", "beam_transmission"))
+    if connected and kind == "parts" and field in {"default_voltage_kv", "default_high_tension_kv"} and row.get("key") in {
+            "feg_extractor", "feg_electrostatic_lens", "feg_accelerator"}:
+        return _impact("active", "Electrode voltage default",
+                       "A changed assembly default is applied to the existing electrode. It changes the tip-to-anode electrostatic solution and particle transport; unchanged defaults preserve live voltage edits.",
+                       effects=("electric_field", "operating"), results=("ray_transport", "beam_transmission"))
+    if connected and kind == "parts" and is_tip_part(row) and field in PART_FIELDS:
+        if row.get("mechanical_part_role") == "custom_mechanical_copy":
+            return _impact("inactive", "Independent mechanical tip copy",
+                           "This copy changes the displayed solid; no additional emission source or extraction electrode is created.", effects=("display",))
+        if field == "tip_material":
+            return _impact("inactive", "Material identity; prescribed emission",
+                           "Material is recorded; a tunnelling or work-function emission law is not calculated.", effects=("display",))
+        return _impact("active", "TOML tip particle input",
+                       "Loaded as the physical tip definition: geometry enters the conducting boundary and launch surface; emission controls local outgoing particles. "
+                       "The full extraction, acceleration and aperture chain remains active. Operating source overrides can replace the saved default.",
+                       effects=("geometry", "electric_field", "operating"), results=("3d_preview", "ray_transport", "beam_transmission"))
     if field == "model_3d":
         return _impact("unsupported", "CAD display only",
                        "The saved model_3d base, transforms and hole/slot features change the 3D mesh only. "

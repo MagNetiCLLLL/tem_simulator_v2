@@ -964,7 +964,7 @@ class CalculationController(QObject):
             requested.add("eds")
         if tem_wave_imaging_enabled(state):
             requested.update(("wave_source", "wave"))
-        if stem_requested:
+        if stem_requested and getattr(sample, "stem_image_enabled", True):
             requested.add("stem")
             if bool(
                 getattr(sample, "stem_fourdstem_enabled", False)

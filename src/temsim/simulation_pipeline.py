@@ -257,7 +257,7 @@ def calculate_stem_scan_frame(
     """Calculate exactly one detector-signal frame when AC scan is active."""
 
     component = state.ac_deflector
-    if not bool(component.enabled and component.scan_enabled):
+    if not bool(component.enabled and component.scan_enabled and getattr(state.sample, "stem_image_enabled", True)):
         return None
     extra = {"diffraction_sink": diffraction_sink} if diffraction_sink is not None else {}
     return acquire_stem_scan(
@@ -339,6 +339,7 @@ def calculate(
     tem_wave_requested = tem_wave_imaging_enabled(state)
     stem_frame_requested = bool(
         state.ac_deflector.enabled and state.ac_deflector.scan_enabled
+        and getattr(state.sample, "stem_image_enabled", True)
     )
     scan_geometry_requested = bool(
         (state.ac_deflector.enabled and state.ac_deflector.scan_enabled)

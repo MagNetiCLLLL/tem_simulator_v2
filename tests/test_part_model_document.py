@@ -442,7 +442,8 @@ def test_model_configuration_uses_real_manifest_editor_save_and_validation(tmp_p
 
     root = tmp_path / "instruments"
     source_bytes = (INSTRUMENT_CONFIG_ROOT / MODULE).read_bytes()
-    shutil.copytree(INSTRUMENT_CONFIG_ROOT, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, root)
     editor, target = ManifestEditor(root), ManifestTarget(MODULE, KEY)
     configuration = layout_configuration_from_state(default_state())
     draft = PartModelDocument(root / MODULE)

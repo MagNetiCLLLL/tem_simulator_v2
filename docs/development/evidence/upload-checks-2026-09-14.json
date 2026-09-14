@@ -1,0 +1,21 @@
+{
+  "date": "2026-09-14",
+  "scope": "Classical FEG tip, vacuum transport/UI, setup installer; no coherent wave calculations",
+  "upload_regression": [
+    {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "95",
+      "time": "133.750",
+      "timestamp": "2026-09-14T15:53:24.098085+01:00"
+    }
+  ],
+  "python311_install": "Fresh environment, pip check and Qt/3D/EDS imports passed; 79 focused tests passed",
+  "python312_install": "Existing environment reused successfully with --offline; 11 installer tests passed",
+  "python313_status": "Windows CPython dependency wheel resolution passed; interpreter not executed",
+  "packaging": "Wheel built and checked for shared FEG tip, vacuum TOML, controls, residual-medium implementation and Python >=3.11,<3.14 metadata",
+  "full_coherent_acceptance": "Paused by user; existing source-migration acceptance blockers are not claimed resolved",
+  "artifacts": "Local wheels, virtual environments, calculation arrays and scratch build/test outputs excluded from Git"
+}

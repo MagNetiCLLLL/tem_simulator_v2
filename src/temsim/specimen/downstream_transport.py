@@ -409,6 +409,7 @@ def build_geometric_specimen_exit(
                             f"Propagated {channel_name} {elastic_label} electrons",
                         )
                     continue
+                medium_results = []
                 z, x, tx, y, ty = propagate(
                     state,
                     float(state.sample.z_mm),
@@ -421,10 +422,14 @@ def build_geometric_specimen_exit(
                     energy_offset[mask],
                     save_z_mm=tuple(float(value) for value in save_z_mm),
                     include_initial_plane_kicks=False,
+                    particle_medium=state.vacuum_map.enabled, medium_output=medium_results,
+                    medium_stream=100+progress_completed,
                 )
                 alive = np.ones(np.count_nonzero(mask), dtype=bool)
                 blocked = np.full(alive.size, np.nan, dtype=float)
                 blocked_keys = [""] * alive.size
+                if medium_results:
+                    alive, blocked, blocked_keys = medium_results[0].merge_stops(alive, blocked, blocked_keys)
                 alive, blocked, blocked_keys = clip_recording_planes(
                     state, z, x, y, alive, blocked, blocked_keys
                 )
@@ -471,6 +476,7 @@ def build_geometric_specimen_exit(
                         energy_offset_ev=energy_offset[mask],
                         ray_weight=group_weights / group_weight,
                         interaction_kind=interaction_kind,
+                        vacuum_report=medium_results[0].report() if medium_results else None,
                         interaction_kick_x_rad=kick_x_values[mask],
                         interaction_kick_y_rad=kick_y_values[mask],
                         source_ray_id=group_source_ids,

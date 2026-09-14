@@ -11,7 +11,8 @@ from temsim.paths import INSTRUMENT_CONFIG_ROOT
 
 def test_manifest_save_validates_and_invalid_edit_rolls_back(tmp_path: Path):
     root = tmp_path / "instruments"
-    shutil.copytree(INSTRUMENT_CONFIG_ROOT, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, root)
     editor = ManifestEditor(root)
     target = ManifestTarget(
         "column/C3_ProbeCorrector.toml", "condenser_lens_1"

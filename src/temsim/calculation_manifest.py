@@ -559,6 +559,13 @@ def _external_inputs(state: object) -> tuple[ExternalInputIdentity, ...]:
         ):
             row = _file_identity(f"assembly:{module_type}", root / relative)
             rows[(row.role, row.path)] = row
+            if row.available:
+                from temsim.shared_tip import raw_document, definition_path
+                for part in raw_document(root / relative).get("parts", ()):
+                    source = definition_path(root / relative, part)
+                    if source is not None:
+                        shared = _file_identity("assembly:tip_definition", source)
+                        rows[(shared.role, shared.path)] = shared
         catalog = _file_identity("assembly:catalog", root / "catalog.toml")
         rows[(catalog.role, catalog.path)] = catalog
     sample = getattr(state, "sample", None)

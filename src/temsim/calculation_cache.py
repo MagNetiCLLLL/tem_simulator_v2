@@ -52,7 +52,7 @@ _TEM_PROJECTION_SCHEMA = "physical-aperture-pre-loss-flux-v1"
 _STEM_RECORDING_SCHEMA = "physical-envelope-pre-specimen-flux-gpu-capture-v6"
 _PARTICLE_POINT_SCHEMA = "resolved-point-material-hit-diagnostics-v2"
 _EDS_SIGNAL_SCHEMA = "eds-only-overlap-importance-v1"
-_STAGE_INPUT_SCHEMA = "live-lens-components-v2"
+_STAGE_INPUT_SCHEMA = "live-lens-components-v3-tip-support"
 
 
 def _particle_point_digest(payload):
@@ -511,6 +511,14 @@ def live_lens_parameters(lens) -> dict[str, object]:
 
 def _state_payload(state) -> dict[str, object]:
     payload = _drop_runtime_solver_state(state.to_dict())
+    if getattr(state, "vacuum_map", None) is not None and state.vacuum_map.enabled:
+        from dataclasses import asdict
+        from temsim.vacuum import resolve_regions
+        from temsim.physics.residual_medium import MODEL
+        payload["_vacuum_model"] = MODEL
+        payload["_vacuum_resolved_regions"] = [asdict(r) for r in resolve_regions(state)]
+        payload["_vacuum_solid_exclusion"] = {k: getattr(state.sample, k) for k in
+            ("z_mm", "inserted", "thickness_nm", "size_x_nm", "size_y_nm", "centre_x_nm", "centre_y_nm", "envelope_shape")}
     # Version every affected product, including states without a catalog.
     # This does not migrate saved profiles or admit historical stage keys.
     payload["_stage_input_schema"] = _STAGE_INPUT_SCHEMA

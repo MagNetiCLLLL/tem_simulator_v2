@@ -89,6 +89,7 @@ def test_editor_explicit_particle_selection_and_geometry_are_draft_only(qtbot):
 def test_invalid_geometry_keeps_live_source_and_does_not_apply(qtbot):
     from temsim.gui.gun_source_dialog import GunSourceDialog
     gun = FieldEmissionGun()
+    original = gun.emitter.surface_model
     dialog = GunSourceDialog(gun)
     qtbot.addWidget(dialog)
     dialog.particle_button.click()
@@ -96,7 +97,7 @@ def test_invalid_geometry_keeps_live_source_and_does_not_apply(qtbot):
     dialog.accept()
     assert dialog._value is None
     assert "Apex radius" in dialog.error.text()
-    assert gun.emitter.surface_model is None
+    assert gun.emitter.surface_model is original
     assert dialog.geometry_preview._model is None
 
 

@@ -105,7 +105,7 @@ class ColdFieldEmitter:
     @property
     def emitted_current_a(self):
         if self.surface_model is not None:
-            return self.surface_model.emission.current_na * 1e-9
+            return self.surface_model.current_na * 1e-9
         return float(self.emission_current_na) * 1.0e-9
 
     @property
@@ -173,7 +173,8 @@ class ColdFieldEmitter:
             raise ValueError("Cold FEG emission requires at least 9 rays.")
         if self.surface_model is not None:
             from temsim.optics.electron_gun.tip_surface import surface_bundle
-            return surface_bundle(self.surface_model, n)
+            return surface_bundle(self.surface_model, n,
+                support_probes=int(getattr(self, "_tuning_surface_probes", 0)))
         if self.coherence is not None:
             from temsim.optics.electron_gun.tip_coherence import tip_particle_samples
             bundle = tip_particle_samples(self, n)

@@ -284,10 +284,15 @@ class PartModelEditorPage(QWidget):
         self._catalog_paths = self._catalog_component_paths(paths)
         self._module_origins = {}
         self._coordinate_source_bytes = {}
+        self._active_tip_definitions = set()
+        from temsim.shared_tip import dependencies
         for relative in (*paths, "catalog.toml"):
             path = (self._project_root / relative).resolve()
             try:
                 self._coordinate_source_bytes[path] = path.read_bytes()
+                shared = dependencies(path)
+                self._coordinate_source_bytes.update(shared)
+                self._active_tip_definitions.update(shared)
             except OSError:
                 self._coordinate_source_bytes[path] = None
         for part in getattr(assembly, "parts", ()):
@@ -546,12 +551,24 @@ class PartModelEditorPage(QWidget):
         self._calculation_status, self._calculation_detail = status, detail
         self._refresh_calculation_status()
 
+    def _document_is_active(self):
+        if self.session is None or self._project_root is None:
+            return False
+        if self.session.path in {(self._project_root / path).resolve() for path in self._project_paths}:
+            return True
+        if self._selected_key == "feg_tip":
+            from temsim.shared_tip import definition_path
+            source = definition_path(self.session.path, self.session.part("feg_tip")) or self.session.path
+            return source in getattr(self, "_active_tip_definitions", ())
+        return False
+
     def _meaning_context(self):
-        active = (self.session is not None and self._project_root is not None
-                  and self.session.path in {(self._project_root / path).resolve() for path in self._project_paths})
+        active = self._document_is_active()
         parts = dict(self._assembly_parts) if active else {}
         if self.session is not None:
-            parts.update({part["key"]: part for part in self.session.document["parts"]})
+            parts.update({part["key"]: part for part in self.session.document["parts"]
+                          if not active or part["key"] == self._selected_key or part["key"] not in parts
+                          or self.session.path in {(self._project_root / path).resolve() for path in self._project_paths}})
         return parts, self._simulation_mode if active else None, self._field_descriptors if active else {}
 
     def _parameter_information(self, path, field=None):
@@ -1061,10 +1078,16 @@ class PartModelEditorPage(QWidget):
         self.modules.setCurrentIndex(index)
         self.modules.blockSignals(blocked)
         marker = "* " if self.session.dirty or self._invalid_inputs else ""
-        self.source_label.setText(f"{marker}{path.name} · {self._selected_key or ''}")
+        from temsim.shared_tip import definition_path
+        shared = definition_path(path, self.session.part(self._selected_key)) if self._selected_key else None
+        if path in getattr(self, "_active_tip_definitions", ()):
+            shared = path
+        suffix = f" · shared {shared.name}" if shared is not None else ""
+        self.source_label.setText(f"{marker}{path.name} · {self._selected_key or ''}{suffix}")
         self.source_label.setToolTip(
             f"Source: {path}\nComponent: {self._selected_key or ''}\n"
-            "Components belonging to this module share this TOML file."
+            + (f"Shared tip: {shared}\nSaving tip dimensions or emission settings updates every linked FEG assembly."
+               if shared is not None else "Components belonging to this module share this TOML file.")
         )
 
     def open_path(self, path, *, selected_key=None):
@@ -1147,9 +1170,8 @@ class PartModelEditorPage(QWidget):
             self._emit_project_selection()
 
     def _emit_project_selection(self):
-        if self._project_root is not None and self.session.path.is_relative_to(self._project_root):
-            if self.session.path.relative_to(self._project_root).as_posix() in self._project_paths:
-                self.component_selected.emit(self._selected_key)
+        if self._document_is_active():
+            self.component_selected.emit(self._selected_key)
 
     def _sync_view_selection(self):
         """A selected assembly highlights its material children as one component."""
@@ -1420,6 +1442,9 @@ class PartModelEditorPage(QWidget):
         completed = False
         try:
             callback = None
+            from temsim.shared_tip import catalog_definitions
+            if self._project_root is not None and self.session.path in catalog_definitions(self._project_root):
+                callback = self._project_save
             if self._project_root is not None and self.session.path.is_relative_to(self._project_root):
                 relative = self.session.path.relative_to(self._project_root).as_posix()
                 if relative in self._catalog_paths:

@@ -1601,6 +1601,8 @@ class SamplePage(QWidget):
                 for control, value in zip(controls, values):
                     control.setValue(int(value))
             self.tem_wave_enabled.setChecked(bool(sample.wave_enabled))
+            self.tem_wave_enabled.setEnabled(bool(sample.wave_enabled))
+            self.tem_wave_enabled.setToolTip("Coherent imaging is paused. Historical requests can be turned off in Calculate setup.")
             self._refresh_illumination_summary()
             self.multislice_enabled.setChecked(
                 bool(sample.wave_multislice_enabled)
@@ -1901,15 +1903,10 @@ class SamplePage(QWidget):
             else "TEM"
         ).upper()
         structure_available = bool(self._structure_path())
-        tem_available = structure_available and illumination == "TEM"
-        self.tem_wave_enabled.setEnabled(tem_available)
+        self.tem_wave_enabled.setEnabled(self.tem_wave_enabled.isChecked())
         self.tem_wave_enabled.setToolTip(
-            "Calculate the local specimen-to-Objective image and exit-wave "
-            "diffraction diagnostic."
-            if tem_available
-            else "TEM wave imaging requires a reference or imported CIF "
-            "structure, plus Microprobe (TEM) illumination."
-        )
+            "Coherent imaging is paused. Historical requests may be turned off; "
+            "the current physical tip uses classical particles.")
 
         inelastic_enabled = (
             structure_available and self.real_inelastic_enabled.isChecked()

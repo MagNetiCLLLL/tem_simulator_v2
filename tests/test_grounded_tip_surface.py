@@ -194,6 +194,7 @@ def test_source_model_round_trip_does_not_migrate_legacy(gun):
     assert copy.emitter.surface_model == gun.emitter.surface_model
     assert copy.to_dict()["integrator"]["method"] == "static_discrete_gradient"
     old = FieldEmissionGun()
+    old.emitter.surface_model = None  # explicitly construct a historical source
     old.emitter.energy_spread_fwhm_ev = .5
     restored = field_emission_gun_from_dict(old.to_dict())
     assert restored.emitter.surface_model is None
@@ -220,7 +221,9 @@ def test_profile_and_snapshot_preserve_surface_identity(gun, tmp_path):
     targets = runtime_targets(other)
     assert [p.name for p in editable_parameters(targets["feg_tip"])] == ["ray_count"]
     assert "transition_start_mm" not in {p.name for p in editable_parameters(targets["feg_extractor"])}
-    save_profile(path, default_state(), AssemblyCatalog().default_selection())
+    legacy = default_state()
+    legacy.electron_gun.emitter.surface_model = None
+    save_profile(path, legacy, AssemblyCatalog().default_selection())
     _, values = read_profile(path)
     apply_profile_values(other, values)
     assert other.electron_gun.emitter.surface_model is None
@@ -232,7 +235,8 @@ def test_surface_editor_has_one_parameter_set_and_derived_quantities(gun, qtbot)
     qtbot.addWidget(dialog)
     assert dialog.surface_enabled.isChecked()
     assert dialog.legacy_panel.isHidden()
-    assert set(dialog.surface_inputs) == {"current_na", "cap_half_angle_deg", "normal_mean_energy_ev", "tangential_mean_energy_ev"}
+    assert set(dialog.surface_inputs) == {"current_na", "cap_half_angle_deg", "normal_mean_energy_ev", "tangential_mean_energy_ev",
+                                         "flux_electrons_per_nm2_s", "maximum_angle_deg", "kinetic_mean_ev", "kinetic_sigma_ev"}
     assert "Final anode 0 V" in dialog.surface_voltage.text()
     dialog.surface_inputs["normal_mean_energy_ev"].setText("0.6")
     assert "0.7 eV" in dialog.surface_derived.text()

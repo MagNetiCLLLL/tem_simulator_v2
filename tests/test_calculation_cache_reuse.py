@@ -601,6 +601,9 @@ def test_tem_recording_plane_switch_keeps_specimen_checkpoint_products():
 
 def test_new_tem_calculation_rejects_legacy_source_before_cache_reprojection():
     state = default_state()
+    # The current default is a curved classical tip. This test specifically
+    # exercises admission of a historical planar-source profile.
+    state.electron_gun.emitter.surface_model = None
     for detector in state.stem_detectors:
         detector.inserted = False
         detector.readout_enabled = False

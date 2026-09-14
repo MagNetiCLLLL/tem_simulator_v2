@@ -342,8 +342,9 @@ class PartGeometry:
 
 
 def read_document(path):
+    from temsim.shared_tip import resolve_document
     with Path(path).open("rb") as stream:
-        return tomllib.load(stream)
+        return resolve_document(tomllib.load(stream), path)
 
 
 def part_data(module_path, key, root=None):
@@ -696,6 +697,7 @@ def stage_manifest_text(text, updates):
 
 
 def validate_document(document):
+    from temsim.optics.electron_gun.tip_assembly import validate_tip_part, validate_electrical_defaults
     from temsim.magnetic_circuits import is_custom_mechanical_part
     document = dict(document)
     document["parts"] = [
@@ -723,7 +725,9 @@ def validate_document(document):
     if len(set(part_orders)) != len(part_orders):
         raise ValueError("Duplicate part order in module TOML")
     _validate_custom_mechanical_parts(parts)
+    validate_electrical_defaults(parts)
     for part in parts:
+        validate_tip_part(part)
         key = str(part["key"])
         start = float(part["local_start_z_mm"])
         center = float(part["local_center_z_mm"])

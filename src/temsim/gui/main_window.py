@@ -275,6 +275,8 @@ class MainWindow(QMainWindow):
         self.workspace.physical_layout.component_activated.connect(
             self._reveal_physical_model
         )
+        self.workspace.physical_layout.navigation_requested.connect(self._navigate_physical_component)
+        self.workspace.vacuum_map.changed.connect(self._runtime_parameter_changed)
         self.parameter_panel.error.connect(self._show_error)
         energy_filter_parameters = self.workspace.energy_filter_parameters
         energy_filter_parameters.runtime_changed.connect(
@@ -497,6 +499,11 @@ class MainWindow(QMainWindow):
         toolbar.setObjectName("calculationToolbar")
         toolbar.setMovable(False)
 
+        setup_button = QPushButton("Calculate setup")
+        setup_button.setObjectName("calculateSetupButton")
+        setup_button.clicked.connect(self._open_calculate_setup)
+        toolbar.addWidget(setup_button)
+
         preview_button = QPushButton("Update rays")
         preview_button.setObjectName("previewButton")
         preview_button.clicked.connect(self.run_preview)
@@ -572,6 +579,22 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(high_button)
         self.addToolBar(toolbar)
 
+    def _open_calculate_setup(self):
+        from temsim.gui.calculate_setup import CalculateSetupDialog
+        dialog = CalculateSetupDialog(self.state, self)
+        dialog.changed.connect(self._calculate_setup_changed)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _calculate_setup_changed(self, parameter):
+        self.workspace.vacuum_map.set_state(self.state)
+        self.workspace.scan_control.set_state(self.state)
+        self.workspace.sample_page.set_state(self.state)
+        self.workspace.eds_page.set_state(self.state)
+        self.parameter_panel.refresh_runtime_values()
+        self.workspace.mark_high_accuracy_stale()
+        self._runtime_parameter_changed(parameter)
+
     def _create_status_bar(self) -> None:
         self.status_label = QLabel("Ready")
         self.status_label.setObjectName("statusLabel")
@@ -598,6 +621,7 @@ class MainWindow(QMainWindow):
         self.progress.setVisible(bool(self._progress_owners))
 
     def _refresh_assembly_views(self) -> None:
+        self.workspace.vacuum_map.set_state(self.state)
         self._refresh_simulation_mode()
         self.workspace.model_inspector.set_state(self.state)
         self._runtime_targets = runtime_targets(self.state)
@@ -1096,6 +1120,22 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"Selected {part.name} from Physical Layout")
         return part
 
+    def _navigate_physical_component(self, key: str, destination: str, z_mm: float) -> None:
+        part = self._select_physical_component(key)
+        if part is None:
+            return
+        self.workspace.physical_layout.axial_position_selected.emit(z_mm)
+        if destination == "parts":
+            self._reveal_physical_model(key, z_mm)
+        elif destination == "ray":
+            self.workspace.show_ray_diagram()
+            self.workspace.reveal_component(part, preferred_view="ray")
+            self.status_label.setText(f"Showing {part.name} in Ray Diagram")
+        elif destination == "vacuum":
+            self.workspace.vacuum_map.focus_component(part)
+            self.workspace.tabs.setCurrentWidget(self.workspace.vacuum_map)
+            self.status_label.setText(f"Showing {part.name} in Vacuum map · Z {part.center_z_mm:g} mm")
+
     def _reveal_physical_model(self, key: str, _z_mm: float) -> None:
         part = self._select_physical_component(key)
         if part is None:
@@ -1146,6 +1186,20 @@ class MainWindow(QMainWindow):
             f"Selected {self.parameter_panel.title.text()} from layout"
         )
 
+    def _copy_state_for_assembly(self):
+        candidate = type(self.state).from_dict(self.state.to_dict())
+        # This is a live reload, not a historical snapshot read. Carry the
+        # previously consumed defaults so catalog.apply can detect a changed
+        # shared definition even when the constructor already read the new file.
+        previous = {part.key: part for part in self.state.electron_gun.components}
+        for component in candidate.electron_gun.components:
+            for attribute in ("_tip_assembly_signature", "_assembly_default_voltage_kv",
+                              "_assembly_default_high_tension_kv"):
+                value = getattr(previous.get(component.key), attribute, None)
+                if value is not None:
+                    setattr(component, attribute, value)
+        return candidate
+
     def load_assembly(self, selection) -> None:
         self._invalidate_direct_alignment()
         try:
@@ -1158,7 +1212,7 @@ class MainWindow(QMainWindow):
                     selection, condenser_key, projector_key, load_assembly=True
                 )
                 return
-            candidate_state = type(self.state).from_dict(self.state.to_dict())
+            candidate_state = self._copy_state_for_assembly()
             candidate_assembly = self.catalog.apply(candidate_state, selection)
             self._apply_state_operating_modes(candidate_state, selection)
             self.selection = selection
@@ -1833,6 +1887,7 @@ class MainWindow(QMainWindow):
             f"{result.simulation.incident.x.shape[1]} rays, mode={mode}, "
             f"ray backend={backend}{wave_log}{cache_log}."
         )
+        self.workspace.vacuum_map.set_result(result)
         if quality not in ("Preview", "Medium"):
             from temsim.calculation_performance import calculation_performance_lines
 
@@ -2013,7 +2068,13 @@ class MainWindow(QMainWindow):
         self.assembly_panel.operating_mode_status.setToolTip(message)
 
     def _save_model_document(self, path, updates):
-        relative = Path(path).resolve().relative_to(self.manifest_editor.root).as_posix()
+        import os
+        from temsim.shared_tip import catalog_definitions, dependencies, SHARED_FIELDS
+        resolved = Path(path).resolve()
+        shared = resolved in catalog_definitions(self.manifest_editor.root)
+        if not shared and not resolved.is_relative_to(self.manifest_editor.root):
+            raise ValueError("This model is not registered in the active configuration")
+        relative = Path(os.path.relpath(resolved, self.manifest_editor.root)).as_posix()
         page = self.workspace.physical_layout.model_editor
         if (hasattr(updates, "expected_source_bytes")
                 and (page.session is None or page.session.path != Path(path).resolve())):
@@ -2021,7 +2082,12 @@ class MainWindow(QMainWindow):
         target = ManifestTarget(relative, page._selected_key)
         active_paths = {(self.manifest_editor.root / source).resolve()
                         for _kind, source in self.assembly.selected_module_paths}
-        if Path(path).resolve() not in active_paths:
+        linked_tip_changed = any(len(key) >= 3 and key[:2] == ("parts", "feg_tip")
+                                 and key[2] in SHARED_FIELDS for key in updates)
+        active_definitions = {source for active in active_paths for source in dependencies(active)}
+        affects_active_tip = (resolved in active_definitions if shared else
+                             linked_tip_changed and bool(set(dependencies(resolved)) & active_definitions))
+        if resolved not in active_paths and not affects_active_tip:
             # A storage file can be edited without installing its optical
             # variant or invalidating results for the currently built column.
             self.manifest_editor.save(
@@ -2120,9 +2186,7 @@ class MainWindow(QMainWindow):
                 target, updates, configuration
             )
             try:
-                candidate_state = type(self.state).from_dict(
-                    self.state.to_dict()
-                )
+                candidate_state = self._copy_state_for_assembly()
                 candidate_assembly = self.catalog.apply(
                     candidate_state,
                     self.selection,
@@ -2224,7 +2288,7 @@ class MainWindow(QMainWindow):
             catalog = AssemblyCatalog()
             audit = self.manifest_editor.validate_catalog()
             selection = catalog.normalise_selection(self.selection)
-            candidate_state = type(self.state).from_dict(self.state.to_dict())
+            candidate_state = self._copy_state_for_assembly()
             assembly = catalog.apply(
                 candidate_state,
                 selection,

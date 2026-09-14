@@ -62,11 +62,11 @@ Open **File > Dimension definitions and evidence audit…** or **Dimension audit
 in the 3D editor to inspect and export the saved catalog without changing its
 values. See [Parameter definitions and calculation use](docs/PARAMETER_DEFINITIONS.md).
 
-**Physical Layout** now contains **2D section** and **3D model editor** subtabs.
-Double-click a component or its label in the 2D section to select and centre it
-in the 3D editor. Double-clicking empty space locates the nearest component.
-Selections remain highlighted when switching tabs manually; Ray Diagram also
-  retains the clicked axial position without opening automatically.
+**Physical Layout** contains **2D**, **3D Parts** and assembly **3D** subtabs.
+Right-click a component in 2D to choose **Ray Diagram**, **3D Parts**, or
+**Vacuum map**. Double-click stays in 2D. Selections remain highlighted when
+switching tabs manually. Vacuum map shares Physical Layout's Z range and scale;
+select a vacuum interval to edit pressure or its global/module-local Z bounds.
 In the 3D editor, select an active module or use **Open TOML…** to open an
 instrument module file. Choose a component in the tree or click its surface.
 The module selector follows the opened file; the source label also identifies
@@ -166,9 +166,25 @@ its narrower editing scope.
 
 ## Development setup
 
-1. Run `setup_env.py` with a 64-bit Python 3.12 interpreter.
+1. Run `setup_env.py` with 64-bit CPython 3.11–3.13; Python 3.12 is recommended.
 2. Select `.venv\Scripts\python.exe` as the PyCharm project interpreter.
 3. Run `main.py`.
+
+Put local dependency `.whl` files in [wheels/](wheels/README.md), optionally
+grouped into subfolders by Python version or platform. Setup uses these along
+with the configured package index and installs the dependencies declared in
+`pyproject.toml`. Use `python setup_env.py --offline` to prohibit index access,
+or `python setup_env.py --gpu` to include CuPy for CUDA 12.x. Use `--venv` to
+create a separate environment; existing environments are checked and reused.
+Setup verifies both dependency consistency and imports, including Qt, 3D geometry
+and EDS libraries. Import verification does not launch a simulation.
+
+Python 3.12 remains the CPU CI/locked-dependency reference. The project no longer
+requires exactly 3.12: abTEM 1.0.10 requires Python >=3.11, while the pinned
+PySide6 6.8.3 requires <3.14. Python 3.11 resolves compatible dependency versions
+rather than using the 3.12-only validation lock. Python 3.13 compatibility is
+subject to its dependency wheels and runtime validation; full scientific
+acceptance remains on the reference environment.
 
 The default high-accuracy calculation is sized for a 32 GiB workstation. A
 24 GiB application memory budget is checked before submission so extreme

@@ -546,6 +546,8 @@ class VisualizationWorkspace(QWidget):
         self.setObjectName("visualizationWorkspace")
 
         self.heading = QLabel("Electron ray paths")
+        self.heading.setWordWrap(True)
+        self.heading.setMinimumWidth(0)
         font = self.heading.font()
         font.setBold(True)
         font.setPointSize(font.pointSize() + 2)
@@ -765,12 +767,12 @@ class VisualizationWorkspace(QWidget):
         )
 
         navigation_hint = QLabel(
-            "Double-click any axial plot to update Beam analysis"
+            "Double-click Ray Diagram or Magnetic Field to update Beam analysis"
         )
         navigation_hint.setToolTip(
             "Double-click in Ray Diagram or Magnetic Field to inspect an axial position. "
-            "Physical Layout double-clicks locate the component in the 3D editor "
-            "and retain the selected axial position here."
+            "Right-click a Physical Layout component to choose Ray Diagram, 3D Parts "
+            "or Vacuum map; the selected axial position is retained."
         )
         navigation_hint.setWordWrap(True)
         navigation_hint.setStyleSheet("color: #64748b; font-weight: 600;")
@@ -910,6 +912,9 @@ class VisualizationWorkspace(QWidget):
         ray_layout.setContentsMargins(0, 0, 0, 0)
 
         self.physical_layout = PhysicalLayoutView()
+        from temsim.gui.vacuum_map_page import VacuumMapPage
+        self.vacuum_map = VacuumMapPage()
+        self.vacuum_map.diagram.bind_physical_plot(self.physical_layout.plot)
         self.probe_aberrations = AberrationComparisonView(
             fixed_system="probe"
         )
@@ -1079,11 +1084,12 @@ class VisualizationWorkspace(QWidget):
         self.tabs.setObjectName("visualizationTabs")
         self.tabs.tabBar().setExpanding(False)
         self.tabs.tabBar().setUsesScrollButtons(True)
-        self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideRight)
+        self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideNone)
         self.tabs.addTab(self.ray_page, "Ray Diagram")
         self.tabs.addTab(self.physical_layout, "Physical Layout")
         self.tabs.addTab(self.energy_filter_page, "Energy Filter")
         self.tabs.addTab(self.sample_page, "Sample")
+        self.tabs.addTab(self.vacuum_map, "Vacuum map")
         self.tabs.addTab(self.sample_interactions_3d, "Sample Interactions 3D")
         self.tabs.addTab(self.eds_page, "EDS")
         self.tabs.addTab(self.scanning_page, "Scanning Image")
@@ -1663,6 +1669,17 @@ class VisualizationWorkspace(QWidget):
             indices = self._display_ray_indices(branch)
             if indices.size == 0:
                 continue
+            weights = getattr(branch, "ray_weight", None)
+            weights = np.ones(branch.x.shape[1]) if weights is None else np.asarray(weights)
+            probes = indices[weights[indices] == 0]
+            if probes.size:
+                groups.setdefault(("support", 0), []).append((branch, probes))
+                if "support" not in base_colours:
+                    kind_order.append("support")
+                    base_colours["support"] = "#f8fafc"
+            indices = indices[weights[indices] > 0]
+            if not indices.size:
+                continue
             kind, _label, base_colour, _symbol = branch_interaction_style(branch)
             if kind not in base_colours:
                 kind_order.append(kind)
@@ -1899,6 +1916,13 @@ class VisualizationWorkspace(QWidget):
         simulation = getattr(self._last_result, "simulation", None)
         tuning = bool((getattr(simulation, "metrics", None) or {}).get("optical_tuning", False))
         tuning_text = " | optical tuning only; no specimen signals" if tuning else ""
+        if tuning:
+            metrics = simulation.metrics
+            weighted = metrics.get("sample_beam_surviving_rays", 0)
+            probes = metrics.get("sample_support_probe_survivors", 0)
+            tuning_text += f" | Sample: {weighted} emission rays, {probes} zero-current probes"
+            if not weighted:
+                tuning_text += " | current unresolved: check alignment / sampling"
         self.heading.setText(
             f"Electron ray paths — {self._last_quality} | "
             f"{self._projection_axis_name()} projection at "
@@ -2143,6 +2167,7 @@ class VisualizationWorkspace(QWidget):
     def focus_component(self, part) -> None:
         """Remember the selected part and optionally focus its optical region."""
         self._focused_part = part
+        self.vacuum_map.focus_component(part)
         self._pending_ray_focus.update((self.physical_layout, self.magnetic_field))
         self._focus_transverse("component", part)
         self._refresh_visible_ray_panels()
@@ -3619,8 +3644,10 @@ class VisualizationWorkspace(QWidget):
         labels = {
             style[0]: style[1] for style in map(branch_interaction_style, bundles)
         }
+        labels["support"] = "Tip diagnostic probes (zero current)"
         for kind in kind_order:
-            pen = pg.mkPen(self._shade_colour(base_colours[kind], 1.0), width=1.8)
+            pen = pg.mkPen(self._shade_colour(base_colours[kind], 1.0), width=1.8,
+                          style=Qt.PenStyle.DashLine if kind == "support" else Qt.PenStyle.SolidLine)
             if kind not in self._ray_legend_items:
                 label = labels[kind]
                 self._ray_legend_items[kind] = self.plot.plot([], [], pen=pen, name=label)
@@ -3674,6 +3701,10 @@ class VisualizationWorkspace(QWidget):
             _ids, angles = branch_identity(branch, simulation)
             by_rgb = {}
             for index in indices:
+                weights = getattr(branch, "ray_weight", None)
+                if weights is not None and weights[index] == 0:
+                    groups.setdefault(("support", (248, 250, 252)), []).append((branch, np.array([index], dtype=int)))
+                    continue
                 angle = float(angles[index])
                 colour = (QColor.fromHsvF((angle % (2 * np.pi)) / (2 * np.pi), 0.88, 1.0)
                           if _ids[index] >= 0 and np.isfinite(angle) else QColor("#94a3b8"))
@@ -3700,10 +3731,13 @@ class VisualizationWorkspace(QWidget):
             active.add(key)
             item = self._ray_items_by_group.get(key)
             if item is None:
-                item = self.plot.plot([], [], pen=pg.mkPen(key[1], width=1.35), connect="finite")
+                item = self.plot.plot([], [], pen=pg.mkPen(key[1], width=1.35,
+                    style=Qt.PenStyle.DashLine if key[0] == "support" else Qt.PenStyle.SolidLine), connect="finite")
                 self._ray_items_by_group[key] = item
             item.setData(z, transverse, connect="finite")
             item.setToolTip(
+                "Zero-current diagnostic probe emitted on the physical tip; all gun fields, apertures and column walls apply. Not a predicted beam current."
+                if key[0] == "support" else
                 "Source position colour: fixed azimuth about the emitted bundle centre.\n"
                 "Retained through scattering; not instantaneous direction or signal type.\n"
                 "Grey: source-centre ray or unavailable source lineage."

@@ -148,6 +148,7 @@ class GunTraceResult:
     equal_time_history: GunEqualTimeHistory | None = None
     plane_arrivals: tuple[GunPlaneArrival, ...] = ()
     source_record: object | None = None
+    vacuum_report: dict | None = None
 
     def equal_time_front_at_plane(self, key: str) -> GunEqualTimeFront:
         """Sample the beam when the median ray reaches an important plane."""

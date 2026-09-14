@@ -50,7 +50,7 @@ class CatalogAudit:
     resolved_part_authority_count: int
 
 
-STRUCTURAL_READ_ONLY_FIELDS = frozenset({"key"})
+STRUCTURAL_READ_ONLY_FIELDS = frozenset({"key", "tip_definition_file"})
 
 
 def format_toml_value(value: object) -> str:
@@ -99,10 +99,13 @@ def resized_part_axial_coordinates(part, length, *, center_z_mm=None):
 def _complete_part_length_updates(document, updates):
     """Supply redundant endpoints for a length edit; explicit endpoints win."""
 
-    completed = dict(updates)
+    from temsim.optics.electron_gun.tip_assembly import complete_tip_updates, is_tip_part
+    completed = complete_tip_updates(document, updates)
     parts = {str(part["key"]): part for part in document.get("parts", ())}
     for path, length in updates.items():
         if len(path) != 3 or path[0] != "parts" or path[2] != "length_mm":
+            continue
+        if path[1] in parts and is_tip_part(parts[path[1]]):
             continue
         # Explicit endpoints suppress inference, never value validation. A
         # quoted number/bool must not slip through after an earlier valid edit.
@@ -171,6 +174,15 @@ class ManifestEditor:
         if not updates:
             return
         from temsim.component_operations import PartChangeSet
+        from temsim.shared_tip import dependencies, catalog_definitions
+
+        destination = self.root / target.module_path
+        if dependencies(destination) or destination.resolve() in catalog_definitions(self.root):
+            from temsim.component_persistence import save_component_changes
+            document = module_manifest.read_document(destination)
+            completed = _complete_part_length_updates(document, updates)
+            changes = replace(updates, fields=completed) if isinstance(updates, PartChangeSet) else PartChangeSet(completed)
+            return save_component_changes(self.root, target.module_path, changes, configuration)
 
         if isinstance(updates, PartChangeSet):
             from temsim.component_persistence import save_component_changes

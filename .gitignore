@@ -6,6 +6,8 @@ __pycache__/
 .coverage
 build/
 dist/
+# Local binary dependency pool; keep wheels/README.md in version control.
+/wheels/**/*.whl
 *.egg-info/
 
 # Scratch files and reusable calculation caches are local only.
@@ -25,6 +27,14 @@ dist/
 /outputs/reference_cuda_pipeline_validation.txt
 /outputs/reference_cuda_validation.txt
 /outputs/reference_integration_validation.txt
+
+# Shared-tip regression logs and isolated package smoke installations.
+/outputs/shared-tip-*.xml
+/outputs/shared-tip-wheel/
+/outputs/shared-tip-installed/
+/outputs/vacuum-validation/
+/outputs/setup-validation/
+/outputs/pull-review/
 
 # Incomplete DF preparation attempts; the sibling *_final archive is retained.
 /outputs/df_direct_beam_clearance/si110_32px_004nm_df60_100/

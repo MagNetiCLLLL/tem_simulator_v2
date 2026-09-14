@@ -22,11 +22,18 @@ from temsim.physics.relativistic_lorentz import (
 
 
 def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
+    from temsim.vacuum import ensure_standalone_gun_environment
+    ensure_standalone_gun_environment(gun)
     emitted = gun.emit(count)
     surface_model = getattr(gun.emitter, "surface_model", None)
     electric_provider = gun.electric_field
     magnetic_provider = gun.magnetic_field
     n = emitted.x_m.size
+    from temsim.physics.residual_medium import MediumTransport, region_rate_bound
+    from temsim.physics.relativistic_lorentz import kinetic_energy_ev_from_momentum
+    medium = MediumTransport(getattr(gun, "_vacuum_regions", ()), n,
+                             getattr(gun, "_vacuum_seed", 914), stream=0,
+                             max_step_tau=getattr(gun, "_vacuum_max_step_tau", .02))
     direction = np.column_stack((
         emitted.tx_rad,
         emitted.ty_rad,
@@ -134,6 +141,15 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
         previous_position = phase.position_m.copy()
         previous_momentum = phase.momentum_kg_m_per_s.copy()
         previous_time_s = float(phase.time_s)
+        if medium.regions:
+            energies = kinetic_energy_ev_from_momentum(phase.momentum_kg_m_per_s[active])
+            speed = np.linalg.norm(velocity, axis=1)
+            for region in medium.regions:
+                local = (phase.position_m[active, 2]*1000 >= region.start_z_mm) & (phase.position_m[active, 2]*1000 < region.end_z_mm)
+                if np.any(local):
+                    rate = region_rate_bound(region, energies[local])*speed[local]
+                    if np.max(rate, initial=0) > 0:
+                        dt = min(dt, medium.max_step_tau/(2*np.max(rate)))
         if surface_model is not None:
             # Tip-scale stepping and local momentum-change control execute the
             # strong extraction field rather than injecting accelerated rays.
@@ -231,6 +247,42 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
             arrival_y_m=exit_arrival_y,
             **extra,
         )
+        if medium.regions:
+            # Account only for the executed segment up to the earliest real
+            # stop or gun exit. Rotate momentum without changing its magnitude.
+            end = phase.position_m.copy()
+            stopped = active & np.isfinite(blocked_z)
+            dz = end[:, 2]-previous_position[:, 2]
+            f = np.divide(blocked_z*1e-3-previous_position[:, 2], dz,
+                          out=np.ones(n), where=np.abs(dz) > 1e-30)
+            end[stopped] = previous_position[stopped]+np.clip(f[stopped], 0, 1)[:, None]*(end[stopped]-previous_position[stopped])
+            end[completed & active] = exit_position[completed & active]
+            momenta = phase.momentum_kg_m_per_s.copy()
+            momenta[completed & active] = exit_momentum[completed & active]
+            energy = kinetic_energy_ev_from_momentum(momenta)
+            medium.alive = active.copy()
+            directions = medium.advance(previous_position, end, momenta, energy)
+            rotated = directions/np.linalg.norm(directions, axis=1, keepdims=True)*np.linalg.norm(momenta, axis=1, keepdims=True)
+            momenta[active] = rotated[active]
+            new_exit = active & completed & medium.alive
+            exit_momentum[new_exit] = rotated[new_exit]
+            phase = RelativisticPhaseSpace(phase.position_m, momenta, phase.time_s)
+            alive, blocked_z, blocked_key = medium.merge_stops(alive, blocked_z, blocked_key)
+            medium_stopped = np.array([key.startswith("medium_removal:") for key in blocked_key])
+            dpa_passed[medium_stopped & (blocked_z <= gun.dpa_aperture.z_mm)] = False
+            missed_dpa = medium_stopped & (blocked_z <= gun.dpa_aperture.z_mm)
+            for values in (dpa_arrival_time, dpa_arrival_x, dpa_arrival_y):
+                values[missed_dpa] = np.nan
+            missed_exit = medium_stopped & (blocked_z <= gun.exit_plane_z_mm)
+            for values in (exit_arrival_time, exit_arrival_x, exit_arrival_y):
+                values[missed_exit] = np.nan
+            if slit_plane is not None:
+                missed_slit = medium_stopped & (blocked_z <= slit_plane.z_mm)
+                slit_passed[missed_slit] = False
+                slit_reached[missed_slit] = False
+                for values in (slit_arrival_time, slit_arrival_y, slit_x_m):
+                    values[missed_slit] = np.nan
+            completed &= alive
         if (
             step_index % history_stride == 0
             or not np.any(alive & ~completed)
@@ -413,6 +465,7 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
         slit_reached=(slit_reached if slit is not None else None),
         equal_time_history=equal_time_history,
         plane_arrivals=tuple(plane_arrivals),
+        vacuum_report=medium.report() if medium.regions else None,
     )
     if surface_model is not None:
         from scipy.constants import c, m_e, e
@@ -425,8 +478,17 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
         object.__setattr__(result, "surface_model_report", {
             "model": surface_model.schema, "surface_mesh_displacement_m": surface_mesh_error,
             "potential_reference": "final_anode_ground_0V",
-            "maximum_exit_energy_error_ev": energy_error,
+            "exit_energy_status": "verified" if kinetic.size else "no_transmitted_particles",
+            "transmitted_particle_count": int(kinetic.size),
+            "minimum_exit_kinetic_energy_ev": float(kinetic.min()) if kinetic.size else None,
+            "maximum_exit_kinetic_energy_ev": float(kinetic.max()) if kinetic.size else None,
+            "minimum_expected_exit_kinetic_energy_ev": float(expected.min()) if kinetic.size else None,
+            "maximum_expected_exit_kinetic_energy_ev": float(expected.max()) if kinetic.size else None,
+            "maximum_exit_energy_error_ev": energy_error if kinetic.size else None,
             "exit_energy_error_budget_ev": 1e-3,
+            "accelerating_voltage_kv": float(gun.accelerator.high_tension_kv),
+            "extraction_voltage_kv": float(gun.extractor.voltage_kv),
+            "electrostatic_field": dict(surface_field.report),
             "scope": "classical prescribed outgoing flux; no coherent phase or tunnelling prediction",
         })
     return result

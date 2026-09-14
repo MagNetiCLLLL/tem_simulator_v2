@@ -106,10 +106,10 @@ def test_one_ray_preview_variation_is_not_stretched_to_black_and_white(view):
     assert "Auto contrast" in view.detector_contrast_labels["bf"].text()
 
 
-def test_wave_mode_entry_changes_setting_without_replacing_paused_image(view, qtbot):
+def test_paused_wave_mode_preserves_setting_and_historical_image(view, qtbot):
     view._state.sample.stem_wave_enabled = False
     view.set_state(view._state)
-    assert "High accuracy + wave model" in view.image_model_notice.text()
+    assert "coherent imaging paused" in view.image_model_notice.text()
     frame = _frame()
     view._set_stem_frame(frame)
     view.pause_image_refresh.setChecked(True)
@@ -119,9 +119,9 @@ def test_wave_mode_entry_changes_setting_without_replacing_paused_image(view, qt
     view.parameters_changed.connect(changes.append)
     before = frame.fractions["bf"].copy()
     view.enable_wave_images.click()
-    assert changes == ["sample.stem_wave_enabled"]
-    assert view._state.sample.stem_wave_enabled and view.wave_scan_enabled.isChecked()
-    assert "run High accuracy" in view.wave_image_action_note.text()
+    assert changes == []
+    assert not view._state.sample.stem_wave_enabled and not view.wave_scan_enabled.isChecked()
+    assert "not qualified" in view.wave_image_action_note.text()
     assert "Resume refresh" in view.wave_image_action_note.text()
     assert view._stem_frame is frame and view._paused_display_frame is frame
     np.testing.assert_array_equal(view.detector_image_items["bf"].image, before.T)

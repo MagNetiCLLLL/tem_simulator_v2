@@ -524,7 +524,7 @@ def interleaved_rk4_values(nodes, midpoints):
 def build_propagation_plan(
     state, z0, z1, events=(), *, include_spherical_aberration=True,
     include_hexapole=True, save_z_mm=(), checkpoint_z_mm=(),
-    maximum_step_mm=None,
+    maximum_step_mm=None, particle_medium=False, medium_energy_ev=None,
 ):
     """Build the single global axial plan used by full and resumed traces."""
 
@@ -573,6 +573,14 @@ def build_propagation_plan(
     )
     mapped_keys = {item.lens_key for item in mapped_fields}
     exact_z_mm = [event.z_mm for event in image_lens_events]
+    if particle_medium:
+        from temsim.physics.residual_medium import medium_grid_nodes
+        exact_z_mm.extend(medium_grid_nodes(state, z0, z1, medium_energy_ev))
+        for segment in getattr(getattr(state, "_resolved_assembly", None), "vacuum_bore_segments", ()):
+            exact_z_mm.extend(v for v in (segment.start_z_mm, segment.end_z_mm) if z0 < v < z1)
+        exact_z_mm.extend(float(p.z_mm) for p in getattr(state, "recording_planes", ())
+                          if z0 <= float(p.z_mm) <= z1)
+        save_z_mm += tuple(float(v) for v in exact_z_mm)
     for item in mapped_fields:
         lower, upper = item.field_map.field_support_mm
         lower, upper = max(lower, float(z0)), min(upper, float(z1))
@@ -591,6 +599,8 @@ def build_propagation_plan(
             if bool(getattr(lens, 'enabled', True))
             and spherical_aberration_mm(lens, state.beam_voltage_kv)
         )
+    if particle_medium and ((z1-z0)/requested_step+len(exact_z_mm)+1 > state.vacuum_map.max_transport_nodes):
+        raise ValueError("Particle / vacuum integration exceeds the configured node budget")
     zfull,step_mm=_piecewise_endpoint_exact_axial_grid(
         z0,z1,requested_step,
         exact_z_mm,
@@ -680,6 +690,7 @@ def build_propagation_plan(
         FIELD_SIGMA_CUTOFF,
         'canonical-rk4-vector-maps-v2',
         mode_key(state),
+        state.vacuum_map.signature() if particle_medium else "optical-map-no-medium",
     ))
     digest.update(solver_signature.encode("utf-8"))
     for item in mapped_fields:
@@ -779,6 +790,8 @@ def propagation_plan_common_prefix_nodes(previous, current):
 def execute_propagation_plan(
     state, plan, x, tx, y, ty, energy_offset_ev=None, *, start_index=0,
     include_initial_plane_kicks=True,
+    defer_nonfinite_until_clipping=False,
+    medium_transport=None,
 ):
     """Execute a complete plan or resume it from an after-action checkpoint."""
 
@@ -848,10 +861,15 @@ def execute_propagation_plan(
         cs_kick, thin_power, thin_rotation, step_m, *arrays, kickx, kicky,
         save, checkpoint_index,
     )
-    if plan.mapped_fields:
+    if medium_transport is not None and not plan.mapped_fields:
+        outputs = _vectorised_rk4(*inputs, step_operator=medium_transport)
+        backend, fallback_reason = BACKEND_CPU, "classical residual-medium collisions between optical steps"
+    elif plan.mapped_fields:
         from temsim.physics.vector_field_transport import vector_map_rk4
         backend, fallback_reason = BACKEND_CPU, "imported vector-field RK4"
-        outputs = vector_map_rk4(*inputs, z_mm=zfull, mapped_fields=plan.mapped_fields)
+        outputs = vector_map_rk4(*inputs, z_mm=zfull, mapped_fields=plan.mapped_fields,
+                                defer_nonfinite_until_clipping=defer_nonfinite_until_clipping,
+                                step_operator=medium_transport)
     elif (getattr(state, "_optical_tuning", False) and NUMBA_AVAILABLE
           and getattr(state, "acceleration_enabled", False)
           and getattr(state, "acceleration_backend", "Auto") == "Auto"):
@@ -894,6 +912,8 @@ def propagate(
     *,include_spherical_aberration=True,include_hexapole=True,
     save_z_mm=(),include_initial_plane_kicks=True,
     checkpoint_z_mm=(),return_checkpoints=False,maximum_step_mm=None,
+    defer_nonfinite_until_clipping=False,
+    particle_medium=False, medium_alive=None, medium_stream=2, medium_output=None,
 ):
     plan = build_propagation_plan(
         state,z0,z1,events,
@@ -902,10 +922,24 @@ def propagate(
         save_z_mm=save_z_mm,
         checkpoint_z_mm=checkpoint_z_mm,
         maximum_step_mm=maximum_step_mm,
+        particle_medium=particle_medium,
+        medium_energy_ev=(state.beam_voltage_kv*1000+np.asarray(0 if energy_offset_ev is None else energy_offset_ev)),
     )
+    if particle_medium and len(plan.z_mm) > state.vacuum_map.max_transport_nodes:
+        raise ValueError("Particle / vacuum integration exceeds the configured node budget")
+    transport = None
+    if particle_medium and state.vacuum_map.enabled:
+        from temsim.physics.residual_medium import ColumnMediumTransport
+        transport = ColumnMediumTransport(state, plan, len(x),
+            state.beam_voltage_kv*1000+np.asarray(0 if energy_offset_ev is None else energy_offset_ev),
+            alive=medium_alive, stream=medium_stream)
+        if medium_output is not None:
+            medium_output.append(transport)
     result = execute_propagation_plan(
         state,plan,x,tx,y,ty,energy_offset_ev,
         include_initial_plane_kicks=include_initial_plane_kicks,
+        defer_nonfinite_until_clipping=defer_nonfinite_until_clipping,
+        medium_transport=transport,
     )
     return result if return_checkpoints else result[:5]
 

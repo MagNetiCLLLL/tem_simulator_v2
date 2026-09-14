@@ -153,6 +153,9 @@ def annotate_legacy_mesh(mesh, part, by_key=None):
     inner = _paths(part, ("mechanical_inner_diameter_mm", "mechanical_bore_diameter_mm", "bore_diameter_mm",
                           "mechanical_clear_bore_diameter_mm", "mechanical_bore_radius_mm", "clear_bore_diameter_mm",
                           "inner_diameter_mm", "pole_mounting_shank_inner_diameter_mm"))
+    from temsim.optics.electron_gun.tip_assembly import is_tip_part
+    if is_tip_part(part):
+        outer = _paths(part, ("tip_radius_nm", "tip_cone_half_angle_deg", "length_mm"))
     upstream_axial = downstream_axial = axial
     parent = (by_key or {}).get(part.get("parent_key"), {})
     if mesh.region in {"upper", "lower"} and part.get("mechanical_profile") in {

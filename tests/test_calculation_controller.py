@@ -49,7 +49,8 @@ def test_worker_snapshot_keeps_exact_selected_assembly_and_layout(
 ):
     reference_catalog = AssemblyCatalog()
     root = tmp_path / "instruments"
-    shutil.copytree(reference_catalog.root, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(reference_catalog.root, root)
     _extend_test_module(root, module_path, extension_mm)
     catalog = AssemblyCatalog(root)
     selection = replace(catalog.default_selection(), **selection_updates)
@@ -1153,15 +1154,28 @@ def test_persistent_incident_cache_failure_never_fails_calculation(monkeypatch):
 
 
 def test_preview_runs_off_the_gui_thread(qtbot):
+    from PySide6.QtCore import QTimer
     controller = CalculationController()
     state = default_state()
     state.objective_lens.cs_mm = 0.85
     state.objective_lens.polarity = -1
 
-    with qtbot.waitSignal(controller.result_ready, timeout=30_000) as blocker:
-        controller.submit(state, "Preview", 25, 3.0)
-
-    quality, result, duration = blocker.args
+    results, failures, gui_ticks = [], [], []
+    controller.result_ready.connect(lambda *args: results.append(args))
+    controller.failed.connect(lambda *args: failures.append(args))
+    timer = QTimer()
+    timer.timeout.connect(lambda: gui_ticks.append(True))
+    timer.start(20)
+    try:
+        # A cold physical-tip field solve can exceed the old 30 s budget.
+        # Check GUI responsiveness independently of total calculation time.
+        with qtbot.waitSignal(controller.finished, timeout=120_000):
+            controller.submit(state, "Preview", 25, 3.0)
+    finally:
+        timer.stop()
+    assert not failures, failures
+    assert gui_ticks
+    quality, result, duration = results[0]
     assert quality == "Preview"
     assert result.simulation.incident.x.shape[1] == 25
     assert "000" in result.simulation.branches

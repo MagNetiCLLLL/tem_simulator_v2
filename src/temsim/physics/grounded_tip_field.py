@@ -41,7 +41,8 @@ def field_request(gun):
                       float(component.mechanical_outer_diameter_mm)*.5e-3, potential))
     for index, stage in enumerate(gun.accelerator.stages):
         center = float(stage.center_from_tip_mm)*1e-3
-        half = model.field_numerics.accelerator_ring_thickness_mm*.5e-3
+        half = getattr(gun.accelerator, "_electrode_thickness_mm",
+                       model.field_numerics.accelerator_ring_thickness_mm)*.5e-3
         rings.append((f"accelerator:{index}", center-half, center+half,
                       float(gun.accelerator.mechanical_clear_bore_diameter_mm)*.5e-3,
                       float(gun.accelerator.mechanical_outer_diameter_mm)*.5e-3,

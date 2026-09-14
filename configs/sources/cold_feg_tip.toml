@@ -21,6 +21,10 @@ shank_length_um = 1000.0
 # A classical reference distribution, NOT an independently specified gun exit.
 current_na = 100.0
 cap_half_angle_deg = 10.0
+maximum_angle_deg = 90.0
+energy_distribution = "normal_tangential_exponential"
+kinetic_mean_ev = 0.3
+kinetic_sigma_ev = 0.1
 # Geometric polar angle at the sphere centre, not electron angular spread.
 # theta [rad] = theta [deg] * pi/180; diameter = 2R*sin(theta),
 # apex-to-edge arc = R*theta, depth = 2R*sin(theta/2)^2.

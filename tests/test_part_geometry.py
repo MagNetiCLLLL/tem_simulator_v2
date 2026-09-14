@@ -369,7 +369,8 @@ def test_material_dimension_save_reloads_assembly_without_changing_unrelated_con
     source_path = Path(INSTRUMENT_CONFIG_ROOT) / MODULE_PATH
     source_bytes = source_path.read_bytes()
     root = tmp_path / "instruments"
-    shutil.copytree(INSTRUMENT_CONFIG_ROOT, root)
+    from temsim.shared_tip import copy_catalog_tree
+    copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, root)
     path = root / MODULE_PATH
     before = tomllib.loads(path.read_text(encoding="utf-8"))
     original_part = next(part for part in before["parts"] if part["key"] == key)

@@ -16,6 +16,7 @@ def state():
     state = default_state()
     catalog = AssemblyCatalog()
     catalog.apply(state, catalog.default_selection())
+    state.electron_gun.emitter.surface_model = None  # retain original particle-source regression
     state.electron_gun.emitter.ray_count = 9
     return state
 
