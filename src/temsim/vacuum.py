@@ -14,6 +14,8 @@ import tomllib
 
 from temsim.paths import CONFIG_ROOT
 
+CELL_KEYS = {"specimen_cell", "cell_window_upstream", "cell_window_downstream"}
+
 VACUUM_SCHEMA = "classical-vacuum-map-v1"
 DEFAULT_PATH = CONFIG_ROOT / "environments" / "vacuum_map.toml"
 
@@ -29,25 +31,47 @@ class Medium:
     # is not removal and must never be counted again in this coefficient.
     removal_cross_section_m2: float = 0.0
     removal_reference: str = ""
+    # Optional mole fractions override formula; never silently normalised.
+    mixture_mole_fractions: dict[str, float] = field(default_factory=dict)
+
+    def atomic_stoichiometry(self):
+        from ase.formula import Formula
+        atoms = {}
+        for formula, fraction in (self.mixture_mole_fractions or {self.formula: 1.0}).items():
+            if not isinstance(formula, str) or not formula.strip():
+                raise ValueError("Every medium species needs a chemical formula")
+            species = Formula(formula).count()
+            if not species or any(count <= 0 for count in species.values()):
+                raise ValueError(f"Invalid medium species: {formula}")
+            for symbol, count in species.items():
+                atoms[symbol] = atoms.get(symbol, 0.0)+fraction*count
+        return atoms
 
     def validate(self):
-        from ase.formula import Formula
         from ase.data import atomic_numbers
-        if self.phase not in {"gas", "liquid", "vacuum"}:
-            raise ValueError("Medium phase must be gas, liquid or vacuum")
+        if self.phase not in {"gas", "liquid", "solid", "vacuum"}:
+            raise ValueError("Medium phase must be gas, liquid, solid or vacuum")
+        if not isinstance(self.mixture_mole_fractions, dict):
+            raise ValueError("Mixture must map chemical formulas to mole fractions")
+        if self.mixture_mole_fractions:
+            fractions = list(self.mixture_mole_fractions.values())
+            if any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in fractions):
+                raise ValueError("Mixture mole fractions must be finite and positive")
+            if not math.isclose(sum(fractions), 1.0, rel_tol=0, abs_tol=1e-8):
+                raise ValueError("Mixture mole fractions must sum to one")
         try:
-            atoms = Formula(self.formula).count()
+            atoms = self.atomic_stoichiometry()
             valid = atoms and all(k in atomic_numbers and n > 0 for k, n in atoms.items())
-        except (ValueError, KeyError):
+        except (ValueError, KeyError, TypeError):
             valid = False
         if not valid:
-            raise ValueError(f"Invalid medium chemical formula: {self.formula}")
+            raise ValueError(f"Invalid medium composition: {self.mixture_mole_fractions or self.formula}")
         for name in ("pressure_mbar", "temperature_k", "density_kg_m3", "removal_cross_section_m2"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
                 raise ValueError(f"Medium {name} must be finite and non-negative")
         if self.temperature_k <= 0 or self.density_kg_m3 <= 0:
-            raise ValueError("Temperature and liquid mass density must be positive")
+            raise ValueError("Temperature and condensed-medium mass density must be positive")
         if self.removal_cross_section_m2 and not self.removal_reference.strip():
             raise ValueError("A nonzero removal cross section needs a measurement/model reference")
         return self
@@ -58,9 +82,8 @@ class Medium:
         from scipy.constants import Boltzmann, atomic_mass
         if self.phase == "gas":
             return self.pressure_mbar * 100.0 / (Boltzmann * self.temperature_k)
-        from ase.formula import Formula
         from ase.data import atomic_masses, atomic_numbers
-        mass = sum(atomic_masses[atomic_numbers[k]] * v for k, v in Formula(self.formula).count().items())
+        mass = sum(atomic_masses[atomic_numbers[k]] * v for k, v in self.atomic_stoichiometry().items())
         return self.density_kg_m3 / (mass * atomic_mass)
 
 
@@ -77,19 +100,40 @@ class VacuumRegion:
 
 
 @dataclass
+class CellWindow:
+    # Zero thickness preserves old windowless cell profiles without migration.
+    thickness_nm: float = 0.0
+    material: str = "SiN (Si3N4 approximation)"
+    medium: Medium = field(default_factory=lambda: Medium(phase="solid", formula="Si3N4", density_kg_m3=3100.0))
+    reference: str = "Editable bulk-density approximation; see CELL_ENVIRONMENT.md"
+
+    def validate(self):
+        self.medium.validate()
+        if self.medium.phase != "solid":
+            raise ValueError("Cell window material must be solid")
+        if type(self.thickness_nm) not in (int, float) or not math.isfinite(self.thickness_nm) or self.thickness_nm < 0:
+            raise ValueError("Window thickness must be finite and non-negative")
+        if not isinstance(self.material, str) or not self.material.strip():
+            raise ValueError("Window material needs a name")
+        return self
+
+
+@dataclass
 class SpecimenCell:
     inserted: bool = False
     diameter_mm: float = 0.01
-    length_mm: float = 0.001
+    length_mm: float = 0.001  # Inner-face separation (cell gap), excluding windows.
     offset_x_mm: float = 0.0
     offset_y_mm: float = 0.0
     offset_z_mm: float = 0.0
     medium: Medium = field(default_factory=lambda: Medium(pressure_mbar=1.0))
+    upstream_window: CellWindow = field(default_factory=CellWindow)
+    downstream_window: CellWindow = field(default_factory=CellWindow)
 
 
 @dataclass
 class VacuumMap:
-    enabled: bool = True
+    enabled: bool = False
     seed: int = 914
     schema: str = VACUUM_SCHEMA
     provenance: str = ""
@@ -110,14 +154,18 @@ class VacuumMap:
         if type(self.max_transport_nodes) is not int or not 2 <= self.max_transport_nodes <= 10000000:
             raise ValueError("Vacuum integration budget must be 2 to 10000000 nodes")
         keys = [r.key for r in self.regions]
-        if any(not k or k == "specimen_cell" or k.startswith("transition:") for k in keys) or len(set(keys)) != len(keys):
-            raise ValueError("Vacuum region keys must be nonempty and unique; specimen_cell and transition: are reserved")
+        if any(not k or k in CELL_KEYS or k.startswith("transition:") for k in keys) or len(set(keys)) != len(keys):
+            raise ValueError("Vacuum region keys must be nonempty and unique; cell layer keys and transition: are reserved")
         for r in self.regions:
             r.medium.validate()
             for value in (r.start_offset_mm, r.end_offset_mm):
                 if not math.isfinite(value):
                     raise ValueError("Vacuum boundary offsets must be finite")
         self.cell.medium.validate()
+        if self.cell.medium.phase == "solid":
+            raise ValueError("Cell interior must be gas, liquid or vacuum")
+        self.cell.upstream_window.validate()
+        self.cell.downstream_window.validate()
         for key in ("diameter_mm", "length_mm", "offset_x_mm", "offset_y_mm", "offset_z_mm"):
             if not math.isfinite(getattr(self.cell, key)):
                 raise ValueError(f"Cell {key} must be finite")
@@ -137,7 +185,13 @@ class VacuumMap:
             data["regions"] = [VacuumRegion(**{**r, "medium": Medium(**r.get("medium", {}))})
                                for r in data.get("regions", [])]
             c = data.get("cell", {})
-            data["cell"] = SpecimenCell(**{**c, "medium": Medium(**c.get("medium", {}))})
+            windows = {}
+            for key in ("upstream_window", "downstream_window"):
+                window = dict(c.get(key, {}))
+                if "medium" in window:
+                    window["medium"] = Medium(**window["medium"])
+                windows[key] = CellWindow(**window)
+            data["cell"] = SpecimenCell(**{**c, "medium": Medium(**c.get("medium", {})), **windows})
             return cls(**data).validate()
         except (TypeError, AttributeError) as exc:
             raise ValueError(f"Invalid vacuum map fields: {exc}") from exc
@@ -194,7 +248,7 @@ def fill_region_gaps(resolved):
             if gap < -1e-8:
                 raise ValueError(f"Vacuum regions {left.name} / {region.name} overlap")
             if gap > 1e-8:
-                if left.medium.phase == "liquid" or region.medium.phase == "liquid":
+                if left.medium.phase in {"liquid", "solid"} or region.medium.phase in {"liquid", "solid"}:
                     raise ValueError("A liquid interface needs an explicit boundary; automatic vacuum transitions support gas/vacuum only")
                 result.append(ResolvedMedium(f"transition:{left.key}:{region.key}",
                     f"{left.name} → {region.name}", left.end_z_mm, region.start_z_mm,
@@ -291,13 +345,62 @@ def resolve_regions(state, *, include_cell=True, include_disabled=False):
         centre = anchors["sample"] + cell.offset_z_mm
         a, b = centre-cell.length_mm/2, centre+cell.length_mm/2
         ambient = next((r for r in resolved if r.key == "specimen"), None)
-        if ambient is None or a < ambient.start_z_mm or b > ambient.end_z_mm:
+        up, down = cell.upstream_window, cell.downstream_window
+        outer_a, outer_b = a-up.thickness_nm*1e-6, b+down.thickness_nm*1e-6
+        if b <= a or (up.thickness_nm > 0 and outer_a >= a) or (down.thickness_nm > 0 and outer_b <= b):
+            raise ValueError("Cell gap or window thickness is below the numerical resolution at this Z position")
+        if ambient is None or outer_a < ambient.start_z_mm or outer_b > ambient.end_z_mm:
             raise ValueError("The inserted cell must fit inside the specimen environment region")
+        from temsim.specimen.source import specimen_is_vacuum
+        sample = state.sample
+        # The specimen is authoritative. Reject intersecting solid volumes,
+        # including a later Sample edit; never resize or move it to fit the cell.
+        if sample.inserted and not specimen_is_vacuum(sample):
+            for window, lo, hi in ((up, outer_a, a), (down, b, outer_b)):
+                if window.thickness_nm and sample_overlaps_window(sample, cell, lo, hi):
+                    raise ValueError("Sample intersects a cell window. Increase the cell gap or change the cell offset; edit the specimen only in Sample.")
         # A displaced finite specimen remains a separately modeled solid. The
         # transport excludes its volume rather than counting liquid/gas there.
         resolved.append(ResolvedMedium("specimen_cell", "Inserted specimen cell", a, b,
                                        cell.medium, cell.diameter_mm/2, cell.offset_x_mm, cell.offset_y_mm))
+        for key, label, window, lo, hi in (
+                ("cell_window_upstream", "Upstream window", up, outer_a, a),
+                ("cell_window_downstream", "Downstream window", down, b, outer_b)):
+            if window.thickness_nm > 0:
+                resolved.append(ResolvedMedium(key, f"{label} · {window.material}", lo, hi,
+                    window.medium, cell.diameter_mm/2, cell.offset_x_mm, cell.offset_y_mm))
     return tuple(resolved)
+
+
+def sample_overlaps_window(sample, cell, lo, hi):
+    """Finite Sample envelope versus window cylinder; all lengths here in mm."""
+    half_z = sample.thickness_nm*.5e-6
+    tolerance = 1e-10  # 0.0001 nm, only for face-touch roundoff.
+    if sample.z_mm+half_z <= lo+tolerance or sample.z_mm-half_z >= hi-tolerance:
+        return False
+    dx = sample.centre_x_nm*1e-6-cell.offset_x_mm
+    dy = sample.centre_y_nm*1e-6-cell.offset_y_mm
+    if sample.envelope_shape == "disk":
+        a, b = sample.size_x_nm*.5e-6, sample.size_y_nm*.5e-6
+        radius = cell.diameter_mm/2
+        if a == b:
+            return math.hypot(dx, dy) < radius+a
+        # Match specimen_interval's elliptical envelope for unequal X/Y sizes.
+        # Closest point on a convex ellipse via a bracketed Lagrange multiplier.
+        # Normalisation avoids squaring nanometre-valued mm lengths in the root.
+        from scipy.optimize import brentq
+        scale = max(a, b, abs(dx), abs(dy), radius)
+        a, b, x, y = a/scale, b/scale, abs(dx)/scale, abs(dy)/scale
+        if (x/a)**2+(y/b)**2 <= 1:
+            return True
+        def equation(lam):
+            return (a*x/(lam+a*a))**2+(b*y/(lam+b*b))**2-1
+        lam = brentq(equation, 0, max(a*x+b*y, 1.0), xtol=1e-14, rtol=1e-14)
+        distance = math.hypot(x-a*a*x/(lam+a*a), y-b*b*y/(lam+b*b))
+        return distance < radius/scale
+    dx = max(abs(dx)-sample.size_x_nm*.5e-6, 0)
+    dy = max(abs(dy)-sample.size_y_nm*.5e-6, 0)
+    return math.hypot(dx, dy) < cell.diameter_mm/2
 
 
 def bind_gun_environment(state):
@@ -311,7 +414,7 @@ def bind_gun_environment(state):
 
 
 def ensure_standalone_gun_environment(gun):
-    """Direct gun callers get the normal map; a bound historical map stays off."""
+    """Direct gun callers respect the configured opt-in; bound maps stay intact."""
     if hasattr(gun, "_vacuum_regions"):
         return
     config = VacuumMap.load()

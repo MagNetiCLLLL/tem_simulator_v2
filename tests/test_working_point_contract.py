@@ -243,7 +243,9 @@ def test_historical_illumination_dialog_is_read_only(qtbot):
 def test_persisted_seed_has_exact_working_point_and_frozen_diagnostics(instrument, tmp_path):
     from temsim.physics.simulation import run
     instrument.electron_gun.emitter.ray_count = 9
-    instrument.step_mm = 5.
+    # Keep the ordinary column step; a 5 mm step is too coarse for the strong
+    # installed lenses. This checks persistence, not gun/column acceptance.
+    instrument.step_mm = .2
     instrument.history_step_mm = 5.
     manifest = capture_calculation_manifest(instrument)
     simulation = run(instrument)
@@ -261,5 +263,17 @@ def test_persisted_seed_has_exact_working_point_and_frozen_diagnostics(instrumen
     assert bundle.metadata["beam_observables"]["plane_z_mm"] == restored.sample.z_mm
     repeated = run(restored)
     from temsim.physics.beam_statistics import branch_sample_statistics
-    assert bundle.metadata["beam_observables"]["records"]["alpha95"]["value"] == pytest.approx(
-        branch_sample_statistics(repeated.incident).convergence_95_rad, rel=1e-12, abs=1e-15)
+    alpha95 = bundle.metadata["beam_observables"]["records"]["alpha95"]
+    if not np.any(repeated.incident.alive):
+        # A saved blocked beam must remain explicitly unavailable on replay;
+        # it must not acquire a fictitious zero semi-angle or surviving rays.
+        assert not np.any(simulation.incident.alive)
+        assert alpha95["status"] == "UNAVAILABLE"
+        assert alpha95["value"] is None
+        assert alpha95["reason"] == "No surviving current"
+        with pytest.raises(ValueError,match="No finite surviving rays"):
+            branch_sample_statistics(repeated.incident)
+    else:
+        assert alpha95["status"] == "AVAILABLE"
+        assert alpha95["value"] == pytest.approx(
+            branch_sample_statistics(repeated.incident).convergence_95_rad, rel=1e-12, abs=1e-15)

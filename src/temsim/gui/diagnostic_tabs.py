@@ -4078,7 +4078,13 @@ class InitialDirectionColourWheel(QWidget):
         self.setObjectName("initialDirectionColourWheel")
         self.setFixedSize(184, 184)
         self.setAccessibleName("Initial ray direction colour wheel")
+        self._colour_quantity = "source"
         self._update_description()
+
+    def set_colour_quantity(self, quantity):
+        self._colour_quantity = quantity
+        self._update_description()
+        self.update()
 
     def _update_description(self) -> None:
         primary_name = projection_axis_name(self._projection_angle_deg)
@@ -4097,8 +4103,8 @@ class InitialDirectionColourWheel(QWidget):
                 f"{orthogonal_name}."
             )
         description = (
-            "Continuous colour = source-position polar angle about the emitted "
-            "bundle centroid, fixed for the entire trajectory. +X is 0 degrees and the angle increases "
+            "Continuous colour = original emission-position azimuth about the source axis "
+            "(legacy caches: emitted bundle centroid), fixed for the entire trajectory. +X is 0 degrees and the angle increases "
             "counter-clockwise toward +Y. This is position azimuth, not velocity direction; "
             "it does not represent ray radius, energy, intensity or "
             "survival state. Scattered weighted paths inherit their source colour; "
@@ -4108,6 +4114,12 @@ class InitialDirectionColourWheel(QWidget):
             "underlay is the peak-normalized forward PSF response; "
             "coloured dots remain the original rays."
         )
+        if self._colour_quantity == "emission_direction":
+            description = (
+                "Original emission direction azimuth about +Z, before extraction. "
+                "+X is 0 degrees, +Y is 90 degrees. Fixed through focusing and scattering; "
+                "not the direction at the selected plane. Grey: undefined or unavailable. "
+                + basis_description)
         self.setAccessibleDescription(description)
         self.setToolTip(description)
 
@@ -4158,7 +4170,7 @@ class InitialDirectionColourWheel(QWidget):
         painter.drawText(
             inner_rect,
             Qt.AlignmentFlag.AlignCenter,
-            "source\nposition",
+            "emission\ndirection" if self._colour_quantity == "emission_direction" else "source\nposition",
         )
 
         painter.setPen(QColor("#cbd5e1"))
@@ -4625,6 +4637,11 @@ class TransverseBeamView(QWidget):
         pool = np.unique(np.linspace(0, total - 1, min(total, self.MAX_DISPLAY_RAYS), dtype=int))
         source_ids, _ = source_identity(simulation.incident, getattr(simulation, "gun_trace", None))
         source_lookup = {int(value): index for index, value in enumerate(source_ids) if value >= 0}
+        launch = getattr(getattr(simulation, "gun_trace", None), "emission_reference", None)
+        launch_positions = np.asarray((launch or {}).get("position_m", ()))
+        if (launch_positions.shape != (len(source_ids), 3)
+                or not np.array_equal((launch or {}).get("ray_id"), source_ids)):
+            launch_positions = None
         parts = []
         interaction_styles = []
         offset = 0
@@ -4645,8 +4662,11 @@ class TransverseBeamView(QWidget):
             for row, ray_id in enumerate(ids):
                 source_index = source_lookup.get(int(ray_id))
                 if source_index is not None:
-                    sx[row] = simulation.incident.x[0, source_index]
-                    sy[row] = simulation.incident.y[0, source_index]
+                    if launch_positions is not None:
+                        sx[row], sy[row] = launch_positions[source_index, :2]
+                    else:
+                        sx[row] = simulation.incident.x[0, source_index]
+                        sy[row] = simulation.incident.y[0, source_index]
             parts.append((
                 self._interpolate(branch.x, z_values, plane)[selected],
                 self._interpolate(branch.y, z_values, plane)[selected],
@@ -4705,6 +4725,7 @@ class TransverseBeamView(QWidget):
                 f"{projection_axis_name(self._projection_angle_deg)} {x:.6g} µm | "
                 f"{orthogonal_axis_name(self._projection_angle_deg)} {y:.6g} µm"
                 + (f" | {data['interaction']}" if "interaction" in data else "")
+                + ("\n" + data["emission"] if "emission" in data else "")
                 if data["source_ray_id"] >= 0 else "Source identity unavailable"
             ),
             pxMode=True,
@@ -4767,8 +4788,8 @@ class TransverseBeamView(QWidget):
             f"RMS radius {rms_radius_display:.6g} {self.DISPLAY_UNIT} | "
             f"pattern orientation relative to the source {rotation_text} | "
             f"display basis U={primary_name}, V={orthogonal_name} | "
-            "colour identifies fixed source-position azimuth about the emitted "
-            "bundle centroid. Pattern rotation includes inversion/deformation; "
+            "colour identifies original emission-position azimuth about the source axis "
+            "(legacy caches: bundle centroid). Pattern rotation includes inversion/deformation; "
             "it is not the integrated Larmor angle. Weighted descendants may "
             "share a source identity. Grey means undefined or unavailable lineage."
             + point_spread_text

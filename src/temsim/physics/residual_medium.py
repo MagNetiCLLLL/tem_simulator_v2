@@ -14,12 +14,13 @@ import math
 import numpy as np
 from scipy.constants import alpha, c, e, epsilon_0, hbar, m_e, physical_constants
 
-from temsim.vacuum import ResolvedMedium, resolve_regions
+from temsim.vacuum import CELL_KEYS, ResolvedMedium, resolve_regions
 
-MODEL = "independent-atom-Wentzel-Moliere-elastic-v2-linear-gaps"
+MODEL = "independent-atom-Wentzel-Moliere-elastic-v3-cell-windows-mixtures"
 MODEL_SCOPE = ("Independent-atom screened elastic approximation; low-energy extrapolation, "
-               "no molecular bonding, recoil, ionisation, stopping power or cell windows. "
-               "Liquid is an elastic density surrogate. Scattered electrons retain weight; "
+               "no bonding, recoil, ionisation or stopping power. "
+               "Liquid and solid windows use density-based elastic scattering; no crystalline "
+               "window diffraction, pressure bulging or window X-ray emission/absorption. Scattered electrons retain weight; "
                "removal requires a separate supplied cross section. Column uses forward-Z optics.")
 
 
@@ -44,9 +45,8 @@ def atomic_cross_section(energy_ev, atomic_number):
 
 
 def medium_coefficients(medium, energy_ev):
-    from ase.formula import Formula
     from ase.data import atomic_numbers
-    atoms = Formula(medium.formula).count()
+    atoms = medium.atomic_stoichiometry()
     channels = []
     total = np.zeros_like(np.asarray(energy_ev, dtype=float))
     density = medium.number_density_m3()
@@ -159,10 +159,9 @@ class MediumTransport:
             return output
         z_min = min(float(np.min(start[valid, 2])), float(np.min(end[valid, 2])))*1000
         z_max = max(float(np.max(start[valid, 2])), float(np.max(end[valid, 2])))*1000
-        cell = next((r for r in self.regions if r.key == "specimen_cell"), None)
-        if cell is not None and (cell.end_z_mm <= z_min or cell.start_z_mm >= z_max):
-            cell = None
-        cell_interval = segment_fraction(cell, start, end) if cell is not None else None
+        # Even a vacuum-filled cell displaces the surrounding chamber gas.
+        cell_intervals = [segment_fraction(r, start, end) for r in self.regions
+                          if r.key in CELL_KEYS and r.end_z_mm > z_min and r.start_z_mm < z_max]
         intervals = []
         for r in self.regions:
             if r.end_z_mm <= z_min or r.start_z_mm >= z_max:
@@ -170,13 +169,16 @@ class MediumTransport:
             if r.medium.number_density_m3() == 0 and (r.end_medium is None or r.end_medium.number_density_m3() == 0):
                 continue
             lo, hi = segment_fraction(r, start, end)
-            if r.radius_mm is None and cell_interval is not None:
-                cl, ch = cell_interval
-                # Replace, never add, the cell medium to the ambient column.
-                intervals.extend(((r, lo, np.minimum(hi, np.maximum(lo, cl))),
-                                  (r, np.maximum(lo, np.minimum(hi, ch)), hi)))
-            else:
-                intervals.append((r, lo, hi))
+            pieces = [(lo, hi)]
+            if r.radius_mm is None:
+                for cl, ch in cell_intervals:
+                    # Subtract the union of interior + both solid windows.
+                    trimmed = []
+                    for pl, ph in pieces:
+                        trimmed.extend(((pl, np.minimum(ph, np.maximum(pl, cl))),
+                                        (np.maximum(pl, np.minimum(ph, ch)), ph)))
+                    pieces = [(pl, ph) for pl, ph in trimmed if np.any(ph > pl)]
+            intervals.extend((r, pl, ph) for pl, ph in pieces)
         solid_overlap = (self.solid_specimen is not None
                          and self.solid_specimen.z_mm-self.solid_specimen.thickness_nm*.5e-6 < z_max
                          and self.solid_specimen.z_mm+self.solid_specimen.thickness_nm*.5e-6 > z_min)

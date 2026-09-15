@@ -23,6 +23,7 @@ dependencies = [
     "pillow>=11,<13",
     "PySide6==6.8.3",
     "scipy",
+    "threadpoolctl>=3.6,<4",
     "tomli-w",
     "tifffile>=2025,<2027",
     "xraylib==4.3.0",

@@ -25,6 +25,8 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
     from temsim.vacuum import ensure_standalone_gun_environment
     ensure_standalone_gun_environment(gun)
     emitted = gun.emit(count)
+    from temsim.physics.ray_identity import emission_reference
+    launch_reference = emission_reference(emitted, getattr(gun.emitter, "surface_model", None))
     surface_model = getattr(gun.emitter, "surface_model", None)
     electric_provider = gun.electric_field
     magnetic_provider = gun.magnetic_field
@@ -466,6 +468,7 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
         equal_time_history=equal_time_history,
         plane_arrivals=tuple(plane_arrivals),
         vacuum_report=medium.report() if medium.regions else None,
+        emission_reference=launch_reference,
     )
     if surface_model is not None:
         from scipy.constants import c, m_e, e

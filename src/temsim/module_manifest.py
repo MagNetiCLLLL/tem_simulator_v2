@@ -669,6 +669,7 @@ def _stage_part_structure(text, changes):
 def stage_manifest_text(text, updates):
     """Return TOML text with targeted section/part fields replaced."""
 
+    from temsim.optics.electron_gun.tip_assembly import OPTIONAL_NUMERICAL_FIELDS
     text = _stage_part_structure(text, updates)
     lines = text.splitlines(keepends=True)
     newline = "\r\n" if "\r\n" in text else "\n"
@@ -685,7 +686,16 @@ def stage_manifest_text(text, updates):
             field = path[-1]
         else:
             raise ValueError(f"Invalid TOML update path: {path!r}")
-        first, last = _assignment_span(lines, start, end, field)
+        try:
+            first, last = _assignment_span(lines, start, end, field)
+        except ValueError:
+            if len(path) == 3 and path[0] == "parts" and field in OPTIONAL_NUMERICAL_FIELDS:
+                # A linked tip can gain a numerical control absent from older
+                # embedded snapshots. Insert inside the owning part, preserving
+                # comments and unrelated tables. Final validation still applies.
+                lines[start:start] = [f"{field} = {_format_toml_value(value)}{newline}"]
+                continue
+            raise
         indent = lines[first][:len(lines[first]) - len(lines[first].lstrip())]
         lines[first:last] = [
             f"{indent}{field} = {_format_toml_value(value)}{newline}"

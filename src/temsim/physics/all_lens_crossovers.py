@@ -15,6 +15,7 @@ from temsim.component_keys import (
     PROBE_TL22_LENS,
 )
 from temsim.component_names import LENS_SHORT_NAMES
+from temsim.physics.beam_waist import branch_waist_candidates
 
 
 LENS_CROSSOVER_NAMES = {
@@ -52,36 +53,8 @@ LENS_CROSSOVER_NAMES = {
 
 
 def _branch_waists(branch, minimum_rays=5):
-
-    z=np.asarray(branch.z,float);x=np.asarray(branch.x,float);y=np.asarray(branch.y,float)
-
-    tx=np.asarray(branch.tx,float);ty=np.asarray(branch.ty,float)
-
-    blocked=np.asarray(branch.blocked_z,float)
-
-    waists=[]
-
-    for j in range(1,len(z)-1):
-
-        valid=np.isfinite(x[j])&np.isfinite(y[j])&np.isfinite(tx[j])&np.isfinite(ty[j])&(np.isnan(blocked)|(blocked>=z[j]))
-
-        if int(valid.sum())<minimum_rays:continue
-
-        def rc(k):
-
-            dx=x[k,valid]-x[k,valid].mean();dy=y[k,valid]-y[k,valid].mean()
-
-            dtx=tx[k,valid]-tx[k,valid].mean();dty=ty[k,valid]-ty[k,valid].mean()
-
-            return float(np.sqrt(np.mean(dx*dx+dy*dy))),float(np.mean(dx*dtx+dy*dty))
-
-        rl,cl=rc(j-1);rm,cm=rc(j);rr,cr=rc(j+1)
-
-        if rm<=rl and rm<=rr and cl<0.0<cr:
-
-            waists.append((float(z[j]),rm*1000.0))
-
-    return waists
+    return [(row["z_mm"], row["rms_radius_mm"])
+            for row in branch_waist_candidates(branch, min_rays=minimum_rays)]
 
 
 

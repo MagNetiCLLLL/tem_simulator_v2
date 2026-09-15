@@ -48,3 +48,11 @@ These requirements were explicitly specified by the user on 2026-09-11.
   Actual microscope acquisition records are not calculation caches and remain
   eligible for version control. Do not rewrite published Git history without
   explicit authorization.
+
+## Vacuum calculation policy (2026-09-14)
+
+- Vacuum scattering / attenuation is opt-in and disabled by default. Users
+  normally choose it before the first Preview; later changes remain allowed.
+- Changing vacuum participation or active vacuum settings may invalidate all
+  calculation stages. This broad cache invalidation is explicitly permitted.
+- Preserve explicit on/off choices in saved maps, profiles and snapshots.

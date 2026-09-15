@@ -134,6 +134,9 @@ class ElectrostaticGunLens:
     name: str = "Electrostatic Gun Lens"
     key: str = FEG_ELECTROSTATIC_LENS
     voltage_kv: float = 1.2
+    # Explicit electrode potential reference for the solved surface-source
+    # model. "extractor" preserves historical additive voltage semantics.
+    voltage_reference: str = "extractor"
     potential_scale: float = 4.22125
     soft_edge_mm: float = 1.5
     field_center_offset_mm: float = 0.0
@@ -168,6 +171,12 @@ class ElectrostaticGunLens:
         return tuple(amplitude * value for value in values)
 
     def validate(self, *, grounded=False):
+        if self.voltage_reference not in {"tip", "extractor", "ground"}:
+            raise ValueError("Gun-lens voltage reference must be tip, extractor or ground")
+        if not grounded and self.voltage_reference != "extractor":
+            raise ValueError("The historical analytic gun requires its original extractor voltage reference")
+        if not np.isfinite(self.voltage_kv):
+            raise ValueError("Gun-lens voltage must be finite")
         if self.mechanical_length_mm <= 0.0 or (not grounded and self.soft_edge_mm <= 0.0):
             raise ValueError("Electrostatic gun lens lengths must be positive.")
         if self.mechanical_clear_bore_diameter_mm <= 0.0:
@@ -175,6 +184,12 @@ class ElectrostaticGunLens:
         if not grounded and self.potential_scale < 0.0:
             raise ValueError("Electrostatic gun lens scale must not be negative.")
         return self
+
+    def potential_rise_from_tip_v(self, extraction_kv, high_tension_kv):
+        """Convert an electrode setting to one common electrostatic gauge."""
+        self.validate(grounded=True)
+        base = {"tip": 0., "extractor": extraction_kv, "ground": high_tension_kv}[self.voltage_reference]
+        return (float(base)+self.voltage_kv)*1000.
 
     def draw_layout(self):
         return _draw_body(self, "electrostatic_electrode_stack")

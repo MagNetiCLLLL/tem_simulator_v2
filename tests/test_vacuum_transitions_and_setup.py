@@ -11,7 +11,9 @@ from temsim.physics.residual_medium import MediumTransport, medium_coefficients
 @pytest.fixture(scope="module")
 def state():
     from temsim.optics.column import default_state
-    return default_state()
+    value = default_state()
+    value.vacuum_map.enabled = True  # These fixtures exercise enabled transport.
+    return value
 
 
 def test_gap_follows_component_and_does_not_move_neighbours(state):

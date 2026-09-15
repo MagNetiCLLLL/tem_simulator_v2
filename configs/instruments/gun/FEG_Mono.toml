@@ -52,6 +52,7 @@ tip_radius_nm = 100.0
 tip_cone_half_angle_deg = 5.0
 emission_flux_electrons_per_nm2_s = 653864449.6443435
 emission_cap_half_angle_deg = 10.0
+emission_directions_per_position = 8
 emission_maximum_angle_deg = 90.0
 emission_energy_distribution = "normal_tangential_exponential"
 emission_normal_mean_energy_ev = 0.2
@@ -95,6 +96,8 @@ optical_reference_local_z_mm = 18.0
 outer_diameter_mm = 60.0
 bore_diameter_mm = 8.0
 default_voltage_kv = 1.2
+# Historical additive convention, not an OEM voltage-reference calibration.
+default_voltage_reference = "extractor"
 
 [[parts]]
 order = 4

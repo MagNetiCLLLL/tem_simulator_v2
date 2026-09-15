@@ -1,6 +1,7 @@
 """Display-only source lineage for weighted electron trajectories.
 
-Colours label the azimuth of an emitted position, not its velocity. A loss
+Source-position colours label emitted-position azimuth, not velocity. Separate
+emission-angle modes use the saved original direction and local normal. A loss
 channel may share an ancestor with other weighted representatives. Neither
 identity nor azimuth participates in propagation or detector integration.
 """
@@ -13,6 +14,71 @@ import numpy as np
 def _frozen(values, dtype):
     array = np.ascontiguousarray(values, dtype=dtype)
     return np.frombuffer(array.tobytes(), dtype=dtype).reshape(array.shape)
+
+
+def emission_reference(bundle, surface_model=None):
+    """Freeze actual pre-field launch data; SI positions and unit directions.
+
+    The spherical tip centre is (0, 0, -R). Surface normals are not velocities.
+    Historical planar particle sources retain their own launch distribution.
+    This is display lineage, not an independently configurable source.
+    """
+    if surface_model is not None:
+        positions = np.asarray(bundle.surface_position_m)
+        directions = np.asarray(bundle.surface_direction)
+        radius = surface_model.geometry.apex_radius_nm * 1e-9
+        normals = (positions + [0., 0., radius])/radius
+    else:
+        positions = np.column_stack((bundle.x_m, bundle.y_m, np.zeros_like(bundle.x_m)))
+        directions = np.column_stack((bundle.tx_rad, bundle.ty_rad, np.ones_like(bundle.x_m)))
+        directions /= np.linalg.norm(directions, axis=1)[:, None]
+        normals = np.tile([0., 0., 1.], (len(positions), 1))
+    return {"ray_id": _frozen(bundle.ray_id, np.int64),
+            "position_m": _frozen(positions, np.float64),
+            "direction": _frozen(directions, np.float64),
+            "normal": _frozen(normals, np.float64)}
+
+
+def emission_colour_values(simulation, source_ids, mode):
+    """Original direction azimuth / angle to local normal, mapped by ancestry.
+
+    Angles are radians. Missing launch records stay NaN (neutral colour), even
+    when a later cached slope is available. Backward launches retain their full
+    direction; slopes cannot determine their hemisphere.
+    """
+    ids = np.asarray(source_ids)
+    output = np.full(ids.shape, np.nan)
+    reference = getattr(getattr(simulation, "gun_trace", None), "emission_reference", None)
+    if reference is None:
+        return output
+    try:
+        original_ids = np.asarray(reference["ray_id"])
+        direction = np.asarray(reference["direction"], dtype=float)
+        normal = np.asarray(reference["normal"], dtype=float)
+        if (original_ids.ndim != 1 or original_ids.dtype.kind not in "iu"
+                or np.any(original_ids < 0) or np.unique(original_ids).size != original_ids.size
+                or direction.shape != (original_ids.size, 3) or normal.shape != direction.shape):
+            return output
+        if mode == "emission_direction":
+            values = np.mod(np.arctan2(direction[:, 1], direction[:, 0]), 2*np.pi)
+            values[np.hypot(direction[:, 0], direction[:, 1]) <= 1e-15] = np.nan
+        elif mode == "emission_angle":
+            # atan2 is well-conditioned for nearly normal emission.
+            values = np.arctan2(np.linalg.norm(np.cross(direction, normal), axis=1),
+                                np.einsum("ij,ij->i", direction, normal))
+        else:
+            raise ValueError("Unknown emission colour quantity")
+        values[~np.all(np.isfinite(direction) & np.isfinite(normal), axis=1)] = np.nan
+        order = np.argsort(original_ids)
+        indices = np.searchsorted(original_ids[order], ids)
+        if original_ids.size:
+            valid = (ids >= 0) & (indices < original_ids.size)
+            rows = np.minimum(indices, original_ids.size-1)
+            valid &= original_ids[order[rows]] == ids
+            output[valid] = values[order[rows[valid]]]
+    except (KeyError, TypeError, IndexError):
+        return output
+    return output
 
 
 def _count(branch) -> int:
@@ -73,11 +139,20 @@ def source_identity(incident, gun_trace=None):
     angles = np.full(count, np.nan)
     x = np.asarray(getattr(incident, "x", ()), dtype=float)
     y = np.asarray(getattr(incident, "y", ()), dtype=float)
+    reference = getattr(gun_trace, "emission_reference", None)
+    launch_positions = False
+    if reference is not None:
+        # Preserve the real launch position, not the first common-Z resample
+        # (a curved emitter has no single launch plane).
+        positions = np.asarray(reference.get("position_m", ()), dtype=float)
+        if positions.shape == (count, 3) and np.array_equal(reference.get("ray_id"), ids):
+            x, y = positions[None, :, 0], positions[None, :, 1]
+            launch_positions = True
     if x.ndim == 2 and y.shape == x.shape and x.shape[0]:
         finite = np.isfinite(x[0]) & np.isfinite(y[0])
         if np.any(finite):
-            dx = x[0] - np.mean(x[0, finite])
-            dy = y[0] - np.mean(y[0, finite])
+            dx = x[0] - (0. if launch_positions else np.mean(x[0, finite]))
+            dy = y[0] - (0. if launch_positions else np.mean(y[0, finite]))
             defined = finite & (np.hypot(dx, dy) > 1.0e-15)
             angles[defined] = np.mod(np.arctan2(dy[defined], dx[defined]), 2*np.pi)
     return _frozen(ids, np.int64), _frozen(angles, np.float64)

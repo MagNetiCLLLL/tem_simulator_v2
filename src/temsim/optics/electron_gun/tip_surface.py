@@ -65,8 +65,47 @@ class SurfaceEmission:
     energy_distribution: str = "normal_tangential_exponential"
     kinetic_mean_ev: float = 0.3
     kinetic_sigma_ev: float = 0.1
+    # Numerical quadrature, not an additional physical angular spread.
+    directions_per_position: int = 1
+    # Numerical importance quadrature only; the physical law remains uniform
+    # emitting area. The narrow optical acceptance must not become a new source.
+    spatial_sampling: str = "uniform_area"
+    # Optional numerical budget priorities for the nine FULL-cap area strata.
+    # Empty retains historical equal site counts. Never physical flux weights.
+    spatial_stratum_allocation: tuple[int, ...] = ()
+    # Numerical CDF refinement of the SAME local tangential Gaussian law.
+    # The full tails retain their original weights; this is not beam tilt.
+    angular_sampling: str = "uniform_cdf"
+    angular_refinement_gain: float = 0.0
+    angular_refinement_width_sigma: float = .1
+    angular_stratum_allocation: tuple[int, ...] = ()
 
     def validate(self, geometry, *, coherent=False):
+        if self.angular_sampling not in {"uniform_cdf", "tangent_stratified_v1", "tangent_stratified_v2"}:
+            raise ValueError("Unknown tip angular quadrature")
+        if self.angular_stratum_allocation and (
+                self.angular_sampling != "tangent_stratified_v2" or coherent
+                or len(self.angular_stratum_allocation) != 9
+                or any(type(v) is not int or not 1 <= v <= 1000 for v in self.angular_stratum_allocation)):
+            raise ValueError("Tangent allocation requires nine positive integer numerical priorities and classical v2 quadrature")
+        if (not math.isfinite(self.angular_refinement_gain) or self.angular_refinement_gain < 0
+                or not math.isfinite(self.angular_refinement_width_sigma)
+                or self.angular_refinement_width_sigma <= 0):
+            raise ValueError("Angular quadrature refinement must be finite and its width positive")
+        if self.angular_sampling.startswith("tangent_stratified_") and (
+                coherent or self.energy_distribution != "normal_tangential_exponential"
+                or self.maximum_angle_deg != 90 or self.tangential_mean_energy_ev <= 0
+                or self.directions_per_position < 9):
+            raise ValueError("Tangent quadrature requires classical exponential emission, a 90-degree limit and nine directions per site")
+        if self.spatial_sampling not in {"uniform_area", "apex_stratified_v1"}:
+            raise ValueError("Unknown tip spatial quadrature")
+        if self.spatial_stratum_allocation and (
+                self.spatial_sampling != "apex_stratified_v1" or coherent
+                or len(self.spatial_stratum_allocation) != 9
+                or any(type(v) is not int or not 1 <= v <= 1000 for v in self.spatial_stratum_allocation)):
+            raise ValueError("Cap allocation requires nine positive integer numerical priorities and classical full-cap strata")
+        if type(self.directions_per_position) is not int or not 1 <= self.directions_per_position <= 256:
+            raise ValueError("Directions per emission position must be an integer in [1, 256]")
         if self.flux_electrons_per_nm2_s is None:
             _positive(self.current_na, "Surface current", allow_zero=True)
         else:
@@ -123,8 +162,24 @@ class TipFieldNumerics:
     outer_radius_factor: float
     linear_residual_tolerance: float
     accelerator_ring_thickness_mm: float
+    # Interpolation support, not an electrode size or source extent. Zero is
+    # the raw-grid diagnostic reference. Nondefault values survive profiles.
+    axis_core_fraction: float = .01
+    # Local mesh resolution of electrode fringes; zero is the historical mesh.
+    electrode_cells_per_bore: int = 8
+    # Optional numerical grading at conductor corners, not rounded metal.
+    electrode_corner_cells: int = 0
 
     def validate(self):
+        if (type(self.electrode_corner_cells) is not int
+                or self.electrode_corner_cells not in (0, *range(4, 65))):
+            raise ValueError("Electrode corner cells must be zero or an integer in [4, 64]")
+        if (isinstance(self.axis_core_fraction, bool) or not math.isfinite(self.axis_core_fraction)
+                or not 0 <= self.axis_core_fraction <= .05):
+            raise ValueError("Axis core fraction must be in [0, 0.05]")
+        if (type(self.electrode_cells_per_bore) is not int
+                or self.electrode_cells_per_bore not in (0, *range(4, 65))):
+            raise ValueError("Electrode cells per bore must be zero or an integer in [4, 64]")
         for name, lo, hi in (("radial_nodes", 32, 1024), ("axial_nodes", 64, 2048),
                              ("apex_cells_per_radius", 4, 200)):
             value = getattr(self, name)
@@ -214,6 +269,22 @@ class TipSurfaceModel:
 
     def to_dict(self):
         result = asdict(self)
+        if result["field_numerics"]["axis_core_fraction"] == .01:
+            result["field_numerics"].pop("axis_core_fraction")
+        if result["field_numerics"]["electrode_cells_per_bore"] == 8:
+            result["field_numerics"].pop("electrode_cells_per_bore")
+        if result["field_numerics"]["electrode_corner_cells"] == 0:
+            result["field_numerics"].pop("electrode_corner_cells")
+        if result["emission"]["spatial_sampling"] == "uniform_area":
+            result["emission"].pop("spatial_sampling")
+        if not result["emission"]["spatial_stratum_allocation"]:
+            result["emission"].pop("spatial_stratum_allocation")
+        if not result["emission"]["angular_stratum_allocation"]:
+            result["emission"].pop("angular_stratum_allocation")
+        for name,default in (("angular_sampling","uniform_cdf"),("angular_refinement_gain",0.),
+                             ("angular_refinement_width_sigma",.1)):
+            if result["emission"][name] == default:
+                result["emission"].pop(name)
         if result["coherence"] is None:
             result.pop("coherence")
         result["emission"] = {k: v for k, v in result["emission"].items() if v is not None}
@@ -225,6 +296,14 @@ class TipSurfaceModel:
             row = dict(data)
             row["geometry"] = TipGeometry(**row["geometry"])
             row["emission"] = SurfaceEmission(**{"current_na": None, **row["emission"]})
+            if isinstance(row["emission"].spatial_stratum_allocation, list):
+                from dataclasses import replace
+                row["emission"] = replace(row["emission"], spatial_stratum_allocation=tuple(
+                    row["emission"].spatial_stratum_allocation))
+            if isinstance(row["emission"].angular_stratum_allocation, list):
+                from dataclasses import replace
+                row["emission"] = replace(row["emission"], angular_stratum_allocation=tuple(
+                    row["emission"].angular_stratum_allocation))
             row["field_numerics"] = TipFieldNumerics(**row["field_numerics"])
             if row.get("coherence") is not None:
                 row["coherence"] = SurfaceCoherence(**row["coherence"])
@@ -244,7 +323,7 @@ def _positive(value, name, allow_zero=False):
 
 
 def emit_surface(model, count):
-    """Positions [m], directions, local energies [eV], equal outgoing-flux weights.
+    """Positions [m], directions, local energies [eV], outgoing-flux weights.
 
     Uniform area on a spherical cap. Normal and tangential energy have
     exponential laws conditioned on the local angular limit, or a specified
@@ -258,10 +337,70 @@ def emit_surface(model, count):
         raise ValueError("The coherent surface boundary must be propagated as a wave; classical ray sampling is not its phase-space distribution")
     if isinstance(count, bool) or int(count) != count or count < 9:
         raise ValueError("Surface emission requires at least 9 samples")
-    u, a, en, et, b = _halton_dimensions(int(count), (2, 3, 5, 7, 11))
     p = model.emission
+    n = int(count)
+    u, a, en, et, b = _halton_dimensions(n, (2, 3, 5, 7, 11))
+    weights = np.full(n, 1/n)
+    if p.directions_per_position > 1:
+        # Spend the existing ray budget on shared surface sites and local
+        # direction/energy samples, never multiply the physical current.
+        directions = p.directions_per_position
+        if p.spatial_sampling == "apex_stratified_v1":
+            # A small preview must still represent EVERY cap stratum. Only
+            # repartition previously unsupported small budgets; old valid
+            # quadratures and physical source parameters remain unchanged.
+            minimum = 81 if p.angular_sampling.startswith("tangent_stratified_") else 9
+            if n < minimum:
+                raise ValueError(f"Full-cap quadrature needs at least {minimum} current-carrying rays")
+            directions = min(directions,n//9)
+        sites = max(1, n // directions)
+        sizes = np.full(sites, n // sites, dtype=int)
+        sizes[:n % sites] += 1
+        site_u, site_a, rotation = _halton_dimensions(sites, (2, 3, 13))
+        u, a = np.repeat(site_u, sizes), np.repeat(site_a, sizes)
+        starts = np.repeat(np.cumsum(sizes)-sizes, sizes)
+        b = (np.arange(n)-starts+np.repeat(rotation, sizes))/np.repeat(sizes, sizes)
+        weights = 1/(sites*np.repeat(sizes, sizes))
+    if p.spatial_sampling == "apex_stratified_v1":
+        # Cover the WHOLE cap with disjoint equal-area-coordinate annuli. Each
+        # stratum's quadrature weights sum to its actual fraction of source
+        # current, including outer rays that will be absorbed by real stops.
+        # Refining this rule changes numerical sampling, not emitted flux or
+        # the angular/energy distribution. Do not renormalise transmitted rays.
+        if p.directions_per_position == 1:
+            sites, sizes = n, np.ones(n, dtype=int)
+            site_u, site_a, rotation = _halton_dimensions(sites, (2, 3, 13))
+        from temsim.optics.electron_gun.tip_sampling import stratified_cap_area
+        site_u, site_a, site_weight = stratified_cap_area(sites, p.spatial_stratum_allocation)
+        u, a = np.repeat(site_u, sizes), np.repeat(site_a, sizes)
+        weights = np.repeat(site_weight/sizes, sizes)
     from temsim.optics.electron_gun.tip_patch import sample_cap_frame
     positions, normals, tangent1, tangent2 = sample_cap_frame(model.geometry, p.cap_half_angle_deg, u, a)
+    if p.angular_sampling.startswith("tangent_stratified_"):
+        from temsim.optics.electron_gun.tip_sampling import stratified_tangent_momenta, tangent_cell_ids
+        # The central refinement follows position only; it does not condition
+        # away any physical angle/energy or depend on a downstream launch.
+        first = np.cumsum(sizes)-sizes
+        t1,t2 = np.empty(n),np.empty(n)
+        sigma = math.sqrt(p.tangential_mean_energy_ev/2)
+        sequence_offset = 0
+        for start,size in zip(first,sizes):
+            section = slice(start,start+size)
+            centre = -p.angular_refinement_gain*math.hypot(*normals[start,:2])
+            qn,a1,a2,cw = stratified_tangent_momenta(int(size),sigma_sqrt_ev=sigma,
+                radial_centre_sigma=centre,halfwidth_sigma=p.angular_refinement_width_sigma,
+                sequence_offset=sequence_offset,allocation=p.angular_stratum_allocation)
+            if p.angular_sampling == "tangent_stratified_v2":
+                # Increasing the site count must refine energy and local
+                # momentum too, not repeat the same few directions forever.
+                # v1 remains replayable for existing diagnostic records.
+                sequence_offset += int(np.bincount(tangent_cell_ids(int(size),p.angular_stratum_allocation),minlength=9).max())
+            en[section],t1[section],t2[section] = qn,a1,a2
+            weights[section] *= size*cw
+        normal_energy = -p.normal_mean_energy_ev*np.log1p(-en)
+        direction = np.sqrt(normal_energy)[:,None]*normals+t1[:,None]*tangent1+t2[:,None]*tangent2
+        direction /= np.linalg.norm(direction,axis=1)[:,None]
+        return positions,direction,normal_energy+t1*t1+t2*t2,weights
     if p.energy_distribution == "normal_tangential_exponential":
         a, bmean = p.normal_mean_energy_ev, p.tangential_mean_energy_ev
         normal_energy = -a * np.log1p(-en)
@@ -289,13 +428,13 @@ def emit_surface(model, count):
     tangent = np.cos(2*np.pi*b)[:, None]*tangent1 + np.sin(2*np.pi*b)[:, None]*tangent2
     direction = np.sqrt(normal_energy)[:, None]*normals + np.sqrt(tangent_energy)[:, None]*tangent
     direction /= np.linalg.norm(direction, axis=1)[:, None]
-    return positions, direction, normal_energy + tangent_energy, np.full(int(count), 1/int(count))
+    return positions, direction, normal_energy + tangent_energy, weights
 
 
 def surface_bundle(model, count, *, support_probes=0):
     """Retain the curved launch surface and full direction, including dz < 0."""
     from temsim.optics.electron_gun.base import EmissionBundle
-    p, d, energy, weight = emit_surface(model, count)
+    p, d, energy, weight = emit_surface(model, count-support_probes if support_probes else count)
     if support_probes:
         if support_probes not in (1, 33) or count <= support_probes:
             raise ValueError("Surface tuning requires 1 or 33 diagnostic probes plus emission samples")
@@ -309,11 +448,11 @@ def surface_bundle(model, count, *, support_probes=0):
         if support_probes == 33:
             area[:-1] = np.repeat([1., 1e-4, 1e-8, 1e-12], 8)
             azimuth[:-1] = np.tile(np.arange(8)/8, 4)
-        p[interior:], d[interior:], _, _ = sample_cap_frame(
+        probe_p, probe_d, _, _ = sample_cap_frame(
             model.geometry, model.emission.cap_half_angle_deg, area, azimuth)
-        energy[interior:] = model.emission.mean_energy_ev
-        weight[:interior] = 1/interior
-        weight[interior:] = 0.
+        p, d = np.vstack((p, probe_p)), np.vstack((d, probe_d))
+        energy = np.r_[energy, np.full(support_probes, model.emission.mean_energy_ev)]
+        weight = np.r_[weight, np.zeros(support_probes)]
     # Slope is only a historical display coordinate, not the transport state.
     # An exactly transverse trajectory has no finite slope and is shown as NaN.
     slopes = np.divide(d[:, :2], d[:, 2, None], out=np.full_like(d[:, :2], np.nan),

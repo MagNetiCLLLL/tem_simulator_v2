@@ -232,6 +232,12 @@ def apply_profile_values(state, values: dict) -> list[str]:
     if not isinstance(values, dict):
         raise ValueError("Operating profile devices must be a table")
     values = dict(values)
+    lens = getattr(state.electron_gun, "electrostatic_lens", None)
+    if lens is not None and isinstance(values.get(lens.key), dict):
+        # Missing in historical profiles means the original additive gauge,
+        # not whichever reference happens to be active before loading them.
+        values[lens.key] = dict(values[lens.key])
+        values[lens.key].setdefault("voltage_reference", "extractor")
     from temsim.vacuum import VacuumMap
     vacuum_data = values.pop("__vacuum_map__", None)
     vacuum_candidate = VacuumMap.from_dict(vacuum_data) if vacuum_data is not None else VacuumMap.historical()

@@ -291,6 +291,10 @@ def test_complete_incident_seed_restarts_ray_solver(tmp_path, with_vector_map, l
 
     assert restored is not None
     assert restored.incident_plan.signature == first.incident_plan.signature
+    for field, expected in first.gun_trace.emission_reference.items():
+        actual = restored.gun_trace.emission_reference[field]
+        np.testing.assert_array_equal(actual, expected)
+        assert not actual.flags.writeable
     for field in ("source_ray_id", "source_azimuth_rad"):
         expected = getattr(first.incident, field)
         np.testing.assert_array_equal(getattr(restored.incident, field), expected)

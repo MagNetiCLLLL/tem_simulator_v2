@@ -1,6 +1,6 @@
 """Axisymmetric vacuum Laplace field for an idealised, grounded FEG assembly.
 
-Nonuniform cylindrical finite-volume conductances; metal nodes are Dirichlet.
+Boundary-conforming axisymmetric finite elements; metals are Dirichlet.
 The numerical radial/back boundaries are insulating (zero normal derivative),
 not extra grounded electrodes. The exit boundary and final accelerator ring
 are grounded. No charge density, image potential or tunnelling is included.
@@ -32,8 +32,9 @@ def field_request(gun):
     if not gun.accelerator.stages or gun.accelerator.stages[-1].voltage_fraction != 1.0:
         raise ValueError("The final accelerating anode is fixed at ground: its voltage fraction must be exactly 1")
     rings = []
+    lens_potential = gun.electrostatic_lens.potential_rise_from_tip_v(ext/1000,ht/1000)
     for component, potential in ((gun.extractor, ext),
-            (gun.electrostatic_lens, ext + float(gun.electrostatic_lens.voltage_kv)*1000)):
+            (gun.electrostatic_lens, lens_potential)):
         center = float(component.mechanical_center_from_tip_mm)*1e-3
         half = float(component.mechanical_length_mm)*.5e-3
         rings.append((component.key, center-half, center+half,
@@ -49,9 +50,11 @@ def field_request(gun):
                       ext + stage.voltage_fraction*(ht-ext)))
     # Offsets/soft field windows are legacy analytic parameters, not electrode
     # locations. Moving metal now changes the field through its boundary.
-    return {"schema": "axisymmetric-grounded-feg-laplace-v1",
-            "potential_interpolation": "bilinear-radius-squared-z-v1",
+    return {"schema": "axisymmetric-grounded-feg-laplace-v2",
+            "potential_interpolation": "conforming-cut-axis-regular-radius-squared-z-v3",
+            "mesh_generation": "tip-graded-electrode-local-v2",
             "geometry": asdict(model.geometry), "numerics": asdict(model.field_numerics),
+            "gun_lens_voltage_reference": gun.electrostatic_lens.voltage_reference,
             "rings": rings, "high_tension_v": ht, "exit_m": gun.exit_plane_z_mm*1e-3}
 
 
@@ -131,6 +134,99 @@ def _axis(endpoint, minimum, count):
     return np.r_[0., np.geomspace(minimum, endpoint, count-1)]
 
 
+def merge_axis_nodes(nodes, additions=(), *, boundaries=()):
+    """Coalesce floating-point aliases, preserving exact physical boundaries.
+
+    Independent graded constructions may produce the same coordinate a few
+    ULPs apart. Those sliver cells are round-off artefacts, not useful spatial
+    resolution. Never average coordinates or merge distinct metal boundaries.
+    Real nanometre tip intervals are retained: the tolerance is local ULPs,
+    not an absolute tolerance based on the metre-sized simulation domain.
+    """
+    original = np.asarray(nodes,float)
+    extra = np.asarray(additions,float)
+    boundary = np.unique(np.asarray(boundaries,float))
+    if any(a.ndim != 1 or not np.isfinite(a).all() for a in (original,extra,boundary)):
+        raise ValueError("Finite one-dimensional mesh nodes are required")
+    values = np.r_[original,extra,boundary]
+    priorities = np.r_[np.ones(len(original),int),np.zeros(len(extra),int),np.full(len(boundary),2)]
+    order = np.argsort(values,kind="stable")
+    values,priorities = values[order],priorities[order]
+    groups = np.r_[0,np.flatnonzero(np.diff(values) >
+        32*np.spacing(np.maximum(abs(values[:-1]),abs(values[1:]))))+1,len(values)]
+    result = []
+    for start,stop in zip(groups[:-1],groups[1:]):
+        if start == stop:
+            continue
+        physical = values[start:stop][priorities[start:stop] == 2]
+        if len(np.unique(physical)) > 1:
+            raise ValueError("Distinct physical boundaries are closer than mesh coordinate precision")
+        result.append(values[start+int(np.argmax(priorities[start:stop]))])
+    return np.asarray(result)
+
+
+def refine_electrode_axes(r, z, rings, cells_per_bore):
+    """Subdivide existing intervals; retain all tip and exact metal nodes.
+
+    A logarithmic tip mesh alone leaves centimetre axial cells between thin
+    accelerator rings. Resolve fringe regions within four bore radii of the
+    metal and the grounded exit. This is a numerical change, not a new field
+    window: the full vacuum still participates in the Laplace solve.
+    """
+    if cells_per_bore == 0:
+        return r, z
+    radial, axial = [], []
+    for _, start, stop, inner, outer, _ in rings:
+        step = inner/cells_per_bore
+        radial.extend(((0., 2*inner, step),
+                       (outer-inner, outer+inner, step)))
+        axial.append((start-4*inner, stop+4*inner, step))
+    bore = min(row[3] for row in rings)
+    axial.append((z[-1]-4*bore, z[-1], bore/cells_per_bore))
+
+    def refine(nodes, bands):
+        width = np.diff(nodes)
+        maximum = width.copy()
+        for start, stop, step in bands:
+            hit = (nodes[:-1] < stop) & (nodes[1:] > start)
+            maximum[hit] = np.minimum(maximum[hit], step)
+        count = np.ceil(width/maximum).astype(int)
+        extra = [np.linspace(a, b, n+1)[1:-1]
+                 for a, b, n in zip(nodes[:-1], nodes[1:], count) if n > 1]
+        return np.sort(np.concatenate([nodes, *extra])) if extra else nodes
+
+    return refine(r, radial), refine(z, axial)
+
+
+def grade_electrode_corners(r, z, rings, cells):
+    """Quadratically graded node distances about exact conductor corners.
+
+    Refine the numerical mesh, not the metal contour or physical field range.
+    The sharp annular edges remain Dirichlet at their original coordinates.
+    Original nodes are retained except round-off aliases. Exact metal edges
+    take precedence over a nearly coincident generated subdivision.
+    """
+    if type(cells) is not int or cells not in (0, *range(4, 65)):
+        raise ValueError("Invalid electrode corner refinement")
+    if cells == 0:
+        return r, z
+    radial, axial = [r], [z]
+    fractions = (np.arange(1, cells+1)/cells)**2
+    for _, start, stop, inner, outer, _ in rings:
+        distance = inner*fractions
+        for edge in (inner, outer):
+            radial.extend((edge-distance, edge+distance))
+        for edge in (start, stop):
+            axial.extend((edge-distance, edge+distance))
+    def merged(nodes, additions, boundaries):
+        values = np.concatenate(additions)
+        values = values[(values >= nodes[0]) & (values <= nodes[-1])]
+        boundaries = [v for v in boundaries if nodes[0] <= v <= nodes[-1]]
+        return merge_axis_nodes(nodes,values,boundaries=boundaries)
+    return (merged(r,radial,[r[0],r[-1],*[v for row in rings for v in row[3:5]]]),
+            merged(z,axial,[z[0],z[-1],0.,*[v for row in rings for v in row[1:3]]]))
+
+
 class GroundedTipField:
     """Potential in V relative to ground; electric field in V/m."""
 
@@ -151,14 +247,19 @@ class GroundedTipField:
         radius = geometry.apex_radius_nm*1e-9
         step = radius/numerics.apex_cells_per_radius
         rmax = max(row[4] for row in rings)*numerics.outer_radius_factor
-        self.r = np.unique(np.r_[_axis(rmax, step, numerics.radial_nodes),
-            [v for row in rings for v in row[3:5]]])
+        self.r = merge_axis_nodes(_axis(rmax, step, numerics.radial_nodes),
+            boundaries=[0.,rmax,*[v for row in rings for v in row[3:5]]])
         shank = geometry.shank_length_um*1e-6
         if geometry.radius_m(-shank) >= rmax:
             raise ValueError("The numerical radial boundary must enclose the full reference tip shank")
-        self.z = np.unique(np.r_[-_axis(shank, step, numerics.axial_nodes//3)[::-1],
+        self.z = merge_axis_nodes(np.r_[-_axis(shank, step, numerics.axial_nodes//3)[::-1],
             _axis(end, step, numerics.axial_nodes),
-            [v for row in rings for v in (row[1], .5*(row[1]+row[2]), row[2])]])
+            [.5*(row[1]+row[2]) for row in rings]],
+            boundaries=[-shank,0.,end,*[v for row in rings for v in row[1:3]]])
+        self.r, self.z = refine_electrode_axes(self.r, self.z, rings,
+                                             numerics.electrode_cells_per_bore)
+        self.r, self.z = grade_electrode_corners(self.r, self.z, rings,
+                                                numerics.electrode_corner_cells)
         rr, zz = np.meshgrid(self.r, self.z, indexing="ij")
         tip = (zz <= 0) & (rr <= geometry.radius_m(zz))
         fixed = tip.copy()
@@ -173,8 +274,13 @@ class GroundedTipField:
             rise[metal] = potential
         fixed[:, -1] = True
         rise[:, -1] = ht
-        self.rise, residual = solve_axisymmetric_laplace(self.r, self.z, fixed, rise,
-            tolerance=numerics.linear_residual_tolerance, tip_geometry=geometry)
+        from temsim.physics.axisymmetric_cut_field import AxisymmetricCutField
+        self._fem = AxisymmetricCutField(self.r, self.z, fixed, rise,
+            tolerance=numerics.linear_residual_tolerance, geometry=geometry)
+        self.rise, residual = self._fem.nodal_voltage, self._fem.residual
+        from temsim.physics.axis_regular_potential import AxisRegularPotential
+        self._regular = AxisRegularPotential(self._fem,
+            bore_radius_m=min(row[3] for row in rings), fraction=numerics.axis_core_fraction)
         self.high_tension_v = ht
         self.geometry = geometry
         # A regular axisymmetric scalar potential is even in radius. Use r^2
@@ -183,9 +289,20 @@ class GroundedTipField:
         # axis. Electric field remains the derivative of this SAME potential.
         self.report = {"schema": request["schema"], "potential_reference": "final_anode_ground_0V",
             "tip_potential_v": -ht, "extractor_potential_v": -ht+rings[0][-1],
+            "gun_lens_potential_v": -ht+rings[1][-1],
+            "gun_lens_voltage_reference": request.get("gun_lens_voltage_reference", "extractor"),
             "final_anode_potential_v": 0., "grid_shape": list(rr.shape),
+            "elements": self._fem.element_count, "vertices": self._fem.vertex_count,
             "linear_residual": residual, "space_charge": "neglected",
             "potential_interpolation": request["potential_interpolation"],
+            "axis_core_fraction": numerics.axis_core_fraction,
+            "mesh_generation": request.get("mesh_generation", "historical"),
+            "coordinate_alias_merge_ulps": 32,
+            "minimum_radial_cell_m": float(np.min(np.diff(self.r))),
+            "minimum_axial_cell_m": float(np.min(np.diff(self.z))),
+            "electrode_cells_per_bore": numerics.electrode_cells_per_bore,
+            "electrode_corner_cells": numerics.electrode_corner_cells,
+            "maximum_axis_core_radius_m": float(np.max(self._regular.radius_m)),
             "boundary_model": "reference annuli; insulating radial/back boundary; grounded exit plane",
             "convergence": "not_certified_by_linear_residual"}
         for array in (self.r, self.z, self.rise):
@@ -202,6 +319,14 @@ class GroundedTipField:
             raise ValueError("Requested position is outside the solved gun field")
         downstream = z >= self.z[-1]
         z = np.minimum(z, self.z[-1])
+        if hasattr(self, "_fem"):
+            query = p.copy()
+            query[:, 2] = z
+            value, field = getattr(self, "_regular", self._fem).interpolate(query)
+            field[downstream] = 0.
+            value[downstream] = self.high_tension_v
+            return value.reshape(shape), field.reshape(points.shape)
+        # Historical bilinear fixtures remain readable; active solves use FEM.
         i = np.minimum(np.searchsorted(self.r, radius, side="right")-1, len(self.r)-2)
         j = np.minimum(np.searchsorted(self.z, z, side="right")-1, len(self.z)-2)
         dr2, dz = self.r[i+1]**2-self.r[i]**2, self.z[j+1]-self.z[j]
@@ -226,6 +351,8 @@ class GroundedTipField:
 
     def _metal_surface_z(self, radius):
         """Upper face of the represented tip metal, never another electrode."""
+        if hasattr(self, "_fem"):
+            return self._fem.surface_z(radius)
         i = np.minimum(np.searchsorted(self.r, radius, side="right")-1, len(self.r)-2)
         surface_z = np.full(np.shape(radius), -np.inf)
         for index, row in enumerate(i):

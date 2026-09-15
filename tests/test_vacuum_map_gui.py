@@ -9,7 +9,9 @@ def page(qtbot):
     from temsim.optics.column import default_state
     page = VacuumMapPage()
     qtbot.addWidget(page)
-    page.set_state(default_state())
+    state = default_state()
+    state.vacuum_map.enabled = True  # Editing an explicitly enabled map.
+    page.set_state(state)
     return page
 
 
@@ -31,7 +33,7 @@ def test_cell_medium_and_subdivision(page):
     page.pressure.setText("5")
     assert page.apply()
     assert page.state.vacuum_map.cell.medium.formula == "He"
-    assert len(resolve_regions(page.state)) == 7
+    assert len(resolve_regions(page.state)) == 9  # Ambient + interior + two windows.
     page.select_region("column")
     page.split_region()
     assert len(page.state.vacuum_map.regions) == 7

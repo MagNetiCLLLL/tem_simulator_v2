@@ -26,6 +26,21 @@ def is_tuning_quality(quality):
     return str(quality) in TUNING_PROFILES
 
 
+def resolve_tuning_ray_count(state, quality, requested):
+    """Keep all selected source strata, including in a small optical preview.
+
+    High accuracy uses its explicit user budget. Ordinary sources retain the
+    existing 49/193-ray defaults. Support probes carry no source current.
+    """
+    if quality not in TUNING_PROFILES:
+        return int(requested)
+    model = getattr(getattr(state.electron_gun,"emitter",None),"surface_model",None)
+    if model is None or model.emission.spatial_sampling != "apex_stratified_v1":
+        return int(requested)
+    minimum = 81 if model.emission.angular_sampling.startswith("tangent_stratified_") else 9
+    return max(int(requested),minimum+(33 if quality == "Medium" else 1))
+
+
 def check_tuning_cancelled(state):
     callback = getattr(state, "_tuning_cancelled", None)
     if callback is not None and callback():
@@ -104,6 +119,11 @@ def tuning_metrics(state, incident):
     if not finite:
         raise ValueError("Non-finite tuning trajectory; reduce excitation or use a finer calculation")
     beam = branch_sample_statistics(incident) if np.any(incident.alive & (incident.ray_weight > 0)) else None
+    selected = np.asarray(incident.ray_weight,float)[incident.alive & (incident.ray_weight > 0)]
+    if selected.size:
+        selected = selected/selected.max()
+    effective = float(selected.sum()**2/np.sum(selected*selected)) if selected.size else 0.
+    resolved = beam is not None and effective >= 16*(1-32*np.finfo(float).eps)
     return {
         "mode": state.projector_mode,
         "optical_tuning": True,
@@ -116,11 +136,13 @@ def tuning_metrics(state, incident):
         "sample_beam_surviving_rays": int(np.count_nonzero(incident.alive & (incident.ray_weight > 0))),
         "sample_support_probe_survivors": int(np.count_nonzero(incident.alive & (incident.ray_weight == 0))),
         "sample_beam_surviving_fraction": beam.surviving_fraction if beam else 0.,
-        "sample_convergence_95_mrad": beam.convergence_95_mrad if beam else float("nan"),
-        "sample_convergence_99_mrad": beam.convergence_99_mrad if beam else float("nan"),
-        "sample_illumination_diameter_95_um": beam.illumination_diameter_95_um if beam else float("nan"),
-        "sample_wavefront_curvature_per_m": beam.radial_wavefront_curvature_per_m if beam else float("nan"),
-        "sample_waist_offset_mm": beam.waist_offset_m * 1e3 if beam else float("nan"),
+        "sample_beam_effective_rays": effective,
+        "sample_statistics_status": "PREVIEW_ESTIMATE" if resolved else "INSUFFICIENT_EFFECTIVE_RAYS",
+        "sample_convergence_95_mrad": beam.convergence_95_mrad if resolved else float("nan"),
+        "sample_convergence_99_mrad": beam.convergence_99_mrad if resolved else float("nan"),
+        "sample_illumination_diameter_95_um": beam.illumination_diameter_95_um if resolved else float("nan"),
+        "sample_wavefront_curvature_per_m": beam.radial_wavefront_curvature_per_m if resolved else float("nan"),
+        "sample_waist_offset_mm": beam.waist_offset_m * 1e3 if resolved else float("nan"),
         "branch_weights_are_absolute": True,
         "support_probe_count": int(np.count_nonzero(incident.ray_weight == 0)),
     }

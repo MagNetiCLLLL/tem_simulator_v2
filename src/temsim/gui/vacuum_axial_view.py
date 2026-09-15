@@ -17,8 +17,11 @@ class VacuumAxialView(pg.PlotWidget):
         self._physical_plot = None
         self._syncing = False
         self.component = None
+        self.sample_z_mm = None
+        self.sample_marker = None
         self.setMinimumHeight(210)
         self.setLabel("bottom", "Axial position", units="mm")
+        self.getAxis("bottom").enableAutoSIPrefix(False)
         self.getAxis("left").setTicks([[(2.45, "Modules"), (1.35, "Vacuum"), (.35, "Cell")]])
         self.getAxis("left").setWidth(70)
         self.showGrid(x=True, y=False, alpha=.16)
@@ -94,13 +97,22 @@ class VacuumAxialView(pg.PlotWidget):
                             "#23364a" if i % 2 == 0 else "#35425a",
                             Path(module.source_file).stem.replace("_", " "))
         for row in self.rows:
-            cell = row.key == "specimen_cell"
+            cell = row.radius_mm is not None
             transition = row.end_medium is not None
             self._rectangle(row.start_z_mm, row.end_z_mm, .1 if cell else 1.0,
                             .5 if cell else .7,
                             "#475569" if transition else ("#785420" if cell else "#155e75"),
                             "Linear transition" if transition else row.name,
                             row.key, transition)
+        if self.sample_z_mm is not None:
+            self.sample_marker = pg.InfiniteLine(self.sample_z_mm, pen=pg.mkPen("#fbbf24", width=2))
+            self.sample_marker.setToolTip(f"Sample centre Z {self.sample_z_mm:.9g} mm; geometry is defined in Sample.")
+            self.addItem(self.sample_marker, ignoreBounds=True)
+            self._items.append(self.sample_marker)
+            label = pg.TextItem(f"Sample · {self.sample_z_mm:.9g} mm", color="#fbbf24", anchor=(.5, 0))
+            label.setPos(self.sample_z_mm, .95)
+            self.addItem(label, ignoreBounds=True)
+            self._items.append(label)
         if self.component is not None:
             part = self.component
             band = pg.LinearRegionItem((part.start_z_mm, part.end_z_mm), movable=False,

@@ -103,6 +103,10 @@ class GunDeflector:
                 self.upper_center_from_tip_mm, 0.0, self.blanking_field_y_mt,
             ),)
         for center, field_x, field_y in coil_fields:
+            if field_x == 0.0 and field_y == 0.0:
+                # An exactly unpowered coil has exactly zero field. Blanking
+                # replaces coil_fields above and must still be evaluated.
+                continue
             center += self.field_center_offset_mm
             envelope = _soft_window_with_derivatives(
                 z_mm, center - half, center + half, self.soft_edge_mm

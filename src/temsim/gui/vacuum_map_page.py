@@ -1,5 +1,6 @@
 """Beam-path vacuum map and finite insertable cell editor."""
 from copy import copy, deepcopy
+import json
 from dataclasses import asdict
 
 from PySide6.QtCore import Qt, Signal
@@ -9,6 +10,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, Q
 
 from temsim.vacuum import VacuumMap, Medium, boundary_anchors, resolve_regions, module_axial_ranges, DEFAULT_PATH
 from temsim.gui.vacuum_axial_view import VacuumAxialView
+from temsim.gui.cell_environment_editor import WindowEditor, CellChamberView
 
 
 class VacuumMapPage(QWidget):
@@ -23,7 +25,8 @@ class VacuumMapPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(11, 9, 11, 9)
         toolbar = QHBoxLayout()
-        self.enabled = QCheckBox("Include vacuum scattering / attenuation in calculations")
+        self.enabled = QCheckBox("Include vacuum / cell transport in calculations")
+        self.enabled.setToolTip("Off by default. Choose before the first Preview. Changing this option or active vacuum settings invalidates cached calculation results.")
         toolbar.addWidget(self.enabled)
         for title, method in (("Open map…", self.open_map), ("Save map as…", self.save_map),
                               ("Load normal-operation defaults", self.load_defaults)):
@@ -74,12 +77,24 @@ class VacuumMapPage(QWidget):
         self.cell_inserted = QCheckBox("Insert cell around specimen")
         form.addRow(self.cell_inserted)
         self.cell_fields = {}
-        for name, title in (("diameter_mm", "Cell diameter (mm)"), ("length_mm", "Cell length (mm)"),
-                            ("offset_x_mm", "Cell X offset (mm)"), ("offset_y_mm", "Cell Y offset (mm)"),
-                            ("offset_z_mm", "Cell Z offset from specimen (mm)")):
-            widget = self._spin()
+        for name, title in (("diameter_mm", "Cell aperture diameter (nm)"), ("length_mm", "Cell gap (nm)"),
+                            ("offset_x_mm", "Cell centre X (nm)"), ("offset_y_mm", "Cell centre Y (nm)"),
+                            ("offset_z_mm", "Cell Z offset from Sample (nm)")):
+            widget = self._spin(0 if name in {"diameter_mm", "length_mm"} else -1e12, 1e12)
+            widget.setDecimals(6)
+            widget.setSingleStep(1)
             self.cell_fields[name] = widget
             form.addRow(title, widget)
+        self.cell_fields["length_mm"].setToolTip("Distance between window inner faces. Window thickness is additional. Sample geometry remains defined in Sample.")
+        self.windows = QWidget()
+        window_layout = QHBoxLayout(self.windows)
+        window_layout.setContentsMargins(0, 0, 0, 0)
+        self.window_editors = {}
+        for key, label in (("upstream_window", "Upstream window (−Z)"), ("downstream_window", "Downstream window (+Z)")):
+            editor = WindowEditor(label)
+            self.window_editors[key] = editor
+            window_layout.addWidget(editor)
+        form.addRow(self.windows)
         form = QFormLayout(medium_widget)
         self.phase = QComboBox()
         for label, value in (("Gas / residual gas", "gas"), ("Liquid — elastic approximation", "liquid"), ("Ideal vacuum", "vacuum")):
@@ -88,7 +103,12 @@ class VacuumMapPage(QWidget):
         self.formula = QLineEdit()
         self.formula.setPlaceholderText("N2, H2, He, Ar, H2O …")
         form.addRow("Chemical formula", self.formula)
+        self.mixture = QLineEdit()
+        self.mixture.setPlaceholderText('Optional mole fractions: {"Ar": 0.9, "H2": 0.1}')
+        self.mixture.setToolTip("JSON chemical-formula/mole-fraction pairs; fractions must sum to 1. Empty uses the single formula above. Liquid additionally needs measured mass density.")
+        form.addRow("Mixture (optional)", self.mixture)
         self.pressure = QLineEdit()
+        self.pressure.setToolTip("Gas: total absolute pressure determines number density. Liquid: recorded pressure only; density is a separate measured input. No equation of state or window bulging.")
         form.addRow("Pressure (mbar)", self.pressure)
         self.temperature = self._spin(0.001, 100000)
         form.addRow("Temperature (K)", self.temperature)
@@ -99,12 +119,14 @@ class VacuumMapPage(QWidget):
         form.addRow("Removal cross section (m²/molecule)", self.removal)
         self.removal_reference = QLineEdit()
         form.addRow("Removal model / measurement", self.removal_reference)
-        self.seed = QSpinBox()
-        self.seed.setRange(0, 2147483647)
+        self.seed = QLineEdit()
+        self.seed.setToolTip("Integer from 0 to 4294967295.")
         form.addRow("Reproducible collision seed", self.seed)
         self.reference = QLabel()
         self.reference.setWordWrap(True)
         form.addRow("Pressure reference", self.reference)
+        self.chamber = CellChamberView()
+        form.addRow(self.chamber)
         buttons = QHBoxLayout()
         self.apply_button = QPushButton("Apply region / cell")
         self.split_button = QPushButton("Split region")
@@ -128,13 +150,15 @@ class VacuumMapPage(QWidget):
         splitter.setSizes([255, 550])
         splitter.setStretchFactor(1, 2)
         outer.addWidget(splitter, 1)
-        note = QLabel("Boundaries follow the selected physical component plus an offset. Gaps are filled with linear pressure transitions; overlaps must be corrected. Pressure gives gas number density through P/(kT). Unscattered intensity falls with traversed path; elastic events redirect electrons and retain their weight. Apertures, walls and detector absorption still act. Liquid currently supports density-based elastic scattering only; inelastic chemistry and cell windows are not modeled here.")
+        note = QLabel("Cell windows and fluid: classical elastic transport. Sample geometry: edit in Sample. Details: hover over controls.")
+        note.setToolTip("Pressure gives gas number density via P/(kT); liquids and windows use supplied mass density. Existing fields, apertures and detector stops remain active. No inelastic chemistry, window crystal diffraction, photon absorption, pressure bulging or quantitative cell multislice imaging.")
         note.setWordWrap(True)
         outer.addWidget(note)
         outer.addWidget(self.status)
         self.diagram.selected.connect(self.select_region)
         self.selection.currentIndexChanged.connect(self._selection_changed)
         self.phase.currentIndexChanged.connect(self._medium_controls)
+        self.mixture.textChanged.connect(self._medium_controls)
         self.apply_button.clicked.connect(self.apply)
         self.split_button.clicked.connect(self.split_region)
         self.remove_button.clicked.connect(self.remove_region)
@@ -142,14 +166,25 @@ class VacuumMapPage(QWidget):
         self.cell_inserted.clicked.connect(lambda: self.select_region("specimen_cell"))
         self.position_mode.currentIndexChanged.connect(self._position_controls)
         self.coordinate_frame.currentIndexChanged.connect(self._coordinate_changed)
+        for label in self.findChildren(QLabel):
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
     def _refresh_diagram(self):
+        self.diagram.sample_z_mm = float(self.state.sample.z_mm)
+        self.chamber.set_state(self.state)
         try:
             rows = resolve_regions(self.state, include_disabled=True)
             self.diagram.set_regions(rows, module_axial_ranges(self.state), self.current_key)
         except ValueError as exc:
             self.diagram.set_regions((), module_axial_ranges(self.state), self.current_key)
             self.status.setText(f"Invalid vacuum map: {exc}")
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.state is not None:
+            # Sample edits in another tab update the reference geometry, without
+            # discarding unapplied cell inputs or fitting the shared column view.
+            self._refresh_diagram()
 
     def focus_component(self, part):
         """Keep selection in step with other tabs without fitting or moving Z."""
@@ -162,7 +197,7 @@ class VacuumMapPage(QWidget):
             self._refresh_diagram()
             return
         matches = [r for r in rows if r.start_z_mm <= part.center_z_mm < r.end_z_mm
-                   and (r.key != "specimen_cell" or part.key == "sample")]
+                   and (r.radius_mm is None or part.key == "sample")]
         self.select_region(matches[-1].key if matches else "")
 
     def _position_controls(self):
@@ -225,10 +260,12 @@ class VacuumMapPage(QWidget):
         except ValueError:
             pass  # Display validation errors in the map, retaining editable regions.
         self.enabled.setChecked(state.vacuum_map.enabled)
-        self.seed.setValue(state.vacuum_map.seed)
+        self.seed.setText(str(state.vacuum_map.seed))
         self.cell_inserted.setChecked(state.vacuum_map.cell.inserted)
         for name, widget in self.cell_fields.items():
-            widget.setValue(getattr(state.vacuum_map.cell, name))
+            widget.setValue(getattr(state.vacuum_map.cell, name)*1e6)
+        for key, editor in self.window_editors.items():
+            editor.set_window(getattr(state.vacuum_map.cell, key))
         anchors = boundary_anchors(state)
         self.coordinate_frame.clear()
         self.coordinate_frame.addItem("Global Z", "axis_origin")
@@ -243,6 +280,8 @@ class VacuumMapPage(QWidget):
         self.select_region(self.current_key)
 
     def select_region(self, key):
+        if key and key.startswith("cell_window_"):
+            key = "specimen_cell"
         self.current_key = key
         index = self.selection.findData(key)
         self.selection.blockSignals(True)
@@ -272,6 +311,8 @@ class VacuumMapPage(QWidget):
             return
         self._filling = True
         cell = key == "specimen_cell"
+        self.form_layout.setRowVisible(self.windows, cell)
+        self.chamber.setVisible(cell or key == "specimen")
         for widget in self.cell_fields.values():
             self.form_layout.setRowVisible(widget, cell)
         r = next((r for r in config.regions if r.key == key), None)
@@ -299,12 +340,13 @@ class VacuumMapPage(QWidget):
                 self.start_offset.setEnabled(False)
         self.phase.setCurrentIndex(self.phase.findData(medium.phase))
         self.formula.setText(medium.formula)
+        self.mixture.setText(json.dumps(medium.mixture_mole_fractions) if medium.mixture_mole_fractions else "")
         self.pressure.setText(f"{medium.pressure_mbar:.9g}")
         self.temperature.setValue(medium.temperature_k)
         self.density.setValue(medium.density_kg_m3)
         self.removal.setText(f"{medium.removal_cross_section_m2:.9g}")
         self.removal_reference.setText(medium.removal_reference)
-        self.reference.setText(r.pressure_reference if r else "User-defined finite cylindrical cell; medium replaces ambient only inside the cell.")
+        self.reference.setText(r.pressure_reference if r else "Finite cell; internal medium excludes the Sample envelope.")
         try:
             rows = resolve_regions(self.state, include_cell=False, include_disabled=True)
             resolved = next((v for v in rows if v.key == key), None)
@@ -326,8 +368,10 @@ class VacuumMapPage(QWidget):
 
     def _medium_controls(self):
         phase = self.phase.currentData()
-        self.pressure.setEnabled(phase == "gas")
-        self.temperature.setEnabled(phase == "gas")
+        self.pressure.setEnabled(phase in {"gas", "liquid"})
+        self.temperature.setEnabled(phase in {"gas", "liquid"})
+        self.formula.setEnabled(phase != "vacuum" and not self.mixture.text().strip())
+        self.mixture.setEnabled(phase != "vacuum")
         self.density.setEnabled(phase == "liquid")
 
     def _install(self, config, message):
@@ -364,12 +408,15 @@ class VacuumMapPage(QWidget):
             return True
         try:
             config = deepcopy(self.state.vacuum_map)
-            config.enabled, config.seed = self.enabled.isChecked(), self.seed.value()
+            config.enabled, config.seed = self.enabled.isChecked(), int(self.seed.text())
             config.cell.inserted = self.cell_inserted.isChecked()
             for name, widget in self.cell_fields.items():
-                setattr(config.cell, name, widget.value())
+                setattr(config.cell, name, widget.value()*1e-6)
+            for key, editor in self.window_editors.items():
+                setattr(config.cell, key, editor.window())
             medium = Medium(self.phase.currentData(), self.formula.text().strip(), float(self.pressure.text()),
-                            self.temperature.value(), self.density.value(), float(self.removal.text()), self.removal_reference.text().strip())
+                            self.temperature.value(), self.density.value(), float(self.removal.text()), self.removal_reference.text().strip(),
+                            json.loads(self.mixture.text()) if self.mixture.text().strip() else {})
             if self.current_key == "specimen_cell":
                 config.cell.medium = medium
             else:

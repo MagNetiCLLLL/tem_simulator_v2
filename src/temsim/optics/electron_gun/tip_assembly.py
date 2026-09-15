@@ -20,7 +20,10 @@ NUMERICAL_FIELDS = {
     "tip_field_radial_nodes", "tip_field_axial_nodes", "tip_apex_cells_per_radius",
     "tip_field_outer_radius_factor", "tip_field_residual_tolerance",
 }
-PART_FIELDS = GEOMETRY_FIELDS | EMISSION_FIELDS | NUMERICAL_FIELDS | {"tip_particle_model"}
+OPTIONAL_NUMERICAL_FIELDS = {"emission_directions_per_position",
+    "tip_field_axis_core_fraction", "tip_field_electrode_cells_per_bore", "tip_field_electrode_corner_cells"}
+REQUIRED_PART_FIELDS = GEOMETRY_FIELDS | EMISSION_FIELDS | NUMERICAL_FIELDS | {"tip_particle_model"}
+PART_FIELDS = REQUIRED_PART_FIELDS | OPTIONAL_NUMERICAL_FIELDS
 
 
 def is_tip_part(part):
@@ -32,10 +35,10 @@ def model_from_part(part):
         return None  # historical assembly, no implicit conversion
     if not is_tip_part(part):
         raise ValueError("Unknown TOML tip particle model")
-    missing = PART_FIELDS - part.keys()
+    missing = REQUIRED_PART_FIELDS - part.keys()
     if missing:
         raise ValueError("Missing tip assembly fields: " + ", ".join(sorted(missing)))
-    for key in PART_FIELDS - {"tip_particle_model", "tip_shape", "tip_material", "emission_energy_distribution"}:
+    for key in (PART_FIELDS & part.keys()) - {"tip_particle_model", "tip_shape", "tip_material", "emission_energy_distribution"}:
         value = part[key]
         if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value):
             raise ValueError(f"Tip {key} must be a finite number")
@@ -45,10 +48,14 @@ def model_from_part(part):
         emission=SurfaceEmission(None, part["emission_cap_half_angle_deg"],
             part["emission_normal_mean_energy_ev"], part["emission_tangential_mean_energy_ev"],
             part["emission_flux_electrons_per_nm2_s"], part["emission_maximum_angle_deg"],
-            part["emission_energy_distribution"], part["emission_kinetic_mean_ev"], part["emission_kinetic_sigma_ev"]),
+            part["emission_energy_distribution"], part["emission_kinetic_mean_ev"], part["emission_kinetic_sigma_ev"],
+            directions_per_position=part.get("emission_directions_per_position", 1)),
         field_numerics=TipFieldNumerics(part["tip_field_radial_nodes"], part["tip_field_axial_nodes"],
             part["tip_apex_cells_per_radius"], part["tip_field_outer_radius_factor"],
-            part["tip_field_residual_tolerance"], part.get("accelerator_ring_thickness_mm", 1.0)),
+            part["tip_field_residual_tolerance"], part.get("accelerator_ring_thickness_mm", 1.0),
+            axis_core_fraction=part.get("tip_field_axis_core_fraction", .01),
+            electrode_cells_per_bore=part.get("tip_field_electrode_cells_per_bore", 8),
+            electrode_corner_cells=part.get("tip_field_electrode_corner_cells", 0)),
     ).validate()
     return model
 
@@ -82,7 +89,7 @@ def apply_tip_part(emitter, part):
     model = model_from_part(part)
     if model is None:
         return
-    signature = tuple((key, part[key]) for key in sorted(PART_FIELDS))
+    signature = tuple((key, part.get(key)) for key in sorted(PART_FIELDS | OPTIONAL_NUMERICAL_FIELDS))
     previous = getattr(emitter, "_tip_assembly_signature", None)
     if previous != signature:
         # Reloading dimensions must not activate a different source family in
@@ -122,6 +129,8 @@ def complete_tip_updates(document, updates):
 def validate_electrical_defaults(parts):
     by_key = {part["key"]: part for part in parts}
     for part in parts:
+        if "default_voltage_reference" in part and part["default_voltage_reference"] not in {"tip", "extractor", "ground"}:
+            raise ValueError("Gun-lens voltage reference must be tip, extractor or ground")
         if "electrode_thickness_mm" in part:
             value = part["electrode_thickness_mm"]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:

@@ -754,6 +754,10 @@ class ArtifactStore:
             arrays[f"gun.{field}"] = getattr(gun_trace, field)
         for field in _GUN_EXIT_ARRAY_FIELDS:
             arrays[f"gun_exit.{field}"] = getattr(exit_bundle, field)
+        launch = getattr(gun_trace, "emission_reference", None)
+        if launch is not None:
+            for field in ("ray_id", "position_m", "direction", "normal"):
+                arrays[f"emission.{field}"] = launch[field]
         for field in _INCIDENT_BRANCH_ARRAY_FIELDS:
             value = getattr(incident, field, None)
             if value is not None:
@@ -865,6 +869,8 @@ class ArtifactStore:
                 exit_bundle=exit_bundle,
                 blocked_key=tuple(metadata["gun_blocked_key"]),
                 **gun_scalars,
+                emission_reference=(fields("emission", ("ray_id", "position_m", "direction", "normal"))
+                                    if "emission.ray_id" in arrays else None),
             )
             incident_arrays = fields(
                 "incident",

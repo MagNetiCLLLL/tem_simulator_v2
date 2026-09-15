@@ -353,6 +353,11 @@ def mode_by_key(
 def direct_alignment_by_key(
     key: str, catalog: OperatingModeCatalog | None = None
 ) -> DirectAlignmentDefinition:
+    # Recovery is separate from the four calibrated imaging observables and
+    # intentionally has no Nano/Microprobe focus claim or preset entry.
+    if key == "column_transport":
+        from temsim.optics.transport_matching import DEFINITION
+        return DEFINITION
     catalog = catalog or load_operating_mode_catalog()
     try:
         return next(

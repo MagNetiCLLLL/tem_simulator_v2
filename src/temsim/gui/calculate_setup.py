@@ -24,13 +24,15 @@ class CalculateSetupDialog(QDialog):
         for key, label, obj, attr in (
             ("stem", "Generate STEM detector images (AC raster must be enabled)", state.sample, "stem_image_enabled"),
             ("eds", "Calculate EDS spectrum", state.sample, "eds_enabled"),
-            ("vacuum", "Include vacuum scattering / attenuation", state.vacuum_map, "enabled"),
+            ("vacuum", "Include vacuum / cell transport", state.vacuum_map, "enabled"),
             ("stem_poisson", "Generate seeded Poisson STEM counts", state.sample, "stem_poisson_enabled"),
             ("eds_poisson", "Generate seeded Poisson EDS counts", state.sample, "eds_poisson_enabled"),
         ):
             check = QCheckBox(label)
             check.setObjectName("calculateSetup_"+key)
             check.setChecked(bool(getattr(obj, attr)))
+            if key == "vacuum":
+                check.setToolTip("Off by default. Choose before the first Preview. Changing this option or active vacuum settings invalidates cached calculation results.")
             self.controls[key] = (check, attr)
             form.addRow(check)
         layout.addWidget(group)

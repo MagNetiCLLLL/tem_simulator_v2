@@ -1,0 +1,14 @@
+# Illustrative editable elastic-density presets, not calibrated membrane data.
+[[materials]]
+name = "SiN (Si3N4 approximation)"
+formula = "Si3N4"
+density_kg_m3 = 3100.0
+thickness_nm = 50.0
+reference = "Si3N4 bulk-density approximation; real SiNx composition/density must be supplied. Silson silicon-nitride membranes; Syalons ceramic property guide. See CELL_ENVIRONMENT.md."
+
+[[materials]]
+name = "Graphene (carbon sheet approximation)"
+formula = "C"
+density_kg_m3 = 2260.0
+thickness_nm = 0.3354
+reference = "Graphite-equivalent areal density, one nominal layer. USGS Professional Paper 1802-J, graphite structure; no graphene lattice diffraction. See CELL_ENVIRONMENT.md."

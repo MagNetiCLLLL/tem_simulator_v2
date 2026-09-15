@@ -11,7 +11,9 @@ from temsim.physics.residual_medium import (MediumTransport, atomic_cross_sectio
 @pytest.fixture(scope="module")
 def instrument():
     from temsim.optics.column import default_state
-    return default_state()
+    state = default_state()
+    state.vacuum_map.enabled = True  # Explicit opt-in for medium transport tests.
+    return state
 
 
 def test_default_pressures_and_physical_boundaries(instrument):

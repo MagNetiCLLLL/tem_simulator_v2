@@ -65,8 +65,8 @@ class WaveBeamAnalysis:
             combo.clear()
         for label, key in a.MODES:
             a.mode_combo.addItem(label, key)
-        a.colour_combo.addItem("Source position", "source")
-        a.colour_combo.addItem("Interaction type", "interaction")
+        for label, key in a.COLOUR_MODES:
+            a.colour_combo.addItem(label, key)
         a.mode_combo.setCurrentIndex(a.mode_combo.findData(self.saved_mode))
         a.colour_combo.setCurrentIndex(a.colour_combo.findData(self.saved_colour))
         for combo in (a.mode_combo, a.colour_combo):

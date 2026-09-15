@@ -1195,6 +1195,8 @@ class CalculationController(QObject):
         require_physical_gun_source(getattr(state, "electron_gun", None))
         if not is_tuning_quality(quality) and quality != "High accuracy":
             raise ValueError("Unknown calculation quality")
+        from temsim.physics.optical_tuning import resolve_tuning_ray_count
+        ray_count = resolve_tuning_ray_count(state,quality,ray_count)
         if quality == "High accuracy":
             from temsim.optics.model import State
             if isinstance(state, State):

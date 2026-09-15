@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from temsim.gui.input_policy import WheelSafeComboBox
+from temsim.physics.ray_identity import emission_colour_values
 from temsim.gui.beam_plane_data import (
     sample_beam_plane, spatial_histogram, angular_histogram,
 )
@@ -44,6 +45,10 @@ class BeamAnalysisControls:
     CENTRED_MODES = {"angular", "intensity", "phase_u", "phase_v"}
     EQUAL_UNIT_MODES = {"position", "angular", "intensity"}
     BINS = 64
+    COLOUR_MODES = (("Source position", "source"),
+                   ("Emission direction (azimuth)", "emission_direction"),
+                   ("Emission angle to normal", "emission_angle"),
+                   ("Interaction type", "interaction"))
 
     def __init__(self, owner):
         self.owner = owner
@@ -64,11 +69,12 @@ class BeamAnalysisControls:
         )
         self.colour_combo = WheelSafeComboBox()
         self.colour_combo.setObjectName("beamAnalysisColourBy")
-        self.colour_combo.addItem("Source position", "source")
-        self.colour_combo.addItem("Interaction type", "interaction")
+        for label, key in self.COLOUR_MODES:
+            self.colour_combo.addItem(label, key)
         self.colour_combo.setToolTip(
-            "Source colour follows ancestry. Interaction colour and symbol "
-            "follow the recorded channel, including elastic + inelastic groups."
+            "Source position and emission angles are fixed at actual launch, before extraction. "
+            "Emission azimuth is about +Z; emission angle is relative to the local surface normal. "
+            "Grey means unavailable launch data. Interaction colour follows the recorded channel."
         )
         self.legend = QLabel()
         self.legend.setWordWrap(True)
@@ -161,7 +167,11 @@ class BeamAnalysisControls:
         points = self.mode in self.POINT_MODES
         self.colour_combo.setVisible(points)
         self.colour_label.setVisible(points)
-        self.owner.initial_beam_panel.setVisible(points and self.colour_combo.currentData() == "source")
+        colour = self.colour_combo.currentData()
+        self.owner.initial_beam_panel.setVisible(points and colour in {"source", "emission_direction"})
+        self.owner.initial_beam_heading.setText(
+            "Emission direction colour" if colour == "emission_direction" else "Source position colour")
+        self.owner.angle_colour_wheel.set_colour_quantity(colour)
         self.owner.plot.setVisible(self.mode != "interactions")
         self.table.setVisible(self.mode == "interactions")
         self.owner.fit_beam.setEnabled(self.mode != "interactions")
@@ -170,7 +180,9 @@ class BeamAnalysisControls:
         )
         self.legend.clear()
         self.readout.clear()
-        self.legend.setVisible(self.colour_combo.currentData() == "interaction" or not points)
+        self.legend.setVisible(colour in {"interaction", "emission_angle"} or not points)
+        if colour == "emission_angle" and points:
+            self._emission_angle_legend()
         self.readout.setVisible(self.mode in {"intensity", "angle_histogram"})
 
     def update_labels(self):
@@ -197,6 +209,16 @@ class BeamAnalysisControls:
     def finish_position(self, styles):
         """Add interaction symbols without changing existing XY sampling."""
         self._hover_payload = None
+        self._annotate_emission(self.owner._display_source_ids)
+        if self.colour_combo.currentData() in {"emission_direction", "emission_angle"}:
+            if self.owner._scatter is not None:
+                self.owner._scatter.setBrush(self.source_brushes(self.owner._display_source_ids))
+            self.owner.summary.setToolTip(
+                "Colours follow original tip emission, not the current propagation angle. "
+                "Extraction, focusing and scattering preserve this label. Grey: launch data unavailable.")
+            if self.colour_combo.currentData() == "emission_angle":
+                self._emission_angle_legend()
+            return
         if self.colour_combo.currentData() != "interaction":
             self.legend.clear()
             return
@@ -211,6 +233,41 @@ class BeamAnalysisControls:
             "The displayed point count is not a weighted intensity."
         )
         self._interaction_legend(styles)
+
+    def _emission_angle_legend(self):
+        self.legend.setText('0° <span style="color:#440154">■</span> · angle to normal · '
+                            '<span style="color:#fde725">■</span> 90°')
+        self.legend.setToolTip("Fixed 0–90 degree scale at emission; not rescaled to surviving rays. Grey: unavailable.")
+
+    def source_brushes(self, ids, source_azimuth=None):
+        mode = self.colour_combo.currentData()
+        angles = (source_azimuth if mode == "source" else
+                  emission_colour_values(self.owner._result.simulation, ids, mode))
+        result = []
+        cmap = pg.colormap.get("viridis") if mode == "emission_angle" else None
+        for ray_id, angle in zip(ids, angles):
+            if ray_id < 0 or not np.isfinite(angle):
+                colour = QColor("#94a3b8")
+            elif cmap is not None:
+                colour = cmap.mapToQColor(float(np.clip(angle/(math.pi/2), 0., 1.)))
+            else:
+                colour = QColor.fromHsvF(float(angle % (2*math.pi))/(2*math.pi), .88, 1.)
+            result.append(pg.mkBrush(colour))
+        return result
+
+    def _annotate_emission(self, ids):
+        """Keep detailed launch values in hover text, not another text box."""
+        scatter = self.owner._scatter
+        if scatter is None or self.owner._result is None:
+            return
+        simulation = self.owner._result.simulation
+        azimuth = emission_colour_values(simulation, ids, "emission_direction")
+        polar = emission_colour_values(simulation, ids, "emission_angle")
+        for spot, phi, theta in zip(scatter.points(), azimuth, polar):
+            if np.isfinite(theta):
+                phi_text = f"{math.degrees(phi):.5g}°" if np.isfinite(phi) else "undefined"
+                spot.setData({**spot.data(), "emission":
+                    f"Launch azimuth {phi_text} | angle to local normal {math.degrees(theta):.5g}°"})
 
     def _interaction_legend(self, styles):
         unique = {row[0]: row for row in styles}
@@ -321,15 +378,14 @@ class BeamAnalysisControls:
             min(data.total_column_count, owner.MAX_DISPLAY_RAYS), dtype=int))
         selected = np.isin(data.column_index, pool) & np.isfinite(x) & np.isfinite(y)
         brushes, symbols = [], []
-        for index in np.flatnonzero(selected):
-            angle = data.source_azimuth_rad[index]
+        source_brushes = (self.source_brushes(data.source_ray_id[selected], data.source_azimuth_rad[selected])
+                          if self.colour_combo.currentData() != "interaction" else None)
+        for display_index, index in enumerate(np.flatnonzero(selected)):
             if self.colour_combo.currentData() == "interaction":
                 brushes.append(pg.mkBrush(*map(int, data.interaction_rgb[index])))
                 symbols.append(str(data.interaction_symbol[index]))
             else:
-                colour = (QColor.fromHsvF(float(angle % (2*math.pi))/(2*math.pi), .88, 1.)
-                    if data.source_ray_id[index] >= 0 and np.isfinite(angle) else QColor("#94a3b8"))
-                brushes.append(pg.mkBrush(colour)); symbols.append("o")
+                brushes.append(source_brushes[display_index]); symbols.append("o")
         owner._display_source_ids = data.source_ray_id[selected]
         axis_x = owner.plot.getAxis("bottom").labelText
         axis_y = owner.plot.getAxis("left").labelText
@@ -341,8 +397,10 @@ class BeamAnalysisControls:
             data=[{"source_ray_id": int(data.source_ray_id[index]),
                    "interaction": str(data.interaction_label[index])} for index in np.flatnonzero(selected)],
             tip=lambda px, py, info: f"Source {info['source_ray_id']} | {info['interaction']}\n"
-                f"{axis_x} {px:.6g} {xunit} | {axis_y} {py:.6g} mrad",
+                f"{axis_x} {px:.6g} {xunit} | {axis_y} {py:.6g} mrad"
+                + ("\n"+info["emission"] if "emission" in info else ""),
         )
+        self._annotate_emission(owner._display_source_ids)
         owner.plot.addItem(owner._scatter)
         owner.plot.addLine(x=0, pen=pg.mkPen("#94a3b8", width=.8))
         owner.plot.addLine(y=0, pen=pg.mkPen("#94a3b8", width=.8))
@@ -350,6 +408,8 @@ class BeamAnalysisControls:
         if self.colour_combo.currentData() == "interaction":
             self._interaction_legend(list(zip(data.interaction_key, data.interaction_label,
                 map(tuple, data.interaction_rgb), data.interaction_symbol)))
+        elif self.colour_combo.currentData() == "emission_angle":
+            self._emission_angle_legend()
         self._summary(data, f" | {np.count_nonzero(selected):,} shown")
 
     def _draw_intensity(self, data):

@@ -1,5 +1,6 @@
 schema = "classical-vacuum-map-v1"
-enabled = true
+# Opt in before the first Preview; pressure values remain editable while off.
+enabled = false
 seed = 914
 provenance = "Rounded pressure magnitudes from user vacuum overview photos, 2026-09-14. Gauge-to-zone mapping is approximate; valve state is not inferred. IGPf zero and foreline/manifold/load-lock pressures are excluded. N2 composition and 293 K are editable assumptions, not measured values."
 max_optical_depth_per_step = 0.02
@@ -72,6 +73,7 @@ pressure_mbar = 8e-7
 [cell]
 inserted = false
 diameter_mm = 0.01
+# Inner-face gap; window thickness is separate. Illustrative, not a device calibration.
 length_mm = 0.001
 offset_x_mm = 0.0
 offset_y_mm = 0.0
@@ -84,3 +86,21 @@ temperature_k = 293.0
 density_kg_m3 = 1000.0
 removal_cross_section_m2 = 0.0
 removal_reference = ""
+
+[cell.upstream_window]
+thickness_nm = 50.0
+material = "SiN (Si3N4 approximation)"
+reference = "Editable illustrative membrane; see docs/development/CELL_ENVIRONMENT.md"
+[cell.upstream_window.medium]
+phase = "solid"
+formula = "Si3N4"
+density_kg_m3 = 3100.0
+
+[cell.downstream_window]
+thickness_nm = 50.0
+material = "SiN (Si3N4 approximation)"
+reference = "Editable illustrative membrane; see docs/development/CELL_ENVIRONMENT.md"
+[cell.downstream_window.medium]
+phase = "solid"
+formula = "Si3N4"
+density_kg_m3 = 3100.0

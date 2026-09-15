@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget, QPushButton
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget, QPushButton, QSpinBox
 from temsim.optics.electron_gun.tip_coherence import TipCoherence, tip_covariance
 from temsim.optics.electron_gun.tip_surface import SurfaceCoherence, load_tip_surface_reference, reference_path_for_gun
 from temsim.optics.electron_gun.tip_patch import patch_dimensions
@@ -120,6 +120,16 @@ class GunSourceDialog(QDialog):
             self.energy_law.addItem(label, key)
         self.energy_law.setCurrentIndex(self.energy_law.findData(self._surface_draft.emission.energy_distribution))
         surface_form.addRow("Particle energy distribution", self.energy_law)
+        self.directions_per_position = QSpinBox()
+        self.directions_per_position.setRange(1, 256)
+        self.directions_per_position.setValue(self._surface_draft.emission.directions_per_position)
+        self.directions_per_position.setToolTip(
+            "Numerical samples per surface site, within the total ray budget. "
+            "More directions means fewer sites. A remainder is distributed across sites; "
+            "weights preserve equal-area flux. 1 retains historical sampling. "
+            "Zero angular spread still produces parallel directions."
+        )
+        surface_form.addRow("Directions per position", self.directions_per_position)
         for key, label in (("current_na", "Prescribed surface current (nA)"),
                            ("flux_electrons_per_nm2_s", "Emitted electrons / (nm² s)"),
                            ("cap_half_angle_deg", "Emitting cap half-angle (deg)"),
@@ -253,6 +263,7 @@ class GunSourceDialog(QDialog):
         self.surface_form.setRowVisible(self.surface_inputs["flux_electrons_per_nm2_s"], density)
         law = self.energy_law.currentData()
         self.surface_form.setRowVisible(self.energy_law, not quantum)
+        self.surface_form.setRowVisible(self.directions_per_position, not quantum)
         self.surface_form.setRowVisible(self.surface_inputs["maximum_angle_deg"], not quantum)
         for key in ("normal_mean_energy_ev", "tangential_mean_energy_ev"):
             self.surface_form.setRowVisible(self.surface_inputs[key], not quantum and law == "normal_tangential_exponential")
@@ -286,6 +297,7 @@ class GunSourceDialog(QDialog):
                 edit.setText(str(value if value is not None else 0.0))
             self.flux_density_enabled.setChecked(self._surface_draft.emission.flux_electrons_per_nm2_s is not None)
             self.energy_law.setCurrentIndex(self.energy_law.findData(self._surface_draft.emission.energy_distribution))
+            self.directions_per_position.setValue(self._surface_draft.emission.directions_per_position)
             self.surface_coherent.setChecked(self._surface_draft.coherence is not None)
             quantum = self._surface_draft.coherence or SurfaceCoherence()
             for key, edit in self.quantum_inputs.items():
@@ -306,7 +318,8 @@ class GunSourceDialog(QDialog):
         values = {key: float(self.surface_inputs[key].text()) for key in active}
         values["current_na" if density else "flux_electrons_per_nm2_s"] = None
         emission = replace(self._surface_draft.emission,
-                           **values, energy_distribution=law)
+                           **values, energy_distribution=law,
+                           directions_per_position=self.directions_per_position.value())
         coherence = SurfaceCoherence(**{key: float(edit.text()) for key, edit in self.quantum_inputs.items()}) if quantum else None
         geometry = replace(self._surface_draft.geometry,
                            **{key: float(edit.text()) for key, edit in self.geometry_inputs.items()})
@@ -337,8 +350,16 @@ class GunSourceDialog(QDialog):
                     "Angles follow the wave; not an independent angular spread. Different energies are incoherent.")
                 self.surface_derived.setToolTip("Prescribed post-emission reservoir, not a tunnelling prediction. Cosine-squared surface amplitude, quadratic surface-arc phase, positive gamma total-energy law. Normal/tangential classical energy inputs are inactive. No single phase exists for the energy mixture.")
             ht, ext = self._gun.accelerator.high_tension_kv, self._gun.extractor.voltage_kv
+            lens = self._gun.electrostatic_lens
+            lens_ground_kv = lens.potential_rise_from_tip_v(ext,ht)/1000-ht
             self.surface_voltage.setText(f"Final anode 0 V | Tip {-ht:g} kV | Extractor {-ht+ext:g} kV\n"
-                f"Extraction difference {ext:g} kV. Change voltages on the existing electrodes.")
+                f"Gun lens {lens_ground_kv:g} kV | control relative to {lens.voltage_reference}")
+            self.surface_voltage.setToolTip(
+                "Displayed electrode potentials are relative to final-anode ground. "
+                "Extraction is relative to the tip. Gun-lens voltage_reference is set on the lens: "
+                "tip, extractor or ground. Changing this reference changes the physical field; "
+                "a microscope's displayed lens voltage is not necessarily ground-referenced. "
+                "Radial focusing and axial acceleration follow the same joint electrostatic potential.")
         except (TypeError, ValueError) as error:
             self.surface_derived.setText(str(error))
             self.patch_summary.setText("Invalid geometry or emission inputs")

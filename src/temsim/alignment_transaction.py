@@ -71,6 +71,7 @@ class AlignmentCandidate:
     checkpoint: WorkingPointCheckpoint | None
     validation: object
     status: str
+    ray_result: object | None = None
 
     def __post_init__(self):
         from temsim.optics.direct_alignment import DirectAlignmentResult
@@ -108,6 +109,9 @@ def _constraints_pass(definition, measured):
 
 
 def solve_alignment_candidate(request, *, cancelled=lambda: False):
+    if request.key == "column_transport":
+        from temsim.optics.transport_matching import solve_transport_candidate
+        return solve_transport_candidate(request, cancelled=cancelled)
     from temsim.optics.direct_alignment import _solve_direct_alignment, _condenser_measurement, _validate_projector_production
     from temsim.physics.beam_statistics import branch_sample_statistics
     from temsim.physics.simulation import run

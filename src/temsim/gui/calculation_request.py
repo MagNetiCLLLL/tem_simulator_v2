@@ -53,6 +53,8 @@ def reconstruct_calculation_state(
 
 def apply_request_numerics(snapshot, quality, ray_count, step_mm):
     """Change only the explicitly requested sampling, never optical controls."""
+    from temsim.physics.optical_tuning import resolve_tuning_ray_count
+    ray_count = resolve_tuning_ray_count(snapshot,quality,ray_count)
     emitter = getattr(snapshot.electron_gun, "emitter", None)
     if emitter is not None:
         emitter.ray_count = int(ray_count)
@@ -100,6 +102,8 @@ class CapturedCalculationRequest:
     ) -> CapturedCalculationRequest:
         from temsim.optics.electron_gun.source_policy import require_physical_gun_source
         require_physical_gun_source(getattr(state, "electron_gun", None))
+        from temsim.physics.optical_tuning import resolve_tuning_ray_count
+        ray_count = resolve_tuning_ray_count(state,quality,ray_count)
         graph = None
         if quality == "High accuracy":
             from temsim.optics.model import State

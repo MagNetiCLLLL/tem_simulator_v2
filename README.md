@@ -67,6 +67,14 @@ Right-click a component in 2D to choose **Ray Diagram**, **3D Parts**, or
 **Vacuum map**. Double-click stays in 2D. Selections remain highlighted when
 switching tabs manually. Vacuum map shares Physical Layout's Z range and scale;
 select a vacuum interval to edit pressure or its global/module-local Z bounds.
+Vacuum scattering / attenuation is **off by default**. Choose it in
+**Calculate setup** or **Vacuum map** before the first Preview. Later changes
+may invalidate all calculation caches; saved profiles retain their on/off choice.
+**Vacuum map > Inserted specimen cell** also configures upstream/downstream
+SiN, graphene or custom windows, cell gap, and internal gas/liquid composition.
+The chamber marks the Sample position without replacing its geometry.
+See [Cell environment](docs/development/CELL_ENVIRONMENT.md) for the classical
+particle model, editable material assumptions and current imaging limits.
 In the 3D editor, select an active module or use **Open TOML…** to open an
 instrument module file. Choose a component in the tree or click its surface.
 The module selector follows the opened file; the source label also identifies

@@ -653,6 +653,13 @@ class VisualizationWorkspace(QWidget):
         self.fit_column.setToolTip(
             "Fit the complete axial range and column inner diameter"
         )
+        self.match_transport = QPushButton("Match transport")
+        self.match_transport.setObjectName("matchColumnTransportButton")
+        self.match_transport.setToolTip(
+            "Adjust C1/C2/C3 to transmit tip-origin particles into the projection chamber. "
+            "Keeps every aperture and wall. This is not probe or image focus alignment; "
+            "only a forward-validated candidate is applied."
+        )
         self.axial_position = QDoubleSpinBox()
         self.axial_position.setObjectName("rayDiagramAxialPosition")
         self.axial_position.setRange(-1.0e6, 1.0e6)
@@ -690,6 +697,7 @@ class VisualizationWorkspace(QWidget):
             self.auto_zoom,
             self.component_centres,
             self.crossovers,
+            self.match_transport,
             self.column_walls,
             self.fit_column,
             self.jump_to_position,
@@ -727,6 +735,7 @@ class VisualizationWorkspace(QWidget):
             self.column_walls,
             self.component_centres,
             self.crossovers,
+            self.match_transport,
         )
         for button in option_buttons:
             button.setSizePolicy(
@@ -1348,10 +1357,14 @@ class VisualizationWorkspace(QWidget):
         self.plot.setYRange(0.0, 1.0, padding=0.0)
 
     def _set_ray_axis_label(self, axis: str, text: str) -> None:
+        # Ray/view coordinates stay in mm (including markers and saved ranges).
+        # Convert only tick values to SI metres before automatic prefixing, so
+        # 0.000020 mm is shown as 20 nm, never as the compounded unit "µmm".
+        self.plot.getAxis(axis).setScale(1.0e-3)
         self.plot.setLabel(
             axis,
             text,
-            units="mm",
+            units="m",
             **{
                 "color": "#e2e8f0",
                 "font-size": f"{self.RAY_AXIS_LABEL_PT}pt",

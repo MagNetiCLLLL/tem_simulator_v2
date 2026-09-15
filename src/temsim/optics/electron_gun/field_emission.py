@@ -171,9 +171,10 @@ def _apply_electrical_defaults(component, part):
     if isinstance(component, AcceleratorColumn) and "electrode_thickness_mm" in part:
         component._electrode_thickness_mm = float(part["electrode_thickness_mm"])
     for field, attribute in (("default_voltage_kv", "voltage_kv"),
-                             ("default_high_tension_kv", "high_tension_kv")):
+                             ("default_high_tension_kv", "high_tension_kv"),
+                             ("default_voltage_reference", "voltage_reference")):
         if field in part and getattr(component, "_assembly_"+field, None) != part[field]:
-            setattr(component, attribute, float(part[field]))
+            setattr(component, attribute, str(part[field]) if field == "default_voltage_reference" else float(part[field]))
             setattr(component, "_assembly_"+field, part[field])
     return component
 
@@ -388,6 +389,8 @@ def _component_payload(component):
 
 def _restore_component_settings(component, row):
     allowed = component.__dataclass_fields__
+    if isinstance(component, ElectrostaticGunLens) and "voltage_reference" not in row:
+        component.voltage_reference = "extractor"  # old additive semantics, never migrate
     if isinstance(component, ColdFieldEmitter) and "surface_model" not in row:
         component.surface_model = None  # historical source, not today's default
     for attribute, value in row.items():
@@ -696,7 +699,7 @@ class FieldEmissionGun:
         ensure_standalone_gun_environment(self)
         payload = self.to_dict()
         payload["requested_count"] = count
-        payload["tuning_sampling_schema"] = "physical-tip-support-v1"
+        payload["tuning_sampling_schema"] = "physical-tip-grouped-support-v2"
         payload["tuning_surface_probes"] = int(getattr(self.emitter, "_tuning_surface_probes", 0))
         payload["tuning_boundary_probes"] = int(getattr(self.emitter, "_tuning_boundary_probes", 0))
         from dataclasses import asdict

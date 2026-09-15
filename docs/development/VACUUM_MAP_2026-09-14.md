@@ -2,12 +2,17 @@
 
 The standalone Vacuum map tab, immediately after Sample, edits pressure, gas formula, temperature,
 region boundaries and a finite cylindrical specimen cell. The default input is
-`configs/environments/vacuum_map.toml`. New instruments enable this map. Apply
+`configs/environments/vacuum_map.toml`. Vacuum transport is **off by default**;
+the map remains visible and editable. Choose whether to include it in
+**Calculate setup** or **Vacuum map** before the first Preview. Later changes
+remain allowed and may invalidate all cached calculation stages; this broad
+invalidation is intentional. Apply
 changes the live instrument; Save map as writes an independent TOML map (or the
 default file when explicitly selected). Operating profiles and working-point
 snapshots retain the complete active map. Historical profiles without a map
-retain their original absence of residual-medium transport; Load normal-operation
-defaults explicitly opts them into the new model.
+retain their original absence of residual-medium transport. Saved explicit
+on/off choices are restored unchanged. Load normal-operation defaults restores
+the pressure map with transport off; enable the checkbox explicitly when needed.
 
 ## Shared Z view and editing
 
@@ -73,12 +78,14 @@ the endpoints, not independently saved or editable. Liquid interfaces require
 explicit boundaries; an automatic vacuum transition is not a liquid meniscus. Users can split regions and merge added
 regions back into their predecessor. All 30 catalog selections resolve the map.
 
-The cell starts retracted, with diameter 10 µm and axial length 1 µm. Its offsets
-are relative to the specimen. These are editable example dimensions, not a
-change to the solid sample dimensions. Inside the cell, its medium replaces
-ambient medium. The finite solid specimen is excluded from both, so a liquid
-or gas is not counted again inside already modeled solid material. No window
-geometry is implied by enabling the cell.
+The cell starts retracted, with aperture diameter 10 µm and inner-face gap 1 µm.
+Z offset is relative to Sample; X/Y centres use column coordinates. New defaults
+include two independently editable 50 nm SiN windows; historical maps without
+window fields remain windowless. These are example dimensions, not changes to
+the Sample geometry. The windows and interior replace ambient gas, and the
+finite solid specimen is excluded from the fluid to avoid duplicate material.
+See [Cell environment](CELL_ENVIRONMENT.md) for the local +Z-down section,
+material presets, mixtures, ownership and limitations.
 
 ## Transport and meaning of attenuation
 
@@ -130,9 +137,9 @@ model version enter calculation identities; gun inputs enter the gun cache.
   Its continuation below 50 eV is recorded as extrapolated path length. For
   comparison, [NIST SRD 64](https://www.nist.gov/publications/nist-electron-elastic-scattering-cross-section-database-version-40)
   provides atomic elastic data over 50 eV–300 keV. No NIST data have been imported.
-- Liquid currently means a density-based independent-atom elastic surrogate.
-  Inelastic energy loss, radiolysis, charging, fluid dynamics and cell windows
-  require later models and validation.
+- Liquid and solid windows use density-based independent-atom elastic transport.
+  Inelastic energy loss, radiolysis, charging, fluid dynamics, membrane bulging,
+  window crystal diffraction and photon attenuation require later models.
 - Collision kicks use finite-step splitting. Reducing the optical step and
   optical-depth limit is necessary for convergence studies in dense media.
   Forward-Z column transport records backscattered particles as exiting that
@@ -166,9 +173,10 @@ and test output remain local in `outputs/vacuum-validation/`.
 
 ## Horizontal map and Calculate setup update
 
-The map runs left-to-right along +Z. Box widths are schematic; labels show the
-resolved physical Z endpoints in mm. It remains visible/editable when transport
-is off. Geometry and medium controls occupy two columns below the map.
+The map runs left-to-right along +Z with physical Z widths shared with Physical
+Layout. It remains visible/editable when transport is off. Geometry and medium
+controls occupy two columns below the map; a separate local cell section uses
++Z downward and marks the Sample envelope/reference plane.
 
 For a gap from z0 to z1, t=(z-z0)/(z1-z0). Each endpoint contributes its original
 gas at partial pressure (1-t) P0 or t P1, with that endpoint's temperature and

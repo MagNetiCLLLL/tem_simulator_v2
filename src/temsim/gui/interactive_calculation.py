@@ -209,6 +209,7 @@ class InteractiveCalculationPage(QWidget):
             self.live_heading.setText("Excitation / live controls")
             self.live_heading.setToolTip("Captured settings: enter new tuning ranges on the left.")
         self.source_state, self.seeds = state, tuple(seeds)
+        self.set_tuning_quality(getattr(self,"_tuning_quality_name","Preview"))
         self.controls = available_controls(state)
         self.choice.clear()
         for control in self.controls:
@@ -221,9 +222,12 @@ class InteractiveCalculationPage(QWidget):
         self._mark_readout_previous("New settings captured")
 
     def set_tuning_quality(self, quality):
-        from temsim.physics.optical_tuning import TUNING_PROFILES
+        from temsim.physics.optical_tuning import TUNING_PROFILES, resolve_tuning_ray_count
         p = TUNING_PROFILES[quality]
-        self.tuning_quality.setText(f"Live tuning: {quality} ({p.rays} rays). Change quality in the toolbar.")
+        self._tuning_quality_name = quality
+        state = getattr(self,"source_state",None)
+        rays = p.rays if state is None else resolve_tuning_ray_count(state,quality,p.rays)
+        self.tuning_quality.setText(f"Live tuning: {quality} ({rays} rays). Change quality in the toolbar.")
 
     def start_live_tuning(self):
         try:

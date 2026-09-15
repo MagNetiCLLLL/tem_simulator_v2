@@ -34,6 +34,7 @@ dist/
 /outputs/shared-tip-installed/
 /outputs/vacuum-validation/
 /outputs/setup-validation/
+/outputs/crossover-audit-20260914/
 /outputs/pull-review/
 
 # Incomplete DF preparation attempts; the sibling *_final archive is retained.

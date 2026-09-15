@@ -41,6 +41,8 @@ tip_radius_nm = 100.0
 tip_cone_half_angle_deg = 5.0
 emission_flux_electrons_per_nm2_s = 653864449.6443435
 emission_cap_half_angle_deg = 10.0
+# Ray budget is shared between sites and local directions; total flux is unchanged.
+emission_directions_per_position = 8
 emission_maximum_angle_deg = 90.0
 emission_energy_distribution = "normal_tangential_exponential"
 emission_normal_mean_energy_ev = 0.2
@@ -54,3 +56,6 @@ tip_field_axial_nodes = 320
 tip_apex_cells_per_radius = 20
 tip_field_outer_radius_factor = 1.25
 tip_field_residual_tolerance = 1e-9
+# Numerical controls only; neither changes the physical emitting cap.
+tip_field_axis_core_fraction = 0.01
+tip_field_electrode_cells_per_bore = 8

@@ -30,11 +30,14 @@ def medium_result():
     return tuning_result()
 
 
-def test_medium_support_probes_preserve_weighted_source_distribution():
+@pytest.mark.parametrize("curved", [False, True])
+def test_medium_support_probes_preserve_weighted_source_distribution(curved):
     source = default_state()
+    if not curved:
+        source.electron_gun.emitter.surface_model = None
     p = TUNING_PROFILES["Medium"]
     s = CalculationController._calculation_snapshot(source, "Medium", p.rays, p.step_mm)
-    original = s.electron_gun.emitter.emit()
+    original = s.electron_gun.emitter.emit(160 if curved else None)
     prepare_tuning_snapshot(s, "Medium")
     sampled = s.electron_gun.emitter.emit()
     assert sampled.weight.sum() == pytest.approx(1.)
@@ -42,7 +45,13 @@ def test_medium_support_probes_preserve_weighted_source_distribution():
     for name in ("x_m", "y_m", "tx_rad", "ty_rad", "energy_offset_ev"):
         np.testing.assert_array_equal(getattr(sampled, name)[:160], getattr(original, name)[:160])
     radii = np.hypot(sampled.tx_rad[160:-1], sampled.ty_rad[160:-1])
-    np.testing.assert_allclose(radii, s.electron_gun.emitter.angular_cutoff_mrad*1e-3)
+    if curved:
+        normal = sampled.surface_position_m[160:-1].copy()
+        radius = s.electron_gun.emitter.surface_model.geometry.apex_radius_nm*1e-9
+        normal[:, 2] += radius
+        np.testing.assert_allclose(sampled.surface_direction[160:-1], normal/radius, atol=1e-14)
+    else:
+        np.testing.assert_allclose(radii, s.electron_gun.emitter.angular_cutoff_mrad*1e-3)
     assert not hasattr(source.electron_gun.emitter, "_tuning_boundary_probes")
     assert sampled.x_m[-1] == sampled.y_m[-1] == 0.
 

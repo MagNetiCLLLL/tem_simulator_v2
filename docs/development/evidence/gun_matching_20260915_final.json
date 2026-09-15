@@ -1,0 +1,852 @@
+{
+  "status": "PASS_WITHIN_DECLARED_PARTICLE_TOLERANCES",
+  "scope": "Classical tip-origin optical transport at this design only; no specimen interaction or imaging validation",
+  "criteria": {
+    "target_alpha95_mrad": 30.0,
+    "angle_relative_tolerance": 0.01,
+    "waist_tolerance_nm": 1.0,
+    "maximum_diameter95_nm": 5.0,
+    "diameter_relative_change_limit": 0.1,
+    "current_relative_change_limit": 0.05,
+    "minimum_effective_rays": 16
+  },
+  "controls_percent": {
+    "condenser_lens_1": 25.0,
+    "condenser_lens_2": 14.890193391572357,
+    "condenser_lens_3": 26.395215230901794,
+    "adapter_lens": 86.0039434207,
+    "probe_tl22_lens": 60.0,
+    "probe_tl21_lens": 60.0,
+    "probe_tl12_lens": 60.0,
+    "mini_condenser": 41.5570797718,
+    "objective_lens": 68.89947594537043,
+    "diffraction_lens": 14.577617197168571,
+    "intermediate_lens": 0.035082657259397326,
+    "projector_lens_1": 32.1132572718703,
+    "projector_lens_2": 9.826874422815507,
+    "image_ol_post_lens": 60.0,
+    "image_tl11_lens": 60.0,
+    "image_tl12_lens": 60.0,
+    "image_tl21_lens": 60.0,
+    "image_tl22_lens": 60.0,
+    "image_adapter_lens": 60.0
+  },
+  "geometry_mm": {
+    "extractor_mm": 2.0999999999999996,
+    "lens_mm": 8.2,
+    "accelerator_mm": 218.0,
+    "gun_dpa_mm": 210.0
+  },
+  "voltages": {
+    "extractor_kv": 4.5,
+    "gun_lens_kv": 1.1,
+    "gun_lens_reference": "tip",
+    "OEM_definition": "UNCONFIRMED"
+  },
+  "tip_model": {
+    "geometry": {
+      "shape": "spherical_cap_tangent_cone",
+      "material": "W(310)",
+      "apex_radius_nm": 100.0,
+      "cone_half_angle_deg": 5.0,
+      "shank_length_um": 1000.0
+    },
+    "emission": {
+      "cap_half_angle_deg": 10.0,
+      "normal_mean_energy_ev": 0.2,
+      "tangential_mean_energy_ev": 0.1,
+      "flux_electrons_per_nm2_s": 653864449.6443435,
+      "maximum_angle_deg": 90.0,
+      "energy_distribution": "normal_tangential_exponential",
+      "kinetic_mean_ev": 0.3,
+      "kinetic_sigma_ev": 0.1,
+      "directions_per_position": 72,
+      "spatial_sampling": "apex_stratified_v1",
+      "spatial_stratum_allocation": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        4,
+        24,
+        24,
+        1
+      ],
+      "angular_sampling": "tangent_stratified_v2",
+      "angular_refinement_gain": 80.0,
+      "angular_refinement_width_sigma": 0.2,
+      "angular_stratum_allocation": [
+        1,
+        1,
+        1,
+        1,
+        32,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "field_numerics": {
+      "radial_nodes": 640,
+      "axial_nodes": 1280,
+      "apex_cells_per_radius": 80,
+      "outer_radius_factor": 1.25,
+      "linear_residual_tolerance": 1e-09,
+      "accelerator_ring_thickness_mm": 1.0,
+      "electrode_cells_per_bore": 32,
+      "electrode_corner_cells": 16
+    },
+    "schema": "grounded-cold-feg-surface-v1",
+    "status": "idealised_reference_not_calibrated",
+    "potential_reference": "final_accelerating_anode_ground_0V",
+    "geometry_reference": ""
+  },
+  "exact_tip_footprint": {
+    "population": "entire prescribed uniform-area emitting cap",
+    "precision": "analytic geometry; not a propagated waist",
+    "edge_diameter_nm": 34.729635533386066,
+    "diameter95_nm": 33.856738374627334,
+    "rms_radius_nm": 12.2944345938637,
+    "cap_depth_nm": 1.5192246987791937
+  },
+  "fixed_settings_comparisons": [
+    {
+      "check": "Nominal fitted quadrature",
+      "rays": 2174,
+      "effective_rays": 854.7830643977554,
+      "alpha95_mrad": 29.999999999991896,
+      "diameter95_nm": 1.447374669639951,
+      "source_fraction": 7.644510874600267e-05,
+      "local_waist_offset_nm": -1.3481314770978876e-09,
+      "covariance_waist_offset_nm": -7.147520121476338e-08,
+      "surface_z_mm": 1599.1999975,
+      "step_mm": 0.025,
+      "passed": true
+    },
+    {
+      "check": "Twice the angular samples per site; no refit",
+      "rays": 4637,
+      "effective_rays": 1830.4352109154397,
+      "alpha95_mrad": 30.169951247835982,
+      "diameter95_nm": 1.405617816859188,
+      "source_fraction": 7.534242907129629e-05,
+      "local_waist_offset_nm": 0.30238104271401534,
+      "covariance_waist_offset_nm": 0.3023809882588432,
+      "surface_z_mm": 1599.1999975,
+      "step_mm": 0.025,
+      "diameter_relative_change": -0.028850064642315765,
+      "current_relative_change": -0.014424463419499656,
+      "passed": true
+    },
+    {
+      "check": "Twice the emission sites, half directions per site; no refit",
+      "rays": 1868,
+      "effective_rays": 736.2602852434411,
+      "alpha95_mrad": 30.028039290901212,
+      "diameter95_nm": 1.3287620436381982,
+      "source_fraction": 7.477062290687665e-05,
+      "local_waist_offset_nm": 0.5749991219490376,
+      "covariance_waist_offset_nm": 0.5749990703579415,
+      "surface_z_mm": 1599.1999975,
+      "step_mm": 0.025,
+      "diameter_relative_change": -0.08195018780538621,
+      "current_relative_change": -0.021904420918409384,
+      "passed": true
+    },
+    {
+      "check": "Finer tip and global field mesh; no refit",
+      "rays": 2172,
+      "effective_rays": 846.342646018742,
+      "alpha95_mrad": 29.99552921486199,
+      "diameter95_nm": 1.4129078345622765,
+      "source_fraction": 7.629954610144299e-05,
+      "local_waist_offset_nm": 0.13009030698707433,
+      "covariance_waist_offset_nm": 0.13009023256635976,
+      "surface_z_mm": 1599.1999975,
+      "step_mm": 0.025,
+      "diameter_relative_change": -0.023813346882910702,
+      "current_relative_change": -0.0019041459544956174,
+      "passed": true
+    },
+    {
+      "check": "Finer field mesh and half column step; no refit",
+      "rays": 2172,
+      "effective_rays": 846.342646018742,
+      "alpha95_mrad": 29.99552921495537,
+      "diameter95_nm": 1.4130192048935735,
+      "source_fraction": 7.629954610144299e-05,
+      "local_waist_offset_nm": 0.12819794280527358,
+      "covariance_waist_offset_nm": 0.12819786844563474,
+      "surface_z_mm": 1599.1999975,
+      "step_mm": 0.0125,
+      "diameter_relative_change": -0.023736400440753758,
+      "current_relative_change": -0.0019041459544956174,
+      "passed": true
+    },
+    {
+      "check": "Ordinary CUDA backend, same executed gun; no refit",
+      "rays": 2174,
+      "effective_rays": 854.7830643977554,
+      "alpha95_mrad": 29.99999999999322,
+      "diameter95_nm": 1.4473746700898906,
+      "source_fraction": 7.644510874600267e-05,
+      "local_waist_offset_nm": -1.3719856275045678e-09,
+      "covariance_waist_offset_nm": -7.149902663688972e-08,
+      "surface_z_mm": 1599.1999975,
+      "step_mm": 0.025,
+      "diameter_relative_change": 3.1086599960872263e-10,
+      "current_relative_change": 0.0,
+      "passed": true
+    }
+  ],
+  "full_column_transport": [
+    {
+      "rays": 10369,
+      "displayed_marker_count": 9,
+      "topology": [
+        [
+          "between",
+          [
+            "feg_electrostatic_lens"
+          ],
+          [
+            "feg_dpa_aperture"
+          ]
+        ],
+        [
+          "between",
+          [
+            "condenser_lens_1"
+          ],
+          [
+            "condenser_lens_2"
+          ]
+        ],
+        [
+          "between",
+          [
+            "condenser_lens_2"
+          ],
+          [
+            "condenser_aperture_2"
+          ]
+        ],
+        [
+          "between",
+          [
+            "probe_dp22_deflector"
+          ],
+          [
+            "probe_hpc_hexapole"
+          ]
+        ],
+        [
+          "between",
+          [
+            "probe_tl12_lens"
+          ],
+          [
+            "condenser_stigmator"
+          ]
+        ],
+        [
+          "between",
+          [
+            "mini_condenser"
+          ],
+          [
+            "objective_lens",
+            "sample"
+          ]
+        ],
+        [
+          "between",
+          [
+            "objective_aperture"
+          ],
+          [
+            "descan_deflector"
+          ]
+        ],
+        [
+          "between",
+          [
+            "intermediate_lens"
+          ],
+          [
+            "projector_lens_1"
+          ]
+        ],
+        [
+          "between",
+          [
+            "projector_lens_1"
+          ],
+          [
+            "projector_lens_2"
+          ]
+        ]
+      ],
+      "markers": [
+        {
+          "z_mm": 202.0,
+          "rms_radius_mm": 0.0489012626754653,
+          "correlation": -5.846352861599857e-09,
+          "ray_count": 10369,
+          "kind": "current-weighted ensemble RMS beam waist"
+        },
+        {
+          "name": "C1 Lens crossover",
+          "z_mm": 514.0,
+          "rms_radius_mm": 0.011331863080628848,
+          "source_lens_key": "condenser_lens_1",
+          "source_lens_name": "C1 Lens",
+          "verified": true
+        },
+        {
+          "name": "C2 Lens crossover",
+          "z_mm": 710.5,
+          "rms_radius_mm": 0.006464059745839134,
+          "source_lens_key": "condenser_lens_2",
+          "source_lens_name": "C2 Lens",
+          "verified": true
+        },
+        {
+          "name": "TL22 crossover",
+          "z_mm": 1195.0,
+          "rms_radius_mm": 0.0018741690076990876,
+          "source_lens_key": "probe_tl22_lens",
+          "source_lens_name": "TL22 Transfer Lens",
+          "verified": true
+        },
+        {
+          "name": "TL12 crossover",
+          "z_mm": 1370.0,
+          "rms_radius_mm": 0.00027213001483415846,
+          "source_lens_key": "probe_tl12_lens",
+          "source_lens_name": "TL12 Transfer Lens",
+          "verified": true
+        },
+        {
+          "name": "MC/TL11 crossover",
+          "z_mm": 1586.0,
+          "rms_radius_mm": 0.0017487119225903886,
+          "source_lens_key": "mini_condenser",
+          "source_lens_name": "Mini Condenser Lens",
+          "verified": true
+        },
+        {
+          "name": "Objective L crossover",
+          "z_mm": 1612.7,
+          "rms_radius_mm": 0.003651343518566869,
+          "source_lens_key": "objective_lens",
+          "source_lens_name": "Objective Lens Assembly",
+          "verified": true
+        },
+        {
+          "name": "Int L crossover",
+          "z_mm": 2110.2000000000003,
+          "rms_radius_mm": 0.00033304692374597694,
+          "source_lens_key": "intermediate_lens",
+          "source_lens_name": "Intermediate Lens",
+          "verified": true
+        },
+        {
+          "name": "P1 crossover",
+          "z_mm": 2366.7000000000003,
+          "rms_radius_mm": 0.0005057714550457024,
+          "source_lens_key": "projector_lens_1",
+          "source_lens_name": "Projector Lens P1",
+          "verified": true
+        }
+      ],
+      "projection": {
+        "rays": 2174,
+        "source_fraction": 7.644510874600269e-05,
+        "radius_mm": 0.9936542510986328,
+        "finite": true,
+        "z_mm": 2586.9
+      },
+      "passed": true
+    },
+    {
+      "rays": 20737,
+      "displayed_marker_count": 9,
+      "topology": [
+        [
+          "between",
+          [
+            "feg_electrostatic_lens"
+          ],
+          [
+            "feg_dpa_aperture"
+          ]
+        ],
+        [
+          "between",
+          [
+            "condenser_lens_1"
+          ],
+          [
+            "condenser_lens_2"
+          ]
+        ],
+        [
+          "between",
+          [
+            "condenser_lens_2"
+          ],
+          [
+            "condenser_aperture_2"
+          ]
+        ],
+        [
+          "between",
+          [
+            "probe_dp22_deflector"
+          ],
+          [
+            "probe_hpc_hexapole"
+          ]
+        ],
+        [
+          "between",
+          [
+            "probe_tl12_lens"
+          ],
+          [
+            "condenser_stigmator"
+          ]
+        ],
+        [
+          "between",
+          [
+            "mini_condenser"
+          ],
+          [
+            "objective_lens",
+            "sample"
+          ]
+        ],
+        [
+          "between",
+          [
+            "objective_aperture"
+          ],
+          [
+            "descan_deflector"
+          ]
+        ],
+        [
+          "between",
+          [
+            "intermediate_lens"
+          ],
+          [
+            "projector_lens_1"
+          ]
+        ],
+        [
+          "between",
+          [
+            "projector_lens_1"
+          ],
+          [
+            "projector_lens_2"
+          ]
+        ]
+      ],
+      "markers": [
+        {
+          "z_mm": 202.0,
+          "rms_radius_mm": 0.04653621311510522,
+          "correlation": 5.61133992645879e-09,
+          "ray_count": 20737,
+          "kind": "current-weighted ensemble RMS beam waist"
+        },
+        {
+          "name": "C1 Lens crossover",
+          "z_mm": 514.0,
+          "rms_radius_mm": 0.012373359203036113,
+          "source_lens_key": "condenser_lens_1",
+          "source_lens_name": "C1 Lens",
+          "verified": true
+        },
+        {
+          "name": "C2 Lens crossover",
+          "z_mm": 710.0,
+          "rms_radius_mm": 0.020918350419561433,
+          "source_lens_key": "condenser_lens_2",
+          "source_lens_name": "C2 Lens",
+          "verified": true
+        },
+        {
+          "name": "TL22 crossover",
+          "z_mm": 1196.0,
+          "rms_radius_mm": 0.0039111559194187654,
+          "source_lens_key": "probe_tl22_lens",
+          "source_lens_name": "TL22 Transfer Lens",
+          "verified": true
+        },
+        {
+          "name": "TL12 crossover",
+          "z_mm": 1370.0,
+          "rms_radius_mm": 0.00026891793975071797,
+          "source_lens_key": "probe_tl12_lens",
+          "source_lens_name": "TL12 Transfer Lens",
+          "verified": true
+        },
+        {
+          "name": "MC/TL11 crossover",
+          "z_mm": 1586.0,
+          "rms_radius_mm": 0.001728145968542134,
+          "source_lens_key": "mini_condenser",
+          "source_lens_name": "Mini Condenser Lens",
+          "verified": true
+        },
+        {
+          "name": "Objective L crossover",
+          "z_mm": 1613.2,
+          "rms_radius_mm": 0.012475354291945486,
+          "source_lens_key": "objective_lens",
+          "source_lens_name": "Objective Lens Assembly",
+          "verified": true
+        },
+        {
+          "name": "Int L crossover",
+          "z_mm": 2109.2000000000003,
+          "rms_radius_mm": 0.0026582069686251976,
+          "source_lens_key": "intermediate_lens",
+          "source_lens_name": "Intermediate Lens",
+          "verified": true
+        },
+        {
+          "name": "P1 crossover",
+          "z_mm": 2367.2000000000003,
+          "rms_radius_mm": 0.0022059777802070826,
+          "source_lens_key": "projector_lens_1",
+          "source_lens_name": "Projector Lens P1",
+          "verified": true
+        }
+      ],
+      "projection": {
+        "rays": 4637,
+        "source_fraction": 7.534242907129629e-05,
+        "radius_mm": 0.9948436617851257,
+        "finite": true,
+        "z_mm": 2586.9
+      },
+      "passed": true
+    }
+  ],
+  "intermediate_waist_diagnostics": [
+    {
+      "status": "EXECUTED_AT_FIXED_SAMPLING",
+      "z_mm": 513.7524350746629,
+      "bracket_mm": [
+        513.5,
+        514.0
+      ],
+      "step_mm": 0.025,
+      "evaluations": 5,
+      "measurement": {
+        "name": "Crossover",
+        "z_mm": 513.7524350746629,
+        "rays": 10369,
+        "source_current_fraction": 1.0,
+        "rms_radius_nm": 2529.8712302087956,
+        "diameter95_nm": 6134.674096323947,
+        "alpha95_mrad": 63.06700368350705,
+        "covariance_waist_offset_mm": -1.6244880382862237e-14,
+        "projected_emittance_x_m_rad": 4.442183560594935e-08,
+        "projected_emittance_y_m_rad": 3.5196494259322484e-08,
+        "population": "same current-carrying rays throughout crossover bracket",
+        "precision": "full precision"
+      }
+    },
+    {
+      "status": "EXECUTED_AT_FIXED_SAMPLING",
+      "z_mm": 710.7331981881873,
+      "bracket_mm": [
+        710.5,
+        711.0
+      ],
+      "step_mm": 0.025,
+      "evaluations": 4,
+      "measurement": {
+        "name": "Crossover",
+        "z_mm": 710.7331981881873,
+        "rays": 10342,
+        "source_current_fraction": 0.09742466673258018,
+        "rms_radius_nm": 1364.0561957537466,
+        "diameter95_nm": 5575.227678827921,
+        "alpha95_mrad": 43.73113927552536,
+        "covariance_waist_offset_mm": -4.027909804994533e-14,
+        "projected_emittance_x_m_rad": 1.7999047090880636e-08,
+        "projected_emittance_y_m_rad": 1.8891561608257463e-08,
+        "population": "same current-carrying rays throughout crossover bracket",
+        "precision": "full precision"
+      }
+    },
+    {
+      "status": "EXECUTED_AT_FIXED_SAMPLING",
+      "z_mm": 1195.0316326488023,
+      "bracket_mm": [
+        1195.0,
+        1195.5
+      ],
+      "step_mm": 0.025,
+      "evaluations": 4,
+      "measurement": {
+        "name": "Crossover",
+        "z_mm": 1195.0316326488023,
+        "rays": 2174,
+        "source_current_fraction": 7.644510874600267e-05,
+        "rms_radius_nm": 1870.8219657817845,
+        "diameter95_nm": 6077.020144081536,
+        "alpha95_mrad": 4.801523431191678,
+        "covariance_waist_offset_mm": -4.071333190643004e-15,
+        "projected_emittance_x_m_rad": 3.254206568671597e-09,
+        "projected_emittance_y_m_rad": 3.365667128009758e-09,
+        "population": "same current-carrying rays throughout crossover bracket",
+        "precision": "full precision"
+      }
+    },
+    {
+      "status": "EXECUTED_AT_FIXED_SAMPLING",
+      "z_mm": 1369.8554829537766,
+      "bracket_mm": [
+        1369.5,
+        1370.0
+      ],
+      "step_mm": 0.025,
+      "evaluations": 5,
+      "measurement": {
+        "name": "Crossover",
+        "z_mm": 1369.8554829537766,
+        "rays": 2174,
+        "source_current_fraction": 7.644510874600267e-05,
+        "rms_radius_nm": 3.6033334724641644,
+        "diameter95_nm": 12.554157950169927,
+        "alpha95_mrad": 2.5613838620651426,
+        "covariance_waist_offset_mm": 8.430860310610249e-14,
+        "projected_emittance_x_m_rad": 3.4158499122431125e-12,
+        "projected_emittance_y_m_rad": 3.3667486340241774e-12,
+        "population": "same current-carrying rays throughout crossover bracket",
+        "precision": "full precision"
+      }
+    },
+    {
+      "status": "EXECUTED_AT_FIXED_SAMPLING",
+      "z_mm": 1585.9028579986664,
+      "bracket_mm": [
+        1585.5,
+        1586.0
+      ],
+      "step_mm": 0.025,
+      "evaluations": 6,
+      "measurement": {
+        "name": "Crossover",
+        "z_mm": 1585.9028579986664,
+        "rays": 2174,
+        "source_current_fraction": 7.644510874600267e-05,
+        "rms_radius_nm": 0.3790045235834243,
+        "diameter95_nm": 1.3237841893711053,
+        "alpha95_mrad": 24.483329136758314,
+        "covariance_waist_offset_mm": -3.4166762786358913e-14,
+        "projected_emittance_x_m_rad": 3.3463894052793275e-12,
+        "projected_emittance_y_m_rad": 3.4736298407221164e-12,
+        "population": "same current-carrying rays throughout crossover bracket",
+        "precision": "full precision"
+      }
+    }
+  ],
+  "final_survivor_c1_diagnostic": {
+    "name": "C1 waist of final specimen cohort",
+    "z_mm": 513.9462434007555,
+    "rays": 2174,
+    "source_current_fraction": 7.644510874600267e-05,
+    "rms_radius_nm": 0.3404846476907258,
+    "diameter95_nm": 1.3068080394725705,
+    "alpha95_mrad": 0.40313352773467215,
+    "covariance_waist_offset_mm": 3.948103580639917e-14,
+    "projected_emittance_x_m_rad": 4.793456880967067e-14,
+    "projected_emittance_y_m_rad": 5.291198546270473e-14,
+    "population": "same IDs eventually reaching sample; not an additional full-beam crossover",
+    "precision": "full precision"
+  },
+  "whole_cap_diagnostic": {
+    "scope": "INDEPENDENT_FULL_CAP_UNIFORM_QUADRATURE_DIAGNOSTIC",
+    "rays": 4097,
+    "tip_model": {
+      "geometry": {
+        "shape": "spherical_cap_tangent_cone",
+        "material": "W(310)",
+        "apex_radius_nm": 100.0,
+        "cone_half_angle_deg": 5.0,
+        "shank_length_um": 1000.0
+      },
+      "emission": {
+        "cap_half_angle_deg": 10.0,
+        "normal_mean_energy_ev": 0.2,
+        "tangential_mean_energy_ev": 0.1,
+        "flux_electrons_per_nm2_s": 653864449.6443435,
+        "maximum_angle_deg": 90.0,
+        "energy_distribution": "normal_tangential_exponential",
+        "kinetic_mean_ev": 0.3,
+        "kinetic_sigma_ev": 0.1,
+        "directions_per_position": 8
+      },
+      "field_numerics": {
+        "radial_nodes": 640,
+        "axial_nodes": 1280,
+        "apex_cells_per_radius": 80,
+        "outer_radius_factor": 1.25,
+        "linear_residual_tolerance": 1e-09,
+        "accelerator_ring_thickness_mm": 1.0,
+        "electrode_cells_per_bore": 32,
+        "electrode_corner_cells": 16
+      },
+      "schema": "grounded-cold-feg-surface-v1",
+      "status": "idealised_reference_not_calibrated",
+      "potential_reference": "final_accelerating_anode_ground_0V",
+      "geometry_reference": ""
+    },
+    "roots": [
+      {
+        "z_mm": 195.42415787666374,
+        "rms_radius_nm": 60049.61927859894,
+        "bracket_mm": [
+          195.2,
+          195.45
+        ],
+        "rays": 4097,
+        "status": "INTERPOLATED_CANDIDATE_NOT_FOCUS_ACCEPTANCE"
+      }
+    ],
+    "exact_tip": {
+      "population": "entire prescribed uniform-area emitting cap",
+      "precision": "analytic geometry; not a propagated waist",
+      "edge_diameter_nm": 34.729635533386066,
+      "diameter95_nm": 33.856738374627334,
+      "rms_radius_nm": 12.2944345938637,
+      "cap_depth_nm": 1.5192246987791937
+    },
+    "tip_sample": {
+      "name": "Tip emission footprint",
+      "z_mm": null,
+      "rays": 4097,
+      "source_current_fraction": 1.0,
+      "rms_radius_nm": 12.282849112601978,
+      "diameter95_nm": 33.834833177593964,
+      "alpha95_mrad": 1269.1635184204124,
+      "covariance_waist_offset_mm": null,
+      "projected_emittance_x_m_rad": null,
+      "projected_emittance_y_m_rad": null,
+      "population": "physical emitting surface; not a common transverse plane",
+      "precision": "full precision"
+    },
+    "field": {
+      "model": "grounded-cold-feg-surface-v1",
+      "surface_mesh_displacement_m": 4.774010521249157e-15,
+      "potential_reference": "final_anode_ground_0V",
+      "exit_energy_status": "verified",
+      "transmitted_particle_count": 4097,
+      "minimum_exit_kinetic_energy_ev": 300000.0060704901,
+      "maximum_exit_kinetic_energy_ev": 300001.6586460786,
+      "minimum_expected_exit_kinetic_energy_ev": 300000.0060704933,
+      "maximum_expected_exit_kinetic_energy_ev": 300001.65864608303,
+      "maximum_exit_energy_error_ev": 1.3154931366443634e-08,
+      "exit_energy_error_budget_ev": 0.001,
+      "accelerating_voltage_kv": 300.0,
+      "extraction_voltage_kv": 4.5,
+      "electrostatic_field": {
+        "schema": "axisymmetric-grounded-feg-laplace-v2",
+        "potential_reference": "final_anode_ground_0V",
+        "tip_potential_v": -300000.0,
+        "extractor_potential_v": -295500.0,
+        "gun_lens_potential_v": -298900.0,
+        "gun_lens_voltage_reference": "tip",
+        "final_anode_potential_v": 0.0,
+        "grid_shape": [
+          1079,
+          5165
+        ],
+        "elements": 10959216,
+        "vertices": 5574659,
+        "linear_residual": 2.5445956453040707e-15,
+        "space_charge": "neglected",
+        "potential_interpolation": "conforming-cut-axis-regular-radius-squared-z-v3",
+        "axis_core_fraction": 0.01,
+        "mesh_generation": "tip-graded-electrode-local-v2",
+        "coordinate_alias_merge_ulps": 32,
+        "minimum_radial_cell_m": 3.743467822963797e-11,
+        "minimum_axial_cell_m": 1.941926618684335e-11,
+        "electrode_cells_per_bore": 32,
+        "electrode_corner_cells": 16,
+        "maximum_axis_core_radius_m": 1.9966059136138564e-05,
+        "boundary_model": "reference annuli; insulating radial/back boundary; grounded exit plane",
+        "convergence": "not_certified_by_linear_residual"
+      },
+      "scope": "classical prescribed outgoing flux; no coherent phase or tunnelling prediction"
+    }
+  },
+  "caveats": [
+    "Spatial repartition is an independent fixed-total-budget check, not uniform refinement of every dimension.",
+    "Importance quadrature resolves the aperture-selected specimen population; whole-gun moments need separate sampling.",
+    "Nine existing displayed crossover intervals are preserved; raw gun-envelope extrema and the terminal focus are separate diagnostics.",
+    "No diffraction-limited spot, coherence, TEM/STEM image, space-charge or real-instrument calibration is certified."
+  ],
+  "evidence": [
+    {
+      "path": "outputs/crossover-audit-20260914/tip-reference-dpa210-global80-tangent10369-fit.json",
+      "sha256": "7ea296ebf20b7cd8a42c4cadf68395c3315eba4502ca98b40981263477b3ff5b"
+    },
+    {
+      "path": "outputs/crossover-audit-20260914/tip-reference-dpa210-global80-tangent20737-sharedfit.json",
+      "sha256": "aacbf9dc30299da7d95011ca75476629a90cd3338ab5cb92769dc324b8d2239e"
+    },
+    {
+      "path": "outputs/crossover-audit-20260914/tip-reference-dpa210-global80-spatial288-fixed.json",
+      "sha256": "ac9360c5587d1d952bf63d4a5c27cb6d6cffcdcfcd0e88ceb751da12e114ce50"
+    },
+    {
+      "path": "outputs/crossover-audit-20260914/tip-reference-dpa210-global128-dense-sharedfit.json",
+      "sha256": "e9dc747a2c404e3a4ea49a712132f780ce12554c3d002805fce2aedb153ee137"
+    },
+    {
+      "path": "outputs/crossover-audit-20260914/tip-reference-dpa210-global128-halfstep.json",
+      "sha256": "28862a3828cfb16c1c2fd98ad62c1bbb1d6570fc7e71b6604d931b2ec4a1c745"
+    },
+    {
+      "path": "outputs/crossover-audit-20260914/tip-reference-dpa210-ordinary-backend.json",
+      "sha256": "9a6d126248bfe425f75a9446c2fbc4be0eeb208cebd6932ca2b204bd6a4bc770"
+    },
+    {
+      "path": "outputs/crossover-audit-20260914/historical-production-column769.json",
+      "sha256": "da9502893a81316610e8888945da24096b4337cd260cc6529dc5cdf88049dabb"
+    },
+    {
+      "path": "outputs/crossover-audit-20260914/historical-full-component-layout.json",
+      "sha256": "caa56589085e36c45826c60d23e6f1a5ce776efa7b49a2a52d19f3560390a225"
+    },
+    {
+      "path": "outputs/crossover-audit-20260914/tip-reference-dpa210-dense10369-full-transport.json",
+      "sha256": "446aa8f7d6b1d94f258d62cc25a15cfa24aff7ba07fa88c2fb164e842cd2a3d2"
+    },
+    {
+      "path": "outputs/crossover-audit-20260914/tip-reference-dpa210-dense20737-full-transport.json",
+      "sha256": "e0d2db15fc5aa8ebb4709b5d6b0e4f7b7b569c5aab546ae5e026479b4e6433ad"
+    },
+    {
+      "path": "outputs/crossover-audit-20260914/tip-reference-dpa210-dense-cohort-c1.json",
+      "sha256": "c7220fed98e3ea1db936184ccf1a88c6abcc9d4d9cb1617c0ab235c78f04f618"
+    },
+    {
+      "path": "outputs/crossover-audit-20260914/tip-reference-dpa210-global80-whole-gun4097.json",
+      "sha256": "2c9bd9aed67fbb4e0732c6a165ec984194c839417283ee22c95510a29ae4fb1b"
+    }
+  ]
+}

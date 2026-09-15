@@ -191,6 +191,9 @@ class MainWindow(QMainWindow):
             artifact_store=self.calculations.artifact_store,
         )
         self.direct_alignments = DirectAlignmentController(self)
+        self.workspace.match_transport.clicked.connect(
+            lambda: self.apply_direct_alignment("column_transport", .01)
+        )
         self.workspace.interactive_calculation.capture_requested.connect(self._capture_interactive_settings)
         self.workspace.interactive_calculation.build_requested.connect(self._build_interactive_cache)
         self.workspace.interactive_calculation.tuning_changed.connect(self._apply_interactive_tuning)
@@ -1194,7 +1197,7 @@ class MainWindow(QMainWindow):
         previous = {part.key: part for part in self.state.electron_gun.components}
         for component in candidate.electron_gun.components:
             for attribute in ("_tip_assembly_signature", "_assembly_default_voltage_kv",
-                              "_assembly_default_high_tension_kv"):
+                              "_assembly_default_high_tension_kv", "_assembly_default_voltage_reference"):
                 value = getattr(previous.get(component.key), attribute, None)
                 if value is not None:
                     setattr(component, attribute, value)
@@ -1351,6 +1354,7 @@ class MainWindow(QMainWindow):
             self._show_error(f"Unable to apply Direct Alignment: {exc}")
 
     def _direct_alignment_started(self, key: str, target: float) -> None:
+        self.workspace.match_transport.setEnabled(False)
         self.assembly_panel.set_direct_alignment_busy(key)
         self.progress.setRange(0, 0)
         self.progress.setFormat("Direct Alignment")
@@ -1386,7 +1390,15 @@ class MainWindow(QMainWindow):
         self.log_output.appendPlainText(
             f"Direct Alignment {key} | {duration:.3f} s | {result.message}")
         self.status_label.setText(result.message)
-        self.assembly_panel.show_direct_alignment_result(result)
+        if key == "column_transport":
+            self.assembly_panel.set_direct_alignment_message(result.message, error=not result.success)
+            if result.success and candidate.ray_result is not None:
+                # Reuse the actual refined forward pass; do not trigger a new
+                # gun calculation or publish it as a high-accuracy image.
+                self.workspace.display_result(candidate.ray_result, "Preview · transport validation")
+                self.workspace.show_ray_diagram()
+        else:
+            self.assembly_panel.show_direct_alignment_result(result)
 
     def _sync_working_point_selectors(self) -> None:
         """Display captured controls without emitting a new physical edit."""
@@ -1458,6 +1470,7 @@ class MainWindow(QMainWindow):
         )
 
     def _direct_alignment_finished(self, _key: str) -> None:
+        self.workspace.match_transport.setEnabled(True)
         self._direct_alignment_state_token = None
         self.assembly_panel.set_direct_alignment_busy(None)
         self._set_progress_active("direct_alignment", False)
@@ -1644,6 +1657,7 @@ class MainWindow(QMainWindow):
         was_running = self._direct_alignment_state_token is not None
         self.direct_alignments.invalidate_pending()
         self._direct_alignment_state_token = None
+        self.workspace.match_transport.setEnabled(True)
         self.assembly_panel.set_direct_alignment_busy(None)
         if was_running:
             self._set_progress_active("direct_alignment", False)

@@ -55,6 +55,7 @@ _RUNTIME_NAMES = frozenset({
     "_trace_cache", "_trace_cache_key", "_active_backends_used",
     "_runtime_lens_field_provider_cache", "_field_provider_diagnostics",
     "_objective_plane_signature", "_equivalent_image_calibration_cache",
+    "_tuning_cancelled",  # Worker cancellation callback, never a physical input.
 })
 
 
@@ -140,6 +141,7 @@ def decode_instrument(graph):
     if graph.get("schema") != SNAPSHOT_SCHEMA:
         raise ValueError("Unsupported working-point schema; historical viewing only")
     registry, nodes, restored = _model_types(), graph["nodes"], {}
+    legacy_gauge_nodes = set()
 
     def decode(value):
         if not isinstance(value, Mapping):
@@ -159,9 +161,19 @@ def decode_instrument(graph):
                 restored[index] = result
                 return result
             current_fields = [f.name for f in fields(cls)] if is_dataclass(cls) else []
-            if list(node["fields"]) != current_fields:
+            # Older gun snapshots used exactly the additive extractor gauge.
+            # Name that existing convention without changing any electrode
+            # voltage, source or saved graph. All other schema mismatches fail.
+            old_gun_gauge = (cls.__module__ == "temsim.optics.electron_gun.electrostatic"
+                and cls.__name__ == "ElectrostaticGunLens"
+                and list(node["fields"]) == [name for name in current_fields if name != "voltage_reference"]
+                and "voltage_reference" not in node["attributes"])
+            if list(node["fields"]) != current_fields and not old_gun_gauge:
                 raise ValueError(f"Model schema changed for {node['type']}; explicit migration required")
             attributes = node["attributes"]
+            if old_gun_gauge:
+                attributes = dict(attributes,voltage_reference="extractor")
+                legacy_gauge_nodes.add(index)
             required_fields = set(current_fields)
             if cls.__name__ == "MagneticFieldMap":
                 required_fields.discard("_interpolators")
@@ -220,7 +232,16 @@ def decode_instrument(graph):
     from temsim.optics.model import State
     if not isinstance(result, State):
         raise ValueError("Working-point root must be an instrument State")
-    if json_digest(encode_instrument(result)) != json_digest(graph):
+    reencoded = encode_instrument(result)
+    if legacy_gauge_nodes:
+        from temsim.immutable_json import thaw_json
+        reencoded = thaw_json(reencoded)
+        for index in legacy_gauge_nodes:
+            node = reencoded["nodes"][index]
+            if node["attributes"].pop("voltage_reference") != "extractor":
+                raise ValueError("Historical gun voltage reference was not preserved")
+            node["fields"].remove("voltage_reference")
+    if json_digest(reencoded) != json_digest(graph):
         raise ValueError("Working-point restoration did not preserve every captured value")
     return result
 
