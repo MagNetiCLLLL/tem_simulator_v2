@@ -86,6 +86,21 @@ def test_surface_status_distinguishes_ray_source_from_coherent_development(state
     assert "unavailable" in dialog.surface_status.text()
 
 
+def test_transport_matching_is_an_explicit_curved_particle_edit_choice(state, qtbot):
+    dialog = GunSourceDialog(state.electron_gun, instrument_state=state)
+    qtbot.addWidget(dialog)
+    assert not dialog.match_transport_requested
+    assert "no documented physical calibration" in dialog.model_change_summary.text()
+    dialog.surface_enabled.setChecked(True)
+    assert dialog.match_transport_requested
+    assert "potential scale is inactive" in dialog.model_change_summary.text()
+    dialog.match_transport.setChecked(False)
+    assert not dialog.match_transport_requested
+    dialog.match_transport.setChecked(True)
+    dialog.surface_coherent.setChecked(True)
+    assert not dialog.match_transport_requested
+
+
 @pytest.mark.parametrize("coherent", [False, True])
 @pytest.mark.parametrize("quality", ["Preview", "Medium", "High accuracy"])
 def test_calculation_snapshots_preserve_applied_surface_selection(state, qtbot, coherent, quality):

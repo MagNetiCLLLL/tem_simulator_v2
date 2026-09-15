@@ -43,7 +43,8 @@ class GunSourceDialog(QDialog):
         self._gun = gun
         self._instrument_state = instrument_state
         self._value = None
-        self.setWindowTitle("FEG tip geometry and emission")
+        self.edit_dimensions_requested = False
+        self.setWindowTitle("Physical Layout · FEG tip geometry and emission")
         self.resize(680, 760)
         layout = QVBoxLayout(self)
         note = QLabel(
@@ -61,13 +62,26 @@ class GunSourceDialog(QDialog):
         self.particle_button.setToolTip("Select classical emission from the editable curved surface. Apply is required; historical source settings are retained.")
         self.particle_button.clicked.connect(self._use_particles)
         panel_layout.addWidget(self.particle_button)
-        self.surface_enabled = QCheckBox("Curved tip surface")
+        self.surface_enabled = QCheckBox("Physical curved-tip model (off: historical planar model)")
+        self.surface_enabled.setToolTip(
+            "Switches emission AND the gun field/integrator, not curvature alone. "
+            "Both models start at the tip and retain all gun components.")
         self.surface_enabled.setChecked(gun.emitter.surface_model is not None)
         panel_layout.addWidget(self.surface_enabled)
+        self.model_change_summary = QLabel()
+        self.model_change_summary.setWordWrap(True)
+        panel_layout.addWidget(self.model_change_summary)
         self.surface_panel = QWidget()
         surface_form = QFormLayout(self.surface_panel)
         self.surface_form = surface_form
         surface_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.match_transport = QCheckBox("Match C1 / C2 / C3 transport after applying")
+        self.match_transport.setChecked(gun.emitter.surface_model is None and instrument_state is not None)
+        self.match_transport.setToolTip(
+            "Recalculate only the three condenser lens strengths for this source. "
+            "Physical dimensions, gun voltages and apertures are retained. "
+            "Transport recovery does not calibrate probe focus or images.")
+        surface_form.addRow(self.match_transport)
         self._reference_path = reference_path_for_gun(gun)
         from temsim.paths import INSTRUMENT_CONFIG_ROOT
         self._assembly_tip_path = Path(getattr(gun.emitter, "_manifest_source_file",
@@ -104,6 +118,11 @@ class GunSourceDialog(QDialog):
         self.geometry_inputs["apex_radius_nm"].setToolTip("Physical spherical apex radius, not the emission-patch radius. Changes the surface positions, normals and extraction-field boundary.")
         self.geometry_inputs["cone_half_angle_deg"].setToolTip("Cone angle relative to the axis. The spherical surface joins the cone tangentially; the emitting patch must remain inside that join.")
         self.geometry_inputs["shank_length_um"].setToolTip("Physical metal length upstream of the apex; not an independently placed electron source.")
+        for edit in self.geometry_inputs.values():
+            edit.setReadOnly(True)
+        dimensions_button = QPushButton("Edit dimensions in Physical Layout…")
+        dimensions_button.clicked.connect(self._open_dimensions)
+        surface_form.addRow(dimensions_button)
         self.geometry_preview = TipGeometryPreview()
         surface_form.addRow(self.geometry_preview)
         self.patch_summary = QLabel()
@@ -234,8 +253,16 @@ class GunSourceDialog(QDialog):
         layout.addWidget(buttons)
 
     def _sync_fields(self):
+        self.model_change_summary.setText(
+            "Emission starts on the highlighted apex cap. Electrode geometry and voltages define the field; "
+            "the historical potential scale is inactive. Existing lens settings may require transport matching."
+            if self.surface_enabled.isChecked() else
+            f"Historical planar emission: {self.inputs['emission_current_na'].text()} nA. "
+            f"Analytic gun field: legacy scale {self._gun.electrostatic_lens.potential_scale:g} "
+            "(no documented physical calibration). This scale is not used for curved-tip electrode voltages.")
         self.surface_panel.setVisible(self.surface_enabled.isChecked())
         self.legacy_panel.setVisible(not self.surface_enabled.isChecked())
+        self.match_transport.setEnabled(self._instrument_state is not None and not self.surface_coherent.isChecked())
         enabled = self.coherence_enabled.isChecked()
         for edit in self.coherence_inputs.values():
             edit.setEnabled(enabled)
@@ -283,6 +310,10 @@ class GunSourceDialog(QDialog):
         self.wave_options.setChecked(False)
         self.surface_enabled.setChecked(True)
         self._sync_fields()
+
+    def _open_dimensions(self):
+        self.edit_dimensions_requested = True
+        self.reject()
 
     def _reload_surface(self):
         try:
@@ -389,6 +420,8 @@ class GunSourceDialog(QDialog):
                 candidate.surface_model = model
                 candidate.validate()
                 self._value = {"coherence": None, "surface_model": model}
+                from temsim.optics.electron_gun.tip_edit import candidate_tip_edit
+                candidate_tip_edit(self._gun, self._value)
                 super().accept()
                 return
             candidate.surface_model = None
@@ -404,7 +437,10 @@ class GunSourceDialog(QDialog):
                 tip_covariance(candidate, candidate.emission_energy_ev)
             values["coherence"] = candidate.coherence
             values["surface_model"] = None
+            from temsim.optics.electron_gun.tip_edit import candidate_tip_edit
+            candidate_tip_edit(self._gun, values)
         except (TypeError, ValueError) as error:
+            self._value = None
             self.error.setText(str(error))
             return
         self._value = values
@@ -414,3 +450,8 @@ class GunSourceDialog(QDialog):
         if self._value is None:
             raise ValueError("No tip emission values were applied")
         return dict(self._value)
+
+    @property
+    def match_transport_requested(self):
+        return (self.surface_enabled.isChecked() and self.match_transport.isEnabled()
+                and self.match_transport.isChecked() and not self.surface_coherent.isChecked())

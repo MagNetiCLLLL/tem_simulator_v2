@@ -1,0 +1,51 @@
+{
+  "scope": "Physical tip model selection, cached particle transport, closed CAD geometry, GUI editing and input-design restoration",
+  "results_after_targeted_fixes": {
+    "passed": 310
+  },
+  "test_runs": [
+    "tip-model-tests.xml",
+    "tip-integration-tests.xml",
+    "tip-draft-tests.xml",
+    "tip-integration-fixtures.xml",
+    "tip-ui-final-tests.xml",
+    "tip-live-preview-tests.xml",
+    "tip-final-route-tests.xml"
+  ],
+  "preview_comparison": [
+    {
+      "curved": true,
+      "elapsed_s": 60.8594617000017,
+      "gun_particles": 49,
+      "gun_alive": 38,
+      "gun_transmitted_fraction": 0.7708333333333335,
+      "sample_surviving_fraction": 0.0,
+      "column_stops": {
+        "": 1,
+        "column_wall": 37,
+        "feg_c1_aperture": 6,
+        "feg_dpa_aperture": 5
+      },
+      "display_source": "Calculated source: Curved tip · emitting apex cap 10° · 100 nA"
+    },
+    {
+      "curved": false,
+      "elapsed_s": 3.3764217999996617,
+      "gun_particles": 49,
+      "gun_alive": 49,
+      "gun_transmitted_fraction": 0.9999999999999999,
+      "sample_surviving_fraction": 0.5102040816326532,
+      "column_stops": {
+        "": 25,
+        "condenser_aperture_2": 24
+      },
+      "display_source": "Calculated source: Historical planar tip · analytic gun field · 10000 nA"
+    }
+  ],
+  "limits": [
+    "49-ray particle preview is not a converged current estimate or a matched comparison.",
+    "No coherent wave computation was performed.",
+    "Existing bare-column checkpoint fixtures emit overflow warnings for lost trajectories; unavailable observables remain explicit.",
+    "GUI preparation scheduling verified in an isolated Qt process after the combined Qt group stalled."
+  ]
+}

@@ -137,6 +137,9 @@ class ElectrostaticGunLens:
     # Explicit electrode potential reference for the solved surface-source
     # model. "extractor" preserves historical additive voltage semantics.
     voltage_reference: str = "extractor"
+    # Historical analytic-model coefficient, present in initial commit b60be29.
+    # No derivation, measurement fit or cited calibration is recorded. This is
+    # not an electrode-voltage conversion and is unused by the Laplace model.
     potential_scale: float = 4.22125
     soft_edge_mm: float = 1.5
     field_center_offset_mm: float = 0.0

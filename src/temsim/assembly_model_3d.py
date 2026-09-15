@@ -70,6 +70,8 @@ def _runtime_dependencies(parts, runtime_values):
     dependencies = []
     for part in parts:
         row = part.data
+        if row.get("tip_particle_model"):
+            dependencies.append((part.key, _document_value(values.get(part.key, {}).get("tip_surface_model", "saved"))))
         if (not is_strip_aperture(row)
                 or row.get("model_3d", {}).get("base", {}).get("kind", "existing") != "existing"):
             continue

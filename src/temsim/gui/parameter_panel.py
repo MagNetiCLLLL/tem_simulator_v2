@@ -77,6 +77,7 @@ class ParameterPanel(QWidget):
     energy_filter_match_requested = Signal()
     manifest_save_requested = Signal(object, object)
     geometry_edit_requested = Signal(object)
+    tip_editor_requested = Signal()
     error = Signal(str)
 
     def __init__(self, parent=None) -> None:
@@ -413,7 +414,7 @@ class ParameterPanel(QWidget):
         previous = self._updating
         self._updating = True
         try:
-            parameters = editable_parameters(self._runtime_target)
+            parameters = self._runtime_parameters()
             names = [self.runtime_table.item(row, 0).text()
                      for row in range(self.runtime_table.rowCount())]
             if names != [parameter.name for parameter in parameters]:
@@ -630,6 +631,8 @@ class ParameterPanel(QWidget):
     @staticmethod
     def _quick_specs(target) -> tuple[tuple[str, str, float, str], ...]:
         obj = getattr(target, "obj", None)
+        if getattr(target, "key", None) == "feg_tip":
+            return ()
         if getattr(obj, "surface_model", None) is not None:
             return ()
         if obj is None:
@@ -719,11 +722,15 @@ class ParameterPanel(QWidget):
     def _load_quick_controls(self) -> None:
         self._clear_quick_controls()
         obj = getattr(self._runtime_target, "obj", None)
-        if getattr(obj, "surface_model", None) is not None:
-            source_note = QLabel("Surface inputs: Model Inspector → FEG tip emission")
+        is_tip = getattr(self._runtime_target, "key", None) == "feg_tip"
+        if is_tip:
+            source_note = QLabel("Tip dimensions, emitting surface and source model: Physical Layout / 3D Parts")
             source_note.setWordWrap(True)
             source_note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             self.quick_form.addRow(source_note)
+            open_tip = QPushButton("Open tip in Physical Layout…")
+            open_tip.clicked.connect(self.tip_editor_requested.emit)
+            self.quick_form.addRow(open_tip)
         fixed = (
             getattr(self._runtime_target, "key", None) in FIXED_APERTURE_KEYS
             or getattr(self._manifest_target, "part_key", None) in FIXED_APERTURE_KEYS
@@ -807,7 +814,7 @@ class ParameterPanel(QWidget):
                 )
             self.quick_form.addRow(label, widget)
             self._quick_widgets[name] = widget
-        self.quick_box.setVisible(bool(self._quick_widgets) or fixed)
+        self.quick_box.setVisible(bool(self._quick_widgets) or fixed or is_tip)
 
     def _quick_changed(self, name: str, value, scale: float) -> None:
         if self._updating or self._runtime_target is None:
@@ -865,11 +872,17 @@ class ParameterPanel(QWidget):
         finally:
             self._updating = False
 
-    def _load_runtime(self) -> None:
+    def _runtime_parameters(self):
         parameters = (
             editable_parameters(self._runtime_target)
             if self._runtime_target is not None else ()
         )
+        if getattr(self._runtime_target, "key", None) == "feg_tip":
+            parameters = tuple(p for p in parameters if p.name == "ray_count")
+        return parameters
+
+    def _load_runtime(self) -> None:
+        parameters = self._runtime_parameters()
         self.runtime_table.setRowCount(len(parameters))
         for row, parameter in enumerate(parameters):
             name = QTableWidgetItem(parameter.name)

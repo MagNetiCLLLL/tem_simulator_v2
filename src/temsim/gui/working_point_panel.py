@@ -78,6 +78,8 @@ class WorkingPointPanel(QWidget):
             return
         self.status.setText(f"Selected checkpoint {cp.digest[:12]} | Z {cp.plane_z_mm:g} mm | "
                             f"{cp.metadata.get('source_representation', 'historical')} | read-only")
+        if cp.is_input_design:
+            self.status.setText(f"Input design {cp.digest[:12]} | Restore loads settings only; all results require recalculation")
         # Include every graph node, including non-component configuration and
         # shared references, rather than filtering out disabled hardware.
         for index, node in enumerate(cp.snapshot.graph["nodes"]):

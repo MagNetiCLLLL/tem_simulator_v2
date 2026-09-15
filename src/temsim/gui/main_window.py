@@ -107,6 +107,11 @@ class MainWindow(QMainWindow):
         self.selection = self.catalog.default_selection()
         self.state = default_state()
         self.assembly = self.catalog.apply(self.state, self.selection)
+        # Fresh sessions start with the ideal planar tip. Apply this only after
+        # installing TOML geometry; later model edits and profile restores win.
+        self.state.electron_gun.emitter.surface_model = None
+        self.state.electron_gun.emitter.coherence = None
+        self.state.electron_gun.source_representation = "classical_particles"
         if self._apply_state_operating_modes(
             self.state, self.selection
         ) is None:
@@ -272,6 +277,9 @@ class MainWindow(QMainWindow):
             self._save_manifest_updates
         )
         self.parameter_panel.geometry_edit_requested.connect(self._edit_part_geometry)
+        self.parameter_panel.tip_editor_requested.connect(self._open_tip_editor)
+        self.workspace.model_inspector.tip_editor_requested.connect(self._open_tip_editor)
+        self.workspace.physical_layout.model_editor.tip_editor_requested.connect(self._open_tip_editor)
         self.workspace.physical_layout.model_editor.component_selected.connect(
             self._select_physical_component
         )
@@ -632,6 +640,7 @@ class MainWindow(QMainWindow):
             key: {parameter.name: parameter.value for parameter in editable_parameters(target)}
             for key, target in self._runtime_targets.items()
         }
+        self._add_tip_render_values(geometry_runtime)
         self.workspace.physical_layout.model_editor.set_project_context(
             self.manifest_editor.root, self.assembly, self._save_model_document,
             geometry_runtime,
@@ -1152,6 +1161,50 @@ class MainWindow(QMainWindow):
         else:
             self.status_label.setText(layout.model_editor.status.text())
 
+    def _add_tip_render_values(self, values):
+        gun = self.state.electron_gun
+        if gun.type_key == "cold_feg":
+            model = gun.emitter.surface_model
+            values.setdefault("feg_tip", {})["tip_surface_model"] = model.to_dict() if model is not None else None
+
+    def _open_tip_editor(self):
+        """All tip entry points navigate here; Apply publishes one valid edit."""
+        self._reveal_physical_model("feg_tip", 0.)
+        page = self.workspace.physical_layout.model_editor
+        if page._pending_part is not None:
+            page._open_pending_part()
+        if page.session is None or page._pending_part is not None or page.session.dirty or page._invalid_inputs:
+            page._message("Save or revert the geometry draft before editing the active tip emission.", error=True)
+            return
+        from temsim.gui.gun_source_dialog import GunSourceDialog
+        from temsim.optics.electron_gun.tip_edit import candidate_tip_edit, tip_model_label
+        gun = self.state.electron_gun
+        dialog = GunSourceDialog(gun, page, instrument_state=self.state)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            if dialog.edit_dimensions_requested:
+                page.parameter_tabs.setCurrentWidget(page.dimensions)
+                page._fit_tip_emission()
+            return
+        try:
+            candidate = candidate_tip_edit(gun, dialog.value())
+        except ValueError as error:
+            self._show_error(f"Tip settings unchanged: {error}")
+            return
+        previous = tip_model_label(gun)
+        gun.emitter = candidate.emitter
+        gun.source_representation = candidate.source_representation
+        gun._trace_cache = gun._trace_cache_key = None
+        self._refresh_assembly_views()
+        self._select_physical_component("feg_tip")
+        next_action = ("Matching C1/C2/C3 with current geometry and gun voltages."
+                       if dialog.match_transport_requested else
+                       "Lens settings retained; fresh gun/column preview requested.")
+        self.log_output.appendPlainText(f"Tip model: {previous} → {tip_model_label(gun)}. {next_action}")
+        self._runtime_parameter_changed("FEG tip model / emission")
+        if dialog.match_transport_requested:
+            self.preview_timer.stop()
+            self.apply_direct_alignment("column_transport", .01)
+
     def _select_component_from_workspace(self, key: str) -> None:
         """Open the left editor for a component clicked in a plot."""
 
@@ -1434,6 +1487,7 @@ class MainWindow(QMainWindow):
             # UI refresh may read the graph but must not normalize saved values.
             if capture_instrument_snapshot(state).digest != captured.digest:
                 raise ValueError("UI refresh attempted to change captured physical parameters")
+            self.workspace.mark_ray_stale(state)
             self.workspace.mark_high_accuracy_stale()
         except Exception:
             (self.state, self.assembly, self.selection, self._active_working_checkpoint,
@@ -1447,7 +1501,9 @@ class MainWindow(QMainWindow):
             state = checkpoint.compatible_state()
             self._invalidate_direct_alignment()
             self._install_working_point(state, checkpoint, fork=fork)
-            self.status_label.setText("Working point restored exactly; no preset or calculation applied")
+            self.status_label.setText(
+                "Input design loaded; no computed results restored. Recalculate with the current solver."
+                if checkpoint.is_input_design else "Working point restored exactly; no preset or calculation applied")
         except Exception as exc:
             self._show_error(f"Working point remains read-only: {exc}")
 
@@ -1615,6 +1671,7 @@ class MainWindow(QMainWindow):
                 and self._interactive_preview_generation == self.calculations.generation)
 
     def schedule_preview(self, _parameter: str = "") -> None:
+        self.workspace.mark_ray_stale(self.state)
         self.workspace.physical_layout.model_editor.set_calculation_status(
             "stale", "Saved geometry, operating values or model settings changed; previous simulation results are out of date."
         )
@@ -1647,6 +1704,7 @@ class MainWindow(QMainWindow):
         self._refresh_simulation_mode()
         geometry_runtime = {key: {item.name: item.value for item in editable_parameters(target)}
                             for key, target in self._runtime_targets.items()}
+        self._add_tip_render_values(geometry_runtime)
         self.workspace.physical_layout.model_editor.set_runtime_values(geometry_runtime)
         self.workspace.physical_layout.assembly_3d.set_runtime_values(geometry_runtime)
         self.schedule_preview(parameter)
@@ -2145,6 +2203,24 @@ class MainWindow(QMainWindow):
             self._part_geometry_dialog.raise_()
             self._part_geometry_dialog.activateWindow()
             return self._part_geometry_dialog
+        # Show dimensions in the physical workspace without taking ownership
+        # of either independent parameter panel's selection/unsaved text.
+        page = self.workspace.physical_layout.model_editor
+        blocked = page.blockSignals(True)
+        try:
+            layout = self.workspace.physical_layout
+            self.workspace.tabs.setCurrentWidget(layout)
+            layout.tabs.setCurrentWidget(page)
+            try:
+                part = self.assembly.part(target.part_key)
+            except KeyError:
+                part = None
+            if part is not None:
+                page.reveal_project_part(part)
+            if page._pending_part is not None:
+                page._open_pending_part()
+        finally:
+            page.blockSignals(blocked)
         try:
             path = self.manifest_editor.root / target.module_path
             original_document = module_manifest.read_document(path)
@@ -2172,7 +2248,7 @@ class MainWindow(QMainWindow):
                 original_document = module_manifest.read_document(path)
 
             dialog = GeometryEditorDialog(
-                part, apply_changes, parent=self, neighbours=neighbours
+                part, apply_changes, parent=self.workspace.physical_layout, neighbours=neighbours
             )
             dialog.set_simulation_context(mode_key(self.state), self.state.lens_field_map_descriptors, by_key)
         except Exception as exc:

@@ -195,7 +195,16 @@ class WorkingPointCheckpoint:
 
     def compatible_state(self):
         """Explicit full restore; never called for table/observable display."""
+        if self.is_input_design:
+            # No old transport is accepted. Every observable requires execution
+            # with the current solver; the archived identity is not relabelled.
+            from temsim.input_design import restore_input_design
+            return restore_input_design(self.snapshot)
         return self.snapshot.restore()
+
+    @property
+    def is_input_design(self):
+        return self.metadata.get("package_kind") == "INSTRUMENT_INPUTS_ONLY" and not self.arrays
 
     def write_package(self, path, *, overwrite=False):
         path = Path(path)

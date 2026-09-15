@@ -24,6 +24,10 @@ def static_energy_step(phase, dt_s, magnetic, electric, *, tolerance=1e-11, maxi
     p0 = np.asarray(phase.momentum_kg_m_per_s, float)
     if x0.shape != p0.shape or x0.shape[-1:] != (3,) or not np.all(np.isfinite(x0)) or not np.all(np.isfinite(p0)):
         raise ValueError("Invalid particle state")
+    from .grounded_particle_step import try_step
+    compiled = try_step(phase, dt, magnetic, electric, tolerance, maximum_iterations)
+    if compiled is not None:
+        return compiled
     phi = getattr(electric, "potential_rise_v_at_global_positions", electric.potential_v_at_global_positions)
     phi0 = phi(x0)
     gamma0 = np.sqrt(1+np.sum((p0/(m_e*c))**2, axis=-1))

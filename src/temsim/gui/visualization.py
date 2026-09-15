@@ -919,6 +919,10 @@ class VisualizationWorkspace(QWidget):
         self.ray_page = QWidget()
         ray_layout = QVBoxLayout(self.ray_page)
         ray_layout.setContentsMargins(0, 0, 0, 0)
+        self.ray_source_status = QLabel("No calculated tip-origin Ray Diagram yet")
+        self.ray_source_status.setWordWrap(True)
+        self.ray_source_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        ray_layout.addWidget(self.ray_source_status)
 
         self.physical_layout = PhysicalLayoutView()
         from temsim.gui.vacuum_map_page import VacuumMapPage
@@ -3879,6 +3883,12 @@ class VisualizationWorkspace(QWidget):
         # Geometry changes also preserve the user's view; Fit is explicit.
         preserve_ray_view = self._last_result is not None
         self._last_result = result
+        from temsim.optics.electron_gun.tip_edit import tip_model_label
+        captured_gun = getattr(getattr(result, "state_snapshot", None), "electron_gun", None)
+        self.ray_source_status.setText(
+            "Calculated source: " + tip_model_label(captured_gun)
+            if getattr(captured_gun, "type_key", None) == "cold_feg" else "Calculated source: captured instrument")
+        self.ray_source_status.setStyleSheet("")
         self._last_quality = quality
         no_illumination = sample_illumination_absent(
             getattr(result, "simulation", None),
@@ -3947,6 +3957,15 @@ class VisualizationWorkspace(QWidget):
                 quality,
                 no_illumination=no_illumination,
             )
+
+    def mark_ray_stale(self, state) -> None:
+        from temsim.optics.electron_gun.tip_edit import tip_model_label
+        gun = state.electron_gun
+        source = tip_model_label(gun) if gun.type_key == "cold_feg" else gun.display_name
+        self.ray_source_status.setText(
+            ("Previous Ray Diagram — inputs changed; awaiting recalculation. " if self._last_result is not None
+             else "Ray Diagram awaiting calculation. ") + "Selected source: " + source)
+        self.ray_source_status.setStyleSheet("color: #fbbf24;")
 
     def mark_high_accuracy_stale(self) -> None:
         """Keep completed displays visible but detach them from live inputs."""

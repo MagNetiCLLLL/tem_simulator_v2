@@ -141,6 +141,7 @@ def test_main_window_save_and_intermediate_results_keep_dimension_status_honest(
     monkeypatch.setattr(window.workspace, "display_result", lambda *_: None)
     monkeypatch.setattr(window.workspace.interactive_calculation, "display_tuning_status", lambda *_: None)
     monkeypatch.setattr(window.workspace.model_inspector, "display_result", lambda *_: None)
+    monkeypatch.setattr(window.workspace.vacuum_map, "set_result", lambda *_: None)
     monkeypatch.setattr(window.assembly_panel, "update_direct_alignment_metrics", lambda *_: None)
     monkeypatch.setattr(window, "_interactive_preview_in_flight", lambda: True)
     window._interactive_preview_pending = True

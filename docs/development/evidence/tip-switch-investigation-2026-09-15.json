@@ -1,0 +1,103 @@
+{
+  "scope": "Classical particles only; default assembly/model switch diagnostic, not convergence or OEM calibration",
+  "date": "2026-09-15",
+  "source_samples": 4096,
+  "preview_rays": 49,
+  "models": [
+    {
+      "curved": false,
+      "launch": {
+        "positive_weight_rays": 4096,
+        "fraction": 1.0,
+        "radial_95_mm": 5.02487910314735e-06,
+        "angular_95_deg": 0.13536800913689107
+      },
+      "field_build_s": 9.60000033956021e-06,
+      "profiled_gun_trace_s": 2.1159404999998515,
+      "exit": {
+        "positive_weight_rays": 49,
+        "fraction": 0.9999999999999999,
+        "radial_95_mm": 0.002389987678464783,
+        "angular_95_deg": 0.00022840432879889493
+      },
+      "blocked": {
+        "": 49
+      },
+      "trace_cache_hit_s": 0.02024669999809703,
+      "sample_fraction": 0.5102040816326532,
+      "column_blocked": {
+        "": 25,
+        "condenser_aperture_2": 24
+      }
+    },
+    {
+      "curved": true,
+      "launch": {
+        "positive_weight_rays": 4096,
+        "fraction": 1.0,
+        "radial_95_mm": 1.692145765223652e-05,
+        "angular_95_deg": 72.94961909650956,
+        "initial_backward_fraction": 0.001708984375
+      },
+      "field_build_s": 3.25294379999832,
+      "profiled_gun_trace_s": 86.55043110000042,
+      "exit": {
+        "positive_weight_rays": 37,
+        "fraction": 0.7708333333333335,
+        "radial_95_mm": 1.9346546768446966,
+        "angular_95_deg": 0.09268437053274939
+      },
+      "blocked": {
+        "": 38,
+        "feg_c1_aperture": 6,
+        "feg_dpa_aperture": 5
+      },
+      "trace_cache_hit_s": 0.020883099998172838,
+      "sample_fraction": 0.0,
+      "column_blocked": {
+        "": 1,
+        "column_wall": 37,
+        "feg_c1_aperture": 6,
+        "feg_dpa_aperture": 5
+      }
+    }
+  ],
+  "local_normal_control": {
+    "control": "local emission limited to surface normal; cap remains 10 degrees",
+    "emission": {
+      "cap_half_angle_deg": 10.0,
+      "normal_mean_energy_ev": 0.2,
+      "tangential_mean_energy_ev": 0.1,
+      "flux_electrons_per_nm2_s": 653864449.6443435,
+      "maximum_angle_deg": 0.0,
+      "energy_distribution": "normal_tangential_exponential",
+      "kinetic_mean_ev": 0.3,
+      "kinetic_sigma_ev": 0.1,
+      "directions_per_position": 8
+    },
+    "field_s": 3.2065488000007463,
+    "trace_s": 42.236849599998095,
+    "z_mm": 20.0,
+    "radius95_at_20mm": 2.043324359324015,
+    "exit_radius95_mm": 1.8993148823769894,
+    "gun_fraction": 0.6666666666666666,
+    "stops": {
+      "": 33,
+      "feg_c1_aperture": 16
+    }
+  },
+  "profile_counts": {
+    "accepted_steps": 5867,
+    "static_energy_step_calls": 59215,
+    "interpolation_calls": 437970,
+    "surface_step_cumulative_s": 83.139,
+    "interpolation_cumulative_s": 40.92
+  },
+  "curved_energy_max_error_ev": 2.6193447411060333e-09,
+  "limits": [
+    "Profiled times include cProfile overhead.",
+    "49 rays do not resolve arbitrarily small accepted currents.",
+    "Angle-limited exponential emission conditions its energy distribution too.",
+    "No user running state or input files were altered."
+  ]
+}

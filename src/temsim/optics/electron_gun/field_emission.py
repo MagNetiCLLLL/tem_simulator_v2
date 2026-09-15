@@ -369,16 +369,16 @@ def _apply_resolved_part_geometry(component, part):
     return component
 
 
-def _component_payload(component):
+def _component_payload(component, *, include_geometry=False):
     payload = asdict(component)
     if isinstance(component, ColdFieldEmitter) and component.coherence is not None:
         payload["coherence"] = asdict(component.coherence)
     if isinstance(component, ColdFieldEmitter) and component.surface_model is not None:
         payload["surface_model"] = component.surface_model.to_dict()
-    if component.key in _TOML_GEOMETRY_COMPONENT_KEYS:
+    if not include_geometry and component.key in _TOML_GEOMETRY_COMPONENT_KEYS:
         for attribute in _TOML_GEOMETRY_ATTRIBUTES:
             payload.pop(attribute, None)
-    if component.key in {
+    if not include_geometry and component.key in {
         FEG_ACCELERATOR,
         THERMIONIC_ACCELERATOR,
     }:
@@ -687,6 +687,9 @@ class FieldEmissionGun:
             raise ValueError("Electron-gun tracing steps must be positive.")
         if self.dpa_aperture.z_mm >= self.c1_aperture.z_mm:
             raise ValueError("DPA aperture must precede C1 aperture.")
+        if not (0.0 <= self.dpa_aperture.z_mm < self.c1_aperture.z_mm
+                <= self.exit_plane_z_mm < float("inf")):
+            raise ValueError("Gun apertures must lie between the tip and the gun exit plane.")
         return self
 
     def emit(self, count=None):
@@ -698,7 +701,16 @@ class FieldEmissionGun:
         from temsim.vacuum import ensure_standalone_gun_environment
         ensure_standalone_gun_environment(self)
         payload = self.to_dict()
-        payload["requested_count"] = count
+        # Profiles defer geometry to TOML; executed caches must retain it.
+        # Hard stops and alignment coils also matter outside the field solve.
+        payload["trace_geometry_schema"] = "physical-aperture-separate-exit-v2"
+        payload["executed_components"] = {
+            component.key: _component_payload(component, include_geometry=True)
+            for component in self.components
+        }
+        payload["exit_plane_z_mm"] = float(self.exit_plane_z_mm)
+        payload["requested_count"] = self.ray_count if count is None else count
+        payload["particle_integrator_schema"] = "discrete-gradient-compiled-v2"
         payload["tuning_sampling_schema"] = "physical-tip-grouped-support-v2"
         payload["tuning_surface_probes"] = int(getattr(self.emitter, "_tuning_surface_probes", 0))
         payload["tuning_boundary_probes"] = int(getattr(self.emitter, "_tuning_boundary_probes", 0))
@@ -716,13 +728,16 @@ class FieldEmissionGun:
             payload["grounded_field"] = field_request(self)
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
-    def trace_to_exit(self, count=None):
+    def trace_to_exit(self, count=None, *, cancelled=None):
+        if cancelled is not None and cancelled():
+            raise RuntimeError("Superseded optical tuning request")
         self.validate()
         key = self._cache_key(count)
         if key != self._trace_cache_key:
             cached = _SHARED_TRACE_CACHE.get(key)
             if cached is None:
-                cached = trace_feg_to_exit(self, count)
+                cached = (trace_feg_to_exit(self, count) if cancelled is None else
+                          trace_feg_to_exit(self, count, cancelled=cancelled))
                 _SHARED_TRACE_CACHE[key] = cached
                 while len(_SHARED_TRACE_CACHE) > _SHARED_TRACE_CACHE_LIMIT:
                     _SHARED_TRACE_CACHE.popitem(last=False)

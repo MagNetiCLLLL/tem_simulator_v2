@@ -10,6 +10,7 @@ from temsim.gui.input_policy import WheelSafeComboBox as QComboBox, WheelSafeSpi
 class ModelInspectorPage(QWidget):
     changed = Signal(str)
     error = Signal(str)
+    tip_editor_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -17,8 +18,8 @@ class ModelInspectorPage(QWidget):
         self._completed_diagnostics = {}
         self._completed_mode = None
         self._completed_aberrations = {}
-        self.gun_source_button = QPushButton("FEG tip…")
-        self.gun_source_button.setToolTip("Edit FEG tip emission. Apply changes in the source editor.")
+        self.gun_source_button = QPushButton("FEG tip in Physical Layout…")
+        self.gun_source_button.setToolTip("Open tip geometry and emission in the shared Physical Layout editor")
         self.gun_source_button.clicked.connect(self._edit_gun_source)
         self.lens = QComboBox()
         self.field_solver = QComboBox()
@@ -170,16 +171,7 @@ class ModelInspectorPage(QWidget):
     def _edit_gun_source(self):
         if self._state is None:
             return
-        from temsim.gui.gun_source_dialog import GunSourceDialog
-        dialog = GunSourceDialog(self._state.electron_gun, self, instrument_state=self._state)
-        if dialog.exec() != dialog.DialogCode.Accepted:
-            return
-        gun = self._state.electron_gun
-        for key, value in dialog.value().items():
-            setattr(gun.emitter, key, value)
-        gun.source_representation = "classical_particles"
-        self.changed.emit("FEG tip emission")
-        self.refresh()
+        self.tip_editor_requested.emit()
 
     def _load_field(self):
         if self._state is None:

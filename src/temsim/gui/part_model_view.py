@@ -71,6 +71,8 @@ def _mesh(record) -> _Mesh:
     surfaces = {}
     for identity, value in _value(record, "surfaces", {}).items():
         metadata = dict(value)
+        if "color" in metadata:
+            metadata["color"] = tuple(_color(metadata["color"]))
         metadata["parameter_paths"] = tuple(tuple(path) for path in metadata.get("parameter_paths", ()))
         if metadata.get("normal") is not None:
             normal = np.asarray(metadata["normal"], dtype=float)
@@ -495,10 +497,28 @@ class PartModelView(QWidget):
         self._fit_meshes(meshes)
         return True
 
+    def fit_region(self, key, region):
+        """Observe the actual surface at equal scale, without changing selection."""
+        points = []
+        for mesh in self._meshes:
+            if mesh.key != key:
+                continue
+            if mesh.region == region:
+                points.append(mesh.vertices)
+            elif region in mesh.face_groups:
+                faces = mesh.faces[np.asarray(mesh.face_groups) == region]
+                points.append(mesh.vertices[np.unique(faces)])
+        if not points:
+            return False
+        self._fit_points(points)
+        return True
+
     def _fit_meshes(self, meshes):
+        self._fit_points([mesh.vertices for mesh in meshes if len(mesh.vertices)])
+
+    def _fit_points(self, points):
         self._interactive = False
         self._settle_timer.stop()
-        points = [mesh.vertices for mesh in meshes if len(mesh.vertices)]
         if points:
             low = np.min([vertices.min(axis=0) for vertices in points], axis=0)
             high = np.max([vertices.max(axis=0) for vertices in points], axis=0)
@@ -624,10 +644,15 @@ class PartModelView(QWidget):
             selected = (self._selection_mode == "part" and mesh.key in self._selection_keys
                         and self._selection[1] in (None, mesh.region))
             bases = np.tile(mesh.color, (len(triangles), 1))
+            if mesh.face_groups:
+                groups = np.asarray(mesh.face_groups)[sources]
+                for group, metadata in mesh.surfaces.items():
+                    if "color" in metadata:
+                        bases[groups == group] = metadata["color"]
             chosen = np.array([bool(selected or (mesh.face_groups and
                               (mesh.key, mesh.region, "face", mesh.face_groups[source]) in topology))
                                for source in sources], dtype=bool)
-            bases[chosen] = 0.35 * mesh.color + 0.65 * np.array([255, 196, 84])
+            bases[chosen] = 0.35 * bases[chosen] + 0.65 * np.array([255, 196, 84])
             selected_faces.extend(face_offset + np.flatnonzero(chosen))
             colors = np.clip(shades[:, None] * bases, 0, 255).astype(np.uint8)
             _rasterize(projected, colors, mesh_id, face_offset, pixels, depth, ids, face_ids,

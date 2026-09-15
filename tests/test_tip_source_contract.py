@@ -147,16 +147,14 @@ def test_tip_dialog_changes_only_tip_draft_and_rejects_invalid_inputs(state, qtb
     assert capture_instrument_snapshot(state).digest == before
 
 
-def test_model_inspector_applies_tip_parameters_without_editing_gun_optics(state, qtbot, monkeypatch):
+def test_model_inspector_routes_to_physical_tip_editor_without_mutating_state(state, qtbot, monkeypatch):
     from temsim.gui.gun_source_dialog import GunSourceDialog
     from temsim.gui.model_inspector import ModelInspectorPage
     page = ModelInspectorPage()
     qtbot.addWidget(page)
     page.set_state(state)
     before = state.electron_gun.to_dict()
-    monkeypatch.setattr(GunSourceDialog, "exec", lambda self: self.DialogCode.Accepted)
-    monkeypatch.setattr(GunSourceDialog, "value", lambda self: {"angular_rms_mrad": 2.5})
-    page._edit_gun_source()
-    assert state.electron_gun.emitter.angular_rms_mrad == 2.5
-    state.electron_gun.emitter.angular_rms_mrad = before["components"][state.electron_gun.emitter.key]["angular_rms_mrad"]
+    monkeypatch.setattr(GunSourceDialog, "exec", lambda self: pytest.fail("Inspector must delegate to Physical Layout"))
+    with qtbot.waitSignal(page.tip_editor_requested):
+        page._edit_gun_source()
     assert state.electron_gun.to_dict() == before

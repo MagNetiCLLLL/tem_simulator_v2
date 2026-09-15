@@ -1,0 +1,109 @@
+{
+  "date": "2026-09-15",
+  "base_commit": "07560cd1f36322a53d36076a779e93ee0fa0196f",
+  "scope": "Upload of physical tip editing/model selection, classical preview acceleration, source cache/input design handling, and physical gun aperture plane repairs.",
+  "tests": [
+    {
+      "record": "outputs/setup-validation/gun-aperture-regression.xml",
+      "tests": 107,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 137.459
+    },
+    {
+      "record": "outputs/setup-validation/gun-family-aperture-regression.xml",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 11.882
+    },
+    {
+      "record": "outputs/setup-validation/upload-gui-20260915.xml",
+      "tests": 51,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 156.69
+    }
+  ],
+  "total_in_listed_runs": 160,
+  "packaging": {
+    "wheel_sha256": "83d24216608d6bbf0b04b00661d1448eb646a7e84620229598cc3d842e9f57dc",
+    "wheel_size_bytes": 1758058,
+    "build": "PASS",
+    "isolated_target_smoke": {
+      "status": "PASS",
+      "scope": "Isolated wheel target imports, bundled configuration, planar tip-to-gun-exit transport, offscreen model inspector and part editor. Shared existing dependency environment; no coherent wave or specimen image calculation.",
+      "module": "E:\\tem_simulator_v2\\outputs\\setup-validation\\upload-installed-20260915\\temsim\\__init__.py",
+      "config_root": "E:\\tem_simulator_v2\\outputs\\setup-validation\\upload-installed-20260915\\configs",
+      "gun_rays": 9,
+      "gun_exit_survivors": 9,
+      "c1_z_mm": 445.0,
+      "handoff_z_mm": 450.0
+    }
+  },
+  "static_checks": [
+    "Python AST parse of changed modules",
+    "JSON syntax",
+    "git diff --check",
+    "No conflict markers or obvious credential tokens",
+    "No calculation arrays/cache outputs in staged candidate paths or built wheel"
+  ],
+  "changed_file_sha256": {
+    "docs/development/accelerator-envelope-audit-2026-09-15.md": "97e5324c8f3720076d764c559cf726b4d71e35c27f0a265479bc3d6ab666b991",
+    "docs/development/evidence/accelerator-envelope-audit-2026-09-15.json": "8febebfd9fb0bcf6df502e7277e41cd6d7968b3707469eb88af7dcb13673822f",
+    "docs/development/evidence/gun-aperture-plane-fix-2026-09-15.json": "c3ed94a940bcc638595cdb9942e283cf9d05a440196dc44ae6d51470a7fce2e8",
+    "docs/development/evidence/tip-model-switch-checks-2026-09-15.json": "6325a100e152babf3aa00c801c3bd963166e4777299e8f3e62823dd0257fae4b",
+    "docs/development/evidence/tip-preview-repair-2026-09-15.json": "c7db72e67d813ae18120436aa4e8746b4c1f190e32e517930c12838cef5401cf",
+    "docs/development/evidence/tip-switch-investigation-2026-09-15.json": "d4ddab1a858ffdce91d6fc0904d79fde96444e04cdffe2ec25e8094feb255e4f",
+    "docs/development/gun-aperture-plane-fix-2026-09-15.md": "009032c3958fdad9452a88b182caaffecaa9993d057e3bd69b2b2a002a909db5",
+    "docs/development/tip-edit-workflow-2026-09-15.md": "645f0df74d00d0087ffb39c3de476bce27a1fdecfed3d4f2e6d2e56a8766c2c0",
+    "docs/development/tip-preview-repair-2026-09-15.md": "3d4a86e4bf24aae4eb88332ceebf587213777871b03f1fe6e585cabaaeefc5f1",
+    "docs/development/tip-switch-investigation-2026-09-15.md": "dab05c746393044fc98618a4fae12f31ed38b39c21441b69c441d3ce7fd2bf02",
+    "scripts/audit_accelerator_envelope.py": "af6f67c70524aa74fa0dd7d43c8cc9c6f44e8086f6f5a89e10cdd50b9008616e",
+    "scripts/plot_accelerator_envelope.py": "12c6927cdebee7bf1e4a28c0ba5c2039c21b41f88de5642674a1e1316c77d9de",
+    "src/temsim/assembly_model_3d.py": "5dd9f5508f2c536e6b0d87d403bceea362282f3a8aae8af52dc95072ecd8829e",
+    "src/temsim/calculation_cache.py": "0755a4ced2d6d9d1d8cab71bbcff29a8d37808a7f5bfbcbb68d2d9479934e17f",
+    "src/temsim/gui/gun_source_dialog.py": "6fc50a4dd1d7cbb3f88c7ed45b7f174789f5011c3782be29b0cf5d6e2fc2bf93",
+    "src/temsim/gui/main_window.py": "565925670da91516a09e4272a9e9dc8ed80064f6f32c224093fb83d3ed0e9f65",
+    "src/temsim/gui/model_inspector.py": "b521aab52a883aece678a97ec9608d2c7e9d5f98b61c0a4294841c0349ac973a",
+    "src/temsim/gui/parameter_panel.py": "8d5192361f0facd299c5e0ff8c5f885824925a7505654eedd46c7e551792e4aa",
+    "src/temsim/gui/part_model_editor.py": "531d3c7a54ec47027e31de91e5b657bd9abaf74d1ee32a070e153f006864ddc3",
+    "src/temsim/gui/part_model_view.py": "718150a6bf41aec6788bba8bb33b68b0296170b61a62bdaab2a74f653a899eaf",
+    "src/temsim/gui/visualization.py": "e26b678ea89453595f02933d102f381125c89330887e5aa4dcc1310d55bd5ddd",
+    "src/temsim/gui/working_point_panel.py": "2e2089b9dcae4f6b4a53090029fb494fd2f4f0c75f84b4fd2e368441a75df95b",
+    "src/temsim/input_design.py": "a4c5189204cc2ae901a3cdf60dd241a5f5fbf400a5412ad2cc79a3a996916b03",
+    "src/temsim/instrument_snapshot.py": "3119cc88132ec26715b31b6f73895863cf7c8ac8c0e0ef213cf0b667f8e0274f",
+    "src/temsim/optics/electron_gun/aperture.py": "980889bf46f4b9118a9f3dbb20d84da33fa20cd3da05b42096947d3a875b49a0",
+    "src/temsim/optics/electron_gun/electrostatic.py": "5ac806cff270b843a865402e9a4c6795903ec2596eae262393d048652442f622",
+    "src/temsim/optics/electron_gun/field_emission.py": "9cee694619d0d25b3b6929f8151069400c843d68beb64ea01aec78a3a85a2c27",
+    "src/temsim/optics/electron_gun/source.py": "92c17a291aa1fcd4fe3d9091b59b248012e998bcbef147b17d552ada7fda9cfb",
+    "src/temsim/optics/electron_gun/tip_edit.py": "154e98efb12818fd7b795fc5ad71a17b5004dc7d2ed986671fe56d5204849f5d",
+    "src/temsim/optics/electron_gun/tracing.py": "c62c7411f1e23f20bfbe6dd436b81a90eec9752de90717b642ed97246abdef5c",
+    "src/temsim/part_model_3d.py": "7ca67505a851b1ddb47d7fca53c046ee3a1e23b37d65275e1f695482703ccc33",
+    "src/temsim/physics/grounded_particle_step.py": "87eaf82769e3ccc219ceed78d81cfd23cc823b3179ab5b2e5348e37d9ea42910",
+    "src/temsim/physics/static_energy_lorentz.py": "94317838f731fb416d06d28283b1428e128dfb16ae4626eb8c0123147309e180",
+    "src/temsim/tip_model_3d.py": "78107bea99828442275d0c1e1e576d0acf5f45754a78a62039bdc29e8ef2afcd",
+    "src/temsim/working_point.py": "ce42b9d7e6f203125eeaf048fa10533d69acf426519e59a5f707d5dbbb1ba9ce",
+    "tests/test_background_preview_gui.py": "0efd07e69bb9a6ec280daca301ca3cf89174279eab04e01aef01d14a7ce7e773",
+    "tests/test_grounded_particle_step.py": "6e01ca1c3c1db1bcb7f6524f5cd6c296ff529d6f0e609391ec0f91f18b0958a3",
+    "tests/test_gun_aperture_planes.py": "a72ceb7a108b78aba64693296858e1c38d7d19143ec37822c216733dec6b13cd",
+    "tests/test_parameter_source_refresh.py": "cf10c1fbbc816a6ccd2178876bcf0e3e4deeb199e555204a65ebb67f5d31d89f",
+    "tests/test_tip_edit_workflow.py": "af6a97454b115d3dee198c84ce463c2eba3ccdd315763f42ff3c7241cdbc2669",
+    "tests/test_tip_source_contract.py": "0dcf9602dcdc9cc7531cd67a59bf44ec093899db70adacb6cc3948f2eae727a6",
+    "tests/test_tip_source_gui.py": "ddc2f86c409a3715caf743728ae77cb06747697cb6e10333d849f305df649675",
+    "tests/test_working_point_packages.py": "9190b74cf67d9dd1ec916e0d6168d9be8e89c2a2f4d3d84c05bfb60c034d61a3",
+    "tests/test_working_point_restore_gui.py": "b349ca251d85f52ff97a4414c998823ac238109d8c2c2ebbe846c9f69563e29e"
+  },
+  "not_run": [
+    "Full development-spec acceptance (includes coherent/multislice image calculations outside the current paused-wave scope).",
+    "Full project test suite and GPU validation."
+  ],
+  "known_limits": [
+    "Physical tip voltage and beam-envelope calibration remain deferred.",
+    "Existing lost-trajectory numeric warnings and offscreen Qt teardown warnings appear in the passing GUI suite.",
+    "Installed smoke uses the existing dependencies with an isolated package/configuration target; it is not a fresh dependency environment."
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "date": "2026-09-15",
+  "scope": "Physical C1/slit plane separated from gun-to-column handoff; classical particles only. No electrode potential changes or real-microscope calibration.",
+  "ray_count": 193,
+  "input_identical": true,
+  "field_report_identical": true,
+  "axial_potential_samples_identical": true,
+  "upstream_d95_comparison": {
+    "z_exclusive_upper_bound_mm": 445.0,
+    "compared_planes": 27,
+    "maximum_absolute_difference_mm": 0.0
+  },
+  "before": {
+    "local_run": "outputs/setup-validation/accelerator-curved-193.json",
+    "sha256": "4baf10279362685a8d52ec4d94503f4ab67f678eb4827f1b881411897df90677",
+    "c1_action_z_mm": 450.0,
+    "c1_action_z_provenance": "Pre-fix tracing code and accelerator-envelope-audit-2026-09-15.md; the older run did not export stop-position records.",
+    "stops": {
+      "": 150,
+      "feg_dpa_aperture": 13,
+      "feg_c1_aperture": 30
+    },
+    "exit_current_fraction": 0.7760416666666665,
+    "exit_ray_count": 150,
+    "maximum_exit_energy_error_ev": 3.434251993894577e-09
+  },
+  "after": {
+    "local_run": "outputs/setup-validation/accelerator-c1-fixed-193.json",
+    "sha256": "51f2689e0d812a1efb5ab6c8af9bdc50c7a968ee85dd20e027118d787e652b65",
+    "active_apertures": [
+      {
+        "key": "feg_dpa_aperture",
+        "z_mm": 120.0,
+        "radius_mm": 2.0,
+        "mechanical_bore_diameter_mm": 6.0
+      },
+      {
+        "key": "feg_c1_aperture",
+        "z_mm": 445.0,
+        "radius_mm": 2.0,
+        "mechanical_bore_diameter_mm": 6.0
+      }
+    ],
+    "gun_stop_positions_mm": {
+      "feg_dpa_aperture": [
+        120.0
+      ],
+      "feg_c1_aperture": [
+        445.0
+      ]
+    },
+    "stops": {
+      "": 152,
+      "feg_dpa_aperture": 13,
+      "feg_c1_aperture": 28
+    },
+    "arrival_summaries": [
+      {
+        "key": "feg_dpa_aperture",
+        "z_mm": 120.0,
+        "reached": 193,
+        "transmitted": 180,
+        "transmitted_current_fraction": 0.9322916666666666
+      },
+      {
+        "key": "feg_c1_aperture",
+        "z_mm": 445.0,
+        "reached": 180,
+        "transmitted": 152,
+        "transmitted_current_fraction": 0.7864583333333333
+      },
+      {
+        "key": "feg_c1_aperture:exit",
+        "z_mm": 450.0,
+        "reached": 152,
+        "transmitted": 152,
+        "transmitted_current_fraction": 0.7864583333333333
+      }
+    ],
+    "accepted_gun_exit": {
+      "positive_rays": 152,
+      "current_fraction": 0.7864583333333333,
+      "d95_mm": 3.8960584147885267,
+      "rmax_mm": 2.003731640939423
+    },
+    "accepted_exit_after_assembly_walls": {
+      "positive_rays": 152,
+      "current_fraction": 0.7864583333333333,
+      "d95_mm": 3.8960584147885267,
+      "rmax_mm": 2.003731640939423
+    },
+    "maximum_exit_energy_error_ev": 3.434251993894577e-09,
+    "exit_energy_error_budget_ev": 0.001,
+    "field_build_s": 3.2342955999993137,
+    "trace_s": 63.258635900005174
+  },
+  "unchanged_electrode_potentials": {
+    "potential_reference": "final_anode_ground_0V",
+    "tip_potential_v": -300000.0,
+    "extractor_potential_v": -296000.0,
+    "gun_lens_potential_v": -294800.0,
+    "gun_lens_voltage_reference": "extractor",
+    "final_anode_potential_v": 0.0
+  },
+  "cache_versions": {
+    "gun_trace_geometry_schema": "physical-aperture-separate-exit-v2",
+    "stage_input_schema": "live-lens-components-v4-physical-gun-apertures"
+  },
+  "tests": [
+    {
+      "local_xml": "outputs/setup-validation/gun-aperture-regression.xml",
+      "tests": 107,
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "seconds": 137.459
+    },
+    {
+      "local_xml": "outputs/setup-validation/gun-family-aperture-regression.xml",
+      "tests": 2,
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "seconds": 11.882
+    }
+  ],
+  "test_total": 109,
+  "limitations": [
+    "No coherent wave calculations.",
+    "No full-project test suite or specimen-image acceptance.",
+    "Absolute beam diameter and voltage conventions remain subject to physical calibration."
+  ]
+}

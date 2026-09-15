@@ -27,6 +27,7 @@ class _DimensionDelegate(QStyledItemDelegate):
 class PartModelEditorPage(QWidget):
     component_selected = Signal(str)
     saved = Signal(str)
+    tip_editor_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -70,6 +71,12 @@ class PartModelEditorPage(QWidget):
         self.new_component_button = QPushButton("New component…")
         self.place_component_button = QPushButton("Place…")
         self.copy_component_button = QPushButton("Copy to assembly…")
+        self.tip_emission_button = QPushButton("Tip model / emission…")
+        self.tip_emission_button.setVisible(False)
+        self.tip_emission_button.clicked.connect(self.tip_editor_requested.emit)
+        self.tip_detail_button = QPushButton("Fit emitting surface")
+        self.tip_detail_button.setVisible(False)
+        self.tip_detail_button.clicked.connect(self._fit_tip_emission)
         self.new_component_button.setToolTip("Add independent mechanical CAD geometry to this file's draft")
         self.place_component_button.setToolTip("Translate the selected component and its children; review local or resolved global Z")
         self.copy_component_button.setToolTip("Create an independent copy in this file or another assembly TOML; Save writes it")
@@ -219,6 +226,8 @@ class PartModelEditorPage(QWidget):
         component_row = QHBoxLayout()
         for widget in (self.new_component_button, self.place_component_button, self.copy_component_button):
             component_row.addWidget(widget)
+        component_row.addWidget(self.tip_emission_button)
+        component_row.addWidget(self.tip_detail_button)
         component_row.addStretch(1)
         layout.addLayout(component_row)
         view_row = QHBoxLayout()
@@ -461,7 +470,13 @@ class PartModelEditorPage(QWidget):
         if self.session is None or self._project_root is None:
             return {}
         active_paths = {(self._project_root / path).resolve() for path in self._project_paths}
-        return self._runtime_values if self.session.path in active_paths else {}
+        values = self._runtime_values if self.session.path in active_paths or self._document_is_active() else {}
+        if self.session.dirty and values.get("feg_tip", {}).get("tip_surface_model") is not None:
+            # Draft dimensions take precedence in the file editor only; the
+            # actual gun and assembly remain unchanged until Save succeeds.
+            values = deepcopy(values)
+            values["feg_tip"].pop("tip_surface_model", None)
+        return values
 
     def set_runtime_values(self, values):
         """Refresh operating apertures without replacing the mechanical draft."""
@@ -506,6 +521,8 @@ class PartModelEditorPage(QWidget):
         runtime = self._model_runtime_values()
         dependencies = []
         for key, part in parts.items():
+            if key in keys and part.get("tip_particle_model"):
+                dependencies.append((key, deepcopy(runtime.get(key, {}).get("tip_surface_model", "saved"))))
             if (key not in keys or not is_strip_aperture(part)
                     or part.get("model_3d", {}).get("base", {}).get("kind", "existing") != "existing"):
                 continue
@@ -1166,12 +1183,20 @@ class PartModelEditorPage(QWidget):
         self._load_parameters()
         self._render(preserve_view=preserve_view)
         self._sync_source_context()
+        is_tip = bool(part.get("tip_particle_model"))
+        self.tip_emission_button.setVisible(is_tip and key == "feg_tip")
+        self.tip_emission_button.setEnabled(self._document_is_active())
+        self.tip_detail_button.setVisible(is_tip)
         if emit:
             self._emit_project_selection()
 
     def _emit_project_selection(self):
         if self._document_is_active():
             self.component_selected.emit(self._selected_key)
+
+    def _fit_tip_emission(self):
+        if not self.view.fit_region(self._selected_key, "emitting_cap"):
+            self._message("No active curved emitting surface in this model. Use Tip model / emission to inspect the selected source.")
 
     def _sync_view_selection(self):
         """A selected assembly highlights its material children as one component."""

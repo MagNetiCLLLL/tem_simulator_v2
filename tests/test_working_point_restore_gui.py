@@ -58,6 +58,9 @@ def assert_restored(window, saved):
 
 @pytest.mark.parametrize("fork", [False, True])
 def test_restore_synchronizes_assembly_and_backend_without_signals(window, monkeypatch, fork):
+    from temsim.optics.electron_gun.field_emission import FieldEmissionGun
+    # An explicit saved curved model must supersede the planar startup default.
+    window.state.electron_gun.emitter.surface_model = FieldEmissionGun().emitter.surface_model
     saved = checkpoint(window)
     change_assembly_and_backend(window)
     edits = []
@@ -70,6 +73,7 @@ def test_restore_synchronizes_assembly_and_backend_without_signals(window, monke
     assert not errors
     assert not edits
     assert_restored(window, saved)
+    assert window.state.electron_gun.emitter.surface_model is not None
     assert window._working_point_parent == (saved.digest if fork else None)
 
 

@@ -127,11 +127,15 @@ class GunAperture(ApertureInsertionPolicy):
             )
             if not slit.inserted:
                 return inside_bore
+            if float(slit.gap_um) <= 0.0:
+                return np.zeros_like(x, dtype=bool)
             half_gap_mm = 0.5 * float(slit.gap_um) * 1.0e-3
             centre_mm = float(slit.centre_offset_um) * 1.0e-3
             return inside_bore & (np.abs(x - centre_mm) <= half_gap_mm)
         if not self.enabled:
             return np.ones_like(np.asarray(x_mm), dtype=bool)
+        if self.radius_mm <= 0.0:
+            return np.zeros_like(np.asarray(x_mm), dtype=bool)
         return np.hypot(
             np.asarray(x_mm, dtype=float) - self.offset_x_mm,
             np.asarray(y_mm, dtype=float) - self.offset_y_mm,

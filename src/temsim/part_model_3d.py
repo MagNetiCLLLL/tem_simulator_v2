@@ -307,21 +307,10 @@ def _pole_section(part, start, end):
 
 
 def _legacy_part_meshes(part, by_key, count, aperture_index=0, runtime=None):
-    from temsim.optics.electron_gun.tip_assembly import is_tip_part, model_from_part, tip_apex_z_mm
+    from temsim.optics.electron_gun.tip_assembly import is_tip_part
     if is_tip_part(part):
-        model = model_from_part(part)
-        g = model.geometry
-        radius = g.apex_radius_nm*1e-6
-        # Resolve the spherical cap independently of the much longer shank.
-        theta = np.linspace(0, math.pi/2-math.radians(g.cone_half_angle_deg), 33)
-        section = [(0.0, 0.0)]
-        section += [(-2*radius*math.sin(t/2)**2, radius*math.sin(t)) for t in theta[1:]]
-        length = g.shank_length_um*.001
-        section += [(-length, float(g.radius_m(-length*.001)*1000)), (-length, 0.0)]
-        section = [(z + tip_apex_z_mm(part), r) for z, r in section]
-        mesh = revolve_section(section, key=part["key"], angular_segments=count,
-            material_class=g.material, description="Physical spherical tip with tangent cone; same geometry as particle emission and Laplace boundary")
-        return (mesh,), ("Curvature = 1/R; emission cap and particle angular cutoff are distinct. Tip apex remains at the gun origin.",)
+        from temsim.tip_model_3d import tip_meshes
+        return tip_meshes(part, count, runtime)
     from temsim.part_model_apertures import is_strip_aperture, strip_meshes
     if is_strip_aperture(part):
         return strip_meshes(part, count, runtime, aperture_index)
@@ -452,6 +441,9 @@ def part_dimension_specs(document, part_key, *, runtime_values=None):
     from temsim.parameter_semantics import describe_parameter
     specs = (_dimensions(part, by_key) + feature_dimension_specs(part)
              + operating_dimension_specs(part, (runtime_values or {}).get(part_key)))
+    if part.get("tip_particle_model"):
+        from temsim.tip_model_3d import tip_dimension_overrides
+        specs = tip_dimension_overrides(part, specs, (runtime_values or {}).get(part_key))
     return tuple(item if item.meaning is not None else replace(
         item, meaning=describe_parameter(by_key.get(item.path[1], part), item.path, by_key=by_key))
         for item in specs)

@@ -315,6 +315,7 @@ class InstrumentSnapshot:
         result = decode_instrument(self.graph)
         from temsim.physics.illumination import illumination_config
         illumination_config(result)
+        result.electron_gun.validate()
         return result
 
 

@@ -1,4 +1,4 @@
-"""Relativistic batch tracing from an electron source to its exit aperture."""
+"""Relativistic tip-to-exit tracing with stops at their physical planes."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from temsim.physics.relativistic_lorentz import (
 )
 
 
-def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
+def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
     from temsim.vacuum import ensure_standalone_gun_environment
     ensure_standalone_gun_environment(gun)
     emitted = gun.emit(count)
@@ -29,6 +29,8 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
     launch_reference = emission_reference(emitted, getattr(gun.emitter, "surface_model", None))
     surface_model = getattr(gun.emitter, "surface_model", None)
     electric_provider = gun.electric_field
+    if cancelled is not None and cancelled():
+        raise RuntimeError("Superseded optical tuning request")
     magnetic_provider = gun.magnetic_field
     n = emitted.x_m.size
     from temsim.physics.residual_medium import MediumTransport, region_rate_bound
@@ -69,9 +71,7 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
     alive = np.ones(n, dtype=bool)
     completed = np.zeros(n, dtype=bool)
     dpa_passed = np.zeros(n, dtype=bool)
-    slit_passed = np.zeros(n, dtype=bool)
-    slit_reached = np.zeros(n, dtype=bool)
-    slit_x_m = np.full(n, np.nan, dtype=float)
+    c1_passed = np.zeros(n, dtype=bool)
     blocked_z = np.full(n, np.nan, dtype=float)
     blocked_key = [""] * n
     exit_position = np.full((n, 3), np.nan, dtype=float)
@@ -79,8 +79,9 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
     dpa_arrival_time = np.full(n, np.nan, dtype=float)
     dpa_arrival_x = np.full(n, np.nan, dtype=float)
     dpa_arrival_y = np.full(n, np.nan, dtype=float)
-    slit_arrival_time = np.full(n, np.nan, dtype=float)
-    slit_arrival_y = np.full(n, np.nan, dtype=float)
+    c1_arrival_time = np.full(n, np.nan, dtype=float)
+    c1_arrival_x = np.full(n, np.nan, dtype=float)
+    c1_arrival_y = np.full(n, np.nan, dtype=float)
     exit_arrival_time = np.full(n, np.nan, dtype=float)
     exit_arrival_x = np.full(n, np.nan, dtype=float)
     exit_arrival_y = np.full(n, np.nan, dtype=float)
@@ -104,16 +105,13 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
         else None
     )
     slit_plane = gun.c1_aperture if slit is not None else None
-    slit_z_m = (
-        slit_plane.z_mm * 1.0e-3
-        if slit_plane is not None
-        else None
-    )
     maximum_steps = int(np.ceil(gun.exit_plane_z_mm / gun.trace_step_mm)) * 8
     if surface_model is not None:
         maximum_steps = max(maximum_steps, 100000)
 
     for step_index in range(maximum_steps):
+        if cancelled is not None and cancelled():
+            raise RuntimeError("Superseded optical tuning request")
         active = alive & ~completed
         if not np.any(active):
             break
@@ -208,30 +206,13 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
             arrival_x_m=dpa_arrival_x,
             arrival_y_m=dpa_arrival_y,
         )
-        if slit is not None:
-            _resolve_monochromator_slit_crossing(
-                slit,
-                slit_plane,
-                slit_z_m,
-                previous_position,
-                phase.position_m,
-                alive,
-                completed,
-                blocked_z,
-                blocked_key,
-                passed=slit_passed,
-                reached=slit_reached,
-                slit_x_m=slit_x_m,
-                previous_time_s=previous_time_s,
-                new_time_s=float(phase.time_s),
-                arrival_time_s=slit_arrival_time,
-                arrival_y_m=slit_arrival_y,
-            )
-        exit_resolver = _resolve_surface_exit_crossing if surface_model is not None else _resolve_exit_crossing
         extra = {"electric": electric_provider, "magnetic": magnetic_provider} if surface_model is not None else {}
-        exit_resolver(
+        # C1 owns either its circular opening or the bound monochromator slit
+        # and mechanical bore. Apply it once, where the component is installed.
+        # The column handoff is a propagation plane, not another aperture.
+        _resolve_aperture_crossing(
             gun.c1_aperture,
-            exit_z_m,
+            gun.c1_aperture.z_mm * 1.0e-3,
             previous_position,
             previous_momentum,
             phase.position_m,
@@ -240,6 +221,23 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
             completed,
             blocked_z,
             blocked_key,
+            passed=c1_passed,
+            previous_time_s=previous_time_s,
+            new_time_s=float(phase.time_s),
+            arrival_time_s=c1_arrival_time,
+            arrival_x_m=c1_arrival_x,
+            arrival_y_m=c1_arrival_y,
+            **extra,
+        )
+        exit_resolver = _resolve_surface_exit_crossing if surface_model is not None else _resolve_exit_crossing
+        exit_resolver(
+            exit_z_m,
+            previous_position,
+            previous_momentum,
+            phase.position_m,
+            phase.momentum_kg_m_per_s,
+            alive,
+            completed,
             exit_position,
             exit_momentum,
             previous_time_s=previous_time_s,
@@ -278,12 +276,10 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
             missed_exit = medium_stopped & (blocked_z <= gun.exit_plane_z_mm)
             for values in (exit_arrival_time, exit_arrival_x, exit_arrival_y):
                 values[missed_exit] = np.nan
-            if slit_plane is not None:
-                missed_slit = medium_stopped & (blocked_z <= slit_plane.z_mm)
-                slit_passed[missed_slit] = False
-                slit_reached[missed_slit] = False
-                for values in (slit_arrival_time, slit_arrival_y, slit_x_m):
-                    values[missed_slit] = np.nan
+            missed_c1 = medium_stopped & (blocked_z <= gun.c1_aperture.z_mm)
+            c1_passed[missed_c1] = False
+            for values in (c1_arrival_time, c1_arrival_x, c1_arrival_y):
+                values[missed_c1] = np.nan
             completed &= alive
         if (
             step_index % history_stride == 0
@@ -301,28 +297,28 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
             history_completed.append(completed.copy())
     else:
         raise RuntimeError(
-            f"{gun.display_name} trace did not reach its exit aperture "
+            f"{gun.display_name} trace did not reach its exit plane "
             "within the step limit."
         )
 
-    passed_c1 = alive & completed
-    if surface_model is None and np.any(passed_c1):
-        exit_momentum[passed_c1] = _enforce_static_field_energy(
+    passed_exit = alive & completed
+    if surface_model is None and np.any(passed_exit):
+        exit_momentum[passed_exit] = _enforce_static_field_energy(
             gun,
-            exit_position[passed_c1],
-            exit_momentum[passed_c1],
-            launch_energy[passed_c1],
+            exit_position[passed_exit],
+            exit_momentum[passed_exit],
+            launch_energy[passed_exit],
         )
     history_position_array = np.asarray(history_position)
     history_momentum_array = np.asarray(history_momentum)
     pz = exit_momentum[:, 2]
     tx = np.divide(
         exit_momentum[:, 0], pz,
-        out=np.zeros(n, dtype=float), where=passed_c1,
+        out=np.zeros(n, dtype=float), where=passed_exit,
     )
     ty = np.divide(
         exit_momentum[:, 1], pz,
-        out=np.zeros(n, dtype=float), where=passed_c1,
+        out=np.zeros(n, dtype=float), where=passed_exit,
     )
     history_pz = history_momentum_array[..., 2]
     history_tx = np.divide(
@@ -345,7 +341,7 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
         exit_position,
         tx,
         ty,
-        passed_c1,
+        passed_exit,
         blocked_z,
         slit_plane,
     )
@@ -371,39 +367,39 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
             transmitted=dpa_passed.copy(),
         )
     ]
+    plane_arrivals.append(GunPlaneArrival(
+        key=str(gun.c1_aperture.key),
+        name=str(gun.c1_aperture.label),
+        z_mm=float(gun.c1_aperture.z_mm),
+        time_s=c1_arrival_time,
+        x_m=c1_arrival_x,
+        y_m=c1_arrival_y,
+        reached=np.isfinite(c1_arrival_time),
+        transmitted=c1_passed.copy(),
+    ))
+    slit_passed = c1_passed
+    slit_reached = np.isfinite(c1_arrival_time)
+    slit_x_m = c1_arrival_x
     if slit is not None:
         plane_arrivals.append(GunPlaneArrival(
             key=FEG_MONOCHROMATOR_SLIT,
             name=str(slit.name),
             z_mm=float(slit_plane.z_mm),
-            time_s=slit_arrival_time,
+            time_s=c1_arrival_time,
             x_m=slit_x_m.copy(),
-            y_m=slit_arrival_y,
+            y_m=c1_arrival_y,
             reached=slit_reached.copy(),
             transmitted=slit_passed.copy(),
         ))
-    exit_is_c1_plane = math.isclose(
-        float(gun.c1_aperture.z_mm),
-        float(gun.exit_plane_z_mm),
-        abs_tol=1.0e-9,
-    )
     plane_arrivals.append(GunPlaneArrival(
-        key=(
-            str(gun.c1_aperture.key)
-            if exit_is_c1_plane
-            else f"{gun.c1_aperture.key}:exit"
-        ),
-        name=(
-            str(gun.c1_aperture.name)
-            if exit_is_c1_plane
-            else f"{gun.display_name} Exit"
-        ),
+        key=f"{gun.c1_aperture.key}:exit",
+        name=f"{gun.display_name} Exit",
         z_mm=float(gun.exit_plane_z_mm),
         time_s=exit_arrival_time,
         x_m=exit_arrival_x,
         y_m=exit_arrival_y,
         reached=np.isfinite(exit_arrival_time),
-        transmitted=passed_c1.copy(),
+        transmitted=passed_exit.copy(),
     ))
     # Static fields preserve each emitted energy offset exactly.  Keep that
     # invariant directly instead of subtracting two ~300 keV float values.
@@ -432,8 +428,8 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
                 )[0]
             )
     output_fwhm = _weighted_fwhm_from_standard_deviation(
-        energy_offset[passed_c1],
-        emitted.weight[passed_c1],
+        energy_offset[passed_exit],
+        emitted.weight[passed_exit],
     )
     result = GunTraceResult(
         z_mm=common_z,
@@ -449,7 +445,7 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
             energy_offset_ev=energy_offset,
             weight=emitted.weight,
             ray_id=emitted.ray_id,
-            alive=passed_c1,
+            alive=passed_exit,
         ),
         blocked_z_mm=blocked_z,
         blocked_key=tuple(blocked_key),
@@ -458,7 +454,7 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
             current * float(np.sum(emitted.weight[dpa_passed]))
         ),
         c1_transmitted_current_a=(
-            current * float(np.sum(emitted.weight[passed_c1]))
+            current * float(np.sum(emitted.weight[c1_passed]))
         ),
         monochromator_transmitted_current_a=monochromator_current,
         output_energy_fwhm_ev=output_fwhm,
@@ -472,9 +468,9 @@ def trace_feg_to_exit(gun, count=None) -> GunTraceResult:
     )
     if surface_model is not None:
         from scipy.constants import c, m_e, e
-        scale = np.sum((exit_momentum[passed_c1]/(m_e*c))**2, axis=1)
+        scale = np.sum((exit_momentum[passed_exit]/(m_e*c))**2, axis=1)
         kinetic = (m_e*c*c/e)*scale/(np.sqrt(1+scale)+1)
-        expected = gun.nominal_exit_energy_ev+launch_energy[passed_c1]
+        expected = gun.nominal_exit_energy_ev+launch_energy[passed_exit]
         energy_error = float(np.max(np.abs(kinetic-expected), initial=0))
         if energy_error > 1e-3:
             raise ValueError(f"Surface trace exit energy error {energy_error:.6g} eV exceeds 0.001 eV; result not accepted")
@@ -524,41 +520,44 @@ def _surface_step(phase, dt, active, magnetic, electric):
     raise ValueError("Surface extraction integration did not meet the local error budget")
 
 
-def _resolve_surface_exit_crossing(aperture, exit_z_m, previous_position, previous_momentum,
-        new_position, new_momentum, alive, completed, blocked_z, blocked_key,
-        exit_position, exit_momentum, *, previous_time_s, new_time_s,
-        arrival_time_s, arrival_x_m, arrival_y_m, electric, magnetic):
-    """Resolve the actual exit event; linear momentum interpolation loses work
-    when a step crosses the end of the accelerating field.
-    """
+def _surface_plane_crossing(plane_z_m, position, momentum, previous_time_s,
+                            duration, electric, magnetic):
+    """Locate a plane on the same two-half-step path as the accepted update."""
     from scipy.optimize import brentq
     from temsim.physics.static_energy_lorentz import static_energy_step
+    start = RelativisticPhaseSpace(position[None, :], momentum[None, :], previous_time_s)
+    def at_fraction(fraction):
+        if fraction == 0:
+            return start
+        half = static_energy_step(start, .5*duration*fraction, magnetic, electric)
+        return static_energy_step(half, .5*duration*fraction, magnetic, electric)
+    def residual(fraction):
+        return float(at_fraction(fraction).position_m[0, 2]-plane_z_m)
+    fraction = brentq(residual, 0., 1., xtol=1e-12)
+    return at_fraction(fraction)
+
+
+def _resolve_surface_exit_crossing(exit_z_m, previous_position, previous_momentum,
+        new_position, new_momentum, alive, completed, exit_position, exit_momentum,
+        *, previous_time_s, new_time_s, arrival_time_s, arrival_x_m, arrival_y_m,
+        electric, magnetic):
+    """Complete transport at the handoff without imposing a second C1 mask.
+
+    Linear momentum interpolation loses work at the end of the accelerating
+    field, so retain the existing energy-conserving event integration.
+    """
     indices = np.flatnonzero(alive & ~completed & (previous_position[:, 2] < exit_z_m)
                              & (new_position[:, 2] >= exit_z_m))
     duration = new_time_s-previous_time_s
     for index in indices:
-        start = RelativisticPhaseSpace(previous_position[index:index+1], previous_momentum[index:index+1], previous_time_s)
-        def at_fraction(fraction):
-            if fraction == 0:
-                return start
-            half = static_energy_step(start, .5*duration*fraction, magnetic, electric)
-            return static_energy_step(half, .5*duration*fraction, magnetic, electric)
-        def residual(fraction):
-            return float(at_fraction(fraction).position_m[0, 2]-exit_z_m)
-        # Use the same two-half-step path as the accepted update. Arrival may
-        # not occur after the completed step recorded in the history.
-        fraction = brentq(residual, 0., 1., xtol=1e-12)
-        crossing = at_fraction(fraction)
+        crossing = _surface_plane_crossing(exit_z_m, previous_position[index],
+            previous_momentum[index], previous_time_s, duration, electric, magnetic)
         position = crossing.position_m[0]
         arrival_time_s[index] = crossing.time_s
         arrival_x_m[index], arrival_y_m[index] = position[:2]
-        if aperture.transmission_mask(np.array([position[0]*1000]), np.array([position[1]*1000]))[0]:
-            exit_position[index] = position
-            exit_momentum[index] = crossing.momentum_kg_m_per_s[0]
-            completed[index] = True
-        else:
-            alive[index] = False
-            blocked_z[index], blocked_key[index] = exit_z_m*1000, aperture.key
+        exit_position[index] = position
+        exit_momentum[index] = crossing.momentum_kg_m_per_s[0]
+        completed[index] = True
 
 
 def _resample_gun_paths(
@@ -680,61 +679,6 @@ def _weighted_fwhm_from_standard_deviation(values, weights):
     return 2.354820045 * math.sqrt(max(0.0, variance))
 
 
-def _resolve_monochromator_slit_crossing(
-    slit,
-    slit_plane,
-    plane_z_m,
-    previous_position,
-    new_position,
-    alive,
-    completed,
-    blocked_z,
-    blocked_key,
-    *,
-    passed,
-    reached,
-    slit_x_m,
-    previous_time_s,
-    new_time_s,
-    arrival_time_s,
-    arrival_y_m,
-):
-    candidates = (
-        alive
-        & ~completed
-        & ~reached
-        & (previous_position[:, 2] <= plane_z_m)
-        & (new_position[:, 2] >= plane_z_m)
-    )
-    indices = np.flatnonzero(candidates)
-    if not indices.size:
-        return
-    fraction = _crossing_fraction(
-        previous_position[indices, 2],
-        new_position[indices, 2],
-        plane_z_m,
-    )
-    positions = previous_position[indices] + fraction[:, None] * (
-        new_position[indices] - previous_position[indices]
-    )
-    reached[indices] = True
-    slit_x_m[indices] = positions[:, 0]
-    arrival_y_m[indices] = positions[:, 1]
-    arrival_time_s[indices] = previous_time_s + fraction * (
-        new_time_s - previous_time_s
-    )
-    transmitted = slit.transmission_mask(
-        positions[:, 0], positions[:, 1]
-    )
-    accepted = indices[transmitted]
-    passed[accepted] = True
-    rejected = indices[~transmitted]
-    alive[rejected] = False
-    for index in rejected:
-        blocked_z[index] = slit_plane.z_mm
-        blocked_key[index] = slit_plane.key
-
-
 def _enforce_static_field_energy(gun, position, momentum, launch_energy_ev):
     """Preserve K - e*phi for an electron in the static gun fields."""
 
@@ -775,6 +719,8 @@ def _resolve_aperture_crossing(
     arrival_time_s,
     arrival_x_m,
     arrival_y_m,
+    electric=None,
+    magnetic=None,
 ):
     candidates = (
         alive
@@ -794,11 +740,17 @@ def _resolve_aperture_crossing(
     xy = previous_position[indices, :2] + fraction[:, None] * (
         new_position[indices, :2] - previous_position[indices, :2]
     )
+    times = previous_time_s + fraction * (new_time_s - previous_time_s)
+    if electric is not None:
+        for local, index in enumerate(indices):
+            crossing = _surface_plane_crossing(plane_z_m, previous_position[index],
+                previous_momentum[index], previous_time_s, new_time_s-previous_time_s,
+                electric, magnetic)
+            xy[local] = crossing.position_m[0, :2]
+            times[local] = crossing.time_s
     arrival_x_m[indices] = xy[:, 0]
     arrival_y_m[indices] = xy[:, 1]
-    arrival_time_s[indices] = previous_time_s + fraction * (
-        new_time_s - previous_time_s
-    )
+    arrival_time_s[indices] = times
     transmitted = aperture.transmission_mask(
         xy[:, 0] * 1000.0, xy[:, 1] * 1000.0
     )
@@ -811,7 +763,6 @@ def _resolve_aperture_crossing(
 
 
 def _resolve_exit_crossing(
-    aperture,
     plane_z_m,
     previous_position,
     previous_momentum,
@@ -819,8 +770,6 @@ def _resolve_exit_crossing(
     new_momentum,
     alive,
     completed,
-    blocked_z,
-    blocked_key,
     exit_position,
     exit_momentum,
     *,
@@ -850,23 +799,14 @@ def _resolve_exit_crossing(
     momenta = previous_momentum[indices] + fraction[:, None] * (
         new_momentum[indices] - previous_momentum[indices]
     )
-    transmitted = aperture.transmission_mask(
-        positions[:, 0] * 1000.0, positions[:, 1] * 1000.0
-    )
     arrival_time_s[indices] = previous_time_s + fraction * (
         new_time_s - previous_time_s
     )
     arrival_x_m[indices] = positions[:, 0]
     arrival_y_m[indices] = positions[:, 1]
-    accepted = indices[transmitted]
-    exit_position[accepted] = positions[transmitted]
-    exit_momentum[accepted] = momenta[transmitted]
-    completed[accepted] = True
-    rejected = indices[~transmitted]
-    alive[rejected] = False
-    for index in rejected:
-        blocked_z[index] = aperture.z_mm
-        blocked_key[index] = aperture.key
+    exit_position[indices] = positions
+    exit_momentum[indices] = momenta
+    completed[indices] = True
 
 
 def _clip_body_bores(

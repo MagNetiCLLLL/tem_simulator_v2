@@ -52,7 +52,7 @@ _TEM_PROJECTION_SCHEMA = "physical-aperture-pre-loss-flux-v1"
 _STEM_RECORDING_SCHEMA = "physical-envelope-pre-specimen-flux-gpu-capture-v6"
 _PARTICLE_POINT_SCHEMA = "resolved-point-material-hit-diagnostics-v2"
 _EDS_SIGNAL_SCHEMA = "eds-only-overlap-importance-v1"
-_STAGE_INPUT_SCHEMA = "live-lens-components-v3-tip-support"
+_STAGE_INPUT_SCHEMA = "live-lens-components-v4-physical-gun-apertures"
 
 
 def _particle_point_digest(payload):

@@ -1,0 +1,82 @@
+{
+  "date": "2026-09-15",
+  "scope": "classical particles only; current default geometry retained",
+  "legacy_coefficient": {
+    "value": 4.22125,
+    "first_recorded_commit": "b60be29739de540c6d633ceaf2e1fec3e15290d0",
+    "first_recorded_date": "2026-08-02",
+    "documented_calibration": false,
+    "used_by_curved_field": false
+  },
+  "paired_uncached_gun_benchmark": {
+    "runs": [
+      {
+        "compiled": false,
+        "trace_s": 68.17116469999746,
+        "alive": 38,
+        "fraction": 0.7708333333333335,
+        "energy_error_ev": 2.6193447411060333e-09
+      },
+      {
+        "compiled": true,
+        "trace_s": 30.79829830000017,
+        "alive": 38,
+        "fraction": 0.7708333333333335,
+        "energy_error_ev": 2.6193447411060333e-09
+      }
+    ],
+    "max_exit_delta": {
+      "x_m": 0.0,
+      "y_m": 0.0,
+      "tx_rad": 0.0,
+      "ty_rad": 0.0
+    },
+    "speedup": 2.213471797563474
+  },
+  "production_transport_matching": {
+    "status": "READY_TO_APPLY",
+    "seconds": 98.19163400000252,
+    "message": "Transport matched: 49 / 193 rays, 25.5% of source current past the projection-chamber entrance. Probe/image focus is not calibrated.",
+    "strengths": {
+      "condenser_lens_1": 8.039493327037237,
+      "condenser_lens_2": 83.10360990336257,
+      "condenser_lens_3": 40.29720275213861
+    },
+    "reference": {
+      "finite": true,
+      "radius_mm": 1.2524280548095703,
+      "rays": 49,
+      "source_fraction": 0.2552083333333333,
+      "z_mm": 2586.9
+    },
+    "refined": {
+      "finite": true,
+      "radius_mm": 1.2524338960647583,
+      "rays": 49,
+      "source_fraction": 0.2552083333333333,
+      "z_mm": 2586.9
+    }
+  },
+  "ordinary_preview": {
+    "seconds": 24.358990100001392,
+    "ray_count": 49,
+    "sample_rays": 11,
+    "sample_fraction": 0.2291666666666667,
+    "support_rays": 1,
+    "sample_d95_um": null,
+    "strengths": {
+      "condenser_lens_1": 8.039493327037237,
+      "condenser_lens_2": 83.10360990336257,
+      "condenser_lens_3": 40.29720275213861
+    },
+    "projection_chamber_fraction": 0.22916666666666669
+  },
+  "preview_diameter_status": "INSUFFICIENT_EFFECTIVE_RAYS",
+  "regression_suite": {
+    "tests": "114",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "133.042"
+  }
+}
