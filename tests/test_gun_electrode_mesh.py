@@ -8,6 +8,7 @@ from temsim.physics.grounded_tip_field import refine_electrode_axes, field_reque
 from temsim.physics.grounded_tip_field import grade_electrode_corners
 from temsim.physics.grounded_tip_field import merge_axis_nodes
 from temsim.optics.electron_gun.tip_assembly import model_from_part
+from temsim import module_manifest
 
 
 def test_roundoff_slivers_merge_to_exact_boundaries_not_average_positions():
@@ -67,6 +68,7 @@ def test_corner_grading_is_optional_and_is_bound_to_executed_field_identity():
     from temsim.optics.electron_gun.tip_surface import TipSurfaceModel
     state = default_state()
     gun = state.electron_gun
+    gun.emitter.surface_model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     original = gun.emitter.surface_model
     old_key, old_field = gun._cache_key(193), field_request(gun)
     assert "electrode_corner_cells" not in original.to_dict()["field_numerics"]
@@ -96,6 +98,7 @@ def test_installed_tip_numerics_are_editable_without_changing_emission_or_geomet
     assert changed.field_numerics.electrode_cells_per_bore == 16
     assert changed.field_numerics.electrode_corner_cells == 16
     state = default_state()
+    state.electron_gun.emitter.surface_model = original
     old = field_request(state.electron_gun)
     state.electron_gun.emitter.surface_model = changed
     request = field_request(state.electron_gun)
@@ -129,7 +132,6 @@ def test_missing_optional_controls_materialize_without_rewriting_comments():
 
 @pytest.mark.parametrize("value", [True, 1, 3, 65, -1, 8.0])
 def test_invalid_electrode_mesh_budget_is_rejected(value):
-    from temsim.optics.electron_gun.field_emission import FieldEmissionGun
-    model = FieldEmissionGun().emitter.surface_model
+    model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     with pytest.raises(ValueError, match="Electrode cells"):
         replace(model.field_numerics, electrode_cells_per_bore=value).validate()

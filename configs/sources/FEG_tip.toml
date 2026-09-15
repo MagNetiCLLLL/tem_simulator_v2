@@ -31,7 +31,9 @@ length_mm = 1.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 0.0
 outer_diameter_mm = 0.1751605932866515
-# Actual particle tip definition. Curvature = 1/tip_radius_nm (nm^-1).
+# Fresh installations use Flat tip; curved geometry remains an explicit option.
+default_tip_emission = "flat_tip"
+# Optional curved particle tip definition. Curvature = 1/tip_radius_nm (nm^-1).
 # Electron flux is per physical emitting area per second, within the angular
 # limit. It is prescribed emission, not a tunnelling-current prediction.
 tip_particle_model = "curved_surface_particles"

@@ -205,6 +205,9 @@ def is_geometry_owned(name: str) -> bool:
 
 def editable_parameters(target: RuntimeTarget) -> tuple[RuntimeParameter, ...]:
     result = []
+    if (hasattr(target.obj, "curvature_nm_inv") and target.obj.surface_model is None
+            and target.obj.coherence is None):
+        result.append(RuntimeParameter("curvature_nm_inv", target.obj.curvature_nm_inv))
     for name, value in vars(target.obj).items():
         if getattr(target.obj, "surface_model", None) is not None and name not in {"ray_count"}:
             # New source has one editor and one persisted model table. Do not
@@ -245,7 +248,7 @@ def convert_runtime_value(old_value: Any, text: str) -> object:
 
 
 def validate_runtime_assignment(
-    target: RuntimeTarget, name: str, value: object
+    target: RuntimeTarget, name: str, value: object, *, validate_source_geometry=True
 ) -> object:
     """Type-check and domain-check one profile/runtime assignment."""
 
@@ -290,6 +293,13 @@ def validate_runtime_assignment(
     if name in {"step_mm", "history_step_mm", "trace_step_mm", "ray_step_mm"}:
         if float(converted) <= 0.0:
             raise ValueError(f"{target.key}.{name} must be positive")
+    if validate_source_geometry and hasattr(target.obj, "curvature_nm_inv") and name in {
+        "curvature_nm_inv", "virtual_source_fwhm_nm", "angular_cutoff_mrad"
+    }:
+        from copy import copy
+        candidate = copy(target.obj)
+        setattr(candidate, name, converted)
+        candidate.validate()
     if name in {"ray_count", "maximum_trace_rays"} and int(converted) <= 0:
         raise ValueError(f"{target.key}.{name} must be positive")
     if name == "polarity" and int(converted) not in (-1, 1):

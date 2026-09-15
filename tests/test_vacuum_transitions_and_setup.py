@@ -134,11 +134,17 @@ def test_map_tab_order_horizontal_and_disabled_editing(qtbot, state):
 
 def test_surface_tuning_origin_weights_and_cache(state):
     from temsim.optics.electron_gun.tip_surface import surface_bundle
+    from temsim.optics.electron_gun.tip_assembly import model_from_part
+    from temsim import module_manifest
+    state.electron_gun.emitter.surface_model = model_from_part(
+        module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     model = state.electron_gun.emitter.surface_model
-    a = surface_bundle(model, 49)
+    # Support probes carry no current; compare the same 48 physical samples.
+    # Grouped surface sampling need not have a stable prefix at a new count.
+    a = surface_bundle(model, 48)
     b = surface_bundle(model, 49, support_probes=1)
-    np.testing.assert_array_equal(a.surface_position_m[:-1], b.surface_position_m[:-1])
-    np.testing.assert_array_equal(a.surface_direction[:-1], b.surface_direction[:-1])
+    np.testing.assert_array_equal(a.surface_position_m, b.surface_position_m[:-1])
+    np.testing.assert_array_equal(a.surface_direction, b.surface_direction[:-1])
     np.testing.assert_array_equal(b.surface_position_m[-1], [0, 0, 0])
     np.testing.assert_array_equal(b.surface_direction[-1], [0, 0, 1])
     assert b.weight[-1] == 0 and b.weight.sum() == pytest.approx(1.)

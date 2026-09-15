@@ -4,11 +4,13 @@ Flat scalar fields are editable by the existing assembly/3D editor. The
 shared source definition is resolved before geometry and emission are applied.
 """
 import math
+from dataclasses import fields, replace
 from numbers import Real
 
 from .tip_surface import TipSurfaceModel, TipGeometry, SurfaceEmission, TipFieldNumerics
 
 MODEL = "curved_surface_particles"
+DEFAULT_TIP_EMISSION = "flat_tip"
 GEOMETRY_FIELDS = {"tip_shape", "tip_material", "tip_radius_nm", "tip_cone_half_angle_deg", "length_mm"}
 EMISSION_FIELDS = {
     "emission_flux_electrons_per_nm2_s", "emission_cap_half_angle_deg",
@@ -23,7 +25,15 @@ NUMERICAL_FIELDS = {
 OPTIONAL_NUMERICAL_FIELDS = {"emission_directions_per_position",
     "tip_field_axis_core_fraction", "tip_field_electrode_cells_per_bore", "tip_field_electrode_corner_cells"}
 REQUIRED_PART_FIELDS = GEOMETRY_FIELDS | EMISSION_FIELDS | NUMERICAL_FIELDS | {"tip_particle_model"}
-PART_FIELDS = REQUIRED_PART_FIELDS | OPTIONAL_NUMERICAL_FIELDS
+PART_FIELDS = REQUIRED_PART_FIELDS | OPTIONAL_NUMERICAL_FIELDS | {"default_tip_emission"}
+
+
+def default_tip_emission(part):
+    """Fresh-install selection, separate from the optional curved geometry."""
+    value = part.get("default_tip_emission", DEFAULT_TIP_EMISSION)
+    if not isinstance(value, str) or value not in {DEFAULT_TIP_EMISSION, MODEL}:
+        raise ValueError("Default tip emission must be flat_tip or curved_surface_particles")
+    return value
 
 
 def is_tip_part(part):
@@ -35,10 +45,11 @@ def model_from_part(part):
         return None  # historical assembly, no implicit conversion
     if not is_tip_part(part):
         raise ValueError("Unknown TOML tip particle model")
+    default_tip_emission(part)
     missing = REQUIRED_PART_FIELDS - part.keys()
     if missing:
         raise ValueError("Missing tip assembly fields: " + ", ".join(sorted(missing)))
-    for key in (PART_FIELDS & part.keys()) - {"tip_particle_model", "tip_shape", "tip_material", "emission_energy_distribution"}:
+    for key in (PART_FIELDS & part.keys()) - {"tip_particle_model", "tip_shape", "tip_material", "emission_energy_distribution", "default_tip_emission"}:
         value = part[key]
         if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value):
             raise ValueError(f"Tip {key} must be a finite number")
@@ -85,19 +96,53 @@ def validate_tip_part(part):
         raise ValueError("Tip particle geometry supports its declared cap/cone shape; independent CAD overrides are not consumed by the extraction field")
 
 
-def apply_tip_part(emitter, part):
+def _retain_operating_overrides(active, previous, defaults):
+    """Three-way merge of scalar/tuple inputs, never derived beam quantities."""
+    overrides = {item.name: getattr(active, item.name) for item in fields(active)
+                 if getattr(active, item.name) != getattr(previous, item.name)}
+    return replace(defaults, **overrides)
+
+
+def apply_tip_part(emitter, part, *, reset_source=False):
     model = model_from_part(part)
     if model is None:
         return
     signature = tuple((key, part.get(key)) for key in sorted(PART_FIELDS | OPTIONAL_NUMERICAL_FIELDS))
     previous = getattr(emitter, "_tip_assembly_signature", None)
+    if reset_source or (previous is None and emitter.surface_model is None
+                        and emitter.coherence is None and emitter.curvature_nm_inv == 0):
+        # Defaults apply on construction / explicit assembly reset only, not
+        # during a geometry refresh or restoration of a saved source choice.
+        emitter.surface_model = model if default_tip_emission(part) == MODEL else None
+        if reset_source:
+            emitter.curvature_nm_inv = 0.0
+        emitter.coherence = None
+        emitter.tip_radius_nm = model.geometry.apex_radius_nm
+        emitter.tip_cone_half_angle_deg = model.geometry.cone_half_angle_deg
+        emitter.emitter_material = model.geometry.material
+        emitter._tip_assembly_signature = signature
+        return
     if previous != signature:
         # Reloading dimensions must not activate a different source family in
         # an explicit historical planar or coherent profile.
-        if previous is not None and (emitter.surface_model is None
+        if (previous is not None or emitter.curvature_nm_inv != 0) and (emitter.surface_model is None
                 or emitter.surface_model.coherence is not None or emitter.coherence is not None):
             emitter._tip_assembly_signature = signature
             return
+        if previous is not None:
+            # Geometry is TOML-owned. Independently edited emission and solver
+            # budgets are operating overrides, not new assembly defaults. Keep
+            # the prescribed current/flux law; total current remains derived
+            # from area when the user prescribed flux density.
+            old_defaults = model_from_part({key: value for key, value in previous
+                                            if value is not None})
+            active = emitter.surface_model
+            model = replace(active, geometry=model.geometry,
+                emission=_retain_operating_overrides(
+                    active.emission, old_defaults.emission, model.emission),
+                field_numerics=_retain_operating_overrides(
+                    active.field_numerics, old_defaults.field_numerics, model.field_numerics))
+            model.validate()  # Reject incompatible geometry before publishing.
         emitter.surface_model = model
         emitter.coherence = None
         emitter.tip_radius_nm = model.geometry.apex_radius_nm

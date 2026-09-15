@@ -26,9 +26,14 @@ def test_selected_region_apply_and_invalid_edit(page):
     assert page.state.vacuum_map.regions[-1].medium.pressure_mbar == 2e-5
 
 
-def test_cell_medium_and_subdivision(page):
+def test_cell_medium_and_subdivision(page, qtbot):
+    from temsim.gui.cell_environment_editor import CellGeometryDialog
+    geometry = CellGeometryDialog(page.state)
+    qtbot.addWidget(geometry)
+    geometry.inserted.setChecked(True)
+    page.state.vacuum_map = geometry.candidate_map()
+    page.set_state(page.state)
     page.select_region("specimen_cell")
-    page.cell_inserted.setChecked(True)
     page.formula.setText("He")
     page.pressure.setText("5")
     assert page.apply()

@@ -632,6 +632,8 @@ class ParameterPanel(QWidget):
     def _quick_specs(target) -> tuple[tuple[str, str, float, str], ...]:
         obj = getattr(target, "obj", None)
         if getattr(target, "key", None) == "feg_tip":
+            if obj.surface_model is None and obj.coherence is None:
+                return (("curvature_nm_inv", "Tip curvature (0 = flat)", 1.0, " nm⁻¹"),)
             return ()
         if getattr(obj, "surface_model", None) is not None:
             return ()
@@ -724,7 +726,7 @@ class ParameterPanel(QWidget):
         obj = getattr(self._runtime_target, "obj", None)
         is_tip = getattr(self._runtime_target, "key", None) == "feg_tip"
         if is_tip:
-            source_note = QLabel("Tip dimensions, emitting surface and source model: Physical Layout / 3D Parts")
+            source_note = QLabel("Curvature: operating control. Other tip settings: Physical Layout / 3D Parts.")
             source_note.setWordWrap(True)
             source_note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             self.quick_form.addRow(source_note)
@@ -784,6 +786,16 @@ class ParameterPanel(QWidget):
                 widget = QDoubleSpinBox()
                 widget.setDecimals(6)
                 widget.setRange(-1.0e9, 1.0e9)
+                if name == "curvature_nm_inv":
+                    widget.setDecimals(12)
+                    widget.setMinimum(0.0)
+                    widget.setSingleStep(1e-8)
+                    widget.setToolTip(
+                        "Curvature = 1 / radius in nm. Zero is flat. Start with 1e-8 nm^-1. "
+                        "The tip centre stays at Z = 0; off-axis points bend to negative Z with local surface normals. Projected emission size, "
+                        "current and local angular/energy laws stay fixed. Analytic gun field; "
+                        "not a self-consistent electrode-field solve. Historical models retain their saved geometry. "
+                        "Use Live tuning for a slider.")
                 if name in {
                     "diameter_mm",
                     "requested_width_ev",

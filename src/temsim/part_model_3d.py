@@ -50,6 +50,8 @@ class TriangleMesh:
     face_groups: np.ndarray | None = None
     surfaces: Mapping = field(default_factory=dict)
     edges: tuple = ()
+    # Non-material location guides: outlines overlaid without solid occlusion.
+    wireframe: bool = False
 
     @property
     def part_key(self):

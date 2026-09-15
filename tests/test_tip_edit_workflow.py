@@ -5,6 +5,12 @@ import pytest
 
 from temsim.optics.electron_gun.field_emission import FieldEmissionGun
 from temsim.optics.electron_gun.tip_edit import candidate_tip_edit
+from temsim import module_manifest
+from temsim.optics.electron_gun.tip_assembly import model_from_part
+
+
+def curved_model():
+    return model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
 
 
 @pytest.mark.parametrize("curved", [False, True])
@@ -16,8 +22,8 @@ from temsim.optics.electron_gun.tip_edit import candidate_tip_edit
 ])
 def test_consumed_geometry_invalidates_each_tip_model(curved, component, attribute):
     gun = FieldEmissionGun()
-    if not curved:
-        gun.emitter.surface_model = None
+    if curved:
+        gun.emitter.surface_model = curved_model()
     before = gun._cache_key(49)
     target = getattr(gun, component)
     old = getattr(target, attribute)
@@ -43,6 +49,7 @@ def test_changed_bore_reexecutes_actual_aperture_loss():
 def test_invalid_model_switch_is_atomic_and_does_not_reinterpret_voltage(qtbot):
     from temsim.gui.gun_source_dialog import GunSourceDialog
     gun = FieldEmissionGun()
+    gun.emitter.surface_model = curved_model()
     gun.electrostatic_lens.voltage_reference = "tip"
     before = gun.to_dict()
     dialog = GunSourceDialog(gun)
@@ -57,6 +64,7 @@ def test_invalid_model_switch_is_atomic_and_does_not_reinterpret_voltage(qtbot):
 
 def test_valid_switch_changes_model_identity_but_keeps_optics():
     gun = FieldEmissionGun()
+    gun.emitter.surface_model = curved_model()
     before = gun.to_dict()
     off = candidate_tip_edit(gun, {"surface_model": None, "coherence": None})
     assert off.emitter.surface_model is None
@@ -76,6 +84,7 @@ def test_emitting_mesh_boundary_matches_the_actual_particle_cap():
     from temsim.optics.electron_gun.tip_surface import emit_surface
     document = PartModelDocument(CONFIG_ROOT / "sources/FEG_tip.toml")
     g = FieldEmissionGun()
+    g.emitter.surface_model = curved_model()
     for degrees in (2., 10., 25.):
         model = replace(g.emitter.surface_model, emission=replace(g.emitter.surface_model.emission, cap_half_angle_deg=degrees))
         mesh = part_model_from_document(document.document, "feg_tip", runtime_values={
@@ -114,15 +123,24 @@ def test_input_design_is_reusable_but_computed_history_remains_read_only():
         mislabeled.compatible_state()
 
 
-def test_installed_input_design_loads_without_accepting_old_results():
+def test_installed_curved_design_remains_readable_without_overriding_new_defaults():
     from pathlib import Path
     from temsim.working_point import WorkingPointCheckpoint
-    point = WorkingPointCheckpoint.read_package(Path(__file__).parents[1]/"profiles/particle_tip_30mrad_20260915.temwp")
-    state = point.compatible_state()
+    path = Path(__file__).parents[1]/"profiles/particle_tip_30mrad_20260915.temwp"
+    before = path.read_bytes()
+    point = WorkingPointCheckpoint.read_package(path)
     assert point.is_input_design and not point.arrays
-    assert state.electron_gun.electrostatic_lens.voltage_reference == "tip"
-    assert state.electron_gun.emitter.surface_model.geometry.apex_radius_nm == 100
-    assert state.electron_gun._trace_cache is None
+    nodes = point.snapshot.graph["nodes"]
+    tip = next(node for node in nodes if node.get("type", "").endswith(":ColdFieldEmitter"))
+    surface = nodes[tip["attributes"]["_surface_model"]["ref"]]
+    geometry = nodes[surface["attributes"]["geometry"]["ref"]]
+    assert geometry["attributes"]["apex_radius_nm"] == 100.
+    # Historical input designs require matching dependencies. Neither their
+    # archived model choice nor this guard may be rewritten for new defaults.
+    with pytest.raises(ValueError, match="Changed assembly:gun"):
+        point.compatible_state()
+    assert path.read_bytes() == before
+    assert FieldEmissionGun().emitter.surface_model is None
 
 
 def test_input_design_rejects_changed_dependency(tmp_path):
@@ -181,7 +199,7 @@ def test_active_patch_override_is_distinguished_from_saved_dimensions():
     from temsim.part_model_document import PartModelDocument
     from temsim.paths import CONFIG_ROOT
     document = PartModelDocument(CONFIG_ROOT / "sources/FEG_tip.toml")
-    model = FieldEmissionGun().emitter.surface_model
+    model = curved_model()
     model = replace(model, emission=replace(model.emission, cap_half_angle_deg=5.))
     specs = part_dimension_specs(document.document, "feg_tip", runtime_values={
         "feg_tip": {"tip_surface_model": model.to_dict()}})

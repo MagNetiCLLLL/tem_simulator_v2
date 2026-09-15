@@ -10,11 +10,12 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, Q
 
 from temsim.vacuum import VacuumMap, Medium, boundary_anchors, resolve_regions, module_axial_ranges, DEFAULT_PATH
 from temsim.gui.vacuum_axial_view import VacuumAxialView
-from temsim.gui.cell_environment_editor import WindowEditor, CellChamberView
+from temsim.gui.cell_environment_editor import CellChamberView
 
 
 class VacuumMapPage(QWidget):
     changed = Signal(str)
+    geometry_requested = Signal()
     CORE_KEYS = {"gun_tip", "gun_accelerator", "column", "specimen", "post_column", "projection"}
 
     def __init__(self):
@@ -74,28 +75,15 @@ class VacuumMapPage(QWidget):
         for label, widget in (("Start boundary", self.start_anchor), ("Start offset (mm)", self.start_offset),
                               ("End boundary", self.end_anchor), ("End offset (mm)", self.end_offset)):
             form.addRow(label, widget)
-        self.cell_inserted = QCheckBox("Insert cell around specimen")
-        form.addRow(self.cell_inserted)
-        self.cell_fields = {}
-        for name, title in (("diameter_mm", "Cell aperture diameter (nm)"), ("length_mm", "Cell gap (nm)"),
-                            ("offset_x_mm", "Cell centre X (nm)"), ("offset_y_mm", "Cell centre Y (nm)"),
-                            ("offset_z_mm", "Cell Z offset from Sample (nm)")):
-            widget = self._spin(0 if name in {"diameter_mm", "length_mm"} else -1e12, 1e12)
-            widget.setDecimals(6)
-            widget.setSingleStep(1)
-            self.cell_fields[name] = widget
-            form.addRow(title, widget)
-        self.cell_fields["length_mm"].setToolTip("Distance between window inner faces. Window thickness is additional. Sample geometry remains defined in Sample.")
-        self.windows = QWidget()
-        window_layout = QHBoxLayout(self.windows)
-        window_layout.setContentsMargins(0, 0, 0, 0)
-        self.window_editors = {}
-        for key, label in (("upstream_window", "Upstream window (−Z)"), ("downstream_window", "Downstream window (+Z)")):
-            editor = WindowEditor(label)
-            self.window_editors[key] = editor
-            window_layout.addWidget(editor)
-        form.addRow(self.windows)
+        self.cell_geometry = QLabel()
+        self.cell_geometry.setWordWrap(True)
+        self.cell_geometry.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        form.addRow("Cell geometry", self.cell_geometry)
+        self.edit_geometry = QPushButton("Edit cell / windows in Physical Layout…")
+        self.edit_geometry.clicked.connect(lambda: self.geometry_requested.emit())
+        form.addRow(self.edit_geometry)
         form = QFormLayout(medium_widget)
+        self.medium_form = form
         self.phase = QComboBox()
         for label, value in (("Gas / residual gas", "gas"), ("Liquid — elastic approximation", "liquid"), ("Ideal vacuum", "vacuum")):
             self.phase.addItem(label, value)
@@ -110,6 +98,12 @@ class VacuumMapPage(QWidget):
         self.pressure = QLineEdit()
         self.pressure.setToolTip("Gas: total absolute pressure determines number density. Liquid: recorded pressure only; density is a separate measured input. No equation of state or window bulging.")
         form.addRow("Pressure (mbar)", self.pressure)
+        self.gradient = QCheckBox("Linear pressure gradient inside cell")
+        self.gradient.setToolTip("Prescribed gas pressure from upstream to downstream inner face, at fixed composition and temperature. This is not a fluid-flow or pressure-equilibrium solve.")
+        self.end_pressure = QLineEdit()
+        form.addRow(self.gradient)
+        form.addRow("Downstream pressure (mbar)", self.end_pressure)
+        self.gradient.toggled.connect(self._medium_controls)
         self.temperature = self._spin(0.001, 100000)
         form.addRow("Temperature (K)", self.temperature)
         self.density = self._spin(.000001, 1e6)
@@ -163,7 +157,6 @@ class VacuumMapPage(QWidget):
         self.split_button.clicked.connect(self.split_region)
         self.remove_button.clicked.connect(self.remove_region)
         self.enabled.clicked.connect(self._toggle_enabled)
-        self.cell_inserted.clicked.connect(lambda: self.select_region("specimen_cell"))
         self.position_mode.currentIndexChanged.connect(self._position_controls)
         self.coordinate_frame.currentIndexChanged.connect(self._coordinate_changed)
         for label in self.findChildren(QLabel):
@@ -261,11 +254,11 @@ class VacuumMapPage(QWidget):
             pass  # Display validation errors in the map, retaining editable regions.
         self.enabled.setChecked(state.vacuum_map.enabled)
         self.seed.setText(str(state.vacuum_map.seed))
-        self.cell_inserted.setChecked(state.vacuum_map.cell.inserted)
-        for name, widget in self.cell_fields.items():
-            widget.setValue(getattr(state.vacuum_map.cell, name)*1e6)
-        for key, editor in self.window_editors.items():
-            editor.set_window(getattr(state.vacuum_map.cell, key))
+        cell = state.vacuum_map.cell
+        self.cell_geometry.setText(f"{'Inserted' if cell.inserted else 'Not inserted'} · "
+            f"aperture {cell.diameter_mm*1e6:g} nm · gap {cell.length_mm*1e6:g} nm\n"
+            f"Upstream: {cell.upstream_window.material}, {cell.upstream_window.thickness_nm:g} nm\n"
+            f"Downstream: {cell.downstream_window.material}, {cell.downstream_window.thickness_nm:g} nm")
         anchors = boundary_anchors(state)
         self.coordinate_frame.clear()
         self.coordinate_frame.addItem("Global Z", "axis_origin")
@@ -311,10 +304,11 @@ class VacuumMapPage(QWidget):
             return
         self._filling = True
         cell = key == "specimen_cell"
-        self.form_layout.setRowVisible(self.windows, cell)
+        self.form_layout.setRowVisible(self.cell_geometry, cell or key == "specimen")
+        self.form_layout.setRowVisible(self.edit_geometry, cell or key == "specimen")
+        self.medium_form.setRowVisible(self.gradient, cell)
+        self.medium_form.setRowVisible(self.end_pressure, cell)
         self.chamber.setVisible(cell or key == "specimen")
-        for widget in self.cell_fields.values():
-            self.form_layout.setRowVisible(widget, cell)
         r = next((r for r in config.regions if r.key == key), None)
         medium = config.cell.medium if cell else r.medium
         self.name.setText("Inserted specimen cell" if cell else r.name)
@@ -342,6 +336,8 @@ class VacuumMapPage(QWidget):
         self.formula.setText(medium.formula)
         self.mixture.setText(json.dumps(medium.mixture_mole_fractions) if medium.mixture_mole_fractions else "")
         self.pressure.setText(f"{medium.pressure_mbar:.9g}")
+        self.gradient.setChecked(cell and config.cell.pressure_gradient_enabled)
+        self.end_pressure.setText(f"{config.cell.end_pressure_mbar:.9g}")
         self.temperature.setValue(medium.temperature_k)
         self.density.setValue(medium.density_kg_m3)
         self.removal.setText(f"{medium.removal_cross_section_m2:.9g}")
@@ -368,6 +364,10 @@ class VacuumMapPage(QWidget):
 
     def _medium_controls(self):
         phase = self.phase.currentData()
+        self.gradient.setEnabled(self.current_key == "specimen_cell" and phase == "gas")
+        if phase != "gas":
+            self.gradient.setChecked(False)
+        self.end_pressure.setEnabled(self.gradient.isEnabled() and self.gradient.isChecked())
         self.pressure.setEnabled(phase in {"gas", "liquid"})
         self.temperature.setEnabled(phase in {"gas", "liquid"})
         self.formula.setEnabled(phase != "vacuum" and not self.mixture.text().strip())
@@ -409,16 +409,13 @@ class VacuumMapPage(QWidget):
         try:
             config = deepcopy(self.state.vacuum_map)
             config.enabled, config.seed = self.enabled.isChecked(), int(self.seed.text())
-            config.cell.inserted = self.cell_inserted.isChecked()
-            for name, widget in self.cell_fields.items():
-                setattr(config.cell, name, widget.value()*1e-6)
-            for key, editor in self.window_editors.items():
-                setattr(config.cell, key, editor.window())
             medium = Medium(self.phase.currentData(), self.formula.text().strip(), float(self.pressure.text()),
                             self.temperature.value(), self.density.value(), float(self.removal.text()), self.removal_reference.text().strip(),
                             json.loads(self.mixture.text()) if self.mixture.text().strip() else {})
             if self.current_key == "specimen_cell":
                 config.cell.medium = medium
+                config.cell.pressure_gradient_enabled = self.gradient.isChecked()
+                config.cell.end_pressure_mbar = float(self.end_pressure.text())
             else:
                 index = next(i for i, r in enumerate(config.regions) if r.key == self.current_key)
                 r = config.regions[index]

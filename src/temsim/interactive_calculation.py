@@ -102,6 +102,10 @@ def available_controls(state):
     for lens in state.lenses:
         if bool(getattr(lens, "installed", True)) and bool(lens.enabled):
             add("lens", lens, "percent", "Excitation", "%", "optical")
+    emitter = getattr(state.electron_gun, "emitter", None)
+    if (hasattr(emitter, "curvature_nm_inv") and emitter.surface_model is None
+            and emitter.coherence is None):
+        add("source", emitter, "curvature_nm_inv", "Curvature", "nm^-1", "optical")
     seen = set()
     apertures = list(state.apertures)
     for name in ("dpa_aperture", "c1_aperture"):
@@ -132,7 +136,9 @@ def available_controls(state):
 
 
 def _target(state, control):
-    if control.group == "lens":
+    if control.group == "source":
+        candidates = [state.electron_gun.emitter]
+    elif control.group == "lens":
         candidates = state.lenses
     elif control.group == "detector":
         candidates = state.recording_planes
@@ -156,6 +162,13 @@ def _validated_assignment(state, control, value):
     if control.field == "outer_width_mm" and value <= 0:
         raise ValueError("Detector width must be positive")
     obj = _target(state, control)
+    if control.group == "source":
+        from copy import copy
+        if control.field != "curvature_nm_inv" or obj.surface_model is not None or obj.coherence is not None:
+            raise ValueError("Continuous curvature requires classical analytic-field tip emission")
+        candidate = copy(obj)
+        candidate.curvature_nm_inv = value
+        candidate.validate()
     if (control.group == "aperture" and control.field == "diameter_mm"
             and hasattr(obj, "maximum_radius_mm")
             and value > 2.0 * float(obj.maximum_radius_mm)):
@@ -189,7 +202,7 @@ def apply_live_tuning_values(state, axes_and_values):
     seen = set()
     for axis, value in axes_and_values:
         control = axis.control
-        if control.group not in {"lens", "aperture"}:
+        if control.group not in {"lens", "aperture", "source"}:
             raise ValueError("Use Advanced bank for detached detector geometry readout")
         active = allowed.get(control.identity)
         if active is None or active.stage != control.stage:

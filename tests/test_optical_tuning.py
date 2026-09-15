@@ -32,9 +32,12 @@ def medium_result():
 
 @pytest.mark.parametrize("curved", [False, True])
 def test_medium_support_probes_preserve_weighted_source_distribution(curved):
+    from temsim import module_manifest
+    from temsim.optics.electron_gun.tip_assembly import model_from_part
     source = default_state()
-    if not curved:
-        source.electron_gun.emitter.surface_model = None
+    if curved:
+        source.electron_gun.emitter.surface_model = model_from_part(
+            module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     p = TUNING_PROFILES["Medium"]
     s = CalculationController._calculation_snapshot(source, "Medium", p.rays, p.step_mm)
     original = s.electron_gun.emitter.emit(160 if curved else None)

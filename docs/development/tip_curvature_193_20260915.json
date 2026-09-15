@@ -1,0 +1,2458 @@
+{
+  "match": "analytic projected source D95",
+  "comparison_caveat": "Flat and curved differ in field/spatial/angular laws and current. Not curvature alone.",
+  "reports": {
+    "Flat": {
+      "qualification": "DIAGNOSTIC_ONLY",
+      "rays": 193,
+      "field_model": "legacy analytic gun field",
+      "inputs": {
+        "flat_fwhm_nm": 5.0,
+        "angular_rms_mrad": 1.0,
+        "angular_cutoff_mrad": 3.0
+      },
+      "expected_d95_nm": 10.05689406165185,
+      "source_current_na": 10000.0,
+      "emitted": {
+        "name": "Tip emission footprint",
+        "z_mm": null,
+        "rays": 193,
+        "source_current_fraction": 1.0,
+        "rms_radius_nm": 2.8995978349547498,
+        "diameter95_nm": 10.018139639499683,
+        "alpha95_mrad": 2.329884237342608,
+        "covariance_waist_offset_mm": null,
+        "projected_emittance_x_m_rad": null,
+        "projected_emittance_y_m_rad": null,
+        "population": "historical tip emission reference plane",
+        "precision": "full precision"
+      },
+      "extractor_kv": 4.0,
+      "gun_lens_kv": 1.2,
+      "gun_lens_reference": "extractor",
+      "lens_percent": {
+        "condenser_lens_1": 51.666666666666664,
+        "condenser_lens_2": 25.25772717253661,
+        "condenser_lens_3": 21.273622908333973,
+        "adapter_lens": 86.0039434207,
+        "probe_tl22_lens": 60.0,
+        "probe_tl21_lens": 60.0,
+        "probe_tl12_lens": 60.0,
+        "mini_condenser": 41.5570797718,
+        "objective_lens": 68.9801,
+        "diffraction_lens": 14.577617197168571,
+        "intermediate_lens": 0.035082657259397326,
+        "projector_lens_1": 32.1132572718703,
+        "projector_lens_2": 9.826874422815507,
+        "image_ol_post_lens": 60.0,
+        "image_tl11_lens": 60.0,
+        "image_tl12_lens": 60.0,
+        "image_tl21_lens": 60.0,
+        "image_tl22_lens": 60.0,
+        "image_adapter_lens": 60.0
+      },
+      "trace_step_mm": 0.2,
+      "history_step_mm": 0.2,
+      "field_report": {},
+      "spots": [
+        {
+          "name": "Accelerator entrance",
+          "z_mm": 30.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 218.31153436167588,
+          "diameter95_nm": 941.3901527848503,
+          "alpha95_mrad": 0.0827138511984017,
+          "covariance_waist_offset_mm": 1.5505770997505033,
+          "projected_emittance_x_m_rad": 4.9326401822260915e-12,
+          "projected_emittance_y_m_rad": 3.948339834630885e-12,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 10000.0,
+          "bore_diameter_mm": 5.0,
+          "maximum_axis_radius_mm": 0.0012422752616985749
+        },
+        {
+          "name": "Accelerator stage 1",
+          "z_mm": 42.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 278.51369946023897,
+          "diameter95_nm": 1193.7264786261583,
+          "alpha95_mrad": 0.083486651562654,
+          "covariance_waist_offset_mm": 6.4522575713560615,
+          "projected_emittance_x_m_rad": 2.28726788705475e-12,
+          "projected_emittance_y_m_rad": 1.864169924608283e-12,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 10000.0,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.0009391797555212797
+        },
+        {
+          "name": "Accelerator stage 2",
+          "z_mm": 77.55555555555556,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 478.96819981490484,
+          "diameter95_nm": 1982.0995955996082,
+          "alpha95_mrad": 0.015922608328890742,
+          "covariance_waist_offset_mm": 44.8372290575911,
+          "projected_emittance_x_m_rad": 1.3905560479910816e-12,
+          "projected_emittance_y_m_rad": 1.1238331173890478e-12,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 10000.0,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.002987302776510781
+        },
+        {
+          "name": "Accelerator stage 3",
+          "z_mm": 113.11111111111111,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 770.3017629673286,
+          "diameter95_nm": 3195.9867076352957,
+          "alpha95_mrad": 0.019732460134636698,
+          "covariance_waist_offset_mm": 73.25020338464454,
+          "projected_emittance_x_m_rad": 1.2368845138836244e-12,
+          "projected_emittance_y_m_rad": 1.0779765882265011e-12,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 10000.0,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.004539951968271239
+        },
+        {
+          "name": "Accelerator stage 4",
+          "z_mm": 148.66666666666669,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 941.7717109901546,
+          "diameter95_nm": 3852.823840018316,
+          "alpha95_mrad": 0.021003461978460532,
+          "covariance_waist_offset_mm": 85.13636610936828,
+          "projected_emittance_x_m_rad": 1.1622159197421362e-12,
+          "projected_emittance_y_m_rad": 1.0786437286713794e-12,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 10000.0,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.005278188826476706
+        },
+        {
+          "name": "Accelerator stage 5",
+          "z_mm": 184.22222222222223,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 1051.3373862889928,
+          "diameter95_nm": 4389.185004377361,
+          "alpha95_mrad": 0.019702777909083397,
+          "covariance_waist_offset_mm": 97.19156908161737,
+          "projected_emittance_x_m_rad": 1.2619006259200618e-12,
+          "projected_emittance_y_m_rad": 1.294744480463848e-12,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 10000.0,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.005861453435837591
+        },
+        {
+          "name": "Accelerator stage 6",
+          "z_mm": 219.77777777777777,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 1116.1143717017671,
+          "diameter95_nm": 4915.433383262625,
+          "alpha95_mrad": 0.02100245540426591,
+          "covariance_waist_offset_mm": 107.36844401923051,
+          "projected_emittance_x_m_rad": 1.2626414369303118e-12,
+          "projected_emittance_y_m_rad": 1.2164281981739066e-12,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 10000.0,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.0064563913234483876
+        },
+        {
+          "name": "Accelerator stage 7",
+          "z_mm": 255.33333333333334,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 1151.5248904178754,
+          "diameter95_nm": 4544.1340433598825,
+          "alpha95_mrad": 0.019480151322504993,
+          "covariance_waist_offset_mm": 118.14137410790813,
+          "projected_emittance_x_m_rad": 1.3362556844190357e-12,
+          "projected_emittance_y_m_rad": 1.0167114557335754e-12,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 10000.0,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.007048105312296513
+        },
+        {
+          "name": "Accelerator stage 8",
+          "z_mm": 290.8888888888889,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 1175.5825583806136,
+          "diameter95_nm": 4618.179706367323,
+          "alpha95_mrad": 0.020651343826609894,
+          "covariance_waist_offset_mm": 131.77347865685726,
+          "projected_emittance_x_m_rad": 1.4808686814645905e-12,
+          "projected_emittance_y_m_rad": 1.2707545398022082e-12,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 10000.0,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.0075763337535810415
+        },
+        {
+          "name": "Accelerator stage 9",
+          "z_mm": 326.44444444444446,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 1182.2213683520315,
+          "diameter95_nm": 4990.581131856434,
+          "alpha95_mrad": 0.01833655782831103,
+          "covariance_waist_offset_mm": 137.41213575064742,
+          "projected_emittance_x_m_rad": 1.390226100303878e-12,
+          "projected_emittance_y_m_rad": 1.2240251725779807e-12,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 10000.0,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.007964983038960954
+        },
+        {
+          "name": "Accelerator stage 10",
+          "z_mm": 362.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 1175.909084176846,
+          "diameter95_nm": 5054.372926380992,
+          "alpha95_mrad": 0.016261493607636752,
+          "covariance_waist_offset_mm": 140.84601933911566,
+          "projected_emittance_x_m_rad": 1.2857754160323789e-12,
+          "projected_emittance_y_m_rad": 1.0112442795281404e-12,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 10000.0,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.008140969322085764
+        },
+        {
+          "name": "Accelerator exit",
+          "z_mm": 370.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 1161.1687446239446,
+          "diameter95_nm": 4973.8572492858075,
+          "alpha95_mrad": 0.0040108002448859155,
+          "covariance_waist_offset_mm": -118.77352725308076,
+          "projected_emittance_x_m_rad": 1.045410283578799e-12,
+          "projected_emittance_y_m_rad": 9.885892622351868e-13,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 10000.0,
+          "bore_diameter_mm": 5.0,
+          "maximum_axis_radius_mm": 0.00807300474674377
+        },
+        {
+          "name": "Gun exit",
+          "z_mm": 450.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 1195.9018913406117,
+          "diameter95_nm": 5297.597225945031,
+          "alpha95_mrad": 0.0040108002448859155,
+          "covariance_waist_offset_mm": -198.77352725308174,
+          "projected_emittance_x_m_rad": 1.0454102835788033e-12,
+          "projected_emittance_y_m_rad": 9.885892622351894e-13,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 10000.0,
+          "bore_diameter_mm": 5.0,
+          "maximum_axis_radius_mm": 0.00833876326706787
+        }
+      ],
+      "stops": {},
+      "column_spots": [
+        {
+          "name": "450.0",
+          "z_mm": 450.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 1195.9018913406117,
+          "diameter95_nm": 5297.597225945031,
+          "alpha95_mrad": 0.0040108002448859155,
+          "covariance_waist_offset_mm": -198.77352725308174,
+          "projected_emittance_x_m_rad": 1.0454102835788033e-12,
+          "projected_emittance_y_m_rad": 9.885892622351894e-13,
+          "population": "all surviving current",
+          "precision": "full precision"
+        },
+        {
+          "name": "1599.1999975",
+          "z_mm": 1599.1999975,
+          "rays": 105,
+          "source_current_fraction": 0.5440414507772021,
+          "rms_radius_nm": 0.10461497501033588,
+          "diameter95_nm": 0.4255206319400717,
+          "alpha95_mrad": 23.584907361382093,
+          "covariance_waist_offset_mm": 1.3447468848651061e-06,
+          "projected_emittance_x_m_rad": 7.312799474539023e-13,
+          "projected_emittance_y_m_rad": 7.122118400022969e-13,
+          "population": "all surviving current",
+          "precision": "full precision"
+        }
+      ],
+      "column_crossovers": [
+        {
+          "z_mm": 503.24719961531275,
+          "rms_radius_nm": 8.813697573433972,
+          "bracket_mm": [
+            503.0,
+            504.0
+          ],
+          "rays": 193,
+          "status": "INTERPOLATED_CANDIDATE_NOT_FOCUS_ACCEPTANCE"
+        },
+        {
+          "z_mm": 668.190506445848,
+          "rms_radius_nm": 1.5999439975618106,
+          "bracket_mm": [
+            668.0,
+            669.0
+          ],
+          "rays": 193,
+          "status": "INTERPOLATED_CANDIDATE_NOT_FOCUS_ACCEPTANCE"
+        },
+        {
+          "z_mm": 1195.9242843094082,
+          "rms_radius_nm": 803.8847044582702,
+          "bracket_mm": [
+            1195.0,
+            1196.0
+          ],
+          "rays": 105,
+          "status": "INTERPOLATED_CANDIDATE_NOT_FOCUS_ACCEPTANCE"
+        },
+        {
+          "z_mm": 1372.9599817883748,
+          "rms_radius_nm": 0.9975336367462746,
+          "bracket_mm": [
+            1372.0,
+            1373.0
+          ],
+          "rays": 105,
+          "status": "INTERPOLATED_CANDIDATE_NOT_FOCUS_ACCEPTANCE"
+        },
+        {
+          "z_mm": 1585.9224611229365,
+          "rms_radius_nm": 0.11580681378753882,
+          "bracket_mm": [
+            1585.0,
+            1586.0
+          ],
+          "rays": 105,
+          "status": "INTERPOLATED_CANDIDATE_NOT_FOCUS_ACCEPTANCE"
+        }
+      ],
+      "component_planes": [
+        [
+          "feg_tip",
+          0.0
+        ],
+        [
+          "feg_extractor",
+          8.0
+        ],
+        [
+          "feg_electrostatic_lens",
+          18.0
+        ],
+        [
+          "feg_dpa_aperture",
+          120.0
+        ],
+        [
+          "feg_accelerator",
+          200.0
+        ],
+        [
+          "feg_deflector",
+          410.0
+        ],
+        [
+          "feg_stigmator",
+          433.0
+        ],
+        [
+          "feg_c1_aperture",
+          445.0
+        ],
+        [
+          "gun_exit",
+          450.0
+        ],
+        [
+          "condenser_lens_1",
+          500.0
+        ],
+        [
+          "condenser_lens_2",
+          650.0
+        ],
+        [
+          "condenser_aperture_2",
+          765.0
+        ],
+        [
+          "condenser_deflector",
+          810.0
+        ],
+        [
+          "condenser_lens_3",
+          915.0
+        ],
+        [
+          "condenser_aperture_3",
+          1010.0
+        ],
+        [
+          "beam_deflector",
+          1040.0
+        ],
+        [
+          "adapter_lens",
+          1088.2
+        ],
+        [
+          "probe_dph2_deflector",
+          1113.65
+        ],
+        [
+          "probe_qph2_quadrupole",
+          1128.15
+        ],
+        [
+          "probe_hp2_hexapole",
+          1144.5
+        ],
+        [
+          "probe_tl22_lens",
+          1166.35
+        ],
+        [
+          "probe_dp22_deflector",
+          1186.35
+        ],
+        [
+          "probe_hpc_hexapole",
+          1200.85
+        ],
+        [
+          "probe_qpc_quadrupole",
+          1215.35
+        ],
+        [
+          "probe_dp21_deflector",
+          1229.9
+        ],
+        [
+          "probe_tl21_lens",
+          1249.95
+        ],
+        [
+          "probe_dph1_deflector",
+          1269.95
+        ],
+        [
+          "probe_qph1_quadrupole",
+          1284.5
+        ],
+        [
+          "probe_hp1_hexapole",
+          1300.85
+        ],
+        [
+          "probe_hpol_hexapole",
+          1317.2
+        ],
+        [
+          "probe_qpol_quadrupole",
+          1331.75
+        ],
+        [
+          "probe_dp11_deflector",
+          1346.3
+        ],
+        [
+          "probe_tl12_lens",
+          1366.3
+        ],
+        [
+          "condenser_stigmator",
+          1451.5
+        ],
+        [
+          "ac_deflector",
+          1491.5
+        ],
+        [
+          "mini_condenser",
+          1522.5
+        ],
+        [
+          "objective_lens",
+          1599.2
+        ],
+        [
+          "sample",
+          1599.2
+        ],
+        [
+          "objective_aperture",
+          1600.7
+        ],
+        [
+          "descan_deflector",
+          1706.9
+        ],
+        [
+          "objective_stigmator",
+          1746.9
+        ],
+        [
+          "image_diffraction_deflector",
+          1786.9
+        ],
+        [
+          "selected_area_aperture",
+          1824.4
+        ],
+        [
+          "diffraction_stigmator",
+          1839.4
+        ],
+        [
+          "diffraction_lens",
+          1896.9
+        ],
+        [
+          "intermediate_lens",
+          2066.9
+        ],
+        [
+          "projector_lens_1",
+          2246.9
+        ],
+        [
+          "projector_lens_2",
+          2449.4
+        ],
+        [
+          "projection_chamber_dpa_aperture",
+          2586.9
+        ],
+        [
+          "haadf",
+          2594.15
+        ],
+        [
+          "flu_screen",
+          2714.15
+        ],
+        [
+          "df",
+          2804.15
+        ],
+        [
+          "bf",
+          2874.15
+        ],
+        [
+          "camera",
+          2986.6499999999996
+        ],
+        [
+          "energy_filter_entrance_aperture",
+          3025.8999999999996
+        ]
+      ],
+      "column_step_mm": 0.05,
+      "seconds": 3.924567999998544
+    },
+    "Curved R=100 nm": {
+      "qualification": "DIAGNOSTIC_ONLY",
+      "rays": 193,
+      "field_model": "grounded electrode field",
+      "inputs": {
+        "geometry": {
+          "shape": "spherical_cap_tangent_cone",
+          "material": "W(310)",
+          "apex_radius_nm": 100.0,
+          "cone_half_angle_deg": 5.0,
+          "shank_length_um": 1000.0
+        },
+        "emission": {
+          "cap_half_angle_deg": 2.957197369135768,
+          "normal_mean_energy_ev": 0.2,
+          "tangential_mean_energy_ev": 0.1,
+          "flux_electrons_per_nm2_s": 653864449.6443435,
+          "maximum_angle_deg": 90.0,
+          "energy_distribution": "normal_tangential_exponential",
+          "kinetic_mean_ev": 0.3,
+          "kinetic_sigma_ev": 0.1,
+          "directions_per_position": 8
+        },
+        "field_numerics": {
+          "radial_nodes": 160,
+          "axial_nodes": 320,
+          "apex_cells_per_radius": 20,
+          "outer_radius_factor": 1.25,
+          "linear_residual_tolerance": 1e-09,
+          "accelerator_ring_thickness_mm": 1.0
+        },
+        "schema": "grounded-cold-feg-surface-v1",
+        "status": "idealised_reference_not_calibrated",
+        "potential_reference": "final_accelerating_anode_ground_0V",
+        "geometry_reference": ""
+      },
+      "expected_d95_nm": 10.05689406165185,
+      "source_current_na": 8.765303095826344,
+      "emitted": {
+        "name": "Tip emission footprint",
+        "z_mm": null,
+        "rays": 193,
+        "source_current_fraction": 1.0,
+        "rms_radius_nm": 3.6041343553249603,
+        "diameter95_nm": 9.856509192018967,
+        "alpha95_mrad": 1294.0039964873247,
+        "covariance_waist_offset_mm": null,
+        "projected_emittance_x_m_rad": null,
+        "projected_emittance_y_m_rad": null,
+        "population": "physical emitting surface; not a common transverse plane",
+        "precision": "full precision"
+      },
+      "extractor_kv": 4.0,
+      "gun_lens_kv": 1.2,
+      "gun_lens_reference": "extractor",
+      "lens_percent": {
+        "condenser_lens_1": 51.666666666666664,
+        "condenser_lens_2": 25.25772717253661,
+        "condenser_lens_3": 21.273622908333973,
+        "adapter_lens": 86.0039434207,
+        "probe_tl22_lens": 60.0,
+        "probe_tl21_lens": 60.0,
+        "probe_tl12_lens": 60.0,
+        "mini_condenser": 41.5570797718,
+        "objective_lens": 68.9801,
+        "diffraction_lens": 14.577617197168571,
+        "intermediate_lens": 0.035082657259397326,
+        "projector_lens_1": 32.1132572718703,
+        "projector_lens_2": 9.826874422815507,
+        "image_ol_post_lens": 60.0,
+        "image_tl11_lens": 60.0,
+        "image_tl12_lens": 60.0,
+        "image_tl21_lens": 60.0,
+        "image_tl22_lens": 60.0,
+        "image_adapter_lens": 60.0
+      },
+      "trace_step_mm": 0.2,
+      "history_step_mm": 0.2,
+      "field_report": {
+        "model": "grounded-cold-feg-surface-v1",
+        "surface_mesh_displacement_m": 1.8613705942105016e-14,
+        "potential_reference": "final_anode_ground_0V",
+        "exit_energy_status": "verified",
+        "transmitted_particle_count": 193,
+        "minimum_exit_kinetic_energy_ev": 300000.01302407327,
+        "maximum_exit_kinetic_energy_ev": 300001.1176869784,
+        "minimum_expected_exit_kinetic_energy_ev": 300000.01302407024,
+        "maximum_expected_exit_kinetic_energy_ev": 300001.1176869808,
+        "maximum_exit_energy_error_ev": 3.026798367500305e-09,
+        "exit_energy_error_budget_ev": 0.001,
+        "accelerating_voltage_kv": 300.0,
+        "extraction_voltage_kv": 4.0,
+        "electrostatic_field": {
+          "schema": "axisymmetric-grounded-feg-laplace-v2",
+          "potential_reference": "final_anode_ground_0V",
+          "tip_potential_v": -300000.0,
+          "extractor_potential_v": -296000.0,
+          "gun_lens_potential_v": -294800.0,
+          "gun_lens_voltage_reference": "extractor",
+          "final_anode_potential_v": 0.0,
+          "grid_shape": [
+            264,
+            1180
+          ],
+          "elements": 611152,
+          "vertices": 311908,
+          "linear_residual": 1.0671404500802358e-15,
+          "space_charge": "neglected",
+          "potential_interpolation": "conforming-cut-axis-regular-radius-squared-z-v3",
+          "axis_core_fraction": 0.01,
+          "mesh_generation": "tip-graded-electrode-local-v2",
+          "coordinate_alias_merge_ulps": 32,
+          "minimum_radial_cell_m": 5.835050219980262e-10,
+          "minimum_axial_cell_m": 2.964313260767563e-10,
+          "electrode_cells_per_bore": 8,
+          "electrode_corner_cells": 0,
+          "maximum_axis_core_radius_m": 1.9689650675966474e-05,
+          "boundary_model": "reference annuli; insulating radial/back boundary; grounded exit plane",
+          "convergence": "not_certified_by_linear_residual"
+        },
+        "scope": "classical prescribed outgoing flux; no coherent phase or tunnelling prediction"
+      },
+      "spots": [
+        {
+          "name": "Accelerator entrance",
+          "z_mm": 30.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 517622.99397937354,
+          "diameter95_nm": 1649552.7743485258,
+          "alpha95_mrad": 4.387568066924026,
+          "covariance_waist_offset_mm": 189.7964930161075,
+          "projected_emittance_x_m_rad": 8.160604643562574e-09,
+          "projected_emittance_y_m_rad": 8.73827038007036e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.765303095826344,
+          "bore_diameter_mm": 5.0,
+          "maximum_axis_radius_mm": 0.9715261223743157
+        },
+        {
+          "name": "Accelerator stage 1",
+          "z_mm": 42.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 496297.83204409585,
+          "diameter95_nm": 1580728.9115551913,
+          "alpha95_mrad": 0.4082583531781766,
+          "covariance_waist_offset_mm": 2059.94544638782,
+          "projected_emittance_x_m_rad": 5.40890108653305e-09,
+          "projected_emittance_y_m_rad": 5.7790343412276985e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.765303095826344,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.930055101749901
+        },
+        {
+          "name": "Accelerator stage 2",
+          "z_mm": 77.55555555555556,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 506795.9527573251,
+          "diameter95_nm": 1612345.4101658799,
+          "alpha95_mrad": 0.7153772179225518,
+          "covariance_waist_offset_mm": -1094.1759522616092,
+          "projected_emittance_x_m_rad": 3.94132202067833e-09,
+          "projected_emittance_y_m_rad": 4.211014709543109e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.765303095826344,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.9465836780700412
+        },
+        {
+          "name": "Accelerator stage 3",
+          "z_mm": 113.11111111111111,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 516699.93710698554,
+          "diameter95_nm": 1642466.2472052264,
+          "alpha95_mrad": 0.5563629749903275,
+          "covariance_waist_offset_mm": -1431.59887368172,
+          "projected_emittance_x_m_rad": 3.214669905927974e-09,
+          "projected_emittance_y_m_rad": 3.4312354098076725e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.765303095826344,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.9627003631001507
+        },
+        {
+          "name": "Accelerator stage 4",
+          "z_mm": 148.66666666666669,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 524980.8950166595,
+          "diameter95_nm": 1667646.8978589845,
+          "alpha95_mrad": 0.46595005040469273,
+          "covariance_waist_offset_mm": -1735.0305455086934,
+          "projected_emittance_x_m_rad": 2.757519849231738e-09,
+          "projected_emittance_y_m_rad": 2.9499957186312654e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.765303095826344,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.9761698059044093
+        },
+        {
+          "name": "Accelerator stage 5",
+          "z_mm": 184.22222222222223,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 532208.595304018,
+          "diameter95_nm": 1689623.5301596208,
+          "alpha95_mrad": 0.40532569489443554,
+          "covariance_waist_offset_mm": -2020.0933698984436,
+          "projected_emittance_x_m_rad": 2.448611600664467e-09,
+          "projected_emittance_y_m_rad": 2.61635995635287e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.765303095826344,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.9879237648141765
+        },
+        {
+          "name": "Accelerator stage 6",
+          "z_mm": 219.77777777777777,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 538672.0942374598,
+          "diameter95_nm": 1709275.1241602437,
+          "alpha95_mrad": 0.3617860463693854,
+          "covariance_waist_offset_mm": -2291.1970257153293,
+          "projected_emittance_x_m_rad": 2.22023529860208e-09,
+          "projected_emittance_y_m_rad": 2.3728266904658614e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.765303095826344,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.9984330303435467
+        },
+        {
+          "name": "Accelerator stage 7",
+          "z_mm": 255.33333333333334,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 544551.9186745642,
+          "diameter95_nm": 1727151.6701290808,
+          "alpha95_mrad": 0.3282195755376118,
+          "covariance_waist_offset_mm": -2551.6330546410954,
+          "projected_emittance_x_m_rad": 2.0367508310425766e-09,
+          "projected_emittance_y_m_rad": 2.176449597669567e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.765303095826344,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 1.0079921359506097
+        },
+        {
+          "name": "Accelerator stage 8",
+          "z_mm": 290.8888888888889,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 549965.3938334879,
+          "diameter95_nm": 1743610.5086491306,
+          "alpha95_mrad": 0.3015386601092944,
+          "covariance_waist_offset_mm": -2804.3369189883415,
+          "projected_emittance_x_m_rad": 1.8841713352426013e-09,
+          "projected_emittance_y_m_rad": 2.0144870016456212e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.765303095826344,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 1.0167919868219517
+        },
+        {
+          "name": "Accelerator stage 9",
+          "z_mm": 326.44444444444446,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 554994.7262435767,
+          "diameter95_nm": 1758901.7425239272,
+          "alpha95_mrad": 0.2799324751542559,
+          "covariance_waist_offset_mm": -3047.9570573788847,
+          "projected_emittance_x_m_rad": 1.7557539427876188e-09,
+          "projected_emittance_y_m_rad": 1.876130924486511e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.765303095826344,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 1.0249667217144902
+        },
+        {
+          "name": "Accelerator stage 10",
+          "z_mm": 362.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 560310.6595413081,
+          "diameter95_nm": 1775133.7933516572,
+          "alpha95_mrad": 0.608756882097768,
+          "covariance_waist_offset_mm": -1438.7642648605927,
+          "projected_emittance_x_m_rad": 1.6879988163973731e-09,
+          "projected_emittance_y_m_rad": 1.803651600494295e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.765303095826344,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 1.0337332574429574
+        },
+        {
+          "name": "Accelerator exit",
+          "z_mm": 370.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 564617.1881018291,
+          "diameter95_nm": 1788653.460906106,
+          "alpha95_mrad": 0.9372117886987706,
+          "covariance_waist_offset_mm": -946.0113960734654,
+          "projected_emittance_x_m_rad": 1.7113431705802178e-09,
+          "projected_emittance_y_m_rad": 1.8252554324397792e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.765303095826344,
+          "bore_diameter_mm": 5.0,
+          "maximum_axis_radius_mm": 1.0414603513988634
+        },
+        {
+          "name": "Gun exit",
+          "z_mm": 450.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 613030.7669573675,
+          "diameter95_nm": 1940723.1679857506,
+          "alpha95_mrad": 0.9485932197520411,
+          "covariance_waist_offset_mm": -1014.8417766226491,
+          "projected_emittance_x_m_rad": 1.7232590940676013e-09,
+          "projected_emittance_y_m_rad": 1.8371903998652108e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.765303095826344,
+          "bore_diameter_mm": 5.0,
+          "maximum_axis_radius_mm": 1.1285275495302556
+        }
+      ],
+      "stops": {},
+      "column_spots": [
+        {
+          "name": "450.0",
+          "z_mm": 450.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 613030.7669573675,
+          "diameter95_nm": 1940723.1679857506,
+          "alpha95_mrad": 0.9485932197520411,
+          "covariance_waist_offset_mm": -1014.8417766226491,
+          "projected_emittance_x_m_rad": 1.7232590940676013e-09,
+          "projected_emittance_y_m_rad": 1.8371903998652108e-09,
+          "population": "all surviving current",
+          "precision": "full precision"
+        },
+        {
+          "name": "1599.1999975",
+          "z_mm": 1599.1999975,
+          "rays": 0,
+          "source_current_fraction": 0.0,
+          "rms_radius_nm": null,
+          "diameter95_nm": null,
+          "alpha95_mrad": null,
+          "covariance_waist_offset_mm": null,
+          "projected_emittance_x_m_rad": null,
+          "projected_emittance_y_m_rad": null,
+          "population": "all surviving current",
+          "precision": "full precision"
+        }
+      ],
+      "column_crossovers": [
+        {
+          "z_mm": 503.21691715482905,
+          "rms_radius_nm": 2654.561348538562,
+          "bracket_mm": [
+            503.0,
+            504.0
+          ],
+          "rays": 193,
+          "status": "INTERPOLATED_CANDIDATE_NOT_FOCUS_ACCEPTANCE"
+        },
+        {
+          "z_mm": 667.947498871242,
+          "rms_radius_nm": 8648.671952063134,
+          "bracket_mm": [
+            667.0,
+            668.0
+          ],
+          "rays": 6,
+          "status": "INTERPOLATED_CANDIDATE_NOT_FOCUS_ACCEPTANCE"
+        }
+      ],
+      "component_planes": [
+        [
+          "feg_tip",
+          0.0
+        ],
+        [
+          "feg_extractor",
+          8.0
+        ],
+        [
+          "feg_electrostatic_lens",
+          18.0
+        ],
+        [
+          "feg_dpa_aperture",
+          120.0
+        ],
+        [
+          "feg_accelerator",
+          200.0
+        ],
+        [
+          "feg_deflector",
+          410.0
+        ],
+        [
+          "feg_stigmator",
+          433.0
+        ],
+        [
+          "feg_c1_aperture",
+          445.0
+        ],
+        [
+          "gun_exit",
+          450.0
+        ],
+        [
+          "condenser_lens_1",
+          500.0
+        ],
+        [
+          "condenser_lens_2",
+          650.0
+        ],
+        [
+          "condenser_aperture_2",
+          765.0
+        ],
+        [
+          "condenser_deflector",
+          810.0
+        ],
+        [
+          "condenser_lens_3",
+          915.0
+        ],
+        [
+          "condenser_aperture_3",
+          1010.0
+        ],
+        [
+          "beam_deflector",
+          1040.0
+        ],
+        [
+          "adapter_lens",
+          1088.2
+        ],
+        [
+          "probe_dph2_deflector",
+          1113.65
+        ],
+        [
+          "probe_qph2_quadrupole",
+          1128.15
+        ],
+        [
+          "probe_hp2_hexapole",
+          1144.5
+        ],
+        [
+          "probe_tl22_lens",
+          1166.35
+        ],
+        [
+          "probe_dp22_deflector",
+          1186.35
+        ],
+        [
+          "probe_hpc_hexapole",
+          1200.85
+        ],
+        [
+          "probe_qpc_quadrupole",
+          1215.35
+        ],
+        [
+          "probe_dp21_deflector",
+          1229.9
+        ],
+        [
+          "probe_tl21_lens",
+          1249.95
+        ],
+        [
+          "probe_dph1_deflector",
+          1269.95
+        ],
+        [
+          "probe_qph1_quadrupole",
+          1284.5
+        ],
+        [
+          "probe_hp1_hexapole",
+          1300.85
+        ],
+        [
+          "probe_hpol_hexapole",
+          1317.2
+        ],
+        [
+          "probe_qpol_quadrupole",
+          1331.75
+        ],
+        [
+          "probe_dp11_deflector",
+          1346.3
+        ],
+        [
+          "probe_tl12_lens",
+          1366.3
+        ],
+        [
+          "condenser_stigmator",
+          1451.5
+        ],
+        [
+          "ac_deflector",
+          1491.5
+        ],
+        [
+          "mini_condenser",
+          1522.5
+        ],
+        [
+          "objective_lens",
+          1599.2
+        ],
+        [
+          "sample",
+          1599.2
+        ],
+        [
+          "objective_aperture",
+          1600.7
+        ],
+        [
+          "descan_deflector",
+          1706.9
+        ],
+        [
+          "objective_stigmator",
+          1746.9
+        ],
+        [
+          "image_diffraction_deflector",
+          1786.9
+        ],
+        [
+          "selected_area_aperture",
+          1824.4
+        ],
+        [
+          "diffraction_stigmator",
+          1839.4
+        ],
+        [
+          "diffraction_lens",
+          1896.9
+        ],
+        [
+          "intermediate_lens",
+          2066.9
+        ],
+        [
+          "projector_lens_1",
+          2246.9
+        ],
+        [
+          "projector_lens_2",
+          2449.4
+        ],
+        [
+          "projection_chamber_dpa_aperture",
+          2586.9
+        ],
+        [
+          "haadf",
+          2594.15
+        ],
+        [
+          "flu_screen",
+          2714.15
+        ],
+        [
+          "df",
+          2804.15
+        ],
+        [
+          "bf",
+          2874.15
+        ],
+        [
+          "camera",
+          2986.6499999999996
+        ],
+        [
+          "energy_filter_entrance_aperture",
+          3025.8999999999996
+        ]
+      ],
+      "column_step_mm": 0.05,
+      "seconds": 20.61976339999819
+    },
+    "Curved R=200 nm": {
+      "qualification": "DIAGNOSTIC_ONLY",
+      "rays": 193,
+      "field_model": "grounded electrode field",
+      "inputs": {
+        "geometry": {
+          "shape": "spherical_cap_tangent_cone",
+          "material": "W(310)",
+          "apex_radius_nm": 200.0,
+          "cone_half_angle_deg": 5.0,
+          "shank_length_um": 1000.0
+        },
+        "emission": {
+          "cap_half_angle_deg": 1.4781247257205454,
+          "normal_mean_energy_ev": 0.2,
+          "tangential_mean_energy_ev": 0.1,
+          "flux_electrons_per_nm2_s": 653864449.6443435,
+          "maximum_angle_deg": 90.0,
+          "energy_distribution": "normal_tangential_exponential",
+          "kinetic_mean_ev": 0.3,
+          "kinetic_sigma_ev": 0.1,
+          "directions_per_position": 8
+        },
+        "field_numerics": {
+          "radial_nodes": 160,
+          "axial_nodes": 320,
+          "apex_cells_per_radius": 20,
+          "outer_radius_factor": 1.25,
+          "linear_residual_tolerance": 1e-09,
+          "accelerator_ring_thickness_mm": 1.0
+        },
+        "schema": "grounded-cold-feg-surface-v1",
+        "status": "idealised_reference_not_calibrated",
+        "potential_reference": "final_accelerating_anode_ground_0V",
+        "geometry_reference": ""
+      },
+      "expected_d95_nm": 10.05689406165185,
+      "source_current_na": 8.761143529024077,
+      "emitted": {
+        "name": "Tip emission footprint",
+        "z_mm": null,
+        "rays": 193,
+        "source_current_fraction": 1.0,
+        "rms_radius_nm": 3.6038691221584997,
+        "diameter95_nm": 9.856391532181323,
+        "alpha95_mrad": 1291.1257473110138,
+        "covariance_waist_offset_mm": null,
+        "projected_emittance_x_m_rad": null,
+        "projected_emittance_y_m_rad": null,
+        "population": "physical emitting surface; not a common transverse plane",
+        "precision": "full precision"
+      },
+      "extractor_kv": 4.0,
+      "gun_lens_kv": 1.2,
+      "gun_lens_reference": "extractor",
+      "lens_percent": {
+        "condenser_lens_1": 51.666666666666664,
+        "condenser_lens_2": 25.25772717253661,
+        "condenser_lens_3": 21.273622908333973,
+        "adapter_lens": 86.0039434207,
+        "probe_tl22_lens": 60.0,
+        "probe_tl21_lens": 60.0,
+        "probe_tl12_lens": 60.0,
+        "mini_condenser": 41.5570797718,
+        "objective_lens": 68.9801,
+        "diffraction_lens": 14.577617197168571,
+        "intermediate_lens": 0.035082657259397326,
+        "projector_lens_1": 32.1132572718703,
+        "projector_lens_2": 9.826874422815507,
+        "image_ol_post_lens": 60.0,
+        "image_tl11_lens": 60.0,
+        "image_tl12_lens": 60.0,
+        "image_tl21_lens": 60.0,
+        "image_tl22_lens": 60.0,
+        "image_adapter_lens": 60.0
+      },
+      "trace_step_mm": 0.2,
+      "history_step_mm": 0.2,
+      "field_report": {
+        "model": "grounded-cold-feg-surface-v1",
+        "surface_mesh_displacement_m": 2.896139953110523e-14,
+        "potential_reference": "final_anode_ground_0V",
+        "exit_energy_status": "verified",
+        "transmitted_particle_count": 193,
+        "minimum_exit_kinetic_energy_ev": 300000.01302406914,
+        "maximum_exit_kinetic_energy_ev": 300001.11768698116,
+        "minimum_expected_exit_kinetic_energy_ev": 300000.01302407024,
+        "maximum_expected_exit_kinetic_energy_ev": 300001.1176869808,
+        "maximum_exit_energy_error_ev": 3.4924596548080444e-09,
+        "exit_energy_error_budget_ev": 0.001,
+        "accelerating_voltage_kv": 300.0,
+        "extraction_voltage_kv": 4.0,
+        "electrostatic_field": {
+          "schema": "axisymmetric-grounded-feg-laplace-v2",
+          "potential_reference": "final_anode_ground_0V",
+          "tip_potential_v": -300000.0,
+          "extractor_potential_v": -296000.0,
+          "gun_lens_potential_v": -294800.0,
+          "gun_lens_voltage_reference": "extractor",
+          "final_anode_potential_v": 0.0,
+          "grid_shape": [
+            259,
+            1178
+          ],
+          "elements": 598485,
+          "vertices": 305484,
+          "linear_residual": 1.115646834174792e-15,
+          "space_charge": "neglected",
+          "potential_interpolation": "conforming-cut-axis-regular-radius-squared-z-v3",
+          "axis_core_fraction": 0.01,
+          "mesh_generation": "tip-graded-electrode-local-v2",
+          "coordinate_alias_merge_ulps": 32,
+          "minimum_radial_cell_m": 1.118127589738902e-09,
+          "minimum_axial_cell_m": 5.69798449216783e-10,
+          "electrode_cells_per_bore": 8,
+          "electrode_corner_cells": 0,
+          "maximum_axis_core_radius_m": 1.8545878363896797e-05,
+          "boundary_model": "reference annuli; insulating radial/back boundary; grounded exit plane",
+          "convergence": "not_certified_by_linear_residual"
+        },
+        "scope": "classical prescribed outgoing flux; no coherent phase or tunnelling prediction"
+      },
+      "spots": [
+        {
+          "name": "Accelerator entrance",
+          "z_mm": 30.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 329704.737712225,
+          "diameter95_nm": 1171964.7222224171,
+          "alpha95_mrad": 3.0709966940134357,
+          "covariance_waist_offset_mm": 192.01679700878134,
+          "projected_emittance_x_m_rad": 1.6625604388965427e-09,
+          "projected_emittance_y_m_rad": 2.023774541437189e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.761143529024077,
+          "bore_diameter_mm": 5.0,
+          "maximum_axis_radius_mm": 0.7138628977819602
+        },
+        {
+          "name": "Accelerator stage 1",
+          "z_mm": 42.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 316317.3024367776,
+          "diameter95_nm": 1123984.4227577772,
+          "alpha95_mrad": 0.25473798781101825,
+          "covariance_waist_offset_mm": 2314.238870148784,
+          "projected_emittance_x_m_rad": 1.0803629184516295e-09,
+          "projected_emittance_y_m_rad": 1.3200737062846365e-09,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.761143529024077,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.6842779367287456
+        },
+        {
+          "name": "Accelerator stage 2",
+          "z_mm": 77.55555555555556,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 323460.38769885234,
+          "diameter95_nm": 1148534.4776044404,
+          "alpha95_mrad": 0.533598428715431,
+          "covariance_waist_offset_mm": -1057.2824829492597,
+          "projected_emittance_x_m_rad": 7.940770880957348e-10,
+          "projected_emittance_y_m_rad": 9.692508604442887e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.761143529024077,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.6984602462030547
+        },
+        {
+          "name": "Accelerator stage 3",
+          "z_mm": 113.11111111111111,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 330114.3382083169,
+          "diameter95_nm": 1171527.7648629723,
+          "alpha95_mrad": 0.4165649488481813,
+          "covariance_waist_offset_mm": -1380.8346524789642,
+          "projected_emittance_x_m_rad": 6.469128337178595e-10,
+          "projected_emittance_y_m_rad": 7.87803437382906e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.761143529024077,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.7118642757685328
+        },
+        {
+          "name": "Accelerator stage 4",
+          "z_mm": 148.66666666666669,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 335681.0401235547,
+          "diameter95_nm": 1190761.8841522501,
+          "alpha95_mrad": 0.3485105910226556,
+          "covariance_waist_offset_mm": -1676.9478265275516,
+          "projected_emittance_x_m_rad": 5.572604488756138e-10,
+          "projected_emittance_y_m_rad": 6.781115946270999e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.761143529024077,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.7230750630689377
+        },
+        {
+          "name": "Accelerator stage 5",
+          "z_mm": 184.22222222222223,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 340536.172039088,
+          "diameter95_nm": 1207535.9172764884,
+          "alpha95_mrad": 0.30376262257125547,
+          "covariance_waist_offset_mm": -1950.7633951373775,
+          "projected_emittance_x_m_rad": 4.966846174326878e-10,
+          "projected_emittance_y_m_rad": 6.036508575291028e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.761143529024077,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.7328518307698261
+        },
+        {
+          "name": "Accelerator stage 6",
+          "z_mm": 219.77777777777777,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 344883.5300987392,
+          "diameter95_nm": 1222555.550958699,
+          "alpha95_mrad": 0.2711401865735394,
+          "covariance_waist_offset_mm": -2212.3377531038764,
+          "projected_emittance_x_m_rad": 4.4887001137542203e-10,
+          "projected_emittance_y_m_rad": 5.477677642512711e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.761143529024077,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.7416065679905165
+        },
+        {
+          "name": "Accelerator stage 7",
+          "z_mm": 255.33333333333334,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 348835.28706089064,
+          "diameter95_nm": 1236209.8936988069,
+          "alpha95_mrad": 0.2463841632152615,
+          "covariance_waist_offset_mm": -2463.587143332066,
+          "projected_emittance_x_m_rad": 4.0872863894251197e-10,
+          "projected_emittance_y_m_rad": 4.995266435230463e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.761143529024077,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.7495640156470775
+        },
+        {
+          "name": "Accelerator stage 8",
+          "z_mm": 290.8888888888889,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 352475.3773538707,
+          "diameter95_nm": 1248787.5457912618,
+          "alpha95_mrad": 0.22648722408723165,
+          "covariance_waist_offset_mm": -2707.4942468920117,
+          "projected_emittance_x_m_rad": 3.773689623716735e-10,
+          "projected_emittance_y_m_rad": 4.6083190643939803e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.761143529024077,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.756894225176296
+        },
+        {
+          "name": "Accelerator stage 9",
+          "z_mm": 326.44444444444446,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 355857.11117379717,
+          "diameter95_nm": 1260472.9359902437,
+          "alpha95_mrad": 0.21028284346669762,
+          "covariance_waist_offset_mm": -2943.3733043121338,
+          "projected_emittance_x_m_rad": 3.5318368277559557e-10,
+          "projected_emittance_y_m_rad": 4.2977554308697645e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.761143529024077,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.7637035839611716
+        },
+        {
+          "name": "Accelerator stage 10",
+          "z_mm": 362.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 359413.9520483682,
+          "diameter95_nm": 1272793.7150594206,
+          "alpha95_mrad": 0.44561421174188476,
+          "covariance_waist_offset_mm": -1416.4647331158594,
+          "projected_emittance_x_m_rad": 3.407899493036481e-10,
+          "projected_emittance_y_m_rad": 4.1422750810051853e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.761143529024077,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.7709129417169341
+        },
+        {
+          "name": "Accelerator exit",
+          "z_mm": 370.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 362206.89905549877,
+          "diameter95_nm": 1282627.4813238455,
+          "alpha95_mrad": 0.6810966166789197,
+          "covariance_waist_offset_mm": -936.51977468593,
+          "projected_emittance_x_m_rad": 3.454950642776274e-10,
+          "projected_emittance_y_m_rad": 4.193810423582375e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.761143529024077,
+          "bore_diameter_mm": 5.0,
+          "maximum_axis_radius_mm": 0.7768170114114574
+        },
+        {
+          "name": "Gun exit",
+          "z_mm": 450.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 393580.4566226594,
+          "diameter95_nm": 1393134.4772129399,
+          "alpha95_mrad": 0.6893384893371359,
+          "covariance_waist_offset_mm": -1005.4973585923422,
+          "projected_emittance_x_m_rad": 3.480586679839514e-10,
+          "projected_emittance_y_m_rad": 4.2239921564664506e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.761143529024077,
+          "bore_diameter_mm": 5.0,
+          "maximum_axis_radius_mm": 0.8432050860882743
+        }
+      ],
+      "stops": {},
+      "column_spots": [
+        {
+          "name": "450.0",
+          "z_mm": 450.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 393580.4566226594,
+          "diameter95_nm": 1393134.4772129399,
+          "alpha95_mrad": 0.6893384893371359,
+          "covariance_waist_offset_mm": -1005.4973585923422,
+          "projected_emittance_x_m_rad": 3.480586679839514e-10,
+          "projected_emittance_y_m_rad": 4.2239921564664506e-10,
+          "population": "all surviving current",
+          "precision": "full precision"
+        },
+        {
+          "name": "1599.1999975",
+          "z_mm": 1599.1999975,
+          "rays": 0,
+          "source_current_fraction": 0.0,
+          "rms_radius_nm": null,
+          "diameter95_nm": null,
+          "alpha95_mrad": null,
+          "covariance_waist_offset_mm": null,
+          "projected_emittance_x_m_rad": null,
+          "projected_emittance_y_m_rad": null,
+          "population": "all surviving current",
+          "precision": "full precision"
+        }
+      ],
+      "column_crossovers": [
+        {
+          "z_mm": 503.2383506386307,
+          "rms_radius_nm": 1009.7074188429089,
+          "bracket_mm": [
+            503.0,
+            504.0
+          ],
+          "rays": 193,
+          "status": "INTERPOLATED_CANDIDATE_NOT_FOCUS_ACCEPTANCE"
+        },
+        {
+          "z_mm": 667.9983797690508,
+          "rms_radius_nm": 6139.9265852677345,
+          "bracket_mm": [
+            667.0,
+            668.0
+          ],
+          "rays": 16,
+          "status": "INTERPOLATED_CANDIDATE_NOT_FOCUS_ACCEPTANCE"
+        }
+      ],
+      "component_planes": [
+        [
+          "feg_tip",
+          0.0
+        ],
+        [
+          "feg_extractor",
+          8.0
+        ],
+        [
+          "feg_electrostatic_lens",
+          18.0
+        ],
+        [
+          "feg_dpa_aperture",
+          120.0
+        ],
+        [
+          "feg_accelerator",
+          200.0
+        ],
+        [
+          "feg_deflector",
+          410.0
+        ],
+        [
+          "feg_stigmator",
+          433.0
+        ],
+        [
+          "feg_c1_aperture",
+          445.0
+        ],
+        [
+          "gun_exit",
+          450.0
+        ],
+        [
+          "condenser_lens_1",
+          500.0
+        ],
+        [
+          "condenser_lens_2",
+          650.0
+        ],
+        [
+          "condenser_aperture_2",
+          765.0
+        ],
+        [
+          "condenser_deflector",
+          810.0
+        ],
+        [
+          "condenser_lens_3",
+          915.0
+        ],
+        [
+          "condenser_aperture_3",
+          1010.0
+        ],
+        [
+          "beam_deflector",
+          1040.0
+        ],
+        [
+          "adapter_lens",
+          1088.2
+        ],
+        [
+          "probe_dph2_deflector",
+          1113.65
+        ],
+        [
+          "probe_qph2_quadrupole",
+          1128.15
+        ],
+        [
+          "probe_hp2_hexapole",
+          1144.5
+        ],
+        [
+          "probe_tl22_lens",
+          1166.35
+        ],
+        [
+          "probe_dp22_deflector",
+          1186.35
+        ],
+        [
+          "probe_hpc_hexapole",
+          1200.85
+        ],
+        [
+          "probe_qpc_quadrupole",
+          1215.35
+        ],
+        [
+          "probe_dp21_deflector",
+          1229.9
+        ],
+        [
+          "probe_tl21_lens",
+          1249.95
+        ],
+        [
+          "probe_dph1_deflector",
+          1269.95
+        ],
+        [
+          "probe_qph1_quadrupole",
+          1284.5
+        ],
+        [
+          "probe_hp1_hexapole",
+          1300.85
+        ],
+        [
+          "probe_hpol_hexapole",
+          1317.2
+        ],
+        [
+          "probe_qpol_quadrupole",
+          1331.75
+        ],
+        [
+          "probe_dp11_deflector",
+          1346.3
+        ],
+        [
+          "probe_tl12_lens",
+          1366.3
+        ],
+        [
+          "condenser_stigmator",
+          1451.5
+        ],
+        [
+          "ac_deflector",
+          1491.5
+        ],
+        [
+          "mini_condenser",
+          1522.5
+        ],
+        [
+          "objective_lens",
+          1599.2
+        ],
+        [
+          "sample",
+          1599.2
+        ],
+        [
+          "objective_aperture",
+          1600.7
+        ],
+        [
+          "descan_deflector",
+          1706.9
+        ],
+        [
+          "objective_stigmator",
+          1746.9
+        ],
+        [
+          "image_diffraction_deflector",
+          1786.9
+        ],
+        [
+          "selected_area_aperture",
+          1824.4
+        ],
+        [
+          "diffraction_stigmator",
+          1839.4
+        ],
+        [
+          "diffraction_lens",
+          1896.9
+        ],
+        [
+          "intermediate_lens",
+          2066.9
+        ],
+        [
+          "projector_lens_1",
+          2246.9
+        ],
+        [
+          "projector_lens_2",
+          2449.4
+        ],
+        [
+          "projection_chamber_dpa_aperture",
+          2586.9
+        ],
+        [
+          "haadf",
+          2594.15
+        ],
+        [
+          "flu_screen",
+          2714.15
+        ],
+        [
+          "df",
+          2804.15
+        ],
+        [
+          "bf",
+          2874.15
+        ],
+        [
+          "camera",
+          2986.6499999999996
+        ],
+        [
+          "energy_filter_entrance_aperture",
+          3025.8999999999996
+        ]
+      ],
+      "column_step_mm": 0.05,
+      "seconds": 16.01856509999925
+    },
+    "Curved R=500 nm": {
+      "qualification": "DIAGNOSTIC_ONLY",
+      "rays": 193,
+      "field_model": "grounded electrode field",
+      "inputs": {
+        "geometry": {
+          "shape": "spherical_cap_tangent_cone",
+          "material": "W(310)",
+          "apex_radius_nm": 500.0,
+          "cone_half_angle_deg": 5.0,
+          "shank_length_um": 1000.0
+        },
+        "emission": {
+          "cap_half_angle_deg": 0.5911968651726668,
+          "normal_mean_energy_ev": 0.2,
+          "tangential_mean_energy_ev": 0.1,
+          "flux_electrons_per_nm2_s": 653864449.6443435,
+          "maximum_angle_deg": 90.0,
+          "energy_distribution": "normal_tangential_exponential",
+          "kinetic_mean_ev": 0.3,
+          "kinetic_sigma_ev": 0.1,
+          "directions_per_position": 8
+        },
+        "field_numerics": {
+          "radial_nodes": 160,
+          "axial_nodes": 320,
+          "apex_cells_per_radius": 20,
+          "outer_radius_factor": 1.25,
+          "linear_residual_tolerance": 1e-09,
+          "accelerator_ring_thickness_mm": 1.0
+        },
+        "schema": "grounded-cold-feg-surface-v1",
+        "status": "idealised_reference_not_calibrated",
+        "potential_reference": "final_accelerating_anode_ground_0V",
+        "geometry_reference": ""
+      },
+      "expected_d95_nm": 10.05689406165185,
+      "source_current_na": 8.759980264530814,
+      "emitted": {
+        "name": "Tip emission footprint",
+        "z_mm": null,
+        "rays": 193,
+        "source_current_fraction": 1.0,
+        "rms_radius_nm": 3.603794943551124,
+        "diameter95_nm": 9.856358626685003,
+        "alpha95_mrad": 1289.4592811706732,
+        "covariance_waist_offset_mm": null,
+        "projected_emittance_x_m_rad": null,
+        "projected_emittance_y_m_rad": null,
+        "population": "physical emitting surface; not a common transverse plane",
+        "precision": "full precision"
+      },
+      "extractor_kv": 4.0,
+      "gun_lens_kv": 1.2,
+      "gun_lens_reference": "extractor",
+      "lens_percent": {
+        "condenser_lens_1": 51.666666666666664,
+        "condenser_lens_2": 25.25772717253661,
+        "condenser_lens_3": 21.273622908333973,
+        "adapter_lens": 86.0039434207,
+        "probe_tl22_lens": 60.0,
+        "probe_tl21_lens": 60.0,
+        "probe_tl12_lens": 60.0,
+        "mini_condenser": 41.5570797718,
+        "objective_lens": 68.9801,
+        "diffraction_lens": 14.577617197168571,
+        "intermediate_lens": 0.035082657259397326,
+        "projector_lens_1": 32.1132572718703,
+        "projector_lens_2": 9.826874422815507,
+        "image_ol_post_lens": 60.0,
+        "image_tl11_lens": 60.0,
+        "image_tl12_lens": 60.0,
+        "image_tl21_lens": 60.0,
+        "image_tl22_lens": 60.0,
+        "image_adapter_lens": 60.0
+      },
+      "trace_step_mm": 0.2,
+      "history_step_mm": 0.2,
+      "field_report": {
+        "model": "grounded-cold-feg-surface-v1",
+        "surface_mesh_displacement_m": 1.5076247869693094e-14,
+        "potential_reference": "final_anode_ground_0V",
+        "exit_energy_status": "verified",
+        "transmitted_particle_count": 193,
+        "minimum_exit_kinetic_energy_ev": 300000.0130240722,
+        "maximum_exit_kinetic_energy_ev": 300001.11768697784,
+        "minimum_expected_exit_kinetic_energy_ev": 300000.01302407024,
+        "maximum_expected_exit_kinetic_energy_ev": 300001.1176869808,
+        "maximum_exit_energy_error_ev": 3.259629011154175e-09,
+        "exit_energy_error_budget_ev": 0.001,
+        "accelerating_voltage_kv": 300.0,
+        "extraction_voltage_kv": 4.0,
+        "electrostatic_field": {
+          "schema": "axisymmetric-grounded-feg-laplace-v2",
+          "potential_reference": "final_anode_ground_0V",
+          "tip_potential_v": -300000.0,
+          "extractor_potential_v": -296000.0,
+          "gun_lens_potential_v": -294800.0,
+          "gun_lens_voltage_reference": "extractor",
+          "final_anode_potential_v": 0.0,
+          "grid_shape": [
+            254,
+            1138
+          ],
+          "elements": 566669,
+          "vertices": 289426,
+          "linear_residual": 1.115646834174792e-15,
+          "space_charge": "neglected",
+          "potential_interpolation": "conforming-cut-axis-regular-radius-squared-z-v3",
+          "axis_core_fraction": 0.01,
+          "mesh_generation": "tip-graded-electrode-local-v2",
+          "coordinate_alias_merge_ulps": 32,
+          "minimum_radial_cell_m": 2.6345918502631393e-09,
+          "minimum_axial_cell_m": 1.3484657105175298e-09,
+          "electrode_cells_per_bore": 8,
+          "electrode_corner_cells": 0,
+          "maximum_axis_core_radius_m": 1.8612342801117964e-05,
+          "boundary_model": "reference annuli; insulating radial/back boundary; grounded exit plane",
+          "convergence": "not_certified_by_linear_residual"
+        },
+        "scope": "classical prescribed outgoing flux; no coherent phase or tunnelling prediction"
+      },
+      "spots": [
+        {
+          "name": "Accelerator entrance",
+          "z_mm": 30.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 241700.8047013911,
+          "diameter95_nm": 859553.6490409473,
+          "alpha95_mrad": 2.2387440266962804,
+          "covariance_waist_offset_mm": 192.66261546763096,
+          "projected_emittance_x_m_rad": 5.832708761298843e-10,
+          "projected_emittance_y_m_rad": 6.777284072090219e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.759980264530814,
+          "bore_diameter_mm": 5.0,
+          "maximum_axis_radius_mm": 0.5594721485271994
+        },
+        {
+          "name": "Accelerator stage 1",
+          "z_mm": 42.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 231933.1247999662,
+          "diameter95_nm": 824653.7726344458,
+          "alpha95_mrad": 0.1798830398781154,
+          "covariance_waist_offset_mm": 2364.5631445090085,
+          "projected_emittance_x_m_rad": 3.8307564326969907e-10,
+          "projected_emittance_y_m_rad": 4.434922475054353e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.759980264530814,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.5365529281282738
+        },
+        {
+          "name": "Accelerator stage 2",
+          "z_mm": 77.55555555555556,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 237252.77511120294,
+          "diameter95_nm": 843213.0119675372,
+          "alpha95_mrad": 0.39807610350175165,
+          "covariance_waist_offset_mm": -1048.5523145635007,
+          "projected_emittance_x_m_rad": 2.771029929592685e-10,
+          "projected_emittance_y_m_rad": 3.215131664192933e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.759980264530814,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.548201026567497
+        },
+        {
+          "name": "Accelerator stage 3",
+          "z_mm": 113.11111111111111,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 242201.8849851125,
+          "diameter95_nm": 860533.9167908748,
+          "alpha95_mrad": 0.3109988142565716,
+          "covariance_waist_offset_mm": -1369.1919112291607,
+          "projected_emittance_x_m_rad": 2.2676267274779407e-10,
+          "projected_emittance_y_m_rad": 2.6443279246208413e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.759980264530814,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.5591376661652004
+        },
+        {
+          "name": "Accelerator stage 4",
+          "z_mm": 148.66666666666669,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 246340.1058444877,
+          "diameter95_nm": 875015.6828067945,
+          "alpha95_mrad": 0.2604932271639852,
+          "covariance_waist_offset_mm": -1661.7865265963583,
+          "projected_emittance_x_m_rad": 1.9637031632845475e-10,
+          "projected_emittance_y_m_rad": 2.2796947862192514e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.759980264530814,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.5682809467624202
+        },
+        {
+          "name": "Accelerator stage 5",
+          "z_mm": 184.22222222222223,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 249952.32358171928,
+          "diameter95_nm": 887656.1499493795,
+          "alpha95_mrad": 0.2271181769305874,
+          "covariance_waist_offset_mm": -1933.6100937649117,
+          "projected_emittance_x_m_rad": 1.7341980882862213e-10,
+          "projected_emittance_y_m_rad": 2.014818846341555e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.759980264530814,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.5762614421730767
+        },
+        {
+          "name": "Accelerator stage 6",
+          "z_mm": 219.77777777777777,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 253182.55149779597,
+          "diameter95_nm": 898959.9579481074,
+          "alpha95_mrad": 0.20276558143530987,
+          "covariance_waist_offset_mm": -2193.393807679884,
+          "projected_emittance_x_m_rad": 1.5635593234923978e-10,
+          "projected_emittance_y_m_rad": 1.8158087604654956e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.759980264530814,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.5833982660183737
+        },
+        {
+          "name": "Accelerator stage 7",
+          "z_mm": 255.33333333333334,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 256121.1044530166,
+          "diameter95_nm": 909243.0711671658,
+          "alpha95_mrad": 0.18410853128675964,
+          "covariance_waist_offset_mm": -2443.237032150814,
+          "projected_emittance_x_m_rad": 1.4382669647377921e-10,
+          "projected_emittance_y_m_rad": 1.6704587032767541e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.759980264530814,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.5898901240651602
+        },
+        {
+          "name": "Accelerator stage 8",
+          "z_mm": 290.8888888888889,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 258826.30466924864,
+          "diameter95_nm": 918709.7477316711,
+          "alpha95_mrad": 0.16928899595404695,
+          "covariance_waist_offset_mm": -2685.450106459553,
+          "projected_emittance_x_m_rad": 1.3355928295949654e-10,
+          "projected_emittance_y_m_rad": 1.5507475141295914e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.759980264530814,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.5958660767392946
+        },
+        {
+          "name": "Accelerator stage 9",
+          "z_mm": 326.44444444444446,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 261339.4847258407,
+          "diameter95_nm": 927504.7282852483,
+          "alpha95_mrad": 0.1572443596096867,
+          "covariance_waist_offset_mm": -2919.0553000137807,
+          "projected_emittance_x_m_rad": 1.2408713745111344e-10,
+          "projected_emittance_y_m_rad": 1.4425892342062176e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.759980264530814,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.6014181299253499
+        },
+        {
+          "name": "Accelerator stage 10",
+          "z_mm": 362.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 263980.47444585466,
+          "diameter95_nm": 936759.806743562,
+          "alpha95_mrad": 0.3304875145743207,
+          "covariance_waist_offset_mm": -1410.638695402447,
+          "projected_emittance_x_m_rad": 1.1923497818746855e-10,
+          "projected_emittance_y_m_rad": 1.3803521180277796e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.759980264530814,
+          "bore_diameter_mm": 10.0,
+          "maximum_axis_radius_mm": 0.6072770752363823
+        },
+        {
+          "name": "Accelerator exit",
+          "z_mm": 370.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 266037.81621216214,
+          "diameter95_nm": 944036.5360790548,
+          "alpha95_mrad": 0.5037429629428151,
+          "covariance_waist_offset_mm": -934.1405701772201,
+          "projected_emittance_x_m_rad": 1.2151211084676245e-10,
+          "projected_emittance_y_m_rad": 1.4003058572829753e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.759980264530814,
+          "bore_diameter_mm": 5.0,
+          "maximum_axis_radius_mm": 0.6119649629720697
+        },
+        {
+          "name": "Gun exit",
+          "z_mm": 450.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 289141.60871927586,
+          "diameter95_nm": 1025770.6944558279,
+          "alpha95_mrad": 0.5099366269969764,
+          "covariance_waist_offset_mm": -1002.9462732591841,
+          "projected_emittance_x_m_rad": 1.2254218723824575e-10,
+          "projected_emittance_y_m_rad": 1.4118412316257075e-10,
+          "population": "all surviving current",
+          "precision": "executed gun history interpolation; not nm-focus acceptance",
+          "current_na": 8.759980264530814,
+          "bore_diameter_mm": 5.0,
+          "maximum_axis_radius_mm": 0.6646455117142648
+        }
+      ],
+      "stops": {},
+      "column_spots": [
+        {
+          "name": "450.0",
+          "z_mm": 450.0,
+          "rays": 193,
+          "source_current_fraction": 1.0,
+          "rms_radius_nm": 289141.60871927586,
+          "diameter95_nm": 1025770.6944558279,
+          "alpha95_mrad": 0.5099366269969764,
+          "covariance_waist_offset_mm": -1002.9462732591841,
+          "projected_emittance_x_m_rad": 1.2254218723824575e-10,
+          "projected_emittance_y_m_rad": 1.4118412316257075e-10,
+          "population": "all surviving current",
+          "precision": "full precision"
+        },
+        {
+          "name": "1599.1999975",
+          "z_mm": 1599.1999975,
+          "rays": 0,
+          "source_current_fraction": 0.0,
+          "rms_radius_nm": null,
+          "diameter95_nm": null,
+          "alpha95_mrad": null,
+          "covariance_waist_offset_mm": null,
+          "projected_emittance_x_m_rad": null,
+          "projected_emittance_y_m_rad": null,
+          "population": "all surviving current",
+          "precision": "full precision"
+        }
+      ],
+      "column_crossovers": [
+        {
+          "z_mm": 503.2470679647442,
+          "rms_radius_nm": 464.977009489949,
+          "bracket_mm": [
+            503.0,
+            504.0
+          ],
+          "rays": 193,
+          "status": "INTERPOLATED_CANDIDATE_NOT_FOCUS_ACCEPTANCE"
+        },
+        {
+          "z_mm": 667.9692918875567,
+          "rms_radius_nm": 7849.280096369616,
+          "bracket_mm": [
+            667.0,
+            668.0
+          ],
+          "rays": 25,
+          "status": "INTERPOLATED_CANDIDATE_NOT_FOCUS_ACCEPTANCE"
+        }
+      ],
+      "component_planes": [
+        [
+          "feg_tip",
+          0.0
+        ],
+        [
+          "feg_extractor",
+          8.0
+        ],
+        [
+          "feg_electrostatic_lens",
+          18.0
+        ],
+        [
+          "feg_dpa_aperture",
+          120.0
+        ],
+        [
+          "feg_accelerator",
+          200.0
+        ],
+        [
+          "feg_deflector",
+          410.0
+        ],
+        [
+          "feg_stigmator",
+          433.0
+        ],
+        [
+          "feg_c1_aperture",
+          445.0
+        ],
+        [
+          "gun_exit",
+          450.0
+        ],
+        [
+          "condenser_lens_1",
+          500.0
+        ],
+        [
+          "condenser_lens_2",
+          650.0
+        ],
+        [
+          "condenser_aperture_2",
+          765.0
+        ],
+        [
+          "condenser_deflector",
+          810.0
+        ],
+        [
+          "condenser_lens_3",
+          915.0
+        ],
+        [
+          "condenser_aperture_3",
+          1010.0
+        ],
+        [
+          "beam_deflector",
+          1040.0
+        ],
+        [
+          "adapter_lens",
+          1088.2
+        ],
+        [
+          "probe_dph2_deflector",
+          1113.65
+        ],
+        [
+          "probe_qph2_quadrupole",
+          1128.15
+        ],
+        [
+          "probe_hp2_hexapole",
+          1144.5
+        ],
+        [
+          "probe_tl22_lens",
+          1166.35
+        ],
+        [
+          "probe_dp22_deflector",
+          1186.35
+        ],
+        [
+          "probe_hpc_hexapole",
+          1200.85
+        ],
+        [
+          "probe_qpc_quadrupole",
+          1215.35
+        ],
+        [
+          "probe_dp21_deflector",
+          1229.9
+        ],
+        [
+          "probe_tl21_lens",
+          1249.95
+        ],
+        [
+          "probe_dph1_deflector",
+          1269.95
+        ],
+        [
+          "probe_qph1_quadrupole",
+          1284.5
+        ],
+        [
+          "probe_hp1_hexapole",
+          1300.85
+        ],
+        [
+          "probe_hpol_hexapole",
+          1317.2
+        ],
+        [
+          "probe_qpol_quadrupole",
+          1331.75
+        ],
+        [
+          "probe_dp11_deflector",
+          1346.3
+        ],
+        [
+          "probe_tl12_lens",
+          1366.3
+        ],
+        [
+          "condenser_stigmator",
+          1451.5
+        ],
+        [
+          "ac_deflector",
+          1491.5
+        ],
+        [
+          "mini_condenser",
+          1522.5
+        ],
+        [
+          "objective_lens",
+          1599.2
+        ],
+        [
+          "sample",
+          1599.2
+        ],
+        [
+          "objective_aperture",
+          1600.7
+        ],
+        [
+          "descan_deflector",
+          1706.9
+        ],
+        [
+          "objective_stigmator",
+          1746.9
+        ],
+        [
+          "image_diffraction_deflector",
+          1786.9
+        ],
+        [
+          "selected_area_aperture",
+          1824.4
+        ],
+        [
+          "diffraction_stigmator",
+          1839.4
+        ],
+        [
+          "diffraction_lens",
+          1896.9
+        ],
+        [
+          "intermediate_lens",
+          2066.9
+        ],
+        [
+          "projector_lens_1",
+          2246.9
+        ],
+        [
+          "projector_lens_2",
+          2449.4
+        ],
+        [
+          "projection_chamber_dpa_aperture",
+          2586.9
+        ],
+        [
+          "haadf",
+          2594.15
+        ],
+        [
+          "flu_screen",
+          2714.15
+        ],
+        [
+          "df",
+          2804.15
+        ],
+        [
+          "bf",
+          2874.15
+        ],
+        [
+          "camera",
+          2986.6499999999996
+        ],
+        [
+          "energy_filter_entrance_aperture",
+          3025.8999999999996
+        ]
+      ],
+      "column_step_mm": 0.05,
+      "seconds": 14.110848300002544
+    }
+  }
+}

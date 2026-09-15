@@ -5,7 +5,7 @@ hardware; a cell replaces the ambient medium only in its finite volume.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 import hashlib
 import json
 import math
@@ -106,6 +106,10 @@ class CellWindow:
     material: str = "SiN (Si3N4 approximation)"
     medium: Medium = field(default_factory=lambda: Medium(phase="solid", formula="Si3N4", density_kg_m3=3100.0))
     reference: str = "Editable bulk-density approximation; see CELL_ENVIRONMENT.md"
+    diameter_mm: float = 0.0  # Zero inherits the cell aperture (historical maps).
+
+    def radius_mm(self, cell):
+        return (self.diameter_mm or cell.diameter_mm) / 2
 
     def validate(self):
         self.medium.validate()
@@ -115,6 +119,8 @@ class CellWindow:
             raise ValueError("Window thickness must be finite and non-negative")
         if not isinstance(self.material, str) or not self.material.strip():
             raise ValueError("Window material needs a name")
+        if type(self.diameter_mm) not in (int, float) or not math.isfinite(self.diameter_mm) or self.diameter_mm < 0:
+            raise ValueError("Window diameter must be finite and non-negative (zero follows cell aperture)")
         return self
 
 
@@ -129,6 +135,8 @@ class SpecimenCell:
     medium: Medium = field(default_factory=lambda: Medium(pressure_mbar=1.0))
     upstream_window: CellWindow = field(default_factory=CellWindow)
     downstream_window: CellWindow = field(default_factory=CellWindow)
+    pressure_gradient_enabled: bool = False
+    end_pressure_mbar: float = 1.0  # Downstream inner face; upstream uses medium.pressure_mbar.
 
 
 @dataclass
@@ -166,11 +174,21 @@ class VacuumMap:
             raise ValueError("Cell interior must be gas, liquid or vacuum")
         self.cell.upstream_window.validate()
         self.cell.downstream_window.validate()
+        if not isinstance(self.cell.pressure_gradient_enabled, bool):
+            raise ValueError("Cell pressure-gradient setting must be boolean")
+        pressure = self.cell.end_pressure_mbar
+        if type(pressure) not in (int, float) or not math.isfinite(pressure) or pressure < 0:
+            raise ValueError("Cell downstream pressure must be finite and non-negative")
+        if self.cell.pressure_gradient_enabled and self.cell.medium.phase != "gas":
+            raise ValueError("A cell pressure gradient requires a gas; liquid density is a separate input")
         for key in ("diameter_mm", "length_mm", "offset_x_mm", "offset_y_mm", "offset_z_mm"):
             if not math.isfinite(getattr(self.cell, key)):
                 raise ValueError(f"Cell {key} must be finite")
         if self.cell.diameter_mm <= 0 or self.cell.length_mm <= 0:
             raise ValueError("Cell dimensions must be positive")
+        for window in (self.cell.upstream_window, self.cell.downstream_window):
+            if window.thickness_nm and window.radius_mm(self.cell) < self.cell.diameter_mm / 2:
+                raise ValueError("Each nonzero window must cover the cell aperture")
         return self
 
     def to_dict(self):
@@ -340,36 +358,48 @@ def resolve_regions(state, *, include_cell=True, include_disabled=False):
     projection = next(r for r in resolved if r.key == "projection")
     if abs(projection.start_z_mm-anchors["projection_dpa"]) > 1e-8:
         raise ValueError("Projection chamber must begin at the installed projection DPA")
-    cell = config.cell
-    if include_cell and cell.inserted:
-        centre = anchors["sample"] + cell.offset_z_mm
-        a, b = centre-cell.length_mm/2, centre+cell.length_mm/2
+    if include_cell and config.cell.inserted:
+        layers = resolve_cell_layers(state)
         ambient = next((r for r in resolved if r.key == "specimen"), None)
-        up, down = cell.upstream_window, cell.downstream_window
-        outer_a, outer_b = a-up.thickness_nm*1e-6, b+down.thickness_nm*1e-6
-        if b <= a or (up.thickness_nm > 0 and outer_a >= a) or (down.thickness_nm > 0 and outer_b <= b):
-            raise ValueError("Cell gap or window thickness is below the numerical resolution at this Z position")
+        outer_a = min(r.start_z_mm for r in layers)
+        outer_b = max(r.end_z_mm for r in layers)
         if ambient is None or outer_a < ambient.start_z_mm or outer_b > ambient.end_z_mm:
             raise ValueError("The inserted cell must fit inside the specimen environment region")
-        from temsim.specimen.source import specimen_is_vacuum
-        sample = state.sample
-        # The specimen is authoritative. Reject intersecting solid volumes,
-        # including a later Sample edit; never resize or move it to fit the cell.
-        if sample.inserted and not specimen_is_vacuum(sample):
-            for window, lo, hi in ((up, outer_a, a), (down, b, outer_b)):
-                if window.thickness_nm and sample_overlaps_window(sample, cell, lo, hi):
-                    raise ValueError("Sample intersects a cell window. Increase the cell gap or change the cell offset; edit the specimen only in Sample.")
-        # A displaced finite specimen remains a separately modeled solid. The
-        # transport excludes its volume rather than counting liquid/gas there.
-        resolved.append(ResolvedMedium("specimen_cell", "Inserted specimen cell", a, b,
-                                       cell.medium, cell.diameter_mm/2, cell.offset_x_mm, cell.offset_y_mm))
-        for key, label, window, lo, hi in (
-                ("cell_window_upstream", "Upstream window", up, outer_a, a),
-                ("cell_window_downstream", "Downstream window", down, b, outer_b)):
-            if window.thickness_nm > 0:
-                resolved.append(ResolvedMedium(key, f"{label} · {window.material}", lo, hi,
-                    window.medium, cell.diameter_mm/2, cell.offset_x_mm, cell.offset_y_mm))
+        resolved.extend(layers)
     return tuple(resolved)
+
+
+def resolve_cell_layers(state):
+    """Single geometry source for Physical Layout and executed transport.
+
+    Uses applied inputs even when transport is disabled; no display thickness,
+    inferred frame, optical aperture or second specimen is introduced.
+    """
+    cell = state.vacuum_map.validate().cell
+    if not cell.inserted:
+        return ()
+    centre = float(state.sample.z_mm) + cell.offset_z_mm
+    a, b = centre-cell.length_mm/2, centre+cell.length_mm/2
+    up, down = cell.upstream_window, cell.downstream_window
+    outer_a, outer_b = a-up.thickness_nm*1e-6, b+down.thickness_nm*1e-6
+    if b <= a or (up.thickness_nm > 0 and outer_a >= a) or (down.thickness_nm > 0 and outer_b <= b):
+        raise ValueError("Cell gap or window thickness is below the numerical resolution at this Z position")
+    endpoint = replace(cell.medium, pressure_mbar=cell.end_pressure_mbar) if cell.pressure_gradient_enabled else None
+    layers = [ResolvedMedium("specimen_cell", "Cell interior", a, b, cell.medium,
+                             cell.diameter_mm/2, cell.offset_x_mm, cell.offset_y_mm, endpoint)]
+    from temsim.specimen.source import specimen_is_vacuum
+    sample = state.sample
+    for key, label, window, lo, hi in (
+            ("cell_window_upstream", "Upstream window", up, outer_a, a),
+            ("cell_window_downstream", "Downstream window", down, b, outer_b)):
+        if window.thickness_nm == 0:
+            continue
+        footprint = replace(cell, diameter_mm=2*window.radius_mm(cell))
+        if sample.inserted and not specimen_is_vacuum(sample) and sample_overlaps_window(sample, footprint, lo, hi):
+            raise ValueError("Sample intersects a cell window. Increase the cell gap or change the cell offset; edit the specimen only in Sample.")
+        layers.append(ResolvedMedium(key, f"{label} · {window.material}", lo, hi,
+            window.medium, window.radius_mm(cell), cell.offset_x_mm, cell.offset_y_mm))
+    return tuple(layers)
 
 
 def sample_overlaps_window(sample, cell, lo, hi):

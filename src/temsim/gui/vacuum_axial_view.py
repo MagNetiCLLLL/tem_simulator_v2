@@ -102,7 +102,7 @@ class VacuumAxialView(pg.PlotWidget):
             self._rectangle(row.start_z_mm, row.end_z_mm, .1 if cell else 1.0,
                             .5 if cell else .7,
                             "#475569" if transition else ("#785420" if cell else "#155e75"),
-                            "Linear transition" if transition else row.name,
+                            ("Cell pressure gradient" if cell else "Linear transition") if transition else row.name,
                             row.key, transition)
         if self.sample_z_mm is not None:
             self.sample_marker = pg.InfiniteLine(self.sample_z_mm, pen=pg.mkPen("#fbbf24", width=2))

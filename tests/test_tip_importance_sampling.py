@@ -5,6 +5,8 @@ import pytest
 
 from temsim.optics.electron_gun.tip_sampling import stratified_cap_area
 from temsim.optics.electron_gun.tip_surface import load_tip_surface_reference, emit_surface, TipSurfaceModel
+from temsim import module_manifest
+from temsim.optics.electron_gun.tip_assembly import model_from_part
 
 
 def test_strata_preserve_full_area_current_including_outer_cap():
@@ -94,6 +96,7 @@ def test_sampling_invalidates_gun_cache_without_changing_field_or_physical_sourc
     from temsim.instrument_snapshot import capture_instrument_snapshot
     state = default_state()
     gun = state.electron_gun
+    gun.emitter.surface_model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     before = gun._cache_key(193)
     field = field_request(gun)
     model = gun.emitter.surface_model

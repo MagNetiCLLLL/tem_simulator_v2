@@ -1,0 +1,146 @@
+{
+  "status": "EXPLORATION_ONLY",
+  "radius_nm": 500.0,
+  "rays": 1000,
+  "attempts": [
+    {
+      "c1_c2": [
+        49.3534546415365,
+        11.8614833948005
+      ],
+      "pupil": {
+        "name": "C2 aperture",
+        "z_mm": 765.0,
+        "rays": 136,
+        "source_current_fraction": 0.13599999999999995,
+        "rms_radius_nm": 2347.19410788799,
+        "diameter95_nm": 9248.13825686207,
+        "alpha95_mrad": 25.10360020904018,
+        "covariance_waist_offset_mm": -0.12287174662146971,
+        "projected_emittance_x_m_rad": 7.819954621165547e-09,
+        "projected_emittance_y_m_rad": 6.784758260721056e-09,
+        "population": "all surviving current",
+        "precision": "full precision"
+      },
+      "focus_proposals": [
+        {
+          "c3_objective": [
+            34.6712523362168,
+            68.5
+          ],
+          "measurement": {
+            "surface_z_mm": 1599.1999975,
+            "statistics": {
+              "surviving_rays": 49,
+              "surviving_fraction": 0.04899999999999998,
+              "mean_x_m": 2.224876967273165e-08,
+              "mean_y_m": -4.30466239668312e-09,
+              "mean_tx_rad": 0.007989572664318014,
+              "mean_ty_rad": 0.006592050543335183,
+              "convergence_rms_rad": 0.12812300333699397,
+              "convergence_95_rad": 0.1759669928815895,
+              "convergence_99_rad": 0.18093836566136162,
+              "convergence_edge_rad": 0.18093836566136162,
+              "radius_rms_m": 5.38253495439187e-07,
+              "radius_95_m": 1.0359018333306233e-06,
+              "radius_99_m": 1.2104371583175088e-06,
+              "radial_position_angle_covariance_m_rad": 6.399488319797042e-08,
+              "radial_wavefront_curvature_per_m": 220887.69998120356,
+              "waist_offset_m": -3.841943337099507e-06,
+              "twofold_moment": 0.16627054612679235,
+              "threefold_moment": 0.8189789175578807
+            },
+            "local_waist_offset_nm": -3841.623623545539,
+            "variance_second_derivative": 0.03331658288600044,
+            "upstream_rms_radii_m": [
+              5.145728351128618e-07,
+              5.263880992954397e-07,
+              5.38253495439187e-07
+            ],
+            "step_mm": 0.05,
+            "effective_rays": 49.000000000000014
+          },
+          "refinement": {
+            "status": "FAIL",
+            "sampling_convergence": "NOT_TESTED",
+            "target_alpha95_mrad": 30.0,
+            "probe_qualification": "NOT_QUALIFIED: spot size, crossover topology and sampling require separate acceptance",
+            "particle_count": 1000,
+            "strengths": {
+              "condenser_lens_3": 34.9192996231591,
+              "objective_lens": 68.41985799646439
+            },
+            "evaluations": 46,
+            "optimizer_success": true,
+            "optimizer_message": "`xtol` termination condition is satisfied.",
+            "reference": {
+              "surface_z_mm": 1599.1999975,
+              "statistics": {
+                "surviving_rays": 50,
+                "surviving_fraction": 0.04999999999999998,
+                "mean_x_m": -1.2607346499037704e-08,
+                "mean_y_m": -2.7078350011564162e-08,
+                "mean_tx_rad": 0.010595877082680616,
+                "mean_ty_rad": 0.006240762966607701,
+                "convergence_rms_rad": 0.11936965814214746,
+                "convergence_95_rad": 0.16249515504529247,
+                "convergence_99_rad": 0.16756702675952231,
+                "convergence_edge_rad": 0.16756702675952231,
+                "radius_rms_m": 1.8354767747281566e-07,
+                "radius_95_m": 3.5676137578861625e-07,
+                "radius_99_m": 5.183039266675054e-07,
+                "radial_position_angle_covariance_m_rad": 2.0200963841039916e-11,
+                "radial_wavefront_curvature_per_m": 599.6175067373601,
+                "waist_offset_m": -1.399793028321e-09,
+                "twofold_moment": 0.32859328923521347,
+                "threefold_moment": 0.8005702727235352
+              },
+              "local_waist_offset_nm": -1.3997128540393253,
+              "variance_second_derivative": 0.028864522404587093,
+              "upstream_rms_radii_m": [
+                1.8509176087862318e-07,
+                1.8392942209821723e-07,
+                1.8354767747281566e-07
+              ],
+              "step_mm": 0.05,
+              "effective_rays": 49.99999999999999
+            },
+            "refined": {
+              "surface_z_mm": 1599.1999975,
+              "statistics": {
+                "surviving_rays": 50,
+                "surviving_fraction": 0.04999999999999998,
+                "mean_x_m": -1.2607028753251988e-08,
+                "mean_y_m": -2.707817233751662e-08,
+                "mean_tx_rad": 0.010595876977055333,
+                "mean_ty_rad": 0.006240763148675881,
+                "convergence_rms_rad": 0.1193696581452784,
+                "convergence_95_rad": 0.16249515504953857,
+                "convergence_99_rad": 0.16756702676682697,
+                "convergence_edge_rad": 0.16756702676682697,
+                "radius_rms_m": 1.8354767735424378e-07,
+                "radius_95_m": 3.567654533984301e-07,
+                "radius_99_m": 5.18308140712998e-07,
+                "radial_position_angle_covariance_m_rad": 2.0627351909378216e-11,
+                "radial_wavefront_curvature_per_m": 612.2738219721954,
+                "waist_offset_m": -1.429338897943022e-09,
+                "twofold_moment": 0.3285902894595518,
+                "threefold_moment": 0.8005760895032533
+              },
+              "local_waist_offset_nm": -1.429256947597019,
+              "variance_second_derivative": 0.028864522396849317,
+              "upstream_rms_radii_m": [
+                1.850913000284984e-07,
+                1.8392919015807237e-07,
+                1.8354767735424378e-07
+              ],
+              "step_mm": 0.025,
+              "effective_rays": 49.99999999999999
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "warnings": {}
+}

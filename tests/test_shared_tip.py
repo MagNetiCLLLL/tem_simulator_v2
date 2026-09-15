@@ -9,6 +9,7 @@ from temsim.assembly_catalog import AssemblyCatalog
 from temsim.manifest_editor import ManifestEditor
 from temsim.optics.column import default_state
 from temsim.optics.electron_gun.field_emission import FieldEmissionGun, field_emission_gun_from_dict
+from temsim.optics.electron_gun.tip_assembly import model_from_part
 from temsim.part_model_document import PartModelDocument
 from temsim.paths import INSTRUMENT_CONFIG_ROOT
 from temsim.shared_tip import LINK, copy_catalog_tree
@@ -39,7 +40,8 @@ def test_save_any_linked_tip_updates_both_runtime_variants(root, filename):
     states = [default_state(), default_state()]
     selections = [replace(catalog.default_selection(), gun=gun) for gun in ("FEG", "FEG + Mono")]
     for state, selection in zip(states, selections):
-        catalog.apply(state, selection, preserve_operating_parameters=True)
+        assembly = catalog.apply(state, selection, preserve_operating_parameters=True)
+        state.electron_gun.emitter.surface_model = model_from_part(assembly.part("feg_tip").data)
     previous = [state.electron_gun._cache_key(9) for state in states]
     draft = PartModelDocument(root / "gun" / filename)
     draft.set_dimension(TIP + ("tip_radius_nm",), 125.)
@@ -170,6 +172,8 @@ def test_saved_source_is_not_silently_converted_when_shared_defaults_change(root
     gun = FieldEmissionGun()
     if historical_planar:
         gun.emitter.surface_model = None
+    else:
+        gun.emitter.surface_model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     saved = gun.to_dict()
     change_radius(root, 170.)
     restored = field_emission_gun_from_dict(saved)
@@ -193,6 +197,11 @@ def window(qtbot, root, tmp_path, monkeypatch):
     widget = main_window.MainWindow()
     qtbot.addWidget(widget)
     widget.preview_timer.stop()
+    # Startup now deliberately selects historical planar particles. These
+    # tests exercise explicit curved-tip edits, not implicit model activation.
+    from temsim.optics.electron_gun.tip_assembly import model_from_part
+    widget.state.electron_gun.emitter.surface_model = model_from_part(
+        module_manifest.part_data(shared_path(root), "feg_tip"))
     return widget
 
 
@@ -241,3 +250,39 @@ def test_tip_reload_applies_only_changed_electrode_defaults(window, root):
     page.session.set_dimension(TIP + ("tip_radius_nm",), 130.)
     assert page.save()
     assert window.state.electron_gun.extractor.voltage_kv == 6.
+
+
+def test_geometry_save_keeps_live_emission_and_downstream_controls(window, root):
+    model = window.state.electron_gun.emitter.surface_model
+    emission = replace(model.emission, current_na=50., flux_electrons_per_nm2_s=None,
+                       cap_half_angle_deg=5., normal_mean_energy_ev=.6)
+    window.state.electron_gun.emitter.surface_model = replace(model, emission=emission)
+    window.state.condenser_aperture_3.radius_mm = .0123
+    for plane in window.state.recording_planes:
+        if plane.key in {"camera", "flu_screen"}:
+            plane.inserted = True
+    page = window.workspace.physical_layout.model_editor
+    assert page.open_path(shared_path(root), selected_key="feg_tip")
+    page.session.set_dimension(TIP + ("tip_radius_nm",), 120.)
+    assert page.save(), page.status.text()
+    updated = window.state.electron_gun.emitter.surface_model
+    assert updated.geometry.apex_radius_nm == 120.
+    assert updated.emission == emission and updated.current_na == 50.
+    assert window.state.condenser_aperture_3.radius_mm == .0123
+    assert all(p.inserted for p in window.state.recording_planes if p.key in {"camera", "flu_screen"})
+
+
+def test_invalid_geometry_for_active_emission_rolls_back_save(window, root):
+    model = window.state.electron_gun.emitter.surface_model
+    window.state.electron_gun.emitter.surface_model = replace(model,
+        emission=replace(model.emission, cap_half_angle_deg=75.))
+    original_state = window.state
+    original_bytes = shared_path(root).read_bytes()
+    page = window.workspace.physical_layout.model_editor
+    assert page.open_path(shared_path(root), selected_key="feg_tip")
+    # The saved default cap (10 deg) would fit, but the active cap would not.
+    page.session.set_dimension(TIP + ("tip_cone_half_angle_deg",), 20.)
+    assert not page.save()
+    assert window.state is original_state
+    assert window.state.electron_gun.emitter.surface_model.emission.cap_half_angle_deg == 75.
+    assert shared_path(root).read_bytes() == original_bytes

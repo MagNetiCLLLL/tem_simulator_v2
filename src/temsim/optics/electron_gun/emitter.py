@@ -65,6 +65,40 @@ class ColdFieldEmitter:
     ray_count: int = 1000
 
     @property
+    def curvature_nm_inv(self):
+        """Operating curvature; absent historical flat records mean zero."""
+        return self.__dict__.get("_tip_curvature_nm_inv", 0.0)
+
+    @curvature_nm_inv.setter
+    def curvature_nm_inv(self, value):
+        value = float(value)
+        if not np.isfinite(value) or value < 0:
+            raise ValueError("Tip curvature must be finite and non-negative")
+        if value == 0:
+            self.__dict__.pop("_tip_curvature_nm_inv", None)
+            self.__dict__.pop("_tip_curvature_model", None)
+        else:
+            model = self.curvature_model
+            self.__dict__["_tip_curvature_nm_inv"] = value
+            self.__dict__["_tip_curvature_model"] = model
+
+    @property
+    def curvature_model(self):
+        from temsim.optics.electron_gun.tip_curvature import MODEL, LEGACY_MODEL
+        # Old snapshots contain curvature but no discriminator: keep their sag.
+        return self.__dict__.get("_tip_curvature_model", LEGACY_MODEL if self.curvature_nm_inv else MODEL)
+
+    @curvature_model.setter
+    def curvature_model(self, value):
+        from temsim.optics.electron_gun.tip_curvature import MODEL, ANGLE_ONLY_MODEL, LEGACY_MODEL
+        if value not in {MODEL, ANGLE_ONLY_MODEL, LEGACY_MODEL}:
+            raise ValueError("Unsupported continuous tip geometry model")
+        if self.curvature_nm_inv:
+            self.__dict__["_tip_curvature_model"] = value
+        else:
+            self.__dict__.pop("_tip_curvature_model", None)
+
+    @property
     def surface_model(self):
         """Explicit v1 surface model; absent on historical parameter records."""
         return self.__dict__.get("_surface_model")
@@ -121,6 +155,8 @@ class ColdFieldEmitter:
         return "feg_tip"
 
     def validate(self):
+        from temsim.optics.electron_gun.tip_curvature import validate_curvature
+        validate_curvature(self)
         if self.surface_model is not None:
             self.surface_model.validate()
             if self.coherence is not None:
@@ -216,7 +252,8 @@ class ColdFieldEmitter:
         if getattr(self, "_tuning_boundary_probes", 0):
             from temsim.physics.optical_tuning import add_source_support_probes
             bundle = add_source_support_probes(bundle, self)
-        return bundle
+        from temsim.optics.electron_gun.tip_curvature import curve_bundle
+        return curve_bundle(bundle, self)
 
     def draw_layout(self):
         return {

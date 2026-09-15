@@ -1216,6 +1216,7 @@ class PhysicalLayoutView(QWidget):
     component_selected = Signal(str)
     component_activated = Signal(str, float)
     navigation_requested = Signal(str, str, float)
+    cell_geometry_requested = Signal()
     axial_position_selected = Signal(float)
     RECORDING_SURFACE_PROFILES = frozenset({
         "retractable_detector_plane",
@@ -1376,6 +1377,15 @@ class PhysicalLayoutView(QWidget):
         heading_row.addWidget(self.heading)
         heading_row.addStretch(1)
         action_row = QHBoxLayout()
+        self.edit_cell = QPushButton("Cell / windows…")
+        self.fit_cell = QPushButton("Fit cell")
+        self.fit_cell.setEnabled(False)
+        self.cell_status = QLabel("No cell inserted")
+        self.cell_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.edit_cell.clicked.connect(lambda: self.cell_geometry_requested.emit())
+        action_row.addWidget(self.edit_cell)
+        action_row.addWidget(self.fit_cell)
+        action_row.addWidget(self.cell_status)
         action_row.addStretch(1)
         action_row.addWidget(self.fit_bore)
         action_row.addWidget(self.fit_all)
@@ -1389,6 +1399,12 @@ class PhysicalLayoutView(QWidget):
         self.plot.setMenuEnabled(False)
         self.plot.setLabel("left", "Mechanical radius", units="mm")
         self.plot.showGrid(x=True, y=True, alpha=0.16)
+        self.plot.getAxis("bottom").enableAutoSIPrefix(False)
+        self.plot.getAxis("left").enableAutoSIPrefix(False)
+        from temsim.gui.cell_layout_overlay import CellLayoutOverlay
+        self.cell_overlay = CellLayoutOverlay(self.plot)
+        self._cell_state = None
+        self.fit_cell.clicked.connect(self._fit_cell_view)
         view_box = self.plot.getViewBox()
         view_box.setAspectLocked(False)
         view_box.setMouseEnabled(x=True, y=True)
@@ -1433,6 +1449,33 @@ class PhysicalLayoutView(QWidget):
             self._layout_component_labels
         )
         self.plot.getViewBox().sigResized.connect(self._layout_component_labels)
+
+    def set_cell_state(self, state):
+        """Refresh live applied cell geometry without waiting for a ray solve."""
+        from temsim.cell_geometry import CellPhysicalContext
+        self._cell_state = state
+        error = None
+        try:
+            context = CellPhysicalContext.capture(state)
+            self.cell_status.setText(("Cell inserted · transport " + ("on" if state.vacuum_map.enabled else "off"))
+                                    if context.layers else "No cell inserted")
+        except ValueError as exc:
+            context, error = CellPhysicalContext(), f"Invalid cell: {exc}"
+            self.cell_status.setText(error)
+        self.cell_overlay.context = context
+        self.cell_overlay.render(self._selectable_item_keys)
+        self.fit_cell.setEnabled(bool(context.layers))
+        self.assembly_3d.set_cell_context(context, error)
+
+    def cell_part(self, key):
+        return next((p for p in self.cell_overlay.context.parts() if p.key == key), None)
+
+    def _fit_cell_view(self):
+        if self.tabs.currentWidget() is self.assembly_3d:
+            self.assembly_3d.focus_component("specimen_cell")
+            return self.assembly_3d.fit_current_selection()
+        self.tabs.setCurrentWidget(self.section_page)
+        return self.cell_overlay.fit()
 
     def _plot_position_clicked(self, event) -> None:
         if event.button() != Qt.MouseButton.RightButton:
@@ -3371,6 +3414,11 @@ class PhysicalLayoutView(QWidget):
         for callout in callouts:
             callout.label.setPos(callout.anchor_z_mm, 0.0)
             callout.label.show()
+            # QGraphicsItem.show() does not call TextItem.setVisible()'s Python
+            # override. Before its first paint a new label can still have an
+            # identity transform, yielding data-scaled rather than pixel-sized
+            # bounds. Resolve its screen-space transform before any packing.
+            callout.label.updateTransform(force=True)
             rectangle = callout.label.sceneBoundingRect()
             if rectangle.isValid() and rectangle.height() > 0.0:
                 label_heights.append(float(rectangle.height()))
@@ -3878,6 +3926,10 @@ class PhysicalLayoutView(QWidget):
         )
         self.summary.setToolTip(layout_detail)
         self._semantic_selected_summary = None
+        if self._cell_state is not None:
+            self.set_cell_state(self._cell_state)
+        elif hasattr(result, "state_snapshot") and getattr(result.state_snapshot, "vacuum_map", None) is not None:
+            self.set_cell_state(result.state_snapshot)
 
     def set_parameter_semantics_context(self, mode=None, descriptors=None, by_key=None):
         """Update selected-parameter explanations without changing the plot."""

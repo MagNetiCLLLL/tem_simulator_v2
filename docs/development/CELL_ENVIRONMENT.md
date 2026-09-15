@@ -5,17 +5,23 @@
 1. Define the specimen in **Sample**: material/CIF or vacuum, finite envelope,
    thickness, centre X/Y and axial position. These remain the authoritative
    specimen settings; the cell does not replace them.
-2. Open **Vacuum map**, select **Inserted specimen cell**, and set **Insert cell**.
+2. Open **Physical Layout → Cell / windows…**, and set **Insert specimen cell**.
    Enter the aperture diameter, inner-face **Cell gap**, and offsets. Dimensions
    in the cell editor are nm; stored cell geometry retains mm for compatibility.
 3. Set each window independently: SiN, graphene, or custom formula and mass
-   density; enter its thickness in nm. Zero explicitly means no window.
-4. Choose ideal vacuum, gas, or liquid for the interior. Use a single chemical
+   density; enter its thickness and diameter in nm. Zero thickness explicitly
+   means no window; zero diameter means **Follow cell aperture**. Larger
+   membranes are allowed; a nonzero membrane cannot leave the aperture uncovered.
+4. Choose **Apply and edit medium…** to open **Vacuum map → Inserted specimen
+   cell**. Choose ideal vacuum, gas, or liquid for the interior. Use a single chemical
    formula or optional JSON **mole fractions**, for example
    `{"Ar": 0.9, "H2": 0.1}`. Fractions must sum to one; no silent normalisation.
    Gas uses total absolute pressure in mbar and temperature in K. Liquid uses
    supplied mass density in kg/m³; its pressure is recorded but does not change
-   density or deform the membranes.
+   density or deform the membranes. For a prescribed gas pressure variation,
+   enable **Linear pressure gradient inside cell** and enter downstream pressure.
+   Upstream pressure is the ordinary pressure field. Composition and temperature
+   stay fixed; this is an imposed density profile, not a fluid-flow solve.
 5. Apply. Inspect the gold Sample marker in the full chamber and the local
    X-Z section, where **+Z points down**. The local view uses independent X/Z
    scales and shows the cell aperture; a larger specimen may extend outside it.
@@ -28,6 +34,14 @@ The local section represents applied settings, not unapplied text edits. Its
 gold marker always identifies the Sample reference plane; for an inserted
 non-vacuum sample a gold envelope also shows the physical specimen thickness.
 The full-column marker does not change the user-defined shared Z range.
+**Fit cell** in Physical Layout explicitly fits the real layer bounds. The
+full-column location marker is symbolic; membrane thickness is never enlarged
+for transport. The **3D** view includes separately selectable windows, the
+interior outline and a gold Sample reference outline. These non-material guides
+remain visible through solid surfaces; they do not imply membrane transparency.
+Choose **Cell only** to hide surrounding assembly solids, then select the
+interior and **Fit selected** to inspect the whole cell. Geometry changes
+appear without a ray calculation; unrelated assembly meshes are reused.
 
 ## Geometry and ownership
 
@@ -40,7 +54,8 @@ upstream/downstream thicknesses, all converted to mm for transport:
 | Interior | `[z_s + o_z - g/2, z_s + o_z + g/2]` |
 | Downstream window | `[z_s + o_z + g/2, z_s + o_z + g/2 + t_d]` |
 
-All three share the specified finite circular aperture and transverse centre.
+The interior uses the specified finite circular aperture. Each window uses its
+own diameter (or inherits the aperture) and all share the transverse centre.
 X/Y cell centres use the column coordinate system; Z offset is relative to
 Sample. The displayed relative X/Y displacement also accounts for Sample's
 own centre. The specimen chamber interval remains separately editable.
@@ -58,6 +73,10 @@ particle operator at a supplied solid mass density. Mixtures use mole-weighted
 atomic stoichiometry and mean molecular mass. Gas density is `P/(kT)`; condensed
 media use `rho / mean_molecule_mass`. For graphene, the carbon number per area
 is therefore determined by `rho * thickness`, not a separate source parameter.
+The screened-Coulomb approximation follows the screening and Wentzel terms in
+the [Geant4 electron single-scattering reference](https://geant4.web.cern.ch/documentation/dev/prm_html/PhysicsReferenceManual/electromagnetic/elastic_scattering/elecnuc.html).
+It does not implement Geant4's full Mott/spin, recoil or finite-nuclear-size
+corrections, nor import calibrated NIST elastic cross-section tables.
 
 Trajectory segments are clipped to the finite cylinders. Their union replaces
 ambient gas, including when the interior is ideal vacuum. The real Sample
@@ -70,12 +89,14 @@ an additional artificial absorption weight or energy loss; independent removal
 cross sections remain explicit supplied inputs with provenance.
 
 The transport model identity is
-`independent-atom-Wentzel-Moliere-elastic-v3-cell-windows-mixtures`.
+`independent-atom-Wentzel-Moliere-elastic-v4-cell-geometry-pressure-gradient`.
 All window, mixture and geometry settings round-trip through maps, profiles and
 snapshots and enter active cache identities. Old maps lacking window fields
 load with **zero thickness**, not newly inserted material. New default maps
 contain two illustrative 50 nm SiN windows, but both cell insertion and global
 vacuum/cell transport start **off**.
+Old maps without a pressure gradient remain uniform; omitted window diameters
+inherit the cell aperture. These are schema defaults, not a rewrite of profiles.
 
 ## Preset provenance and limits
 
@@ -108,6 +129,31 @@ not been restarted. The existing forward-Z and finite-step scattering limits
 are documented in [Vacuum map](VACUUM_MAP_2026-09-14.md).
 
 ## Validation
+
+2026-09-15 integration: **172 affected tests passed**. Coverage includes independently sized
+windows, geometry-to-transport face agreement, imposed gas pressure gradients,
+liquid and gas particle segments in the objective field, active cache identity,
+one geometry editor, 2D/3D context and navigation without a calculation.
+Windowless old maps still round-trip without insertion of new material.
+After the final UI refinements, the 19 cell geometry/navigation/physics tests
+passed again in 23.12 s. Python compilation and whitespace checks passed.
+
+An expanded check returned **265 passed / 12 failed**. All twelve failures were
+reproduced in an isolated export of the committed baseline `b9d4d7b` (12/12,
+39.74 s): one surface-sampling prefix assumption, eight obsolete Direct
+Alignment API/result fixtures, one planar-emission UI assumption, and two
+wave-source admission/launch-audit assumptions. No source physics or Direct
+Alignment API was changed, and no failing test was deleted to hide these issues.
+This is not a clean full-project regression claim.
+
+The styled geometry editor, 2D cell section, 3D window/outline close-up and
+Vacuum map were rendered offscreen. This is not an interactive desktop or
+hardware acceptance test. A separate bounded 121-particle run executed the
+unchanged default source and column in 31.112 s, but no particles reached the
+sample plane; its cell paths were zero. That run is **not** evidence of
+full-source cell transport or an accepted cell image. The direct short-segment
+tests exercise material collisions independently of that upstream beam loss.
+No full high-accuracy or coherent imaging calculation was launched.
 
 2026-09-14: **132 targeted tests passed in 54.37 s**, covering the four vacuum
 suites, both cell suites, particle tip geometry, calculation-cache reuse and

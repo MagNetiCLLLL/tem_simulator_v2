@@ -9,6 +9,8 @@ from temsim.optics.electron_gun.tip_surface import (
     emit_surface, surface_bundle, load_tip_surface_reference, TipSurfaceModel,
 )
 from temsim.optics.electron_gun.field_emission import FieldEmissionGun
+from temsim import module_manifest
+from temsim.optics.electron_gun.tip_assembly import model_from_part
 from temsim.physics.ray_identity import emission_reference, emission_colour_values, source_identity
 
 
@@ -48,6 +50,7 @@ def test_invalid_direction_budget_rejected(value):
 def test_old_sampling_is_explicit_and_new_budget_invalidates_transport_not_field():
     from temsim.physics.grounded_tip_field import field_request
     gun = FieldEmissionGun()
+    gun.emitter.surface_model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     payload = gun.emitter.surface_model.to_dict()
     payload["emission"].pop("directions_per_position")
     old = TipSurfaceModel.from_dict(payload)
@@ -99,6 +102,7 @@ def test_launch_lineage_uses_surface_not_resampled_plane_and_full_hemisphere():
 def test_direction_budget_editor_is_draft_only(qtbot):
     from temsim.gui.gun_source_dialog import GunSourceDialog
     gun = FieldEmissionGun()
+    gun.emitter.surface_model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     dialog = GunSourceDialog(gun)
     qtbot.addWidget(dialog)
     dialog.directions_per_position.setValue(12)

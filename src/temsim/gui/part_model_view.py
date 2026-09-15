@@ -28,6 +28,7 @@ class _Mesh:
     face_groups: tuple
     surfaces: dict
     edges: tuple
+    wireframe: bool = False
 
 
 def _value(record, name, default=None):
@@ -98,7 +99,7 @@ def _mesh(record) -> _Mesh:
     faces.setflags(write=False)
     return _Mesh(vertices, faces, key, str(_value(record, "region", "body")),
                  _color(_value(record, "color", _value(record, "materialcolor", "#8c9dad"))),
-                 groups, surfaces, tuple(edges))
+                 groups, surfaces, tuple(edges), bool(_value(record, "wireframe", False)))
 
 
 def _view_rotation(direction) -> np.ndarray:
@@ -637,6 +638,10 @@ class PartModelView(QWidget):
         light /= np.linalg.norm(light)
         for mesh_id, (mesh, triangles, projected, sources) in enumerate(zip(
                 self._meshes, self._triangles, projected_meshes, self._triangle_sources)):
+            if mesh.wireframe:
+                # Context is not an opaque solid and cannot hide real material.
+                face_offset += len(triangles)
+                continue
             normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
             lengths = np.linalg.norm(normals, axis=1)
             camera_normals = (normals / np.maximum(lengths[:, None], 1e-20)) @ self._rotation.T
@@ -782,6 +787,18 @@ class PartModelView(QWidget):
         painter = QPainter(self)
         painter.drawImage(self.rect(), self._image)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        for mesh in self._meshes:
+            if not mesh.wireframe:
+                continue
+            color = QColor(*map(int, mesh.color))
+            painter.setPen(QPen(color, 2 if mesh.key in self._selection_keys else 1))
+            for edge in mesh.edges:
+                # Location guides intentionally remain visible through solids;
+                # unlike selectable material faces they are not a surface hit.
+                segments = self.project_points(_edge_segments(edge["vertices"], self._section,
+                    keep_positive_y=self._section_keep_positive_y))
+                for a, b in segments:
+                    painter.drawLine(QPointF(*a[:2]), QPointF(*b[:2]))
         painter.setPen(QColor("#b8c8dc"))
         section_label = " · Section y ≥ 0" if self._section_keep_positive_y else " · Section y ≤ 0"
         title = self._view_title + " · Orthographic" + (section_label if self._section else "")

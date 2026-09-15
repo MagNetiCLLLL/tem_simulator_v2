@@ -6,13 +6,15 @@ import numpy as np
 import pytest
 
 from temsim.optics.column import default_state
+from temsim import module_manifest
+from temsim.optics.electron_gun.tip_assembly import model_from_part
 from temsim.gui.calculation_request import CapturedCalculationRequest, apply_request_numerics
 from temsim.physics.optical_tuning import prepare_tuning_snapshot, resolve_tuning_ray_count
 
 
 def source():
     s = default_state()
-    model = s.electron_gun.emitter.surface_model
+    model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     s.electron_gun.emitter.surface_model = replace(model,emission=replace(model.emission,
         spatial_sampling='apex_stratified_v1',directions_per_position=72,
         angular_sampling='tangent_stratified_v2',angular_refinement_gain=80.,

@@ -2105,18 +2105,29 @@ def test_objective_and_selected_area_apertures_start_retracted():
     assert state.selected_area_aperture.enabled is False
 
 
-def test_source_selection_exposes_primary_emission_controls(qtbot):
+def test_source_selection_routes_to_single_emission_editor_with_flat_default(qtbot, monkeypatch):
+    from temsim.gui.gun_source_dialog import GunSourceDialog
+    monkeypatch.setattr(MainWindow, "schedule_preview", lambda *args: None)
     window = MainWindow()
     qtbot.addWidget(window)
+    window.preview_timer.stop()
     source = _find_tree_item(window.assembly_panel.tree, "feg_tip")
     window.assembly_panel.tree.setCurrentItem(source)
-
-    assert {
+    fields = {
         "emission_current_na",
         "virtual_source_fwhm_nm",
         "angular_cutoff_mrad",
         "energy_spread_fwhm_ev",
-    }.issubset(window.parameter_panel._quick_widgets)
+    }
+    # These controls were consolidated into the source editor; do not recreate
+    # a second copy in the component panel just to satisfy the old UI contract.
+    assert fields.isdisjoint(window.parameter_panel._quick_widgets)
+    assert any(button.text() == "Open tip in Physical Layout…" for button in
+               window.parameter_panel.findChildren(QPushButton))
+    dialog = GunSourceDialog(window.state.electron_gun, instrument_state=window.state)
+    qtbot.addWidget(dialog)
+    assert fields.issubset(dialog.inputs)
+    assert not dialog.surface_enabled.isChecked()
 
 
 def test_sample_parameters_are_owned_by_central_workspace(qtbot):
@@ -2412,6 +2423,9 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assembly = catalog.apply(state, catalog.default_selection())
     # This test exercises active aperture clipping and span rendering. The
     # user-facing default remains retracted and is verified separately.
+    # Use the historical planar fixture with a transmitted beam for the
+    # scatter assertions below; unmatched curved emission can miss this plane.
+    state.electron_gun.emitter.surface_model = None
     state.objective_aperture.enabled = True
     state.selected_area_aperture.enabled = True
     state.electron_gun.emitter.ray_count = 25

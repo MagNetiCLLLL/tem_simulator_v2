@@ -10,7 +10,7 @@ The component panel and Model Inspector now navigate to this same workspace.
   shared `configs/sources/FEG_tip.toml` definition through the existing atomic
   assembly validation/reload path.
 - **Tip model / emission…** edits active tip emission and selects the physical
-  curved-tip or historical planar model. Geometry is read-only in this dialog;
+  curved-tip or Flat tip (planar) model. Geometry is read-only in this dialog;
   its dimension button returns to the physical editor. These emission changes
   are operating overrides, not automatic writes to shared TOML defaults.
 - **Fit emitting surface** fits the actual apex cap at equal spatial scale.
@@ -19,6 +19,14 @@ The component panel and Model Inspector now navigate to this same workspace.
   A differing operating override is shown beside its saved default, read-only.
 - An unsaved/invalid geometry draft must be saved or reverted before a different
   source edit can replace active state. Navigation preserves that draft.
+
+Saving dimensions retains active emission and numerical values that differ from
+the previously loaded defaults. Other values follow the new saved defaults.
+Prescribed total current stays fixed; prescribed flux density stays fixed while
+total current changes with emitting area. An incompatible active cap and new
+cone geometry rejects the save and rolls back the file and live state.
+Geometry reloads also retain the C3 aperture opening and Camera/Flu screen
+insertion choices. Explicit assembly installation still applies its defaults.
 
 The emission colour is face metadata on one closed solid. It does not split
 the tip into open material bodies, create a new material assignment, or change
@@ -33,11 +41,23 @@ diameter 34.73 nm, depth 1.5192 nm and area 954.56 nm². The cap angle defines
 
 ## Model switching and Ray Diagram
 
-New desktop sessions start with the ideal planar tip (labelled Historical planar
-in the model selector). This startup choice is applied after loading the default
-assembly, before the first Preview. Explicit curved-tip edits and saved model
-selections restored later remain authoritative for subsequent calculations;
-the shared physical tip geometry is unchanged.
+Flat tip is the default for new desktop sessions, headless default states,
+standalone FEG construction, and explicit FEG / FEG + Mono assembly installation.
+The shared `configs/sources/FEG_tip.toml` declares
+`default_tip_emission = "flat_tip"`; both linked gun manifests carry the same
+default. This is applied by the source/assembly loader, not a GUI-only override.
+Thermionic assemblies retain their thermionic source.
+
+The curved cap/cone recipe remains available for explicit selection. Its saved
+geometry is not the active Flat tip emission law. To select it, open
+**Tip model / emission…** and enable **Curved tip (off: Flat tip)**.
+Geometry-only reloads and saved profiles/checkpoints retain an explicit source
+choice; they do not reset to Flat tip. Existing profiles and calculated results
+are not rewritten. Switching models changes the calculation/cache identity.
+
+No scalar source distribution, current, electrode voltage/reference, lens
+strength, extraction/acceleration stage, aperture or vacuum participation is
+retuned by this default-selection change. Coherent development remains paused.
 
 Turning curved-tip mode off selects the historical planar emission / analytic
 gun field / legacy integrator combination. It is not an otherwise identical
@@ -82,13 +102,27 @@ or imaging performance for either source.
 
 ## Input designs and historical results
 
-The supplied `particle_tip_30mrad_20260915.temwp` is an input-only design with no
-computed arrays. Such packages can load under the current solver and must be
-recalculated. Bundled input paths can relocate to the current checkout only when
-their archived content matches (LF/CRLF differences in TOML/CIF are allowed).
-Actual input changes are rejected. Archived package identities are untouched.
+The supplied `particle_tip_30mrad_20260915.temwp` is a historical curved-tip
+input-only design with no computed arrays. It remains readable, but its older
+gun manifests and cell schema do not match the current defaults, so direct
+application is rejected. No package rewrite or implicit migration is performed.
+Input-only packages with compatible schemas and matching dependencies can load
+under the current solver and must be recalculated. Bundled input paths can
+relocate only when their archived content matches (LF/CRLF differences in
+TOML/CIF are allowed). Actual input changes are rejected; archived identities
+are untouched.
 
 Calculated checkpoints retain the strict solver/content compatibility gate;
 tagging a package with retained arrays as input-only does not bypass it.
 No downstream source, artificial transmission, new wave calculation or automatic
 voltage-reference conversion is introduced by this update.
+
+## Flat-default validation
+
+Focused checks cover both FEG variants, standalone/headless/GUI startup,
+thermionic preservation, explicit curved selection, source-editor controls,
+profile and snapshot round trips, cache separation, geometry reloads, grouped
+sampling, and physical gun aperture interception. Curved-model tests select
+their curved fixtures explicitly instead of depending on application defaults.
+The source controls remain in the single emission editor. No long coherent or
+high-accuracy image calculation was run for this default-selection change.

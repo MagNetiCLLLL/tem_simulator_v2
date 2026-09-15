@@ -371,6 +371,9 @@ def _apply_resolved_part_geometry(component, part):
 
 def _component_payload(component, *, include_geometry=False):
     payload = asdict(component)
+    if isinstance(component, ColdFieldEmitter) and component.curvature_nm_inv:
+        payload["curvature_nm_inv"] = component.curvature_nm_inv
+        payload["emission_geometry_model"] = component.curvature_model
     if isinstance(component, ColdFieldEmitter) and component.coherence is not None:
         payload["coherence"] = asdict(component.coherence)
     if isinstance(component, ColdFieldEmitter) and component.surface_model is not None:
@@ -389,10 +392,14 @@ def _component_payload(component, *, include_geometry=False):
 
 def _restore_component_settings(component, row):
     allowed = component.__dataclass_fields__
+    if isinstance(component, ColdFieldEmitter):
+        from temsim.optics.electron_gun.tip_curvature import LEGACY_MODEL
+        component.curvature_nm_inv = row.get("curvature_nm_inv", 0.0)
+        component.curvature_model = row.get("emission_geometry_model", LEGACY_MODEL)
     if isinstance(component, ElectrostaticGunLens) and "voltage_reference" not in row:
         component.voltage_reference = "extractor"  # old additive semantics, never migrate
     if isinstance(component, ColdFieldEmitter) and "surface_model" not in row:
-        component.surface_model = None  # historical source, not today's default
+        component.surface_model = None  # Explicit planar record; never infer a curved source.
     for attribute, value in row.items():
         if isinstance(component, ColdFieldEmitter) and attribute == "surface_model":
             from temsim.optics.electron_gun.tip_surface import TipSurfaceModel
@@ -711,6 +718,8 @@ class FieldEmissionGun:
         payload["exit_plane_z_mm"] = float(self.exit_plane_z_mm)
         payload["requested_count"] = self.ray_count if count is None else count
         payload["particle_integrator_schema"] = "discrete-gradient-compiled-v2"
+        from temsim.optics.electron_gun.tracing import ANALYTIC_ENERGY_SCHEMA
+        payload["analytic_energy_schema"] = ANALYTIC_ENERGY_SCHEMA
         payload["tuning_sampling_schema"] = "physical-tip-grouped-support-v2"
         payload["tuning_surface_probes"] = int(getattr(self.emitter, "_tuning_surface_probes", 0))
         payload["tuning_boundary_probes"] = int(getattr(self.emitter, "_tuning_boundary_probes", 0))

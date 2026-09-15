@@ -16,7 +16,7 @@ from scipy.constants import alpha, c, e, epsilon_0, hbar, m_e, physical_constant
 
 from temsim.vacuum import CELL_KEYS, ResolvedMedium, resolve_regions
 
-MODEL = "independent-atom-Wentzel-Moliere-elastic-v3-cell-windows-mixtures"
+MODEL = "independent-atom-Wentzel-Moliere-elastic-v4-cell-geometry-pressure-gradient"
 MODEL_SCOPE = ("Independent-atom screened elastic approximation; low-energy extrapolation, "
                "no bonding, recoil, ionisation or stopping power. "
                "Liquid and solid windows use density-based elastic scattering; no crystalline "
@@ -28,7 +28,7 @@ def atomic_cross_section(energy_ev, atomic_number):
     """Return total elastic sigma (m²), screening A; dσ/dΩ=C/(A+sin²(θ/2))².
 
     Geant4 Physics Reference Manual, Electron Screened Single Scattering,
-    equations 95–96; integrate dΩ=4π d(sin²(θ/2)) over the full sphere.
+    screening / Wentzel–Moliere equations; integrate dΩ=4π d(sin²(θ/2)).
     """
     energy = np.asarray(energy_ev, dtype=float)
     if np.any(~np.isfinite(energy)) or np.any(energy <= 0):

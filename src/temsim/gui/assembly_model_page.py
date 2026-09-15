@@ -5,6 +5,7 @@ across tab changes; camera, visibility and selection never request a solve.
 """
 
 from copy import deepcopy
+from dataclasses import replace
 from types import SimpleNamespace
 
 from PySide6.QtCore import QSignalBlocker, Qt, QTimer, Signal
@@ -31,6 +32,11 @@ class AssemblyModelPage(QWidget):
         self._pending = False
         self._fingerprint = None
         self._model = None
+        from temsim.cell_geometry import CellPhysicalContext
+        self._cell_context = CellPhysicalContext()
+        self._cell_error = None
+        self._assembly_fingerprint = None
+        self._assembly_model = None
         self._parts = {}
         self._editable_keys = set()
         self._tree_items = {}
@@ -49,6 +55,9 @@ class AssemblyModelPage(QWidget):
         self.edit_part = QPushButton("Open in 3D Parts")
         self.edit_part.setEnabled(False)
         self.section = QCheckBox("Section")
+        self.cell_only = QCheckBox("Cell only")
+        self.cell_only.setEnabled(False)
+        self.cell_only.setToolTip("Hide surrounding assembly solids for a close-up of the windows and Sample reference. Display only.")
         self.section.setToolTip("Hide the y > 0 half to expose internal surfaces from the default view. Display only.")
         self.envelopes = QCheckBox("Schematic envelopes")
         self.envelopes.setChecked(True)
@@ -91,6 +100,7 @@ class AssemblyModelPage(QWidget):
         actions.addStretch(1)
         options = QHBoxLayout()
         options.addWidget(self.section)
+        options.addWidget(self.cell_only)
         options.addWidget(self.envelopes)
         options.addStretch(1)
         canvas_layout.addLayout(actions)
@@ -114,6 +124,7 @@ class AssemblyModelPage(QWidget):
         self.isometric.clicked.connect(self.view.set_column_isometric_view)
         self.section.toggled.connect(lambda checked: self.view.set_section_enabled(checked, keep_positive_y=False))
         self.envelopes.toggled.connect(self._display_meshes)
+        self.cell_only.toggled.connect(self._display_meshes)
         self.edit_part.clicked.connect(self._open_selected_part)
         self.tree.currentItemChanged.connect(self._tree_selected)
         self.tree.itemChanged.connect(self._visibility_changed)
@@ -130,6 +141,10 @@ class AssemblyModelPage(QWidget):
     def set_runtime_values(self, runtime_values):
         self.set_assembly(self._assembly, runtime_values)
 
+    def set_cell_context(self, context, error=None):
+        self._cell_context, self._cell_error = context, error
+        self.set_assembly(self._assembly, self._runtime_values)
+
     def showEvent(self, event):
         super().showEvent(event)
         if self._pending:
@@ -140,12 +155,17 @@ class AssemblyModelPage(QWidget):
             return
         self._pending = False
         try:
-            fingerprint = assembly_model_fingerprint(self._assembly, self._runtime_values)
+            assembly_fingerprint = assembly_model_fingerprint(self._assembly, self._runtime_values)
+            fingerprint = (assembly_fingerprint, self._cell_context.signature(), self._cell_error)
             if fingerprint == self._fingerprint:
                 return
-            model = assembly_model_from_assembly(
-                self._assembly, runtime_values=self._runtime_values, angular_segments=16,
-            )
+            if assembly_fingerprint != self._assembly_fingerprint:
+                self._assembly_model = assembly_model_from_assembly(
+                    self._assembly, runtime_values=self._runtime_values, angular_segments=16)
+                self._assembly_fingerprint = assembly_fingerprint
+            model = replace(self._assembly_model,
+                meshes=self._assembly_model.meshes + self._cell_context.meshes(),
+                errors=self._assembly_model.errors + ((self._cell_error,) if self._cell_error else ()))
         except Exception as exc:
             # Never label an old assembly as the new input after a build error.
             self._fingerprint = None
@@ -163,6 +183,8 @@ class AssemblyModelPage(QWidget):
         self.mesh_builds += 1
         self._parts = {part.key: part for part in self._assembly.parts}
         self._editable_keys = set(self._parts)
+        self._parts.update({part.key: part for part in self._cell_context.parts()})
+        self._editable_keys.update(r.key for r in self._cell_context.layers)
         for liner in getattr(self._assembly, "vacuum_liner_segments", ()):
             self._parts.setdefault(liner.key, SimpleNamespace(
                 key=liner.key, name=liner.name,
@@ -183,7 +205,9 @@ class AssemblyModelPage(QWidget):
                 kind = "Schematic envelope" if part.key in approximate else "Configured geometry"
                 if part.key not in modeled:
                     kind = "No solid surface (reference / assembly parent / unavailable)"
-                if part.key not in self._editable_keys:
+                if part.data.get("cell_context"):
+                    kind = "Applied cell geometry; material/size in Physical Layout, medium in Vacuum map"
+                elif part.key not in self._editable_keys:
                     kind += "; module-defined liner (read-only)"
                 item.setToolTip(0, f"{part.name}\nZ {part.center_z_mm:.6g} mm\n{kind}")
                 self.tree.addTopLevelItem(item)
@@ -194,8 +218,15 @@ class AssemblyModelPage(QWidget):
     def _display_meshes(self, *_):
         if self._model is None:
             return
+        has_cell = bool(self._cell_context.layers)
+        cell_keys = {part.key for part in self._cell_context.parts()}
+        self.cell_only.setEnabled(has_cell)
+        for key, item in self._tree_items.items():
+            item.setHidden(has_cell and self.cell_only.isChecked() and key not in cell_keys)
         meshes = tuple(mesh for mesh in self._model.meshes
                        if mesh.key not in self._hidden_keys
+                       and (not (has_cell and self.cell_only.isChecked())
+                            or mesh.key in cell_keys)
                        and (self.envelopes.isChecked() or mesh.is_exact))
         self.view.set_meshes(meshes, preserve_view=self._has_fitted)
         self._has_fitted |= bool(meshes)
@@ -245,6 +276,7 @@ class AssemblyModelPage(QWidget):
         self._sync_selection()
         selected = self._parts.get(key)
         self.edit_part.setEnabled(key in self._editable_keys)
+        self.edit_part.setText("Edit cell / windows" if selected and selected.data.get("cell_context") else "Open in 3D Parts")
         self.selection_label.setText(
             f"{selected.name} | Z {selected.center_z_mm:.6g} mm"
             if selected is not None else "Select a component"

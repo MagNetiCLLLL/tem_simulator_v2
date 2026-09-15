@@ -6,6 +6,8 @@ import math
 
 import numpy as np
 
+ANALYTIC_ENERGY_SCHEMA = "launch-potential-reference-v1"
+
 from temsim.component_keys import FEG_MONOCHROMATOR_SLIT
 from temsim.optics.electron_gun.base import (
     GunEqualTimeHistory,
@@ -66,6 +68,13 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
         position, surface_mesh_error = surface_field.surface_mesh_positions(emitted.surface_position_m)
         direction = emitted.surface_direction
         launch_energy = emitted.surface_energy_ev
+    elif hasattr(emitted, "surface_normal"):
+        position = emitted.surface_position_m.copy()
+        direction = emitted.surface_direction
+    invariant_energy = launch_energy
+    if surface_model is None:
+        # K - e*phi is conserved; local launch energy is unchanged by curvature.
+        invariant_energy = launch_energy - electric_provider.potential_v_at_global_positions(position)
     momentum = momentum_from_kinetic_energy_ev(launch_energy, direction)
     phase = RelativisticPhaseSpace(position, momentum)
     alive = np.ones(n, dtype=bool)
@@ -172,7 +181,7 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             new_momentum[active] = advanced.momentum_kg_m_per_s[active]
         else:
             new_momentum[active] = _enforce_static_field_energy(
-                gun, advanced.position_m[active], advanced.momentum_kg_m_per_s[active], launch_energy[active])
+                gun, advanced.position_m[active], advanced.momentum_kg_m_per_s[active], invariant_energy[active])
         phase = RelativisticPhaseSpace(
             new_position, new_momentum, phase.time_s + dt
         )
@@ -307,7 +316,7 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             gun,
             exit_position[passed_exit],
             exit_momentum[passed_exit],
-            launch_energy[passed_exit],
+            invariant_energy[passed_exit],
         )
     history_position_array = np.asarray(history_position)
     history_momentum_array = np.asarray(history_momentum)

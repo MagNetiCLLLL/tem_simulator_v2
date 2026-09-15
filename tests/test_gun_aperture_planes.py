@@ -119,9 +119,11 @@ def test_gun_rejects_an_aperture_outside_its_transport_interval(position):
 
 @pytest.mark.parametrize('curved', [False, True])
 def test_full_tip_gun_keeps_c1_arrival_separate_and_does_not_clip_exit_again(curved):
+    from temsim import module_manifest
+    from temsim.optics.electron_gun.tip_assembly import model_from_part
     gun = FieldEmissionGun()
-    if not curved:
-        gun.emitter.surface_model = None
+    if curved:
+        gun.emitter.surface_model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     gun.c1_aperture.radius_mm = 3.
     baseline = gun.trace_to_exit(9)
     c1 = next(p for p in baseline.plane_arrivals if p.key == gun.c1_aperture.key)

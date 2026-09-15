@@ -311,24 +311,29 @@ class AssemblyCatalog:
             assembly_root=self.root,
         )
         state.electron_gun._manifest_catalog_root = self.root
+        if not preserve_operating_parameters and state.electron_gun.type_key == "cold_feg":
+            from temsim.optics.electron_gun.tip_assembly import apply_tip_part
+            apply_tip_part(state.electron_gun.emitter,
+                           state._resolved_assembly.part("feg_tip").data, reset_source=True)
         from temsim.component_keys import (
             CAMERA,
             FLUORESCENT_SCREEN,
         )
         from temsim.detector.recording_system import ensure_recording_system
         ensure_recording_system(state)
-        for plane in state.recording_planes:
-            if plane.key in {
-                FLUORESCENT_SCREEN,
-                CAMERA,
-            }:
-                # Solid display/camera surfaces retract before the post-column
-                # Energy Filter branch. BF remains an independently controlled
-                # channel in the shared STEM detector bank.
-                plane.inserted = not has_filter
-        state.condenser_aperture_3.radius_mm = (
-            0.05
-            if state.monochromator_installed
-            else state.condenser_aperture_3.maximum_radius_mm
-        )
+        if not preserve_operating_parameters:
+            for plane in state.recording_planes:
+                if plane.key in {
+                    FLUORESCENT_SCREEN,
+                    CAMERA,
+                }:
+                    # Initial installation retracts recording surfaces before
+                    # the Energy Filter. A geometry reload must keep the user's
+                    # physical interception/readout choices, even with a filter.
+                    plane.inserted = not has_filter
+            state.condenser_aperture_3.radius_mm = (
+                0.05
+                if state.monochromator_installed
+                else state.condenser_aperture_3.maximum_radius_mm
+            )
         return state._resolved_assembly

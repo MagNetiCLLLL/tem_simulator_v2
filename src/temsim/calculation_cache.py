@@ -511,6 +511,8 @@ def live_lens_parameters(lens) -> dict[str, object]:
 
 def _state_payload(state) -> dict[str, object]:
     payload = _drop_runtime_solver_state(state.to_dict())
+    from temsim.optics.electron_gun.tracing import ANALYTIC_ENERGY_SCHEMA
+    payload["_gun_analytic_energy_schema"] = ANALYTIC_ENERGY_SCHEMA
     if getattr(state, "vacuum_map", None) is not None and state.vacuum_map.enabled:
         from dataclasses import asdict
         from temsim.vacuum import resolve_regions

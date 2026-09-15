@@ -255,7 +255,7 @@ class InteractiveCalculationPage(QWidget):
                 slider.setTracking(True)
                 slider.sliderReleased.connect(self._flush_live_tuning)
                 value = QDoubleSpinBox()
-                value.setDecimals(9)
+                value.setDecimals(14 if axis.control.group == "source" else 9)
                 value.setRange(axis.minimum, axis.maximum)
                 value.setSuffix(f" {axis.control.unit}")
                 value.setSingleStep((axis.maximum-axis.minimum)/1000)
@@ -275,7 +275,7 @@ class InteractiveCalculationPage(QWidget):
                 self._add_control_row(axis.control, row)
             self.live_status.setText("Live tuning | waiting for rays")
             self.rays_requested.emit()
-            self.status.setText("Live tuning: lenses and apertures only; no specimen calculation."
+            self.status.setText("Live tuning: tip, lenses and apertures; no specimen calculation."
                                 + (" Detector rows: Advanced bank only."
                                    if len(plan.ranges) < self.ranges.rowCount() else ""))
             self.timer.start(_LIVE_REFRESH_MS)
@@ -333,6 +333,9 @@ class InteractiveCalculationPage(QWidget):
         for col in (1, 2):
             edit = QLineEdit()
             edit.setPlaceholderText("Required")
+            if control.group == "source":
+                # Visible editable starting range, never an implicit bank axis.
+                edit.setText("0" if col == 1 else f"{max(1e-5, control.current):.12g}")
             edit.setMaximumWidth(96)
             self.ranges.setCellWidget(row, col, edit)
         samples = QSpinBox()
@@ -363,7 +366,7 @@ class InteractiveCalculationPage(QWidget):
                 raise ValueError(f"Range {row + 1}: minimum and maximum are required")
             axes.append(CalculationRange(control, float(lo), float(hi), self.ranges.cellWidget(row, 3).value()))
         if live_only and not axes:
-            raise ValueError("Add a lens or aperture range for live tuning. Detector rows use Advanced bank.")
+            raise ValueError("Add a tip, lens or aperture range for live tuning. Detector rows use Advanced bank.")
         plan = InteractivePlan(tuple(axes), int(self.budget.value() * 1024**3), precompute)
         if self.source_state is None:
             raise ValueError("Capture the current settings first")
@@ -419,7 +422,7 @@ class InteractiveCalculationPage(QWidget):
                 widget.currentIndexChanged.connect(self._queue_read)
             else:
                 widget = QDoubleSpinBox()
-                widget.setDecimals(9)
+                widget.setDecimals(14 if axis.control.group == "source" else 9)
                 widget.setRange(axis.minimum, axis.maximum)
                 widget.setSingleStep((axis.maximum - axis.minimum) / 100)
                 widget.setValue(min(max(axis.control.current, axis.minimum), axis.maximum))

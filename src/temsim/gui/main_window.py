@@ -107,11 +107,8 @@ class MainWindow(QMainWindow):
         self.selection = self.catalog.default_selection()
         self.state = default_state()
         self.assembly = self.catalog.apply(self.state, self.selection)
-        # Fresh sessions start with the ideal planar tip. Apply this only after
-        # installing TOML geometry; later model edits and profile restores win.
-        self.state.electron_gun.emitter.surface_model = None
-        self.state.electron_gun.emitter.coherence = None
-        self.state.electron_gun.source_representation = "classical_particles"
+        # Source defaults are owned by the shared tip / assembly loader, not a
+        # GUI-only override. Explicit profile and model choices remain separate.
         if self._apply_state_operating_modes(
             self.state, self.selection
         ) is None:
@@ -288,6 +285,8 @@ class MainWindow(QMainWindow):
         )
         self.workspace.physical_layout.navigation_requested.connect(self._navigate_physical_component)
         self.workspace.vacuum_map.changed.connect(self._runtime_parameter_changed)
+        self.workspace.vacuum_map.geometry_requested.connect(self._open_cell_geometry)
+        self.workspace.physical_layout.cell_geometry_requested.connect(self._open_cell_geometry)
         self.parameter_panel.error.connect(self._show_error)
         energy_filter_parameters = self.workspace.energy_filter_parameters
         energy_filter_parameters.runtime_changed.connect(
@@ -633,6 +632,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_assembly_views(self) -> None:
         self.workspace.vacuum_map.set_state(self.state)
+        self.workspace.physical_layout.set_cell_state(self.state)
         self._refresh_simulation_mode()
         self.workspace.model_inspector.set_state(self.state)
         self._runtime_targets = runtime_targets(self.state)
@@ -1117,6 +1117,11 @@ class MainWindow(QMainWindow):
 
     def _select_physical_component(self, key: str):
         """Synchronize geometry selection without opening another workspace."""
+        cell_part = self.workspace.physical_layout.cell_part(key)
+        if cell_part is not None:
+            self.workspace.physical_layout.assembly_3d.focus_component(cell_part)
+            self.status_label.setText(f"{cell_part.name} · edit dimensions/materials with Cell / windows")
+            return cell_part
         try:
             part = self.assembly.part(str(key))
         except KeyError:
@@ -1141,14 +1146,23 @@ class MainWindow(QMainWindow):
             self._reveal_physical_model(key, z_mm)
         elif destination == "ray":
             self.workspace.show_ray_diagram()
-            self.workspace.reveal_component(part, preferred_view="ray")
+            # Cell context has no optical-assembly component or fictitious
+            # mechanical envelope. The shared Z cursor already identifies it.
+            if not part.data.get("cell_context"):
+                self.workspace.reveal_component(part, preferred_view="ray")
             self.status_label.setText(f"Showing {part.name} in Ray Diagram")
         elif destination == "vacuum":
-            self.workspace.vacuum_map.focus_component(part)
+            if part.data.get("cell_context"):
+                self.workspace.vacuum_map.select_region("specimen_cell")
+            else:
+                self.workspace.vacuum_map.focus_component(part)
             self.workspace.tabs.setCurrentWidget(self.workspace.vacuum_map)
             self.status_label.setText(f"Showing {part.name} in Vacuum map · Z {part.center_z_mm:g} mm")
 
     def _reveal_physical_model(self, key: str, _z_mm: float) -> None:
+        if self.workspace.physical_layout.cell_part(key) is not None:
+            self._open_cell_geometry()
+            return
         part = self._select_physical_component(key)
         if part is None:
             return
@@ -1160,6 +1174,27 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f"Showing {part.name} in Physical Layout / 3D Parts")
         else:
             self.status_label.setText(layout.model_editor.status.text())
+
+    def _open_cell_geometry(self):
+        from temsim.gui.cell_environment_editor import CellGeometryDialog
+        layout = self.workspace.physical_layout
+        self.workspace.tabs.setCurrentWidget(layout)
+        captured = self.state
+        dialog = CellGeometryDialog(captured, self)
+        try:
+            if dialog.exec() != dialog.DialogCode.Accepted:
+                return
+            if self.state is not captured:
+                self._show_error("Cell unchanged: instrument state changed while the editor was open.")
+                return
+            self.state.vacuum_map = dialog._value
+            self.workspace.vacuum_map.set_state(self.state)
+            self._runtime_parameter_changed("vacuum_map")
+            if dialog.open_medium:
+                self.workspace.vacuum_map.select_region("specimen_cell")
+                self.workspace.tabs.setCurrentWidget(self.workspace.vacuum_map)
+        finally:
+            dialog.deleteLater()
 
     def _add_tip_render_values(self, values):
         gun = self.state.electron_gun
@@ -1698,6 +1733,7 @@ class MainWindow(QMainWindow):
         self.preview_timer.start(self.PREVIEW_DEBOUNCE_MS)
 
     def _runtime_parameter_changed(self, parameter: str = "") -> None:
+        self.workspace.physical_layout.set_cell_state(self.state)
         # A background coupled solution was calculated for the pre-edit state.
         # Its generation must not be allowed to overwrite a newer manual edit.
         self._invalidate_direct_alignment()

@@ -34,6 +34,19 @@ def _point(view, world):
     return QPoint(round(screen[0]), round(screen[1]))
 
 
+def test_non_material_outline_does_not_occlude_or_pick_as_solid(view):
+    guide = _triangle('guide', -30., color=(1., .7, .1))
+    guide['wireframe'] = True
+    guide['edges'] = ({'id': 'rim', 'vertices': np.vstack((guide['vertices'], guide['vertices'][0]))},)
+    view.set_meshes([_triangle(), guide])
+    view.set_front_view()
+    position = _point(view, [0, -20, 0])
+    assert view.pick_at(position) == ('near', 'body')
+    assert not view.grab().isNull()
+    view.set_meshes([guide])
+    assert view.pick_at(_point(view, [0, -30, 0])) is None
+
+
 def _drag(qtbot, view, button, start, end):
     qtbot.mousePress(view, button, pos=start)
     for amount in (0.25, 0.6, 1.0):

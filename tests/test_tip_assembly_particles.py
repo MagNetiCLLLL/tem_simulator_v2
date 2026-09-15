@@ -23,7 +23,8 @@ def test_shared_definition_and_installed_tips_resolve_the_same_model():
         validate_tip_part(part)
         assert model_from_part(part) == expected
     gun = FieldEmissionGun()
-    assert gun.emitter.surface_model == expected
+    assert gun.emitter.surface_model is None
+    gun.emitter.surface_model = expected  # Curved emission is an explicit choice.
     assert expected.coherence is None
     assert gun.source_representation == "classical_particles"
     assert gun.emitted_current_a == pytest.approx(100e-9)
@@ -57,7 +58,7 @@ def test_tip_dimensions_save_reload_and_surface_selection(tmp_path):
 
 
 def test_density_scales_with_real_curved_surface_area():
-    model = FieldEmissionGun().emitter.surface_model
+    model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     twice_radius = replace(model, geometry=replace(model.geometry, apex_radius_nm=200)).validate()
     assert twice_radius.current_na == pytest.approx(4 * model.current_na)
     assert TipSurfaceModel.from_dict(twice_radius.to_dict()) == twice_radius
@@ -106,7 +107,7 @@ def test_tip_toml_does_not_coerce_invalid_input_types(field, value):
 @pytest.mark.parametrize("law", ["normal_tangential_exponential", "gamma", "monoenergetic"])
 @pytest.mark.parametrize("angle", [0., 20., 90.])
 def test_emission_energy_and_local_angular_limits(law, angle):
-    model = FieldEmissionGun().emitter.surface_model
+    model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     model = replace(model, emission=replace(model.emission, energy_distribution=law,
         maximum_angle_deg=angle, kinetic_mean_ev=1.0, kinetic_sigma_ev=.2))
     position, direction, energy, weight = emit_surface(model, 32768)
@@ -136,6 +137,7 @@ def test_installed_toml_save_reaches_runtime_and_invalidates_consumed_inputs(tmp
     selection = replace(catalog.default_selection(), gun=gun_name)
     catalog.apply(state, selection, preserve_operating_parameters=True)
     gun = state.electron_gun
+    gun.emitter.surface_model = model_from_part(state._resolved_assembly.part("feg_tip").data)
     previous = gun._cache_key(9)
     field_before = field_request(gun)
     editor = ManifestEditor(root)
@@ -173,6 +175,7 @@ def test_historical_source_without_surface_field_is_not_converted():
 def test_editor_density_and_energy_law_apply_only_valid_draft(qtbot):
     from temsim.gui.gun_source_dialog import GunSourceDialog
     gun = FieldEmissionGun()
+    gun.emitter.surface_model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     original = gun.emitter.surface_model
     dialog = GunSourceDialog(gun)
     qtbot.addWidget(dialog)

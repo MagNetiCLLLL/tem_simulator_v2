@@ -24,12 +24,13 @@ class GunSourceDialog(QDialog):
         ("tilt_y_mrad", "Mean transverse momentum py/p (mrad)"),
     )
     fields = (
+        ("curvature_nm_inv", "Tip curvature (nm⁻¹; 0 = flat)"),
         ("emission_current_na", "Tip emission current (nA)"),
         ("emission_energy_ev", "Tip launch mean kinetic energy (eV)"),
         ("minimum_kinetic_energy_ev", "Minimum launch kinetic energy (eV)"),
-        ("virtual_source_fwhm_nm", "Tip launch spatial FWHM (nm)"),
-        ("angular_rms_mrad", "Tip angular RMS (mrad)"),
-        ("angular_cutoff_mrad", "Tip angular cutoff (mrad)"),
+        ("virtual_source_fwhm_nm", "Projected emission FWHM (nm)"),
+        ("angular_rms_mrad", "Local angular RMS (mrad)"),
+        ("angular_cutoff_mrad", "Local angular cutoff (mrad)"),
         ("energy_spread_fwhm_ev", "Tip energy spread FWHM (eV)"),
         ("young_decay_width_ev", "Young energy decay width (eV)"),
         ("boersch_sigma_ev", "Boersch energy sigma (eV)"),
@@ -41,6 +42,7 @@ class GunSourceDialog(QDialog):
         if gun.type_key != "cold_feg":
             raise ValueError("This editor controls FEG tip emission only")
         self._gun = gun
+        self._curvature_model = gun.emitter.curvature_model
         self._instrument_state = instrument_state
         self._value = None
         self.edit_dimensions_requested = False
@@ -48,8 +50,7 @@ class GunSourceDialog(QDialog):
         self.resize(680, 760)
         layout = QVBoxLayout(self)
         note = QLabel(
-            "Define emission at the tip. Extraction, acceleration and downstream optics are calculated. "
-            "These are operating overrides. Edit the installed tip in Physical Layout / TOML to save assembly defaults."
+            "Tip emission settings. Curvature is adjustable here and in Live tuning; 0 is flat."
         )
         note.setWordWrap(True)
         note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -58,11 +59,11 @@ class GunSourceDialog(QDialog):
         scroll.setWidgetResizable(True)
         panel = QWidget()
         panel_layout = QVBoxLayout(panel)
-        self.particle_button = QPushButton("Use curved-tip particles")
-        self.particle_button.setToolTip("Select classical emission from the editable curved surface. Apply is required; historical source settings are retained.")
+        self.particle_button = QPushButton("Use continuous tip · start flat")
+        self.particle_button.setToolTip("Explicitly select classical analytic-field emission at curvature 0. Apply is required. Existing files are not converted.")
         self.particle_button.clicked.connect(self._use_particles)
         panel_layout.addWidget(self.particle_button)
-        self.surface_enabled = QCheckBox("Physical curved-tip model (off: historical planar model)")
+        self.surface_enabled = QCheckBox("Historical electrode-field model (advanced)")
         self.surface_enabled.setToolTip(
             "Switches emission AND the gun field/integrator, not curvature alone. "
             "Both models start at the tip and retain all gun components.")
@@ -70,6 +71,7 @@ class GunSourceDialog(QDialog):
         panel_layout.addWidget(self.surface_enabled)
         self.model_change_summary = QLabel()
         self.model_change_summary.setWordWrap(True)
+        self.model_change_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         panel_layout.addWidget(self.model_change_summary)
         self.surface_panel = QWidget()
         surface_form = QFormLayout(self.surface_panel)
@@ -209,7 +211,7 @@ class GunSourceDialog(QDialog):
         form = QFormLayout(self.legacy_panel)
         self.legacy_form = form
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        form.addRow(QLabel("Historical emission model — not converted to a surface source"))
+        form.addRow(QLabel("One tip source · projected size and local emission law"))
         panel_layout.addWidget(self.legacy_panel)
         scroll.setWidget(panel)
         self.inputs = {}
@@ -217,6 +219,16 @@ class GunSourceDialog(QDialog):
             edit = QLineEdit(str(getattr(gun.emitter, key)))
             self.inputs[key] = edit
             form.addRow(label, edit)
+        self.inputs["curvature_nm_inv"].setToolTip(
+            "Curvature κ = 1/R. Start from 0 with small increments such as 1e-8 nm^-1. "
+            "The tip centre remains at Z = 0; off-axis points bend upstream to negative Z. "
+            "Directions follow the local surface normals. Historical models retain their saved geometry. "
+            "Projected D95, total current and launch energies remain fixed. "
+            "The analytic gun field is unchanged, not solved again for the new metal boundary.")
+        self.inputs["curvature_nm_inv"].textChanged.connect(self._sync_fields)
+        self.inputs["virtual_source_fwhm_nm"].textChanged.connect(self._sync_fields)
+        self.continuous_preview = TipGeometryPreview()
+        form.addRow(self.continuous_preview)
         self.coherence_enabled = QCheckBox("Use Gaussian-Schell emission at the physical tip")
         self.coherence_enabled.setChecked(gun.emitter.coherence is not None)
         form.addRow(self.coherence_enabled)
@@ -253,13 +265,20 @@ class GunSourceDialog(QDialog):
         layout.addWidget(buttons)
 
     def _sync_fields(self):
+        text = self.inputs['curvature_nm_inv'].text()
+        from temsim.optics.electron_gun.tip_curvature import ANGLE_ONLY_MODEL, LEGACY_MODEL
+        scope = ("Historical angle only · launch Z = 0" if self._curvature_model == ANGLE_ONLY_MODEL
+                 else "Historical sag model · centre Z = 0" if self._curvature_model == LEGACY_MODEL
+                 else "Centre Z = 0 · edges bend to negative Z")
         self.model_change_summary.setText(
-            "Emission starts on the highlighted apex cap. Electrode geometry and voltages define the field; "
-            "the historical potential scale is inactive. Existing lens settings may require transport matching."
+            "Historical source: separate emission law and electrode-field solver."
             if self.surface_enabled.isChecked() else
-            f"Historical planar emission: {self.inputs['emission_current_na'].text()} nA. "
-            f"Analytic gun field: legacy scale {self._gun.electrostatic_lens.potential_scale:g} "
-            "(no documented physical calibration). This scale is not used for curved-tip electrode voltages.")
+            f"Tip curvature {text} nm⁻¹ · Flat tip at 0 · {scope}")
+        self.model_change_summary.setToolTip(
+            "Continuous geometry keeps the same projected spatial distribution, current, "
+            "local directions, energy law, extraction, acceleration and apertures. "
+            "It does not recompute a self-consistent field for a deformed metal tip. "
+            f"Analytic gun-lens scale: {self._gun.electrostatic_lens.potential_scale:g} (uncalibrated).")
         self.surface_panel.setVisible(self.surface_enabled.isChecked())
         self.legacy_panel.setVisible(not self.surface_enabled.isChecked())
         self.match_transport.setEnabled(self._instrument_state is not None and not self.surface_coherent.isChecked())
@@ -269,6 +288,18 @@ class GunSourceDialog(QDialog):
             self.legacy_form.setRowVisible(edit, enabled)
         self.legacy_coherent_description.setVisible(enabled)
         self.coherence_enabled.setVisible(enabled)
+        self.inputs["curvature_nm_inv"].setEnabled(not enabled)
+        self.continuous_preview.setVisible(not enabled)
+        try:
+            preview = copy(self._gun.emitter)
+            preview.surface_model = preview.coherence = None
+            preview.curvature_nm_inv = float(text)
+            preview.curvature_model = self._curvature_model
+            preview.virtual_source_fwhm_nm = float(self.inputs["virtual_source_fwhm_nm"].text())
+            preview.validate()
+            self.continuous_preview.set_continuous_tip(preview)
+        except (ValueError, TypeError):
+            self.continuous_preview.set_model(None)
         for key in ("angular_rms_mrad", "angular_cutoff_mrad"):
             self.inputs[key].setEnabled(not enabled)
         quantum = self.surface_coherent.isChecked()
@@ -305,10 +336,13 @@ class GunSourceDialog(QDialog):
 
     def _use_particles(self):
         """Explicit draft conversion; never changes the live instrument itself."""
+        from temsim.optics.electron_gun.tip_curvature import MODEL
+        self._curvature_model = MODEL
         self.surface_coherent.setChecked(False)
         self.coherence_enabled.setChecked(False)
         self.wave_options.setChecked(False)
-        self.surface_enabled.setChecked(True)
+        self.inputs["curvature_nm_inv"].setText("0")
+        self.surface_enabled.setChecked(False)
         self._sync_fields()
 
     def _open_dimensions(self):
@@ -404,6 +438,7 @@ class GunSourceDialog(QDialog):
             # the complete live graph without deepcopy or manifest reloading.
             state = decode_instrument(encode_instrument(self._instrument_state))
             state.electron_gun.emitter.surface_model = self._surface_value()
+            state.electron_gun.emitter.curvature_nm_inv = 0.0
             state.electron_gun.emitter.coherence = None
             state.electron_gun.source_representation = "classical_particles"
             dialog = SurfaceWaveDialog(state, self)
@@ -417,9 +452,10 @@ class GunSourceDialog(QDialog):
             if self.surface_enabled.isChecked():
                 model = self._surface_value()
                 candidate.coherence = None
+                candidate.curvature_nm_inv = 0.0
                 candidate.surface_model = model
                 candidate.validate()
-                self._value = {"coherence": None, "surface_model": model}
+                self._value = {"coherence": None, "surface_model": model, "curvature_nm_inv": 0.0}
                 from temsim.optics.electron_gun.tip_edit import candidate_tip_edit
                 candidate_tip_edit(self._gun, self._value)
                 super().accept()
@@ -430,6 +466,8 @@ class GunSourceDialog(QDialog):
                 raise ValueError("Tip emission values must be finite")
             for key, value in values.items():
                 setattr(candidate, key, value)
+            candidate.curvature_model = self._curvature_model
+            values["curvature_model"] = candidate.curvature_model
             candidate.coherence = (TipCoherence(**{key: float(edit.text()) for key, edit in self.coherence_inputs.items()})
                                    if self.coherence_enabled.isChecked() else None)
             candidate.validate()

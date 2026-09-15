@@ -1,0 +1,204 @@
+{
+  "status": "EXPLORATION_ONLY",
+  "radius_nm": 500.0,
+  "rays": 193,
+  "attempts": [
+    {
+      "c1_c2": [
+        49.353454641536516,
+        11.861483394800494
+      ],
+      "pupil": {
+        "name": "C2 aperture",
+        "z_mm": 765.0,
+        "rays": 23,
+        "source_current_fraction": 0.11805555555555551,
+        "rms_radius_nm": 2390.3745723175116,
+        "diameter95_nm": 7796.0407390618375,
+        "alpha95_mrad": 24.294152575691832,
+        "covariance_waist_offset_mm": -0.12778040659227946,
+        "projected_emittance_x_m_rad": 6.304782811614005e-09,
+        "projected_emittance_y_m_rad": 6.274889737727395e-09,
+        "population": "all surviving current",
+        "precision": "full precision"
+      },
+      "focus_proposals": [
+        {
+          "c3_objective": [
+            34.67125233621683,
+            68.50000000000001
+          ],
+          "measurement": {
+            "surface_z_mm": 1599.1999975,
+            "statistics": {
+              "surviving_rays": 8,
+              "surviving_fraction": 0.04050925925925926,
+              "mean_x_m": 1.630427855700149e-08,
+              "mean_y_m": -4.9955780039299196e-08,
+              "mean_tx_rad": 0.0034068068975727423,
+              "mean_ty_rad": -0.017467690199809587,
+              "convergence_rms_rad": 0.10698633413458292,
+              "convergence_95_rad": 0.15366609429532274,
+              "convergence_99_rad": 0.15366609429532274,
+              "convergence_edge_rad": 0.15366609429532274,
+              "radius_rms_m": 4.1102664572391406e-07,
+              "radius_95_m": 6.791187522254699e-07,
+              "radius_99_m": 6.791187522254699e-07,
+              "radial_position_angle_covariance_m_rad": 4.132872595105289e-08,
+              "radial_wavefront_curvature_per_m": 244631.3227490099,
+              "waist_offset_m": -3.564372234100225e-06,
+              "twofold_moment": 0.09046636929073366,
+              "threefold_moment": 0.826222640668122
+            },
+            "local_waist_offset_nm": -3564.223158420047,
+            "variance_second_derivative": 0.023190874966671073,
+            "upstream_rms_radii_m": [
+              3.909926217594634e-07,
+              4.009901651011681e-07,
+              4.1102664572391406e-07
+            ],
+            "step_mm": 0.05,
+            "effective_rays": 7.980456026058634
+          }
+        },
+        {
+          "c3_objective": [
+            34.67125230154275,
+            68.50000000000001
+          ],
+          "measurement": {
+            "surface_z_mm": 1599.1999975,
+            "statistics": {
+              "surviving_rays": 8,
+              "surviving_fraction": 0.04050925925925926,
+              "mean_x_m": 1.6304270575987627e-08,
+              "mean_y_m": -4.995573651205106e-08,
+              "mean_tx_rad": 0.003406806915180094,
+              "mean_ty_rad": -0.017467690383319915,
+              "convergence_rms_rad": 0.10698633525026686,
+              "convergence_95_rad": 0.15366609590619815,
+              "convergence_99_rad": 0.15366609590619815,
+              "convergence_edge_rad": 0.15366609590619815,
+              "radius_rms_m": 4.110264076359034e-07,
+              "radius_95_m": 6.791184336515134e-07,
+              "radius_99_m": 6.791184336515134e-07,
+              "radial_position_angle_covariance_m_rad": 4.1328698790616366e-08,
+              "radial_wavefront_curvature_per_m": 244631.44538848355,
+              "waist_offset_m": -3.5643698163569248e-06,
+              "twofold_moment": 0.09046652645949654,
+              "threefold_moment": 0.8262228348137394
+            },
+            "local_waist_offset_nm": -3564.2207407655314,
+            "variance_second_derivative": 0.023190875456721563,
+            "upstream_rms_radii_m": [
+              3.9099238537769353e-07,
+              4.009899278303929e-07,
+              4.110264076359034e-07
+            ],
+            "step_mm": 0.05,
+            "effective_rays": 7.980456026058634
+          }
+        }
+      ]
+    },
+    {
+      "c1_c2": [
+        64.94798551007864,
+        11.796339777370932
+      ],
+      "pupil": {
+        "name": "C2 aperture",
+        "z_mm": 765.0,
+        "rays": 32,
+        "source_current_fraction": 0.16493055555555552,
+        "rms_radius_nm": 2776.7272306346013,
+        "diameter95_nm": 9564.354597983764,
+        "alpha95_mrad": 27.21996870881463,
+        "covariance_waist_offset_mm": -0.13746548253586335,
+        "projected_emittance_x_m_rad": 7.448658878906854e-09,
+        "projected_emittance_y_m_rad": 7.74019358179618e-09,
+        "population": "all surviving current",
+        "precision": "full precision"
+      },
+      "focus_proposals": [
+        {
+          "c3_objective": [
+            34.67210589967047,
+            68.50000000000001
+          ],
+          "measurement": {
+            "surface_z_mm": 1599.1999975,
+            "statistics": {
+              "surviving_rays": 9,
+              "surviving_fraction": 0.045717592592592594,
+              "mean_x_m": 1.0736665157764663e-07,
+              "mean_y_m": 7.926977710107727e-08,
+              "mean_tx_rad": 0.020420969683398266,
+              "mean_ty_rad": 0.009656738623727535,
+              "convergence_rms_rad": 0.10855022727844138,
+              "convergence_95_rad": 0.15557900336242975,
+              "convergence_99_rad": 0.15557900336242975,
+              "convergence_edge_rad": 0.15557900336242975,
+              "radius_rms_m": 5.33809567337371e-07,
+              "radius_95_m": 1.0457896599399375e-06,
+              "radius_99_m": 1.0457896599399375e-06,
+              "radial_position_angle_covariance_m_rad": 5.5266918703495864e-08,
+              "radial_wavefront_curvature_per_m": 193951.2332754336,
+              "waist_offset_m": -4.626657359633728e-06,
+              "twofold_moment": 0.5253314059008809,
+              "threefold_moment": 0.7739202975961078
+            },
+            "local_waist_offset_nm": -4625.672381138459,
+            "variance_second_derivative": 0.02389573551563238,
+            "upstream_rms_radii_m": [
+              5.13150855139981e-07,
+              5.234680013891244e-07,
+              5.33809567337371e-07
+            ],
+            "step_mm": 0.05,
+            "effective_rays": 8.979856115107918
+          }
+        },
+        {
+          "c3_objective": [
+            34.67210592659641,
+            68.50000000000001
+          ],
+          "measurement": {
+            "surface_z_mm": 1599.1999975,
+            "statistics": {
+              "surviving_rays": 9,
+              "surviving_fraction": 0.045717592592592594,
+              "mean_x_m": 1.0736668950400707e-07,
+              "mean_y_m": 7.926979408171005e-08,
+              "mean_tx_rad": 0.020420969511636782,
+              "mean_ty_rad": 0.009656738562473075,
+              "convergence_rms_rad": 0.10855022640176612,
+              "convergence_95_rad": 0.1555790021192691,
+              "convergence_99_rad": 0.1555790021192691,
+              "convergence_edge_rad": 0.1555790021192691,
+              "radius_rms_m": 5.338097568293715e-07,
+              "radius_95_m": 1.0457899403927518e-06,
+              "radius_99_m": 1.0457899403927518e-06,
+              "radial_position_angle_covariance_m_rad": 5.526694020530441e-08,
+              "radial_wavefront_curvature_per_m": 193951.1710351098,
+              "waist_offset_m": -4.626659235407546e-06,
+              "twofold_moment": 0.5253313404877408,
+              "threefold_moment": 0.7739201775101627
+            },
+            "local_waist_offset_nm": -4625.674256531052,
+            "variance_second_derivative": 0.02389573512428164,
+            "upstream_rms_radii_m": [
+              5.131510438727212e-07,
+              5.234681905152659e-07,
+              5.338097568293715e-07
+            ],
+            "step_mm": 0.05,
+            "effective_rays": 8.979856115107918
+          }
+        }
+      ]
+    }
+  ],
+  "warnings": {}
+}

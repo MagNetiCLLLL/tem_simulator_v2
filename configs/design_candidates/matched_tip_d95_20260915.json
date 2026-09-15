@@ -1,0 +1,14 @@
+{
+  "match": "analytic projected source D95",
+  "comparison_caveat": "Flat and curved differ in field/spatial/angular laws and current. Not curvature alone.",
+  "reports": {
+    "Flat": {
+      "input_package": "configs\\design_candidates\\matched_tip_d95_20260915_flat.temwp",
+      "status": "INPUTS_ONLY; NO TRANSPORT"
+    },
+    "Curved R=500 nm": {
+      "input_package": "configs\\design_candidates\\matched_tip_d95_20260915_r500.temwp",
+      "status": "INPUTS_ONLY; NO TRANSPORT"
+    }
+  }
+}

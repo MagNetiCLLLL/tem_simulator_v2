@@ -7,6 +7,8 @@ from scipy.special import ndtr
 
 from temsim.optics.electron_gun.tip_sampling import stratified_tangent_momenta, tangent_cell_ids
 from temsim.optics.electron_gun.tip_surface import emit_surface,load_tip_surface_reference,TipSurfaceModel
+from temsim import module_manifest
+from temsim.optics.electron_gun.tip_assembly import model_from_part
 
 
 @pytest.mark.parametrize("centre",[0.,-1.5])
@@ -49,6 +51,7 @@ def test_tangent_allocation_is_only_a_budget_and_survives_roundtrip():
     from temsim.physics.grounded_tip_field import field_request
     state = default_state()
     gun = state.electron_gun
+    gun.emitter.surface_model = original
     before_field,before_key = field_request(gun),gun._cache_key(1297)
     gun.emitter.surface_model = model
     assert field_request(gun) == before_field
@@ -112,6 +115,7 @@ def test_numerical_refinement_invalidates_trajectory_not_field_identity():
     from temsim.instrument_snapshot import capture_instrument_snapshot
     state = default_state()
     gun = state.electron_gun
+    gun.emitter.surface_model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     old_field,old_key = field_request(gun),gun._cache_key(1297)
     model = gun.emitter.surface_model
     gun.emitter.surface_model = replace(model,emission=replace(model.emission,directions_per_position=72,

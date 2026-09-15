@@ -19,8 +19,10 @@ def _frozen(values, dtype):
 def emission_reference(bundle, surface_model=None):
     """Freeze actual pre-field launch data; SI positions and unit directions.
 
-    The spherical tip centre is (0, 0, -R). Surface normals are not velocities.
-    Historical planar particle sources retain their own launch distribution.
+    The tip apex is (0, 0, 0); its sphere centre is (0, 0, -R).
+    Surface normals are not velocities. In the historical angle-only model they are prescribed emission
+    axes; positions stay in the launch plane. Historical sources retain their
+    own launch distribution.
     This is display lineage, not an independently configurable source.
     """
     if surface_model is not None:
@@ -28,6 +30,10 @@ def emission_reference(bundle, surface_model=None):
         directions = np.asarray(bundle.surface_direction)
         radius = surface_model.geometry.apex_radius_nm * 1e-9
         normals = (positions + [0., 0., radius])/radius
+    elif hasattr(bundle, "surface_normal"):
+        positions = np.asarray(bundle.surface_position_m)
+        directions = np.asarray(bundle.surface_direction)
+        normals = np.asarray(bundle.surface_normal)
     else:
         positions = np.column_stack((bundle.x_m, bundle.y_m, np.zeros_like(bundle.x_m)))
         directions = np.column_stack((bundle.tx_rad, bundle.ty_rad, np.ones_like(bundle.x_m)))

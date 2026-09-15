@@ -6,6 +6,8 @@ import pytest
 from scipy.constants import c, e, m_e
 
 from temsim.optics.gun_matching import axis_variational_map, candidate_with_gun_geometry, _integrate
+from temsim import module_manifest
+from temsim.optics.electron_gun.tip_assembly import model_from_part
 
 
 class AxialFixture:
@@ -79,6 +81,7 @@ def test_placement_moves_field_and_bore_together_without_mutating_original(extra
     gun.extractor.voltage_kv = 4.5
     gun.electrostatic_lens.voltage_kv = 1.1
     gun.emitter.ray_count = 193
+    gun.emitter.surface_model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     gun.emitter.surface_model = replace(gun.emitter.surface_model,
         emission=replace(gun.emitter.surface_model.emission, spatial_sampling="apex_stratified_v1"))
     # Standalone gun identity initializes its declared vacuum context. Do this
@@ -122,6 +125,8 @@ def test_accelerator_placement_moves_stages_and_attached_aperture_once():
     from temsim.instrument_snapshot import capture_instrument_snapshot
     from temsim.physics.grounded_tip_field import field_request
     state = default_state()
+    state.electron_gun.emitter.surface_model = model_from_part(
+        module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     before = capture_instrument_snapshot(state).digest
     candidate = candidate_with_gun_geometry(state, extractor_center_mm=8., lens_center_mm=22.8,
                                            accelerator_center_mm=210.)

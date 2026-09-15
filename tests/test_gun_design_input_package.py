@@ -5,6 +5,8 @@ from zipfile import ZipFile
 import pytest
 
 from temsim.optics.column import default_state
+from temsim import module_manifest
+from temsim.optics.electron_gun.tip_assembly import model_from_part
 from temsim.optics.gun_matching import candidate_with_gun_geometry, input_working_point
 from temsim.working_point import WorkingPointCheckpoint
 
@@ -14,7 +16,7 @@ def test_design_package_restores_geometry_sampling_and_controls_without_cached_r
     s = candidate_with_gun_geometry(original, extractor_center_mm=2.1,
         lens_center_mm=8.2, accelerator_center_mm=218., dpa_center_mm=210.)
     s.electron_gun.electrostatic_lens.voltage_reference = 'tip'
-    model = s.electron_gun.emitter.surface_model
+    model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     s.electron_gun.emitter.surface_model = replace(model, emission=replace(model.emission,
         angular_sampling='tangent_stratified_v2', angular_refinement_gain=80.,
         angular_stratum_allocation=(1,1,1,1,32,1,1,1,1), directions_per_position=72))
