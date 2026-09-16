@@ -79,7 +79,7 @@ def test_blanker_selection_survives_legacy_recording_normalisation():
     catalog = AssemblyCatalog()
     selection = AssemblySelection("FEG", "C3", "No Energy Filter", "NanoPulser")
     normal = catalog.normalise_selection(selection)
-    assert normal.recording == "Energy Filter"
+    assert normal.recording == "No Energy Filter"
     assert normal.beam_blanker == "Electrostatic beam blanker"
     with pytest.raises(ValueError, match="Unknown assembly option"):
         catalog.normalise_selection(replace(selection, beam_blanker="unknown"))

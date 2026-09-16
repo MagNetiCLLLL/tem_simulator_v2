@@ -1,0 +1,763 @@
+{
+  "schema": "assembly-illumination-scalar-evidence-v1",
+  "qualification": "NOT_QUALIFIED",
+  "installed": false,
+  "scope": "Classical geometric candidates only; no image or coherent-wave acceptance. Historical candidate reports precede the final calibration-tool changes. Settings require fresh qualification before installation.",
+  "entries": [
+    {
+      "source_report": "tmp/illumination_probe_4096_20260916.json",
+      "qualification": "NOT_QUALIFIED",
+      "records": [
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C3 + Probe Corrector",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "nano_probe",
+          "rays": 4096,
+          "input_digest": "5cc680d486310435afdb2c71681775746f6d05e4310e469a255892ab721ddd17",
+          "strengths": {
+            "condenser_lens_1": 51.666666666666664,
+            "condenser_lens_2": 25.25772717253661,
+            "condenser_lens_3": 21.273622908333973,
+            "adapter_lens": 86.0039434207,
+            "probe_tl22_lens": 60,
+            "probe_tl21_lens": 60,
+            "probe_tl12_lens": 60,
+            "mini_condenser": 38.51478618454857,
+            "objective_lens": 69.89987742995139
+          },
+          "c2_aperture_diameter_mm": 0.12,
+          "focus_angle_pass": true,
+          "measurement": {
+            "alpha95_mrad": 30.000000136490105,
+            "diameter95_nm": 0.42712175730168683,
+            "waist_offset_nm": -0.0320651452630348,
+            "radial_curvature_per_m": 688151.2533910125,
+            "transmitted_rays": 3887,
+            "current_fraction": 0.948974609375,
+            "effective_rays": 3887.0000000000014,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        },
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C3 + Probe Corrector",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "micro_probe",
+          "rays": 4096,
+          "input_digest": "5cc680d486310435afdb2c71681775746f6d05e4310e469a255892ab721ddd17",
+          "strengths": {
+            "condenser_lens_1": 20,
+            "condenser_lens_2": 17.526971067688827,
+            "condenser_lens_3": 34.500911306851144,
+            "adapter_lens": 42,
+            "probe_tl22_lens": 60,
+            "probe_tl21_lens": 60,
+            "probe_tl12_lens": 60,
+            "mini_condenser": 60.34983332356223,
+            "objective_lens": 57.57382986915325
+          },
+          "c2_aperture_diameter_mm": 0.1,
+          "focus_angle_pass": true,
+          "measurement": {
+            "alpha95_mrad": 0.22129417024159354,
+            "diameter95_nm": 1999.9999991407192,
+            "waist_offset_nm": null,
+            "radial_curvature_per_m": -8.105268983525905e-7,
+            "transmitted_rays": 4096,
+            "current_fraction": 1,
+            "effective_rays": 4096,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        }
+      ]
+    },
+    {
+      "source_report": "tmp/illumination_probe_4096_check2048_20260916.json",
+      "qualification": "NOT_QUALIFIED",
+      "assembly": {
+        "gun": "FEG",
+        "column": "C3 + Probe Corrector",
+        "recording": "Energy Filter",
+        "beam_blanker": "None"
+      },
+      "mode": "nano_probe",
+      "observations": [
+        {
+          "rays": 2048,
+          "focus_angle_pass": true,
+          "measurement": {
+            "alpha95_mrad": 30.268123877152718,
+            "diameter95_nm": 0.4537624370775793,
+            "waist_offset_nm": 0.13695555048990335,
+            "radial_curvature_per_m": -2927638.670371663,
+            "transmitted_rays": 1953,
+            "current_fraction": 0.95361328125,
+            "effective_rays": 1953,
+            "column_step_mm": 0.05
+          }
+        },
+        {
+          "rays": 2048,
+          "focus_angle_pass": true,
+          "measurement": {
+            "alpha95_mrad": 30.26812388088239,
+            "diameter95_nm": 0.4516100053046181,
+            "waist_offset_nm": 0.10489604135063924,
+            "radial_curvature_per_m": -2242687.6283859746,
+            "transmitted_rays": 1953,
+            "current_fraction": 0.95361328125,
+            "effective_rays": 1953,
+            "column_step_mm": 0.025
+          }
+        }
+      ],
+      "paired": [
+        {
+          "mode": "micro_probe",
+          "rays": 2048,
+          "focus_angle_pass": false,
+          "measurement": {
+            "alpha95_mrad": 0.21647125037069684,
+            "diameter95_nm": 1956.5408476567393,
+            "waist_offset_nm": null,
+            "radial_curvature_per_m": 0.0004643546631374544,
+            "transmitted_rays": 2048,
+            "current_fraction": 1,
+            "effective_rays": 2048,
+            "column_step_mm": 0.05
+          }
+        },
+        {
+          "mode": "micro_probe",
+          "rays": 2048,
+          "focus_angle_pass": false,
+          "measurement": {
+            "alpha95_mrad": 0.21647125029131126,
+            "diameter95_nm": 1956.540846824357,
+            "waist_offset_nm": null,
+            "radial_curvature_per_m": 0.00046354413643453026,
+            "transmitted_rays": 2048,
+            "current_fraction": 1,
+            "effective_rays": 2048,
+            "column_step_mm": 0.025
+          }
+        }
+      ],
+      "crossovers": [
+        {
+          "status": "EXECUTED_AT_FIXED_SAMPLING",
+          "z_mm": 503.0813039617241,
+          "bracket_mm": [
+            503,
+            504
+          ],
+          "step_mm": 0.05,
+          "evaluations": 6,
+          "measurement": {
+            "name": "Crossover",
+            "z_mm": 503.0813039617241,
+            "rays": 2048,
+            "source_current_fraction": 1,
+            "rms_radius_nm": 1.6715067901175082,
+            "diameter95_nm": 7.0410602200457655,
+            "alpha95_mrad": 0.09095120372720993,
+            "covariance_waist_offset_mm": -1.8979045147740385e-14,
+            "projected_emittance_x_m_rad": 3.8829185665851065e-14,
+            "projected_emittance_y_m_rad": 3.904673561447787e-14,
+            "population": "same current-carrying rays throughout crossover bracket",
+            "precision": "full precision"
+          }
+        },
+        {
+          "status": "EXECUTED_AT_FIXED_SAMPLING",
+          "z_mm": 668.1874301441092,
+          "bracket_mm": [
+            668,
+            669
+          ],
+          "step_mm": 0.05,
+          "evaluations": 5,
+          "measurement": {
+            "name": "Crossover",
+            "z_mm": 668.1874301441092,
+            "rays": 2048,
+            "source_current_fraction": 1,
+            "rms_radius_nm": 0.24886769442970075,
+            "diameter95_nm": 1.0536073916383595,
+            "alpha95_mrad": 0.611619734919023,
+            "covariance_waist_offset_mm": 7.1404235925086675e-12,
+            "projected_emittance_x_m_rad": 3.901158522954616e-14,
+            "projected_emittance_y_m_rad": 3.895937114281005e-14,
+            "population": "same current-carrying rays throughout crossover bracket",
+            "precision": "full precision"
+          }
+        },
+        {
+          "status": "EXECUTED_AT_FIXED_SAMPLING",
+          "z_mm": 1195.95551803549,
+          "bracket_mm": [
+            1195,
+            1196
+          ],
+          "step_mm": 0.05,
+          "evaluations": 4,
+          "measurement": {
+            "name": "Crossover",
+            "z_mm": 1195.95551803549,
+            "rays": 1953,
+            "source_current_fraction": 0.95361328125,
+            "rms_radius_nm": 868.0706884824317,
+            "diameter95_nm": 4117.713730372006,
+            "alpha95_mrad": 3.922762139074474,
+            "covariance_waist_offset_mm": 8.420500355142593e-14,
+            "projected_emittance_x_m_rad": 8.908283284605286e-10,
+            "projected_emittance_y_m_rad": 8.691171675825034e-10,
+            "population": "same current-carrying rays throughout crossover bracket",
+            "precision": "full precision"
+          }
+        },
+        {
+          "status": "EXECUTED_AT_FIXED_SAMPLING",
+          "z_mm": 1372.9602863121497,
+          "bracket_mm": [
+            1372,
+            1373
+          ],
+          "step_mm": 0.05,
+          "evaluations": 5,
+          "measurement": {
+            "name": "Crossover",
+            "z_mm": 1372.9602863121497,
+            "rays": 1953,
+            "source_current_fraction": 0.95361328125,
+            "rms_radius_nm": 1.449292536709681,
+            "diameter95_nm": 4.942827116296397,
+            "alpha95_mrad": 2.249390144613858,
+            "covariance_waist_offset_mm": -8.508341594736817e-12,
+            "projected_emittance_x_m_rad": 8.455271434313977e-13,
+            "projected_emittance_y_m_rad": 8.447474987011197e-13,
+            "population": "same current-carrying rays throughout crossover bracket",
+            "precision": "full precision"
+          }
+        },
+        {
+          "status": "EXECUTED_AT_FIXED_SAMPLING",
+          "z_mm": 1586.141584623327,
+          "bracket_mm": [
+            1586,
+            1587
+          ],
+          "step_mm": 0.05,
+          "evaluations": 6,
+          "measurement": {
+            "name": "Crossover",
+            "z_mm": 1586.141584623327,
+            "rays": 1953,
+            "source_current_fraction": 0.95361328125,
+            "rms_radius_nm": 0.08945061662015309,
+            "diameter95_nm": 0.3700031812576849,
+            "alpha95_mrad": 24.866141728570437,
+            "covariance_waist_offset_mm": 3.1436064020014024e-14,
+            "projected_emittance_x_m_rad": 5.813847135427665e-13,
+            "projected_emittance_y_m_rad": 5.718433279864142e-13,
+            "population": "same current-carrying rays throughout crossover bracket",
+            "precision": "full precision"
+          }
+        }
+      ],
+      "intervals": [
+        [
+          "between",
+          [
+            "condenser_lens_1"
+          ],
+          [
+            "condenser_lens_2"
+          ]
+        ],
+        [
+          "between",
+          [
+            "condenser_lens_2"
+          ],
+          [
+            "condenser_aperture_2"
+          ]
+        ],
+        [
+          "between",
+          [
+            "probe_dp22_deflector"
+          ],
+          [
+            "probe_hpc_hexapole"
+          ]
+        ],
+        [
+          "between",
+          [
+            "probe_tl12_lens"
+          ],
+          [
+            "condenser_stigmator"
+          ]
+        ],
+        [
+          "between",
+          [
+            "mini_condenser"
+          ],
+          [
+            "objective_lens",
+            "sample"
+          ]
+        ]
+      ]
+    },
+    {
+      "source_report": "tmp/illumination_branch_exploration_20260916.json",
+      "qualification": "NOT_QUALIFIED",
+      "records": [
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C2",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "nano_probe",
+          "rays": 512,
+          "strengths": {
+            "condenser_lens_1": 51.666666666666664,
+            "condenser_lens_2": 25.25772717253661,
+            "mini_condenser": 2.7883015114971466,
+            "objective_lens": 72.02214226953751
+          },
+          "c2_aperture_diameter_mm": 0.12,
+          "focus_angle_pass": false,
+          "measurement": {
+            "alpha95_mrad": 21.745278393014097,
+            "diameter95_nm": 0.1823509738492419,
+            "waist_offset_nm": -0.03612659016782793,
+            "radial_curvature_per_m": 2061172.116203031,
+            "transmitted_rays": 491,
+            "current_fraction": 0.958984375,
+            "effective_rays": 490.99999999999994,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        },
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C2",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "nano_probe",
+          "rays": 512,
+          "strengths": {
+            "condenser_lens_1": 57.15902977997554,
+            "condenser_lens_2": 25.25772717253661,
+            "mini_condenser": 41.5570797718,
+            "objective_lens": 66.589542098529
+          },
+          "c2_aperture_diameter_mm": 0.12,
+          "focus_angle_pass": false,
+          "measurement": {
+            "alpha95_mrad": 9.176981560780506,
+            "diameter95_nm": 0.11382646431994281,
+            "waist_offset_nm": -0.026344083594819583,
+            "radial_curvature_per_m": 719768.4557316485,
+            "transmitted_rays": 492,
+            "current_fraction": 0.9609375,
+            "effective_rays": 491.99999999999983,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        },
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C2",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "nano_probe",
+          "rays": 512,
+          "strengths": {
+            "condenser_lens_1": 51.666666666666664,
+            "condenser_lens_2": 25.24051611344072,
+            "mini_condenser": 41.5570797718,
+            "objective_lens": 66.59011118076448
+          },
+          "c2_aperture_diameter_mm": 0.12,
+          "focus_angle_pass": false,
+          "measurement": {
+            "alpha95_mrad": 9.190969839995212,
+            "diameter95_nm": 0.11399610412313128,
+            "waist_offset_nm": -0.026344047648882134,
+            "radial_curvature_per_m": 719753.1238188938,
+            "transmitted_rays": 492,
+            "current_fraction": 0.9609375,
+            "effective_rays": 491.99999999999983,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        },
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C2",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "micro_probe",
+          "rays": 512,
+          "strengths": {
+            "condenser_lens_1": 20,
+            "condenser_lens_2": 17.526971067688827,
+            "mini_condenser": 44.92461497234874,
+            "objective_lens": 0.00048338594783432125
+          },
+          "c2_aperture_diameter_mm": 0.1,
+          "focus_angle_pass": false,
+          "measurement": {
+            "alpha95_mrad": 0.2619280804685613,
+            "diameter95_nm": 2001.4400851310534,
+            "waist_offset_nm": 3819397.754510596,
+            "radial_curvature_per_m": -261.8209040537143,
+            "transmitted_rays": 512,
+            "current_fraction": 1,
+            "effective_rays": 512,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        },
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C2",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "micro_probe",
+          "rays": 512,
+          "strengths": {
+            "condenser_lens_1": 8.60813888829617,
+            "condenser_lens_2": 17.526971067688827,
+            "mini_condenser": 35,
+            "objective_lens": 47.321321919353146
+          },
+          "c2_aperture_diameter_mm": 0.1,
+          "focus_angle_pass": true,
+          "measurement": {
+            "alpha95_mrad": 0.18188589893062299,
+            "diameter95_nm": 2000.000000095821,
+            "waist_offset_nm": null,
+            "radial_curvature_per_m": -2.3469312639278665e-7,
+            "transmitted_rays": 512,
+            "current_fraction": 1,
+            "effective_rays": 512,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        },
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C3",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "nano_probe",
+          "rays": 512,
+          "strengths": {
+            "condenser_lens_1": 51.666666666666664,
+            "condenser_lens_2": 25.25772717253661,
+            "condenser_lens_3": 21.273622908333973,
+            "mini_condenser": 3.478653345949936,
+            "objective_lens": 71.42452651200198
+          },
+          "c2_aperture_diameter_mm": 0.12,
+          "focus_angle_pass": false,
+          "measurement": {
+            "alpha95_mrad": 21.47594594904986,
+            "diameter95_nm": 0.18215029461502064,
+            "waist_offset_nm": -0.034935385108784515,
+            "radial_curvature_per_m": 1936787.1852430974,
+            "transmitted_rays": 491,
+            "current_fraction": 0.958984375,
+            "effective_rays": 490.99999999999994,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        },
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C3",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "nano_probe",
+          "rays": 512,
+          "strengths": {
+            "condenser_lens_1": 57.159029732971,
+            "condenser_lens_2": 25.25772717253661,
+            "condenser_lens_3": 21.273622908333973,
+            "mini_condenser": 41.5570797718,
+            "objective_lens": 62.864280719707715
+          },
+          "c2_aperture_diameter_mm": 0.12,
+          "focus_angle_pass": false,
+          "measurement": {
+            "alpha95_mrad": 7.777980763322966,
+            "diameter95_nm": 0.1394382649251038,
+            "waist_offset_nm": -0.02088302894854052,
+            "radial_curvature_per_m": 289038.45186067326,
+            "transmitted_rays": 492,
+            "current_fraction": 0.9609375,
+            "effective_rays": 491.99999999999983,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        },
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C3",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "nano_probe",
+          "rays": 512,
+          "strengths": {
+            "condenser_lens_1": 51.666666666666664,
+            "condenser_lens_2": 25.32345652889096,
+            "condenser_lens_3": 21.273622908333973,
+            "mini_condenser": 41.5570797718,
+            "objective_lens": 62.86298979626004
+          },
+          "c2_aperture_diameter_mm": 0.12,
+          "focus_angle_pass": false,
+          "measurement": {
+            "alpha95_mrad": 7.684683191310995,
+            "diameter95_nm": 0.13934764643430034,
+            "waist_offset_nm": -0.020880526308422288,
+            "radial_curvature_per_m": 285169.3804703238,
+            "transmitted_rays": 489,
+            "current_fraction": 0.955078125,
+            "effective_rays": 489.00000000000006,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        },
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C3",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "nano_probe",
+          "rays": 512,
+          "strengths": {
+            "condenser_lens_1": 51.666666666666664,
+            "condenser_lens_2": 25.25772717253661,
+            "condenser_lens_3": 55.23923004153678,
+            "mini_condenser": 41.5570797718,
+            "objective_lens": 67.50430005585098
+          },
+          "c2_aperture_diameter_mm": 0.12,
+          "focus_angle_pass": true,
+          "measurement": {
+            "alpha95_mrad": 29.999413661228655,
+            "diameter95_nm": 1.0018809592958888,
+            "waist_offset_nm": -0.02772815860745384,
+            "radial_curvature_per_m": 66230.02306905297,
+            "transmitted_rays": 491,
+            "current_fraction": 0.958984375,
+            "effective_rays": 490.99999999999994,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        },
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C3",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "micro_probe",
+          "rays": 512,
+          "strengths": {
+            "condenser_lens_1": 20,
+            "condenser_lens_2": 17.526971067688827,
+            "condenser_lens_3": 34.500911306851144,
+            "mini_condenser": 6.624550436095872e-13,
+            "objective_lens": 65.5690272027477
+          },
+          "c2_aperture_diameter_mm": 0.1,
+          "focus_angle_pass": false,
+          "measurement": {
+            "alpha95_mrad": 0.3368998827444846,
+            "diameter95_nm": 2002.1553116646796,
+            "waist_offset_nm": null,
+            "radial_curvature_per_m": -223.12445297320727,
+            "transmitted_rays": 512,
+            "current_fraction": 1,
+            "effective_rays": 512,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        },
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C3",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "micro_probe",
+          "rays": 512,
+          "strengths": {
+            "condenser_lens_1": 15.23486777466152,
+            "condenser_lens_2": 17.526971067688827,
+            "condenser_lens_3": 34.500911306851144,
+            "mini_condenser": 35,
+            "objective_lens": 55.676709067994544
+          },
+          "c2_aperture_diameter_mm": 0.1,
+          "focus_angle_pass": true,
+          "measurement": {
+            "alpha95_mrad": 0.21399967095836295,
+            "diameter95_nm": 2000.0000002105562,
+            "waist_offset_nm": null,
+            "radial_curvature_per_m": -6.175798246997361e-7,
+            "transmitted_rays": 512,
+            "current_fraction": 1,
+            "effective_rays": 512,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        },
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C3 + Probe Corrector",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "nano_probe",
+          "rays": 512,
+          "strengths": {
+            "condenser_lens_1": 51.666666666666664,
+            "condenser_lens_2": 25.25772717253661,
+            "condenser_lens_3": 21.273622908333973,
+            "adapter_lens": 86.0039434207,
+            "probe_tl22_lens": 60,
+            "probe_tl21_lens": 60,
+            "probe_tl12_lens": 60,
+            "mini_condenser": 40.16643278052058,
+            "objective_lens": 69.44024404020769
+          },
+          "c2_aperture_diameter_mm": 0.12,
+          "focus_angle_pass": true,
+          "measurement": {
+            "alpha95_mrad": 29.9980800414353,
+            "diameter95_nm": 0.3944858026864991,
+            "waist_offset_nm": -0.03123164508741989,
+            "radial_curvature_per_m": 742066.737234323,
+            "transmitted_rays": 491,
+            "current_fraction": 0.958984375,
+            "effective_rays": 490.99999999999994,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        },
+        {
+          "assembly": {
+            "gun": "FEG",
+            "column": "C3 + Probe Corrector",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "micro_probe",
+          "rays": 512,
+          "strengths": {
+            "condenser_lens_1": 20,
+            "condenser_lens_2": 17.526971067688827,
+            "condenser_lens_3": 34.500911306851144,
+            "adapter_lens": 42,
+            "probe_tl22_lens": 60,
+            "probe_tl21_lens": 60,
+            "probe_tl12_lens": 60,
+            "mini_condenser": 61.13646696323669,
+            "objective_lens": 57.484133470067185
+          },
+          "c2_aperture_diameter_mm": 0.1,
+          "focus_angle_pass": true,
+          "measurement": {
+            "alpha95_mrad": 0.2209325395704826,
+            "diameter95_nm": 1999.99999914878,
+            "waist_offset_nm": null,
+            "radial_curvature_per_m": -0.000010071336249805942,
+            "transmitted_rays": 512,
+            "current_fraction": 1,
+            "effective_rays": 512,
+            "column_step_mm": 0.025
+          },
+          "attempt_errors": []
+        }
+      ]
+    },
+    {
+      "source_report": "tmp/illumination_thermionic_corrected_512_20260916.json",
+      "qualification": "NOT_QUALIFIED",
+      "records": [
+        {
+          "assembly": {
+            "gun": "Thermionic",
+            "column": "C3 + Probe Corrector",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "nano_probe",
+          "rays": 512,
+          "input_digest": "a1cb63894e511e2893ca296c709f300d89dfa6be86b50c446866023cef5c006e",
+          "measurement": null,
+          "attempt_errors": [
+            "No finite surviving rays are available"
+          ]
+        },
+        {
+          "assembly": {
+            "gun": "Thermionic",
+            "column": "C3 + Probe Corrector",
+            "recording": "Energy Filter",
+            "beam_blanker": "None"
+          },
+          "mode": "micro_probe",
+          "rays": 512,
+          "input_digest": "a1cb63894e511e2893ca296c709f300d89dfa6be86b50c446866023cef5c006e",
+          "measurement": null,
+          "attempt_errors": [
+            "Fewer than 16 transmitted calibration rays; increase the sampling budget"
+          ]
+        }
+      ]
+    }
+  ]
+}
+

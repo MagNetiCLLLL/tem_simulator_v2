@@ -600,7 +600,8 @@ local_end_z_mm = 1217.4
 length_mm = 30.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1202.4
-mechanical_outer_diameter_mm = 220.0
+# Match the existing 180 mm column envelope; not an OEM dimension.
+mechanical_outer_diameter_mm = 180.0
 mechanical_clear_bore_diameter_mm = 8.0
 effective_thickness_mm = 30.0
 parent_key = "image_hp1_hexapole"
@@ -616,7 +617,8 @@ local_end_z_mm = 1224.4
 length_mm = 44.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1202.4
-mechanical_outer_diameter_mm = 220.0
+# Match the existing 180 mm column envelope; not an OEM dimension.
+mechanical_outer_diameter_mm = 180.0
 mechanical_clear_bore_diameter_mm = 8.0
 effective_length_mm = 30.0
 active_diameter_mm = 152.0
@@ -704,7 +706,8 @@ local_end_z_mm = 1361.4
 length_mm = 30.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1346.4
-mechanical_outer_diameter_mm = 220.0
+# Match the existing 180 mm column envelope; not an OEM dimension.
+mechanical_outer_diameter_mm = 180.0
 mechanical_clear_bore_diameter_mm = 8.0
 effective_thickness_mm = 30.0
 parent_key = "image_hp2_hexapole"
@@ -720,7 +723,8 @@ local_end_z_mm = 1368.4
 length_mm = 44.0
 vacuum_inner_diameter_mm = 5
 optical_reference_local_z_mm = 1346.4
-mechanical_outer_diameter_mm = 220.0
+# Match the existing 180 mm column envelope; not an OEM dimension.
+mechanical_outer_diameter_mm = 180.0
 mechanical_clear_bore_diameter_mm = 8.0
 effective_length_mm = 30.0
 active_diameter_mm = 152.0

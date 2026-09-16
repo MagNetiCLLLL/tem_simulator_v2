@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QTabWidget,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -30,6 +29,7 @@ from temsim.operating_modes import (
 
 
 class AssemblyPanel(QWidget):
+    configuration_requested = Signal()
     selection_requested = Signal(object)
     operating_mode_requested = Signal(str, str)
     direct_alignment_requested = Signal(str, float)
@@ -43,49 +43,26 @@ class AssemblyPanel(QWidget):
 
         box = QGroupBox("Instrument configuration")
         box_layout = QVBoxLayout(box)
-        self.template_toggle = QToolButton()
-        self.template_toggle.setText("Change instrument templates…")
-        self.template_toggle.setCheckable(True)
-        self.template_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.template_toggle.setArrowType(Qt.ArrowType.RightArrow)
-        self.template_toggle.setToolTip("Load compatible gun / column variants. Physical components are organised in Assembly below.")
-        box_layout.addWidget(self.template_toggle)
-        self.template_controls = QWidget()
-        form = QFormLayout(self.template_controls)
-        form.setContentsMargins(0, 0, 0, 0)
-        box_layout.addWidget(self.template_controls)
-        self.template_controls.hide()
-        self.template_toggle.toggled.connect(self.template_controls.setVisible)
-        self.template_toggle.toggled.connect(lambda checked: self.template_toggle.setArrowType(
-            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow))
-        self.gun = QComboBox()
-        self.column = QComboBox()
-        self.beam_blanker = QComboBox()
+        self.configure_button = QPushButton("Configure instrument…")
+        self.configure_button.setObjectName("configureInstrumentButton")
+        self.configure_button.clicked.connect(self.configuration_requested)
+        box_layout.addWidget(self.configure_button)
+        self.configuration_summary = QLabel()
+        self.configuration_summary.setWordWrap(True)
+        self.configuration_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        box_layout.addWidget(self.configuration_summary)
+        # Internal compatibility adapters for profile/working-point selectors.
+        # Composite template names are no longer exposed as assembly controls.
+        self.gun = QComboBox(self)
+        self.column = QComboBox(self)
+        self.beam_blanker = QComboBox(self)
         self.beam_blanker.setObjectName("beamBlankerSelector")
-        self.beam_blanker.setToolTip(
-            "Optional ultrafast electrostatic beam blanker between the gun and condenser. "
-            "Standard gun-coil blanking is available even when None is selected. "
-            "Installing it changes the column length and recalculates the "
-            "condenser preset. Apply with Load assembly."
-        )
         for selector in (self.gun, self.column, self.beam_blanker):
-            # Do not let the longest catalog label dictate the dock width.
-            # The popup still displays the complete option text.
-            selector.setSizeAdjustPolicy(
-                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
-            )
-            selector.setMinimumContentsLength(18)
+            selector.hide()
         self.gun.addItems([option.name for option in catalog.guns])
         self.column.addItems([option.name for option in catalog.columns])
         self.beam_blanker.addItems([option.name for option in catalog.beam_blankers])
         self.set_selection(selection)
-        form.addRow("Gun", self.gun)
-        form.addRow("Column", self.column)
-        form.addRow("Beam blanker", self.beam_blanker)
-        apply_button = QPushButton("Load assembly")
-        apply_button.setObjectName("loadAssemblyButton")
-        apply_button.clicked.connect(self._request_selection)
-        form.addRow(apply_button)
 
         self.operating_mode_catalog = load_operating_mode_catalog()
         mode_box = QGroupBox("Optical operating preset")
@@ -255,7 +232,7 @@ class AssemblyPanel(QWidget):
         selection = AssemblySelection(
             gun=self.gun.currentText(),
             column=self.column.currentText(),
-            recording=self.catalog.default_selection().recording,
+            recording=self._recording_name,
             beam_blanker=self.beam_blanker.currentText(),
         )
         return self.catalog.normalise_selection(selection)
@@ -279,6 +256,16 @@ class AssemblyPanel(QWidget):
         self.gun.setCurrentText(selection.gun)
         self.column.setCurrentText(selection.column)
         self.beam_blanker.setCurrentText(selection.beam_blanker)
+        self._recording_name = selection.recording
+        from temsim.instrument_configuration import InstrumentUnits
+        units = InstrumentUnits.from_selection(self.catalog, selection)
+        names = ["Cold FEG" if units.source == "cold_feg" else "Thermionic"]
+        names.extend(label for key, label in (
+            ("monochromator", "Monochromator"), ("beam_blanker", "Beam blanker"),
+            ("c3_lens", "C3"), ("probe_corrector", "Probe corrector"),
+            ("image_corrector", "Image corrector"), ("energy_filter", "Energy filter"))
+            if getattr(units, key))
+        self.configuration_summary.setText(" · ".join(names))
 
     def reload_catalog(self, catalog, selection: AssemblySelection) -> None:
         self.catalog = catalog
@@ -390,6 +377,10 @@ class AssemblyPanel(QWidget):
         projector = mode_by_key(
             projector_key, self.operating_mode_catalog
         )
+        retained = condenser.calibration_status.startswith("retained_not_recomputed_")
+        self.apply_operating_mode_button.setText(
+            "Apply stored lens preset" if retained else "Apply calculated lens preset"
+        )
         angle = condenser.targets.get(
             "achieved_convergence_sem_angle_mrad"
         )
@@ -432,11 +423,14 @@ class AssemblyPanel(QWidget):
             "Lenses/Correctors."
         )
         self.operating_mode_status.setText(
-            f"{float(angle):.3f} mrad | C2 {c2:.2f}% | C3 {c3:.2f}% | "
+            ("Stored reference; recalibration pending | " if retained else "")
+            + f"{float(angle):.3f} mrad | C2 {c2:.2f}% | C3 {c3:.2f}% | "
             f"C2 aperture {aperture_um:.0f} µm | Objective {objective:.1f}% | "
             f"{plane_label}"
         )
-        self.operating_mode_status.setToolTip(detail_text)
+        self.operating_mode_status.setToolTip(
+            condenser.calibration_reference if retained else detail_text
+        )
 
     def _request_operating_mode(self) -> None:
         condenser_key = self.probe_mode.currentData()

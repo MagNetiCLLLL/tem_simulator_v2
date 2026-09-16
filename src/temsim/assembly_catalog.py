@@ -148,15 +148,8 @@ class AssemblyCatalog:
             raise ValueError(
                 "Instrument recording-system selectable flags must be Boolean"
             )
-        if len(selectable_recordings) != 1:
-            raise ValueError(
-                "Instrument catalog must expose exactly one installed "
-                "recording system"
-            )
-        if not bool(selectable_recordings[0].get("energy_filter", False)):
-            raise ValueError(
-                "The installed recording system must include an Energy Filter"
-            )
+        if not selectable_recordings:
+            raise ValueError("Instrument catalog must expose a recording system")
         disk_files = {
             path.relative_to(self.root).as_posix()
             for path in self.root.rglob("*.toml")
@@ -196,7 +189,8 @@ class AssemblyCatalog:
         return AssemblySelection(
             gun="FEG",
             column="C3 + Probe Corrector",
-            recording=self.recording_systems[0].name,
+            recording=next(o.name for o in self.recording_systems
+                           if o.properties.get("energy_filter") is True),
         )
 
     def selection_for_resolved(self, assembly) -> AssemblySelection:
@@ -219,11 +213,13 @@ class AssemblyCatalog:
     def normalise_selection(
         self, selection: AssemblySelection
     ) -> AssemblySelection:
-        """Return a selection using the permanently installed filter module."""
+        """Validate explicit hardware choices; retain historical blanker names."""
 
-        # Accept known legacy selections so saved profiles migrate cleanly,
-        # while retaining strict validation for malformed/unknown names.
-        self._by_name(self._recording_system_modules, selection.recording)
+        # Keep explicit installation choices, including no filter. Only the
+        # historical blanker spelling is canonicalized at this boundary.
+        self._by_name(self.recording_systems, selection.recording)
+        self._by_name(self.guns, selection.gun)
+        self._by_name(self.columns, selection.column)
         blanker = selection.beam_blanker
         if blanker == "NanoPulser" and any(o.name == "Electrostatic beam blanker" for o in self.beam_blankers):
             blanker = "Electrostatic beam blanker"
@@ -231,7 +227,7 @@ class AssemblyCatalog:
         return AssemblySelection(
             gun=selection.gun,
             column=selection.column,
-            recording=self.recording_systems[0].name,
+            recording=selection.recording,
             beam_blanker=blanker,
         )
 

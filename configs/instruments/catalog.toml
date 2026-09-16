@@ -73,13 +73,12 @@ c3_lens = true
 probe_corrector = true
 image_corrector = true
 
-# Retained only to validate and migrate historical assemblies. It is not an
-# operator-selectable hardware topology.
+# Optional post-column filter. Both choices use the existing assembly interfaces.
 [[project_and_recording_system_variants]]
 name = "No Energy Filter"
 file = "project_and_recording_system/NoEnergyFilter.toml"
 energy_filter = false
-selectable = false
+selectable = true
 
 [[project_and_recording_system_variants]]
 name = "Energy Filter"

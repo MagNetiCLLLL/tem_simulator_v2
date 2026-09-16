@@ -261,7 +261,7 @@ def small_real_state():
     return CalculationController._calculation_snapshot(s, "High accuracy", 9, 5.)
 
 
-def test_production_bank_reuses_incident_and_never_mutates_source():
+def test_production_bank_reuses_incident_and_never_mutates_source(monkeypatch):
     from temsim.component_keys import PROJECTOR_LENS_2
     s = small_real_state()
     before = s.to_dict()
@@ -272,8 +272,19 @@ def test_production_bank_reuses_incident_and_never_mutates_source():
     assert "incident" in bank.points[1].result.reused_products
     assert s.to_dict() == before
     assert bank.retained_bytes < plan.cache_budget_bytes
+    outputs = tuple(p.result.energy_filter for p in bank.points)
+    assert all(output is not None for output in outputs)
+    assert all(not hasattr(p.result.state_snapshot, "energy_filter_result") for p in bank.points)
+    monkeypatch.setattr(interactive, "calculate", lambda *a, **k: pytest.fail("Repeated propagation on readout"))
     r = read_bank(bank, {control.identity: 10.})
     assert all(np.isfinite(list(r.detector_current_pa.values())))
+    read_bank(bank, {control.identity: 11.})
+    # Older in-memory completed frames can still carry this redundant alias.
+    bank.points[0].result.state_snapshot.energy_filter_result = outputs[0]
+    again = read_bank(bank, {control.identity: 10.})
+    assert dict(again.detector_current_pa) == dict(r.detector_current_pa)
+    assert all(p.result.energy_filter is output for p, output in zip(bank.points, outputs))
+    assert s.to_dict() == before
 
 
 def test_production_tem_aperture_replay_agrees_with_fresh_projection():

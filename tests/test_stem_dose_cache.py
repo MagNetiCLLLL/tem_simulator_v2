@@ -69,6 +69,9 @@ def _frame(state):
 
 
 def _isolate_pipeline(monkeypatch):
+    # This is an isolated readout/cache fixture, not source or wave-image
+    # qualification. The production admission boundary is checked separately.
+    monkeypatch.setattr("temsim.physics.source_admission.admit_requested_wave_products", lambda _state: None)
     for name in ("ensure_recording_system", "ensure_energy_filter",
                  "ensure_corrector_structure", "normalise_component_names",
                  "apply_physical_layout_to_state"):
@@ -85,6 +88,16 @@ def _isolate_pipeline(monkeypatch):
         monkeypatch.setattr(pipeline, name, forbidden)
     monkeypatch.setattr(pipeline, "simulate_energy_filter", lambda *_a, **_k: None)
     monkeypatch.setattr("temsim.physics.stem_wave_imaging.simulate_angle_resolved_stem", forbidden)
+
+
+def test_current_readout_tests_do_not_qualify_a_new_coherent_source():
+    from temsim.physics.source_admission import UnsupportedWaveSource, admit_requested_wave_products
+    state = default_state()
+    state.sample.stem_wave_enabled = True
+    state.ac_deflector.enabled = state.ac_deflector.scan_enabled = True
+    state.column_current_limit_percent = .001
+    with pytest.raises(UnsupportedWaveSource):
+        admit_requested_wave_products(state)
 
 
 @pytest.mark.parametrize("change", ["enable", "disable", "seed", "current"])

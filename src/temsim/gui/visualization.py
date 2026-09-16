@@ -1389,7 +1389,7 @@ class VisualizationWorkspace(QWidget):
 
     @staticmethod
     def _bundle_lines(
-        z, values, count: int, blocked_z=None
+        z, values, count: int, blocked_z=None, *, launch_z=None, launch_values=None
     ) -> tuple[np.ndarray, np.ndarray]:
         """Build visible ray segments ending at their first blocking plane."""
         z = np.asarray(z, dtype=float)
@@ -1407,11 +1407,9 @@ class VisualizationWorkspace(QWidget):
             if blocked_z is not None and np.isfinite(blocked_z[index]):
                 stop_z = float(blocked_z[index])
                 stop_index = int(np.searchsorted(z, stop_z, side="right"))
-                if stop_index == 0:
-                    continue
                 ray_z = z[:stop_index]
                 ray_value = values[:stop_index, index]
-                if stop_index < z.size and ray_z[-1] < stop_z:
+                if 0 < stop_index < z.size and ray_z[-1] < stop_z:
                     left_z = float(z[stop_index - 1])
                     right_z = float(z[stop_index])
                     fraction = (stop_z - left_z) / (right_z - left_z)
@@ -1420,6 +1418,24 @@ class VisualizationWorkspace(QWidget):
                     )
                     ray_z = np.append(ray_z, stop_z)
                     ray_value = np.append(ray_value, stop_value)
+            if launch_z is not None:
+                # The shared plane grid begins at the tip centre (Z=0), but
+                # curved-tip electrons launch upstream of it. Use the executed
+                # equal-time history, not a line extrapolated from plane zero.
+                history_z = launch_z[:, index]
+                crossing = np.flatnonzero(history_z >= z[0])
+                end = int(crossing[0]) if crossing.size else len(history_z)
+                prefix_z = history_z[:end]
+                prefix_value = launch_values[:end, index]
+                valid = np.isfinite(prefix_z) & np.isfinite(prefix_value)
+                if blocked_z is not None and np.isfinite(blocked_z[index]):
+                    valid &= prefix_z <= blocked_z[index]
+                prefix_z, prefix_value = prefix_z[valid], prefix_value[valid]
+                if prefix_z.size:
+                    ray_z = np.r_[prefix_z, ray_z]
+                    ray_value = np.r_[prefix_value, ray_value]
+            if not ray_z.size:
+                continue
             x_segments.extend((ray_z, np.array([np.nan])))
             y_segments.extend((ray_value * 1.0e3, np.array([np.nan])))
         if not x_segments:
@@ -1451,15 +1467,39 @@ class VisualizationWorkspace(QWidget):
         if indices.size == 0:
             return np.array([], dtype=float), np.array([], dtype=float)
         sources = (branch.z, branch.x, branch.y, branch.blocked_z)
+        simulation = getattr(self._last_result, "simulation", None)
+        history = getattr(getattr(simulation, "gun_trace", None), "equal_time_history", None)
+        if (branch is not getattr(simulation, "incident", None)
+                or history is None
+                or history.z_mm.shape[1] != branch.x.shape[1]
+                or not np.any(history.z_mm[0] < branch.z[0])):
+            history = None
+        if history is not None:
+            sources += (history.z_mm, history.x_m, history.y_m, history.completed)
         key = ("lines", tuple(id(value) for value in sources), indices.tobytes())
         basis = self._ray_display_cache_get(key, sources)
         if basis is None:
             blocked_z = np.asarray(branch.blocked_z, dtype=float)[indices]
+            prefix_z = prefix_x = prefix_y = None
+            if history is not None:
+                # Copy only the short launch prefix for the drawn subset, not
+                # entire equal-time gun histories on every colour-group miss.
+                end = 0
+                while end < len(history.z_mm) and np.any(
+                    (history.z_mm[end, indices] < branch.z[0])
+                    & ~history.completed[end, indices]
+                ):
+                    end += 1
+                prefix_z = history.z_mm[:end + 1, indices]
+                prefix_x = history.x_m[:end + 1, indices]
+                prefix_y = history.y_m[:end + 1, indices]
             z, x_values = self._bundle_lines(
-                branch.z, np.asarray(branch.x)[:, indices], len(indices), blocked_z
+                branch.z, np.asarray(branch.x)[:, indices], len(indices), blocked_z,
+                launch_z=prefix_z, launch_values=prefix_x,
             )
             _, y_values = self._bundle_lines(
-                branch.z, np.asarray(branch.y)[:, indices], len(indices), blocked_z
+                branch.z, np.asarray(branch.y)[:, indices], len(indices), blocked_z,
+                launch_z=prefix_z, launch_values=prefix_y,
             )
             basis = (z, x_values, y_values)
             self._ray_display_cache_put(key, sources, basis)

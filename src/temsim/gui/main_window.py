@@ -124,6 +124,7 @@ class MainWindow(QMainWindow):
         self._selected_energy_filter_key = "energy_filter"
         self._part_geometry_dialog = None
         self._df_geometry_dialog = None
+        self._configuration_dialog = None
 
         self.workspace = VisualizationWorkspace(self)
         self._physical_revision = 0
@@ -222,6 +223,7 @@ class MainWindow(QMainWindow):
         self._preview_deferred_for_sweep = False
 
         self.assembly_panel.selection_requested.connect(self.load_assembly)
+        self.assembly_panel.configuration_requested.connect(self.open_instrument_configuration)
         self.assembly_panel.operating_mode_requested.connect(
             self.apply_operating_modes
         )
@@ -1293,6 +1295,49 @@ class MainWindow(QMainWindow):
                 if value is not None:
                     setattr(component, attribute, value)
         return candidate
+
+    def open_instrument_configuration(self):
+        if self._configuration_dialog is not None:
+            self._configuration_dialog.show()
+            self._configuration_dialog.raise_()
+            self._configuration_dialog.activateWindow()
+            return self._configuration_dialog
+        from temsim.gui.instrument_configuration_dialog import InstrumentConfigurationDialog
+        dialog = InstrumentConfigurationDialog(self.catalog, lambda: self.state,
+            self._assemble_checked_configuration, self,
+            layout_id=self.workspace_layouts.active_id)
+        self._configuration_dialog = dialog
+        self.workspace.physical_layout.component_selected.connect(dialog.select_component)
+        def focus_installed(key):
+            try:
+                part = self.assembly.part(key)
+            except KeyError:
+                return
+            self.workspace.physical_layout.focus_component(part)
+        dialog.component_selected.connect(focus_installed)
+        dialog.finished.connect(lambda _: setattr(self, "_configuration_dialog", None))
+        dialog.show()
+        return dialog
+
+    def _assemble_checked_configuration(self, checked):
+        if self.workspace.interactive_calculation.busy:
+            raise ValueError("Finish or cancel the Live tuning bank operation first")
+        candidate = checked.restore_for(self.state)
+        if checked.candidate.physical_digest == checked.original.physical_digest:
+            self.status_label.setText("Instrument configuration is unchanged")
+            return
+        self._invalidate_direct_alignment()
+        self._invalidate_operating_preset()
+        self._install_working_point(candidate, None, fork=False)
+        self._physical_revision += 1
+        from types import SimpleNamespace
+        self.workspace.physical_layout.display_result(SimpleNamespace(
+            assembly=self.assembly, layout=self.state._resolved_optics_layout,
+            state_snapshot=self.state))
+        message = "Instrument assembled. Lens preset calibration is separate; use Direct Alignment or Live tuning."
+        self.status_label.setText(message)
+        self.log_output.appendPlainText(message)
+        self.schedule_preview()
 
     def load_assembly(self, selection) -> None:
         self._invalidate_direct_alignment()
@@ -2484,6 +2529,9 @@ class MainWindow(QMainWindow):
             recorder.raise_()
             event.ignore()
             return
+        if self._configuration_dialog is not None:
+            # Persist its layout even when the application closes first.
+            self._configuration_dialog.reject()
         self.workspace_layouts.close()
         self.workspace.interactive_calculation.shutdown()
         self.workspace.model_inspector.validation_page.shutdown()

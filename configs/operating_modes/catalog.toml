@@ -10,8 +10,8 @@ description = "Calculated reference Microprobe/Nanoprobe and Image/Diffraction o
 key = "micro_probe"
 name = "Microprobe"
 family = "condenser"
-calibration_status = "retained_not_recomputed_after_c2_aperture_relocation"
-calibration_reference = "Preset strengths and reported metrics are retained from the preceding 300 kV non-OEM C3 + Probe Corrector calibration with the C2 aperture at local Z 295 mm. The mechanical aperture plane is now local Z 315 mm; no optical-path or preset-strength recalculation was performed for this component move."
+calibration_status = "retained_not_recomputed_after_aperture_and_gun_integrator_updates"
+calibration_reference = "Historical reference only; not qualified for the revised adaptive particle-gun integrator or the new assembly-specific 2 um / 0.3 mrad target. Preset strengths and reported metrics are retained from the preceding 300 kV non-OEM C3 + Probe Corrector calibration with the C2 aperture at local Z 295 mm. The mechanical aperture plane is now local Z 315 mm."
 compatible_columns = ["C3 + Probe Corrector"]
 compatible_recording_systems = ["*"]
 devices = { condenser_lens_1 = { percent = 20.0 }, condenser_lens_2 = { percent = 17.526971067688827 }, condenser_lens_3 = { percent = 34.500911306851144 }, adapter_lens = { percent = 42.0 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 35.0, field_polarity = 1 }, objective_lens = { percent = 68.9801 }, probe_hp2_hexapole = { enabled = true, strength_m3 = 508073.49, orientation_rad = 0.0 }, probe_hp1_hexapole = { enabled = true, strength_m3 = 302372.3317133547, orientation_rad = -0.04234211 } }
@@ -22,8 +22,8 @@ targets = { beam_character = "quasi_parallel", maximum_convergence_sem_angle_mra
 key = "nano_probe"
 name = "Nanoprobe"
 family = "condenser"
-calibration_status = "computed_300kv_non_oem_source_probe_corrector"
-calibration_reference = "Source-based geometric calibration at 300 kV with the 100 um C2 aperture at local Z 315 mm (absolute Z 765 mm), sample Z 1599.2 mm, and 1000 deterministic emitted rays. C3 sets sample focus; both enabled principal hexapoles and their relative azimuth minimise nonlinear ray-position errors against the same source in the linear column. Canonical RK4 at 0.05 mm, validated at 0.025 mm. The 25 mrad working point achieves 24.625 mrad (95%-current semi-angle). This is a simulator field calibration, not a DCOR current table or a wave-probe FWHM calibration."
+calibration_status = "retained_not_recomputed_after_gun_integrator_update"
+calibration_reference = "Historical reference only; not qualified for the revised adaptive particle-gun integrator or the new 30 mrad upper-surface target. Original source-based geometric calibration: 300 kV, 100 um C2 aperture at local Z 315 mm (absolute Z 765 mm), sample Z 1599.2 mm, 1000 deterministic emitted rays. C3 sets sample focus; both principal hexapoles and their relative azimuth minimise nonlinear position errors. Canonical RK4 at 0.05 mm, checked at 0.025 mm. Stored 25 mrad working point: 24.625 mrad (95%-current semi-angle). Not an OEM current table or a wave-probe FWHM calibration."
 compatible_columns = ["C3 + Probe Corrector"]
 compatible_recording_systems = ["*"]
 devices = { condenser_lens_1 = { percent = 51.666666666666664 }, condenser_lens_2 = { percent = 25.25772717253661 }, condenser_lens_3 = { percent = 21.273622908333973 }, adapter_lens = { percent = 86.0039434207 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 41.5570797718, field_polarity = -1 }, objective_lens = { percent = 68.9801 }, probe_hp2_hexapole = { enabled = true, strength_m3 = 626910.5744377297, orientation_rad = 0.0 }, probe_hp1_hexapole = { enabled = true, strength_m3 = 374822.52529434016, orientation_rad = -0.04231957336232493 } }

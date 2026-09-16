@@ -105,7 +105,7 @@ class AppliedOperatingModes:
             details.append(f"conjugate residual {float(relay_um):.3f} µm")
         if condenser_is_retained:
             details.append(
-                "condenser preset not recalculated for current geometry"
+                "condenser preset not recalculated for current geometry or source model"
             )
         suffix = "; ".join(details)
         return (

@@ -319,6 +319,10 @@ class FegElectrostaticField:
         self.accelerator = accelerator
 
     def axial_potential_v_and_derivatives_per_mm(self, z_mm):
+        from temsim.physics.analytic_gun_field import evaluate
+        compiled = evaluate(self, z_mm)
+        if compiled is not None:
+            return compiled
         extractor = self.extractor.axial_potential_v_and_derivatives_per_mm(
             z_mm
         )

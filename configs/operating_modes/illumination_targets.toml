@@ -1,0 +1,46 @@
+schema = "assembly-illumination-targets-v1"
+
+# Targets agreed by the user; these are not achieved preset claims.
+# Both quantiles contain 95% of the transmitted current about its chief ray.
+# Reference plane: the specimen upper surface, with every upstream element active.
+[nano_probe]
+alpha95_mrad = 30.0
+relative_tolerance = 0.01
+focus_tolerance_nm = 1.0
+maximum_curvature_per_m = 25.0
+
+[micro_probe]
+alpha95_mrad = 0.3 # upper bound, not an equality target
+diameter95_um = 2.0
+relative_tolerance = 0.01
+focus_tolerance_nm = 1.0
+maximum_curvature_per_m = 25.0
+
+[probe_diameter]
+# Corrected bound is explicitly requested to be strict (< 1 nm).
+corrected_maximum_nm = 1.0
+# Provisional screening interpretation of "nanometre-scale" without a corrector.
+uncorrected_maximum_nm = 10.0
+
+[current_and_aperture]
+# User-approved specimen current and physical C2 diameter ranges.
+minimum_current_pa = 2.0
+maximum_current_pa = 200.0
+# Interior fitting setpoint, not a replacement for measured transmission.
+preferred_current_pa = 100.0
+minimum_c2_diameter_um = 20.0
+maximum_c2_diameter_um = 250.0
+
+[crossover_baselines.feg_c3_probe_corrector_microprobe]
+# Explicit user approval on 2026-09-17. Nanoprobe keeps its historical baseline.
+authorised = true
+confirmation_date = "2026-09-17"
+count = 6
+intervals = [
+  ["between", ["condenser_lens_1"], ["condenser_lens_2"]],
+  ["between", ["condenser_lens_2"], ["condenser_aperture_2"]],
+  ["between", ["probe_tl22_lens"], ["probe_dp22_deflector"]],
+  ["between", ["probe_qpol_quadrupole"], ["probe_dp11_deflector"]],
+  ["between", ["mini_condenser"], ["objective_lens", "sample"]],
+  ["between", ["mini_condenser"], ["objective_lens", "sample"]],
+]

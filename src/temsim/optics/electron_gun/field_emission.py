@@ -718,8 +718,13 @@ class FieldEmissionGun:
         payload["exit_plane_z_mm"] = float(self.exit_plane_z_mm)
         payload["requested_count"] = self.ray_count if count is None else count
         payload["particle_integrator_schema"] = "discrete-gradient-compiled-v2"
-        from temsim.optics.electron_gun.tracing import ANALYTIC_ENERGY_SCHEMA
+        from temsim.optics.electron_gun.tracing import (
+            ANALYTIC_ENERGY_SCHEMA, ANALYTIC_STEP_SCHEMA,
+            ANALYTIC_MAXIMUM_RELATIVE_IMPULSE,
+        )
         payload["analytic_energy_schema"] = ANALYTIC_ENERGY_SCHEMA
+        payload["analytic_step_schema"] = ANALYTIC_STEP_SCHEMA
+        payload["analytic_maximum_relative_impulse"] = ANALYTIC_MAXIMUM_RELATIVE_IMPULSE
         payload["tuning_sampling_schema"] = "physical-tip-grouped-support-v2"
         payload["tuning_surface_probes"] = int(getattr(self.emitter, "_tuning_surface_probes", 0))
         payload["tuning_boundary_probes"] = int(getattr(self.emitter, "_tuning_boundary_probes", 0))
@@ -847,8 +852,8 @@ class FieldEmissionGun:
         lens = self.electrostatic_lens
         supports = [
             (
-                self.extractor.transition_start_mm,
-                self.extractor.transition_end_mm,
+                self.extractor.transition_start_mm + self.extractor.field_center_offset_mm,
+                self.extractor.transition_end_mm + self.extractor.field_center_offset_mm,
             ),
             (
                 lens.optical_reference_from_tip_mm
@@ -905,23 +910,21 @@ class FieldEmissionGun:
         return tuple(sorted(supports))
 
     def integration_step_mm_at(self, z_mm):
-        z = float(z_mm)
-        if (
-            self.monochromator_installed
-            and self.monochromator.wien.field_support_mm[0]
-            <= z
-            <= self.monochromator.wien.field_support_mm[1]
-        ):
-            return min(
-                self.trace_step_mm,
-                self.monochromator.trace_step_mm,
-            )
+        # The equal-time bundle is not a common-Z plane. Slow electrons can
+        # still be accelerating after the leading electron leaves a field.
+        z = np.asarray(z_mm, dtype=float)
+        lo, hi = float(np.min(z)), float(np.max(z))
+        step = self.drift_step_mm
         for start, end in self.field_supports_mm:
-            if start <= z <= end:
-                return self.trace_step_mm
-            if z < start:
-                return min(self.drift_step_mm, max(start - z, self.trace_step_mm))
-        return self.drift_step_mm
+            if lo <= end and hi >= start:
+                step = min(step, self.trace_step_mm)
+            elif hi < start:
+                step = min(step, max(start - hi, 1e-10))
+        if self.monochromator_installed:
+            start, end = self.monochromator.wien.field_support_mm
+            if lo <= end and hi >= start:
+                step = min(step, self.monochromator.trace_step_mm)
+        return step
 
     def draw_layout(self):
         return tuple(component.draw_layout() for component in self.components)

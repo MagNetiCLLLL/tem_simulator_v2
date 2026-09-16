@@ -7,6 +7,9 @@ import pyqtgraph as pg
 import pytest
 
 from temsim.assembly_catalog import AssemblyCatalog, AssemblySelection
+from temsim.alignment_transaction import AlignmentRequest, AlignmentCandidate
+from temsim.instrument_snapshot import capture_instrument_snapshot
+from temsim.working_point import WorkingPointCheckpoint
 from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.component_keys import ENERGY_FILTER_INTERNAL_KEYS
 from temsim.gui.diagnostic_tabs import (
@@ -1051,8 +1054,8 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
         "FEG", "C3 + Probe Corrector", "No Energy Filter"
     ))
     window.preview_timer.stop()
-    assert window.selection.recording == "Energy Filter"
-    assert window.state.energy_filter_installed is True
+    assert window.selection.recording == "No Energy Filter"
+    assert window.state.energy_filter_installed is False
 
 
 def test_energy_filter_page_owns_iliad_navigation_and_eels_controls(qtbot):
@@ -1471,6 +1474,22 @@ def _successful_direct_alignment_result(state, key, target):
     )
 
 
+def _alignment_candidate(request, result=None):
+    """Synthetic GUI transaction fixture; does not certify physical alignment."""
+    state = request.start_snapshot.restore()
+    if result is None:
+        result = _successful_direct_alignment_result(state, request.key, request.target)
+    for lens in state.lenses:
+        if lens.key in result.strengths:
+            lens.percent = result.strengths[lens.key]
+    snapshot = capture_instrument_snapshot(state)
+    checkpoint = WorkingPointCheckpoint(
+        snapshot, {}, state.sample.z_mm, "GUI fixture", {"validation_status": "NOT_RUN"})
+    return AlignmentCandidate(request, result, checkpoint,
+        {"status": "PASS", "candidate_snapshot": snapshot.to_dict(),
+         "forward_snapshot_id": snapshot.digest}, "READY_TO_APPLY")
+
+
 def test_main_window_commits_a_current_background_alignment_atomically(
     qtbot, monkeypatch
 ):
@@ -1479,12 +1498,12 @@ def test_main_window_commits_a_current_background_alignment_atomically(
     window.preview_timer.stop()
     captured_states = []
 
-    def solve(snapshot, key, target):
-        captured_states.append(snapshot)
-        return _successful_direct_alignment_result(snapshot, key, target)
+    def solve(request, *, cancelled):
+        captured_states.append(request.start_snapshot.restore())
+        return _alignment_candidate(request)
 
     monkeypatch.setattr(
-        "temsim.gui.direct_alignment_controller.apply_direct_alignment",
+        "temsim.gui.direct_alignment_controller.solve_alignment_candidate",
         solve,
     )
     before = {lens.key: lens.percent for lens in window.state.lenses}
@@ -1497,7 +1516,7 @@ def test_main_window_commits_a_current_background_alignment_atomically(
     assert {
         key for key in before if before[key] != after[key]
     } == {"condenser_lens_2", "condenser_lens_3"}
-    assert "Direct Alignment applied" in window.status_label.text()
+    assert "Background test solve passed" in window.status_label.text()
     assert not window.progress.isVisible()
 
 
@@ -1509,11 +1528,13 @@ def test_main_window_has_no_spot_size_adjustment(qtbot):
     assert window.findChild(QDoubleSpinBox, "spotSizeCurrentLimitTarget") is None
 
 
-def test_main_window_image_commit_enables_equivalent_five_lens_model(qtbot):
+@pytest.mark.parametrize("equivalent", [False, True])
+def test_main_window_image_commit_preserves_captured_five_lens_model(qtbot, equivalent):
     window = MainWindow()
     qtbot.addWidget(window)
     window.preview_timer.stop()
     apply_operating_mode_pair(window.state, "nano_probe", "imaging")
+    window.state.equivalent_image_lenses_enabled = equivalent
     definition = direct_alignment_by_key("image_magnification")
     values = (24.75, 29.12, 10.02, 64.48, 31.96)
     strengths = dict(zip(definition.devices, values))
@@ -1531,12 +1552,13 @@ def test_main_window_image_commit_enables_equivalent_five_lens_model(qtbot):
         numerical_spread=0.0,
         message="Five-lens test solve passed.",
     )
-    window._direct_alignment_state_token = repr(window.state.to_dict())
+    request = AlignmentRequest.capture(window.state, definition.key, result.requested,
+        revision=window._physical_revision)
 
-    window._direct_alignment_ready(definition.key, result, 0.01)
+    window._direct_alignment_ready(definition.key, _alignment_candidate(request, result), 0.01)
     window.preview_timer.stop()
 
-    assert window.state.equivalent_image_lenses_enabled is True
+    assert window.state.equivalent_image_lenses_enabled is equivalent
     lenses = {lens.key: lens for lens in window.state.lenses}
     assert {
         key: lenses[key].percent for key in definition.devices
@@ -1552,13 +1574,13 @@ def test_main_window_discards_a_stale_background_alignment(
     worker_started = threading.Event()
     release_worker = threading.Event()
 
-    def solve(snapshot, key, target):
+    def solve(request, *, cancelled):
         worker_started.set()
         assert release_worker.wait(timeout=5.0)
-        return _successful_direct_alignment_result(snapshot, key, target)
+        return _alignment_candidate(request)
 
     monkeypatch.setattr(
-        "temsim.gui.direct_alignment_controller.apply_direct_alignment",
+        "temsim.gui.direct_alignment_controller.solve_alignment_candidate",
         solve,
     )
     window.apply_direct_alignment("nanoprobe_convergence", 30.0)
@@ -1573,7 +1595,7 @@ def test_main_window_discards_a_stale_background_alignment(
 
     assert lenses["condenser_lens_2"].percent == pytest.approx(manual_value)
     assert "not applied" in window.status_label.text().lower()
-    assert "stale result was discarded" in window.log_output.toPlainText()
+    assert "STALE" in window.log_output.toPlainText()
 
 
 def test_invalidating_a_running_alignment_clears_busy_progress_and_status(
@@ -1585,13 +1607,13 @@ def test_invalidating_a_running_alignment_clears_busy_progress_and_status(
     worker_started = threading.Event()
     release_worker = threading.Event()
 
-    def solve(snapshot, key, target):
+    def solve(request, *, cancelled):
         worker_started.set()
         assert release_worker.wait(timeout=5.0)
-        return _successful_direct_alignment_result(snapshot, key, target)
+        return _alignment_candidate(request)
 
     monkeypatch.setattr(
-        "temsim.gui.direct_alignment_controller.apply_direct_alignment",
+        "temsim.gui.direct_alignment_controller.solve_alignment_candidate",
         solve,
     )
     window.apply_direct_alignment("nanoprobe_convergence", 30.0)
@@ -1643,14 +1665,18 @@ def test_background_commit_rejects_wrong_key_or_coupled_device_set(
         numerical_spread=0.0,
         message="Invalid test result.",
     )
-    window._direct_alignment_state_token = repr(window.state.to_dict())
-
+    request = AlignmentRequest.capture(window.state, "nanoprobe_convergence", 30.0,
+        revision=window._physical_revision)
+    candidate = _alignment_candidate(request, result)
+    assert capture_instrument_snapshot(window.state).physical_digest == request.start_snapshot.physical_digest
     window._direct_alignment_ready(
-        "nanoprobe_convergence", result, 0.01
+        "nanoprobe_convergence", candidate, 0.01
     )
 
     assert {lens.key: lens.percent for lens in window.state.lenses} == before
-    assert "exact coupled-device set" in window.log_output.toPlainText()
+    expected = ("validation does not match" if returned_key != request.key
+                else "exact registered device set")
+    assert expected in window.log_output.toPlainText()
 
 
 def test_direct_alignment_worker_error_clears_solving_status(qtbot, monkeypatch):
@@ -1660,11 +1686,11 @@ def test_direct_alignment_worker_error_clears_solving_status(qtbot, monkeypatch)
     errors = []
     monkeypatch.setattr(window, "_show_error", errors.append)
 
-    def fail(_snapshot, _key, _target):
+    def fail(_request, *, cancelled):
         raise RuntimeError("synthetic worker failure")
 
     monkeypatch.setattr(
-        "temsim.gui.direct_alignment_controller.apply_direct_alignment",
+        "temsim.gui.direct_alignment_controller.solve_alignment_candidate",
         fail,
     )
     with qtbot.waitSignal(window.direct_alignments.finished, timeout=5_000):

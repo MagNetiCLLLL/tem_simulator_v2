@@ -7,6 +7,8 @@ import math
 import numpy as np
 
 ANALYTIC_ENERGY_SCHEMA = "launch-potential-reference-v1"
+ANALYTIC_STEP_SCHEMA = "all-active-field-step-doubled-boris-v1"
+ANALYTIC_MAXIMUM_RELATIVE_IMPULSE = .025
 
 from temsim.component_keys import FEG_MONOCHROMATOR_SLIT
 from temsim.optics.electron_gun.base import (
@@ -114,9 +116,10 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
         else None
     )
     slit_plane = gun.c1_aperture if slit is not None else None
-    maximum_steps = int(np.ceil(gun.exit_plane_z_mm / gun.trace_step_mm)) * 8
-    if surface_model is not None:
-        maximum_steps = max(maximum_steps, 100000)
+    # Adaptive substeps are not counted in units of the requested spatial
+    # cap. The old fixed-step allowance prematurely rejected slower bundles
+    # (notably thermionic and monochromated guns).
+    maximum_steps = max(int(np.ceil(gun.exit_plane_z_mm / gun.trace_step_mm)) * 8, 100000)
 
     for step_index in range(maximum_steps):
         if cancelled is not None and cancelled():
@@ -144,7 +147,7 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             velocity = velocity_from_momentum_m_per_s(
                 phase.momentum_kg_m_per_s[active]
             )
-        active_z_mm = float(np.max(phase.position_m[active, 2])) * 1000.0
+        active_z_mm = phase.position_m[active, 2] * 1000.0
         step_m = gun.integration_step_mm_at(active_z_mm) * 1e-3
         dt = step_m / max(float(np.max(velocity[:, 2])), 1.0)
         previous_position = phase.position_m.copy()
@@ -172,7 +175,32 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
                 dt = min(dt, float(np.min(.025*momentum_size[field_strength>0]/(ELEMENTARY_CHARGE_C*field_strength[field_strength>0]))))
             advanced, dt = _surface_step(phase, dt, active, magnetic_provider, electric_provider)
         else:
-            advanced = boris_step(phase, dt, magnetic_provider, electric_field=electric_provider)
+            # A spatial cap alone is unsafe at emission: a sub-eV electron can
+            # gain keV within that step. Resolve the local Lorentz impulse
+            # before applying Boris; energy projection cannot repair a wrong
+            # direction or a skipped extraction trajectory.
+            from temsim.physics.relativistic_lorentz import lorentz_derivative
+            _, force = lorentz_derivative(
+                phase.position_m[active], phase.momentum_kg_m_per_s[active],
+                magnetic_provider, electric_field=electric_provider,
+            )
+            # Include the same predicted midpoint as Boris. At the compact
+            # extractor-field entrance the current force can be exactly zero.
+            _, midpoint_force = lorentz_derivative(
+                phase.position_m[active] + .5 * dt * velocity,
+                phase.momentum_kg_m_per_s[active], magnetic_provider,
+                electric_field=electric_provider,
+            )
+            force_size = np.maximum(np.linalg.norm(force, axis=1),
+                                    np.linalg.norm(midpoint_force, axis=1))
+            nonzero = force_size > 0
+            if np.any(nonzero):
+                momentum_size = np.linalg.norm(phase.momentum_kg_m_per_s[active], axis=1)
+                dt = min(dt, float(np.min(ANALYTIC_MAXIMUM_RELATIVE_IMPULSE
+                                         * momentum_size[nonzero] / force_size[nonzero])))
+            advanced, dt = _analytic_step(
+                gun, phase, dt, active, magnetic_provider, electric_provider,
+                invariant_energy[active])
         new_position = phase.position_m.copy()
         new_momentum = phase.momentum_kg_m_per_s.copy()
         new_position[active] = advanced.position_m[active]
@@ -500,6 +528,44 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             "scope": "classical prescribed outgoing flux; no coherent phase or tunnelling prediction",
         })
     return result
+
+
+def _analytic_step(gun, phase, dt, active, magnetic, electric, invariant_energy):
+    """Bound transverse trajectory error as well as the static energy error.
+
+    Energy projection is part of each compared step, not an error estimator.
+    The two-half-step solution is accepted only after comparison to one full
+    step. Stopped rays cannot constrain the live population's time step.
+    """
+    local = RelativisticPhaseSpace(phase.position_m[active],
+                                  phase.momentum_kg_m_per_s[active], phase.time_s)
+
+    def advance(start, duration):
+        result = boris_step(start, duration, magnetic, electric_field=electric)
+        momentum = _enforce_static_field_energy(gun, result.position_m,
+                                               result.momentum_kg_m_per_s, invariant_energy)
+        return RelativisticPhaseSpace(result.position_m, momentum, result.time_s)
+
+    for _ in range(32):
+        full = advance(local, dt)
+        half = advance(local, .5 * dt)
+        fine = advance(half, .5 * dt)
+        p = fine.momentum_kg_m_per_s
+        pscale = np.maximum(np.linalg.norm(p, axis=1), 1e-30)
+        delta_p = fine.momentum_kg_m_per_s - full.momentum_kg_m_per_s
+        transverse_scale = np.maximum(np.linalg.norm(p[:, :2], axis=1), pscale * 1e-5)
+        transverse_error = np.linalg.norm(delta_p[:, :2], axis=1) / transverse_scale
+        transverse_position_error = np.linalg.norm(
+            fine.position_m[:, :2] - full.position_m[:, :2], axis=1)
+        position_budget = 1e-13 + 1e-6 * np.linalg.norm(fine.position_m[:, :2], axis=1)
+        if (np.all(transverse_error <= 1e-5)
+                and np.all(np.linalg.norm(delta_p, axis=1) / pscale <= 1e-6)
+                and np.all(transverse_position_error <= position_budget)):
+            positions, momenta = phase.position_m.copy(), phase.momentum_kg_m_per_s.copy()
+            positions[active], momenta[active] = fine.position_m, p
+            return RelativisticPhaseSpace(positions, momenta, phase.time_s + dt), dt
+        dt *= .5
+    raise ValueError("Analytic gun integration did not meet the transverse error budget")
 
 
 def _surface_step(phase, dt, active, magnetic, electric):

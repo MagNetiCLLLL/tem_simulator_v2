@@ -883,7 +883,8 @@ def calculate(
     else:
         stem_scan = None
 
-    state.energy_filter_result = energy_filter
+    # Outputs belong to CalculationResult; keeping them on State makes the
+    # next parameter snapshot depend on (or try to serialize) executed results.
     if column_reused:
         lens_crossovers = existing_result.lens_crossovers
         aperture_stops = existing_result.aperture_stops
@@ -894,7 +895,6 @@ def calculate(
         )
         aperture_stops = aperture_stop_records(state)
         calculated_products.add("diagnostics")
-    state.all_lens_crossovers = lens_crossovers
     from temsim.optics.aberrations import prepare_field_aberration_diagnostics
     if any(getattr(state, f"{system}_aberrations", {}).get("mode") == "field_derived"
            for system in ("probe", "image")):

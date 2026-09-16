@@ -63,6 +63,37 @@ def test_snapshot_data_and_exports_cannot_mutate_saved_controls(instrument):
     assert snapshot.digest == original
 
 
+def test_input_snapshot_excludes_legacy_result_aliases_without_mutating_results(instrument):
+    before = encode_instrument(instrument)
+    # A result can contain arrays/unregistered output types; input capture must
+    # neither traverse it nor weaken the registry for unknown model inputs.
+    result = object()
+    instrument.energy_filter_result = result
+    instrument.all_lens_crossovers = [{"z_mm": 3.5}]
+    assert encode_instrument(instrument) == before
+    restored = decode_instrument(encode_instrument(instrument))
+    assert not hasattr(restored, "energy_filter_result")
+    assert not hasattr(restored, "all_lens_crossovers")
+    assert instrument.energy_filter_result is result
+    assert instrument.all_lens_crossovers == [{"z_mm": 3.5}]
+    instrument.lenses[0].energy_filter_result = result
+    with pytest.raises(TypeError, match="Unregistered"):
+        encode_instrument(instrument)
+
+
+def test_historical_result_aliases_remain_readable_without_becoming_new_inputs(instrument):
+    original = encode_instrument(instrument)
+    graph = thaw_json(original)
+    attrs = graph["nodes"][graph["root"]["ref"]]["attributes"]
+    attrs["energy_filter_result"] = None
+    attrs["all_lens_crossovers"] = {"list": []}
+    digest = json_digest(graph)
+    restored = decode_instrument(graph)
+    assert restored.energy_filter_result is None and restored.all_lens_crossovers == []
+    assert json_digest(graph) == digest
+    assert encode_instrument(restored) == original
+
+
 def test_restored_immutable_model_arrays_remain_immutable(instrument):
     instrument.lenses[0].calibration_samples = np.arange(3, dtype=float)
     instrument.lenses[0].calibration_samples.setflags(write=False)

@@ -57,6 +57,9 @@ _RUNTIME_NAMES = frozenset({
     "_objective_plane_signature", "_equivalent_image_calibration_cache",
     "_tuning_cancelled",  # Worker cancellation callback, never a physical input.
 })
+# Older pipeline revisions attached these outputs to State as well as keeping
+# them in CalculationResult. They are not source/optics inputs or checkpoints.
+_STATE_PRODUCT_NAMES = frozenset({"energy_filter_result", "all_lens_crossovers"})
 
 
 @lru_cache(maxsize=1)
@@ -83,10 +86,16 @@ def _attribute_names(value):
 def encode_instrument(state) -> Mapping:
     """Capture every supported parameter, including disabled hardware.
 
+    Completed outputs remain in CalculationResult, not in this input graph.
     Unknown model objects fail closed rather than being silently omitted.
     Arrays are stored as exact bytes, with dtype/shape; JSON is finite and
     floating-point values are never rounded to display precision.
     """
+    return _encode_instrument(state)
+
+
+def _encode_instrument(state, *, include_legacy_state_results=False):
+    """Legacy results are included only to verify an existing archive on read."""
     nodes, seen = [], {}
     registry = _model_types()
 
@@ -129,7 +138,10 @@ def encode_instrument(state) -> Mapping:
             node["items"] = [encode(v) for v in value]
         else:
             node["fields"] = [f.name for f in fields(value)] if is_dataclass(value) else []
-            node["attributes"] = {k: encode(getattr(value, k)) for k in _attribute_names(value)}
+            names = _attribute_names(value)
+            if type_key == "temsim.optics.model:State" and not include_legacy_state_results:
+                names = [k for k in names if k not in _STATE_PRODUCT_NAMES]
+            node["attributes"] = {k: encode(getattr(value, k)) for k in names}
         return {"ref": index}
 
     root = encode(state)
@@ -232,7 +244,10 @@ def decode_instrument(graph):
     from temsim.optics.model import State
     if not isinstance(result, State):
         raise ValueError("Working-point root must be an instrument State")
-    reencoded = encode_instrument(result)
+    # Preserve every value in a readable historical graph, including old
+    # diagnostic aliases. A later input capture excludes only those aliases;
+    # neither the archived graph nor the restored object is rewritten here.
+    reencoded = _encode_instrument(result, include_legacy_state_results=True)
     if legacy_gauge_nodes:
         from temsim.immutable_json import thaw_json
         reencoded = thaw_json(reencoded)

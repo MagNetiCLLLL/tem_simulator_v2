@@ -153,9 +153,9 @@ def test_primary_tree_context_menu_routes_to_existing_component(qtbot, state):
     page.resize(450, 750)
     page.show()
     assert page.component_pages.currentIndex() == page.assembly_tree_index
-    assert page.template_controls.isHidden()
-    page.template_toggle.click()
-    assert not page.template_controls.isHidden()
+    assert page.gun.isHidden() and page.column.isHidden()
+    with qtbot.waitSignal(page.configuration_requested):
+        page.configure_button.click()
     assert page.select_key("haadf")
     tree = page.assembly_tree
     item = tree.currentItem()

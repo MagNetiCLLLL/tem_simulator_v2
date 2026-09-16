@@ -6,7 +6,7 @@ import pytest
 from temsim.assembly_catalog import AssemblyCatalog, AssemblySelection
 from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.manifest_editor import ManifestEditor
-from temsim.module_manifest import validate_document
+from temsim.module_manifest import read_document, validate_document
 from temsim.operating_modes import load_operating_mode_catalog
 from temsim.optics.column import default_state
 from temsim.physics.simulation import run
@@ -179,7 +179,7 @@ def test_complete_catalog_and_every_assembly_combination_validate():
 
     assert audit.module_count == 11
     assert audit.part_definition_count == 482
-    assert audit.assembly_count == 30
+    assert audit.assembly_count == 60
 
 
 def test_all_apertures_declare_photo_informed_pt_strip_and_single_rod():
@@ -197,7 +197,7 @@ def test_all_apertures_declare_photo_informed_pt_strip_and_single_rod():
     }
     seen = set()
     for path in root.rglob("*.toml"):
-        document = tomllib.loads(path.read_text(encoding="utf-8"))
+        document = read_document(path)
         if "module" not in document:
             continue
         validate_document(document)
@@ -287,11 +287,11 @@ def test_accelerator_ring_stack_topology_has_photo_provenance(
         validate_document(document)
 
 
-def test_energy_filter_is_the_only_selectable_recording_system():
+def test_energy_filter_is_optional_and_explicit_selection_is_preserved():
     catalog = AssemblyCatalog()
 
     assert [option.name for option in catalog.recording_systems] == [
-        "Energy Filter"
+        "No Energy Filter", "Energy Filter"
     ]
 
     legacy_selection = AssemblySelection(
@@ -302,10 +302,10 @@ def test_energy_filter_is_the_only_selectable_recording_system():
 
     assert dict(assembly.selected_module_paths)[
         "project_and_recording_system"
-    ].endswith("EnergyFilter.toml")
-    assert state.energy_filter_installed is True
-    assert state.energy_filter_mode == "energy_filter"
-    assert state.energy_filter.enabled is True
+    ].endswith("NoEnergyFilter.toml")
+    assert state.energy_filter_installed is False
+    assert state.energy_filter_mode == "no_energy_filter"
+    assert state.energy_filter.enabled is False
 
 
 def test_magnetic_lens_mechanical_layers_are_required_and_radially_nested():
@@ -748,7 +748,7 @@ def test_projector_manifests_use_compact_user_defined_envelopes(
         / "project_and_recording_system"
         / manifest_name
     )
-    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    document = read_document(path)
     validate_document(document)
     assert document["geometry"]["vacuum_liner_wall_thickness_mm"] == (
         pytest.approx(0.75)
@@ -870,7 +870,7 @@ def test_recording_manifest_accepts_nonuniform_nonoverlapping_projector_lens_gap
         / "project_and_recording_system"
         / "EnergyFilter.toml"
     )
-    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    document = read_document(path)
     intermediate = next(
         part
         for part in document["parts"]
@@ -894,7 +894,7 @@ def test_recording_manifest_requires_projector_geometry_provenance():
         / "project_and_recording_system"
         / "EnergyFilter.toml"
     )
-    document = tomllib.loads(path.read_text(encoding="utf-8"))
+    document = read_document(path)
     diffraction = next(
         part
         for part in document["parts"]
@@ -930,7 +930,7 @@ def test_operating_mode_storage_tracks_calculated_and_retained_values():
         "retained_not_recomputed_"
     )
     assert by_key["nano_probe"].calibration_status.startswith(
-        "computed_300kv_non_oem_source_probe_corrector"
+        "retained_not_recomputed_after_gun_integrator_update"
     )
     assert "non_oem" in by_key["diffraction"].calibration_status
     assert by_key["micro_probe"].targets[
