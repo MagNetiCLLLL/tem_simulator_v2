@@ -316,7 +316,7 @@ def _freeze(value):
 
 
 def _read(path):
-    return module_manifest.read_document(path)
+    return module_manifest.read_document(path, capture_navigation=True)
 
 
 def _load_module(path, source_file=None):
@@ -367,6 +367,9 @@ def _load_module(path, source_file=None):
             f"Module length mismatch in {path}: "
             f"length_mm={module_length_mm}, port_span={port_span_mm}"
         )
+    geometry = dict(data["geometry"])
+    if data.get("_navigation_subassemblies"):
+        geometry["navigation_subassemblies"] = data["_navigation_subassemblies"]
     return ModuleDefinition(
         str(module["type"]),
         str(module["key"]),
@@ -377,7 +380,7 @@ def _load_module(path, source_file=None):
         module_length_mm,
         parts,
         str(source_file),
-        _freeze(dict(data["geometry"])),
+        _freeze(geometry),
     )
 
 

@@ -469,7 +469,7 @@ def apply_physical_layout_to_state(
     A state that already owns a :class:`ResolvedAssembly` must keep using that
     exact immutable assembly for ordinary layout refreshes and calculations.
     Re-resolving from the process-default TOML catalog can silently substitute
-    a different module length (notably FEG + Mono or NanoPulser) in detached
+    a different module length (notably FEG + Mono or Electrostatic beam blanker) in detached
     worker states.  Supplying ``assembly_root`` remains the explicit request to
     read a catalog again, as used while installing/reloading an assembly.
     """

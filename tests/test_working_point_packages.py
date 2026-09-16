@@ -102,9 +102,10 @@ def test_working_point_from_actual_gun_execution():
         calculation_manifest=manifest, signatures=manifest.calculation_signatures))
     assert cp.plane_z_mm == state.sample.z_mm
     assert cp.arrays["gun_ray_id"].size == 9
-    # The installed curved source is not matched by these bare lens defaults.
-    # Preserve actual interception in the checkpoint; no fabricated pupil angle
-    # may be reported when this small ray population misses the specimen.
-    assert not cp.arrays["alive"].any()
-    assert cp.observables.get("alpha95").status == "UNAVAILABLE"
+    # Preview now starts with the user-requested flat tip. The checkpoint
+    # preserves the executed particles, including their actual survival.
+    assert state.electron_gun.emitter.curvature_nm_inv == 0
+    assert np.array_equal(cp.arrays["alive"], simulation.incident.alive)
+    assert cp.arrays["alive"].any()
+    assert cp.observables.get("alpha95").status == "AVAILABLE"
     assert cp.metadata["phase_status"] == "NOT_COMPUTED"

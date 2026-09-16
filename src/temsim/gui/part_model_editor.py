@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from copy import deepcopy
+from dataclasses import replace
 import math
 import tomllib
 
@@ -71,12 +72,21 @@ class PartModelEditorPage(QWidget):
         self.new_component_button = QPushButton("New component…")
         self.place_component_button = QPushButton("Place…")
         self.copy_component_button = QPushButton("Copy to assembly…")
+        self.subassembly_button = QPushButton("Subassemblies / placement…")
+        self._subassembly_dialog = None
+        self.subassembly_button.clicked.connect(self._open_subassemblies)
         self.tip_emission_button = QPushButton("Tip model / emission…")
         self.tip_emission_button.setVisible(False)
         self.tip_emission_button.clicked.connect(self.tip_editor_requested.emit)
         self.tip_detail_button = QPushButton("Fit emitting surface")
         self.tip_detail_button.setVisible(False)
         self.tip_detail_button.clicked.connect(self._fit_tip_emission)
+        self.tip_display = QComboBox()
+        for label, key in (("Active emitting surface", "emission"),
+                           ("Reference body", "reference"), ("Surface + reference outline", "both")):
+            self.tip_display.addItem(label, key)
+        self.tip_display.setVisible(False)
+        self.tip_display.setToolTip("Display choice only. The saved solid and particle calculation are unchanged.")
         self.new_component_button.setToolTip("Add independent mechanical CAD geometry to this file's draft")
         self.place_component_button.setToolTip("Translate the selected component and its children; review local or resolved global Z")
         self.copy_component_button.setToolTip("Create an independent copy in this file or another assembly TOML; Save writes it")
@@ -85,10 +95,10 @@ class PartModelEditorPage(QWidget):
         self.source_label = QLabel("Open an instrument module or select a component in Physical Layout")
         self.source_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.modules = QComboBox()
-        self.modules.setPlaceholderText("Active instrument modules")
+        self.modules.setPlaceholderText("Instrument storage templates")
         self.modules.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.modules.setMinimumContentsLength(12)
-        self.modules.setToolTip("Source module for the current component. Components in one module share its TOML file.")
+        self.modules.setToolTip("Storage template for the selected component. A template can reference independent subassembly files; the file label shows the actual dimension source.")
         self.load_module_button = QPushButton("Open storage file")
         self.load_module_button.setEnabled(False)
         self.scope = QComboBox()
@@ -224,10 +234,11 @@ class PartModelEditorPage(QWidget):
         module_row.addWidget(self.load_module_button)
         layout.addLayout(module_row)
         component_row = QHBoxLayout()
-        for widget in (self.new_component_button, self.place_component_button, self.copy_component_button):
+        for widget in (self.new_component_button, self.place_component_button, self.copy_component_button, self.subassembly_button):
             component_row.addWidget(widget)
         component_row.addWidget(self.tip_emission_button)
         component_row.addWidget(self.tip_detail_button)
+        component_row.addWidget(self.tip_display)
         component_row.addStretch(1)
         layout.addLayout(component_row)
         view_row = QHBoxLayout()
@@ -254,6 +265,7 @@ class PartModelEditorPage(QWidget):
         self.copy_component_button.clicked.connect(lambda: self._open_component_dialog("copy"))
         self.modules.activated.connect(self._open_active_module)
         self.scope.currentIndexChanged.connect(lambda: self._render())
+        self.tip_display.currentIndexChanged.connect(lambda: self._render())
         self.fit_button.clicked.connect(self.view.fit_all)
         self.iso_button.clicked.connect(self.view.set_isometric_view)
         self.front_button.clicked.connect(self.view.set_axial_view)
@@ -294,6 +306,7 @@ class PartModelEditorPage(QWidget):
         self._module_origins = {}
         self._coordinate_source_bytes = {}
         self._active_tip_definitions = set()
+        self._active_definition_files = set()
         from temsim.shared_tip import dependencies
         for relative in (*paths, "catalog.toml"):
             path = (self._project_root / relative).resolve()
@@ -301,7 +314,10 @@ class PartModelEditorPage(QWidget):
                 self._coordinate_source_bytes[path] = path.read_bytes()
                 shared = dependencies(path)
                 self._coordinate_source_bytes.update(shared)
-                self._active_tip_definitions.update(shared)
+                self._active_definition_files.update(shared)
+                from temsim.shared_tip import raw_document, definition_path
+                self._active_tip_definitions.update(source for part in raw_document(path).get("parts", ())
+                                                    if (source := definition_path(path, part)) is not None)
             except OSError:
                 self._coordinate_source_bytes[path] = None
         for part in getattr(assembly, "parts", ()):
@@ -309,6 +325,13 @@ class PartModelEditorPage(QWidget):
             origin = float(part.center_z_mm) - float(part.data["local_center_z_mm"])
             if math.isfinite(origin):
                 self._module_origins[path] = origin
+        from temsim.subassemblies import definitions, resolved_origins
+        from temsim.module_manifest import read_document
+        for path, origin in tuple(self._module_origins.items()):
+            document = read_document(path)
+            origins = resolved_origins(document)
+            for entry, source, _ in definitions(document, path):
+                self._module_origins[source] = origin + origins[entry["key"]]
         self.load_module_button.setEnabled(bool(self._catalog_paths))
         selected = self.modules.currentData()
         blocked = self.modules.blockSignals(True)
@@ -522,7 +545,9 @@ class PartModelEditorPage(QWidget):
         dependencies = []
         for key, part in parts.items():
             if key in keys and part.get("tip_particle_model"):
-                dependencies.append((key, deepcopy(runtime.get(key, {}).get("tip_surface_model", "saved"))))
+                tip = runtime.get(key, {})
+                dependencies.append((key, deepcopy(tip.get("tip_surface_model", "saved")),
+                                     deepcopy(tip.get("tip_analytic_emission"))))
             if (key not in keys or not is_strip_aperture(part)
                     or part.get("model_3d", {}).get("base", {}).get("kind", "existing") != "existing"):
                 continue
@@ -573,10 +598,12 @@ class PartModelEditorPage(QWidget):
             return False
         if self.session.path in {(self._project_root / path).resolve() for path in self._project_paths}:
             return True
+        if self.session.path in getattr(self, "_active_definition_files", ()):
+            return True
         if self._selected_key == "feg_tip":
             from temsim.shared_tip import definition_path
             source = definition_path(self.session.path, self.session.part("feg_tip")) or self.session.path
-            return source in getattr(self, "_active_tip_definitions", ())
+            return source in getattr(self, "_active_definition_files", ())
         return False
 
     def _meaning_context(self):
@@ -597,6 +624,10 @@ class PartModelEditorPage(QWidget):
         meaning = describe_parameter(part, tuple(path), by_key=parts)
         impact = describe_parameter_impact(part, tuple(path), by_key=parts,
                                            simulation_mode=mode, descriptors=descriptors)
+        if part.get("tip_particle_model"):
+            from temsim.tip_emission_view import emission_parameter_information
+            meaning, impact = emission_parameter_information(part, path,
+                self._model_runtime_values().get(part["key"]), meaning, impact)
         label = field.label if field is not None else meaning.label
         reason = field.reason if field is not None and field.reason else meaning.description
         text = (f"{label} · {meaning.category_label}\n"
@@ -620,6 +651,10 @@ class PartModelEditorPage(QWidget):
                 meaning, impact, text = self._parameter_information(path, field)
                 short = {"active": "Active", "inactive": "Inactive", "unsupported": "Unsupported",
                          "configuration_required": "Setup", "unknown": "Check"}.get(impact.status, "Check")
+                if impact.label == "Reference tip definition":
+                    short = "Reference"
+                elif impact.label == "Derived from active emission":
+                    short = "Derived"
                 parameter_part = parts_by_key.get(path[1], {}) if len(path) > 1 and path[0] == "parts" else {}
                 if meaning.category == "cad" or is_custom_mechanical_part(parameter_part):
                     short = "CAD only"
@@ -1100,12 +1135,30 @@ class PartModelEditorPage(QWidget):
         if path in getattr(self, "_active_tip_definitions", ()):
             shared = path
         suffix = f" · shared {shared.name}" if shared is not None else ""
+        from temsim.subassemblies import sources
+        owner = self.session._subassembly_owners.get(self._selected_key)
+        storage = next((source for entry, source in sources(self.session.document, path)
+                        if entry["key"] == owner), None)
+        if storage is not None:
+            suffix = f" · stored in {storage.name}"
         self.source_label.setText(f"{marker}{path.name} · {self._selected_key or ''}{suffix}")
         self.source_label.setToolTip(
             f"Source: {path}\nComponent: {self._selected_key or ''}\n"
             + (f"Shared tip: {shared}\nSaving tip dimensions or emission settings updates every linked FEG assembly."
                if shared is not None else "Components belonging to this module share this TOML file.")
         )
+        if storage is not None:
+            self.source_label.setToolTip(f"Installed module: {path}\nPart definitions: {storage}\n"
+                                        "Save writes dimensions to this subassembly and placement to the installed module.")
+
+    def _open_subassemblies(self):
+        if self.session is None or not self.session.document.get("subassemblies"):
+            return
+        from temsim.gui.subassembly_dialog import SubassemblyPlacementDialog
+        if self._subassembly_dialog is not None:
+            self._subassembly_dialog.close()
+        self._subassembly_dialog = SubassemblyPlacementDialog(self.session, self._draft_changed, self)
+        self._subassembly_dialog.show()
 
     def open_path(self, path, *, selected_key=None):
         if self.session is not None and (self.session.dirty or self._invalid_inputs):
@@ -1135,8 +1188,18 @@ class PartModelEditorPage(QWidget):
     def _load_tree(self):
         self._loading = True
         try:
+            expanded = {key for key, item in getattr(self, "_subassembly_nodes", {}).items() if item.isExpanded()}
+            initial = not getattr(self, "_subassembly_nodes", {})
             self.tree.clear()
             nodes = {}
+            groups = {}
+            for entry in self.session.document.get("subassemblies", ()):
+                item = QTreeWidgetItem((entry.get("name", entry["key"]),))
+                item.setToolTip(0, f"Subassembly · {entry['file']}\nEdit group position with Subassemblies / placement.")
+                self.tree.addTopLevelItem(item)
+                item.setExpanded(initial or entry["key"] in expanded)
+                groups[entry["key"]] = item
+            self._subassembly_nodes = groups
             for part in self.session.document["parts"]:
                 item = QTreeWidgetItem((part.get("name", part["key"]),))
                 item.setData(0, Qt.ItemDataRole.UserRole, part["key"])
@@ -1148,7 +1211,11 @@ class PartModelEditorPage(QWidget):
                 if parent is not None and parent is not item:
                     parent.addChild(item)
                 else:
-                    self.tree.addTopLevelItem(item)
+                    owner = groups.get(self.session._subassembly_owners.get(part["key"]))
+                    if owner is None:
+                        self.tree.addTopLevelItem(item)
+                    else:
+                        owner.addChild(item)
             self._tree_nodes = nodes
         finally:
             self._loading = False
@@ -1177,6 +1244,10 @@ class PartModelEditorPage(QWidget):
         self._selected_key, self._selected_region = key, region
         self._loading = True
         self.tree.setCurrentItem(self._tree_nodes[key])
+        parent = self._tree_nodes[key].parent()
+        while parent is not None:
+            parent.setExpanded(True)
+            parent = parent.parent()
         self.tree.scrollToItem(self._tree_nodes[key])
         self._loading = False
         self.selection_label.setText(part.get("name", key))
@@ -1195,6 +1266,8 @@ class PartModelEditorPage(QWidget):
             self.component_selected.emit(self._selected_key)
 
     def _fit_tip_emission(self):
+        if not self.tip_display.isHidden() and self.tip_display.currentData() == "reference":
+            self.tip_display.setCurrentIndex(self.tip_display.findData("emission"))
         if not self.view.fit_region(self._selected_key, "emitting_cap"):
             self._message("No active curved emitting surface in this model. Use Tip model / emission to inspect the selected source.")
 
@@ -1240,7 +1313,11 @@ class PartModelEditorPage(QWidget):
                     text = self._model_dimension_label(field.path, field.label)
                 label = QTableWidgetItem(text)
                 label.setFlags(label.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                value = QTableWidgetItem(self._invalid_inputs.get(tuple(field.path), format_toml_value(field.value)))
+                formatted = ("∞" if field.path[-1] == "emission_radius_nm" and math.isinf(field.value)
+                             else format_toml_value(field.value))
+                if field.path[-1] in {"emission_support_diameter_nm", "emission_depth_nm"}:
+                    formatted = f"{field.value:.7g}"
+                value = QTableWidgetItem(self._invalid_inputs.get(tuple(field.path), formatted))
                 value.setData(Qt.ItemDataRole.UserRole, field.path)
                 value.setData(Qt.ItemDataRole.UserRole + 2, field)
                 if not field.editable:
@@ -1429,6 +1506,23 @@ class PartModelEditorPage(QWidget):
                             meshes.extend(part_model_from_document(self.session.document, part["key"],
                                 include_children=False, runtime_values=runtime_values).meshes)
             records, seen = [], set()
+            from temsim.tip_emission_view import analytic_emission, emission_display_meshes
+            selected = self.session.part(self._selected_key)
+            analytic = analytic_emission(selected, runtime_values.get(self._selected_key)) is not None
+            self.tip_display.setVisible(analytic)
+            display = self.tip_display.currentData()
+            title = ({"emission": "Active emitting surface · equal XYZ scale",
+                      "reference": "Reference tip body", "both": "Emission + reference outline"}[display]
+                     if analytic else "3D model")
+            self.view.set_view_labels(title=title, empty_text=(
+                "Point emission: zero projected source size; no finite surface to display."
+                if analytic else "Select a part to view its 3D model"))
+            if analytic and display != "reference":
+                if display == "emission" and self.scope.currentData() == "part":
+                    meshes = [mesh for mesh in meshes if mesh.key != self._selected_key]
+                else:
+                    meshes = [replace(mesh, wireframe=True) if mesh.key == self._selected_key else mesh for mesh in meshes]
+                meshes.extend(emission_display_meshes(selected, runtime_values.get(self._selected_key)))
             for mesh in meshes:
                 part = self.session.part(mesh.key)
                 if part.get("mechanical_profile") == "magnetic_lens_assembly" and not part.get("model_3d") and len(meshes) > 1:
@@ -1438,10 +1532,13 @@ class PartModelEditorPage(QWidget):
                 if signature in seen:
                     continue
                 seen.add(signature)
-                color = configured_region_colour(part, mesh.region, mesh.color)
+                # Launch surfaces and normal guides are not assignable material.
+                color = (mesh.color if mesh.region in {"emitting_cap", "emission_normals"}
+                         else configured_region_colour(part, mesh.region, mesh.color))
                 records.append(dict(vertices=mesh.vertices, faces=mesh.faces, key=mesh.key,
                                     region=mesh.region, color=color,
-                                    face_groups=mesh.face_groups, surfaces=mesh.surfaces, edges=mesh.edges))
+                                    face_groups=mesh.face_groups, surfaces=mesh.surfaces, edges=mesh.edges,
+                                    wireframe=mesh.wireframe))
             self._mesh_records = tuple(records)
             selected_topology = self._topology_selection
             self.view.set_meshes(records, preserve_view=preserve_view)
@@ -1569,6 +1666,7 @@ class PartModelEditorPage(QWidget):
 
     def _update_buttons(self):
         loaded = self.session is not None
+        self.subassembly_button.setEnabled(loaded and bool(self.session.document.get("subassemblies")) and not self._invalid_inputs)
         self.save_button.setEnabled(loaded and self.session.dirty and not self._invalid_inputs)
         self.save_copy_button.setEnabled(loaded and not self._invalid_inputs)
         self.revert_button.setEnabled(loaded and (self.session.dirty or bool(self._invalid_inputs)))

@@ -1,6 +1,5 @@
 from pathlib import Path
 from types import SimpleNamespace
-import tomllib
 
 import numpy as np
 import pytest
@@ -136,7 +135,7 @@ def test_sector_planar_edges_use_radial_aperture_not_out_of_plane_pole_gap():
 
 
 def test_manifest_rejects_m12_housing_shorter_than_magnetic_support():
-    document = tomllib.loads(ENERGY_FILTER_MANIFEST.read_text(encoding="utf-8"))
+    document = module_manifest.read_document(ENERGY_FILTER_MANIFEST)
     multipole = next(
         part for part in document["parts"]
         if part["key"] == "energy_filter_multipole_01"
@@ -148,7 +147,7 @@ def test_manifest_rejects_m12_housing_shorter_than_magnetic_support():
 
 
 def test_manifest_rejects_geometry_duplicated_on_branch_interface():
-    document = tomllib.loads(ENERGY_FILTER_MANIFEST.read_text(encoding="utf-8"))
+    document = module_manifest.read_document(ENERGY_FILTER_MANIFEST)
     interface = next(
         part for part in document["parts"] if part["key"] == "energy_filter"
     )
@@ -236,7 +235,7 @@ def test_energy_filter_view_draws_scaled_housing_banks(qtbot):
 
 
 def test_public_iliad_topology_and_zebra_active_areas_have_unique_toml_rows():
-    document = tomllib.loads(ENERGY_FILTER_MANIFEST.read_text(encoding="utf-8"))
+    document = module_manifest.read_document(ENERGY_FILTER_MANIFEST)
     by_key = {part["key"]: part for part in document["parts"]}
     interface = by_key["energy_filter"]
     multipole_keys = tuple(

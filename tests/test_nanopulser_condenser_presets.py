@@ -266,7 +266,7 @@ def test_installed_pair_failure_restores_lenses_apertures_modes_and_detectors(mo
 
     state = default_state()
     catalog = AssemblyCatalog()
-    catalog.apply(state, replace(catalog.default_selection(), beam_blanker="NanoPulser"))
+    catalog.apply(state, replace(catalog.default_selection(), beam_blanker="Electrostatic beam blanker"))
     state.nanopulser.blanked = True
     state.electron_gun.electrostatic_lens.voltage_kv = 1.1
     before = state.to_dict()
@@ -302,7 +302,7 @@ def test_condenser_candidate_search_respects_the_installed_blanking_stop():
 
     state = default_state()
     catalog = AssemblyCatalog()
-    catalog.apply(state, replace(catalog.default_selection(), beam_blanker="NanoPulser"))
+    catalog.apply(state, replace(catalog.default_selection(), beam_blanker="Electrostatic beam blanker"))
     state.electron_gun.emitter.ray_count = 64
     state.nanopulser.aperture_radius_mm = 1.0e-12
     model = _CondenserMeasurementModel(state, step_mm=0.1)

@@ -6,6 +6,7 @@ import tomllib
 import pytest
 
 from temsim.module_manifest import (
+    read_document,
     _validate_simple_magnetic_layer_geometry,
     validate_document,
 )
@@ -17,7 +18,7 @@ CONFIG_ROOT = Path(__file__).parents[1] / "configs" / "instruments"
 @pytest.fixture(params=("EnergyFilter.toml", "NoEnergyFilter.toml"))
 def recording_document(request):
     path = CONFIG_ROOT / "project_and_recording_system" / request.param
-    return tomllib.loads(path.read_text(encoding="utf-8"))
+    return read_document(path)
 
 
 def _part(document, role):
@@ -29,7 +30,7 @@ def test_current_instrument_manifests_validate_without_mutation():
     paths = sorted(CONFIG_ROOT.rglob("*.toml"))
     assert paths
     for path in paths:
-        document = tomllib.loads(path.read_text(encoding="utf-8"))
+        document = read_document(path)
         if "parts" not in document:
             continue
         before = deepcopy(document)

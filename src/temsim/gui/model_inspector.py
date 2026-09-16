@@ -82,7 +82,7 @@ class ModelInspectorPage(QWidget):
         hint = QLabel("Axisymmetric field · explicit material and coil inputs · calculated on next run")
         hint.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         hint.setWordWrap(True)
-        hint.setToolTip("Reference materials are not Titan assignments. Nonlinear fields solve all configured B-H channels jointly; use matching material/mesh settings. No hysteresis, thermal coupling or preset optimisation. Conflicting geometry, nonconvergence and out-of-range B-H results fail explicitly. Check mesh and boundary convergence separately.")
+        hint.setToolTip("Reference materials are not manufacturer-specific assignments. Nonlinear fields solve all configured B-H channels jointly; use matching material/mesh settings. No hysteresis, thermal coupling or preset optimisation. Conflicting geometry, nonconvergence and out-of-range B-H results fail explicitly. Check mesh and boundary convergence separately.")
         self.aberration_system = QComboBox()
         self.aberration_system.addItem("Probe aberrations", "probe")
         self.aberration_system.addItem("Image aberrations", "image")

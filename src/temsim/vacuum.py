@@ -302,6 +302,7 @@ def module_axial_ranges(state):
 
 def boundary_anchors(state):
     from temsim.component_keys import PROJECTION_CHAMBER_DPA_APERTURE
+    from temsim.assembly_navigation import assembly_sections, component_anchor
     gun = state.electron_gun
     # Accelerator entrance comes from the installed physical electrode object.
     anchors = {"axis_origin": 0.0, "source": 0.0, "gun_exit": float(gun.exit_plane_z_mm),
@@ -315,6 +316,10 @@ def boundary_anchors(state):
         for short, attr in (("start", "start_z_mm"), ("center", "center_z_mm"), ("end", "end_z_mm")):
             if hasattr(p, attr):
                 anchors[f"{p.key}.{short}"] = float(getattr(p, attr))
+                anchors[component_anchor(p, short)] = float(getattr(p, attr))
+    for section in assembly_sections(assembly):
+        for point in ("origin", "start", "end"):
+            anchors[f"{section.key}.{point}"] = float(getattr(section, point+"_z_mm"))
     anchors["source"] = min(0., anchors.get("feg_tip.start", 0.))
     anchors["gun_acceleration_start"] = float(gun.accelerator.mechanical_center_from_tip_mm-gun.accelerator.mechanical_length_mm/2)
     dpa = next((p for p in getattr(assembly, "parts", ()) if p.key == PROJECTION_CHAMBER_DPA_APERTURE), None)

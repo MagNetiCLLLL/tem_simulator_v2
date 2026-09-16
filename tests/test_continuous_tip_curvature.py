@@ -351,6 +351,17 @@ def test_main_window_curvature_edits_use_existing_preview_scheduler(qtbot, monke
     window._select_component_from_workspace("feg_tip")
     widget = window.parameter_panel._quick_widgets["curvature_nm_inv"]
     assert widget.value() == 1e-8
+    window._reveal_physical_model("feg_tip", 0.)
+    editor = window.workspace.physical_layout.model_editor
+    if editor._pending_part is not None:
+        editor._open_pending_part()
+    editor._flush_runtime_refresh()
+    vertices = next(m["vertices"].copy() for m in editor._mesh_records if m["region"] == "emitting_cap")
+    widget = window.parameter_panel._quick_widgets["curvature_nm_inv"]
     widget.setValue(2e-8)
     assert window.state.electron_gun.emitter.curvature_nm_inv == 2e-8
+    editor._flush_runtime_refresh()
+    changed = next(m["vertices"] for m in editor._mesh_records if m["region"] == "emitting_cap")
+    assert not np.array_equal(vertices, changed)
+    assert changed[:, 2].max() == 0
     page.shutdown()

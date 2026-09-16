@@ -34,8 +34,8 @@ monochromator = false
 [[beam_blanker_variants]]
 # Optional ultrafast module only. Standard blanking remains a gun-coil function
 # in every gun variant, including assemblies without this NanoPulser option.
-name = "NanoPulser"
-file = "beam_blanker/NanoPulser.toml"
+name = "Electrostatic beam blanker"
+file = "beam_blanker/ElectrostaticBeamBlanker.toml"
 installed = true
 
 [[column_variants]]

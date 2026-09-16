@@ -284,6 +284,7 @@ class MainWindow(QMainWindow):
             self._reveal_physical_model
         )
         self.workspace.physical_layout.navigation_requested.connect(self._navigate_physical_component)
+        self.assembly_panel.navigation_requested.connect(self._navigate_physical_component)
         self.workspace.vacuum_map.changed.connect(self._runtime_parameter_changed)
         self.workspace.vacuum_map.geometry_requested.connect(self._open_cell_geometry)
         self.workspace.physical_layout.cell_geometry_requested.connect(self._open_cell_geometry)
@@ -1058,7 +1059,7 @@ class MainWindow(QMainWindow):
         activate_page: bool = True,
         focus_editor: bool = True,
     ) -> bool:
-        """Open one Iliad/EELS device in the Energy Filter-local editor."""
+        """Open one Energy filter/EELS device in the Energy Filter-local editor."""
 
         key = str(key)
         selection = next(
@@ -1201,6 +1202,8 @@ class MainWindow(QMainWindow):
         if gun.type_key == "cold_feg":
             model = gun.emitter.surface_model
             values.setdefault("feg_tip", {})["tip_surface_model"] = model.to_dict() if model is not None else None
+            from temsim.tip_emission_view import emission_view_values
+            values["feg_tip"]["tip_analytic_emission"] = emission_view_values(gun.emitter)
 
     def _open_tip_editor(self):
         """All tip entry points navigate here; Apply publishes one valid edit."""
@@ -1369,7 +1372,7 @@ class MainWindow(QMainWindow):
         self.progress.setFormat("Calibrating condenser preset")
         self._set_progress_active("operating_preset", True)
         self.status_label.setText(
-            "Solving condenser preset for the installed NanoPulser geometry…"
+            "Solving condenser preset for the installed Electrostatic beam blanker geometry…"
         )
         try:
             self.operating_presets.submit(
@@ -1404,7 +1407,7 @@ class MainWindow(QMainWindow):
             else "Assembly loaded; no compatible condenser preset"
         )
         self.assembly_panel.set_operating_mode_status(f"Applied: {detail}")
-        self.status_label.setText(f"NanoPulser assembly/preset applied in {duration:.2f} s")
+        self.status_label.setText(f"Electrostatic beam blanker assembly/preset applied in {duration:.2f} s")
         self.log_output.appendPlainText(
             f"Loaded {selection.gun} | {selection.column} | {selection.beam_blanker}: "
             f"{detail} ({duration:.2f} s)."
@@ -1412,7 +1415,7 @@ class MainWindow(QMainWindow):
         self.schedule_preview()
 
     def _operating_preset_failed(self, message) -> None:
-        self._show_error(f"Unable to apply NanoPulser assembly/preset: {message}")
+        self._show_error(f"Unable to apply Electrostatic beam blanker assembly/preset: {message}")
 
     def _operating_preset_finished(self) -> None:
         self._preset_state_token = None
@@ -2080,6 +2083,8 @@ class MainWindow(QMainWindow):
             source_path = (self.manifest_editor.root / target.module_path).resolve()
             source_path.relative_to(self.manifest_editor.root)
             original_source = source_path.read_bytes()
+            from temsim.shared_tip import dependencies
+            original_dependencies = dependencies(source_path)
             detector = next(item for item in result.state_snapshot.stem_detectors if item.key == "df")
             chamber_diameter, chamber = self._df_chamber_diameter(part, detector.z_mm)
             plan, positions_m, alpha_mrad, chief_mrad = self._df_geometry_plan_inputs(result, frame)
@@ -2092,7 +2097,7 @@ class MainWindow(QMainWindow):
             # Planning may be expensive. Verify authority again before offering
             # a save, as well as when the user finally applies the proposal.
             self._df_geometry_result(frame)
-            if source_path.read_bytes() != original_source:
+            if source_path.read_bytes() != original_source or dependencies(source_path) != original_dependencies:
                 raise ValueError("The DF source TOML changed during fitting. Reload and calculate again.")
         except Exception as exc:
             self._show_error(f"Unable to fit DF dimensions: {exc}")
@@ -2149,7 +2154,7 @@ class MainWindow(QMainWindow):
                 self._df_geometry_result(frame)
                 if self.assembly.part("df").source_file != target.module_path:
                     raise ValueError("The active DF module changed. Close this review and calculate again.")
-                if source_path.read_bytes() != original_source:
+                if source_path.read_bytes() != original_source or dependencies(source_path) != original_dependencies:
                     raise ValueError("The DF source TOML changed. Close this review, reload and calculate again.")
                 self._save_geometry_updates_preserving_drafts(target, updates)
                 # Assembly reload creates a new live State and clears its scan

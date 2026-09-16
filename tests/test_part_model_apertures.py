@@ -10,6 +10,7 @@ import pytest
 from temsim.part_model_3d import (
     module_model_from_document, part_dimension_specs, part_model_from_document,
 )
+from temsim.module_manifest import read_document
 
 
 CONFIGS = Path(__file__).resolve().parents[1] / "configs" / "instruments"
@@ -18,7 +19,7 @@ C2 = "condenser_aperture_2"
 
 
 def _read(path):
-    return tomllib.loads((CONFIGS / path).read_text(encoding="utf-8-sig"))
+    return read_document(CONFIGS / path)
 
 
 def _part(document, key):
@@ -28,7 +29,7 @@ def _part(document, key):
 def _strip_cases():
     return [(path.relative_to(CONFIGS).as_posix(), part["key"])
             for path in sorted(CONFIGS.rglob("*.toml"))
-            for part in tomllib.loads(path.read_text(encoding="utf-8-sig")).get("parts", ())
+            for part in read_document(path).get("parts", ())
             if part.get("aperture_plate_form") == "perforated_strip"]
 
 
@@ -222,7 +223,7 @@ def test_module_preview_uses_same_runtime_hole_and_readonly_field_as_selected_pa
 
 
 def test_nanopulser_circular_aperture_keeps_its_declared_thickness_and_fixed_bore():
-    document = _read("beam_blanker/NanoPulser.toml")
+    document = _read("beam_blanker/ElectrostaticBeamBlanker.toml")
     key = "nanopulser_aperture"
     part = _part(document, key)
     model = part_model_from_document(document, key)

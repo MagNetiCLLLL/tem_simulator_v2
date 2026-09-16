@@ -38,11 +38,14 @@ def definition_path(path, part):
 
 def dependencies(path, document=None):
     document = raw_document(path) if document is None else document
-    return {source: source.read_bytes() for part in document.get("parts", ())
-            if (source := definition_path(path, part)) is not None}
+    from temsim.subassemblies import dependencies as subassembly_dependencies
+    result = {source: source.read_bytes() for part in document.get("parts", ())
+              if (source := definition_path(path, part)) is not None}
+    result.update(subassembly_dependencies(document, path))
+    return result
 
 
-def resolve_document(document, path):
+def resolve_document(document, path, *, capture_navigation=False):
     result = deepcopy(document)
     for part in result.get("parts", ()):
         source = definition_path(path, part)
@@ -63,7 +66,8 @@ def resolve_document(document, path):
                 part[field] = deepcopy(rows[0][field])
             else:
                 part.pop(field, None)
-    return result
+    from temsim.subassemblies import resolve_document as resolve_subassemblies
+    return resolve_subassemblies(result, path, capture_navigation=capture_navigation)
 
 
 def materialized_text(text, path):
@@ -71,6 +75,9 @@ def materialized_text(text, path):
     from temsim import module_manifest
     raw = tomllib.loads(text)
     resolved = resolve_document(raw, path)
+    if raw.get("subassemblies"):
+        import tomli_w
+        return tomli_w.dumps(resolved)
     changes = {("parts", part["key"], field): value
                for original, part in zip(raw.get("parts", ()), resolved.get("parts", ()))
                if LINK in original for field, value in part.items()

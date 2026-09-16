@@ -315,7 +315,8 @@ def test_current_independent_projector_lens_layers_stay_supported_with_parent_co
     from temsim.paths import INSTRUMENT_CONFIG_ROOT
 
     path = Path(INSTRUMENT_CONFIG_ROOT) / MODULE_PATH
-    parts = {part["key"]: part for part in tomllib.loads(path.read_text(encoding="utf-8"))["parts"]}
+    from temsim.module_manifest import read_document
+    parts = {part["key"]: part for part in read_document(path)["parts"]}
     for key in (COIL, HOUSING, YOKE):
         part = parts[key]
         parent = parts[part["parent_key"]]
@@ -372,7 +373,10 @@ def test_material_dimension_save_reloads_assembly_without_changing_unrelated_con
     from temsim.shared_tip import copy_catalog_tree
     copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, root)
     path = root / MODULE_PATH
-    before = tomllib.loads(path.read_text(encoding="utf-8"))
+    from temsim.module_manifest import read_document
+    from temsim.shared_tip import dependencies
+    original_dependencies = dependencies(path)
+    before = read_document(path)
     original_part = next(part for part in before["parts"] if part["key"] == key)
     original = geometry_from_part(original_part)
     changed = original.with_dimension(dimension, value)
@@ -387,12 +391,14 @@ def test_material_dimension_save_reloads_assembly_without_changing_unrelated_con
     old_lens_strengths = {lens.key: lens.percent for lens in state.lenses}
     editor = ManifestEditor(root)
     originals = editor.save(ManifestTarget(MODULE_PATH, key), updates, layout_configuration_from_state(state))
-    saved = tomllib.loads(path.read_text(encoding="utf-8"))
+    saved = read_document(path)
     expected = deepcopy(before)
     expected_part = next(part for part in expected["parts"] if part["key"] == key)
     expected_part.update({field: value for (_section, _key, field), value in updates.items()})
     assert saved == expected
-    assert tomllib.loads(originals[MODULE_PATH]) == before
+    assert set(originals) == {"../subassemblies/projector_stack.toml"}
+    assert tomllib.loads(originals["../subassemblies/projector_stack.toml"]) == tomllib.loads(
+        original_dependencies[(root.parent / "subassemblies/projector_stack.toml").resolve()].decode("utf-8-sig"))
 
     assembly = catalog.apply(state, selection, preserve_operating_parameters=True)
     assert resolved_assembly_geometry_fingerprint(state) != initial_fingerprint

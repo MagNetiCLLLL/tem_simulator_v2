@@ -741,6 +741,7 @@ def test_component_tree_double_click_reveals_without_changing_auto_zoom(qtbot):
     window.preview_timer.stop()
     _prepare_component_reveal_views(window)
     panel = window.assembly_panel
+    panel.component_pages.setCurrentIndex(0)  # Exercise the optional Optical tree.
     workspace = window.workspace
     objective = window.assembly.part("objective_lens")
     objective_item = _find_tree_selection_item(
@@ -989,7 +990,7 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
     assert [
         window.assembly_panel.component_pages.tabText(index)
         for index in range(window.assembly_panel.component_pages.count())
-    ] == ["Optical", "Mechanical", "Direct Alignment"]
+    ] == ["Optical", "Mechanical", "Direct Alignment", "Assembly"]
     direct_alignment = window.assembly_panel.direct_alignment_panel
     assert {
         control.target.objectName()
@@ -1000,6 +1001,7 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
         "imageMagnificationTarget",
         "cameraLengthTarget",
     }
+    assert window.assembly_panel.component_pages.currentIndex() == window.assembly_panel.assembly_tree_index
     assert window.assembly_panel.optical_filter.currentData() == "all"
     electron_source_index = window.assembly_panel.optical_filter.findData(
         "electron_source"
@@ -1828,6 +1830,8 @@ def test_component_navigation_filters_only_the_active_assembly(qtbot):
     qtbot.addWidget(window)
     window.preview_timer.stop()
     panel = window.assembly_panel
+    panel.component_pages.setCurrentIndex(0)  # Optical filtering is an optional view.
+    panel.optical_filter.setCurrentIndex(panel.optical_filter.findData("all"))
 
     optical_keys = _tree_keys(panel.tree)
     mechanical_keys = _tree_keys(panel.mechanical_tree)
@@ -1950,7 +1954,7 @@ def test_layout_selection_opens_energy_slit_editor_and_updates_window(qtbot):
         "energy_filter_slit"
     )
     assert parameters.title.text() == (
-        "Iliad XO Crossover / Optional EFTEM Energy-slit Assembly"
+        "XO crossover / optional EFTEM energy-slit assembly"
     )
     assert parameters._runtime_target.obj is (
         window.state.energy_filter.energy_slit
@@ -1990,8 +1994,8 @@ def test_layout_selection_opens_energy_slit_editor_and_updates_window(qtbot):
         * 1.0e-6
     )
     assert window.status_label.text() == (
-        "Selected Iliad XO Crossover / Optional EFTEM Energy-slit "
-        "Assembly in Energy Filter Parameters"
+        "Selected XO crossover / optional EFTEM energy-slit "
+        "assembly in Energy Filter Parameters"
     )
 
 
@@ -3149,6 +3153,8 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
 
     assert window.workspace.auto_zoom.isChecked() is False
     window.workspace.auto_zoom.setChecked(True)
+    # Exercise the optional Optical / Mechanical navigation sequence below.
+    window.assembly_panel.component_pages.setCurrentIndex(0)
     objective_item = _find_tree_item(
         window.assembly_panel.tree, "objective_lens"
     )

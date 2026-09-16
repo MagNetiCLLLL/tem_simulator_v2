@@ -205,6 +205,9 @@ class AssemblyCatalog:
         def selected(kind, options):
             path = paths.get(kind, "")
             matches = [option.name for option in options if option.file == path]
+            if not matches and kind == "beam_blanker" and path == "beam_blanker/NanoPulser.toml":
+                matches = [option.name for option in options
+                           if option.file == "beam_blanker/ElectrostaticBeamBlanker.toml"]
             if len(matches) != 1:
                 raise ValueError(f"Captured {kind} module is not uniquely available in this catalog")
             return matches[0]
@@ -221,12 +224,15 @@ class AssemblyCatalog:
         # Accept known legacy selections so saved profiles migrate cleanly,
         # while retaining strict validation for malformed/unknown names.
         self._by_name(self._recording_system_modules, selection.recording)
-        self._by_name(self.beam_blankers, selection.beam_blanker)
+        blanker = selection.beam_blanker
+        if blanker == "NanoPulser" and any(o.name == "Electrostatic beam blanker" for o in self.beam_blankers):
+            blanker = "Electrostatic beam blanker"
+        self._by_name(self.beam_blankers, blanker)
         return AssemblySelection(
             gun=selection.gun,
             column=selection.column,
             recording=self.recording_systems[0].name,
-            beam_blanker=selection.beam_blanker,
+            beam_blanker=blanker,
         )
 
     def selected_paths(self, selection: AssemblySelection) -> dict[str, str]:

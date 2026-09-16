@@ -519,7 +519,7 @@ def apply_operating_mode_pair(
     recording_name: str | None = None,
     catalog: OperatingModeCatalog | None = None,
 ) -> AppliedOperatingModes:
-    """Apply presets; an installed NanoPulser requires a validated live solve.
+    """Apply presets; an installed Electrostatic beam blanker requires a validated live solve.
 
     The additional gun-to-C1 distance changes the incident beam.  Do not leave
     a partially applied pair when its recalculation cannot meet the requested

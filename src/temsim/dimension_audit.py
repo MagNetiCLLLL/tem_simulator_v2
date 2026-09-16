@@ -241,6 +241,8 @@ def audit_catalog(root) -> DimensionAudit:
         with path.open("rb") as stream:
             # The editor also accepts a UTF-8 BOM in user-edited manifests.
             document = tomllib.loads(stream.read().decode("utf-8-sig"))
+        from temsim.shared_tip import resolve_document
+        document = resolve_document(document, path)
         if document.get("parts"):
             documents.append((str(path.resolve()), document))
     return audit_documents(documents)

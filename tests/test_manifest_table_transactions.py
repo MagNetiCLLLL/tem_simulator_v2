@@ -18,12 +18,19 @@ MODULE = "project_and_recording_system/EnergyFilter.toml"
 KEY = "intermediate_lens_excitation_coil"
 
 
+def _standalone_text():
+    # These text-writer fixtures deliberately have no filesystem dependencies.
+    document = module_manifest.read_document(INSTRUMENT_CONFIG_ROOT / MODULE)
+    document.pop("subassemblies", None)
+    return tomli_w.dumps(document)
+
+
 @pytest.mark.parametrize("layout", ["inline", "dotted", "escaped_key", "expanded"])
 @pytest.mark.parametrize("empty", [False, True])
 def test_material_table_replacement_preserves_unrelated_tables_and_comments(layout, empty):
     materials = {row["material_key"]: row for row in material_catalog()}
     previous = {"body": materials["copper"]}
-    source = (INSTRUMENT_CONFIG_ROOT / MODULE).read_bytes().decode("utf-8")
+    source = _standalone_text()
     lines = source.splitlines(keepends=True)
     start, end = module_manifest._part_span(lines, KEY)
     before_table = '[parts.custom_before]\ntext = "unchanged # literal"\nmaterial_regions = "unrelated metadata"\n'
@@ -80,7 +87,7 @@ def test_table_comment_retention_does_not_extract_hashes_inside_strings():
 @pytest.mark.parametrize("newline", ["\n", "\r\n", "mixed"])
 def test_transaction_snapshot_and_explicit_restore_preserve_original_bytes(tmp_path, newline):
     path = tmp_path / "module.toml"
-    source = (INSTRUMENT_CONFIG_ROOT / MODULE).read_bytes().decode("utf-8").replace("\r\n", "\n")
+    source = _standalone_text().replace("\r\n", "\n")
     if newline == "mixed":
         source = source.replace("\n", "\r\n", 3)
     else:
@@ -98,7 +105,7 @@ def test_transaction_snapshot_and_explicit_restore_preserve_original_bytes(tmp_p
 def test_catalog_failure_rolls_back_crlf_source_exactly(tmp_path, monkeypatch):
     path = tmp_path / MODULE
     path.parent.mkdir(parents=True)
-    original = (INSTRUMENT_CONFIG_ROOT / MODULE).read_bytes().decode("utf-8").replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8")
+    original = _standalone_text().replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8")
     path.write_bytes(original)
     editor = ManifestEditor(tmp_path)
     def fail():
@@ -111,7 +118,7 @@ def test_catalog_failure_rolls_back_crlf_source_exactly(tmp_path, monkeypatch):
 
 def test_later_atomic_write_failure_restores_prior_crlf_module(tmp_path, monkeypatch):
     first = tmp_path / "first.toml"
-    original = (INSTRUMENT_CONFIG_ROOT / MODULE).read_bytes().decode("utf-8").replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8")
+    original = _standalone_text().replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8")
     first.write_bytes(original)
     second = tmp_path / "second.toml"
     shutil.copyfile(first, second)

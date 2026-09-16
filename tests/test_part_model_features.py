@@ -232,7 +232,8 @@ def test_invalid_schema_rejected(part, change):
 def test_actual_existing_coil_retains_original_mesh_without_custom_model_and_accepts_real_hole():
     path = Path(__file__).resolve().parents[1] / "configs/instruments/project_and_recording_system/EnergyFilter.toml"
     original = path.read_bytes()
-    document = tomllib.loads(original.decode("utf-8-sig"))
+    from temsim.module_manifest import read_document
+    document = read_document(path)
     key = "intermediate_lens_excitation_coil"
     part = next(part for part in document["parts"] if part["key"] == key)
     before = part_model_from_document(document, key).meshes[0]

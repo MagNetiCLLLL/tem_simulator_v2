@@ -80,8 +80,9 @@ def test_tip_entry_points_share_physical_editor_and_invalidate_ray_display(windo
     assert len(applied) == 2
     assert matches == [("column_transport", .01)]
     assert window.state.electron_gun.emitter.surface_model is None
-    assert "Historical planar" in window.workspace.ray_source_status.text()
-    assert all("emitting_cap" not in mesh["surfaces"] for mesh in page._mesh_records)
+    assert "Flat tip" in window.workspace.ray_source_status.text()
+    emitting = next(mesh for mesh in page._mesh_records if mesh["region"] == "emitting_cap")
+    assert (emitting["vertices"][:, 2] == 0).all()
     assert window.workspace._last_result is previous
 
 

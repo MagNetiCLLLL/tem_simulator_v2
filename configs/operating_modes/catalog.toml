@@ -1,5 +1,5 @@
 format_version = 1
-description = "Calculated FEI-style Microprobe/Nanoprobe and Image/Diffraction operating states."
+description = "Calculated reference Microprobe/Nanoprobe and Image/Diffraction operating states."
 # A calibrated default must not remain at 100% excitation. If a solver reaches
 # saturation, increase that lens's maximum field and rebase the stored default
 # into 30-70% while preserving maximum_field * percent / 100.

@@ -141,7 +141,7 @@ def test_review_saves_both_df_dimensions_in_actual_module_and_retains_old_frame(
     assert panel.manifest_table.item(row, 1).text() == "unfinished draft"
 
 
-@pytest.mark.parametrize("change", ["projector", "source_file", "save_failure"])
+@pytest.mark.parametrize("change", ["projector", "source_file", "subassembly_file", "save_failure"])
 def test_review_rejects_stale_camera_length_external_file_and_failed_save(window, monkeypatch, change):
     widget, frame, root = window
     path = root / widget.assembly.part("df").source_file
@@ -150,6 +150,9 @@ def test_review_rejects_stale_camera_length_external_file_and_failed_save(window
     if change == "projector":
         widget.state.lenses[-1].percent += .01
     elif change == "source_file":
+        path.write_bytes(path.read_bytes() + b"\n# external change during review\n")
+    elif change == "subassembly_file":
+        path = root.parent / "subassemblies/detector_chamber.toml"
         path.write_bytes(path.read_bytes() + b"\n# external change during review\n")
     else:
         def fail(*_args):

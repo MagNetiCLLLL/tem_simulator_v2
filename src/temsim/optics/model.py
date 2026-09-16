@@ -719,7 +719,7 @@ class State:
 
     @property
     def beam_blanked(self):
-        """Conventional gun-tilt blanking, independent of the NanoPulser."""
+        """Conventional gun-tilt blanking, independent of the Electrostatic beam blanker."""
         return bool(getattr(getattr(self.electron_gun, "deflector", None), "beam_blanked", False))
 
     @beam_blanked.setter

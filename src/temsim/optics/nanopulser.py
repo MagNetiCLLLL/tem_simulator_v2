@@ -1,9 +1,9 @@
 """Optional electrostatic beam blanker with a physical downstream stop.
 
-This is an illustrative, static paraxial model, not the proprietary Iliad
-NanoPulser design. The plate field is represented by its integrated transverse
-kick at the plate centre. Open/blanked states do not simulate switching edges,
-RF fields, bunch formation or a pulse repetition rate.
+This illustrative static paraxial model represents the plate field by its
+integrated transverse kick at the plate centre. Open/blanked states do not
+simulate switching edges, RF fields, bunch formation or a pulse repetition rate.
+The geometry is an engineering reference rather than a manufacturer reconstruction.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ class NanoPulser:
 
     @property
     def name(self):
-        return "NanoPulser electrostatic blanker"
+        return "Electrostatic beam blanker"
 
     @property
     def key(self):
@@ -98,7 +98,7 @@ class NanoPulser:
         from temsim.optics.model import Aperture
 
         aperture = Aperture(
-            name="NanoPulser blanking aperture",
+            name="Electrostatic beam blanker blanking aperture",
             key="nanopulser_aperture",
             z_mm=float(self.stop_z_mm),
             radius_mm=float(self.aperture_radius_mm),
@@ -109,7 +109,7 @@ class NanoPulser:
 
     def validate(self):
         if not isinstance(self.installed, bool) or not isinstance(self.blanked, bool):
-            raise ValueError("NanoPulser installed and blanked states must be Boolean")
+            raise ValueError("Electrostatic beam blanker installed and blanked states must be Boolean")
         numeric_fields = (
             "voltage_v", "azimuth_deg", "z_mm", "stop_z_mm",
             "plate_length_mm", "plate_gap_mm", "aperture_radius_mm",
@@ -118,20 +118,20 @@ class NanoPulser:
         )
         for name in numeric_fields:
             if not math.isfinite(float(getattr(self, name))):
-                raise ValueError(f"NanoPulser {name} must be finite")
+                raise ValueError(f"Electrostatic beam blanker {name} must be finite")
         for name in numeric_fields[4:]:
             if name == "mechanical_center_from_tip_mm":
                 continue
             if float(getattr(self, name)) <= 0.0:
-                raise ValueError(f"NanoPulser {name} must be positive")
+                raise ValueError(f"Electrostatic beam blanker {name} must be positive")
         if self.z_mm < 0.0 or self.mechanical_center_from_tip_mm < 0.0:
-            raise ValueError("NanoPulser must follow the source tip")
+            raise ValueError("Electrostatic beam blanker must follow the source tip")
         if self.stop_z_mm <= self.z_mm + 0.5 * self.plate_length_mm:
-            raise ValueError("NanoPulser stop must follow the deflection plates")
+            raise ValueError("Electrostatic beam blanker stop must follow the deflection plates")
         if self.plate_length_mm > self.mechanical_length_mm:
-            raise ValueError("NanoPulser plates must fit inside their body")
+            raise ValueError("Electrostatic beam blanker plates must fit inside their body")
         if self.mechanical_clear_bore_diameter_mm >= self.mechanical_outer_diameter_mm:
-            raise ValueError("NanoPulser bore must fit inside its body")
+            raise ValueError("Electrostatic beam blanker bore must fit inside its body")
         return self
 
     def kick_events(self, beam_voltage_kv):
@@ -149,7 +149,7 @@ class NanoPulser:
             self.plate_gap_mm, beam_voltage_kv,
         )
         if abs(angle) > 0.1:
-            raise ValueError("NanoPulser deflection exceeds the 100 mrad paraxial range")
+            raise ValueError("Electrostatic beam blanker deflection exceeds the 100 mrad paraxial range")
         azimuth = math.radians(float(self.azimuth_deg))
         return ((
             float(self.z_mm), angle * math.cos(azimuth),

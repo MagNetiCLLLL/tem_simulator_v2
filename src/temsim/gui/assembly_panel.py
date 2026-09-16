@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -34,19 +35,35 @@ class AssemblyPanel(QWidget):
     direct_alignment_requested = Signal(str, float)
     component_selected = Signal(object)
     component_activated = Signal(object, str)
+    navigation_requested = Signal(str, str, float)
 
     def __init__(self, catalog, selection: AssemblySelection, parent=None) -> None:
         super().__init__(parent)
         self.catalog = catalog
 
-        box = QGroupBox("Assembly modules")
-        form = QFormLayout(box)
+        box = QGroupBox("Instrument configuration")
+        box_layout = QVBoxLayout(box)
+        self.template_toggle = QToolButton()
+        self.template_toggle.setText("Change instrument templates…")
+        self.template_toggle.setCheckable(True)
+        self.template_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.template_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self.template_toggle.setToolTip("Load compatible gun / column variants. Physical components are organised in Assembly below.")
+        box_layout.addWidget(self.template_toggle)
+        self.template_controls = QWidget()
+        form = QFormLayout(self.template_controls)
+        form.setContentsMargins(0, 0, 0, 0)
+        box_layout.addWidget(self.template_controls)
+        self.template_controls.hide()
+        self.template_toggle.toggled.connect(self.template_controls.setVisible)
+        self.template_toggle.toggled.connect(lambda checked: self.template_toggle.setArrowType(
+            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow))
         self.gun = QComboBox()
         self.column = QComboBox()
         self.beam_blanker = QComboBox()
         self.beam_blanker.setObjectName("beamBlankerSelector")
         self.beam_blanker.setToolTip(
-            "Optional ultrafast electrostatic NanoPulser between the gun and condenser. "
+            "Optional ultrafast electrostatic beam blanker between the gun and condenser. "
             "Standard gun-coil blanking is available even when None is selected. "
             "Installing it changes the column length and recalculates the "
             "condenser preset. Apply with Load assembly."
@@ -64,7 +81,7 @@ class AssemblyPanel(QWidget):
         self.set_selection(selection)
         form.addRow("Gun", self.gun)
         form.addRow("Column", self.column)
-        form.addRow("NanoPulser option", self.beam_blanker)
+        form.addRow("Beam blanker", self.beam_blanker)
         apply_button = QPushButton("Load assembly")
         apply_button.setObjectName("loadAssemblyButton")
         apply_button.clicked.connect(self._request_selection)
@@ -159,6 +176,23 @@ class AssemblyPanel(QWidget):
         self.component_pages.addTab(
             self.direct_alignment_panel, "Direct Alignment"
         )
+        from temsim.gui.assembly_structure_tree import AssemblyStructureTree
+        self.assembly_tree = AssemblyStructureTree()
+        assembly_page = QWidget()
+        assembly_layout = QVBoxLayout(assembly_page)
+        assembly_layout.setContentsMargins(0, 0, 0, 0)
+        assembly_layout.addWidget(self.assembly_tree, 1)
+        self.export_structure_button = QPushButton("Export assembly map...")
+        self.export_structure_button.setToolTip("Save component identities, parent relationships and resolved positions for comparison.")
+        self.export_structure_button.clicked.connect(self._export_structure)
+        assembly_layout.addWidget(self.export_structure_button)
+        self.assembly_tree_index = self.component_pages.addTab(assembly_page, "Assembly")
+        self.assembly_tree.component_selected.connect(
+            lambda selection: self._forward_selection(self.assembly_tree_index, selection))
+        self.assembly_tree.component_activated.connect(
+            lambda selection: self._forward_activation(self.assembly_tree_index, selection, "mechanical"))
+        self.assembly_tree.navigation_requested.connect(self.navigation_requested)
+        self.component_pages.setCurrentIndex(self.assembly_tree_index)
 
         setup_content = QWidget()
         setup_content.setObjectName("assemblySetupScrollContent")
@@ -225,6 +259,20 @@ class AssemblyPanel(QWidget):
             beam_blanker=self.beam_blanker.currentText(),
         )
         return self.catalog.normalise_selection(selection)
+
+    def _export_structure(self):
+        from pathlib import Path
+        import json
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        if self.assembly_tree.structure is None:
+            return
+        filename, _ = QFileDialog.getSaveFileName(self, "Export assembly map", "assembly-structure.json", "JSON (*.json)")
+        if filename:
+            try:
+                Path(filename).write_text(json.dumps(self.assembly_tree.structure.to_dict(),
+                    indent=2, ensure_ascii=False, allow_nan=False)+"\n", encoding="utf-8")
+            except OSError as exc:
+                QMessageBox.warning(self, "Export assembly map", str(exc))
 
     def set_selection(self, selection: AssemblySelection) -> None:
         selection = self.catalog.normalise_selection(selection)
@@ -401,6 +449,7 @@ class AssemblyPanel(QWidget):
     def load_assembly(self, assembly, runtime_targets=None) -> None:
         self._assembly = assembly
         self._runtime_targets = dict(runtime_targets or {})
+        self.assembly_tree.load_assembly(assembly)
         self.tree.load_optical(
             assembly,
             self._runtime_targets,
@@ -412,6 +461,11 @@ class AssemblyPanel(QWidget):
             self._runtime_targets,
             select_first=False,
         )
+        if self.component_pages.currentIndex() == self.assembly_tree_index:
+            if self.assembly_tree.currentItem() is None:
+                self.assembly_tree.select_first()
+            else:
+                self._emit_current_tree_selection(self.assembly_tree)
 
     def _reload_optical_tree(self, _index: int = -1) -> None:
         if self._assembly is None:
@@ -431,6 +485,12 @@ class AssemblyPanel(QWidget):
             return
         if index == 2:
             return
+        if index == self.assembly_tree_index:
+            if self.assembly_tree.currentItem() is None:
+                self.assembly_tree.select_first()
+            else:
+                self._emit_current_tree_selection(self.assembly_tree)
+            return
         if index not in (0, 1):
             return
         tree = self.tree if index == 0 else self.mechanical_tree
@@ -448,7 +508,26 @@ class AssemblyPanel(QWidget):
             not self._suppress_forward_selection
             and self.component_pages.currentIndex() == page_index
         ):
+            if page_index != self.assembly_tree_index:
+                self.assembly_tree.select_key(selection.key, emit=False)
+            else:
+                self._sync_secondary_trees(selection.key)
             self.component_selected.emit(selection)
+
+    def _sync_secondary_trees(self, key):
+        """Keep optional optical / mechanical views on the selected component."""
+        previous = self._suppress_forward_selection
+        self._suppress_forward_selection = True
+        try:
+            category = self._optical_category_for_key(key)
+            if category is not None:
+                index = self.optical_filter.findData(category)
+                if index >= 0:
+                    self.optical_filter.setCurrentIndex(index)
+            self.tree.select_key(key)
+            self.mechanical_tree.select_key(key)
+        finally:
+            self._suppress_forward_selection = previous
 
     def _forward_activation(
         self, page_index: int, selection, source: str
@@ -508,6 +587,12 @@ class AssemblyPanel(QWidget):
         """Open, filter and emit the component selected from a plot."""
 
         key = str(key)
+        if (self.component_pages.currentIndex() == self.assembly_tree_index
+                and self.assembly_tree.select_key(key, emit=False)):
+            self._sync_secondary_trees(key)
+            self._emit_current_tree_selection(self.assembly_tree)
+            return True
+        self.assembly_tree.select_key(key, emit=False)
         selected_tree = None
         selected_page = -1
         self._suppress_forward_selection = True

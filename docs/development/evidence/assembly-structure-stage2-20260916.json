@@ -1,0 +1,64 @@
+{
+  "schema": "assembly-structure-stage2-evidence-v1",
+  "stage": "reusable recording subassemblies and persistent axial placement",
+  "subassemblies": {
+    "projector_stack": 26,
+    "detector_chamber": 7,
+    "iliad_filter": 20
+  },
+  "legacy_module_key_preserved": "project_and_recording_system:energyfilter",
+  "instance_map": "default-assembly-identity-map-v1.json",
+  "tests": {
+    "latest_outcomes_by_unique_test": {
+      "passed": 734
+    },
+    "xml_files": [
+      "outputs/setup-validation/subassemblies-new.xml",
+      "outputs/setup-validation/subassemblies-initial.xml",
+      "outputs/setup-validation/subassemblies-geometry.xml",
+      "outputs/setup-validation/subassemblies-transactions.xml",
+      "outputs/setup-validation/subassemblies-regression.xml",
+      "outputs/setup-validation/subassemblies-compatibility.xml",
+      "outputs/setup-validation/subassemblies-ui.xml",
+      "outputs/setup-validation/subassemblies-final-regression.xml",
+      "outputs/setup-validation/subassemblies-df.xml",
+      "outputs/setup-validation/subassemblies-source-label.xml"
+    ]
+  },
+  "catalog": {
+    "modules": 11,
+    "part_definitions": 482,
+    "assembly_combinations": 30,
+    "wheel_configuration_validation": "passed; all three dependency files included"
+  },
+  "baseline": {
+    "original": "outputs/assembly-baselines/flat-tip-before-20260916-01",
+    "comparison": "outputs/assembly-baselines/flat-tip-stage2-20260916-final",
+    "report_sha256": "3144b79d7bfc5d63bdce1521e3e85a4c742122790e1eb3c945965c395e3d203d",
+    "solver_identity": "566cd7244a5a90717184dc11d198de792a6a558ed889ba897054d625c64b7e96",
+    "working_point_digest": "7b560cab24e2cb3c1adff151f67084eeb52d130c2068709bf49f19209f05726f",
+    "input_graph_equal": true,
+    "external_inputs_equal": false,
+    "verified_storage_repack": [
+      {
+        "module": "E:\\tem_simulator_v2\\configs\\instruments\\project_and_recording_system\\EnergyFilter.toml",
+        "old_sha256": "a24840342d83da6867ababc0d660c2d066622da351aa8c631d4807ba01c49dca",
+        "new_sha256": "625b81e75e790f8d9b5972ccad6ef8ae54d7ff2a218050896ea1322690035e43",
+        "resolved_document_equal": true
+      }
+    ],
+    "result_metadata_equal": true,
+    "arrays_equal": true,
+    "array_count": 81,
+    "maximum_absolute_difference": 0.0,
+    "sample_z_mm": 1599.2,
+    "sample_survivors": 25,
+    "passed": true
+  },
+  "scope": "Classical particles from tip; coherent development paused; vacuum opt-in/off in baseline; no cached rays injected",
+  "limitations": [
+    "One composition level",
+    "Axial constraints only",
+    "Legacy gun/column selection wrappers and vacuum UI retained for subsequent migration"
+  ]
+}

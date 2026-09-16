@@ -431,7 +431,7 @@ def source_energy_fwhm_ev(state, simulation=None) -> tuple[float, str]:
 
 
 def energy_axis_from_filter(state) -> np.ndarray:
-    """Return Zebra pixel edges using the live calibrated dispersion."""
+    """Return EELS camera pixel edges using the live calibrated dispersion."""
 
     from temsim.optics.energy_filter import ensure_energy_filter
 

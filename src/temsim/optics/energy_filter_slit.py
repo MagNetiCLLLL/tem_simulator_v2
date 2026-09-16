@@ -21,7 +21,7 @@ _DEFAULT_ENERGY_FILTER_SLIT_PART = module_manifest.part_data(
 class EnergySelectionSlitComponent:
     """Continuously adjustable piezo-driven mechanical slit."""
 
-    name: str = "Iliad XO / Optional EFTEM Energy Slit"
+    name: str = "XO / optional EFTEM energy slit"
     key: str = ENERGY_FILTER_SLIT
     inserted: bool = True
     distance_from_sector_exit_m: float = (
@@ -51,7 +51,7 @@ class EnergySelectionSlitComponent:
 
     def __post_init__(self):
         if self.key != ENERGY_FILTER_SLIT:
-            raise ValueError("Iliad XO/EFTEM slit key is not canonical.")
+            raise ValueError("Energy filter XO/EFTEM slit key is not canonical.")
         values = (
             self.distance_from_sector_exit_m,
             self.gap_m,

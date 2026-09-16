@@ -21,7 +21,8 @@ CONFIGS = ROOT / "configs" / "instruments"
 
 
 def _document(path):
-    return tomllib.loads((CONFIGS / path).read_text(encoding="utf-8-sig"))
+    from temsim.module_manifest import read_document
+    return read_document(CONFIGS / path)
 
 
 def _part(document, key):
@@ -216,7 +217,7 @@ def test_dimensions_include_only_existing_scalars_and_flatten_existing_arrays(do
 
 
 def test_actual_aperture_uses_declared_hole_not_larger_vacuum_constraint():
-    document = _document("beam_blanker/NanoPulser.toml")
+    document = _document("beam_blanker/ElectrostaticBeamBlanker.toml")
     mesh, = part_model_from_document(document, "nanopulser_aperture").meshes
     _assert_mesh(mesh)
     assert mesh.is_exact
@@ -261,7 +262,7 @@ def test_dimension_introspection_remains_available_when_draft_geometry_is_invali
 
 
 def test_unsupported_mechanism_is_explicit_envelope_but_dimensions_remain_available():
-    document = _document("beam_blanker/NanoPulser.toml")
+    document = _document("beam_blanker/ElectrostaticBeamBlanker.toml")
     model = part_model_from_document(document, "nanopulser_deflector")
     assert not model.meshes[0].is_exact
     assert "Envelope" in model.meshes[0].description
@@ -294,7 +295,8 @@ def test_invalid_angular_resolution_is_rejected(document, count):
 @pytest.mark.parametrize("path", sorted(CONFIGS.rglob("*.toml")), ids=lambda path: str(path.relative_to(CONFIGS)))
 def test_all_shipped_modules_have_finite_preview_without_changing_source(path):
     original = path.read_bytes()
-    document = tomllib.loads(original.decode("utf-8-sig"))
+    from temsim.module_manifest import read_document
+    document = read_document(path)
     before = deepcopy(document)
     model = module_model_from_document(document, angular_segments=8)
     for mesh in model.meshes:

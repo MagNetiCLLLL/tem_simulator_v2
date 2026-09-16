@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, Q
     QSpinBox, QScrollArea, QFileDialog)
 
 from temsim.vacuum import VacuumMap, Medium, boundary_anchors, resolve_regions, module_axial_ranges, DEFAULT_PATH
+from temsim.assembly_navigation import assembly_sections, component_anchor
 from temsim.gui.vacuum_axial_view import VacuumAxialView
 from temsim.gui.cell_environment_editor import CellChamberView
 
@@ -59,9 +60,9 @@ class VacuumMapPage(QWidget):
         form.addRow("Resolved position", self.bounds)
         self.modules_text = QLabel()
         self.modules_text.setWordWrap(True)
-        form.addRow("Assembly modules", self.modules_text)
+        form.addRow("Physical sections", self.modules_text)
         self.position_mode = QComboBox()
-        self.position_mode.addItem("Component / module anchors", "anchors")
+        self.position_mode.addItem("Component / subassembly anchors", "anchors")
         self.position_mode.addItem("Z positions", "positions")
         form.addRow("Define range using", self.position_mode)
         self.coordinate_frame = QComboBox()
@@ -167,9 +168,9 @@ class VacuumMapPage(QWidget):
         self.chamber.set_state(self.state)
         try:
             rows = resolve_regions(self.state, include_disabled=True)
-            self.diagram.set_regions(rows, module_axial_ranges(self.state), self.current_key)
+            self.diagram.set_regions(rows, assembly_sections(getattr(self.state, "_resolved_assembly", None)), self.current_key)
         except ValueError as exc:
-            self.diagram.set_regions((), module_axial_ranges(self.state), self.current_key)
+            self.diagram.set_regions((), assembly_sections(getattr(self.state, "_resolved_assembly", None)), self.current_key)
             self.status.setText(f"Invalid vacuum map: {exc}")
 
     def showEvent(self, event):
@@ -262,12 +263,35 @@ class VacuumMapPage(QWidget):
         anchors = boundary_anchors(state)
         self.coordinate_frame.clear()
         self.coordinate_frame.addItem("Global Z", "axis_origin")
+        assembly = getattr(state, "_resolved_assembly", None)
+        labels = {}
+        for section in assembly_sections(assembly):
+            self.coordinate_frame.addItem(f"{section.name} · local Z", f"{section.key}.origin")
+            for point in ("origin", "start", "end"):
+                labels[f"{section.key}.{point}"] = f"{section.name} · {point}"
         for module in module_axial_ranges(state):
-            self.coordinate_frame.addItem(f"{module.key} · local Z", f"module:{module.key}.origin")
+            self.coordinate_frame.addItem(f"Template: {module.key} · local Z", f"module:{module.key}.origin")
+        for part in getattr(assembly, "parts", ()):
+            if part.data.get("branch_path_only"):
+                continue  # Curvilinear filter s is not an axial vacuum boundary.
+            for point in ("start", "center", "end"):
+                labels[component_anchor(part, point)] = f"{part.name} · {point}"
+        # New choices use stable identities. Retain references already present in
+        # a loaded map verbatim, including missing ones, so pressure-only edits
+        # cannot silently rebind a boundary or change a historical record.
+        saved = {r.start_anchor for r in state.vacuum_map.regions} | {r.end_anchor for r in state.vacuum_map.regions}
+        special = {"axis_origin": "Global Z", "source": "Source start", "gun_exit": "Gun exit",
+                   "sample": "Specimen plane", "gun_acceleration_start": "Accelerator entrance",
+                   "projection_dpa": "Projection DPA", "column_end": "Column end"}
         for widget in (self.start_anchor, self.end_anchor):
             widget.clear()
-            for key, z in anchors.items():
-                widget.addItem(f"{key} · {z:g} mm", key)
+            for key, label in {**special, **labels}.items():
+                if key in anchors:
+                    widget.addItem(f"{label} · {anchors[key]:g} mm", key)
+            for key in sorted(saved):
+                if widget.findData(key) < 0:
+                    label = f"Saved reference: {key} · {anchors[key]:g} mm" if key in anchors else f"Missing boundary: {key}"
+                    widget.addItem(label, key)
         self._filling = False
         self._refresh_diagram()
         self.select_region(self.current_key)
@@ -347,8 +371,8 @@ class VacuumMapPage(QWidget):
             rows = resolve_regions(self.state, include_cell=False, include_disabled=True)
             resolved = next((v for v in rows if v.key == key), None)
             self.bounds.setText(f"Z {resolved.start_z_mm:g} to {resolved.end_z_mm:g} mm" if resolved else "Relative to specimen centre")
-            self.modules_text.setText("\n".join(f"{m.key} · {m.source_file}"
-                for m in module_axial_ranges(self.state) if resolved and
+            self.modules_text.setText("\n".join(f"{m.name} · {m.source_file}"
+                for m in assembly_sections(getattr(self.state, "_resolved_assembly", None)) if resolved and
                 m.start_z_mm < resolved.end_z_mm and m.end_z_mm > resolved.start_z_mm))
             if cell:
                 centre = self.state.sample.z_mm+config.cell.offset_z_mm

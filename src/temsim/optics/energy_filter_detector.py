@@ -1,4 +1,4 @@
-"""Iliad detector-end electrostatics and Zebra EELS detector model."""
+"""Energy filter detector-end electrostatics and EELS camera model."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ _TOML_OWNED_FIELDS = frozenset({
 
 @dataclass
 class EnergyFilterBiasTube:
-    name: str = "Iliad MultiEELS Bias Tube"
+    name: str = "Multi-window EELS bias tube"
     key: str = ENERGY_FILTER_BIAS_TUBE
     enabled: bool = True
     offset_ev: float = 0.0
@@ -100,7 +100,7 @@ class EnergyFilterBiasTube:
 
 @dataclass
 class EnergyFilterShutter:
-    name: str = "Iliad Fast Electrostatic Shutter"
+    name: str = "Fast electrostatic shutter"
     key: str = ENERGY_FILTER_SHUTTER
     enabled: bool = True
     open: bool = True
@@ -127,7 +127,7 @@ class EnergyFilterShutter:
 
 @dataclass
 class EnergyFilterCameraDeflector:
-    name: str = "Iliad Zebra Camera Deflector"
+    name: str = "EELS camera deflector"
     key: str = ENERGY_FILTER_CAMERA_DEFLECTOR
     enabled: bool = True
     active_strip: int = 1
@@ -151,9 +151,9 @@ class EnergyFilterCameraDeflector:
                 "Energy Filter camera-deflector key is not canonical."
             )
         if not 1 <= int(self.active_strip) <= int(self.maximum_strip_count):
-            raise ValueError("Active Zebra strip is outside the detector.")
+            raise ValueError("Active EELS camera strip is outside the detector.")
         if int(self.maximum_strip_count) != 5:
-            raise ValueError("Iliad camera deflector requires five strips.")
+            raise ValueError("Energy filter camera deflector requires five strips.")
         if min(
             self.electrode_length_mm,
             self.electrode_gap_mm,
@@ -169,7 +169,7 @@ class EnergyFilterCameraDeflector:
 class ZebraEELSDetector:
     """Five one-dimensional spectrum strips plus one 2-D alignment area."""
 
-    name: str = "Iliad Zebra Five-strip EELS Detector"
+    name: str = "EELS camera"
     key: str = ENERGY_FILTER_ZEBRA
     enabled: bool = True
     inserted: bool = True
@@ -207,7 +207,7 @@ class ZebraEELSDetector:
 
     def validate(self):
         if self.key != ENERGY_FILTER_ZEBRA:
-            raise ValueError("Zebra detector key is not canonical.")
+            raise ValueError("EELS camera key is not canonical.")
         integers = (
             self.strip_count,
             self.pixels_per_strip,
@@ -216,24 +216,24 @@ class ZebraEELSDetector:
             self.alignment_pixels_y,
         )
         if any(int(value) <= 0 for value in integers):
-            raise ValueError("Zebra detector dimensions must be positive.")
+            raise ValueError("EELS camera dimensions must be positive.")
         if not all(math.isfinite(float(value)) and float(value) > 0.0 for value in (
             self.pixel_size_um,
             self.maximum_spectra_per_s,
             self.spectral_clear_height_mm,
             self.provisional_strip_center_pitch_mm,
         )):
-            raise ValueError("Zebra detector calibration must be positive.")
+            raise ValueError("EELS camera calibration must be positive.")
         if self.strip_count != 5 or self.pixels_per_strip != 2_048:
-            raise ValueError("Zebra detector must contain five 2048-pixel strips.")
+            raise ValueError("EELS camera must contain five 2048-pixel strips.")
         if not math.isclose(
             float(self.spectral_clear_height_mm), 0.800, abs_tol=1.0e-12
         ):
-            raise ValueError("Zebra strip active height must be 0.800 mm.")
+            raise ValueError("EELS camera strip active height must be 0.800 mm.")
         if self.provisional_strip_center_pitch_mm < self.spectral_clear_height_mm:
-            raise ValueError("Zebra provisional strip pitch causes overlap.")
+            raise ValueError("EELS camera provisional strip pitch causes overlap.")
         if self.strip_center_pitch_status != "adjustable_unknown_not_public":
-            raise ValueError("Zebra strip pitch must remain marked unknown.")
+            raise ValueError("EELS camera strip pitch must remain marked unknown.")
         return self
 
     @property

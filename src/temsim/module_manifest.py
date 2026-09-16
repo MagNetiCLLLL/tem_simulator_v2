@@ -341,10 +341,10 @@ class PartGeometry:
     length_mm: float
 
 
-def read_document(path):
+def read_document(path, *, capture_navigation=False):
     from temsim.shared_tip import resolve_document
     with Path(path).open("rb") as stream:
-        return resolve_document(tomllib.load(stream), path)
+        return resolve_document(tomllib.load(stream), path, capture_navigation=capture_navigation)
 
 
 def part_data(module_path, key, root=None):
@@ -666,7 +666,7 @@ def _stage_part_structure(text, changes):
     return staged
 
 
-def stage_manifest_text(text, updates):
+def stage_manifest_text(text, updates, *, validate=True):
     """Return TOML text with targeted section/part fields replaced."""
 
     from temsim.optics.electron_gun.tip_assembly import OPTIONAL_NUMERICAL_FIELDS
@@ -702,7 +702,17 @@ def stage_manifest_text(text, updates):
         ]
     staged = "".join(lines)
     document = tomllib.loads(staged)
-    validate_document(document)
+    placements = getattr(updates, "placement_updates", {})
+    if placements:
+        import tomli_w
+        entries = {entry["key"]: entry for entry in document.get("subassemblies", ())}
+        for key, placement in placements.items():
+            if key not in entries:
+                raise ValueError(f"Unknown subassembly: {key}")
+            entries[key]["placement"] = placement
+        staged = tomli_w.dumps(document)
+    if validate:
+        validate_document(document)
     return staged
 
 
@@ -1053,34 +1063,34 @@ def _validate_nanopulser_module(document):
 
     module = document["module"]
     if module.get("geometry_status") != "engineering_reconstruction_not_oem":
-        raise ValueError("NanoPulser dimensions must retain their non-OEM status")
+        raise ValueError("Electrostatic beam blanker dimensions must retain their non-OEM status")
     for field in (
         "geometry_source", "public_topology_source", "public_topology_source_url",
     ):
         if not str(module.get(field, "")).strip():
-            raise ValueError(f"NanoPulser is missing {field}")
+            raise ValueError(f"Electrostatic beam blanker is missing {field}")
     entrance = float(document["ports"]["entrance"]["local_z_mm"])
     exit_z = float(document["ports"]["exit"]["local_z_mm"])
     if not math.isfinite(entrance) or not math.isfinite(exit_z) or exit_z <= entrance:
-        raise ValueError("NanoPulser module must have positive finite length")
+        raise ValueError("Electrostatic beam blanker module must have positive finite length")
     if any(
         document["ports"][port]["interface"] != "gun_to_column"
         for port in ("entrance", "exit")
     ):
-        raise ValueError("NanoPulser must connect the gun-to-column interface")
+        raise ValueError("Electrostatic beam blanker must connect the gun-to-column interface")
     from temsim.magnetic_circuits import is_custom_mechanical_part
     parts = sorted((part for part in document["parts"] if not is_custom_mechanical_part(part)),
                    key=lambda part: part["order"])
     if tuple(part["key"] for part in parts) != (
         NANOPULSER_DEFLECTOR, NANOPULSER_APERTURE,
     ):
-        raise ValueError("NanoPulser requires one deflector followed by one aperture")
+        raise ValueError("Electrostatic beam blanker requires one deflector followed by one aperture")
     deflector, aperture = parts
     for part in parts:
         if not entrance <= part["local_start_z_mm"] <= part["local_end_z_mm"] <= exit_z:
-            raise ValueError("NanoPulser parts must remain inside the module")
+            raise ValueError("Electrostatic beam blanker parts must remain inside the module")
     if deflector["local_end_z_mm"] >= aperture["local_start_z_mm"]:
-        raise ValueError("NanoPulser aperture must be downstream of the deflector")
+        raise ValueError("Electrostatic beam blanker aperture must be downstream of the deflector")
     for part, names in (
         (deflector, (
             "plate_length_mm", "plate_gap_mm",
@@ -1093,18 +1103,18 @@ def _validate_nanopulser_module(document):
         for field in names:
             value = float(part[field])
             if not math.isfinite(value) or value <= 0.0:
-                raise ValueError(f"NanoPulser {field} must be finite and positive")
+                raise ValueError(f"Electrostatic beam blanker {field} must be finite and positive")
     if float(deflector["plate_length_mm"]) > float(deflector["length_mm"]):
-        raise ValueError("NanoPulser plates must fit inside their envelope")
+        raise ValueError("Electrostatic beam blanker plates must fit inside their envelope")
     if float(deflector["mechanical_clear_bore_diameter_mm"]) >= float(
         deflector["mechanical_outer_diameter_mm"]
     ):
-        raise ValueError("NanoPulser bore must fit inside its body")
+        raise ValueError("Electrostatic beam blanker bore must fit inside its body")
     radius = float(aperture["aperture_radius_mm"])
     if 2.0 * radius > float(aperture["vacuum_inner_diameter_mm"]):
-        raise ValueError("NanoPulser aperture must fit inside its vacuum bore")
+        raise ValueError("Electrostatic beam blanker aperture must fit inside its vacuum bore")
     if not math.isclose(2.0 * radius, float(aperture["bore_diameter_mm"])):
-        raise ValueError("NanoPulser aperture radius and bore diameter disagree")
+        raise ValueError("Electrostatic beam blanker aperture radius and bore diameter disagree")
 
 
 def part_requires_field_polarity(part):
@@ -1805,7 +1815,7 @@ def _validate_energy_filter_geometry(parts):
     missing_keys = sorted(required_keys - by_key.keys())
     if missing_keys:
         raise ValueError(
-            "Missing Iliad Energy Filter components: "
+            "Missing energy filter components: "
             + ", ".join(missing_keys)
         )
 
@@ -1852,18 +1862,18 @@ def _validate_energy_filter_geometry(parts):
         or isinstance(prism_count, bool)
         or prism_count != 1
     ):
-        raise ValueError("Iliad requires exactly one large tapered prism")
+        raise ValueError("Energy filter requires exactly one large tapered prism")
     if (
         not isinstance(multipole_count, int)
         or isinstance(multipole_count, bool)
         or multipole_count != 10
     ):
-        raise ValueError("Iliad requires exactly ten multipole elements")
+        raise ValueError("Energy filter requires exactly ten multipole elements")
     if interface["multipole_numbering_status"] != (
         "simulator_m01_m10_indices_not_public_production_labels_or_exact_order"
     ):
         raise ValueError(
-            "Iliad M01-M10 labels must remain identified as simulator indices"
+            "Energy filter M01-M10 labels must remain identified as simulator indices"
         )
 
     entrance = by_key.get("energy_filter_entrance_aperture")
@@ -1890,20 +1900,20 @@ def _validate_energy_filter_geometry(parts):
         )
     except KeyError as exc:
         raise ValueError(
-            "Iliad entrance aperture requires the public 5 mm reference "
+            "Energy filter entrance aperture requires the public 5 mm reference "
             "operating condition"
         ) from exc
     if not math.isfinite(reference_aperture_diameter) or not math.isclose(
         reference_aperture_diameter, 5.0, abs_tol=1.0e-12
     ):
         raise ValueError(
-            "Iliad entrance reference operating diameter must remain 5 mm"
+            "Energy filter entrance reference operating diameter must remain 5 mm"
         )
     if reference_aperture_diameter > 2.0 * float(
         entrance["maximum_radius_mm"]
     ):
         raise ValueError(
-            "Iliad entrance reference aperture exceeds its mechanism travel"
+            "Energy filter entrance reference aperture exceeds its mechanism travel"
         )
 
     interface_z = float(interface["local_center_z_mm"])
@@ -1951,14 +1961,14 @@ def _validate_energy_filter_geometry(parts):
     ]
     if missing:
         raise ValueError(
-            "Missing Iliad tapered-prism geometry: " + ", ".join(missing)
+            "Missing Energy filter tapered-prism geometry: " + ", ".join(missing)
         )
     prism_values = {
         field: float(prism[field])
         for field in ENERGY_FILTER_PRISM_GEOMETRY_FIELDS
     }
     if not all(math.isfinite(value) for value in prism_values.values()):
-        raise ValueError("Iliad tapered-prism geometry must be finite")
+        raise ValueError("Energy filter tapered-prism geometry must be finite")
     if prism_values["prism_radius_mm"] <= 0.0:
         raise ValueError("Energy Filter prism radius must be positive")
     if not 0.0 <= prism_values["prism_radial_field_index"] < 1.0:
@@ -1980,7 +1990,7 @@ def _validate_energy_filter_geometry(parts):
         "provisional_patent_example_not_product_confirmed"
     ):
         raise ValueError(
-            "Iliad prism bend angle must remain explicitly provisional"
+            "Energy filter prism bend angle must remain explicitly provisional"
         )
 
     multipole_values = {}
@@ -2046,7 +2056,7 @@ def _validate_energy_filter_geometry(parts):
         < pre_positions[2]
         < float(prism["path_entrance_mm"])
     ):
-        raise ValueError("Iliad M01-M03 must be ordered before the prism")
+        raise ValueError("Energy filter M01-M03 must be ordered before the prism")
     for upstream, downstream in zip(pre_positions, pre_positions[1:]):
         upstream_index = pre_positions.index(upstream) + 1
         housing = multipole_values[upstream_index][1]["housing_length_mm"]
@@ -2054,7 +2064,7 @@ def _validate_energy_filter_geometry(parts):
             "housing_length_mm"
         ]
         if 0.5 * (housing + next_housing) > downstream - upstream:
-            raise ValueError("Iliad pre-prism multipole housings overlap")
+            raise ValueError("Energy filter pre-prism multipole housings overlap")
 
     post_positions = tuple(
         multipole_values[index][0] for index in range(4, 11)
@@ -2065,7 +2075,7 @@ def _validate_energy_filter_geometry(parts):
         housing = multipole_values[offset][1]["housing_length_mm"]
         next_housing = multipole_values[offset + 1][1]["housing_length_mm"]
         if 0.5 * (housing + next_housing) > downstream - upstream:
-            raise ValueError("Iliad post-prism multipole housings overlap")
+            raise ValueError("Energy filter post-prism multipole housings overlap")
 
     slit = by_key["energy_filter_slit"]
     missing = [
@@ -2074,7 +2084,7 @@ def _validate_energy_filter_geometry(parts):
     ]
     if missing:
         raise ValueError(
-            "Missing Iliad XO/slit geometry: " + ", ".join(missing)
+            "Missing Energy filter XO/slit geometry: " + ", ".join(missing)
         )
     slit_values = tuple(
         float(slit[field]) for field in ENERGY_FILTER_SLIT_GEOMETRY_FIELDS
@@ -2083,13 +2093,13 @@ def _validate_energy_filter_geometry(parts):
         not all(math.isfinite(value) for value in slit_values)
         or min(slit_values) <= 0.0
     ):
-        raise ValueError("Iliad energy-slit dimensions must be positive")
+        raise ValueError("Energy filter energy-slit dimensions must be positive")
     if not (
         bool(slit.get("xo_crossover_plane_confirmed", False))
         and bool(slit.get("eftem_energy_selection_optional", False))
     ):
         raise ValueError(
-            "Iliad slit row must identify the XO plane and optional EFTEM stop"
+            "Energy filter slit row must identify the XO plane and optional EFTEM stop"
         )
 
     dynamic_quad = by_key[
@@ -2102,7 +2112,7 @@ def _validate_energy_filter_geometry(parts):
         != "mechanical_layout_only_dynamic_focus_field_not_implemented"
     ):
         raise ValueError(
-            "Iliad dynamic-focus electrostatic quadrupole must remain an "
+            "Energy filter dynamic-focus electrostatic quadrupole must remain an "
             "explicit four-electrode, mechanical-only placeholder"
         )
     for field in (
@@ -2111,7 +2121,7 @@ def _validate_energy_filter_geometry(parts):
     ):
         value = float(dynamic_quad[field])
         if not math.isfinite(value) or value <= 0.0:
-            raise ValueError(f"Iliad dynamic quadrupole {field} must be positive")
+            raise ValueError(f"Energy filter dynamic quadrupole {field} must be positive")
 
     bias = by_key["energy_filter_bias_tube"]
     shutter = by_key["energy_filter_shutter"]
@@ -2140,7 +2150,7 @@ def _validate_energy_filter_geometry(parts):
     if bias.get("offset_range_status") != (
         "provisional_simulator_limit_not_iliad_product_specification"
     ):
-        raise ValueError("Iliad bias-tube range must remain marked provisional")
+        raise ValueError("Energy filter bias-tube range must remain marked provisional")
 
     zebra = by_key["energy_filter_zebra"]
     missing = [
@@ -2149,7 +2159,7 @@ def _validate_energy_filter_geometry(parts):
     ]
     if missing:
         raise ValueError(
-            "Missing Iliad Zebra detector data: " + ", ".join(missing)
+            "Missing Energy filter EELS camera data: " + ", ".join(missing)
         )
     if (
         int(zebra["strip_count"]) != 5
@@ -2157,13 +2167,13 @@ def _validate_energy_filter_geometry(parts):
         or int(zebra["alignment_pixels_non_dispersive"]) != 256
         or int(zebra["alignment_pixels_dispersive"]) != 2048
     ):
-        raise ValueError("Iliad Zebra pixel topology does not match public data")
+        raise ValueError("Energy filter EELS camera pixel topology does not match public data")
     pixel_pitch_mm = float(zebra["strip_pixel_pitch_um"]) * 1.0e-3
     zebra_numeric = tuple(
         float(zebra[field]) for field in ENERGY_FILTER_ZEBRA_FIELDS
     )
     if not all(math.isfinite(value) and value > 0.0 for value in zebra_numeric):
-        raise ValueError("Iliad Zebra detector data must be finite and positive")
+        raise ValueError("Energy filter EELS camera data must be finite and positive")
     expected_width = int(zebra["pixels_per_strip"]) * pixel_pitch_mm
     expected_alignment_height = (
         int(zebra["alignment_pixels_non_dispersive"]) * pixel_pitch_mm
@@ -2172,31 +2182,31 @@ def _validate_energy_filter_geometry(parts):
         float(zebra["strip_active_width_mm"]), expected_width,
         abs_tol=1.0e-9,
     ):
-        raise ValueError("Iliad Zebra strip active width is inconsistent")
+        raise ValueError("Energy filter EELS camera strip active width is inconsistent")
     if not math.isclose(
         float(zebra["alignment_active_width_mm"]), expected_width,
         abs_tol=1.0e-9,
     ):
-        raise ValueError("Iliad Zebra alignment width is inconsistent")
+        raise ValueError("Energy filter EELS camera alignment width is inconsistent")
     if not math.isclose(
         float(zebra["alignment_active_height_mm"]),
         expected_alignment_height,
         abs_tol=1.0e-9,
     ):
-        raise ValueError("Iliad Zebra alignment height is inconsistent")
+        raise ValueError("Energy filter EELS camera alignment height is inconsistent")
     if not math.isclose(
         float(zebra["strip_active_height_mm"]), 0.800,
         abs_tol=1.0e-12,
     ):
-        raise ValueError("Iliad Zebra strip active height must be 0.800 mm")
+        raise ValueError("Energy filter EELS camera strip active height must be 0.800 mm")
     if float(zebra["provisional_strip_center_pitch_mm"]) < float(
         zebra["strip_active_height_mm"]
     ):
-        raise ValueError("Iliad Zebra provisional strip pitch causes overlap")
+        raise ValueError("Energy filter EELS camera provisional strip pitch causes overlap")
     if zebra.get("strip_center_pitch_status") != (
         "adjustable_unknown_not_public"
     ):
-        raise ValueError("Iliad Zebra strip pitch must remain marked unknown")
+        raise ValueError("Energy filter EELS camera strip pitch must remain marked unknown")
 
     positions = {
         key: float(by_key[key]["path_center_mm"])
@@ -2222,8 +2232,8 @@ def _validate_energy_filter_geometry(parts):
         < positions["energy_filter_zebra"]
     ):
         raise ValueError(
-            "Iliad post-prism multipoles, XO/slit, dynamic-focus element, "
-            "MultiEELS electrostatics, output plane and Zebra must be ordered"
+            "Energy filter post-prism multipoles, XO/slit, dynamic-focus element, "
+            "Multi-window EELS electrostatics, output plane and EELS camera must be ordered"
         )
 
 

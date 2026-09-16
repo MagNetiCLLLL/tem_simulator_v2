@@ -6,6 +6,23 @@ import numpy as np
 
 def tip_dimension_overrides(part, specs, runtime):
     """Expose applied geometry beside saved defaults when they differ."""
+    from temsim.tip_emission_view import emission_dimensions
+    dimensions = emission_dimensions(part, runtime)
+    if dimensions is not None:
+        from temsim.part_model_3d import DimensionSpec
+        from temsim.optics.electron_gun.tip_assembly import PART_FIELDS
+        specs = tuple(replace(spec, label="Reference: " + spec.label,
+            reason="Saved tip definition. The active analytic emission uses the operating curvature and source FWHM below.")
+            if spec.path[0] == "parts" and spec.path[2] in PART_FIELDS else spec for spec in specs)
+        active = tuple(DimensionSpec((kind, part["key"], name), label, dimensions[name], unit,
+            editable=False, reason="Current launch surface. Edit Tip model / emission or the operating controls.")
+            for kind, name, label, unit in (
+                ("runtime", "curvature_nm_inv", "Active emission curvature", "nm⁻¹"),
+                ("derived", "emission_radius_nm", "Emission radius (∞ = flat)", "nm"),
+                ("runtime", "virtual_source_fwhm_nm", "Projected source FWHM", "nm"),
+                ("derived", "emission_support_diameter_nm", "Emission support diameter", "nm"),
+                ("derived", "emission_depth_nm", "Emission edge depth", "nm")))
+        return active + specs
     model = (runtime or {}).get("tip_surface_model")
     if not model or not part.get("tip_particle_model"):
         return specs
@@ -55,7 +72,10 @@ def tip_meshes(part, count, runtime=None):
     whole = revolve_section(section, key=part["key"], angular_segments=count,
                             material_class=g.material, description="Physical spherical apex and tangent cone")
     if not active:
-        return (whole,), ("Physical tip geometry. Curved-surface emission is inactive; this view does not define a new source.",)
+        from temsim.tip_emission_view import emission_note
+        note = emission_note(part, runtime)
+        return (whole,), ((note, "Reference body from TOML; independent of the active analytic emission.") if note else
+                         ("Physical tip geometry. Curved-surface emission is inactive; this view does not define a new source.",))
     boundary = apex-2*radius*math.sin(cap/2)**2
     mask = np.min(whole.vertices[whole.faces, 2], axis=1) >= boundary-4*np.spacing(max(abs(apex), radius))
     # Keep one watertight solid for copying, export and Boolean operations.

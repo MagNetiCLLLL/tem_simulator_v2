@@ -721,7 +721,7 @@ def simulate_energy_filter(
             entrance_signal=entrance_signal,
             status=(
                 "No TEM rays reached and passed the "
-                "Iliad Spectrometer Entrance Aperture"
+                "Spectrometer entrance aperture"
             ),
             stop_keys=(),
             slit_transmitted_fraction=0.0,
@@ -780,7 +780,7 @@ def simulate_energy_filter(
         for key, count in sorted(stop_counts.items())
     )
     status = (
-        f"{eels_count}/{len(rays)} sampled trajectories recorded by Zebra"
+        f"{eels_count}/{len(rays)} sampled trajectories recorded by EELS camera"
         + (
             f" ({total_entrance_count} entrance rays represented)"
             if total_entrance_count != len(rays)

@@ -105,7 +105,7 @@ APERTURE_NAMES = {
     OBJECTIVE_APERTURE: "Objective Aperture",
     SELECTED_AREA_APERTURE: "Selected Area Aperture",
     ENERGY_FILTER_ENTRANCE_APERTURE: (
-        "Iliad Spectrometer Entrance Aperture"
+        "Spectrometer entrance aperture"
     ),
     PROJECTION_CHAMBER_DPA_APERTURE: (
         "Projection-Chamber Differential-Pumping Aperture"
@@ -119,22 +119,22 @@ APERTURE_SHORT_NAMES = {
 
 ENERGY_FILTER_NAMES = {
     ENERGY_FILTER_ENTRANCE_APERTURE: (
-        "Iliad Spectrometer Entrance Aperture"
+        "Spectrometer entrance aperture"
     ),
-    ENERGY_FILTER_TAPERED_PRISM: "Iliad Large Tapered Prism",
+    ENERGY_FILTER_TAPERED_PRISM: "Large tapered prism",
     **{
-        key: f"Iliad Multipole {index:02d} (model index)"
+        key: f"Energy filter multipole {index:02d} (model index)"
         for index, key in enumerate(ENERGY_FILTER_MULTIPOLE_KEYS, start=1)
     },
     ENERGY_FILTER_SLIT: "XO / Optional EFTEM Energy Slit",
     ENERGY_FILTER_DYNAMIC_FOCUS_QUADRUPOLE: (
         "Dynamic-focus Electrostatic Quadrupole"
     ),
-    ENERGY_FILTER_BIAS_TUBE: "Iliad MultiEELS Bias Tube",
-    ENERGY_FILTER_SHUTTER: "Iliad Fast Electrostatic Shutter",
-    ENERGY_FILTER_CAMERA_DEFLECTOR: "Iliad Zebra Camera Deflector",
+    ENERGY_FILTER_BIAS_TUBE: "Multi-window EELS bias tube",
+    ENERGY_FILTER_SHUTTER: "Fast electrostatic shutter",
+    ENERGY_FILTER_CAMERA_DEFLECTOR: "EELS camera deflector",
     ENERGY_FILTER_EFTEM_OUTPUT_PLANE: "Optional EFTEM Output Plane",
-    ENERGY_FILTER_ZEBRA: "Iliad Zebra EELS Detector",
+    ENERGY_FILTER_ZEBRA: "EELS camera",
 }
 
 STIGMATOR_NAMES = {

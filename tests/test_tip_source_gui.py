@@ -90,10 +90,11 @@ def test_transport_matching_is_an_explicit_curved_particle_edit_choice(state, qt
     dialog = GunSourceDialog(state.electron_gun, instrument_state=state)
     qtbot.addWidget(dialog)
     assert not dialog.match_transport_requested
-    assert "no documented physical calibration" in dialog.model_change_summary.text()
+    assert "Flat tip at 0" in dialog.model_change_summary.text()
+    assert "uncalibrated" in dialog.model_change_summary.toolTip()
     dialog.surface_enabled.setChecked(True)
     assert dialog.match_transport_requested
-    assert "potential scale is inactive" in dialog.model_change_summary.text()
+    assert "separate emission law and electrode-field solver" in dialog.model_change_summary.text()
     dialog.match_transport.setChecked(False)
     assert not dialog.match_transport_requested
     dialog.match_transport.setChecked(True)

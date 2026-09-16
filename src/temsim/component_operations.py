@@ -25,6 +25,8 @@ class PartChangeSet(Mapping):
     removed_keys: tuple = ()
     expected_source_bytes: bytes | None = None
     expected_dependency_bytes: dict | None = None
+    placement_updates: dict = field(default_factory=dict)
+    subassemblies_resolved: bool = False
 
     def __getitem__(self, key):
         return self.fields[key]
@@ -36,13 +38,13 @@ class PartChangeSet(Mapping):
         return len(self.fields)
 
     def __bool__(self):
-        return bool(self.fields or self.added_parts or self.removed_keys)
+        return bool(self.fields or self.added_parts or self.removed_keys or self.placement_updates)
 
     def __eq__(self, other):
         if isinstance(other, PartChangeSet):
-            return (self.fields, self.added_parts, self.removed_keys) == (other.fields, other.added_parts, other.removed_keys)
+            return (self.fields, self.added_parts, self.removed_keys, self.placement_updates) == (other.fields, other.added_parts, other.removed_keys, other.placement_updates)
         if isinstance(other, Mapping):
-            return not (self.added_parts or self.removed_keys) and self.fields == dict(other)
+            return not (self.added_parts or self.removed_keys or self.placement_updates) and self.fields == dict(other)
         return NotImplemented
 
 

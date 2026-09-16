@@ -40,6 +40,8 @@ class PartModelDocument:
                 seen.add(ancestor)
                 ancestor = by_key[ancestor].get("parent_key")
         self.document = deepcopy(self._baseline)
+        from temsim.subassemblies import ownership
+        self._subassembly_owners = ownership(self._baseline, self.path)
         self._history = [deepcopy(self.document)]
         self._history_index = 0
 
@@ -77,7 +79,10 @@ class PartModelDocument:
         validate_tip_part(candidate)
         for index, part in enumerate(self.document["parts"]):
             if part["key"] == key:
-                self.document["parts"][index] = candidate
+                updated = deepcopy(self.document)
+                updated["parts"][index] = candidate
+                from temsim.subassemblies import reflow
+                self.document = reflow(self.document, updated, self.path, owners=self._subassembly_owners)
                 self._remember()
                 return
         raise ValueError(f"Unknown part: {key}")
@@ -85,10 +90,22 @@ class PartModelDocument:
     def _commit_component_operation(self, candidate):
         # Structural edits must be valid before replacing any part of the
         # current draft; validation failure preserves both draft and history.
+        from temsim.subassemblies import reflow
+        candidate = reflow(self.document, candidate, self.path, owners=self._subassembly_owners)
         validate_component_graph(candidate)
         module_manifest.validate_document(candidate)
         self.document = candidate
         self._remember()
+
+    def place_subassembly(self, key, placement):
+        """Save a fixed origin or a persistent component anchor in the draft."""
+        candidate = deepcopy(self.document)
+        for entry in candidate.get("subassemblies", ()):
+            if entry["key"] == key:
+                entry["placement"] = deepcopy(placement)
+                self._commit_component_operation(candidate)
+                return
+        raise ValueError(f"Unknown subassembly: {key}")
 
     def add_component(self, part):
         """Insert an independent mechanical part as one undoable operation."""
@@ -329,7 +346,12 @@ class PartModelDocument:
                 updates[("parts", part["key"], "model_3d")] = None
         current_keys = {part["key"] for part in self.document["parts"]}
         removed = tuple(key for key in originals if key not in current_keys)
-        return PartChangeSet(updates, tuple(additions), removed, self._source_bytes, dict(self._dependency_bytes))
+        previous = {entry["key"]: entry["placement"] for entry in self._baseline.get("subassemblies", ())}
+        placements = {entry["key"]: deepcopy(entry["placement"])
+                      for entry in self.document.get("subassemblies", ())
+                      if previous.get(entry["key"]) != entry["placement"]}
+        return PartChangeSet(updates, tuple(additions), removed, self._source_bytes,
+                             dict(self._dependency_bytes), placements, True)
 
     def reload(self):
         """Read an external source revision only after this draft is resolved."""
@@ -338,6 +360,7 @@ class PartModelDocument:
         candidate = type(self)(self.path)
         self._source_bytes = candidate._source_bytes
         self._dependency_bytes = candidate._dependency_bytes
+        self._subassembly_owners = candidate._subassembly_owners
         self._editable_text = candidate._editable_text
         self._baseline = candidate._baseline
         self.document = candidate.document
@@ -353,7 +376,7 @@ class PartModelDocument:
             raise ValueError("The source file changed outside this editor. Save a copy or reopen it before saving.")
         from temsim.shared_tip import dependencies
         if dependencies(self.path) != self._dependency_bytes:
-            raise ValueError("The shared FEG tip changed outside this editor. Save a copy or reopen it before saving.")
+            raise ValueError("An assembly dependency changed outside this editor. Save a copy or reopen it before saving.")
 
     def save(self, *, project_save=None):
         self.assert_source_current()
@@ -378,6 +401,8 @@ class PartModelDocument:
                 import os
                 save_component_changes(root, os.path.relpath(self.path, root), updates, None)
             else:
+                if self.document.get("subassemblies"):
+                    raise ValueError("Save a composed assembly inside its catalog, or use Save copy for an independent file")
                 module_manifest._atomic_write_text(self.path, staged)
         self._accept_saved_file(self.path, expected=tomllib.loads(staged))
 
@@ -388,7 +413,7 @@ class PartModelDocument:
         from temsim.shared_tip import catalog_root_for, catalog_definitions
         root = catalog_root_for(destination)
         if root is not None and destination in catalog_definitions(root):
-            raise ValueError("Use Save to edit the shared tip definition; choose an independent destination for a copy")
+            raise ValueError("Use Save to edit a linked physical definition; choose an independent destination for a copy")
         self.validate()
         staged = module_manifest.stage_manifest_text(
             self._editable_text, self.updates()
@@ -396,8 +421,9 @@ class PartModelDocument:
         # Save copy is explicitly independent, including a module with shared
         # sources. Resolve its values before removing the source link.
         parsed = tomllib.loads(staged)
-        if any("tip_definition_file" in part for part in parsed["parts"]):
+        if parsed.get("subassemblies") or any("tip_definition_file" in part for part in parsed["parts"]):
             import tomli_w
+            parsed.pop("subassemblies", None)
             for part in parsed["parts"]:
                 part.pop("tip_definition_file", None)
             staged = tomli_w.dumps(parsed)
@@ -406,7 +432,8 @@ class PartModelDocument:
 
     def _accept_saved_file(self, path, *, expected):
         source = path.read_bytes()
-        parsed = tomllib.loads(source.decode("utf-8-sig"))
+        from temsim.shared_tip import materialized_text
+        parsed = tomllib.loads(materialized_text(source.decode("utf-8-sig"), path))
         if parsed != expected:
             raise ValueError("The saved file does not match the draft. The draft is retained; inspect the source before saving again.")
         self.path = path
@@ -416,4 +443,6 @@ class PartModelDocument:
         self._editable_text = materialized_text(source.decode("utf-8-sig"), path)
         self._baseline = tomllib.loads(self._editable_text)
         self.document = deepcopy(self._baseline)
+        from temsim.subassemblies import ownership
+        self._subassembly_owners = ownership(self._baseline, self.path)
         self._history[self._history_index] = deepcopy(self.document)

@@ -12,6 +12,7 @@ import pytest
 
 from temsim.magnetic_materials import lens_material_defaults, MU0
 from temsim.module_manifest import _format_toml_value, stage_manifest_text, validate_document
+from temsim.shared_tip import materialized_text
 from temsim.part_materials import (
     material_catalog, material_for_region, part_material_updates,
     material_application_scope, validate_part_materials, validated_material_regions,
@@ -50,7 +51,7 @@ def test_catalog_reuses_sourced_iron_and_explicit_nonmagnetic_model():
 @pytest.mark.parametrize("name", ("EnergyFilter.toml", "NoEnergyFilter.toml"))
 def test_assignment_adds_only_whitelisted_toml_field_and_preserves_geometry(name):
     path = ROOT / "project_and_recording_system" / name
-    text = path.read_text(encoding="utf-8")
+    text = materialized_text(path.read_text(encoding="utf-8"), path)
     document = tomllib.loads(text)
     part = _part(document, "intermediate_lens_yoke")
     before = deepcopy(part)
@@ -81,7 +82,8 @@ def test_inline_table_quotes_nested_keys_and_values():
 
 def test_aperture_body_material_persists_as_definition_without_magnetic_domain():
     from temsim.part_materials import is_magnetostatic_body
-    text = (ROOT / "project_and_recording_system" / "EnergyFilter.toml").read_text(encoding="utf-8")
+    path = ROOT / "project_and_recording_system" / "EnergyFilter.toml"
+    text = materialized_text(path.read_text(encoding="utf-8"), path)
     document = tomllib.loads(text)
     aperture = _part(document, "selected_area_aperture")
     staged = stage_manifest_text(text, part_material_updates(aperture, "femm_pure_iron"))
@@ -137,7 +139,8 @@ def test_invalid_response_snapshots_are_rejected(change):
 
 
 def test_material_regions_must_match_existing_geometry():
-    document = tomllib.loads((ROOT / "project_and_recording_system" / "EnergyFilter.toml").read_text(encoding="utf-8"))
+    from temsim.module_manifest import read_document
+    document = read_document(ROOT / "project_and_recording_system" / "EnergyFilter.toml")
     part = _part(document, "intermediate_lens_yoke")
     _set_material(part, "copper", "upper")
     with pytest.raises(ValueError, match="upper/lower material assignments require existing split"):

@@ -56,7 +56,7 @@ def test_recipe_rebuild_resolves_selection_and_keeps_lens_strengths():
         gun="FEG + Mono",
         column="C3 + Probe Corrector",
         recording="Energy Filter",
-        beam_blanker="NanoPulser",
+        beam_blanker="Electrostatic beam blanker",
     )
     catalog, _live, recipe = _recipe(
         objective_percent=81.5,

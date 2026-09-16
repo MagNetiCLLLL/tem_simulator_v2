@@ -16,7 +16,7 @@ from temsim.paths import INSTRUMENT_CONFIG_ROOT
 
 def test_optional_blanker_inserts_one_module_and_removal_restores_baseline():
     catalog = AssemblyCatalog()
-    assert [option.name for option in catalog.beam_blankers] == ["None", "NanoPulser"]
+    assert [option.name for option in catalog.beam_blankers] == ["None", "Electrostatic beam blanker"]
     state = default_state()
     selection = catalog.default_selection()
     baseline = catalog.apply(state, selection)
@@ -27,12 +27,12 @@ def test_optional_blanker_inserts_one_module_and_removal_restores_baseline():
     ]
     assert "beam_blanker" not in catalog.selected_paths(selection)
 
-    enabled = replace(selection, beam_blanker="NanoPulser")
+    enabled = replace(selection, beam_blanker="Electrostatic beam blanker")
     installed = catalog.apply(state, enabled)
     assert [module.type for module in installed.modules] == [
         "gun", "beam_blanker", "column", "project_and_recording_system",
     ]
-    assert installed.selected_path("beam_blanker") == "beam_blanker/NanoPulser.toml"
+    assert installed.selected_path("beam_blanker") == "beam_blanker/ElectrostaticBeamBlanker.toml"
     assert state.nanopulser.installed
     assert state.sample.z_mm == pytest.approx(1679.2)
     for part in installed.parts:
@@ -62,7 +62,7 @@ def test_optional_blanker_inserts_one_module_and_removal_restores_baseline():
 def test_blanker_geometry_follows_the_selected_gun_exit(gun):
     catalog = AssemblyCatalog()
     state = default_state()
-    selection = AssemblySelection(gun, "C3", "Energy Filter", "NanoPulser")
+    selection = AssemblySelection(gun, "C3", "Energy Filter", "Electrostatic beam blanker")
     catalog.apply(state, selection)
     exit_z = state.electron_gun.exit_plane_z_mm
     assert state.nanopulser.z_mm == pytest.approx(exit_z + 20.0)
@@ -80,9 +80,16 @@ def test_blanker_selection_survives_legacy_recording_normalisation():
     selection = AssemblySelection("FEG", "C3", "No Energy Filter", "NanoPulser")
     normal = catalog.normalise_selection(selection)
     assert normal.recording == "Energy Filter"
-    assert normal.beam_blanker == "NanoPulser"
+    assert normal.beam_blanker == "Electrostatic beam blanker"
     with pytest.raises(ValueError, match="Unknown assembly option"):
         catalog.normalise_selection(replace(selection, beam_blanker="unknown"))
+    state = default_state()
+    installed = catalog.apply(state, selection)
+    legacy_paths = tuple((kind, "beam_blanker/NanoPulser.toml" if kind == "beam_blanker" else path)
+                         for kind, path in installed.selected_module_paths)
+    legacy = replace(installed, selected_module_paths=legacy_paths)
+    assert catalog.selection_for_resolved(legacy).beam_blanker == "Electrostatic beam blanker"
+    assert legacy.selected_module_paths == legacy_paths  # Reading is not migration.
 
 
 def test_physical_layout_exposes_installed_electrostatic_blanker():
@@ -102,13 +109,13 @@ def test_blanker_toml_geometry_rebuild_preserves_operating_settings(tmp_path: Pa
     copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, root)
     catalog = AssemblyCatalog(root)
     state = default_state()
-    selection = replace(catalog.default_selection(), beam_blanker="NanoPulser")
+    selection = replace(catalog.default_selection(), beam_blanker="Electrostatic beam blanker")
     catalog.apply(state, selection)
     state.nanopulser.blanked = True
     state.nanopulser.voltage_v = 425.0
     editor = ManifestEditor(root)
     editor.save(
-        ManifestTarget("beam_blanker/NanoPulser.toml"),
+        ManifestTarget("beam_blanker/ElectrostaticBeamBlanker.toml"),
         {
             ("parts", NANOPULSER_DEFLECTOR, "plate_length_mm"): 8.0,
             ("parts", NANOPULSER_DEFLECTOR, "plate_gap_mm"): 0.8,
@@ -126,7 +133,7 @@ def test_blanker_toml_geometry_rebuild_preserves_operating_settings(tmp_path: Pa
 
 
 def test_blanker_manifest_rejects_an_upstream_stop_and_oem_dimension_claim():
-    path = INSTRUMENT_CONFIG_ROOT / "beam_blanker" / "NanoPulser.toml"
+    path = INSTRUMENT_CONFIG_ROOT / "beam_blanker" / "ElectrostaticBeamBlanker.toml"
     document = module_manifest.read_document(path)
     stop = document["parts"][1]
     for field in (

@@ -30,9 +30,8 @@ PROJECT_AND_RECORDING_ROOT = (
 
 
 def _document(filename: str) -> dict:
-    return tomllib.loads(
-        (PROJECT_AND_RECORDING_ROOT / filename).read_text(encoding="utf-8")
-    )
+    from temsim.module_manifest import read_document
+    return read_document(PROJECT_AND_RECORDING_ROOT / filename)
 
 
 def _parts_by_key(document: dict) -> dict[str, dict]:

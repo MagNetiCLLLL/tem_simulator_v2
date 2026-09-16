@@ -21,7 +21,8 @@ def document(tmp_path):
     source = INSTRUMENT_CONFIG_ROOT / MODULE
     original = source.read_bytes()
     path = tmp_path / "model.toml"
-    shutil.copyfile(source, path)
+    # A standalone copy must materialize the composed module and detach links.
+    PartModelDocument(source).save_copy(path)
     yield PartModelDocument(path)
     assert source.read_bytes() == original
 

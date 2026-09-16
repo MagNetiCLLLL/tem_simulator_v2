@@ -36,7 +36,7 @@ def main():
     for mode in modes:
         state = default_state()
         state.electron_gun.emitter.ray_count = args.rays
-        selection = replace(catalog.default_selection(), beam_blanker="NanoPulser")
+        selection = replace(catalog.default_selection(), beam_blanker="Electrostatic beam blanker")
         catalog.apply(state, selection)
         print("Recalculating", mode, "sample Z", state.sample.z_mm, flush=True)
         started = time.perf_counter()

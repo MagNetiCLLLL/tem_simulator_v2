@@ -1,4 +1,4 @@
-"""Canonical continuously adjustable Iliad spectrometer entrance aperture."""
+"""Canonical continuously adjustable Energy filter spectrometer entrance aperture."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ _DEFAULT_MANIFEST_PART = module_manifest.part_data(
 @dataclass(frozen=True)
 class EnergyFilterEntranceApertureDefinition:
     key: str = ENERGY_FILTER_ENTRANCE_APERTURE
-    label: str = "Iliad Spectrometer Entrance Aperture"
+    label: str = "Spectrometer entrance aperture"
     anchor_key: str = SELECTED_AREA_APERTURE
     optical_reference_downstream_of_anchor_mm: float = downstream_offset_mm(
         ENERGY_FILTER_ENTRANCE_APERTURE
@@ -108,7 +108,7 @@ class EnergyFilterEntranceApertureDefinition:
 
 @dataclass
 class EnergyFilterEntranceApertureComponent(ApertureInsertionPolicy):
-    name: str = "Iliad Spectrometer Entrance Aperture"
+    name: str = "Spectrometer entrance aperture"
     key: str = ENERGY_FILTER_ENTRANCE_APERTURE
     z_mm: float = (
         SELECTED_AREA_APERTURE_DEFINITION
@@ -217,42 +217,42 @@ class EnergyFilterEntranceApertureComponent(ApertureInsertionPolicy):
     def validate(self):
         if self.key != ENERGY_FILTER_ENTRANCE_APERTURE:
             raise ValueError(
-                "Iliad Spectrometer Entrance Aperture has a non-canonical key."
+                "Spectrometer entrance aperture has a non-canonical key."
             )
         if self.anchor_key != SELECTED_AREA_APERTURE:
             raise ValueError(
-                "Iliad Spectrometer Entrance Aperture must follow the "
+                "Spectrometer entrance aperture must follow the "
                 "Selected Area Aperture."
             )
         if self.mechanical_length_mm <= 0.0:
             raise ValueError(
-                "Iliad Spectrometer Entrance Aperture length must be positive."
+                "Spectrometer entrance aperture length must be positive."
             )
         if (
             self.mechanical_outer_diameter_mm
             <= self.mechanical_bore_diameter_mm
         ):
             raise ValueError(
-                "Iliad Spectrometer Entrance Aperture outer diameter must "
+                "Spectrometer entrance aperture outer diameter must "
                 "exceed its bore."
             )
         if self.plate_thickness_mm <= 0.0:
             raise ValueError(
-                "Iliad Spectrometer Entrance Aperture plate must have thickness."
+                "Spectrometer entrance aperture plate must have thickness."
             )
         if self.maximum_radius_mm <= 0.0:
             raise ValueError(
-                "Iliad Spectrometer Entrance Aperture maximum radius must "
+                "Spectrometer entrance aperture maximum radius must "
                 "be positive."
             )
         if not 0.0 <= self.radius_mm <= self.maximum_radius_mm:
             raise ValueError(
-                "Iliad Spectrometer Entrance Aperture radius must lie within "
+                "Spectrometer entrance aperture radius must lie within "
                 "its continuous range."
             )
         if 2.0 * self.maximum_radius_mm > self.mechanical_bore_diameter_mm:
             raise ValueError(
-                "Iliad Spectrometer Entrance Aperture opening must fit "
+                "Spectrometer entrance aperture opening must fit "
                 "inside its bore."
             )
         return self

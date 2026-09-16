@@ -177,14 +177,14 @@ class ParameterPanel(QWidget):
         self.quick_box.hide()
 
         self.energy_filter_box = QGroupBox(
-            "Iliad reference acquisition controls"
+            "Energy filter reference acquisition controls"
         )
         energy_filter_form = QFormLayout(self.energy_filter_box)
         self.energy_filter_enabled = QCheckBox("Optical branch enabled")
         self.energy_filter_mode = QComboBox()
-        self.energy_filter_mode.addItem("EELS / Zebra", "eels")
+        self.energy_filter_mode.addItem("EELS camera", "eels")
         self.energy_filter_mode.addItem("EFTEM / filtered image", "eftem")
-        self.energy_filter_multi_eels = QCheckBox("Enable MultiEELS")
+        self.energy_filter_multi_eels = QCheckBox("Enable Multi-window EELS")
         self.energy_filter_regions = QSpinBox()
         self.energy_filter_regions.setRange(1, 5)
         self.energy_filter_selected_loss = QDoubleSpinBox()
@@ -202,7 +202,7 @@ class ParameterPanel(QWidget):
         self.energy_filter_bias.setDecimals(3)
         self.energy_filter_bias.setSuffix(" eV")
         self.energy_filter_alignment = QCheckBox("Use 2-D alignment area")
-        self.energy_filter_shutter = QCheckBox("Zebra detector shutter open")
+        self.energy_filter_shutter = QCheckBox("EELS camera shutter open")
         self.energy_filter_shutter.setToolTip(
             "Shutter in the EELS detector branch. Controls detector exposure; "
             "sample illumination is controlled by the pre-specimen blankers."
@@ -225,10 +225,10 @@ class ParameterPanel(QWidget):
             "EFTEM slit width", self.energy_filter_slit_width
         )
         energy_filter_form.addRow(
-            "Zebra active strip", self.energy_filter_active_strip
+            "EELS camera active strip", self.energy_filter_active_strip
         )
         energy_filter_form.addRow(
-            "MultiEELS bias", self.energy_filter_bias
+            "Multi-window EELS bias", self.energy_filter_bias
         )
         energy_filter_form.addRow(self.energy_filter_alignment)
         energy_filter_form.addRow(self.energy_filter_shutter)
@@ -557,7 +557,7 @@ class ParameterPanel(QWidget):
             "tapered prism and 10 multipoles (most dodecapoles; individual "
             "assignments and exact production order not public; M01-M10 are "
             "model indices). Adjustable non-OEM reference radius "
-            f"{energy_filter.prism_radius_mm:g} mm. Zebra 5 x 2048: each "
+            f"{energy_filter.prism_radius_mm:g} mm. EELS camera 5 x 2048: each "
             f"active strip {energy_filter.zebra_detector.spectral_width_mm:g} "
             f"x {energy_filter.zebra_detector.spectral_height_mm:g} mm; 2-D "
             "alignment area "
@@ -567,7 +567,7 @@ class ParameterPanel(QWidget):
         )
         self.energy_filter_status.setText(
             f"{energy_filter.calibration_status} | prism radius "
-            f"{energy_filter.prism_radius_mm:g} mm | Zebra 5 × 2048"
+            f"{energy_filter.prism_radius_mm:g} mm | EELS camera 5 × 2048"
             + metric_text
         )
         self.energy_filter_status.setToolTip(detail_text)
@@ -641,7 +641,7 @@ class ParameterPanel(QWidget):
             return ()
         if getattr(target, "key", None) == "nanopulser_deflector":
             return (
-                ("blanked", "NanoPulser blanked (static)", 1.0, ""),
+                ("blanked", "Blanked (static)", 1.0, ""),
                 ("voltage_v", "Plate voltage difference", 1.0, " V"),
                 ("azimuth_deg", "Deflection azimuth", 1.0, "°"),
             )

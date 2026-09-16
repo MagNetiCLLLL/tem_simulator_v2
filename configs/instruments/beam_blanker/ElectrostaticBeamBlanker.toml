@@ -6,7 +6,7 @@ coordinate_system = "module_local_z_mm"
 [module]
 type = "beam_blanker"
 key = "beam_blanker:nanopulser"
-name = "NanoPulser"
+name = "Electrostatic beam blanker"
 installed = true
 public_topology_status = "manufacturer_documented"
 public_topology_source = "Thermo Scientific Iliad Ultra datasheet DS0510: electrostatic beam blanker between the electron gun and condenser module."
@@ -32,7 +32,7 @@ parts_end_z_mm = 60.05
 [[parts]]
 order = 1
 key = "nanopulser_deflector"
-name = "NanoPulser Electrostatic Deflector"
+name = "Electrostatic beam blanker deflector"
 branch = "illumination"
 local_start_z_mm = 15.0
 local_center_z_mm = 20.0
@@ -49,7 +49,7 @@ plate_gap_mm = 1.0
 [[parts]]
 order = 2
 key = "nanopulser_aperture"
-name = "NanoPulser Limiting Aperture"
+name = "Electrostatic beam blanker limiting aperture"
 branch = "illumination"
 local_start_z_mm = 59.95
 local_center_z_mm = 60.0

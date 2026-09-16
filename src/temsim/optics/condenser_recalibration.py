@@ -1,4 +1,4 @@
-"""Recalculate condenser presets for the optional gun-to-column NanoPulser.
+"""Recalculate condenser presets for the optional gun-to-column Electrostatic beam blanker.
 
 The ordinary three-module instrument retains its stored presets.  Installing
 an extra module changes the source-to-C1 transfer and therefore requires a
@@ -57,7 +57,7 @@ def recalibrate_nanopulser_condenser(state, mode, catalog):
     """Return freshly measured mode metadata and install validated C2/C3.
 
     Calibration virtually opens the ordinary gun-coil blanker and installed
-    NanoPulser, retaining every physical aperture and alignment value. Both
+    Electrostatic beam blanker, retaining every physical aperture and alignment value. Both
     blanking selections and the ray count are restored even if the solve fails.
     Cache keys describe the transmitted beam, so toggling either exposure gate
     does not alone invalidate an otherwise identical condenser calibration.
@@ -116,7 +116,7 @@ def _recalibrate_transmitted_condenser(state, mode, definition):
     )
     if not result.success:
         raise ValueError(
-            "NanoPulser condenser preset recalculation failed: "
+            "Electrostatic beam blanker condenser preset recalculation failed: "
             + result.message
         )
     devices = {device_key: dict(values)
@@ -145,7 +145,7 @@ def _recalibrate_transmitted_condenser(state, mode, definition):
         mode, devices=devices, targets=targets,
         calibration_status="computed_live_nanopulser_condenser_non_oem",
         calibration_reference=(
-            "C2/C3 recomputed for the installed NanoPulser and current "
+            "C2/C3 recomputed for the installed Electrostatic beam blanker and current "
             "assembled geometry using 512 deterministic source rays. "
             "Full nonlinear propagation and physical clipping validate "
             "the sample illumination and focus constraint at 0.05 mm. "

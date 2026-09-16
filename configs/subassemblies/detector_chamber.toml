@@ -1,0 +1,235 @@
+# Independent reusable part definitions. Z is local; filter path s is unchanged.
+format_version = 1
+coordinate_system = "module_local_z_mm"
+
+[module]
+type = "subassembly"
+key = "subassembly:detector_chamber"
+name = "Projection and detector chamber"
+
+[ports.entrance]
+interface = "subassembly"
+local_z_mm = 0.0
+
+[ports.exit]
+interface = "subassembly"
+local_z_mm = 400.25
+
+[geometry]
+length_mm = 400.25
+
+[[parts]]
+order = 15
+key = "flu_screen"
+name = "Fluorescent Screen"
+branch = "detection"
+local_start_z_mm = 127.25
+local_center_z_mm = 127.5
+local_end_z_mm = 127.75
+length_mm = 0.5
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 127.25
+signal_collection_surface = "upstream_top_surface"
+outer_width_mm = 80.0
+inner_diameter_mm = 0.0
+point_spread_model = "gaussian"
+point_spread_sigma_x_mm = 0.6
+point_spread_sigma_y_mm = 0.6
+point_spread_rotation_deg = 0.0
+point_spread_status = "provisional_model_parameter"
+point_spread_source = "adjustable_simulator_default_not_instrument_calibration"
+mechanical_profile = "retractable_detector_plane"
+mechanical_part_role = "interaction_plane"
+insertion_axis = "x"
+housing_outside_axial_model = true
+
+[[parts]]
+order = 16
+key = "haadf"
+name = "HAADF Detector"
+branch = "detection"
+local_start_z_mm = 7.25
+local_center_z_mm = 7.5
+local_end_z_mm = 7.75
+length_mm = 0.5
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 7.25
+signal_collection_surface = "upstream_top_surface"
+outer_width_mm = 22.0
+inner_diameter_mm = 4.0
+axial_order_index = 1
+axial_order_status = "evidence_backed_relative_order_absolute_z_provisional_non_oem"
+axial_order_source = "Figure 1.4 of Exploring electron beam shaping in transmission electron microscopy (University of Antwerp repository) places HAADF above the fluorescent screen and BF/DF detector stack; Thermo Fisher MiCo 1.16 PN 1552687 shows the corresponding HAADF/DF4/DF2/BF detector layout."
+axial_order_source_urls = [
+    "https://repository.uantwerpen.be/docman/irua/6e3afa/130499.pdf",
+    "https://documents.thermofisher.com/TFS-Assets/MSD/manuals/mico-user-guide-1-16.pdf",
+]
+point_spread_model = "gaussian"
+point_spread_sigma_x_mm = 0.18
+point_spread_sigma_y_mm = 0.18
+point_spread_rotation_deg = 0.0
+point_spread_status = "provisional_model_parameter"
+point_spread_source = "adjustable_simulator_default_not_instrument_calibration"
+mechanical_profile = "retractable_detector_plane"
+mechanical_part_role = "interaction_plane"
+insertion_axis = "x"
+housing_outside_axial_model = true
+
+[[parts]]
+order = 18
+key = "camera"
+name = "Camera"
+branch = "detection"
+local_start_z_mm = 399.75
+local_center_z_mm = 400.0
+local_end_z_mm = 400.25
+length_mm = 0.5
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 399.75
+signal_collection_surface = "upstream_top_surface"
+outer_width_mm = 57.344
+inner_diameter_mm = 0.0
+point_spread_model = "gaussian"
+point_spread_sigma_x_mm = 0.12
+point_spread_sigma_y_mm = 0.16
+point_spread_rotation_deg = 0.0
+point_spread_status = "provisional_model_parameter"
+point_spread_source = "adjustable_simulator_default_not_instrument_calibration"
+mechanical_profile = "camera_sensor_plane"
+mechanical_part_role = "interaction_plane"
+housing_outside_axial_model = true
+detector_axis_rotation_deg = 0.0
+detector_flip_x = false
+detector_flip_y = false
+detector_orientation_uncertainty_deg = 180.0
+detector_orientation_status = "uncalibrated_identity"
+detector_orientation_source = "identity_placeholder_no_absolute_camera_axis_measurement"
+
+[[parts]]
+order = 19
+key = "df"
+name = "DF Detector"
+branch = "detection"
+local_start_z_mm = 217.25
+local_center_z_mm = 217.5
+local_end_z_mm = 217.75
+length_mm = 0.5
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 217.25
+signal_collection_surface = "upstream_top_surface"
+outer_width_mm = 14.0
+inner_diameter_mm = 2.0
+axial_order_index = 2
+axial_order_status = "evidence_backed_relative_order_absolute_z_provisional_non_oem"
+axial_order_source = "Figure 1.4 of Exploring electron beam shaping in transmission electron microscopy (University of Antwerp repository) places the BF/DF stack below HAADF and the main screen; the configured single DF channel represents the upstream DF stack location."
+axial_order_source_urls = [
+    "https://repository.uantwerpen.be/docman/irua/6e3afa/130499.pdf",
+    "https://documents.thermofisher.com/TFS-Assets/MSD/manuals/mico-user-guide-1-16.pdf",
+]
+point_spread_model = "gaussian"
+point_spread_sigma_x_mm = 0.12
+point_spread_sigma_y_mm = 0.12
+point_spread_rotation_deg = 0.0
+point_spread_status = "provisional_model_parameter"
+point_spread_source = "adjustable_simulator_default_not_instrument_calibration"
+mechanical_profile = "retractable_detector_plane"
+mechanical_part_role = "interaction_plane"
+insertion_axis = "x"
+housing_outside_axial_model = true
+
+[[parts]]
+order = 20
+key = "bf"
+name = "BF Detector"
+branch = "detection"
+local_start_z_mm = 287.25
+local_center_z_mm = 287.5
+local_end_z_mm = 287.75
+length_mm = 0.5
+vacuum_inner_diameter_mm = 20
+optical_reference_local_z_mm = 287.25
+signal_collection_surface = "upstream_top_surface"
+outer_width_mm = 1.5
+inner_diameter_mm = 0.0
+axial_order_index = 3
+axial_order_status = "evidence_backed_relative_order_absolute_z_provisional_non_oem"
+axial_order_source = "Figure 1.4 of Exploring electron beam shaping in transmission electron microscopy (University of Antwerp repository) places BF below DF4 and DF2 in the downstream detector stack."
+axial_order_source_urls = [
+    "https://repository.uantwerpen.be/docman/irua/6e3afa/130499.pdf",
+    "https://documents.thermofisher.com/TFS-Assets/MSD/manuals/mico-user-guide-1-16.pdf",
+]
+point_spread_model = "gaussian"
+point_spread_sigma_x_mm = 0.025
+point_spread_sigma_y_mm = 0.025
+point_spread_rotation_deg = 0.0
+point_spread_status = "provisional_model_parameter"
+point_spread_source = "adjustable_simulator_default_not_instrument_calibration"
+mechanical_profile = "retractable_detector_plane"
+mechanical_part_role = "interaction_plane"
+insertion_axis = "x"
+housing_outside_axial_model = true
+
+[[parts]]
+order = 118
+key = "post_projector_detector_chamber"
+name = "Post-P2 Viewing / STEM Detector Chamber"
+branch = "detection"
+local_start_z_mm = 0.0
+local_center_z_mm = 163.75
+local_end_z_mm = 327.5
+length_mm = 327.5
+vacuum_inner_diameter_mm = 20.0
+mechanical_inner_diameter_mm = 180.0
+mechanical_outer_diameter_mm = 200.0
+mechanical_profile = "post_projector_detector_chamber"
+mechanical_part_role = "detector_chamber_housing"
+material_class = "non_magnetic_structural"
+mechanical_only = true
+axial_vacuum_context_only = true
+contained_recording_plane_keys = [
+    "haadf",
+    "flu_screen",
+    "df",
+    "bf",
+]
+upstream_boundary_aperture_key = "projection_chamber_dpa_aperture"
+mechanical_geometry_status = "public_titan_topology_absolute_dimensions_provisional_non_oem"
+mechanical_geometry_source = "Public Titan column diagrams place a distinct viewing/detector section immediately below P2 and show HAADF before the main screen and BF/DF stack. The configured 772.5-1100 mm envelope and 180/200 mm ID/OD are an adjustable simulator drawing, not an OEM production dimension."
+mechanical_geometry_source_urls = [
+    "https://repository.uantwerpen.be/docman/irua/6e3afa/130499.pdf",
+    "https://scholarsbank.uoregon.edu//bitstreams/d56b2b6e-e2d1-4fbe-abe0-eafe58bfee67/download",
+    "https://sfilev2.f-static.com/image/users/390742/ftp/my_files/PB3000.pdf?id=26921072",
+]
+
+[[parts]]
+order = 119
+key = "projection_chamber_dpa_aperture"
+name = "Projection-Chamber Differential-Pumping Aperture"
+branch = "common"
+local_start_z_mm = 0.0
+local_center_z_mm = 0.0
+local_end_z_mm = 0.0
+length_mm = 0.0
+vacuum_inner_diameter_mm = 20.0
+mechanical_outer_diameter_mm = 20.0
+mechanical_bore_diameter_mm = 12.0
+reference_bore_diameter_mm = 0.2
+maximum_radius_mm = 10.0
+reference_bore_status = "documented_tecnai_talos_family_reference_not_titan_oem_measurement"
+design_bore_status = "simulator_haadf_clearance_design_not_oem_dimension"
+design_bore_source = "User-authorized simulator opening, 2026-09-08. A 6 mm radius clears the 168.8 mrad coherent HAADF support of the Si scan with radial margin in the ordinary nanoprobe/diffraction preset (DPA angular transfer about 32.26 mm/rad). Its DPA-limited upper angle is about 186 mrad; full 60-330 mrad collection still requires the saved DPA-crossover lens setting. The 0.2 mm literature reference is retained separately. Differential-pumping performance is not modelled."
+mechanical_profile = "fixed_differential_pumping_aperture"
+mechanical_part_role = "fixed_vacuum_restriction"
+material_class = "vacuum_boundary_aperture_material_not_public"
+mechanical_only = false
+optical_reference_local_z_mm = 0.0
+aperture_adjustability = "fixed_non_retractable_hardware_toml_design_variable"
+mechanical_axial_thickness_status = "not_public_zero_length_reference_with_schematic_display_thickness"
+conjugate_plane_status = "operating_mode_dependent_not_imposed_by_mechanical_layout"
+optical_constraint_policy = "always_inserted_hard_edge_no_automatic_preset_recalculation"
+mechanical_geometry_status = "documented_family_topology_titan_specific_dimensions_unverified"
+mechanical_geometry_source = "FEI/Thermo Fisher manuals place a differential-pumping aperture between the column and projection chamber and document a 200 micrometre aperture for Tecnai/Talos-family instruments. The Titan-specific plate thickness and bore are not established by a production drawing; the zero-length axial row preserves the interface without inventing thickness."
+mechanical_geometry_source_urls = [
+    "https://imf.ucmerced.edu/sites/g/files/ufvvjh1081/f/documents/tem_talosbasicguide_1.pdf",
+    "https://www.dartmouth.edu/emlab/docs/fei_tecnai_f20_column_description_doc.pdf",
+]

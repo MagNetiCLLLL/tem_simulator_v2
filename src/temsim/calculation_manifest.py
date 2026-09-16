@@ -566,6 +566,10 @@ def _external_inputs(state: object) -> tuple[ExternalInputIdentity, ...]:
                     if source is not None:
                         shared = _file_identity("assembly:tip_definition", source)
                         rows[(shared.role, shared.path)] = shared
+                from temsim.subassemblies import dependencies as subassembly_dependencies
+                for source in subassembly_dependencies(raw_document(root / relative), root / relative):
+                    dependency = _file_identity("assembly:subassembly", source)
+                    rows[(dependency.role, dependency.path)] = dependency
         catalog = _file_identity("assembly:catalog", root / "catalog.toml")
         rows[(catalog.role, catalog.path)] = catalog
     sample = getattr(state, "sample", None)

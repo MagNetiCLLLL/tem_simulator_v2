@@ -1,0 +1,70 @@
+{
+  "schema": "assembly-structure-stage1-verification-v1",
+  "date": "2026-09-16",
+  "base_git_head": "e41d1028b1b212b96bbaa142daf7839765b5ceb9",
+  "scope": "Read-only assembly tree and stable instance identities; unchanged placement/physics; classical flat-tip optical reference",
+  "local_baseline": "outputs/assembly-baselines/flat-tip-before-20260916-01",
+  "local_comparison": "outputs/assembly-baselines/flat-tip-after-20260916-final",
+  "recipe": {
+    "assembly": "FEG / C3 + Probe Corrector / Energy Filter",
+    "illumination": "nano_probe",
+    "projection": "diffraction",
+    "curvature_nm_inv": 0.0,
+    "rays": 49,
+    "column_step_mm": 1.0,
+    "vacuum_enabled": false
+  },
+  "part_count": 141,
+  "baseline_archives": {
+    "working_point.json": "8632a387994d9562cd6d3b015f68b488f4c4af2d02a2f848fb2d58c87cac2967",
+    "trajectories.json": "4cd5ec20df6335bc5e4bffc0efba628ef6f0702680b097020f465213b51db8ed",
+    "trajectories.npz": "c2b885dc6d3287da225963505b7a780c3a14065ef130efd2b0ae78150c21daed",
+    "source_and_inputs.zip": "e3989a43c545e962b610c4f1b20fcec70752fa29cba9bec02e519be07b3ec514"
+  },
+  "comparison_archives": {
+    "working_point.json": "e7f80646df3a6663f90db82bb7ff37c82ebdf914ccc03af7bc7d9cf002a51cbb",
+    "trajectories.json": "4cd5ec20df6335bc5e4bffc0efba628ef6f0702680b097020f465213b51db8ed",
+    "trajectories.npz": "c2b885dc6d3287da225963505b7a780c3a14065ef130efd2b0ae78150c21daed",
+    "source_and_inputs.zip": "36946f124eede924e46fe209b99a29442bc7d6f07b5ebe415e5ea1219d6e5e04"
+  },
+  "baseline_solver_identity": "e6c795ee27764c06e85566d927565d0f06a33eadf6e71a1e7c010c0dcea4d200",
+  "comparison_solver_identity": "6109018fc762d5015bec3ee3ff40831afc16405314ecefaa5801e08a11e5cde2",
+  "input_graph_equal": true,
+  "external_inputs_equal": true,
+  "result_metadata_equal": true,
+  "equal_array_count": 81,
+  "maximum_array_difference": 0.0,
+  "changed_source_or_config_files": [
+    "src/temsim/assembly_structure.py",
+    "src/temsim/gui/assembly_panel.py",
+    "src/temsim/gui/assembly_structure_tree.py"
+  ],
+  "test_results": {
+    "unique_latest_passed": 53,
+    "existing_assembly_combinations": 30,
+    "local_xml": [
+      "assembly-structure-20260916.xml",
+      "assembly-structure-confirm-20260916.xml",
+      "assembly-structure-gui-20260916.xml",
+      "assembly-structure-final-20260916.xml"
+    ]
+  },
+  "reviewed_screenshots": [
+    "outputs/setup-validation/assembly-structure-20260916.png",
+    "outputs/assembly-baselines/flat-tip-before-20260916-01/ray_diagram.png"
+  ],
+  "local_baseline_bytes": 6715236,
+  "environment": {
+    "numpy": "2.4.6",
+    "scipy": "1.18.0",
+    "numba": "0.66.0",
+    "PySide6": "6.8.3",
+    "matplotlib": "3.11.1"
+  },
+  "limitations": [
+    "Preview optical reference, not specimen image or coherent-wave validation",
+    "Classical filter continuation uses the executed upstream particles",
+    "Module splitting, placement constraints and vacuum UI migration are later stages",
+    "Archived numerical arrays/source ZIP remain local and excluded from Git"
+  ]
+}

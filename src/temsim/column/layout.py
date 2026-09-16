@@ -550,7 +550,7 @@ class LayoutConfiguration:
             != ENERGY_FILTER_ENTRANCE_APERTURE
         ):
             raise ValueError(
-                "The Iliad Spectrometer Entrance Aperture has a "
+                "The Spectrometer entrance aperture has a "
                 "non-canonical key."
             )
         if self.objective_lens_component.key != OBJECTIVE_LENS:
@@ -2164,7 +2164,7 @@ def _base_specs(configuration):
             ),
         ),
         "energy_filter": _LayoutSpec(
-            "energy_filter", "Iliad Ultra Spectrometer Branch", "branch_interface",
+            "energy_filter", "Post-column energy filter", "branch_interface",
             "energy_filter", selected_area_downstream_center(1201.5), 0.0,
             Branch.ENERGY_FILTER,
             external_envelope="folded curvilinear branch",
@@ -2873,7 +2873,7 @@ def _with_nanopulser_components(configuration, layout, assembly):
             local_s_range_mm=(start, end),
             rendered_z_center_mm=center,
             rendered_z_range_mm=(start, end),
-            note="Provisional non-OEM geometry; placement follows the public Iliad datasheet.",
+            note="Provisional non-OEM geometry; placement follows the public Energy filter datasheet.",
             mechanical_shape=MechanicalShape(
                 part.length_mm,
                 profile=str(data["mechanical_profile"]),

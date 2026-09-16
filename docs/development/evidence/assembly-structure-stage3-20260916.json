@@ -1,0 +1,74 @@
+{
+  "schema": "assembly-structure-stage3-evidence-v1",
+  "stage": "functional navigation, captured subassemblies and stable vacuum boundaries",
+  "tests": {
+    "focused_acceptance_unique": {
+      "passed": 197
+    },
+    "latest_observed_unique": {
+      "failure": 7,
+      "passed": 235
+    },
+    "xml_files": [
+      "outputs/setup-validation/stage3-first.xml",
+      "outputs/setup-validation/stage3-gui.xml",
+      "outputs/setup-validation/stage3-navigation-gui.xml",
+      "outputs/setup-validation/stage3-ray-gui.xml",
+      "outputs/setup-validation/stage3-regression.xml",
+      "outputs/setup-validation/stage3-navigation-final.xml"
+    ],
+    "known_unrelated_failures": [
+      "tests.test_gui_shell::test_main_window_commits_a_current_background_alignment_atomically",
+      "tests.test_gui_shell::test_main_window_image_commit_enables_equivalent_five_lens_model",
+      "tests.test_gui_shell::test_main_window_discards_a_stale_background_alignment",
+      "tests.test_gui_shell::test_invalidating_a_running_alignment_clears_busy_progress_and_status",
+      "tests.test_gui_shell::test_background_commit_rejects_wrong_key_or_coupled_device_set[image_magnification-strength_keys0]",
+      "tests.test_gui_shell::test_background_commit_rejects_wrong_key_or_coupled_device_set[nanoprobe_convergence-strength_keys1]",
+      "tests.test_gui_shell::test_background_commit_rejects_wrong_key_or_coupled_device_set[nanoprobe_convergence-strength_keys2]"
+    ],
+    "alignment_failure_test_bodies_unchanged_from_head": true,
+    "alignment_controller_unchanged_from_head": true,
+    "alignment_commit_handler_unchanged_from_head": true
+  },
+  "baseline": {
+    "original": "outputs/assembly-baselines/flat-tip-before-20260916-01",
+    "comparison": "outputs/assembly-baselines/flat-tip-stage3-20260916-final",
+    "report_sha256": "bf105a43ba47edf62688d3f4ed597487f7bd9d37eab49f61b7e5fcba5f49138f",
+    "solver_identity": "3324cb0b111e6a40b7b705dd7fb5651bb0f6f7e88baa38133d3ffb23b58a6aec",
+    "working_point_digest": "6cdc0419869b96fb688889582aa49f1b1cb98a2b31af1e5ee1cd565686292624",
+    "input_graph_equal": false,
+    "physical_input_graph_equal": true,
+    "verified_navigation_metadata": [
+      {
+        "module": "project_and_recording_system/EnergyFilter.toml",
+        "subassemblies": [
+          "projector_stack",
+          "detector_chamber",
+          "iliad_filter"
+        ]
+      }
+    ],
+    "external_inputs_equal": false,
+    "verified_storage_repack": [
+      {
+        "module": "E:\\tem_simulator_v2\\configs\\instruments\\project_and_recording_system\\EnergyFilter.toml",
+        "old_sha256": "a24840342d83da6867ababc0d660c2d066622da351aa8c631d4807ba01c49dca",
+        "new_sha256": "625b81e75e790f8d9b5972ccad6ef8ae54d7ff2a218050896ea1322690035e43",
+        "resolved_document_equal": true
+      }
+    ],
+    "result_metadata_equal": true,
+    "array_count": 81,
+    "arrays_equal": true,
+    "sample_z_mm": 1599.2,
+    "sample_survivors": 25,
+    "passed": true
+  },
+  "catalog_combinations": 30,
+  "default_instance_map_unchanged": true,
+  "visual_checks": [
+    "outputs/setup-validation/stage3-vacuum.png",
+    "outputs/setup-validation/stage3-parts.png"
+  ],
+  "scope": "Classical tip-origin particles; coherent work paused; unchanged default pressures and default-off vacuum; no cache injected"
+}

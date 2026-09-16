@@ -621,7 +621,7 @@ def configure_energy_filter_operating_mode(energy_filter, mode):
         energy_filter.camera_deflector.enabled = mode == "eels"
     region_count = int(energy_filter.multi_eels_region_count)
     if not 1 <= region_count <= 5:
-        raise ValueError("MultiEELS region count must be 1 through 5.")
+        raise ValueError("Multi-window EELS region count must be 1 through 5.")
     if not energy_filter.multi_eels_enabled:
         energy_filter.multi_eels_region_count = 1
     if energy_filter.camera_deflector is not None:

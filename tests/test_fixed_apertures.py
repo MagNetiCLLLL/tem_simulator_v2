@@ -140,7 +140,7 @@ def test_absent_energy_filter_does_not_clip_or_appear_in_aperture_tree(qtbot):
 
 
 def test_nanopulser_fixed_stop_is_a_toml_editable_aperture(qtbot):
-    state, assembly = _state(blanker="NanoPulser")
+    state, assembly = _state(blanker="Electrostatic beam blanker")
     tree = InstrumentTree()
     qtbot.addWidget(tree)
     tree.load_optical(assembly, runtime_targets(state), category="aperture")

@@ -64,7 +64,7 @@ def test_custom_keys_cannot_impersonate_other_runtime_variants(key):
 
 
 def test_custom_addition_does_not_weaken_native_nanopulser_or_magnetic_validation():
-    candidate, _ = added_component_document(document("beam_blanker/NanoPulser.toml"), make_component(key="fixture"))
+    candidate, _ = added_component_document(document("beam_blanker/ElectrostaticBeamBlanker.toml"), make_component(key="fixture"))
     validate_document(candidate)
     candidate["parts"] = [row for row in candidate["parts"] if row["key"] != "nanopulser_aperture"]
     with pytest.raises(ValueError, match="one deflector followed by one aperture"):

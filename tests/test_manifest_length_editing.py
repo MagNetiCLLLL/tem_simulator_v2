@@ -35,12 +35,15 @@ def test_length_save_reloads_resolved_geometry_without_moving_other_parts(editin
     root, editor, state, configuration = editing_context
     target = ManifestTarget("project_and_recording_system/EnergyFilter.toml", key)
     path = root / target.module_path
-    before = tomllib.loads(path.read_text(encoding="utf-8"))
+    before = module_manifest.read_document(path)
+    original_storage = {path: path.read_bytes()}
+    from temsim.shared_tip import dependencies
+    original_storage.update(dependencies(path))
     old_assembly = resolve_module_assembly(configuration, root=root)
     updates = {("parts", key, "length_mm"): length}
     original_updates = dict(updates)
     originals = editor.save(target, updates, configuration)
-    after = tomllib.loads(path.read_text(encoding="utf-8"))
+    after = module_manifest.read_document(path)
     original_part = next(part for part in before["parts"] if part["key"] == key)
     expected_part = dict(original_part, length_mm=length,
                          local_start_z_mm=expected[0], local_end_z_mm=expected[1])
@@ -48,7 +51,10 @@ def test_length_save_reloads_resolved_geometry_without_moving_other_parts(editin
     next(part for part in expected_document["parts"] if part["key"] == key).update(expected_part)
     assert after == expected_document
     assert updates == original_updates
-    assert tomllib.loads(originals[target.module_path]) == before
+    assert set(originals) == {"../subassemblies/projector_stack.toml"}
+    for relative, text in originals.items():
+        assert tomllib.loads(text) == tomllib.loads(original_storage[(root / relative).resolve()].decode("utf-8-sig"))
+    assert path.read_bytes() == original_storage[path]
 
     # Exercise the same catalog reload used after the GUI saves, including
     # physical layout, instead of checking only the serialized coordinates.
@@ -144,6 +150,8 @@ def test_noncentral_and_zero_length_reference_resize():
 
 def test_raw_toml_staging_remains_strict(editing_context):
     root, _editor, _state, _configuration = editing_context
-    text = (root / "project_and_recording_system/EnergyFilter.toml").read_text(encoding="utf-8")
+    from temsim.shared_tip import materialized_text
+    path = root / "project_and_recording_system/EnergyFilter.toml"
+    text = materialized_text(path.read_text(encoding="utf-8"), path)
     with pytest.raises(ValueError, match="length mismatch"):
         module_manifest.stage_manifest_text(text, {("parts", "intermediate_lens_housing", "length_mm"): 225.0})

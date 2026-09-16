@@ -37,7 +37,7 @@ def _extend_test_module(root: Path, relative: str, extension_mm: float) -> None:
     ("selection_updates", "module_path", "extension_mm"),
     (
         ({"gun": "FEG + Mono"}, "gun/FEG_Mono.toml", 37.0),
-        ({"beam_blanker": "NanoPulser"}, "beam_blanker/NanoPulser.toml", 23.0),
+        ({"beam_blanker": "Electrostatic beam blanker"}, "beam_blanker/ElectrostaticBeamBlanker.toml", 23.0),
     ),
 )
 def test_worker_snapshot_keeps_exact_selected_assembly_and_layout(

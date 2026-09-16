@@ -19,7 +19,7 @@ from temsim.runtime_parameters import runtime_targets, editable_parameters
 
 def test_nanopulser_profile_and_snapshot_restore_installed_operating_state(tmp_path):
     catalog = AssemblyCatalog()
-    selection = replace(catalog.default_selection(), beam_blanker="NanoPulser")
+    selection = replace(catalog.default_selection(), beam_blanker="Electrostatic beam blanker")
     state = default_state()
     catalog.apply(state, selection)
     state.nanopulser.blanked = True
@@ -57,12 +57,12 @@ def test_assembly_selector_and_quick_blanking_controls(qtbot):
     panel = AssemblyPanel(catalog, catalog.default_selection())
     qtbot.addWidget(panel)
     assert panel.beam_blanker.currentText() == "None"
-    panel.beam_blanker.setCurrentText("NanoPulser")
+    panel.beam_blanker.setCurrentText("Electrostatic beam blanker")
     selection = panel.current_selection()
-    assert selection.beam_blanker == "NanoPulser"
+    assert selection.beam_blanker == "Electrostatic beam blanker"
     panel.reload_catalog(catalog, selection)
     assert panel.beam_blanker.count() == 2
-    assert panel.beam_blanker.currentText() == "NanoPulser"
+    assert panel.beam_blanker.currentText() == "Electrostatic beam blanker"
 
     state = default_state()
     catalog.apply(state, selection)
@@ -140,7 +140,7 @@ def test_component_blank_and_pending_assembly_are_transactional(qtbot, monkeypat
     set_blank(window.state.electron_gun.deflector.key, "beam_blanked", False)
     assert not window.state.beam_blanked
     original_state = window.state
-    selection = replace(window.selection, beam_blanker="NanoPulser")
+    selection = replace(window.selection, beam_blanker="Electrostatic beam blanker")
     submitted = []
     monkeypatch.setattr(window.operating_presets, "submit", lambda *args, **kwargs: submitted.append((args, kwargs)))
     window.load_assembly(selection)
@@ -183,13 +183,13 @@ def test_background_preset_solves_selected_catalog_geometry(qtbot, monkeypatch, 
     root = tmp_path / "instruments"
     from temsim.shared_tip import copy_catalog_tree
     copy_catalog_tree(original.root, root)
-    path = root / "beam_blanker" / "NanoPulser.toml"
+    path = root / "beam_blanker" / "ElectrostaticBeamBlanker.toml"
     document = tomllib.loads(path.read_text(encoding="utf-8"))
     document["geometry"]["length_mm"] = 100.0
     document["ports"]["exit"]["local_z_mm"] = 100.0
     path.write_text(tomli_w.dumps(document), encoding="utf-8")
     catalog = AssemblyCatalog(root)
-    selection = replace(catalog.default_selection(), beam_blanker="NanoPulser")
+    selection = replace(catalog.default_selection(), beam_blanker="Electrostatic beam blanker")
     state = default_state()
     catalog.apply(state, selection)
     expected = state.sample.z_mm

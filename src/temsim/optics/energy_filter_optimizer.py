@@ -1,4 +1,4 @@
-"""Explicit joint tuning of the seven pre-slit Iliad multipoles."""
+"""Explicit joint tuning of the seven pre-slit Energy filter multipoles."""
 
 from __future__ import annotations
 

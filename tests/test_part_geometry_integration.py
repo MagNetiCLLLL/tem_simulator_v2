@@ -111,7 +111,8 @@ def test_collision_leaves_file_and_state_intact_and_keeps_draft(window):
 
 def test_assembly_reload_failure_rolls_back_file_and_is_reported_inline(window, monkeypatch):
     path = window.manifest_editor.root / MODULE
-    before = path.read_bytes()
+    from temsim.shared_tip import dependencies
+    before = {path: path.read_bytes(), **dependencies(path)}
     state = window.state
     dialog = window._edit_part_geometry(TARGET)
     _change(dialog, "inner_diameter_mm", 70.0)
@@ -123,7 +124,7 @@ def test_assembly_reload_failure_rolls_back_file_and_is_reported_inline(window, 
     monkeypatch.setattr(window, "_show_error", lambda message: pytest.fail(message))
     dialog.apply()
     assert "Synthetic assembly reload failure" in dialog.error_label.text()
-    assert path.read_bytes() == before
+    assert all(source.read_bytes() == content for source, content in before.items())
     assert window.state is state
     assert dialog.geometry.inner_diameter_mm == 70.0
 
@@ -131,7 +132,7 @@ def test_assembly_reload_failure_rolls_back_file_and_is_reported_inline(window, 
 def test_stale_module_does_not_overwrite_an_external_edit(window):
     dialog = window._edit_part_geometry(TARGET)
     _change(dialog, "inner_diameter_mm", 70.0)
-    path = window.manifest_editor.root / MODULE
+    path = window.manifest_editor.root.parent / "subassemblies/projector_stack.toml"
     # A valid metadata change to another row is still a module revision.
     text = path.read_text(encoding="utf-8")
     assert 'name = "Intermediate Lens Housing"' in text

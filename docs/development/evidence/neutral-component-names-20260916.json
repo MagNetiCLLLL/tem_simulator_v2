@@ -1,0 +1,165 @@
+{
+  "schema": "neutral-component-names-v1",
+  "configuration_files_compared": 30,
+  "non_naming_values_identical": true,
+  "changes": [
+    {
+      "field": "configs/instruments/beam_blanker/NanoPulser.toml.module.name",
+      "old": "NanoPulser",
+      "new": "Electrostatic beam blanker"
+    },
+    {
+      "field": "configs/instruments/beam_blanker/NanoPulser.toml.parts[0].name",
+      "old": "NanoPulser Electrostatic Deflector",
+      "new": "Electrostatic beam blanker deflector"
+    },
+    {
+      "field": "configs/instruments/beam_blanker/NanoPulser.toml.parts[1].name",
+      "old": "NanoPulser Limiting Aperture",
+      "new": "Electrostatic beam blanker limiting aperture"
+    },
+    {
+      "field": "configs/instruments/catalog.toml.beam_blanker_variants[0].name",
+      "old": "NanoPulser",
+      "new": "Electrostatic beam blanker"
+    },
+    {
+      "field": "configs/instruments/catalog.toml.beam_blanker_variants[0].file",
+      "old": "beam_blanker/NanoPulser.toml",
+      "new": "beam_blanker/ElectrostaticBeamBlanker.toml"
+    },
+    {
+      "field": "configs/instruments/project_and_recording_system/EnergyFilter.toml.subassemblies[2].name",
+      "old": "Iliad energy filter",
+      "new": "Energy filter"
+    },
+    {
+      "field": "configs/instruments/project_and_recording_system/EnergyFilter.toml.subassemblies[2].file",
+      "old": "../../subassemblies/iliad_filter.toml",
+      "new": "../../subassemblies/energy_filter.toml"
+    },
+    {
+      "field": "configs/operating_modes/catalog.toml.description",
+      "old": "Calculated FEI-style Microprobe/Nanoprobe and Image/Diffraction operating states.",
+      "new": "Calculated reference Microprobe/Nanoprobe and Image/Diffraction operating states."
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.module.name",
+      "old": "Iliad energy filter",
+      "new": "Energy filter"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[0].name",
+      "old": "Iliad Ultra Post-column Spectrometer Branch",
+      "new": "Post-column energy filter"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[1].name",
+      "old": "Iliad Spectrometer Entrance Aperture",
+      "new": "Spectrometer entrance aperture"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[2].name",
+      "old": "Iliad Large Tapered Prism",
+      "new": "Large tapered prism"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[3].name",
+      "old": "Iliad Multipole 01 (model index)",
+      "new": "Energy filter multipole 01 (model index)"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[4].name",
+      "old": "Iliad Multipole 02 (model index)",
+      "new": "Energy filter multipole 02 (model index)"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[5].name",
+      "old": "Iliad Multipole 03 (model index)",
+      "new": "Energy filter multipole 03 (model index)"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[6].name",
+      "old": "Iliad Multipole 04 (model index)",
+      "new": "Energy filter multipole 04 (model index)"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[7].name",
+      "old": "Iliad Multipole 05 (model index)",
+      "new": "Energy filter multipole 05 (model index)"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[8].name",
+      "old": "Iliad Multipole 06 (model index)",
+      "new": "Energy filter multipole 06 (model index)"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[9].name",
+      "old": "Iliad Multipole 07 (model index)",
+      "new": "Energy filter multipole 07 (model index)"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[10].name",
+      "old": "Iliad Multipole 08 (model index)",
+      "new": "Energy filter multipole 08 (model index)"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[11].name",
+      "old": "Iliad Multipole 09 (model index)",
+      "new": "Energy filter multipole 09 (model index)"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[12].name",
+      "old": "Iliad Multipole 10 (model index)",
+      "new": "Energy filter multipole 10 (model index)"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[13].name",
+      "old": "Iliad XO Crossover / Optional EFTEM Energy-slit Assembly",
+      "new": "XO crossover / optional EFTEM energy-slit assembly"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[14].name",
+      "old": "Iliad Dynamic-focus Electrostatic Quadrupole",
+      "new": "Dynamic-focus electrostatic quadrupole"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[15].name",
+      "old": "Iliad MultiEELS Bias Tube",
+      "new": "Multi-window EELS bias tube"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[16].name",
+      "old": "Iliad Fast Electrostatic Shutter",
+      "new": "Fast electrostatic shutter"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[17].name",
+      "old": "Iliad Zebra Camera Deflector",
+      "new": "EELS camera deflector"
+    },
+    {
+      "field": "configs/subassemblies/iliad_filter.toml.parts[19].name",
+      "old": "Iliad Zebra Five-strip EELS Detector",
+      "new": "EELS camera"
+    }
+  ],
+  "scope": "Display names and storage filenames; stable keys and scientific source citations retained",
+  "validation": {
+    "targeted_tests_passed": 105,
+    "runs": [
+      {
+        "report": "neutral-names-assembly.xml",
+        "tests": 80,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "report": "neutral-names-filter-final.xml",
+        "tests": 25,
+        "failed": 0,
+        "skipped": 0
+      }
+    ]
+  }
+}

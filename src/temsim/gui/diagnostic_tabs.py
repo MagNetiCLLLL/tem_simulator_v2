@@ -154,7 +154,7 @@ class _EnergyFilterLabelCallout:
 
 
 class EnergyFilterView(QWidget):
-    """Curvilinear Iliad public topology and non-OEM branch model."""
+    """Curvilinear Energy filter public topology and non-OEM branch model."""
 
     component_selected = Signal(str)
     MAXIMUM_DISPLAY_RAYS = 80
@@ -732,7 +732,7 @@ class EnergyFilterView(QWidget):
         entrance_x = float(sector.entrance_point_m[0]) * 1.0e3
         reference_path = sector_reference_path_xz_mm(sector)
         entrance_tooltip = (
-            "Iliad Spectrometer Entrance Aperture\n"
+            "Spectrometer entrance aperture\n"
             f"current clear diameter {energy_filter.entrance_aperture_mm:g} "
             "mm\nThe 5 mm value is a public experimental condition, not a "
             "unique installed mechanism size."
@@ -775,7 +775,7 @@ class EnergyFilterView(QWidget):
             ENERGY_FILTER_TAPERED_PRISM,
         )
         sector_tooltip = (
-            "Iliad large tapered-prism reference orbit and clear aperture\n"
+            "Energy filter large tapered-prism reference orbit and clear aperture\n"
             f"reference radius {float(energy_filter.prism_radius_mm):g} mm | "
             "radial half-width "
             f"{float(energy_filter.sector_radial_aperture_mm):g} mm in X-Z\n"
@@ -953,7 +953,7 @@ class EnergyFilterView(QWidget):
             {
                 "distance": float(energy_filter.bias_tube_d_mm),
                 "key": bias.key,
-                "label": "MultiEELS bias tube",
+                "label": "Multi-window EELS bias tube",
                 "colour": "#94a3b8",
                 "drawing": "hollow",
                 "length": float(bias.housing_length_mm),
@@ -981,7 +981,7 @@ class EnergyFilterView(QWidget):
             {
                 "distance": float(energy_filter.camera_deflector_d_mm),
                 "key": camera_deflector.key,
-                "label": "Zebra camera deflector",
+                "label": "EELS camera deflector",
                 "colour": "#2dd4bf",
                 "drawing": "hollow",
                 "length": float(camera_deflector.electrode_length_mm),
@@ -994,7 +994,7 @@ class EnergyFilterView(QWidget):
                     "_mechanical_geometry_status",
                     "unresolved",
                 ),
-                "detail": "rapid selector for Zebra strips 1 through 5",
+                "detail": "rapid selector for EELS camera strips 1 through 5",
             },
             {
                 "distance": float(energy_filter.output_detector_d_mm),
@@ -1009,7 +1009,7 @@ class EnergyFilterView(QWidget):
             {
                 "distance": detector_distance,
                 "key": zebra.key,
-                "label": "Zebra 5 x 2048 detector",
+                "label": "EELS camera 5 x 2048 detector",
                 "colour": "#4ade80",
                 "drawing": "plane",
                 "width": float(zebra.spectral_width_mm),
@@ -1136,7 +1136,7 @@ class EnergyFilterView(QWidget):
             "envelopes. The layout now separates the XO/EFTEM slit from the "
             "fast shutter and includes the confirmed dynamic-focus "
             "electrostatic quadrupole, bias tube, camera deflector, optional "
-            "EFTEM output plane, and Zebra active plane. Zebra strip active "
+            "EFTEM output plane, and EELS camera active plane. EELS camera strip active "
             f"area is {energy_filter.zebra_detector.spectral_width_mm:g} x "
             f"{energy_filter.zebra_detector.spectral_height_mm:g} mm; strip "
             "pitch and external package remain unknown. "
@@ -2449,7 +2449,7 @@ class PhysicalLayoutView(QWidget):
             self._remember_eds_detector_item("housing", housing)
 
         label = pg.TextItem(
-            "ULTRA-X EDS\n6 segments; 2 projected",
+            "EDS system\n6 segments; 2 projected",
             color="#cffafe",
             anchor=(0.5, 0.5),
             border=pg.mkPen(self.EDS_ACTIVE_FACE_COLOUR, width=0.8),
@@ -2475,7 +2475,7 @@ class PhysicalLayoutView(QWidget):
     def _add_post_projector_detector_chamber_schematic(
         self, record, colour
     ) -> None:
-        """Draw the non-OEM Titan-topology viewing/detector chamber walls."""
+        """Draw the non-OEM reference viewing/detector chamber walls."""
 
         part = self._part_by_key.get(record.key)
         if part is None:
@@ -2499,7 +2499,7 @@ class PhysicalLayoutView(QWidget):
             f"schematic chamber ID/OD = "
             f"{record.bore_diameter_mm:.6g}/{record.outer_diameter_mm:.6g} mm\n"
             f"P2-end to HAADF active-plane gap = {gap_text}\n"
-            "Titan public diagrams support the post-P2 viewing/detector "
+            "Published microscope diagrams support the post-P2 viewing/detector "
             "chamber topology and detector order, not these absolute "
             "dimensions. The chamber is mechanical-only; all active detector "
             "planes retain their existing TOML coordinates and optical "
@@ -3910,7 +3910,7 @@ class PhysicalLayoutView(QWidget):
             "overlapping equivalent-cone boundaries do not prove full "
             "4.45 sr mechanical clearance. It is not an axial electron stop. "
             "The translucent post-P2 enclosure is "
-            "a non-OEM Titan-topology viewing/STEM-detector chamber. It makes "
+            "a non-OEM reference viewing/STEM-detector chamber. It makes "
             "the HAADF-first detector section explicit without moving any "
             "active plane; its absolute dimensions and the 7.25 mm P2-to-HAADF "
             "gap remain provisional. "

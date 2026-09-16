@@ -489,7 +489,8 @@ def test_actual_coil_mesh_cap_wall_and_rim_keep_real_dimension_paths(view):
     from temsim.part_model_3d import part_model_from_document
 
     path = Path(__file__).resolve().parents[1] / "configs/instruments/project_and_recording_system/EnergyFilter.toml"
-    document = tomllib.loads(path.read_text(encoding="utf-8-sig"))
+    from temsim.module_manifest import read_document
+    document = read_document(path)
     key = "intermediate_lens_excitation_coil"
     part = next(item for item in document["parts"] if item["key"] == key)
     mesh, = part_model_from_document(document, key).meshes

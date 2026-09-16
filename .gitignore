@@ -34,6 +34,8 @@ dist/
 /outputs/shared-tip-installed/
 /outputs/vacuum-validation/
 /outputs/setup-validation/
+# Frozen comparison trajectories/source bundles, retained locally for regression.
+/outputs/assembly-baselines/
 /outputs/crossover-audit-20260914/
 /outputs/pull-review/
 

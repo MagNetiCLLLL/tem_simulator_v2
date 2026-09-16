@@ -317,12 +317,12 @@ def create_exit_m12(
 def create_iliad_multipoles(
     reference_voltage_kv=DEFAULT_REFERENCE_VOLTAGE_KV,
 ):
-    """Create ten independent carriers matching the public Iliad topology."""
+    """Create ten independent carriers matching the public Energy filter topology."""
 
     multipoles = [
         _create_multipole(
             key,
-            f"Iliad Multipole {index:02d} (model index)",
+            f"Energy filter multipole {index:02d} (model index)",
             f"m{index:02d}",
             reference_voltage_kv,
         )
@@ -474,7 +474,7 @@ def energy_filter_m12_from_dict(values, role, reference_voltage_kv):
 def energy_filter_multipole_from_dict(
     values, index, reference_voltage_kv
 ):
-    """Restore one of the ten Iliad carriers without legacy key migration."""
+    """Restore one of the ten Energy filter carriers without legacy key migration."""
 
     index = int(index)
     if not 1 <= index <= len(ENERGY_FILTER_MULTIPOLE_KEYS):
@@ -483,7 +483,7 @@ def energy_filter_multipole_from_dict(
     role = f"m{index:02d}"
     defaults = _create_multipole(
         key,
-        f"Iliad Multipole {index:02d} (model index)",
+        f"Energy filter multipole {index:02d} (model index)",
         role,
         reference_voltage_kv,
     )

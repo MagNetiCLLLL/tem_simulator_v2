@@ -10,7 +10,7 @@ def transmitted_calibration_beam(state):
     A condenser setting describes the transmitted beam, independently of the
     current exposure gate.  GUI solves use a state snapshot; the real displayed
     illumination is still calculated with its original blanking flags.  Only
-    those flags change here: gun tilt/shift values, NanoPulser voltage, hardware
+    those flags change here: gun tilt/shift values, Electrostatic beam blanker voltage, hardware
     installation and physical stops retain their configured values.
     """
     saved = []

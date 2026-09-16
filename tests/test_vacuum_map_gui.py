@@ -47,9 +47,11 @@ def test_cell_medium_and_subdivision(page, qtbot):
 
 
 def test_boundaries_leave_independent_gap_and_follow_selected_component(page):
+    from temsim.assembly_navigation import component_anchor
     previous = deepcopy(page.state.vacuum_map.regions[3])
     page.select_region("column")
-    page.end_anchor.setCurrentIndex(page.end_anchor.findData("condenser_lens_2.center"))
+    reference = component_anchor(page.state._resolved_assembly.part("condenser_lens_2"), "center")
+    page.end_anchor.setCurrentIndex(page.end_anchor.findData(reference))
     page.end_offset.setValue(0)
     assert page.apply()
     assert page.state.vacuum_map.regions[3] == previous
