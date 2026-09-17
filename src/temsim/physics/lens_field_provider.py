@@ -21,6 +21,7 @@ from hashlib import sha256
 import json
 import math
 from pathlib import Path
+from temsim import input_io
 from typing import Mapping
 
 import numpy as np
@@ -40,8 +41,8 @@ def _immutable_array(values, *, ndim: int, name: str) -> np.ndarray:
     result = np.ascontiguousarray(values, dtype=np.float64)
     if result.ndim != ndim or not np.all(np.isfinite(result)):
         raise FieldMapError(f"{name} must be a finite {ndim}-D array")
-    result.setflags(write=False)
-    return result
+    from temsim.input_assets import freeze_numeric_array
+    return freeze_numeric_array(result)
 
 
 def _canonical(value):
@@ -980,7 +981,8 @@ def _metadata_from_npz(document) -> dict[str, object]:
 
 
 def _grid_from_tidy_csv(path: Path):
-    table = np.genfromtxt(path, delimiter=",", names=True, dtype=float)
+    with input_io.open_input(path) as stream:
+        table = np.genfromtxt(stream, delimiter=",", names=True, dtype=float)
     names = tuple(table.dtype.names or ())
     axisymmetric = ("r_m", "z_m", "br_t", "bz_t")
     cartesian = ("x_m", "y_m", "z_m", "bx_t", "by_t", "bz_t")
@@ -1031,11 +1033,11 @@ def load_magnetic_field_map(
     """Load an SI-labelled NPZ/CSV map and bind it to the current geometry."""
 
     source = Path(path).expanduser().resolve()
-    if not source.is_file():
+    if not input_io.is_file(source):
         raise FieldMapError(f"Magnetic field map does not exist: {source}")
-    digest = sha256(source.read_bytes()).hexdigest()
+    digest = sha256(input_io.read_bytes(source)).hexdigest()
     if source.suffix.lower() == ".npz":
-        with np.load(source, allow_pickle=False) as document:
+        with input_io.open_input(source) as stream, np.load(stream, allow_pickle=False) as document:
             metadata = _metadata_from_npz(document)
             map_type = str(metadata.get("map_type", "")).lower()
             if not map_type:
@@ -1174,9 +1176,9 @@ def _load_descriptor_map(
             "Saved field-map descriptor targets an earlier lens assembly"
         )
     path = Path(str(descriptor.get("source_path", ""))).expanduser().resolve()
-    if not path.is_file():
+    if not input_io.is_file(path):
         raise FieldMapError("Saved magnetic field-map source is unavailable")
-    actual_sha = sha256(path.read_bytes()).hexdigest()
+    actual_sha = sha256(input_io.read_bytes(path)).hexdigest()
     if actual_sha != str(descriptor.get("source_sha256", "")):
         raise FieldMapError(
             "Saved magnetic field-map source changed after it was bound"
@@ -1491,6 +1493,7 @@ def _validate_shared_linear_recipes(state, lens_key, binding):
             )
 
 
+@input_io.using_state_inputs
 def resolve_runtime_lens_field_provider(state, lens_key: str, native_provider):
     """Return a matching imported map or an explicit provisional fallback."""
 

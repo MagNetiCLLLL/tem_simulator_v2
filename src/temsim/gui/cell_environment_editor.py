@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QGroupBox,
     QDialog, QDialogButtonBox, QCheckBox, QHBoxLayout, QScrollArea, QPushButton)
 
 from temsim.paths import CONFIG_ROOT
+from temsim import input_io
 from temsim.vacuum import CellWindow
 
 
@@ -23,7 +24,7 @@ class WindowEditor(QGroupBox):
     def __init__(self, title):
         super().__init__(title)
         self._window = CellWindow()
-        with (CONFIG_ROOT / "environments" / "cell_window_materials.toml").open("rb") as stream:
+        with input_io.open_input(CONFIG_ROOT / "environments" / "cell_window_materials.toml") as stream:
             self.presets = tomllib.load(stream)["materials"]
         form = QFormLayout(self)
         self.material = QComboBox()
@@ -91,6 +92,7 @@ class WindowEditor(QGroupBox):
 
 class CellGeometryDialog(QDialog):
     """One geometry editor. Internal medium remains owned by Vacuum map."""
+    @input_io.using_state_inputs
     def __init__(self, state, parent=None):
         super().__init__(parent)
         self.state, self._value, self.open_medium = state, None, False

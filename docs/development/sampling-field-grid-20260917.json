@@ -1,0 +1,1736 @@
+{
+  "status": "EXECUTED",
+  "elapsed_s": 15.142902600000525,
+  "evidence": {
+    "axis": "field_radial",
+    "checkpoint_id": "8c14a0becf31183b709ce163e0327e789c934f628462bb87559956e99494c146",
+    "comparison": {
+      "first_unresolved_plane_mm": 450.0,
+      "planes": [
+        {
+          "differences": {
+            "alpha95_rad": {
+              "absolute_difference": 2.0405281750318963e-06,
+              "limit": 3.868429035101391e-06
+            },
+            "centroid_x_m": {
+              "absolute_difference": 4.3186262605532984e-06,
+              "limit": 1.20676261645536e-05
+            },
+            "centroid_y_m": {
+              "absolute_difference": 1.972334098053626e-06,
+              "limit": 6.184812262884734e-06
+            },
+            "diameter95_m": {
+              "absolute_difference": 3.83522624146761e-06,
+              "limit": 8.272608036235915e-06
+            },
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 0.01
+            }
+          },
+          "failed_observables": [],
+          "plane_z_mm": 450.0,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "alpha95_rad": {
+              "absolute_difference": 0.00043746469986209735,
+              "limit": 0.001100980334498645
+            },
+            "centroid_x_m": {
+              "absolute_difference": 1.2877168296897935e-07,
+              "limit": 3.6536534374462147e-07
+            },
+            "centroid_y_m": {
+              "absolute_difference": 5.462759745146043e-08,
+              "limit": 1.3755842852563025e-07
+            },
+            "diameter95_m": {
+              "absolute_difference": 1.1033774967040207e-07,
+              "limit": 2.3814399828248645e-07
+            },
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 0.01
+            }
+          },
+          "failed_observables": [],
+          "plane_z_mm": 500.0,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "alpha95_rad": {
+              "absolute_difference": 0.00024308279202016336,
+              "limit": 0.000504892434940943
+            },
+            "centroid_x_m": {
+              "absolute_difference": 4.844400196944536e-06,
+              "limit": 1.3704702195082933e-05
+            },
+            "centroid_y_m": {
+              "absolute_difference": 8.660831066846758e-07,
+              "limit": 1.8448369435933294e-06
+            },
+            "diameter95_m": {
+              "absolute_difference": 3.926532311046278e-06,
+              "limit": 8.435909123324509e-06
+            },
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 0.01
+            }
+          },
+          "failed_observables": [],
+          "plane_z_mm": 650.0,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 765.0,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 810.0,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 915.0,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1010.0,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1040.0,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1088.2,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1113.65,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1128.15,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1144.5,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1166.35,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1186.35,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1200.85,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1215.35,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1229.9,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1249.95,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1269.95,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1284.5,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1300.85,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1317.2,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1331.75,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1346.3,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1366.3,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1451.5,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1491.5,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1522.5,
+          "status": "INSUFFICIENT_SUPPORT"
+        },
+        {
+          "differences": {
+            "transmission": {
+              "absolute_difference": 0.0,
+              "limit": 1e-12
+            }
+          },
+          "failed_observables": [
+            "diameter95_m",
+            "alpha95_rad",
+            "centroid_x_m",
+            "centroid_y_m"
+          ],
+          "plane_z_mm": 1599.1999975,
+          "status": "INSUFFICIENT_SUPPORT"
+        }
+      ],
+      "status": "UNRESOLVED",
+      "topology": {
+        "status": "NOT_REQUESTED"
+      }
+    },
+    "created_at_utc": "2026-09-17T11:58:21.235633+00:00",
+    "digest": "b7d1b09bc9bd23ef2d110aff9a8ed669fecdb0e14f4eec43b299ae745ba65a0a",
+    "full_numerical_qualification": "NOT_ESTABLISHED",
+    "implementation": "39b71cce904cf7ec8a052636156b0e9ac660fbabb319f22987b1dbcab79f3e4b",
+    "limitations": [
+      "Independent product quadrature requires the existing classical Cold FEG tip; unsupported source laws remain explicit.",
+      "Gun mesh refinements require an active grounded surface model. Imported fixed maps cannot be refined without their generating solver.",
+      "Individual comparisons do not qualify all axes, crossover topology, physical source calibration or sample/detector physics.",
+      "Topology is optional; fixed-sampling roots and one-axis agreement do not establish complete topology convergence",
+      "Empty sampled transmission is not proof of complete physical blockage"
+    ],
+    "maximum_checkpoint_bytes": 536870912,
+    "maximum_rays": 9,
+    "physical_validation": "NOT_ESTABLISHED",
+    "runs": [
+      {
+        "elapsed_s": 9.558872799998426,
+        "input_changes": [],
+        "kind": "baseline",
+        "numerical_identity": "744281aa06a03f1ffe53586c383bfdfc77d0bfb86822b131da42947d80f07f41",
+        "planes": [
+          {
+            "alpha95_rad": 0.00038480237533510724,
+            "centroid_x_m": 0.0012024439901948067,
+            "centroid_y_m": 0.0006165088921904197,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": 0.0008234255773821239,
+            "effective_samples": 9.0,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": 0.1111111111111111,
+            "plane_current_a": 1.0000000000000002e-07,
+            "plane_z_mm": 450.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "N_eff is weight concentration, not convergence or an error bar",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "AVAILABLE",
+            "transmission": 1.0,
+            "transmitted_samples": 9
+          },
+          {
+            "alpha95_rad": 0.10966056875000241,
+            "centroid_x_m": 3.6407762691493165e-05,
+            "centroid_y_m": -1.3701215255111565e-05,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": 2.3704062078578242e-05,
+            "effective_samples": 9.0,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": 0.1111111111111111,
+            "plane_current_a": 1.0000000000000002e-07,
+            "plane_z_mm": 500.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "N_eff is weight concentration, not convergence or an error bar",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "AVAILABLE",
+            "transmission": 1.0,
+            "transmitted_samples": 9
+          },
+          {
+            "alpha95_rad": 0.05024616070207413,
+            "centroid_x_m": 0.0013656258193113487,
+            "centroid_y_m": -0.00018361761125264826,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": 0.0008396643800214045,
+            "effective_samples": 9.0,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": 0.1111111111111111,
+            "plane_current_a": 1.0000000000000002e-07,
+            "plane_z_mm": 650.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "N_eff is weight concentration, not convergence or an error bar",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "AVAILABLE",
+            "transmission": 1.0,
+            "transmitted_samples": 9
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 765.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 810.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 915.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1010.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1040.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1088.2,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1113.65,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1128.15,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1144.5,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1166.35,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1186.35,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1200.85,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1215.35,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1229.9,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1249.95,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1269.95,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1284.5,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1300.85,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1317.2,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1331.75,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1346.3,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1366.3,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1451.5,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1491.5,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1522.5,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1599.1999975,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          }
+        ],
+        "sampling_rule": {
+          "conditional_law": "Surface energy given local direction preserves the specified joint emission law; legacy flat marginals retain their existing distribution",
+          "emitted_ray_budget": 9,
+          "emitter_type": "temsim.optics.electron_gun.emitter:ColdFieldEmitter",
+          "independent_product": null,
+          "random_seed": null,
+          "seed_policy": "No randomized emission replication or IID error estimate",
+          "sequence": "Existing deterministic Halton emitter; exact rule bound to implementation identity",
+          "surface_quadrature": {
+            "angular_refinement_gain": 0.0,
+            "angular_refinement_width_sigma": 0.1,
+            "angular_sampling": "uniform_cdf",
+            "angular_stratum_allocation": [],
+            "directions_per_position": 8,
+            "spatial_sampling": "uniform_area",
+            "spatial_stratum_allocation": []
+          }
+        },
+        "snapshot_id": "2f1e9b2a9e71b601710f64cb28cc70085fd3bc6898fcfe5d755a38175f7ce269",
+        "topology": null
+      },
+      {
+        "elapsed_s": 3.8551929000004748,
+        "input_changes": [
+          [
+            "/graph/nodes/544/attributes/radial_nodes",
+            32,
+            64
+          ]
+        ],
+        "kind": "refined",
+        "numerical_identity": "21057373efb64cb8468113b3fb7824b2be40ec49a8a34ce8b1d4086460776daf",
+        "planes": [
+          {
+            "alpha95_rad": 0.00038684290351013914,
+            "centroid_x_m": 0.00120676261645536,
+            "centroid_y_m": 0.0006184812262884734,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": 0.0008272608036235915,
+            "effective_samples": 9.0,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": 0.1111111111111111,
+            "plane_current_a": 1.0000000000000002e-07,
+            "plane_z_mm": 450.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "N_eff is weight concentration, not convergence or an error bar",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "AVAILABLE",
+            "transmission": 1.0,
+            "transmitted_samples": 9
+          },
+          {
+            "alpha95_rad": 0.1100980334498645,
+            "centroid_x_m": 3.6536534374462144e-05,
+            "centroid_y_m": -1.3755842852563025e-05,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": 2.3814399828248644e-05,
+            "effective_samples": 9.0,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": 0.1111111111111111,
+            "plane_current_a": 1.0000000000000002e-07,
+            "plane_z_mm": 500.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "N_eff is weight concentration, not convergence or an error bar",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "AVAILABLE",
+            "transmission": 1.0,
+            "transmitted_samples": 9
+          },
+          {
+            "alpha95_rad": 0.050489243494094296,
+            "centroid_x_m": 0.0013704702195082932,
+            "centroid_y_m": -0.00018448369435933293,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": 0.0008435909123324508,
+            "effective_samples": 9.0,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": 0.1111111111111111,
+            "plane_current_a": 1.0000000000000002e-07,
+            "plane_z_mm": 650.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "N_eff is weight concentration, not convergence or an error bar",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "AVAILABLE",
+            "transmission": 1.0,
+            "transmitted_samples": 9
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 765.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 810.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 915.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1010.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1040.0,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1088.2,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1113.65,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1128.15,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1144.5,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1166.35,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1186.35,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1200.85,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1215.35,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1229.9,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1249.95,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1269.95,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1284.5,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1300.85,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1317.2,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1331.75,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1346.3,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1366.3,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1451.5,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1491.5,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1522.5,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          },
+          {
+            "alpha95_rad": null,
+            "centroid_x_m": null,
+            "centroid_y_m": null,
+            "convergence_status": "NOT_RUN",
+            "diameter95_m": null,
+            "effective_samples": null,
+            "emitted_samples": 9,
+            "maximum_weight_fraction": null,
+            "plane_current_a": 0.0,
+            "plane_z_mm": 1599.1999975,
+            "population": "positive-weight incident particles at the stated plane",
+            "reason": "No sampled transmission; this does not prove complete physical blockage",
+            "source_current_a": 1.0000000000000002e-07,
+            "status": "NO_SAMPLED_SURVIVORS",
+            "transmission": 0.0,
+            "transmitted_samples": 0
+          }
+        ],
+        "sampling_rule": {
+          "conditional_law": "Surface energy given local direction preserves the specified joint emission law; legacy flat marginals retain their existing distribution",
+          "emitted_ray_budget": 9,
+          "emitter_type": "temsim.optics.electron_gun.emitter:ColdFieldEmitter",
+          "independent_product": null,
+          "random_seed": null,
+          "seed_policy": "No randomized emission replication or IID error estimate",
+          "sequence": "Existing deterministic Halton emitter; exact rule bound to implementation identity",
+          "surface_quadrature": {
+            "angular_refinement_gain": 0.0,
+            "angular_refinement_width_sigma": 0.1,
+            "angular_sampling": "uniform_cdf",
+            "angular_stratum_allocation": [],
+            "directions_per_position": 8,
+            "spatial_sampling": "uniform_area",
+            "spatial_stratum_allocation": []
+          }
+        },
+        "snapshot_id": "1c87b5c09f40fe34922698094cef3dfd1d785800bf0ad7fc16db15246a5afc08",
+        "topology": null
+      }
+    ],
+    "sampling_rule": "Only the selected factor is refined. Independent comparisons explicitly use a product/conditional-CDF baseline; legacy total-count refinement is joint.",
+    "schema": "incident-convergence-evidence-v1",
+    "scope": "Classical gun and incident column at exact planes through specimen entrance; no sample/detector qualification",
+    "selection_to_baseline_changes": [],
+    "snapshot_id": "2f1e9b2a9e71b601710f64cb28cc70085fd3bc6898fcfe5d755a38175f7ce269",
+    "thresholds": {
+      "absolute": {
+        "alpha95_rad": 1e-12,
+        "centroid_x_m": 1e-12,
+        "centroid_y_m": 1e-12,
+        "diameter95_m": 1e-15,
+        "transmission": 1e-12
+      },
+      "focus_tolerance_nm": 1.0,
+      "interpretation": "Numerical pair comparison only; N_eff and sample minima are necessary screens, never proof of convergence",
+      "minimum_effective_samples": 16,
+      "minimum_transmitted_samples": 16,
+      "relative": 0.01,
+      "source": "C:\\Users\\mfbybxl2\\PycharmProjects\\tem_simulator_v2\\configs\\operating_modes\\illumination_targets.toml",
+      "source_sha256": "6df09bf04c6cffa2f95402c7aa6e61c37d22be47dc28cec1b17081f9fccba374"
+    },
+    "topology_reference": {
+      "implementation": "39b71cce904cf7ec8a052636156b0e9ac660fbabb319f22987b1dbcab79f3e4b",
+      "interpretation": "Historical flat-tip Nanoprobe intermediate topology target; does not qualify a new source, model or sampling rule",
+      "mode": "STEM",
+      "model": "custom",
+      "qualification": "NOT_ESTABLISHED",
+      "reference": {
+        "count": 5,
+        "interpretation": "Historical flat-tip Nanoprobe intermediate topology target; does not qualify a new source, model or sampling rule",
+        "intervals": [
+          [
+            "between",
+            [
+              "condenser_lens_1"
+            ],
+            [
+              "condenser_lens_2"
+            ]
+          ],
+          [
+            "between",
+            [
+              "condenser_lens_2"
+            ],
+            [
+              "condenser_aperture_2"
+            ]
+          ],
+          [
+            "between",
+            [
+              "probe_dp22_deflector"
+            ],
+            [
+              "probe_hpc_hexapole"
+            ]
+          ],
+          [
+            "between",
+            [
+              "probe_tl12_lens"
+            ],
+            [
+              "condenser_stigmator"
+            ]
+          ],
+          [
+            "between",
+            [
+              "mini_condenser"
+            ],
+            [
+              "objective_lens",
+              "sample"
+            ]
+          ]
+        ],
+        "source": "docs/development/tip_curvature_193_20260915.json",
+        "source_record": "reports.Flat.column_crossovers",
+        "source_sha256": "13e9234a6381fc64cdb92d9946c5719d78f78ad4dd3371cad812da2422d0bc93",
+        "source_status": "INTERPOLATED_CANDIDATE_NOT_FOCUS_ACCEPTANCE"
+      },
+      "reference_file": "C:\\Users\\mfbybxl2\\PycharmProjects\\tem_simulator_v2\\configs\\operating_modes\\topology_references.toml",
+      "reference_sha256": "0673cdd69f9d4f7210781673b0f03db8b3e1955bc617168d981cea39531c0c7d",
+      "selected_modules": {
+        "column": "column/C3_ProbeCorrector.toml",
+        "gun": "gun/FEG.toml",
+        "project_and_recording_system": "project_and_recording_system/EnergyFilter.toml"
+      },
+      "snapshot_id": "2f1e9b2a9e71b601710f64cb28cc70085fd3bc6898fcfe5d755a38175f7ce269",
+      "status": "TARGET_ONLY"
+    }
+  },
+  "schema": "bounded-grounded-field-comparison-v1",
+  "input_id": "2f1e9b2a9e71b601710f64cb28cc70085fd3bc6898fcfe5d755a38175f7ce269",
+  "implementation": "39b71cce904cf7ec8a052636156b0e9ac660fbabb319f22987b1dbcab79f3e4b",
+  "scope": "Detached 9-ray coarse grounded field, radial 32 to 64 nodes; exact existing tip/gun/incident-column path",
+  "model_qualification": "NOT_ESTABLISHED",
+  "full_numerical_qualification": "NOT_ESTABLISHED",
+  "limits": "Coarse numerical fixture; no production defaults changed and no source/field acceptance inferred"
+}

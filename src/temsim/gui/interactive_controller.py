@@ -41,7 +41,8 @@ class InteractiveController(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.pool = QThreadPool(self)
+        from temsim.gui.job_coordinator import CoordinatedPool
+        self.pool = CoordinatedPool(self)
         self.pool.setMaxThreadCount(1)
         self.bank = None
         self.busy = False
@@ -49,8 +50,12 @@ class InteractiveController(QObject):
         self._event = Event()
         self._kind = ""
         self._pending_readout = None
+        self.pool.coordinator.register_retained(self, "retained_roots")
 
-    def _start(self, kind, operation):
+    def retained_roots(self):
+        return self.bank
+
+    def _start(self, kind, operation, *, captured=None, input_identity=""):
         if self.busy:
             raise RuntimeError("Wait for the current interactive operation")
         self._generation += 1
@@ -58,6 +63,8 @@ class InteractiveController(QObject):
         self._kind = kind
         self.busy = True
         worker = _Worker(self._generation, kind, operation, self._event)
+        worker.state = captured
+        worker.job_input_identity = input_identity
         worker.signals.progress.connect(self.progress)
         worker.signals.result.connect(self._result)
         worker.signals.failed.connect(self._failed)
@@ -66,9 +73,15 @@ class InteractiveController(QObject):
         self.pool.start(worker)
 
     def build(self, state, plan, seeds=()):
+        from temsim.interactive_calculation import detached_state
+        from temsim.instrument_snapshot import capture_instrument_snapshot
+        from temsim.immutable_json import json_digest
+        state = detached_state(state)
+        identity = json_digest(dict(state=capture_instrument_snapshot(state).digest, plan=plan))
         self._pending_readout = None
         self._start("build", lambda cancel, progress: build_bank(
-            state, plan, seeds=seeds, retained_roots=(self.bank,), progress=progress, cancelled=cancel))
+            state, plan, seeds=seeds, retained_roots=(self.bank,), progress=progress, cancelled=cancel),
+            captured=state, input_identity=identity)
 
     def read(self, coordinates):
         if self.bank is None:
@@ -79,7 +92,11 @@ class InteractiveController(QObject):
             self._pending_readout = dict(coordinates)
             self._event.set()
             return
-        self._start("read", lambda cancel, progress: read_bank(self.bank, coordinates, cancelled=cancel))
+        from temsim.immutable_json import json_digest
+        captured_bank, coordinates = self.bank, dict(coordinates)
+        self._start("read", lambda cancel, progress: read_bank(captured_bank, coordinates, cancelled=cancel),
+            captured=captured_bank, input_identity=json_digest(dict(external=captured_bank.external_signature,
+                plan=captured_bank.plan, coordinates=coordinates)))
 
     def cancel(self):
         self._pending_readout = None
@@ -112,4 +129,4 @@ class InteractiveController(QObject):
         self.cancel()
         self._generation += 1
         self.pool.clear()
-        self.pool.waitForDone(3000)
+        return self.pool.waitForDone(3000)

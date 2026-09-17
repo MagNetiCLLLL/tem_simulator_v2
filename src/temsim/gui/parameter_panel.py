@@ -393,6 +393,12 @@ class ParameterPanel(QWidget):
                    f"Simulation mode: {mode_text}. Impact: {impact.label}. {impact.detail}"]
         if impact.affected_results:
             details.append("Affected results: " + ", ".join(impact.affected_results))
+        if index == 0:
+            from temsim.parameter_registry import runtime_definition
+            definition = runtime_definition(self._runtime_target, path[-1])
+            if definition is not None:
+                details.append(definition.tooltip(enabled=getattr(self._runtime_target.obj, "enabled", True),
+                    surface_source=getattr(self._runtime_target.obj, "surface_model", None) is not None))
         self.parameter_details.setText("\n".join(line for line in details if line))
         self.parameter_details.setToolTip(self.parameter_details.text())
 
@@ -904,6 +910,13 @@ class ParameterPanel(QWidget):
                 if isinstance(parameter.value, bool) else str(parameter.value)
             )
             value.setData(Qt.ItemDataRole.UserRole, parameter.value)
+            from temsim.parameter_registry import runtime_definition
+            definition = runtime_definition(self._runtime_target, parameter.name)
+            if definition is not None:
+                tooltip = definition.tooltip(enabled=getattr(self._runtime_target.obj, "enabled", True),
+                    surface_source=getattr(self._runtime_target.obj, "surface_model", None) is not None)
+                name.setToolTip(tooltip)
+                value.setToolTip(tooltip)
             self.runtime_table.setItem(row, 0, name)
             self.runtime_table.setItem(row, 1, value)
 

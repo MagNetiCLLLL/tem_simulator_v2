@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from pathlib import Path
+from temsim import input_io
 import tomllib
 from typing import Mapping
 
@@ -57,11 +58,11 @@ def load_eds_detector_definition(
         raise ValueError(
             f"EDS detector definition escapes its config root: {file_name}"
         )
-    if path.suffix.lower() != ".toml" or not path.is_file():
+    if path.suffix.lower() != ".toml" or not input_io.is_file(path):
         raise ValueError(
             f"EDS detector definition does not exist: {file_name}"
         )
-    with path.open("rb") as stream:
+    with input_io.open_input(path) as stream:
         document = tomllib.load(stream)
     if int(document.get("format_version", 0)) != 1:
         raise ValueError("Unsupported EDS detector definition format")

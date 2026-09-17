@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from itertools import product
 import math
+from temsim import input_io
 from types import MappingProxyType
 
 import numpy as np
@@ -315,6 +316,7 @@ class InteractiveBank:
     external_inputs: tuple = ()
 
 
+@input_io.using_state_inputs
 def build_bank(state, plan, *, seeds=(), retained_roots=(), progress=None, cancelled=lambda: False, calculator=calculate):
     """Transactionally build a pinned bank; cancellation never returns a partial bank."""
     from temsim.gui.calculation_controller import (
@@ -414,6 +416,7 @@ class InteractiveReadout:
     state_snapshot: object = None
 
 
+@input_io.using_state_inputs
 def read_bank(bank, coordinates, *, cancelled=lambda: False):
     """Evaluate physical stops without running the source/specimen ray solver."""
     from temsim.physics.recording_clipping import clip_recording_planes

@@ -522,4 +522,4 @@ class InteractiveCalculationPage(QWidget):
 
     def shutdown(self):
         self.timer.stop()
-        self.controller.shutdown()
+        return self.controller.shutdown()

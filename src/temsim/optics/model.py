@@ -3,6 +3,7 @@ from copy import deepcopy
 import math
 
 from temsim import module_manifest
+from temsim import input_io
 from temsim.optics.nanopulser import NanoPulser
 from temsim.optics.aperture_policy import ApertureInsertionPolicy
 from temsim.vacuum import VacuumMap
@@ -1570,6 +1571,7 @@ class State:
         self._objective_plane_signature = signature
 
 
+    @input_io.using_state_inputs
     def to_dict(self):
 
         """Return a complete, versioned, JSON-safe simulator state."""
@@ -1849,10 +1851,13 @@ class State:
                 for item in payload.get(collection, ())
             ]
         payload["sample"] = strip_position_fields(payload["sample"], "sample")
+        if input_io.archive_payload(self) is not None:
+            from temsim.immutable_json import thaw_json
+            payload["archive_inputs"] = thaw_json(input_io.archive_payload(self))
         return payload
 
     @staticmethod
-
+    @input_io.restore_profile_inputs
     def from_dict(d):
         from temsim.configuration import (
             canonical_corrector_mode,

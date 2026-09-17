@@ -21,6 +21,7 @@ from temsim.calculation_manifest import (
 )
 from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.instrument_snapshot import encode_instrument, decode_instrument
+from temsim import input_io
 
 
 class PreparationCancelled(Exception):
@@ -75,6 +76,8 @@ class PreparedCalculationRequest:
     ray_count: int
     step_mm: float
     external_inputs: tuple[ExternalInputIdentity, ...] = ()
+    calculation_manifest: object = None
+    memory_estimate: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,8 +98,10 @@ class CapturedCalculationRequest:
     _model_state: _CapturedModelState
     _simulation_time_s: float | None
     _instrument_graph: object = None
+    _input_assets: object = None
 
     @classmethod
+    @input_io.using_state_inputs
     def capture(
         cls, state: object, quality: str, ray_count: int, step_mm: float,
     ) -> CapturedCalculationRequest:
@@ -105,11 +110,19 @@ class CapturedCalculationRequest:
         from temsim.physics.optical_tuning import resolve_tuning_ray_count
         ray_count = resolve_tuning_ray_count(state,quality,ray_count)
         graph = None
-        if quality == "High accuracy":
+        assets = None
+        from temsim.parameter_registry import unmapped_public_inputs
+        extensions = unmapped_public_inputs(state)
+        if quality == "High accuracy" or input_io.archive_payload(state) is not None or extensions:
             from temsim.optics.model import State
             if isinstance(state, State):
-                graph = encode_instrument(state)
-                state = decode_instrument(graph)
+                from temsim.input_assets import INPUT_ASSETS
+                assets = INPUT_ASSETS.capture()
+                try:
+                    graph = encode_instrument(state, asset_store=assets)
+                except Exception:
+                    assets.close()
+                    raise
         payload = deepcopy(state.to_dict())
         assembly = getattr(state, "_resolved_assembly", None)
         # Components are small parameter objects, not the State's solver caches.
@@ -133,12 +146,16 @@ class CapturedCalculationRequest:
         )
         view = _CapturedModelState(
             _payload=payload, _resolved_assembly=assembly,
-            simulation_time_s=0.0 if time_s is None else time_s, **values,
+            simulation_time_s=0.0 if time_s is None else time_s,
+            _captured_unmapped_inputs=extensions, **values,
         )
+        if input_io.archive_payload(state) is not None:
+            view._archive_inputs = input_io.archive_payload(state)
         return cls(
-            type(state), str(quality), int(ray_count), float(step_mm), view, time_s, graph,
+            type(state), str(quality), int(ray_count), float(step_mm), view, time_s, graph, assets,
         )
 
+    @input_io.using_state_inputs
     def prepare(self, cancel_event: Event) -> PreparedCalculationRequest:
         def check_cancelled():
             if cancel_event.is_set():
@@ -149,7 +166,7 @@ class CapturedCalculationRequest:
         model_signature = state_model_signature(self._model_state)
         check_cancelled()
         if self._instrument_graph is not None:
-            snapshot = apply_request_numerics(decode_instrument(self._instrument_graph),
+            snapshot = apply_request_numerics(decode_instrument(self._instrument_graph, assets=self._input_assets),
                 self.quality, self.ray_count, self.step_mm)
         else:
             snapshot = reconstruct_calculation_state(
@@ -161,7 +178,19 @@ class CapturedCalculationRequest:
         signatures = calculation_signatures(snapshot)
         check_cancelled()
         assert_external_input_inventory_unchanged(snapshot, external_inputs)
+        manifest, estimate = None, 0
+        if self.quality == "High accuracy":
+            from temsim.physics.source_admission import admit_requested_wave_products
+            from temsim.gui.calculation_controller import estimate_calculation_memory_bytes, HIGH_ACCURACY_MEMORY_BUDGET_BYTES
+            from temsim.calculation_manifest import capture_calculation_manifest
+            admit_requested_wave_products(snapshot)
+            check_cancelled()
+            estimate = estimate_calculation_memory_bytes(snapshot, self.quality, self.ray_count, self.step_mm)
+            if estimate > HIGH_ACCURACY_MEMORY_BUDGET_BYTES:
+                raise ValueError("Requested calculation exceeds the configured working-memory budget; change numerical settings explicitly")
+            manifest = capture_calculation_manifest(snapshot, ray_count=self.ray_count, step_mm=self.step_mm)
+            check_cancelled()
         return PreparedCalculationRequest(
             snapshot, model_signature, signatures, self.ray_count, self.step_mm,
-            external_inputs,
+            external_inputs, manifest, estimate,
         )

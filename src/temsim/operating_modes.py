@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from temsim import input_io
 import tomllib
 
 from temsim.paths import OPERATING_MODE_CONFIG_ROOT
@@ -118,7 +119,7 @@ class AppliedOperatingModes:
 def load_operating_mode_catalog() -> OperatingModeCatalog:
     """Load mode storage; this does not change the microscope state."""
     path = OPERATING_MODE_CONFIG_ROOT / "catalog.toml"
-    with path.open("rb") as stream:
+    with input_io.open_input(path) as stream:
         document = tomllib.load(stream)
     if int(document.get("format_version", 0)) != 1:
         raise ValueError(f"{path}: unsupported operating-mode format")
@@ -357,6 +358,9 @@ def direct_alignment_by_key(
     # intentionally has no Nano/Microprobe focus claim or preset entry.
     if key == "column_transport":
         from temsim.optics.transport_matching import DEFINITION
+        return DEFINITION
+    if key == "beam_centre_direction":
+        from temsim.beam_alignment import DEFINITION
         return DEFINITION
     catalog = catalog or load_operating_mode_catalog()
     try:

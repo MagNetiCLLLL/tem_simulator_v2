@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from importlib.metadata import version
 import math
 from pathlib import Path
+from temsim import input_io
 
 import numpy as np
 
@@ -412,7 +413,7 @@ def build_cif_equilibrium_atoms(
     from temsim.specimen.cif_io import read_cif_atoms
 
     path = Path(cif_path).expanduser().resolve()
-    if not path.is_file():
+    if not input_io.is_file(path):
         raise ValueError(f"CIF file does not exist: {path}")
     if path.suffix.lower() not in {".cif", ".mcif"}:
         raise ValueError("Atomic specimen import requires a CIF or MCIF file.")

@@ -726,13 +726,13 @@ def test_capture_buttons_compare_designs_without_submitting_solver(
     with qtbot.waitSignal(page.capture_requested) as captured_a:
         qtbot.mouseClick(page.capture_a, Qt.MouseButton.LeftButton)
     assert captured_a.args == ["A"]
-    assert page.snapshot_a is not None
+    qtbot.waitUntil(lambda: page.snapshot_a is not None and page.capture_b.isEnabled(), timeout=20000)
 
     window.high_rays.setValue(window.high_rays.value() + 1_000)
     with qtbot.waitSignal(page.capture_requested) as captured_b:
         qtbot.mouseClick(page.capture_b, Qt.MouseButton.LeftButton)
     assert captured_b.args == ["B"]
-    assert page.snapshot_b is not None
+    qtbot.waitUntil(lambda: page.snapshot_b is not None and page.capture_a.isEnabled(), timeout=20000)
 
     displayed_paths = {
         page.diff_table.item(row, 0).text()

@@ -14,11 +14,15 @@ BACKEND_AUTO = "Auto"
 BACKEND_CPU = "CPU"
 BACKEND_NUMBA = "Numba CPU"
 BACKEND_CUDA = "CUDA GPU"
+BACKEND_PREFER_GPU = "Prefer GPU"
+BACKEND_REQUIRE_GPU = "Require GPU"
 BACKEND_CHOICES = (
     BACKEND_AUTO,
     BACKEND_CPU,
     BACKEND_NUMBA,
     BACKEND_CUDA,
+    BACKEND_PREFER_GPU,
+    BACKEND_REQUIRE_GPU,
 )
 WAVE_BACKEND_NUMPY = "NumPy CPU"
 WAVE_BACKEND_CUPY = "CuPy CUDA"
@@ -45,6 +49,17 @@ def gpu_failure_category(error):
         return error.category
     module = type(error).__module__
     name = type(error).__name__
+    if module.startswith("numba.cuda.cudadrv"):
+        if name == "CudaAPIError":
+            code = getattr(error, "code", None)
+            if code == 2:
+                return "out_of_memory"
+            # Invalid values, images and source/code errors are deliberately
+            # absent. Only declared driver/resource/launch failures may retry.
+            if code in {100, 201, 700, 701, 702, 709, 719}:
+                return "kernel_or_runtime_failure"
+        if name in {"CudaSupportError", "CudaRuntimeError", "NvvmSupportError", "NvrtcSupportError"}:
+            return "unavailable"
     if module.startswith(("cupy", "cupy_backends")):
         if name == "OutOfMemoryError" or getattr(error, "status", None) == 2:
             return "out_of_memory"
@@ -55,9 +70,9 @@ def gpu_failure_category(error):
 
 def gpu_retry_reason(error, policy):
     category = gpu_failure_category(error)
-    if category is None:
+    if category not in {"unavailable", "out_of_memory", "kernel_or_runtime_failure"}:
         raise error
-    if str(policy).lower() == "require_gpu":
+    if str(policy).lower().replace(" ", "_") == "require_gpu":
         raise GPUExecutionError(category, str(error)) from error
     return f"{category}: {type(error).__name__}: {error}"
 
@@ -146,6 +161,10 @@ def normalise_backend(value: object) -> str:
         WAVE_BACKEND_CUPY.lower(): BACKEND_CUDA,
         "numba": BACKEND_NUMBA,
         "numpy": BACKEND_CPU,
+        "prefer_gpu": BACKEND_PREFER_GPU,
+        "require_gpu": BACKEND_REQUIRE_GPU,
+        "prefer gpu": BACKEND_PREFER_GPU,
+        "require gpu": BACKEND_REQUIRE_GPU,
         WAVE_BACKEND_NUMPY.lower(): BACKEND_CPU,
     }
     requested = aliases.get(requested.lower(), requested)
@@ -166,7 +185,7 @@ def choose_wave_backend(
     grid-point-by-slice work is large enough to amortise setup and transfers.
     """
 
-    policy = str(requested).lower()
+    policy = str(requested).lower().replace(" ", "_")
     if policy in {"prefer_gpu", "require_gpu"}:
         status = cupy_capability()
         if status.available:
@@ -201,6 +220,18 @@ def choose_ray_backend(
     """Choose a ray backend and return ``(backend, fallback_reason)``."""
 
     choice = normalise_backend(requested)
+    if choice in {BACKEND_PREFER_GPU, BACKEND_REQUIRE_GPU}:
+        if not acceleration_enabled:
+            if choice == BACKEND_REQUIRE_GPU:
+                raise GPUExecutionError("unavailable", "Acceleration is disabled for the requested column-ray stage")
+            return BACKEND_CPU, "GPU preference not used: acceleration is disabled"
+        status = cuda_capability()
+        if status.available:
+            return BACKEND_CUDA, None
+        if choice == BACKEND_REQUIRE_GPU:
+            raise GPUExecutionError("unavailable", status.detail)
+        fallback = BACKEND_NUMBA if numba_cpu_capability().available else BACKEND_CPU
+        return fallback, "unavailable: " + status.detail
     if not acceleration_enabled or choice == BACKEND_CPU:
         return BACKEND_CPU, None
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 import math
 from pathlib import Path
+from temsim import input_io
 import tomllib
 
 from temsim.paths import SPECIMEN_SUPPORT_CONFIG_ROOT
@@ -106,10 +107,10 @@ class SupportCatalog:
     geometry_source_url: str
 
 
-@lru_cache(maxsize=1)
+@input_io.scoped_lru_cache(maxsize=8)
 def load_support_catalog(path: Path | None = None) -> SupportCatalog:
     source = Path(path or (SPECIMEN_SUPPORT_CONFIG_ROOT / "catalog.toml"))
-    with source.open("rb") as stream:
+    with input_io.open_input(source) as stream:
         data = tomllib.load(stream)
     if int(data.get("format_version", 0)) != 1:
         raise ValueError("Unsupported support-grid catalog format")

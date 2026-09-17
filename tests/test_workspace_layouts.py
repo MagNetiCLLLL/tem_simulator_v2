@@ -22,7 +22,9 @@ def windows(qtbot, monkeypatch, tmp_path):
         window.preview_timer.stop()
         qtbot.addWidget(window)
         monkeypatch.setattr(window.calculations.pool, "start", lambda *_: pytest.fail("Layout must not calculate"))
-        window.resize(2200, 1100)
+        # Keep space for the shared result readout while testing splitter
+        # proportions; minimum-size clamping is covered by small-window QA.
+        window.resize(2200, 1200)
         window.show()
         qtbot.wait(40)
         # Keep the test viewport fixed: the offscreen plugin's virtual monitor
@@ -191,7 +193,9 @@ def test_menu_selection_restores_presentation_subtabs_without_requesting_work(wi
     make, _ = windows
     window = make()
     manager = window.workspace_layouts
-    second = manager.save_as("Alignment")
+    initial_component_tab = window.assembly_panel.component_pages.currentIndex()
+    initial_parameter_tab = window.parameter_panel.tabs.currentIndex()
+    second = manager.save_as("Alignment practice")
     window.assembly_panel.component_pages.setCurrentIndex(2)
     window.parameter_panel.tabs.setCurrentIndex(1)
     manager.save_current()
@@ -200,9 +204,9 @@ def test_menu_selection_restores_presentation_subtabs_without_requesting_work(wi
     action.trigger()
     qtbot.wait(30)
     assert manager.active_id == "default"
-    assert window.assembly_panel.component_pages.currentIndex() == 0
-    assert window.parameter_panel.tabs.currentIndex() == 0
-    action = next(action for action in window.layouts_menu.actions() if action.text() == "Alignment")
+    assert window.assembly_panel.component_pages.currentIndex() == initial_component_tab
+    assert window.parameter_panel.tabs.currentIndex() == initial_parameter_tab
+    action = next(action for action in window.layouts_menu.actions() if action.text() == "Alignment practice")
     action.trigger()
     qtbot.wait(30)
     assert manager.active_id == second
@@ -240,3 +244,41 @@ def test_reset_only_affects_selected_layout_and_registry_covers_workspace(window
     manager.select(custom)
     qtbot.wait(30)
     assert workspace.magnetic_field_toggle.isChecked()
+
+
+def test_builtin_task_layouts_use_existing_pages_without_changing_inputs(windows, qtbot):
+    from temsim.instrument_snapshot import encode_instrument
+    from temsim.immutable_json import json_digest
+    make, settings = windows
+    window = make()
+    manager = window.workspace_layouts
+    before = json_digest(encode_instrument(window.state))
+    revision = window._physical_revision
+    for name, page in manager.TASK_PAGES.items():
+        manager.select("task_"+name.lower())
+        qtbot.wait(20)
+        tabs = window.workspace.tabs
+        assert tabs.tabText(tabs.currentIndex()) == page
+        assert json_digest(encode_instrument(window.state)) == before
+        assert window._physical_revision == revision
+        manager.reset_current()
+        assert tabs.tabText(tabs.currentIndex()) == page
+    manager.select("default")
+    assert not window.preview_timer.isActive()
+
+
+def test_small_window_scrolls_pages_while_retaining_fixed_result_identity(windows, qtbot):
+    make, _ = windows
+    window = make()
+    window.workspace_layouts.select("task_results")
+    window.resize(1500, 920)
+    qtbot.wait(80)
+    assert window.height() <= 920
+    scroll = window.workspace.page_scroll
+    assert scroll.widget() is window.workspace.tabs
+    bar = scroll.verticalScrollBar()
+    bar.setValue(bar.maximum())
+    qtbot.wait(20)
+    assert window.workspace.result_readout.isVisible()
+    assert window.workspace.result_readout.geometry().bottom() < scroll.geometry().top()
+    assert not window.preview_timer.isActive()

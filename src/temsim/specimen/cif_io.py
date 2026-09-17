@@ -10,5 +10,7 @@ def read_cif_atoms(path, *, index=-1):
     atomic positions and cell data; magnetic-moment scattering is not modelled.
     """
     from ase.io import read
+    from temsim.input_io import open_input
 
-    return read(path, index=index, format="cif")
+    with open_input(path) as stream:
+        return read(stream, index=index, format="cif")

@@ -19,6 +19,7 @@ import platform
 import numpy as np
 
 from temsim import __version__
+from temsim import input_io
 from temsim.calculation_cache import (
     calculation_signatures,
     calculation_signatures_for_request,
@@ -536,9 +537,12 @@ class ExternalInputIdentity:
 def _file_identity(role: str, raw_path: object) -> ExternalInputIdentity:
     path = Path(str(raw_path)).expanduser()
     try:
-        data = path.read_bytes()
+        from temsim.input_io import read_bytes
+        data = read_bytes(path)
         resolved = path.resolve()
     except OSError:
+        if input_io.active_archive() is not None:
+            raise
         return ExternalInputIdentity(str(role), str(path), False, 0, "")
     return ExternalInputIdentity(
         str(role),
@@ -616,6 +620,7 @@ def _external_inputs(state: object) -> tuple[ExternalInputIdentity, ...]:
     return tuple(rows[key] for key in sorted(rows))
 
 
+@input_io.using_state_inputs
 def capture_external_input_identities(
     state: object,
 ) -> tuple[ExternalInputIdentity, ...]:
@@ -659,6 +664,7 @@ def assert_external_input_identities_unchanged(
         )
 
 
+@input_io.using_state_inputs
 def assert_external_input_inventory_unchanged(
     state: object,
     expected_inputs: Sequence[ExternalInputIdentity],
@@ -755,6 +761,7 @@ class CalculationManifest:
         }
 
 
+@input_io.using_state_inputs
 def capture_calculation_manifest(
     state: object,
     *,
@@ -822,6 +829,7 @@ def capture_calculation_manifest(
     )
 
 
+@input_io.using_state_inputs
 def changed_external_inputs(
     manifest: CalculationManifest,
 ) -> tuple[ExternalInputIdentity, ...]:

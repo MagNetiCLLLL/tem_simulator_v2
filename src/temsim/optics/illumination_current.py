@@ -8,6 +8,7 @@ trajectory, physical loss or downstream source is changed here.
 from dataclasses import dataclass
 import math
 from pathlib import Path
+from temsim import input_io
 import tomllib
 
 from temsim.physics.beam_current import (
@@ -27,7 +28,7 @@ class CurrentApertureLimits:
 def load_current_aperture_limits(path=None):
     from temsim.paths import OPERATING_MODE_CONFIG_ROOT
     path = Path(path) if path is not None else OPERATING_MODE_CONFIG_ROOT / 'illumination_targets.toml'
-    with path.open('rb') as stream:
+    with input_io.open_input(path) as stream:
         document = tomllib.load(stream)
     if document.get('schema') != 'assembly-illumination-targets-v1':
         raise ValueError('Unsupported illumination target schema')

@@ -31,6 +31,7 @@ class _Worker(QRunnable):
     def __init__(self, state, key, options, cancel):
         super().__init__()
         self.state, self.key, self.options, self.cancel = state, key, options, cancel
+        self.job_input_identity = input_signature(state, key, options)
         self.signals = _Signals()
 
     def run(self):
@@ -50,6 +51,8 @@ class MagneticValidationPage(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        from temsim.gui.job_coordinator import CoordinatedPool
+        self.pool = CoordinatedPool(self)
         self._state = None
         self._key = None
         self._report = None
@@ -214,7 +217,7 @@ class MagneticValidationPage(QWidget):
         self.cancel_button.setEnabled(True)
         self.progress.setValue(0)
         self.status.setText("Preparing detached validation study")
-        QThreadPool.globalInstance().start(self._worker)
+        self.pool.start(self._worker)
 
     def _progress(self, done, total, label):
         if not self._closed:
@@ -250,6 +253,8 @@ class MagneticValidationPage(QWidget):
     def shutdown(self):
         self._closed = True
         self._cancel.set()
+        self.pool.clear()
+        return self.pool.waitForDone(3000)
 
     def _set_report_status(self):
         report = self._report

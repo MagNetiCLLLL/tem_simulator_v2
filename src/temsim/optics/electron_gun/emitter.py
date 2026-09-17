@@ -40,6 +40,25 @@ def _truncated_gaussian_disk(radial_u, azimuth_u, sigma, cutoff):
     return radius * np.cos(azimuth), radius * np.sin(azimuth)
 
 
+@dataclass(frozen=True)
+class EmissionQuadrature:
+    """Opt-in product quadrature at the tip; never a new physical source."""
+    spatial: int
+    directions: int
+    energies: int
+    schema: str = "tip-product-cdf-v1"
+
+    @property
+    def total(self):
+        return self.spatial * self.directions * self.energies
+
+    def validate(self):
+        if self.schema != "tip-product-cdf-v1" or any(type(n) is not int or not 3 <= n <= 65536
+                for n in (self.spatial, self.directions, self.energies)) or self.total > 1048576:
+            raise ValueError("Tip product quadrature requires integer factors >= 3 and at most 1048576 rays")
+        return self
+
+
 @dataclass
 class ColdFieldEmitter:
     mechanical_center_from_tip_mm: float
@@ -63,6 +82,19 @@ class ColdFieldEmitter:
     boersch_sigma_ev: float = 0.10
     energy_half_range_ev: float = 1.0
     ray_count: int = 1000
+
+    @property
+    def quadrature(self):
+        return self.__dict__.get("_emission_quadrature")
+
+    @quadrature.setter
+    def quadrature(self, value):
+        if value is None:
+            self.__dict__.pop("_emission_quadrature", None)
+        elif isinstance(value, EmissionQuadrature):
+            self.__dict__["_emission_quadrature"] = value.validate()
+        else:
+            raise ValueError("Expected an explicit tip emission quadrature")
 
     @property
     def curvature_nm_inv(self):
@@ -155,6 +187,10 @@ class ColdFieldEmitter:
         return "feg_tip"
 
     def validate(self):
+        if self.quadrature is not None:
+            self.quadrature.validate()
+            if self.coherence is not None or (self.surface_model is not None and self.surface_model.coherence is not None):
+                raise ValueError("Product quadrature is classical only; coherent development is paused")
         from temsim.optics.electron_gun.tip_curvature import validate_curvature
         validate_curvature(self)
         if self.surface_model is not None:
@@ -207,6 +243,16 @@ class ColdFieldEmitter:
         n = int(self.ray_count if count is None else count)
         if n < 9:
             raise ValueError("Cold FEG emission requires at least 9 rays.")
+        if self.quadrature is not None:
+            if n != self.quadrature.total:
+                raise ValueError("Requested ray budget must equal the complete tip product quadrature; change its factors explicitly")
+            if getattr(self, "_tuning_boundary_probes", 0) or getattr(self, "_tuning_surface_probes", 0):
+                raise ValueError("Product quadrature cannot be silently repartitioned for tuning probes")
+            if self.surface_model is not None:
+                from temsim.optics.electron_gun.tip_surface import surface_bundle
+                return surface_bundle(self.surface_model, n, quadrature=self.quadrature)
+            from temsim.optics.electron_gun.tip_sampling import flat_product_bundle
+            return flat_product_bundle(self, self.quadrature)
         if self.surface_model is not None:
             from temsim.optics.electron_gun.tip_surface import surface_bundle
             return surface_bundle(self.surface_model, n,

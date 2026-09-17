@@ -22,6 +22,10 @@ class DirectAlignmentWorker(QRunnable):
         self.generation = int(generation)
         self.key = request.key
         self.request = request
+        from temsim.immutable_json import json_digest
+        self.job_input_identity = json_digest(dict(snapshot=request.start_snapshot.digest,
+            target=request.target, key=request.key, registry=request.registry_digest,
+            constraints=request.options.digest if request.options is not None else None))
         self.cancellation = cancellation
         self.signals = DirectAlignmentWorkerSignals()
 
@@ -53,14 +57,15 @@ class DirectAlignmentController(QObject):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.pool = QThreadPool(self)
+        from temsim.gui.job_coordinator import CoordinatedPool
+        self.pool = CoordinatedPool(self)
         self.pool.setMaxThreadCount(1)
         self._generation = 0
         self._cancellation = Event()
 
-    def submit(self, state, key: str, target: float, *, revision=0) -> None:
+    def submit(self, state, key: str, target: float, *, revision=0, options=None) -> None:
         # Failed capture must not cancel a previous valid request.
-        request = AlignmentRequest.capture(state, key, target, revision=revision)
+        request = AlignmentRequest.capture(state, key, target, revision=revision, options=options)
         self._cancellation.set()
         self._cancellation = Event()
         self._generation += 1

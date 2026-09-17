@@ -7,6 +7,7 @@ constraints between their parts. Missing/cyclic references fail explicitly.
 """
 from copy import deepcopy
 from pathlib import Path
+from temsim import input_io
 import math
 import tomllib
 
@@ -49,7 +50,7 @@ def definitions(document, path):
     result = []
     for entry, source in sources(document, path):
         try:
-            child = tomllib.loads(source.read_text(encoding="utf-8-sig"))
+            child = tomllib.loads(input_io.read_text(source, encoding="utf-8-sig"))
         except OSError as exc:
             raise ValueError(f"Subassembly file is unavailable: {source}") from exc
         if child.get("subassemblies"):
@@ -65,7 +66,7 @@ def definitions(document, path):
 
 
 def dependencies(document, path):
-    return {source: source.read_bytes() for _, source, _ in definitions(document, path)}
+    return {source: input_io.read_bytes(source) for _, source, _ in definitions(document, path)}
 
 
 def ownership(document, path):

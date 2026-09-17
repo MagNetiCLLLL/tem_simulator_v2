@@ -27,6 +27,10 @@ python setup_env.py
 
 See [docs/](docs/) for workflows, model assumptions and development notes, and
 [configs/](configs/) for instrument definitions and operating settings.
+The [working-point and convergence workflow](docs/working-points-and-convergence.md)
+explains portable captured results, constrained alignment, independent sampling
+comparisons, resource controls, resumable parameter/geometry experiments and
+their current validation limits.
 
 ## License
 

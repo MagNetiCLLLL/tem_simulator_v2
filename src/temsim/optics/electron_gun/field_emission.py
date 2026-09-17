@@ -371,6 +371,8 @@ def _apply_resolved_part_geometry(component, part):
 
 def _component_payload(component, *, include_geometry=False):
     payload = asdict(component)
+    if isinstance(component, ColdFieldEmitter) and component.quadrature is not None:
+        payload["quadrature"] = asdict(component.quadrature)
     if isinstance(component, ColdFieldEmitter) and component.curvature_nm_inv:
         payload["curvature_nm_inv"] = component.curvature_nm_inv
         payload["emission_geometry_model"] = component.curvature_model
@@ -393,6 +395,8 @@ def _component_payload(component, *, include_geometry=False):
 def _restore_component_settings(component, row):
     allowed = component.__dataclass_fields__
     if isinstance(component, ColdFieldEmitter):
+        from temsim.optics.electron_gun.emitter import EmissionQuadrature
+        component.quadrature = None if row.get("quadrature") is None else EmissionQuadrature(**row["quadrature"])
         from temsim.optics.electron_gun.tip_curvature import LEGACY_MODEL
         component.curvature_nm_inv = row.get("curvature_nm_inv", 0.0)
         component.curvature_model = row.get("emission_geometry_model", LEGACY_MODEL)

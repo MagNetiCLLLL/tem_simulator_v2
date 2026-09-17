@@ -210,6 +210,7 @@ the current implementation document qualifies later extensions.
 | UR-026 | Every dark-theme checkbox needs a clearly distinguishable checked state. | Implemented | `app.APPLICATION_STYLE`; separate unchecked, checked, partial, hover and disabled SVG states |
 | UR-027 | All project-facing UI, documentation and newly written project content must be English. | Implemented; constraint | English UI/source/configuration text; translated specification and historical geometry research, retaining IDs and evidence |
 | UR-028 | Execute the six-stage extension through shared field transport, geometry fields, intermediate coherent propagation, field-derived aberrations, model evidence and multi-parameter design studies, without automatically recalculating lens presets. | Implemented initial numerical scope; explicit limits remain | `docs/SIX_STAGE_PHYSICS_IMPLEMENTATION.md`; linear axisymmetric fields, approximate finite-pupil fits and runtime-parameter sweeps, not arbitrary 3-D FEM or unrestricted geometry search |
+| UR-029 | Implement the product-usability development guide through evidence-bound working points, sampling diagnostics, complete portable inputs, resource coordination, constrained alignment and detached experiments. | Integrated implementation; cross-package acceptance and explicit physical/hardware limitations tracked in the progress receipt | `CODEX_DEVELOPMENT_GUIDE.md`, `docs/development/PRODUCT_USABILITY_PROGRESS.md`; current classical-particle scope and paused coherent development remain authoritative |
 
 ## 3. System scope and architecture
 
@@ -1233,3 +1234,70 @@ must still be retained.
 | 2026-08-31 | Made internal Ray Diagram panel heights adjustable. | Three-way vertical splitter for rays/budget/optional field; ray area prioritised; high-contrast handles and toggle-size retention; no ray/field/lens physics changed. |
 | 2026-09-05 | Translated the specification to English while retaining every UR/DA ID and historical revision. | Historical counts/limits are explicitly dated; later transverse placement, cache reuse, secondary retirement and physical Camera outputs are distinguished from their original baseline. |
 | 2026-09-05 | Implemented the six-stage physics extension. | Shared specimen vector transport, optional linear axisymmetric geometry fields, coherent intermediate apertures, exclusive field-derived aberrations, Model Inspector and multi-runtime-parameter Design Explorer; evidence and limits in the implementation report. No automatic preset optimisation. |
+| 2026-09-17 | Started UR-029 with the product-usability guide. | Working points publish exact integration coordinates, expose a filterable evidence-aware index and frozen A/B comparison, and run detached bounded classical sampling comparisons. Pair stability is distinct from full numerical or physical qualification; remaining packages and actual validation receipts are recorded separately. |
+
+## 27. Product usability implementation (UR-029)
+
+The dated AGENTS.md decisions remain authoritative: coherent tip-to-column
+development is paused, the active source is physical particle emission, vacuum
+transport remains opt-in, and numerical aids may not create an exit source or
+change physical emission support, current or installed optical components.
+
+Continuation on 2026-09-17 adds transactional illumination-only apply, manifest-only
+archive indexing and explicit retained-data verification, separate input migration,
+independent tip position/direction/conditional-energy sampling, grounded-gun mesh
+axes, optional executed crossover topology, immutable bulk input handles and
+background High-accuracy request preparation. Task layouts and compact retained-
+result readouts extend the existing workspace. These additions do not establish
+whole-model qualification. Subsequent continuation implements complete request-local
+portable archive resolution and shared FIFO admission around existing workers.
+The workflow is described in `docs/working-points-and-convergence.md`; package
+acceptance and executed checks remain in the dated progress receipt.
+
+Export content is explicit: inputs plus retained results, full captured inputs
+for recalculation, or read-only metadata. Omitted input arrays and file content
+make a metadata record non-restorable even when its implementation matches.
+Input-only derivatives retain their parent identity but not result qualification.
+Included file bytes alone do not imply offline restore. An explicit portable input
+copy captures and verifies the full configuration and external inventory; its
+request-local resolver rejects absent entries and never mixes archived and live
+inputs. Other historical records retain original-file checks.
+
+Constrained condenser and four-observable beam-deflector alignment own complete
+input snapshots, numerical bounds and independent forward checks, with transactional
+apply/undo. Unsupported stigmator rank and dynamic pivot/scan observation models
+remain explicit. Device-plan ownership, fallback policy and observed-cost Auto
+selection preserve checkpoint precision; hardware CUDA acceptance is separate.
+
+Detached recipes now retain the complete instrument graph. Bounded runtime and
+normal-perturbation studies preserve failed points, numerical status, constraints
+and objective values. Geometry experiments edit materialized independent TOML
+content through existing component/clearance validation, rebind the assembled
+geometry and reject incompatible active mapped fields. Fixed controls and optional
+per-candidate constrained alignment are separate modes. Scalar records preserve
+identity, candidate definitions and solved controls; resume requires unchanged
+inputs and implementation. Viewing, plotting and exporting do not apply candidates.
+
+- Working-point viewing, sorting, filtering, pinning and derived readouts are
+  read-only. Exact Restore and compatible Fork remain explicit existing actions.
+  Saving an input candidate retains the complete snapshot and authorizes no
+  result reuse. Historical validation labels do not become current passes.
+- New result checkpoints use the exact incident integration plane, never
+  plotting history. Missing exact data prevents publishing a new scientific
+  checkpoint; historical packages remain readable.
+- Sampling readouts identify the plane and emitted population. Transmission
+  and current use weights over the original source population. N_eff and the
+  largest normalized survivor weight describe concentration only. Zero total
+  weight, no sampled survivors and nonfinite surviving rays are distinct.
+- A user can compare captured inputs using two independent physical tip-origin
+  runs: halve gun step, halve column step, or double total emission samples.
+  The last is joint quadrature, not spatial-only refinement. Budgets are explicit;
+  cancellation and failures preserve previous evidence and live results.
+- Scalar evidence records exact input/implementation identities, the numerical
+  diff, predeclared tolerances, per-plane observations and the first evaluated
+  unresolved plane. A stable pair does not validate the complete instrument.
+  The incident-only assistant does not claim specimen or detector qualification.
+- The first slice left independent axes, field-grid/crossover checks, scoped
+  illumination application and lazy product loading open. The continuation
+  implements these interfaces; package acceptance and the later development
+  packages remain separately tracked in the progress receipt.

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from pathlib import Path
+from temsim import input_io
 import tomllib
 
 from temsim.paths import CONFIG_ROOT
@@ -41,11 +42,11 @@ def _axis(data, key, default):
 def available_reference_samples() -> tuple[ReferenceSample, ...]:
     entries = []
     keys = set()
-    for path in sorted(REFERENCE_DIRECTORY.glob("*"), key=lambda p: p.name.lower()):
-        if path.suffix.lower() not in {".cif", ".mcif"} or not path.is_file():
+    for path in sorted(input_io.input_paths(REFERENCE_DIRECTORY), key=lambda p: p.name.lower()):
+        if path.suffix.lower() not in {".cif", ".mcif"} or not input_io.is_file(path):
             continue
         metadata_path = path.with_suffix(".toml")
-        data = tomllib.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+        data = tomllib.loads(input_io.read_text(metadata_path)) if input_io.is_file(metadata_path) else {}
         key = str(data.get("key", path.stem)).strip()
         if not key or key in keys:
             raise ValueError(f"Duplicate or empty reference sample key: {key!r}")
@@ -62,7 +63,7 @@ def available_reference_samples() -> tuple[ReferenceSample, ...]:
             template_preset_key=str(data.get("template_preset_key", "si_110")),
             inelastic_preset_key=str(data.get("inelastic_preset_key", "")),
             chemical_symbol=str(data.get("chemical_symbol", "")), thermal_source=thermal_source,
-            metadata_path=metadata_path.resolve() if metadata_path.exists() else None,
+            metadata_path=metadata_path.resolve() if input_io.is_file(metadata_path) else None,
         ))
     return tuple(entries)
 

@@ -12,6 +12,8 @@ from PySide6.QtWidgets import QDockWidget, QInputDialog, QSplitter, QTabWidget
 class WorkspaceLayouts(QObject):
     ROOT = "workspace_layouts/v1"
     RAY_SPLITTERS = {"rayDiagramVerticalSplitter", "rayDiagramWorkspaceSplitter"}
+    TASK_PAGES = {"Instrument": "Physical Layout", "Alignment": "Ray Diagram",
+                  "Experiments": "Design Explorer", "Results": "Working Points"}
 
     def __init__(self, window, settings, menu):
         super().__init__(window)
@@ -154,6 +156,20 @@ class WorkspaceLayouts(QObject):
     def restore_active(self):
         if "default" not in self.entries():
             self.settings.setValue(self._key("default", "name"), "Default")
+        # Seed arrangements once; keep every existing named/active layout.
+        names = {name.casefold() for name in self.entries().values()}
+        for name, page in self.TASK_PAGES.items():
+            if name.casefold() in names:
+                continue
+            layout_id = "task_"+name.lower()
+            if layout_id in self.entries():
+                continue
+            data = deepcopy(self.defaults)
+            data["tabs"]["visualizationTabs"] = page
+            data["dock_visibility"] = {"instrumentDock": name != "Results",
+                                       "liveTuningDock": name == "Alignment"}
+            self.settings.setValue(self._key(layout_id, "name"), name)
+            self.settings.setValue(self._key(layout_id, "data"), data)
         selected = str(self.settings.value(f"{self.ROOT}/active", "default"))
         self.active_id = selected if selected in self.entries() else "default"
         saved = self.settings.value(self._key(self.active_id, "data"))
@@ -174,6 +190,12 @@ class WorkspaceLayouts(QObject):
                 value = data.get(field)
                 if isinstance(value, QByteArray) and not value.isEmpty():
                     restore(value)
+            for name, visible in data.get("dock_visibility", {}).items():
+                dock = self.window.findChild(QDockWidget, name)
+                if dock is not None and type(visible) is bool:
+                    dock.setVisible(visible)
+                    if visible:
+                        dock.raise_()
             toggles = data.get("toggles", {})
             for name, checked in (toggles.items() if isinstance(toggles, dict) else ()):
                 if name in self.toggles and isinstance(checked, bool):
@@ -272,7 +294,13 @@ class WorkspaceLayouts(QObject):
         self.menu.addAction("Save layout as...", self._ask_save_as)
 
     def reset_current(self):
-        self._apply(deepcopy(self.defaults))
+        data = deepcopy(self.defaults)
+        for name, page in self.TASK_PAGES.items():
+            if self.active_id == "task_"+name.lower():
+                data["tabs"]["visualizationTabs"] = page
+                data["dock_visibility"] = {"instrumentDock": name != "Results",
+                                           "liveTuningDock": name == "Alignment"}
+        self._apply(data)
         self.schedule_save()
 
     def close(self):

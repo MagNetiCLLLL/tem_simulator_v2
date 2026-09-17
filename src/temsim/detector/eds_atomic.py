@@ -11,6 +11,7 @@ from functools import lru_cache
 import json
 import math
 from pathlib import Path
+from temsim import input_io
 
 from temsim.paths import EDS_PHYSICS_CONFIG_ROOT
 
@@ -38,12 +39,12 @@ def _coefficient_path(path: Path | None = None) -> Path:
     return Path(path or (EDS_PHYSICS_CONFIG_ROOT / "bote_salvat.json"))
 
 
-@lru_cache(maxsize=1)
+@input_io.scoped_lru_cache(maxsize=8)
 def load_bote_salvat_coefficients(
     path: Path | None = None,
 ) -> dict[int, BoteElementData]:
     source = _coefficient_path(path)
-    with source.open("r", encoding="utf-8") as stream:
+    with input_io.open_input(source, "r", encoding="utf-8") as stream:
         raw = json.load(stream)
     result: dict[int, BoteElementData] = {}
     for key, row in raw.items():

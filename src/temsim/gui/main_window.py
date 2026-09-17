@@ -12,6 +12,7 @@ from temsim.gui.input_policy import (
 from pathlib import Path
 from dataclasses import replace
 from copy import copy
+from temsim import input_io
 
 import numpy as np
 
@@ -44,7 +45,6 @@ from temsim.calculation_cache import external_model_signature
 from temsim.cache_preferences import load_cache_preferences
 from temsim.design_explorer import (
     HighAccuracyRequest,
-    capture_design_snapshot,
 )
 from temsim.gui.assembly_panel import AssemblyPanel
 from temsim.gui.calculation_controller import (
@@ -134,6 +134,7 @@ class MainWindow(QMainWindow):
         self.workspace.tabs.addTab(self.working_points, "Working Points")
         self.working_points.current_snapshot = lambda: capture_instrument_snapshot(self.state)
         self.working_points.restore_requested.connect(self._restore_working_point)
+        self.working_points.illumination_requested.connect(self._preview_illumination_apply)
         self.working_points.undo_requested.connect(self._undo_alignment)
         self.working_points.error.connect(self._show_error)
         self.workspace.model_inspector.set_state(self.state)
@@ -185,6 +186,7 @@ class MainWindow(QMainWindow):
         )
 
         self.calculations = CalculationController(self)
+        self.calculations.pool.coordinator.register_retained(self, "_retained_job_roots")
         self._cache_settings = QSettings()
         self._cache_settings_dialog = None
         self._apply_cache_preferences(load_cache_preferences(self._cache_settings))
@@ -256,6 +258,7 @@ class MainWindow(QMainWindow):
         self.workspace.design_explorer.sweep_requested.connect(
             self._run_design_sweep
         )
+        self.workspace.design_explorer.sweep_resume_requested.connect(self._run_design_sweep)
         self.workspace.design_explorer.sweep_cancel_requested.connect(
             self.design_sweeps.cancel
         )
@@ -431,16 +434,30 @@ class MainWindow(QMainWindow):
         """Change retention only; never invalidate results or request a solve."""
         from temsim.physics.prepared_specimen_cache import configure_prepared_specimen_cache
         from temsim.specimen.display_cache import configure_sample_display_cache
+        from temsim.input_assets import INPUT_ASSETS
 
         self.calculations.configure_cache(**preferences.controller_kwargs())
         self.workspace.set_ray_display_cache_limit_bytes(preferences.ray_display_cache_budget_bytes)
         configure_prepared_specimen_cache(budget_bytes=preferences.prepared_specimen_cache_budget_bytes)
         configure_sample_display_cache(budget_bytes=preferences.sample_display_cache_budget_bytes)
+        INPUT_ASSETS.configure(preferences.input_asset_cache_budget_bytes)
+        self.calculations.pool.coordinator.configure(ram_budget_bytes=preferences.job_ram_budget_bytes)
+
+    def _retained_job_roots(self):
+        workspace = getattr(self, "workspace", None)
+        points = getattr(self, "working_points", None)
+        sweeps = getattr(self, "design_sweeps", None)
+        interactive = getattr(workspace, "interactive_calculation", None)
+        return (getattr(self, "state", None), getattr(points, "_points", None),
+                getattr(workspace, "_last_result", None), getattr(workspace, "_high_accuracy_result", None),
+                getattr(workspace, "_ray_display_cache", None), getattr(sweeps, "_cache", None),
+                getattr(getattr(interactive, "controller", None), "bank", None))
 
     def _show_cache_settings(self) -> None:
         from temsim.gui.cache_settings import CacheSettingsDialog
         from temsim.physics.prepared_specimen_cache import prepared_specimen_cache_info
         from temsim.specimen.display_cache import sample_display_cache_info
+        from temsim.input_assets import INPUT_ASSETS
 
         if self._cache_settings_dialog is None:
             self._cache_settings_dialog = CacheSettingsDialog(
@@ -450,6 +467,8 @@ class MainWindow(QMainWindow):
                     "ray_display": self.workspace.ray_display_cache_info(),
                     "prepared_specimen": prepared_specimen_cache_info(),
                     "sample_display": sample_display_cache_info(),
+                    "input_assets": INPUT_ASSETS.statistics(),
+                    "jobs": self.calculations.pool.coordinator.statistics(),
                 },
                 parent=self,
             )
@@ -579,6 +598,8 @@ class MainWindow(QMainWindow):
             "Shared ray and wave-optics preference. Auto uses CUDA for "
             "sufficiently large ray bundles and CuPy for sufficiently large "
             "multislice/FFT workloads; small jobs remain on CPU. "
+            "Prefer GPU reports CPU fallback; Require GPU rejects unavailable or unsupported accelerated stages. "
+            "Gun extraction/acceleration and other CPU-only preparation remain separate. "
             f"Ray CUDA: {cuda_status.detail}. Wave CUDA: {cupy_status.detail}."
         )
         self.compute_backend.currentIndexChanged.connect(
@@ -590,7 +611,20 @@ class MainWindow(QMainWindow):
         high_button.setObjectName("highAccuracyButton")
         high_button.clicked.connect(self.run_high_accuracy)
         toolbar.addWidget(high_button)
+        cancel_button = QPushButton("Cancel calculations")
+        cancel_button.setObjectName("cancelCapturedCalculations")
+        cancel_button.setToolTip("Cancel queued/running Preview and High calculations at safe boundaries. Completed working points and independent experiments remain available.")
+        cancel_button.clicked.connect(self._cancel_calculations)
+        toolbar.addWidget(cancel_button)
         self.addToolBar(toolbar)
+
+    def _cancel_calculations(self):
+        self.preview_timer.stop()
+        self._interactive_preview_pending = False
+        self._interactive_preview_generation = None
+        self.calculations.invalidate_pending(include_explicit=True)
+        self._set_progress_active("calculation", False)
+        self.status_label.setText("Calculation cancellation requested; previous complete results retained")
 
     def _open_calculate_setup(self):
         from temsim.gui.calculate_setup import CalculateSetupDialog
@@ -633,6 +667,7 @@ class MainWindow(QMainWindow):
             self._progress_owners.discard(str(owner))
         self.progress.setVisible(bool(self._progress_owners))
 
+    @input_io.using_state_inputs
     def _refresh_assembly_views(self) -> None:
         self.workspace.vacuum_map.set_state(self.state)
         self.workspace.physical_layout.set_cell_state(self.state)
@@ -769,26 +804,13 @@ class MainWindow(QMainWindow):
             self.high_rays.value(), self.high_step.value()
         )
         try:
-            plan = self.calculations.describe_high_accuracy_reuse(
-                self.state,
-                request.ray_count,
-                request.step_mm,
-                completed_summary=(
-                    self.workspace.high_accuracy_result_summary()
-                ),
-            )
-            snapshot = capture_design_snapshot(
-                self.state,
-                self.selection,
-                slot=slot,
-                request=request,
-                request_signatures=plan.request_signatures,
-            )
+            from temsim.gui.calculation_request import CapturedCalculationRequest
+            captured = CapturedCalculationRequest.capture(self.state, "High accuracy", request.ray_count, request.step_mm)
+            self.workspace.design_explorer.capture_in_background(captured, self.selection, slot)
         except (AttributeError, OSError, TypeError, ValueError) as exc:
             self._show_error(f"Could not capture design {slot}: {exc}")
             return
-        self.workspace.design_explorer.set_capture(snapshot)
-        self.status_label.setText(f"Design {snapshot.slot} captured")
+        self.status_label.setText(f"Design {slot} captured; complete input verification queued")
 
     def _live_tuning_visibility_requested(self, visible: bool) -> None:
         if visible:
@@ -852,30 +874,12 @@ class MainWindow(QMainWindow):
             self._preview_deferred_for_interactive = False
             self.preview_timer.start(0)
 
-    def _run_design_sweep(self, recipe, sweep, tolerance_rules=()) -> None:
+    def _run_design_sweep(self, recipe, sweep, tolerance_rules=(), resume=None) -> None:
         """Start detached High-accuracy points without editing live state."""
 
-        if (
-            self.workspace.interactive_calculation.busy
-            or
-            "calculation" in self._progress_owners
-            or self._direct_alignment_state_token is not None
-            or self._preset_state_token is not None
-        ):
-            self.workspace.design_explorer.set_sweep_error(
-                "Finish the current calculation or alignment first"
-            )
-            return
         try:
-            if (
-                not str(recipe.external_model_signature)
-                or external_model_signature(self.state)
-                != str(recipe.external_model_signature)
-            ):
-                raise ValueError(
-                    "Current CIF, selected assembly, or field map differs "
-                    "from this design capture; capture A/B again"
-                )
+            # Captured inputs are checked by the worker. Current live edits
+            # cannot redefine a detached experiment; shared jobs are queued.
             self.preview_timer.stop()
             self.design_sweeps.seed_completed_results(
                 self.calculations.completed_high_accuracy_results()
@@ -884,7 +888,9 @@ class MainWindow(QMainWindow):
                 recipe,
                 sweep,
                 tolerance_rules=tolerance_rules,
+                resume=resume,
             )
+            self.workspace.design_explorer.experiment_tools.bind_pending(recipe, sweep, tolerance_rules)
             self.status_label.setText(
                 f"Design sweep running: {len(sweep.points)} points"
             )
@@ -892,6 +898,13 @@ class MainWindow(QMainWindow):
             self.workspace.design_explorer.set_sweep_error(str(exc))
 
     def _design_sweep_ready(self, result, duration_s: float) -> None:
+        if (result.cancelled and not result.point_results
+                and self.workspace.design_explorer.experiment_tools.record is not None):
+            message = "Experiment cancelled before a point finished; previous complete results retained"
+            self.workspace.design_explorer.sweep_status.setText(message)
+            self.status_label.setText(message)
+            self.log_output.appendPlainText(message)
+            return
         self.workspace.design_explorer.set_sweep_result(result, duration_s)
         status = "cancelled" if result.cancelled else "completed"
         self.status_label.setText(
@@ -959,6 +972,7 @@ class MainWindow(QMainWindow):
         apply_physical_layout_to_state(state)
         return result
 
+    @input_io.using_state_inputs
     def _select_tree_item(self, selection) -> None:
         self._selected_component_key = selection.key
         runtime_target = self._runtime_targets.get(selection.key)
@@ -1118,6 +1132,7 @@ class MainWindow(QMainWindow):
             )
         return True
 
+    @input_io.using_state_inputs
     def _select_physical_component(self, key: str):
         """Synchronize geometry selection without opening another workspace."""
         cell_part = self.workspace.physical_layout.cell_part(key)
@@ -1330,6 +1345,7 @@ class MainWindow(QMainWindow):
         self._invalidate_operating_preset()
         self._install_working_point(candidate, None, fork=False)
         self._physical_revision += 1
+        self.workspace.result_readout.set_revision(self._physical_revision)
         from types import SimpleNamespace
         self.workspace.physical_layout.display_result(SimpleNamespace(
             assembly=self.assembly, layout=self.state._resolved_optics_layout,
@@ -1339,6 +1355,7 @@ class MainWindow(QMainWindow):
         self.log_output.appendPlainText(message)
         self.schedule_preview()
 
+    @input_io.using_state_inputs
     def load_assembly(self, selection) -> None:
         self._invalidate_direct_alignment()
         try:
@@ -1479,7 +1496,8 @@ class MainWindow(QMainWindow):
         self._set_progress_active("calculation", False)
         try:
             self._direct_alignment_state_token = capture_instrument_snapshot(self.state).digest
-            self.direct_alignments.submit(self.state, key, target, revision=self._physical_revision)
+            options = self.assembly_panel.direct_alignment_panel.constraint_options(key)
+            self.direct_alignments.submit(self.state, key, target, revision=self._physical_revision, options=options)
         except Exception as exc:
             self._direct_alignment_state_token = None
             self.assembly_panel.set_direct_alignment_busy(None)
@@ -1508,6 +1526,7 @@ class MainWindow(QMainWindow):
 
     def _direct_alignment_ready(self, key: str, candidate, duration: float) -> None:
         result = candidate.result
+        self.assembly_panel.direct_alignment_panel.show_validation(candidate)
         if candidate.checkpoint is not None:
             self.working_points.add_checkpoint(candidate.checkpoint, label="Candidate")
         if result.success:
@@ -1518,6 +1537,7 @@ class MainWindow(QMainWindow):
                     previous_checkpoint=self._active_working_checkpoint)
                 self._install_working_point(updated, candidate.checkpoint, fork=False)
                 self._physical_revision += 1
+                self.workspace.result_readout.set_revision(self._physical_revision)
             except Exception as exc:
                 self.state = previous
                 self._alignment_commits.reject_application(candidate.request.request_id)
@@ -1533,27 +1553,34 @@ class MainWindow(QMainWindow):
                 # gun calculation or publish it as a high-accuracy image.
                 self.workspace.display_result(candidate.ray_result, "Preview · transport validation")
                 self.workspace.show_ray_diagram()
+        elif key == "beam_centre_direction":
+            self.assembly_panel.set_direct_alignment_message(result.message, error=not result.success)
         else:
             self.assembly_panel.show_direct_alignment_result(result)
 
+    @input_io.using_state_inputs
     def _sync_working_point_selectors(self) -> None:
         """Display captured controls without emitting a new physical edit."""
         with (QSignalBlocker(self.assembly_panel.gun),
               QSignalBlocker(self.assembly_panel.column),
               QSignalBlocker(self.assembly_panel.beam_blanker),
               QSignalBlocker(self.compute_backend)):
-            self.assembly_panel.set_selection(self.selection)
+            if self.assembly_panel.catalog is not self.catalog:
+                self.assembly_panel.reload_catalog(self.catalog, self.selection)
+            else:
+                self.assembly_panel.set_selection(self.selection)
             self.compute_backend.setCurrentIndex(
                 self.compute_backend.findData(self.state.acceleration_backend)
             )
 
+    @input_io.using_state_inputs
     def _install_working_point(self, state, checkpoint, *, fork=False) -> None:
         """Replace physical state and checkpoint together; never apply presets."""
         from temsim.optics.electron_gun.source_policy import require_physical_gun_source
         require_physical_gun_source(state.electron_gun)
         previous = (self.state, self.assembly, self.selection,
                     getattr(self, "_active_working_checkpoint", None),
-                    getattr(self, "_working_point_parent", None))
+                    getattr(self, "_working_point_parent", None), self.catalog, self.manifest_editor)
         captured = capture_instrument_snapshot(state)
         try:
             assembly = getattr(state, "_resolved_assembly", None)
@@ -1562,6 +1589,8 @@ class MainWindow(QMainWindow):
             self.preview_timer.stop()
             self.calculations.invalidate_pending()
             self.state, self.assembly = state, assembly
+            self.catalog = AssemblyCatalog(root=assembly.root)
+            self.manifest_editor = ManifestEditor(root=assembly.root)
             self.selection = self.catalog.selection_for_resolved(assembly)
             self._active_working_checkpoint = checkpoint
             self._working_point_parent = checkpoint.digest if fork else None
@@ -1574,7 +1603,7 @@ class MainWindow(QMainWindow):
             self.workspace.mark_high_accuracy_stale()
         except Exception:
             (self.state, self.assembly, self.selection, self._active_working_checkpoint,
-             self._working_point_parent) = previous
+             self._working_point_parent, self.catalog, self.manifest_editor) = previous
             self._refresh_assembly_views()
             self._sync_working_point_selectors()
             raise
@@ -1590,13 +1619,43 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._show_error(f"Working point remains read-only: {exc}")
 
+    def _preview_illumination_apply(self, checkpoint) -> None:
+        from temsim.illumination_apply import prepare_illumination_patch
+        try:
+            patch = prepare_illumination_patch(self.state, checkpoint, revision=self._physical_revision)
+            if not patch.controls:
+                self.status_label.setText("Illumination controls already match; no changes applied")
+                return
+            dialog = QMessageBox(self)
+            dialog.setWindowTitle("Apply illumination controls")
+            dialog.setText(f"Apply {len(patch.controls)} declared illumination controls from {checkpoint.digest[:12]}?")
+            dialog.setInformativeText("Source, component insertion, objective lens, specimen, detectors and numerical settings remain captured from the current instrument. Recalculation is required.")
+            dialog.setDetailedText("\n".join(f"{key}.{name}: {old!r} -> {new!r}" for key, name, old, new in patch.controls))
+            dialog.setStandardButtons(QMessageBox.StandardButton.Apply | QMessageBox.StandardButton.Cancel)
+            dialog.setDefaultButton(QMessageBox.StandardButton.Cancel)
+            if dialog.exec() == QMessageBox.StandardButton.Apply:
+                self._apply_illumination_patch(patch)
+        except Exception as exc:
+            self._show_error(f"Illumination controls unchanged: {exc}")
+
+    def _apply_illumination_patch(self, patch) -> None:
+        try:
+            state = self._alignment_commits.apply_illumination(self.state, patch,
+                revision=self._physical_revision, previous_checkpoint=self._active_working_checkpoint)
+            self._install_working_point(state, None, fork=False)
+            self._invalidate_direct_alignment()
+            self.status_label.setText("Illumination controls applied; previous results retain their original inputs. Recalculation required.")
+        except Exception as exc:
+            self._alignment_commits.reject_application(patch.request_id)
+            self._show_error(f"Illumination controls unchanged: {exc}")
+
     def _undo_alignment(self) -> None:
         try:
             state, checkpoint = self._alignment_commits.peek_undo()
             self._invalidate_direct_alignment()
             self._install_working_point(state, checkpoint, fork=False)
             self._alignment_commits.finish_undo()
-            self.status_label.setText("Direct Alignment undone; original working point restored")
+            self.status_label.setText("Last apply undone; original working point restored")
         except Exception as exc:
             self._show_error(str(exc))
 
@@ -1795,6 +1854,7 @@ class MainWindow(QMainWindow):
 
     def _invalidate_direct_alignment(self) -> None:
         self._physical_revision += 1
+        self.workspace.result_readout.set_revision(self._physical_revision)
         self._invalidate_operating_preset()
         was_running = self._direct_alignment_state_token is not None
         self.direct_alignments.invalidate_pending()
@@ -1880,45 +1940,18 @@ class MainWindow(QMainWindow):
             self._interactive_preview_generation = self.calculations.generation
 
     def run_high_accuracy(self) -> None:
-        if self.workspace.interactive_calculation.busy:
-            self.status_label.setText("Finish or cancel the Live tuning bank operation first")
-            return
-        if self.design_sweeps.running:
-            self.status_label.setText(
-                "High-accuracy calculation deferred until the design sweep finishes"
-            )
-            return
-        if (
-            self._direct_alignment_state_token is not None
-            or self._preset_state_token is not None
-        ):
-            operation = (
-                "Direct Alignment" if self._direct_alignment_state_token is not None
-                else "the condenser preset"
-            )
-            self.status_label.setText(
-                f"High-accuracy calculation deferred until {operation} finishes"
-            )
-            return
+        # Shared admission queues this explicitly captured request behind any
+        # existing experiment/alignment without losing the user's submission.
         self.preview_timer.stop()
         self._interactive_preview_generation = None
         self._interactive_preview_pending = False
         try:
-            estimate = estimate_calculation_memory_bytes(
+            self.calculations.submit_background(
                 self.state,
                 "High accuracy",
                 self.high_rays.value(),
                 self.high_step.value(),
-            )
-            self.log_output.appendPlainText(
-                "High accuracy estimated peak memory: "
-                f"{format_memory_size(estimate)}."
-            )
-            self.calculations.submit(
-                self.state,
-                "High accuracy",
-                self.high_rays.value(),
-                self.high_step.value(),
+                parent_id=getattr(self, "_working_point_parent", None),
             )
         except ValueError as exc:
             from temsim.physics.source_admission import UnsupportedWaveSource
@@ -1928,7 +1961,7 @@ class MainWindow(QMainWindow):
             self._show_error(message)
 
     def _calculation_started(self, quality: str) -> None:
-        self.workspace.physical_layout.model_editor.set_calculation_status("running", f"{quality} calculation running for the saved instrument and active model.")
+        self.workspace.physical_layout.model_editor.set_calculation_status("running", f"{quality} submitted for captured settings; waiting or running in the shared queue.")
         if quality == "High accuracy":
             self.progress.setRange(0, 1)
             self.progress.setValue(0)
@@ -1940,7 +1973,7 @@ class MainWindow(QMainWindow):
             self.progress.setRange(0, 0)
             self.progress.setFormat(quality)
         self._set_progress_active("calculation", True)
-        self.status_label.setText(f"{quality} calculation running...")
+        self.status_label.setText(f"{quality} submitted for captured settings...")
 
     def _calculation_progress(
         self,
@@ -1965,11 +1998,20 @@ class MainWindow(QMainWindow):
         if quality not in ("Preview", "Medium") and getattr(result, "calculation_manifest", None) is not None:
             from temsim.working_point import WorkingPointCheckpoint
             try:
-                checkpoint = WorkingPointCheckpoint.from_result(result, parent_id=getattr(self, "_working_point_parent", None))
+                checkpoint = WorkingPointCheckpoint.from_result(result, parent_id=getattr(result, "working_point_parent_id", None))
                 self.working_points.add_checkpoint(checkpoint)
-                self._active_working_checkpoint = checkpoint
+                from temsim.calculation_cache import state_model_signature
+                if result.model_signature == state_model_signature(self.state):
+                    self._active_working_checkpoint = checkpoint
             except (ValueError, TypeError) as exc:
                 self.log_output.appendPlainText(f"Working-point checkpoint not published: {exc}")
+        if quality == "High accuracy":
+            from temsim.calculation_cache import state_model_signature
+            if getattr(result, "model_signature", "") != state_model_signature(self.state):
+                self.status_label.setText("High accuracy completed for captured earlier settings; retained in Working Points")
+                self.log_output.appendPlainText(f"Captured High accuracy completed in {duration:.3f} s; live settings and displayed results retained.")
+                self._schedule_design_explorer_refresh()
+                return
         self.workspace.display_result(result, quality)
         if quality in ("Preview", "Medium"):
             self.workspace.interactive_calculation.display_tuning_status(result)
@@ -1977,6 +2019,7 @@ class MainWindow(QMainWindow):
             newer_values_pending = (self._interactive_preview_pending
                                     or (page._live_mode and page.timer.isActive()))
             if self._interactive_preview_in_flight() and newer_values_pending:
+                self.workspace.result_readout.mark_stale("ray")
                 # This is a completed intermediate frame, not the latest lens
                 # setting. Never write its snapshot back into the live controls.
                 self.workspace.heading.setText(self.workspace.heading.text() + " | Updating")
@@ -2056,9 +2099,10 @@ class MainWindow(QMainWindow):
         self._schedule_design_explorer_refresh()
 
     def _calculation_finished(self, _quality: str) -> None:
-        self._set_progress_active("calculation", False)
+        self._set_progress_active("calculation", self.calculations.has_pending_requests)
         self._schedule_design_explorer_refresh()
-        self._interactive_preview_generation = None
+        if _quality in ("Preview", "Medium"):
+            self._interactive_preview_generation = None
         if self._interactive_preview_pending:
             self.preview_timer.start(0)
 
@@ -2115,6 +2159,9 @@ class MainWindow(QMainWindow):
         return plan, positions_m, float(report["probe_semiangle_mrad"]), chief_mrad
 
     def _review_df_geometry(self, frame):
+        if input_io.archive_payload(self.state) is not None:
+            self._show_error("Archived structure is read-only; restore a live input record before editing geometry")
+            return
         from temsim.physics.dark_field_geometry import propose_dark_field_geometry
 
         if self._df_geometry_dialog is not None:
@@ -2226,6 +2273,8 @@ class MainWindow(QMainWindow):
         self.assembly_panel.operating_mode_status.setToolTip(message)
 
     def _save_model_document(self, path, updates):
+        if input_io.archive_payload(self.state) is not None:
+            raise ValueError("Archived structure is read-only; restore a live input record before saving geometry")
         import os
         from temsim.shared_tip import catalog_definitions, dependencies, SHARED_FIELDS
         resolved = Path(path).resolve()
@@ -2352,6 +2401,10 @@ class MainWindow(QMainWindow):
         return dialog
 
     def _save_manifest_updates(self, target, updates, *, report_error=True) -> bool:
+        if input_io.archive_payload(self.state) is not None:
+            if report_error:
+                self._show_error("Archived structure is read-only; restore a live input record before saving geometry")
+            return False
         if not updates:
             self.status_label.setText("No TOML values changed")
             return True
@@ -2523,6 +2576,10 @@ class MainWindow(QMainWindow):
         self.resize(1500, 920)
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        if not self.working_points.shutdown():
+            self.working_points.status.setText("Waiting for sampling or archive verification to reach its cancellation boundary; close again when it finishes")
+            event.ignore()
+            return
         recorder = getattr(self, "_instrument_recorder", None)
         if recorder is not None and not recorder._shutdown and not recorder.close():
             recorder.show()
@@ -2533,16 +2590,25 @@ class MainWindow(QMainWindow):
             # Persist its layout even when the application closes first.
             self._configuration_dialog.reject()
         self.workspace_layouts.close()
-        self.workspace.interactive_calculation.shutdown()
-        self.workspace.model_inspector.validation_page.shutdown()
+        interactive_done = self.workspace.interactive_calculation.shutdown()
+        magnetic_done = self.workspace.model_inspector.validation_page.shutdown()
+        experiment_files_done = self.workspace.design_explorer.shutdown()
         settings = QSettings()
         settings.setValue(self.SETTINGS_GEOMETRY, self.saveGeometry())
         settings.setValue(self.SETTINGS_STATE, self.saveState())
         settings.setValue(self.SETTINGS_LIVE_TUNING_LAYOUT, self._live_tuning_layout_initialized)
-        self.calculations.invalidate_pending()
-        self.calculations.pool.waitForDone(3_000)
+        self.calculations.invalidate_pending(include_explicit=True)
+        calculations_done = self.calculations.pool.waitForDone(3_000)
         self.design_sweeps.invalidate_pending()
-        self.design_sweeps.pool.waitForDone(3_000)
+        sweeps_done = self.design_sweeps.pool.waitForDone(3_000)
         self.operating_presets.invalidate_pending()
-        self.operating_presets.pool.waitForDone(3_000)
+        presets_done = self.operating_presets.pool.waitForDone(3_000)
+        self.direct_alignments.invalidate_pending()
+        alignments_done = self.direct_alignments.pool.waitForDone(3_000)
+        if not all((calculations_done, sweeps_done, presets_done, alignments_done, interactive_done, magnetic_done, experiment_files_done)):
+            self.status_label.setText("Waiting for owned calculations to reach their cancellation boundary; close again when they finish")
+            event.ignore()
+            return
+        from temsim.physics.ray_device_cache import DEVICE_CACHE
+        DEVICE_CACHE.clear()
         super().closeEvent(event)

@@ -14,6 +14,7 @@ from functools import lru_cache
 from io import BytesIO
 import math
 from pathlib import Path
+from temsim import input_io
 
 import numpy as np
 from ase.data import atomic_masses, atomic_numbers, chemical_symbols
@@ -217,7 +218,7 @@ def read_cif_composition(cif_path) -> CIFComposition:
     """Read a small unit cell; cache by actual bytes so file edits cannot go stale."""
     path = Path(cif_path).expanduser().resolve()
     try:
-        contents = path.read_bytes()
+        contents = input_io.read_bytes(path)
     except OSError as exc:
         raise ValueError(f"CIF file cannot be read: {path}") from exc
     return _read_composition(str(path), contents)

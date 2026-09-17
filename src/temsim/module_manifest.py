@@ -5,6 +5,7 @@ import json
 import math
 import os
 from pathlib import Path
+from temsim import input_io
 import re
 import tempfile
 import tomllib
@@ -343,7 +344,7 @@ class PartGeometry:
 
 def read_document(path, *, capture_navigation=False):
     from temsim.shared_tip import resolve_document
-    with Path(path).open("rb") as stream:
+    with input_io.open_input(path) as stream:
         return resolve_document(tomllib.load(stream), path, capture_navigation=capture_navigation)
 
 

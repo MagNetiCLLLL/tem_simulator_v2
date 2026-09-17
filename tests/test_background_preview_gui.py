@@ -154,7 +154,20 @@ def test_rejected_surface_image_keeps_applied_source_and_previous_result(window,
     assert reopened.surface_coherent.isChecked() == coherent
 
 
-def test_live_edits_during_preparation_keep_one_frame_and_latest_pending(window, qtbot, monkeypatch):
+def test_high_toolbar_routes_to_background_without_foreground_memory_preparation(window, monkeypatch):
+    calls = []
+    window._working_point_parent = "captured-parent-fixture"
+    monkeypatch.setattr(window.calculations, "submit_background", lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(window.calculations, "submit", lambda *_: pytest.fail("Foreground High preparation"))
+    import temsim.gui.main_window as module
+    monkeypatch.setattr(module, "estimate_calculation_memory_bytes", lambda *_: pytest.fail("Heavy memory estimation belongs in preparation worker"))
+    window.run_high_accuracy()
+    assert len(calls) == 1 and calls[0][0][1] == "High accuracy"
+    assert calls[0][1] == {"parent_id": "captured-parent-fixture"}
+
+
+@pytest.mark.parametrize("dispatch_attempt", range(5))
+def test_live_edits_during_preparation_keep_one_frame_and_latest_pending(window, qtbot, monkeypatch, dispatch_attempt):
     from threading import Event
     from types import SimpleNamespace
     from PySide6.QtCore import QTimer
@@ -196,7 +209,13 @@ def test_live_edits_during_preparation_keep_one_frame_and_latest_pending(window,
         window._apply_interactive_tuning(((axis, 67.5),))
         window.preview_timer.stop()
         window.run_preview()
-        qtbot.waitUntil(entered.is_set, timeout=5000)
+        try:
+            qtbot.waitUntil(entered.is_set, timeout=5000)
+        except Exception as exc:
+            import faulthandler
+            faulthandler.dump_traceback()
+            coordinator = window.calculations.pool.coordinator
+            raise AssertionError(f"Preparation did not start: errors={errors}; resources={coordinator.statistics()}; jobs={list(coordinator.history)}") from exc
         generation = window.calculations.generation
         cancel_event = window.calculations._cancel_event
         assert window._interactive_preview_in_flight()

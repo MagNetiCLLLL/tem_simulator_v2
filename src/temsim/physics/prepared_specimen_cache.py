@@ -13,6 +13,7 @@ from dataclasses import replace
 from hashlib import sha256
 import json
 from pathlib import Path
+from temsim import input_io
 from threading import RLock
 from time import perf_counter
 
@@ -33,7 +34,7 @@ def content_identity(raw_path: str) -> tuple[str, str] | None:
     path = Path(raw_path).expanduser()
     try:
         digest = sha256()
-        with path.open("rb") as stream:
+        with input_io.open_input(path) as stream:
             for block in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(block)
         return str(path.resolve()), digest.hexdigest()
@@ -148,6 +149,10 @@ class PreparedSpecimenCache:
             self._generation += 1
             self._entries.clear()
             self._memory.clear()
+
+    def retained_roots(self):
+        with self._lock:
+            return tuple(self._entries.values())
             # Running callers still receive their result, but new requests do
             # not join a build begun before clear().
             self._inflight.clear()
@@ -252,6 +257,10 @@ def configure_prepared_specimen_cache(*, budget_bytes=None, max_entries=None):
 
 def prepared_specimen_cache_info():
     return _CACHE.info()
+
+
+def retained_prepared_specimen_roots():
+    return _CACHE.retained_roots()
 
 
 def clear_prepared_specimen_cache():

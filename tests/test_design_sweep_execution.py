@@ -234,7 +234,7 @@ def test_sweep_rejects_cif_content_drift_before_calculating(tmp_path):
     cif_path.write_text("data_changed\n", encoding="utf-8")
     called = []
 
-    with pytest.raises(ValueError, match="external model differs"):
+    with pytest.raises(ValueError, match="external model differs|Changed specimen:cif"):
         execute_parameter_sweep(
             recipe,
             sweep,
@@ -314,7 +314,7 @@ def test_sweep_rejects_assembly_toml_content_drift(tmp_path):
         encoding="utf-8",
     )
 
-    with pytest.raises(RuntimeError, match="external inputs changed"):
+    with pytest.raises(ValueError, match="Changed assembly:column"):
         execute_parameter_sweep(
             recipe,
             sweep,

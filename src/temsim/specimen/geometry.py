@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from pathlib import Path
+from temsim import input_io
 
 import numpy as np
 
@@ -343,7 +344,7 @@ def read_cif_preview(
     path = Path(cif_path).expanduser().resolve()
     # Always verify bytes before a hit: removed/replaced CIFs must not leave a
     # silently stale structural preview, even if filesystem timestamps match.
-    if not path.is_file():
+    if not input_io.is_file(path):
         raise ValueError(f"CIF file does not exist: {path}")
     if path.suffix.lower() not in {".cif", ".mcif"}:
         raise ValueError("Atomic specimen import requires a CIF or MCIF file.")
@@ -404,7 +405,7 @@ def _read_cif_preview_uncached(
     """
 
     path = Path(cif_path).expanduser().resolve()
-    if not path.is_file():
+    if not input_io.is_file(path):
         raise ValueError(f"CIF file does not exist: {path}")
     if path.suffix.lower() not in {".cif", ".mcif"}:
         raise ValueError("Atomic specimen import requires a CIF or MCIF file.")
@@ -531,6 +532,7 @@ def _read_cif_preview_uncached(
     )
 
 
+@input_io.using_state_inputs
 def build_sample_geometry_snapshot(
     sample,
     *,

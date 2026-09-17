@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 import math
 from numbers import Real
 from pathlib import Path
+from temsim import input_io
 from types import SimpleNamespace
 import tomllib
 
@@ -211,7 +212,7 @@ class ManifestEditor:
         # Validate catalog names, selection signatures, module paths/types,
         # and the one-to-one catalog/disk file set before enumerating builds.
         AssemblyCatalog(self.root)
-        with (self.root / "catalog.toml").open("rb") as stream:
+        with input_io.open_input(self.root / "catalog.toml") as stream:
             catalog = tomllib.load(stream)
         module_paths = {
             str(entry["file"])

@@ -6,13 +6,14 @@ from dataclasses import dataclass
 import math
 from typing import Mapping
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Qt
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QFormLayout,
     QGroupBox,
     QLabel,
     QPushButton,
+    QPlainTextEdit,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -90,6 +91,7 @@ class DirectAlignmentPanel(QWidget):
         self._selected_mode_keys: set[str] | None = None
         self._metrics: dict[str, object] = {}
         self._controls: dict[str, _AlignmentControl] = {}
+        self._joint_editors = {}
         self._busy_key: str | None = None
 
         introduction = QLabel(
@@ -142,6 +144,7 @@ class DirectAlignmentPanel(QWidget):
         self.result_status = QLabel("Select an active operating mode and target.")
         self.result_status.setObjectName("directAlignmentStatus")
         self.result_status.setWordWrap(True)
+        self.result_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.result_status.setStyleSheet("font-weight: 600;")
         # A short alias is convenient for callers and tests without creating a
         # second, potentially inconsistent status widget.
@@ -164,12 +167,20 @@ class DirectAlignmentPanel(QWidget):
         layout.addWidget(self.mode_status)
         layout.addWidget(scroll, 1)
         layout.addWidget(self.result_status)
+        self.validation_details = QPlainTextEdit()
+        self.validation_details.setObjectName("directAlignmentValidationDetails")
+        self.validation_details.setReadOnly(True)
+        self.validation_details.setMaximumHeight(145)
+        self.validation_details.setPlaceholderText("Candidate controls, constraints and forward evidence appear here.")
+        layout.addWidget(self.validation_details)
         self.cancel_button = QPushButton("Cancel alignment")
         self.cancel_button.setObjectName("cancelDirectAlignment")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self.cancellation_requested.emit)
         layout.addWidget(self.cancel_button)
-
+        from temsim.gui.beam_alignment import BeamAlignmentEditor
+        self.beam_alignment_editor = BeamAlignmentEditor()
+        self.beam_alignment_editor.requested.connect(self.adjustment_requested.emit)
         self.set_catalog(self._catalog)
 
     @property
@@ -185,9 +196,10 @@ class DirectAlignmentPanel(QWidget):
         while self._control_layout.count():
             item = self._control_layout.takeAt(0)
             widget = item.widget()
-            if widget is not None and widget is not self.projector_calibration_group:
+            if widget is not None and widget not in (self.projector_calibration_group, self.beam_alignment_editor):
                 widget.deleteLater()
         self._controls = {}
+        self._joint_editors = {}
 
         for definition in catalog.direct_alignments:
             # Retire this control even when opening an older external catalog.
@@ -195,6 +207,7 @@ class DirectAlignmentPanel(QWidget):
                 continue
             self._add_control(definition)
         self._control_layout.addWidget(self.projector_calibration_group)
+        self._control_layout.addWidget(self.beam_alignment_editor)
         self._control_layout.addStretch(1)
         self._update_mode_gating()
         self.update_metrics(self._metrics)
@@ -254,6 +267,11 @@ class DirectAlignmentPanel(QWidget):
         result.setWordWrap(True)
 
         form.addRow("Target", target)
+        if definition.key in {"nanoprobe_convergence", "microprobe_illumination"}:
+            from temsim.gui.alignment_constraints import AlignmentConstraintsEditor
+            editor = AlignmentConstraintsEditor(definition.devices)
+            self._joint_editors[definition.key] = editor
+            form.addRow(editor)
         form.addRow(apply_button)
         form.addRow(availability)
         form.addRow(current)
@@ -294,10 +312,26 @@ class DirectAlignmentPanel(QWidget):
         )
         self.adjustment_requested.emit(key, value)
 
+    def constraint_options(self, key):
+        if key == "beam_centre_direction":
+            return self.beam_alignment_editor.options()
+        editor = self._joint_editors.get(key)
+        return editor.options() if editor is not None else None
+
+    def show_validation(self, candidate):
+        import json
+        from temsim.immutable_json import thaw_json
+        details = thaw_json(candidate.validation)
+        snapshot = details.pop("candidate_snapshot", None)
+        if snapshot is not None:
+            details["candidate_snapshot_id"] = snapshot.get("digest")
+        self.validation_details.setPlainText(json.dumps(details, indent=2, allow_nan=False))
+
     def set_state(self, state, available_mode_keys=None) -> None:
         """Update mode gating from the applied microscope state."""
 
         self._state = state
+        self.beam_alignment_editor.set_state(state)
         self._available_mode_keys = (
             None
             if available_mode_keys is None
@@ -466,6 +500,7 @@ class DirectAlignmentPanel(QWidget):
                 )
 
     def set_busy(self, key: str | None) -> None:
+        self.beam_alignment_editor.set_busy(key is not None)
         """Disable all requests while one background solve is active."""
 
         self._busy_key = None if key is None else str(key)

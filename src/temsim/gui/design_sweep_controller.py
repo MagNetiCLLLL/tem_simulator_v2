@@ -32,6 +32,7 @@ class _SweepWorker(QRunnable):
         calculation_cache,
         tolerance_rules,
         cancel_event,
+        resume=None,
     ) -> None:
         super().__init__()
         self.generation = int(generation)
@@ -42,6 +43,7 @@ class _SweepWorker(QRunnable):
         self.calculation_cache = calculation_cache
         self.tolerance_rules = tuple(tolerance_rules)
         self.cancel_event = cancel_event
+        self.resume = resume
         self.signals = _SweepWorkerSignals()
 
     def run(self) -> None:
@@ -58,6 +60,7 @@ class _SweepWorker(QRunnable):
                     self.generation, row
                 ),
                 cancel_requested=self.cancel_event.is_set,
+                resume=self.resume,
             )
             self.signals.result.emit(
                 self.generation, result, perf_counter() - started
@@ -85,7 +88,8 @@ class DesignSweepController(QObject):
         artifact_store=None,
     ) -> None:
         super().__init__(parent)
-        self.pool = QThreadPool(self)
+        from temsim.gui.job_coordinator import CoordinatedPool
+        self.pool = CoordinatedPool(self)
         self.pool.setMaxThreadCount(1)
         self._catalog = catalog
         self._artifact_store = artifact_store
@@ -95,6 +99,10 @@ class DesignSweepController(QObject):
         self._cancel_event = Event()
         self._generation = 0
         self._running = False
+        self.pool.coordinator.register_retained(self, "retained_roots")
+
+    def retained_roots(self):
+        return self._cache
 
     @property
     def running(self) -> bool:
@@ -114,7 +122,7 @@ class DesignSweepController(QObject):
         for result in tuple(results):
             self._cache.put(result)
 
-    def submit(self, recipe, sweep, *, tolerance_rules=()) -> None:
+    def submit(self, recipe, sweep, *, tolerance_rules=(), resume=None) -> None:
         if self._running:
             raise RuntimeError("A design sweep is already running")
         self._generation += 1
@@ -130,7 +138,11 @@ class DesignSweepController(QObject):
             calculation_cache=self._cache,
             tolerance_rules=tuple(tolerance_rules),
             cancel_event=self._cancel_event,
+            resume=resume,
         )
+        from temsim.immutable_json import json_digest
+        worker.job_input_identity = json_digest(dict(recipe=recipe.digest, sweep=sweep, tolerances=tolerance_rules,
+            resume=resume.execution_identity if resume is not None else None))
         worker.signals.progress.connect(self._accept_progress)
         worker.signals.result.connect(self._accept_result)
         worker.signals.failed.connect(self._accept_failure)

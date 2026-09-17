@@ -1113,7 +1113,18 @@ class VisualizationWorkspace(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.tabs)
+        from temsim.gui.result_readout import ResultReadout
+        self.result_readout = ResultReadout(self)
+        layout.addWidget(self.result_readout)
+        # Large existing editors retain their minimum usable size, while a
+        # smaller window can still reach every control by scrolling. Keep the
+        # result identity/readout outside that scrolling region.
+        self.page_scroll = QScrollArea(self)
+        self.page_scroll.setObjectName("workspacePageScroll")
+        self.page_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.page_scroll.setWidgetResizable(True)
+        self.page_scroll.setWidget(self.tabs)
+        layout.addWidget(self.page_scroll, 1)
 
         self.component_centres.toggled.connect(self._redraw_last_result)
         self.crossovers.toggled.connect(self._redraw_last_result)
@@ -3923,6 +3934,7 @@ class VisualizationWorkspace(QWidget):
         # Geometry changes also preserve the user's view; Fit is explicit.
         preserve_ray_view = self._last_result is not None
         self._last_result = result
+        self.result_readout.publish(result, quality)
         from temsim.optics.electron_gun.tip_edit import tip_model_label
         captured_gun = getattr(getattr(result, "state_snapshot", None), "electron_gun", None)
         self.ray_source_status.setText(
@@ -3999,6 +4011,7 @@ class VisualizationWorkspace(QWidget):
             )
 
     def mark_ray_stale(self, state) -> None:
+        self.result_readout.mark_stale("ray")
         from temsim.optics.electron_gun.tip_edit import tip_model_label
         gun = state.electron_gun
         source = tip_model_label(gun) if gun.type_key == "cold_feg" else gun.display_name
@@ -4013,6 +4026,7 @@ class VisualizationWorkspace(QWidget):
         if self._high_accuracy_result is None or not self._high_accuracy_current:
             return
         self._high_accuracy_current = False
+        self.result_readout.mark_stale("high")
         self.energy_filter.mark_result_stale()
         self.eds_page.mark_result_stale()
         self.sample_interactions_3d.mark_result_stale()

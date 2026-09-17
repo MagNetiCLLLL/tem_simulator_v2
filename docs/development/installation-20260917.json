@@ -1,0 +1,11 @@
+{
+  "package": "C:\\Users\\mfbybxl2\\PycharmProjects\\tem_simulator_v2\\tmp\\report-installed-final\\temsim\\__init__.py",
+  "configs": "C:\\Users\\mfbybxl2\\PycharmProjects\\tem_simulator_v2\\tmp\\report-installed-final\\configs",
+  "python_files_match_source": true,
+  "main_window_constructed_and_closed": true,
+  "coherent_calculations_started": false,
+  "wheel": "tem_simulator_v2-0.1.0-py3-none-any.whl",
+  "wheel_sha256": "bdf91e2bf959bb37dce62e7eadb07cec365b239dc0df32ed6c72da01639ff548",
+  "wheel_bytes": 1913357,
+  "scope": "Isolated target install uses existing validated dependencies; no user installation replaced"
+}

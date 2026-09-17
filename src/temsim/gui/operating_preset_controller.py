@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from time import perf_counter
+from threading import Event
+from temsim import input_io
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
@@ -28,12 +30,15 @@ class _Worker(QRunnable):
         self.condenser_key = condenser_key
         self.projector_key = projector_key
         self.load_assembly = load_assembly
+        self.cancel_event = Event()
         self.signals = _Signals()
 
+    @input_io.using_state_inputs
     def run(self):
         started = perf_counter()
         try:
             state = self.state_type.from_dict(self.payload)
+            state._tuning_cancelled = self.cancel_event.is_set
             if self.load_assembly:
                 self.catalog.apply(state, self.selection)
             else:
@@ -63,6 +68,10 @@ class _Worker(QRunnable):
                     recording_name=self.selection.recording,
                 )
             apply_physical_layout_to_state(state, assembly_root=self.catalog.root)
+            if self.cancel_event.is_set():
+                return
+            if hasattr(state, "_tuning_cancelled"):
+                del state._tuning_cancelled
             self.signals.result.emit(
                 self.generation, state, self.selection, result,
                 perf_counter() - started,
@@ -80,7 +89,8 @@ class OperatingPresetController(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.pool = QThreadPool(self)
+        from temsim.gui.job_coordinator import CoordinatedPool
+        self.pool = CoordinatedPool(self)
         self.pool.setMaxThreadCount(1)
         self._generation = 0
 
@@ -91,12 +101,18 @@ class OperatingPresetController(QObject):
             self._generation, type(state), state.to_dict(), catalog, selection,
             condenser_key, projector_key, load_assembly,
         )
+        from temsim.immutable_json import json_digest
+        worker.job_input_identity = json_digest(dict(payload=worker.payload, selection=selection,
+            condenser=condenser_key, projector=projector_key, load_assembly=load_assembly))
+        self._active_cancel = worker.cancel_event
         worker.signals.result.connect(self._accept_result)
         worker.signals.error.connect(self._accept_error)
         worker.signals.finished.connect(self._accept_finished)
         self.pool.start(worker)
 
     def invalidate_pending(self):
+        if getattr(self, "_active_cancel", None) is not None:
+            self._active_cancel.set()
         self._generation += 1
         self.pool.clear()
 

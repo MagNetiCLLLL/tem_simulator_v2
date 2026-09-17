@@ -231,16 +231,5 @@ else:
 def cuda_rk4(*inputs):
     if cuda is None or _cuda_rk4_kernel is None:
         raise RuntimeError("Numba CUDA support is not importable")
-    ray_count = inputs[10].size
-    device_inputs = [cuda.to_device(value) for value in inputs]
-    outputs = [
-        cuda.device_array((inputs[16].size, ray_count), dtype=np.float32)
-        for _ in range(4)
-    ]
-    outputs.extend(
-        cuda.device_array((inputs[17].size, ray_count), dtype=np.float64)
-        for _ in range(4)
-    )
-    _cuda_rk4_kernel[(ray_count + 127) // 128, 128](*device_inputs, *outputs)
-    cuda.synchronize()
-    return tuple(output.copy_to_host() for output in outputs)
+    from temsim.physics.ray_device_cache import DEVICE_CACHE
+    return DEVICE_CACHE.execute(cuda, _cuda_rk4_kernel, inputs)

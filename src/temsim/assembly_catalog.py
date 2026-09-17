@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from temsim import input_io
 import tomllib
 
 from temsim import module_manifest
@@ -30,7 +31,7 @@ class AssemblySelection:
 class AssemblyCatalog:
     def __init__(self, root: Path = INSTRUMENT_CONFIG_ROOT) -> None:
         self.root = Path(root).resolve()
-        with (self.root / "catalog.toml").open("rb") as stream:
+        with input_io.open_input(self.root / "catalog.toml") as stream:
             document = tomllib.load(stream)
         self._validate_document(document)
         self.guns = self._options(document["gun_variants"])
@@ -116,7 +117,7 @@ class AssemblyCatalog:
                     raise ValueError(
                         f"Instrument module escapes catalog root: {relative}"
                     )
-                if not path.is_file():
+                if not input_io.is_file(path):
                     raise ValueError(
                         f"Instrument catalog module does not exist: {relative}"
                     )
@@ -152,7 +153,7 @@ class AssemblyCatalog:
             raise ValueError("Instrument catalog must expose a recording system")
         disk_files = {
             path.relative_to(self.root).as_posix()
-            for path in self.root.rglob("*.toml")
+            for path in input_io.input_paths(self.root, "*.toml", recursive=True)
             if path.name != "catalog.toml"
         }
         catalog_files = set(selected_files)

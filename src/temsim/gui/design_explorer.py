@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -47,6 +48,9 @@ from temsim.design_experiments import (
     recipe_from_snapshot,
 )
 from temsim.design_sweep_execution import SWEEP_METRICS
+from temsim.gui.experiment_tools import ExperimentTools
+from temsim.gui.input_policy import WheelSafeSpinBox
+from temsim.experiment_records import Perturbation, plan_robustness
 
 
 _STATUS_PRESENTATION = {
@@ -58,11 +62,32 @@ _STATUS_PRESENTATION = {
 _OFF_PRESENTATION = ("Off", "#94a3b8", "#1e293b")
 
 
+class _CapturedDesign:
+    """Small GUI capture; file hashing and portable serialization run in a worker."""
+    def __init__(self, request, selection, slot):
+        from uuid import uuid4
+        self.request, self.selection, self.slot = request, selection, slot
+        # Request ownership only, never a physical cache key. The worker derives
+        # the complete scientific identity without hashing bulk files on the UI.
+        self.digest = "design-capture-" + uuid4().hex
+
+    def load(self):
+        from temsim.instrument_snapshot import decode_instrument
+        from temsim.design_explorer import capture_design_snapshot, HighAccuracyRequest
+        state = decode_instrument(self.request._instrument_graph, assets=self.request._input_assets)
+        try:
+            return capture_design_snapshot(state, self.selection, slot=self.slot,
+                request=HighAccuracyRequest(self.request.ray_count, self.request.step_mm))
+        finally:
+            self.request._input_assets.close()
+
+
 class DesignExplorerPage(QWidget):
     """Show cache dependencies and compare two detached design captures."""
 
     capture_requested = Signal(str)
     sweep_requested = Signal(object, object, object)
+    sweep_resume_requested = Signal(object, object, object, object)
     sweep_cancel_requested = Signal()
     sweep_error = Signal(str)
 
@@ -71,6 +96,7 @@ class DesignExplorerPage(QWidget):
         self.setObjectName("designExplorerPage")
         self._snapshots: dict[str, DesignSnapshot] = {}
         self._history = StateHistory(limit=100)
+        self._capture_worker = None
 
         self.cache_summary = QLabel("No High accuracy cache")
         self.cache_summary.setObjectName("designCacheSummary")
@@ -234,6 +260,21 @@ class DesignExplorerPage(QWidget):
         axes_controls.addWidget(add_axis)
         axes_controls.addWidget(remove_axis)
         axes_controls.addStretch(1)
+        self.study_kind = QComboBox()
+        self.study_kind.addItems(("Cartesian values", "Declared normal perturbations"))
+        self.study_kind.setToolTip("For perturbations, enter exactly one standard deviation per control. Independent normal draws are not clipped; invalid points remain failed.")
+        self.study_samples = WheelSafeSpinBox()
+        self.study_samples.setRange(2, 64)
+        self.study_samples.setValue(16)
+        self.study_seed = WheelSafeSpinBox()
+        self.study_seed.setRange(0, 2147483647)
+        study_controls = QHBoxLayout()
+        study_controls.addWidget(self.study_kind)
+        study_controls.addWidget(QLabel("Perturbation samples"))
+        study_controls.addWidget(self.study_samples)
+        study_controls.addWidget(QLabel("Seed"))
+        study_controls.addWidget(self.study_seed)
+        study_controls.addStretch(1)
 
         self.tolerance_metric = QComboBox()
         self.tolerance_metric.setObjectName("designSweepToleranceMetric")
@@ -317,6 +358,7 @@ class DesignExplorerPage(QWidget):
         sweep_layout = QVBoxLayout(sweep_panel)
         sweep_layout.setContentsMargins(0, 0, 0, 0)
         sweep_layout.addLayout(sweep_controls)
+        sweep_layout.addLayout(study_controls)
         sweep_layout.addLayout(axes_controls)
         sweep_layout.addWidget(self.additional_axes)
         sweep_layout.addLayout(tolerance_controls)
@@ -325,7 +367,20 @@ class DesignExplorerPage(QWidget):
         sweep_info.addWidget(self.sweep_status, 1)
         sweep_info.addWidget(self.sweep_progress, 1)
         sweep_layout.addLayout(sweep_info)
-        sweep_layout.addWidget(sweep_tables, 1)
+        self.experiment_tools = ExperimentTools(self)
+        self.experiment_tools.pool.coordinator.register_retained(self, "retained_roots")
+        self.experiment_tools.resume_requested.connect(self.sweep_resume_requested.emit)
+        self.experiment_tools.record_loaded.connect(lambda record: self.set_sweep_result(record[2], 0.0))
+        self.experiment_tools.error.connect(self.sweep_error.emit)
+        result_tabs = QTabWidget()
+        result_tabs.addTab(sweep_tables, "Points / sensitivity")
+        result_tabs.addTab(self.experiment_tools, "Plots / saved experiments")
+        from temsim.gui.geometry_experiments import GeometryExperimentEditor
+        self.geometry_editor = GeometryExperimentEditor(self.recipe_for_slot, self)
+        self.geometry_editor.requested.connect(self.sweep_requested.emit)
+        self.geometry_editor.error.connect(self.sweep_error.emit)
+        result_tabs.addTab(self.geometry_editor, "Geometry candidates")
+        sweep_layout.addWidget(result_tabs, 1)
 
         self.vertical_splitter = QSplitter(Qt.Orientation.Vertical)
         self.vertical_splitter.setObjectName("designExplorerVerticalSplitter")
@@ -367,6 +422,46 @@ class DesignExplorerPage(QWidget):
         table.verticalHeader().hide()
         table.setSortingEnabled(False)
         return table
+
+    def capture_in_background(self, request, selection, slot):
+        from threading import Event
+        from temsim.gui.working_point_loader import ArchiveLoader
+        if self._capture_worker is not None:
+            request._input_assets.close()
+            raise ValueError("A design capture is already queued or running")
+        record = _CapturedDesign(request, selection, slot)
+        worker = ArchiveLoader(record, Event())
+        from temsim.gui.job_coordinator import ResourceClaim
+        worker.resource_claim = ResourceClaim(2 * 1024**3 + 6 * sum(len(value) for value in request._input_assets._items.values()))
+        self._capture_worker = worker
+        worker.signals.ready.connect(self._capture_ready)
+        worker.signals.failed.connect(self.sweep_error.emit)
+        worker.signals.finished.connect(self._capture_finished)
+        self.capture_a.setEnabled(False)
+        self.capture_b.setEnabled(False)
+        self.compare_summary.setText(f"Capturing {slot}: verifying complete inputs in the background")
+        self.experiment_tools.pool.start(worker)
+
+    @Slot(object)
+    def _capture_ready(self, snapshot):
+        if self._capture_worker is not None and not self._capture_worker.cancelled.is_set():
+            self.set_capture(snapshot)
+
+    @Slot()
+    def _capture_finished(self):
+        if self._capture_worker is not None:
+            self._capture_worker.record.request._input_assets.close()
+        self._capture_worker = None
+        self.capture_a.setEnabled(True)
+        self.capture_b.setEnabled(True)
+
+    def shutdown(self):
+        if self._capture_worker is not None:
+            self._capture_worker.cancelled.set()
+        return self.experiment_tools.shutdown()
+
+    def retained_roots(self):
+        return (self._snapshots, self._history)
 
     @property
     def snapshot_a(self) -> DesignSnapshot | None:
@@ -503,6 +598,8 @@ class DesignExplorerPage(QWidget):
         return evaluate_tolerances(metrics, rules)
 
     def clear_captures(self) -> None:
+        if self._capture_worker is not None:
+            self._capture_worker.cancelled.set()
         self._snapshots.clear()
         self._refresh_comparison()
 
@@ -522,7 +619,8 @@ class DesignExplorerPage(QWidget):
                 for value in self.sweep_values.text().split(",")
                 if value.strip()
             )
-            if len(values) < 2:
+            perturbations = self.study_kind.currentIndex() == 1
+            if len(values) < 2 and not perturbations:
                 raise ValueError("Enter at least two sweep values")
             axes = [SweepAxis(path, values, "%" if path.endswith(".percent") else "")]
             for row in range(self.additional_axes.rowCount()):
@@ -531,14 +629,16 @@ class DesignExplorerPage(QWidget):
                     raise ValueError(f"Complete parameter row {row + 2} or remove it")
                 extra_path = cells[0].text().strip()
                 extra_values = tuple(float(value.strip()) for value in cells[1].text().split(","))
-                if len(extra_values) < 2:
+                if len(extra_values) < 2 and not perturbations:
                     raise ValueError("Every parameter requires at least two values")
                 axes.append(SweepAxis(extra_path, extra_values, "%" if extra_path.endswith(".percent") else ""))
-            sweep = plan_parameter_sweep(
-                recipe,
-                tuple(axes),
-                maximum_points=64,
-            )
+            if perturbations:
+                if any(len(axis.values) != 1 for axis in axes):
+                    raise ValueError("For normal perturbations, enter exactly one positive standard deviation per control")
+                sweep = plan_robustness(recipe, [Perturbation(axis.path, axis.values[0], axis.unit) for axis in axes],
+                    samples=self.study_samples.value(), seed=self.study_seed.value())
+            else:
+                sweep = plan_parameter_sweep(recipe, tuple(axes), maximum_points=64)
             metric = str(self.tolerance_metric.currentData() or "")
             minimum_text = self.tolerance_minimum.text().strip()
             maximum_text = self.tolerance_maximum.text().strip()
@@ -559,6 +659,8 @@ class DesignExplorerPage(QWidget):
         self.sweep_requested.emit(recipe, sweep, tolerance_rules)
 
     def set_sweep_running(self, point_count: int) -> None:
+        self.experiment_tools.set_busy(True)
+        self.geometry_editor.run_button.setEnabled(False)
         self.run_sweep_button.setEnabled(False)
         self.cancel_sweep_button.setEnabled(True)
         self.sweep_progress.setRange(0, max(int(point_count), 1))
@@ -577,6 +679,7 @@ class DesignExplorerPage(QWidget):
         )
 
     def set_sweep_result(self, result, duration_s: float) -> None:
+        self.experiment_tools.accept_result(result)
         definitions = {
             row.key: row for row in result.metric_definitions
         }
@@ -600,6 +703,9 @@ class DesignExplorerPage(QWidget):
                 for key, value in point.metrics.items()
                 if key in definitions
             ]
+            metric_rows.append(f"Numerical status: {point.numerical_status}")
+            if point.status == "FAILED":
+                metric_rows.insert(0, f"FAILED: {point.failure_reason}")
             reuse = (
                 "Complete"
                 if point.complete_cache_hit
@@ -619,7 +725,7 @@ class DesignExplorerPage(QWidget):
                 else f"{failed_tolerances} failed"
             )
             display = (
-                str(point.point_index + 1),
+                f"{point.point_index + 1} · {point.status}",
                 coordinates,
                 "; ".join(metric_rows[:3]) or "No finite metric",
                 reuse,
@@ -685,6 +791,9 @@ class DesignExplorerPage(QWidget):
         self.sweep_status.setToolTip(str(message))
 
     def set_sweep_finished(self) -> None:
+        self.experiment_tools.set_busy(False)
+        self.geometry_editor.run_button.setEnabled(True)
+        self.experiment_tools.pending = None
         self.run_sweep_button.setEnabled(True)
         self.cancel_sweep_button.setEnabled(False)
 

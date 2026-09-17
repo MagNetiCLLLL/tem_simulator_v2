@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 from collections.abc import Mapping
 from typing import Iterable
+from temsim import input_io
 
 
 _SAMPLE_REGION_PREFIXES = ("sample_region_",)
@@ -336,14 +337,16 @@ def _file_content_identity(raw_path: object) -> dict[str, object] | None:
         return None
     path = Path(raw_path).expanduser()
     try:
-        data = path.read_bytes()
-        stat = path.stat()
+        from temsim.input_io import read_bytes
+        data = read_bytes(path)
     except OSError:
+        if input_io.active_archive() is not None:
+            raise
         return {"path": str(path), "available": False}
     return {
         "path": str(path.resolve()),
         "available": True,
-        "size": int(stat.st_size),
+        "size": len(data),
         "sha256": sha256(data).hexdigest(),
     }
 
@@ -509,8 +512,13 @@ def live_lens_parameters(lens) -> dict[str, object]:
             if field.name not in {"name", "label", "colour", "color"}}
 
 
+@input_io.using_state_inputs
 def _state_payload(state) -> dict[str, object]:
     payload = _drop_runtime_solver_state(state.to_dict())
+    from temsim.parameter_registry import unmapped_public_inputs
+    extensions = unmapped_public_inputs(state)
+    if extensions:
+        payload["_unmapped_public_inputs"] = dict(extensions)
     from temsim.optics.electron_gun.tracing import ANALYTIC_ENERGY_SCHEMA
     payload["_gun_analytic_energy_schema"] = ANALYTIC_ENERGY_SCHEMA
     if getattr(state, "vacuum_map", None) is not None and state.vacuum_map.enabled:

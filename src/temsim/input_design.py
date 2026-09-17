@@ -15,6 +15,19 @@ def restore_input_design(snapshot):
     from temsim.instrument_snapshot import decode_instrument
     from temsim.physics.illumination import illumination_config
 
+    if "archived_inputs" in snapshot.graph:
+        from temsim import input_io
+        from temsim.optics.electron_gun.source_policy import require_physical_gun_source
+        result = decode_instrument(snapshot.graph)
+        with input_io.input_scope(result, inherit=False):
+            for row in snapshot.external_inputs:
+                if sha256(input_io.read_bytes(row["path"])).hexdigest() != row["sha256"]:
+                    raise ValueError(f"Archived input changed: {row['role']}")
+            illumination_config(result)
+            result.electron_gun.validate()
+            require_physical_gun_source(result.electron_gun)
+        return result
+
     catalog = next((Path(row["path"]) for row in snapshot.external_inputs
                     if row["role"] == "assembly:catalog"), None)
     old_root = (catalog.parent.parent if catalog is not None

@@ -394,8 +394,11 @@ def test_controller_failure_and_cancel_preserve_previous_complete_bank(qtbot, mo
     def fail(*args, **kwargs):
         raise ValueError("test failure")
     monkeypatch.setattr(module, "build_bank", fail)
+    state = small_real_state()
+    control = next(c for c in available_controls(state) if c.field == "percent")
+    plan = InteractivePlan((CalculationRange(control, 10, 11, 2),), 100 * 1024**2)
     with qtbot.waitSignal(controller.failed):
-        controller.build(None, None)
+        controller.build(state, plan)
     qtbot.waitUntil(lambda: not controller.busy)
     assert controller.bank is old
     # Late result from a cancelled generation must not replace the bank.

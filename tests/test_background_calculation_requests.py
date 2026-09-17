@@ -245,12 +245,20 @@ def test_capture_failure_does_not_start_or_cancel_current_job(qtbot, monkeypatch
     assert events == []
 
 
-def test_background_api_preserves_high_accuracy_submission_contract(monkeypatch, state):
+def test_background_high_accuracy_captures_complete_inputs_before_worker(monkeypatch, state):
     controller = CalculationController(persistent_cache_enabled=False)
-    calls = []
-    monkeypatch.setattr(controller, "submit", lambda *args: calls.append(args))
-    controller.submit_background(state, "High accuracy", 15000, .1)
-    assert calls == [(state, "High accuracy", 15000, .1)]
+    workers = []
+    monkeypatch.setattr(controller.pool, "start", workers.append)
+    monkeypatch.setattr(controller, "submit", lambda *_: pytest.fail("High preparation must be off-thread"))
+    original = state.objective_lens.percent
+    controller.submit_background(state, "High accuracy", 9, 1.)
+    state.objective_lens.percent += 1
+    assert len(workers) == 1 and isinstance(workers[0], PreparationWorker)
+    prepared = workers[0].request.prepare(Event())
+    assert prepared.snapshot.objective_lens.percent == original
+    assert prepared.calculation_manifest is not None and prepared.memory_estimate > 0
+    assert prepared.calculation_manifest.instrument_snapshot.graph
+    controller.invalidate_pending()
 
 
 def test_cached_result_reentrant_submission_does_not_finish_new_job(qtbot, monkeypatch, state):

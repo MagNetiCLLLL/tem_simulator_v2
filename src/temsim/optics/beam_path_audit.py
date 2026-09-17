@@ -7,6 +7,7 @@ RMS or 95%-current DIAMETER, never an unlabeled mixture of radius and diameter.
 """
 from dataclasses import asdict, dataclass, replace
 import math
+from temsim import input_io
 
 import numpy as np
 
@@ -180,6 +181,7 @@ def gun_planes_coordinates(trace, planes_mm):
     return result, mask
 
 
+@input_io.using_state_inputs
 def incident_checkpoints(state, planes_mm, *, step_mm=.05):
     """Execute/reuse this state's gun and propagate through all incident optics.
 

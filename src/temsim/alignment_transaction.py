@@ -18,6 +18,7 @@ from temsim.immutable_json import freeze_json, json_digest
 from temsim.instrument_snapshot import capture_instrument_snapshot
 from temsim.operating_modes import direct_alignment_by_key
 from temsim.working_point import WorkingPointCheckpoint
+from temsim import input_io
 
 
 class AlignmentCancelled(RuntimeError):
@@ -41,11 +42,22 @@ class AlignmentRequest:
     target: float
     definition_id: str
     registry_digest: str
+    options: object | None = None
 
     @classmethod
-    def capture(cls, state, key, target, *, revision):
+    @input_io.using_state_inputs
+    def capture(cls, state, key, target, *, revision, options=None):
         from temsim.optics.electron_gun.source_policy import require_physical_gun_source
         require_physical_gun_source(state.electron_gun)
+        if key == "beam_centre_direction":
+            from temsim.beam_alignment import DEFINITION, BeamAlignmentOptions, capability
+            if not isinstance(options, BeamAlignmentOptions) or target != 0.:
+                raise ValueError("Beam alignment requires explicit centre/direction targets and numerical tolerances")
+            available, reason = capability(state)
+            if not available:
+                raise ValueError(reason)
+            return cls(str(uuid4()), capture_instrument_snapshot(state), int(revision), key, 0.,
+                       DEFINITION.definition_id, json_digest(asdict(DEFINITION)), options)
         from temsim.optics.direct_alignment import _mode_matches
         try:
             definition = direct_alignment_by_key(key)
@@ -60,8 +72,22 @@ class AlignmentRequest:
         lenses = {lens.key: lens for lens in state.lenses}
         if any(key not in lenses or not lenses[key].enabled for key in definition.devices):
             raise ValueError("A registered coupled lens is disabled or absent")
+        if options is not None:
+            from temsim.alignment_constraints import ConstrainedAlignment
+            if not isinstance(options, ConstrainedAlignment):
+                raise TypeError("Expected immutable joint alignment options")
+            if key not in {"nanoprobe_convergence", "microprobe_illumination"}:
+                raise ValueError("Joint incident constraints require a registered condenser target")
+            if not set(options.bounds) <= set(definition.devices):
+                raise ValueError("Joint search may vary only this target's registered physical lenses")
+            if state.vacuum_map.enabled:
+                raise ValueError("Joint incident alignment is unavailable with active vacuum scattering; its audit does not yet support that transport")
+            if options.check_topology:
+                from temsim.topology_evidence import topology_reference
+                if topology_reference(capture_instrument_snapshot(state))["status"] != "TARGET_ONLY":
+                    raise ValueError("No scoped crossover reference for this assembly and mode")
         return cls(str(uuid4()), capture_instrument_snapshot(state), int(revision), str(key), float(target),
-                   definition.definition_id, json_digest(asdict(definition)))
+                   definition.definition_id, json_digest(asdict(definition)), options)
 
 
 @dataclass(frozen=True)
@@ -80,7 +106,11 @@ class AlignmentCandidate:
         object.__setattr__(self, "validation", freeze_json(self.validation))
 
 
+@input_io.using_state_inputs
 def _allowed_state(request, strengths):
+    if request.key == "beam_centre_direction":
+        from temsim.beam_alignment import allowed_state
+        return allowed_state(request, strengths)
     definition = direct_alignment_by_key(request.key)
     if json_digest(asdict(definition)) != request.registry_digest:
         raise ValueError("Direct Alignment registry changed during the request")
@@ -89,8 +119,11 @@ def _allowed_state(request, strengths):
     state = request.start_snapshot.restore()
     lenses = {lens.key: lens for lens in state.lenses}
     for key, value in strengths.items():
-        if not math.isfinite(value) or not 0 <= value <= float(lenses[key].max_percent):
-            raise ValueError("Candidate raw control is outside the physical lens limit")
+        bounds = (0., float(lenses[key].max_percent))
+        if request.options is not None:
+            bounds = request.options.bounds.get(key, (lenses[key].percent, lenses[key].percent))
+        if not math.isfinite(value) or not bounds[0] <= value <= bounds[1]:
+            raise ValueError("Candidate raw control is outside the declared numerical search bounds")
         lenses[key].percent = float(value)
     return state
 
@@ -108,7 +141,14 @@ def _constraints_pass(definition, measured):
     return measured.diffraction_conjugacy_residual <= float(t["maximum_diffraction_conjugacy_residual"])
 
 
+@input_io.using_state_inputs
 def solve_alignment_candidate(request, *, cancelled=lambda: False):
+    if request.key == "beam_centre_direction":
+        from temsim.beam_alignment import solve_candidate
+        return solve_candidate(request, cancelled=cancelled)
+    if request.options is not None:
+        from temsim.alignment_constraints import solve_constrained_candidate
+        return solve_constrained_candidate(request, cancelled=cancelled)
     if request.key == "column_transport":
         from temsim.optics.transport_matching import solve_transport_candidate
         return solve_transport_candidate(request, cancelled=cancelled)
@@ -200,6 +240,12 @@ class AlignmentCommitGate:
             raise ValueError("Only a complete forward-validated candidate can be applied")
         if candidate.validation.get("status") != "PASS" or candidate.result.key != request.key:
             raise ValueError("Candidate validation does not match the request")
+        if request.options is not None:
+            if candidate.validation.get("options_id") != request.options.digest:
+                raise ValueError("Joint constraints changed after validation")
+            rows = candidate.validation.get("refinements", ())
+            if len(rows) != 3 or any(row.get("passed") is not True for row in rows):
+                raise ValueError("Joint alignment lacks complete independent forward checks")
         restored = _allowed_state(request, candidate.result.strengths)
         restored_snapshot = capture_instrument_snapshot(restored)
         if restored_snapshot.digest != candidate.validation["candidate_snapshot"]["digest"]:
@@ -218,6 +264,17 @@ class AlignmentCommitGate:
     def undo(self):
         restored, _ = self.peek_undo()
         self.finish_undo()
+        return restored
+
+    def apply_illumination(self, state, patch, *, revision, previous_checkpoint=None):
+        """Share the existing undo history without conferring alignment validation."""
+        from temsim.illumination_apply import IlluminationPatch
+        if not isinstance(patch, IlluminationPatch):
+            raise TypeError("Expected a declared illumination patch")
+        restored = patch.replacement(state, revision=revision)
+        if not patch.controls:
+            raise ValueError("No illumination control differences to apply")
+        self._undo.append((patch.request_id, patch.before, previous_checkpoint))
         return restored
 
     def peek_undo(self):

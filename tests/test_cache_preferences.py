@@ -169,9 +169,11 @@ def test_new_cache_budgets_persist_without_changing_physics(settings):
     assert cache.load_cache_preferences(settings, 64 * cache.GIB) == prefs
     assert prefs.managed_ram_budget_bytes == (
         prefs.high_cache_budget_bytes + prefs.tuning_cache_budget_bytes
-        + prefs.ray_display_cache_budget_bytes + 2 * cache.GIB + 256 * cache.MIB)
+        + prefs.ray_display_cache_budget_bytes + 2 * cache.GIB + 256 * cache.MIB
+        + prefs.input_asset_cache_budget_bytes)
     assert "prepared_specimen_cache_budget_bytes" not in prefs.controller_kwargs()
     assert "sample_display_cache_budget_bytes" not in prefs.controller_kwargs()
+    assert "input_asset_cache_budget_bytes" not in prefs.controller_kwargs()
 
 
 def test_dialog_displays_independent_specimen_cache_hit_rates(qtbot, monkeypatch, settings):

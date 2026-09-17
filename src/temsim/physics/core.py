@@ -14,6 +14,7 @@ history is downsampled to reduce memory pressure.
 import math
 from dataclasses import dataclass
 import hashlib
+from time import perf_counter
 import numpy as np
 from temsim.simulation_modes import is_ideal, mode_key
 
@@ -24,6 +25,7 @@ from temsim.physics.compute_backend import (
     BACKEND_CUDA,
     BACKEND_NUMBA,
     choose_ray_backend,
+    gpu_retry_reason, GPUExecutionError,
 )
 from temsim.physics.lens_field_provider import (
     runtime_axial_magnetic_field_t,
@@ -861,6 +863,24 @@ def execute_propagation_plan(
         cs_kick, thin_power, thin_rotation, step_m, *arrays, kickx, kicky,
         save, checkpoint_index,
     )
+    policy = str(getattr(state, "acceleration_backend", "Auto")).lower().replace(" ", "_")
+    workload = None
+    if medium_transport is None and not plan.mapped_fields and not getattr(state, "_optical_tuning", False):
+        from temsim.physics.ray_device_cache import STAGE_COSTS, measured_workload
+        workload = measured_workload(inputs)
+        if policy == "auto" and getattr(state, "acceleration_enabled", False):
+            from temsim.physics.compute_backend import cuda_capability
+            eligible = [BACKEND_CPU]
+            if NUMBA_AVAILABLE:
+                eligible.append(BACKEND_NUMBA)
+            if backend == BACKEND_CUDA or (BACKEND_CUDA in STAGE_COSTS.rows.get(workload, {}) and cuda_capability().available):
+                eligible.append(BACKEND_CUDA)
+            backend, measured_reason = STAGE_COSTS.choose(workload, eligible, backend)
+            fallback_reason = measured_reason or fallback_reason
+    transport_started = perf_counter()
+    retried = False
+    if policy == "require_gpu" and (medium_transport is not None or plan.mapped_fields):
+        raise GPUExecutionError("unsupported_stage", "Requested column transport requires the existing CPU vector-field or residual-medium solver")
     if medium_transport is not None and not plan.mapped_fields:
         outputs = _vectorised_rk4(*inputs, step_operator=medium_transport)
         backend, fallback_reason = BACKEND_CPU, "classical residual-medium collisions between optical steps"
@@ -884,8 +904,11 @@ def execute_propagation_plan(
         try:
             outputs = _cuda_rk4(*inputs)
         except Exception as exc:
+            # Input, physics and cancellation errors must keep their original
+            # meaning; only declared accelerator failures can use a CPU retry.
+            fallback_reason = gpu_retry_reason(exc, policy)
+            retried = True
             backend = BACKEND_NUMBA if NUMBA_AVAILABLE else BACKEND_CPU
-            fallback_reason = f"CUDA error: {exc}"
             outputs = (
                 _parallel_rk4(*inputs) if backend == BACKEND_NUMBA
                 else _vectorised_rk4(*inputs)
@@ -895,6 +918,11 @@ def execute_propagation_plan(
     else:
         outputs = _vectorised_rk4(*inputs)
     check_tuning_cancelled(state)
+    if workload is not None and not retried:
+        STAGE_COSTS.record(workload, backend, perf_counter() - transport_started)
+    if backend == BACKEND_CUDA:
+        from temsim.physics.ray_device_cache import last_device_receipt
+        state._last_ray_device_receipt = last_device_receipt()
     _record_active_backend(state, backend, fallback_reason)
     X,TX,Y,TY,CX,CTX,CY,CTY=outputs
     checkpoints = PropagationCheckpoints(

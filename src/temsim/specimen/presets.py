@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from temsim import input_io
 import tomllib
 
 from temsim.paths import SPECIMEN_CONFIG_ROOT
@@ -79,14 +80,14 @@ class SpecimenPreset:
 
 
 def _preset_paths() -> tuple[Path, ...]:
-    return tuple(sorted(PRESET_DIRECTORY.glob("*.toml")))
+    return tuple(sorted(input_io.input_paths(PRESET_DIRECTORY, "*.toml")))
 
 
-@lru_cache(maxsize=1)
+@input_io.scoped_lru_cache(maxsize=8)
 def _preset_index() -> dict[str, Path]:
     result: dict[str, Path] = {}
     for path in _preset_paths():
-        with path.open("rb") as stream:
+        with input_io.open_input(path) as stream:
             key = str(tomllib.load(stream).get("key", "")).strip()
         if not key:
             raise ValueError(f"Specimen preset {path} has no key.")
@@ -100,7 +101,7 @@ def available_specimen_presets() -> tuple[tuple[str, str], ...]:
     """Return ``(key, display name)`` pairs in file-name order."""
     items = []
     for key, path in _preset_index().items():
-        with path.open("rb") as stream:
+        with input_io.open_input(path) as stream:
             data = tomllib.load(stream)
         items.append((key, str(data.get("name", key))))
     return tuple(items)
@@ -110,7 +111,7 @@ def default_specimen_preset_key() -> str:
     """Read the single TOML preset marked as the application default."""
     defaults = []
     for key, path in _preset_index().items():
-        with path.open("rb") as stream:
+        with input_io.open_input(path) as stream:
             if bool(tomllib.load(stream).get("default", False)):
                 defaults.append(key)
     if len(defaults) != 1:
@@ -120,7 +121,7 @@ def default_specimen_preset_key() -> str:
     return defaults[0]
 
 
-@lru_cache(maxsize=None)
+@input_io.scoped_lru_cache(maxsize=128)
 def load_specimen_preset(key: str) -> SpecimenPreset:
     try:
         path = _preset_index()[str(key)]
@@ -129,7 +130,7 @@ def load_specimen_preset(key: str) -> SpecimenPreset:
         raise ValueError(
             f"Unknown specimen preset {key!r}; available presets: {choices}"
         ) from exc
-    with path.open("rb") as stream:
+    with input_io.open_input(path) as stream:
         data = tomllib.load(stream)
     cell = data.get("unit_cell", {})
     grid = data.get("grid", {})

@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+- Unclassified public model extensions now invalidate actual product cache keys
+  and survive Preview/High request capture. Added local sensitivity objectives,
+  retained completed prefixes on repeated cancellation, and separate checksummed
+  CSV/PNG provenance files to prevent same-name export collisions.
+- Extended detached experiments with complete instrument snapshots, explicit
+  normal perturbations, failed-point receipts, response plots, objective trade-offs,
+  save/resume and scalar/provenance exports. Geometry candidates use validated
+  independent TOML content, preserve operating controls, reject incompatible
+  active field maps, and optionally use the existing constrained alignment gate.
+  Experiment reconstruction no longer passes complete inputs through historical
+  profile migration, preserving source, vacuum and specimen orientation.
+- Added request-local portable model-input archives and background portable-copy
+  creation, shared FIFO job/resource admission, bounded CUDA plan/buffer retention,
+  observed-cost Auto selection, joint condenser constraints and physical two-plane
+  beam centre/direction alignment. CPU fixtures are not GPU hardware acceptance.
+- Added explicit working-point export content choices. Input-only derivatives
+  retain exact captured controls and their parent; metadata-only records omit
+  bulk assets and cannot apply, restore, migrate or compute. Summary/input export
+  does not load retained result arrays. Original dependency files remain required
+  unless the record declares a complete verified portable input archive.
+- Continued working-point usability with compatibility-checked illumination-only
+  apply/undo, lazy archive payload verification, input migration and attached
+  scalar evidence. Added independent position/direction/conditional-energy
+  sampling and opt-in executed crossover comparisons with separate Microprobe
+  and Nanoprobe interval targets. Grounded-gun mesh axes require an active model.
+- Added pinned immutable input assets and background preparation for High
+  accuracy; input-asset cache retention is separately configurable. Local
+  serialization measurements are recorded without an end-to-end speed claim.
+  Added existing-page task layouts and retained-result-specific compact readouts.
+  Remaining physical/hardware acceptance is listed in the progress receipt.
+- Added explicit GPU preference/requirement choices for ray-stage execution and
+  restricted CPU retries to identified accelerator failures. Invalid model/input
+  errors retain their meaning. Real CUDA acceptance remains hardware-dependent;
+  coherent production image admission stays closed.
+
+- Started the product-usability development guide in the current classical
+  particle scope. Working points now retain exact integration coordinates,
+  expose a filterable evidence-aware table, save full input candidates and
+  compare frozen A/B records without modifying the instrument. Numerical
+  presets, execution, pair checks and physical qualification stay distinct.
+- Added weighted sampling diagnostics and a cancellable, detached two-run
+  incident convergence assistant for gun step, column step and joint emission
+  sample count. Reports preserve input identities and fixed tolerances; empty
+  or under-resolved samples remain unresolved. This was the first bounded slice;
+  the continuation above supersedes its independent-axis and crossover backlog.
+- Added a bounded CPU benchmark with separate nested timing receipts. Coherent
+  wave development remains paused and production source/optical defaults remain
+  unchanged. See `docs/development/PRODUCT_USABILITY_PROGRESS.md` for scope and
+  measured validation, including historical versus current evidence.
+
 - Connected physical AC/Descan coil laws to each mode's axial arrival time,
   streamed raster/dwell execution, and existing-material conditional inelastic
   waves that continue through subsequent specimen/column optics at their new

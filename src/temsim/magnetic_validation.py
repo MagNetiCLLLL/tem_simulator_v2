@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass, replace
 from functools import lru_cache
 import json
 import math
+from temsim import input_io
 from types import SimpleNamespace
 
 import numpy as np
@@ -124,6 +125,7 @@ class ValidationCache:
             self._reports.popitem(last=False)
 
 
+@input_io.using_state_inputs
 def input_signature(state, key, options):
     from temsim.physics.axisymmetric_magnetostatics import SOLVER_VERSION
     from temsim.physics.lens_field_provider import _GEOMETRY_ATTRIBUTES, _FIELD_STRUCTURE_PROFILES
@@ -385,6 +387,7 @@ def make_scene(problems, details):
     return MagneticScene(*map(_immutable, (r, z, np.linalg.norm(field, axis=-1), flux, regions)), bounds)
 
 
+@input_io.using_state_inputs
 def run_validation(snapshot, key, options=ValidationOptions(), *, progress=None, cancelled=None):
     options.validate()
     signature = input_signature(snapshot, key, options)

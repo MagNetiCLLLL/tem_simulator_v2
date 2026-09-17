@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import itertools
 import math
@@ -25,8 +25,8 @@ from temsim.immutable_json import (
 )
 
 
-DESIGN_RECIPE_SCHEMA_VERSION = 2
-_SUPPORTED_RECIPE_SCHEMAS = frozenset({1, DESIGN_RECIPE_SCHEMA_VERSION})
+DESIGN_RECIPE_SCHEMA_VERSION = 3
+_SUPPORTED_RECIPE_SCHEMAS = frozenset({1, 2, DESIGN_RECIPE_SCHEMA_VERSION})
 _PATH_TOKEN = re.compile(r"(?P<name>[^.\[\]]+)(?:\[(?P<selector>[^\]]+)\])?")
 
 # A design sweep changes operating controls only.  In particular it must not
@@ -271,6 +271,10 @@ def validate_runtime_sweep_path(
         and parsed[-1][0] in _GUN_RUNTIME_SWEEP_FIELDS
     ):
         allowed = True
+    from temsim.parameter_registry import registered_sweep_eligibility
+    registered = registered_sweep_eligibility(parsed)
+    if registered is not None:
+        allowed = registered
     if not allowed:
         raise ValueError(
             f"Parameter {normalized!r} is not an allowed runtime sweep "
@@ -313,6 +317,7 @@ class DesignRecipe:
     edits: tuple[ParameterEdit, ...] = ()
     parent_digest: str = ""
     schema_version: int = DESIGN_RECIPE_SCHEMA_VERSION
+    instrument_snapshot: Mapping | None = None
 
     def __post_init__(self) -> None:
         if int(self.schema_version) not in _SUPPORTED_RECIPE_SCHEMAS:
@@ -342,6 +347,8 @@ class DesignRecipe:
             )
         object.__setattr__(self, "external_inputs", external_inputs)
         object.__setattr__(self, "edits", tuple(self.edits))
+        if self.instrument_snapshot is not None:
+            object.__setattr__(self, "instrument_snapshot", freeze_json(self.instrument_snapshot))
 
     @property
     def state_payload(self) -> Mapping[str, object]:
@@ -366,6 +373,8 @@ class DesignRecipe:
                 "external_model_signature": self.external_model_signature,
                 "external_inputs": self.external_inputs,
             })
+        if int(self.schema_version) >= 3:
+            identity["instrument_snapshot"] = self.instrument_snapshot
         return json_digest(identity)
 
     def with_edits(
@@ -385,6 +394,7 @@ class DesignRecipe:
             edits=tuple(edits),
             parent_digest=self.digest,
             schema_version=self.schema_version,
+            instrument_snapshot=self.instrument_snapshot,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -414,6 +424,8 @@ class DesignRecipe:
                     for row in self.external_inputs
                 ],
             })
+        if int(self.schema_version) >= 3:
+            document["instrument_snapshot"] = thaw_json(self.instrument_snapshot) if self.instrument_snapshot is not None else None
         return document
 
 
@@ -433,6 +445,7 @@ def recipe_from_snapshot(
             getattr(snapshot, "external_model_signature", "")
         ),
         external_inputs=tuple(getattr(snapshot, "external_inputs", ())),
+        instrument_snapshot=snapshot.instrument_snapshot,
     )
 
 
@@ -460,6 +473,10 @@ def load_recipe(path: str | Path) -> DesignRecipe:
     import json
 
     document = json.loads(Path(path).read_text(encoding="utf-8"))
+    return recipe_from_dict(document)
+
+
+def recipe_from_dict(document) -> DesignRecipe:
     if not isinstance(document, dict):
         raise ValueError("Design recipe must be a JSON object")
     request = document.get("request", {})
@@ -498,6 +515,7 @@ def load_recipe(path: str | Path) -> DesignRecipe:
         edits=edits,
         parent_digest=str(document.get("parent_digest", "")),
         schema_version=int(document.get("schema_version", 0)),
+        instrument_snapshot=document.get("instrument_snapshot"),
     )
     expected = str(document.get("digest", ""))
     if expected and expected != recipe.digest:
@@ -584,6 +602,11 @@ class ParameterSweep:
     recipe_digest: str
     axes: tuple[SweepAxis, ...]
     points: tuple[SweepPoint, ...]
+    kind: str = "cartesian"
+    assumptions: Mapping = field(default_factory=dict)
+
+    def __post_init__(self):
+        object.__setattr__(self, "assumptions", freeze_json(self.assumptions))
 
 
 def plan_parameter_sweep(

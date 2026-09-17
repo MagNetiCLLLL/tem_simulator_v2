@@ -2,6 +2,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from time import perf_counter
+from temsim import input_io
 
 from temsim.calculation_cache import calculation_signatures, matching_products
 from temsim.calculation_manifest import (
@@ -82,6 +83,7 @@ class CalculationResult:
     performance: dict[str, object] = field(default_factory=dict)
     external_inputs: tuple[ExternalInputIdentity, ...] | None = None
     calculation_manifest: object | None = None
+    working_point_parent_id: str | None = None
 
 
 def aperture_stop_records(state) -> tuple[dict[str, object], ...]:
@@ -244,6 +246,7 @@ def _eds_point_requested(state) -> bool:
     )
 
 
+@input_io.using_state_inputs
 def calculate_stem_scan_frame(
     state,
     simulation,
@@ -304,6 +307,7 @@ def _rebind_reused_sample_region(
     )
 
 
+@input_io.using_state_inputs
 def calculate(
     state,
     *,
@@ -927,6 +931,7 @@ def calculate(
         "pipeline_seconds": max(0.0, progress.stage_started_at - calculation_started),
         "stages": tuple(progress.timings),
         "timing_scope": "Current pipeline call; excludes GUI drawing and worker setup",
+        "last_cuda_column_execution": getattr(state, "_last_ray_device_receipt", None),
     }
     assert_external_input_inventory_unchanged(state, external_inputs)
     return result

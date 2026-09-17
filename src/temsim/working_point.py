@@ -6,6 +6,7 @@ Packages contain plain JSON and numeric NPY arrays, never executable pickle.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from hashlib import sha256
 from io import BytesIO
 import json
@@ -70,6 +71,7 @@ class CheckpointObservables:
     def __init__(self, checkpoint):
         self._checkpoint = checkpoint
         self._wave_beam = None
+        self._ray_records = None
 
     def get(self, observable_id: str) -> ObservableRecord:
         cp = self._checkpoint
@@ -98,7 +100,9 @@ class CheckpointObservables:
         a = cp.arrays
         planes = PropagationCheckpoints(np.array([cp.plane_z_mm]),
             a["x_m"][None], a["tx_rad"][None], a["y_m"][None], a["ty_rad"][None])
-        row = incident_checkpoint_observables(planes, alive=a["alive"], weights=a["weight"])["records"][observable_id]
+        if self._ray_records is None:
+            self._ray_records = incident_checkpoint_observables(planes, alive=a["alive"], weights=a["weight"])["records"]
+        row = self._ray_records[observable_id]
         if row["definition_id"] != definition["definition_id"]:
             raise ValueError("Observable estimator definition does not match the registry")
         return ObservableRecord(observable_id, row["value"], row["unit"], row["definition_id"],
@@ -133,11 +137,11 @@ class WorkingPointCheckpoint:
     def plane_id(self):
         return "column-z-mm:" + float(self.plane_z_mm).hex()
 
-    @property
+    @cached_property
     def payload_hash(self):
         return json_digest({k: _array_identity(v) for k, v in self.arrays.items()})
 
-    @property
+    @cached_property
     def digest(self):
         return json_digest({"snapshot": self.snapshot.digest, "plane": self.plane_id,
                             "signature": self.stage_signature, "payload": self.payload_hash,
@@ -157,14 +161,26 @@ class WorkingPointCheckpoint:
         gun = getattr(simulation, "gun_trace", None)
         if gun is None:
             raise ValueError("No retained gun execution accompanies this result")
-        arrays = {name: np.asarray(getattr(incident, field)[-1]) for name, field in
-                  (("x_m", "x"), ("y_m", "y"), ("tx_rad", "tx"), ("ty_rad", "ty"))}
+        from temsim.instrument_snapshot import decode_instrument
+        from temsim.physics.beam_current import effective_source_current_a
+        captured = decode_instrument(manifest.instrument_snapshot.graph)
+        exact = getattr(simulation, "incident_checkpoints", None)
+        plane = float(captured.sample.z_mm)
+        matches = np.flatnonzero(np.asarray(exact.z_mm) == plane) if exact is not None else []
+        if len(matches) != 1:
+            raise ValueError("No unique full-precision incident checkpoint at the result plane; display history is not a scientific checkpoint")
+        arrays = {name: np.asarray(getattr(exact, name)[matches[0]])
+                  for name in ("x_m", "y_m", "tx_rad", "ty_rad")}
         arrays.update(weight=incident.ray_weight, alive=incident.alive,
                       energy_offset_ev=incident.energy_offset_ev,
                       gun_ray_id=gun.exit_bundle.ray_id)
-        return cls(manifest.instrument_snapshot, arrays, float(incident.z[-1]),
+        return cls(manifest.instrument_snapshot, arrays, plane,
                    str(result.signatures["incident"]),
-                   {"source_representation": "gun-derived-particles", "quality": "High accuracy",
+                   {"source_representation": "gun-derived-particles",
+                    "quality": getattr(captured, "_tuning_quality", "Configured numerical settings"),
+                    "source_current_a": effective_source_current_a(captured),
+                    "created_at_utc": manifest.created_at_utc,
+                    "coordinate_precision": "exact-integration-checkpoint",
                     "phase_status": "NOT_COMPUTED", "validation_status": "NOT_RUN",
                     "manifest_id": manifest.digest, "solver": manifest.solver.source_digest}, parent_id)
 
@@ -195,6 +211,8 @@ class WorkingPointCheckpoint:
 
     def compatible_state(self):
         """Explicit full restore; never called for table/observable display."""
+        if self.is_metadata_only:
+            raise ValueError("Metadata-only record: input assets and results are absent; restoration is unavailable")
         if self.is_input_design:
             # No old transport is accepted. Every observable requires execution
             # with the current solver; the archived identity is not relabelled.
@@ -206,7 +224,19 @@ class WorkingPointCheckpoint:
     def is_input_design(self):
         return self.metadata.get("package_kind") == "INSTRUMENT_INPUTS_ONLY" and not self.arrays
 
-    def write_package(self, path, *, overwrite=False):
+    @property
+    def is_metadata_only(self):
+        from temsim.working_point_export import METADATA_SCHEMA
+        return self.metadata.get("package_kind") == "METADATA_ONLY" or self.snapshot.graph.get("schema") == METADATA_SCHEMA
+
+    @property
+    def has_retained_payload(self):
+        return bool(self.arrays)
+
+    def write_package(self, path, *, overwrite=False, evidence=(), mode=None):
+        if mode is not None:
+            from temsim.working_point_export import export_checkpoint
+            self = export_checkpoint(self, mode)
         path = Path(path)
         if path.exists() and not overwrite:
             raise FileExistsError("Working-point export already exists")
@@ -214,6 +244,9 @@ class WorkingPointCheckpoint:
                     "plane_z_mm": self.plane_z_mm, "stage_signature": self.stage_signature,
                     "metadata": thaw_json(self.metadata), "parent_id": self.parent_id,
                     "arrays": {}, "digest": self.digest}
+        from temsim.sampling_diagnostics import checkpoint_sampling_summary
+        document["index_summary"] = thaw_json(checkpoint_sampling_summary(self))
+        document["evidence"] = thaw_json(freeze_json(evidence))
         with NamedTemporaryFile(dir=path.parent, prefix=".working-point-", suffix=".tmp", delete=False) as stream:
             temporary = Path(stream.name)
         try:
@@ -233,26 +266,46 @@ class WorkingPointCheckpoint:
 
     @classmethod
     def read_package(cls, path, *, maximum_unpacked_bytes=8*1024**3):
+        from temsim.working_point_archive import read_manifest, read_numeric_entry
         with ZipFile(path) as archive:
-            entries = archive.infolist()
-            if len({entry.filename for entry in entries}) != len(entries):
-                raise ValueError("Duplicate package entries")
-            if sum(entry.file_size for entry in entries) > maximum_unpacked_bytes:
-                raise ValueError("Working-point package exceeds the declared memory budget")
-            data = json.loads(archive.read("manifest.json"))
-            if data["schema"] != PACKAGE_SCHEMA:
-                raise ValueError("Unsupported working-point package")
+            data, snapshot = read_manifest(archive, maximum_unpacked_bytes=maximum_unpacked_bytes)
             arrays = {}
             for key, record in data["arrays"].items():
-                value = np.load(BytesIO(archive.read(record["entry"])), allow_pickle=False)
+                value = read_numeric_entry(archive, record, maximum_unpacked_bytes=maximum_unpacked_bytes)
                 if _array_identity(value) != {k: record[k] for k in ("shape", "dtype", "sha256")}:
                     raise ValueError("Working-point numeric content checksum mismatch")
                 arrays[key] = value
-        result = cls(InstrumentSnapshot.from_dict(data["snapshot"]), arrays, data["plane_z_mm"],
+        result = cls(snapshot, arrays, data["plane_z_mm"],
                      data["stage_signature"], data["metadata"], data["parent_id"])
         if result.digest != data["digest"]:
             raise ValueError("Working-point package checksum mismatch")
         return result
+
+
+def migrate_working_point_inputs(checkpoint):
+    """Explicitly create current input-only identity; retain the old record."""
+    from datetime import datetime, timezone
+    from temsim.input_design import restore_input_design
+    from temsim.instrument_snapshot import capture_instrument_snapshot
+    from temsim.optics.electron_gun.source_policy import require_physical_gun_source
+    state = restore_input_design(checkpoint.snapshot)
+    require_physical_gun_source(state.electron_gun)
+    from temsim import input_io
+    if input_io.archive_payload(state) is not None:
+        archive = thaw_json(input_io.archive_payload(state))
+        archive["runtime"] = thaw_json(input_io.runtime_identity())
+        archive["digest"] = json_digest({key: value for key, value in archive.items() if key != "digest"})
+        input_io.bind_archive(state, archive)
+    snapshot = capture_instrument_snapshot(state)
+    return WorkingPointCheckpoint(snapshot, {}, checkpoint.plane_z_mm, snapshot.physical_digest,
+        {"package_kind": "INSTRUMENT_INPUTS_ONLY", "validation_status": "NOT_RUN",
+         "created_at_utc": datetime.now(timezone.utc).isoformat(), "source_representation": "captured-inputs-only",
+         "migration": "Explicit input migration; all historical results and qualifications stay with the parent",
+         "input_changes": snapshot_changes(checkpoint.snapshot, snapshot)}, checkpoint.digest)
+
+
+# This adapter uses the existing package manifest and deferred NPY products.
+from temsim.working_point_archive import WorkingPointArchiveIndex
 
 
 def component_rows(snapshot: InstrumentSnapshot):

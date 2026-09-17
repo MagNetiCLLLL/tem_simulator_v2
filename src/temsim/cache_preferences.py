@@ -64,13 +64,15 @@ class CachePreferences:
     tuning_cache_limit: int = 128
     prepared_specimen_cache_budget_bytes: int = 256 * MIB
     sample_display_cache_budget_bytes: int = 128 * MIB
+    input_asset_cache_budget_bytes: int = 256 * MIB
+    job_ram_budget_bytes: int = 40 * GIB
 
     @property
     def managed_ram_budget_bytes(self) -> int:
         return (self.high_cache_budget_bytes + self.tuning_cache_budget_bytes
                 + self.ray_display_cache_budget_bytes
                 + self.prepared_specimen_cache_budget_bytes
-                + self.sample_display_cache_budget_bytes)
+                + self.sample_display_cache_budget_bytes + self.input_asset_cache_budget_bytes)
 
     def controller_kwargs(self) -> dict[str, int]:
         return {
@@ -78,7 +80,7 @@ class CachePreferences:
             for item in fields(self)
             if item.name not in {"ray_display_cache_budget_bytes",
                                  "prepared_specimen_cache_budget_bytes",
-                                 "sample_display_cache_budget_bytes"}
+                                 "sample_display_cache_budget_bytes", "input_asset_cache_budget_bytes", "job_ram_budget_bytes"}
         }
 
 
@@ -93,6 +95,8 @@ def default_cache_preferences(total_memory_bytes: int | None = None) -> CachePre
         ray_display_cache_budget_bytes=max(MIB, min(512 * MIB, total // 32)),
         prepared_specimen_cache_budget_bytes=max(MIB, min(256 * MIB, total // 32)),
         sample_display_cache_budget_bytes=max(MIB, min(128 * MIB, total // 64)),
+        input_asset_cache_budget_bytes=max(MIB, min(256 * MIB, total // 32)),
+        job_ram_budget_bytes=max(MIB, min(40 * GIB, total * 3 // 4)),
     )
 
 
@@ -103,7 +107,7 @@ def validate_cache_preferences(prefs: CachePreferences,
         raise ValueError("Expected cache preferences")
     for name in ("high_cache_budget_bytes", "tuning_cache_budget_bytes",
                  "ray_display_cache_budget_bytes", "disk_cache_budget_bytes",
-                 "prepared_specimen_cache_budget_bytes", "sample_display_cache_budget_bytes"):
+                 "prepared_specimen_cache_budget_bytes", "sample_display_cache_budget_bytes", "input_asset_cache_budget_bytes"):
         value = getattr(prefs, name)
         maximum = (1024 if name == "disk_cache_budget_bytes" else 256) * GIB
         if type(value) is not int or not MIB <= value <= maximum:
@@ -114,6 +118,10 @@ def validate_cache_preferences(prefs: CachePreferences,
             raise ValueError(f"{name}: entry limit must be between 1 and 4096")
     if total_memory_bytes is not None and prefs.managed_ram_budget_bytes > total_memory_bytes // 2:
         raise ValueError("Managed RAM caches must total no more than half the detected physical RAM")
+    if type(prefs.job_ram_budget_bytes) is not int or not MIB <= prefs.job_ram_budget_bytes <= 256*GIB:
+        raise ValueError("Shared job RAM budget must be a positive bounded byte count")
+    if total_memory_bytes is not None and prefs.job_ram_budget_bytes > total_memory_bytes * 3 // 4:
+        raise ValueError("Shared jobs and retained data may reserve at most three quarters of physical RAM")
 
 
 def _saved_integer(value) -> int:

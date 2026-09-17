@@ -5,6 +5,7 @@ from temsim.physics.column_wall import clip_column_wall
 from temsim.physics.aperture_clipping import clip_segment as _clip_aperture_segment
 
 from dataclasses import dataclass
+from temsim import input_io
 
 import numpy as np, math
 
@@ -158,14 +159,19 @@ def _column_checkpoint_planes(start_z_mm, stop_z_mm, ray_count):
     )
     if maximum_count <= 0:
         return ()
-    stride = max(1, int(math.ceil(desired_count / maximum_count)))
+    # Reserve one exact endpoint for scientific publication. Interior cache
+    # density may shrink with the budget; the terminal state must not come
+    # from the lower-precision plotting history.
+    if maximum_count == 1:
+        return (stop,)
+    stride = max(1, int(math.ceil(desired_count / (maximum_count - 1))))
     spacing = INCIDENT_CHECKPOINT_SPACING_MM * stride
     count = int(math.floor((stop - start) / spacing))
     return tuple(
         start + index * spacing
         for index in range(1, count + 1)
         if start + index * spacing < stop
-    )
+    ) + (stop,)
 
 
 def _gun_traces_match(previous, current):
@@ -222,6 +228,7 @@ def _merge_checkpoints(previous, suffix, resume_z_mm):
     return PropagationCheckpoints(**arrays)
 
 
+@input_io.using_state_inputs
 def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False):
     from temsim.optics.electron_gun.source_policy import require_physical_gun_source
     require_physical_gun_source(s.electron_gun)

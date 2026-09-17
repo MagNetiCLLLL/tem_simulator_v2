@@ -7,6 +7,7 @@ No propagation result, detector signal or OpenGL object is stored here.
 from collections import OrderedDict
 import hashlib
 from pathlib import Path
+from temsim import input_io
 from numbers import Integral
 from threading import RLock
 import sys
@@ -43,10 +44,15 @@ def sample_display_cache_info() -> dict[str, int]:
                     used_bytes=_used_bytes, budget_bytes=_budget_bytes)
 
 
+def retained_sample_display_roots():
+    with _lock:
+        return tuple(value for value, _size in _entries.values())
+
+
 def cif_display_fingerprint(path: Path) -> str:
     """Read the actual bytes, detecting even same-size/same-mtime replacement."""
     digest = hashlib.sha256()
-    with path.open("rb") as stream:
+    with input_io.open_input(path) as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()

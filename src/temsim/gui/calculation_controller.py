@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 from threading import Event
 from time import perf_counter
+from temsim import input_io
 from types import MappingProxyType
 
 import numpy as np
@@ -296,6 +297,10 @@ class PreparationWorker(QRunnable):
             if not self.cancel_event.is_set():
                 self.signals.error.emit(self.generation, self.quality, str(exc))
                 self.signals.finished.emit(self.generation, self.quality)
+        finally:
+            assets = getattr(self.request, "_input_assets", None)
+            if assets is not None:
+                assets.close()
         # Success transfers ownership to a solver or exact-cache delivery.
         # Finishing here would incorrectly release the live-frame scheduler.
 
@@ -430,6 +435,7 @@ class CalculationWorker(QRunnable):
             # result dependency.
             return
 
+    @input_io.using_state_inputs
     def run(self) -> None:
         started = perf_counter()
         try:
@@ -538,9 +544,12 @@ class CalculationController(QObject):
         persistent_cache_enabled: bool = True,
     ) -> None:
         super().__init__(parent)
-        self.pool = QThreadPool(self)
+        from temsim.gui.job_coordinator import CoordinatedPool
+        self.pool = CoordinatedPool(self)
         self.pool.setMaxThreadCount(1)
         self._generation = 0
+        self._requests = {}
+        self._high_requests = {}
         self._high_cache: OrderedDict[str, CalculationResult] = OrderedDict()
         self._high_cache_memory = RetainedMemoryLedger()
         self._high_cache_entry_bytes: dict[str, int] = {}
@@ -558,6 +567,7 @@ class CalculationController(QObject):
         self._running_high_generation: int | None = None
         self._cancel_event = Event()
         self._tuning_seeds = {}
+        self.pool.coordinator.register_retained(self, "retained_roots")
         self._allow_project_artifact_fallback = bool(
             persistent_cache_enabled
             and artifact_store is None
@@ -580,6 +590,19 @@ class CalculationController(QObject):
     def generation(self) -> int:
         """Read-only job token; changes on submission or invalidation."""
         return self._generation
+
+    @property
+    def has_pending_requests(self):
+        return any(not item["cancel"].is_set() for item in self._requests.values())
+
+    def retained_roots(self):
+        return (self._high_cache, self._tuning_cache, self._tuning_seeds)
+
+    def _request_active(self, generation):
+        item = self._requests.get(generation)
+        if item is not None:
+            return not item["cancel"].is_set()
+        return generation == self._generation and not self._cancel_event.is_set()
 
     @property
     def artifact_store(self) -> ArtifactStore | None:
@@ -765,7 +788,8 @@ class CalculationController(QObject):
     def _calculation_snapshot(state, quality, ray_count, step_mm):
         from temsim.optics.electron_gun.source_policy import require_physical_gun_source
         require_physical_gun_source(getattr(state, "electron_gun", None))
-        if quality == "High accuracy":
+        from temsim.parameter_registry import unmapped_public_inputs
+        if quality == "High accuracy" or unmapped_public_inputs(state):
             from temsim.optics.model import State
             if isinstance(state, State):
                 from temsim.instrument_snapshot import encode_instrument, decode_instrument
@@ -1123,28 +1147,40 @@ class CalculationController(QObject):
         entry = self._best_seed_entry(signatures)
         return entry[1] if entry is not None else None
 
-    def _begin_request(self) -> int:
+    def _begin_request(self, quality="Preview") -> int:
+        # Live edits coalesce only live work. Explicit High requests retain
+        # their captured state, cancellation token and result association.
+        self._cancel_live_requests()
         self._generation += 1
         self._request_input_guard = None
-        self._cancel_event.set()
         self._cancel_event = Event()
-        self._running_high_key = None
-        self._running_high_generation = None
-        self.pool.clear()
+        self._requests[self._generation] = dict(quality=quality, cancel=self._cancel_event, guard=None)
         return self._generation
+
+    def _cancel_live_requests(self):
+        for generation, item in tuple(self._requests.items()):
+            if item["quality"] != "High accuracy":
+                item["cancel"].set()
+                del self._requests[generation]
+        self.pool.clear(lambda worker: getattr(worker, "quality", "") != "High accuracy")
 
     def submit_background(
         self, state, quality: str, ray_count: int, step_mm: float,
+        *, parent_id=None,
     ) -> None:
-        """Capture Preview/Medium now; prepare their full request off-thread.
+        """Capture inputs now and prepare the complete request off-thread.
 
-        High accuracy keeps its existing synchronous validation/deduplication
-        contract. Only immutable installed geometry is shared with live State;
-        edits immediately after this method returns affect a later request.
+        High accuracy includes the full graph and pinned input assets. The
+        synchronous submit API remains available. Edits immediately after
+        capture returns affect a later request, never this request's inputs.
         """
-        if quality == "High accuracy":
-            return self.submit(state, quality, ray_count, step_mm)
-        if not is_tuning_quality(quality):
+        if quality == "High accuracy" or input_io.archive_payload(state) is not None:
+            from copy import copy
+            from temsim.physics.source_admission import admit_requested_wave_products
+            # This gate only reads controls. A shallow shell contains any lazy
+            # State getter aliases; no input buffers or optical fields are copied.
+            admit_requested_wave_products(copy(state))
+        if not is_tuning_quality(quality) and quality != "High accuracy":
             raise ValueError("Unknown calculation quality")
         if (
             int(ray_count) <= 0
@@ -1160,30 +1196,43 @@ class CalculationController(QObject):
             )
         except Exception as exc:
             raise ValueError(f"Could not capture calculation settings: {exc}") from exc
-        generation = self._begin_request()
+        generation = self._begin_request(quality)
+        self._requests[generation]["parent_id"] = parent_id
         worker = PreparationWorker(generation, request, self._cancel_event)
+        from temsim.immutable_json import json_digest
+        worker.job_input_identity = json_digest(dict(graph=request._instrument_graph,
+            controls=request._model_state.to_dict(), quality=quality, rays=ray_count, step=step_mm))
         worker.signals.prepared.connect(self._accept_prepared)
         worker.signals.error.connect(self._accept_error)
         worker.signals.finished.connect(self._accept_finished)
         self.started.emit(quality)
-        if generation == self._generation:
+        if self._request_active(generation):
             self.pool.start(worker)
 
     def _accept_prepared(self, generation, quality, prepared) -> None:
-        if generation != self._generation or self._cancel_event.is_set():
+        if not self._request_active(generation):
             return
+        if quality == "High accuracy":
+            existing = self._high_requests.get(prepared.request_signatures["request"])
+            if existing is not None and existing != generation and self._request_active(existing):
+                # Same captured inputs already have one execution and one
+                # complete result; cancelling this duplicate does not touch it.
+                self._accept_finished(generation, quality)
+                return
         try:
             self._dispatch_prepared(
                 prepared.snapshot, quality, prepared.ray_count, prepared.step_mm,
                 model_signature=prepared.model_signature,
                 request_signatures=prepared.request_signatures,
                 external_inputs=prepared.external_inputs,
-                generation=generation, estimate=0, already_started=True,
+                generation=generation, estimate=prepared.memory_estimate, already_started=True,
+                calculation_manifest=prepared.calculation_manifest,
             )
         except Exception as exc:
             self._accept_error(generation, quality, str(exc))
             self._accept_finished(generation, quality)
 
+    @input_io.using_state_inputs
     def submit(
         self,
         state,
@@ -1243,7 +1292,7 @@ class CalculationController(QObject):
         if (
             quality == "High accuracy"
             and self._running_high_key == request_key
-            and self._running_high_generation == self._generation
+            and self._request_active(self._running_high_generation)
         ):
             return
 
@@ -1256,11 +1305,7 @@ class CalculationController(QObject):
             except Exception as exc:
                 raise ValueError(f"Could not capture the complete working point: {exc}") from exc
 
-        # Any accepted submission supersedes the previous worker.  Its queued
-        # signals are ignored by generation, so its High-accuracy token must
-        # be retired here as well; otherwise High -> Preview could leave a
-        # stale key that blocks the next identical High request forever.
-        generation = self._begin_request()
+        generation = self._begin_request(quality)
         self._dispatch_prepared(
             snapshot, quality, ray_count, step_mm,
             model_signature=model_signature, request_signatures=request_signatures,
@@ -1281,7 +1326,10 @@ class CalculationController(QObject):
                                 if external_inputs is None else external_inputs)
         assert_external_input_inventory_unchanged(snapshot, external_inputs)
         self._request_input_guard = (generation, snapshot, external_inputs)
+        self._requests[generation]["guard"] = self._request_input_guard
         request_key = request_signatures["request"]
+        if quality == "High accuracy":
+            self._high_requests[request_key] = generation
         cached = self._high_cache.get(request_key)
         if (quality == "High accuracy" and cached is not None
                 and getattr(cached, "external_inputs", None) in (None, external_inputs)):
@@ -1306,7 +1354,7 @@ class CalculationController(QObject):
                 self.started.emit(quality)
 
             def deliver_cached() -> None:
-                if generation != self._generation:
+                if not self._request_active(generation):
                     return
                 self.progress_changed.emit(
                     quality, 1, 1, "Reusing completed high-accuracy result"
@@ -1331,7 +1379,7 @@ class CalculationController(QObject):
                     self.started.emit(quality)
 
                 def deliver_tuning_cache() -> None:
-                    if generation != self._generation:
+                    if not self._request_active(generation):
                         return
                     self._accept_result(generation, quality, delivered, 0.0)
                     self._accept_finished(generation, quality)
@@ -1369,30 +1417,38 @@ class CalculationController(QObject):
             allow_project_artifact_fallback=self._allow_project_artifact_fallback,
             artifact_cache_budget_bytes=self._artifact_cache_budget_bytes,
         )
-        worker.cancel_event = self._cancel_event
+        from temsim.gui.job_coordinator import ResourceClaim
+        worker.resource_claim = ResourceClaim(working_bytes=int(estimate))
+        worker.job_input_identity = request_key
+        worker.cancel_event = self._requests[generation]["cancel"]
         worker.signals.result.connect(self._accept_result)
         worker.signals.error.connect(self._accept_error)
         worker.signals.progress.connect(self._accept_progress)
         worker.signals.finished.connect(self._accept_finished)
         if not already_started:
             self.started.emit(quality)
-        if generation == self._generation:
+        if self._request_active(generation):
             self.pool.start(worker)
 
-    def invalidate_pending(self) -> None:
-        """Ignore queued/running results after the live state has changed."""
-
+    def invalidate_pending(self, *, include_explicit=False) -> None:
+        """Live invalidation preserves explicit captured-state calculations."""
+        self._cancel_live_requests()
         self._generation += 1
         self._request_input_guard = None
-        self._cancel_event.set()
-        self.pool.clear()
-        self._running_high_key = None
-        self._running_high_generation = None
+        if include_explicit:
+            for item in self._requests.values():
+                item["cancel"].set()
+            self._requests.clear()
+            self._high_requests.clear()
+            self._cancel_event.set()
+            self.pool.clear()
+            self._running_high_key = None
+            self._running_high_generation = None
 
     def _accept_result(self, generation, quality, result, duration) -> None:
-        if generation == self._generation:
+        if self._request_active(generation):
             try:
-                guard = getattr(self, "_request_input_guard", None)
+                guard = self._requests.get(generation, {}).get("guard", getattr(self, "_request_input_guard", None))
                 if guard is not None and guard[0] == generation:
                     assert_external_input_inventory_unchanged(guard[1], guard[2])
                 inputs = getattr(result, "external_inputs", None)
@@ -1405,13 +1461,15 @@ class CalculationController(QObject):
                 self._accept_error(generation, quality, str(exc))
                 return
             if quality == "High accuracy":
+                if isinstance(result, CalculationResult):
+                    result.working_point_parent_id = self._requests.get(generation, {}).get("parent_id")
                 self._cache_result(result)
             else:
                 self._cache_tuning_result(quality, result)
             self.result_ready.emit(quality, result, duration)
 
     def _accept_error(self, generation, quality, message) -> None:
-        if generation == self._generation:
+        if self._request_active(generation):
             self.failed.emit(quality, message)
 
     def _accept_progress(
@@ -1422,7 +1480,7 @@ class CalculationController(QObject):
         total: int,
         stage: str,
     ) -> None:
-        if generation == self._generation:
+        if self._request_active(generation):
             self.progress_changed.emit(
                 quality,
                 int(completed),
@@ -1431,11 +1489,15 @@ class CalculationController(QObject):
             )
 
     def _accept_finished(self, generation, quality) -> None:
-        if generation == self._generation:
-            # A completed request must not pin its mutable solver State after
-            # the result/cache owners release it. Results carry their own list.
+        owned = generation in self._requests
+        active = self._request_active(generation)
+        # Cancellation is also a terminal lifecycle: never retain its guard.
+        if getattr(self, "_request_input_guard", None) is not None and self._request_input_guard[0] == generation:
             self._request_input_guard = None
-            if quality == "High accuracy":
-                self._running_high_key = None
-                self._running_high_generation = None
+        self._requests.pop(generation, None)
+        self._high_requests = {key: value for key, value in self._high_requests.items() if value != generation}
+        if quality == "High accuracy" and self._running_high_generation == generation:
+            self._running_high_key = None
+            self._running_high_generation = None
+        if active or owned:
             self.finished.emit(quality)

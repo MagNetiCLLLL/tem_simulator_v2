@@ -5,6 +5,7 @@ from copy import deepcopy
 import math
 from numbers import Real
 from pathlib import Path
+from temsim import input_io
 import tomllib
 
 from temsim import module_manifest
@@ -20,7 +21,8 @@ class PartModelDocument:
 
     def __init__(self, path):
         self.path = Path(path).resolve()
-        self._source_bytes = self.path.read_bytes()
+        self._source_bytes = input_io.read_bytes(self.path)
+        self._archive_identity = input_io.active_archive().identity if input_io.active_archive() is not None else None
         from temsim.shared_tip import materialized_text, dependencies
         self._dependency_bytes = dependencies(self.path)
         self._editable_text = materialized_text(self._source_bytes.decode("utf-8-sig"), self.path)
@@ -372,6 +374,8 @@ class PartModelDocument:
         module_manifest.validate_document(self.document)
 
     def assert_source_current(self):
+        if self._archive_identity is not None:
+            raise ValueError("Archived structure is read-only; load a live assembly before saving structural edits")
         if self.path.read_bytes() != self._source_bytes:
             raise ValueError("The source file changed outside this editor. Save a copy or reopen it before saving.")
         from temsim.shared_tip import dependencies
@@ -414,6 +418,12 @@ class PartModelDocument:
         root = catalog_root_for(destination)
         if root is not None and destination in catalog_definitions(root):
             raise ValueError("Use Save to edit a linked physical definition; choose an independent destination for a copy")
+        staged = self.independent_copy_text()
+        module_manifest._atomic_write_text(destination, staged)
+        self._accept_saved_file(destination, expected=tomllib.loads(staged))
+
+    def independent_copy_text(self):
+        """Validated, materialized candidate definition without filesystem edits."""
         self.validate()
         staged = module_manifest.stage_manifest_text(
             self._editable_text, self.updates()
@@ -427,8 +437,7 @@ class PartModelDocument:
             for part in parsed["parts"]:
                 part.pop("tip_definition_file", None)
             staged = tomli_w.dumps(parsed)
-        module_manifest._atomic_write_text(destination, staged)
-        self._accept_saved_file(destination, expected=tomllib.loads(staged))
+        return staged
 
     def _accept_saved_file(self, path, *, expected):
         source = path.read_bytes()

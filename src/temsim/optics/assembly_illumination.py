@@ -7,6 +7,7 @@ geometry alteration, coherent gun solve or image computation is introduced.
 from dataclasses import asdict, dataclass, replace
 import math
 from pathlib import Path
+from temsim import input_io
 import tomllib
 
 import numpy as np
@@ -59,7 +60,7 @@ class IlluminationTarget:
 def load_targets(path=None):
     from temsim.paths import OPERATING_MODE_CONFIG_ROOT
     path = Path(path) if path is not None else OPERATING_MODE_CONFIG_ROOT / 'illumination_targets.toml'
-    with path.open('rb') as stream:
+    with input_io.open_input(path) as stream:
         document = tomllib.load(stream)
     if document.get('schema') != 'assembly-illumination-targets-v1':
         raise ValueError('Unsupported illumination target schema')
@@ -86,7 +87,7 @@ def diameter_gate(state, measurement, mode_key, path=None):
     """A small geometric diameter is required, not a wave-resolution claim."""
     from temsim.paths import OPERATING_MODE_CONFIG_ROOT
     path = Path(path) if path is not None else OPERATING_MODE_CONFIG_ROOT / 'illumination_targets.toml'
-    with path.open('rb') as stream:
+    with input_io.open_input(path) as stream:
         limits = tomllib.load(stream)['probe_diameter']
     installed = {c.key for c in state._resolved_optics_layout}
     corrected = 'probe_hp1_hexapole' in installed and 'probe_hp2_hexapole' in installed
@@ -274,6 +275,7 @@ def _proposals(state, keys, target, initial, maximum_evaluations, *, neighbourin
             else selected + [np.asarray(initial)])
 
 
+@input_io.using_state_inputs
 def calibrate_illumination(state, mode_key, *, rays=193, maximum_evaluations=30,
                            controls=None, search_branches=False, c2_aperture_mm=None,
                            mini_polarity=None,
@@ -284,9 +286,10 @@ def calibrate_illumination(state, mode_key, *, rays=193, maximum_evaluations=30,
     budget. Gun-step, sampling, spot size and historical crossover topology
     remain separate publication gates and are stated explicitly in the audit.
     """
-    if mode_key not in TARGETS or rays < 32 or maximum_evaluations < 1:
+    targets = load_targets() if input_io.active_archive() is not None else TARGETS
+    if mode_key not in targets or rays < 32 or maximum_evaluations < 1:
         raise ValueError("Select a supported mode and positive calibration budget (at least 32 rays)")
-    target = TARGETS[mode_key]
+    target = targets[mode_key]
     original = capture_instrument_snapshot(state)
     candidate = original.restore()
     if candidate.electron_gun.source_representation != "classical_particles" or candidate.vacuum_map.enabled:

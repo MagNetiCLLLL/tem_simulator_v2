@@ -5,6 +5,7 @@ missing definitions never silently fall back to those snapshots.
 """
 from copy import deepcopy
 from pathlib import Path
+from temsim import input_io
 import tomllib
 
 from temsim.optics.electron_gun.tip_assembly import PART_FIELDS, validate_tip_part
@@ -17,7 +18,7 @@ SHARED_FIELDS = PART_FIELDS | {
 
 
 def raw_document(path):
-    return tomllib.loads(Path(path).read_text(encoding="utf-8-sig"))
+    return tomllib.loads(input_io.read_text(path, encoding="utf-8-sig"))
 
 
 def definition_path(path, part):
@@ -39,7 +40,7 @@ def definition_path(path, part):
 def dependencies(path, document=None):
     document = raw_document(path) if document is None else document
     from temsim.subassemblies import dependencies as subassembly_dependencies
-    result = {source: source.read_bytes() for part in document.get("parts", ())
+    result = {source: input_io.read_bytes(source) for part in document.get("parts", ())
               if (source := definition_path(path, part)) is not None}
     result.update(subassembly_dependencies(document, path))
     return result
@@ -94,9 +95,9 @@ def materialized_text(text, path):
 def catalog_root_for(path):
     path = Path(path).resolve()
     for parent in path.parents:
-        if (parent / "catalog.toml").is_file():
+        if input_io.is_file(parent / "catalog.toml"):
             return parent
-        if (parent / "instruments/catalog.toml").is_file():
+        if input_io.is_file(parent / "instruments/catalog.toml"):
             return parent / "instruments"
     return None
 

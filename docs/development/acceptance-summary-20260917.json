@@ -1,0 +1,72 @@
+{
+  "scope": "Focused overlapping CPU/offscreen suites; counts must not be added; not a full repository or hardware/physics acceptance run",
+  "receipts": [
+    {
+      "receipt": "report_core_regression.xml",
+      "tests": 177,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 205.898
+    },
+    {
+      "receipt": "report_archive_workflow.xml",
+      "tests": 57,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 168.2
+    },
+    {
+      "receipt": "report_experiment_final.xml",
+      "tests": 43,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 166.027
+    },
+    {
+      "receipt": "report_final_inputs_exports.xml",
+      "tests": 85,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 238.079
+    },
+    {
+      "receipt": "report_capture_dispatch_verified.xml",
+      "tests": 58,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 121.728
+    },
+    {
+      "receipt": "report_dispatch_stress.xml",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 33.054
+    },
+    {
+      "receipt": "report_ui_125.xml",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 20.079
+    },
+    {
+      "receipt": "report_ui_150.xml",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 19.537
+    }
+  ],
+  "known_intermittent": "Background preparation startup: one mixed-run failure; subsequent 58-test group and five parametrized stress cases passed without establishing a root cause",
+  "wheel_sha256": "bdf91e2bf959bb37dce62e7eadb07cec365b239dc0df32ed6c72da01639ff548",
+  "current_source_install_verified": true
+}

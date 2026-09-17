@@ -71,6 +71,7 @@ class DesignSnapshot:
     external_model_signature: str = ""
     geometry_fingerprint: str = ""
     external_inputs: tuple[ExternalInputIdentity, ...] = ()
+    instrument_snapshot: Mapping | None = None
 
     def __post_init__(self) -> None:
         slot = str(self.slot).strip().upper()
@@ -104,6 +105,9 @@ class DesignSnapshot:
                 "Design snapshot external inputs must be identity records"
             )
         object.__setattr__(self, "external_inputs", external_inputs)
+        if self.instrument_snapshot is not None:
+            from temsim.immutable_json import freeze_json
+            object.__setattr__(self, "instrument_snapshot", freeze_json(self.instrument_snapshot))
         object.__setattr__(
             self,
             "request_signatures",
@@ -579,6 +583,9 @@ def capture_design_snapshot(
     timestamp = captured_at_utc or datetime.now(timezone.utc).isoformat(
         timespec="seconds"
     )
+    from temsim.optics.model import State
+    from temsim.instrument_snapshot import capture_instrument_snapshot
+    full_snapshot = capture_instrument_snapshot(state).to_dict() if isinstance(state, State) else None
     return DesignSnapshot(
         slot=slot,
         captured_at_utc=timestamp,
@@ -590,6 +597,7 @@ def capture_design_snapshot(
         external_model_signature=str(external_signature),
         geometry_fingerprint=str(geometry_fingerprint),
         external_inputs=tuple(external_inputs),
+        instrument_snapshot=full_snapshot,
     )
 
 

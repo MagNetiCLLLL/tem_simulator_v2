@@ -4,6 +4,7 @@ from copy import deepcopy
 import csv
 from hashlib import sha256
 from pathlib import Path
+from temsim import input_io
 import tomllib
 
 import numpy as np
@@ -44,8 +45,8 @@ def validate_bh_material(material: dict) -> dict:
 def reference_materials() -> tuple[dict, ...]:
     from temsim.paths import project_root
     root = project_root() / "configs" / "materials" / "magnetic"
-    return tuple(validate_bh_material(tomllib.loads(path.read_text(encoding="utf-8")))
-                 for path in sorted(root.glob("*.toml")))
+    return tuple(validate_bh_material(tomllib.loads(input_io.read_text(path)))
+                 for path in sorted(input_io.input_paths(root, "*.toml")))
 
 
 def lens_material_defaults() -> dict:
@@ -57,7 +58,7 @@ def lens_material_defaults() -> dict:
     """
     from temsim.paths import project_root
     path = project_root() / "configs" / "materials" / "lens_defaults.toml"
-    defaults = tomllib.loads(path.read_text(encoding="utf-8"))
+    defaults = tomllib.loads(input_io.read_text(path))
     if defaults.get("schema_version") != 1:
         raise ValueError("Unsupported lens material defaults schema")
     matches = [row for row in reference_materials() if row.get("key") == defaults.get("material_key")]

@@ -38,6 +38,8 @@ def install_numeric_input_policy(application=None):
         application = QApplication.instance()
     if application is None:
         return
+    from temsim.gui.garbage_collection import install_gui_gc
+    install_gui_gc(application)
     if getattr(application, "_numeric_wheel_filter", None) is None:
         event_filter = _NumericWheelFilter(application)
         application.installEventFilter(event_filter)

@@ -53,15 +53,19 @@ def test_source_colour_identity_survives_a_vacuum_sample_boundary():
     state = _small_vacuum_state()
     simulation = run(state)
     incident = simulation.incident
-    source_x = np.asarray(simulation.gun_trace.x_m[0])
-    source_y = np.asarray(simulation.gun_trace.y_m[0])
+    # Current gun records retain real pre-field launches relative to the tip
+    # apex. A finite sample's centroid must not recenter that physical origin;
+    # the first common-Z display history is not the emission surface either.
+    positions = simulation.gun_trace.emission_reference["position_m"]
+    source_x = np.asarray(positions[:, 0])
+    source_y = np.asarray(positions[:, 1])
     expected_azimuth = np.mod(
-        np.arctan2(source_y - source_y.mean(), source_x - source_x.mean()),
+        np.arctan2(source_y, source_x),
         2.0 * np.pi,
     )
     expected_azimuth[np.hypot(
-        source_x - source_x.mean(), source_y - source_y.mean()
-    ) <= 1.0e-15] = np.nan  # The source-centre ray has no spatial azimuth.
+        source_x, source_y
+    ) <= 1.0e-15] = np.nan  # The tip-axis ray has no spatial azimuth.
 
     np.testing.assert_array_equal(
         incident.source_ray_id, simulation.gun_trace.exit_bundle.ray_id
@@ -264,7 +268,8 @@ def test_default_checkpoint_cache_retains_more_column_history():
 
     assert INCIDENT_CHECKPOINT_SPACING_MM == 5.0
     assert INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES == 512 * 1024 * 1024
-    assert len(planes) == 229
+    assert len(planes) == 230  # Interior history plus the exact specimen endpoint.
+    assert planes[-1] == 1_600.0
     assert used_bytes <= INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES
 
 
@@ -278,3 +283,9 @@ def test_checkpoint_cache_disables_capture_if_one_plane_exceeds_budget(
     )
 
     assert _column_checkpoint_planes(450.0, 1_600.0, 1) == ()
+
+
+def test_single_checkpoint_budget_prioritizes_exact_endpoint(monkeypatch):
+    monkeypatch.setattr(simulation_module, "INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES", 32)
+    assert _column_checkpoint_planes(450.0, 1_601.23, 1) == (1_601.23,)
+    assert _column_checkpoint_planes(450.0, 450.1, 1) == (450.1,)

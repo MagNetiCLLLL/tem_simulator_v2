@@ -1,0 +1,347 @@
+{
+  "schema": "report-workflow-benchmark-v1",
+  "host": {
+    "platform": "Windows-11-10.0.26100-SP0",
+    "processor": "Intel64 Family 6 Model 181 Stepping 0, GenuineIntel",
+    "python": "3.12.10",
+    "logical_cpus": 14,
+    "physical_ram_bytes": 102471254016,
+    "actual_backend": "CPU",
+    "library_threads": 4
+  },
+  "input_identity": "f5c73a3156ba90262708999f8c735bd3346ec96583b824fdab26094a39e96b74",
+  "implementation": "a626f87fde3c1c165816052176f01a6e134ec1515ee88d0a95cd273061a7c842",
+  "rays": 9,
+  "step_mm": 2.5,
+  "initial": {
+    "wall_s": 22.227587600002153,
+    "rss_before_bytes": 155676672,
+    "sampled_peak_rss_bytes": 200855552,
+    "rss_after_bytes": 200855552,
+    "calculated_products": [
+      "column",
+      "diagnostics",
+      "eds",
+      "elastic",
+      "energy_filter"
+    ],
+    "pipeline": {
+      "pipeline_seconds": 21.92812210000193,
+      "stages": [
+        {
+          "stage": "Preparing state and physical layout",
+          "seconds": 0.3920423000017763
+        },
+        {
+          "stage": "Tracing the electron column",
+          "seconds": 9.425584799999342
+        },
+        {
+          "stage": "Calculating the EDS point spectrum",
+          "seconds": 0.4392626000008022
+        },
+        {
+          "stage": "Tracing the energy filter",
+          "seconds": 11.55464639999991
+        },
+        {
+          "stage": "Finalising optical diagnostics",
+          "seconds": 0.11658600000009756
+        }
+      ],
+      "timing_scope": "Current pipeline call; excludes GUI drawing and worker setup",
+      "last_cuda_column_execution": null
+    }
+  },
+  "repeated_product_reuse": [
+    {
+      "wall_s": 0.7038910000010219,
+      "rss_before_bytes": 205824000,
+      "sampled_peak_rss_bytes": 205889536,
+      "rss_after_bytes": 205889536,
+      "calculated_products": [],
+      "reused_products": [
+        "column",
+        "diagnostics",
+        "eds",
+        "elastic",
+        "energy_filter"
+      ],
+      "identity_lookup": {
+        "wall_s": 0.2786060999969777,
+        "rss_before_bytes": 205086720,
+        "sampled_peak_rss_bytes": 205828096,
+        "rss_after_bytes": 205828096
+      }
+    },
+    {
+      "wall_s": 0.6789267000021937,
+      "rss_before_bytes": 210075648,
+      "sampled_peak_rss_bytes": 210358272,
+      "rss_after_bytes": 210358272,
+      "calculated_products": [],
+      "reused_products": [
+        "column",
+        "diagnostics",
+        "eds",
+        "elastic",
+        "energy_filter"
+      ],
+      "identity_lookup": {
+        "wall_s": 0.2770558999982313,
+        "rss_before_bytes": 209616896,
+        "sampled_peak_rss_bytes": 210079744,
+        "rss_after_bytes": 210079744
+      }
+    },
+    {
+      "wall_s": 0.7405376000024262,
+      "rss_before_bytes": 211742720,
+      "sampled_peak_rss_bytes": 211746816,
+      "rss_after_bytes": 211746816,
+      "calculated_products": [],
+      "reused_products": [
+        "column",
+        "diagnostics",
+        "eds",
+        "elastic",
+        "energy_filter"
+      ],
+      "identity_lookup": {
+        "wall_s": 0.2749818000011146,
+        "rss_before_bytes": 211058688,
+        "sampled_peak_rss_bytes": 211746816,
+        "rss_after_bytes": 211746816
+      }
+    },
+    {
+      "wall_s": 0.7312855999989551,
+      "rss_before_bytes": 213544960,
+      "sampled_peak_rss_bytes": 213663744,
+      "rss_after_bytes": 213663744,
+      "calculated_products": [],
+      "reused_products": [
+        "column",
+        "diagnostics",
+        "eds",
+        "elastic",
+        "energy_filter"
+      ],
+      "identity_lookup": {
+        "wall_s": 0.2727225000016915,
+        "rss_before_bytes": 212738048,
+        "sampled_peak_rss_bytes": 213549056,
+        "rss_after_bytes": 213549056
+      }
+    },
+    {
+      "wall_s": 0.7005791999981739,
+      "rss_before_bytes": 215691264,
+      "sampled_peak_rss_bytes": 215703552,
+      "rss_after_bytes": 215703552,
+      "calculated_products": [],
+      "reused_products": [
+        "column",
+        "diagnostics",
+        "eds",
+        "elastic",
+        "energy_filter"
+      ],
+      "identity_lookup": {
+        "wall_s": 0.30101640000066254,
+        "rss_before_bytes": 215101440,
+        "sampled_peak_rss_bytes": 215703552,
+        "rss_after_bytes": 215703552
+      }
+    }
+  ],
+  "repeated_reuse_median_s": 0.7038910000010219,
+  "single_control_edits": [
+    {
+      "wall_s": 12.891213200000493,
+      "rss_before_bytes": 206147584,
+      "sampled_peak_rss_bytes": 212963328,
+      "rss_after_bytes": 209047552,
+      "calculated_products": [
+        "column",
+        "diagnostics",
+        "energy_filter"
+      ],
+      "reused_products": [
+        "eds",
+        "elastic",
+        "incident"
+      ],
+      "changed_control": "lenses[projector_lens_2].percent",
+      "value": 30.1
+    },
+    {
+      "wall_s": 12.68206629999986,
+      "rss_before_bytes": 210341888,
+      "sampled_peak_rss_bytes": 214745088,
+      "rss_after_bytes": 210010112,
+      "calculated_products": [
+        "column",
+        "diagnostics",
+        "energy_filter"
+      ],
+      "reused_products": [
+        "eds",
+        "elastic",
+        "incident"
+      ],
+      "changed_control": "lenses[projector_lens_2].percent",
+      "value": 30.2
+    },
+    {
+      "wall_s": 12.808176299997285,
+      "rss_before_bytes": 211697664,
+      "sampled_peak_rss_bytes": 215973888,
+      "rss_after_bytes": 211820544,
+      "calculated_products": [
+        "column",
+        "diagnostics",
+        "energy_filter"
+      ],
+      "reused_products": [
+        "eds",
+        "elastic",
+        "incident"
+      ],
+      "changed_control": "lenses[projector_lens_2].percent",
+      "value": 30.3
+    },
+    {
+      "wall_s": 11.96232279999822,
+      "rss_before_bytes": 214032384,
+      "sampled_peak_rss_bytes": 220389376,
+      "rss_after_bytes": 213975040,
+      "calculated_products": [
+        "column",
+        "diagnostics",
+        "energy_filter"
+      ],
+      "reused_products": [
+        "eds",
+        "elastic",
+        "incident"
+      ],
+      "changed_control": "lenses[projector_lens_2].percent",
+      "value": 30.4
+    },
+    {
+      "wall_s": 12.33202639999945,
+      "rss_before_bytes": 215687168,
+      "sampled_peak_rss_bytes": 218894336,
+      "rss_after_bytes": 214003712,
+      "calculated_products": [
+        "column",
+        "diagnostics",
+        "energy_filter"
+      ],
+      "reused_products": [
+        "eds",
+        "elastic",
+        "incident"
+      ],
+      "changed_control": "lenses[projector_lens_2].percent",
+      "value": 30.5
+    }
+  ],
+  "edited_median_s": 12.68206629999986,
+  "sweep": {
+    "cancel_after_one": {
+      "wall_s": 15.831081299998914,
+      "rss_before_bytes": 214913024,
+      "sampled_peak_rss_bytes": 231137280,
+      "rss_after_bytes": 231018496
+    },
+    "resume_remaining_two": {
+      "wall_s": 30.004301099997974,
+      "rss_before_bytes": 231079936,
+      "sampled_peak_rss_bytes": 243499008,
+      "rss_after_bytes": 239443968
+    },
+    "write": {
+      "wall_s": 0.36955139999918174,
+      "rss_before_bytes": 231034880,
+      "sampled_peak_rss_bytes": 232185856,
+      "rss_after_bytes": 231084032
+    },
+    "read": {
+      "wall_s": 0.3175006999990728,
+      "rss_before_bytes": 231084032,
+      "sampled_peak_rss_bytes": 232222720,
+      "rss_after_bytes": 231100416
+    },
+    "archive_bytes": 2246869,
+    "retained_prefix_identical": true,
+    "execution_identity": "98afe0fd7d679ab0714bf435b2d742d9f6ecd7309b24127c0fe109fa2a2ca610",
+    "points": [
+      {
+        "index": 0,
+        "status": "COMPLETE",
+        "numerical_status": "NOT_RUN",
+        "duration_s": 13.884244000000763,
+        "reused": []
+      },
+      {
+        "index": 1,
+        "status": "COMPLETE",
+        "numerical_status": "NOT_RUN",
+        "duration_s": 14.078221499999927,
+        "reused": []
+      },
+      {
+        "index": 2,
+        "status": "COMPLETE",
+        "numerical_status": "NOT_RUN",
+        "duration_s": 13.880869699998584,
+        "reused": [
+          "eds",
+          "elastic",
+          "incident"
+        ]
+      }
+    ]
+  },
+  "presentation": {
+    "startup": {
+      "wall_s": 3.3412234999996144,
+      "rss_before_bytes": 263680000,
+      "sampled_peak_rss_bytes": 368963584,
+      "rss_after_bytes": 368963584
+    },
+    "layout_samples_s": [
+      0.0711656999992556,
+      0.06757650000145077,
+      0.06280809999952908,
+      0.050972199998795986,
+      0.05500930000198423,
+      0.07525919999898179,
+      0.0541529999973136,
+      0.0507913000001281,
+      0.06030340000143042,
+      0.05534129999796278,
+      0.052610799997637514,
+      0.04907649999950081,
+      0.058632500000385335,
+      0.061103000000002794,
+      0.05619969999679597,
+      0.053975299997546244,
+      0.05620920000001206,
+      0.06370379999862053,
+      0.052902999999787426,
+      0.05184170000211452
+    ],
+    "median_s": 0.055770499997379375,
+    "p95_s": 0.07137037499924191,
+    "submitted_physics_calls": 0,
+    "instrument_identity_unchanged": true,
+    "viewport_logical_px": [
+      1500,
+      920
+    ]
+  },
+  "limits": "Nine-ray classical software workflow only; no convergence, CUDA, image or OEM qualification. RSS sampled every 20 ms can miss short peaks. One cancellation/resume run has no percentile claim. UI uses offscreen empty-result task layouts; not native desktop or populated mesh performance."
+}

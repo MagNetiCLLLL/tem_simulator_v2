@@ -1,6 +1,7 @@
 """A reference library CIF or an external CIF is the sole physical structure."""
 
 from __future__ import annotations
+from temsim import input_io
 
 SPECIMEN_MODES = frozenset({"atomic", "reference"})
 LEGACY_ATOMIC_STRUCTURE_SOURCES = frozenset({"preset", "cif"})
@@ -18,6 +19,7 @@ def active_specimen_source(sample) -> str:
     return "cif"
 
 
+@input_io.using_state_inputs
 def active_cif_path(sample) -> str:
     if specimen_mode(sample) == "atomic":
         return str(getattr(sample, "cif_path", "")).strip()
@@ -30,6 +32,7 @@ def active_cif_path(sample) -> str:
         raise
 
 
+@input_io.using_state_inputs
 def selected_reference_preset_key(sample) -> str:
     """Numerical/explicit material template, never a substitute for CIF atoms."""
     if specimen_mode(sample) != "reference":

@@ -46,12 +46,17 @@ class CacheSettingsDialog(QDialog):
         self.ray_display_cache = self._spin(" MiB", 1.0, 256.0 * 1024, 1)
         self.prepared_specimen_cache = self._spin(" MiB", 1.0, 256.0 * 1024, 1)
         self.sample_display_cache = self._spin(" MiB", 1.0, 256.0 * 1024, 1)
+        self.input_asset_cache = self._spin(" MiB", 1.0, 256.0 * 1024, 1)
         self.disk_cache = self._spin(" GiB", 0.001, 1024.0, 3)
+        self.job_ram = self._spin(" GiB", 0.001, 256.0, 3)
+        self.job_ram.setToolTip("Shared admission budget includes retained inputs/results and estimated working buffers. One numerical worker runs at a time; this is not a hard process RSS limit.")
+        form.addRow("Shared jobs and retained data (RAM)", self.job_ram)
         form.addRow("High-accuracy results", self.high_cache)
         form.addRow("Live-tuning results", self.tuning_cache)
         form.addRow("Ray display", self.ray_display_cache)
         form.addRow("Specimen potentials (RAM)", self.prepared_specimen_cache)
         form.addRow("Sample atom display (RAM)", self.sample_display_cache)
+        form.addRow("Immutable input assets (RAM)", self.input_asset_cache)
         form.addRow("Disk checkpoints", self.disk_cache)
         self.ram_summary = self._label("")
         form.addRow(self.ram_summary)
@@ -86,7 +91,7 @@ class CacheSettingsDialog(QDialog):
         self.buttons.rejected.connect(self.close)
         layout.addWidget(self.buttons)
         for control in (self.high_cache, self.tuning_cache, self.ray_display_cache,
-                        self.prepared_specimen_cache, self.sample_display_cache, self.disk_cache):
+                        self.prepared_specimen_cache, self.sample_display_cache, self.input_asset_cache, self.disk_cache):
             control.valueChanged.connect(self._update_summary)
         self._populate(self.preferences)
         geometry = settings.value(f"{SETTINGS_ROOT}/dialog_geometry")
@@ -115,7 +120,9 @@ class CacheSettingsDialog(QDialog):
         self.ray_display_cache.setValue(prefs.ray_display_cache_budget_bytes / MIB)
         self.prepared_specimen_cache.setValue(prefs.prepared_specimen_cache_budget_bytes / MIB)
         self.sample_display_cache.setValue(prefs.sample_display_cache_budget_bytes / MIB)
+        self.input_asset_cache.setValue(prefs.input_asset_cache_budget_bytes / MIB)
         self.disk_cache.setValue(prefs.disk_cache_budget_bytes / GIB)
+        self.job_ram.setValue(prefs.job_ram_budget_bytes / GIB)
         self._update_summary()
 
     def _draft(self) -> CachePreferences:
@@ -126,7 +133,9 @@ class CacheSettingsDialog(QDialog):
             ray_display_cache_budget_bytes=round(self.ray_display_cache.value() * MIB),
             prepared_specimen_cache_budget_bytes=round(self.prepared_specimen_cache.value() * MIB),
             sample_display_cache_budget_bytes=round(self.sample_display_cache.value() * MIB),
+            input_asset_cache_budget_bytes=round(self.input_asset_cache.value() * MIB),
             disk_cache_budget_bytes=round(self.disk_cache.value() * GIB),
+            job_ram_budget_bytes=round(self.job_ram.value() * GIB),
         )
 
     def _update_summary(self, *_args) -> None:
@@ -171,7 +180,11 @@ class CacheSettingsDialog(QDialog):
             display = data.get("ray_display", {})
             prepared = data.get("prepared_specimen", {})
             sample = data.get("sample_display", {})
+            assets = data.get("input_assets", {})
             lines = []
+            jobs = data.get("jobs", {})
+            if jobs:
+                lines.append(f"Jobs: {jobs['running']} running, {jobs['queued']} queued | working reservation {jobs['reserved_working_bytes']/GIB:.3g} GiB | shared retained data {jobs['retained_bytes']/GIB:.3g} GiB")
             for title, values, prefix in (("High accuracy", calculation, "high_"),
                                            ("Live tuning", calculation, "tuning_"),
                                            ("Ray display", display, ""),
@@ -186,6 +199,8 @@ class CacheSettingsDialog(QDialog):
                     requests = hits + misses
                     text += f" | {100.0 * hits / requests:.1f}% hit rate" if requests else " | not used"
                 lines.append(text)
+            lines.append(f"Immutable inputs: {assets.get('resident_bytes', 0)/MIB:.1f} MiB retained; "
+                         f"{assets.get('pinned_bytes', 0)/MIB:.1f} MiB pinned by captured requests (shared bytes counted once)")
             if calculation.get("disk_enabled") is False:
                 lines.append("Disk checkpoints: unavailable; memory caching remains active.")
             elif calculation.get("disk_enabled") is True:

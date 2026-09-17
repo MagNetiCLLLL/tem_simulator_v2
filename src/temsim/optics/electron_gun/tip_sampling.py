@@ -2,6 +2,86 @@
 import numpy as np
 
 
+def _product_indices(plan):
+    plan.validate()
+    return (np.repeat(np.arange(plan.spatial), plan.directions*plan.energies),
+            np.tile(np.repeat(np.arange(plan.directions), plan.energies), plan.spatial),
+            np.tile(np.arange(plan.energies), plan.spatial*plan.directions))
+
+
+def flat_product_bundle(emitter, plan):
+    """Independent marginals of the existing flat/curved legacy tip law."""
+    from temsim.optics.electron_gun.emitter import _halton_dimensions, _truncated_gaussian_disk
+    from temsim.optics.electron_gun.base import EmissionBundle
+    from temsim.physics.chromatic import cold_feg_energy_offsets
+    from temsim.optics.electron_gun.tip_curvature import curve_bundle
+    si, di, ei = _product_indices(plan)
+    u, phi = _halton_dimensions(plan.spatial, (2, 3))
+    sigma = emitter.virtual_source_fwhm_nm / 2.354820045 * 1e-9
+    x, y = _truncated_gaussian_disk(u, phi, sigma, 3*sigma)
+    u, phi = _halton_dimensions(plan.directions, (5, 7))
+    tx, ty = _truncated_gaussian_disk(u, phi, emitter.angular_rms_mrad*1e-3, emitter.angular_cutoff_mrad*1e-3)
+    energy = cold_feg_energy_offsets(plan.energies, emitter.energy_spread_fwhm_ev,
+        emitter.energy_half_range_ev, emitter.young_decay_width_ev, emitter.boersch_sigma_ev,
+        quantiles=_halton_dimensions(plan.energies, (11, 13)), mean_kinetic_energy_ev=emitter.emission_energy_ev,
+        minimum_kinetic_energy_ev=emitter.minimum_kinetic_energy_ev)
+    return curve_bundle(EmissionBundle(x[si], y[si], tx[di], ty[di], energy[ei],
+        np.full(plan.total, 1/plan.total), np.arange(plan.total, dtype=np.int64)), emitter)
+
+
+def surface_product_samples(model, plan):
+    """Full-cap area, local direction and conditional positive-energy CDFs.
+
+    For exponential normal/tangential energies, set s=T/(N+T). The joint
+    density is E*exp(-lambda(s)*E)/(a*b), lambda=(1-s)/a+s/b. Its angular
+    marginal is proportional to lambda^-2, and E conditional on s is Gamma(2,
+    1/lambda). Truncating s to sin(maximum_angle)^2 is exactly the existing
+    local angular conditioning. Direction/energy correlation is preserved.
+    The product factors refine these conditional integrals independently.
+    """
+    from scipy.special import gammaincinv
+    from temsim.optics.electron_gun.emitter import _halton_dimensions
+    from temsim.optics.electron_gun.tip_patch import sample_cap_frame
+    model.validate()
+    if model.coherence is not None:
+        raise ValueError("Surface product quadrature is classical only")
+    si, di, ei = _product_indices(plan)
+    emission = model.emission
+    if emission.spatial_sampling == "apex_stratified_v1":
+        area, azimuth, site_weight = stratified_cap_area(plan.spatial, emission.spatial_stratum_allocation)
+    else:
+        area, azimuth = _halton_dimensions(plan.spatial, (2, 3))
+        site_weight = np.full(plan.spatial, 1/plan.spatial)
+    positions, normals, tangent1, tangent2 = sample_cap_frame(model.geometry, emission.cap_half_angle_deg, area, azimuth)
+    u, phi = _halton_dimensions(plan.directions, (5, 7))
+    energy_u, = _halton_dimensions(plan.energies, (11,))
+    maximum = np.deg2rad(emission.maximum_angle_deg)
+    if emission.energy_distribution == "normal_tangential_exponential":
+        a, b = emission.normal_mean_energy_ev, emission.tangential_mean_energy_ev
+        if b == 0:
+            cosine = np.ones(plan.directions)
+            energy = -a*np.log1p(-energy_u[ei])
+        else:
+            smax = np.sin(maximum)**2
+            # Algebraic inverse CDF avoids subtracting nearly equal inverses.
+            s = u*smax*b / (b+(a-b)*smax*(1-u))
+            cosine = np.sqrt(1-s)
+            rate = (1-s)/a+s/b
+            energy = gammaincinv(2., energy_u[ei])/rate[di]
+    else:
+        cosine = 1-u*(1-np.cos(maximum))
+        energy = np.full(plan.total, emission.kinetic_mean_ev)
+        if emission.energy_distribution == "gamma":
+            shape = (emission.kinetic_mean_ev/emission.kinetic_sigma_ev)**2
+            energy = gammaincinv(shape, energy_u[ei])*emission.kinetic_sigma_ev**2/emission.kinetic_mean_ev
+    tangent = np.cos(2*np.pi*phi[di])[:, None]*tangent1[si] + np.sin(2*np.pi*phi[di])[:, None]*tangent2[si]
+    direction = cosine[di, None]*normals[si] + np.sqrt(np.maximum(0, 1-cosine[di]**2))[:, None]*tangent
+    weight = site_weight[si]/(plan.directions*plan.energies)
+    if np.any(~np.isfinite(energy)) or np.any(energy <= 0):
+        raise ValueError("Conditional surface energy quadrature is out of its numerical domain")
+    return positions[si], direction, energy, weight
+
+
 def tangent_cell_ids(count, allocation=()):
     """Numerical counts for all nine Cartesian CDF cells; no cell is omitted."""
     if type(count) is not int or count < 9:

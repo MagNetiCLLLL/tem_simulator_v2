@@ -9,6 +9,7 @@ from temsim.gui.input_policy import (
 )
 
 import json
+from temsim import input_io
 import hashlib
 import math
 import os
@@ -1570,10 +1571,19 @@ class SamplePage(QWidget):
             controls.append(control)
         return widget, tuple(controls)
 
+    @input_io.using_state_inputs
     def set_state(self, state):
         self._state = state
         self._updating = True
         try:
+            resolver = input_io.active_archive()
+            catalog_identity = resolver.identity if resolver is not None else "live"
+            if getattr(self, "_catalog_input_identity", None) != catalog_identity:
+                references = available_reference_samples()
+                self.preset.clear()
+                for reference in references:
+                    self.preset.addItem(reference.name, reference.key)
+                self._catalog_input_identity = catalog_identity
             sample = state.sample
             self.inserted.setChecked(bool(sample.inserted))
             index = self.mode.findData(str(sample.specimen_mode).lower())
@@ -1763,7 +1773,8 @@ class SamplePage(QWidget):
         self._update_eds_controls()
         self._changed(f"sample.{name}")
 
-    def _preset_changed(self):
+    @input_io.using_state_inputs
+    def _preset_changed(self, _index=None):
         if self._updating or self._state is None:
             return
         key = str(self.preset.currentData() or "")
@@ -1776,6 +1787,7 @@ class SamplePage(QWidget):
         self.set_state(self._state)
         self._changed("sample.reference_sample_key")
 
+    @input_io.using_state_inputs
     def _reference_source_revision(self):
         if self._state is None or str(self._state.sample.specimen_mode).strip().lower() != "reference":
             return None
@@ -1787,7 +1799,7 @@ class SamplePage(QWidget):
                 if path is None:
                     revision.append(None)
                 else:
-                    with path.open("rb") as stream:
+                    with input_io.open_input(path) as stream:
                         revision.append((str(path), hashlib.file_digest(stream, "sha256").hexdigest()))
             return tuple(revision)
         except Exception as exc:
@@ -1805,7 +1817,8 @@ class SamplePage(QWidget):
             return True
         return False
 
-    def _refresh_references(self):
+    @input_io.using_state_inputs
+    def _refresh_references(self, _checked=False):
         key = (str(self._state.sample.reference_sample_key)
                if self._state is not None else str(self.preset.currentData() or ""))
         try:
@@ -1962,7 +1975,8 @@ class SamplePage(QWidget):
         ):
             control.setEnabled(enabled and elastic)
 
-    def _calculate_eds_point(self):
+    @input_io.using_state_inputs
+    def _calculate_eds_point(self, _checked=False):
         if self._state is None or self._result is None:
             self.error.emit(
                 "Run a column calculation before the explicit EDS acquisition."
@@ -2201,6 +2215,7 @@ class SamplePage(QWidget):
         setattr(self._state.sample, name, str(value))
         self._changed(f"sample.{name}")
 
+    @input_io.using_state_inputs
     def _refresh_tail_summary(self):
         manual_material = self.tail_material_source.currentData() == "manual"
         manual_screening = self.tail_screening_source.currentData() == "manual"
@@ -2251,12 +2266,13 @@ class SamplePage(QWidget):
         self._update_wave_controls()
         self._changed("sample.cif_path")
 
-    def _apply_zone_axis(self):
+    @input_io.using_state_inputs
+    def _apply_zone_axis(self, _checked=False):
         if self._state is None:
             return
         try:
             path = Path(active_cif_path(self._state.sample)).expanduser()
-            if not path.is_file():
+            if not input_io.is_file(path):
                 raise ValueError("Select an existing CIF before aligning a zone axis.")
             from temsim.specimen.cif_io import read_cif_atoms
 
@@ -2316,6 +2332,7 @@ class SamplePage(QWidget):
         self.apply_draft.setEnabled(False)
         self._changed("sample.specimen_orientation_quaternion_wxyz")
 
+    @input_io.using_state_inputs
     def refresh_snapshot(self, calculation_result=None):
         if self._state is None:
             return

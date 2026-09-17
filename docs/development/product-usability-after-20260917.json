@@ -1,0 +1,142 @@
+{
+  "schema": "product-usability-benchmark-v1",
+  "head": "9ea3a7cc3940d81a956770e6a3785f3dc9994363",
+  "host": {
+    "platform": "Windows-11-10.0.26100-SP0",
+    "processor": "Intel64 Family 6 Model 181 Stepping 0, GenuineIntel",
+    "logical_cpus": 14,
+    "python": "3.12.10"
+  },
+  "scope": "CPU classical physical gun through specimen entrance; no sample/detector/wave qualification",
+  "input_identity": "90ca1ee288e472b208b802d0cf5c921336711229c1c0cad49bfe42921f13b73f",
+  "implementation_identity": "1b84d96055dabc5d64f88e3bbb8ff5b31cb26eef818b6c3a54bfaf00cf6a75c2",
+  "rays": 9,
+  "column_step_mm": 1.0,
+  "survivors": 9,
+  "runs": [
+    {
+      "kind": "cold",
+      "capture_s": 0.26229609999973036,
+      "restore_s": 0.2891418999997768,
+      "gun_including_fields_s": 8.95464980000088,
+      "column_s": 0.1826459000003524,
+      "audit_including_gun_and_column_s": 9.156218099999933,
+      "freeze_checkpoint_s": 0.00013250000029074727,
+      "hash_s": 0.04332909999993717,
+      "archive_write_s": 0.1532257999997455,
+      "archive_read_s": 0.21377039999970293,
+      "wall_s": 10.248667699999714
+    },
+    {
+      "kind": "warm",
+      "capture_s": 0.1923400000005131,
+      "restore_s": 0.33207690000017465,
+      "gun_including_fields_s": 0.01930460000039602,
+      "column_s": 0.19181659999958356,
+      "audit_including_gun_and_column_s": 0.21185289999993984,
+      "freeze_checkpoint_s": 0.00015689999963797163,
+      "hash_s": 0.06088900000031572,
+      "archive_write_s": 0.13827630000014324,
+      "archive_read_s": 0.22955000000001746,
+      "wall_s": 1.3291208000000552
+    },
+    {
+      "kind": "warm",
+      "capture_s": 0.26460039999983564,
+      "restore_s": 0.3539553000000524,
+      "gun_including_fields_s": 0.027236800000537187,
+      "column_s": 0.20368000000053144,
+      "audit_including_gun_and_column_s": 0.2317974999996295,
+      "freeze_checkpoint_s": 0.00011009999980160501,
+      "hash_s": 0.04730259999996633,
+      "archive_write_s": 0.16763900000023568,
+      "archive_read_s": 0.19557559999975638,
+      "wall_s": 1.3532366999997976
+    },
+    {
+      "kind": "warm",
+      "capture_s": 0.20016740000028221,
+      "restore_s": 0.3093056000006982,
+      "gun_including_fields_s": 0.019866699999511184,
+      "column_s": 0.16020519999983662,
+      "audit_including_gun_and_column_s": 0.18069869999999355,
+      "freeze_checkpoint_s": 9.520000003249152e-05,
+      "hash_s": 0.05071259999931499,
+      "archive_write_s": 0.11956459999964864,
+      "archive_read_s": 0.1954568000001018,
+      "wall_s": 1.2018346000004385
+    },
+    {
+      "kind": "warm",
+      "capture_s": 0.252218399999947,
+      "restore_s": 0.29997109999931126,
+      "gun_including_fields_s": 0.019848100000672275,
+      "column_s": 0.16195330000027752,
+      "audit_including_gun_and_column_s": 0.18249670000022888,
+      "freeze_checkpoint_s": 0.00011540000014065299,
+      "hash_s": 0.04453749999993306,
+      "archive_write_s": 0.16044890000011947,
+      "archive_read_s": 0.20757039999989502,
+      "wall_s": 1.2328458000001774
+    },
+    {
+      "kind": "warm",
+      "capture_s": 7.0920389000002615,
+      "restore_s": 0.3203303999998752,
+      "gun_including_fields_s": 0.019880599999851256,
+      "column_s": 0.15581879999990633,
+      "audit_including_gun_and_column_s": 0.1763449000000037,
+      "freeze_checkpoint_s": 8.900000011635711e-05,
+      "hash_s": 0.04326310000033118,
+      "archive_write_s": 0.1606595000002926,
+      "archive_read_s": 0.13747130000047036,
+      "wall_s": 8.069670799999585
+    }
+  ],
+  "warm_medians_s": {
+    "capture_s": 0.252218399999947,
+    "restore_s": 0.3203303999998752,
+    "gun_including_fields_s": 0.019866699999511184,
+    "column_s": 0.16195330000027752,
+    "audit_including_gun_and_column_s": 0.18249670000022888,
+    "freeze_checkpoint_s": 0.00011009999980160501,
+    "hash_s": 0.04730259999996633,
+    "archive_write_s": 0.16044890000011947,
+    "archive_read_s": 0.19557559999975638,
+    "wall_s": 1.3291208000000552
+  },
+  "gui_detail_refresh": {
+    "samples_s": [
+      0.028640100000302482,
+      0.024318800000401097,
+      0.025697800000671123,
+      0.026109700000233715,
+      0.0274280000003273,
+      0.025563400000464753,
+      0.025579799999832176,
+      0.024379400000725582,
+      0.02501609999944776,
+      0.02439180000055785,
+      0.025840400000561203,
+      0.024625900000501133,
+      0.02738709999994171,
+      0.027761599999394093,
+      0.02486629999930301,
+      0.02529049999975541,
+      0.02590090000012424,
+      0.02694100000007893,
+      0.02578940000057628,
+      0.02567659999931493
+    ],
+    "median_s": 0.025687199999993027,
+    "p95_s": 0.027805524999439512
+  },
+  "timing_semantics": "Gun and column are nested in audit; all stages are nested in wall. Do not sum them.",
+  "not_measured": [
+    "Separate field construction (included in gun)",
+    "GPU transfers (CPU case)",
+    "Large asset capture and peak memory",
+    "Interactive main-window event latency"
+  ],
+  "validation_status": "NOT_RUN: bounded execution is not convergence evidence"
+}

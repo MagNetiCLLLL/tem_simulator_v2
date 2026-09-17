@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from temsim import input_io
 import math
 import tomllib
 
@@ -313,7 +314,7 @@ class TipSurfaceModel:
 
 
 def load_tip_surface_reference(path: str | Path = REFERENCE):
-    with Path(path).open("rb") as stream:
+    with input_io.open_input(path) as stream:
         return TipSurfaceModel.from_dict(tomllib.load(stream))
 
 
@@ -431,10 +432,16 @@ def emit_surface(model, count):
     return positions, direction, normal_energy + tangent_energy, weights
 
 
-def surface_bundle(model, count, *, support_probes=0):
+def surface_bundle(model, count, *, support_probes=0, quadrature=None):
     """Retain the curved launch surface and full direction, including dz < 0."""
     from temsim.optics.electron_gun.base import EmissionBundle
-    p, d, energy, weight = emit_surface(model, count-support_probes if support_probes else count)
+    if quadrature is None:
+        p, d, energy, weight = emit_surface(model, count-support_probes if support_probes else count)
+    else:
+        if support_probes or count != quadrature.total:
+            raise ValueError("Surface product quadrature requires its complete declared population")
+        from temsim.optics.electron_gun.tip_sampling import surface_product_samples
+        p, d, energy, weight = surface_product_samples(model, quadrature)
     if support_probes:
         if support_probes not in (1, 33) or count <= support_probes:
             raise ValueError("Surface tuning requires 1 or 33 diagnostic probes plus emission samples")

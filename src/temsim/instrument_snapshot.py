@@ -18,8 +18,10 @@ import math
 import numpy as np
 
 from temsim.immutable_json import freeze_json, json_digest, thaw_json
+from temsim import input_io
 
 SNAPSHOT_SCHEMA = "complete-working-point-v1"
+ASSET_SNAPSHOT_SCHEMA = "complete-working-point-assets-v2"
 # Deliberately bounded to parameter/assembly models, never GUI, IO or workers.
 _MODEL_MODULES = (
     "column.layout", "column.module_assembly",
@@ -56,6 +58,8 @@ _RUNTIME_NAMES = frozenset({
     "_runtime_lens_field_provider_cache", "_field_provider_diagnostics",
     "_objective_plane_signature", "_equivalent_image_calibration_cache",
     "_tuning_cancelled",  # Worker cancellation callback, never a physical input.
+    "_last_ray_device_receipt",  # Timing only; copied to result performance.
+    "_archive_inputs", "_archive_resolver",  # Retained in the graph header; never encoded as a model object.
 })
 # Older pipeline revisions attached these outputs to State as well as keeping
 # them in CalculationResult. They are not source/optics inputs or checkpoints.
@@ -83,7 +87,7 @@ def _attribute_names(value):
     return sorted(name for name in names if name not in _RUNTIME_NAMES)
 
 
-def encode_instrument(state) -> Mapping:
+def encode_instrument(state, *, asset_store=None) -> Mapping:
     """Capture every supported parameter, including disabled hardware.
 
     Completed outputs remain in CalculationResult, not in this input graph.
@@ -91,12 +95,12 @@ def encode_instrument(state) -> Mapping:
     Arrays are stored as exact bytes, with dtype/shape; JSON is finite and
     floating-point values are never rounded to display precision.
     """
-    return _encode_instrument(state)
+    return _encode_instrument(state, asset_store=asset_store)
 
 
-def _encode_instrument(state, *, include_legacy_state_results=False):
+def _encode_instrument(state, *, include_legacy_state_results=False, asset_store=None):
     """Legacy results are included only to verify an existing archive on read."""
-    nodes, seen = [], {}
+    nodes, seen, array_aliases = [], {}, {}
     registry = _model_types()
 
     def encode(value):
@@ -115,6 +119,10 @@ def _encode_instrument(state, *, include_legacy_state_results=False):
         if isinstance(value, np.ndarray):
             if value.dtype.hasobject or value.dtype.fields is not None:
                 raise TypeError("Working-point arrays require a non-object, unstructured dtype")
+            if asset_store is not None and value.nbytes >= 65536:
+                alias = array_aliases.setdefault(id(value), len(array_aliases))
+                return {"asset": asset_store.register(value), "dtype": value.dtype.str,
+                        "shape": list(value.shape), "readonly": not value.flags.writeable, "alias": alias}
             return {"array": value.tobytes().hex(), "dtype": value.dtype.str,
                     "shape": list(value.shape), "readonly": not value.flags.writeable}
         if isinstance(value, Mapping):
@@ -145,15 +153,22 @@ def _encode_instrument(state, *, include_legacy_state_results=False):
         return {"ref": index}
 
     root = encode(state)
-    return freeze_json({"schema": SNAPSHOT_SCHEMA, "root": root, "nodes": nodes})
+    graph = {"schema": ASSET_SNAPSHOT_SCHEMA if asset_store is not None else SNAPSHOT_SCHEMA,
+             "root": root, "nodes": nodes}
+    if input_io.archive_payload(state) is not None:
+        graph["archived_inputs"] = input_io.archive_payload(state)
+    return freeze_json(graph)
 
 
-def decode_instrument(graph):
+def decode_instrument(graph, *, assets=None):
     """Return a detached editable state; never normalize saved controls."""
-    if graph.get("schema") != SNAPSHOT_SCHEMA:
+    if graph.get("schema") not in {SNAPSHOT_SCHEMA, ASSET_SNAPSHOT_SCHEMA}:
         raise ValueError("Unsupported working-point schema; historical viewing only")
+    if graph.get("schema") == ASSET_SNAPSHOT_SCHEMA and assets is None:
+        raise ValueError("This working point requires its pinned input assets")
     registry, nodes, restored = _model_types(), graph["nodes"], {}
     legacy_gauge_nodes = set()
+    array_aliases = {}
 
     def decode(value):
         if not isinstance(value, Mapping):
@@ -217,6 +232,20 @@ def decode_instrument(graph):
                     for component in result.components_t
                 ))
             return result
+        if "asset" in value:
+            if graph.get("schema") != ASSET_SNAPSHOT_SCHEMA or assets is None:
+                raise ValueError("Unexpected input asset reference")
+            alias = value["alias"]
+            if type(alias) is not int or alias < 0:
+                raise ValueError("Invalid input asset alias")
+            if alias in array_aliases:
+                descriptor, array = array_aliases[alias]
+                if descriptor != value:
+                    raise ValueError("Conflicting input asset alias")
+                return array
+            array = assets.array(value["asset"], value["dtype"], value["shape"], readonly=value["readonly"])
+            array_aliases[alias] = (value, array)
+            return array
         if "array" in value:
             dtype = np.dtype(value["dtype"])
             if dtype.hasobject or dtype.fields is not None:
@@ -244,10 +273,13 @@ def decode_instrument(graph):
     from temsim.optics.model import State
     if not isinstance(result, State):
         raise ValueError("Working-point root must be an instrument State")
+    if "archived_inputs" in graph:
+        input_io.bind_archive(result, graph["archived_inputs"])
     # Preserve every value in a readable historical graph, including old
     # diagnostic aliases. A later input capture excludes only those aliases;
     # neither the archived graph nor the restored object is rewritten here.
-    reencoded = _encode_instrument(result, include_legacy_state_results=True)
+    reencoded = _encode_instrument(result, include_legacy_state_results=True,
+        asset_store=assets if graph.get("schema") == ASSET_SNAPSHOT_SCHEMA else None)
     if legacy_gauge_nodes:
         from temsim.immutable_json import thaw_json
         reencoded = thaw_json(reencoded)
@@ -314,26 +346,37 @@ class InstrumentSnapshot:
     def restore(self):
         """Explicit restoration; changed/missing dependencies remain read-only.
 
-        Embedded external bytes preserve evidence, but this first slice does
-        not replace live files or redirect field loaders to an archive.
+        Legacy records verify original files. Explicit portable copies resolve
+        their complete, verified input inventory without writing live files.
         """
         from temsim.calculation_manifest import solver_source_identity
+        if self.graph.get("schema") not in {SNAPSHOT_SCHEMA, ASSET_SNAPSHOT_SCHEMA}:
+            raise ValueError("This record does not contain a restorable input graph; historical viewing only")
         if self.implementation != solver_source_identity():
             raise ValueError("Solver implementation changed; historical viewing only")
-        for row in self.external_inputs:
-            try:
-                content = Path(row["path"]).read_bytes()
-            except OSError as exc:
-                raise ValueError(f"Missing {row['role']}; historical viewing only") from exc
-            if sha256(content).hexdigest() != row["sha256"]:
-                raise ValueError(f"Changed {row['role']}; historical viewing only")
         result = decode_instrument(self.graph)
         from temsim.physics.illumination import illumination_config
-        illumination_config(result)
-        result.electron_gun.validate()
+        with input_io.input_scope(result, inherit=False) as resolver:
+            if resolver is not None:
+                resolver.assert_current_runtime()
+            for row in self.external_inputs:
+                try:
+                    content = input_io.read_bytes(row["path"])
+                except OSError as exc:
+                    raise ValueError(f"Missing {row['role']}; historical viewing only") from exc
+                if sha256(content).hexdigest() != row["sha256"]:
+                    raise ValueError(f"Changed {row['role']}; historical viewing only")
+            from temsim.calculation_manifest import capture_external_input_identities
+            actual = {(row.role, row.path, row.sha256) for row in capture_external_input_identities(result)}
+            expected = {(row["role"], row["path"], row["sha256"]) for row in self.external_inputs}
+            if actual != expected:
+                raise ValueError("External dependency inventory changed; migrate inputs explicitly")
+            illumination_config(result)
+            result.electron_gun.validate()
         return result
 
 
+@input_io.using_state_inputs
 def capture_instrument_snapshot(state) -> InstrumentSnapshot:
     from temsim.calculation_manifest import (
         capture_external_input_identities, solver_source_identity,
@@ -345,7 +388,7 @@ def capture_instrument_snapshot(state) -> InstrumentSnapshot:
             dependencies.append({"role": identity.role, "path": identity.path,
                                  "sha256": "", "content_hex": None})
             continue
-        content = Path(identity.path).read_bytes()
+        content = input_io.read_bytes(identity.path)
         if sha256(content).hexdigest() != identity.sha256:
             raise ValueError("External model changed during working-point capture")
         dependencies.append({"role": identity.role, "path": identity.path,
