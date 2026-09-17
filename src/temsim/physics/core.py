@@ -25,7 +25,7 @@ from temsim.physics.compute_backend import (
     BACKEND_CUDA,
     BACKEND_NUMBA,
     choose_ray_backend,
-    gpu_retry_reason, GPUExecutionError,
+    gpu_retry_reason, GPUExecutionError, normalise_backend,
 )
 from temsim.physics.lens_field_provider import (
     runtime_axial_magnetic_field_t,
@@ -91,11 +91,13 @@ class AxialPropagationPlan:
     magnetic_t: np.ndarray
     sx_m2: np.ndarray
     sy_m2: np.ndarray
+    sxy_m2: np.ndarray
     hex_normal_m3: np.ndarray
     hex_skew_m3: np.ndarray
     midpoint_magnetic_t: np.ndarray
     midpoint_sx_m2: np.ndarray
     midpoint_sy_m2: np.ndarray
+    midpoint_sxy_m2: np.ndarray
     midpoint_hex_normal_m3: np.ndarray
     midpoint_hex_skew_m3: np.ndarray
     cs_kick_m3: np.ndarray
@@ -254,6 +256,12 @@ def multipole_focusing_fields(z, state):
     sx, sy = np.zeros_like(z), np.zeros_like(z)
     for stig in state.stigmators:
         if not stig.enabled: continue
+        if hasattr(stig, "quadrupole_tensor_m2"):
+            qx, qy, _ = stig.quadrupole_tensor_m2(z)
+            mask = _support_mask(z, stig)
+            sx += np.where(mask, qx, 0.0)
+            sy += np.where(mask, qy, 0.0)
+            continue
         if hasattr(stig, "quadrupole_strengths_m2"):
             qx, qy = stig.quadrupole_strengths_m2(z)
             mask = _support_mask(z, stig)
@@ -277,6 +285,16 @@ def multipole_focusing_fields(z, state):
         sx += np.where(mask, q, 0.0)
         sy -= np.where(mask, q, 0.0)
     return sx, sy
+
+def skew_quadrupole_field(z, state):
+    """Off-diagonal focusing coefficient in the same frame as fields()."""
+    z = np.asarray(z, float)
+    skew = np.zeros_like(z)
+    for stig in state.stigmators:
+        if stig.enabled and hasattr(stig, "quadrupole_tensor_m2"):
+            _, _, value = stig.quadrupole_tensor_m2(z)
+            skew += np.where(_support_mask(z, stig), value, 0.0)
+    return skew
 
 def bz(z,state): return fields(z,state)[0]
 
@@ -626,6 +644,8 @@ def build_propagation_plan(
         midpoint_magnetic, midpoint_sx, midpoint_sy = fields(
             midpoint_z_mm, state, **field_options
         )
+        sxy = skew_quadrupole_field(zfull, state)
+        midpoint_sxy = skew_quadrupole_field(midpoint_z_mm, state)
     finally:
         if had_equivalent_propagation_flag:
             state._using_equivalent_image_propagation = (
@@ -690,7 +710,7 @@ def build_propagation_plan(
         bool(getattr(state, "acceleration_enabled", False)),
         str(getattr(state, "acceleration_backend", "Auto")),
         FIELD_SIGMA_CUTOFF,
-        'canonical-rk4-vector-maps-v2',
+        'canonical-rk4-quadrupole-tensor-v3',
         mode_key(state),
         state.vacuum_map.signature() if particle_medium else "optical-map-no-medium",
     ))
@@ -698,8 +718,8 @@ def build_propagation_plan(
     for item in mapped_fields:
         digest.update(item.fingerprint.encode("ascii"))
     for values in (
-        zfull, step_m, magnetic, sx, sy, hex_normal, hex_skew,
-        midpoint_magnetic, midpoint_sx, midpoint_sy,
+        zfull, step_m, magnetic, sx, sy, sxy, hex_normal, hex_skew,
+        midpoint_magnetic, midpoint_sx, midpoint_sy, midpoint_sxy,
         midpoint_hex_normal, midpoint_hex_skew,
         cs_kick, thin_power, thin_rotation, kickx, kicky, save,
         checkpoint_indices,
@@ -713,11 +733,13 @@ def build_propagation_plan(
         magnetic_t=_frozen_array(magnetic),
         sx_m2=_frozen_array(sx),
         sy_m2=_frozen_array(sy),
+        sxy_m2=_frozen_array(sxy),
         hex_normal_m3=_frozen_array(hex_normal),
         hex_skew_m3=_frozen_array(hex_skew),
         midpoint_magnetic_t=_frozen_array(midpoint_magnetic),
         midpoint_sx_m2=_frozen_array(midpoint_sx),
         midpoint_sy_m2=_frozen_array(midpoint_sy),
+        midpoint_sxy_m2=_frozen_array(midpoint_sxy),
         midpoint_hex_normal_m3=_frozen_array(midpoint_hex_normal),
         midpoint_hex_skew_m3=_frozen_array(midpoint_hex_skew),
         cs_kick_m3=_frozen_array(cs_kick),
@@ -750,6 +772,7 @@ def propagation_plan_common_prefix_nodes(previous, current):
         (previous.magnetic_t, current.magnetic_t),
         (previous.sx_m2, current.sx_m2),
         (previous.sy_m2, current.sy_m2),
+        (previous.sxy_m2, current.sxy_m2),
         (previous.hex_normal_m3, current.hex_normal_m3),
         (previous.hex_skew_m3, current.hex_skew_m3),
         (previous.cs_kick_m3, current.cs_kick_m3),
@@ -774,6 +797,7 @@ def propagation_plan_common_prefix_nodes(previous, current):
     # midpoint invalidates that interval even when its endpoint fields match.
     for name in (
         'midpoint_magnetic_t', 'midpoint_sx_m2', 'midpoint_sy_m2',
+        'midpoint_sxy_m2',
         'midpoint_hex_normal_m3', 'midpoint_hex_skew_m3',
     ):
         old, new = getattr(previous, name), getattr(current, name)
@@ -813,6 +837,7 @@ def execute_propagation_plan(
     magnetic = stages("magnetic_t", "midpoint_magnetic_t")
     sx = stages("sx_m2", "midpoint_sx_m2")
     sy = stages("sy_m2", "midpoint_sy_m2")
+    sxy = stages("sxy_m2", "midpoint_sxy_m2")
     hex_normal = stages("hex_normal_m3", "midpoint_hex_normal_m3")
     hex_skew = stages("hex_skew_m3", "midpoint_hex_skew_m3")
     cs_kick = np.array(plan.cs_kick_m3[start_index:], dtype=np.float64)
@@ -861,9 +886,9 @@ def execute_propagation_plan(
     inputs = (
         sx, sy, hex_normal, hex_skew, larmor_axis, inverse_momentum,
         cs_kick, thin_power, thin_rotation, step_m, *arrays, kickx, kicky,
-        save, checkpoint_index,
+        save, checkpoint_index, sxy,
     )
-    policy = str(getattr(state, "acceleration_backend", "Auto")).lower().replace(" ", "_")
+    policy = normalise_backend(getattr(state, "acceleration_backend", "Auto")).lower().replace(" ", "_")
     workload = None
     if medium_transport is None and not plan.mapped_fields and not getattr(state, "_optical_tuning", False):
         from temsim.physics.ray_device_cache import STAGE_COSTS, measured_workload
@@ -906,7 +931,11 @@ def execute_propagation_plan(
         except Exception as exc:
             # Input, physics and cancellation errors must keep their original
             # meaning; only declared accelerator failures can use a CPU retry.
-            fallback_reason = gpu_retry_reason(exc, policy)
+            from temsim.physics.backend_execution import record_backend
+            from temsim.physics.compute_backend import gpu_failure_evidence
+            record_backend("column", getattr(state, "acceleration_backend", "Auto"), BACKEND_CUDA,
+                           outcome="raised", **gpu_failure_evidence(exc, stage="column_transport"))
+            fallback_reason = gpu_retry_reason(exc, policy, stage="column_transport")
             retried = True
             backend = BACKEND_NUMBA if NUMBA_AVAILABLE else BACKEND_CPU
             outputs = (
@@ -924,6 +953,9 @@ def execute_propagation_plan(
         from temsim.physics.ray_device_cache import last_device_receipt
         state._last_ray_device_receipt = last_device_receipt()
     _record_active_backend(state, backend, fallback_reason)
+    from temsim.physics.backend_execution import record_backend
+    record_backend("column", getattr(state, "acceleration_backend", "Auto"), backend,
+                   reason=fallback_reason or "", retried=retried)
     X,TX,Y,TY,CX,CTX,CY,CTY=outputs
     checkpoints = PropagationCheckpoints(
         z_mm=_frozen_array(zfull[checkpoint_index]),

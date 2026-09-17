@@ -47,7 +47,7 @@ class BeamAlignmentEditor(QGroupBox):
         self.apply_button.setObjectName("applyBeamCentreDirection")
         self.apply_button.clicked.connect(lambda: self.requested.emit(KEY, 0.))
         form.addRow(self.apply_button)
-        unavailable = QLabel("Two-axis condenser stigmator alignment: unavailable. The current field uses only (X strength - Y strength), giving one independent control direction.\nDynamic pivot / scan-descan matching: a time-dependent target and observation-plane contract must be specified before enabling an inverse task. Static centre/direction alignment does not certify those tasks.")
+        unavailable = QLabel("Twofold beam-shape alignment has separate controls below. Scan / descan calibration and physical observation planes are in Scanning Image.")
         unavailable.setWordWrap(True)
         form.addRow(unavailable)
 
@@ -72,3 +72,52 @@ class BeamAlignmentEditor(QGroupBox):
         return BeamAlignmentOptions(tuple(editor.value() for editor in self.targets),
             self.position_tolerance.value(), self.angle_tolerance.value(), self.kick_bound.value(),
             self.trials.value(), float(self.minimum_samples.value()), self.minimum_current.value())
+
+
+class StigmatorAlignmentEditor(QGroupBox):
+    requested = Signal(str, float)
+
+    def __init__(self, parent=None):
+        super().__init__("Condenser twofold beam shape", parent)
+        self._available = False
+        form = QFormLayout(self)
+        self.tolerance = BeamAlignmentEditor._positive(.01)
+        self.tolerance.setMaximum(.99)
+        self.bound = BeamAlignmentEditor._positive(100.)
+        self.diameter = BeamAlignmentEditor._positive(10.)
+        self.current = BeamAlignmentEditor._positive(2., allow_zero=True)
+        self.samples = WheelSafeSpinBox()
+        self.samples.setRange(3, 1000000)
+        self.samples.setValue(16)
+        self.trials = WheelSafeSpinBox()
+        self.trials.setRange(8, 256)
+        self.trials.setValue(24)
+        form.addRow("Shape tolerance (dimensionless)", self.tolerance)
+        form.addRow("Numerical strength bound (+/- %)", self.bound)
+        form.addRow("Maximum D95 (nm)", self.diameter)
+        form.addRow("Minimum current (pA)", self.current)
+        form.addRow("Minimum effective samples", self.samples)
+        form.addRow("Maximum search trials", self.trials)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        from PySide6.QtCore import Qt
+        self.status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        form.addRow(self.status)
+        self.apply_button = QPushButton("Solve and apply twofold shape")
+        self.apply_button.setObjectName("applyCondenserTwofoldShape")
+        self.apply_button.clicked.connect(lambda: self.requested.emit("condenser_twofold_shape", 0.))
+        form.addRow(self.apply_button)
+
+    def set_state(self, state):
+        from temsim.stigmator_alignment import capability
+        self._available, reason = capability(state)
+        self.status.setText(reason)
+        self.apply_button.setEnabled(self._available)
+
+    def set_busy(self, busy):
+        self.apply_button.setEnabled(self._available and not busy)
+
+    def options(self):
+        from temsim.stigmator_alignment import StigmatorAlignmentOptions
+        return StigmatorAlignmentOptions(self.tolerance.value(), self.bound.value(),
+            self.diameter.value(), self.trials.value(), float(self.samples.value()), self.current.value())

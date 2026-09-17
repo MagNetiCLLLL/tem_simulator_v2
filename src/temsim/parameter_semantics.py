@@ -77,7 +77,7 @@ def parameter_unit(path):
         for unit in _UNITS:
             if word.endswith("_" + unit):
                 return "µm" if unit == "um" else unit
-        if word == "percent":
+        if word == "percent" or word.endswith("_percent"):
             return "%"
     return ""
 

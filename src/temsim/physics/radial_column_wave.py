@@ -322,7 +322,7 @@ def _round_column_prefix(state, checkpoint, stop_z_mm, *, maximum_step_mm=.5,
     from temsim.simulation_modes import is_ideal
     plan, radii, stops, owners = _prepare_column(state, checkpoint.plane_z_mm, stop_z_mm, maximum_step_mm)
     end_index = len(plan.z_mm)-1
-    for name in ("midpoint_sx_m2", "midpoint_sy_m2", "midpoint_hex_normal_m3", "midpoint_hex_skew_m3"):
+    for name in ("midpoint_sx_m2", "midpoint_sy_m2", "midpoint_sxy_m2", "midpoint_hex_normal_m3", "midpoint_hex_skew_m3"):
         active = np.flatnonzero(getattr(plan, name))
         if len(active):
             end_index = min(end_index, int(active[0]))

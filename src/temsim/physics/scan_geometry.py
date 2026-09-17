@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+from temsim.physics.scan_calibration import held, restore_held, sample_reference_z_mm, capture_record
 
 from temsim.physics.beam_observation import (
     transverse_kick_phase_space_response,
@@ -112,7 +113,10 @@ def calibrate_ac_pure_shift(state):
     """Couple the AC foils so their first-order sample angle cancels."""
 
     component = state.ac_deflector
-    sample_z_mm = float(state.sample.z_mm)
+    sample_z_mm = sample_reference_z_mm(state)
+    if held(state):
+        restore_held(state)
+        return np.asarray(component.pure_shift_lower_ratio_matrix), _ac_angle_residual(state)
     _, upper_angle = transverse_kick_phase_space_response(
         state,
         float(component.upper_z_mm),
@@ -128,11 +132,10 @@ def calibrate_ac_pure_shift(state):
         if not np.isfinite(condition) or condition > 1.0e12:
             raise np.linalg.LinAlgError("lower AC angular response is singular")
         lower_from_upper = np.linalg.solve(lower_angle, -upper_angle)
-    except np.linalg.LinAlgError:
-        # A field-free equal-and-opposite pair remains the safest bounded
-        # approximation if the current optical map cannot be inverted.
-        lower_from_upper = -np.eye(2, dtype=float)
-    residual_matrix = upper_angle + lower_angle @ lower_from_upper
+    except np.linalg.LinAlgError as exc:
+        raise ValueError("AC scan pivot is not controllable at the specimen plane; previous settings retained") from exc
+    pivot = np.diag((component.pivot_offset_x, component.pivot_offset_y))
+    residual_matrix = upper_angle + lower_angle @ (lower_from_upper + pivot)
     residual = float(
         np.linalg.norm(residual_matrix)
         / max(float(np.linalg.norm(upper_angle)), 1.0e-15)
@@ -186,7 +189,15 @@ def _descan_target(state) -> tuple[str, str, float]:
     contrast instead of silently calling it an image plane.
     """
 
+    requested = state.descan_deflector.descan_target_key
     selected_area = getattr(state, "selected_area_aperture", None)
+    if requested != "legacy_image_reference":
+        candidates = (*getattr(state, "recording_planes", ()), selected_area)
+        plane = next((p for p in candidates if p is not None and str(p.key) == requested), None)
+        if plane is None or float(plane.z_mm) <= float(state.descan_deflector.lower_z_mm):
+            raise ValueError("Choose an installed physical descan target downstream of both foils")
+        require_supported_descan_target(state, float(plane.z_mm))
+        return str(plane.key), str(plane.name), float(plane.z_mm)
     if selected_area is not None:
         target = (
             str(selected_area.key),
@@ -210,7 +221,16 @@ def _descan_target(state) -> tuple[str, str, float]:
         raise ValueError(
             "Descan image-reference target must follow both Descan foils."
         )
+    require_supported_descan_target(state, target[2])
     return target
+
+
+def require_supported_descan_target(state, z_mm):
+    """The incident first-order observer must not bypass the energy filter."""
+    energy_filter = getattr(state, "energy_filter", None)
+    if (getattr(state, "energy_filter_installed", False) and energy_filter is not None
+            and float(z_mm) >= float(energy_filter.entrance_z_mm)):
+        raise ValueError("Descan targets at or after the energy filter require its transported response; choose a physical plane before the filter")
 
 
 def _coil_kick_matrices(component):
@@ -290,13 +310,19 @@ def calibrate_ac_scan_scale(state):
     """
 
     component = state.ac_deflector
+    if held(state):
+        command = restore_held(state)
+        response = paired_kick_response(state, component, sample_reference_z_mm(state))
+        desired = np.diag((component.scan_field_of_view_x_nm, component.scan_field_of_view_y_nm)) * 0.5e-9
+        residual = float(np.linalg.norm(response @ (command*1e-3) - desired) / np.linalg.norm(desired))
+        return command, residual
     # Lens excitation and sample Z both move the conjugate planes. Re-solve
     # instead of trusting a component-local flag from an earlier optical state.
     calibrate_ac_pure_shift(state)
     response_m_per_rad = paired_kick_response(
         state,
         component,
-        float(state.sample.z_mm),
+        sample_reference_z_mm(state),
     )
     condition = float(np.linalg.cond(response_m_per_rad))
     if not np.isfinite(condition) or condition > 1.0e12:
@@ -357,6 +383,10 @@ def calibrate_descan_image_plane(state) -> DescanCalibrationResult:
 
     ac = state.ac_deflector
     descan = state.descan_deflector
+    if held(state):
+        restore_held(state)
+        synchronize_scan_raster(ac, descan)
+        return _measure_descan(state)
     snapshot = dict(descan.__dict__)
     try:
         synchronize_scan_raster(ac, descan)
@@ -387,7 +417,7 @@ def calibrate_descan_image_plane(state) -> DescanCalibrationResult:
         )
         transfer = trace_transverse_transfer(
             state,
-            float(state.sample.z_mm),
+            sample_reference_z_mm(state),
             target_z_mm,
         )
         plane_kind, image_residual, _ = classify_sample_plane_transfer(
@@ -448,18 +478,46 @@ def _solve_descan_response_match(
     return np.asarray(lower_from_upper, dtype=float), response_residual
 
 
-def calibrate_scan_system(state):
+def _ac_angle_residual(state):
+    ac = state.ac_deflector
+    _, upper = transverse_kick_phase_space_response(state, ac.upper_z_mm, sample_reference_z_mm(state))
+    _, lower = transverse_kick_phase_space_response(state, ac.lower_z_mm, sample_reference_z_mm(state))
+    u, l = _coil_kick_matrices(ac)
+    return float(np.linalg.norm(upper @ u + lower @ l) / max(np.linalg.norm(upper @ u), 1e-30))
+
+
+def _measure_descan(state):
+    key, name, z = _descan_target(state)
+    ac = paired_kick_response(state, state.ac_deflector, z)
+    ds = paired_kick_response(state, state.descan_deflector, z)
+    residual = float(np.linalg.norm(ac-ds) / max(np.linalg.norm(ac), 1e-30))
+    kind, image, _ = classify_sample_plane_transfer(trace_transverse_transfer(state, sample_reference_z_mm(state), z))
+    return DescanCalibrationResult(key, name, z,
+        np.asarray(state.descan_deflector.image_plane_lower_ratio_matrix), residual, image, kind)
+
+
+def calibrate_scan_system(state, *, force=False, hold=False):
     """Calibrate specimen scan and, when active, opposite-command Descan."""
 
-    command, scale_residual = calibrate_ac_scan_scale(state)
-    descan = state.descan_deflector
-    synchronize_scan_raster(state.ac_deflector, descan)
-    descan_result = (
-        calibrate_descan_image_plane(state)
-        if bool(descan.enabled and descan.scan_enabled)
-        else None
-    )
-    return command, scale_residual, descan_result
+    components = state.ac_deflector, state.descan_deflector
+    snapshots = [dict(c.__dict__) for c in components]
+    try:
+        if force:
+            state.ac_deflector.calibration_mode = "automatic"
+        command, scale_residual = calibrate_ac_scan_scale(state)
+        descan = state.descan_deflector
+        synchronize_scan_raster(state.ac_deflector, descan)
+        descan_result = (calibrate_descan_image_plane(state)
+                        if bool(descan.enabled and descan.scan_enabled) else None)
+        if force:
+            capture_record(state)
+            state.ac_deflector.calibration_mode = "held" if hold else snapshots[0]["calibration_mode"]
+        return command, scale_residual, descan_result
+    except Exception:
+        for component, saved in zip(components, snapshots):
+            component.__dict__.clear()
+            component.__dict__.update(saved)
+        raise
 
 
 def _preview_indices(
@@ -634,7 +692,7 @@ def calculate_scan_geometry(state) -> ScanGeometryResult | None:
         if ac_enabled
         else None
     )
-    ac_residual = ac.pure_shift_angular_residual if ac_enabled else None
+    ac_residual = _ac_angle_residual(state) if ac_enabled else None
     descan_calibration = (
         calibrate_descan_image_plane(state) if descan_enabled else None
     )
@@ -644,7 +702,7 @@ def calculate_scan_geometry(state) -> ScanGeometryResult | None:
     ac_kicks = _scan_kicks_mrad(ac, times_s)
     descan_kicks = _scan_kicks_mrad(descan, times_s)
 
-    sample_z_mm = float(state.sample.z_mm)
+    sample_z_mm = sample_reference_z_mm(state)
     observation_planes = [
         plane for plane in state.recording_planes
         if float(plane.z_mm) > sample_z_mm
@@ -688,7 +746,7 @@ def calculate_scan_geometry(state) -> ScanGeometryResult | None:
             observation_planes.append(reference)
             existing_keys.add(str(reference.key))
     observation_planes.sort(key=lambda plane: float(plane.z_mm))
-    stops = [float(state.sample.z_mm)]
+    stops = [sample_z_mm]
     stops.extend(float(plane.z_mm) for plane in observation_planes)
     stop_z_mm = max(stops)
     ac_paths = (
@@ -710,7 +768,7 @@ def calculate_scan_geometry(state) -> ScanGeometryResult | None:
         )
         if descan_enabled else None
     )
-    if descan_calibration is not None:
+    if descan_calibration is not None and not held(state):
         target_z_mm = float(descan_calibration.target_z_mm)
         ac_response = _pair_response_from_paths(
             ac,
@@ -763,7 +821,7 @@ def calculate_scan_geometry(state) -> ScanGeometryResult | None:
         )
 
     sample_m = _pair_displacement_m(
-        ac, ac_kicks, ac_paths, float(state.sample.z_mm)
+        ac, ac_kicks, ac_paths, sample_z_mm
     )
     plane_positions_um = {}
     plane_names = {}

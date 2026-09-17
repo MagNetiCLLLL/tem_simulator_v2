@@ -113,6 +113,38 @@ def test_uniform_axial_field_rotates_slopes_without_double_focusing():
     np.testing.assert_allclose(result[2]**2+result[4]**2, tx*tx, rtol=1e-9)
 
 
+def test_active_mapped_path_retains_normal_and_skew_quadrupoles():
+    from temsim.optics.model import Stigmator
+    state = _state()
+    state.lenses[0].magnetic_field_t = lambda z: np.zeros_like(np.asarray(z, dtype=float))
+    state.stigmators = [Stigmator("fixture", "fixture", .5, field_model="normal_skew",
+                                  strength_x_percent=3., strength_y_percent=7.)]
+    values = (np.array([1e-6]), np.array([1e-4]), np.array([-2e-6]), np.array([2e-4]))
+    reference = _trace(state, values)
+    _map(state, (0., 0., 0.))  # Executes the mapped-field branch without adding a physical field.
+    mapped = _trace(state, values)
+    for before, after in zip(reference[1:], mapped[1:]):
+        np.testing.assert_allclose(after, before, rtol=1e-7, atol=1e-13)
+
+
+def test_specimen_lorentz_field_has_same_quadrupole_tensor_signs():
+    from temsim.optics.model import Stigmator
+    from temsim.specimen.vector_field_transport import SpecimenFieldTransport
+    state = _state()
+    state.lenses = []
+    stig = Stigmator("fixture", "fixture", 0., field_model="normal_skew",
+                    strength_x_percent=3., strength_y_percent=7.)
+    state.stigmators = [stig]
+    context = SpecimenFieldTransport(state)
+    x, y = 1e-6, -2e-6
+    bx, by, bz = context.field_at_global_positions_t([x, y, 0.])
+    charge, momentum, _ = electron(state)
+    kx, ky, kxy = stig.quadrupole_tensor_m2(0.)
+    np.testing.assert_allclose([-charge*by/momentum, charge*bx/momentum],
+                               [-kx*x-kxy*y, -ky*y-kxy*x], rtol=1e-14)
+    assert bz == 0.
+
+
 def test_vector_field_uses_each_ray_position_and_energy():
     state = _state()
     axes = (np.linspace(-.01,.01,3),)*2 + (np.linspace(0,.001,3),)

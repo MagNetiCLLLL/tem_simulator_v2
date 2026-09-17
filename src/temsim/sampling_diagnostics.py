@@ -18,7 +18,8 @@ def sampling_summary(arrays, *, plane_z_mm, source_current_a=None):
         status="NOT_COMPUTED", emitted_samples=None, transmitted_samples=None,
         source_current_a=source_current_a, plane_current_a=None, transmission=None,
         effective_samples=None, maximum_weight_fraction=None, centroid_x_m=None,
-        centroid_y_m=None, diameter95_m=None, alpha95_rad=None,
+        centroid_y_m=None, diameter95_m=None, alpha95_rad=None, alpha99_rad=None,
+        chief_slope_x=None, chief_slope_y=None,
         reason="No retained incident population", convergence_status="NOT_RUN")
     if source_current_a is not None and (not math.isfinite(source_current_a) or source_current_a < 0):
         raise ValueError("Captured source current must be finite and non-negative")
@@ -53,11 +54,19 @@ def sampling_summary(arrays, *, plane_z_mm, source_current_a=None):
         return freeze_json(result)
     normalized = weights[selected] / surviving
     stats = transverse_beam_statistics(*values, alive=selected, weights=weights)
+    from temsim.physics.phase_space_statistics import weighted_phase_space_statistics
+    phase_space = weighted_phase_space_statistics(arrays)
     result.update(status="AVAILABLE", reason="N_eff is weight concentration, not convergence or an error bar",
         effective_samples=float(1.0 / np.sum(normalized**2)),
         maximum_weight_fraction=float(normalized.max()), centroid_x_m=stats.mean_x_m,
         centroid_y_m=stats.mean_y_m, diameter95_m=2 * stats.radius_95_m,
-        alpha95_rad=stats.convergence_95_rad)
+        alpha95_rad=stats.convergence_95_rad,
+        alpha99_rad=stats.convergence_99_rad,
+        chief_slope_x=stats.mean_tx_rad, chief_slope_y=stats.mean_ty_rad,
+        phase_space=dict(coordinate_order=phase_space["coordinate_order"],
+            mean=phase_space["mean"].tolist(), covariance=phase_space["covariance"].tolist(),
+            rms_emittance_m_rad=phase_space["rms_emittance_m_rad"],
+            convention=phase_space["convention"], phase_status="NOT_COMPUTED"))
     return freeze_json(result)
 
 

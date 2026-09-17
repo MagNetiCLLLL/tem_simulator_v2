@@ -38,7 +38,7 @@ def unmapped_public_inputs(state):
         return supplied
     from collections.abc import Mapping
     from dataclasses import fields, is_dataclass
-    from temsim.instrument_snapshot import _RUNTIME_NAMES, encode_instrument
+    from temsim.instrument_snapshot import _RUNTIME_NAMES, _STATE_PRODUCT_NAMES, encode_instrument
     from temsim.immutable_json import json_digest
     visited, extensions = set(), {}
     assets = None
@@ -68,7 +68,8 @@ def unmapped_public_inputs(state):
             if hasattr(value, "__dict__"):
                 attributes.update(vars(value))
             attributes = {name: item for name, item in attributes.items()
-                if not name.startswith("_") and name not in _RUNTIME_NAMES}
+                if not name.startswith("_") and name not in _RUNTIME_NAMES
+                and not (type(value).__name__ == "State" and name in _STATE_PRODUCT_NAMES)}
             known = _KNOWN_DYNAMIC.get(type(value).__name__, set())
             for name, item in sorted(attributes.items()):
                 if name not in declared and name not in known:
@@ -136,6 +137,22 @@ def parameter_definition(component, name, *, lens=False):
         category, label, detail, sweep = "operating", "Specimen thickness", "Specimen interactions and surface positions remain physical dependencies.", True
     elif component == "inverse" and name in {"alpha95", "diameter95"}:
         category, detail = "inverse_target", "A requested measured quantity; cannot be assigned as a downstream source or raw lens parameter."
+    elif component in {"condenser_stigmator", "objective_stigmator", "diffraction_stigmator"}:
+        if name in {"strength_x_percent", "strength_y_percent", "field_model", "enabled"}:
+            category, label = "operating", "Stigmator " + label
+            detail = ("Independent model: X/Y drive two trace-free quadrupole bases at the TOML angles; "
+                      "Kxy is transported, not a display rotation. Legacy difference remains rank one. "
+                      "Percent scales max_strength_m2; this is an ideal coefficient, not calibrated coil current.")
+        elif name in {"channel_x_angle_deg", "channel_y_angle_deg", "length_mm", "z_mm"}:
+            category, detail = "structural", "TOML-owned mechanical basis and Gaussian effective axial support; not an OEM field map."
+    elif component in {"ac_deflector", "descan_deflector"}:
+        if name in {"calibration_mode", "calibration_record_json", "scan_reference", "descan_target_key",
+                    "pivot_offset_x", "pivot_offset_y", "upper_coil_gain", "scan_pixel_size_nm",
+                    "scan_pixels_x", "scan_lines", "scan_frame_period_s", "scan_enabled"}:
+            category, label = "operating", "Scan / descan " + label
+            detail = ("One shared raster clock. Automatic mode re-solves physical foil coupling; held mode preserves saved "
+                      "drive ratios and exposes focus/pivot errors at the chosen physical observation plane. "
+                      "Pixel pitch is requested at the specimen reference, not guaranteed after changing held optics.")
     if category is None:
         return None
     return ParameterDefinition(str(component), str(name), category, parameter_unit((name,)), label, detail, sweep)

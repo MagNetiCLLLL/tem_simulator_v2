@@ -905,6 +905,7 @@ def validate_document(document):
     # Independent CAD copies keep their legacy shape fields, not the original
     # optical role. Built-in assemblies retain every existing physics check.
     physical_parts = tuple(part for part in parts if not is_custom_mechanical_part(part))
+    _validate_alignment_structure(physical_parts)
     _validate_aperture_mechanism_metadata(physical_parts)
     _validate_simple_magnetic_layer_geometry(physical_parts)
     from temsim.part_materials import validate_part_materials
@@ -963,6 +964,29 @@ def validate_document(document):
             # the existing axisymmetric physics consume an arbitrary CAD model.
             part_model_from_document(document, part["key"], include_children=False)
     return document
+
+
+def _validate_alignment_structure(parts):
+    """Validate optional physical basis metadata; old manifests remain readable."""
+    for part in parts:
+        if "stigmator_structure" in part:
+            if part["stigmator_structure"] != "two_quadrupole_bases":
+                raise ValueError("Unsupported stigmator topology")
+            if "coil_topology" in part and (part["coil_topology"] != "two_interleaved_four_pole_windings"
+                    or type(part.get("coil_count")) is not int or part["coil_count"] != 8):
+                raise ValueError("Two interleaved four-pole windings require eight coils")
+            ax = float(part["channel_x_angle_deg"])
+            ay = float(part["channel_y_angle_deg"])
+            if not all(math.isfinite(a) for a in (ax, ay)) or abs(math.sin(math.radians(2*(ay-ax)))) < 1e-6:
+                raise ValueError("Stigmator channels must span two independent quadrupole components")
+        if "scan_structure" in part:
+            if (part["scan_structure"] != "two_axial_xy_dipole_pairs"
+                    or part.get("field_basis") != "column_xy"
+                    or part.get("drive_clock") != "shared_ac_raster"):
+                raise ValueError("Unsupported scan coil structure or drive basis")
+            centres = part.get("interaction_centers_local_z_mm", ())
+            if len(centres) != 2 or not float(centres[0]) < float(centres[1]):
+                raise ValueError("Scan coils require two ordered interaction centres")
 
 
 def _validate_custom_mechanical_parts(parts):

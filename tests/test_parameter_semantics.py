@@ -18,7 +18,8 @@ def _document(path):
 
 
 def _parts(path):
-    return {part["key"]: part for part in _document(path)["parts"]}
+    from temsim.module_manifest import read_document
+    return {part["key"]: part for part in read_document(CONFIGS / path)["parts"]}
 
 
 @pytest.mark.parametrize("field,category,label", [

@@ -64,3 +64,14 @@ def test_missing_old_products_remain_readable(qtbot):
     panel.publish(SimpleNamespace(), "Historical")
     assert "Unavailable" in panel.label.text()
     assert "NOT_ESTABLISHED" in panel.label.text()
+
+
+@pytest.mark.parametrize("quality", ["Preview · transport validation", " Preview", "Medium", "Historical", "unknown"])
+def test_non_high_labels_cannot_overwrite_retained_high(qtbot, quality):
+    panel = ResultReadout()
+    qtbot.addWidget(panel)
+    panel.publish(SimpleNamespace(signatures={"request": "high"}), "High accuracy")
+    panel.mark_stale("high")
+    panel.publish(SimpleNamespace(signatures={"request": "other"}), quality)
+    assert panel._records["high"]["result_id"] == "high"
+    assert panel._stale["high"]

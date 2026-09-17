@@ -149,6 +149,11 @@ class AcDeflectorComponent:
     upper_coil_gain: float = 0.5
     lower_coil_gain: float = -0.5
     active_installation: str = "probe"
+    calibration_mode: str = "automatic"
+    calibration_record_json: str = ""
+    scan_reference: str = "sample_centre"
+    pivot_offset_x: float = 0.0
+    pivot_offset_y: float = 0.0
 
     EXPECTED_KEY: ClassVar[str] = AC_DEFLECTOR
 
@@ -318,6 +323,15 @@ class AcDeflectorComponent:
         self.kick_y_mrad = float(value)
 
     def validate(self):
+        if self.calibration_mode not in ("automatic", "held"):
+            raise ValueError("Scan calibration mode must be automatic or held")
+        if self.scan_reference not in ("sample_centre", "sample_entrance"):
+            raise ValueError("Unknown specimen scan reference")
+        if not all(isfinite(v) for v in (self.pivot_offset_x, self.pivot_offset_y)):
+            raise ValueError("Scan pivot offsets must be finite")
+        if self.calibration_record_json:
+            from temsim.physics.scan_calibration import validate_record
+            validate_record(self.calibration_record_json)
         if self.key != self.EXPECTED_KEY:
             raise ValueError("AC Scan Coil key is not canonical.")
         if self.z_mm < 0.0:
@@ -581,7 +595,9 @@ class AcDeflectorComponent:
         """Return upper/lower maps from one shared command to both foils."""
 
         gain = float(self.upper_coil_gain)
-        ratio = self._pure_shift_lower_ratio_matrix
+        ratio = tuple(tuple(value + (self.pivot_offset_x if i == 0 else self.pivot_offset_y)
+                            if i == j else value for j, value in enumerate(row))
+                      for i, row in enumerate(self._pure_shift_lower_ratio_matrix))
         return (
             ((gain, 0.0), (0.0, gain)),
             tuple(
@@ -733,6 +749,8 @@ def ac_deflector_from_dict(data):
         "scan_lines",
         "scan_pixel_size_nm",
         "upper_coil_gain",
+        "calibration_mode", "calibration_record_json", "scan_reference",
+        "pivot_offset_x", "pivot_offset_y",
     ):
         if attribute in values:
             setattr(component, attribute, values[attribute])

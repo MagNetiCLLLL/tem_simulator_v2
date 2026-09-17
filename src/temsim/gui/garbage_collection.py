@@ -1,5 +1,7 @@
 """Collect Python widget cycles on the Qt thread, including embedded panels."""
 import gc
+from collections import deque
+from time import monotonic
 from PySide6.QtCore import QObject, QTimer, Slot
 
 
@@ -7,6 +9,7 @@ class GuiGarbageCollector(QObject):
     def __init__(self, application):
         super().__init__(application)
         self._restore_enabled = gc.isenabled()
+        self.history = deque(maxlen=32)
         self.timer = QTimer(self)
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self.collect_if_due)
@@ -23,7 +26,11 @@ class GuiGarbageCollector(QObject):
         counts, thresholds = gc.get_count(), gc.get_threshold()
         due = [index for index in range(3) if thresholds[index] and counts[index] >= thresholds[index]]
         if due:
-            gc.collect(max(due))
+            generation = max(due)
+            started = monotonic()
+            collected = gc.collect(generation)
+            self.history.append(dict(generation=generation, start_s=started,
+                                     end_s=monotonic(), collected=collected))
 
     @Slot()
     def stop(self):

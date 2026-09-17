@@ -7,13 +7,15 @@ import pytest
 from temsim.physics import compute_backend as backend
 
 
-@pytest.mark.parametrize("policy", ["Require GPU", "require_gpu"])
+@pytest.mark.parametrize("policy", ["Require GPU", "require_gpu", " Require GPU "])
 def test_strict_ray_gpu_never_claims_cpu_fallback(monkeypatch, policy):
     monkeypatch.setattr(backend, "cuda_capability", lambda: backend.BackendCapability(False, "fixture: no device"))
     with pytest.raises(backend.GPUExecutionError, match="no device"):
         backend.choose_ray_backend(policy, acceleration_enabled=True, ray_count=3)
     with pytest.raises(backend.GPUExecutionError, match="disabled"):
         backend.choose_ray_backend(policy, acceleration_enabled=False, ray_count=3)
+    with pytest.raises(backend.GPUExecutionError, match="fixture oom"):
+        backend.gpu_retry_reason(backend.GPUExecutionError("out_of_memory", "fixture oom"), policy)
 
 
 def test_preference_and_explicit_cpu_remain_distinct(monkeypatch):

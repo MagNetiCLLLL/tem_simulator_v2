@@ -1,9 +1,10 @@
 """Detached two-run sampling checks; never installs a result into the column."""
 from threading import Event
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Qt
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QCheckBox, QPushButton, QPlainTextEdit, QFileDialog)
+    QCheckBox, QPushButton, QPlainTextEdit, QFileDialog, QTableWidget,
+    QTableWidgetItem, QAbstractItemView, QHeaderView)
 from temsim.gui.input_policy import (WheelSafeComboBox as QComboBox,
     WheelSafeSpinBox as QSpinBox, WheelSafeDoubleSpinBox as QDoubleSpinBox)
 
@@ -59,7 +60,25 @@ class SamplingPanel(QWidget):
         layout.addWidget(caption)
         self.summary = QLabel("Select a working point. N_eff measures weight concentration, not convergence.")
         self.summary.setWordWrap(True)
+        self.summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.summary)
+        self.moments_toggle = QCheckBox("Show weighted phase-space moments")
+        layout.addWidget(self.moments_toggle)
+        self.moments = QTableWidget(5, 4)
+        self.moments.setObjectName("weightedPhaseSpaceMoments")
+        self.moments.setHorizontalHeaderLabels(("x (nm)", "theta X (mrad)", "y (nm)", "theta Y (mrad)"))
+        self.moments.setVerticalHeaderLabels(("Mean", "Cov: x", "Cov: theta X", "Cov: y", "Cov: theta Y"))
+        self.moments.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.moments.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.moments.setMaximumHeight(190)
+        self.moments.setToolTip("Current-weighted population moments. Covariance entries have row-unit times column-unit. These are particle statistics, not a wave phase or convergence certificate.")
+        self.moments.setVisible(False)
+        self.moments_toggle.toggled.connect(self.moments.setVisible)
+        layout.addWidget(self.moments)
+        self.emittance = QLabel("RMS emittance: unavailable")
+        self.emittance.setWordWrap(True)
+        self.emittance.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(self.emittance)
         controls = QHBoxLayout()
         self.axis = QComboBox()
         for key, label in AXES.items():
@@ -112,6 +131,17 @@ class SamplingPanel(QWidget):
         self.checkpoint_budget.setValue(512)
         topology.addWidget(self.checkpoint_budget)
         layout.addLayout(topology)
+        plans = QHBoxLayout()
+        self.plan_button = QPushButton("Multi-level check...")
+        self.resume_button = QPushButton("Resume check...")
+        self.plan_button.setEnabled(False)
+        self.resume_button.setEnabled(False)
+        self.plan_button.clicked.connect(self._new_plan)
+        self.resume_button.clicked.connect(self._resume_plan)
+        plans.addWidget(self.plan_button)
+        plans.addWidget(self.resume_button)
+        plans.addStretch()
+        layout.addLayout(plans)
         self.reference = QLabel("Topology reference: no selection")
         self.reference.setWordWrap(True)
         layout.addWidget(self.reference)
@@ -125,7 +155,12 @@ class SamplingPanel(QWidget):
 
     def set_checkpoint(self, checkpoint, summary=None):
         self._checkpoint = checkpoint
+        self.moments.clearContents()
+        self.emittance.setText("RMS emittance: unavailable")
+        self.summary.setToolTip("")
         self.run_button.setEnabled(checkpoint is not None and not self._busy)
+        self.plan_button.setEnabled(checkpoint is not None and not self._busy)
+        self.resume_button.setEnabled(checkpoint is not None and not self._busy)
         if checkpoint is None:
             self.summary.setText("No working point selected")
             self.reference.setText("Topology reference: no selection")
@@ -152,6 +187,23 @@ class SamplingPanel(QWidget):
             f"Source current {shown('source_current_a', 1e12)} pA | plane current {shown('plane_current_a', 1e12)} pA | "
             f"{summary['status']}: {summary['reason']}\n"
             "Comparison recalculates from the tip to specimen entrance. Its plane can differ from this checkpoint.")
+        import json
+        self.summary.setToolTip(json.dumps(thaw_json(summary.get("phase_space", {})), indent=2))
+        self._show_moments(summary.get("phase_space"))
+
+    def _show_moments(self, stats):
+        if stats is None:
+            return
+        # SI values remain authoritative in the evidence; scaling is display-only.
+        import numpy as np
+        scale = np.array([1e9, 1e3, 1e9, 1e3])
+        rows = np.vstack((np.asarray(stats["mean"])*scale,
+                          np.asarray(stats["covariance"])*scale[:, None]*scale[None, :]))
+        for i, values in enumerate(rows):
+            for j, value in enumerate(values):
+                self.moments.setItem(i, j, QTableWidgetItem(f"{value:.6g}"))
+        x, y = stats["rms_emittance_m_rad"]
+        self.emittance.setText(f"Projected RMS emittance: X {x*1e12:.6g} | Y {y*1e12:.6g} nm mrad | geometric, not normalised")
 
     def start(self):
         if self._busy or self._checkpoint is None:
@@ -162,6 +214,8 @@ class SamplingPanel(QWidget):
             tuple(self._history.get(self._checkpoint.digest, {}).values()))
         self._cancel = Event()
         self._busy = True
+        self.plan_button.setEnabled(False)
+        self.resume_button.setEnabled(False)
         self.run_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.status.setText(f"Checking saved inputs for {self._checkpoint.digest[:12]}...")
@@ -171,6 +225,65 @@ class SamplingPanel(QWidget):
         worker.signals.error.connect(self._error)
         worker.signals.finished.connect(self._finished)
         self.pool.start(worker)
+
+    def _new_plan(self):
+        if self._busy or self._checkpoint is None:
+            return
+        from temsim.gui.qualification_dialog import QualificationDialog
+        dialog = QualificationDialog(self)
+        if not dialog.exec():
+            return
+        try:
+            plan = dialog.plan(self._checkpoint, maximum_rays=self.budget.value(),
+                maximum_checkpoint_bytes=self.checkpoint_budget.value()*1024**2,
+                spatial_samples=self.factors["spatial"].value(),
+                direction_samples=self.factors["directions"].value(),
+                energy_samples=self.factors["energies"].value(),
+                check_topology=self.topology.isChecked(),
+                checkpoint_spacing_mm=self.bracket_spacing.value())
+            path, _ = QFileDialog.getSaveFileName(self, "Save resumable scalar check", "qualification.json", "JSON (*.json)")
+            if path:
+                self._start_plan(plan, path)
+        except Exception as exc:
+            self._error(str(exc))
+
+    def _resume_plan(self):
+        if self._busy or self._checkpoint is None:
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Resume matching numerical check", "", "JSON (*.json)")
+        if not path:
+            return
+        try:
+            from temsim.sampling_qualification import QualificationPlan, load_journal
+            previous = load_journal(path)
+            plan = QualificationPlan.from_manifest(self._checkpoint, previous["plan"])
+            self._start_plan(plan, path, previous)
+        except Exception as exc:
+            self._error(str(exc))
+
+    def _start_plan(self, plan, path, previous=None):
+        from temsim.gui.qualification_dialog import QualificationWorker
+        self._cancel = Event()
+        self._busy = True
+        for button in (self.run_button, self.plan_button, self.resume_button):
+            button.setEnabled(False)
+        self.cancel_button.setEnabled(True)
+        self.status.setText("Checking declared inputs and budgets; no live settings are changed")
+        worker = QualificationWorker(plan, self._cancel, path, previous)
+        worker.signals.progress.connect(self._progress)
+        worker.signals.result.connect(self._plan_result)
+        worker.signals.error.connect(self._error)
+        worker.signals.finished.connect(self._finished)
+        self.pool.start(worker)
+
+    def _plan_result(self, report):
+        import json
+        self.plan_report = report  # Keep completed receipts even after cancellation.
+        for comparison in report["completed"]:
+            self.remember_evidence(comparison)
+            self.evidence_ready.emit(comparison)
+        self.status.setText(f"Plan {report['plan_id'][:12]}: {report['status']} | {report['reason']}")
+        self.details.setPlainText(json.dumps(thaw_json(report), indent=2))
 
     def _progress(self, message):
         if not self._cancel.is_set():
@@ -189,7 +302,9 @@ class SamplingPanel(QWidget):
         self.evidence_ready.emit(report)
 
     def remember_evidence(self, report):
-        self._history.setdefault(report["checkpoint_id"], {})[report["axis"]] = report
+        level = report.get("refinement_level", 0)
+        key = report["axis"] if level == 0 else f"{report['axis']}/refinement-{level}"
+        self._history.setdefault(report["checkpoint_id"], {})[key] = report
 
     def _error(self, message):
         if not self._cancel.is_set():
@@ -201,6 +316,8 @@ class SamplingPanel(QWidget):
             self.status.setText("Comparison cancelled. Previous complete evidence is preserved.")
         self.cancel_button.setEnabled(False)
         self.run_button.setEnabled(self._checkpoint is not None)
+        self.plan_button.setEnabled(self._checkpoint is not None)
+        self.resume_button.setEnabled(self._checkpoint is not None)
 
     def cancel(self):
         self._cancel.set()

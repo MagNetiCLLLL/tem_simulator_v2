@@ -22,6 +22,7 @@ from temsim.calculation_manifest import (
 from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.instrument_snapshot import encode_instrument, decode_instrument
 from temsim import input_io
+from temsim.job_events import job_stage
 
 
 class PreparationCancelled(Exception):
@@ -162,8 +163,9 @@ class CapturedCalculationRequest:
                 raise PreparationCancelled()
 
         check_cancelled()
-        external_inputs = capture_external_input_identities(self._model_state)
-        model_signature = state_model_signature(self._model_state)
+        with job_stage("prepare_identity", backend="CPU"):
+            external_inputs = capture_external_input_identities(self._model_state)
+            model_signature = state_model_signature(self._model_state)
         check_cancelled()
         if self._instrument_graph is not None:
             snapshot = apply_request_numerics(decode_instrument(self._instrument_graph, assets=self._input_assets),
@@ -175,7 +177,10 @@ class CapturedCalculationRequest:
                 self.quality, self.ray_count, self.step_mm,
             )
         check_cancelled()
-        signatures = calculation_signatures(snapshot)
+        from temsim.physics.backend_execution import classical_backend_preflight
+        classical_backend_preflight(snapshot)
+        with job_stage("prepare_signatures", backend="CPU"):
+            signatures = calculation_signatures(snapshot)
         check_cancelled()
         assert_external_input_inventory_unchanged(snapshot, external_inputs)
         manifest, estimate = None, 0

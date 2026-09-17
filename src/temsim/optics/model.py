@@ -184,6 +184,16 @@ class Stigmator:
 
     colour: str = "tab:purple"
 
+    # Historical payloads remain on their original field law. New operation
+    # can explicitly select the independent normal/skew basis.
+    field_model: str = "legacy_difference"
+    channel_x_angle_deg: float = 0.0
+    channel_y_angle_deg: float = 45.0
+
+    def quadrupole_tensor_m2(self, z_mm):
+        from temsim.optics.stigmator_field import quadrupole_tensor_components
+        return quadrupole_tensor_components(self, z_mm)
+
 
 @dataclass
 

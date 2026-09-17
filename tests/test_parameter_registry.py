@@ -83,6 +83,25 @@ def test_lens_metadata_exceptions_do_not_hide_unrelated_controls():
     assert 'instrument.field_calibration_status' in unmapped_public_inputs(state)
 
 
+def test_computed_gun_waist_is_not_a_new_physical_input():
+    from temsim.calculation_cache import calculation_signatures
+    from temsim.instrument_snapshot import capture_instrument_snapshot, encode_instrument, decode_instrument, _encode_instrument
+    from temsim.parameter_registry import unmapped_public_inputs
+    state = default_state()
+    signatures = calculation_signatures(state)
+    snapshot = capture_instrument_snapshot(state)
+    state.last_gun_waist_mm = 45.125
+    assert calculation_signatures(state) == signatures
+    assert not unmapped_public_inputs(state)
+    assert capture_instrument_snapshot(state).digest == snapshot.digest
+    # Historical graphs retain the diagnostic for readability, but future input
+    # capture does not promote that output to a new source/optical control.
+    historical = _encode_instrument(state, include_legacy_state_results=True)
+    restored = decode_instrument(historical)
+    assert restored.last_gun_waist_mm == 45.125
+    assert encode_instrument(restored) == snapshot.graph
+
+
 @pytest.mark.parametrize('quality', ['Preview', 'High accuracy'])
 def test_unknown_inputs_survive_background_and_synchronous_preparation(quality):
     from threading import Event

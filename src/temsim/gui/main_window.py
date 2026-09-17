@@ -584,23 +584,20 @@ class MainWindow(QMainWindow):
         selected_backend = str(
             getattr(self.state, "acceleration_backend", BACKEND_AUTO)
         )
-        selected_index = self.compute_backend.findData(selected_backend)
+        from temsim.physics.compute_backend import normalise_backend
+        selected_index = self.compute_backend.findData(normalise_backend(selected_backend))
         self.compute_backend.setCurrentIndex(max(selected_index, 0))
-        self.state.acceleration_backend = str(
-            self.compute_backend.currentData() or BACKEND_AUTO
-        )
-        self.state.acceleration_enabled = (
-            self.state.acceleration_backend != BACKEND_CPU
-        )
-        cuda_status = cuda_capability()
-        cupy_status = cupy_capability()
+        from temsim.physics.compute_backend import capability_detail_for_display
+        cuda_detail = capability_detail_for_display(cuda_capability)
+        cupy_detail = capability_detail_for_display(cupy_capability)
         self.compute_backend.setToolTip(
             "Shared ray and wave-optics preference. Auto uses CUDA for "
             "sufficiently large ray bundles and CuPy for sufficiently large "
             "multislice/FFT workloads; small jobs remain on CPU. "
             "Prefer GPU reports CPU fallback; Require GPU rejects unavailable or unsupported accelerated stages. "
+            "CUDA GPU is the legacy preference with declared CPU retry, not a strict GPU requirement. "
             "Gun extraction/acceleration and other CPU-only preparation remain separate. "
-            f"Ray CUDA: {cuda_status.detail}. Wave CUDA: {cupy_status.detail}."
+            f"Ray CUDA: {cuda_detail}. Wave CUDA: {cupy_detail}."
         )
         self.compute_backend.currentIndexChanged.connect(
             self._compute_backend_changed
@@ -1553,7 +1550,7 @@ class MainWindow(QMainWindow):
                 # gun calculation or publish it as a high-accuracy image.
                 self.workspace.display_result(candidate.ray_result, "Preview · transport validation")
                 self.workspace.show_ray_diagram()
-        elif key == "beam_centre_direction":
+        elif key in {"beam_centre_direction", "condenser_twofold_shape"}:
             self.assembly_panel.set_direct_alignment_message(result.message, error=not result.success)
         else:
             self.assembly_panel.show_direct_alignment_result(result)
@@ -1561,6 +1558,7 @@ class MainWindow(QMainWindow):
     @input_io.using_state_inputs
     def _sync_working_point_selectors(self) -> None:
         """Display captured controls without emitting a new physical edit."""
+        from temsim.physics.compute_backend import normalise_backend
         with (QSignalBlocker(self.assembly_panel.gun),
               QSignalBlocker(self.assembly_panel.column),
               QSignalBlocker(self.assembly_panel.beam_blanker),
@@ -1570,7 +1568,7 @@ class MainWindow(QMainWindow):
             else:
                 self.assembly_panel.set_selection(self.selection)
             self.compute_backend.setCurrentIndex(
-                self.compute_backend.findData(self.state.acceleration_backend)
+                self.compute_backend.findData(normalise_backend(self.state.acceleration_backend))
             )
 
     @input_io.using_state_inputs
@@ -1878,14 +1876,16 @@ class MainWindow(QMainWindow):
 
     def _compute_backend_changed(self, _index: int) -> None:
         self._invalidate_direct_alignment()
-        backend = str(self.compute_backend.currentData() or BACKEND_AUTO)
+        from temsim.physics.compute_backend import validate_backend_selection
+        backend = validate_backend_selection(self.compute_backend.currentData() or BACKEND_AUTO)
         self.state.acceleration_backend = backend
         self.state.acceleration_enabled = backend != BACKEND_CPU
         if backend == BACKEND_CUDA:
-            ray_status = cuda_capability()
-            wave_status = cupy_capability()
+            from temsim.physics.compute_backend import capability_detail_for_display
+            ray_detail = capability_detail_for_display(cuda_capability)
+            wave_detail = capability_detail_for_display(cupy_capability)
             detail = (
-                f" (ray: {ray_status.detail}; wave: {wave_status.detail})"
+                f" (ray: {ray_detail}; wave: {wave_detail})"
             )
         else:
             detail = ""
@@ -1993,6 +1993,8 @@ class MainWindow(QMainWindow):
             "Counts describe the named step; percentages describe progress within its stage."
         )
         self.status_label.setText(f"{quality}: {stage}...")
+        if stage.startswith("Backend requirements |"):
+            self.log_output.appendPlainText(stage)
 
     def _calculation_ready(self, quality: str, result, duration: float) -> None:
         if quality not in ("Preview", "Medium") and getattr(result, "calculation_manifest", None) is not None:
@@ -2087,10 +2089,9 @@ class MainWindow(QMainWindow):
             f"ray backend={backend}{wave_log}{cache_log}."
         )
         self.workspace.vacuum_map.set_result(result)
-        if quality not in ("Preview", "Medium"):
-            from temsim.calculation_performance import calculation_performance_lines
-
-            for line in calculation_performance_lines(result):
+        from temsim.calculation_performance import calculation_performance_lines
+        for line in calculation_performance_lines(result):
+            if quality not in ("Preview", "Medium") or line.startswith("Backend |"):
                 self.log_output.appendPlainText(line)
 
     def _calculation_failed(self, quality: str, message: str) -> None:

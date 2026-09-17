@@ -55,11 +55,11 @@ def test_cupy_stem_detector_fft_matches_numpy_reference():
     assert gpu == pytest.approx(cpu, rel=2.0e-5, abs=2.0e-7)
 
 
-def test_cupy_fft_failure_falls_back_without_losing_the_result(monkeypatch):
+def test_cupy_fft_oom_falls_back_without_losing_the_result(monkeypatch):
     monkeypatch.setattr(
         wave_fft,
         "cupy_module",
-        lambda: (_ for _ in ()).throw(compute_backend.GPUExecutionError("kernel_or_runtime_failure", "synthetic FFT failure")),
+        lambda: (_ for _ in ()).throw(compute_backend.GPUExecutionError("out_of_memory", "synthetic FFT failure")),
     )
     wave, xx, yy = _test_wave(32)
     transfer = np.exp(-1j * 0.02 * (xx**2 + yy**2))

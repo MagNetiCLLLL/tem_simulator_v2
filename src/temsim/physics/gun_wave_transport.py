@@ -153,7 +153,7 @@ class _GunWavePlan:
         from temsim.simulation_modes import mode_key
         digest = sha256()
         for name in ("z_mm", "step_m", "magnetic_t", "sx_m2", "sy_m2",
-                     "midpoint_magnetic_t", "midpoint_sx_m2", "midpoint_sy_m2",
+                     "midpoint_magnetic_t", "midpoint_sx_m2", "midpoint_sy_m2", "midpoint_sxy_m2",
                      "hex_normal_m3", "hex_skew_m3", "midpoint_hex_normal_m3",
                      "midpoint_hex_skew_m3", "cs_kick_m3", "thin_power_m1",
                      "thin_rotation_rad", "kick_x_rad", "kick_y_rad"):
@@ -246,6 +246,8 @@ def _execute_gun_wave_plan(prepared, *, cancelled=lambda: False, progress_callba
     if cancelled():
         raise InterruptedError("Gun phase propagation cancelled; no partial checkpoint published")
     nominal_momentum = electron(working)[1]
+    if np.any(plan.sxy_m2) or np.any(plan.midpoint_sxy_m2):
+        raise ValueError("Historical gun wave transport does not support skew quadrupoles; coherent source development remains paused")
     fields = (plan.magnetic_t, plan.sx_m2, plan.sy_m2)
     midpoints = (plan.midpoint_magnetic_t, plan.midpoint_sx_m2, plan.midpoint_sy_m2)
     modes, records, transport_cache, phase_records = [], [], {}, []

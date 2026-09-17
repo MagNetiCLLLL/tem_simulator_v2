@@ -88,6 +88,39 @@ all-axis convergence, source calibration or specimen/detector qualification.
 Only scalar evidence is exported; full path buffers are released between runs
 and before root refinement. Cancellation preserves previous complete evidence.
 
+### Resumable multi-level checks
+
+**Multi-level check...** uses this same comparison engine. Select independent
+axes, two or more refinements (at least three numerical settings), a maximum
+number of comparisons, and a cumulative time budget. Ray, checkpoint-memory,
+product-factor and topology settings come from the existing panel. Choose a new
+JSON file; completed comparisons and stop reasons are saved atomically there.
+No active instrument or production preset is replaced.
+
+**Resume check...** requires the same selected checkpoint, implementation,
+numerical recipe and tolerance policy. Completed comparisons are verified and
+not rerun. Cancelled/failed attempts still count against the declared budget.
+Increasing a budget or changing a lens/tolerance requires a separate plan, not
+relabelling the old evidence. A hard-interrupted RUNNING journal is read-only
+because its elapsed time is unknown; ordinary cooperative cancellation supports
+resume. The time limit is checked at existing solver boundaries, not a hard
+process deadline. Checkpoint memory is an estimate, not a total process RSS cap.
+
+Comparisons retain exact input graphs, named planes, current/transmission,
+centroids, chief slopes, D95, alpha95/99 and optional topology. Multiple stable
+levels produce only `NUMERICALLY_CHECKED_FOR_DECLARED_SCOPE`; under-resolved
+populations, unstable axes or exhausted budgets do not. Physical/OEM calibration,
+sample/detector physics and coherent imaging remain unqualified.
+
+The independent source factors use explicit product/conditional quadrature.
+Changing from legacy joint sampling is a method change. Do not combine it with
+transport-step axes in one plan unless the captured input already uses that same
+explicit product quadrature. Alternatively run separate plans. Supported field
+meshes require an active generating model. Domain refinement without a model
+control is unavailable. The existing grounded-gun outer numerical boundary is
+one explicitly supported domain axis; it never enlarges the source, an electrode
+or the specimen as a substitute.
+
 ## Layouts, readouts and memory
 
 The Layouts menu adds **Instrument**, **Alignment**, **Experiments** and **Results**
@@ -130,9 +163,11 @@ vacuum transport is currently unsupported by this optional incident observer.
 
 **Beam centre and direction** uses the installed two-plane deflector and four
 measured entrance-plane coordinates/slopes. Rank and conditioning are checked.
-The existing condenser stigmator supplies only one independent quadrupole response,
-so arbitrary two-axis stigmation remains unavailable. Dynamic pivot/scan-descan
-matching needs a defined time-dependent target and observation-plane contract.
+The default legacy condenser stigmator retains its one-response behavior. The
+explicit independent model adds a separate geometric twofold alignment task;
+held scan/descan calibration separates the specimen reference from the physical
+observation plane. See [stigmator and scan controls](stigmator-and-scan.md) for
+the opt-in workflow, ideal-model assumptions and remaining qualification limits.
 
 In **Design Explorer**, capture A/B owns the complete instrument graph. Runtime
 sweeps use registered controls and a bounded Cartesian product. **Declared normal

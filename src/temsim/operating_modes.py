@@ -362,6 +362,9 @@ def direct_alignment_by_key(
     if key == "beam_centre_direction":
         from temsim.beam_alignment import DEFINITION
         return DEFINITION
+    if key == "condenser_twofold_shape":
+        from temsim.stigmator_alignment import DEFINITION
+        return DEFINITION
     catalog = catalog or load_operating_mode_catalog()
     try:
         return next(

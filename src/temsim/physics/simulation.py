@@ -239,6 +239,9 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         from temsim.column.state_layout import apply_physical_layout_to_state
         resolved_layout = apply_physical_layout_to_state(s)
 
+    from temsim.physics.backend_execution import classical_backend_preflight
+    classical_backend_preflight(s)
+
     ac_scan = getattr(s, "ac_deflector", None)
     if (
         not optical_only and ac_scan is not None

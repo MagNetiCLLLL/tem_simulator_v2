@@ -45,6 +45,7 @@ from temsim.optics.electron_gun.base import GunExitBundle, GunTraceResult
 
 
 ARTIFACT_STORE_SCHEMA_VERSION = 1
+INCIDENT_SEED_CODEC = "incident-simulation-seed-v2-quadrupole-tensor"
 _ARRAY_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,95}$")
 _ARRAY_FILENAME = re.compile(r"^array-[0-9]{4,}\.npy$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -56,11 +57,13 @@ _INCIDENT_PLAN_ARRAY_FIELDS = (
     "magnetic_t",
     "sx_m2",
     "sy_m2",
+    "sxy_m2",
     "hex_normal_m3",
     "hex_skew_m3",
     "midpoint_magnetic_t",
     "midpoint_sx_m2",
     "midpoint_sy_m2",
+    "midpoint_sxy_m2",
     "midpoint_hex_normal_m3",
     "midpoint_hex_skew_m3",
     "cs_kick_m3",
@@ -422,7 +425,7 @@ class ArtifactStore:
         prepared = _prepared_arrays(arrays)
         complete_metadata = dict(metadata or {})
         if manifest.instrument_snapshot is not None and codec in {
-            "incident-propagation-checkpoints-v1", "incident-simulation-seed-v1"
+            "incident-propagation-checkpoints-v1", "incident-simulation-seed-v1", INCIDENT_SEED_CODEC
         }:
             complete_metadata["working_point"] = manifest.instrument_snapshot.to_dict()
         frozen_metadata = freeze_json(complete_metadata)
@@ -768,7 +771,7 @@ class ArtifactStore:
             dependency_signature=str(
                 manifest.calculation_signatures["incident"]
             ),
-            codec="incident-simulation-seed-v1",
+            codec=INCIDENT_SEED_CODEC,
             arrays=arrays,
             metadata={
                 "coordinate_system": "column-z-downstream",
@@ -816,7 +819,7 @@ class ArtifactStore:
             dependency_signature=str(
                 manifest.calculation_signatures["incident"]
             ),
-            codec="incident-simulation-seed-v1",
+            codec=INCIDENT_SEED_CODEC,
         )
         if bundle is None:
             return None

@@ -327,7 +327,7 @@ def build_tip_gun_checkpoint(gun, *, source_numerics=TipWaveNumerics(),
             raise ValueError("Shared column and gun inputs do not describe the same installed gun")
         shared = build_propagation_plan(column, 0., float(z[-1]), save_z_mm=z)
         if shared.mapped_fields or any(np.any(getattr(shared, name)) for name in (
-                "sx_m2", "sy_m2", "midpoint_sx_m2", "midpoint_sy_m2",
+                "sx_m2", "sy_m2", "midpoint_sx_m2", "midpoint_sy_m2", "midpoint_sxy_m2",
                 "hex_normal_m3", "hex_skew_m3", "midpoint_hex_normal_m3", "midpoint_hex_skew_m3",
                 "cs_kick_m3", "thin_power_m1", "thin_rotation_rad", "kick_x_rad", "kick_y_rad")):
             raise ValueError("Non-axial column components inside the accelerating gun require a joint operator; they cannot be skipped")

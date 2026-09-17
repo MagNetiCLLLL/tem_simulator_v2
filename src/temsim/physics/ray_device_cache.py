@@ -14,9 +14,9 @@ import weakref
 
 import numpy as np
 
-PLAN_INDICES = (0, 1, 2, 3, 4, 6, 7, 8, 9, 14, 15, 16, 17)
+PLAN_INDICES = (0, 1, 2, 3, 4, 6, 7, 8, 9, 14, 15, 16, 17, 18)
 PARTICLE_INDICES = (5, 10, 11, 12, 13)
-SCHEMA = b"column-rk4-f64-checkpoint-v1"
+SCHEMA = b"column-rk4-f64-quadrupole-tensor-v2"
 _DEVICE_BUDGET = ContextVar("column_device_budget", default=8 * 1024**3)
 _LAST_RECEIPT = ContextVar("column_device_receipt", default=None)
 
@@ -31,6 +31,7 @@ def device_budget(byte_count):
 
 
 def plan_identity(inputs):
+    inputs = _with_skew(inputs)
     digest = sha256(SCHEMA)
     for index in PLAN_INDICES:
         value = np.ascontiguousarray(inputs[index])
@@ -38,6 +39,18 @@ def plan_identity(inputs):
         digest.update(memoryview(value).cast("B"))
     digest.update(str(tuple(inputs[i].dtype.str for i in PARTICLE_INDICES)).encode())
     return digest.hexdigest()
+
+
+def _with_skew(inputs):
+    # Historical eighteen-array callers represent zero skew, not a new source.
+    inputs = tuple(inputs)
+    if len(inputs) == 18:
+        inputs += (np.zeros_like(inputs[0]),)
+    if len(inputs) != 19 or any(np.asarray(a).ndim != 1 for a in inputs):
+        raise ValueError("RK4 device inputs must be nineteen one-dimensional arrays")
+    if inputs[18].shape != inputs[0].shape:
+        raise ValueError("RK4 skew coefficients must match the other quadrupole stages")
+    return inputs
 
 
 def last_device_receipt():
@@ -72,6 +85,19 @@ class RayDeviceCache:
         self.lock = RLock()
         self.entry = None
         self.retained_bytes = 0
+        self.quarantine_reason = None
+
+    def assert_usable(self):
+        if self.quarantine_reason is not None:
+            from temsim.physics.compute_backend import GPUExecutionError
+            raise GPUExecutionError("context_corrupted",
+                "CUDA is quarantined in this process; no cached allocation may be reused. "
+                "Explicitly restart the calculation process before further CUDA work. " + self.quarantine_reason)
+
+    def quarantine(self, reason):
+        with self.lock:
+            self.clear()
+            self.quarantine_reason = str(reason)
 
     def clear(self):
         with self.lock:
@@ -79,9 +105,9 @@ class RayDeviceCache:
             self.retained_bytes = 0
 
     def execute(self, cuda, kernel, inputs):
+        self.assert_usable()
         started = perf_counter()
-        if len(inputs) != 18 or any(np.asarray(a).ndim != 1 for a in inputs):
-            raise ValueError("RK4 device inputs must be eighteen one-dimensional arrays")
+        inputs = _with_skew(inputs)
         key = plan_identity(inputs)
         rays, saved, checkpoints = inputs[10].size, inputs[16].size, inputs[17].size
         if any(inputs[i].size != rays for i in PARTICLE_INDICES):
@@ -126,7 +152,7 @@ class RayDeviceCache:
                 for i, array in particle_views.items():
                     array.copy_to_device(inputs[i])
                 receipt["particle_upload_s"] = perf_counter() - before
-                device_inputs = [entry["constants"].get(i, particle_views.get(i)) for i in range(18)]
+                device_inputs = [entry["constants"].get(i, particle_views.get(i)) for i in range(19)]
                 outputs = [array[:, :rays] for array in entry["outputs"]]
                 before = perf_counter()
                 if rays:
@@ -146,8 +172,11 @@ class RayDeviceCache:
                 receipt["timing_convention"] = "host wall clock; synchronization includes outstanding device work"
                 _LAST_RECEIPT.set(receipt)
                 return results
-            except Exception:
+            except Exception as error:
+                from temsim.physics.compute_backend import gpu_failure_category
                 self.clear()
+                if gpu_failure_category(error) == "context_corrupted":
+                    self.quarantine(str(error))
                 _LAST_RECEIPT.set(None)
                 raise
 

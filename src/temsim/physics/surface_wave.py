@@ -279,7 +279,7 @@ def guard_surface_column(state, numerics, *, prepare_column=None):
     if stops or owners or np.any(radii < extent*1e-6):
         raise ValueError("A column aperture, deflector or wall intersects the near-field domain; a joint boundary is required")
     names = ("magnetic_t", "sx_m2", "sy_m2", "hex_normal_m3", "hex_skew_m3",
-             "midpoint_magnetic_t", "midpoint_sx_m2", "midpoint_sy_m2",
+             "midpoint_magnetic_t", "midpoint_sx_m2", "midpoint_sy_m2", "midpoint_sxy_m2",
              "midpoint_hex_normal_m3", "midpoint_hex_skew_m3", "cs_kick_m3",
              "thin_power_m1", "thin_rotation_rad", "kick_x_rad", "kick_y_rad")
     if plan.mapped_fields or any(np.any(getattr(plan, name)) for name in names):

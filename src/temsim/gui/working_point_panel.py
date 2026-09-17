@@ -291,8 +291,8 @@ class WorkingPointPanel(QWidget):
         compatible = a.plane_id == b.plane_id and all(da[k] == db[k] for k in ("source", "assembly", "mode", "simulation_mode"))
         rows = [("Checkpoint A", a.digest), ("Checkpoint B", b.digest),
                 ("Comparison context", "Matching labels and plane; inspect full input differences" if compatible else "Different source, assembly, mode or plane")]
-        rows += [("Readout / " + key, json.dumps({"A": self._summaries[a.digest][key], "B": self._summaries[b.digest][key]}))
-                 for key in self._summaries[a.digest]]
+        rows += [("Readout / " + key, json.dumps(thaw_json({"A": self._summaries[a.digest].get(key), "B": self._summaries[b.digest].get(key)})))
+                 for key in sorted(self._summaries[a.digest].keys() | self._summaries[b.digest].keys())]
         rows += [(path, json.dumps({"A": old, "B": new})) for path, old, new in snapshot_changes(a.snapshot, b.snapshot)]
         self._show_values(rows)
         self.status.setText(f"Pinned A {a.digest[:12]} / B {b.digest[:12]} | read-only; no qualification inferred")

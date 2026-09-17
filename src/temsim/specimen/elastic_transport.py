@@ -19,6 +19,7 @@ from typing import Iterable
 
 import numpy as np
 import xraylib
+from temsim.physics.backend_execution import cpu_call
 
 from temsim.detector.eds_signal import (
     EDSMaterial,
@@ -881,6 +882,7 @@ def _terminal_outcome(direction: np.ndarray) -> str:
     return "lateral_escape"
 
 
+@cpu_call("specimen_particle_transport")
 def simulate_elastic_point_transport(
     state,
     *,

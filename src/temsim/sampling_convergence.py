@@ -31,6 +31,7 @@ AXES = {
     "field_radial": "Grounded gun radial mesh nodes x 2",
     "field_axial": "Grounded gun axial mesh nodes x 2",
     "field_apex": "Grounded gun apex cells per radius x 2",
+    "field_domain": "Grounded gun outer numerical boundary factor x 2",
     "checkpoint_spacing": "Crossover bracket spacing / 2 (fixed transport step)",
     "joint_steps": "Joint gun + column steps / 2 (after both separate checks)",
 }
@@ -40,7 +41,8 @@ UNAVAILABLE_AXES = {
     "Full qualification": "Individual comparisons do not qualify all axes, crossover topology, physical source calibration or sample/detector physics.",
 }
 _PRODUCT_AXES = {"spatial", "directions", "energies"}
-_FIELD_AXES = {"field_radial": "radial_nodes", "field_axial": "axial_nodes", "field_apex": "apex_cells_per_radius"}
+_FIELD_AXES = {"field_radial": "radial_nodes", "field_axial": "axial_nodes", "field_apex": "apex_cells_per_radius",
+               "field_domain": "outer_radius_factor"}
 
 
 class SamplingCancelled(RuntimeError):
@@ -59,10 +61,14 @@ class ConvergenceRequest:
     checkpoint_spacing_mm: float = 2.0
     maximum_checkpoint_bytes: int = 512*1024**2
     prior_evidence: tuple = ()
+    refinement_level: int = 0
+    threshold_policy: object = None
 
     def prepare(self):
         if self.axis not in AXES:
             raise ValueError("This independent refinement is not implemented")
+        if type(self.refinement_level) is not int or not 0 <= self.refinement_level <= 7:
+            raise ValueError("Refinement level must be between zero and seven")
         if type(self.maximum_rays) is not int or not 9 <= self.maximum_rays <= 65536:
             raise ValueError("Choose a ray budget from 9 to 65536")
         if type(self.check_topology) is not bool:
@@ -108,6 +114,12 @@ class ConvergenceRequest:
             replace(surface.field_numerics, **{key: getattr(surface.field_numerics, key)*2}).validate()
         if self.axis == "emission_samples" and getattr(emitter, "quadrature", None) is not None:
             raise ValueError("Select an independent product factor explicitly; total count cannot truncate a product quadrature")
+        for _ in range(self.refinement_level):
+            refine_state(state, self.axis)
+        if self.axis in _FIELD_AXES:
+            key = _FIELD_AXES[self.axis]
+            numerics = state.electron_gun.emitter.surface_model.field_numerics
+            replace(numerics, **{key: getattr(numerics, key)*2}).validate()
         count = int(emitter.ray_count)
         if count < 9 or count * (2 if self.axis in _PRODUCT_AXES or self.axis == "emission_samples" else 1) > self.maximum_rays:
             raise ValueError("The two-run comparison exceeds the selected per-run ray budget")
@@ -118,6 +130,27 @@ class ConvergenceRequest:
         if span / minimum_step > 2_000_000:
             raise ValueError("The requested comparison exceeds the bounded column-step budget; no settings were changed")
         return state
+
+
+def refine_state(state, axis):
+    """One existing numerical refinement; never change physical source support."""
+    if axis in {"gun_step", "joint_steps"}:
+        state.electron_gun.trace_step_mm *= .5
+    if axis in {"column_step", "joint_steps"}:
+        state.step_mm *= .5
+    emitter = state.electron_gun.emitter
+    if axis in _PRODUCT_AXES:
+        emitter.quadrature = replace(emitter.quadrature,
+            **{axis: getattr(emitter.quadrature, axis)*2})
+        emitter.ray_count = emitter.quadrature.total
+    elif axis in _FIELD_AXES:
+        key = _FIELD_AXES[axis]
+        numerics = emitter.surface_model.field_numerics
+        refined = replace(numerics, **{key: getattr(numerics, key)*2})
+        refined.validate()
+        emitter.surface_model = replace(emitter.surface_model, field_numerics=refined)
+    elif axis == "emission_samples":
+        emitter.ray_count *= 2
 
 
 def _thresholds():
@@ -168,8 +201,8 @@ def compare_runs(before, after, thresholds):
             row["transmitted_samples"] >= thresholds["minimum_transmitted_samples"] and
             row["effective_samples"] >= thresholds["minimum_effective_samples"] for row in (left, right))
         for key, absolute in thresholds["absolute"].items():
-            a, b = left[key], right[key]
-            if a is None or b is None:
+            a, b = left.get(key), right.get(key)
+            if a is None or b is None or not np.isfinite(a) or not np.isfinite(b):
                 failures.append(key)
                 continue
             delta, limit = abs(a-b), max(absolute, thresholds["relative"] * max(abs(a), abs(b)))
@@ -195,7 +228,10 @@ def run_convergence(request, *, cancelled=lambda: False, progress=lambda message
 
     check_cancelled()
     state = request.prepare()
-    limits = _thresholds()
+    limits = _thresholds() if request.threshold_policy is None else thaw_json(request.threshold_policy)
+    if request.threshold_policy is not None:
+        from temsim.sampling_qualification import validate_thresholds
+        validate_thresholds(limits)
     baseline = capture_instrument_snapshot(state)
     end = float(state.sample.upper_surface_z_mm)
     start = float(state.electron_gun.exit_plane_z_mm)
@@ -207,44 +243,25 @@ def run_convergence(request, *, cancelled=lambda: False, progress=lambda message
     reference = topology_reference(baseline)
     # Estimate stored coordinates, masks and integration workspace conservatively
     # before tracing. This is a bound for this audit, not all application memory.
-    if request.check_topology:
-        spacing = request.checkpoint_spacing_mm*(.5 if request.axis == "checkpoint_spacing" else 1.)
-        point_count = int(np.ceil((end-start)/spacing))+len(planes)+1
-        rays = int(state.electron_gun.emitter.ray_count)*(2 if request.axis in _PRODUCT_AXES or request.axis == "emission_samples" else 1)
-        if point_count > 8192 or point_count*rays*128 > request.maximum_checkpoint_bytes:
-            raise ValueError("Topology checkpoints exceed the declared plane or memory budget; increase the explicit budget or use wider brackets")
+    spacing_base = request.checkpoint_spacing_mm * (.5**request.refinement_level if request.axis == "checkpoint_spacing" else 1.)
+    spacing = spacing_base*(.5 if request.axis == "checkpoint_spacing" else 1.)
+    point_count = int(np.ceil((end-start)/spacing))+len(planes)+1 if request.check_topology else len(planes)
+    rays = int(state.electron_gun.emitter.ray_count)*(2 if request.axis in _PRODUCT_AXES or request.axis == "emission_samples" else 1)
+    if point_count > 8192 or point_count*rays*128 > request.maximum_checkpoint_bytes:
+        raise ValueError("Audit checkpoints exceed the declared plane or memory budget")
     runs = []
     for variant in ("baseline", "refined"):
         check_cancelled()
         state = baseline.restore()
         if variant == "refined":
-            if request.axis == "gun_step":
-                state.electron_gun.trace_step_mm *= .5
-            elif request.axis == "joint_steps":
-                state.electron_gun.trace_step_mm *= .5
-                state.step_mm *= .5
-            elif request.axis == "column_step":
-                state.step_mm *= .5
-            elif request.axis in _PRODUCT_AXES:
-                emitter = state.electron_gun.emitter
-                emitter.quadrature = replace(emitter.quadrature,
-                    **{request.axis: getattr(emitter.quadrature, request.axis)*2})
-                emitter.ray_count = emitter.quadrature.total
-            elif request.axis in _FIELD_AXES:
-                emitter = state.electron_gun.emitter
-                key = _FIELD_AXES[request.axis]
-                numerics = emitter.surface_model.field_numerics
-                emitter.surface_model = replace(emitter.surface_model,
-                    field_numerics=replace(numerics, **{key: getattr(numerics, key)*2}))
-            elif request.axis == "emission_samples":
-                state.electron_gun.emitter.ray_count *= 2
+            refine_state(state, request.axis)
         snapshot = capture_instrument_snapshot(state)
         if effective_source_current_a(state) != source_current:
             raise ValueError("Numerical refinement changed the physical source current")
         state._tuning_cancelled = cancelled
         progress(f"{variant.capitalize()}: physical tip to specimen entrance ({request.axis})")
         started = perf_counter()
-        spacing = request.checkpoint_spacing_mm*(.5 if variant == "refined" and request.axis == "checkpoint_spacing" else 1.)
+        spacing = spacing_base*(.5 if variant == "refined" and request.axis == "checkpoint_spacing" else 1.)
         audit_planes = sorted({*planes, *np.arange(start, end, spacing)}) if request.check_topology else planes
         try:
             gun, checkpoints, mask = incident_checkpoints(state, audit_planes, step_mm=state.step_mm)
@@ -293,6 +310,13 @@ def run_convergence(request, *, cancelled=lambda: False, progress=lambda message
             sampling_rule=_sampling_rule(state),
             input_changes=snapshot_changes(baseline, snapshot), elapsed_s=perf_counter()-started, planes=rows,
             topology=topology))
+        if request.threshold_policy is not None:
+            # Exact captured graph, without duplicating pinned input-file bytes.
+            # Parent snapshot owns those dependencies; this is not an exit source.
+            runs[-1]["input_snapshot"] = dict(graph=thaw_json(snapshot.graph),
+                external_inputs=[{k: v for k, v in row.items() if k != "content_hex"}
+                                 for row in snapshot.external_inputs],
+                implementation=snapshot.implementation, digest=snapshot.digest)
         # The receipt owns scalars only. Release the full path before the next
         # independent run; no downstream bundle is used as a new source.
         del state
@@ -304,6 +328,7 @@ def run_convergence(request, *, cancelled=lambda: False, progress=lambda message
     report = dict(schema="incident-convergence-evidence-v1", checkpoint_id=request.checkpoint.digest,
         snapshot_id=request.checkpoint.snapshot.digest, implementation=baseline.implementation,
         created_at_utc=datetime.now(timezone.utc).isoformat(), axis=request.axis,
+        refinement_level=request.refinement_level,
         maximum_rays=request.maximum_rays, thresholds=limits, runs=runs, comparison=comparison,
         topology_reference=reference, maximum_checkpoint_bytes=request.maximum_checkpoint_bytes,
         comparison_kind="JOINT_TRANSPORT_STEPS" if request.axis == "joint_steps" else "SINGLE_NUMERICAL_AXIS",

@@ -211,6 +211,8 @@ the current implementation document qualifies later extensions.
 | UR-027 | All project-facing UI, documentation and newly written project content must be English. | Implemented; constraint | English UI/source/configuration text; translated specification and historical geometry research, retaining IDs and evidence |
 | UR-028 | Execute the six-stage extension through shared field transport, geometry fields, intermediate coherent propagation, field-derived aberrations, model evidence and multi-parameter design studies, without automatically recalculating lens presets. | Implemented initial numerical scope; explicit limits remain | `docs/SIX_STAGE_PHYSICS_IMPLEMENTATION.md`; linear axisymmetric fields, approximate finite-pupil fits and runtime-parameter sweeps, not arbitrary 3-D FEM or unrestricted geometry search |
 | UR-029 | Implement the product-usability development guide through evidence-bound working points, sampling diagnostics, complete portable inputs, resource coordination, constrained alignment and detached experiments. | Integrated implementation; cross-package acceptance and explicit physical/hardware limitations tracked in the progress receipt | `CODEX_DEVELOPMENT_GUIDE.md`, `docs/development/PRODUCT_USABILITY_PROGRESS.md`; current classical-particle scope and paused coherent development remain authoritative |
+| UR-030 | Implement Round 2 incrementally: namespaced classical acceptance distinct from full-image qualification, observable job ownership/cancellation, conservative accelerator failure policy and stage-specific backend evidence; preserve existing physical/default/source constraints. | In progress; scoped evidence recorded separately | `CODEX_OPTIMIZATION_ROUND2.md`, `docs/development/ROUND2_OPTIMIZATION_PROGRESS.md`; no implicit full-image or hardware qualification |
+| UR-031 | Add independently transported stigmator X/Y bases and explicit scan/descan drive calibration, including structural TOML; continue ready Round 2 tasks without changing production defaults. | Implemented ideal-field contract; validation and remaining scope recorded separately | `docs/stigmator-and-scan.md`; user authorization 2026-09-17 supersedes the missing G1/G2 design decision, not their hardware or full-image qualification boundaries |
 
 ## 3. System scope and architecture
 
@@ -1235,6 +1237,8 @@ must still be retained.
 | 2026-09-05 | Translated the specification to English while retaining every UR/DA ID and historical revision. | Historical counts/limits are explicitly dated; later transverse placement, cache reuse, secondary retirement and physical Camera outputs are distinguished from their original baseline. |
 | 2026-09-05 | Implemented the six-stage physics extension. | Shared specimen vector transport, optional linear axisymmetric geometry fields, coherent intermediate apertures, exclusive field-derived aberrations, Model Inspector and multi-runtime-parameter Design Explorer; evidence and limits in the implementation report. No automatic preset optimisation. |
 | 2026-09-17 | Started UR-029 with the product-usability guide. | Working points publish exact integration coordinates, expose a filterable evidence-aware index and frozen A/B comparison, and run detached bounded classical sampling comparisons. Pair stability is distinct from full numerical or physical qualification; remaining packages and actual validation receipts are recorded separately. |
+| 2026-09-17 | Started UR-030 with the Round 2 brief. | Additive classical acceptance retains all legacy image blockers; lifecycle and backend work is tracked in the separate Round 2 receipt. Production defaults and the coherent-development pause are unchanged. |
+| 2026-09-17 | Added UR-031 after the user authorized stigmator and scan/descan changes. | Opt-in normal/skew tensor transport, structural field-basis metadata, held scan calibration, bounded geometric twofold alignment and weighted covariance readouts; legacy defaults retained. See the later Round 2 continuation receipt. |
 
 ## 27. Product usability implementation (UR-029)
 
@@ -1266,7 +1270,8 @@ inputs. Other historical records retain original-file checks.
 Constrained condenser and four-observable beam-deflector alignment own complete
 input snapshots, numerical bounds and independent forward checks, with transactional
 apply/undo. Unsupported stigmator rank and dynamic pivot/scan observation models
-remain explicit. Device-plan ownership, fallback policy and observed-cost Auto
+remain explicit in the historical first-round implementation; UR-031 adds the
+opt-in ideal-field and held-drive contracts below. Device-plan ownership, fallback policy and observed-cost Auto
 selection preserve checkpoint precision; hardware CUDA acceptance is separate.
 
 Detached recipes now retain the complete instrument graph. Bounded runtime and
@@ -1301,3 +1306,55 @@ inputs and implementation. Viewing, plotting and exporting do not apply candidat
   illumination application and lazy product loading open. The continuation
   implements these interfaces; package acceptance and the later development
   packages remain separately tracked in the progress receipt.
+
+## 28. Independent stigmator and scan calibration contract (UR-031)
+
+- Condenser, objective and diffraction stigmators offer explicit legacy-difference
+  and independent normal/skew models. Existing profiles/defaults keep legacy
+  behavior; changing models is an explicit physical edit, not a silent migration.
+- Structural TOML supplies the two quadrupole basis angles (0/45 degrees), the
+  existing effective length/position, and evidence status. The new model propagates
+  the symmetric off-diagonal term through CPU, Numba, CUDA, mapped-field and
+  specimen-overlap particle transport. This is an ideal effective field, not an
+  OEM coil map or calibrated current. Existing gun stigmation is unchanged.
+- Numerical plans, device identity, prefix reuse and versioned persistent incident
+  seeds retain both diagonal and skew coefficients. Historical seed content stays
+  readable; it is not admitted as a new tensor restart by filling missing physics.
+- AC scan/descan use the same raster time and the existing two physical X/Y foil
+  stations per pair. Automatic calibration remains the default. Explicit held
+  calibration retains drive ratios across lens changes, with only requested FOV
+  scaling. Pivot controls alter lower-pair coupling, not the plotted coordinates.
+- Probe zero-angle calibration uses the chosen specimen centre/entrance and the
+  actual probe-forming optics. Descan position matching uses a separately selected
+  installed physical observation plane. Geometric symmetry is diagnostic, not a
+  substitute for the intervening transfer. Filter-crossing targets are unsupported
+  until their transported filter response is available; they are never bypassed.
+- Condenser twofold alignment targets current-weighted transverse covariance at
+  the specimen entrance using the two real model controls. Numerical bounds,
+  current/support/size gates, measured rank and independent gun/column-step checks
+  are required. Existing detached capture, cancellation, stale rejection and atomic
+  apply/undo are reused. A circular geometric beam is not proof of wave A1 removal.
+- Working-point diagnostics include the full current-weighted 4-D covariance and
+  projected geometric RMS emittances. SI evidence is separate from nm/mrad display.
+  No aggregate phase is inferred from particles; no solve runs when viewing it.
+- Coil response calibration, electronics lag/hysteresis, full numerical-plan
+  qualification, active-vacuum observer validation and paused coherent imaging
+  remain outside this acceptance. Actual tests are in the Round 2 progress receipt.
+
+### 28.1 Bounded multi-level numerical evidence
+
+- The existing Sampling & Convergence panel can run and resume explicitly
+  selected axes at multiple refinement levels using its existing pair engine.
+  All runs originate at the same physical tip chain. No live settings change.
+- Before execution, fix ray/checkpoint memory, comparison-count and cumulative
+  wall-time budgets, thresholds, seed/method and exact checkpoint identity.
+  Check every declared refinement for applicability; unknown controls remain
+  unsupported. Product quadrature and legacy joint sampling are different methods.
+- Preserve scalar observations and exact input graphs after every comparison;
+  discard path buffers. Cancel/resume verifies the complete policy, source/design,
+  implementation and recorded numerical verdicts. A completed pair is not rerun.
+  Unresolved evidence stops the plan without relaxing thresholds.
+- At least three settings per declared axis are required for the scoped
+  `NUMERICALLY_CHECKED_FOR_DECLARED_SCOPE` conclusion. It never qualifies the
+  instrument, source law, image chain or OEM calibration. Interrupted process
+  timing without a terminal receipt remains unknown and cannot grant a free retry.

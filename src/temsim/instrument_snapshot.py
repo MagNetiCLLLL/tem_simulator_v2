@@ -63,7 +63,7 @@ _RUNTIME_NAMES = frozenset({
 })
 # Older pipeline revisions attached these outputs to State as well as keeping
 # them in CalculationResult. They are not source/optics inputs or checkpoints.
-_STATE_PRODUCT_NAMES = frozenset({"energy_filter_result", "all_lens_crossovers"})
+_STATE_PRODUCT_NAMES = frozenset({"energy_filter_result", "all_lens_crossovers", "last_gun_waist_mm"})
 
 
 @lru_cache(maxsize=1)

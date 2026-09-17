@@ -236,6 +236,17 @@ def test_checkpoint_store_survives_restart_and_returns_read_only_arrays(tmp_path
     assert not restored.x_m.flags.writeable
 
 
+def test_legacy_seed_bytes_remain_readable_but_are_not_a_tensor_restart(tmp_path):
+    state, selection = _assembled_state()
+    manifest = _manifest(state, selection)
+    store = ArtifactStore(tmp_path / "cache", quota_bytes=10_000_000)
+    kwargs = dict(product_key="incident", dependency_signature=manifest.calculation_signatures["incident"],
+                  codec="incident-simulation-seed-v1")
+    store.put_array_bundle(manifest, **kwargs, arrays={"legacy": np.arange(3.)}, metadata={"historical": True})
+    assert store.get_array_bundle(manifest, **kwargs).metadata["historical"] is True
+    assert store.get_incident_simulation_seed(manifest) is None
+
+
 @pytest.mark.parametrize(
     ("with_vector_map", "legacy_lineage"),
     [(False, False), (True, False), (False, True)],
@@ -248,6 +259,8 @@ def test_complete_incident_seed_restarts_ray_solver(tmp_path, with_vector_map, l
     state.sample.wave_enabled = False
     state.sample.eds_enabled = False
     state.ac_deflector.scan_enabled = False
+    state.stigmators[0].field_model = "normal_skew"
+    state.stigmators[0].strength_y_percent = .5
     if with_vector_map:
         from temsim.physics.lens_field_provider import (
             bind_imported_lens_field_map, lens_geometry_binding, load_magnetic_field_map,
@@ -291,6 +304,11 @@ def test_complete_incident_seed_restarts_ray_solver(tmp_path, with_vector_map, l
 
     assert restored is not None
     assert restored.incident_plan.signature == first.incident_plan.signature
+    for name in ("sxy_m2", "midpoint_sxy_m2"):
+        expected = getattr(first.incident_plan, name)
+        assert np.any(expected != 0.)
+        np.testing.assert_array_equal(getattr(restored.incident_plan, name), expected)
+        assert not getattr(restored.incident_plan, name).flags.writeable
     for field, expected in first.gun_trace.emission_reference.items():
         actual = restored.gun_trace.emission_reference[field]
         np.testing.assert_array_equal(actual, expected)

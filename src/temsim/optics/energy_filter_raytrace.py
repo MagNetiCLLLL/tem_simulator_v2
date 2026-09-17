@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import math
 
 import numpy as np
+from temsim.physics.backend_execution import cpu_call
 
 from temsim.detector.stem_signal import (
     measure_aperture_transmitted_current,
@@ -657,6 +658,7 @@ def trace_one(state, x0, tx0, energy_offset_ev):
     return paths_u[0], paths_v[0], bool(batch.reached_eels[0])
 
 
+@cpu_call("energy_filter")
 def simulate_energy_filter(
     state,
     simulation,

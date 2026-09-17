@@ -680,6 +680,7 @@ class ParameterPanel(QWidget):
         if hasattr(obj, "strength_x_percent"):
             return (
                 ("enabled", "Enabled", 1.0, ""),
+                ("field_model", "Field model", 1.0, ""),
                 ("strength_x_percent", "X strength", 1.0, " %"),
                 ("strength_y_percent", "Y strength", 1.0, " %"),
             )
@@ -760,7 +761,16 @@ class ParameterPanel(QWidget):
             if not hasattr(obj, name):
                 continue
             value = getattr(obj, name)
-            if isinstance(value, str):
+            if name == "field_model" and hasattr(obj, "quadrupole_tensor_m2"):
+                widget = QComboBox()
+                widget.addItem("Legacy X-Y (rank 1)", "legacy_difference")
+                widget.addItem("Independent X/Y (0 / 45 deg)", "normal_skew")
+                widget.setCurrentIndex(widget.findData(value))
+                widget.setToolTip("Independent channels span any twofold orientation. Selecting a model does not retune strengths.")
+                widget.currentIndexChanged.connect(
+                    lambda _index, control=widget: self._quick_changed("field_model", control.currentData(), 1.0)
+                )
+            elif isinstance(value, str):
                 widget = QLineEdit()
                 widget.setText(value)
                 widget.editingFinished.connect(

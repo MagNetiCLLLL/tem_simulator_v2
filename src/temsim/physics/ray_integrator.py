@@ -25,7 +25,7 @@ except ImportError:
 def canonical_rk4_step(
     x, tx, y, ty, h,
     g0, gm, g1, kx0, kxm, kx1, ky0, kym, ky1,
-    hn0, hnm, hn1, hs0, hsm, hs1,
+    hn0, hnm, hn1, hs0, hsm, hs1, kxy0=0.0, kxym=0.0, kxy1=0.0,
 ):
     """Advance one interval with exact coefficient values at all RK stages.
 
@@ -39,29 +39,29 @@ def canonical_rk4_step(
     ax = px + g0 * y
     ay = py - g0 * x
     hu, hv = x * x - y * y, 2.0 * x * y
-    apx = -(kx0 + g0 * g0) * x + g0 * py - hn0 * hu - hs0 * hv
-    apy = -(ky0 + g0 * g0) * y - g0 * px + hn0 * hv - hs0 * hu
+    apx = -(kx0 + g0 * g0) * x - kxy0 * y + g0 * py - hn0 * hu - hs0 * hv
+    apy = -(ky0 + g0 * g0) * y - kxy0 * x - g0 * px + hn0 * hv - hs0 * hu
 
     bx, by = x + 0.5 * h * ax, y + 0.5 * h * ay
     bpx, bpy = px + 0.5 * h * apx, py + 0.5 * h * apy
     bx1, by1 = bpx + gm * by, bpy - gm * bx
     hu, hv = bx * bx - by * by, 2.0 * bx * by
-    bpx1 = -(kxm + gm * gm) * bx + gm * bpy - hnm * hu - hsm * hv
-    bpy1 = -(kym + gm * gm) * by - gm * bpx + hnm * hv - hsm * hu
+    bpx1 = -(kxm + gm * gm) * bx - kxym * by + gm * bpy - hnm * hu - hsm * hv
+    bpy1 = -(kym + gm * gm) * by - kxym * bx - gm * bpx + hnm * hv - hsm * hu
 
     cx, cy = x + 0.5 * h * bx1, y + 0.5 * h * by1
     cpx, cpy = px + 0.5 * h * bpx1, py + 0.5 * h * bpy1
     cx1, cy1 = cpx + gm * cy, cpy - gm * cx
     hu, hv = cx * cx - cy * cy, 2.0 * cx * cy
-    cpx1 = -(kxm + gm * gm) * cx + gm * cpy - hnm * hu - hsm * hv
-    cpy1 = -(kym + gm * gm) * cy - gm * cpx + hnm * hv - hsm * hu
+    cpx1 = -(kxm + gm * gm) * cx - kxym * cy + gm * cpy - hnm * hu - hsm * hv
+    cpy1 = -(kym + gm * gm) * cy - kxym * cx - gm * cpx + hnm * hv - hsm * hu
 
     dx, dy = x + h * cx1, y + h * cy1
     dpx, dpy = px + h * cpx1, py + h * cpy1
     dx1, dy1 = dpx + g1 * dy, dpy - g1 * dx
     hu, hv = dx * dx - dy * dy, 2.0 * dx * dy
-    dpx1 = -(kx1 + g1 * g1) * dx + g1 * dpy - hn1 * hu - hs1 * hv
-    dpy1 = -(ky1 + g1 * g1) * dy - g1 * dpx + hn1 * hv - hs1 * hu
+    dpx1 = -(kx1 + g1 * g1) * dx - kxy1 * dy + g1 * dpy - hn1 * hu - hs1 * hv
+    dpy1 = -(ky1 + g1 * g1) * dy - kxy1 * dx - g1 * dpx + hn1 * hv - hs1 * hu
 
     x = x + h * (ax + 2.0 * bx1 + 2.0 * cx1 + dx1) / 6.0
     y = y + h * (ay + 2.0 * by1 + 2.0 * cy1 + dy1) / 6.0
@@ -77,8 +77,10 @@ _canonical_step_numba = njit(cache=True, inline="always")(canonical_rk4_step)
 def parallel_rk4(
     kx, ky, hn, hs, larmor_axis, inverse_momentum, cs_kick,
     thin_power, thin_rotation, step_m, x0, tx0, y0, ty0,
-    kickx, kicky, save_index, checkpoint_index,
+    kickx, kicky, save_index, checkpoint_index, kxy=None,
 ):
+    if kxy is None:
+        kxy = np.zeros_like(kx)
     nr, ns, nc = x0.size, save_index.size, checkpoint_index.size
     X = np.empty((ns, nr), np.float32)
     TX = np.empty((ns, nr), np.float32)
@@ -122,6 +124,7 @@ def parallel_rk4(
                 larmor_axis[c] * inv_p,
                 kx[a], kx[b], kx[c], ky[a], ky[b], ky[c],
                 hn[a], hn[b], hn[c], hs[a], hs[b], hs[c],
+                kxy[a], kxy[b], kxy[c],
             )
     return X, TX, Y, TY, CX, CTX, CY, CTY
 
@@ -135,8 +138,10 @@ serial_rk4 = (njit(cache=True, nogil=True)(parallel_rk4.py_func)
 def vectorised_rk4(
     kx, ky, hn, hs, larmor_axis, inverse_momentum, cs_kick,
     thin_power, thin_rotation, step_m, x, tx, y, ty,
-    kickx, kicky, save_index, checkpoint_index, *, step_operator=None,
+    kickx, kicky, save_index, checkpoint_index, kxy=None, *, step_operator=None,
 ):
+    if kxy is None:
+        kxy = np.zeros_like(kx)
     nr, ns, nc = x.size, save_index.size, checkpoint_index.size
     X, TX, Y, TY = (np.empty((ns, nr), np.float32) for _ in range(4))
     CX, CTX, CY, CTY = (np.empty((nc, nr), np.float64) for _ in range(4))
@@ -171,6 +176,7 @@ def vectorised_rk4(
             larmor_axis[c] * inverse_momentum,
             kx[a], kx[b], kx[c], ky[a], ky[b], ky[c],
             hn[a], hn[b], hn[c], hs[a], hs[b], hs[c],
+            kxy[a], kxy[b], kxy[c],
         )
         if step_operator is not None:
             x, tx, y, ty = step_operator(j, before, (x, tx, y, ty))
@@ -184,7 +190,7 @@ if NUMBA_AVAILABLE:
     def _cuda_rk4_kernel(
         kx, ky, hn, hs, larmor_axis, inverse_momentum, cs_kick,
         thin_power, thin_rotation, step_m, x0, tx0, y0, ty0,
-        kickx, kicky, save_index, checkpoint_index,
+        kickx, kicky, save_index, checkpoint_index, kxy,
         X, TX, Y, TY, CX, CTX, CY, CTY,
     ):
         ray = cuda.grid(1)
@@ -223,6 +229,7 @@ if NUMBA_AVAILABLE:
                 larmor_axis[c] * inv_p,
                 kx[a], kx[b], kx[c], ky[a], ky[b], ky[c],
                 hn[a], hn[b], hn[c], hs[a], hs[b], hs[c],
+                kxy[a], kxy[b], kxy[c],
             )
 else:
     _cuda_rk4_kernel = None

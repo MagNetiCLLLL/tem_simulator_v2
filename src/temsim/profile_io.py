@@ -300,6 +300,8 @@ def apply_profile_values(state, values: dict) -> list[str]:
         if not isinstance(attributes, dict):
             raise ValueError(f"Operating profile device {key} must be a table")
         allowed = {parameter.name for parameter in editable_parameters(target)}
+        if hasattr(target.obj, "quadrupole_tensor_m2") and "field_model" not in attributes:
+            pending.append((target.obj, "field_model", "legacy_difference"))
         if key == getattr(state.electron_gun.emitter, "key", None) and state.electron_gun.type_key == "cold_feg":
             # The incoming model, not the currently active one, determines
             # which historical fields may be restored. No implicit migration.

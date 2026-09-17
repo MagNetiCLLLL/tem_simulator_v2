@@ -116,14 +116,15 @@ class SpecimenFieldTransport:
                 continue
             total += provider.field_at_global_positions_t(positions)
         if hasattr(self, "state"):
-            from temsim.physics.core import multipole_focusing_fields, hexapole_field_components
+            from temsim.physics.core import multipole_focusing_fields, hexapole_field_components, skew_quadrupole_field
             z = positions[..., 2] * 1e3
             kx, ky = multipole_focusing_fields(z, self.state)
+            kxy = skew_quadrupole_field(z, self.state)
             hn, hs = hexapole_field_components(z, self.state)
             x, y = positions[..., 0], positions[..., 1]
             u, v = x*x-y*y, 2*x*y
-            total[..., 0] += self.reference_momentum_over_charge * (-ky*y + hn*v - hs*u)
-            total[..., 1] += self.reference_momentum_over_charge * (kx*x + hn*u + hs*v)
+            total[..., 0] += self.reference_momentum_over_charge * (-ky*y - kxy*x + hn*v - hs*u)
+            total[..., 1] += self.reference_momentum_over_charge * (kx*x + kxy*y + hn*u + hs*v)
         return total
 
     def advance(self, position_nm, direction, path_length_nm, *, energy_ev):

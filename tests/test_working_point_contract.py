@@ -272,6 +272,7 @@ def test_historical_illumination_dialog_is_read_only(qtbot):
 
 
 def test_persisted_seed_has_exact_working_point_and_frozen_diagnostics(instrument, tmp_path):
+    from temsim.artifact_store import INCIDENT_SEED_CODEC
     from temsim.physics.simulation import run
     instrument.electron_gun.emitter.ray_count = 9
     # Keep the ordinary column step; a 5 mm step is too coarse for the strong
@@ -283,7 +284,7 @@ def test_persisted_seed_has_exact_working_point_and_frozen_diagnostics(instrumen
     store = ArtifactStore(tmp_path / "cache", quota_bytes=100_000_000)
     store.put_incident_simulation_seed(manifest, simulation)
     bundle = store.get_array_bundle(manifest, product_key="incident",
-        dependency_signature=manifest.calculation_signatures["incident"], codec="incident-simulation-seed-v1")
+        dependency_signature=manifest.calculation_signatures["incident"], codec=INCIDENT_SEED_CODEC)
     snapshot = InstrumentSnapshot.from_dict(bundle.metadata["working_point"])
     assert snapshot.digest == manifest.instrument_snapshot.digest
     before = json_digest(bundle.metadata["beam_observables"])

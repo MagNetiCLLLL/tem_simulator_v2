@@ -18,10 +18,12 @@ from temsim.physics.ray_integrator import canonical_rk4_step
 def vector_map_rk4(
     kx, ky, hn, hs, larmor_axis, inverse_momentum, cs_kick,
     thin_power, thin_rotation, step_m, x, tx, y, ty,
-    kickx, kicky, save_index, checkpoint_index, *, z_mm, mapped_fields,
+    kickx, kicky, save_index, checkpoint_index, kxy=None, *, z_mm, mapped_fields,
     defer_nonfinite_until_clipping=False,
     step_operator=None,
 ):
+    if kxy is None:
+        kxy = np.zeros_like(kx)
     nr, ns, nc = x.size, save_index.size, checkpoint_index.size
     # Finite-difference transfer Jacobians need float64 even in saved history.
     X, TX, Y, TY = (np.empty((ns, nr), np.float64) for _ in range(4))
@@ -57,6 +59,7 @@ def vector_map_rk4(
                 x, tx, y, ty, step_m[j], *g,
                 kx[a], kx[b], kx[c], ky[a], ky[b], ky[c],
                 hn[a], hn[b], hn[c], hs[a], hs[b], hs[c],
+                kxy[a], kxy[b], kxy[c],
             )
             if step_operator is not None:
                 x, tx, y, ty = step_operator(j, before, (x, tx, y, ty))
@@ -86,9 +89,9 @@ def vector_map_rk4(
             index = (a,b,c)[stage]
             hu, hv = xx*xx - yy*yy, 2.0*xx*yy
             return np.array((ux,
-                -(kx[index]+gg*gg)*xx + gg*py - hn[index]*hu - hs[index]*hv + fx,
+                -(kx[index]+gg*gg)*xx - kxy[index]*yy + gg*py - hn[index]*hu - hs[index]*hv + fx,
                 uy,
-                -(ky[index]+gg*gg)*yy - gg*px + hn[index]*hv - hs[index]*hu + fy))
+                -(ky[index]+gg*gg)*yy - kxy[index]*xx - gg*px + hn[index]*hv - hs[index]*hu + fy))
 
         initial = np.array((x, tx-g[0]*y, y, ty+g[0]*x))
         h = float(step_m[j])

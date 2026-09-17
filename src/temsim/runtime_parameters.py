@@ -43,6 +43,7 @@ INTERNAL_FIELDS = frozenset({
     "zero_loss_offset_m",
 })
 TOML_OWNED_FIELDS = frozenset({
+    "channel_x_angle_deg", "channel_y_angle_deg",
     "a_mm",
     "b0_t",
     "blade_thickness_m",
@@ -391,6 +392,10 @@ def validate_runtime_assignment(
             "sample.eds_transport_mode must be elastic_monte_carlo or "
             "straight_primary"
         )
+    if name == "field_model" and hasattr(target.obj, "quadrupole_tensor_m2"):
+        from temsim.optics.stigmator_field import MODELS
+        if str(converted) not in MODELS:
+            raise ValueError("Stigmator field model must be legacy_difference or normal_skew")
     if name == "eds_elastic_seed" and int(converted) < 0:
         raise ValueError("sample.eds_elastic_seed cannot be negative")
     if name == "eds_overlap_sampling_points" and not (

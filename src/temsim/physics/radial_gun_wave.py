@@ -327,7 +327,7 @@ def prepare_round_gun(gun, start_nm, energy_ev, numerics, *, column_state=None, 
         from temsim.physics.core import fields
         plan, radii, stops, owners = _prepare_column(column_state, start_nm*1e-6,
             gun.exit_plane_z_mm, numerics.field_step_mm)
-        names = ("sx_m2", "sy_m2", "midpoint_sx_m2", "midpoint_sy_m2", "hex_normal_m3", "hex_skew_m3",
+        names = ("sx_m2", "sy_m2", "midpoint_sx_m2", "midpoint_sy_m2", "midpoint_sxy_m2", "hex_normal_m3", "hex_skew_m3",
                  "midpoint_hex_normal_m3", "midpoint_hex_skew_m3", "cs_kick_m3", "thin_power_m1",
                  "thin_rotation_rad", "kick_x_rad", "kick_y_rad")
         if plan.mapped_fields or stops or owners or any(np.any(getattr(plan, name)) for name in names):

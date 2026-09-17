@@ -49,6 +49,15 @@ class AlignmentRequest:
     def capture(cls, state, key, target, *, revision, options=None):
         from temsim.optics.electron_gun.source_policy import require_physical_gun_source
         require_physical_gun_source(state.electron_gun)
+        if key == "condenser_twofold_shape":
+            from temsim.stigmator_alignment import DEFINITION, StigmatorAlignmentOptions, capability
+            if not isinstance(options, StigmatorAlignmentOptions) or target != 0.:
+                raise ValueError("Twofold shape alignment requires explicit numerical and physical limits")
+            available, reason = capability(state)
+            if not available:
+                raise ValueError(reason)
+            return cls(str(uuid4()), capture_instrument_snapshot(state), int(revision), key, 0.,
+                       DEFINITION.definition_id, json_digest(asdict(DEFINITION)), options)
         if key == "beam_centre_direction":
             from temsim.beam_alignment import DEFINITION, BeamAlignmentOptions, capability
             if not isinstance(options, BeamAlignmentOptions) or target != 0.:
@@ -108,6 +117,9 @@ class AlignmentCandidate:
 
 @input_io.using_state_inputs
 def _allowed_state(request, strengths):
+    if request.key == "condenser_twofold_shape":
+        from temsim.stigmator_alignment import allowed_state
+        return allowed_state(request, strengths)
     if request.key == "beam_centre_direction":
         from temsim.beam_alignment import allowed_state
         return allowed_state(request, strengths)
@@ -143,6 +155,9 @@ def _constraints_pass(definition, measured):
 
 @input_io.using_state_inputs
 def solve_alignment_candidate(request, *, cancelled=lambda: False):
+    if request.key == "condenser_twofold_shape":
+        from temsim.stigmator_alignment import solve_candidate
+        return solve_candidate(request, cancelled=cancelled)
     if request.key == "beam_centre_direction":
         from temsim.beam_alignment import solve_candidate
         return solve_candidate(request, cancelled=cancelled)

@@ -56,8 +56,8 @@ class FakeCUDA:
 class ReferenceKernel:
     def __getitem__(self, launch):
         def run(*arrays):
-            result = vectorised_rk4(*(a.array for a in arrays[:18]))
-            for target, value in zip(arrays[18:], result, strict=True):
+            result = vectorised_rk4(*(a.array for a in arrays[:19]))
+            for target, value in zip(arrays[19:], result, strict=True):
                 target.array[...] = value
         return run
 

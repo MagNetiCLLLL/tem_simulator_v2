@@ -1542,6 +1542,10 @@ def _apply_manifest_runtime_geometry(state, parts, assembly):
         if key == OBJECTIVE_LENS:
             continue
         _set_mechanical_geometry(item, part, parts)
+        if hasattr(item, "quadrupole_tensor_m2"):
+            for field in ("channel_x_angle_deg", "channel_y_angle_deg"):
+                if field in part.data:
+                    setattr(item, field, float(part.data[field]))
         _apply_manifest_field_polarity(item, part)
         _apply_manifest_condenser_field_calibration(item, part)
         _apply_manifest_projector_field_calibration(item, part)

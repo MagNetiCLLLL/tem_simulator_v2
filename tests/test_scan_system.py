@@ -254,6 +254,8 @@ def test_pixel_pitch_calibrates_axis_aligned_fov_through_active_optics(
     component.scan_pixel_size_nm = 2.0
     component.set_pure_shift_coupling(-np.eye(2), 0.0)
     response_m_per_rad = np.diag((2.0, 4.0))
+    monkeypatch.setattr(scan_geometry, "transverse_kick_phase_space_response",
+                        lambda *_args: (np.zeros((2, 2)), np.eye(2)))
     monkeypatch.setattr(
         scan_geometry,
         "paired_kick_response",
@@ -330,7 +332,7 @@ def test_scan_view_exposes_pixel_pitch_and_derived_fov(qtbot):
 
     view.set_state(state)
 
-    assert set(view.ac_controls) == set(view.descan_controls)
+    assert set(view.ac_controls) - {"pivot_offset_x", "pivot_offset_y"} == set(view.descan_controls)
     assert "scan_pixel_size_nm" in view.ac_controls
     assert "scan_amplitude_x_mrad" not in view.ac_controls
     assert "scan_amplitude_x_mrad" not in view.descan_controls

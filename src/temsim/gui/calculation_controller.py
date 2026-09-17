@@ -13,6 +13,9 @@ import os
 from pathlib import Path
 from threading import Event
 from time import perf_counter
+from uuid import uuid4
+from temsim.job_events import job_event, job_stage
+from temsim.physics.backend_execution import capture_worker_backends, classical_backend_preflight
 from temsim import input_io
 from types import MappingProxyType
 
@@ -275,6 +278,13 @@ class PreparationSignals(WorkerSignals):
     prepared = Signal(int, str, object)
 
 
+def preparation_input_roots(request):
+    # Do not follow the lease's store pointer into unrelated cached inputs.
+    lease = getattr(request, "_input_assets", None)
+    return (getattr(request, "_model_state", None), getattr(request, "_instrument_graph", None),
+            getattr(lease, "_items", None))
+
+
 class PreparationWorker(QRunnable):
     """Prepare one captured request without blocking the Qt event thread."""
 
@@ -285,10 +295,32 @@ class PreparationWorker(QRunnable):
         self.request = request
         self.cancel_event = cancel_event
         self.signals = PreparationSignals()
+        self._inputs_released = False
+        from temsim.gui.job_coordinator import ResourceClaim
+        # Preparation is not a 24 GiB solver. Account for captured buffers plus
+        # decode/manifest temporaries. This is an ownership estimate, not RSS.
+        size = sum(retained_memory_inventory(*preparation_input_roots(request)).values())
+        self.resource_claim = ResourceClaim(128 * 1024**2 + 10 * size)
+
+    def release_inputs(self):
+        if not self._inputs_released:
+            self._inputs_released = True
+            assets = getattr(self.request, "_input_assets", None)
+            if assets is not None:
+                assets.close()
+
+    def job_adapter(self):
+        from temsim.gui.job_coordinator import WorkerAdapter
+        return WorkerAdapter(self, self.cancel_event, self.resource_claim, self.generation,
+            getattr(self, "job_input_identity", ""), self.quality, preparation_input_roots(self.request),
+            lambda message: self.signals.error.emit(self.generation, self.quality, message),
+            lambda: self.signals.finished.emit(self.generation, self.quality), self.release_inputs,
+            request_id=getattr(self, "request_id", ""), backend="CPU preparation")
 
     def run(self):
         try:
-            prepared = self.request.prepare(self.cancel_event)
+            with job_stage("preparation", backend="CPU"):
+                prepared = self.request.prepare(self.cancel_event)
             if not self.cancel_event.is_set():
                 self.signals.prepared.emit(self.generation, self.quality, prepared)
         except PreparationCancelled:
@@ -298,9 +330,7 @@ class PreparationWorker(QRunnable):
                 self.signals.error.emit(self.generation, self.quality, str(exc))
                 self.signals.finished.emit(self.generation, self.quality)
         finally:
-            assets = getattr(self.request, "_input_assets", None)
-            if assets is not None:
-                assets.close()
+            self.release_inputs()
         # Success transfers ownership to a solver or exact-cache delivery.
         # Finishing here would incorrectly release the live-frame scheduler.
 
@@ -326,6 +356,10 @@ class CalculationWorker(QRunnable):
         self.quality = quality
         self.state = state
         self.model_signature = str(model_signature)
+        from temsim.gui.job_coordinator import ResourceClaim
+        self.cancel_event = Event()
+        self.resource_claim = ResourceClaim()
+        self.job_input_identity = self.model_signature
         self.request_signatures = dict(request_signatures or {})
         self.existing_result = existing_result
         self.artifact_store = artifact_store
@@ -340,6 +374,15 @@ class CalculationWorker(QRunnable):
         )
         self.artifact_cache_budget_bytes = int(artifact_cache_budget_bytes)
         self.signals = WorkerSignals()
+
+    def job_adapter(self):
+        from temsim.gui.job_coordinator import WorkerAdapter
+        return WorkerAdapter(self, self.cancel_event, self.resource_claim, self.generation,
+            self.job_input_identity, self.quality, (self.state, self.existing_result),
+            lambda message: self.signals.error.emit(self.generation, self.quality, message),
+            lambda: self.signals.finished.emit(self.generation, self.quality), lambda: None,
+            request_id=getattr(self, "request_id", ""),
+            backend=str(getattr(self.state, "acceleration_backend", "Auto")))
 
     def _load_persistent_incident_seed(
         self,
@@ -435,6 +478,7 @@ class CalculationWorker(QRunnable):
             # result dependency.
             return
 
+    @capture_worker_backends
     @input_io.using_state_inputs
     def run(self) -> None:
         started = perf_counter()
@@ -443,6 +487,8 @@ class CalculationWorker(QRunnable):
             if cancelled is not None and cancelled.is_set():
                 return
             assert_external_input_inventory_unchanged(self.state, self.external_inputs)
+            for requirement in classical_backend_preflight(self.state):
+                job_event("backend_preflight", **requirement)
             self.state.active_backend = "CPU"
             self.state._active_backends_used = set()
             if is_tuning_quality(self.quality):
@@ -450,11 +496,12 @@ class CalculationWorker(QRunnable):
                 if cancelled is not None:
                     self.state._tuning_cancelled = cancelled.is_set
                 layout = apply_physical_layout_to_state(self.state)
-                simulation = run_ray_simulation(
-                    self.state, resolved_layout=layout,
-                    existing_simulation=getattr(self.existing_result, "simulation", None),
-                    optical_only=True,
-                )
+                with job_stage("ray_transport"):
+                    simulation = run_ray_simulation(
+                        self.state, resolved_layout=layout,
+                        existing_simulation=getattr(self.existing_result, "simulation", None),
+                        optical_only=True,
+                    )
                 lens_crossovers = detect_all_lens_crossovers(
                     [simulation.incident, *simulation.branches.values()],
                     self.state.lenses,
@@ -479,7 +526,8 @@ class CalculationWorker(QRunnable):
                 }
                 if existing_result is not None:
                     calculation_kwargs["existing_result"] = existing_result
-                result = calculate(self.state, **calculation_kwargs)
+                with job_stage("calculation_pipeline"):
+                    result = calculate(self.state, **calculation_kwargs)
                 if isinstance(result, CalculationResult):
                     result.model_signature = self.model_signature
                     assert_external_input_inventory_unchanged(self.state, self.external_inputs)
@@ -489,10 +537,14 @@ class CalculationWorker(QRunnable):
             assert_external_input_inventory_unchanged(self.state, self.external_inputs)
             if isinstance(result, CalculationResult):
                 result.external_inputs = self.external_inputs
+                result.performance = dict(result.performance or {},
+                    backend_stages=tuple(self.backend_evidence),
+                    backend_scope="Last 256 stage calls in this worker, including exact internal reuse; not hardware qualification")
                 result.calculation_manifest = self.calculation_manifest
                 if result.wave_imaging is not None and self.calculation_manifest is not None:
                     from temsim.physics.wave_imaging import bind_wave_request_manifest
                     result.wave_imaging = bind_wave_request_manifest(result.wave_imaging, self.calculation_manifest)
+            job_event("publication_requested", backend=str(getattr(self.state, "active_backend", "unknown")))
             self.signals.result.emit(
                 self.generation,
                 self.quality,
@@ -503,6 +555,8 @@ class CalculationWorker(QRunnable):
             if not getattr(self, "cancel_event", Event()).is_set():
                 self.signals.error.emit(self.generation, self.quality, str(exc))
         finally:
+            if getattr(self, "_progress_stage", None) is not None:
+                job_event("stage_exit", stage=self._progress_stage, outcome="worker_return")
             # A delivered snapshot remains inspectable after the next request
             # cancels this worker's token; cancellation is not result state.
             if hasattr(self.state, "_tuning_cancelled"):
@@ -512,6 +566,11 @@ class CalculationWorker(QRunnable):
     def _report_progress(
         self, completed: int, total: int, stage: str
     ) -> None:
+        if getattr(self, "_progress_stage", None) != stage:
+            if getattr(self, "_progress_stage", None) is not None:
+                job_event("stage_exit", stage=self._progress_stage, outcome="next_progress_stage")
+            self._progress_stage = str(stage)
+            job_event("stage_entry", stage=str(stage), evidence="solver_progress_boundary")
         self.signals.progress.emit(
             self.generation,
             self.quality,
@@ -548,6 +607,7 @@ class CalculationController(QObject):
         self.pool = CoordinatedPool(self)
         self.pool.setMaxThreadCount(1)
         self._generation = 0
+        self._finished_generation = -1
         self._requests = {}
         self._high_requests = {}
         self._high_cache: OrderedDict[str, CalculationResult] = OrderedDict()
@@ -602,7 +662,7 @@ class CalculationController(QObject):
         item = self._requests.get(generation)
         if item is not None:
             return not item["cancel"].is_set()
-        return generation == self._generation and not self._cancel_event.is_set()
+        return generation == self._generation and generation > self._finished_generation and not self._cancel_event.is_set()
 
     @property
     def artifact_store(self) -> ArtifactStore | None:
@@ -1154,12 +1214,21 @@ class CalculationController(QObject):
         self._generation += 1
         self._request_input_guard = None
         self._cancel_event = Event()
-        self._requests[self._generation] = dict(quality=quality, cancel=self._cancel_event, guard=None)
+        self._requests[self._generation] = dict(quality=quality, cancel=self._cancel_event, guard=None, request_id=uuid4().hex)
         return self._generation
+
+    def _trace_request(self, generation, event, **details):
+        item = self._requests.get(generation, {})
+        self.pool.coordinator.events.record(event, metadata=dict(
+            owner=type(self).__name__, generation=generation,
+            request_id=item.get("request_id", ""), job_id=item.get("job_id", ""),
+            input_identity=item.get("identity", ""), backend="controller",
+            working_bytes=0, vram_bytes=0), **details)
 
     def _cancel_live_requests(self):
         for generation, item in tuple(self._requests.items()):
             if item["quality"] != "High accuracy":
+                self._trace_request(generation, "cancellation_request")
                 item["cancel"].set()
                 del self._requests[generation]
         self.pool.clear(lambda worker: getattr(worker, "quality", "") != "High accuracy")
@@ -1190,28 +1259,48 @@ class CalculationController(QObject):
             raise ValueError("Calculation resolution must be positive and finite")
         # Capture may fail before starting a lifecycle. Do not cancel a valid
         # current calculation or leave GUI progress active on such a failure.
+        capture_started = perf_counter()
+        capture_id = uuid4().hex
+        self.pool.coordinator.events.record("capture_entry", request_id=capture_id,
+            owner=type(self).__name__, generation=self._generation + 1, quality=quality,
+            job_id="", backend="CPU capture", working_bytes=0, vram_bytes=0)
+        request = None
         try:
             request = CapturedCalculationRequest.capture(
                 state, quality, ray_count, step_mm,
             )
+            from temsim.immutable_json import json_digest
+            identity = json_digest(dict(graph=request._instrument_graph,
+                controls=request._model_state.to_dict(), quality=quality, rays=ray_count, step=step_mm))
         except Exception as exc:
+            if request is not None and request._input_assets is not None:
+                request._input_assets.close()
+            self.pool.coordinator.events.record("capture_exit", request_id=capture_id,
+                outcome="failed", error=str(exc), elapsed_s=perf_counter()-capture_started)
             raise ValueError(f"Could not capture calculation settings: {exc}") from exc
         generation = self._begin_request(quality)
+        self._requests[generation]["request_id"] = capture_id
+        self._trace_request(generation, "capture_exit", outcome="captured", elapsed_s=perf_counter()-capture_started)
         self._requests[generation]["parent_id"] = parent_id
         worker = PreparationWorker(generation, request, self._cancel_event)
-        from temsim.immutable_json import json_digest
-        worker.job_input_identity = json_digest(dict(graph=request._instrument_graph,
-            controls=request._model_state.to_dict(), quality=quality, rays=ray_count, step=step_mm))
+        worker.job_input_identity = identity
+        worker.request_id = capture_id
+        self._requests[generation]["identity"] = worker.job_input_identity
         worker.signals.prepared.connect(self._accept_prepared)
         worker.signals.error.connect(self._accept_error)
         worker.signals.finished.connect(self._accept_finished)
         self.started.emit(quality)
         if self._request_active(generation):
-            self.pool.start(worker)
+            job_id = self.pool.start(worker)
+            if generation in self._requests:
+                self._requests[generation]["job_id"] = job_id
+        else:
+            worker.release_inputs()
 
     def _accept_prepared(self, generation, quality, prepared) -> None:
         if not self._request_active(generation):
             return
+        self._trace_request(generation, "preparation_received")
         if quality == "High accuracy":
             existing = self._high_requests.get(prepared.request_signatures["request"])
             if existing is not None and existing != generation and self._request_active(existing):
@@ -1220,6 +1309,9 @@ class CalculationController(QObject):
                 self._accept_finished(generation, quality)
                 return
         try:
+            requirements = classical_backend_preflight(prepared.snapshot)
+            self.progress_changed.emit(quality, 0, 1, "Backend requirements | " + "; ".join(
+                f"{row['stage']}: {row['capability']}" for row in requirements))
             self._dispatch_prepared(
                 prepared.snapshot, quality, prepared.ray_count, prepared.step_mm,
                 model_signature=prepared.model_signature,
@@ -1421,6 +1513,8 @@ class CalculationController(QObject):
         worker.resource_claim = ResourceClaim(working_bytes=int(estimate))
         worker.job_input_identity = request_key
         worker.cancel_event = self._requests[generation]["cancel"]
+        worker.request_id = self._requests[generation]["request_id"]
+        self._requests[generation]["identity"] = request_key
         worker.signals.result.connect(self._accept_result)
         worker.signals.error.connect(self._accept_error)
         worker.signals.progress.connect(self._accept_progress)
@@ -1428,7 +1522,9 @@ class CalculationController(QObject):
         if not already_started:
             self.started.emit(quality)
         if self._request_active(generation):
-            self.pool.start(worker)
+            job_id = self.pool.start(worker)
+            if generation in self._requests:
+                self._requests[generation]["job_id"] = job_id
 
     def invalidate_pending(self, *, include_explicit=False) -> None:
         """Live invalidation preserves explicit captured-state calculations."""
@@ -1436,7 +1532,8 @@ class CalculationController(QObject):
         self._generation += 1
         self._request_input_guard = None
         if include_explicit:
-            for item in self._requests.values():
+            for generation, item in self._requests.items():
+                self._trace_request(generation, "cancellation_request")
                 item["cancel"].set()
             self._requests.clear()
             self._high_requests.clear()
@@ -1466,6 +1563,7 @@ class CalculationController(QObject):
                 self._cache_result(result)
             else:
                 self._cache_tuning_result(quality, result)
+            self._trace_request(generation, "publication", quality=quality)
             self.result_ready.emit(quality, result, duration)
 
     def _accept_error(self, generation, quality, message) -> None:
@@ -1491,6 +1589,9 @@ class CalculationController(QObject):
     def _accept_finished(self, generation, quality) -> None:
         owned = generation in self._requests
         active = self._request_active(generation)
+        if active or owned:
+            self._trace_request(generation, "request_terminal", quality=quality)
+        self._finished_generation = max(self._finished_generation, generation)
         # Cancellation is also a terminal lifecycle: never retain its guard.
         if getattr(self, "_request_input_guard", None) is not None and self._request_input_guard[0] == generation:
             self._request_input_guard = None

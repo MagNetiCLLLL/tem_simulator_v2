@@ -144,6 +144,7 @@ class DescanDeflectorComponent:
     scan_pixel_size_nm: float = 1.0
     upper_coil_gain: float = 0.5
     lower_coil_gain: float = 0.5
+    descan_target_key: str = "legacy_image_reference"
 
     EXPECTED_KEY: ClassVar[str] = DESCAN_DEFLECTOR
     KIND: ClassVar[str] = "paired_deflector"
@@ -635,6 +636,7 @@ def descan_deflector_from_dict(data):
         "scan_lines",
         "scan_pixel_size_nm",
         "upper_coil_gain",
+        "descan_target_key",
     ):
         if attribute in values:
             object.__setattr__(component, attribute, values[attribute])

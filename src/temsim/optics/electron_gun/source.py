@@ -1,6 +1,8 @@
 """Single model dispatch for column and alignment source particles."""
+from temsim.physics.backend_execution import cpu_call
 
 
+@cpu_call("gun")
 def trace_source_to_exit(state, count=None):
     from temsim.optics.electron_gun.source_policy import require_physical_gun_source
     gun = state.electron_gun

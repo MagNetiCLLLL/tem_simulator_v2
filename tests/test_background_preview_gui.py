@@ -4,13 +4,17 @@ import pytest
 
 
 @pytest.fixture
-def window(qtbot, monkeypatch, tmp_path):
+def window(qtbot, monkeypatch, tmp_path, request):
     from temsim.gui import main_window as shell, interactive_calculation as gui, calculation_controller as controller
     settings = QSettings(str(tmp_path / "workspace.ini"), QSettings.Format.IniFormat)
     monkeypatch.setattr(shell, "QSettings", lambda: settings)
     monkeypatch.setattr(gui, "QSettings", lambda: settings)
     monkeypatch.setattr(controller, "default_artifact_cache_root", lambda: tmp_path / "artifacts")
     monkeypatch.setattr(shell.MainWindow, "INITIAL_PREVIEW_DELAY_MS", 60000)
+    if getattr(request, "param", None) is not None:
+        state = shell.default_state()
+        state.acceleration_backend, state.acceleration_enabled = request.param
+        monkeypatch.setattr(shell, "default_state", lambda: state)
     instance = shell.MainWindow()
     instance.preview_timer.stop()
     qtbot.addWidget(instance)
@@ -18,6 +22,17 @@ def window(qtbot, monkeypatch, tmp_path):
     instance.preview_timer.stop()
     instance.calculations.invalidate_pending()
     instance.calculations.pool.waitForDone(3000)
+
+
+@pytest.mark.parametrize("window", [("gpu", False), ("Require GPU", False)], indirect=True)
+def test_backend_display_preserves_historical_policy_and_explicit_disabled_flag(window):
+    requested = window.state.acceleration_backend
+    assert requested in {"gpu", "Require GPU"}
+    assert not window.state.acceleration_enabled
+    assert window.compute_backend.currentData() == ("CUDA GPU" if requested == "gpu" else requested)
+    window._sync_working_point_selectors()
+    assert window.state.acceleration_backend == requested
+    assert not window.state.acceleration_enabled
 
 
 @pytest.mark.parametrize("quality", ["Preview", "Medium"])
@@ -215,7 +230,7 @@ def test_live_edits_during_preparation_keep_one_frame_and_latest_pending(window,
             import faulthandler
             faulthandler.dump_traceback()
             coordinator = window.calculations.pool.coordinator
-            raise AssertionError(f"Preparation did not start: errors={errors}; resources={coordinator.statistics()}; jobs={list(coordinator.history)}") from exc
+            raise AssertionError(f"Preparation did not start: errors={errors}; resources={coordinator.statistics()}; lifecycle={coordinator.diagnostic_snapshot(include_stacks=True)}") from exc
         generation = window.calculations.generation
         cancel_event = window.calculations._cancel_event
         assert window._interactive_preview_in_flight()

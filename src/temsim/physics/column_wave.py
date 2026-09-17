@@ -107,6 +107,7 @@ def _column_transports(plan, energy_kev):
         g = q*plan.midpoint_magnetic_t[i]/(2*momentum)
         rotation = np.array(((0., g), (-g, 0.)))
         stiffness = np.diag((plan.midpoint_sx_m2[i]+g*g, plan.midpoint_sy_m2[i]+g*g))
+        stiffness[0, 1] = stiffness[1, 0] = plan.midpoint_sxy_m2[i]
         generator = np.block([[rotation, np.eye(2)], [-stiffness, rotation]])
         path = CanonicalPath(1e-3)
         _linear_factor(path, generator, float(dz))
@@ -253,6 +254,7 @@ def _slice_prepared(prepared, first, last):
     plan, radii, stops, owners = prepared
     values = {name: getattr(plan, name)[first:last] for name in (
         "step_m", "midpoint_magnetic_t", "midpoint_sx_m2", "midpoint_sy_m2",
+        "midpoint_sxy_m2",
         "midpoint_hex_normal_m3", "midpoint_hex_skew_m3")}
     values.update({name: getattr(plan, name)[first:last+1] for name in ("z_mm", "kick_x_rad", "kick_y_rad", "cs_kick_m3")})
     values["signature"] = json_digest((plan.signature, first, last))

@@ -178,9 +178,11 @@ class DirectAlignmentPanel(QWidget):
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self.cancellation_requested.emit)
         layout.addWidget(self.cancel_button)
-        from temsim.gui.beam_alignment import BeamAlignmentEditor
+        from temsim.gui.beam_alignment import BeamAlignmentEditor, StigmatorAlignmentEditor
         self.beam_alignment_editor = BeamAlignmentEditor()
         self.beam_alignment_editor.requested.connect(self.adjustment_requested.emit)
+        self.stigmator_alignment_editor = StigmatorAlignmentEditor()
+        self.stigmator_alignment_editor.requested.connect(self.adjustment_requested.emit)
         self.set_catalog(self._catalog)
 
     @property
@@ -196,7 +198,7 @@ class DirectAlignmentPanel(QWidget):
         while self._control_layout.count():
             item = self._control_layout.takeAt(0)
             widget = item.widget()
-            if widget is not None and widget not in (self.projector_calibration_group, self.beam_alignment_editor):
+            if widget is not None and widget not in (self.projector_calibration_group, self.beam_alignment_editor, self.stigmator_alignment_editor):
                 widget.deleteLater()
         self._controls = {}
         self._joint_editors = {}
@@ -208,6 +210,7 @@ class DirectAlignmentPanel(QWidget):
             self._add_control(definition)
         self._control_layout.addWidget(self.projector_calibration_group)
         self._control_layout.addWidget(self.beam_alignment_editor)
+        self._control_layout.addWidget(self.stigmator_alignment_editor)
         self._control_layout.addStretch(1)
         self._update_mode_gating()
         self.update_metrics(self._metrics)
@@ -313,6 +316,8 @@ class DirectAlignmentPanel(QWidget):
         self.adjustment_requested.emit(key, value)
 
     def constraint_options(self, key):
+        if key == "condenser_twofold_shape":
+            return self.stigmator_alignment_editor.options()
         if key == "beam_centre_direction":
             return self.beam_alignment_editor.options()
         editor = self._joint_editors.get(key)
@@ -332,6 +337,7 @@ class DirectAlignmentPanel(QWidget):
 
         self._state = state
         self.beam_alignment_editor.set_state(state)
+        self.stigmator_alignment_editor.set_state(state)
         self._available_mode_keys = (
             None
             if available_mode_keys is None
@@ -501,6 +507,7 @@ class DirectAlignmentPanel(QWidget):
 
     def set_busy(self, key: str | None) -> None:
         self.beam_alignment_editor.set_busy(key is not None)
+        self.stigmator_alignment_editor.set_busy(key is not None)
         """Disable all requests while one background solve is active."""
 
         self._busy_key = None if key is None else str(key)

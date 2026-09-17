@@ -44,6 +44,15 @@ def calculation_performance_lines(result) -> tuple[str, ...]:
     performance = getattr(result, "performance", {}) or {}
     stages = performance.get("stages", ())
     lines = []
+    seen_backends = set()
+    for record in performance.get("backend_stages", ()):
+        key = tuple(str(record.get(name, "")) for name in ("stage", "requested", "actual", "outcome", "reason"))
+        if key in seen_backends:
+            continue
+        seen_backends.add(key)
+        stage, requested, actual, outcome, reason = key
+        lines.append(f"Backend | {stage}: requested {requested}; actual {actual}; {outcome}"
+                     + (f" | {reason}" if reason else ""))
     stage_names = set()
     for record in stages:
         if not isinstance(record, Mapping):

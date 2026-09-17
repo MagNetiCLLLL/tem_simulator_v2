@@ -39,40 +39,66 @@ class GPUExecutionError(RuntimeError):
         super().__init__(f"GPU {category}: {detail}")
 
 
-def gpu_failure_category(error):
-    """Only accelerator resource/runtime failures are eligible for retry.
+def gpu_failure_category(error, *, stage="execution"):
+    """Conservative CUDA taxonomy; an exception class alone is not recovery.
 
-    I/O, cancellation, malformed inputs and numerical/programming errors must
-    propagate with their original meaning instead of becoming CPU fallbacks.
+    Numeric identities follow NVIDIA's Driver/Runtime API error enumerations.
+    Code 701 can mean a bad launch signature, not merely an exhausted device.
+    Compiler, invalid-context and illegal-access errors must not become CPU
+    successes. Driver-loading absence is only recognised during discovery.
     """
     if isinstance(error, GPUExecutionError):
         return error.category
     module = type(error).__module__
     name = type(error).__name__
-    if module.startswith("numba.cuda.cudadrv"):
-        if name == "CudaAPIError":
-            code = getattr(error, "code", None)
-            if code == 2:
-                return "out_of_memory"
-            # Invalid values, images and source/code errors are deliberately
-            # absent. Only declared driver/resource/launch failures may retry.
-            if code in {100, 201, 700, 701, 702, 709, 719}:
-                return "kernel_or_runtime_failure"
-        if name in {"CudaSupportError", "CudaRuntimeError", "NvvmSupportError", "NvrtcSupportError"}:
-            return "unavailable"
-    if module.startswith(("cupy", "cupy_backends")):
-        if name == "OutOfMemoryError" or getattr(error, "status", None) == 2:
+    numba_driver = module.startswith("numba.cuda.cudadrv.")
+    cupy_driver = module.startswith(("cupy.", "cupy_backends."))
+    if numba_driver and name == "CudaSupportError" and stage == "discovery":
+        return "unavailable"
+    if (numba_driver or cupy_driver) and name in {
+        "NVRTCError", "CompileException", "NvvmError", "NvrtcError", "NvvmSupportError", "NvrtcSupportError",
+    }:
+        return "compilation_failure"
+    code = None
+    if numba_driver and name == "CudaAPIError":
+        code = getattr(error, "code", None)
+    elif cupy_driver and name in {"CUDARuntimeError", "CUDADriverError"}:
+        code = getattr(error, "status", None)
+    if code is not None:
+        if code == 2:
             return "out_of_memory"
-        if name in {"CUDARuntimeError", "CUDADriverError", "NVRTCError", "CompileException", "CuFFTError"}:
-            return "kernel_or_runtime_failure"
+        if code == 100 or (stage == "discovery" and code in {34, 35, 46}):
+            return "unavailable"
+        if code in {201, 700, 702, 709, 710, 714, 715, 716, 717, 718, 719}:
+            return "context_corrupted"
+        if code in {200, 209, 218, 222, 300}:
+            return "compilation_failure"
+        if code in {1, 101, 701}:
+            return "invalid_configuration"
+    if module == "cupy.cuda.memory" and name == "OutOfMemoryError":
+        return "out_of_memory"
     return None
 
 
-def gpu_retry_reason(error, policy):
-    category = gpu_failure_category(error)
-    if category not in {"unavailable", "out_of_memory", "kernel_or_runtime_failure"}:
+def gpu_failure_evidence(error, *, stage="execution", attempted_backend=BACKEND_CUDA):
+    import traceback
+    return dict(category=gpu_failure_category(error, stage=stage) or "unknown",
+                exception_type=f"{type(error).__module__}.{type(error).__name__}",
+                message=str(error), traceback="".join(traceback.format_exception(error)),
+                attempted_backend=attempted_backend, failure_stage=stage)
+
+
+def gpu_retry_reason(error, policy, *, stage="execution", attempted_backend=BACKEND_CUDA):
+    from temsim.job_events import job_event
+    evidence = gpu_failure_evidence(error, stage=stage, attempted_backend=attempted_backend)
+    job_event("backend_failure", **evidence)
+    category = evidence["category"]
+    if category == "context_corrupted":
+        from temsim.physics.ray_device_cache import DEVICE_CACHE
+        DEVICE_CACHE.quarantine(str(error))
+    if category not in {"unavailable", "out_of_memory"}:
         raise error
-    if str(policy).lower().replace(" ", "_") == "require_gpu":
+    if normalise_backend(policy) == BACKEND_REQUIRE_GPU:
         raise GPUExecutionError(category, str(error)) from error
     return f"{category}: {type(error).__name__}: {error}"
 
@@ -92,10 +118,17 @@ def numba_cpu_capability() -> BackendCapability:
 
 
 def cuda_capability() -> BackendCapability:
+    from temsim.physics.ray_device_cache import DEVICE_CACHE
+    DEVICE_CACHE.assert_usable()
     try:
         from numba import cuda
 
         if not cuda.is_available():
+            # Numba combines driver presence AND NVVM availability here. A
+            # broken compiler is not confirmed absence of a CUDA device.
+            from numba.cuda.cudadrv.driver import driver
+            if driver.is_available:
+                raise GPUExecutionError("toolchain_unavailable", "CUDA driver found, but Numba's CUDA compiler is unavailable")
             return BackendCapability(False, "No usable CUDA device or driver")
         device = cuda.get_current_device()
         name = device.name
@@ -108,7 +141,12 @@ def cuda_capability() -> BackendCapability:
         )
         return BackendCapability(True, detail)
     except Exception as exc:
-        return BackendCapability(False, f"CUDA unavailable: {exc}")
+        if gpu_failure_category(exc, stage="discovery") == "context_corrupted":
+            DEVICE_CACHE.quarantine(str(exc))
+        if (isinstance(exc, ModuleNotFoundError) and exc.name in {"numba", "numba.cuda"}
+                or gpu_failure_category(exc, stage="discovery") in {"unavailable", "out_of_memory"}):
+            return BackendCapability(False, f"CUDA unavailable: {exc}")
+        raise
 
 
 def cupy_capability() -> BackendCapability:
@@ -119,6 +157,8 @@ def cupy_capability() -> BackendCapability:
     optional wheel has not been installed.
     """
 
+    from temsim.physics.ray_device_cache import DEVICE_CACHE
+    DEVICE_CACHE.assert_usable()
     try:
         import cupy as cp
 
@@ -138,7 +178,20 @@ def cupy_capability() -> BackendCapability:
         )
         return BackendCapability(True, detail)
     except Exception as exc:
-        return BackendCapability(False, f"CuPy CUDA unavailable: {exc}")
+        if gpu_failure_category(exc, stage="discovery") == "context_corrupted":
+            DEVICE_CACHE.quarantine(str(exc))
+        if (isinstance(exc, ModuleNotFoundError) and exc.name == "cupy"
+                or gpu_failure_category(exc, stage="discovery") in {"unavailable", "out_of_memory"}):
+            return BackendCapability(False, f"CuPy CUDA unavailable: {exc}")
+        raise
+
+
+def capability_detail_for_display(probe):
+    """UI inspection may report a failed probe, never use it for fallback."""
+    try:
+        return probe().detail
+    except Exception as error:
+        return f"Capability check failed ({type(error).__name__}): {error}"
 
 
 def cupy_module():
@@ -171,6 +224,13 @@ def normalise_backend(value: object) -> str:
     return requested if requested in BACKEND_CHOICES else BACKEND_AUTO
 
 
+def validate_backend_selection(value: object) -> str:
+    """New UI/API selections are explicit; historical loading stays tolerant."""
+    if value not in BACKEND_CHOICES:
+        raise ValueError(f"Select a compute policy from: {', '.join(BACKEND_CHOICES)}")
+    return str(value)
+
+
 def choose_wave_backend(
     requested: object,
     *,
@@ -185,8 +245,12 @@ def choose_wave_backend(
     grid-point-by-slice work is large enough to amortise setup and transfers.
     """
 
-    policy = str(requested).lower().replace(" ", "_")
+    policy = normalise_backend(requested).lower().replace(" ", "_")
     if policy in {"prefer_gpu", "require_gpu"}:
+        if not acceleration_enabled:
+            if policy == "require_gpu":
+                raise GPUExecutionError("unavailable", "Acceleration is disabled for the requested wave stage")
+            return WAVE_BACKEND_NUMPY, "GPU preference not used: acceleration is disabled"
         status = cupy_capability()
         if status.available:
             return WAVE_BACKEND_CUPY, None

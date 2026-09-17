@@ -42,6 +42,15 @@ maximum_radius_mm = 1.0
 [[parts]]
 order = 2
 key = "diffraction_stigmator"
+coil_topology = "two_interleaved_four_pole_windings"
+coil_count = 8
+coil_topology_evidence = "generic_principle_not_oem_geometry"
+coil_topology_source_url = "https://www.jeol.com/words/semterms/20201020.111014.php"
+channel_x_angle_deg = 0.0
+channel_y_angle_deg = 45.0
+stigmator_structure = "two_quadrupole_bases"
+field_geometry_status = "coincident_effective_fields_not_measured_coil_map"
+structure_reference = "FEI Tecnai User Interface Manual, Stigmators: two components at 45 degrees"
 name = "Diffraction Stigmator"
 branch = "common"
 local_start_z_mm = 20.0

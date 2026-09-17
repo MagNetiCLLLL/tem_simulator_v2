@@ -161,9 +161,10 @@ def build_overlap_sampling_plan(state, incident_bundle, original_transport):
     if (bool(transport_metrics.get("sample_field_geometry_material_coupled", False))
             or "measured/FEM" in field_source):
         return fallback("unsupported_mapped_field", "The current side-entry bound covers analytic axial fields only; measured/FEM grids, including arbitrary imported 3D fields, retain the original vector-field MC estimate.")
-    from temsim.physics.core import multipole_focusing_fields, hexapole_field_components
+    from temsim.physics.core import multipole_focusing_fields, hexapole_field_components, skew_quadrupole_field
     local_z_mm = float(sample.z_mm) + np.asarray((-0.5, 0.0, 0.5)) * thickness * 1.0e-6
     multipole_values = (*multipole_focusing_fields(local_z_mm, state),
+                        skew_quadrupole_field(local_z_mm, state),
                         *hexapole_field_components(local_z_mm, state))
     if any(np.any(np.asarray(values) != 0.0) for values in multipole_values):
         return fallback("unsupported_local_multipole", "Active specimen-local quadrupole/hexapole fields are outside the analytic axial side-entry bound; retain the original vector-field MC estimate.")

@@ -171,6 +171,8 @@ class ObjectiveStigmatorComponent(Stigmator):
         )
 
     def validate(self):
+        from temsim.optics.stigmator_field import validate_stigmator_field
+        validate_stigmator_field(self)
         if self.key != self.EXPECTED_KEY:
             raise ValueError("Objective Stigmator key is invalid.")
         if self.mechanical_center_below_sample_mm <= 0.0:
@@ -200,21 +202,9 @@ class ObjectiveStigmatorComponent(Stigmator):
         return self
 
     def quadrupole_strengths_m2(self, z_mm):
-        """Return the continuous legacy-compatible +x/-y field pair."""
-
-        z = np.asarray(z_mm, dtype=float)
-        if not self.enabled:
-            zero = np.zeros_like(z)
-            return zero, zero
-        sigma_mm = max(float(self.length_mm) / 2.355, 1e-12)
-        envelope = np.exp(
-            -0.5 * ((z - float(self.z_mm)) / sigma_mm) ** 2
-        )
-        signed_strength = 0.5 * (
-            self.strength_x_m2 - self.strength_y_m2
-        )
-        x_strength = signed_strength * envelope
-        return x_strength, -x_strength
+        """Diagonal entries; transport also consumes quadrupole_tensor_m2."""
+        xx, yy, _ = self.quadrupole_tensor_m2(z_mm)
+        return xx, yy
 
     def draw_layout(self):
         return {
@@ -256,6 +246,7 @@ def objective_stigmator_from_dict(data):
     for attribute in (
         "strength_x_percent",
         "strength_y_percent",
+        "field_model",
         "enabled",
         "colour",
         "max_strength_m2",

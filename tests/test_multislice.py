@@ -175,11 +175,11 @@ def test_cupy_multislice_matches_complex128_cpu_reference():
     assert relative_l2_error < 3.0e-5
 
 
-def test_cupy_runtime_failure_retries_the_complex128_cpu_reference(monkeypatch):
+def test_cupy_oom_retries_the_complex128_cpu_reference(monkeypatch):
     monkeypatch.setattr(
         multislice,
         "cupy_module",
-        lambda: (_ for _ in ()).throw(compute_backend.GPUExecutionError("kernel_or_runtime_failure", "synthetic GPU failure")),
+        lambda: (_ for _ in ()).throw(compute_backend.GPUExecutionError("out_of_memory", "synthetic GPU failure")),
     )
     wave = _normalised_plane_wave(24)
     result, diagnostics = _propagate(

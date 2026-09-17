@@ -92,8 +92,9 @@ class ScanControlView(QWidget):
             "Scan is available in TEM and STEM with both microprobe and "
             "nanoprobe illumination. AC and Descan expose the same raster and "
             "foil controls. AC is coupled for zero first-order angle at the "
-            "sample; Descan uses the opposite raster command and is coupled "
-            "at the Selected Area Aperture image-reference station. Calculated "
+            "chosen specimen reference; Descan uses the opposite raster command "
+            "and the selected physical observation plane. Held calibration does "
+            "not refit when optics change. Calculated "
             "image/diffraction planes and physical aperture stations are "
             "classified independently for the current lens state. Preview "
             "uses the geometric detector approximation."
@@ -105,6 +106,33 @@ class ScanControlView(QWidget):
         controls_widget = QWidget()
         controls_layout = QVBoxLayout(controls_widget)
         controls_layout.setContentsMargins(6, 6, 6, 6)
+        calibration = QGroupBox("Scan / descan calibration")
+        calibration_form = QFormLayout(calibration)
+        self.scan_calibration_mode = QComboBox()
+        self.scan_calibration_mode.setObjectName("scanCalibrationMode")
+        self.scan_calibration_mode.addItem("Automatic (legacy)", "automatic")
+        self.scan_calibration_mode.addItem("Hold saved calibration", "held")
+        self.scan_reference = QComboBox()
+        self.scan_reference.addItem("Specimen centre (legacy)", "sample_centre")
+        self.scan_reference.addItem("Specimen entrance", "sample_entrance")
+        self.descan_target = QComboBox()
+        self.descan_target.setObjectName("descanObservationTarget")
+        self.calibrate_hold_button = QPushButton("Calibrate and hold")
+        self.calibrate_hold_button.setObjectName("calibrateScanAndHold")
+        self.calibration_status = QLabel("Automatic coupling follows the active optics.")
+        self.calibration_status.setWordWrap(True)
+        self.calibration_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.calibration_status.setToolTip("Held calibration keeps physical coil drive ratios when optics change. Actual scan size and pattern motion may then differ from the requested field of view. Recalibrate explicitly when desired.")
+        calibration_form.addRow("Calibration", self.scan_calibration_mode)
+        calibration_form.addRow("Probe scan reference", self.scan_reference)
+        calibration_form.addRow("Descan observation plane", self.descan_target)
+        calibration_form.addRow(self.calibrate_hold_button)
+        calibration_form.addRow(self.calibration_status)
+        self.scan_calibration_mode.currentIndexChanged.connect(lambda: self._scan_calibration_changed("calibration_mode", self.scan_calibration_mode.currentData()))
+        self.scan_reference.currentIndexChanged.connect(lambda: self._scan_calibration_changed("scan_reference", self.scan_reference.currentData()))
+        self.descan_target.currentIndexChanged.connect(lambda: self._scan_calibration_changed("descan_target_key", self.descan_target.currentData()))
+        self.calibrate_hold_button.clicked.connect(self._calibrate_and_hold)
+        controls_layout.addWidget(calibration)
         self.component_fov_labels = {}
         self.ac_controls = self._add_component_controls(
             controls_layout,
@@ -346,13 +374,14 @@ class ScanControlView(QWidget):
         self.poisson_seed.valueChanged.connect(self._poisson_seed_changed)
         controls_layout.addWidget(statistics)
         pivot_help = QLabel(
-            "Shared raster; scan/descan foil coupling is solved automatically."
+            "Shared raster clock; automatic or held coil calibration."
         )
         pivot_help.setToolTip(
             "Both foil pairs use one signed upper gain and a derived lower-foil "
             "2 x 2 coupling. The raster clock, pixel count, pixel size and FOV "
             "are shared. Active magnetic lenses can rotate and remap both pairs, "
-            "so every calculation re-solves the two couplings."
+            "so mechanical symmetry alone does not cancel diffraction motion. "
+            "Use Calibrate and hold to observe focus / pivot sensitivity without automatic correction."
         )
         pivot_help.setObjectName("scanPivotHelp")
         pivot_help.setWordWrap(True)
@@ -790,6 +819,11 @@ class ScanControlView(QWidget):
             step=0.05,
         )
         widgets["lower_coil_gain"].setEnabled(False)
+        if prefix == "ac":
+            for axis in ("x", "y"):
+                add_float(f"pivot_offset_{axis}", f"Pivot {axis.upper()} lower-ratio offset",
+                          minimum=-10., maximum=10., step=.001)
+                widgets[f"pivot_offset_{axis}"].setToolTip("Dimensionless change to the calibrated lower-foil ratio. Use held calibration to see its effect on diffraction-pattern motion.")
 
         enabled.toggled.connect(
             lambda value: self._control_changed(
@@ -853,6 +887,7 @@ class ScanControlView(QWidget):
         self._state = state
         self._updating = True
         try:
+            self._sync_scan_calibration_controls()
             self._sync_controls(
                 state.ac_deflector,
                 self.ac_controls,
@@ -1434,6 +1469,65 @@ class ScanControlView(QWidget):
             labels[1].setText(
                 self._format_length_nm(component.scan_field_of_view_y_nm)
             )
+
+    def _sync_scan_calibration_controls(self):
+        ac, ds = self._state.ac_deflector, self._state.descan_deflector
+        self.scan_calibration_mode.setCurrentIndex(self.scan_calibration_mode.findData(ac.calibration_mode))
+        self.scan_reference.setCurrentIndex(self.scan_reference.findData(ac.scan_reference))
+        self.descan_target.clear()
+        self.descan_target.addItem("SAA image reference (legacy)", "legacy_image_reference")
+        for plane in getattr(self._state, "recording_planes", ()):
+            if float(plane.z_mm) > float(ds.lower_z_mm):
+                from temsim.physics.scan_geometry import require_supported_descan_target
+                try:
+                    require_supported_descan_target(self._state, plane.z_mm)
+                except ValueError:
+                    continue
+                self.descan_target.addItem(plane.name, plane.key)
+        index = self.descan_target.findData(ds.descan_target_key)
+        if index < 0:
+            self.descan_target.addItem(f"Unavailable: {ds.descan_target_key}", ds.descan_target_key)
+            index = self.descan_target.count() - 1
+        self.descan_target.setCurrentIndex(index)
+        self.calibration_status.setText("Held drive: focus / pivot changes remain visible. FOV labels are requested values."
+            if ac.calibration_mode == "held" else "Automatic coupling follows the active optics.")
+
+    def _scan_calibration_changed(self, field, value):
+        if self._updating or self._state is None or value is None:
+            return
+        target = self._state.descan_deflector if field == "descan_target_key" else self._state.ac_deflector
+        previous = getattr(target, field)
+        try:
+            if field == "calibration_mode" and value == "held":
+                from temsim.physics.scan_calibration import validate_record
+                validate_record(self._state.ac_deflector.calibration_record_json)
+            setattr(target, field, value)
+            self.parameters_changed.emit(f"scan_calibration.{field}")
+        except Exception as exc:
+            setattr(target, field, previous)
+            self.error.emit(str(exc))
+        finally:
+            self._updating = True
+            try:
+                self._sync_scan_calibration_controls()
+            finally:
+                self._updating = False
+
+    def _calibrate_and_hold(self):
+        if self._state is None or self._updating:
+            return
+        try:
+            calibrate_scan_system(self._state, force=True, hold=True)
+            self.parameters_changed.emit("scan_calibration.captured")
+        except Exception as exc:
+            self.error.emit(str(exc))
+        self._updating = True
+        try:
+            self._sync_scan_calibration_controls()
+            self._sync_controls(self._state.ac_deflector, self.ac_controls)
+            self._sync_controls(self._state.descan_deflector, self.descan_controls)
+        finally:
+            self._updating = False
 
     def _control_changed(self, prefix: str, field: str, value) -> None:
         if self._updating or self._state is None:

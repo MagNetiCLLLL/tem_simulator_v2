@@ -75,7 +75,7 @@ class ResultReadout(QWidget):
             row = freeze_json(dict(error=str(exc), result_id=getattr(result, "signatures", {}).get("request", "UNRECORDED")))
         self._records["ray"] = row
         self._stale["ray"] = False
-        if quality not in {"Preview", "Medium"}:
+        if str(quality).strip().lower() == "high accuracy":
             self._records["high"] = row
             self._stale["high"] = False
         self._refresh()
