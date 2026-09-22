@@ -29,12 +29,30 @@ def test_independent_channels_and_double_angle_orientation():
     assert .5*np.arctan2(xy, xx) == pytest.approx(np.pi/2)
 
 
-def test_legacy_default_and_equal_inputs_still_cancel():
-    stig = Stigmator("old", "old", 0., strength_x_percent=10., strength_y_percent=10.)
-    assert stig.field_model == "legacy_difference"
-    assert np.asarray(stig.quadrupole_tensor_m2(0.)) == pytest.approx(np.zeros(3))
+def test_current_default_equal_inputs_produce_two_independent_components():
+    stig = Stigmator("test", "test", 0., strength_x_percent=10., strength_y_percent=10.)
+    assert stig.field_model == "normal_skew"
+    assert stig.quadrupole_tensor_m2(0.) == pytest.approx((30., -30., 30.))
     stig.strength_y_percent = 0.
-    assert stig.quadrupole_tensor_m2(0.) == pytest.approx((15., -15., 0.))
+    assert stig.quadrupole_tensor_m2(0.) == pytest.approx((30., -30., 0.))
+
+
+@pytest.mark.parametrize("model", ["legacy_difference", "", None, "unknown"])
+def test_unsupported_field_law_is_rejected_without_remapping(model):
+    stig = Stigmator("test", "test", 0., field_model=model)
+    with pytest.raises(ValueError, match="normal_skew"):
+        stig.quadrupole_tensor_m2(0.)
+    assert stig.field_model == model
+
+
+def test_column_requires_full_tensor_instead_of_inventing_a_rank_one_law():
+    from temsim.physics.core import multipole_focusing_fields, skew_quadrupole_field
+    incomplete = SimpleNamespace(enabled=True, z_mm=0., length_mm=8.,
+                                 max_strength_m2=300., strength_x_percent=10., strength_y_percent=10.)
+    state = SimpleNamespace(stigmators=[incomplete], corrector_elements=[])
+    for function in (multipole_focusing_fields, skew_quadrupole_field):
+        with pytest.raises(AttributeError, match="quadrupole_tensor_m2"):
+            function(np.array([0.]), state)
 
 
 def tensor_inputs():
@@ -74,19 +92,27 @@ def test_cuda_tensor_matches_cpu_when_available():
         np.testing.assert_allclose(a, b, rtol=3e-7, atol=1e-14)
 
 
-def test_skew_has_cache_identity_and_legacy_zero_skew_compatibility():
+def test_skew_has_cache_identity_and_zero_skew_is_explicit():
     inputs = tensor_inputs()
     changed = (*inputs[:18], np.zeros_like(inputs[18]))
     assert plan_identity(inputs) != plan_identity(changed)
-    assert plan_identity(changed) == plan_identity(inputs[:18])
+    assert plan_identity(changed) == plan_identity((*inputs[:18], np.zeros_like(inputs[18])))
+
+
+@pytest.mark.parametrize("timed", [False, True])
+def test_device_identity_rejects_old_input_lengths_without_skew(timed):
+    inputs = tensor_inputs()[:18]
+    if timed:
+        inputs = (*inputs, np.zeros(3), np.ones(3))
+    with pytest.raises(ValueError, match="nineteen arrays"):
+        plan_identity(inputs)
 
 
 def test_plan_and_snapshot_preserve_skew_without_default_retuning():
     state = default_state()
     original_percent = [lens.percent for lens in state.lenses]
     stig = state.stigmators[0]
-    assert stig.field_model == "legacy_difference"
-    stig.field_model = "normal_skew"
+    assert stig.field_model == "normal_skew"
     stig.strength_y_percent = 10.
     z0, z1 = stig.z_mm - 15., stig.z_mm + 15.
     before = build_propagation_plan(state, z0, z1, maximum_step_mm=.5)
@@ -123,13 +149,43 @@ def test_both_projector_assemblies_use_explicit_stigmator_basis(module):
     assert part["field_geometry_status"] == "coincident_effective_fields_not_measured_coil_map"
 
 
-def test_old_profile_does_not_inherit_a_new_field_law():
+def test_partial_profile_preserves_current_stigmator_model():
     from temsim.profile_io import apply_profile_values
     state = default_state()
     stig = state.stigmators[0]
     stig.field_model = "normal_skew"
-    assert apply_profile_values(state, {stig.key: {"strength_x_percent": 10., "strength_y_percent": 10.}}) == []
-    assert stig.field_model == "legacy_difference"
-    np.testing.assert_array_equal(stig.quadrupole_tensor_m2(stig.z_mm), np.zeros(3))
-    assert apply_profile_values(state, {stig.key: {"field_model": "normal_skew"}}) == []
+    apply_profile_values(state, {stig.key: {"strength_x_percent": 10., "strength_y_percent": 10.}})
     assert stig.field_model == "normal_skew"
+    assert np.linalg.norm(stig.quadrupole_tensor_m2(stig.z_mm)) > 0
+
+
+@pytest.mark.parametrize("kind", ["condenser", "objective", "diffraction"])
+def test_current_stigmator_loaders_require_explicit_physical_model(kind):
+    from dataclasses import asdict
+    from importlib import import_module
+    module = import_module(f"temsim.optics.{kind}_stigmator")
+    create = getattr(module, f"create_{kind}_stigmator")
+    restore = getattr(module, f"{kind}_stigmator_from_dict")
+    record = asdict(create())
+    restored = restore(record)
+    assert restored.field_model == "normal_skew"
+    for value in ("legacy_difference", None):
+        invalid = dict(record)
+        if value is None:
+            invalid.pop("field_model")
+        else:
+            invalid["field_model"] = value
+        with pytest.raises(ValueError, match="normal_skew"):
+            restore(invalid)
+
+
+def test_current_field_model_is_serialized_but_not_an_editable_mode():
+    from temsim.runtime_parameters import RuntimeTarget, editable_parameters
+    state = default_state()
+    stig = state.stigmators[0]
+    target = RuntimeTarget(stig.key, stig.name, stig)
+    names = {item.name for item in editable_parameters(target)}
+    assert "strength_x_percent" in names and "strength_y_percent" in names
+    assert "field_model" not in names
+    record = next(row for row in state.to_dict()["stigmators"] if row["key"] == stig.key)
+    assert record["field_model"] == "normal_skew"

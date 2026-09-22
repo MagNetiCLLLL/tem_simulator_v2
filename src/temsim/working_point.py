@@ -8,7 +8,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cached_property
 from hashlib import sha256
-from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -45,7 +44,9 @@ def _frozen_array(value):
 
 
 def _array_identity(a):
-    return {"shape": list(a.shape), "dtype": a.dtype.str, "sha256": sha256(a.tobytes()).hexdigest()}
+    # Hash the contiguous buffer directly; avoid a whole-history bytes copy.
+    return {"shape": list(a.shape), "dtype": a.dtype.str,
+            "sha256": sha256(np.ascontiguousarray(a)).hexdigest()}
 
 
 @dataclass(frozen=True)
@@ -138,8 +139,14 @@ class WorkingPointCheckpoint:
         return "column-z-mm:" + float(self.plane_z_mm).hex()
 
     @cached_property
+    def _array_identities(self):
+        # Arrays own immutable bytes, so content identities can safely serve
+        # both the package digest and its manifest without another full scan.
+        return freeze_json({k: _array_identity(v) for k, v in self.arrays.items()})
+
+    @cached_property
     def payload_hash(self):
-        return json_digest({k: _array_identity(v) for k, v in self.arrays.items()})
+        return json_digest(self._array_identities)
 
     @cached_property
     def digest(self):
@@ -233,7 +240,8 @@ class WorkingPointCheckpoint:
     def has_retained_payload(self):
         return bool(self.arrays)
 
-    def write_package(self, path, *, overwrite=False, evidence=(), mode=None):
+    def write_package(self, path, *, overwrite=False, evidence=(), mode=None,
+                      compression=ZIP_DEFLATED, maximum_unpacked_bytes=8*1024**3):
         if mode is not None:
             from temsim.working_point_export import export_checkpoint
             self = export_checkpoint(self, mode)
@@ -247,17 +255,23 @@ class WorkingPointCheckpoint:
         from temsim.sampling_diagnostics import checkpoint_sampling_summary
         document["index_summary"] = thaw_json(checkpoint_sampling_summary(self))
         document["evidence"] = thaw_json(freeze_json(evidence))
+        for index, (key, value) in enumerate(sorted(self.arrays.items())):
+            document["arrays"][key] = {"entry": f"arrays/{index}.npy", **thaw_json(self._array_identities[key])}
+        from temsim.working_point_archive import prepare_manifest
+        manifest_bytes = prepare_manifest(document, self.arrays,
+                                         maximum_unpacked_bytes=maximum_unpacked_bytes)
         with NamedTemporaryFile(dir=path.parent, prefix=".working-point-", suffix=".tmp", delete=False) as stream:
             temporary = Path(stream.name)
         try:
-            with ZipFile(temporary, "w", compression=ZIP_DEFLATED) as archive:
+            with ZipFile(temporary, "w", compression=compression) as archive:
                 for index, (key, value) in enumerate(sorted(self.arrays.items())):
                     entry = f"arrays/{index}.npy"
-                    buffer = BytesIO()
-                    np.save(buffer, value, allow_pickle=False)
-                    archive.writestr(entry, buffer.getvalue())
-                    document["arrays"][key] = {"entry": entry, **_array_identity(value)}
-                archive.writestr("manifest.json", json.dumps(document, allow_nan=False))
+                    # Stream NPY chunks into the atomic package. Large particle
+                    # histories must not acquire a second whole-array BytesIO
+                    # allocation before being written to disk.
+                    with archive.open(entry, "w", force_zip64=True) as stream:
+                        np.save(stream, value, allow_pickle=False)
+                archive.writestr("manifest.json", manifest_bytes)
             if path.exists() and not overwrite:
                 raise FileExistsError("Working-point export already exists")
             os.replace(temporary, path)
@@ -271,37 +285,18 @@ class WorkingPointCheckpoint:
             data, snapshot = read_manifest(archive, maximum_unpacked_bytes=maximum_unpacked_bytes)
             arrays = {}
             for key, record in data["arrays"].items():
-                value = read_numeric_entry(archive, record, maximum_unpacked_bytes=maximum_unpacked_bytes)
-                if _array_identity(value) != {k: record[k] for k in ("shape", "dtype", "sha256")}:
-                    raise ValueError("Working-point numeric content checksum mismatch")
-                arrays[key] = value
+                arrays[key] = read_numeric_entry(archive, record, maximum_unpacked_bytes=maximum_unpacked_bytes)
         result = cls(snapshot, arrays, data["plane_z_mm"],
                      data["stage_signature"], data["metadata"], data["parent_id"])
+        # Check the actual immutable payload, never seed this cache from the
+        # manifest. The same verified identities supply the package digest.
+        for key, record in data["arrays"].items():
+            if thaw_json(result._array_identities[key]) != {k: record[k] for k in ("shape", "dtype", "sha256")}:
+                raise ValueError("Working-point numeric content checksum mismatch")
         if result.digest != data["digest"]:
             raise ValueError("Working-point package checksum mismatch")
         return result
 
-
-def migrate_working_point_inputs(checkpoint):
-    """Explicitly create current input-only identity; retain the old record."""
-    from datetime import datetime, timezone
-    from temsim.input_design import restore_input_design
-    from temsim.instrument_snapshot import capture_instrument_snapshot
-    from temsim.optics.electron_gun.source_policy import require_physical_gun_source
-    state = restore_input_design(checkpoint.snapshot)
-    require_physical_gun_source(state.electron_gun)
-    from temsim import input_io
-    if input_io.archive_payload(state) is not None:
-        archive = thaw_json(input_io.archive_payload(state))
-        archive["runtime"] = thaw_json(input_io.runtime_identity())
-        archive["digest"] = json_digest({key: value for key, value in archive.items() if key != "digest"})
-        input_io.bind_archive(state, archive)
-    snapshot = capture_instrument_snapshot(state)
-    return WorkingPointCheckpoint(snapshot, {}, checkpoint.plane_z_mm, snapshot.physical_digest,
-        {"package_kind": "INSTRUMENT_INPUTS_ONLY", "validation_status": "NOT_RUN",
-         "created_at_utc": datetime.now(timezone.utc).isoformat(), "source_representation": "captured-inputs-only",
-         "migration": "Explicit input migration; all historical results and qualifications stay with the parent",
-         "input_changes": snapshot_changes(checkpoint.snapshot, snapshot)}, checkpoint.digest)
 
 
 # This adapter uses the existing package manifest and deferred NPY products.

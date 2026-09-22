@@ -154,7 +154,14 @@ def test_retracted_disabled_and_coincident_channels_are_not_silently_replaced(ba
 
 
 def test_bank_path_cannot_bypass_filter_before_last_detector(bank):
+    from temsim.assembly_catalog import AssemblyCatalog
     state, request, _, calls, _ = bank
+    catalog = AssemblyCatalog()
+    catalog.apply(state, replace(catalog.default_selection(), recording="Energy Filter"))
+    state.camera.inserted = state.fluorescent_screen.inserted = False
+    for detector in state.stem_detectors:
+        detector.inserted = detector.readout_enabled = True
+    assert state.energy_filter_installed and state.energy_filter.enabled
     state.energy_filter.entrance_z_mm = (state.stem_detectors[0].z_mm+state.stem_detectors[-1].z_mm)/2
     with pytest.raises(ValueError, match="cannot skip"):
         simulate_tip_wave(state, request)

@@ -3,6 +3,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from scipy.constants import c, e, m_e
 
 import temsim.specimen.downstream_transport as downstream_transport
 from temsim.specimen.downstream_transport import (
@@ -27,6 +28,7 @@ def _test_state():
         condenser_system={},
         deflectors=(),
         corrector_elements=(),
+        vacuum_map=SimpleNamespace(enabled=False),
     )
 
 
@@ -35,6 +37,8 @@ def _test_simulation():
         incident=SimpleNamespace(
             alive=np.asarray((True, False, True)),
             ray_weight=np.asarray((0.2, 0.3, 0.5)),
+            z=np.asarray((1.0,)),
+            flight_time_s=np.asarray(((1e-9, np.nan, 2e-9),)),
         )
     )
 
@@ -54,6 +58,10 @@ def _test_transport():
         outcome=("transmitted", "transmitted", "backscattered"),
         event_count=np.asarray((0, 1, 1)),
         has_scattered=np.asarray((False, True, True)),
+        material_path_nm=np.asarray((5., 10. / np.sqrt(.99), 1.)),
+        reference_time_offset_s=np.asarray((5e-9 / _speed(200_000.),
+                                            10e-9 / np.sqrt(.99) / _speed(200_000.) + 1e-17,
+                                            np.nan)),
     )
     return ElasticTransportResult(
         eds_tracks=(),
@@ -95,6 +103,23 @@ def _signed_exit(*, tracked=0.0, absorbed=0.0, branch_weights=()):
     )
 
 
+def _speed(energy_ev):
+    gamma = 1. + np.asarray(energy_ev) * e / (m_e*c*c)
+    return c*np.sqrt(1.-gamma**-2)
+
+
+def _stub_times(z, tx, ty, energy_offset, **kwargs):
+    """Exercise the timing/medium API while tests isolate routing and weights."""
+    assert kwargs["particle_medium"] is False
+    assert kwargs["medium_output"] == []
+    assert isinstance(kwargs["medium_stream"], int)
+    assert kwargs["return_flight_times"] is True
+    initial = np.asarray(kwargs["initial_time_s"], dtype=np.float64)
+    assert initial.shape == np.asarray(tx).shape
+    distance = (z-z[0])[:, None] * 1e-3 * np.sqrt(1.+tx*tx+ty*ty)[None, :]
+    return initial[None, :] + distance / _speed(200_000.+energy_offset)[None, :]
+
+
 def test_geometric_exit_multiplies_elastic_and_inelastic_probabilities(monkeypatch):
     def fake_propagate(
         _state,
@@ -109,6 +134,7 @@ def test_geometric_exit_multiplies_elastic_and_inelastic_probabilities(monkeypat
         *,
         save_z_mm=(),
         include_initial_plane_kicks=True,
+        **kwargs,
     ):
         z = np.asarray((start_z, *save_z_mm, stop_z), dtype=float)
         return (
@@ -117,6 +143,7 @@ def test_geometric_exit_multiplies_elastic_and_inelastic_probabilities(monkeypat
             np.tile(np.asarray(tx, dtype=float), (z.size, 1)),
             np.tile(np.asarray(y, dtype=float), (z.size, 1)),
             np.tile(np.asarray(ty, dtype=float), (z.size, 1)),
+            _stub_times(z, tx, ty, _energy, **kwargs),
         )
 
     monkeypatch.setattr(downstream_transport, "determine_tem_stop_z", lambda _s: 3.0)
@@ -151,6 +178,12 @@ def test_geometric_exit_multiplies_elastic_and_inelastic_probabilities(monkeypat
     assert result.metrics["pre_sample_lost_source_probability"] == pytest.approx(0.3)
     assert result.metrics["source_probability_conserved"]
     assert result.metrics["exit_plane_weight"] == pytest.approx(0.63)
+    for branch in result.branches:
+        if branch.name.endswith(":000"):
+            assert np.all(np.isfinite(branch.flight_time_s[-1]))
+            assert np.all(np.diff(branch.flight_time_s[1:], axis=0) > 0.)
+        else:
+            assert np.all(np.isnan(branch.flight_time_s))
 
 
 def test_geometric_exit_back_projects_terminal_line_to_common_sample_plane(
@@ -171,6 +204,7 @@ def test_geometric_exit_back_projects_terminal_line_to_common_sample_plane(
         *,
         save_z_mm=(),
         include_initial_plane_kicks=True,
+        **kwargs,
     ):
         captured_x.extend(np.asarray(x, dtype=float).tolist())
         z = np.asarray((start_z, stop_z), dtype=float)
@@ -180,6 +214,7 @@ def test_geometric_exit_back_projects_terminal_line_to_common_sample_plane(
             np.tile(np.asarray(tx, dtype=float), (2, 1)),
             np.tile(np.asarray(y, dtype=float), (2, 1)),
             np.tile(np.asarray(ty, dtype=float), (2, 1)),
+            _stub_times(z, tx, ty, _energy, **kwargs),
         )
 
     monkeypatch.setattr(downstream_transport, "determine_tem_stop_z", lambda _s: 3.0)
@@ -213,9 +248,10 @@ def test_geometric_exit_back_projects_terminal_line_to_common_sample_plane(
 
 def test_grouped_specimen_exit_preserves_sparse_repeated_source_lineage(monkeypatch):
     def fake_propagate(_s, start, stop, x, tx, y, ty, _events, _energy, **_kw):
-        return (np.asarray((start, stop)),) + tuple(
+        z = np.asarray((start, stop))
+        return (z,) + tuple(
             np.tile(values, (2, 1)) for values in (x, tx, y, ty)
-        )
+        ) + (_stub_times(z, tx, ty, _energy, **_kw),)
 
     monkeypatch.setattr(downstream_transport, "determine_tem_stop_z", lambda _s: 3.0)
     monkeypatch.setattr(downstream_transport, "propagate", fake_propagate)
@@ -236,6 +272,8 @@ def test_grouped_specimen_exit_preserves_sparse_repeated_source_lineage(monkeypa
         outcome=("transmitted", "transmitted", "transmitted", "absorbed", "transmitted"),
         event_count=np.asarray((1, 0, 0, 1, 1)),
         has_scattered=np.asarray((True, False, False, True, True)),
+        material_path_nm=np.ones(5),
+        reference_time_offset_s=np.asarray((1., 2., 3., 0., 4.)) * 1e-16,
     )
     transport = replace(_test_transport(), terminal_electrons=terminal)
     result = build_geometric_specimen_exit(
@@ -257,9 +295,11 @@ def test_grouped_specimen_exit_preserves_sparse_repeated_source_lineage(monkeypa
         )
         assert not branch.source_ray_id.flags.writeable
         assert not branch.source_azimuth_rad.flags.writeable
-        for field in ("z", "x", "y", "tx", "ty", "energy_offset_ev", "ray_weight"):
+        for field in ("z", "x", "y", "tx", "ty", "energy_offset_ev", "ray_weight", "flight_time_s"):
             np.testing.assert_array_equal(getattr(branch, field), getattr(plain, field))
         assert branch.weight == plain.weight
+        if branch.name == "specimen_elastic:000":
+            assert branch.flight_time_s[-1, 1] > branch.flight_time_s[-1, 0]
 
 
 def test_geometric_exit_requires_matching_internal_provenance():
@@ -364,3 +404,11 @@ def test_geometric_exit_requires_branch_weights_to_match_tracked_probability():
         within_tolerance
     )
     assert validated_geometric_specimen_exit(beyond_tolerance, "current") is None
+
+
+def test_geometric_exit_rejects_unrecorded_material_path():
+    transport = _test_transport()
+    terminal = replace(transport.terminal_electrons, material_path_nm=None)
+    with pytest.raises(ValueError, match="requires executed material_path_nm"):
+        build_geometric_specimen_exit(_test_state(), _test_simulation(),
+            replace(transport, terminal_electrons=terminal), stop_z_mm=3.)

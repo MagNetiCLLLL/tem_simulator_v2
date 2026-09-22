@@ -127,7 +127,13 @@ class SpecimenFieldTransport:
             total[..., 1] += self.reference_momentum_over_charge * (kx*x + kxy*y + hn*u + hs*v)
         return total
 
-    def advance(self, position_nm, direction, path_length_nm, *, energy_ev):
+    def advance(self, position_nm, direction, path_length_nm, *, energy_ev,
+                return_elapsed_time=False):
+        """Execute one magnetic flight, optionally returning its signed time.
+
+        The clock is the sum of the Boris integration steps, not a chord-length
+        estimate. Negative lengths are reference-plane matching operations.
+        """
         position = np.asarray(position_nm, dtype=float) * 1e-9
         momentum = momentum_from_kinetic_energy_ev(energy_ev, direction)
         speed = float(np.linalg.norm(velocity_from_momentum_m_per_s(momentum)))
@@ -139,7 +145,9 @@ class SpecimenFieldTransport:
         sign = math.copysign(1.0, length)
         for _ in range(100000):
             if remaining <= 1e-12:
-                return phase.position_m * 1e9, phase.momentum_kg_m_per_s / np.linalg.norm(phase.momentum_kg_m_per_s)
+                result = (phase.position_m * 1e9,
+                          phase.momentum_kg_m_per_s / np.linalg.norm(phase.momentum_kg_m_per_s))
+                return (*result, float(phase.time_s)) if return_elapsed_time else result
             field = float(np.linalg.norm(self.field_at_global_positions_t(phase.position_m)))
             curvature = abs(ELECTRON.charge_c) * field / np.linalg.norm(momentum) * 1e-9
             step = min(remaining, self.spatial_step_nm, 1e-3 / max(curvature, 1e-30))
@@ -147,8 +155,9 @@ class SpecimenFieldTransport:
             remaining -= step
         raise ValueError("Specimen field transport exceeded its step budget")
 
-    def to_plane(self, position_nm, direction, target_z_nm, *, energy_ev):
-        """Match a Z plane by Newton shooting, including changing longitudinal velocity."""
+    def to_plane(self, position_nm, direction, target_z_nm, *, energy_ev,
+                 return_elapsed_time=False):
+        """Match Z by shooting; report only the accepted flight's signed time."""
         position = np.asarray(position_nm, dtype=float)
         unit = np.asarray(direction, dtype=float)
         unit = unit / np.linalg.norm(unit)
@@ -156,10 +165,11 @@ class SpecimenFieldTransport:
             raise ValueError("Cannot match a reference plane with a grazing ray")
         length = (float(target_z_nm) - position[2]) / unit[2]
         for _ in range(16):
-            endpoint, final = self.advance(position, unit, length, energy_ev=energy_ev)
+            endpoint, final, elapsed = self.advance(
+                position, unit, length, energy_ev=energy_ev, return_elapsed_time=True)
             residual = endpoint[2] - target_z_nm
             if abs(residual) < 1e-7:
-                return endpoint, final
+                return (endpoint, final, elapsed) if return_elapsed_time else (endpoint, final)
             if abs(final[2]) < 1e-10:
                 break
             length -= residual / final[2]

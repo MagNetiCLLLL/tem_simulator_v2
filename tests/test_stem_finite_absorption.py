@@ -47,6 +47,7 @@ def _simulation(*, centre_nm=(0.0, 0.0), survival=1.0):
 
 def _zero_raster(state, monkeypatch):
     state.step_mm = 5.0
+    state.ac_deflector.wobble_enabled = False
     state.ac_deflector.enabled = state.ac_deflector.scan_enabled = True
     state.ac_deflector.scan_pixels_x = state.ac_deflector.scan_lines = 2
     state.descan_deflector.enabled = state.descan_deflector.scan_enabled = False
@@ -59,13 +60,15 @@ def _zero_raster(state, monkeypatch):
         detector.inserted = detector.readout_enabled = detector.key == "bf"
         if detector.key == "bf":
             detector.outer_width_mm = 10000.0
+    # Feed an explicit test field to the detector-budget integration only.
+    monkeypatch.setattr(stem_signal, "simulate_angle_resolved_stem", wave._simulate_angle_resolved_stem_single)
     monkeypatch.setattr(stem_signal, "calibrate_scan_system", lambda *_: None)
     monkeypatch.setattr(stem_signal, "paired_kick_response", lambda *_: np.zeros((2, 2)))
 
 
 def _empty_grid(monkeypatch, *, pixels=256, fov_nm=4.0, centre_nm=(0.0, 0.0)):
     # A zero phase object isolates incident-probe overlap without building a
-    # crystal; real production probe formation and detector FFTs still run.
+    # crystal; the supplied local probe and detector FFT operators still run.
     axis = (np.arange(pixels) - pixels // 2) * (10 * fov_nm / pixels)
     potential = np.zeros((pixels, pixels))
     prepared = SimpleNamespace(
@@ -83,7 +86,7 @@ def _empty_grid(monkeypatch, *, pixels=256, fov_nm=4.0, centre_nm=(0.0, 0.0)):
 
 def _wave(state, simulation, scan_nm):
     scan = np.asarray(scan_nm, dtype=float)[None, :] * 1e-3
-    return wave.simulate_angle_resolved_stem(
+    return wave._simulate_angle_resolved_stem_single(
         state, simulation, (wave.AngularDetector("all", 0.0, 100.0),),
         scan, np.zeros_like(scan), compute_sample_overlap=True,
     )
@@ -352,3 +355,7 @@ def test_physical_replay_keeps_bandwidth_and_other_stops_inside_uncollected_budg
     else:
         np.testing.assert_allclose(old.absorbed_fraction, 0.2)
     assert replay.metrics["real_probability_conserved"]
+
+
+# This module tests supplied local fields; production admission remains active.
+from local_wave_operator_fixture import supplied_local_probe

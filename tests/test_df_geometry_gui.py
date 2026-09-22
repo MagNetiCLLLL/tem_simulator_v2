@@ -81,6 +81,12 @@ def window(qtbot, tmp_path, monkeypatch):
     widget = main_window.MainWindow()
     qtbot.addWidget(widget)
     widget.preview_timer.stop()
+    # These file-transaction cases edit the shared detector-chamber module.
+    # The optional filter assembly consumes it; the default no-filter module
+    # defines its chamber inline and must not depend on this unused file.
+    widget.load_assembly(replace(widget.selection, recording="Energy Filter"))
+    widget.preview_timer.stop()
+    assert widget.state.energy_filter_installed
     widget.errors_for_test = []
     monkeypatch.setattr(widget, "_show_error", widget.errors_for_test.append)
     frame = frame_for(widget.state)

@@ -425,6 +425,8 @@ def monochromator_from_dict(data=None):
     if data is None:
         return WienMonochromatorAssembly().validate()
     values = dict(data)
+    if type(values.get("installation_model_version")) is not int or values["installation_model_version"] != 3:
+        raise ValueError("Unsupported monochromator installation model; expected version 3")
     wien = _create_wien_element()
     for key, value in dict(values.get("wien", {})).items():
         if key in {
@@ -440,7 +442,7 @@ def monochromator_from_dict(data=None):
     assembly = WienMonochromatorAssembly(
         installed=bool(values.get("installed", False)),
         installation_model_version=int(
-            values.get("installation_model_version", 1)
+            values["installation_model_version"]
         ),
         requested_pass_window_ev=float(
             values.get("requested_pass_window_ev", 0.10)

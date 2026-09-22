@@ -4,7 +4,6 @@ from __future__ import annotations
 from temsim import input_io
 
 SPECIMEN_MODES = frozenset({"atomic", "reference"})
-LEGACY_ATOMIC_STRUCTURE_SOURCES = frozenset({"preset", "cif"})
 
 
 def specimen_mode(sample) -> str:
@@ -63,50 +62,3 @@ def wave_template_preset_key(sample, *, inserted: bool = True) -> str:
         return "vacuum"
     from temsim.specimen.presets import default_specimen_preset_key
     return selected_reference_preset_key(sample) or default_specimen_preset_key()
-
-
-def migrate_legacy_structure_source(
-    sample_data: dict,
-    *,
-    legacy_source: str = "",
-    infer_implicit_atomic_preset: bool = False,
-) -> dict:
-    """Convert old preset sources without filling an unconfigured CIF source.
-
-    Only states predating schema 71 used an empty atomic CIF path to select
-    an implicit preset. Later atomic selections, including old profiles,
-    own the imported path even when it is empty.
-    """
-    migrated = dict(sample_data)
-    source = str(legacy_source).strip().lower()
-    if source and source not in LEGACY_ATOMIC_STRUCTURE_SOURCES:
-        raise ValueError("Legacy sample.atomic_structure_source must be preset or cif")
-    path = str(migrated.get("cif_path", "")).strip()
-    default_mode = "atomic" if infer_implicit_atomic_preset else "reference"
-    old_mode = str(migrated.get("specimen_mode", default_mode)).strip().lower()
-    implicit_preset = bool(
-        infer_implicit_atomic_preset and not source and old_mode == "atomic" and not path
-    )
-    if source == "cif" or (not source and old_mode == "atomic" and not implicit_preset):
-        migrated["specimen_mode"] = "atomic"
-        from temsim.specimen.geometry import quaternion_from_euler_xyz_deg
-        rotation = tuple(float(migrated.get(f"specimen_rotation_{axis}_deg", 0.0)) for axis in "xyz")
-        migrated.setdefault("specimen_orientation_quaternion_wxyz", quaternion_from_euler_xyz_deg(rotation))
-        for axis, value in zip("xyz", rotation):
-            migrated.setdefault(f"specimen_rotation_{axis}_deg", value)
-    elif source == "preset" or old_mode == "virtual" or implicit_preset:
-        from types import SimpleNamespace
-        from temsim.specimen.reference_catalog import apply_reference_sample
-        from temsim.specimen.geometry import sample_orientation_quaternion, quaternion_multiply, set_sample_orientation
-        key = str(migrated.get("specimen_preset_key", "si_110")) or "si_110"
-        if key == "vacuum":
-            key = "si_110"
-            migrated["inserted"] = False
-        old = SimpleNamespace(**migrated)
-        rotation = sample_orientation_quaternion(old)
-        apply_reference_sample(old, key)
-        set_sample_orientation(old, quaternion_multiply(rotation, old.specimen_orientation_quaternion_wxyz))
-        migrated.update(vars(old))
-    migrated["virtual_interactions"] = []
-    migrated["virtual_regions"] = []
-    return migrated

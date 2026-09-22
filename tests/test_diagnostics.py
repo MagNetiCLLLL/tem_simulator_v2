@@ -21,7 +21,6 @@ def _preview_result():
     catalog = AssemblyCatalog()
     assembly = catalog.apply(state, catalog.default_selection())
     state.electron_gun.emitter.ray_count = 25
-    state.sample.diffraction_enabled = False
     layout = apply_physical_layout_to_state(state)
     simulation = run(state, resolved_layout=layout)
     return state, CalculationResult(
@@ -424,4 +423,4 @@ def test_all_catalog_assemblies_produce_layout_and_field_diagnostics():
                 assert total.shape == (24,)
                 assert len(lenses) == len(state.lenses)
                 checked += 1
-    assert checked == 15
+    assert checked == len(catalog.guns) * len(catalog.columns) * len(catalog.recording_systems)

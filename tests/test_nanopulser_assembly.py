@@ -75,21 +75,24 @@ def test_blanker_geometry_follows_the_selected_gun_exit(gun):
     assert state.nanopulser.aperture_radius_mm == 0.1
 
 
-def test_blanker_selection_survives_legacy_recording_normalisation():
+def test_current_blanker_selection_rejects_retired_names_and_paths():
     catalog = AssemblyCatalog()
-    selection = AssemblySelection("FEG", "C3", "No Energy Filter", "NanoPulser")
-    normal = catalog.normalise_selection(selection)
-    assert normal.recording == "No Energy Filter"
-    assert normal.beam_blanker == "Electrostatic beam blanker"
-    with pytest.raises(ValueError, match="Unknown assembly option"):
-        catalog.normalise_selection(replace(selection, beam_blanker="unknown"))
+    selection = AssemblySelection("FEG", "C3", "No Energy Filter", "Electrostatic beam blanker")
+    assert catalog.normalise_selection(selection) == selection
+    for name in ("NanoPulser", "unknown"):
+        with pytest.raises(ValueError, match="Unknown assembly option"):
+            catalog.normalise_selection(replace(selection, beam_blanker=name))
     state = default_state()
     installed = catalog.apply(state, selection)
-    legacy_paths = tuple((kind, "beam_blanker/NanoPulser.toml" if kind == "beam_blanker" else path)
-                         for kind, path in installed.selected_module_paths)
-    legacy = replace(installed, selected_module_paths=legacy_paths)
-    assert catalog.selection_for_resolved(legacy).beam_blanker == "Electrostatic beam blanker"
-    assert legacy.selected_module_paths == legacy_paths  # Reading is not migration.
+    assert catalog.selection_for_resolved(installed) == selection
+    retired_paths = tuple((kind, "beam_blanker/NanoPulser.toml" if kind == "beam_blanker" else path)
+                          for kind, path in installed.selected_module_paths)
+    captured = replace(installed, selected_module_paths=retired_paths)
+    with pytest.raises(ValueError, match="not uniquely available"):
+        catalog.selection_for_resolved(captured)
+    assert captured.selected_module_paths == retired_paths
+    assert state._resolved_assembly is installed
+    assert catalog.selection_for_resolved(installed) == selection
 
 
 def test_physical_layout_exposes_installed_electrostatic_blanker():

@@ -226,11 +226,11 @@ def estimate_calculation_memory_bytes(
     # that precision and the extra map-grid nodes in the memory guard.
     history = (
         pre_history + branch_count * post_history
-    ) * rays * 4 * history_itemsize
+    ) * rays * (4 * history_itemsize + 8)  # Float64 executed flight clock.
     checkpoint_count = len(
         _column_checkpoint_planes(gun_start, sample_z, rays)
     )
-    checkpoint_storage = checkpoint_count * rays * 4 * 8
+    checkpoint_storage = checkpoint_count * rays * 5 * 8
     gpu_checkpoint_copy = bool(
         getattr(state, "acceleration_enabled", True)
         and str(getattr(state, "acceleration_backend", "Auto"))
@@ -244,7 +244,7 @@ def estimate_calculation_memory_bytes(
     # CUDA keeps the active batch's device histories while copying its output
     # to host. Already retained branches are counted once in `history` above.
     history_device_copy = (
-        max(pre_history * rays, post_history * peak_post_rays) * 4 * 4
+        max(pre_history * rays, post_history * peak_post_rays) * (4 * 4 + 8)
         if gpu_checkpoint_copy else 0
     )
     wave_imaging = (
@@ -350,6 +350,8 @@ class CalculationWorker(QRunnable):
         external_inputs=None,
         allow_project_artifact_fallback: bool = False,
         artifact_cache_budget_bytes: int = PERSISTENT_ARTIFACT_CACHE_BUDGET_BYTES,
+        section_request: dict | None = None,
+        particle_tuning: bool = False,
     ) -> None:
         super().__init__()
         self.generation = generation
@@ -362,6 +364,8 @@ class CalculationWorker(QRunnable):
         self.job_input_identity = self.model_signature
         self.request_signatures = dict(request_signatures or {})
         self.existing_result = existing_result
+        self.section_request = section_request
+        self.particle_tuning = bool(particle_tuning)
         self.artifact_store = artifact_store
         self.calculation_manifest = calculation_manifest
         if external_inputs is None:
@@ -491,16 +495,44 @@ class CalculationWorker(QRunnable):
                 job_event("backend_preflight", **requirement)
             self.state.active_backend = "CPU"
             self.state._active_backends_used = set()
+            # Gun integration and column transport already consume this
+            # worker-local callback. Explicit high-accuracy jobs need the
+            # same cancellation boundary as live optical tuning.
+            if cancelled is not None:
+                self.state._tuning_cancelled = cancelled.is_set
             if is_tuning_quality(self.quality):
-                prepare_tuning_snapshot(self.state, self.quality)
-                if cancelled is not None:
-                    self.state._tuning_cancelled = cancelled.is_set
+                prepare_tuning_snapshot(self.state, self.quality,
+                    particle_signals=self.particle_tuning or self.section_request is not None)
+            if self.section_request is not None or (is_tuning_quality(self.quality) and self.particle_tuning):
+                from temsim.simulation_pipeline import calculate_particle_section
+                from temsim.detector.particle_readout import measure_particle_detectors
+                if self.quality == "High accuracy":
+                    self.state._tuning_quality = "High accuracy"
+                with job_stage("particle_tuning"):
+                    result = calculate_particle_section(self.state,
+                        target_z_mm=(self.section_request["target_z_mm"] if self.section_request else None),
+                        component_keys=(self.section_request["component_keys"] if self.section_request else ()),
+                        existing_result=self.existing_result, progress_callback=self._report_progress)
+                result.model_signature = self.model_signature
+                result.signatures = dict(result.signatures or {})
+                for key in ("request", "section", "particle_tuning"):
+                    if key in self.request_signatures:
+                        result.signatures[key] = self.request_signatures[key]
+                result.particle_signals = measure_particle_detectors(result)
+            elif is_tuning_quality(self.quality):
                 layout = apply_physical_layout_to_state(self.state)
                 with job_stage("ray_transport"):
+                    section_options = {}
+                    if self.section_request is not None:
+                        section_options = {
+                            "observation_stop_z_mm": self.section_request["target_z_mm"],
+                            "tuning_component_keys": self.section_request["component_keys"],
+                        }
                     simulation = run_ray_simulation(
                         self.state, resolved_layout=layout,
                         existing_simulation=getattr(self.existing_result, "simulation", None),
                         optical_only=True,
+                        **section_options,
                     )
                 lens_crossovers = detect_all_lens_crossovers(
                     [simulation.incident, *simulation.branches.values()],
@@ -530,6 +562,9 @@ class CalculationWorker(QRunnable):
                     result = calculate(self.state, **calculation_kwargs)
                 if isinstance(result, CalculationResult):
                     result.model_signature = self.model_signature
+                    from temsim.detector.particle_readout import measure_particle_detectors
+                    if result.simulation is not None:
+                        result.particle_signals = measure_particle_detectors(result)
                     assert_external_input_inventory_unchanged(self.state, self.external_inputs)
                     self._persist_incident_seed(result)
             if cancelled is not None and cancelled.is_set():
@@ -566,6 +601,8 @@ class CalculationWorker(QRunnable):
     def _report_progress(
         self, completed: int, total: int, stage: str
     ) -> None:
+        if self.cancel_event.is_set():
+            raise RuntimeError("Calculation cancelled")
         if getattr(self, "_progress_stage", None) != stage:
             if getattr(self, "_progress_stage", None) is not None:
                 job_event("stage_exit", stage=self._progress_stage, outcome="next_progress_stage")
@@ -578,6 +615,69 @@ class CalculationWorker(QRunnable):
             int(total),
             str(stage),
         )
+        if self.cancel_event.is_set():
+            raise RuntimeError("Calculation cancelled")
+
+
+class SectionFileSignals(QObject):
+    result = Signal(str, object)
+    error = Signal(str)
+    finished = Signal()
+
+
+class SectionFileWorker(QRunnable):
+    """Archive/capture work stays off the GUI thread and shares resource admission."""
+    def __init__(self, token, operation, path, result=None, *, automatic=False,
+                 maximum_unpacked_bytes, unpacked_size_bytes=None):
+        super().__init__()
+        self.token, self.operation, self.path = token, operation, Path(path)
+        self.payload = result
+        self.state = getattr(result, "state_snapshot", None)
+        self.automatic = automatic
+        self.maximum_unpacked_bytes = int(maximum_unpacked_bytes)
+        # A queued archive must not outgrow its admission reservation if the
+        # file is replaced before execution. The codec checks the bound again.
+        self.read_limit_bytes = (self.maximum_unpacked_bytes if unpacked_size_bytes is None
+                                 else min(self.maximum_unpacked_bytes, int(unpacked_size_bytes)))
+        self.cancel_event = Event()
+        self.signals = SectionFileSignals()
+        self.job_input_identity = token
+        from temsim.gui.job_coordinator import ResourceClaim
+        working_bytes = (2 * 1024**3 if unpacked_size_bytes is None else
+                         max(512 * 1024**2, 2 * int(unpacked_size_bytes)))
+        self.resource_claim = ResourceClaim(working_bytes=working_bytes)
+
+    @input_io.using_state_inputs
+    def run(self):
+        from temsim.particle_section_io import (
+            archive_section_result, checked_section_archive_info, load_section_result, save_section_result,
+        )
+        started = perf_counter()
+        try:
+            if self.cancel_event.is_set():
+                return
+            if self.operation == "load":
+                result = load_section_result(self.path, maximum_unpacked_bytes=self.read_limit_bytes)
+                output = {"result": result, "info": result.section_archive_info}
+            elif self.automatic:
+                output = archive_section_result(self.payload, self.path,
+                                                maximum_unpacked_bytes=self.maximum_unpacked_bytes)
+            else:
+                package = save_section_result(self.payload, self.path, overwrite=True,
+                                             maximum_unpacked_bytes=self.maximum_unpacked_bytes)
+                output = checked_section_archive_info(self.payload, self.path,
+                    maximum_unpacked_bytes=self.maximum_unpacked_bytes,
+                    expected_package_digest=package.digest)
+            info = output["info"] if self.operation == "load" else output
+            info["file_io_seconds"] = max(0.0, perf_counter() - started)
+            info["file_io_operation"] = ("load" if self.operation == "load" else
+                "verify_existing" if self.automatic and info.get("reused") else "save")
+            info["file_io_reused_measurement"] = False
+            self.signals.result.emit(self.token, output)
+        except Exception as exc:
+            self.signals.error.emit(str(exc))
+        finally:
+            self.signals.finished.emit()
 
 
 class CalculationController(QObject):
@@ -586,6 +686,8 @@ class CalculationController(QObject):
     failed = Signal(str, str)
     progress_changed = Signal(str, int, int, str)
     finished = Signal(str)
+    section_archive_changed = Signal(object)
+    section_loaded = Signal(object, object)
 
     def __init__(
         self,
@@ -606,6 +708,15 @@ class CalculationController(QObject):
         from temsim.gui.job_coordinator import CoordinatedPool
         self.pool = CoordinatedPool(self)
         self.pool.setMaxThreadCount(1)
+        self.section_file_pool = CoordinatedPool(self)
+        self._section_file_jobs = {}
+        self._section_file_pending = {}
+        self._section_archive_records = OrderedDict()
+        self._loaded_section_seeds = OrderedDict()
+        self._loaded_section_memory = RetainedMemoryLedger()
+        self._loaded_tuning_sections = OrderedDict()
+        self._loaded_tuning_memory = RetainedMemoryLedger()
+        self.section_archive_root = Path(artifact_cache_root or default_artifact_cache_root()) / "particle_sections"
         self._generation = 0
         self._finished_generation = -1
         self._requests = {}
@@ -656,7 +767,144 @@ class CalculationController(QObject):
         return any(not item["cancel"].is_set() for item in self._requests.values())
 
     def retained_roots(self):
-        return (self._high_cache, self._tuning_cache, self._tuning_seeds)
+        return (self._high_cache, self._tuning_cache, self._tuning_seeds, self._loaded_section_seeds,
+                self._loaded_tuning_sections,
+                tuple(worker.payload for worker in self._section_file_jobs.values()))
+
+    def archive_completed_section(self, result, *, path=None):
+        """Queue only an already accepted completed result; never execute transport."""
+        from temsim.particle_section_io import section_archive_summary
+        info = section_archive_summary(result)
+        automatic = path is None
+        destination = self.section_archive_root if automatic else Path(path)
+        identity = info["identity"]
+        previous = self._section_archive_records.get(identity)
+        if (automatic and previous is not None and self._section_archive_record_current(previous)
+                and not self._section_archive_replacement_pending(previous["path"])):
+            self.section_archive_changed.emit(dict(previous, status="saved", reused=True,
+                file_io_reused_measurement=True))
+            return identity
+        if previous is not None and not self._section_archive_record_current(previous):
+            self._section_archive_records.pop(identity, None)
+        pending_key = (identity, os.path.normcase(str(destination.resolve())), automatic)
+        if pending_key in self._section_file_pending:
+            return identity
+        if not automatic:
+            # A queued replacement already makes the old association unsafe:
+            # another GUI cache hit must not claim its old contents will persist.
+            self._forget_section_archive_path(destination)
+        token = uuid4().hex
+        self._section_file_pending[pending_key] = token
+        worker = SectionFileWorker(token, "save", destination, result, automatic=automatic,
+                                   maximum_unpacked_bytes=self.section_file_pool.coordinator.ram_budget_bytes)
+        self._section_file_jobs[token] = worker
+        self.section_archive_changed.emit(dict(info, status="saving", automatic=automatic))
+        worker.signals.result.connect(self._section_file_completed)
+        worker.signals.error.connect(lambda message: self._section_file_failed(token, info, message))
+        worker.signals.finished.connect(lambda: self._section_file_finished(token))
+        self.section_file_pool.start(worker)
+        return identity
+
+    @staticmethod
+    def _section_archive_record_current(info):
+        from temsim.particle_section_io import section_file_fingerprint
+        try:
+            return (bool(info.get("_package_digest"))
+                    and tuple(info.get("_file_fingerprint", ())) == section_file_fingerprint(info["path"]))
+        except (OSError, ValueError, KeyError, TypeError):
+            return False
+
+    def _forget_section_archive_path(self, path):
+        from temsim.particle_section_io import section_file_fingerprint
+        resolved = os.path.normcase(str(Path(path).resolve()))
+        try:
+            file_identity = section_file_fingerprint(path)[:2]
+        except (OSError, ValueError):
+            file_identity = None
+        for identity, record in tuple(self._section_archive_records.items()):
+            fingerprint = record.get("_file_fingerprint", ())
+            if (os.path.normcase(str(Path(record["path"]).resolve())) == resolved
+                    or (file_identity is not None and tuple(fingerprint[:2]) == file_identity)):
+                del self._section_archive_records[identity]
+
+    def _remember_section_archive(self, info):
+        if not info.get("path"):
+            return False
+        self._forget_section_archive_path(info["path"])
+        if not self._section_archive_record_current(info):
+            return False
+        self._section_archive_records[info["identity"]] = dict(info, status="saved")
+        self._section_archive_records.move_to_end(info["identity"])
+        while len(self._section_archive_records) > 128:
+            self._section_archive_records.popitem(last=False)
+        return True
+
+    def _section_archive_replacement_pending(self, path):
+        target = Path(path)
+        resolved = os.path.normcase(str(target.resolve()))
+        for worker in self._section_file_jobs.values():
+            if worker.operation != "save" or worker.automatic:
+                continue
+            if os.path.normcase(str(worker.path.resolve())) == resolved:
+                return True
+            try:
+                if target.samefile(worker.path):
+                    return True
+            except OSError:
+                pass
+        return False
+
+    def load_section_archive(self, path):
+        from temsim.working_point import WorkingPointArchiveIndex
+        maximum = self.section_file_pool.coordinator.ram_budget_bytes
+        index = WorkingPointArchiveIndex.read(path, maximum_unpacked_bytes=maximum)
+        token = uuid4().hex
+        worker = SectionFileWorker(token, "load", path, maximum_unpacked_bytes=maximum,
+                                   unpacked_size_bytes=index.unpacked_size_bytes)
+        self._section_file_jobs[token] = worker
+        info = {"path": str(Path(path).resolve()), "identity": token}
+        self.section_archive_changed.emit(dict(info, status="loading"))
+        worker.signals.result.connect(self._section_file_completed)
+        worker.signals.error.connect(lambda message: self._section_file_failed(token, info, message))
+        worker.signals.finished.connect(lambda: self._section_file_finished(token))
+        self.section_file_pool.start(worker)
+
+    def _section_file_completed(self, token, output):
+        worker = self._section_file_jobs.get(token)
+        if worker is None:
+            return
+        if worker.operation == "load":
+            if not self._section_archive_record_current(output["info"]):
+                self._section_file_failed(token, output["info"], "Section archive changed after loading; load it again")
+                return
+            try:
+                self.retain_section_seed(output["result"])
+            except (ValueError, TypeError, RuntimeError) as exc:
+                self._section_file_failed(token, output["info"], str(exc))
+                return
+            self.section_loaded.emit(output["result"], output["info"])
+            return
+        info = dict(output, status="saved")
+        if not self._remember_section_archive(info):
+            self._section_file_failed(token, info, "Section archive changed after saving; save the result again")
+            return
+        self.section_archive_changed.emit(info)
+
+    def _section_file_failed(self, token, info, message):
+        worker = self._section_file_jobs.get(token)
+        if worker is not None:
+            # Loading displays the operation token until the archive has been
+            # admitted. Budget/admission failures occur after decoding exposes
+            # a different archive identity, which must not hide this error.
+            identity = token if worker.operation == "load" else info.get("identity")
+            self.section_archive_changed.emit(dict(info, identity=identity, status="failed", error=str(message),
+                                                   operation=worker.operation))
+
+    def _section_file_finished(self, token):
+        self._section_file_jobs.pop(token, None)
+        for key, pending in tuple(self._section_file_pending.items()):
+            if pending == token:
+                del self._section_file_pending[key]
 
     def _request_active(self, generation):
         item = self._requests.get(generation)
@@ -710,6 +958,14 @@ class CalculationController(QObject):
             self._artifact_cache_budget_bytes = int(disk_cache_budget_bytes)
             if self._artifact_store is not None:
                 self._artifact_store.set_quota_bytes(int(disk_cache_budget_bytes))
+        while self._loaded_section_seeds and (self._loaded_section_memory.total_bytes > self._high_cache_budget_bytes
+                or len(self._loaded_section_seeds) > self._high_cache_limit):
+            key, _ = self._loaded_section_seeds.popitem(last=False)
+            self._loaded_section_memory.remove(key)
+        while self._loaded_tuning_sections and (self._loaded_tuning_memory.total_bytes > self._tuning_cache_budget_bytes
+                or len(self._loaded_tuning_sections) > self._tuning_cache_limit):
+            key, _ = self._loaded_tuning_sections.popitem(last=False)
+            self._loaded_tuning_memory.remove(key)
         self._trim_high_cache()
         self._trim_tuning_cache()
 
@@ -719,13 +975,14 @@ class CalculationController(QObject):
         store = self._artifact_store
         return {
             "high_budget_bytes": self._high_cache_budget_bytes,
-            "high_used_bytes": self._high_cache_memory.total_bytes,
+            "high_used_bytes": self._high_cache_memory.total_bytes + self._loaded_section_memory.total_bytes,
+            "loaded_section_entries": len(self._loaded_section_seeds) + len(self._loaded_tuning_sections),
             "high_entries": len(self._high_cache),
             "high_limit": self._high_cache_limit,
             "high_hits": self._cache_hits["high"],
             "high_misses": self._cache_misses["high"],
             "tuning_budget_bytes": self._tuning_cache_budget_bytes,
-            "tuning_used_bytes": self._tuning_cache_memory.total_bytes,
+            "tuning_used_bytes": self._tuning_cache_memory.total_bytes + self._loaded_tuning_memory.total_bytes,
             "tuning_entries": len(self._tuning_cache),
             "tuning_limit": self._tuning_cache_limit,
             "tuning_hits": self._cache_hits["tuning"],
@@ -741,6 +998,10 @@ class CalculationController(QObject):
         self._high_cache_entry_bytes.clear()
         self._high_cache_memory.clear()
         self._tuning_cache.clear()
+        self._loaded_section_seeds.clear()
+        self._loaded_section_memory.clear()
+        self._loaded_tuning_sections.clear()
+        self._loaded_tuning_memory.clear()
         self._tuning_cache_memory.clear()
         self._tuning_seeds.clear()
 
@@ -757,9 +1018,10 @@ class CalculationController(QObject):
         self._trim_tuning_cache()
 
     def _trim_tuning_cache(self, *, budget_bytes: int | None = None) -> None:
-        budget = self._tuning_cache_budget_bytes if budget_bytes is None else max(0, int(budget_bytes))
+        total_budget = self._tuning_cache_budget_bytes if budget_bytes is None else min(self._tuning_cache_budget_bytes, int(budget_bytes))
+        budget = max(0, total_budget - self._loaded_tuning_memory.total_bytes)
         while self._tuning_cache and (
-            len(self._tuning_cache) > self._tuning_cache_limit
+            len(self._tuning_cache) + len(self._loaded_tuning_sections) > self._tuning_cache_limit
             or self._tuning_cache_memory.total_bytes > budget
         ):
             key, _result = self._tuning_cache.popitem(last=False)
@@ -774,6 +1036,40 @@ class CalculationController(QObject):
         """Return immutable result references that may seed detached work."""
 
         return tuple(self._high_cache.values())
+
+    def retain_section_seed(self, result: CalculationResult) -> None:
+        """Retain an executed restart seed under its quality's shared cache budget."""
+        simulation = getattr(result, "simulation", None)
+        if getattr(simulation, "section_checkpoint", None) is None:
+            raise ValueError("The file contains no executed section checkpoint")
+        quality = simulation.metrics.get("tuning_quality")
+        if quality not in {"Preview", "Medium", "High accuracy"}:
+            raise ValueError("Unknown particle-section tuning quality")
+        inventory = retained_memory_inventory(result)
+        size = sum(inventory.values())
+        budget = self._high_cache_budget_bytes if quality == "High accuracy" else self._tuning_cache_budget_bytes
+        if size > budget:
+            raise ValueError(f"This section exceeds the {quality} cache budget; increase the cache limit before loading")
+        # A loaded restart package lacks optional completed products. It must
+        # never enter either complete-result cache and create a false hit.
+        from temsim.particle_section_io import section_archive_identity
+        key = (quality, section_archive_identity(result))
+        seeds = self._loaded_section_seeds if quality == "High accuracy" else self._loaded_tuning_sections
+        ledger = self._loaded_section_memory if quality == "High accuracy" else self._loaded_tuning_memory
+        limit = self._high_cache_limit if quality == "High accuracy" else self._tuning_cache_limit
+        seeds[key] = result
+        seeds.move_to_end(key)
+        ledger.replace_inventory(key, inventory)
+        while len(seeds) > limit or ledger.total_bytes > budget:
+            removed, _ = seeds.popitem(last=False)
+            ledger.remove(removed)
+        if quality == "High accuracy":
+            self._trim_high_cache()
+        else:
+            self._trim_tuning_cache()
+        info = getattr(result, "section_archive_info", None)
+        if info is not None and info.get("path"):
+            self._remember_section_archive(info)
 
     @staticmethod
     def build_calculation_manifest(
@@ -912,13 +1208,10 @@ class CalculationController(QObject):
         budget_bytes: int | None = None,
         preserve_key: str | None = None,
     ) -> None:
-        budget = (
-            self._high_cache_budget_bytes
-            if budget_bytes is None
-            else max(0, int(budget_bytes))
-        )
+        total_budget = self._high_cache_budget_bytes if budget_bytes is None else min(self._high_cache_budget_bytes, int(budget_bytes))
+        budget = max(0, total_budget - self._loaded_section_memory.total_bytes)
         while self._high_cache and (
-            len(self._high_cache) > self._high_cache_limit
+            len(self._high_cache) + len(self._loaded_section_seeds) > self._high_cache_limit
             or self._high_cache_bytes() > budget
         ):
             removable = next(
@@ -986,6 +1279,18 @@ class CalculationController(QObject):
         if entry is not None:
             self._high_cache.move_to_end(entry[0])
         return entry
+
+    def _section_seed_rank(self, result, signatures, model_signature):
+        """Rank restart candidates; the transport solver still validates reuse."""
+        simulation = getattr(result, "simulation", None)
+        metrics = getattr(simulation, "metrics", {}) or {}
+        depth = metrics.get("section_resumable_through_z_mm", metrics.get("section_target_z_mm"))
+        if (getattr(simulation, "section_checkpoint", None) is None
+                or not isinstance(depth, (int, float)) or not math.isfinite(depth)):
+            depth = -math.inf
+        return (self._seed_reuse_score(result, signatures),
+                bool(model_signature and getattr(result, "model_signature", None) == model_signature),
+                float(depth))
 
     def _peek_best_seed_entry(
         self, signatures: dict[str, str]
@@ -1184,14 +1489,20 @@ class CalculationController(QObject):
         )
         # Tuning history competes for the same host memory headroom. Evict
         # cheap preview history before discarding expensive reusable seeds.
-        self._trim_tuning_cache(budget_bytes=max(0, available - self._high_cache_bytes()))
-        available = max(0, available - self._tuning_cache_memory.total_bytes)
+        for seeds, ledger in ((self._loaded_tuning_sections, self._loaded_tuning_memory),
+                              (self._loaded_section_seeds, self._loaded_section_memory)):
+            while seeds and self._loaded_tuning_memory.total_bytes + self._loaded_section_memory.total_bytes > available:
+                key, _ = seeds.popitem(last=False)
+                ledger.remove(key)
+        self._trim_tuning_cache(budget_bytes=max(0, available - self._high_cache_bytes()
+                                                  - self._loaded_section_memory.total_bytes))
+        available = max(0, available - self._tuning_cache_memory.total_bytes - self._loaded_tuning_memory.total_bytes)
         seed_key = seed_entry[0] if seed_entry is not None else None
         self._trim_high_cache(
             budget_bytes=min(available, self._high_cache_budget_bytes),
             preserve_key=seed_key,
         )
-        if self._high_cache_bytes() > available and seed_key is not None:
+        if self._high_cache_bytes() + self._loaded_section_memory.total_bytes > available and seed_key is not None:
             # A cold calculation is safer than retaining a seed that would
             # push the estimated working set beyond the application budget.
             self._high_cache.pop(seed_key, None)
@@ -1235,7 +1546,7 @@ class CalculationController(QObject):
 
     def submit_background(
         self, state, quality: str, ray_count: int, step_mm: float,
-        *, parent_id=None,
+        *, parent_id=None, section_request=None, particle_tuning=False,
     ) -> None:
         """Capture inputs now and prepare the complete request off-thread.
 
@@ -1251,6 +1562,10 @@ class CalculationController(QObject):
             admit_requested_wave_products(copy(state))
         if not is_tuning_quality(quality) and quality != "High accuracy":
             raise ValueError("Unknown calculation quality")
+        from temsim.particle_section_io import normalise_section_request
+        section_request = normalise_section_request(section_request, quality=quality)
+        if particle_tuning and not is_tuning_quality(quality):
+            raise ValueError("Particle live tuning requires Preview or Medium quality")
         if (
             int(ray_count) <= 0
             or not math.isfinite(float(step_mm))
@@ -1271,7 +1586,8 @@ class CalculationController(QObject):
             )
             from temsim.immutable_json import json_digest
             identity = json_digest(dict(graph=request._instrument_graph,
-                controls=request._model_state.to_dict(), quality=quality, rays=ray_count, step=step_mm))
+                controls=request._model_state.to_dict(), quality=quality, rays=ray_count, step=step_mm,
+                section_request=section_request, particle_tuning=bool(particle_tuning)))
         except Exception as exc:
             if request is not None and request._input_assets is not None:
                 request._input_assets.close()
@@ -1279,6 +1595,8 @@ class CalculationController(QObject):
                 outcome="failed", error=str(exc), elapsed_s=perf_counter()-capture_started)
             raise ValueError(f"Could not capture calculation settings: {exc}") from exc
         generation = self._begin_request(quality)
+        self._requests[generation]["section_request"] = section_request
+        self._requests[generation]["particle_tuning"] = bool(particle_tuning)
         self._requests[generation]["request_id"] = capture_id
         self._trace_request(generation, "capture_exit", outcome="captured", elapsed_s=perf_counter()-capture_started)
         self._requests[generation]["parent_id"] = parent_id
@@ -1331,11 +1649,16 @@ class CalculationController(QObject):
         quality: str,
         ray_count: int,
         step_mm: float,
+        *, section_request=None, particle_tuning=False,
     ) -> None:
         from temsim.optics.electron_gun.source_policy import require_physical_gun_source
         require_physical_gun_source(getattr(state, "electron_gun", None))
         if not is_tuning_quality(quality) and quality != "High accuracy":
             raise ValueError("Unknown calculation quality")
+        from temsim.particle_section_io import normalise_section_request
+        section_request = normalise_section_request(section_request, quality=quality)
+        if particle_tuning and not is_tuning_quality(quality):
+            raise ValueError("Particle live tuning requires Preview or Medium quality")
         from temsim.physics.optical_tuning import resolve_tuning_ray_count
         ray_count = resolve_tuning_ray_count(state,quality,ray_count)
         if quality == "High accuracy":
@@ -1398,6 +1721,8 @@ class CalculationController(QObject):
                 raise ValueError(f"Could not capture the complete working point: {exc}") from exc
 
         generation = self._begin_request(quality)
+        self._requests[generation]["section_request"] = section_request
+        self._requests[generation]["particle_tuning"] = bool(particle_tuning)
         self._dispatch_prepared(
             snapshot, quality, ray_count, step_mm,
             model_signature=model_signature, request_signatures=request_signatures,
@@ -1417,6 +1742,17 @@ class CalculationController(QObject):
         external_inputs = tuple(capture_external_input_identities(snapshot)
                                 if external_inputs is None else external_inputs)
         assert_external_input_inventory_unchanged(snapshot, external_inputs)
+        section_request = self._requests[generation].get("section_request")
+        particle_tuning = self._requests[generation].get("particle_tuning", False) or section_request is not None
+        if particle_tuning:
+            from temsim.immutable_json import json_digest
+            request_signatures = dict(request_signatures)
+            request_signatures["particle_tuning"] = "physical-particle-live-v1"
+            request_signatures["request"] = json_digest({"request": request_signatures["request"],
+                "particle_tuning": request_signatures["particle_tuning"]})
+        if section_request is not None:
+            from temsim.particle_section_io import section_request_signatures
+            request_signatures = section_request_signatures(request_signatures, section_request)
         self._request_input_guard = (generation, snapshot, external_inputs)
         self._requests[generation]["guard"] = self._request_input_guard
         request_key = request_signatures["request"]
@@ -1484,13 +1820,48 @@ class CalculationController(QObject):
 
         if quality == "High accuracy":
             seed_entry = self._best_seed_entry(request_signatures)
+            if section_request is not None:
+                sections = [(key, result) for key, result in reversed(tuple(self._high_cache.items()))
+                            if getattr(getattr(result, "simulation", None), "section_checkpoint", None) is not None]
+                if sections:
+                    candidate_entry = max(sections, key=lambda item:
+                        self._section_seed_rank(item[1], request_signatures, model_signature))
+                    if (seed_entry is None or self._section_seed_rank(candidate_entry[1], request_signatures, model_signature)
+                            > self._section_seed_rank(seed_entry[1], request_signatures, model_signature)):
+                        seed_entry = candidate_entry
+                        self._high_cache.move_to_end(seed_entry[0])
             existing_result = self._make_room_for_calculation(
                 estimate, seed_entry
             )
+            if self._loaded_section_seeds:
+                rank = (lambda result: self._section_seed_rank(result, request_signatures, model_signature)
+                        if section_request is not None else self._seed_reuse_score(result, request_signatures))
+                candidate = max(reversed(tuple(self._loaded_section_seeds.values())), key=rank)
+                if existing_result is None or rank(candidate) > rank(existing_result):
+                    existing_result = candidate
         else:
             existing_result = self._tuning_seeds.get(quality)
+            if section_request is not None:
+                existing_result = next((entry for (q, _key), entry in reversed(self._tuning_cache.items())
+                    if q == quality and getattr(entry.simulation, "section_checkpoint", None) is not None),
+                    existing_result)
+            loaded = next((entry for (q, _key), entry in reversed(self._loaded_tuning_sections.items())
+                           if q == quality), None)
+            if loaded is not None:
+                existing_sim = getattr(existing_result, "simulation", None)
+                previous_z = (getattr(existing_sim, "metrics", {}) or {}).get("section_resumable_through_z_mm", -math.inf)
+                loaded_z = loaded.simulation.metrics.get("section_resumable_through_z_mm",
+                                                        loaded.simulation.metrics["section_target_z_mm"])
+                if getattr(existing_sim, "section_checkpoint", None) is None or loaded_z >= previous_z:
+                    existing_result = loaded
         if is_tuning_quality(quality):
-            prepare_tuning_snapshot(snapshot, quality)
+            prepare_tuning_snapshot(snapshot, quality, particle_signals=particle_tuning)
+            if particle_tuning:
+                # Background preview preparation omits a working-set claim for
+                # the old optical-only route. Physical particle previews also
+                # own specimen descendants and must reserve solver memory.
+                estimate = max(int(estimate), estimate_calculation_memory_bytes(
+                    snapshot, quality, ray_count, step_mm))
         else:
             self._running_high_key = request_key
             self._running_high_generation = generation
@@ -1508,6 +1879,8 @@ class CalculationController(QObject):
             external_inputs=external_inputs,
             allow_project_artifact_fallback=self._allow_project_artifact_fallback,
             artifact_cache_budget_bytes=self._artifact_cache_budget_bytes,
+            section_request=section_request,
+            particle_tuning=particle_tuning,
         )
         from temsim.gui.job_coordinator import ResourceClaim
         worker.resource_claim = ResourceClaim(working_bytes=int(estimate))

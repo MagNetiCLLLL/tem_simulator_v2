@@ -40,12 +40,18 @@ from temsim.physics.core import AxialPropagationPlan
 from temsim.physics.lens_field_provider import (
     CoordinateRegistration, FieldMapProvenance, FrozenMappedField, MagneticFieldMap,
 )
-from temsim.physics.simulation import Branch, Simulation
-from temsim.optics.electron_gun.base import GunExitBundle, GunTraceResult
+from temsim.physics.simulation import (
+    Branch, Simulation, validate_flight_time_array, validate_incident_flight_times,
+)
+from temsim.optics.electron_gun.base import (
+    GunExitBundle, GunTraceResult, GunPlaneArrival, GunEqualTimeHistory,
+)
 
 
 ARTIFACT_STORE_SCHEMA_VERSION = 1
-INCIDENT_SEED_CODEC = "incident-simulation-seed-v2-quadrupole-tensor"
+INCIDENT_SEED_CODEC = "incident-simulation-seed-v3-flight-time"
+LEGACY_INCIDENT_SEED_CODEC = "incident-simulation-seed-v2-quadrupole-tensor"
+CHECKPOINT_CODEC = "incident-propagation-checkpoints-v2-flight-time"
 _ARRAY_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,95}$")
 _ARRAY_FILENAME = re.compile(r"^array-[0-9]{4,}\.npy$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -83,6 +89,9 @@ _GUN_TRACE_ARRAY_FIELDS = (
     "ty_rad",
     "blocked_z_mm",
 )
+_GUN_TIME_HISTORY_FIELDS = (
+    "time_s", "z_mm", "x_m", "y_m", "tx_rad", "ty_rad", "alive", "completed",
+)
 _GUN_EXIT_ARRAY_FIELDS = (
     "x_m",
     "y_m",
@@ -105,6 +114,7 @@ _INCIDENT_BRANCH_ARRAY_FIELDS = (
     "ray_weight",
     "source_ray_id",
     "source_azimuth_rad",
+    "flight_time_s",
 )
 
 
@@ -425,7 +435,8 @@ class ArtifactStore:
         prepared = _prepared_arrays(arrays)
         complete_metadata = dict(metadata or {})
         if manifest.instrument_snapshot is not None and codec in {
-            "incident-propagation-checkpoints-v1", "incident-simulation-seed-v1", INCIDENT_SEED_CODEC
+            "incident-propagation-checkpoints-v1", "incident-simulation-seed-v1", INCIDENT_SEED_CODEC,
+            LEGACY_INCIDENT_SEED_CODEC, CHECKPOINT_CODEC,
         }:
             complete_metadata["working_point"] = manifest.instrument_snapshot.to_dict()
         frozen_metadata = freeze_json(complete_metadata)
@@ -630,20 +641,18 @@ class ArtifactStore:
         manifest: CalculationManifest,
         checkpoints: PropagationCheckpoints,
     ) -> str:
+        validate_flight_time_array(checkpoints.flight_time_s, np.shape(checkpoints.x_m), "Checkpoint")
+        arrays = {name: getattr(checkpoints, name) for name in _CHECKPOINT_ARRAY_FIELDS}
+        if checkpoints.flight_time_s is not None:
+            arrays["flight_time_s"] = checkpoints.flight_time_s
         return self.put_array_bundle(
             manifest,
             product_key="incident",
             dependency_signature=str(
                 manifest.calculation_signatures["incident"]
             ),
-            codec="incident-propagation-checkpoints-v1",
-            arrays={
-                "z_mm": checkpoints.z_mm,
-                "x_m": checkpoints.x_m,
-                "tx_rad": checkpoints.tx_rad,
-                "y_m": checkpoints.y_m,
-                "ty_rad": checkpoints.ty_rad,
-            },
+            codec=CHECKPOINT_CODEC,
+            arrays=arrays,
             metadata={
                 "coordinate_system": "column-z-downstream",
                 "units": {
@@ -652,6 +661,7 @@ class ArtifactStore:
                     "tx_rad": "rad",
                     "y_m": "m",
                     "ty_rad": "rad",
+                    "flight_time_s": "s since simultaneous tip emission",
                 },
             },
         )
@@ -665,12 +675,17 @@ class ArtifactStore:
             dependency_signature=str(
                 manifest.calculation_signatures["incident"]
             ),
-            codec="incident-propagation-checkpoints-v1",
+            codec=CHECKPOINT_CODEC,
         )
+        if bundle is None:
+            bundle = self.get_array_bundle(
+                manifest, product_key="incident",
+                dependency_signature=str(manifest.calculation_signatures["incident"]),
+                codec="incident-propagation-checkpoints-v1")
         if bundle is None:
             return None
         required = {"z_mm", "x_m", "tx_rad", "y_m", "ty_rad"}
-        if set(bundle.arrays) != required:
+        if set(bundle.arrays) not in (required, required | {"flight_time_s"}):
             raise ArtifactIntegrityError(
                 "Incident checkpoint artifact has unexpected arrays"
             )
@@ -682,13 +697,18 @@ class ArtifactStore:
             raise ArtifactIntegrityError(
                 "Incident checkpoint phase-space arrays do not align"
             )
-        return PropagationCheckpoints(
-            z_mm=z,
-            x_m=bundle.arrays["x_m"],
-            tx_rad=bundle.arrays["tx_rad"],
-            y_m=bundle.arrays["y_m"],
-            ty_rad=bundle.arrays["ty_rad"],
-        )
+        try:
+            validate_flight_time_array(bundle.arrays.get("flight_time_s"), shape, "Checkpoint")
+            return PropagationCheckpoints(
+                z_mm=z,
+                x_m=bundle.arrays["x_m"],
+                tx_rad=bundle.arrays["tx_rad"],
+                y_m=bundle.arrays["y_m"],
+                ty_rad=bundle.arrays["ty_rad"],
+                flight_time_s=bundle.arrays.get("flight_time_s"),
+            )
+        except ValueError as exc:
+            raise ArtifactIntegrityError("Incident checkpoint clock is invalid") from exc
 
     def put_incident_simulation_seed(
         self,
@@ -715,6 +735,7 @@ class ArtifactStore:
         exit_bundle = getattr(gun_trace, "exit_bundle", None)
         if exit_bundle is None:
             raise ValueError("Incident restart seed has no gun exit bundle")
+        validate_incident_flight_times(simulation)
         from temsim.checkpoint_observables import incident_checkpoint_observables
         # Restart planes intentionally stop before the specimen. Read sample
         # diagnostics from the retained final incident plane, with that plane's
@@ -757,6 +778,19 @@ class ArtifactStore:
             arrays[f"gun.{field}"] = getattr(gun_trace, field)
         for field in _GUN_EXIT_ARRAY_FIELDS:
             arrays[f"gun_exit.{field}"] = getattr(exit_bundle, field)
+        for prefix, owner in (("checkpoint", checkpoints), ("gun", gun_trace), ("gun_exit", exit_bundle)):
+            value = getattr(owner, "flight_time_s", None)
+            if value is not None:
+                arrays[f"{prefix}.flight_time_s"] = value
+        arrivals = []
+        time_history = getattr(gun_trace, "equal_time_history", None)
+        if time_history is not None:
+            for field in _GUN_TIME_HISTORY_FIELDS:
+                arrays[f"gun_time_history.{field}"] = getattr(time_history, field)
+        for index, arrival in enumerate(getattr(gun_trace, "plane_arrivals", ())):
+            arrivals.append({"key": arrival.key, "name": arrival.name, "z_mm": arrival.z_mm})
+            for field in ("time_s", "x_m", "y_m", "reached", "transmitted"):
+                arrays[f"arrival{index}.{field}"] = getattr(arrival, field)
         launch = getattr(gun_trace, "emission_reference", None)
         if launch is not None:
             for field in ("ray_id", "position_m", "direction", "normal"):
@@ -775,6 +809,8 @@ class ArtifactStore:
             arrays=arrays,
             metadata={
                 "coordinate_system": "column-z-downstream",
+                "flight_time_reference": "laboratory seconds since simultaneous tip emission",
+                "gun_plane_arrivals": arrivals,
                 "plan_solver_signature": str(plan.solver_signature),
                 "beam_observables": observables,
                 "observable_coordinate_precision": np.asarray(incident.x).dtype.str,
@@ -822,6 +858,11 @@ class ArtifactStore:
             codec=INCIDENT_SEED_CODEC,
         )
         if bundle is None:
+            bundle = self.get_array_bundle(
+                manifest, product_key="incident",
+                dependency_signature=str(manifest.calculation_signatures["incident"]),
+                codec=LEGACY_INCIDENT_SEED_CODEC)
+        if bundle is None:
             return None
         arrays = bundle.arrays
 
@@ -860,11 +901,15 @@ class ArtifactStore:
                 signature=str(metadata["plan_signature"]),
                 mapped_fields=tuple(mapped_fields),
             )
+            validate_flight_time_array(arrays.get("checkpoint.flight_time_s"),
+                                      np.shape(arrays["checkpoint.x_m"]), "Checkpoint")
             checkpoints = PropagationCheckpoints(
-                **fields("checkpoint", _CHECKPOINT_ARRAY_FIELDS)
+                **fields("checkpoint", _CHECKPOINT_ARRAY_FIELDS),
+                flight_time_s=arrays.get("checkpoint.flight_time_s"),
             )
             exit_bundle = GunExitBundle(
-                **fields("gun_exit", _GUN_EXIT_ARRAY_FIELDS)
+                **fields("gun_exit", _GUN_EXIT_ARRAY_FIELDS),
+                flight_time_s=arrays.get("gun_exit.flight_time_s"),
             )
             gun_scalars = dict(metadata["gun_scalars"])
             gun_trace = GunTraceResult(
@@ -872,6 +917,12 @@ class ArtifactStore:
                 exit_bundle=exit_bundle,
                 blocked_key=tuple(metadata["gun_blocked_key"]),
                 **gun_scalars,
+                flight_time_s=arrays.get("gun.flight_time_s"),
+                plane_arrivals=tuple(GunPlaneArrival(
+                    **row, **fields(f"arrival{index}", ("time_s", "x_m", "y_m", "reached", "transmitted")))
+                    for index, row in enumerate(metadata.get("gun_plane_arrivals", ()))),
+                equal_time_history=(GunEqualTimeHistory(**fields("gun_time_history", _GUN_TIME_HISTORY_FIELDS))
+                                    if "gun_time_history.time_s" in arrays else None),
                 emission_reference=(fields("emission", ("ray_id", "position_m", "direction", "normal"))
                                     if "emission.ray_id" in arrays else None),
             )
@@ -893,25 +944,20 @@ class ArtifactStore:
                 ),
                 **incident_arrays,
             )
-            # Legacy v1 seeds have no display-lineage arrays. Reconstruct from
-            # retained gun/source history without invalidating physical caches.
-            from temsim.physics.ray_identity import source_identity
-
-            incident.source_ray_id, incident.source_azimuth_rad = source_identity(
-                incident, gun_trace
+            seed = Simulation(
+                incident=incident,
+                branches={},
+                metrics={"persistent_incident_seed": True},
+                gun_trace=gun_trace,
+                incident_plan=plan,
+                incident_checkpoints=checkpoints,
             )
+            validate_incident_flight_times(seed)
         except (KeyError, TypeError, ValueError) as exc:
             raise ArtifactIntegrityError(
                 "Incident seed metadata is invalid"
             ) from exc
-        return Simulation(
-            incident=incident,
-            branches={},
-            metrics={"persistent_incident_seed": True},
-            gun_trace=gun_trace,
-            incident_plan=plan,
-            incident_checkpoints=checkpoints,
-        )
+        return seed
 
     def _managed_remove(self, path: Path) -> None:
         target = self._assert_managed_path(path)

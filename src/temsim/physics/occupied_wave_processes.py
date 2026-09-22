@@ -22,6 +22,8 @@ def _initialize(evaluations, retained, abort, guard, settings):
     global _SHARED, _BLAS_LIMIT
     from threadpoolctl import threadpool_limits
     _BLAS_LIMIT = threadpool_limits(1)
+    from temsim.cpu_resources import initialize_numerical_thread
+    initialize_numerical_thread(1)
     _SHARED = evaluations, retained, abort, guard, settings
 
 
@@ -111,6 +113,8 @@ def balanced_interval_groups(roots, maximum_group_size=16):
 
 
 def refine_process_intervals(roots, incoming, budget, work, *, maximum_group_size=16):
+    from temsim.cpu_resources import numerical_thread_budget
+    worker_count = numerical_thread_budget(work.settings.workers)
     context = mp.get_context("spawn")
     evaluations = context.Value("q", work.evaluations, lock=False)
     retained = context.Value("q", work.retained_bytes, lock=False)
@@ -122,7 +126,7 @@ def refine_process_intervals(roots, incoming, budget, work, *, maximum_group_siz
     # Executor exits first; cleanup cannot delete an active worker's packet.
     # Only this newly created directory belongs to the invocation.
     with TemporaryDirectory(prefix="temsim-wave-workers-") as directory, ProcessPoolExecutor(
-            max_workers=work.settings.workers, mp_context=context,
+            max_workers=worker_count, mp_context=context,
             initializer=_initialize, initargs=(evaluations, retained, abort, guard, work.settings)) as executor:
         pending = {}
         try:
@@ -130,7 +134,7 @@ def refine_process_intervals(roots, incoming, budget, work, *, maximum_group_siz
                 if work.cancelled():
                     abort.set()
                 while (not abort.is_set() and next_group < len(groups)
-                       and len(pending) < work.settings.workers):
+                       and len(pending) < worker_count):
                     if ready is None:
                         entries = [(i, roots[i], incoming[i][0], incoming[i+1][1]) for i in groups[next_group]]
                         ready = write_packet(Path(directory)/f"input-{next_group}.bin", (entries, budget))

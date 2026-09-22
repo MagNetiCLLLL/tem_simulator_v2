@@ -49,6 +49,9 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.cmdclass]
+bdist_wheel = "temsim._build.FreshWheel"
+
 [tool.setuptools.package-data]
 "temsim.gui" = ["assets/*.svg"]
 "temsim.recorder" = ["autoscript_1_18.json"]

@@ -12,36 +12,25 @@ from temsim.physics.wave_execution import WaveExecutionOptions
 
 
 @pytest.mark.parametrize("segmented", [False, True])
-def test_real_gun_with_shared_lens_tail_and_readout_independent_cache(monkeypatch, tmp_path, segmented):
+def test_default_coherent_tip_domain_rejection_does_not_execute_or_publish(monkeypatch, tmp_path, segmented):
+    from temsim.instrument_snapshot import capture_instrument_snapshot
+    from temsim.optics.electron_gun.tip_source_domain import TipSourceDomainError
+    from temsim.physics import tip_gun_wave, tip_wave_pipeline
     state = default_state()
     state.electron_gun.emitter.coherence = TipCoherence()
     state.electron_gun.emitter.energy_spread_fwhm_ev = 0.
+    before = capture_instrument_snapshot(state).digest
+    stages = tuple(tip_wave_pipeline._STAGES)
+    monkeypatch.setattr(tip_gun_wave, "_axial_grid", lambda *a, **kw: pytest.fail("Rejected tip must not transport"))
     request = TipWaveRequest(stop="gun_exit", source=TipWaveNumerics(energy_samples=1),
-                             execution=WaveExecutionOptions(segmented=segmented, cache_directory=str(tmp_path/"executed")),
-                             gun=GunWaveNumerics(field_step_mm=.1, bore_step_mm=2.))
-    result = simulate_tip_wave(state, request)
-    assert result.checkpoint.record["shared_column"] is not None
-    assert result.checkpoint.beam.total_weight <= 1+1e-10
-    assert result.checkpoint.beam.modes[0].energy_kev == pytest.approx(300.)
-    reference = result.checkpoint.beam.modes[0].axial_reference
-    axial = result.checkpoint.record["energy_transport"][0]
-    assert reference.flight_time_s == axial["reference_flight_time_s"] > 0
-    assert reference.longitudinal_action_j_s == axial["reference_longitudinal_action_j_s"] > 0
-    second = simulate_tip_wave(state, replace(request, readout=WaveReadoutOptions(intensity=False, phase=True)))
-    assert second.propagation_cache_hit
-    assert second.checkpoint.digest == result.checkpoint.digest
-    if not segmented:
-        assert second.checkpoint is result.checkpoint
-    else:
-        assert second.checkpoint.beam.resident_bytes == 0
-    assert result.checkpoint.record["shared_column"]["boundary_gauge"].startswith("A=")
-    import temsim.physics.tip_wave_pipeline as pipeline
-    def recomputed(*args, **kwargs):
-        raise RuntimeError("changed source must execute")
-    monkeypatch.setattr(pipeline, "build_tip_gun_checkpoint", recomputed)
-    state.electron_gun.emitter.emission_current_na *= .5
-    with pytest.raises(RuntimeError, match="changed source must execute"):
+        execution=WaveExecutionOptions(segmented=segmented, cache_directory=str(tmp_path/"executed")),
+        gun=GunWaveNumerics(field_step_mm=.1, bore_step_mm=2.))
+    with pytest.raises(TipSourceDomainError, match="paraxial domain"):
         simulate_tip_wave(state, request)
+    assert capture_instrument_snapshot(state).digest == before
+    assert tuple(tip_wave_pipeline._STAGES) == stages
+    assert not any(p.is_file() for p in tmp_path.rglob("*"))
+
 
 
 def test_cancel_and_invalid_numerics_do_not_start_transport():
@@ -63,6 +52,7 @@ def test_unexecuted_equivalent_state_is_not_a_pipeline_option():
 
 def test_installed_energy_filter_is_not_silently_bypassed():
     state = default_state()
+    _install_filter(state)
     # A selected physical path crossing the real entrance remains unsupported.
     state.energy_filter.entrance_z_mm = min(d.z_mm for d in state.stem_detectors)-1.
     with pytest.raises(ValueError, match="energy filter requires"):
@@ -72,6 +62,8 @@ def test_installed_energy_filter_is_not_silently_bypassed():
 def test_filter_after_selected_detector_does_not_prevent_upstream_calculation(monkeypatch):
     import temsim.physics.tip_wave_pipeline as pipeline
     state = default_state()
+    _install_filter(state)
+    state.camera.inserted = state.camera.readout_enabled = True
     before = state.energy_filter.entrance_z_mm
     assert state.energy_filter_installed
     assert all(d.z_mm < before for d in (*state.stem_detectors, state.camera, state.fluorescent_screen))
@@ -86,6 +78,7 @@ def test_filter_after_selected_detector_does_not_prevent_upstream_calculation(mo
 
 def test_partial_stage_cannot_cross_a_filter_moved_upstream():
     state = default_state()
+    _install_filter(state)
     state.energy_filter.entrance_z_mm = state.electron_gun.exit_plane_z_mm-1.
     with pytest.raises(ValueError, match="energy filter requires"):
         simulate_tip_wave(state, TipWaveRequest(stop="gun_exit"))
@@ -134,3 +127,10 @@ def test_material_multislice_with_actual_atomistic_potential_preserves_branches(
         assert balance["first_events"]["real_plasmon"] > 0
     assert all(m.plane.amplitude.imag.max() > 0 for m in result.beam.modes)
     assert result.plane_z_mm == pytest.approx(state.sample.z_mm+state.sample.thickness_nm*.5e-6)
+
+
+def _install_filter(state):
+    from temsim.assembly_catalog import AssemblyCatalog
+    catalog = AssemblyCatalog()
+    catalog.apply(state, replace(catalog.default_selection(), recording="Energy Filter"))
+    assert state.energy_filter_installed

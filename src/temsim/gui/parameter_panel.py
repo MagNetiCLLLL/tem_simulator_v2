@@ -180,7 +180,9 @@ class ParameterPanel(QWidget):
             "Energy filter reference acquisition controls"
         )
         energy_filter_form = QFormLayout(self.energy_filter_box)
-        self.energy_filter_enabled = QCheckBox("Optical branch enabled")
+        self.energy_filter_installed_status = QCheckBox("Energy filter installed")
+        self.energy_filter_installed_status.setEnabled(False)
+        self.energy_filter_installed_status.setToolTip("Choose installation in Configure instrument. Installed filter transport is always calculated when the beam path reaches it.")
         self.energy_filter_mode = QComboBox()
         self.energy_filter_mode.addItem("EELS camera", "eels")
         self.energy_filter_mode.addItem("EFTEM / filtered image", "eftem")
@@ -212,7 +214,7 @@ class ParameterPanel(QWidget):
         self.energy_filter_status.setStyleSheet(
             "color: #475569; font-weight: 600;"
         )
-        energy_filter_form.addRow(self.energy_filter_enabled)
+        energy_filter_form.addRow(self.energy_filter_installed_status)
         energy_filter_form.addRow("Acquisition", self.energy_filter_mode)
         energy_filter_form.addRow(self.energy_filter_multi_eels)
         energy_filter_form.addRow(
@@ -242,7 +244,6 @@ class ParameterPanel(QWidget):
         energy_filter_form.addRow(self.energy_filter_match)
         energy_filter_form.addRow(self.energy_filter_status)
         for widget, signal in (
-            (self.energy_filter_enabled, self.energy_filter_enabled.toggled),
             (self.energy_filter_mode, self.energy_filter_mode.currentIndexChanged),
             (self.energy_filter_multi_eels, self.energy_filter_multi_eels.toggled),
             (self.energy_filter_regions, self.energy_filter_regions.valueChanged),
@@ -516,7 +517,7 @@ class ParameterPanel(QWidget):
         self.energy_filter_box.setVisible(visible)
         if not visible:
             return
-        self.energy_filter_enabled.setChecked(bool(energy_filter.enabled))
+        self.energy_filter_installed_status.setChecked(bool(energy_filter.enabled))
         mode_index = self.energy_filter_mode.findData(
             str(energy_filter.operating_mode).lower()
         )
@@ -583,56 +584,83 @@ class ParameterPanel(QWidget):
             return
         if self._runtime_target.key != "energy_filter":
             return
+        from copy import copy
+        from temsim.optics.energy_filter import (
+            configure_energy_filter_operating_mode,
+            configure_energy_slit_from_software,
+        )
         energy_filter = self._runtime_target.obj
+        children = ("energy_slit", "bias_tube", "camera_deflector",
+                    "zebra_detector", "fast_shutter")
         try:
-            energy_filter.enabled = self.energy_filter_enabled.isChecked()
-            energy_filter.operating_mode = str(
-                self.energy_filter_mode.currentData()
-            )
-            energy_filter.multi_eels_enabled = (
-                self.energy_filter_multi_eels.isChecked()
-            )
-            energy_filter.multi_eels_region_count = (
-                self.energy_filter_regions.value()
-            )
-            energy_filter.selected_loss_ev = (
-                self.energy_filter_selected_loss.value()
-            )
-            energy_filter.slit_width_ev = (
-                self.energy_filter_slit_width.value()
-            )
-            energy_filter.camera_deflector.active_strip = (
-                self.energy_filter_active_strip.value()
-            )
-            energy_filter.bias_tube.offset_ev = (
-                self.energy_filter_bias.value()
-            )
-            energy_filter.zebra_detector.alignment_mode = (
-                self.energy_filter_alignment.isChecked()
-            )
-            energy_filter.fast_shutter.open = (
-                self.energy_filter_shutter.isChecked()
-            )
-            from temsim.optics.energy_filter import (
-                configure_energy_filter_operating_mode,
-                configure_energy_slit_from_software,
-            )
-            configure_energy_filter_operating_mode(
-                energy_filter, energy_filter.operating_mode
-            )
-            configure_energy_slit_from_software(energy_filter)
-            energy_filter.bias_tube.validate()
-            energy_filter.camera_deflector.validate()
-            self._updating = True
-            self._load_runtime()
-            self._load_energy_filter_controls()
-            self._updating = False
-            self.runtime_changed.emit("energy_filter_acquisition")
+            # Validate detached children before committing. Keep identities
+            # already held by the component tree and other current controls.
+            candidate = copy(energy_filter)
+            for name in children:
+                setattr(candidate, name, copy(getattr(energy_filter, name)))
+            sender = self.sender()
+            def edited(widget):
+                return sender is None or sender is widget
+            mode = (str(self.energy_filter_mode.currentData())
+                    if edited(self.energy_filter_mode) else energy_filter.operating_mode)
+            mode_changed = mode != energy_filter.operating_mode
+            if edited(self.energy_filter_multi_eels):
+                candidate.multi_eels_enabled = self.energy_filter_multi_eels.isChecked()
+            if edited(self.energy_filter_regions):
+                candidate.multi_eels_region_count = self.energy_filter_regions.value()
+            multi_changed = (candidate.multi_eels_enabled != energy_filter.multi_eels_enabled
+                             or candidate.multi_eels_region_count != energy_filter.multi_eels_region_count)
+            if edited(self.energy_filter_selected_loss):
+                candidate.selected_loss_ev = self.energy_filter_selected_loss.value()
+            if edited(self.energy_filter_slit_width):
+                candidate.slit_width_ev = self.energy_filter_slit_width.value()
+            window_changed = (candidate.selected_loss_ev != energy_filter.selected_loss_ev
+                              or candidate.slit_width_ev != energy_filter.slit_width_ev)
+            if edited(self.energy_filter_active_strip):
+                candidate.camera_deflector.active_strip = self.energy_filter_active_strip.value()
+            if edited(self.energy_filter_bias):
+                candidate.bias_tube.offset_ev = self.energy_filter_bias.value()
+            if edited(self.energy_filter_alignment):
+                candidate.zebra_detector.alignment_mode = self.energy_filter_alignment.isChecked()
+            if edited(self.energy_filter_shutter):
+                candidate.fast_shutter.open = self.energy_filter_shutter.isChecked()
+            if mode_changed:
+                configure_energy_filter_operating_mode(candidate, mode)
+            elif multi_changed:
+                # Acquisition participation changes without resetting manual
+                # detector, slit or shutter states.
+                if not 1 <= candidate.multi_eels_region_count <= 5:
+                    raise ValueError("Multi-window EELS region count must be 1 through 5.")
+                if not candidate.multi_eels_enabled:
+                    candidate.multi_eels_region_count = 1
+                candidate.bias_tube.enabled = mode == "eels" and candidate.multi_eels_enabled
+                candidate.camera_deflector.active_strip = min(
+                    candidate.camera_deflector.active_strip, candidate.multi_eels_region_count)
+            if window_changed:
+                configure_energy_slit_from_software(candidate)
+            candidate.energy_slit.__post_init__()
+            for name in children[1:]:
+                getattr(candidate, name).validate()
+            for name in ("operating_mode", "multi_eels_enabled",
+                         "multi_eels_region_count", "output_detector_inserted"):
+                setattr(energy_filter, name, getattr(candidate, name))
+            for name in children:
+                vars(getattr(energy_filter, name)).update(vars(getattr(candidate, name)))
         except Exception as exc:
             self._updating = True
-            self._load_energy_filter_controls()
-            self._updating = False
+            try:
+                self._load_energy_filter_controls()
+            finally:
+                self._updating = False
             self.error.emit(str(exc))
+            return
+        self._updating = True
+        try:
+            self._load_runtime()
+            self._load_energy_filter_controls()
+        finally:
+            self._updating = False
+        self.runtime_changed.emit("energy_filter_acquisition")
 
     @staticmethod
     def _quick_specs(target) -> tuple[tuple[str, str, float, str], ...]:
@@ -680,7 +708,6 @@ class ParameterPanel(QWidget):
         if hasattr(obj, "strength_x_percent"):
             return (
                 ("enabled", "Enabled", 1.0, ""),
-                ("field_model", "Field model", 1.0, ""),
                 ("strength_x_percent", "X strength", 1.0, " %"),
                 ("strength_y_percent", "Y strength", 1.0, " %"),
             )
@@ -761,16 +788,7 @@ class ParameterPanel(QWidget):
             if not hasattr(obj, name):
                 continue
             value = getattr(obj, name)
-            if name == "field_model" and hasattr(obj, "quadrupole_tensor_m2"):
-                widget = QComboBox()
-                widget.addItem("Legacy X-Y (rank 1)", "legacy_difference")
-                widget.addItem("Independent X/Y (0 / 45 deg)", "normal_skew")
-                widget.setCurrentIndex(widget.findData(value))
-                widget.setToolTip("Independent channels span any twofold orientation. Selecting a model does not retune strengths.")
-                widget.currentIndexChanged.connect(
-                    lambda _index, control=widget: self._quick_changed("field_model", control.currentData(), 1.0)
-                )
-            elif isinstance(value, str):
+            if isinstance(value, str):
                 widget = QLineEdit()
                 widget.setText(value)
                 widget.editingFinished.connect(

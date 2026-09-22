@@ -68,7 +68,8 @@ def inputs(rays=7):
     return (*coefficients, np.full(rays, .5), *(np.zeros(4) for _ in range(3)), step,
             np.linspace(-.003, .001, rays), np.full(rays, .001),
             np.linspace(.002, -.001, rays), np.full(rays, -.0003),
-            np.zeros(4), np.zeros(4), np.array([0, 3]), np.array([0, 1, 2, 3]))
+            np.zeros(4), np.zeros(4), np.array([0, 3]), np.array([0, 1, 2, 3]),
+            np.zeros(7))
 
 
 def test_unchanged_plan_has_no_reupload_or_allocation_and_outputs_are_owned():

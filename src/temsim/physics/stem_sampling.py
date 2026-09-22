@@ -170,10 +170,10 @@ def detector_sampling_report(bounds_mrad, *, maximum_angle_mrad,
 
 
 def frame_sampling_report(metrics):
-    """Read current diagnostics, or explicitly flag older unchecked wave caches."""
+    """Read diagnostics, marking missing wave coverage as unavailable."""
     report = metrics.get("detector_sampling")
     if report is not None:
         return report
     if metrics.get("model") in {"multislice_angle_resolved", "thin_phase_angle_resolved"}:
-        return {"coverage_complete": False, "detectors": {}, "legacy_unchecked": True}
+        return {"coverage_complete": False, "detectors": {}, "sampling_unavailable": True}
     return None

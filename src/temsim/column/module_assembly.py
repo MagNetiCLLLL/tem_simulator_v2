@@ -1695,13 +1695,6 @@ def _apply_energy_filter_manifest_geometry(state, parts):
         )
         element.__post_init__()
 
-    energy_filter.entrance_multipole_s_mm = float(
-        energy_filter.multipole_03_s_mm
-    )
-    energy_filter.exit_multipole_d_mm = float(
-        energy_filter.multipole_04_d_mm
-    )
-
     energy_slit = getattr(energy_filter, "energy_slit", None)
     if energy_slit is not None:
         slit_part = parts[ENERGY_FILTER_SLIT]
@@ -1857,9 +1850,9 @@ def _apply_energy_filter_manifest_geometry(state, parts):
     energy_filter.m12_frames_placed = False
     if len(multipoles) == 10:
         from temsim.optics.energy_filter_sector import (
-            place_m12_in_sector_frames,
+            place_multipoles_in_sector_frames,
         )
-        place_m12_in_sector_frames(energy_filter)
+        place_multipoles_in_sector_frames(energy_filter)
     from temsim.optics.energy_filter_m12 import rigidity_scale
     from temsim.optics.energy_filter_sector import sector_plateau_field_t
     reference_voltage = float(energy_filter.voltage_reference_kv)

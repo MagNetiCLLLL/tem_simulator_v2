@@ -45,48 +45,6 @@ def emission_reference(bundle, surface_model=None):
             "normal": _frozen(normals, np.float64)}
 
 
-def emission_colour_values(simulation, source_ids, mode):
-    """Original direction azimuth / angle to local normal, mapped by ancestry.
-
-    Angles are radians. Missing launch records stay NaN (neutral colour), even
-    when a later cached slope is available. Backward launches retain their full
-    direction; slopes cannot determine their hemisphere.
-    """
-    ids = np.asarray(source_ids)
-    output = np.full(ids.shape, np.nan)
-    reference = getattr(getattr(simulation, "gun_trace", None), "emission_reference", None)
-    if reference is None:
-        return output
-    try:
-        original_ids = np.asarray(reference["ray_id"])
-        direction = np.asarray(reference["direction"], dtype=float)
-        normal = np.asarray(reference["normal"], dtype=float)
-        if (original_ids.ndim != 1 or original_ids.dtype.kind not in "iu"
-                or np.any(original_ids < 0) or np.unique(original_ids).size != original_ids.size
-                or direction.shape != (original_ids.size, 3) or normal.shape != direction.shape):
-            return output
-        if mode == "emission_direction":
-            values = np.mod(np.arctan2(direction[:, 1], direction[:, 0]), 2*np.pi)
-            values[np.hypot(direction[:, 0], direction[:, 1]) <= 1e-15] = np.nan
-        elif mode == "emission_angle":
-            # atan2 is well-conditioned for nearly normal emission.
-            values = np.arctan2(np.linalg.norm(np.cross(direction, normal), axis=1),
-                                np.einsum("ij,ij->i", direction, normal))
-        else:
-            raise ValueError("Unknown emission colour quantity")
-        values[~np.all(np.isfinite(direction) & np.isfinite(normal), axis=1)] = np.nan
-        order = np.argsort(original_ids)
-        indices = np.searchsorted(original_ids[order], ids)
-        if original_ids.size:
-            valid = (ids >= 0) & (indices < original_ids.size)
-            rows = np.minimum(indices, original_ids.size-1)
-            valid &= original_ids[order[rows]] == ids
-            output[valid] = values[order[rows[valid]]]
-    except (KeyError, TypeError, IndexError):
-        return output
-    return output
-
-
 def _count(branch) -> int:
     if branch is None:
         return 0
@@ -114,53 +72,59 @@ def _stored(branch, count):
                 or np.any(raw_ids > np.iinfo(np.int64).max)
                 or np.any(np.isinf(angles))):
             return None
+        angles = np.where(raw_ids >= 0, angles, np.nan)
         return _frozen(raw_ids, np.int64), _frozen(angles, np.float64)
     except (ValueError, TypeError, OverflowError):
         return None
 
 
-def source_identity(incident, gun_trace=None):
+def source_identity(incident):
     """Return immutable IDs and fixed source-position azimuths (radians).
 
-    Legacy incident caches can recover this metadata from their original gun
-    histories. Clipping, selected Z, and the current surviving centroid are
-    deliberately excluded from the reference definition.
+    Read explicit current metadata only. Missing or duplicate incident IDs
+    remain unknown; a row number or downstream position is not an identity.
     """
     count = _count(incident)
     existing = _stored(incident, count)
     if existing is not None:
         known_ids = existing[0][existing[0] >= 0]
         # Repeated ancestors are valid downstream, but never identify two
-        # different source samples. Recover corrupt legacy source metadata.
+        # different source samples.
         if np.unique(known_ids).size == known_ids.size:
             return existing
-    ids = np.arange(count, dtype=np.int64)
-    gun_ids = getattr(getattr(gun_trace, "exit_bundle", None), "ray_id", None)
-    if gun_ids is not None:
-        values = np.asarray(gun_ids)
-        if (values.shape == (count,) and values.dtype.kind in "iu"
-                and np.all(values >= 0) and np.all(values <= np.iinfo(np.int64).max)
-                and np.unique(values).size == count):
-            ids = values
-    angles = np.full(count, np.nan)
-    x = np.asarray(getattr(incident, "x", ()), dtype=float)
-    y = np.asarray(getattr(incident, "y", ()), dtype=float)
-    reference = getattr(gun_trace, "emission_reference", None)
-    launch_positions = False
-    if reference is not None:
-        # Preserve the real launch position, not the first common-Z resample
-        # (a curved emitter has no single launch plane).
-        positions = np.asarray(reference.get("position_m", ()), dtype=float)
-        if positions.shape == (count, 3) and np.array_equal(reference.get("ray_id"), ids):
-            x, y = positions[None, :, 0], positions[None, :, 1]
-            launch_positions = True
-    if x.ndim == 2 and y.shape == x.shape and x.shape[0]:
-        finite = np.isfinite(x[0]) & np.isfinite(y[0])
-        if np.any(finite):
-            dx = x[0] - (0. if launch_positions else np.mean(x[0, finite]))
-            dy = y[0] - (0. if launch_positions else np.mean(y[0, finite]))
-            defined = finite & (np.hypot(dx, dy) > 1.0e-15)
-            angles[defined] = np.mod(np.arctan2(dy[defined], dx[defined]), 2*np.pi)
+    return _unknown(count)
+
+
+def emitted_source_identity(gun_trace):
+    """Attach lineage at a completed gun-to-column calculation boundary.
+
+    IDs come from the executed exit bundle and positions from its recorded
+    emission events. The lookup permits reordered or sparse IDs but never
+    infers identity from coincident trajectories or a surviving centroid.
+    """
+    try:
+        ids = np.asarray(gun_trace.exit_bundle.ray_id)
+        reference = gun_trace.emission_reference
+        original_ids = np.asarray(reference["ray_id"])
+        positions = np.asarray(reference["position_m"], dtype=float)
+        for values in (ids, original_ids):
+            if (values.ndim != 1 or values.dtype.kind not in "iu"
+                    or np.any(values < 0) or np.any(values > np.iinfo(np.int64).max)
+                    or np.unique(values).size != values.size):
+                raise ValueError
+        if (positions.shape != (original_ids.size, 3)
+                or not np.all(np.isfinite(positions))):
+            raise ValueError
+        order = np.argsort(original_ids)
+        rows = np.searchsorted(original_ids[order], ids)
+        if np.any(rows >= original_ids.size) or not np.array_equal(original_ids[order[rows]], ids):
+            raise ValueError
+        positions = positions[order[rows]]
+    except (AttributeError, KeyError, TypeError, ValueError, IndexError) as exc:
+        raise ValueError("Executed gun source identity requires matching recorded emission IDs and positions") from exc
+    angles = np.full(ids.size, np.nan)
+    defined = np.hypot(positions[:, 0], positions[:, 1]) > 1.0e-15
+    angles[defined] = np.mod(np.arctan2(positions[defined, 1], positions[defined, 0]), 2*np.pi)
     return _frozen(ids, np.int64), _frozen(angles, np.float64)
 
 
@@ -180,31 +144,18 @@ def select_identity(ids, angles, indices):
 
 
 def branch_identity(branch, simulation=None):
-    """Resolve lineage without guessing the identity of compact legacy rays.
-
-    Only legacy ordinary simulation branches with full-width, matching boundary
-    positions may inherit column identity. Independently sampled/scattered
-    histories without explicit lineage stay neutral/unknown.
-    """
+    """Read explicit lineage, or map explicit parent indices to incident IDs."""
     count = _count(branch)
     incident = getattr(simulation, "incident", None)
     if branch is incident or (incident is None and getattr(branch, "name", "") == "incident"):
-        return source_identity(branch, getattr(simulation, "gun_trace", None))
+        return source_identity(branch)
     existing = _stored(branch, count)
     if existing is not None:
         return existing
     if incident is None:
         return _unknown(count)
-    ids, angles = source_identity(incident, getattr(simulation, "gun_trace", None))
+    ids, angles = source_identity(incident)
     source_indices = getattr(branch, "source_ray_index", None)
     if source_indices is not None and np.asarray(source_indices).shape == (count,):
         return select_identity(ids, angles, source_indices)
-    try:
-        ordinary_branch = any(branch is item for item in getattr(simulation, "branches", {}).values())
-        if (ordinary_branch and count == ids.size
-                and np.array_equal(np.asarray(branch.x)[0], np.asarray(incident.x)[-1])
-                and np.array_equal(np.asarray(branch.y)[0], np.asarray(incident.y)[-1])):
-            return ids, angles
-    except (AttributeError, IndexError, TypeError):
-        pass
     return _unknown(count)

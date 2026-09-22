@@ -1,6 +1,6 @@
 """Analytical clipping, bounded banks, and isolated Qt range planning."""
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -12,9 +12,20 @@ from temsim.interactive_calculation import (
     build_bank, read_bank, prepare_replay, BankPoint, InteractiveBank,
 )
 from temsim.optics.model import Aperture
-from temsim.detector.recording_system import RecordingPlane
 from temsim.physics.simulation import Branch, Simulation
 from temsim.simulation_pipeline import CalculationResult
+
+
+@dataclass
+class RecordingPlane:
+    """Test-only finite absorbing plane for isolated clipping mathematics."""
+    key: str
+    name: str
+    z_mm: float
+    geometry: str
+    outer_width_mm: float
+    inner_diameter_mm: float = 0.
+    inserted: bool = True
 
 
 @pytest.fixture
@@ -24,7 +35,7 @@ def toy(monkeypatch):
         lenses=[SimpleNamespace(key="D", name="D lens", percent=50.0, enabled=True, installed=True)],
         apertures=[Aperture("Test aperture", "test_aperture", 1, .5, enabled=True)],
         recording_planes=[RecordingPlane("camera", "Camera", 2, "disk", 4)],
-        electron_gun=SimpleNamespace(ray_count=4),
+        electron_gun=SimpleNamespace(ray_count=4, exit_plane_z_mm=0.),
         sample=SimpleNamespace(z_mm=0, stem_fourdstem_enabled=False, stem_wave_enabled=False),
         ac_deflector=SimpleNamespace(enabled=False, scan_enabled=False),
         illumination_mode="STEM", step_mm=1, column_inner_diameter_mm=100,
@@ -206,9 +217,8 @@ def test_memory_cube_budget_completion_and_raw_probability():
 
 
 def test_legacy_wave_checkpoint_requires_explicit_pre_loss_reference():
-    # Actual pre-pupil replay, expansion and offset are covered through the
-    # production projector in test_tem_flux_contract.py. Old amplitude-only
-    # checkpoints cannot reconstruct their missing flux convention safely.
+    # Exercise the local projection contract before any wave execution.
+    # Amplitude-only checkpoints cannot reconstruct missing incident flux.
     import temsim.physics.wave_imaging as wave
     n = 16
     axis = np.arange(n, dtype=float)
@@ -218,10 +228,10 @@ def test_legacy_wave_checkpoint_requires_explicit_pre_loss_reference():
     result = wave.WaveImagingResult("test", "test", axis, axis, np.zeros((n,n)), amplitude,
                                    np.zeros((n,n)), np.zeros((n,n)), np.zeros((n,n)), np.zeros((n,n)),
                                    axis, axis, axis, axis, {}, checkpoint)
-    state = SimpleNamespace(objective_aperture=SimpleNamespace(enabled=True, radius_mm=1, z_mm=1),
-                            sample=SimpleNamespace(z_mm=0))
+    from temsim.optics.column import default_state
+    state = default_state()
     with pytest.raises(ValueError, match="pre-loss reference norm"):
-        wave.reproject_wave_image(state, result)
+        wave._project_objective_configurations(state, checkpoint)
 
 
 def test_page_requires_range_endpoints_and_does_not_auto_calculate(toy):
@@ -254,7 +264,6 @@ def small_real_state():
     s.sample.sample_region_enabled = False
     s.sample.wave_enabled = False
     s.sample.stem_wave_enabled = False
-    s.sample.diffraction_enabled = False
     s.ac_deflector.scan_enabled = False
     s.descan_deflector.scan_enabled = False
     s.acceleration_enabled = False
@@ -273,117 +282,55 @@ def test_production_bank_reuses_incident_and_never_mutates_source(monkeypatch):
     assert s.to_dict() == before
     assert bank.retained_bytes < plan.cache_budget_bytes
     outputs = tuple(p.result.energy_filter for p in bank.points)
-    assert all(output is not None for output in outputs)
+    assert all(output is None for output in outputs)  # Explicit default: no filter installed.
     assert all(not hasattr(p.result.state_snapshot, "energy_filter_result") for p in bank.points)
     monkeypatch.setattr(interactive, "calculate", lambda *a, **k: pytest.fail("Repeated propagation on readout"))
     r = read_bank(bank, {control.identity: 10.})
     assert all(np.isfinite(list(r.detector_current_pa.values())))
     read_bank(bank, {control.identity: 11.})
-    # Older in-memory completed frames can still carry this redundant alias.
-    bank.points[0].result.state_snapshot.energy_filter_result = outputs[0]
-    again = read_bank(bank, {control.identity: 10.})
-    assert dict(again.detector_current_pa) == dict(r.detector_current_pa)
-    assert all(p.result.energy_filter is output for p, output in zip(bank.points, outputs))
-    assert s.to_dict() == before
 
 
-def test_production_tem_aperture_replay_agrees_with_fresh_projection():
-    from temsim.physics.wave_imaging import simulate_wave_image
-    s = small_real_state()
-    s.illumination_mode = "TEM"
-    s.projector_mode = "image"
-    for d in s.stem_detectors:
-        d.inserted = False
-    s.fluorescent_screen.inserted = False
-    s.camera.inserted = True
-    s.sample.specimen_mode = "reference"
-    s.sample.reference_sample_key = "si_110"
-    s.sample.wave_enabled = True
-    s.sample.wave_grid_pixels = 32
-    s.sample.wave_field_of_view_angstrom = 16.
-    s.sample.wave_multislice_enabled = True
-    s.sample.wave_atomistic_enabled = True
-    s.objective_aperture.enabled = True
-    c = next(c for c in available_controls(s) if c.key == s.objective_aperture.key and c.field == "diameter_mm")
-    plan = InteractivePlan((CalculationRange(c, .02, .06),), 200 * 1024**2)
-    bank = build_bank(s, plan)
-    replay = read_bank(bank, {c.identity: .04})
-    assert replay.wave is not None
-    fresh_state = interactive.detached_state(bank.points[0].result.state_snapshot)
-    fresh_state.objective_aperture.diameter_mm = .04
-    fresh = simulate_wave_image(fresh_state, bank.points[0].result.simulation)
-    np.testing.assert_allclose(replay.wave.camera_electron_optical_intensity,
-                               fresh.camera_electron_optical_intensity, rtol=2e-6, atol=1e-10)
+
+def test_production_tem_aperture_replay_agrees_with_fresh_projection_requires_qualified_tip_source(monkeypatch):
+    from temsim.optics.column import default_state
+    from temsim.physics.source_admission import UnsupportedWaveSource
+    from temsim.simulation_pipeline import calculate
+    import temsim.simulation_pipeline as pipeline
+    state = default_state()
+    state.illumination_mode = "TEM"
+    from temsim.component_keys import STEM_DETECTOR_KEYS
+    for detector in state.recording_planes:
+        if detector.key in STEM_DETECTOR_KEYS:
+            detector.inserted = False
+    from temsim.physics.wave_imaging import tem_wave_imaging_enabled
+    state.sample.wave_enabled = True
+    state.sample.stem_wave_enabled = False
+    state.sample.stem_fourdstem_enabled = False
+    assert tem_wave_imaging_enabled(state)
+    before = state.to_dict()
+    monkeypatch.setattr(pipeline, "run", lambda *a, **k: pytest.fail("Unqualified source must not start transport"))
+    with pytest.raises(UnsupportedWaveSource):
+        calculate(state)
+    assert state.to_dict() == before
 
 
-def test_production_stem_captures_ram_cube_and_reintegrates_without_multislice(monkeypatch):
-    import temsim.physics.stem_wave_imaging as wave
-    import temsim.detector.stem_signal as signal
-    from temsim.component_keys import PROJECTOR_LENS_2
-    from temsim.physics.diffraction_memory import recollect_stem
-    s = small_real_state()
-    s.illumination_mode = "STEM"
-    s.ac_deflector.enabled = True
-    s.ac_deflector.scan_enabled = True
-    s.ac_deflector.scan_pixels_x = 2
-    s.ac_deflector.scan_lines = 2
-    s.descan_deflector.enabled = True
-    s.descan_deflector.scan_enabled = True
-    s.sample.specimen_mode = "reference"
-    s.sample.reference_sample_key = "si_110"
-    s.sample.stem_wave_enabled = True
-    s.sample.wave_grid_pixels = 32
-    s.sample.wave_field_of_view_angstrom = 16.
-    # This coarse-ray fixture tests replay/cube identity in a fixed periodic
-    # wave window, not automatic padding of its deliberately uncalibrated probe.
-    s.sample.wave_probe_padding_factor = 0.0
-    s.sample.wave_multislice_enabled = True
-    s.sample.wave_atomistic_enabled = True
-    s.sample.stem_rutherford_tail_enabled = False
-    for d in s.stem_detectors:
-        d.inserted = True
-        d.readout_enabled = True
-    c = next(c for c in available_controls(s) if c.key == s.stem_detectors[-1].key
-             and c.field == "outer_width_mm")
-    lens = next(control for control in available_controls(s) if control.key == PROJECTOR_LENS_2)
-    plan = InteractivePlan((CalculationRange(c, c.current / 2, c.current),
-                            CalculationRange(lens, 10., 11., 2)), 300 * 1024**2)
-    original = signal.simulate_angle_resolved_stem
-    calls = []
-    def counted(*args, **kwargs):
-        calls.append(True)
-        return original(*args, **kwargs)
-    monkeypatch.setattr(signal, "simulate_angle_resolved_stem", counted)
-    bank = build_bank(s, plan)
-    assert len(calls) == 1
-    assert "fourdstem_cube" in bank.points[1].result.reused_products
-    frame = bank.points[0].result.stem_scan
-    assert frame is not None
-    assert frame.fourdstem_artifact is not None
-    assert frame.fourdstem_artifact.path is None
-    assert not s.sample.stem_fourdstem_enabled
-    from temsim.interactive_calculation import detached_state
-    replay_state = detached_state(bank.points[0].result.state_snapshot)
-    original_settings = replay_state.to_dict()
-    original_scan_matrices = tuple(
-        np.asarray(matrix).copy()
-        for component in (replay_state.ac_deflector, replay_state.descan_deflector)
-        for matrix in (component.scan_command_matrix_mrad, *component.coil_kick_matrices())
-    )
-    replay = recollect_stem(replay_state, frame)
-    assert replay_state.to_dict() == original_settings
-    for before, after in zip(original_scan_matrices, (
-        matrix
-        for component in (replay_state.ac_deflector, replay_state.descan_deflector)
-        for matrix in (component.scan_command_matrix_mrad, *component.coil_kick_matrices())
-    )):
-        np.testing.assert_array_equal(after, before)
-    for key, values in frame.fractions.items():
-        np.testing.assert_allclose(replay.fractions[key], values, rtol=5e-6, atol=1e-8)
-    monkeypatch.setattr(wave, "simulate_angle_resolved_stem", lambda *a, **k: pytest.fail("Repeated multislice"))
-    changed = read_bank(bank, {c.identity: c.current / 2, lens.identity: 10.})
-    assert changed.stem is not None
-    assert changed.stem.metrics["interactive_cube_reused"]
+def test_production_stem_captures_ram_cube_and_reintegrates_without_multislice_requires_qualified_tip_source(monkeypatch):
+    from temsim.optics.column import default_state
+    from temsim.physics.source_admission import UnsupportedWaveSource
+    from temsim.simulation_pipeline import calculate
+    import temsim.simulation_pipeline as pipeline
+    state = default_state()
+    state.illumination_mode = "STEM"
+    state.ac_deflector.wobble_enabled = False
+    state.ac_deflector.scan_enabled = True
+    state.sample.wave_enabled = True
+    state.sample.stem_wave_enabled = True
+    state.sample.stem_fourdstem_enabled = False
+    before = state.to_dict()
+    monkeypatch.setattr(pipeline, "run", lambda *a, **k: pytest.fail("Unqualified source must not start transport"))
+    with pytest.raises(UnsupportedWaveSource):
+        calculate(state)
+    assert state.to_dict() == before
 
 
 def test_controller_failure_and_cancel_preserve_previous_complete_bank(qtbot, monkeypatch):

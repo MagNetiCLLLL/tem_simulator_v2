@@ -85,7 +85,9 @@ def test_unchanged_check_never_resets_the_instrument_and_stale_check_rejected(st
 
 
 def test_units_include_mechanical_children_and_filter_entrance(state):
-    a = state._resolved_assembly
+    from dataclasses import replace
+    catalog = AssemblyCatalog()
+    a = catalog.apply(state, replace(catalog.default_selection(), recording="Energy Filter"))
     assert unit_for_component(a, "condenser_lens_3_excitation_coil") == "c3_lens"
     assert unit_for_component(a, "feg_tip") == "source"
     assert unit_for_component(a, "energy_filter_entrance_aperture") == "energy_filter"

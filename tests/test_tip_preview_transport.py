@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 
-def test_classical_tip_axis_probe_traverses_full_default_column():
+def test_classical_surface_tip_axis_probe_traverses_full_column():
     from temsim.optics.column import default_state
     from temsim.assembly_catalog import AssemblyCatalog
     from temsim.gui.main_window import MainWindow
@@ -18,6 +18,11 @@ def test_classical_tip_axis_probe_traverses_full_default_column():
     proxy = SimpleNamespace(catalog=catalog,
                             _state_operating_mode_keys=MainWindow._state_operating_mode_keys)
     MainWindow._apply_state_operating_modes(proxy, s, selection)
+    # This diagnostic probe belongs to the explicitly selected surface model.
+    # The production default is planar classical emission, with no such probe.
+    from temsim.optics.electron_gun.tip_assembly import model_from_part
+    s.electron_gun.emitter.surface_model = model_from_part(s._resolved_assembly.part("feg_tip").data)
+    assert s.electron_gun.emitter.surface_model.coherence is None
     switch_mode(s, "ideal")
     s.electron_gun.emitter.ray_count = 49
     s.step_mm = 1.

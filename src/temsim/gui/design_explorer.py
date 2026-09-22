@@ -62,6 +62,14 @@ _STATUS_PRESENTATION = {
 _OFF_PRESENTATION = ("Off", "#94a3b8", "#1e293b")
 
 
+def _sweep_unit(path):
+    if path.endswith(".percent"):
+        return "%"
+    if path in {f"sample.orientation_euler_{axis}_deg" for axis in "xyz"}:
+        return "deg"
+    return ""
+
+
 class _CapturedDesign:
     """Small GUI capture; file hashing and portable serialization run in a worker."""
     def __init__(self, request, selection, slot):
@@ -222,6 +230,9 @@ class DesignExplorerPage(QWidget):
             ("Intermediate strength (%)", "lenses[intermediate_lens].percent"),
             ("P1 strength (%)", "lenses[projector_lens_1].percent"),
             ("P2 strength (%)", "lenses[projector_lens_2].percent"),
+            ("Sample rotation X (deg)", "sample.orientation_euler_x_deg"),
+            ("Sample rotation Y (deg)", "sample.orientation_euler_y_deg"),
+            ("Sample rotation Z (deg)", "sample.orientation_euler_z_deg"),
         ):
             self.sweep_parameter.addItem(label, path)
         self.sweep_parameter.setToolTip(
@@ -430,7 +441,8 @@ class DesignExplorerPage(QWidget):
             request._input_assets.close()
             raise ValueError("A design capture is already queued or running")
         record = _CapturedDesign(request, selection, slot)
-        worker = ArchiveLoader(record, Event())
+        worker = ArchiveLoader(record, Event(),
+            maximum_unpacked_bytes=self.experiment_tools.pool.coordinator.ram_budget_bytes)
         from temsim.gui.job_coordinator import ResourceClaim
         worker.resource_claim = ResourceClaim(2 * 1024**3 + 6 * sum(len(value) for value in request._input_assets._items.values()))
         self._capture_worker = worker
@@ -622,7 +634,7 @@ class DesignExplorerPage(QWidget):
             perturbations = self.study_kind.currentIndex() == 1
             if len(values) < 2 and not perturbations:
                 raise ValueError("Enter at least two sweep values")
-            axes = [SweepAxis(path, values, "%" if path.endswith(".percent") else "")]
+            axes = [SweepAxis(path, values, _sweep_unit(path))]
             for row in range(self.additional_axes.rowCount()):
                 cells = [self.additional_axes.item(row, column) for column in range(2)]
                 if any(cell is None or not cell.text().strip() for cell in cells):
@@ -631,7 +643,7 @@ class DesignExplorerPage(QWidget):
                 extra_values = tuple(float(value.strip()) for value in cells[1].text().split(","))
                 if len(extra_values) < 2 and not perturbations:
                     raise ValueError("Every parameter requires at least two values")
-                axes.append(SweepAxis(extra_path, extra_values, "%" if extra_path.endswith(".percent") else ""))
+                axes.append(SweepAxis(extra_path, extra_values, _sweep_unit(extra_path)))
             if perturbations:
                 if any(len(axis.values) != 1 for axis in axes):
                     raise ValueError("For normal perturbations, enter exactly one positive standard deviation per control")

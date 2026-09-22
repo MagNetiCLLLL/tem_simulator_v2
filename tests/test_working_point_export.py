@@ -9,7 +9,7 @@ import pytest
 from temsim.immutable_json import thaw_json
 from temsim.instrument_snapshot import capture_instrument_snapshot
 from temsim.optics.column import default_state
-from temsim.working_point import WorkingPointCheckpoint, WorkingPointArchiveIndex, migrate_working_point_inputs
+from temsim.working_point import WorkingPointCheckpoint, WorkingPointArchiveIndex
 from temsim.working_point_export import export_checkpoint
 
 
@@ -54,7 +54,7 @@ def test_inputs_export_needs_no_result_load_and_keeps_exact_input_graph(point, t
     assert loaded.metadata["restoration_policy"] == "VERIFY_ORIGINAL_DEPENDENCIES"
 
 
-def test_metadata_omits_bulk_inputs_and_cannot_restore_apply_or_migrate(point, tmp_path, qtbot):
+def test_metadata_omits_bulk_inputs_and_cannot_restore_or_apply(point, tmp_path, qtbot):
     from temsim.gui.working_point_panel import WorkingPointPanel
     from temsim.sampling_diagnostics import checkpoint_sampling_summary
     target = tmp_path / "metadata.temwp"
@@ -73,7 +73,7 @@ def test_metadata_omits_bulk_inputs_and_cannot_restore_apply_or_migrate(point, t
     loaded = index.load()
     assert loaded.parent_id == point.digest
     assert checkpoint_sampling_summary(loaded)["status"] == "METADATA_ONLY"
-    for operation in (loaded.compatible_state, loaded.snapshot.restore, lambda: migrate_working_point_inputs(loaded)):
+    for operation in (loaded.compatible_state, loaded.snapshot.restore):
         with pytest.raises(ValueError):
             operation()
     with pytest.raises(ValueError, match="complete input"):
@@ -89,7 +89,6 @@ def test_metadata_omits_bulk_inputs_and_cannot_restore_apply_or_migrate(point, t
     panel._restore(False)
     panel._restore(True)
     panel._apply_illumination()
-    panel._migrate()
     panel._load_selected()
     assert not restored and not applied
     assert len(panel._points) == 1 and not panel._archive_loading

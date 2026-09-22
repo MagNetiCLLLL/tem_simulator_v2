@@ -67,7 +67,6 @@ def test_ray_simulation_rejects_unmigrated_virtual_mode():
     state.history_step_mm = 5.0
     state.electron_gun.emitter.ray_count = 9
     state.sample.specimen_mode = "virtual"
-    state.sample.diffraction_enabled = True
     state.sample.virtual_diffraction_angle_mrad = 5.0
     state.sample.virtual_diffraction_azimuth_deg = 90.0
     state.sample.virtual_scattering_angle_mrad = 12.0
@@ -79,7 +78,7 @@ def test_ray_simulation_rejects_unmigrated_virtual_mode():
         run(state, resolved_layout=layout)
 
 
-def test_legacy_vacuum_reference_migrates_to_retracted_sample_without_virtual_rows():
+def test_retracted_current_sample_propagates_without_specimen_interaction():
     state = default_state()
     catalog = AssemblyCatalog()
     catalog.apply(state, catalog.default_selection())
@@ -88,27 +87,7 @@ def test_legacy_vacuum_reference_migrates_to_retracted_sample_without_virtual_ro
     state.step_mm = 5.0
     state.history_step_mm = 5.0
     state.electron_gun.emitter.ray_count = 9
-    payload = state.to_dict()
-    payload["schema_version"] = 76  # Deliberately exercise the old input format.
-    payload["sample"]["specimen_mode"] = "virtual"
-    payload["sample"]["specimen_preset_key"] = "vacuum"
-    payload["sample"]["diffraction_enabled"] = True
-    payload["sample"]["virtual_interactions"] = [
-        {
-            "name": "must not run",
-            "kind": "diffraction_spots",
-            "enabled": True,
-            "probability": 0.9,
-            "angle_mrad": 10.0,
-            "azimuth_deg": 0.0,
-        }
-    ]
-
-    state = type(state).from_dict(payload)
-    assert state.schema_version == 77
-    assert state.sample.specimen_mode == "reference"
-    assert state.sample.inserted is False
-    assert state.sample.virtual_interactions == []
+    state.sample.inserted = False
     layout = apply_physical_layout_to_state(state)
     simulation = run(state, resolved_layout=layout)
 
@@ -125,9 +104,8 @@ def test_specimen_mode_and_cif_path_round_trip():
     state.sample.specimen_mode = "atomic"
     state.sample.specimen_preset_key = "si_110"
     state.sample.cif_path = "example.cif"
-    state.sample.specimen_rotation_x_deg = 12.5
-    state.sample.specimen_rotation_y_deg = -3.25
-    state.sample.specimen_rotation_z_deg = 91.0
+    from temsim.specimen.geometry import set_sample_orientation_euler_xyz_deg, sample_orientation_euler_xyz_deg
+    set_sample_orientation_euler_xyz_deg(state.sample, (12.5, -3.25, 91.0))
 
     restored = type(state).from_dict(state.to_dict())
 
@@ -135,57 +113,16 @@ def test_specimen_mode_and_cif_path_round_trip():
     assert not hasattr(restored.sample, "atomic_structure_source")
     assert restored.sample.specimen_preset_key == "si_110"
     assert restored.sample.cif_path == "example.cif"
-    assert (
-        restored.sample.specimen_rotation_x_deg,
-        restored.sample.specimen_rotation_y_deg,
-        restored.sample.specimen_rotation_z_deg,
-    ) == pytest.approx((12.5, -3.25, 91.0))
+    assert sample_orientation_euler_xyz_deg(restored.sample) == pytest.approx((12.5, -3.25, 91.0))
 
 
-def test_schema_69_cif_state_migrates_to_real_mode():
-    state = default_state()
-    payload = state.to_dict()
-    payload["schema_version"] = 69
-    payload["sample"]["specimen_mode"] = "atomic"
-    payload["sample"]["specimen_preset_key"] = "si_110"
-    payload["sample"]["cif_path"] = "legacy-example.cif"
-
-    restored = type(state).from_dict(payload)
-
-    assert restored.schema_version == 77
-    assert restored.sample.specimen_mode == "atomic"
-    assert restored.sample.specimen_preset_key == "si_110"
-    assert restored.sample.cif_path == "legacy-example.cif"
 
 
-def test_schema_70_real_preset_state_migrates_to_cif_reference_mode():
-    state = default_state()
-    payload = state.to_dict()
-    payload["schema_version"] = 70
-    payload["sample"]["specimen_mode"] = "atomic"
-    payload["sample"]["atomic_structure_source"] = "preset"
-    payload["sample"]["specimen_preset_key"] = "au_001"
-    payload["sample"]["cif_path"] = ""
-
-    restored = type(state).from_dict(payload)
-
-    assert restored.schema_version == 77
-    assert restored.sample.specimen_mode == "reference"
-    assert restored.sample.reference_sample_key == "au_001"
-    assert restored.sample.specimen_preset_key == "au_001"
-    assert not hasattr(restored.sample, "atomic_structure_source")
 
 
-def test_pre_73_state_without_shape_retains_rectangular_envelope():
-    state = default_state()
-    payload = state.to_dict()
-    payload["schema_version"] = 72
-    payload["sample"].pop("envelope_shape")
 
-    restored = type(state).from_dict(payload)
 
-    assert restored.schema_version == 77
-    assert restored.sample.envelope_shape == "rectangle"
+
 
 
 def test_cif_import_builds_exact_finite_rotated_specimen_box(tmp_path):

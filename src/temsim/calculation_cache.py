@@ -53,6 +53,11 @@ _TEM_PROJECTION_SCHEMA = "physical-aperture-pre-loss-flux-v1"
 _STEM_RECORDING_SCHEMA = "physical-envelope-pre-specimen-flux-gpu-capture-v6"
 _PARTICLE_POINT_SCHEMA = "resolved-point-material-hit-diagnostics-v2"
 _EDS_SIGNAL_SCHEMA = "eds-only-overlap-importance-v1"
+_EDS_RESPONSE_SCHEMA = "executed-eds-response-per-arrival-electron-v1"
+_EDS_READOUT_FIELDS = (
+    "eds_spectrum_max_energy_ev", "eds_spectrum_bin_width_ev",
+    "eds_energy_resolution_fwhm_ev", "eds_poisson_enabled", "eds_poisson_seed",
+)
 _STAGE_INPUT_SCHEMA = "live-lens-components-v4-physical-gun-apertures"
 
 
@@ -179,6 +184,23 @@ def _drop_physical_current_scale(
 
     result = deepcopy(payload)
     result.pop("column_current_limit_percent", None)
+    return result
+
+
+def _drop_inactive_scan_period(payload):
+    """A disabled raster's frame period is dose only, not a static coil drive.
+
+    Keep every timing dependency when either scan component has scanning on.
+    Pixel dimensions remain in all identities; this does not change raster
+    sampling, field of view, wobble timing, or the current simulation time.
+    """
+    result = deepcopy(payload)
+    rows = result.get("corrector_elements", ())
+    if not any(str(row.get("key", "")) in {"ac_deflector", "descan_deflector"}
+               and bool(row.get("scan_enabled", False)) for row in rows):
+        for row in rows:
+            if str(row.get("key", "")) == "ac_deflector":
+                row.pop("scan_frame_period_s", None)
     return result
 
 
@@ -519,8 +541,22 @@ def _state_payload(state) -> dict[str, object]:
     extensions = unmapped_public_inputs(state)
     if extensions:
         payload["_unmapped_public_inputs"] = dict(extensions)
-    from temsim.optics.electron_gun.tracing import ANALYTIC_ENERGY_SCHEMA
+    from temsim.optics.electron_gun.tracing import (
+        ANALYTIC_ENERGY_SCHEMA, ANALYTIC_STEP_SCHEMA,
+        ANALYTIC_MAXIMUM_RELATIVE_IMPULSE,
+    )
     payload["_gun_analytic_energy_schema"] = ANALYTIC_ENERGY_SCHEMA
+    payload["_gun_analytic_step_schema"] = ANALYTIC_STEP_SCHEMA
+    payload["_gun_analytic_maximum_relative_impulse"] = ANALYTIC_MAXIMUM_RELATIVE_IMPULSE
+    from temsim.physics.flight_time import FLIGHT_TIME_SCHEMA
+    from temsim.optics.electron_gun.tracing import GUN_FLIGHT_TIME_SCHEMA
+    payload["_particle_flight_time_schema"] = FLIGHT_TIME_SCHEMA
+    payload["_gun_flight_time_schema"] = GUN_FLIGHT_TIME_SCHEMA
+    payload["_elastic_terminal_material_path_schema"] = "executed-terminal-material-path-current-pixel-centroid-v2"
+    # Scan calibration changes physical foil commands, so its numerical law
+    # belongs to dependent transport identities as well as the geometry view.
+    from temsim.physics.first_order import FIRST_ORDER_RESPONSE_SCHEMA
+    payload["_first_order_response_schema"] = FIRST_ORDER_RESPONSE_SCHEMA
     if getattr(state, "vacuum_map", None) is not None and state.vacuum_map.enabled:
         from dataclasses import asdict
         from temsim.vacuum import resolve_regions
@@ -721,12 +757,12 @@ def _calculation_signatures_from_payload(
     non_filter = _drop_energy_filter_controls(no_region)
     non_filter_geometric = deepcopy(non_filter)
     non_filter_geometric.pop("image_aberrations", None)
-    column = _drop_post_column_specimen_content(
+    column = _drop_inactive_scan_period(_drop_post_column_specimen_content(
         _drop_physical_current_scale(_drop_sample_fields(
             non_filter_geometric,
             prefixes=(*_EDS_PREFIXES, "wave_", *_STEM_PREFIXES),
         ))
-    )
+    ))
     incident = _incident_only_payload(
         _drop_post_sample_projection_controls(column)
     )
@@ -746,7 +782,7 @@ def _calculation_signatures_from_payload(
         "eds_support_offset_y_um",
         "eds_support_rotation_deg",
     }
-    elastic = _drop_post_sample_projection_controls(
+    elastic = _drop_inactive_scan_period(_drop_post_sample_projection_controls(
         _drop_physical_current_scale(
             _drop_sample_fields(
                 non_filter_geometric,
@@ -754,7 +790,7 @@ def _calculation_signatures_from_payload(
                 keep=elastic_keep,
             )
         )
-    )
+    ))
     wave = _drop_physical_current_scale(_drop_sample_fields(
         non_filter,
         prefixes=(*_EDS_PREFIXES, *_STEM_PREFIXES),
@@ -798,6 +834,8 @@ def _calculation_signatures_from_payload(
             prefixes=("wave_", *_STEM_PREFIXES),
         )
     )
+    eds_response = _drop_inactive_scan_period(_drop_physical_current_scale(
+        _drop_sample_fields(eds, names=_EDS_READOUT_FIELDS)))
     scan_ray_paths = _drop_emitter_ray_count(
         _drop_physical_current_scale(
             _drop_sample_fields(
@@ -900,6 +938,8 @@ def _calculation_signatures_from_payload(
             fourdstem_physical_recording
         ),
         "eds": _eds_digest(eds),
+        "eds_response": _eds_digest({"response_schema": _EDS_RESPONSE_SCHEMA,
+                                     "parameters": eds_response}),
         "energy_filter": (
             _tem_wave_digest(energy_filter)
             if energy_filter_mode == "eftem"

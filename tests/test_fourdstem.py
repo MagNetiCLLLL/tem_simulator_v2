@@ -25,7 +25,7 @@ from temsim.physics.fourdstem_workflow import (
 from temsim.physics.record_plane import PlaneStop, RecordPlanePlan
 from temsim.physics.stem_wave_imaging import (
     AngularDetector,
-    simulate_angle_resolved_stem,
+    _simulate_angle_resolved_stem_single as simulate_local_stem_operator,
 )
 from temsim.optics.column import default_state
 from temsim.assembly_catalog import AssemblyCatalog
@@ -357,7 +357,7 @@ def test_stem_wave_solver_streams_configuration_averaged_diffraction_cube(tmp_pa
         response=PixelatedDetectorResponse(status="synthetic_unit_test"),
     )
 
-    result = simulate_angle_resolved_stem(
+    result = simulate_local_stem_operator(
         state,
         SimpleNamespace(incident=incident),
         (AngularDetector("bf", 0.0, 10.0),),
@@ -418,7 +418,7 @@ def test_high_accuracy_adapter_separates_cube_and_downstream_plan_signatures(tmp
 
     scan_x = np.asarray(((0.0, 1.0e-4),))
     scan_y = np.zeros_like(scan_x)
-    wave = simulate_angle_resolved_stem(
+    wave = simulate_local_stem_operator(
         state,
         simulation,
         (AngularDetector("bf", 0.0, 10.0),),
@@ -469,3 +469,7 @@ def test_high_accuracy_adapter_separates_cube_and_downstream_plan_signatures(tmp
     assert changed.cube_dependency_signature == original_cube_signature
     assert changed.record_plane_plan.fingerprint != original_plan_signature
     changed.sink.close_partial()
+
+
+# Supplied local fields exercise routing; production admission is untouched.
+from local_wave_operator_fixture import supplied_local_probe

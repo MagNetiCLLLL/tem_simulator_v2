@@ -10,16 +10,17 @@ from temsim.component_keys import FIXED_APERTURE_KEYS
 
 SCALAR_TYPES = (bool, int, float, str)
 RETIRED_SAMPLE_FIELDS = frozenset({
-    "specimen_preset_key", "atomic_structure_source", "diffraction_enabled",
-    "g_inv_nm", "excitation_error_inv_nm", "rocking_width_inv_nm",
-    "diffuse_broadening_mrad",
+    "specimen_preset_key", "atomic_structure_source",
 })
 SAMPLE_SOURCE_FIELDS = frozenset({"specimen_mode", "reference_sample_key", "cif_path"})
 IDENTITY_FIELDS = frozenset({
-    "key", "name", "label", "display_name", "colour", "color", "type_key",
+    "key", "name", "label", "display_name", "colour", "color", "type_key", "role",
     "corrector", "owner", "kind", "shape_profile", "interaction_kind",
 })
 INTERNAL_FIELDS = frozenset({
+    "field_model",
+    "scan_amplitude_x_mrad", "scan_amplitude_y_mrad",
+    "lower_coil_gain",
     "source_representation", "effective_source", "coherence", "surface_model",
     "active_backend",
     "active_installation",
@@ -64,7 +65,7 @@ TOML_OWNED_FIELDS = frozenset({
     "signal_collection_surface",
     "field_polarity_source",
     "field_polarity_status",
-    "housing_length_mm",
+    "housing_length_mm", "housing_length_m", "outer_radius_m", "pole_zero_angle_rad",
     "inner_face_gap_mm",
     "lower_a_mm",
     "lower_b0_t",
@@ -205,6 +206,8 @@ def is_geometry_owned(name: str) -> bool:
 
 
 def editable_parameters(target: RuntimeTarget) -> tuple[RuntimeParameter, ...]:
+    if getattr(target.obj, "KIND", None) == "virtual_layout":
+        return ()
     result = []
     if (hasattr(target.obj, "curvature_nm_inv") and target.obj.surface_model is None
             and target.obj.coherence is None):
@@ -221,6 +224,7 @@ def editable_parameters(target: RuntimeTarget) -> tuple[RuntimeParameter, ...]:
             or name in INTERNAL_FIELDS
             or name in TOML_OWNED_FIELDS
             or is_geometry_owned(name)
+            or (target.key == "energy_filter" and name == "enabled")
             or (target.key in FIXED_APERTURE_KEYS and name == "enabled")
             or (target.key == "sample" and (
                 name.startswith("virtual_") or name in RETIRED_SAMPLE_FIELDS
@@ -301,7 +305,7 @@ def validate_runtime_assignment(
         candidate = copy(target.obj)
         setattr(candidate, name, converted)
         candidate.validate()
-    if name in {"ray_count", "maximum_trace_rays"} and int(converted) <= 0:
+    if name in {"ray_count", "maximum_trace_rays", "pixels"} and int(converted) <= 0:
         raise ValueError(f"{target.key}.{name} must be positive")
     if name == "polarity" and int(converted) not in (-1, 1):
         raise ValueError(f"{target.key}.{name} must be +1 or -1")
@@ -327,7 +331,7 @@ def validate_runtime_assignment(
 
         canonical_sample_envelope_shape(converted)
     if name in {
-        "diameter_mm", "radius_mm", "thickness_nm", "rocking_width_inv_nm"
+        "diameter_mm", "radius_mm", "thickness_nm"
     }:
         if float(converted) < 0.0:
             raise ValueError(f"{target.key}.{name} cannot be negative")
@@ -392,10 +396,6 @@ def validate_runtime_assignment(
             "sample.eds_transport_mode must be elastic_monte_carlo or "
             "straight_primary"
         )
-    if name == "field_model" and hasattr(target.obj, "quadrupole_tensor_m2"):
-        from temsim.optics.stigmator_field import MODELS
-        if str(converted) not in MODELS:
-            raise ValueError("Stigmator field model must be legacy_difference or normal_skew")
     if name == "eds_elastic_seed" and int(converted) < 0:
         raise ValueError("sample.eds_elastic_seed cannot be negative")
     if name == "eds_overlap_sampling_points" and not (

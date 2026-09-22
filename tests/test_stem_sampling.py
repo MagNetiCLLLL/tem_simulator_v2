@@ -72,8 +72,8 @@ def test_square_detector_requires_corners_not_just_half_width():
     assert bounds["bf"] == pytest.approx((0., math.sqrt(2)))
 
 
-def test_legacy_wave_results_are_unchecked_not_implicitly_full():
-    assert frame_sampling_report({"model": "multislice_angle_resolved"})["legacy_unchecked"]
+def test_missing_wave_sampling_is_unavailable_not_implicitly_full():
+    assert frame_sampling_report({"model": "multislice_angle_resolved"})["sampling_unavailable"]
     assert frame_sampling_report({"model": "geometric_detector_interception"}) is None
 
 

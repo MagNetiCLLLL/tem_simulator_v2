@@ -57,7 +57,8 @@ class PropagationCheckpoints:
     Arrays use metres for X/Y, radians for TX/TY and have shape
     ``(checkpoint, ray)``.  They are kept separate from the float32 plotting
     history so resuming a high-accuracy integration does not add an extra
-    history-quantisation error.
+    history-quantisation error. Optional flight_time_s has the same shape;
+    NaN denotes a missing upstream time, not a newly assigned time origin.
     """
 
     z_mm: np.ndarray
@@ -65,6 +66,7 @@ class PropagationCheckpoints:
     tx_rad: np.ndarray
     y_m: np.ndarray
     ty_rad: np.ndarray
+    flight_time_s: np.ndarray | None = None
 
     def __post_init__(self):
         z = np.asarray(self.z_mm)
@@ -80,6 +82,12 @@ class PropagationCheckpoints:
             # Immutable bytes, not only a reversible NumPy writeable flag.
             frozen = np.frombuffer(value.tobytes(order="C"), dtype=value.dtype).reshape(value.shape)
             object.__setattr__(self, name, frozen)
+        if self.flight_time_s is not None:
+            time = np.asarray(self.flight_time_s, dtype=np.float64)
+            if time.shape != shape or np.any(np.isinf(time)) or np.any(time < 0.):
+                raise ValueError("Checkpoint flight times must match rays and be non-negative or NaN")
+            frozen = np.frombuffer(time.tobytes(order="C"), dtype=time.dtype).reshape(time.shape)
+            object.__setattr__(self, "flight_time_s", frozen)
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,25 +264,10 @@ def multipole_focusing_fields(z, state):
     sx, sy = np.zeros_like(z), np.zeros_like(z)
     for stig in state.stigmators:
         if not stig.enabled: continue
-        if hasattr(stig, "quadrupole_tensor_m2"):
-            qx, qy, _ = stig.quadrupole_tensor_m2(z)
-            mask = _support_mask(z, stig)
-            sx += np.where(mask, qx, 0.0)
-            sy += np.where(mask, qy, 0.0)
-            continue
-        if hasattr(stig, "quadrupole_strengths_m2"):
-            qx, qy = stig.quadrupole_strengths_m2(z)
-            mask = _support_mask(z, stig)
-            sx += np.where(mask, qx, 0.0)
-            sy += np.where(mask, qy, 0.0)
-            continue
-        envelope=np.exp(-0.5*((z-stig.z_mm)/max(1e-12,stig.length_mm/2.355))**2)
-        xset=stig.max_strength_m2*stig.strength_x_percent/100.0
-        yset=stig.max_strength_m2*stig.strength_y_percent/100.0
-        q=0.5*(xset-yset)*envelope
+        qx, qy, _ = stig.quadrupole_tensor_m2(z)
         mask = _support_mask(z, stig)
-        sx += np.where(mask, q, 0.0)
-        sy -= np.where(mask, q, 0.0)
+        sx += np.where(mask, qx, 0.0)
+        sy += np.where(mask, qy, 0.0)
     for component in getattr(state, "corrector_elements", []):
         if not getattr(component, "enabled", False):
             continue
@@ -291,7 +284,7 @@ def skew_quadrupole_field(z, state):
     z = np.asarray(z, float)
     skew = np.zeros_like(z)
     for stig in state.stigmators:
-        if stig.enabled and hasattr(stig, "quadrupole_tensor_m2"):
+        if stig.enabled:
             _, _, value = stig.quadrupole_tensor_m2(z)
             skew += np.where(_support_mask(z, stig), value, 0.0)
     return skew
@@ -372,7 +365,7 @@ def spherical_aberration_kick_m3(z_mm, state):
     result = np.zeros(z.size, dtype=np.float64)
     if z.size == 0 or is_ideal(state):
         return result
-    half_step = math.inf if z.size < 2 else 0.5 * abs(float(z[1] - z[0]))
+    boundary_tolerance = 32.0 * np.finfo(np.float64).eps * max(1., abs(float(z[0])), abs(float(z[-1])))
     mapped_keys = {provider.lens_key for provider in active_mapped_providers(state)}
     for lens in getattr(state, "lenses", ()):
         if not bool(getattr(lens, "enabled", True)):
@@ -385,7 +378,7 @@ def spherical_aberration_kick_m3(z_mm, state):
         if cs_mm is None or float(cs_mm) == 0.0:
             continue
         lens_z = float(getattr(lens, "z_mm"))
-        if lens_z < float(z[0]) - half_step or lens_z > float(z[-1]) + half_step:
+        if lens_z < float(z[0]) - boundary_tolerance or lens_z > float(z[-1]) + boundary_tolerance:
             continue
         try:
             focal_mm = float(focal_length_mm(lens, state.beam_voltage_kv))
@@ -710,7 +703,7 @@ def build_propagation_plan(
         bool(getattr(state, "acceleration_enabled", False)),
         str(getattr(state, "acceleration_backend", "Auto")),
         FIELD_SIGMA_CUTOFF,
-        'canonical-rk4-quadrupole-tensor-v3',
+        'canonical-rk4-quadrupole-tensor-tof-v4',
         mode_key(state),
         state.vacuum_map.signature() if particle_medium else "optical-map-no-medium",
     ))
@@ -818,8 +811,14 @@ def execute_propagation_plan(
     include_initial_plane_kicks=True,
     defer_nonfinite_until_clipping=False,
     medium_transport=None,
+    initial_time_s=None, return_flight_times=False,
 ):
-    """Execute a complete plan or resume it from an after-action checkpoint."""
+    """Execute a complete plan or resume it from an after-action checkpoint.
+
+    With return_flight_times, append float64 saved times after the five ray
+    history arrays and before checkpoints. Resuming passes the checkpoint's
+    time row explicitly; absent upstream times remain NaN throughout.
+    """
 
     from temsim.physics.optical_tuning import check_tuning_cancelled
     check_tuning_cancelled(state)
@@ -888,11 +887,26 @@ def execute_propagation_plan(
         cs_kick, thin_power, thin_rotation, step_m, *arrays, kickx, kicky,
         save, checkpoint_index, sxy,
     )
+    timing = {}
+    if return_flight_times:
+        initial = (np.full(arrays[0].size, np.nan, dtype=np.float64)
+                   if initial_time_s is None else np.asarray(initial_time_s, dtype=np.float64))
+        if initial.shape != (arrays[0].size,) or np.any(np.isinf(initial)) or np.any(initial < 0.):
+            raise ValueError("Initial flight times must be one non-negative or NaN value per ray")
+        # Acceleration has already executed in the gun. The present column
+        # model has constant energy; use actual per-particle energy even when
+        # Ideal optics evaluates its trajectory at the reference energy.
+        actual_momentum = np.asarray(momentum_profile(state, zfull[:1], energy_offset_ev)[0])
+        actual_momentum = np.broadcast_to(actual_momentum, (arrays[0].size,))
+        inverse_speed = np.sqrt(M*M+(actual_momentum/C)**2)/actual_momentum
+        timing = dict(initial_time_s=np.ascontiguousarray(initial),
+                      inverse_speed=np.ascontiguousarray(inverse_speed))
     policy = normalise_backend(getattr(state, "acceleration_backend", "Auto")).lower().replace(" ", "_")
+    tuning = bool(getattr(state, "_optical_tuning", False) or getattr(state, "_particle_tuning", False))
     workload = None
-    if medium_transport is None and not plan.mapped_fields and not getattr(state, "_optical_tuning", False):
+    if medium_transport is None and not plan.mapped_fields and not tuning:
         from temsim.physics.ray_device_cache import STAGE_COSTS, measured_workload
-        workload = measured_workload(inputs)
+        workload = measured_workload((*inputs, *timing.values()) if timing else inputs)
         if policy == "auto" and getattr(state, "acceleration_enabled", False):
             from temsim.physics.compute_backend import cuda_capability
             eligible = [BACKEND_CPU]
@@ -907,27 +921,27 @@ def execute_propagation_plan(
     if policy == "require_gpu" and (medium_transport is not None or plan.mapped_fields):
         raise GPUExecutionError("unsupported_stage", "Requested column transport requires the existing CPU vector-field or residual-medium solver")
     if medium_transport is not None and not plan.mapped_fields:
-        outputs = _vectorised_rk4(*inputs, step_operator=medium_transport)
+        outputs = _vectorised_rk4(*inputs, step_operator=medium_transport, **timing)
         backend, fallback_reason = BACKEND_CPU, "classical residual-medium collisions between optical steps"
     elif plan.mapped_fields:
         from temsim.physics.vector_field_transport import vector_map_rk4
         backend, fallback_reason = BACKEND_CPU, "imported vector-field RK4"
         outputs = vector_map_rk4(*inputs, z_mm=zfull, mapped_fields=plan.mapped_fields,
                                 defer_nonfinite_until_clipping=defer_nonfinite_until_clipping,
-                                step_operator=medium_transport)
-    elif (getattr(state, "_optical_tuning", False) and NUMBA_AVAILABLE
+                                step_operator=medium_transport, **timing)
+    elif (tuning and NUMBA_AVAILABLE
           and getattr(state, "acceleration_enabled", False)
           and getattr(state, "acceleration_backend", "Auto") == "Auto"):
         try:
-            outputs = _serial_rk4(*inputs)
+            outputs = _serial_rk4(*inputs, **timing)
             backend = BACKEND_NUMBA
             state._tuning_kernel = "serial_numba"
         except Exception as exc:
             backend, fallback_reason = BACKEND_CPU, f"Tuning JIT unavailable: {exc}"
-            outputs = _vectorised_rk4(*inputs)
+            outputs = _vectorised_rk4(*inputs, **timing)
     elif backend == BACKEND_CUDA:
         try:
-            outputs = _cuda_rk4(*inputs)
+            outputs = _cuda_rk4(*inputs, **timing)
         except Exception as exc:
             # Input, physics and cancellation errors must keep their original
             # meaning; only declared accelerator failures can use a CPU retry.
@@ -939,13 +953,13 @@ def execute_propagation_plan(
             retried = True
             backend = BACKEND_NUMBA if NUMBA_AVAILABLE else BACKEND_CPU
             outputs = (
-                _parallel_rk4(*inputs) if backend == BACKEND_NUMBA
-                else _vectorised_rk4(*inputs)
+                _parallel_rk4(*inputs, **timing) if backend == BACKEND_NUMBA
+                else _vectorised_rk4(*inputs, **timing)
             )
     elif backend == BACKEND_NUMBA:
-        outputs = _parallel_rk4(*inputs)
+        outputs = _parallel_rk4(*inputs, **timing)
     else:
-        outputs = _vectorised_rk4(*inputs)
+        outputs = _vectorised_rk4(*inputs, **timing)
     check_tuning_cancelled(state)
     if workload is not None and not retried:
         STAGE_COSTS.record(workload, backend, perf_counter() - transport_started)
@@ -956,14 +970,17 @@ def execute_propagation_plan(
     from temsim.physics.backend_execution import record_backend
     record_backend("column", getattr(state, "acceleration_backend", "Auto"), backend,
                    reason=fallback_reason or "", retried=retried)
-    X,TX,Y,TY,CX,CTX,CY,CTY=outputs
+    X,TX,Y,TY,CX,CTX,CY,CTY=outputs[:8]
     checkpoints = PropagationCheckpoints(
         z_mm=_frozen_array(zfull[checkpoint_index]),
         x_m=_frozen_array(CX),
         tx_rad=_frozen_array(CTX),
         y_m=_frozen_array(CY),
         ty_rad=_frozen_array(CTY),
+        flight_time_s=outputs[9] if return_flight_times else None,
     )
+    if return_flight_times:
+        return zfull[save],X,TX,Y,TY,outputs[8],checkpoints
     return zfull[save],X,TX,Y,TY,checkpoints
 
 
@@ -974,6 +991,7 @@ def propagate(
     checkpoint_z_mm=(),return_checkpoints=False,maximum_step_mm=None,
     defer_nonfinite_until_clipping=False,
     particle_medium=False, medium_alive=None, medium_stream=2, medium_output=None,
+    initial_time_s=None, return_flight_times=False,
 ):
     plan = build_propagation_plan(
         state,z0,z1,events,
@@ -1000,8 +1018,9 @@ def propagate(
         include_initial_plane_kicks=include_initial_plane_kicks,
         defer_nonfinite_until_clipping=defer_nonfinite_until_clipping,
         medium_transport=transport,
+        initial_time_s=initial_time_s, return_flight_times=return_flight_times,
     )
-    return result if return_checkpoints else result[:5]
+    return result if return_checkpoints else result[:6 if return_flight_times else 5]
 
 def transfer(state,z0,z1):
     if active_mapped_providers(state):

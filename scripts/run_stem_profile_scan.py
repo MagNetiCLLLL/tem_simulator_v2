@@ -160,9 +160,7 @@ def main(argv=None):
     started = perf_counter()
     catalog = AssemblyCatalog(); selection, values = read_profile(args.profile)
     state = default_state(); catalog.apply(state, selection)
-    skipped = apply_profile_values(state, values)
-    if skipped:
-        raise ValueError(f"Profile has unsupported fields: {skipped}")
+    apply_profile_values(state, values)
     shutil.copyfile(args.profile, output / "input_profile.toml")
     source = Path(state.sample.cif_path).resolve()
     if not source.is_file():

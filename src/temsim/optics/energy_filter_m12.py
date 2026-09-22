@@ -1,4 +1,4 @@
-"""Independent entrance and exit M12 units for the Energy Filter."""
+"""Ten independent multipole carriers for the energy filter."""
 
 from __future__ import annotations
 
@@ -8,8 +8,6 @@ import math
 import numpy as np
 
 from temsim.component_keys import (
-    ENERGY_FILTER_ENTRANCE_M12,
-    ENERGY_FILTER_EXIT_M12,
     ENERGY_FILTER_MULTIPOLE_KEYS,
 )
 from temsim.optics.twelve_pole_element import (
@@ -30,14 +28,14 @@ from temsim.physics.relativistic_lorentz import (
 MINIMUM_MATCH_VOLTAGE_KV = 30.0
 MAXIMUM_MATCH_VOLTAGE_KV = 300.0
 DEFAULT_REFERENCE_VOLTAGE_KV = 300.0
-ILIAD_REFERENCE_RADIUS_M = 2.0e-3
+FILTER_REFERENCE_RADIUS_M = 2.0e-3
 # Solved reference fields at 300 kV.  Values are the field amplitude at
-# ILIAD_REFERENCE_RADIUS_M, rather than raw SI coefficients, so the preset is
+# FILTER_REFERENCE_RADIUS_M, rather than raw SI coefficients, so the preset is
 # easy to audit and remains numerically well-scaled.  The geometry is a
 # documented reference calibration based on the public tapered-prism/ten-
 # multipole topology; it is not claimed to reproduce proprietary factory
 # excitation tables.
-ILIAD_REFERENCE_QUADRUPOLE_FIELD_T = (
+FILTER_REFERENCE_QUADRUPOLE_FIELD_T = (
     -7.00701380e-3,
     -7.28743610e-4,
     4.36144547e-3,
@@ -49,7 +47,7 @@ ILIAD_REFERENCE_QUADRUPOLE_FIELD_T = (
     5.49052e-3,
     -8.36259e-3,
 )
-ILIAD_REFERENCE_SEXTUPOLE_FIELD_T = (
+FILTER_REFERENCE_SEXTUPOLE_FIELD_T = (
     -4.38361777e-4,
     8.60942288e-4,
     2.83908043e-4,
@@ -195,7 +193,7 @@ class EnergyFilterM12Component(TwelvePoleElement):
     by layout views and collision checks; it must never create extra field.
     """
 
-    role: str = "entrance"
+    role: str = "m01"
     housing_length_m: float = 22.0e-3
     calibration: M12VoltageCalibration = field(
         default_factory=lambda: M12VoltageCalibration(
@@ -206,19 +204,13 @@ class EnergyFilterM12Component(TwelvePoleElement):
     def __post_init__(self):
         super().__post_init__()
         expected_by_role = {
-            "entrance": ENERGY_FILTER_ENTRANCE_M12,
-            "exit": ENERGY_FILTER_EXIT_M12,
-            **{
-                f"m{index:02d}": key
-                for index, key in enumerate(
-                    ENERGY_FILTER_MULTIPOLE_KEYS, start=1
-                )
-            },
+            f"m{index:02d}": key
+            for index, key in enumerate(ENERGY_FILTER_MULTIPOLE_KEYS, start=1)
         }
         expected_key = expected_by_role.get(self.role)
         if expected_key is None:
             raise ValueError(
-                "M12 role must be entrance, exit, or m01 through m10."
+                "Multipole role must be m01 through m10."
             )
         if self.key != expected_key:
             raise ValueError(
@@ -288,33 +280,7 @@ def _create_multipole(key, name, role, reference_voltage_kv):
     )
 
 
-def _create_m12(role, reference_voltage_kv):
-    if role == "entrance":
-        key = ENERGY_FILTER_ENTRANCE_M12
-        name = "Entrance M12"
-    elif role == "exit":
-        key = ENERGY_FILTER_EXIT_M12
-        name = "Exit M12"
-    else:
-        raise ValueError("M12 role must be 'entrance' or 'exit'.")
-    return _create_multipole(
-        key, name, role, reference_voltage_kv
-    )
-
-
-def create_entrance_m12(
-    reference_voltage_kv=DEFAULT_REFERENCE_VOLTAGE_KV,
-):
-    return _create_m12("entrance", reference_voltage_kv)
-
-
-def create_exit_m12(
-    reference_voltage_kv=DEFAULT_REFERENCE_VOLTAGE_KV,
-):
-    return _create_m12("exit", reference_voltage_kv)
-
-
-def create_iliad_multipoles(
+def create_energy_filter_multipoles(
     reference_voltage_kv=DEFAULT_REFERENCE_VOLTAGE_KV,
 ):
     """Create ten independent carriers matching the public Energy filter topology."""
@@ -330,15 +296,15 @@ def create_iliad_multipoles(
     ]
     for element, quadrupole_t, sextupole_t in zip(
         multipoles,
-        ILIAD_REFERENCE_QUADRUPOLE_FIELD_T,
-        ILIAD_REFERENCE_SEXTUPOLE_FIELD_T,
+        FILTER_REFERENCE_QUADRUPOLE_FIELD_T,
+        FILTER_REFERENCE_SEXTUPOLE_FIELD_T,
     ):
         reference_normal = np.zeros(MultipoleField.ORDER_COUNT)
         reference_normal[1] = (
-            quadrupole_t / ILIAD_REFERENCE_RADIUS_M
+            quadrupole_t / FILTER_REFERENCE_RADIUS_M
         )
         reference_normal[2] = (
-            sextupole_t / ILIAD_REFERENCE_RADIUS_M**2
+            sextupole_t / FILTER_REFERENCE_RADIUS_M**2
         )
         element.calibration.reference_normal_coefficients = (
             reference_normal
@@ -391,162 +357,47 @@ def serialise_energy_filter_m12(component):
     }
 
 
-def energy_filter_m12_from_dict(values, role, reference_voltage_kv):
+def _require_fields(values, expected, label):
     if not isinstance(values, dict):
-        return _create_m12(role, reference_voltage_kv)
-    expected_key = (
-        ENERGY_FILTER_ENTRANCE_M12
-        if role == "entrance"
-        else ENERGY_FILTER_EXIT_M12
-    )
-    defaults = _create_m12(role, reference_voltage_kv)
-    field_values = values.get("field", {})
-    calibration_values = values.get("calibration", {})
-    return EnergyFilterM12Component(
-        name=str(values.get("name", defaults.name)),
-        key=expected_key,
-        field_backend=FiniteMultipoleField(
-            MultipoleField(
-                normal=field_values.get(
-                    "normal_coefficients",
-                    defaults.multipole_field.normal_coefficients,
-                ),
-                skew=field_values.get(
-                    "skew_coefficients",
-                    defaults.multipole_field.skew_coefficients,
-                ),
-            ),
-            SoftEdgeEnvelope(
-                length_m=defaults.field_backend.envelope.length_m,
-                entrance_soft_edge_m=(
-                    defaults.field_backend.envelope.entrance_soft_edge_m
-                ),
-                exit_soft_edge_m=(
-                    defaults.field_backend.envelope.exit_soft_edge_m
-                ),
-            ),
-            fringe_expansion_order=int(
-                field_values.get(
-                    "fringe_expansion_order",
-                    defaults.field_backend.fringe_expansion_order,
-                )
-            ),
-        ),
-        frame=LocalCoordinateFrame(),
-        bore_radius_m=float(defaults.bore_radius_m),
-        outer_radius_m=float(defaults.outer_radius_m),
-        pole_zero_angle_rad=float(defaults.pole_zero_angle_rad),
-        enabled=bool(values.get("enabled", defaults.enabled)),
-        role=role,
-        calibration=M12VoltageCalibration(
-            calibration_id=str(
-                calibration_values.get(
-                    "calibration_id",
-                    f"{expected_key}_calibration",
-                )
-            ),
-            reference_voltage_kv=float(
-                calibration_values.get(
-                    "reference_voltage_kv",
-                    reference_voltage_kv,
-                )
-            ),
-            reference_normal_coefficients=calibration_values.get(
-                "reference_normal_coefficients",
-                np.zeros(MultipoleField.ORDER_COUNT),
-            ),
-            reference_skew_coefficients=calibration_values.get(
-                "reference_skew_coefficients",
-                np.zeros(MultipoleField.ORDER_COUNT),
-            ),
-            normal_trim_coefficients=calibration_values.get(
-                "normal_trim_coefficients",
-                np.zeros(MultipoleField.ORDER_COUNT),
-            ),
-            skew_trim_coefficients=calibration_values.get(
-                "skew_trim_coefficients",
-                np.zeros(MultipoleField.ORDER_COUNT),
-            ),
-        ),
-    )
+        raise ValueError(f"{label} must be a complete current record.")
+    missing = expected - values.keys()
+    unknown = values.keys() - expected
+    if missing or unknown:
+        raise ValueError(f"{label} fields invalid: missing {sorted(missing)}, unknown {sorted(unknown)}.")
+    return values
 
 
-def energy_filter_multipole_from_dict(
-    values, index, reference_voltage_kv
-):
-    """Restore one of the ten Energy filter carriers without legacy key migration."""
+def energy_filter_multipole_from_dict(values, index, reference_voltage_kv):
+    """Restore one explicitly identified carrier using current manifest geometry."""
 
-    index = int(index)
-    if not 1 <= index <= len(ENERGY_FILTER_MULTIPOLE_KEYS):
-        raise ValueError("Energy Filter multipole index must be 1 through 10.")
+    if not isinstance(index, int) or not 1 <= index <= len(ENERGY_FILTER_MULTIPOLE_KEYS):
+        raise ValueError("Energy filter multipole index must be 1 through 10.")
     key = ENERGY_FILTER_MULTIPOLE_KEYS[index - 1]
     role = f"m{index:02d}"
-    defaults = _create_multipole(
-        key,
-        f"Energy filter multipole {index:02d} (model index)",
-        role,
-        reference_voltage_kv,
+    _require_fields(values, {"name", "key", "role", "enabled", "field", "calibration"}, key)
+    if values["key"] != key or values["role"] != role:
+        raise ValueError(f"Energy filter multipole {index} requires key {key} and role {role}.")
+    if not isinstance(values["enabled"], bool):
+        raise ValueError(f"{key}.enabled must be a Boolean.")
+    if not isinstance(values["name"], str) or not values["name"].strip():
+        raise ValueError(f"{key}.name must be non-empty text.")
+    field_values = _require_fields(values["field"], {
+        "normal_coefficients", "skew_coefficients", "fringe_expansion_order",
+    }, f"{key}.field")
+    calibration_values = _require_fields(values["calibration"], {
+        "calibration_id", "reference_voltage_kv", "reference_normal_coefficients",
+        "reference_skew_coefficients", "normal_trim_coefficients", "skew_trim_coefficients",
+    }, f"{key}.calibration")
+    fringe_order = field_values["fringe_expansion_order"]
+    if isinstance(fringe_order, bool) or not isinstance(fringe_order, int):
+        raise ValueError(f"{key}.fringe_expansion_order must be an integer.")
+    component = _create_multipole(key, values["name"], role, reference_voltage_kv)
+    component.field_backend = FiniteMultipoleField(
+        MultipoleField(normal=field_values["normal_coefficients"], skew=field_values["skew_coefficients"]),
+        component.field_backend.envelope,
+        fringe_expansion_order=fringe_order,
     )
-    if not isinstance(values, dict):
-        return defaults
-    field_values = values.get("field", {})
-    calibration_values = values.get("calibration", {})
-    return EnergyFilterM12Component(
-        name=str(values.get("name", defaults.name)),
-        key=key,
-        field_backend=FiniteMultipoleField(
-            MultipoleField(
-                normal=field_values.get(
-                    "normal_coefficients",
-                    defaults.multipole_field.normal_coefficients,
-                ),
-                skew=field_values.get(
-                    "skew_coefficients",
-                    defaults.multipole_field.skew_coefficients,
-                ),
-            ),
-            SoftEdgeEnvelope(
-                length_m=defaults.field_backend.envelope.length_m,
-                entrance_soft_edge_m=(
-                    defaults.field_backend.envelope.entrance_soft_edge_m
-                ),
-                exit_soft_edge_m=(
-                    defaults.field_backend.envelope.exit_soft_edge_m
-                ),
-            ),
-            fringe_expansion_order=int(field_values.get(
-                "fringe_expansion_order",
-                defaults.field_backend.fringe_expansion_order,
-            )),
-        ),
-        frame=LocalCoordinateFrame(),
-        bore_radius_m=float(defaults.bore_radius_m),
-        outer_radius_m=float(defaults.outer_radius_m),
-        pole_zero_angle_rad=float(defaults.pole_zero_angle_rad),
-        enabled=bool(values.get("enabled", defaults.enabled)),
-        role=role,
-        calibration=M12VoltageCalibration(
-            calibration_id=str(calibration_values.get(
-                "calibration_id", f"{key}_calibration"
-            )),
-            reference_voltage_kv=float(calibration_values.get(
-                "reference_voltage_kv", reference_voltage_kv
-            )),
-            reference_normal_coefficients=calibration_values.get(
-                "reference_normal_coefficients",
-                np.zeros(MultipoleField.ORDER_COUNT),
-            ),
-            reference_skew_coefficients=calibration_values.get(
-                "reference_skew_coefficients",
-                np.zeros(MultipoleField.ORDER_COUNT),
-            ),
-            normal_trim_coefficients=calibration_values.get(
-                "normal_trim_coefficients",
-                np.zeros(MultipoleField.ORDER_COUNT),
-            ),
-            skew_trim_coefficients=calibration_values.get(
-                "skew_trim_coefficients",
-                np.zeros(MultipoleField.ORDER_COUNT),
-            ),
-        ),
-    )
+    component.enabled = values["enabled"]
+    component.calibration = M12VoltageCalibration(**calibration_values)
+    component.__post_init__()
+    return component

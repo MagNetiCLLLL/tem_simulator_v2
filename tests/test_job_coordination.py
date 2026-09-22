@@ -95,6 +95,28 @@ def test_shared_retained_buffers_are_charged_once(qtbot):
     assert two - one < 1024
 
 
+def test_queue_cancellation_allows_finished_callback_to_enqueue(qtbot):
+    coordinator = JobCoordinator(ram_budget_bytes=2**30)
+    cancelled_pool = CoordinatedPool(coordinator=coordinator)
+    retained_pool = CoordinatedPool(coordinator=coordinator)
+    order = []
+    cancelled = Worker(lambda: pytest.fail("Cancelled worker must not run"))
+    retained = Worker(lambda: order.append("already queued"))
+    followup = Worker(lambda: order.append("new submission"))
+    cancelled.signals.finished.connect(lambda: cancelled_pool.start(followup))
+    cancelled_pool.start(cancelled)
+    retained_pool.start(retained)
+    try:
+        cancelled_pool.clear()
+        assert [job.worker for job in coordinator.queue] == [retained, followup]
+        qtbot.waitUntil(lambda: len(coordinator.history) == 3, timeout=10_000)
+        assert order == ["already queued", "new submission"]
+        assert [row["status"] for row in coordinator.history] == ["cancelled", "finished", "finished"]
+    finally:
+        assert cancelled_pool.waitForDone(10_000)
+        assert retained_pool.waitForDone(10_000)
+
+
 def test_live_edits_preserve_high_captured_job_and_reject_old_preview(qtbot, monkeypatch):
     from temsim.gui.calculation_controller import CalculationController
     controller = CalculationController(persistent_cache_enabled=False)

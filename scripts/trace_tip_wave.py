@@ -177,9 +177,7 @@ def main(argv=None):
     catalog = AssemblyCatalog()
     selection, values = read_profile(args.profile)
     catalog.apply(state, selection)
-    skipped = apply_profile_values(state, values)
-    if skipped:
-        raise ValueError(f"Profile contains unsupported fields: {skipped}")
+    apply_profile_values(state, values)
     source_numerics = TipWaveNumerics(grid_pixels=args.grid, energy_samples=args.energy_samples,
         mode_tail_tolerance=args.mode_tail, maximum_modes=args.maximum_modes).validate()
     numerics = GunWaveNumerics(field_step_mm=args.field_step_mm, bore_step_mm=args.bore_step_mm,

@@ -11,8 +11,14 @@ from temsim.physics.surface_wave import SurfaceWaveNumerics
 from temsim.physics.tip_wave_pipeline import TipWaveRequest, simulate_tip_wave
 
 
-def configured():
+def configured(*, recording=None):
+    from temsim.assembly_catalog import AssemblyCatalog
     state = default_state()
+    catalog = AssemblyCatalog()
+    selection = catalog.default_selection()
+    if recording is not None:
+        selection = replace(selection, recording=recording)
+    catalog.apply(state, selection)
     state.electron_gun.emitter.surface_model = replace(load_tip_surface_reference(),
         coherence=SurfaceCoherence(energy_rms_ev=0.))
     return state
@@ -56,7 +62,7 @@ def test_column_aperture_and_filter_moved_to_tip_cannot_be_skipped():
         aperture.inserted = True
     with pytest.raises(ValueError, match="column aperture"):
         simulate_tip_wave(state, REQUEST)
-    state = configured()
+    state = configured(recording="Energy Filter")
     state.energy_filter.entrance_z_mm = 1e-6
     with pytest.raises(ValueError, match="energy filter"):
         simulate_tip_wave(state, REQUEST)
@@ -83,9 +89,10 @@ def test_profile_and_snapshot_roundtrip_without_converting_classical_source(tmp_
     catalog = AssemblyCatalog()
     path = tmp_path/"coherent.toml"
     save_profile(path, state, catalog.default_selection())
-    _, values = read_profile(path)
+    selection, values = read_profile(path)
     restored = default_state()
-    assert not apply_profile_values(restored, values)
+    catalog.apply(restored, selection)
+    assert apply_profile_values(restored, values) is None
     assert restored.electron_gun.emitter.surface_model == state.electron_gun.emitter.surface_model
     snapshot = capture_instrument_snapshot(restored)
     assert snapshot.restore().electron_gun.emitter.surface_model.coherence == SurfaceCoherence(energy_rms_ev=0.)
@@ -127,7 +134,8 @@ def test_surface_editor_hides_duplicate_classical_energies(qtbot):
     assert dialog.surface_coherent.isChecked()
     assert dialog.surface_inputs["normal_mean_energy_ev"].isHidden()
     assert not dialog.quantum_inputs["mean_energy_ev"].isHidden()
-    assert dialog.near_field_button.isEnabled()
+    assert not dialog.near_field_button.isEnabled()
+    assert "paused" in dialog.near_field_button.toolTip().lower()
     dialog.quantum_inputs["mean_energy_ev"].setText("0.4")
     dialog.surface_inputs["normal_mean_energy_ev"].setText("invalid inactive draft")
     dialog.accept()
@@ -146,23 +154,22 @@ def test_viewer_close_cancels_without_destroying_a_running_thread(qtbot):
 
 
 @pytest.mark.parametrize("version", [8, 9])
-def test_surface_profile_versions_preserve_explicit_model(tmp_path, version):
+def test_obsolete_surface_profile_is_rejected_without_changing_tip(tmp_path, version):
     import tomllib
     import tomli_w
-    from temsim.profile_io import save_profile, read_profile, apply_profile_values
+    from temsim.profile_io import save_profile, read_profile
     from temsim.assembly_catalog import AssemblyCatalog
     state = configured()
+    before = state.electron_gun.to_dict()
     path = tmp_path/"profile.toml"
     save_profile(path, state, AssemblyCatalog().default_selection())
     document = tomllib.loads(path.read_text(encoding="utf-8"))
     document["format_version"] = version
-    if version == 8:
-        # Historical grounded surface profile, before a coherent reservoir.
-        document["gun_source_model"]["surface_model"].pop("coherence")
     path.write_text(tomli_w.dumps(document), encoding="utf-8")
-    target = configured()
-    assert not apply_profile_values(target, read_profile(path)[1])
-    assert (target.electron_gun.emitter.surface_model.coherence is None) == (version == 8)
+    with pytest.raises(ValueError, match="Unsupported operating-profile format"):
+        read_profile(path)
+    assert state.electron_gun.to_dict() == before
+
 
 
 def test_viewer_runs_without_replacing_instrument_state_and_keeps_failed_result(qtbot):

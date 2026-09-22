@@ -1,6 +1,7 @@
 """The 3-D workspace stages real module edits and preserves instrument state."""
 
 from copy import deepcopy
+from dataclasses import replace
 import shutil
 from types import SimpleNamespace
 
@@ -51,7 +52,10 @@ def page(qtbot, root):
 
 @pytest.fixture
 def window(qtbot, root, tmp_path, monkeypatch):
-    monkeypatch.setattr(main_window, "AssemblyCatalog", lambda: AssemblyCatalog(root))
+    catalog = AssemblyCatalog(root)
+    selection = replace(catalog.default_selection(), recording="Energy Filter")
+    monkeypatch.setattr(catalog, "default_selection", lambda: selection)
+    monkeypatch.setattr(main_window, "AssemblyCatalog", lambda: catalog)
     monkeypatch.setattr(main_window, "ManifestEditor", lambda: ManifestEditor(root))
     monkeypatch.setattr(main_window, "QSettings", lambda: QSettings(
         str(tmp_path / "window.ini"), QSettings.Format.IniFormat))
@@ -68,7 +72,6 @@ def navigation_window(window, qtbot):
     state = window.state
     state.electron_gun.emitter.ray_count = 9
     state.step_mm = 12.0
-    state.sample.diffraction_enabled = False
     resolved = apply_physical_layout_to_state(state)
     result = CalculationResult(simulation=run(state, resolved_layout=resolved),
                                energy_filter=None, state_snapshot=state,

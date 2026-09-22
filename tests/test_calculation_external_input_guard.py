@@ -192,19 +192,14 @@ def test_complete_cache_hit_is_checked_at_queued_delivery(qtbot, monkeypatch, re
     assert controller._request_input_guard is None
 
 
-def test_legacy_payload_migration_precedes_controller_input_capture(qapp, monkeypatch, reference_case):
+def test_current_reference_source_is_captured_by_controller(qapp, monkeypatch, reference_case):
     state, _mutate = reference_case("cif")
-    payload = state.to_dict()
-    payload["schema_version"] = 76
-    payload["sample"]["specimen_mode"] = "virtual"
-    payload["sample"]["specimen_preset_key"] = "si_110"
-    restored = type(state).from_dict(payload)
-    assert restored.sample.specimen_mode == "reference"
+    restored = type(state).from_dict(state.to_dict())
     controller = controllers.CalculationController(persistent_cache_enabled=False)
     workers = []
     monkeypatch.setattr(controller.pool, "start", workers.append)
     controller.submit(restored, "Preview", 9, 5.)
-    assert workers[0].state.sample.specimen_mode == "reference"
+    assert workers[0].state.sample.specimen_mode == restored.sample.specimen_mode
     assert workers[0].external_inputs
 
 

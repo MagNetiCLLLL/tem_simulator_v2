@@ -5,7 +5,7 @@ import tomllib
 import numpy as np
 import pytest
 
-from temsim.module_manifest import _validate_simple_magnetic_layer_geometry, validate_document
+from temsim.module_manifest import _validate_simple_magnetic_layer_geometry, validate_document, read_document
 from temsim.part_model_3d import part_model_from_document
 from temsim.paths import INSTRUMENT_CONFIG_ROOT
 from temsim.physics.axisymmetric_magnetostatics import _part_mask
@@ -13,7 +13,7 @@ from temsim.physics.axisymmetric_magnetostatics import _part_mask
 
 def test_disjoint_projector_material_sections_match_renderer_and_fem():
     source = INSTRUMENT_CONFIG_ROOT / "project_and_recording_system/EnergyFilter.toml"
-    document = tomllib.loads(source.read_text(encoding="utf-8"))
+    document = read_document(source)
     by_key = {part["key"]: part for part in document["parts"]}
     yoke = by_key["intermediate_lens_yoke"]
     coil = by_key["intermediate_lens_excitation_coil"]

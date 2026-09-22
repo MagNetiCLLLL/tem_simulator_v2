@@ -1,6 +1,8 @@
 import numpy as np
 import pytest
 from types import SimpleNamespace
+from dataclasses import replace
+from temsim.assembly_catalog import AssemblyCatalog
 
 import temsim.detector.eels_forward as eels_forward
 from temsim.optics.column import default_state
@@ -117,7 +119,8 @@ def test_forward_chain_uses_shared_distribution_and_conserves_components(
 def test_eels_and_eftem_use_their_own_active_detector_boundaries():
     state = default_state()
     ensure_energy_filter(state)
-    state.energy_filter.enabled = True
+    catalog = AssemblyCatalog()
+    catalog.apply(state, replace(catalog.default_selection(), recording="Energy Filter"))
     axis = np.linspace(-20.0, 20.0, 161)
 
     configure_energy_filter_operating_mode(state.energy_filter, "eftem")
@@ -166,7 +169,8 @@ def test_eftem_image_uses_same_forward_spectrum_without_full_cube():
 def test_energy_filter_runtime_exposes_forward_result_from_same_distribution():
     state = default_state()
     ensure_energy_filter(state)
-    state.energy_filter.enabled = True
+    catalog = AssemblyCatalog()
+    catalog.apply(state, replace(catalog.default_selection(), recording="Energy Filter"))
     configure_energy_filter_operating_mode(state.energy_filter, "eels")
     distribution = real_inelastic_distribution(state)
     branch = SimpleNamespace(

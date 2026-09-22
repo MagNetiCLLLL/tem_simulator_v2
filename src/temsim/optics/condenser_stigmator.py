@@ -10,7 +10,6 @@ import numpy as np
 from temsim import module_manifest
 from temsim.component_keys import (
     CONDENSER_STIGMATOR,
-    canonical_stigmator_key,
 )
 from temsim.optics.model import Stigmator
 
@@ -255,9 +254,10 @@ def create_condenser_stigmator():
 
 def condenser_stigmator_from_dict(data):
     values = dict(data)
-    values["key"] = canonical_stigmator_key(
-        values.get("key", "")
-    )
+    if values.get("key") != CONDENSER_STIGMATOR:
+        raise ValueError(f"Condenser stigmator requires component key {CONDENSER_STIGMATOR!r}")
+    if values.get("field_model") != "normal_skew":
+        raise ValueError("Condenser stigmator record requires field_model='normal_skew'")
     component = create_condenser_stigmator()
     for attribute in (
         "strength_x_percent",

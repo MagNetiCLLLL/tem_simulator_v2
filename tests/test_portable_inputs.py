@@ -203,8 +203,7 @@ def test_solver_drift_does_not_admit_old_archive_results(portable_fixture):
         old.restore()
 
 
-def test_runtime_drift_requires_explicit_new_input_identity(portable_fixture):
-    from temsim.working_point import migrate_working_point_inputs
+def test_runtime_drift_rejects_activation_and_retains_original_inputs(portable_fixture):
     point, _, _ = portable_fixture
     graph = thaw_json(point.snapshot.graph)
     archive = graph["archived_inputs"]
@@ -213,10 +212,6 @@ def test_runtime_drift_requires_explicit_new_input_identity(portable_fixture):
     old = replace(point, snapshot=replace(point.snapshot, graph=graph))
     with pytest.raises(ValueError, match="runtime dependencies changed"):
         old.snapshot.restore()
-    migrated = migrate_working_point_inputs(old)
-    assert migrated.digest != old.digest and migrated.parent_id == old.digest
-    assert migrated.is_input_design and not migrated.arrays
-    assert migrated.snapshot.graph["archived_inputs"]["runtime"] == input_io.runtime_identity()
     assert old.snapshot.graph["archived_inputs"]["runtime"]["libraries"]["scipy"] == "historical-fixture"
 
 

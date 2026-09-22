@@ -70,86 +70,57 @@ def test_centre_is_fixed_and_sag_is_upstream_and_symmetric(curvature):
 
 
 @pytest.mark.parametrize("old_model", ["analytic-tip-curvature-v1", "analytic-tip-angle-only-v2"])
-def test_curved_model_has_distinct_identity_and_keeps_historical_geometry_readable(old_model):
-    from temsim.optics.electron_gun.tip_curvature import MODEL, ANGLE_ONLY_MODEL, LEGACY_MODEL
-    from temsim.instrument_snapshot import encode_instrument, decode_instrument
+def test_historical_curvature_models_are_rejected_without_conversion(old_model):
     gun = FieldEmissionGun()
     gun.emitter.curvature_nm_inv = .01
-    assert gun.emitter.curvature_model == MODEL
-    current_key = gun._cache_key(49)
-    angles = gun.emit(49).surface_direction.copy()
+    before = gun.to_dict()
     document = gun.to_dict()
     document["components"]["feg_tip"]["emission_geometry_model"] = old_model
-    historical = field_emission_gun_from_dict(document)
-    assert historical.emitter.curvature_model == old_model
-    assert historical._cache_key(49) != current_key
-    old = historical.emit(49)
-    np.testing.assert_array_equal(old.surface_direction, angles)
-    if old_model == ANGLE_ONLY_MODEL:
-        assert not np.any(old.surface_position_m[:, 2])
-    else:
-        assert old.surface_position_m[:, 2].max() < 0
-    # The first curvature snapshots had no explicit discriminator.
-    if old_model == LEGACY_MODEL:
-        historical.emitter.__dict__.pop("_tip_curvature_model")
-    from temsim.optics.column import default_state
-    state = default_state()
-    state.electron_gun = historical
-    restored = decode_instrument(encode_instrument(state)).electron_gun
-    assert restored.emitter.curvature_model == old_model
-    np.testing.assert_array_equal(restored.emit(49).surface_position_m, old.surface_position_m)
-    # Explicitly resetting flat is the UI's opt-in to the current model.
-    restored.emitter.curvature_nm_inv = 0
-    restored.emitter.curvature_nm_inv = .01
-    assert restored.emitter.curvature_model == MODEL
-    assert np.all(restored.emit(49).surface_position_m[:, 2] < 0)
+    with pytest.raises(ValueError, match="Unsupported continuous tip geometry model"):
+        field_emission_gun_from_dict(document)
+    with pytest.raises(ValueError, match="Unsupported continuous tip geometry model"):
+        gun.emitter.curvature_model = old_model
+    assert gun.to_dict() == before
 
 
-def test_legacy_profiles_are_not_silently_converted_and_new_profile_preserves_centred_curvature(tmp_path):
+def test_current_profile_preserves_curvature_and_rejects_old_versions(tmp_path):
+    from copy import deepcopy
     from temsim.optics.column import default_state
     from temsim.assembly_catalog import AssemblyCatalog
     from temsim.profile_io import save_profile, read_profile, apply_profile_values
-    from temsim.optics.electron_gun.tip_curvature import MODEL, ANGLE_ONLY_MODEL, LEGACY_MODEL
+    from temsim.optics.electron_gun.tip_curvature import MODEL
     state = default_state()
     state.electron_gun.emitter.curvature_nm_inv = .01
     path = tmp_path / "curvature.toml"
     save_profile(path, state, AssemblyCatalog().default_selection())
     _, values = read_profile(path)
+    state.electron_gun.emitter.curvature_nm_inv = 0.
     apply_profile_values(state, values)
+    assert state.electron_gun.emitter.curvature_nm_inv == .01
     assert state.electron_gun.emitter.curvature_model == MODEL
-    values["__profile_format_version__"] = 9
-    values["__gun_source_model__"].pop("curvature_model")
-    apply_profile_values(state, values)
-    assert state.electron_gun.emitter.curvature_model == LEGACY_MODEL
-    values["__profile_format_version__"] = 10
-    apply_profile_values(state, values)
-    assert state.electron_gun.emitter.curvature_model == ANGLE_ONLY_MODEL
-    assert not np.any(state.electron_gun.emit(49).surface_position_m[:, 2])
-    save_profile(path, state, AssemblyCatalog().default_selection())
-    _, saved_angles = read_profile(path)
-    state.electron_gun.emitter.curvature_nm_inv = 0
-    apply_profile_values(state, saved_angles)
-    assert state.electron_gun.emitter.curvature_model == ANGLE_ONLY_MODEL
+    before = state.to_dict()
+    for version in (9, 10):
+        old = deepcopy(values)
+        old["__profile_format_version__"] = version
+        with pytest.raises(ValueError, match="Unsupported operating-profile format"):
+            apply_profile_values(state, old)
+        assert state.to_dict() == before
 
 
-def test_legacy_editor_can_explicitly_select_centred_curvature(qtbot):
+def test_current_editor_changes_tip_geometry_only_after_accept(qtbot):
     from temsim.gui.gun_source_dialog import GunSourceDialog
-    from temsim.optics.electron_gun.tip_curvature import MODEL, ANGLE_ONLY_MODEL
+    from temsim.optics.electron_gun.tip_curvature import MODEL
     from temsim.optics.electron_gun.tip_edit import candidate_tip_edit
     gun = FieldEmissionGun()
-    gun.emitter.curvature_nm_inv = .01
-    gun.emitter.curvature_model = ANGLE_ONLY_MODEL
     dialog = GunSourceDialog(gun)
     qtbot.addWidget(dialog)
-    assert "Historical angle only" in dialog.model_change_summary.text()
-    dialog._use_particles()
     dialog.inputs["curvature_nm_inv"].setText(".01")
     dialog.accept()
     assert dialog.result() == dialog.DialogCode.Accepted, dialog.error.text()
     result = candidate_tip_edit(gun, dialog.value())
     assert result.emitter.curvature_model == MODEL
     assert np.all(result.emit(49).surface_position_m[:, 2] < 0)
-    assert gun.emitter.curvature_model == ANGLE_ONLY_MODEL
+    assert gun.emitter.curvature_nm_inv == 0.
 
 
 def test_serialization_snapshot_and_cache_identity_round_trip():
@@ -276,7 +247,7 @@ def test_source_dialog_uses_one_continuous_geometry_parameter(qtbot):
     assert gun.emitter.curvature_nm_inv == 0
 
 
-def test_profile_geometry_reload_and_legacy_load_preserve_explicit_choices(tmp_path):
+def test_profile_geometry_reload_and_partial_controls_preserve_explicit_choices(tmp_path):
     from temsim.optics.column import default_state
     from temsim.assembly_catalog import AssemblyCatalog
     from temsim.profile_io import save_profile, read_profile, apply_profile_values
@@ -298,7 +269,7 @@ def test_profile_geometry_reload_and_legacy_load_preserve_explicit_choices(tmp_p
     assert tip.surface_model is None and tip.curvature_nm_inv == 1e-8
     values[tip.key].pop("curvature_nm_inv")
     apply_profile_values(state, values)
-    assert tip.curvature_nm_inv == 0
+    assert tip.curvature_nm_inv == 1e-8
     tip.curvature_nm_inv = 1e-8
     catalog.apply(state, selection, preserve_operating_parameters=False)
     assert tip.curvature_nm_inv == 0

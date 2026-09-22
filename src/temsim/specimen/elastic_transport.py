@@ -433,7 +433,13 @@ class ElasticMaterialFlight:
 
 @dataclass(frozen=True, slots=True)
 class ElasticTerminalBundle:
-    """Terminal state of every simulated electron history."""
+    """Terminal state of every history and its optional reference-plane clock.
+
+    ``reference_time_offset_s`` combines the executed inverse entrance match
+    with subsequent physical flights; it is not a nonnegative dwell duration.
+    Add the matching incident reference-plane arrival to obtain tip-origin
+    time. Duplicate source indices still have independent per-history offsets.
+    """
 
     source_ray_index: np.ndarray
     position_nm: np.ndarray
@@ -443,6 +449,14 @@ class ElasticTerminalBundle:
     outcome: tuple[str, ...]
     event_count: np.ndarray
     has_scattered: np.ndarray
+    # Signed elapsed offset from the incident specimen reference plane. The
+    # existing reference-to-entrance matching can run backwards; every later
+    # material/vacuum flight contributes its executed positive elapsed time.
+    # Historical bundles have no timing, never an invented zero delay.
+    reference_time_offset_s: np.ndarray | None = None
+    # Every executed history retains its material distance, independently of
+    # the smaller display-trajectory budget. None means historical unknown.
+    material_path_nm: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         count = len(self.outcome)
@@ -471,6 +485,18 @@ class ElasticTerminalBundle:
                 raise ValueError(f"Elastic terminal {name} contains NaN or infinity")
             array.setflags(write=False)
             object.__setattr__(self, name, array)
+        if self.reference_time_offset_s is not None:
+            times = np.asarray(self.reference_time_offset_s, dtype=np.float64)
+            if times.shape != (count,) or np.any(np.isinf(times)):
+                raise ValueError("Elastic terminal reference-time offsets must match histories and cannot be infinite")
+            times.setflags(write=False)
+            object.__setattr__(self, "reference_time_offset_s", times)
+        if self.material_path_nm is not None:
+            paths = np.asarray(self.material_path_nm, dtype=np.float64)
+            if paths.shape != (count,) or not np.all(np.isfinite(paths)) or np.any(paths < 0.0):
+                raise ValueError("Elastic terminal material paths must be finite nonnegative distances for every history")
+            paths.setflags(write=False)
+            object.__setattr__(self, "material_path_nm", paths)
         if (
             np.any(arrays["source_ray_index"] < 0)
             or np.any(arrays["kinetic_energy_ev"] <= 0.0)
@@ -959,6 +985,8 @@ def simulate_elastic_point_transport(
     terminal_outcomes: list[str] = []
     terminal_event_counts: list[int] = []
     terminal_scattered: list[bool] = []
+    terminal_elapsed_times: list[float] = []
+    terminal_material_paths: list[float] = []
     encountered_atomic_numbers: set[int] = set()
     outcome_weights = {key: 0.0 for key in outcome_counts}
     progress_stride = max(count // 100, 1)
@@ -978,11 +1006,12 @@ def simulate_elastic_point_transport(
         reference_position_nm = np.asarray(
             (*ray.position_xy_nm, 0.0), dtype=float
         )
-        position, direction = field_transport.to_plane(
+        position, direction, elapsed_time = field_transport.to_plane(
             reference_position_nm,
             direction,
             start_z_nm,
             energy_ev=energy_ev,
+            return_elapsed_time=True,
         )
         points = [position.copy()] if trajectory_index < stored_count else None
         events: list[ElasticScatterEvent] | None = (
@@ -1011,21 +1040,25 @@ def simulate_elastic_point_transport(
                 if boundary is None:
                     outcome = _terminal_outcome(direction)
                     break
-                boundary_point, direction = field_transport.advance(
+                boundary_point, direction, flight_time = field_transport.advance(
                     position,
                     direction,
                     boundary,
                     energy_ev=energy_ev,
+                    return_elapsed_time=True,
                 )
+                elapsed_time += flight_time
                 travelled_path += boundary
                 if points is not None:
                     points.append(boundary_point.copy())
-                position, direction = field_transport.advance(
+                position, direction, flight_time = field_transport.advance(
                     boundary_point,
                     direction,
                     geometry.epsilon_nm,
                     energy_ev=energy_ev,
+                    return_elapsed_time=True,
                 )
+                elapsed_time += flight_time
                 continue
 
             rates = elastic_scattering_rates_nm_inverse(region.material, energy_ev)
@@ -1063,12 +1096,14 @@ def simulate_elastic_point_transport(
                 + float(ray_weight) * distance
             )
             flight_start = position.copy()
-            endpoint, direction = field_transport.advance(
+            endpoint, direction, flight_time = field_transport.advance(
                 position,
                 direction,
                 distance,
                 energy_ev=energy_ev,
+                return_elapsed_time=True,
             )
+            elapsed_time += flight_time
             if points is not None and distance > 0.0:
                 stored_material_flights.append(
                     ElasticMaterialFlight(
@@ -1087,12 +1122,14 @@ def simulate_elastic_point_transport(
                 points.append(endpoint.copy())
             position = endpoint
             if boundary is not None:
-                position, direction = field_transport.advance(
+                position, direction, flight_time = field_transport.advance(
                     endpoint,
                     direction,
                     geometry.epsilon_nm,
                     energy_ev=energy_ev,
+                    return_elapsed_time=True,
                 )
+                elapsed_time += flight_time
                 continue
             if free_path > remaining:
                 outcome = "path_limit"
@@ -1130,6 +1167,8 @@ def simulate_elastic_point_transport(
         terminal_outcomes.append(outcome)
         terminal_event_counts.append(event_count)
         terminal_scattered.append(has_scattered)
+        terminal_elapsed_times.append(elapsed_time)
+        terminal_material_paths.append(trajectory_material_path)
         weighted_total_events += float(ray_weight) * event_count
         weighted_total_material_path += (
             float(ray_weight) * trajectory_material_path
@@ -1307,5 +1346,7 @@ def simulate_elastic_point_transport(
             outcome=tuple(terminal_outcomes),
             event_count=np.asarray(terminal_event_counts, dtype=np.int64),
             has_scattered=np.asarray(terminal_scattered, dtype=bool),
+            reference_time_offset_s=np.asarray(terminal_elapsed_times, dtype=np.float64),
+            material_path_nm=np.asarray(terminal_material_paths, dtype=np.float64),
         ),
     )

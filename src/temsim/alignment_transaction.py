@@ -178,7 +178,7 @@ def solve_alignment_candidate(request, *, cancelled=lambda: False):
     definition = direct_alignment_by_key(request.key)
     if json_digest(asdict(definition)) != request.registry_digest:
         raise ValueError("Direct Alignment registry changed")
-    scratch = request.start_snapshot.restore()
+    scratch = _transmitted_calibration_state(request.start_snapshot)
     token = _CANCELLATION.set(cancelled)
     try:
         result = _solve_direct_alignment(scratch, request.key, request.target, definition=definition)
@@ -191,7 +191,7 @@ def solve_alignment_candidate(request, *, cancelled=lambda: False):
     candidate_snapshot = capture_instrument_snapshot(candidate_state)
     # Final numerical refinement is independent of the optimiser, even when
     # the historical catalog used identical search and validation step sizes.
-    validation_state = request.start_snapshot.restore()
+    validation_state = _transmitted_calibration_state(request.start_snapshot)
     for lens in validation_state.lenses:
         if lens.key in result.strengths:
             lens.percent = result.strengths[lens.key]
@@ -231,8 +231,17 @@ def solve_alignment_candidate(request, *, cancelled=lambda: False):
                   "actual_backend": forward_backend,
                   "forward_particle_backend": forward_backend,
                   "observable_validation_backend": observable_backend,
+                  "beam_state": "transmitted calibration reference; live exposure gates unchanged",
                   "independent_reference": "NOT_RUN"}
     return AlignmentCandidate(request, final, checkpoint, validation, "READY_TO_APPLY" if valid else "FAILED")
+
+
+def _transmitted_calibration_state(snapshot):
+    """Open exposure gates only on a detached numerical calibration copy."""
+    state = snapshot.restore()
+    state.beam_blanked = False
+    state.nanopulser.blanked = False
+    return state
 
 
 class AlignmentCommitGate:

@@ -113,7 +113,7 @@ def test_operating_profile_restores_stem_request_to_sole_toggle(
     loaded_selection, values = read_profile(path)
     restored = default_state()
     restored.sample.stem_wave_enabled = not enabled
-    assert apply_profile_values(restored, values) == []
+    assert apply_profile_values(restored, values) is None
     scan_changes = []
     scan_view.parameters_changed.connect(scan_changes.append)
     sample_page.set_state(restored)

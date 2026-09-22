@@ -75,7 +75,7 @@ def test_profile_round_trips_real_sample_metadata_and_quaternion(tmp_path: Path)
     skipped = apply_profile_values(restored, values)
 
     assert loaded_selection == selection
-    assert skipped == []
+    assert skipped is None
     assert restored.sample.envelope_shape == "rectangle"
     assert restored.sample.specimen_orientation_quaternion_wxyz == pytest.approx(
         state.sample.specimen_orientation_quaternion_wxyz
@@ -115,22 +115,13 @@ def test_profile_round_trips_real_sample_metadata_and_quaternion(tmp_path: Path)
     assert tomllib.loads(path.read_text(encoding="utf-8"))["format_version"] == PROFILE_FORMAT_VERSION
 
 
-def test_retired_eds_trajectory_count_is_a_clean_profile_no_op():
+def test_retired_eds_trajectory_count_is_rejected_without_partial_edits():
     state = default_state()
-
-    skipped = apply_profile_values(
-        state,
-        {
-            "sample": {
-                "eds_elastic_trajectory_count": 19,
-                "eds_elastic_seed": 73,
-            }
-        },
-    )
-
-    assert skipped == []
-    assert not hasattr(state.sample, "eds_elastic_trajectory_count")
-    assert state.sample.eds_elastic_seed == 73
+    seed = state.sample.eds_elastic_seed
+    with pytest.raises(ValueError, match="Unknown operating-profile field"):
+        apply_profile_values(state, {"sample": {
+            "eds_elastic_seed": 73, "eds_elastic_trajectory_count": 19}})
+    assert state.sample.eds_elastic_seed == seed
 
 
 def test_profile_round_trips_mode_owned_structure_sources(tmp_path: Path):
@@ -147,7 +138,7 @@ def test_profile_round_trips_mode_owned_structure_sources(tmp_path: Path):
     restored = default_state()
     skipped = apply_profile_values(restored, values)
 
-    assert skipped == []
+    assert skipped is None
     assert restored.sample.specimen_mode == "atomic"
     assert not hasattr(restored.sample, "atomic_structure_source")
     assert restored.sample.specimen_preset_key == "si_110"
@@ -156,63 +147,19 @@ def test_profile_round_trips_mode_owned_structure_sources(tmp_path: Path):
     assert selected_reference_preset_key(restored.sample) == ""
 
 
-def test_legacy_profile_with_cif_migrates_to_real_mode():
+def test_partial_cif_path_does_not_implicitly_switch_sample_mode():
     state = default_state()
-
-    skipped = apply_profile_values(
-        state,
-        {
-            "sample": {
-                "specimen_preset_key": "si_110",
-                "cif_path": "legacy-sample.cif",
-            }
-        },
-    )
-
-    assert skipped == []
-    assert state.sample.specimen_mode == "atomic"
-    assert state.sample.specimen_preset_key == "si_110"
-    assert state.sample.cif_path == "legacy-sample.cif"
+    mode = state.sample.specimen_mode
+    apply_profile_values(state, {"sample": {"cif_path": "sample.cif"}})
+    assert state.sample.specimen_mode == mode
+    assert state.sample.cif_path == "sample.cif"
 
 
 def test_profile_rejects_unknown_retired_atomic_structure_source():
     state = default_state()
 
-    with pytest.raises(ValueError, match="must be preset or cif"):
+    with pytest.raises(ValueError, match="Unknown operating-profile field"):
         apply_profile_values(
             state,
             {"sample": {"atomic_structure_source": "both"}},
         )
-
-
-def test_profile_v1_maps_virtual_source_to_real_reference_without_virtual_weights(tmp_path: Path):
-    catalog = AssemblyCatalog()
-    selection = catalog.default_selection()
-    path = tmp_path / "sample-v1.toml"
-    path.write_text(
-        "\n".join(
-            (
-                "format_version = 1",
-                "[assembly]",
-                f'gun = "{selection.gun}"',
-                f'column = "{selection.column}"',
-                f'recording = "{selection.recording}"',
-                "[devices.sample]",
-                'specimen_mode = "virtual"',
-                "virtual_diffraction_relative_weight = 0.5",
-                "virtual_scattering_relative_weight = 0.25",
-            )
-        ),
-        encoding="utf-8",
-    )
-
-    _selection, values = read_profile(path)
-    state = default_state()
-    skipped = apply_profile_values(state, values)
-
-    assert skipped == []
-    assert state.sample.specimen_mode == "reference"
-    assert state.sample.reference_sample_key == "si_110"
-    assert state.sample.virtual_interactions == []
-    assert state.sample.virtual_regions == []
-    assert Path(active_cif_path(state.sample)).is_file()

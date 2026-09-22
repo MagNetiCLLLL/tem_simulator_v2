@@ -21,7 +21,7 @@ from temsim.component_keys import (
     PROJECTOR_LENS_2,
 )
 from temsim.optics.column import default_state
-from temsim.presets import apply as apply_preset
+from temsim.operating_modes import apply_operating_mode_pair
 
 
 def _lens_by_key(state):
@@ -95,13 +95,13 @@ def test_tem_stem_mode_toml_reverses_only_mini_condenser_effective_field():
     state = default_state()
     positions = {lens.key: lens.z_mm for lens in state.lenses}
 
-    apply_preset(state, "TEM image")
+    apply_operating_mode_pair(state, "micro_probe", "imaging")
     tem_polarities = {
         lens.key: lens.polarity for lens in state.lenses
     }
     assert tem_polarities[MINI_CONDENSER] == 1
 
-    apply_preset(state, "STEM image")
+    apply_operating_mode_pair(state, "nano_probe", "imaging")
     stem_polarities = {
         lens.key: lens.polarity for lens in state.lenses
     }

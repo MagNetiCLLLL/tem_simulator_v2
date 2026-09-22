@@ -168,6 +168,7 @@ def test_diffraction_mode_targets_the_main_screen_reference_plane():
 
 def test_probe_mode_presets_keep_tem_and_stem_recording_paths_exclusive():
     state = _state()
+    state.camera.inserted = state.fluorescent_screen.inserted = False
 
     apply_operating_mode_pair(state, "micro_probe", "imaging")
     assert all(not detector.inserted for detector in state.stem_detectors)

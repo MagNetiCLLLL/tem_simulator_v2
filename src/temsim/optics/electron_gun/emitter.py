@@ -116,14 +116,13 @@ class ColdFieldEmitter:
 
     @property
     def curvature_model(self):
-        from temsim.optics.electron_gun.tip_curvature import MODEL, LEGACY_MODEL
-        # Old snapshots contain curvature but no discriminator: keep their sag.
-        return self.__dict__.get("_tip_curvature_model", LEGACY_MODEL if self.curvature_nm_inv else MODEL)
+        from temsim.optics.electron_gun.tip_curvature import MODEL
+        return self.__dict__.get("_tip_curvature_model", MODEL)
 
     @curvature_model.setter
     def curvature_model(self, value):
-        from temsim.optics.electron_gun.tip_curvature import MODEL, ANGLE_ONLY_MODEL, LEGACY_MODEL
-        if value not in {MODEL, ANGLE_ONLY_MODEL, LEGACY_MODEL}:
+        from temsim.optics.electron_gun.tip_curvature import MODEL
+        if value != MODEL:
             raise ValueError("Unsupported continuous tip geometry model")
         if self.curvature_nm_inv:
             self.__dict__["_tip_curvature_model"] = value

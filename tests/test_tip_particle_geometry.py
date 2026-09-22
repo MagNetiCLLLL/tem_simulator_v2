@@ -68,6 +68,7 @@ def test_editor_explicit_particle_selection_and_geometry_are_draft_only(qtbot):
     qtbot.addWidget(dialog)
     assert dialog.surface_coherent.isChecked()  # no silent profile conversion
     dialog.particle_button.click()
+    dialog.surface_enabled.setChecked(True)
     assert not dialog.surface_coherent.isChecked()
     assert not dialog.wave_options.isChecked()
     assert not dialog.near_field_button.isEnabled()
@@ -93,6 +94,7 @@ def test_invalid_geometry_keeps_live_source_and_does_not_apply(qtbot):
     dialog = GunSourceDialog(gun)
     qtbot.addWidget(dialog)
     dialog.particle_button.click()
+    dialog.surface_enabled.setChecked(True)
     dialog.geometry_inputs["apex_radius_nm"].setText("-1")
     dialog.accept()
     assert dialog._value is None
@@ -108,6 +110,9 @@ def test_edited_geometry_round_trips_and_invalidates_only_consumed_field_inputs(
     from temsim.instrument_snapshot import capture_instrument_snapshot
     from temsim.physics.grounded_tip_field import field_request
     state = default_state()
+    catalog = AssemblyCatalog()
+    selection = catalog.default_selection()
+    catalog.apply(state, selection)
     gun = state.electron_gun
     reference = load_tip_surface_reference()
     gun.emitter.surface_model = reference
@@ -121,10 +126,11 @@ def test_edited_geometry_round_trips_and_invalidates_only_consumed_field_inputs(
         emission=replace(reference.emission, cap_half_angle_deg=12.))
     assert field_request(gun) == before_angle  # emission patch does not move metal
     path = tmp_path / "particle-tip.toml"
-    save_profile(path, state, AssemblyCatalog().default_selection())
+    save_profile(path, state, selection)
     other = default_state()
-    _, values = read_profile(path)
-    assert apply_profile_values(other, values) == []
+    selected, values = read_profile(path)
+    catalog.apply(other, selected)
+    assert apply_profile_values(other, values) is None
     assert other.electron_gun.emitter.surface_model == gun.emitter.surface_model
     captured = capture_instrument_snapshot(other)
     other.electron_gun.emitter.surface_model = reference

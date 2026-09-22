@@ -1,5 +1,6 @@
 from copy import deepcopy
 from pathlib import Path
+from dataclasses import replace
 import shutil
 
 import numpy as np
@@ -56,7 +57,7 @@ def test_custom_recording_toml_overrides_python_projector_defaults(
     root = tmp_path / "instruments"
     from temsim.shared_tip import copy_catalog_tree
     copy_catalog_tree(module_manifest.MODULE_ROOT, root)
-    path = root / "project_and_recording_system" / "EnergyFilter.toml"
+    path = root.parent / "subassemblies" / "projector_stack.toml"
     text = path.read_text(encoding="utf-8")
     text = text.replace(
         "maximum_peak_field_t = 0.42",
@@ -67,7 +68,7 @@ def test_custom_recording_toml_overrides_python_projector_defaults(
 
     state = default_state()
     catalog = AssemblyCatalog(root)
-    catalog.apply(state, catalog.default_selection())
+    catalog.apply(state, replace(catalog.default_selection(), recording="Energy Filter"))
 
     assert state.projector_lens_p1.b0_t == pytest.approx(0.5)
 

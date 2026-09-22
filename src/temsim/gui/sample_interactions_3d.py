@@ -455,9 +455,7 @@ def _sample_boundary_paths(
         np.linspace(0, valid_indices.size - 1, incident_budget, dtype=int)
     ]
     rows: list[ScenePath] = []
-    source_ids, source_angles = source_identity(
-        incident, getattr(simulation, "gun_trace", None)
-    )
+    source_ids, source_angles = source_identity(incident)
     for index in incident_indices if include_incident else ():
         x_nm = float(incident.x[-1, index]) * 1.0e9
         y_nm = float(incident.y[-1, index]) * 1.0e9
@@ -583,7 +581,6 @@ def build_sample_interaction_scene(
     simulation = getattr(calculation_result, "simulation", None)
     source_ids, source_angles = source_identity(
         getattr(simulation, "incident", None),
-        getattr(simulation, "gun_trace", None),
     )
     # A manual bounded result may be supplied before the caller attaches it to
     # the shared calculation. Validate its checkpoint against that calculation,

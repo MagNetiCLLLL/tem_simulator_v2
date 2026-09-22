@@ -131,7 +131,7 @@ def test_mode_is_the_only_structure_source_selector(qtbot):
     assert state.sample.cif_path == "ideal-sample.cif"
 
 
-def test_sample_page_gates_tem_wave_control_by_illumination_mode(qtbot):
+def test_sample_page_keeps_unqualified_coherent_image_controls_disabled(qtbot):
     state = default_state()
     page = SamplePage()
     qtbot.addWidget(page)
@@ -142,7 +142,8 @@ def test_sample_page_gates_tem_wave_control_by_illumination_mode(qtbot):
 
     state.illumination_mode = "TEM"
     page.set_state(state)
-    assert page.tem_wave_enabled.isEnabled()
+    assert not page.tem_wave_enabled.isEnabled()
+    assert "coherent" in page.tem_wave_enabled.toolTip().lower()
 
     state.sample.specimen_mode = "atomic"
     state.sample.cif_path = ""
@@ -151,7 +152,8 @@ def test_sample_page_gates_tem_wave_control_by_illumination_mode(qtbot):
 
     state.sample.cif_path = "real-sample.cif"
     page.set_state(state)
-    assert page.tem_wave_enabled.isEnabled()
+    assert not page.tem_wave_enabled.isEnabled()
+    assert "coherent" in page.tem_wave_enabled.toolTip().lower()
 
 
 def test_dedicated_eds_page_uses_calculated_sample_plane_rays(qtbot):
@@ -275,8 +277,9 @@ def test_sample_page_does_not_show_eds_controls_or_trajectory_plot(qtbot):
     qtbot.addWidget(page)
     page.set_state(default_state())
 
-    assert page.eds_group.isHidden()
-    assert page.eds_trajectory_plot.isHidden()
+    assert not hasattr(page, "eds_group")
+    assert not hasattr(page, "eds_trajectory_plot")
+    assert not hasattr(page, "_calculate_eds_point")
 
 
 def test_sample_page_contains_only_structure_and_labels_ball_elements(

@@ -57,7 +57,6 @@ def test_gun_paths_use_one_strict_z_grid_and_preserve_equal_time_history():
     state.electron_gun.emitter.ray_count = 25
     state.step_mm = 5.0
     state.history_step_mm = 5.0
-    state.sample.diffraction_enabled = False
 
     simulation = run(state)
     trace = simulation.gun_trace

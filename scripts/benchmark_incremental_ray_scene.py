@@ -92,7 +92,7 @@ def synthetic_result(assembly, planes: int, rays: int, variant: int):
     primary = bundle("000", 1600.0, 3000.0, (0.4, 1.0, 0.5), "transmitted", 0.8, 0.0)
     scattered = bundle("synthetic_scattered", 1600.0, 3000.0, (1.0, 0.6, 0.3), "elastic", 0.2, 0.45)
     state = SimpleNamespace(
-        sample=SimpleNamespace(z_mm=1600.0, inserted=False, specimen_mode="virtual", diffraction_enabled=False),
+        sample=SimpleNamespace(z_mm=1600.0, inserted=False, specimen_mode="reference"),
         electron_gun=SimpleNamespace(emitted_current_a=1e-10),
         recording_planes=(SimpleNamespace(
             key="camera", z_mm=2990.0, outer_width_mm=1.0, inner_diameter_mm=0.0,
@@ -108,7 +108,7 @@ def synthetic_result(assembly, planes: int, rays: int, variant: int):
         lens_crossovers=({"z_mm": 880.0 + variant, "name": "Synthetic waist", "rms_radius_mm": 0.02},),
         aperture_stops=tuple({
             "key": part.key, "z_mm": part.center_z_mm, "enabled": True, "installed": True,
-            "diameter_mm": 0.6, "offset_x_mm": 0.0, "offset_y_mm": 0.0,
+            "shape": "circular", "diameter_mm": 0.6, "offset_x_mm": 0.0, "offset_y_mm": 0.0,
         } for part in assembly.parts if "aperture" in part.key),
     )
 

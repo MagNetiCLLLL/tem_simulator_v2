@@ -105,7 +105,7 @@ def test_cad_parameters_remain_visibly_excluded_after_save_and_calculation(page)
 
 def test_external_file_is_not_reported_as_active_instrument_geometry(page, tmp_path):
     copy = tmp_path / "external.toml"
-    shutil.copyfile(page.session.path, copy)
+    page.session.save_copy(copy)
     assert page.open_path(copy, selected_key=COIL)
     page.set_simulation_context("linear_geometry", {"intermediate_lens": RECIPE})
     row = _row(page, COIL, "mechanical_outer_diameter_mm")

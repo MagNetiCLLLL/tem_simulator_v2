@@ -86,6 +86,7 @@ class ScanGeometryResult:
     ac_distance_above_sample_mm: float | None = None
     descan_distance_below_sample_mm: float | None = None
     scan_pair_symmetry_error_mm: float | None = None
+    unavailable_planes: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,7 @@ class ScanRayPathResult:
     frame_period_s: float
     pixels_x: int
     pixels_y: int
+    unavailable_from_z_mm: float | None = None
 
 
 @dataclass(frozen=True)
@@ -181,48 +183,33 @@ def synchronize_scan_raster(source, target) -> None:
 
 
 def _descan_target(state) -> tuple[str, str, float]:
-    """Resolve the physical image-reference station used by Descan.
-
-    The Selected Area Aperture is the fixed first-image reference station in
-    the column layout.  Its *current* transfer is still classified below: if
-    the active lenses do not make it sample-conjugate, the GUI reports mixed
-    contrast instead of silently calling it an image plane.
-    """
-
+    """Resolve the selected physical station without inferring another target."""
     requested = state.descan_deflector.descan_target_key
-    selected_area = getattr(state, "selected_area_aperture", None)
-    if requested != "legacy_image_reference":
-        candidates = (*getattr(state, "recording_planes", ()), selected_area)
-        plane = next((p for p in candidates if p is not None and str(p.key) == requested), None)
-        if plane is None or float(plane.z_mm) <= float(state.descan_deflector.lower_z_mm):
-            raise ValueError("Choose an installed physical descan target downstream of both foils")
-        require_supported_descan_target(state, float(plane.z_mm))
-        return str(plane.key), str(plane.name), float(plane.z_mm)
-    if selected_area is not None:
-        target = (
-            str(selected_area.key),
-            str(selected_area.name),
-            float(selected_area.z_mm),
-        )
-    else:
-        candidates = tuple(
-            plane
-            for plane in getattr(state, "recording_planes", ())
-            if float(plane.z_mm) > float(state.descan_deflector.lower_z_mm)
-        )
-        if not candidates:
-            raise ValueError(
-                "Descan needs a downstream Selected Area Aperture or "
-                "recording plane as its image-reference target."
-            )
-        plane = candidates[0]
-        target = str(plane.key), str(plane.name), float(plane.z_mm)
-    if target[2] <= float(state.descan_deflector.lower_z_mm):
+    candidates = physical_descan_targets(state)
+    plane = next((plane for plane in candidates if plane.key == requested), None)
+    if plane is None:
         raise ValueError(
-            "Descan image-reference target must follow both Descan foils."
+            f"Descan target {requested!r} is unavailable; choose an installed physical "
+            "observation plane downstream of both foils."
         )
-    require_supported_descan_target(state, target[2])
-    return target
+    require_supported_descan_target(state, float(plane.z_mm))
+    return str(plane.key), str(plane.name), float(plane.z_mm)
+
+
+def physical_descan_targets(state):
+    """Installed observation stations downstream of both physical foils.
+
+    A station's image/diffraction role is determined by its current transfer,
+    not by its component name. Filter transport support is checked separately
+    so a rejected target reports the actual unsupported boundary.
+    """
+    candidates = (*getattr(state, "recording_planes", ()),
+                  getattr(state, "selected_area_aperture", None))
+    unique = {
+        str(plane.key): plane for plane in candidates
+        if plane is not None and float(plane.z_mm) > float(state.descan_deflector.lower_z_mm)
+    }
+    return tuple(sorted(unique.values(), key=lambda plane: (float(plane.z_mm), str(plane.key))))
 
 
 def require_supported_descan_target(state, z_mm):
@@ -233,14 +220,15 @@ def require_supported_descan_target(state, z_mm):
         raise ValueError("Descan targets at or after the energy filter require its transported response; choose a physical plane before the filter")
 
 
+def _filter_boundary(state):
+    energy_filter = getattr(state, "energy_filter", None)
+    if getattr(state, "energy_filter_installed", False) and energy_filter is not None:
+        return float(energy_filter.entrance_z_mm)
+    return None
+
+
 def _coil_kick_matrices(component):
-    if hasattr(component, "coil_kick_matrices"):
-        upper, lower = component.coil_kick_matrices()
-    else:
-        upper_gain = float(component.upper_coil_gain)
-        lower_gain = float(component.lower_coil_gain)
-        upper = ((upper_gain, 0.0), (0.0, upper_gain))
-        lower = ((lower_gain, 0.0), (0.0, lower_gain))
+    upper, lower = component.coil_kick_matrices()
     return np.asarray(upper, dtype=float), np.asarray(lower, dtype=float)
 
 
@@ -248,6 +236,7 @@ def paired_kick_response(state, component, observation_z_mm):
     """Map one pair command in radians to position at an observation plane."""
 
     observation = float(observation_z_mm)
+    require_supported_descan_target(state, observation)
     upper_response = transverse_kick_response(
         state,
         float(component.upper_z_mm),
@@ -274,6 +263,7 @@ def paired_kick_response_grid(state, component, z_mm) -> np.ndarray:
         raise ValueError("Scan response Z coordinates must be a non-empty 1-D array.")
     if not np.all(np.isfinite(requested)):
         raise ValueError("Scan response Z coordinates must be finite.")
+    require_supported_descan_target(state, float(np.max(requested)))
     response = np.zeros((requested.size, 2, 2), dtype=float)
     first_foil_z_mm = min(
         float(component.upper_z_mm),
@@ -372,12 +362,12 @@ def calibrate_ac_scan_scale(state):
 
 
 def calibrate_descan_image_plane(state) -> DescanCalibrationResult:
-    """Match AC response at the image reference using opposite commands.
+    """Match AC response at the selected physical plane using opposite commands.
 
     Let ``q`` be the calibrated AC raster command. Descan is driven with
     ``-q``. Its lower-foil 2-D coupling is solved so the paired Descan
-    position response equals the paired AC response at the Selected Area
-    Aperture station. Therefore ``R_ac q + R_descan (-q) = 0`` to first order,
+    position response equals the paired AC response at the selected
+    observation station. Therefore ``R_ac q + R_descan (-q) = 0`` to first order,
     including Larmor rotation and anisotropic active optics.
     """
 
@@ -496,10 +486,16 @@ def _measure_descan(state):
         np.asarray(state.descan_deflector.image_plane_lower_ratio_matrix), residual, image, kind)
 
 
-def calibrate_scan_system(state, *, force=False, hold=False):
+def calibrate_scan_system(state, *, force=False, hold=False, observation_stop_z_mm=None):
     """Calibrate specimen scan and, when active, opposite-command Descan."""
 
     components = state.ac_deflector, state.descan_deflector
+    def consumed(component):
+        return bool(component.enabled and component.scan_enabled and (
+            observation_stop_z_mm is None or min(float(component.upper_z_mm),
+                float(component.lower_z_mm)) <= float(observation_stop_z_mm)))
+    if observation_stop_z_mm is not None and not any(consumed(component) for component in components):
+        return None
     snapshots = [dict(c.__dict__) for c in components]
     try:
         if force:
@@ -507,10 +503,9 @@ def calibrate_scan_system(state, *, force=False, hold=False):
         command, scale_residual = calibrate_ac_scan_scale(state)
         descan = state.descan_deflector
         synchronize_scan_raster(state.ac_deflector, descan)
-        descan_result = (calibrate_descan_image_plane(state)
-                        if bool(descan.enabled and descan.scan_enabled) else None)
+        descan_result = (calibrate_descan_image_plane(state) if consumed(descan) else None)
         if force:
-            capture_record(state)
+            capture_record(state, descan_calibrated=descan_result is not None)
             state.ac_deflector.calibration_mode = "held" if hold else snapshots[0]["calibration_mode"]
         return command, scale_residual, descan_result
     except Exception:
@@ -602,6 +597,7 @@ def _component_paths(
     *,
     save_z_mm=(),
 ):
+    require_supported_descan_target(state, stop_z_mm)
     return {
         "upper": transverse_kick_response_path(
             state,
@@ -677,7 +673,7 @@ def _drift_pivot_z_mm(component) -> float | None:
     ) / total
 
 
-def calculate_scan_geometry(state) -> ScanGeometryResult | None:
+def calculate_scan_geometry(state, *, observation_stop_z_mm=None, calibration=None) -> ScanGeometryResult | None:
     """Calculate specimen scan and calibrated downstream descan geometry."""
 
     ac = state.ac_deflector
@@ -686,14 +682,17 @@ def calculate_scan_geometry(state) -> ScanGeometryResult | None:
     descan_enabled = bool(descan.enabled and descan.scan_enabled)
     if not (ac_enabled or descan_enabled):
         return None
-    scan_command_matrix, scan_scale_residual = calibrate_ac_scan_scale(state)
+    if calibration is None:
+        scan_command_matrix, scan_scale_residual = calibrate_ac_scan_scale(state)
+    else:
+        scan_command_matrix, scan_scale_residual, _ = calibration
     ac_coupling = (
         np.asarray(ac.pure_shift_lower_ratio_matrix, dtype=float)
         if ac_enabled
         else None
     )
     ac_residual = _ac_angle_residual(state) if ac_enabled else None
-    descan_calibration = (
+    descan_calibration = calibration[2] if calibration is not None else (
         calibrate_descan_image_plane(state) if descan_enabled else None
     )
 
@@ -746,6 +745,17 @@ def calculate_scan_geometry(state) -> ScanGeometryResult | None:
             observation_planes.append(reference)
             existing_keys.add(str(reference.key))
     observation_planes.sort(key=lambda plane: float(plane.z_mm))
+    if observation_stop_z_mm is not None:
+        stop = float(observation_stop_z_mm)
+        if not np.isfinite(stop) or stop < sample_z_mm:
+            raise ValueError("Scan geometry observation must lie at or beyond the specimen")
+        observation_planes = [plane for plane in observation_planes if float(plane.z_mm) <= stop]
+    boundary = _filter_boundary(state)
+    unavailable = {}
+    if boundary is not None:
+        unavailable = {str(plane.key): f"{plane.name}: energy-filter transported response unavailable"
+                       for plane in observation_planes if float(plane.z_mm) >= boundary}
+        observation_planes = [plane for plane in observation_planes if float(plane.z_mm) < boundary]
     stops = [sample_z_mm]
     stops.extend(float(plane.z_mm) for plane in observation_planes)
     stop_z_mm = max(stops)
@@ -768,7 +778,7 @@ def calculate_scan_geometry(state) -> ScanGeometryResult | None:
         )
         if descan_enabled else None
     )
-    if descan_calibration is not None and not held(state):
+    if descan_calibration is not None and not held(state) and calibration is None:
         target_z_mm = float(descan_calibration.target_z_mm)
         ac_response = _pair_response_from_paths(
             ac,
@@ -868,6 +878,7 @@ def calculate_scan_geometry(state) -> ScanGeometryResult | None:
         sample_y_um=sample_m[..., 1] * 1.0e6,
         plane_positions_um=plane_positions_um,
         plane_names=plane_names,
+        unavailable_planes=unavailable,
         requested_pixels_x=int(driver.scan_pixels_x),
         requested_pixels_y=int(driver.scan_lines),
         ac_enabled=ac_enabled,
@@ -940,7 +951,7 @@ def calculate_scan_geometry(state) -> ScanGeometryResult | None:
     )
 
 
-def calculate_scan_ray_paths(state, simulation) -> ScanRayPathResult | None:
+def calculate_scan_ray_paths(state, simulation, *, calibrated=False) -> ScanRayPathResult | None:
     """Precompute scan-response bases used by GUI-only frame playback."""
 
     ac = state.ac_deflector
@@ -948,28 +959,34 @@ def calculate_scan_ray_paths(state, simulation) -> ScanRayPathResult | None:
         return None
     descan = state.descan_deflector
     descan_active = bool(descan.enabled and descan.scan_enabled)
-    calibrate_ac_scan_scale(state)
-    if descan_active:
+    if not calibrated:
+        calibrate_ac_scan_scale(state)
+    if descan_active and not calibrated:
         calibrate_descan_image_plane(state)
     baseline_time_s = float(getattr(state, "simulation_time_s", 0.0))
     zero_response_cache: dict[tuple[int, bytes], np.ndarray] = {}
     response_cache: dict[tuple[str, int, bytes], np.ndarray] = {}
+    boundary = _filter_boundary(state)
 
     def response_for(component, z_values, *, active: bool) -> np.ndarray:
         z_values = np.asarray(z_values, dtype=float)
+        supported = np.ones(z_values.size, dtype=bool) if boundary is None else z_values < boundary
         z_key = (z_values.size, z_values.tobytes())
         if not active:
+            # NaN means unavailable, never an invented zero response through
+            # the filter. The physical transport result remains untouched.
+            inactive = np.full((z_values.size, 2, 2), np.nan, dtype=float)
+            inactive[supported] = 0.
             return zero_response_cache.setdefault(
                 z_key,
-                np.zeros((z_values.size, 2, 2), dtype=float),
+                inactive,
             )
         key = (str(component.key), *z_key)
         if key not in response_cache:
-            response_cache[key] = paired_kick_response_grid(
-                state,
-                component,
-                z_values,
-            )
+            values = np.full((z_values.size, 2, 2), np.nan, dtype=float)
+            if np.any(supported):
+                values[supported] = paired_kick_response_grid(state, component, z_values[supported])
+            response_cache[key] = values
         return response_cache[key]
 
     branches = (simulation.incident, *simulation.branches.values())
@@ -997,4 +1014,5 @@ def calculate_scan_ray_paths(state, simulation) -> ScanRayPathResult | None:
         frame_period_s=float(ac.scan_frame_period_s),
         pixels_x=int(ac.scan_pixels_x),
         pixels_y=int(ac.scan_lines),
+        unavailable_from_z_mm=boundary,
     )

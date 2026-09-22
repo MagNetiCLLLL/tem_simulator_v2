@@ -248,10 +248,10 @@ def test_legacy_seed_bytes_remain_readable_but_are_not_a_tensor_restart(tmp_path
 
 
 @pytest.mark.parametrize(
-    ("with_vector_map", "legacy_lineage"),
+    ("with_vector_map", "missing_lineage"),
     [(False, False), (True, False), (False, True)],
 )
-def test_complete_incident_seed_restarts_ray_solver(tmp_path, with_vector_map, legacy_lineage):
+def test_complete_incident_seed_restarts_ray_solver(tmp_path, with_vector_map, missing_lineage):
     state, selection = _assembled_state()
     state.electron_gun.emitter.ray_count = 9
     state.step_mm = 5.0
@@ -290,7 +290,7 @@ def test_complete_incident_seed_restarts_ray_solver(tmp_path, with_vector_map, l
         field: getattr(first.incident, field)
         for field in ("source_ray_id", "source_azimuth_rad")
     }
-    if legacy_lineage:
+    if missing_lineage:
         # v1 seeds written before source-colour tracking omitted these arrays.
         first.incident.source_ray_id = None
         first.incident.source_azimuth_rad = None
@@ -314,6 +314,11 @@ def test_complete_incident_seed_restarts_ray_solver(tmp_path, with_vector_map, l
         np.testing.assert_array_equal(actual, expected)
         assert not actual.flags.writeable
     for field in ("source_ray_id", "source_azimuth_rad"):
+        if missing_lineage:
+            assert getattr(restored.incident, field) is None
+            # Fresh propagation can reattach executed gun emission identity.
+            np.testing.assert_array_equal(getattr(second.incident, field), expected_identity[field])
+            continue
         expected = getattr(first.incident, field)
         np.testing.assert_array_equal(getattr(restored.incident, field), expected)
         np.testing.assert_array_equal(getattr(second.incident, field), expected)

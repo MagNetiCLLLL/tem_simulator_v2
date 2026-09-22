@@ -45,7 +45,7 @@ def test_registered_weak_atom_has_bright_adf_and_dark_bf(monkeypatch):
                  "calculation_roi_centre_nm": (0., 0.)},
     )
     monkeypatch.setattr(stem, "_wave_grid", lambda *a: (load_specimen_preset("si_110"), prepared))
-    result = stem.simulate_angle_resolved_stem(
+    result = stem._simulate_angle_resolved_stem_single(
         state, SimpleNamespace(incident=incident_probe()),
         (stem.AngularDetector("df", 35., 90.), stem.AngularDetector("bf", 0., 25.)),
         np.array([[0., .0002, -.0002]]), np.zeros((1, 3)),
@@ -111,3 +111,7 @@ def test_finite_box_odd_grid_request_keeps_origin_on_a_pixel(monkeypatch):
     assert result.grid_shape_yx == (66, 66)
     peak = np.unravel_index(np.argmax(result.mean_projected_potential_v_angstrom), (66, 66))
     assert peak == (33, 33)
+
+
+# This module tests supplied local fields; production admission remains active.
+from local_wave_operator_fixture import supplied_local_probe

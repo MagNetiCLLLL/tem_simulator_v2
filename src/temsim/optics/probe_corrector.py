@@ -31,9 +31,8 @@ from temsim.component_keys import (
     PROBE_TL21_LENS,
     PROBE_TL22_LENS,
     PROBE_CORRECTOR_KEYS,
-    canonical_corrector_element_key,
-    canonical_deflector_key,
-    canonical_lens_key,
+    require_current_corrector_element_key,
+    require_current_lens_key,
 )
 from temsim.optics.condenser_lens import AxialFieldTerm
 from temsim.optics.lens_focal_length import focal_length_mm as _focal_length_mm
@@ -1684,7 +1683,7 @@ def resolve_probe_corrector_scan_deflector_mechanical_axis(
 
 def adapter_lens_from_dict(data):
     values = dict(data)
-    values["key"] = canonical_lens_key(values.get("key", ""))
+    values["key"] = require_current_lens_key(values.get("key"), expected=ADAPTER_LENS)
     component = create_adapter_lens()
     allowed = AdapterLensComponent.__dataclass_fields__
     object.__setattr__(component, "_position_coupling_ready", False)
@@ -1698,12 +1697,6 @@ def adapter_lens_from_dict(data):
             ]
         if attribute in allowed:
             object.__setattr__(component, attribute, value)
-    if "optical_reference_from_tip_mm" not in values:
-        object.__setattr__(
-            component,
-            "optical_reference_from_tip_mm",
-            float(values.get("z_mm", component.z_mm)),
-        )
     object.__setattr__(component, "key", ADAPTER_LENS)
     object.__setattr__(component, "_position_coupling_ready", True)
     return component.apply_optical_position().validate()
@@ -1715,9 +1708,7 @@ def create_dph2_deflector():
 
 def dph2_deflector_from_dict(data):
     values = dict(data)
-    values["key"] = canonical_corrector_element_key(
-        values.get("key", "")
-    )
+    values["key"] = require_current_corrector_element_key(values.get("key"), expected=PROBE_DPH2_DEFLECTOR)
     component = create_dph2_deflector()
     restored = restore_single_plane_deflector(component, values)
     restored.key = PROBE_DPH2_DEFLECTOR
@@ -1730,9 +1721,7 @@ def create_dp22_deflector():
 
 def dp22_deflector_from_dict(data):
     values = dict(data)
-    values["key"] = canonical_corrector_element_key(
-        values.get("key", "")
-    )
+    values["key"] = require_current_corrector_element_key(values.get("key"), expected=PROBE_DP22_DEFLECTOR)
     component = create_dp22_deflector()
     restored = restore_single_plane_deflector(component, values)
     restored.key = PROBE_DP22_DEFLECTOR
@@ -1745,9 +1734,7 @@ def create_qph2_quadrupole():
 
 def qph2_quadrupole_from_dict(data):
     values = dict(data)
-    values["key"] = canonical_corrector_element_key(
-        values.get("key", "")
-    )
+    values["key"] = require_current_corrector_element_key(values.get("key"), expected=PROBE_QPH2_QUADRUPOLE)
     component = create_qph2_quadrupole()
     restored = restore_quadrupole(component, values)
     restored.key = PROBE_QPH2_QUADRUPOLE
@@ -1760,9 +1747,7 @@ def create_hp2_hexapole():
 
 def hp2_hexapole_from_dict(data):
     values = dict(data)
-    values["key"] = canonical_corrector_element_key(
-        values.get("key", "")
-    )
+    values["key"] = require_current_corrector_element_key(values.get("key"), expected=PROBE_HP2_HEXAPOLE)
     component = create_hp2_hexapole()
     restored = restore_hexapole(component, values)
     restored.key = PROBE_HP2_HEXAPOLE
@@ -1775,9 +1760,7 @@ def create_hpc_hexapole():
 
 def hpc_hexapole_from_dict(data):
     values = dict(data)
-    values["key"] = canonical_corrector_element_key(
-        values.get("key", "")
-    )
+    values["key"] = require_current_corrector_element_key(values.get("key"), expected=PROBE_HPC_HEXAPOLE)
     component = create_hpc_hexapole()
     restored = restore_hexapole(component, values)
     restored.key = PROBE_HPC_HEXAPOLE
@@ -1786,9 +1769,7 @@ def hpc_hexapole_from_dict(data):
 
 def _restore_single_deflector(factory, canonical_key, data):
     values = dict(data)
-    values["key"] = canonical_corrector_element_key(
-        values.get("key", "")
-    )
+    values["key"] = require_current_corrector_element_key(values.get("key"), expected=canonical_key)
     restored = restore_single_plane_deflector(factory(), values)
     restored.key = canonical_key
     return restored.validate()
@@ -1796,9 +1777,7 @@ def _restore_single_deflector(factory, canonical_key, data):
 
 def _restore_quadrupole(factory, canonical_key, data):
     values = dict(data)
-    values["key"] = canonical_corrector_element_key(
-        values.get("key", "")
-    )
+    values["key"] = require_current_corrector_element_key(values.get("key"), expected=canonical_key)
     restored = restore_quadrupole(factory(), values)
     restored.key = canonical_key
     return restored.validate()
@@ -1806,9 +1785,7 @@ def _restore_quadrupole(factory, canonical_key, data):
 
 def _restore_hexapole(factory, canonical_key, data):
     values = dict(data)
-    values["key"] = canonical_corrector_element_key(
-        values.get("key", "")
-    )
+    values["key"] = require_current_corrector_element_key(values.get("key"), expected=canonical_key)
     restored = restore_hexapole(factory(), values)
     restored.key = canonical_key
     return restored.validate()
@@ -1816,7 +1793,7 @@ def _restore_hexapole(factory, canonical_key, data):
 
 def _restore_probe_round_lens(factory, canonical_key, data):
     values = dict(data)
-    values["key"] = canonical_lens_key(values.get("key", ""))
+    values["key"] = require_current_lens_key(values.get("key"), expected=canonical_key)
     restored = restore_round_lens(factory(), values)
     restored.key = canonical_key
     return restored.validate()
@@ -1928,23 +1905,12 @@ def create_dp12_scan_deflector():
 
 def dp12_scan_deflector_from_dict(data):
     values = dict(data)
-    values["key"] = canonical_corrector_element_key(
-        canonical_deflector_key(values.get("key", ""))
-    )
+    values["key"] = require_current_corrector_element_key(values.get("key"), expected=PROBE_DP12_SCAN_DEFLECTOR)
     component = create_dp12_scan_deflector()
-    default_center_mm = float(
-        component.optical_upper_reference_from_tip_mm
-    )
-    optical_center_mm = 0.5 * (
-        float(values.get(
-            "optical_upper_reference_from_tip_mm",
-            values.get("upper_z_mm", default_center_mm),
-        ))
-        + float(values.get(
-            "optical_lower_reference_from_tip_mm",
-            values.get("lower_z_mm", default_center_mm),
-        ))
-    )
+    kick_fields = ("upper_x_mrad", "upper_y_mrad", "lower_x_mrad", "lower_y_mrad")
+    if any(float(values.get(key, 0.0)) != 0.0 for key in kick_fields):
+        raise ValueError("The DP12 layout reference has no physical kick controls")
+    optical_center_mm = float(component.optical_upper_reference_from_tip_mm)
     values.update({
         "name": DP12_SCAN_DEFLECTOR_DEFINITION.label,
         "mechanical_length_mm": _probe_manifest_value(
@@ -1973,7 +1939,7 @@ def create_tl22_lens():
 
 def tl22_lens_from_dict(data):
     values = dict(data)
-    values["key"] = canonical_lens_key(values.get("key", ""))
+    values["key"] = require_current_lens_key(values.get("key"), expected=PROBE_TL22_LENS)
     component = create_tl22_lens()
     restored = restore_round_lens(component, values)
     restored.key = PROBE_TL22_LENS

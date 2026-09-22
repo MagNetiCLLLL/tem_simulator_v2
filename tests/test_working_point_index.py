@@ -9,7 +9,7 @@ import pytest
 
 from temsim.instrument_snapshot import capture_instrument_snapshot
 from temsim.optics.column import default_state
-from temsim.working_point import WorkingPointCheckpoint, WorkingPointArchiveIndex, migrate_working_point_inputs
+from temsim.working_point import WorkingPointCheckpoint, WorkingPointArchiveIndex
 
 
 @pytest.fixture
@@ -84,26 +84,18 @@ def test_lazy_load_verifies_all_payloads_and_detects_file_replacement(archived):
         index.load()
 
 
-def test_explicit_migration_is_new_inputs_only_identity_and_preserves_history(archived):
+def test_changed_implementation_requires_current_execution_and_preserves_archive(archived):
     point, _ = archived
     old = replace(point, snapshot=replace(point.snapshot, implementation="old-solver"))
-    migrated = migrate_working_point_inputs(old)
-    assert migrated.parent_id == old.digest
-    assert migrated.is_input_design and not migrated.arrays
-    assert migrated.digest != old.digest and old.arrays
-    assert migrated.metadata["validation_status"] == "NOT_RUN"
-    assert migrated.snapshot.graph == point.snapshot.graph
-    assert migrated.snapshot.implementation == point.snapshot.implementation
+    with pytest.raises(ValueError, match="implementation changed"):
+        old.compatible_state()
     assert old.snapshot.implementation == "old-solver"
+    assert old.arrays
 
 
-def test_migration_cannot_admit_historical_exit_source(archived):
-    point, _ = archived
-    state = point.snapshot.restore()
-    state.electron_gun.source_representation = "effective_gaussian_schell"
-    old = replace(point, snapshot=capture_instrument_snapshot(state))
-    with pytest.raises(ValueError, match="Custom exit sources"):
-        migrate_working_point_inputs(old)
+def test_working_points_expose_no_implicit_migration_api():
+    from temsim import working_point
+    assert not hasattr(working_point, "migrate_working_point_inputs")
 
 
 @pytest.mark.parametrize("attack", ["duplicate", "traversal", "huge_shape", "undeclared"])

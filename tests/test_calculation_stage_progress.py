@@ -115,6 +115,7 @@ def test_pipeline_cached_elastic_and_eds_omit_completed_stages(monkeypatch, eds_
     interactions = SimpleNamespace(
         elastic_transport=object(), eds_spectrum=object() if eds_cached else None,
         inelastic_distribution=object(), metrics={}, completed_observables=frozenset(),
+        conservation=(object(),),  # Completed ledger; this fixture tests routing only.
     )
     cached = {key: signatures[key] for key in ("incident", "column", "elastic", "energy_filter")}
     if eds_cached:
@@ -127,6 +128,8 @@ def test_pipeline_cached_elastic_and_eds_omit_completed_stages(monkeypatch, eds_
     monkeypatch.setattr(pipeline, "_geometric_specimen_transport_requested", lambda _state: False)
     monkeypatch.setattr(pipeline, "sample_illumination_absent", lambda *_args: False)
     monkeypatch.setattr(pipeline, "retain_specimen_observables", lambda *_args: interactions)
+    monkeypatch.setattr("temsim.specimen.elastic_transport.incident_rays_from_simulation",
+                        lambda *_args: SimpleNamespace(original_centroid_nm=(0., 0.)))
 
     def forbidden(*_args, **_kwargs):
         pytest.fail("Cached ray or energy-filter propagation must not run")

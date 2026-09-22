@@ -133,14 +133,24 @@ def test_full_tip_gun_keeps_c1_arrival_separate_and_does_not_clip_exit_again(cur
     assert c1.key != handoff.key
     r_c1 = np.hypot(c1.x_m, c1.y_m)*1000
     r_exit = np.hypot(handoff.x_m, handoff.y_m)*1000
-    candidates = np.flatnonzero(handoff.transmitted & (r_exit > r_c1+1e-8))
+    # A real working point may be converging or diverging here. Choose an
+    # opening that distinguishes the two physical planes in either case;
+    # never require production defaults to put the exit after a waist.
+    candidates = np.flatnonzero(handoff.transmitted & (np.abs(r_exit-r_c1) > 1e-8))
     assert candidates.size
     ray = candidates[-1]
     gun.c1_aperture.radius_mm = (r_exit[ray]+r_c1[ray])/2
+    expected = baseline.exit_bundle.alive & (r_c1 <= gun.c1_aperture.radius_mm)
+    assert expected[ray] != (r_exit[ray] <= gun.c1_aperture.radius_mm)
     limited = gun.trace_to_exit(9)
     assert limited is not baseline
-    assert limited.exit_bundle.alive[ray]
-    assert np.hypot(limited.exit_bundle.x_m[ray], limited.exit_bundle.y_m[ray])*1000 > gun.c1_aperture.radius_mm
+    np.testing.assert_array_equal(limited.exit_bundle.alive, expected)
+    if r_exit[ray] > r_c1[ray]:
+        assert limited.exit_bundle.alive[ray]
+        assert np.hypot(limited.exit_bundle.x_m[ray], limited.exit_bundle.y_m[ray])*1000 > gun.c1_aperture.radius_mm
+    else:
+        assert limited.blocked_key[ray] == gun.c1_aperture.key
+        assert limited.blocked_z_mm[ray] == gun.c1_aperture.z_mm
     assert gun.trace_to_exit(9) is limited
     if curved:
         assert limited.surface_model_report['maximum_exit_energy_error_ev'] < 1e-3

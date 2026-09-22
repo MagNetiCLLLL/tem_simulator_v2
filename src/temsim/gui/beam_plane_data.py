@@ -17,6 +17,7 @@ import numpy as np
 from temsim.gui.beam_display_source import downstream_display_branches
 from temsim.gui.beam_tracking_modes import branch_interaction_style
 from temsim.physics.ray_identity import branch_identity, source_identity
+from temsim.physics.flight_time import sample_flight_time
 
 
 _PROBABILITY_TOL = 1.0e-10
@@ -49,6 +50,8 @@ class BeamPlaneData:
     source_current_pa: float | None
     weights_valid: bool
     diagnostics: tuple[str, ...] = ()
+    flight_time_s: np.ndarray | None = None
+    coordinate_frame: str = "column"
 
     @property
     def ray_count(self) -> int:
@@ -83,11 +86,8 @@ def _count(branch) -> int:
 def _weights(branch, count, diagnostics, *, conditional=False):
     raw = getattr(branch, "ray_weight", None)
     if raw is None:
-        if conditional:
-            diagnostics.append("Detailed branch conditional weights are unavailable.")
-            return np.full(count, np.nan), False
-        diagnostics.append("Legacy source ray_weight=None: equal-weight Branch convention.")
-        return np.full(count, 1.0 / max(count, 1)), True
+        diagnostics.append("Ray probabilities are unavailable; quantitative readout is unavailable.")
+        return np.full(count, np.nan), False
     try:
         values = np.asarray(raw, dtype=float)
         if (values.shape != (count,) or np.any(~np.isfinite(values))
@@ -117,7 +117,7 @@ def _ordinary_probabilities(simulation, branches, diagnostics):
     if not isinstance(metrics, Mapping):
         diagnostics.append("Optical branch probability convention is unavailable.")
         return np.full(len(branches), np.nan), False
-    absolute = metrics.get("branch_weights_are_absolute", False)
+    absolute = metrics.get("branch_weights_are_absolute")
     if not isinstance(absolute, (bool, np.bool_)):
         diagnostics.append("Optical branch probability convention is invalid.")
         return np.full(len(branches), np.nan), False
@@ -312,7 +312,7 @@ def sample_beam_plane(result, z_mm: float) -> BeamPlaneData:
         if not np.any(keep):
             continue
         ids, azimuths = (
-            source_identity(incident, getattr(simulation, "gun_trace", None))
+            source_identity(incident)
             if provenance == "Incident" else branch_identity(branch, simulation)
         )
         key, label, rgb, symbol = branch_interaction_style(branch)
@@ -322,12 +322,13 @@ def sample_beam_plane(result, z_mm: float) -> BeamPlaneData:
             fractions[keep], np.full(size, key), np.full(size, label),
             np.tile(np.asarray(rgb, dtype=np.uint8), (size, 1)),
             np.full(size, symbol), global_indices[keep],
+            sample_flight_time(branch, selected_z)[keep],
         ))
     if columns:
         arrays = [_frozen(np.concatenate([column[index] for column in columns]))
-                  for index in range(12)]
+                  for index in range(13)]
     else:
-        arrays = [_frozen([], dtype=float) for _ in range(12)]
+        arrays = [_frozen([], dtype=float) for _ in range(13)]
         arrays[4] = _frozen([], dtype=np.int64)
         arrays[7] = arrays[8] = arrays[10] = _frozen([], dtype="U1")
         arrays[9] = _frozen(np.empty((0, 3), dtype=np.uint8))
@@ -339,8 +340,9 @@ def sample_beam_plane(result, z_mm: float) -> BeamPlaneData:
         "Partial data" if arrays[0].size else "Outside cached range" if not coverage else "Unavailable"
     )
     return BeamPlaneData(
-        selected_z, *arrays, total_columns, provenance, status,
+        selected_z, *arrays[:12], total_columns, provenance, status,
         source_current, bool(valid), tuple(dict.fromkeys(diagnostics)),
+        flight_time_s=arrays[12],
     )
 
 

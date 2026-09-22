@@ -111,7 +111,7 @@ class InputArchive:
 
     def assert_current_runtime(self):
         if self.payload.get("runtime") != runtime_identity():
-            raise ValueError("Archive runtime dependencies changed; migrate inputs explicitly before recalculating")
+            raise ValueError("Archive runtime dependencies changed; capture current inputs before recalculating")
 
     def contains(self, path):
         return self.original_path(path) in self._files

@@ -23,6 +23,19 @@ class _NumpyDevice:
         runtime=SimpleNamespace(memGetInfo=lambda: (8 * 1024**3, 16 * 1024**3)),
     )
 
+    @staticmethod
+    def ReductionKernel(*_args):
+        def reduce(values, *, axis):
+            return np.sum(values.real.astype(np.float64)**2 + values.imag.astype(np.float64)**2, axis=axis)
+        return reduce
+
+    @staticmethod
+    def ElementwiseKernel(*_args):
+        def scale(values, factor, output):
+            output[...] = values.astype(np.complex128)*factor
+            return output
+        return scale
+
     def __getattr__(self, name):
         return getattr(np, name)
 

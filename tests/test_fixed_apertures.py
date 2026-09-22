@@ -170,7 +170,8 @@ def test_closed_dpa_drawing_matches_runtime_and_profile_roundtrip(tmp_path):
     ) if r.key == DPA)
     assert record.bore_diameter_mm == 0.0
     path = tmp_path / "fixed_apertures.toml"
-    save_profile(path, state, AssemblyCatalog().default_selection())
+    catalog = AssemblyCatalog()
+    save_profile(path, state, catalog.selection_for_resolved(state._resolved_assembly))
     _, values = read_profile(path)
     assert "enabled" not in values[DPA]
     restored, _ = _state()

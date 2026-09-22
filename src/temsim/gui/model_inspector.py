@@ -182,7 +182,7 @@ class ModelInspectorPage(QWidget):
         self.permeability.setText(str(row.get("relative_permeability", reference["relative_permeability"])))
         self.ampere_turns.setText(str(row.get("ampere_turns", "")))
         self.ampere_turns.setReadOnly("excitation_calibration" in row)
-        self.dimension_approximation.setChecked(row.get("geometry_policy") in {"authoritative_dimensions", "legacy_authoritative_dimensions"})
+        self.dimension_approximation.setChecked(row.get("geometry_policy") == "authoritative_dimensions")
         try:
             from temsim.excitation_calibration import calibration_from_recipe
             lens = next(item for item in self._state.lenses if item.key == self.lens.currentData())

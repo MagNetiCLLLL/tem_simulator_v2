@@ -1,7 +1,6 @@
 """Unified meaning/impact explanations preserve the actual parameter editors."""
 
 from copy import deepcopy
-import shutil
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +15,7 @@ from temsim.parameter_impact import describe_parameter_impact
 from temsim.parameter_semantics import describe_parameter
 from temsim.paths import INSTRUMENT_CONFIG_ROOT
 from temsim.runtime_parameters import RuntimeTarget
+from temsim.shared_tip import copy_catalog_tree, dependencies
 
 
 COLUMN = "column/C3_ProbeCorrector_ImageCorrector.toml"
@@ -27,13 +27,13 @@ COIL = "intermediate_lens_excitation_coil"
 @pytest.fixture
 def sources(tmp_path):
     originals = {}
+    root = tmp_path / "instruments"
+    copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, root)
     for module in (COLUMN, RECORDING):
         source = INSTRUMENT_CONFIG_ROOT / module
         originals[source] = source.read_bytes()
-        target = tmp_path / module
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
-    yield tmp_path
+        originals.update(dependencies(source))
+    yield root
     assert all(source.read_bytes() == contents for source, contents in originals.items())
 
 

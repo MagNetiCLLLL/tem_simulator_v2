@@ -185,47 +185,54 @@ def quaternion_from_euler_xyz_deg(values) -> tuple[float, float, float, float]:
 
 
 def quaternion_to_euler_xyz_deg(values) -> tuple[float, float, float]:
-    rotation = quaternion_to_matrix(values)
-    sy = float(np.clip(-rotation[2, 0], -1.0, 1.0))
-    ry = math.asin(sy)
-    if abs(math.cos(ry)) > 1.0e-10:
-        rx = math.atan2(rotation[2, 1], rotation[2, 2])
-        rz = math.atan2(rotation[1, 0], rotation[0, 0])
+    """Return the Rz(rz) Ry(ry) Rx(rx) chart without losing pole orientation."""
+    w, x, y, z = normalise_quaternion_wxyz(values)
+    # For this convention these pairs encode (rx-rz)/2 and (rx+rz)/2,
+    # with magnitudes cos(ry/2)+sin(ry/2) and cos(ry/2)-sin(ry/2).
+    # Retaining the coupled angles avoids independently dividing almost-zero
+    # rotation-matrix entries near a +/-90 degree pitch.
+    minus_size = math.hypot(w + y, x - z)
+    plus_size = math.hypot(w - y, x + z)
+    ry = 2.0 * math.atan2(minus_size - plus_size, minus_size + plus_size)
+    half_difference = math.atan2(x - z, w + y)
+    half_sum = math.atan2(x + z, w - y)
+    pole_tolerance = 8.0 * np.finfo(float).eps
+    if plus_size <= pole_tolerance:
+        rx, rz = 2.0 * half_difference, 0.0
+    elif minus_size <= pole_tolerance:
+        rx, rz = 2.0 * half_sum, 0.0
     else:
-        rx = math.atan2(-rotation[1, 2], rotation[1, 1])
-        rz = 0.0
+        rx, rz = half_sum + half_difference, half_sum - half_difference
+    rx, rz = math.remainder(rx, 2.0 * math.pi), math.remainder(rz, 2.0 * math.pi)
     return tuple(float(math.degrees(value)) for value in (rx, ry, rz))
 
 
 def sample_orientation_quaternion(sample) -> tuple[float, float, float, float]:
+    if any(hasattr(sample, name) for name in (
+        "specimen_rotation_x_deg", "specimen_rotation_y_deg", "specimen_rotation_z_deg",
+    )):
+        raise ValueError("Retired sample Euler fields are unsupported; set the physical orientation quaternion")
     stored = getattr(
         sample,
         "specimen_orientation_quaternion_wxyz",
         IDENTITY_QUATERNION_WXYZ,
     )
-    quaternion = normalise_quaternion_wxyz(stored)
-    legacy = (
-        float(getattr(sample, "specimen_rotation_x_deg", 0.0)),
-        float(getattr(sample, "specimen_rotation_y_deg", 0.0)),
-        float(getattr(sample, "specimen_rotation_z_deg", 0.0)),
-    )
-    # A state written before the quaternion field existed receives the new
-    # identity default during construction.  Preserve its nonzero Euler
-    # orientation exactly once at this compatibility boundary.
-    if np.allclose(quaternion, IDENTITY_QUATERNION_WXYZ, atol=1.0e-12) and not np.allclose(
-        legacy, 0.0, atol=1.0e-12
-    ):
-        return quaternion_from_euler_xyz_deg(legacy)
-    return quaternion
+    return normalise_quaternion_wxyz(stored)
 
 
 def set_sample_orientation(sample, quaternion) -> None:
     canonical = normalise_quaternion_wxyz(quaternion)
     sample.specimen_orientation_quaternion_wxyz = canonical
-    euler = quaternion_to_euler_xyz_deg(canonical)
-    sample.specimen_rotation_x_deg = euler[0]
-    sample.specimen_rotation_y_deg = euler[1]
-    sample.specimen_rotation_z_deg = euler[2]
+
+
+def sample_orientation_euler_xyz_deg(sample) -> tuple[float, float, float]:
+    """Return derived XYZ Euler angles for the physical quaternion."""
+    return quaternion_to_euler_xyz_deg(sample_orientation_quaternion(sample))
+
+
+def set_sample_orientation_euler_xyz_deg(sample, angles) -> None:
+    """Apply explicit XYZ angle controls to the sole physical orientation."""
+    set_sample_orientation(sample, quaternion_from_euler_xyz_deg(angles))
 
 
 def quaternion_from_zone_axes(

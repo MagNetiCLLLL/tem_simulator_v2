@@ -163,7 +163,7 @@ def default_state():
 
     state.corrector_mode = "probe_corrector"
 
-    state.energy_filter_mode = "energy_filter"
+    state.energy_filter_mode = "no_energy_filter"
 
     state.column_mode = "three_lens"
 
@@ -171,7 +171,7 @@ def default_state():
 
     state.image_corrector_installed=False
 
-    state.energy_filter_installed=True
+    state.energy_filter_installed=False
 
     state = normalise_component_names(
         ensure_recording_system(ensure_corrector_structure(state))

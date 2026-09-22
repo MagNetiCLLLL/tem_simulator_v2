@@ -24,7 +24,7 @@ MODES = (
     SimulationMode("linear_geometry", "Linear Geometry Field", "Every enabled column round lens requires an explicit linear FEM recipe. Materials, mesh and geometry must be valid; no analytic fallback."),
     SimulationMode("nonlinear_material", "Nonlinear Material Field", "Static isotropic B-H fields, jointly solved at the complete current vector. Explicit reference materials required; no hysteresis or thermal coupling."),
     SimulationMode("coupled_multiphysics", "Coupled Multiphysics", "Not implemented: requires explicit circuit, thermal and structural coupling.", False),
-    SimulationMode("custom", "Custom / Per-lens Models", "Existing per-lens analytic, generated and imported field models. Preserves legacy profile behaviour; not a uniform fidelity level."),
+    SimulationMode("custom", "Custom / Per-lens Models", "Each lens explicitly selects its analytic, generated or imported field model; not a uniform fidelity level."),
 )
 MODE_BY_KEY = {item.key: item for item in MODES}
 MODEL_SETTINGS = ("lens_field_map_descriptors", "probe_aberrations", "image_aberrations",

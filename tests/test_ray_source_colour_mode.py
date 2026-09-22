@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtGui import QColor
 
 from temsim.gui.visualization import VisualizationWorkspace
-from temsim.physics.ray_identity import source_identity, select_identity
+from temsim.physics.ray_identity import select_identity
 from temsim.specimen.downstream_transport import GeometricSpecimenExit
 
 
@@ -20,13 +20,14 @@ def _branch(name, z, count=3):
         alive=np.ones(count, dtype=bool), blocked_z=np.full(count, np.nan),
         blocked_key=[""] * count, ray_weight=np.full(count, 1 / count),
         weight=1.0, colour=(0.3, 0.9, 0.4),
+        source_ray_id=np.arange(count, dtype=np.int64),
+        source_azimuth_rad=np.mod(np.arctan2(y[0], x[0]), 2*np.pi),
         interaction_kind="incident" if name == "incident" else "sample_region_elastic",
     )
 
 
 def _result():
     incident = _branch("incident", (0, 10))
-    incident.source_ray_id, incident.source_azimuth_rad = source_identity(incident)
     reference = _branch("000", (10, 20))
     simulation = SimpleNamespace(
         incident=incident, branches={"000": reference}, metrics={},
@@ -76,7 +77,6 @@ def test_source_hue_survives_reordered_scattering_and_is_bounded(view):
                     if np.isfinite(angle) else QColor("#94a3b8"))
         assert lookup[(id(incident), index)] == (expected.red(), expected.green(), expected.blue())
     large = _branch("incident", (0, 10), 500)
-    large.source_ray_id, large.source_azimuth_rad = source_identity(large)
     groups = view._source_colour_groups(SimpleNamespace(incident=large), (large,))
     assert sum(len(indices) for segments in groups.values() for _b, indices in segments) == view.MAX_DISPLAY_RAYS
     assert len(groups) <= view.MAX_DISPLAY_RAYS

@@ -72,7 +72,7 @@ def test_legacy_and_active_vacuum_keep_explicit_boundaries():
     source = state()
     component(source).field_model = "legacy_difference"
     assert not capability(source)[0]
-    with pytest.raises(ValueError, match="Independent X/Y"):
+    with pytest.raises(ValueError, match="normal_skew"):
         AlignmentRequest.capture(source, KEY, 0., revision=0, options=StigmatorAlignmentOptions())
     component(source).field_model = "normal_skew"
     request = AlignmentRequest.capture(source, KEY, 0., revision=0, options=StigmatorAlignmentOptions())

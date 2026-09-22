@@ -2,7 +2,7 @@
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
-import tomllib
+from temsim.module_manifest import read_document
 
 import pytest
 
@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1] / "configs/instruments"
 
 @pytest.fixture
 def parts():
-    documents = [tomllib.loads((ROOT / path).read_text(encoding="utf-8-sig")) for path in (
+    documents = [read_document(ROOT / path) for path in (
         "column/C3_ProbeCorrector_ImageCorrector.toml", "project_and_recording_system/EnergyFilter.toml")]
     return {row["key"]: row for document in documents for row in document["parts"]}
 

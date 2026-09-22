@@ -8,7 +8,7 @@ import tomllib
 import pytest
 
 from temsim import module_manifest
-from temsim.assembly_catalog import AssemblyCatalog
+from temsim.assembly_catalog import AssemblyCatalog, AssemblySelection
 from temsim.column.module_assembly import resolve_module_assembly
 from temsim.column.state_layout import layout_configuration_from_state
 from temsim.manifest_editor import (
@@ -24,6 +24,8 @@ def editing_context(tmp_path):
     from temsim.shared_tip import copy_catalog_tree
     copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, root)
     state = default_state()
+    catalog = AssemblyCatalog(root)
+    catalog.apply(state, AssemblySelection("FEG", "C3 + Probe Corrector", "Energy Filter"))
     return root, ManifestEditor(root), state, layout_configuration_from_state(state)
 
 
@@ -59,7 +61,7 @@ def test_length_save_reloads_resolved_geometry_without_moving_other_parts(editin
     # Exercise the same catalog reload used after the GUI saves, including
     # physical layout, instead of checking only the serialized coordinates.
     catalog = AssemblyCatalog(root)
-    new_assembly = catalog.apply(state, catalog.default_selection(), preserve_operating_parameters=True)
+    new_assembly = catalog.apply(state, AssemblySelection("FEG", "C3 + Probe Corrector", "Energy Filter"), preserve_operating_parameters=True)
     for part in new_assembly.parts:
         old = old_assembly.part(part.key)
         assert part.center_z_mm == old.center_z_mm

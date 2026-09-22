@@ -242,6 +242,10 @@ def create_objective_stigmator():
 
 def objective_stigmator_from_dict(data):
     values = dict(data)
+    if values.get("key") != OBJECTIVE_STIGMATOR:
+        raise ValueError(f"Objective stigmator requires component key {OBJECTIVE_STIGMATOR!r}")
+    if values.get("field_model") != "normal_skew":
+        raise ValueError("Objective stigmator record requires field_model='normal_skew'")
     component = create_objective_stigmator()
     for attribute in (
         "strength_x_percent",

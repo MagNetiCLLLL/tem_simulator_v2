@@ -239,7 +239,7 @@ def test_detector_only_live_request_is_explained_without_starting_work(page_fact
     assert not page._live_mode and not page.timer.isActive() and not page.busy
     assert not page.live_widgets
     assert "Advanced bank" in page.status.text()
-    assert "lens or aperture" in page.status.text()
+    assert "physical component range" in page.status.text()
 
 
 @pytest.mark.parametrize("minimum", ["", "73"])

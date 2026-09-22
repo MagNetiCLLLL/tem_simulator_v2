@@ -21,6 +21,52 @@ import numpy as np
 
 from temsim.physics.core import propagate
 
+FIRST_ORDER_RESPONSE_SCHEMA = "axis-linear-float64-checkpoints-v2"
+
+
+def _trace_basis(state, source, stop, *, save_z_mm=(), maximum_step_mm=None, events=()):
+    """One shared linear observer; finite-ray transport retains nonlinear fields.
+
+    Analytic multipoles are linearised on the column axis. Mapped fields use
+    small central differences. These diagnostic bases are never a beam source.
+    """
+    from temsim.physics.lens_field_provider import active_mapped_providers
+    vector_maps = bool(active_mapped_providers(state))
+    steps = np.array((1e-8, 1e-8, 1e-6, 1e-6)) if vector_maps else np.ones(4)
+    basis = np.column_stack((np.zeros(4), np.diag(steps)))
+    if vector_maps:
+        basis = np.column_stack((basis, -np.diag(steps)))
+    checkpoints = sorted({float(stop), *(float(z) for z in save_z_mm if source <= float(z) <= stop)})
+    result = propagate(state, source, stop, basis[0], basis[2], basis[1], basis[3],
+        events=events, include_spherical_aberration=False, include_hexapole=False,
+        save_z_mm=checkpoints, checkpoint_z_mm=checkpoints, return_checkpoints=True,
+        maximum_step_mm=maximum_step_mm)
+    return result, steps, vector_maps
+
+
+def _basis_difference(values, steps, central):
+    values = np.asarray(values, dtype=float)
+    if central:
+        return (values[..., 1:5] - values[..., 5:9]) / (2.0*steps)
+    return (values[..., 1:5] - values[..., :1]) / steps
+
+
+def transverse_position_response_path(state, source, stop, *, save_z_mm=()):
+    """Angular columns of the same first-order observer used for calibration.
+
+    Intermediate display history remains compact. Every explicitly requested
+    plane and the endpoint uses executed float64 checkpoints, not plot samples.
+    """
+    result, steps, central = _trace_basis(state, source, stop, save_z_mm=save_z_mm)
+    z, x, _, y, _, points = result
+    response = np.stack((_basis_difference(x, steps, central)[..., 2:],
+                         _basis_difference(y, steps, central)[..., 2:]), axis=1)
+    for index, plane in enumerate(points.z_mm):
+        row = int(np.argmin(np.abs(z-plane)))
+        response[row] = np.stack((_basis_difference(points.x_m[index], steps, central)[2:],
+                                  _basis_difference(points.y_m[index], steps, central)[2:]))
+    return z, response
+
 
 CALIBRATED_DETECTOR_ORIENTATION_STATUSES = frozenset({
     "column_coordinates",
@@ -254,36 +300,16 @@ def trace_transverse_transfers(
     if not downstream:
         return result
 
-    from temsim.physics.lens_field_provider import active_mapped_providers
-    vector_maps = bool(active_mapped_providers(state))
-    steps = np.array((1e-8, 1e-8, 1e-6, 1e-6)) if vector_maps else np.ones(4)
-    basis = np.column_stack((np.zeros(4), np.diag(steps)))
-    if vector_maps:
-        basis = np.column_stack((basis, -np.diag(steps)))
-    z_mm, x, tx, y, ty = propagate(
-        state,
-        source,
-        downstream[-1],
-        basis[0], basis[2], basis[1], basis[3],
-        events=events,
-        include_spherical_aberration=False,
-        include_hexapole=False,
-        save_z_mm=downstream,
-        maximum_step_mm=maximum_step_mm,
-    )
+    traced, steps, vector_maps = _trace_basis(state, source, downstream[-1],
+        save_z_mm=downstream, maximum_step_mm=maximum_step_mm, events=events)
+    points = traced[-1]
+    z_mm, x, tx, y, ty = points.z_mm, points.x_m, points.tx_rad, points.y_m, points.ty_rad
     for target in downstream:
         index = int(np.argmin(np.abs(z_mm - target)))
-        position = np.vstack((
-            np.asarray(x[index, 1:5], dtype=float) - float(x[index, 0]),
-            np.asarray(y[index, 1:5], dtype=float) - float(y[index, 0]),
-        ))
-        angle = np.vstack((
-            np.asarray(tx[index, 1:5], dtype=float) - float(tx[index, 0]),
-            np.asarray(ty[index, 1:5], dtype=float) - float(ty[index, 0]),
-        ))
-        if vector_maps:
-            position = np.vstack((x[index,1:5]-x[index,5:9], y[index,1:5]-y[index,5:9])) / (2.0*steps)
-            angle = np.vstack((tx[index,1:5]-tx[index,5:9], ty[index,1:5]-ty[index,5:9])) / (2.0*steps)
+        position = np.vstack((_basis_difference(x[index], steps, vector_maps),
+                              _basis_difference(y[index], steps, vector_maps)))
+        angle = np.vstack((_basis_difference(tx[index], steps, vector_maps),
+                           _basis_difference(ty[index], steps, vector_maps)))
         result[target] = TransverseTransfer(
             source_z_mm=source,
             target_z_mm=target,

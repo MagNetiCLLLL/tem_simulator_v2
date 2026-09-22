@@ -35,9 +35,9 @@ key = "imaging"
 name = "Image (objective image plane)"
 family = "projector"
 calibration_status = "computed_300kv_non_oem_energy_filter"
-calibration_reference = "Objective image plane relayed to the active recording stop with the Objective fixed at 68.9801%. D/I were jointly recalculated on the full distributed-field Larmor-coupled transfer while P1/P2 retained their stored values; 0.00625 mm validation step; non-OEM engineering calibration."
+calibration_reference = "Objective image plane relayed to the active recording stop with the Objective fixed at 68.9801%. D/I were jointly recalculated on the full distributed-field Larmor-coupled transfer while P1/P2 retained their stored values; 0.00625 mm validation step; non-OEM engineering calibration. Recording-module compatibility covers the identical D/I/P1/P2 fields and the same pre-filter camera plane in the Energy Filter and No Energy Filter assemblies. It does not establish a calibration at the downstream energy-filter camera or any changed observation plane."
 compatible_columns = ["C2", "C3", "C3 + Probe Corrector"]
-compatible_recording_systems = ["Energy Filter"]
+compatible_recording_systems = ["Energy Filter", "No Energy Filter"]
 devices = { diffraction_lens = { percent = 16.061396154844676 }, intermediate_lens = { percent = 27.241859334290446 }, projector_lens_1 = { percent = 31.42820723 }, projector_lens_2 = { percent = 30.39754696 } }
 apertures = {}
 targets = { conjugate_plane = "objective_image_plane", achieved_plane_magnification = 18.922310733, achieved_relay_error_um = 0.007311414, validation_step_mm = 0.00625 }
@@ -47,9 +47,9 @@ key = "diffraction"
 name = "Diffraction (objective back focal plane)"
 family = "projector"
 calibration_status = "computed_300kv_non_oem_mode_dependent_diffraction_reference"
-calibration_reference = "Computed 300 kV non-OEM principle-model calibration. The stored projector default is the 0.05 m STEM main-screen branch. Live Direct Alignment uses the main fluorescent screen in STEM and the active recording stop in TEM; the TEM D/I/P1/P2 full canonical 4x4 solve is validated from 0.005 to 2.5 m at 0.025 mm. Detector insertion and readout remain independent of the projector state."
+calibration_reference = "Computed 300 kV non-OEM principle-model calibration. The stored projector default is the 0.05 m STEM main-screen branch. Live Direct Alignment uses the main fluorescent screen in STEM and the active recording stop in TEM; the TEM D/I/P1/P2 full canonical 4x4 solve is validated from 0.005 to 2.5 m at 0.025 mm. Detector insertion and readout remain independent of the projector state. Recording-module compatibility covers the identical D/I/P1/P2 fields, main screen and pre-filter camera plane in the Energy Filter and No Energy Filter assemblies. It does not establish a calibration at the downstream energy-filter camera or any changed observation plane."
 compatible_columns = ["C2", "C3", "C3 + Probe Corrector"]
-compatible_recording_systems = ["Energy Filter"]
+compatible_recording_systems = ["Energy Filter", "No Energy Filter"]
 devices = { diffraction_lens = { percent = 14.577617197168571 }, intermediate_lens = { percent = 0.035082657259397326 }, projector_lens_1 = { percent = 32.1132572718703 }, projector_lens_2 = { percent = 9.826874422815507 } }
 apertures = {}
 targets = { conjugate_plane = "mode_dependent_diffraction_reference_plane", reference_surface = "stem_main_screen_or_tem_active_recording_stop", achieved_effective_camera_length_m = 0.0499981286, achieved_diffraction_conjugacy_residual = 0.0000003973, validation_step_mm = 0.025 }

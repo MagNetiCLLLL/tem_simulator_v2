@@ -8,6 +8,23 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
+@pytest.hookimpl(trylast=True)
+def pytest_runtest_teardown(item):
+    """Finish Qt's deferred widget deletion within the owning test.
+
+    pytest-qt closes registered widgets with deleteLater, but processEvents
+    alone does not flush DeferredDelete outside a running event loop. Without
+    this, many hidden workspaces survive until an unrelated test calls waitUntil,
+    which then spends its timeout destroying earlier tests' plots and editors.
+    This hook runs inside pytest-qt's teardown exception-capture wrapper.
+    """
+    widgets = sys.modules.get("PySide6.QtWidgets")
+    if widgets is not None and widgets.QApplication.instance() is not None:
+        from PySide6.QtCore import QCoreApplication, QEvent
+
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 @pytest.fixture(scope="session")
 def qapp_cls():
     """Use the native Windows UI font when Qt's offscreen font DB is empty.

@@ -115,8 +115,7 @@ def test_full_recipe_rebuild_does_not_migrate_source_vacuum_or_sample_orientatio
     state.vacuum_map.enabled = True
     state.sample.optional_record = {'keep': 1.23456789012345}
     source_before = state.electron_gun.emitter.surface_model.to_dict()
-    orientation = (state.sample.specimen_rotation_x_deg, state.sample.specimen_rotation_y_deg,
-                   state.sample.specimen_rotation_z_deg, state.sample.specimen_orientation_quaternion_wxyz)
+    orientation = state.sample.specimen_orientation_quaternion_wxyz
     snapshot = capture_design_snapshot(state, selection, slot='A', request=HighAccuracyRequest(9, 2.5))
     recipe = recipe_from_snapshot(snapshot, name='exact model preservation')
     restored, _ = rebuild_recipe_state(recipe)
@@ -124,8 +123,7 @@ def test_full_recipe_rebuild_does_not_migrate_source_vacuum_or_sample_orientatio
     assert restored.simulation_mode == 'analytical'
     assert restored.vacuum_map.enabled is True
     assert restored.sample.optional_record == {'keep': 1.23456789012345}
-    assert (restored.sample.specimen_rotation_x_deg, restored.sample.specimen_rotation_y_deg,
-            restored.sample.specimen_rotation_z_deg, restored.sample.specimen_orientation_quaternion_wxyz) == orientation
+    assert restored.sample.specimen_orientation_quaternion_wxyz == orientation
 
 
 def test_two_dimensional_points_background_record_io_and_plot_export(qtbot, monkeypatch, tmp_path):

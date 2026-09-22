@@ -1,0 +1,280 @@
+{
+  "schema": "eds-persistent-cache-validation-v1",
+  "date": "2026-09-19",
+  "scope": "One classical finite-Si benchmark pair and focused regression; no coherent or whole-instrument qualification",
+  "input_identity": "390f604456cf90b06e37fcd485888cfb143ce32f9a8249aef968f639b19eab5a",
+  "snapshot_implementation_identity": "1c43691583983ec01b181c4db2f5d1c55c851bd6899896b0224bf00b294a8469",
+  "solver_source_identity": "1c43691583983ec01b181c4db2f5d1c55c851bd6899896b0224bf00b294a8469",
+  "settings": {
+    "ray_count": 5000,
+    "backend": "CPU",
+    "column_step_mm": 0.5,
+    "history_step_mm": 2.0,
+    "gun_trace_step_mm": 0.2,
+    "gun_history_step_mm": 2.0,
+    "beam_voltage_kv": 300.0,
+    "sample_z_mm": 1599.2,
+    "sample_reference": "si_110",
+    "sample_thickness_nm": 5.0,
+    "sample_size_x_nm": 100000.0,
+    "sample_size_y_nm": 100000.0,
+    "sample_centre_xy_nm": [
+      0.0,
+      0.0
+    ],
+    "sample_envelope": "disk",
+    "eds_enabled": true,
+    "eds_overlap_sampling_points": 256,
+    "filter_installed": false,
+    "wave_enabled": false,
+    "scan_enabled": false,
+    "vacuum_enabled": false,
+    "cutoff_z_mm": 1589.2,
+    "downstream_edit": {
+      "key": "projector_lens_2",
+      "percent_increment": 0.1
+    }
+  },
+  "cpu_resources": {
+    "available_cpus": 32,
+    "numerical_thread_budget": 12,
+    "numba_threads": 12,
+    "blas_threads": 1,
+    "numerical_jobs": 1
+  },
+  "regression": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "257",
+    "time": "232.123",
+    "timestamp": "2026-09-19T23:14:12.784439+01:00",
+    "hostname": "Royal_Gray"
+  },
+  "calculation_speed_ratio": 8.861788620630458,
+  "calculation_time_reduction_percent": 88.71559633376972,
+  "including_io_time_reduction_percent": 53.493087457900614,
+  "cases": {
+    "fresh_full": {
+      "status": "COMPLETE_FULL_PHASE",
+      "total_wall_s": 277.3193028999958,
+      "stages": {
+        "initial_section": {
+          "wall_s": 46.626296899994486
+        },
+        "section_save": {
+          "wall_s": 1.635172300004342
+        },
+        "section_load": {
+          "wall_s": 1.62484879999829
+        },
+        "section_exact_comparison": {
+          "wall_s": 0.836505400002352
+        },
+        "full_continuation": {
+          "wall_s": 142.19479099999444
+        },
+        "full_save": {
+          "wall_s": 35.331153600003745
+        },
+        "full_acceptance_checks": {
+          "wall_s": 0.09383309999975609
+        },
+        "full_load": {
+          "wall_s": 44.180834999999206
+        },
+        "full_exact_comparison": {
+          "wall_s": 3.9574831999998423
+        }
+      },
+      "pipeline_stages": [
+        {
+          "stage": "Preparing state and physical layout",
+          "seconds": 0.3171502000041073
+        },
+        {
+          "stage": "Tracing the electron column",
+          "seconds": 4.336726399997133
+        },
+        {
+          "stage": "Transporting electrons through the specimen",
+          "seconds": 18.948877900002117
+        },
+        {
+          "stage": "Resolving the EDS point spectrum",
+          "seconds": 108.30928159999894
+        },
+        {
+          "stage": "Propagating specimen-exit electrons downstream",
+          "seconds": 8.687673200001882
+        },
+        {
+          "stage": "Finalising optical diagnostics",
+          "seconds": 1.2943692999979248
+        }
+      ],
+      "peak_rss_bytes": 10440318976,
+      "execution_entry_counts": {
+        "initial_gun": 1,
+        "forbidden_gun": 0,
+        "forbidden_material": 0,
+        "forbidden_eds": 0
+      },
+      "material_hits": 5000,
+      "elastic_events": 166,
+      "eds_expected_counts": 25887.507241510004,
+      "eds_lines": 82592,
+      "source_probability_conserved": true,
+      "reused_products": [],
+      "calculated_products": [
+        "column",
+        "diagnostics",
+        "eds",
+        "elastic",
+        "energy_filter",
+        "sample_downstream"
+      ]
+    },
+    "loaded_reuse": {
+      "status": "COMPLETE",
+      "total_wall_s": 93.83072569999786,
+      "stages": {
+        "full_load": {
+          "wall_s": 43.10562940000091
+        },
+        "downstream_lens_continuation": {
+          "wall_s": 13.339209899997513
+        },
+        "edited_save": {
+          "wall_s": 36.050841699994635
+        },
+        "edited_acceptance_checks": {
+          "wall_s": 0.07845369999995455
+        }
+      },
+      "pipeline_stages": [
+        {
+          "stage": "Preparing state and physical layout",
+          "seconds": 0.3244898000048124
+        },
+        {
+          "stage": "Tracing the electron column",
+          "seconds": 4.333133699998143
+        },
+        {
+          "stage": "Transporting electrons through the specimen",
+          "seconds": 0.6876971000019694
+        },
+        {
+          "stage": "Restoring the cached EDS point spectrum",
+          "seconds": 7.899994670879096e-06
+        },
+        {
+          "stage": "Propagating specimen-exit electrons downstream",
+          "seconds": 6.729712600004859
+        },
+        {
+          "stage": "Finalising optical diagnostics",
+          "seconds": 1.2590975999992224
+        }
+      ],
+      "peak_rss_bytes": 8783216640,
+      "execution_entry_counts": {
+        "initial_gun": 0,
+        "forbidden_gun": 0,
+        "forbidden_material": 0,
+        "forbidden_eds": 0
+      },
+      "material_hits": 5000,
+      "elastic_events": 166,
+      "eds_expected_counts": 25887.507241510004,
+      "eds_lines": 82592,
+      "source_probability_conserved": true,
+      "reused_products": [
+        "eds",
+        "elastic"
+      ],
+      "calculated_products": [
+        "column",
+        "diagnostics",
+        "energy_filter",
+        "sample_downstream"
+      ]
+    },
+    "loaded_recompute_control": {
+      "status": "COMPLETE",
+      "total_wall_s": 201.75651440000365,
+      "stages": {
+        "full_load": {
+          "wall_s": 42.787761200001114
+        },
+        "downstream_lens_continuation": {
+          "wall_s": 118.20925849999912
+        },
+        "edited_save": {
+          "wall_s": 37.12899599999946
+        },
+        "edited_acceptance_checks": {
+          "wall_s": 0.07968500000424683
+        }
+      },
+      "pipeline_stages": [
+        {
+          "stage": "Preparing state and physical layout",
+          "seconds": 0.3258066999987932
+        },
+        {
+          "stage": "Tracing the electron column",
+          "seconds": 4.359420699998736
+        },
+        {
+          "stage": "Transporting electrons through the specimen",
+          "seconds": 0.5819252000001143
+        },
+        {
+          "stage": "Resolving the EDS point spectrum",
+          "seconds": 104.89882490000309
+        },
+        {
+          "stage": "Propagating specimen-exit electrons downstream",
+          "seconds": 6.799719399998139
+        },
+        {
+          "stage": "Finalising optical diagnostics",
+          "seconds": 1.2402307000011206
+        }
+      ],
+      "peak_rss_bytes": 8870596608,
+      "execution_entry_counts": {
+        "initial_gun": 0,
+        "forbidden_gun": 0,
+        "forbidden_material": 0,
+        "forbidden_eds": 1
+      },
+      "material_hits": 5000,
+      "elastic_events": 166,
+      "eds_expected_counts": 25887.507241510004,
+      "eds_lines": 82592,
+      "source_probability_conserved": true,
+      "reused_products": [
+        "elastic"
+      ],
+      "calculated_products": [
+        "column",
+        "diagnostics",
+        "eds",
+        "energy_filter",
+        "sample_downstream"
+      ]
+    }
+  },
+  "control_note": "forbidden_eds=1 in control is explicitly permitted forced recomputation; reuse requires zero.",
+  "exact_checks": [
+    "Full saved/loaded EDS record tree and array bytes equal",
+    "Loaded EDS elastic object shares cache elastic identity",
+    "Recomputed control EDS complete records equal the saved EDS",
+    "Reuse makes no gun, elastic material or EDS calls",
+    "Unknown positive-loss event-depth clocks remain NaN"
+  ]
+}

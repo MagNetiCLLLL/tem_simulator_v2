@@ -249,7 +249,7 @@ def test_a5_state_profile_cache_and_isolated_historical_stem_phase(tmp_path, mon
     save_profile(path, state, AssemblyCatalog().default_selection())
     _, values = read_profile(path)
     restored.probe_aberrations = {}
-    assert apply_profile_values(restored, values) == []
+    assert apply_profile_values(restored, values) is None
     assert restored.probe_aberrations == state.probe_aberrations
 
 

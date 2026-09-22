@@ -8,7 +8,7 @@ the finite-geometry elastic transport kernel.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from functools import lru_cache
 import hashlib
 import math
@@ -292,6 +292,7 @@ class EDSSpectrum:
     elastic_transport: object | None = None
     photon_transport: object | None = None
     material_quadrature: EDSMaterialQuadrature | None = None
+    response_rates: object | None = None
 
     def __post_init__(self) -> None:
         lines = tuple(self.lines)
@@ -509,6 +510,9 @@ def _empty_spectrum(
     metrics.update(
         {
             "detector_segment_count": int(segment_count),
+            "energy_min_ev": float(energy_min_ev),
+            "energy_max_ev": float(energy_max_ev),
+            "energy_bin_width_ev": float(energy_bin_width_ev),
             "total_expected_counts": 0.0,
             "total_expected_emitted_photons": 0.0,
             "line_count": 0,
@@ -527,7 +531,9 @@ def _empty_spectrum(
             # is called and retained in ``metrics`` for an empty result.
         }
     )
-    return EDSSpectrum(centres, expected, None, (), metrics)
+    result = EDSSpectrum(centres, expected, None, (), metrics)
+    from temsim.detector.eds_response import capture_eds_response
+    return replace(result, response_rates=capture_eds_response(result))
 
 
 def _stable_unit_fraction(identifier: str) -> float:
@@ -1068,52 +1074,12 @@ def simulate_eds_tracks(
             }
         )
 
-    edges = np.arange(
-        spectrum_values[0],
-        spectrum_values[1] + spectrum_values[2],
-        spectrum_values[2],
-        dtype=float,
-    )
-    if edges[-1] < spectrum_values[1]:
-        edges = np.r_[edges, spectrum_values[1]]
-    centres = 0.5 * (edges[:-1] + edges[1:])
-    expected = np.zeros_like(centres)
-    outside_counts = 0.0
-    sigma_ev = spectrum_values[3] / (
-        2.0 * math.sqrt(2.0 * math.log(2.0))
-    )
-    response_kernels = {}
-    for line_index, line in enumerate(lines):
-        if line_index % max(1, len(lines) // 100) == 0:
-            _report_phase_progress(
-                progress_callback, 0.9, 1.0, line_index, len(lines),
-                f"EDS spectrum lines {line_index}/{len(lines)}",
-            )
-        if not spectrum_values[0] <= line.energy_ev < spectrum_values[1]:
-            outside_counts += line.expected_detected_counts
-            continue
-        if sigma_ev <= 0.0:
-            index = int(np.searchsorted(edges, line.energy_ev) - 1)
-            index = min(max(index, 0), expected.size - 1)
-            expected[index] += line.expected_detected_counts
-            continue
-        if line.energy_ev not in response_kernels:
-            response_kernels[line.energy_ev] = _line_response_kernel(
-                centres, line.energy_ev, sigma_ev,
-            )
-        lower, upper, weights, total_weight = response_kernels[line.energy_ev]
-        if total_weight > 0.0:
-            expected[lower:upper] += (
-                line.expected_detected_counts * weights / total_weight
-            )
-    sampled = None
-    if poisson_enabled:
-        sampled = np.random.default_rng(int(poisson_seed)).poisson(
-            np.maximum(expected, 0.0)
-        )
-        sampled.setflags(write=False)
-    centres.setflags(write=False)
-    expected.setflags(write=False)
+    from temsim.detector.eds_response import form_eds_spectrum
+    centres, expected, sampled, outside_counts = form_eds_spectrum(lines,
+        energy_min_ev=spectrum_values[0], energy_max_ev=spectrum_values[1],
+        energy_bin_width_ev=spectrum_values[2], energy_resolution_fwhm_ev=spectrum_values[3],
+        poisson_enabled=poisson_enabled, poisson_seed=poisson_seed,
+        progress_callback=progress_callback)
     lines.sort(
         key=lambda row: (
             row.energy_ev,
@@ -1148,6 +1114,8 @@ def simulate_eds_tracks(
                 maximum_shell_optical_depth <= 0.1
             ),
             "energy_resolution_fwhm_ev": spectrum_values[3],
+            "energy_min_ev": spectrum_values[0],
+            "energy_max_ev": spectrum_values[1],
             "energy_bin_width_ev": spectrum_values[2],
             "vacancy_contribution_count": len(vacancies),
             "total_expected_vacancies": float(
@@ -1188,7 +1156,7 @@ def simulate_eds_tracks(
     _report_phase_progress(
         progress_callback, 0.9, 1.0, 1, 1, "EDS spectrum complete",
     )
-    return EDSSpectrum(
+    result = EDSSpectrum(
         energy_bin_centres_ev=centres,
         expected_counts=expected,
         sampled_counts=sampled,
@@ -1198,6 +1166,8 @@ def simulate_eds_tracks(
         elastic_transport=elastic_transport,
         photon_transport=photon_transport,
     )
+    from temsim.detector.eds_response import capture_eds_response
+    return replace(result, response_rates=capture_eds_response(result))
 
 
 def point_track_segments(
@@ -1246,6 +1216,26 @@ def default_eds_incident_electrons(state, dwell_time_s: float) -> float:
     return current_pa * 1.0e-12 * float(dwell_time_s) / ELEMENTARY_CHARGE_C
 
 
+def eds_point_request_inputs(detector_geometry, *, dwell_time_s=None,
+        incident_electrons=None, custom_detector_surfaces=False,
+        custom_holder_occluders=False, photon_quadrature_order=1,
+        photon_maximum_stored_paths=1024):
+    """Record call inputs absent from the instrument's dependency signature.
+
+    Custom geometry remains supported for execution and inspection. The section
+    cache admits only the pipeline's default request with its actual assembly
+    geometry; equality of total counts or solid angle cannot establish this.
+    """
+    return {"schema": "eds-point-request-inputs-v1",
+        "detector_geometry": asdict(detector_geometry),
+        "dwell_time_s_override": dwell_time_s,
+        "incident_electrons_override": incident_electrons,
+        "custom_detector_surfaces": bool(custom_detector_surfaces),
+        "custom_holder_occluders": bool(custom_holder_occluders),
+        "photon_quadrature_order": int(photon_quadrature_order),
+        "photon_maximum_stored_paths": int(photon_maximum_stored_paths)}
+
+
 def simulate_eds_point(
     state,
     detector_geometry: EDSDetectorArrayGeometry,
@@ -1265,6 +1255,14 @@ def simulate_eds_point(
 ) -> EDSSpectrum:
     """Run an explicit point acquisition at the sample scan origin."""
 
+    photon_detector_surfaces = tuple(photon_detector_surfaces)
+    photon_holder_occluders = tuple(photon_holder_occluders)
+    request_inputs = eds_point_request_inputs(detector_geometry,
+        dwell_time_s=dwell_time_s, incident_electrons=incident_electrons,
+        custom_detector_surfaces=bool(photon_detector_surfaces),
+        custom_holder_occluders=bool(photon_holder_occluders),
+        photon_quadrature_order=photon_quadrature_order,
+        photon_maximum_stored_paths=photon_maximum_stored_paths)
     sample = state.sample
     x_value = (
         float(sample.scan_origin_x_nm) if x_nm is None else float(x_nm)
@@ -1450,6 +1448,7 @@ def simulate_eds_point(
     result.metrics.update(
         {
             "acquisition_kind": "explicit_point",
+            "point_request_inputs": request_inputs,
             "sample_x_nm": x_value,
             "sample_y_nm": y_value,
             "dwell_time_s": dwell,
@@ -1468,4 +1467,9 @@ def simulate_eds_point(
         result = replace(result, elastic_transport=elastic_transport)
     result.metrics.update(overlap_metrics)
     result = replace(result, material_quadrature=material_quadrature)
-    return result
+    # Point provenance (including upstream transmission) is added after the
+    # track response. Retain its per-arrival source/dose coefficients too, so
+    # a direct readout replay remains correct through positive -> zero ->
+    # positive dose changes without dividing by the previous readout dose.
+    from temsim.detector.eds_response import capture_eds_response
+    return replace(result, response_rates=capture_eds_response(result))

@@ -26,7 +26,6 @@ from temsim.immutable_json import (
 
 
 DESIGN_RECIPE_SCHEMA_VERSION = 3
-_SUPPORTED_RECIPE_SCHEMAS = frozenset({1, 2, DESIGN_RECIPE_SCHEMA_VERSION})
 _PATH_TOKEN = re.compile(r"(?P<name>[^.\[\]]+)(?:\[(?P<selector>[^\]]+)\])?")
 
 # A design sweep changes operating controls only.  In particular it must not
@@ -68,7 +67,6 @@ _GUN_RUNTIME_SWEEP_FIELDS = frozenset({
 _SAMPLE_RUNTIME_SWEEP_FIELDS = frozenset({
     "centre_x_nm",
     "centre_y_nm",
-    "diffuse_broadening_mrad",
     "eds_detector_efficiency",
     "eds_elastic_max_events",
     "eds_elastic_seed",
@@ -79,8 +77,6 @@ _SAMPLE_RUNTIME_SWEEP_FIELDS = frozenset({
     "eds_support_offset_x_um",
     "eds_support_offset_y_um",
     "eds_support_rotation_deg",
-    "excitation_error_inv_nm",
-    "g_inv_nm",
     "real_absorption_mean_free_path_nm",
     "real_ionisation_energy_ev",
     "real_ionisation_mean_free_path_nm",
@@ -92,7 +88,6 @@ _SAMPLE_RUNTIME_SWEEP_FIELDS = frozenset({
     "real_tail_atomic_number",
     "real_tail_max_angle_mrad",
     "real_tail_screening_angle_mrad",
-    "rocking_width_inv_nm",
     "sample_region_downstream_distance_um",
     "sample_region_photon_path_count",
     "sample_region_secondary_path_count",
@@ -102,9 +97,9 @@ _SAMPLE_RUNTIME_SWEEP_FIELDS = frozenset({
     "scan_origin_y_nm",
     "size_x_nm",
     "size_y_nm",
-    "specimen_rotation_x_deg",
-    "specimen_rotation_y_deg",
-    "specimen_rotation_z_deg",
+    "orientation_euler_x_deg",
+    "orientation_euler_y_deg",
+    "orientation_euler_z_deg",
     "stem_fourdstem_charge_spread_sigma_px",
     "stem_fourdstem_dark_electrons_per_pixel",
     "stem_fourdstem_gain_counts_per_electron",
@@ -191,6 +186,16 @@ def replace_parameter(
     """Return a detached payload with one existing stable path replaced."""
 
     result = thaw_json(freeze_json(payload))
+    axis = _orientation_control_axis(path)
+    if axis is not None:
+        from temsim.specimen.geometry import quaternion_from_euler_xyz_deg, quaternion_to_euler_xyz_deg
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError("Sample orientation angles must be finite numbers")
+        sample = result["sample"]
+        angles = list(quaternion_to_euler_xyz_deg(sample["specimen_orientation_quaternion_wxyz"]))
+        angles[axis] = float(value)
+        sample["specimen_orientation_quaternion_wxyz"] = list(quaternion_from_euler_xyz_deg(angles))
+        return result
     current: object = result
     parsed = _tokens(path)
     for index, (name, selector) in enumerate(parsed):
@@ -218,6 +223,10 @@ def replace_parameter(
 def parameter_value(payload: Mapping[str, object], path: str) -> object:
     """Read one existing stable parameter path from a serialized State."""
 
+    axis = _orientation_control_axis(path)
+    if axis is not None:
+        from temsim.specimen.geometry import quaternion_to_euler_xyz_deg
+        return quaternion_to_euler_xyz_deg(payload["sample"]["specimen_orientation_quaternion_wxyz"])[axis]
     current: object = payload
     for name, selector in _tokens(path):
         if not isinstance(current, Mapping) or name not in current:
@@ -228,6 +237,16 @@ def parameter_value(payload: Mapping[str, object], path: str) -> object:
                 raise KeyError(f"Path segment {name!r} is not a sequence")
             current = _select_sequence_item(list(current), selector)
     return current
+
+
+def _orientation_control_axis(path: str) -> int | None:
+    """Identify explicit derived controls, never retired serialized fields."""
+    normalized = _normalise_parameter_path(path)
+    retired = tuple(f"sample.specimen_rotation_{axis}_deg" for axis in "xyz")
+    if normalized in retired:
+        raise ValueError("Retired sample Euler fields are unsupported; use orientation_euler controls")
+    current = tuple(f"sample.orientation_euler_{axis}_deg" for axis in "xyz")
+    return current.index(normalized) if normalized in current else None
 
 
 def validate_runtime_sweep_path(
@@ -320,8 +339,11 @@ class DesignRecipe:
     instrument_snapshot: Mapping | None = None
 
     def __post_init__(self) -> None:
-        if int(self.schema_version) not in _SUPPORTED_RECIPE_SCHEMAS:
+        if type(self.schema_version) is not int or self.schema_version != DESIGN_RECIPE_SCHEMA_VERSION:
             raise ValueError("Unsupported design-recipe schema")
+        sample = self.base_state_payload.get("sample", {})
+        if any(f"specimen_rotation_{axis}_deg" in sample for axis in "xyz"):
+            raise ValueError("Retired sample Euler fields are unsupported in current recipes")
         name = str(self.name).strip()
         if not name:
             raise ValueError("Design recipe needs a name")
@@ -368,13 +390,11 @@ class DesignRecipe:
             "edits": self.edits,
             "parent_digest": self.parent_digest,
         }
-        if int(self.schema_version) >= 2:
-            identity.update({
-                "external_model_signature": self.external_model_signature,
-                "external_inputs": self.external_inputs,
-            })
-        if int(self.schema_version) >= 3:
-            identity["instrument_snapshot"] = self.instrument_snapshot
+        identity.update({
+            "external_model_signature": self.external_model_signature,
+            "external_inputs": self.external_inputs,
+        })
+        identity["instrument_snapshot"] = self.instrument_snapshot
         return json_digest(identity)
 
     def with_edits(
@@ -416,16 +436,14 @@ class DesignRecipe:
             "parent_digest": self.parent_digest,
             "digest": self.digest,
         }
-        if int(self.schema_version) >= 2:
-            document.update({
-                "external_model_signature": self.external_model_signature,
-                "external_inputs": [
-                    thaw_json(freeze_json(row))
-                    for row in self.external_inputs
-                ],
-            })
-        if int(self.schema_version) >= 3:
-            document["instrument_snapshot"] = thaw_json(self.instrument_snapshot) if self.instrument_snapshot is not None else None
+        document.update({
+            "external_model_signature": self.external_model_signature,
+            "external_inputs": [
+                thaw_json(freeze_json(row))
+                for row in self.external_inputs
+            ],
+        })
+        document["instrument_snapshot"] = thaw_json(self.instrument_snapshot) if self.instrument_snapshot is not None else None
         return document
 
 
@@ -479,6 +497,8 @@ def load_recipe(path: str | Path) -> DesignRecipe:
 def recipe_from_dict(document) -> DesignRecipe:
     if not isinstance(document, dict):
         raise ValueError("Design recipe must be a JSON object")
+    if type(document.get("schema_version")) is not int or document["schema_version"] != DESIGN_RECIPE_SCHEMA_VERSION:
+        raise ValueError("Unsupported design-recipe schema")
     request = document.get("request", {})
     edits = tuple(
         ParameterEdit(str(row["path"]), row.get("value"))
@@ -514,7 +534,7 @@ def recipe_from_dict(document) -> DesignRecipe:
         external_inputs=external_inputs,
         edits=edits,
         parent_digest=str(document.get("parent_digest", "")),
-        schema_version=int(document.get("schema_version", 0)),
+        schema_version=document["schema_version"],
         instrument_snapshot=document.get("instrument_snapshot"),
     )
     expected = str(document.get("digest", ""))

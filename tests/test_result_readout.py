@@ -58,12 +58,46 @@ def test_selection_staleness_and_live_edits_do_not_mix_result_data(qtbot, monkey
     assert "Z 42 mm" in panel.label.text()
 
 
-def test_missing_old_products_remain_readable(qtbot):
+def test_missing_current_result_contract_is_reported_without_crashing(qtbot):
     panel = ResultReadout()
     qtbot.addWidget(panel)
-    panel.publish(SimpleNamespace(), "Historical")
-    assert "Unavailable" in panel.label.text()
-    assert "NOT_ESTABLISHED" in panel.label.text()
+    panel.publish(SimpleNamespace(), "Preview")
+    assert "Readout unavailable" in panel.label.text()
+    assert panel._records["ray"]["result_id"] == "UNRECORDED"
+
+
+def test_current_result_without_signatures_has_no_invented_identity(qtbot):
+    from temsim.simulation_pipeline import CalculationResult
+
+    current = CalculationResult(simulation=SimpleNamespace(), energy_filter=None)
+    assert current.signatures == {}
+    row = result_readout(current, "Preview")
+    assert row["result_id"] == "UNRECORDED"
+    assert row["observations"] is None
+    panel = ResultReadout()
+    qtbot.addWidget(panel)
+    panel.publish(current, "Preview")
+    assert "UNRECORDED" in panel.label.text()
+    assert "Readout unavailable" not in panel.label.text()
+
+
+@pytest.mark.parametrize("signatures", [None, [], {"request": None}, {"request": 12}, {"request": ""}])
+def test_malformed_result_identity_reports_error_without_replacing_plot(qtbot, signatures):
+    panel = ResultReadout()
+    qtbot.addWidget(panel)
+    panel.publish(SimpleNamespace(signatures=signatures), "Preview")
+    assert "Readout unavailable" in panel.label.text()
+    assert panel._records["ray"]["result_id"] == "UNRECORDED"
+
+
+def test_readout_error_keeps_the_valid_result_identity(qtbot):
+    current = result("captured-request")
+    current.simulation.incident_checkpoints.x_m = None
+    panel = ResultReadout()
+    qtbot.addWidget(panel)
+    panel.publish(current, "Preview")
+    assert panel._records["ray"]["result_id"] == "captured-request"
+    assert "Readout unavailable" in panel.label.text()
 
 
 @pytest.mark.parametrize("quality", ["Preview · transport validation", " Preview", "Medium", "Historical", "unknown"])

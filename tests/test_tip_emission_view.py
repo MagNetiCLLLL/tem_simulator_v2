@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtCore import QPointF, Qt
 
 from temsim.optics.electron_gun.field_emission import FieldEmissionGun
-from temsim.optics.electron_gun.tip_curvature import ANGLE_ONLY_MODEL, MODEL
+from temsim.optics.electron_gun.tip_curvature import MODEL
 from temsim.part_model_3d import part_model_from_document, part_dimension_specs
 from temsim.part_model_document import PartModelDocument
 from temsim.paths import CONFIG_ROOT
@@ -55,12 +55,14 @@ def test_visible_surface_matches_launch_coordinates_and_preserves_reference_soli
     assert part["tip_radius_nm"] == 100.
 
 
-def test_historical_angle_only_and_nonemitting_copies_remain_explicit():
-    doc, _, runtime = context(.02, ANGLE_ONLY_MODEL)
+def test_current_emission_rejects_old_angle_only_model_and_keeps_nonemitting_copies():
+    with pytest.raises(ValueError, match="Unsupported"):
+        context(.02, "axisymmetric_cap_v1")
+    doc, _, runtime = context(.02)
     part = doc["parts"][0]
     surface, normals = emission_display_meshes(part, runtime)
-    assert np.all(surface.vertices[:, 2] == 0)
-    assert emission_dimensions(part, runtime)["emission_depth_nm"] == 0
+    assert surface.vertices[:, 2].min() < 0
+    assert emission_dimensions(part, runtime)["emission_depth_nm"] > 0
     assert normals.edges[1]["vertices"][1, 0] > normals.edges[1]["vertices"][0, 0]
     assert emission_display_meshes({**part, "mechanical_only": True}, runtime) == ()
     assert emission_display_meshes(part, {}) == ()

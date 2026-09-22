@@ -14,7 +14,7 @@ from temsim.physics.fourdstem import (
 from temsim.physics import record_plane
 from temsim.physics.record_plane import PlaneStop, build_record_plane_plan, route_record_planes
 from temsim.physics.stem_sampling import detector_angular_bounds
-from temsim.physics.stem_wave_imaging import AngularDetector, simulate_angle_resolved_stem
+from temsim.physics.stem_wave_imaging import AngularDetector, _simulate_angle_resolved_stem_single as simulate_local_stem_operator
 
 
 @pytest.fixture
@@ -125,7 +125,7 @@ def test_wave_plan_without_legacy_shifts_matches_stored_cube_and_ray_reference(r
     times = np.array([[0.1, 0.5, 0.9]])
     plan = build_record_plane_plan(state, scan_times_s=times)
     sink = MemoryDiffractionSink(1_000_000, "test")
-    wave = simulate_angle_resolved_stem(
+    wave = simulate_local_stem_operator(
         state, simulation, (AngularDetector("bf", 0., 5.), AngularDetector("camera", 5., 50.)),
         scan_x, scan_y, record_plane_plan=plan, diffraction_sink=sink,
     )
@@ -227,12 +227,12 @@ def test_resident_cuda_keeps_exact_physical_recording_masks(recording_column, mo
     state.sample.wave_frozen_phonon_configurations = 2
     plan = build_record_plane_plan(state, scan_times_s=np.array([[.1, .5, .9]]))
     detectors = (AngularDetector("bf", 0., 5.), AngularDetector("camera", 5., 50.))
-    cpu = simulate_angle_resolved_stem(
+    cpu = simulate_local_stem_operator(
         state, simulation, detectors, scan_x, scan_y, record_plane_plan=plan)
     state.acceleration_enabled = True
     state.acceleration_backend = "CUDA GPU"
     monkeypatch.setattr(stem_wave_imaging, "resident_stem_batch_size", lambda *a, **k: 2)
-    gpu = simulate_angle_resolved_stem(
+    gpu = simulate_local_stem_operator(
         state, simulation, detectors, scan_x, scan_y, record_plane_plan=plan)
     assert gpu.metrics["wave_compute_backend"] == "CuPy CUDA"
     assert gpu.metrics["cuda_resident_pipeline"]
@@ -273,3 +273,7 @@ def test_legacy_pair_and_wobble_events_follow_the_same_recording_path(recording_
         )
         actual.append((x[-1, 0], y[-1, 0]))
     np.testing.assert_allclose(routed.interactions[-1].projected_position_m, actual, rtol=3e-6, atol=1e-10)
+
+
+# Supplied local fields exercise routing; production admission is untouched.
+from local_wave_operator_fixture import supplied_local_probe

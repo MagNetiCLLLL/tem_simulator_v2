@@ -56,3 +56,38 @@ These requirements were explicitly specified by the user on 2026-09-11.
 - Changing vacuum participation or active vacuum settings may invalidate all
   calculation stages. This broad cache invalidation is explicitly permitted.
 - Preserve explicit on/off choices in saved maps, profiles and snapshots.
+
+## Scientific scope and naming (2026-09-18)
+
+- The target is physically correct mechanisms and qualitative parameter-response
+  trends for the simulator's own mechanical structure. Reproducing numerical
+  settings or absolute performance of a commercial microscope is not required.
+- Instrument records may inform topology, interactions and validation hypotheses.
+  Do not import their currents, sensitivities or magnifications as authoritative
+  settings for a different geometry. Compare trends only after matching coordinate
+  conventions, operating regime and held/fitted controls.
+- Use scientific or functional equipment names in the simulator's interface,
+  component labels and explanatory text. Do not label simulated components with
+  commercial instrument or product names. Name the sensor technology only when
+  the implemented model supports that distinction.
+- Preserve original acquisition metadata, reference URLs, historical files and
+  compatibility identifiers. Present functional labels without rewriting the
+  underlying evidence or changing device selection semantics.
+- Define the range and controls held fixed for each trend check. Do not assume
+  global monotonicity across crossovers, saturation or changes of optical mode.
+  Qualitative agreement does not waive unit, conservation or numerical-convergence
+  checks, and does not by itself qualify the complete microscope chain.
+
+## Particle performance and continuation (2026-09-19)
+
+- Numerical work may use at most half of the logical CPUs available to the
+  process, with at least one worker and respect for explicitly lower limits.
+  Apply the budget in calculation workers and prevent nested library pools
+  or simultaneous numerical jobs from multiplying that budget.
+- Keep user-selected cutoff planes, full-precision executed checkpoints and
+  dependency-checked continuation available for classical particle work.
+  A saved cutoff is an executed upstream state, never a configurable source.
+- Automatically archive each accepted completed particle calculation locally.
+  Show the actual calculated endpoint, resumable endpoint, quality, population,
+  save time and path. Failed, cancelled or stale work must not be reported as
+  a successful current archive. Generated archives remain excluded from Git.

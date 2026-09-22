@@ -207,14 +207,12 @@ def copied_reference_library(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("change", ["cif", "metadata", "missing_cif", "invalid_metadata"])
-def test_refresh_active_reference_invalidates_results_without_changing_sample(
+def test_refresh_active_reference_emits_invalidation_without_changing_sample(
     qtbot, copied_reference_library, change,
 ):
     page, state = _page(qtbot)
     state.sample.wave_frozen_phonon_enabled = True
     before = deepcopy(vars(state.sample))
-    sentinel = object()
-    page._eds_result = page._elastic_result = page._specimen_interactions = sentinel
     changes = []
     page.parameters_changed.connect(changes.append)
     directory = copied_reference_library
@@ -232,29 +230,27 @@ def test_refresh_active_reference_invalidates_results_without_changing_sample(
         (directory / "Si.toml").write_text("invalid = [", encoding="utf-8")
     qtbot.mouseClick(page.refresh_references, Qt.MouseButton.LeftButton)
     assert changes == ["sample.reference_source"]
-    assert page._eds_result is page._elastic_result is page._specimen_interactions is None
+    assert not hasattr(page, "_eds_result")
     assert vars(state.sample) == before
     qtbot.mouseClick(page.refresh_references, Qt.MouseButton.LeftButton)
     assert changes == ["sample.reference_source"]
 
 
 @pytest.mark.parametrize("mode", ["reference", "atomic"])
-def test_refresh_unmodified_or_unselected_reference_preserves_results(
+def test_refresh_unmodified_or_unselected_reference_does_not_emit_invalidation(
     qtbot, copied_reference_library, mode,
 ):
     state = default_state()
     state.sample.specimen_mode = mode
     state.sample.cif_path = str(copied_reference_library / "Si.cif")
     page, _ = _page(qtbot, state)
-    sentinel = object()
-    page._eds_result = sentinel
     changes = []
     page.parameters_changed.connect(changes.append)
     qtbot.mouseClick(page.refresh_references, Qt.MouseButton.LeftButton)
     shutil.copyfile(copied_reference_library / "Si.cif", copied_reference_library / "other.cif")
     qtbot.mouseClick(page.refresh_references, Qt.MouseButton.LeftButton)
     assert changes == []
-    assert page._eds_result is sentinel
+    assert not hasattr(page, "_eds_result")
     if mode == "reference":
         assert page.preset.findData("other") >= 0
     else:

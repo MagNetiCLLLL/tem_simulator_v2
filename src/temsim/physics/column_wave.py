@@ -63,7 +63,7 @@ def _prepare_column(state, start, stop, maximum_step_mm):
         raise ValueError("Tip wave transport needs distributed image optics; only executed checkpoints can replace them")
     nano = getattr(state, "nanopulser", None)
     if nano is not None and nano.installed:
-        raise ValueError("The installed nanopulser needs time-energy wavepacket transport; it cannot be omitted")
+        raise ValueError("The installed electrostatic beam blanker needs time-energy wavepacket transport; it cannot be omitted")
     apertures = [a for a in state.apertures if all(bool(getattr(a, n, True))
         for n in ("installed", "enabled", "inserted")) and start < a.z_mm <= stop]
     if len({a.key for a in apertures}) != len(apertures):

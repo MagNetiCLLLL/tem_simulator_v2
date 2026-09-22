@@ -416,7 +416,6 @@ def _electron_paths(
     field_transport = SpecimenFieldTransport(state)
     source_ids, source_angles = source_identity(
         getattr(simulation, "incident", None),
-        getattr(simulation, "gun_trace", None),
     )
 
     def lineage(source_index: int) -> dict[str, int | float]:

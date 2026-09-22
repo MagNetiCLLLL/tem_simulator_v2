@@ -185,7 +185,7 @@ def test_ideal_propagation_is_linear_and_reference_energy_achromatic():
     assert not np.allclose(real[1][:, 2], real[1][:, 0], rtol=1e-7, atol=1e-14)
 
 
-def test_profile_stores_model_and_shelves_and_old_profile_restores_custom(tmp_path):
+def test_profile_stores_model_and_shelves_and_empty_patch_preserves_them(tmp_path):
     from temsim.profile_io import save_profile, read_profile, apply_profile_values
     from temsim.assembly_catalog import AssemblyCatalog
     state = _state()
@@ -195,12 +195,12 @@ def test_profile_stores_model_and_shelves_and_old_profile_restores_custom(tmp_pa
     save_profile(path, state, AssemblyCatalog().default_selection())
     _, values = read_profile(path)
     restored = _state()
-    assert apply_profile_values(restored, values) == []
+    assert apply_profile_values(restored, values) is None
     assert mode_key(restored) == "ideal"
     assert restored.lenses[0].percent == 13.5
     assert restored.simulation_mode_profiles == state.simulation_mode_profiles
     apply_profile_values(restored, {})
-    assert mode_key(restored) == "custom"
+    assert mode_key(restored) == "ideal"
 
 
 def test_main_menu_switch_preserves_result_cache_and_accuracy(qtbot, monkeypatch):

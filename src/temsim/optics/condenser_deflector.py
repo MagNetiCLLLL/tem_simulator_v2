@@ -8,7 +8,7 @@ from typing import ClassVar
 from temsim import module_manifest
 from temsim.component_keys import (
     CONDENSER_DEFLECTOR,
-    canonical_deflector_key,
+    require_current_deflector_key,
 )
 from temsim.optics.paired_deflector import (
     PairedDeflectorComponent,
@@ -123,7 +123,7 @@ def create_condenser_deflector():
 
 def condenser_deflector_from_dict(data):
     values = dict(data)
-    values["key"] = canonical_deflector_key(values.get("key", ""))
+    values["key"] = require_current_deflector_key(values.get("key"), expected=CONDENSER_DEFLECTOR)
     component = create_condenser_deflector()
     restored = restore_paired_deflector(component, values)
     restored.key = CONDENSER_DEFLECTOR

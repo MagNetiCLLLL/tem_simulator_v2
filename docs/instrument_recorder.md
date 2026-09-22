@@ -4,8 +4,8 @@ Open **Microscope > Instrument Recorder...** in the simulator, or run
 `python -m temsim.recorder`. The independent window contains three collection
 buttons and one last-signal preview:
 
-- **Collect Flucam**: current Flucam / SmartCam signal, in any optical mode.
-- **Collect Ceta**: current Ceta signal in TEM optical mode, including diffraction.
+- **Collect screen camera**: current screen camera signal, in any optical mode.
+- **Collect pixelated camera**: current pixelated-camera signal in TEM optical mode, including diffraction.
 - **Collect all STEM detectors**: current signals from the available STEM detectors
   in STEM optical mode. A channel selector appears above the single preview.
 
@@ -55,8 +55,8 @@ signal path, not a replacement for that missing API.
 STEM channels are read separately from existing streams. Their individual vendor
 acquisition IDs and timestamps are retained; they are **not asserted to be one
 simultaneous scan**. Unavailable channels are reported, not synthesised or silently
-omitted. More than one available Ceta stream can yield more than one identified
-Ceta signal. Detector identity comes from image metadata matched to live device
+omitted. More than one available pixelated-camera stream can yield more than one identified
+pixelated-camera signal. Detector identity comes from image metadata matched to live device
 names, not camera defaults or the order in which frames arrive.
 
 ## Image-to-system association

@@ -11,6 +11,7 @@ from temsim.vacuum import VacuumMap
 
 _DEFAULT_COLUMN_MODULE = "column/C3_ProbeCorrector.toml"
 _DEFAULT_GUN_MODULE = "gun/FEG.toml"
+STATE_SCHEMA_VERSION = 78
 _DEFAULT_SAMPLE_PART = module_manifest.part_data(
     _DEFAULT_COLUMN_MODULE,
     "sample",
@@ -184,9 +185,7 @@ class Stigmator:
 
     colour: str = "tab:purple"
 
-    # Historical payloads remain on their original field law. New operation
-    # can explicitly select the independent normal/skew basis.
-    field_model: str = "legacy_difference"
+    field_model: str = "normal_skew"
     channel_x_angle_deg: float = 0.0
     channel_y_angle_deg: float = 45.0
 
@@ -253,21 +252,6 @@ class Sample:
 
     scan_origin_y_nm: float = 0.0
 
-    # Legacy qualitative Real-sample ray-preview values are retained only so
-    # older profiles round-trip. They no longer generate atomic diffraction or
-    # diffuse branches; Real scattering is owned by wave/multislice.
-    g_inv_nm: float = 5.0
-
-    excitation_error_inv_nm: float = 0.0
-
-    rocking_width_inv_nm: float = 0.12
-
-    diffuse_broadening_mrad: float = 2.0
-
-    # Retired profile compatibility field; no active specimen mode executes
-    # idealised diffraction channels. Real diffraction belongs to multislice.
-    diffraction_enabled: bool = False
-
     # Empty/zero values mean "use the default from the specimen TOML".  The
     # state stores only user choices and overrides, never material constants.
     wave_enabled: bool = False
@@ -282,14 +266,8 @@ class Sample:
 
     cif_path: str = ""
 
-    specimen_rotation_x_deg: float = 90.0
-
-    specimen_rotation_y_deg: float = -45.0
-
-    specimen_rotation_z_deg: float = 0.0
-
     # Canonical physical orientation, stored as a unit quaternion (w,x,y,z).
-    # The Euler fields above remain compatibility views for pre-V64 states.
+    # Euler controls convert this value; they are not separate saved inputs.
     specimen_orientation_quaternion_wxyz: tuple = (0.6532814824381883, 0.6532814824381882, -0.2705980500730985, 0.2705980500730985)
 
     zone_axis_uvw: tuple = (1, 1, 0)
@@ -569,7 +547,9 @@ class State:
 
     corrector_mode: str = "probe_corrector"
 
-    energy_filter_mode: str = "energy_filter"
+    energy_filter_mode: str = "no_energy_filter"
+
+    energy_filter_installed: bool = False
 
     column_mode: str = "three_lens"
 
@@ -615,9 +595,11 @@ class State:
     probe_aberrations: dict = field(default_factory=dict)
     image_aberrations: dict = field(default_factory=dict)
 
-    schema_version: int = 77
+    schema_version: int = STATE_SCHEMA_VERSION
 
     def __post_init__(self):
+        if type(self.schema_version) is not int or self.schema_version != STATE_SCHEMA_VERSION:
+            raise ValueError("Unsupported instrument state schema")
         from temsim.simulation_modes import validate_mode, normalise_profiles, validate_model_recipes
         self.simulation_mode = validate_mode(self.simulation_mode)
         self.simulation_mode_profiles = normalise_profiles(self.simulation_mode_profiles)
@@ -1052,22 +1034,6 @@ class State:
             )
             self._energy_filter_entrance_aperture = cached
         return cached
-
-    @property
-    def energy_filter_entrance_m12(self):
-        """Return the independent pre-sector Energy Filter M12."""
-        from temsim.optics.energy_filter import ensure_energy_filter
-
-        ensure_energy_filter(self)
-        return self.energy_filter.entrance_m12
-
-    @property
-    def energy_filter_exit_m12(self):
-        """Return the independent post-sector Energy Filter M12."""
-        from temsim.optics.energy_filter import ensure_energy_filter
-
-        ensure_energy_filter(self)
-        return self.energy_filter.exit_m12
 
     @property
     def mini_condenser(self):
@@ -1585,9 +1551,17 @@ class State:
     def to_dict(self):
 
         """Return a complete, versioned, JSON-safe simulator state."""
+        if type(self.schema_version) is not int or self.schema_version != STATE_SCHEMA_VERSION:
+            raise ValueError("Unsupported instrument state schema; state cannot be silently converted")
+        from temsim.specimen.geometry import sample_orientation_quaternion
+        sample_orientation_quaternion(self.sample)
+        retired_sample_controls = {"g_inv_nm", "excitation_error_inv_nm",
+            "rocking_width_inv_nm", "diffuse_broadening_mrad", "diffraction_enabled"}
+        if retired_sample_controls.intersection(vars(self.sample)):
+            raise ValueError("Retired qualitative specimen controls are unsupported")
         from temsim.component_keys import (
             OBJECTIVE_LENS,
-            canonical_component_placement_key,
+            require_current_component_placement_key,
         )
         from temsim.detector.recording_system import serialise_recording_system
         from temsim.optics.corrector_structure import serialise_corrector_structure
@@ -1603,7 +1577,7 @@ class State:
 
         def strip_position_fields(payload, component_key=None):
             payload = dict(payload)
-            component_key = canonical_component_placement_key(component_key)
+            component_key = require_current_component_placement_key(component_key)
             for key in tuple(payload):
                 if (
                     key in {
@@ -1670,7 +1644,7 @@ class State:
         def lens_payload(item):
             payload = asdict(item)
             if (
-                canonical_component_placement_key(item.key)
+                require_current_component_placement_key(item.key)
                 in TOML_OWNED_GEOMETRY_KEYS
             ):
                 payload = strip_position_fields(payload, item.key)
@@ -1679,7 +1653,7 @@ class State:
         def aperture_payload(item):
             payload = asdict(item)
             if (
-                canonical_component_placement_key(item.key)
+                require_current_component_placement_key(item.key)
                 in TOML_OWNED_GEOMETRY_KEYS
             ):
                 payload = strip_position_fields(payload, item.key)
@@ -1688,7 +1662,7 @@ class State:
         def component_payload(item):
             payload = asdict(item)
             if (
-                canonical_component_placement_key(item.key)
+                require_current_component_placement_key(item.key)
                 in TOML_OWNED_GEOMETRY_KEYS
             ):
                 payload = strip_position_fields(payload, item.key)
@@ -1705,7 +1679,7 @@ class State:
         )
         payload = {
 
-            "schema_version": self.schema_version,
+            "schema_version": STATE_SCHEMA_VERSION,
 
             "lenses":[lens_payload(x) for x in self.lenses],
 
@@ -1724,7 +1698,7 @@ class State:
                 if key != self.electron_gun.type_key
             },
             "sample": {key: value for key, value in asdict(self.sample).items()
-                       if not key.startswith("virtual_") and key != "diffraction_enabled"},
+                       if not key.startswith("virtual_")},
 
             "illumination_mode":self.illumination_mode,
 
@@ -1775,7 +1749,7 @@ class State:
                 and getattr(self,"image_corrector_installed",False)
             ),
 
-            "energy_filter_installed":getattr(self,"energy_filter_installed",True),
+            "energy_filter_installed":getattr(self,"energy_filter_installed",False),
             "energy_filter":serialise_energy_filter(self.energy_filter),
 
             "column_mode":getattr(self,"column_mode","three_lens"),
@@ -1853,7 +1827,7 @@ class State:
             payload[collection] = [
                 (
                     strip_position_fields(item, item.get("key"))
-                    if canonical_component_placement_key(
+                    if require_current_component_placement_key(
                         item.get("key", "")
                     ) in TOML_OWNED_GEOMETRY_KEYS
                     else item
@@ -1873,7 +1847,9 @@ class State:
             canonical_corrector_mode,
             corrector_mode_for_hardware,
         )
-        loaded_schema_version = int(d.get("schema_version", 0))
+        if (not isinstance(d, dict) or type(d.get("schema_version")) is not int
+                or d["schema_version"] != STATE_SCHEMA_VERSION):
+            raise ValueError(f"Unsupported instrument state schema; current schema_version {STATE_SCHEMA_VERSION} is required")
         from temsim.component_keys import (
             AC_DEFLECTOR,
             ADAPTER_LENS,
@@ -1918,41 +1894,46 @@ class State:
             PROBE_TL12_LENS,
             PROBE_TL21_LENS,
             PROBE_TL22_LENS,
-            canonical_aperture_key,
-            canonical_binding_key,
-            canonical_component_placement_key,
-            canonical_corrector_element_key,
-            canonical_deflector_key,
-            canonical_lens_key,
-            canonical_stigmator_key,
+            require_current_aperture_key,
+            require_current_binding_key,
+            require_current_component_placement_key,
+            require_current_corrector_element_key,
+            require_current_deflector_key,
+            require_current_lens_key,
+            require_current_stigmator_key,
+            require_current_recording_plane_key,
         )
+
+        for name, require_key in (
+            ("lenses", require_current_lens_key), ("apertures", require_current_aperture_key),
+            ("deflectors", require_current_deflector_key), ("stigmators", require_current_stigmator_key),
+            ("corrector_elements", require_current_corrector_element_key),
+            ("recording_planes", require_current_recording_plane_key),
+        ):
+            keys = [row.get("key") for row in d.get(name, ())]
+            for key in keys:
+                require_key(key)
+            if len(keys) != len(set(keys)):
+                raise ValueError(f"Duplicate {name} keys in instrument state")
+        if any(row.get("field_model") != "normal_skew" for row in d.get("stigmators", ())):
+            raise ValueError("Current stigmator fields require the explicit normal_skew model")
+        for name, require_key in (("component_placements", require_current_component_placement_key),
+                ("layout_reference_positions", require_current_binding_key),
+                ("layout_reference_enabled", require_current_binding_key)):
+            for key in d.get(name, {}):
+                require_key(key)
+        if "monochromator_installed" in d:
+            raise ValueError("Monochromator installation belongs to the current electron_gun object")
 
         sample_data = dict(d.get("sample", {}))
-        # Schema 73 adds an explicit finite-envelope shape.  Earlier states
-        # used an axis-aligned rectangle, so retain that geometry on load even
-        # though new instruments now start from a 10 nm circular disk.
-        if loaded_schema_version < 73:
-            sample_data.setdefault("envelope_shape", "rectangle")
-        # Schema 69 derives elastic EDS histories from the exact set of
-        # upstream rays reaching the sample plane. Keep older profiles
-        # loadable while discarding the retired independent count control.
-        sample_data.pop("eds_elastic_trajectory_count", None)
-        legacy_structure_source = str(
-            sample_data.pop("atomic_structure_source", "")
-        )
-        if loaded_schema_version < 77 or legacy_structure_source or sample_data.get("specimen_mode") == "virtual":
-            from temsim.specimen.source import (
-                migrate_legacy_structure_source,
-            )
-
-            sample_data = migrate_legacy_structure_source(
-                sample_data,
-                legacy_source=legacy_structure_source,
-                infer_implicit_atomic_preset=loaded_schema_version < 71,
-            )
-            sample_data.setdefault("real_tail_material_source", "manual")
-            sample_data.setdefault("real_tail_screening_source", "manual")
-        # Saved sample Z is legacy geometry. The selected assembly TOML is
+        if ({"eds_elastic_trajectory_count", "atomic_structure_source",
+                "g_inv_nm", "excitation_error_inv_nm", "rocking_width_inv_nm",
+                "diffuse_broadening_mrad", "diffraction_enabled",
+                "specimen_rotation_x_deg", "specimen_rotation_y_deg", "specimen_rotation_z_deg"} & sample_data.keys()
+                or any(key.startswith("virtual_") for key in sample_data)
+                or sample_data.get("specimen_mode") == "virtual"):
+            raise ValueError("Legacy specimen inputs are unsupported; use the current physical specimen model")
+        # The selected assembly TOML is
         # authoritative; only specimen properties survive deserialisation.
         sample_z_mm = _DEFAULT_SAMPLE_Z_MM
         sample_thickness_nm = float(
@@ -1962,252 +1943,52 @@ class State:
         corrector_mode_for_load = canonical_corrector_mode(
             d.get("corrector_mode", "probe_corrector")
         )
-        canonical_objective_present = any(
-            str(item.get("key", "")) == OBJECTIVE_LENS
-            for item in lens_rows
-        )
-        legacy_objective_mechanics = next(
-            (
-                item for item in lens_rows
-                if str(item.get("key", "")) == OBJECTIVE_LENS
-            ),
-            {},
-        )
         objective_loaded = False
-        legacy_upper_objective = next(
-            (
-                item for item in lens_rows
-                if str(item.get("key", "")) == "uobj"
-            ),
-            None,
-        )
-        legacy_lower_objective = next(
-            (
-                item for item in lens_rows
-                if str(item.get("key", "")) == "lobj"
-            ),
-            None,
-        )
 
         lenses=[]
-        probe_lens_keys = {
-            ADAPTER_LENS,
-            MINI_CONDENSER,
-            PROBE_TL22_LENS,
-            PROBE_TL21_LENS,
-            PROBE_TL12_LENS,
-        }
-        canonical_probe_lenses_present = {
-            str(item.get("key", ""))
-            for item in d["lenses"]
-            if str(item.get("key", "")) in probe_lens_keys
-        }
-        loaded_probe_lens_keys = set()
-        canonical_diffraction_lens_present = any(
-            str(item.get("key", "")) == DIFFRACTION_LENS
-            for item in lens_rows
-        )
         diffraction_lens_loaded = False
-        canonical_intermediate_lens_present = any(
-            str(item.get("key", "")) == INTERMEDIATE_LENS
-            for item in lens_rows
-        )
         intermediate_lens_loaded = False
-        canonical_projector_lens_p1_present = any(
-            str(item.get("key", "")) == PROJECTOR_LENS_1
-            for item in lens_rows
-        )
         projector_lens_p1_loaded = False
-        canonical_projector_lens_p2_present = any(
-            str(item.get("key", "")) == PROJECTOR_LENS_2
-            for item in lens_rows
-        )
         projector_lens_p2_loaded = False
-        anchor_row = next(
-            (
-                item
-                for item in lens_rows
-                if str(item.get("key", "")) == DIFFRACTION_LENS
-            ),
-            next(
-                (
-                    item
-                    for item in lens_rows
-                    if str(item.get("key", "")) == "diff"
-                ),
-                {},
-            ),
-        )
-        legacy_anchor_reference = float(
-            anchor_row.get(
-                "standalone_optical_reference_z_mm",
-                d.get("layout_reference_positions", {}).get(
-                    f"lens:{DIFFRACTION_LENS}",
-                    d.get("layout_reference_positions", {}).get(
-                        "lens:diff",
-                        anchor_row.get("z_mm", 1090.0),
-                    ),
-                ),
-            )
-        )
-
         for item in d["lenses"]:
 
             q=dict(item)
             raw_lens_key = str(q.get("key", ""))
-            if raw_lens_key in {"uobj", "lobj", OBJECTIVE_LENS}:
-                if objective_loaded:
-                    continue
-                if (
-                    canonical_objective_present
-                    and raw_lens_key != OBJECTIVE_LENS
-                ):
-                    continue
-                if raw_lens_key == OBJECTIVE_LENS:
-                    from temsim.optics.objective_lens import (
-                        objective_lens_from_dict,
-                    )
-                    lenses.append(objective_lens_from_dict(
-                        q, sample_z_mm, sample_thickness_nm
-                    ))
-                else:
-                    from temsim.optics.objective_lens import (
-                        objective_lens_from_legacy_rows,
-                    )
-                    lenses.append(objective_lens_from_legacy_rows(
-                        legacy_upper_objective,
-                        legacy_lower_objective,
-                        sample_z_mm,
-                        sample_thickness_nm,
-                    ))
+            if raw_lens_key == OBJECTIVE_LENS:
+                from temsim.optics.objective_lens import objective_lens_from_dict
+                lenses.append(objective_lens_from_dict(q, sample_z_mm, sample_thickness_nm))
                 objective_loaded = True
                 continue
-            q["key"]=canonical_lens_key(raw_lens_key)
+            q["key"]=require_current_lens_key(raw_lens_key)
             if q["key"] == DIFFRACTION_LENS:
-                if (
-                    diffraction_lens_loaded
-                    or (
-                        canonical_diffraction_lens_present
-                        and raw_lens_key != DIFFRACTION_LENS
-                    )
-                ):
-                    continue
                 from temsim.optics.diffraction_lens import (
                     IMAGE_CORRECTED_INSTALLATION,
                     STANDALONE_INSTALLATION,
                     diffraction_lens_from_dict,
                 )
-                reference_positions = d.get(
-                    "layout_reference_positions", {}
-                )
-                legacy_reference = reference_positions.get(
-                    "lens:diff",
-                    reference_positions.get(
-                        f"lens:{DIFFRACTION_LENS}"
-                    ),
-                )
-                lenses.append(diffraction_lens_from_dict(
-                    q,
-                    legacy_reference_z_mm=legacy_reference,
-                    active_installation=(
-                        IMAGE_CORRECTED_INSTALLATION
-                        if corrector_mode_for_load in {
-                            "image_corrector",
-                            "double_corrector",
-                        }
-                        else STANDALONE_INSTALLATION
-                    ),
-                ))
+                lenses.append(diffraction_lens_from_dict(q, active_installation=IMAGE_CORRECTED_INSTALLATION if corrector_mode_for_load in {'image_corrector', 'double_corrector'} else STANDALONE_INSTALLATION))
                 diffraction_lens_loaded = True
                 continue
             if q["key"] == INTERMEDIATE_LENS:
-                if (
-                    intermediate_lens_loaded
-                    or (
-                        canonical_intermediate_lens_present
-                        and raw_lens_key != INTERMEDIATE_LENS
-                    )
-                ):
-                    continue
                 from temsim.optics.intermediate_lens import (
                     intermediate_lens_from_dict,
                 )
-                reference_positions = d.get(
-                    "layout_reference_positions", {}
-                )
-                lenses.append(intermediate_lens_from_dict(
-                    q,
-                    legacy_anchor_reference_z_mm=(
-                        legacy_anchor_reference
-                    ),
-                    legacy_reference_z_mm=reference_positions.get(
-                        f"lens:{INTERMEDIATE_LENS}",
-                        reference_positions.get("lens:il"),
-                    ),
-                ))
+                lenses.append(intermediate_lens_from_dict(q))
                 intermediate_lens_loaded = True
                 continue
             if q["key"] == PROJECTOR_LENS_1:
-                if (
-                    projector_lens_p1_loaded
-                    or (
-                        canonical_projector_lens_p1_present
-                        and raw_lens_key != PROJECTOR_LENS_1
-                    )
-                ):
-                    continue
                 from temsim.optics.projector_lens_p1 import (
                     projector_lens_p1_from_dict,
                 )
-                reference_positions = d.get(
-                    "layout_reference_positions", {}
-                )
-                lenses.append(projector_lens_p1_from_dict(
-                    q,
-                    legacy_anchor_reference_z_mm=(
-                        legacy_anchor_reference
-                    ),
-                    legacy_reference_z_mm=reference_positions.get(
-                        f"lens:{PROJECTOR_LENS_1}",
-                        reference_positions.get("lens:p1"),
-                    ),
-                ))
+                lenses.append(projector_lens_p1_from_dict(q))
                 projector_lens_p1_loaded = True
                 continue
             if q["key"] == PROJECTOR_LENS_2:
-                if (
-                    projector_lens_p2_loaded
-                    or (
-                        canonical_projector_lens_p2_present
-                        and raw_lens_key != PROJECTOR_LENS_2
-                    )
-                ):
-                    continue
                 from temsim.optics.projector_lens_p2 import (
                     projector_lens_p2_from_dict,
                 )
-                reference_positions = d.get(
-                    "layout_reference_positions", {}
-                )
-                lenses.append(projector_lens_p2_from_dict(
-                    q,
-                    legacy_anchor_reference_z_mm=(
-                        legacy_anchor_reference
-                    ),
-                    legacy_reference_z_mm=reference_positions.get(
-                        f"lens:{PROJECTOR_LENS_2}",
-                        reference_positions.get("lens:p2"),
-                    ),
-                ))
+                lenses.append(projector_lens_p2_from_dict(q))
                 projector_lens_p2_loaded = True
-                continue
-            if q["key"] in probe_lens_keys and (
-                q["key"] in loaded_probe_lens_keys
-                or (
-                    q["key"] in canonical_probe_lenses_present
-                    and raw_lens_key != q["key"]
-                )
-            ):
                 continue
             if q["key"] in CONDENSER_LENS_KEYS:
                 from temsim.optics.condenser_lens import (
@@ -2226,31 +2007,26 @@ class State:
                     adapter_lens_from_dict,
                 )
                 lenses.append(adapter_lens_from_dict(q))
-                loaded_probe_lens_keys.add(q["key"])
             elif q["key"] == MINI_CONDENSER:
                 from temsim.optics.mini_condenser import (
                     mini_condenser_from_dict,
                 )
                 lenses.append(mini_condenser_from_dict(q))
-                loaded_probe_lens_keys.add(q["key"])
             elif q["key"] == PROBE_TL22_LENS:
                 from temsim.optics.probe_corrector import (
                     tl22_lens_from_dict,
                 )
                 lenses.append(tl22_lens_from_dict(q))
-                loaded_probe_lens_keys.add(q["key"])
             elif q["key"] == PROBE_TL21_LENS:
                 from temsim.optics.probe_corrector import (
                     tl21_lens_from_dict,
                 )
                 lenses.append(tl21_lens_from_dict(q))
-                loaded_probe_lens_keys.add(q["key"])
             elif q["key"] == PROBE_TL12_LENS:
                 from temsim.optics.probe_corrector import (
                     tl12_lens_from_dict,
                 )
                 lenses.append(tl12_lens_from_dict(q))
-                loaded_probe_lens_keys.add(q["key"])
             else:
                 q["gaussian"]=[
                     Gaussian(**g) for g in q.get("gaussian",[])
@@ -2311,18 +2087,14 @@ class State:
         energy_filter_entrance_aperture_loaded = False
         for item in d.get("apertures", []):
             q = dict(item)
-            q["key"] = canonical_aperture_key(q.get("key", ""))
+            q["key"] = require_current_aperture_key(q.get("key", ""))
             if q["key"] == OBJECTIVE_APERTURE:
                 if objective_aperture_loaded:
                     continue
                 from temsim.optics.objective_aperture import (
                     objective_aperture_from_dict,
                 )
-                apertures.append(objective_aperture_from_dict(
-                    q,
-                    sample_z_mm,
-                    legacy_objective_mechanics,
-                ))
+                apertures.append(objective_aperture_from_dict(q, sample_z_mm))
                 objective_aperture_loaded = True
             elif q["key"] == SELECTED_AREA_APERTURE:
                 if selected_area_aperture_loaded:
@@ -2374,9 +2146,7 @@ class State:
             apertures.append(create_energy_filter_entrance_aperture())
         apertures.sort(key=lambda aperture: float(aperture.z_mm))
 
-        # Schema V10 introduced explicit CETCOR image-corrector round lenses.
-        # Older states receive the zero-excitation field bindings without
-        # changing any saved legacy lens values.
+        # Keep all explicitly modelled physical lens bindings available.
         from temsim.optics.column import image_corrector_lenses
         present_lenses = {lens.key for lens in lenses}
         lenses.extend(
@@ -2403,20 +2173,6 @@ class State:
             if key in present_lenses:
                 continue
             component = factory()
-            legacy_row = next(
-                (
-                    item
-                    for item in d.get("corrector_elements", [])
-                    if canonical_corrector_element_key(
-                        item.get("key", "")
-                    ) == key
-                ),
-                None,
-            )
-            if legacy_row is not None:
-                component.optical_reference_from_tip_mm = float(
-                    legacy_row.get("z_mm", component.z_mm)
-                )
             lenses.append(component)
         if not objective_loaded:
             from temsim.optics.objective_lens import create_objective_lens
@@ -2434,41 +2190,10 @@ class State:
             lenses.insert(insertion_index, objective)
 
         loaded_deflectors = []
-        canonical_dp12_present = any(
-            str(item.get("key", "")) == PROBE_DP12_SCAN_DEFLECTOR
-            for item in d.get("deflectors", [])
-        )
-        canonical_image_deflector_present = any(
-            str(item.get("key", ""))
-            == IMAGE_DIFFRACTION_DEFLECTOR
-            for item in d.get("deflectors", [])
-        )
-        dp12_loaded = False
-        image_deflector_loaded = False
         for item in d.get("deflectors", []):
             q = dict(item)
             raw_deflector_key = str(q.get("key", ""))
-            # Very old files temporarily reused cond_def for the beam
-            # shift/tilt pair. Resolve that ambiguity before canonicalisation.
-            if q.get("key") == "cond_def" and "/ Beam" in q.get("name", ""):
-                q["name"], q["key"] = (
-                    "BSh/BTlt Beam Shift/Tilt Deflectors",
-                    "beam_def",
-                )
-                if (
-                    q.get("upper_z_mm") == 865
-                    and q.get("lower_z_mm") == 905
-                ):
-                    q["upper_z_mm"], q["lower_z_mm"] = 900, 918
-            q["key"] = canonical_deflector_key(q.get("key", ""))
-            if q["key"] == PROBE_DP12_SCAN_DEFLECTOR and (
-                dp12_loaded
-                or (
-                    canonical_dp12_present
-                    and raw_deflector_key != PROBE_DP12_SCAN_DEFLECTOR
-                )
-            ):
-                continue
+            q["key"] = require_current_deflector_key(q.get("key", ""))
             if q["key"] == CONDENSER_DEFLECTOR:
                 from temsim.optics.condenser_deflector import (
                     condenser_deflector_from_dict,
@@ -2490,24 +2215,13 @@ class State:
                 loaded_deflectors.append(
                     dp12_scan_deflector_from_dict(q)
                 )
-                dp12_loaded = True
             elif q["key"] == IMAGE_DIFFRACTION_DEFLECTOR:
-                if (
-                    image_deflector_loaded
-                    or (
-                        canonical_image_deflector_present
-                        and raw_deflector_key
-                        != IMAGE_DIFFRACTION_DEFLECTOR
-                    )
-                ):
-                    continue
                 from temsim.optics.image_diffraction_deflector import (
                     image_diffraction_deflector_from_dict,
                 )
                 loaded_deflectors.append(
                     image_diffraction_deflector_from_dict(q)
                 )
-                image_deflector_loaded = True
             else:
                 known = DeflectorPair.__dataclass_fields__
                 loaded_deflectors.append(DeflectorPair(**{
@@ -2515,18 +2229,6 @@ class State:
                     for key, value in q.items()
                     if key in known
                 }))
-
-        for item in loaded_deflectors:
-            if (
-                item.key == IMAGE_DIFFRACTION_DEFLECTOR
-                and item.upper_z_mm == 1215
-                and item.lower_z_mm == 1265
-            ):
-
-                item.upper_z_mm,item.lower_z_mm=975,1000
-                if hasattr(item, "optical_upper_reference_z_mm"):
-                    item.optical_upper_reference_z_mm = 975
-                    item.optical_lower_reference_z_mm = 1000
 
         present={item.key for item in loaded_deflectors}
 
@@ -2554,8 +2256,7 @@ class State:
                 create_image_diffraction_deflector()
             )
 
-        # Preserve the physical column order, including newer devices such as
-        # post-scan coils that were not part of the legacy migration map.
+        # Preserve the physical column order.
         loaded_deflectors.sort(key=lambda item:(item.upper_z_mm+item.lower_z_mm)/2.0)
 
         gun_data = d.get("electron_gun")
@@ -2567,30 +2268,16 @@ class State:
         electron_gun = create_electron_gun(
             gun_data.get("type", ""), gun_data
         )
-        if (
-            electron_gun.type_key == "cold_feg"
-            and "monochromator" not in gun_data
-            and bool(d.get("monochromator_installed", False))
-        ):
-            electron_gun.migrate_legacy_monochromator_bay()
         from temsim.column.module_assembly import TOML_OWNED_GEOMETRY_KEYS
         component_placements={
-            canonical_component_placement_key(key):dict(value)
+            require_current_component_placement_key(key):dict(value)
             for key,value in d.get("component_placements",{}).items()
             if (
-                canonical_component_placement_key(key)
+                require_current_component_placement_key(key)
                 not in TOML_OWNED_GEOMETRY_KEYS
             )
         }
         stigmator_rows = d.get("stigmators", [])
-        canonical_stigmator_present = any(
-            str(item.get("key", "")) == CONDENSER_STIGMATOR
-            for item in stigmator_rows
-        )
-        canonical_diffraction_stigmator_present = any(
-            str(item.get("key", "")) == DIFFRACTION_STIGMATOR
-            for item in stigmator_rows
-        )
         loaded_stigmators = []
         condenser_stigmator_loaded = False
         objective_stigmator_loaded = False
@@ -2598,18 +2285,8 @@ class State:
         for item in stigmator_rows:
             values = dict(item)
             raw_key = str(values.get("key", ""))
-            if raw_key == "hpol":
-                continue
-            values["key"] = canonical_stigmator_key(raw_key)
+            values["key"] = require_current_stigmator_key(raw_key)
             if values["key"] == CONDENSER_STIGMATOR:
-                if (
-                    condenser_stigmator_loaded
-                    or (
-                        canonical_stigmator_present
-                        and raw_key != CONDENSER_STIGMATOR
-                    )
-                ):
-                    continue
                 from temsim.optics.condenser_stigmator import (
                     condenser_stigmator_from_dict,
                 )
@@ -2618,8 +2295,6 @@ class State:
                 )
                 condenser_stigmator_loaded = True
             elif values["key"] == OBJECTIVE_STIGMATOR:
-                if objective_stigmator_loaded:
-                    continue
                 from temsim.optics.objective_stigmator import (
                     objective_stigmator_from_dict,
                 )
@@ -2628,14 +2303,6 @@ class State:
                 )
                 objective_stigmator_loaded = True
             elif values["key"] == DIFFRACTION_STIGMATOR:
-                if (
-                    diffraction_stigmator_loaded
-                    or (
-                        canonical_diffraction_stigmator_present
-                        and raw_key != DIFFRACTION_STIGMATOR
-                    )
-                ):
-                    continue
                 from temsim.optics.diffraction_stigmator import (
                     IMAGE_CORRECTED_INSTALLATION,
                     STANDALONE_INSTALLATION,
@@ -2644,18 +2311,9 @@ class State:
                 corrector_mode = canonical_corrector_mode(
                     d.get("corrector_mode", "probe_corrector")
                 )
-                legacy_reference = d.get(
-                    "layout_reference_positions", {}
-                ).get(
-                    "stigmator:diff_stig",
-                    d.get("layout_reference_positions", {}).get(
-                        f"stigmator:{DIFFRACTION_STIGMATOR}"
-                    ),
-                )
                 loaded_stigmators.append(
                     diffraction_stigmator_from_dict(
                         values,
-                        legacy_reference_z_mm=legacy_reference,
                         active_installation=(
                             IMAGE_CORRECTED_INSTALLATION
                             if corrector_mode in {
@@ -2731,18 +2389,18 @@ class State:
             corrector_mode=corrector_mode_for_hardware(
                 d.get("corrector_mode", "probe_corrector"),
                 d.get("layout_c3_hardware", "three_condenser"),
-            ), energy_filter_mode=d.get("energy_filter_mode","energy_filter"),
+            ), energy_filter_mode=d.get("energy_filter_mode","no_energy_filter"),
             column_mode=d.get("column_mode","three_lens"), c2c3_crossover_required=d.get("c2c3_crossover_required",True),
             objective_coupled=d.get("objective_coupled",True),
             corrector_crossover_targets_mm=[],
             layout_c3_hardware=d.get("layout_c3_hardware","three_condenser"),
             layout_c3_excited=d.get("layout_c3_excited",d.get("column_mode","three_lens")=="three_lens"),
             layout_reference_positions={
-                canonical_binding_key(key): float(value)
+                require_current_binding_key(key): float(value)
                 for key, value in d.get("layout_reference_positions", {}).items()
             },
             layout_reference_enabled={
-                canonical_binding_key(key): bool(value)
+                require_current_binding_key(key): bool(value)
                 for key, value in d.get("layout_reference_enabled", {}).items()
             },
             monochromator_column_offset_mm=float(
@@ -2822,31 +2480,15 @@ class State:
             probe_aberrations=dict(d.get("probe_aberrations", {})),
             image_aberrations=dict(d.get("image_aberrations", {})),
             nanopulser=NanoPulser.from_dict(d.get("nanopulser", {})),
-            schema_version=77,
+            schema_version=STATE_SCHEMA_VERSION,
         )
-        if loaded_schema_version < 64:
-            from temsim.specimen.geometry import (
-                quaternion_from_euler_xyz_deg,
-                set_sample_orientation,
-            )
-
-            set_sample_orientation(
-                state.sample,
-                quaternion_from_euler_xyz_deg(
-                    (
-                        state.sample.specimen_rotation_x_deg,
-                        state.sample.specimen_rotation_y_deg,
-                        state.sample.specimen_rotation_z_deg,
-                    )
-                ),
-            )
         state.probe_corrector_installed=d.get("probe_corrector_installed",True)
         state.image_corrector_installed=d.get("image_corrector_installed",False)
         if state.layout_c3_hardware == "two_condenser":
             state.corrector_mode = "no_corrector"
             state.probe_corrector_installed = False
             state.image_corrector_installed = False
-        state.energy_filter_installed=d.get("energy_filter_installed",True)
+        state.energy_filter_installed=d.get("energy_filter_installed",False)
         filter_data=d.get("energy_filter")
         if filter_data is not None:
             from temsim.optics.energy_filter import energy_filter_from_dict
@@ -2860,30 +2502,6 @@ class State:
         if elements:
             allowed=CorrectorElement.__dataclass_fields__
             state.corrector_elements = []
-            modular_keys = {
-                PROBE_DPH2_DEFLECTOR,
-                PROBE_DPH1_DEFLECTOR,
-                PROBE_DP11_DEFLECTOR,
-                PROBE_DP21_DEFLECTOR,
-                PROBE_DP22_DEFLECTOR,
-                PROBE_HP1_HEXAPOLE,
-                PROBE_HPOL_HEXAPOLE,
-                PROBE_QPH2_QUADRUPOLE,
-                PROBE_QPC_QUADRUPOLE,
-                PROBE_QPH1_QUADRUPOLE,
-                PROBE_QPOL_QUADRUPOLE,
-                PROBE_HP2_HEXAPOLE,
-                PROBE_HPC_HEXAPOLE,
-                AC_DEFLECTOR,
-                DESCAN_DEFLECTOR,
-                *IMAGE_CORRECTOR_ELEMENT_KEYS,
-            }
-            canonical_rows = {
-                str(item.get("key", ""))
-                for item in elements
-                if str(item.get("key", "")) in modular_keys
-            }
-            seen_modular_keys = set()
             for item in elements:
                 values = dict(item)
                 raw_key = str(values.get("key", ""))
@@ -2896,30 +2514,19 @@ class State:
                     "ic_tl22",
                     "ic_adl",
                 }:
-                    continue
-                values["key"] = canonical_corrector_element_key(
+                    raise ValueError("Retired corrector component records are unsupported")
+                values["key"] = require_current_corrector_element_key(
                     raw_key
                 )
                 if values["key"] == DC_DEFLECTOR:
-                    # Legacy projects may contain the removed DC deflector.
-                    # It is deliberately discarded during migration.
-                    continue
-                if (
-                    values["key"] in canonical_rows
-                    and raw_key != values["key"]
-                ):
-                    continue
-                if values["key"] in modular_keys:
-                    if values["key"] in seen_modular_keys:
-                        continue
-                    seen_modular_keys.add(values["key"])
+                    raise ValueError("The retired DC deflector is unsupported")
                 if values["key"] in {
                     PROBE_TL22_LENS,
                     PROBE_TL21_LENS,
                     PROBE_TL12_LENS,
                     PROBE_DP12_SCAN_DEFLECTOR,
                 }:
-                    continue
+                    raise ValueError("Round lenses and the DP12 layout reference require their own current collections")
                 if values["key"] == PROBE_DPH2_DEFLECTOR:
                     from temsim.optics.probe_corrector import (
                         dph2_deflector_from_dict,
@@ -3044,346 +2651,7 @@ class State:
         if filter_data is not None:
             from temsim.optics.energy_filter import ensure_energy_filter
             ensure_energy_filter(state)
-        if (
-            not energy_filter_entrance_aperture_loaded
-            and isinstance(filter_data, dict)
-        ):
-            entrance = state.energy_filter_entrance_aperture
-            if "entrance_aperture_mm" in filter_data:
-                entrance.radius_mm = min(
-                    max(
-                        float(filter_data["entrance_aperture_mm"])
-                        / 2.0,
-                        0.0,
-                    ),
-                    float(entrance.maximum_radius_mm),
-                )
-            legacy_z_mm = filter_data.get("entrance_z_mm")
-            if (
-                legacy_z_mm is not None
-                and abs(float(legacy_z_mm) - 2200.0) > 1.0e-9
-            ):
-                entrance.set_optical_reference_z_mm(
-                    state.selected_area_aperture.z_mm,
-                    float(legacy_z_mm),
-                )
-            entrance.validate()
         ensure_corrector_structure(state)
-        if loaded_schema_version < 52:
-            from temsim.optics.beam_deflector import (
-                resolve_beam_deflector_after_active_aperture,
-            )
-            from temsim.optics.probe_corrector import (
-                anchor_probe_corrector_to_beam_deflector,
-                synchronise_probe_corrector_physical_axis,
-            )
-            resolve_beam_deflector_after_active_aperture(state)
-            anchor_probe_corrector_to_beam_deflector(state)
-            synchronise_probe_corrector_physical_axis(state)
-        if loaded_schema_version < 53:
-            state.objective_stigmator.mechanical_length_mm = 30.0
-            state.layout_reference_positions.pop(
-                "stigmator:objective_stigmator", None
-            )
-        if loaded_schema_version < 54:
-            state.mini_condenser.mechanical_length_mm = 30.0
-            state.mini_condenser.standalone_mechanical_length_mm = 30.0
-            for offsets in state.ac_downstream_anchor_offsets_mm.values():
-                if isinstance(offsets, dict):
-                    offsets.pop("mini_condenser", None)
-        if loaded_schema_version < 55:
-            state.mini_condenser_upstream_gap_mm = 0.0
-            for offsets in state.ac_downstream_anchor_offsets_mm.values():
-                if isinstance(offsets, dict):
-                    offsets.pop("mini_condenser", None)
-        if loaded_schema_version < 56:
-            image_deflector = state.image_diffraction_deflector
-            image_deflector.thickness_mm = 15.0
-            image_deflector.inter_coil_gap_mm = 10.0
-            image_deflector.mechanical_length_mm = 40.0
-            image_deflector.optical_plane_separation_mm = 25.0
-            state.image_diffraction_deflector_upstream_gap_mm = 0.0
-            state.layout_reference_positions.pop(
-                "deflector:image_diffraction_deflector", None
-            )
-            for offsets in state.ac_downstream_anchor_offsets_mm.values():
-                if isinstance(offsets, dict):
-                    offsets.pop("descan_deflector", None)
-            if selected_area_aperture_loaded:
-                selected_area_aperture = state.selected_area_aperture
-                (
-                    selected_area_aperture
-                    .standalone_mechanical_center_below_sample_mm
-                ) += 30.0
-                (
-                    selected_area_aperture
-                    .image_corrected_mechanical_center_below_sample_mm
-                ) += 30.0
-            from temsim.component_keys import (
-                IMAGE_CORRECTOR_ADAPTER_LENS,
-                IMAGE_CORRECTOR_DP21_DEFLECTOR,
-                IMAGE_CORRECTOR_DP22_DEFLECTOR,
-                IMAGE_CORRECTOR_DSH_DEFLECTOR,
-                IMAGE_CORRECTOR_DSTG_QUADRUPOLE,
-                IMAGE_CORRECTOR_HP1_HEXAPOLE,
-                IMAGE_CORRECTOR_HP2_HEXAPOLE,
-                IMAGE_CORRECTOR_ISH_DEFLECTOR,
-                IMAGE_CORRECTOR_SAD_PLANE,
-                IMAGE_CORRECTOR_TL21_LENS,
-                IMAGE_CORRECTOR_TL22_LENS,
-            )
-            downstream_image_corrector_keys = {
-                IMAGE_CORRECTOR_HP1_HEXAPOLE,
-                IMAGE_CORRECTOR_DP21_DEFLECTOR,
-                IMAGE_CORRECTOR_TL21_LENS,
-                IMAGE_CORRECTOR_DP22_DEFLECTOR,
-                IMAGE_CORRECTOR_TL22_LENS,
-                IMAGE_CORRECTOR_HP2_HEXAPOLE,
-                IMAGE_CORRECTOR_ADAPTER_LENS,
-                IMAGE_CORRECTOR_ISH_DEFLECTOR,
-                IMAGE_CORRECTOR_DSH_DEFLECTOR,
-                IMAGE_CORRECTOR_DSTG_QUADRUPOLE,
-                IMAGE_CORRECTOR_SAD_PLANE,
-            }
-            serialized_image_corrector_keys = {
-                str(item.get("key", ""))
-                for collection_name in ("lenses", "corrector_elements")
-                for item in d.get(collection_name, [])
-            }
-            for component in state.image_corrector_system.components:
-                if (
-                    component.key in downstream_image_corrector_keys
-                    and component.key in serialized_image_corrector_keys
-                ):
-                    state._translate_component_from_tip(component, 30.0)
-        if loaded_schema_version < 57:
-            from temsim.component_keys import (
-                IMAGE_CORRECTOR_ADAPTER_LENS,
-                IMAGE_CORRECTOR_DP21_DEFLECTOR,
-                IMAGE_CORRECTOR_DP22_DEFLECTOR,
-                IMAGE_CORRECTOR_DSH_DEFLECTOR,
-                IMAGE_CORRECTOR_DSTG_QUADRUPOLE,
-                IMAGE_CORRECTOR_HP1_HEXAPOLE,
-                IMAGE_CORRECTOR_HP2_HEXAPOLE,
-                IMAGE_CORRECTOR_ISH_DEFLECTOR,
-                IMAGE_CORRECTOR_SAD_PLANE,
-                IMAGE_CORRECTOR_TL21_LENS,
-                IMAGE_CORRECTOR_TL22_LENS,
-            )
-            downstream_image_corrector_keys = {
-                IMAGE_CORRECTOR_HP1_HEXAPOLE,
-                IMAGE_CORRECTOR_DP21_DEFLECTOR,
-                IMAGE_CORRECTOR_TL21_LENS,
-                IMAGE_CORRECTOR_DP22_DEFLECTOR,
-                IMAGE_CORRECTOR_TL22_LENS,
-                IMAGE_CORRECTOR_HP2_HEXAPOLE,
-                IMAGE_CORRECTOR_ADAPTER_LENS,
-                IMAGE_CORRECTOR_ISH_DEFLECTOR,
-                IMAGE_CORRECTOR_DSH_DEFLECTOR,
-                IMAGE_CORRECTOR_DSTG_QUADRUPOLE,
-                IMAGE_CORRECTOR_SAD_PLANE,
-            }
-            serialized_image_corrector_keys = {
-                str(item.get("key", ""))
-                for collection_name in ("lenses", "corrector_elements")
-                for item in d.get(collection_name, [])
-            }
-            state.objective_stigmator_symmetry_offset_mm = 0.0
-            for offsets in state.ac_downstream_anchor_offsets_mm.values():
-                if isinstance(offsets, dict):
-                    offsets.pop("objective_stigmator", None)
-                    offsets.pop("descan_deflector", None)
-            if selected_area_aperture_loaded:
-                selected_area_aperture = state.selected_area_aperture
-                (
-                    selected_area_aperture
-                    .standalone_mechanical_center_below_sample_mm
-                ) -= 90.0
-                (
-                    selected_area_aperture
-                    .image_corrected_mechanical_center_below_sample_mm
-                ) -= 90.0
-            for component in state.image_corrector_system.components:
-                if (
-                    component.key in downstream_image_corrector_keys
-                    and component.key in serialized_image_corrector_keys
-                ):
-                    state._translate_component_from_tip(component, -90.0)
-        if loaded_schema_version < 58:
-            from temsim.optics.image_corrector import (
-                DEFAULT_IMAGE_CORRECTOR_UPSTREAM_GAP_MM,
-                DEFAULT_SELECTED_AREA_APERTURE_OFFSET_FROM_SAD_MM,
-            )
-            image_corrector_components = (
-                state.image_corrector_system.components
-            )
-            ol_post_center_mm = float(
-                state.image_corrector_system.ol_post_lens
-                .mechanical_center_from_tip_mm
-            )
-            state.image_corrector_upstream_gap_mm = (
-                DEFAULT_IMAGE_CORRECTOR_UPSTREAM_GAP_MM
-            )
-            state.image_corrector_component_offsets_from_ol_post_mm = {
-                component.key: (
-                    float(component.mechanical_center_from_tip_mm)
-                    - ol_post_center_mm
-                )
-                for component in image_corrector_components
-                if component.key != IMAGE_CORRECTOR_OL_POST_LENS
-            }
-            state.selected_area_aperture_offset_from_sad_mm = (
-                DEFAULT_SELECTED_AREA_APERTURE_OFFSET_FROM_SAD_MM
-            )
-            for component in image_corrector_components:
-                prefix = (
-                    "lens"
-                    if component.key in IMAGE_CORRECTOR_LENS_KEYS
-                    else "corrector"
-                )
-                state.layout_reference_positions.pop(
-                    f"{prefix}:{component.key}", None
-                )
-            state.layout_reference_positions.pop(
-                f"aperture:{SELECTED_AREA_APERTURE}", None
-            )
-        if loaded_schema_version < 59:
-            from temsim.optics.selected_area_aperture import (
-                DEFAULT_STANDALONE_GAP_AFTER_DESCAN_MM,
-            )
-            state.standalone_selected_area_aperture_gap_after_descan_mm = (
-                DEFAULT_STANDALONE_GAP_AFTER_DESCAN_MM
-            )
-            state.layout_reference_positions.pop(
-                f"aperture:{SELECTED_AREA_APERTURE}", None
-            )
-        if loaded_schema_version < 60:
-            downstream_defaults = {
-                "probe": {
-                    "condenser_stigmator": 120.0,
-                    "objective_upper_lens": 145.0,
-                    "objective_upper_pole": 145.0,
-                    "sample": 155.0,
-                    "objective_aperture": 156.5,
-                    "objective_lower_pole": 165.0,
-                    "objective_lower_lens": 165.0,
-                    "descan_deflector": 265.0,
-                },
-                "standalone": {
-                    "condenser_stigmator": 175.0,
-                    "objective_upper_lens": 200.0,
-                    "objective_upper_pole": 200.0,
-                    "sample": 210.0,
-                    "objective_aperture": 211.5,
-                    "objective_lower_pole": 220.0,
-                    "objective_lower_lens": 220.0,
-                    "descan_deflector": 320.0,
-                },
-            }
-            for mode, defaults in downstream_defaults.items():
-                offsets = (
-                    state.ac_downstream_anchor_offsets_mm
-                    .setdefault(mode, {})
-                )
-                if not isinstance(offsets, dict):
-                    offsets = {}
-                    state.ac_downstream_anchor_offsets_mm[mode] = offsets
-                for key, value in defaults.items():
-                    offsets.setdefault(key, value)
-                current_stigmator_offset_mm = float(
-                    offsets["condenser_stigmator"]
-                )
-                target_stigmator_offset_mm = (
-                    70.0 + float(state.mini_condenser_upstream_gap_mm)
-                )
-                rigid_shift_mm = (
-                    target_stigmator_offset_mm
-                    - current_stigmator_offset_mm
-                )
-                for key in defaults:
-                    offsets[key] = (
-                        float(offsets[key]) + rigid_shift_mm
-                    )
-        if loaded_schema_version < 62:
-            # V62 installs the current two-hexapole corrector calibration.
-            # Strengths change, but all manifest-owned component centres stay
-            # fixed.  ``None`` Cs values deliberately select the conventional
-            # positive magnetic-lens estimate in the propagation core.
-            from temsim.optics.probe_corrector import (
-                PROBE_HP1_HEXAPOLE_ORIENTATION_RAD,
-                PROBE_HP1_HEXAPOLE_STRENGTH_RATIO,
-                PROBE_MAIN_HEXAPOLE_STRENGTH_M3,
-            )
-            probe = state.probe_corrector_system
-            probe.tl22_lens.b0_t = 0.31809425
-            probe.tl22_lens.percent = 100.0
-            probe.tl21_lens.b0_t = 0.29864759
-            probe.tl21_lens.percent = 100.0
-            probe.hp2_hexapole.strength_m3 = (
-                PROBE_MAIN_HEXAPOLE_STRENGTH_M3
-            )
-            probe.hp2_hexapole.orientation_rad = 0.0
-            probe.hp1_hexapole.strength_m3 = (
-                PROBE_MAIN_HEXAPOLE_STRENGTH_M3
-                * PROBE_HP1_HEXAPOLE_STRENGTH_RATIO
-            )
-            probe.hp1_hexapole.orientation_rad = (
-                PROBE_HP1_HEXAPOLE_ORIENTATION_RAD
-            )
-
-            from temsim.optics.image_corrector import (
-                IMAGE_HP2_HEXAPOLE_ORIENTATION_RAD,
-                IMAGE_HP2_HEXAPOLE_STRENGTH_RATIO,
-                IMAGE_MAIN_HEXAPOLE_STRENGTH_M3,
-            )
-            image = state.image_corrector_system
-            image_lens_fields = (
-                (image.ol_post_lens, 1.82167110),
-                (image.tl11_lens, 0.33677618),
-                (image.tl12_lens, 0.19797227),
-                (image.tl21_lens, 1.29298746),
-                (image.tl22_lens, 1.27157328),
-                (image.adapter_lens, 0.25184796),
-            )
-            for lens, field_t in image_lens_fields:
-                lens.b0_t = field_t
-                lens.percent = 100.0
-            image.hp1_hexapole.strength_m3 = (
-                IMAGE_MAIN_HEXAPOLE_STRENGTH_M3
-            )
-            image.hp1_hexapole.orientation_rad = 0.0
-            image.hp2_hexapole.strength_m3 = (
-                IMAGE_MAIN_HEXAPOLE_STRENGTH_M3
-                * IMAGE_HP2_HEXAPOLE_STRENGTH_RATIO
-            )
-            image.hp2_hexapole.orientation_rad = (
-                IMAGE_HP2_HEXAPOLE_ORIENTATION_RAD
-            )
-        if loaded_schema_version < 63:
-            # V63 adds rated-field headroom to every lens whose calibrated
-            # default had reached 100%.  Scale maximum field and excitation
-            # inversely so existing projects keep exactly the same Bz.
-            c2 = state.condenser_lens_2.lens
-            c2.b0_t /= 0.7
-            c2.percent *= 0.7
-
-            probe = state.probe_corrector_system
-            for lens in (
-                probe.tl22_lens,
-                probe.tl21_lens,
-                probe.tl12_lens,
-            ):
-                lens.b0_t /= 0.6
-                lens.percent *= 0.6
-
-            for lens in state.image_corrector_system.round_lens_components:
-                lens.b0_t /= 0.6
-                lens.percent *= 0.6
-
-            # Objective field ratings are manifest-owned, so from_dict has
-            # already loaded the larger V63 rating; only the saved percentage
-            # needs rebasing to preserve the previous physical field.
-            state.objective_lens.percent *= 0.7
         from temsim.optics.beam_deflector import (
             resolve_beam_deflector_after_active_aperture,
         )

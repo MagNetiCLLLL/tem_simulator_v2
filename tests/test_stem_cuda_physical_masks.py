@@ -87,7 +87,11 @@ def _reference(parameters, masks, valid):
             bandwidth_fraction=parameters["bandwidth_fraction"],
         )
         diffraction = np.abs(np.fft.fftshift(np.fft.fft2(wave), axes=(-2, -1)))**2
-        diffraction /= diffraction.sum(axis=(-2, -1), keepdims=True)
+        diffraction /= parameters["base_spectrum"].size
+        # Keep bandwidth loss: absolute probability per incident electron.
+        np.testing.assert_allclose(diffraction.sum(axis=(-2, -1)),
+                                   np.sum(np.abs(wave)**2, axis=(-2, -1)),
+                                   rtol=1e-13, atol=1e-14)
         for key, mask in all_masks.items():
             values[key].append(np.sum(diffraction * mask, axis=(-2, -1)))
         truncated.append(diffraction[:, ~valid].sum(axis=1))
@@ -100,7 +104,7 @@ def _reference(parameters, masks, valid):
     return means, sem, np.mean(truncated, axis=0)
 
 
-def test_resident_result_keeps_legacy_constructor_compatible():
+def test_resident_result_defaults_optional_truncation_to_unrecorded():
     result = ResidentStemCudaResult({}, np.zeros(1), {}, None, SimpleNamespace(), {})
     assert result.truncated_flat is None
 

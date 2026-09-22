@@ -191,7 +191,7 @@ class AssemblyCatalog:
             gun="FEG",
             column="C3 + Probe Corrector",
             recording=next(o.name for o in self.recording_systems
-                           if o.properties.get("energy_filter") is True),
+                           if o.properties.get("energy_filter") is False),
         )
 
     def selection_for_resolved(self, assembly) -> AssemblySelection:
@@ -200,9 +200,6 @@ class AssemblyCatalog:
         def selected(kind, options):
             path = paths.get(kind, "")
             matches = [option.name for option in options if option.file == path]
-            if not matches and kind == "beam_blanker" and path == "beam_blanker/NanoPulser.toml":
-                matches = [option.name for option in options
-                           if option.file == "beam_blanker/ElectrostaticBeamBlanker.toml"]
             if len(matches) != 1:
                 raise ValueError(f"Captured {kind} module is not uniquely available in this catalog")
             return matches[0]
@@ -214,16 +211,13 @@ class AssemblyCatalog:
     def normalise_selection(
         self, selection: AssemblySelection
     ) -> AssemblySelection:
-        """Validate explicit hardware choices; retain historical blanker names."""
+        """Validate explicit current hardware choices without renaming them."""
 
-        # Keep explicit installation choices, including no filter. Only the
-        # historical blanker spelling is canonicalized at this boundary.
+        # Keep explicit installation choices, including no filter.
         self._by_name(self.recording_systems, selection.recording)
         self._by_name(self.guns, selection.gun)
         self._by_name(self.columns, selection.column)
         blanker = selection.beam_blanker
-        if blanker == "NanoPulser" and any(o.name == "Electrostatic beam blanker" for o in self.beam_blankers):
-            blanker = "Electrostatic beam blanker"
         self._by_name(self.beam_blankers, blanker)
         return AssemblySelection(
             gun=selection.gun,
@@ -305,8 +299,9 @@ class AssemblyCatalog:
         state.energy_filter_mode = "energy_filter" if has_filter else "no_energy_filter"
         state.energy_filter_installed = has_filter
         from temsim.optics.energy_filter import ensure_energy_filter
+        if getattr(state, "energy_filter", None) is not None:
+            state.energy_filter.enabled = has_filter
         ensure_energy_filter(state)
-        state.energy_filter.enabled = has_filter
         ensure_corrector_structure(state)
         apply_physical_layout_to_state(
             state,

@@ -311,6 +311,12 @@ def test_nanoprobe_range_commits_only_the_c2_c3_solution(
     result = apply_direct_alignment(state, "nanoprobe_convergence", target)
     after = _lens_values(state)
 
+    if target == 60.0:
+        assert not result.success
+        assert after == before
+        assert result.achieved < target
+        assert "not reachable" in result.message
+        return
     assert result.success
     assert result.achieved == pytest.approx(target, rel=0.08)
     assert state.condenser_aperture_2.diameter_um == pytest.approx(diameter_um)
@@ -458,6 +464,13 @@ def test_microprobe_area_keeps_the_parallel_branch_and_c2_c3_bounds(
     )
     after = _lens_values(state)
 
+    if target_um > 1.0:
+        assert not result.success
+        assert after == before
+        assert result.achieved < target_um
+        assert result.numerical_spread < 1e-6
+        assert "not reachable" in result.message
+        return
     assert result.success
     assert result.achieved == pytest.approx(target_um, rel=0.05)
     assert abs(result.constraint_value) <= 25.0
@@ -550,15 +563,22 @@ def test_camera_length_uses_main_screen_reference_and_commits(
 
 
 @pytest.mark.parametrize("target_m", (0.005, 2.5))
-def test_microprobe_diffraction_camera_length_endpoints_commit(
+def test_microprobe_diffraction_camera_length_respects_current_field_limits(
     assembled_state, target_m
 ):
     state = _state_copy(assembled_state)
     apply_operating_mode_pair(state, "micro_probe", "diffraction")
 
+    before = _lens_values(state)
     result = apply_direct_alignment(
         state, "diffraction_camera_length", target_m
     )
+    if target_m == 2.5:
+        assert not result.success
+        assert _lens_values(state) == before
+        assert "upper limit" in result.message
+        assert result.achieved < target_m
+        return
 
     assert result.success
     assert result.achieved == pytest.approx(target_m, rel=0.03)
@@ -815,11 +835,11 @@ def test_wrong_mode_and_out_of_range_targets_do_not_change_lenses(
     apply_operating_mode_pair(state, "nano_probe", "imaging")
     before = _lens_values(state)
 
-    with pytest.raises(ValueError, match="only active in micro_probe mode"):
+    with pytest.raises(ValueError, match="not enabled in the current operating mode"):
         apply_direct_alignment(state, "microprobe_illumination", 2.0)
     assert _lens_values(state) == before
 
-    with pytest.raises(ValueError, match="must be between 3 and 60 mrad"):
+    with pytest.raises(ValueError, match="outside the registered range"):
         apply_direct_alignment(state, "nanoprobe_convergence", 60.01)
     assert _lens_values(state) == before
 

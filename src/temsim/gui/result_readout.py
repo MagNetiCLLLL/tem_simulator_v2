@@ -10,12 +10,25 @@ from temsim.immutable_json import freeze_json, thaw_json
 from temsim.sampling_diagnostics import sampling_summary
 
 
+def _request_identity(result):
+    """A current result may not have a captured request; never invent one."""
+    signatures = result.signatures
+    if not isinstance(signatures, dict):
+        raise TypeError("Result signatures must be a dictionary")
+    if "request" not in signatures:
+        return "UNRECORDED"
+    identity = signatures["request"]
+    if not isinstance(identity, str) or not identity.strip():
+        raise ValueError("Result request identity must be a nonempty string")
+    return identity
+
+
 def result_readout(result, quality):
     """Never read the current instrument or interpolate plot histories here."""
     state = getattr(result, "state_snapshot", None)
     simulation = getattr(result, "simulation", None)
     manifest = getattr(result, "calculation_manifest", None)
-    identity = getattr(result, "signatures", {}).get("request", "UNRECORDED")
+    identity = _request_identity(result)
     summary = dict(result_id=identity, manifest_id=getattr(manifest, "digest", "UNRECORDED"),
         numerical_preset=quality, numerical_validation="NOT_ESTABLISHED", model_qualification="NOT_ESTABLISHED",
         model=str(getattr(state, "simulation_mode", "Unrecorded")),
@@ -68,11 +81,13 @@ class ResultReadout(QWidget):
         self._refresh()
 
     def publish(self, result, quality):
+        identity = "UNRECORDED"
         try:
+            identity = _request_identity(result)
             row = result_readout(result, quality)
         except (ValueError, TypeError, AttributeError) as exc:
             # A failed readout cannot replace or reinterpret a valid plot.
-            row = freeze_json(dict(error=str(exc), result_id=getattr(result, "signatures", {}).get("request", "UNRECORDED")))
+            row = freeze_json(dict(error=str(exc), result_id=identity))
         self._records["ray"] = row
         self._stale["ray"] = False
         if str(quality).strip().lower() == "high accuracy":

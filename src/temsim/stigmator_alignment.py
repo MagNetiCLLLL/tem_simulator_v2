@@ -64,7 +64,7 @@ def capability(state):
     if stig is None or not stig.enabled:
         return False, "Condenser stigmator is absent or disabled"
     if stig.field_model != "normal_skew":
-        return False, "Select Independent X/Y in the condenser stigmator Field model first"
+        return False, "Unsupported condenser stigmator field model; normal_skew is required"
     if state.vacuum_map.enabled:
         return False, "Incident alignment observer does not yet support active vacuum scattering"
     if not state.electron_gun.exit_plane_z_mm < stig.z_mm < state.sample.upper_surface_z_mm:

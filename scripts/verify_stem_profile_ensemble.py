@@ -80,7 +80,7 @@ def main(folder):
         assert abs(p['configured_c1_nm']-p['probe']['waist_offset_m']*1e9-recipe['effective_c1_nm'])<1e-8
         assert hashlib.sha256((path/'input.cif').read_bytes()).hexdigest()==p['cif_sha256']==params[0]['cif_sha256']
         state=default_state();catalog=AssemblyCatalog();selection,values=read_profile(path/'operating_profile.toml')
-        catalog.apply(state,selection); skipped=apply_profile_values(state,values);assert skipped==[]
+        catalog.apply(state,selection); apply_profile_values(state,values)
         assert state.sample.wave_frozen_phonon_seed==seed
         assert state.sample.wave_frozen_phonon_configurations==1
         assert state.ac_deflector.scan_pixels_x==side and state.ac_deflector.scan_lines==side
@@ -92,11 +92,11 @@ def main(folder):
         preserved_sections=('lenses','apertures','deflectors','sample','recording_planes',
                             'probe_aberrations','image_aberrations')
         assert all(restored[key]==p['state'][key] for key in preserved_sections)
-        profiles.append(dict(seed=seed,zero_skipped=True,effective_c1_nm=m['production_metrics']['probe_effective_defocus_nm'],
+        profiles.append(dict(seed=seed,profile_applied=True,effective_c1_nm=m['production_metrics']['probe_effective_defocus_nm'],
             configured_c1_nm=state.sample.wave_defocus_nm,all_startup_source_hashes_match=True,
             restored_state_sections_exact=list(preserved_sections)))
     selection,values=read_profile(output/'ensemble_equivalent_profile.toml')
-    state=default_state();AssemblyCatalog().apply(state,selection);assert apply_profile_values(state,values)==[]
+    state=default_state();AssemblyCatalog().apply(state,selection);apply_profile_values(state,values)
     assert state.sample.wave_frozen_phonon_configurations==len(folders)
     equivalent=json.loads(json.dumps(state.to_dict()))
     equivalent['sample']['wave_frozen_phonon_configurations']=1
@@ -118,7 +118,7 @@ def main(folder):
     (output/'metrics.json').write_text(json.dumps(combined,indent=2),encoding='utf-8')
     verification=dict(passed=True,shape=list(expected_shape),step_nm=step,configuration_seeds=recipe['seeds'],
         arithmetic_means_exact=True,standard_errors_exact=True,all_arrays_finite=True,all_signal_arrays_nonnegative=True,
-        probability_error=budget_error,exports=exports,profiles=profiles,equivalent_profile_zero_skipped=True,
+        probability_error=budget_error,exports=exports,profiles=profiles,equivalent_profile_applied=True,
         equivalent_profile_scope='Physical settings/configuration count only, not the independent-seed realisation sequence.',
         source_cif_sha256=params[0]['cif_sha256'],source_cif_path=str(source_cif),source_cif_copy_exact=True,
         startup_hash_count=len(expected_hashes),all_constituent_source_hashes_match=True,

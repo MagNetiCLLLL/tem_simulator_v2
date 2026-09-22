@@ -8,6 +8,7 @@ full-ray checked C2/C3 solve, even with the blanking voltage switched off.
 from __future__ import annotations
 
 from dataclasses import replace
+from temsim.instrument_snapshot import capture_instrument_snapshot
 import hashlib
 import json
 
@@ -58,26 +59,30 @@ def recalibrate_nanopulser_condenser(state, mode, catalog):
 
     Calibration virtually opens the ordinary gun-coil blanker and installed
     Electrostatic beam blanker, retaining every physical aperture and alignment value. Both
-    blanking selections and the ray count are restored even if the solve fails.
+    blanking selections and the ray count remain on the original state even if the solve fails.
     Cache keys describe the transmitted beam, so toggling either exposure gate
     does not alone invalidate an otherwise identical condenser calibration.
     """
     key = ("nanoprobe_convergence" if mode.key == "nano_probe"
            else "microprobe_illumination")
-    base_definition = direct_alignment_by_key(key, catalog)
-    definition = replace(base_definition, targets={
-        **base_definition.targets,
-        "optimiser_step_mm": 0.1,
-        "validation_step_mm": 0.05,
-    })
-    emitter = state.electron_gun.emitter
-    original_rays = emitter.ray_count
-    with transmitted_calibration_beam(state):
-        try:
-            emitter.ray_count = CALIBRATION_RAYS
-            return _recalibrate_transmitted_condenser(state, mode, definition)
-        finally:
-            emitter.ray_count = original_rays
+    definition = direct_alignment_by_key(key, catalog)
+    candidate = capture_instrument_snapshot(state).restore()
+    candidate.electron_gun.emitter.ray_count = CALIBRATION_RAYS
+    with transmitted_calibration_beam(candidate):
+        calibrated = _recalibrate_transmitted_condenser(candidate, mode, definition)
+        candidate_lenses = {lens.key: lens for lens in candidate.lenses}
+        for lens_key in ("condenser_lens_2", "condenser_lens_3"):
+            candidate_lenses[lens_key].percent = calibrated.devices[lens_key]["percent"]
+        _CACHE[_calibration_key(candidate, mode, definition)] = calibrated
+        while len(_CACHE) > 16:
+            _CACHE.pop(next(iter(_CACHE)))
+    # Solver commits may replace the candidate object tree. Publish only the
+    # condenser controls, never temporary blanking flags or emission budgets.
+    lenses = {lens.key: lens for lens in state.lenses}
+    for lens_key in ("condenser_lens_2", "condenser_lens_3"):
+        lenses[lens_key].percent = calibrated.devices[lens_key]["percent"]
+    return calibrated
+
 
 
 def _recalibrate_transmitted_condenser(state, mode, definition):
@@ -133,7 +138,7 @@ def _recalibrate_transmitted_condenser(state, mode, definition):
         "achieved_convergence_sem_angle_mrad": result.convergence_95_mrad,
         "achieved_illumination_diameter_95_um": result.illumination_diameter_95_um,
         "calibration_ray_count": CALIBRATION_RAYS,
-        "calibration_step_mm": 0.1,
+        "calibration_step_mm": definition.targets["optimiser_step_mm"],
         "validation_step_mm": result.validation_step_mm,
         "calibration_geometry_fingerprint": cache_key,
     })
@@ -148,7 +153,7 @@ def _recalibrate_transmitted_condenser(state, mode, definition):
             "C2/C3 recomputed for the installed Electrostatic beam blanker and current "
             "assembled geometry using 512 deterministic source rays. "
             "Full nonlinear propagation and physical clipping validate "
-            "the sample illumination and focus constraint at 0.05 mm. "
+            f"the sample illumination and focus constraint at {result.validation_step_mm:g} mm. "
             "Principal corrector fields retain the base-mode values; "
             "this is not a new aberration-corrector or OEM current calibration."
         ),

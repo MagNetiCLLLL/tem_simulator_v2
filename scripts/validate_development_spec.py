@@ -45,7 +45,7 @@ CRITERIA={
 29:("One actual execution description and separate verification",["test_execution_migration_contract.test_execution_export", "test_tem_flux_contract.test_export"]),
 30:("Scoped identities and display-only reuse",["test_execution_migration_contract.test_cad_display", "test_calculation_manifest_artifacts.test_geometry_fingerprint", "test_fourdstem.test_resume_rejects", "test_fourdstem.test_raw_cube_can"]),
 31:("Locked isolated CPU install/import/GUI/small case",[]),
-32:("Explicit migration without automatic hardware retuning",["test_execution_migration_contract.test_old_profile", "test_simulation_modes.test_mode_switch_preserves", "test_profile_optional_values.test_legacy_profile"]),
+32:("Current profiles and explicit controls without automatic hardware retuning",["test_execution_migration_contract.test_old_profile", "test_simulation_modes.test_mode_switch_preserves", "test_profile_optional_values.test_explicit_none_clears"]),
 33:("Fixed control to field to crystal to aperture to camera",["test_scientific_wp06.test_at33"]),
 }
 

@@ -61,6 +61,7 @@ class DirectAlignmentController(QObject):
         self.pool = CoordinatedPool(self)
         self.pool.setMaxThreadCount(1)
         self._generation = 0
+        self._active_generation: int | None = None
         self._cancellation = Event()
 
     def submit(self, state, key: str, target: float, *, revision=0, options=None) -> None:
@@ -70,6 +71,7 @@ class DirectAlignmentController(QObject):
         self._cancellation = Event()
         self._generation += 1
         generation = self._generation
+        self._active_generation = generation
         self.pool.clear()
         worker = DirectAlignmentWorker(
             generation, request, self._cancellation
@@ -84,21 +86,25 @@ class DirectAlignmentController(QObject):
         """Ignore queued/running results after another state edit."""
 
         self._generation += 1
+        self._active_generation = None
         self._cancellation.set()
         self.pool.clear()
 
     def _accept_result(
         self, generation: int, key: str, result, duration: float
     ) -> None:
-        if generation == self._generation:
+        if generation == self._active_generation and not self._cancellation.is_set():
             self.result_ready.emit(key, result, duration)
 
     def _accept_error(
         self, generation: int, key: str, message: str
     ) -> None:
-        if generation == self._generation:
+        if generation == self._active_generation and not self._cancellation.is_set():
             self.failed.emit(key, message)
 
     def _accept_finished(self, generation: int, key: str) -> None:
-        if generation == self._generation:
+        if generation == self._active_generation:
+            # Close ownership before notifying UI slots, which may submit the
+            # next alignment synchronously. Late callbacks cannot reopen it.
+            self._active_generation = None
             self.finished.emit(key)

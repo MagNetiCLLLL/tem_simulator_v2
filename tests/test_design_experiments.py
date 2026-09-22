@@ -103,25 +103,19 @@ def test_recipe_round_trip_history_and_branching(tmp_path):
         load_recipe(path)
 
 
-def test_legacy_recipe_schema_loads_but_keeps_missing_provenance_explicit(
-    tmp_path,
-):
+@pytest.mark.parametrize("version", [1, 2, True, "3", 4])
+def test_noncurrent_recipe_schema_is_rejected_without_conversion(tmp_path, version):
     current = recipe_from_snapshot(_snapshot(), name="current")
-    legacy = replace(
-        current,
-        schema_version=1,
-        external_model_signature="",
-        external_inputs=(),
-    )
+    with pytest.raises(ValueError, match="schema"):
+        replace(current, schema_version=version)
+    document = current.to_dict()
+    document["schema_version"] = version
     path = tmp_path / "legacy-design-recipe.json"
-    save_recipe(path, legacy)
-
-    restored = load_recipe(path)
-
-    assert restored.schema_version == 1
-    assert restored.external_model_signature == ""
-    assert restored.external_inputs == ()
-    assert restored.digest == legacy.digest
+    path.write_text(json.dumps(document), encoding="utf-8")
+    previous = path.read_bytes()
+    with pytest.raises(ValueError, match="schema"):
+        load_recipe(path)
+    assert path.read_bytes() == previous
 
 
 def test_sweep_sensitivity_and_tolerance_are_quantitative():

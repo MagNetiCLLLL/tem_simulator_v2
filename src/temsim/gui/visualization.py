@@ -53,6 +53,9 @@ from temsim.gui.sample_interactions_3d import SampleInteractions3DPage
 from temsim.gui.eds_panel import EDSPage
 from temsim.gui.aberration_view import AberrationComparisonView
 from temsim.gui.ray_scene import StaticRayLayers
+from temsim.gui.ray_curve_item import RayCurveItem
+from temsim.gui.ray_calculation_extent import RayCalculationExtentBar
+from temsim.gui.ray_extent_data import completed_ray_extent
 from temsim.gui.design_explorer import DesignExplorerPage
 from temsim.gui.interactive_calculation import InteractiveCalculationPage
 from temsim.gui.model_inspector import ModelInspectorPage
@@ -827,6 +830,7 @@ class VisualizationWorkspace(QWidget):
         self._selected_z_mm = None
         self._last_result = None
         self._last_quality = ""
+        self._ray_extent_stale = False
         self._preview_result = None
         self._high_accuracy_result = None
         self._high_accuracy_current = False
@@ -885,6 +889,9 @@ class VisualizationWorkspace(QWidget):
         ray_primary_layout.addWidget(navigation_hint)
         ray_primary_layout.addLayout(navigation_controls)
         ray_primary_layout.addWidget(self.plot, 1)
+        self.ray_calculation_extent = RayCalculationExtentBar()
+        self.ray_calculation_extent.bind_plot(self.plot)
+        ray_primary_layout.addWidget(self.ray_calculation_extent)
         ray_primary_layout.addWidget(self.stop_detail)
         ray_primary_layout.addWidget(self.hint)
 
@@ -934,9 +941,6 @@ class VisualizationWorkspace(QWidget):
         self.image_aberrations = AberrationComparisonView(
             fixed_system="image"
         )
-        # Compatibility alias for callers that previously inspected the
-        # single switchable aberration page.
-        self.aberrations = self.probe_aberrations
         self.optical_transfer = OpticalTransferView()
         self.energy_filter = EnergyFilterView()
         self.energy_filter_parameters = ParameterPanel()
@@ -1081,11 +1085,12 @@ class VisualizationWorkspace(QWidget):
         self.design_explorer = DesignExplorerPage()
         self.interactive_calculation = InteractiveCalculationPage(self)
         self.interactive_calculation.hide()
+        self.interactive_calculation.section_changed.connect(self._refresh_ray_calculation_extent)
         self.ray_result_tabs = QTabWidget()
         self.ray_result_tabs.setObjectName("rayResultTabs")
         self.ray_result_tabs.addTab(self.ray_workspace_splitter, "Rays")
         self.ray_result_tabs.addTab(self.interactive_calculation.readout_panel, "Cached signals")
-        self.ray_result_tabs.setTabToolTip(1, "Detached Advanced-bank readout, separate from current live settings")
+        self.ray_result_tabs.setTabToolTip(1, "Current pixel detector counts and separate Advanced-bank readout")
         ray_layout.addWidget(self.ray_result_tabs, 1)
         self.interactive_calculation.rays_requested.connect(self.show_ray_diagram)
         self.interactive_calculation.readout_updated.connect(self.scan_control.set_bank_readout)
@@ -1625,6 +1630,14 @@ class VisualizationWorkspace(QWidget):
         ):
             size = 0 if indices is None else np.asarray(indices).size
             return np.full(size, np.nan, dtype=float)
+        simulation = getattr(getattr(self, "_last_result", None), "simulation", None)
+        metrics = getattr(simulation, "metrics", {}) or {}
+        if metrics.get("section_sample_reference_reached") is False:
+            # A completed upstream section has no executed specimen-plane
+            # directions. Its endpoint must not become a sample convergence
+            # estimate through the legacy last-row fallback.
+            size = tx_history.shape[1] if indices is None else np.asarray(indices).size
+            return np.full(size, np.nan, dtype=float)
         row = -1 if self._branch_interaction_kind(branch) == "incident" else 0
         tx = tx_history[row].copy()
         ty = ty_history[row].copy()
@@ -2048,25 +2061,17 @@ class VisualizationWorkspace(QWidget):
     def _redraw_component_projection_items(self) -> None:
         """Refresh only small projected aperture/detector graphics."""
         updated_spans = []
-        for lower, upper, offset_x_mm, offset_y_mm, radius_mm in (
+        for lower, upper, name, optical_z_mm, record in (
             self._aperture_projection_records
         ):
-            centre_u_mm = float(
-                self._project_transverse(offset_x_mm, offset_y_mm)
-            )
+            centre_u_mm, radius_mm = self._project_aperture_opening(record)
             updated_spans.append(
                 (lower, upper, centre_u_mm, radius_mm)
             )
             # Keep the numeric opening tooltip in sync without replacing
             # the aperture or its user-visible label.
-            tooltip = lower.toolTip().split("\nAllowed ")[0]
-            tooltip += (
-                f"\nAllowed {self._projection_axis_name()} opening = "
-                f"[{centre_u_mm - radius_mm:.6g}, {centre_u_mm + radius_mm:.6g}] mm\n"
-                f"Circular radius = {radius_mm:.6g} mm\n"
-                f"X/Y offset = {offset_x_mm:.6g} / {offset_y_mm:.6g} mm\n"
-                "The blank gap is the circular opening projected onto the "
-                "selected transverse axis; solid segments block."
+            tooltip = self._aperture_opening_tooltip(
+                name, optical_z_mm, record, centre_u_mm, radius_mm
             )
             lower.setToolTip(tooltip)
             upper.setToolTip(tooltip)
@@ -2321,9 +2326,16 @@ class VisualizationWorkspace(QWidget):
         simulation = self._last_result.simulation
         branches = (simulation.incident, *simulation.branches.values(),
                     *self._display_ray_bundles()[1:])
+        sources = tuple(branch.z for branch in branches)
+        cache_key = ("navigation-limits", tuple(id(value) for value in sources))
+        cached = self._ray_display_cache_get(cache_key, sources)
+        if cached is not None:
+            return float(cached[0][0]), float(cached[0][1])
         minima = [float(np.nanmin(branch.z)) for branch in branches]
         maxima = [float(np.nanmax(branch.z)) for branch in branches]
-        return min(minima), max(maxima)
+        limits = (min(minima), max(maxima))
+        self._ray_display_cache_put(cache_key, sources, (np.asarray(limits, dtype=float),))
+        return limits
 
     def _jump_to_position_input(self) -> None:
         self.jump_to_ray_position(self.axial_position.value())
@@ -2776,6 +2788,14 @@ class VisualizationWorkspace(QWidget):
             return 0.0
         x_min, x_max = self.plot.getViewBox().viewRange()[0]
         branches = self._display_ray_bundles()
+        window_sources = tuple(value for branch in branches
+                               for value in (branch.z, branch.tx, branch.ty, branch.blocked_z))
+        window_key = ("visible-slope", tuple(id(value) for value in window_sources),
+                      self.MAX_RANGE_SAMPLE_RAYS)
+        request = (float(self._projection_angle_deg) % 360.0, float(x_min), float(x_max))
+        cached = self._ray_display_cache_get(window_key, window_sources)
+        if cached is not None and tuple(cached[0][:3]) == request:
+            return float(cached[0][3])
         maximum = 0.0
         for branch in branches:
             z_values = np.asarray(branch.z, dtype=float)
@@ -2814,6 +2834,10 @@ class VisualizationWorkspace(QWidget):
                 maxima = (np.max(slopes, axis=1),)
                 self._ray_display_cache_put(angle_key, sources, maxima)
             maximum = max(maximum, float(np.max(maxima[0][first:last])))
+        # Replace the most recent window, rather than accumulating one entry
+        # for every mouse movement. Result republication clears this cache too.
+        self._ray_display_cache_put(
+            window_key, window_sources, (np.asarray((*request, maximum), dtype=float),))
         return maximum
 
     def _update_scale_notice(self, *_args) -> None:
@@ -2847,13 +2871,15 @@ class VisualizationWorkspace(QWidget):
             colour_text = (
                 "Hue = interaction type | convergence shade unavailable"
             )
-        self.hint.setText(
+        text = (
             f"Max physical {self._projection_axis_name()} angle: "
             f"{maximum_angle_deg:.3g}° | "
             f"Transverse display: {magnification_text} (angles not to scale) | "
             f"{colour_text} | Blocked rays stop at first intercept | "
             "Column wall uses radial X/Y"
         )
+        if self.hint.text() != text:
+            self.hint.setText(text)
 
     def _apply_component_zoom(self, part) -> None:
         x_min, x_max = self._clamp_focus_range(*self._component_x_range(part))
@@ -2969,6 +2995,61 @@ class VisualizationWorkspace(QWidget):
             lower.setSpan(0.0, lower_fraction)
             upper.setSpan(upper_fraction, 1.0)
 
+    def _project_aperture_opening(self, record) -> tuple[float, float]:
+        """Centre/half-span of the physical opening's transverse projection."""
+        shape = record["shape"]
+        if shape == "circular":
+            return (
+                float(self._project_transverse(
+                    record["offset_x_mm"], record["offset_y_mm"]
+                )),
+                0.5 * float(record["diameter_mm"]),
+            )
+        if shape != "two_blade_slit":
+            raise ValueError(f"Unsupported aperture shape: {shape!r}")
+        radius = 0.5 * float(record["bore_diameter_mm"])
+        if not record["slit_inserted"]:
+            return 0.0, radius
+        gap = float(record["slit_gap_mm"])
+        centre = float(record["slit_centre_x_mm"])
+        x_lo, x_hi = max(-radius, centre - gap / 2), min(radius, centre + gap / 2)
+        if gap <= 0 or x_lo > x_hi:
+            return 0.0, 0.0
+        angle = np.deg2rad(self._projection_angle_deg)
+        c, s = float(np.cos(angle)), abs(float(np.sin(angle)))
+        # Extremise U = X cos(angle) + Y sin(angle) on the intersection
+        # of the circular bore and the physical X-directed blade gap.
+        x_min = float(np.clip(-radius * c, x_lo, x_hi))
+        x_max = float(np.clip(radius * c, x_lo, x_hi))
+        lo = c * x_min - s * np.sqrt(max(0.0, radius * radius - x_min * x_min))
+        hi = c * x_max + s * np.sqrt(max(0.0, radius * radius - x_max * x_max))
+        return float((lo + hi) / 2), float((hi - lo) / 2)
+
+    def _aperture_opening_tooltip(self, name, optical_z_mm, record, centre, half_span):
+        tooltip = (
+            f"{name}\nEffective optical stop Z = {optical_z_mm:.6g} mm\n"
+            f"Allowed {self._projection_axis_name()} opening = "
+            f"[{centre - half_span:.6g}, {centre + half_span:.6g}] mm\n"
+        )
+        if record["shape"] == "circular":
+            return tooltip + (
+                f"Circular radius = {half_span:.6g} mm\n"
+                f"X/Y offset = {float(record['offset_x_mm']):.6g} / "
+                f"{float(record['offset_y_mm']):.6g} mm\n"
+                "The blank gap is the circular opening projected onto the "
+                "selected transverse axis; solid segments block."
+            )
+        blades = "inserted" if record["slit_inserted"] else "retracted"
+        return tooltip + (
+            f"Two-blade slit: blades {blades}; gap = "
+            f"{float(record['slit_gap_mm']):.6g} mm\n"
+            f"Slit centre X = {float(record['slit_centre_x_mm']):.6g} mm\n"
+            f"Mechanical bore diameter = {float(record['bore_diameter_mm']):.6g} mm\n"
+            "The blank gap is the projection of the slit intersected with "
+            "the circular bore. Admission depends on both X and Y; "
+            "the projected gap alone does not determine transmission."
+        )
+
     def _add_aperture_stop(
         self, part, optical_z_mm: float, record
     ):
@@ -3000,31 +3081,11 @@ class VisualizationWorkspace(QWidget):
             lines = (line,)
             representative = line
         else:
-            if "diameter_mm" in record:
-                radius_mm = 0.5 * max(
-                    0.0, float(record["diameter_mm"])
-                )
-            else:
-                # Compatibility with pre-diameter calculation records.
-                radius_mm = max(0.0, float(record["radius_mm"]))
-            offset_x_mm = float(record["offset_x_mm"])
-            offset_y_mm = float(record["offset_y_mm"])
-            centre_u_mm = float(
-                self._project_transverse(offset_x_mm, offset_y_mm)
+            centre_u_mm, radius_mm = self._project_aperture_opening(record)
+            tooltip = self._aperture_opening_tooltip(
+                part.name, optical_z_mm, record, centre_u_mm, radius_mm
             )
-            lower_edge = centre_u_mm - radius_mm
-            upper_edge = centre_u_mm + radius_mm
-            tooltip = (
-                f"{part.name}\nEffective optical stop Z = "
-                f"{optical_z_mm:.6g} mm\nAllowed "
-                f"{self._projection_axis_name()} opening = "
-                f"[{lower_edge:.6g}, {upper_edge:.6g}] mm\n"
-                f"Circular radius = {radius_mm:.6g} mm\n"
-                f"X/Y offset = {offset_x_mm:.6g} / "
-                f"{offset_y_mm:.6g} mm\n"
-                "The blank gap is the circular opening projected onto the "
-                "selected transverse axis; solid segments block."
-            )
+            stop_label = "SLIT OPTICAL STOP" if record["shape"] == "two_blade_slit" else "OPTICAL STOP"
             lower = pg.InfiniteLine(
                 pos=optical_z_mm,
                 angle=90,
@@ -3036,7 +3097,7 @@ class VisualizationWorkspace(QWidget):
                 angle=90,
                 span=(0.55, 1.0),
                 pen=pg.mkPen("#ffb000", width=2.4),
-                label=f"{part.name} [OPTICAL STOP]",
+                label=f"{part.name} [{stop_label}]",
                 labelOpts={
                     "position": 0.62,
                     "color": "#ffe29a",
@@ -3050,9 +3111,9 @@ class VisualizationWorkspace(QWidget):
                 (
                     lower,
                     upper,
-                    offset_x_mm,
-                    offset_y_mm,
-                    radius_mm,
+                    part.name,
+                    optical_z_mm,
+                    dict(record),
                 )
             )
             lines = (lower, upper)
@@ -3601,8 +3662,9 @@ class VisualizationWorkspace(QWidget):
             record = self._aperture_stops_by_key.get(part.key)
             signature += (None if record is None else tuple(
                 record.get(key) for key in (
-                    "z_mm", "enabled", "installed", "diameter_mm", "radius_mm",
-                    "offset_x_mm", "offset_y_mm",
+                    "z_mm", "enabled", "installed", "shape", "diameter_mm",
+                    "offset_x_mm", "offset_y_mm", "bore_diameter_mm",
+                    "slit_inserted", "slit_gap_mm", "slit_centre_x_mm",
                 )
             ),)
         if data.get("mechanical_profile") in {
@@ -3738,7 +3800,8 @@ class VisualizationWorkspace(QWidget):
             pen = pg.mkPen(self._shade_colour(base_colours[kind], shade), width=1.35)
             item = self._ray_items_by_group.get(key)
             if item is None:
-                item = self.plot.plot([], [], pen=pen, connect="finite")
+                item = RayCurveItem([], [], pen=pen)
+                self.plot.addItem(item)
                 self._ray_items_by_group[key] = item
             elif item.opts["pen"] != pen:
                 item.setPen(pen)
@@ -3799,8 +3862,9 @@ class VisualizationWorkspace(QWidget):
             active.add(key)
             item = self._ray_items_by_group.get(key)
             if item is None:
-                item = self.plot.plot([], [], pen=pg.mkPen(key[1], width=1.35,
-                    style=Qt.PenStyle.DashLine if key[0] == "support" else Qt.PenStyle.SolidLine), connect="finite")
+                item = RayCurveItem([], [], pen=pg.mkPen(key[1], width=1.35,
+                    style=Qt.PenStyle.DashLine if key[0] == "support" else Qt.PenStyle.SolidLine))
+                self.plot.addItem(item)
                 self._ray_items_by_group[key] = item
             item.setData(z, transverse, connect="finite")
             item.setToolTip(
@@ -3918,6 +3982,8 @@ class VisualizationWorkspace(QWidget):
         self._ray_display_cache_result = result
         is_preview = str(quality).strip().lower().startswith("preview") or quality == "Medium"
         optical_tuning = bool((getattr(result.simulation, "metrics", None) or {}).get("optical_tuning", False))
+        particle_tuning = bool((getattr(result.simulation, "metrics", None) or {}).get("particle_tuning", False))
+        sample_reached = (getattr(result.simulation, "metrics", None) or {}).get("section_sample_reference_reached", True)
         if is_preview:
             self._preview_result = result
             current_high = bool(
@@ -3942,11 +4008,15 @@ class VisualizationWorkspace(QWidget):
             if getattr(captured_gun, "type_key", None) == "cold_feg" else "Calculated source: captured instrument")
         self.ray_source_status.setStyleSheet("")
         self._last_quality = quality
+        self.interactive_calculation.calculation_timing.set_result(result)
+        self._ray_extent_stale = False
+        self._refresh_ray_calculation_extent()
         no_illumination = sample_illumination_absent(
             getattr(result, "simulation", None),
             getattr(result, "state_snapshot", None),
         )
-        if not optical_tuning and (not is_preview or no_illumination):
+        no_illumination = no_illumination and bool(sample_reached)
+        if not optical_tuning and (not is_preview or no_illumination or particle_tuning):
             self._sample_region_result = getattr(result, "sample_region", None)
         self._prepare_scan_ray_playback(result)
         # Queue before drawing the axial cursor: its focus notifications must
@@ -3967,17 +4037,19 @@ class VisualizationWorkspace(QWidget):
         self.probe_aberrations.display_result(result)
         self.image_aberrations.display_result(result)
         self.optical_transfer.display_result(result)
-        if not is_preview or no_illumination:
+        if not is_preview or no_illumination or particle_tuning:
             self.energy_filter.display_result(result)
             if no_illumination:
                 self.energy_filter.summary.setText(
                     "No incident current at the specimen | no transmitted beam"
                 )
-        if not is_preview or no_illumination or self._high_accuracy_result is None:
+        if particle_tuning and getattr(result, "stem_scan", None) is None:
+            self.scan_control.mark_stem_frame_stale()
+        if not is_preview or no_illumination or particle_tuning or self._high_accuracy_result is None:
             self.scan_control.display_result(
                 getattr(result, "scan_geometry", None),
                 getattr(result, "stem_scan", None),
-                complete=not is_preview or no_illumination,
+                complete=not is_preview or no_illumination or particle_tuning,
                 state_snapshot=getattr(result, "state_snapshot", None),
             )
             if no_illumination:
@@ -3985,18 +4057,30 @@ class VisualizationWorkspace(QWidget):
                     "No incident current at the specimen | no STEM frame"
                 )
                 self.scan_control.image_model_notice.setToolTip("")
+            elif particle_tuning and getattr(result, "stem_scan", None) is None:
+                scanning = bool(getattr(result.state_snapshot.ac_deflector, "scan_enabled", False))
+                scan_status = result.simulation.metrics.get("section_scan_status", "disabled")
+                self.scan_control.image_model_notice.setText(
+                    "No STEM frame: the selected section does not reach all active scan detectors."
+                    if scan_status == "detectors_not_reached" else
+                    "No STEM frame: insert a STEM detector to record a scan."
+                    if scan_status == "no_inserted_detectors" else
+                    "STEM image readout is disabled."
+                    if scanning else "Scan is off | current pixel detector signals are available in Cached signals.")
         self.sample_page.display_result(
             result,
             (
                 getattr(result, "stem_scan", None)
-                if not is_preview
+                if not is_preview or particle_tuning
                 else None
             ),
         )
-        if not is_preview or no_illumination:
+        if not is_preview or no_illumination or particle_tuning:
             cached_sample_region = getattr(result, "sample_region", None)
             self.sample_interactions_3d.display_result(result)
-            self.eds_page.display_result(result)
+            self.eds_page.display_result(result if sample_reached else None)
+            if particle_tuning and not sample_reached:
+                self.eds_page.eds_summary.setText("Selected section ends before the specimen | EDS not calculated")
             if cached_sample_region is not None:
                 self._set_sample_region_result(
                     cached_sample_region,
@@ -4010,8 +4094,20 @@ class VisualizationWorkspace(QWidget):
                 no_illumination=no_illumination,
             )
 
+    def _refresh_ray_calculation_extent(self) -> None:
+        """Keep the displayed completion and newly requested cutoff separate."""
+        request = self.interactive_calculation.segment_request()
+        self.ray_calculation_extent.set_extent(
+            **completed_ray_extent(self._last_result),
+            requested_z_mm=None if request is None else request["target_z_mm"],
+            stale=self._ray_extent_stale, quality=self._last_quality,
+        )
+
     def mark_ray_stale(self, state) -> None:
         self.result_readout.mark_stale("ray")
+        self.interactive_calculation.calculation_timing.mark_stale()
+        self._ray_extent_stale = True
+        self._refresh_ray_calculation_extent()
         from temsim.optics.electron_gun.tip_edit import tip_model_label
         gun = state.electron_gun
         source = tip_model_label(gun) if gun.type_key == "cold_feg" else gun.display_name

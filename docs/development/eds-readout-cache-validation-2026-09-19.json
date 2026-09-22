@@ -1,0 +1,1424 @@
+{
+  "schema": "eds-response-cache-validation-v1",
+  "date": "2026-09-20",
+  "started_date": "2026-09-19",
+  "syntax_check": {"command": ".venv/Scripts/python.exe -m compileall -q src tests scripts", "exit_code": 0},
+  "diff_check": {"command": "git -c core.safecrlf=false diff --check", "exit_code": 0},
+  "scope": "One actual 5000-particle finite-Si loaded-archive pair; same material histories and readout settings, recomputing only EDS in the control.",
+  "final_implementation_identity": "55e872c4a5eedd310d2a783b909a702f643c2dc2ea9e4b5703516c1c88526b52",
+  "measured_implementation_identity": "c557ea139b6e4e12132ea96294c2a3c5cf0b2b31c079d38e64575c03c0792a34",
+  "final_change_after_timing": "Progress label only: when saved EDS/response is unavailable, report the full EDS calculation rather than response updating. No numerical method, cache acceptance or transport changes; old archive identities remain unchanged.",
+  "input_identity": "cff9df8d66a52b6f7b3802474a58b47ec28549bd9687f2726c1c83a5836720a1",
+  "settings": {
+    "ray_count": 5000,
+    "backend": "CPU",
+    "column_step_mm": 0.5,
+    "history_step_mm": 2.0,
+    "gun_trace_step_mm": 0.2,
+    "gun_history_step_mm": 2.0,
+    "beam_voltage_kv": 300.0,
+    "sample_z_mm": 1599.2,
+    "sample_reference": "si_110",
+    "sample_thickness_nm": 5.0,
+    "sample_size_x_nm": 100000.0,
+    "sample_size_y_nm": 100000.0,
+    "sample_centre_xy_nm": [
+      0.0,
+      0.0
+    ],
+    "sample_envelope": "disk",
+    "eds_enabled": true,
+    "eds_overlap_sampling_points": 256,
+    "filter_installed": false,
+    "wave_enabled": false,
+    "scan_enabled": false,
+    "vacuum_enabled": false,
+    "cutoff_z_mm": 1589.2
+  },
+  "cpu_resources": {
+    "available_cpus": 32,
+    "numerical_thread_budget": 12,
+    "numba_threads": 12,
+    "blas_threads": 1,
+    "numerical_jobs": 1
+  },
+  "regression": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "434",
+    "time": "366.464",
+    "timestamp": "2026-09-20T00:07:23.966705+01:00",
+    "hostname": "Royal_Gray"
+  },
+  "final_progress_regression": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "6",
+    "time": "45.411",
+    "timestamp": "2026-09-20T00:15:19.836497+01:00",
+    "hostname": "Royal_Gray"
+  },
+  "test_files": [
+    "tests/test_calculation_cache_reuse.py",
+    "tests/test_calculation_performance.py",
+    "tests/test_calculation_stage_progress.py",
+    "tests/test_completed_material_section_bridge.py",
+    "tests/test_completed_particle_sections.py",
+    "tests/test_eds_ledger_flight_index.py",
+    "tests/test_eds_overlap_integration.py",
+    "tests/test_eds_overlap_sampling.py",
+    "tests/test_eds_photon_geometry_cache.py",
+    "tests/test_eds_photon_transport_v2.py",
+    "tests/test_eds_sampling_cache_identity.py",
+    "tests/test_eds_signal.py",
+    "tests/test_material_particle_sections.py",
+    "tests/test_material_section_resume.py",
+    "tests/test_particle_section_eds_archive.py",
+    "tests/test_particle_section_eds_reuse.py",
+    "tests/test_particle_section_io.py",
+    "tests/test_section_archiving_gui.py",
+    "tests/test_section_tuning_controller.py",
+    "tests/test_specimen_interaction_engine.py",
+    "tests/test_working_point_packages.py",
+    "tests/test_eds_response.py",
+    "tests/test_eds_response_cache.py",
+    "tests/test_eds_signal_acceleration.py",
+    "tests/test_eds_signal_diagnostics_gui.py",
+    "tests/test_calculation_timing_view.py",
+    "tests/test_calculation_controller.py",
+    "tests/test_section_tuning_gui.py",
+    "tests/test_calculation_manifest_artifacts.py",
+    "tests/test_particle_product_publication.py",
+    "tests/test_cpu_resources.py",
+    "tests/test_numba_cache.py"
+  ],
+  "cold_prior_implementation_comparison": {
+    "scope": "Cold EDS regression against frozen prior implementation, three supplied material tracks, not a complete gun-chain validation",
+    "cases": [
+      {
+        "case": 0,
+        "settings": {},
+        "exact_expected": true,
+        "exact_sampled": true,
+        "exact_lines_vacancies_photons": true,
+        "counts": 0.49991393303465353,
+        "rates_available": true
+      },
+      {
+        "case": 1,
+        "settings": {
+          "energy_bin_width_ev": 13.0,
+          "energy_resolution_fwhm_ev": 128.0,
+          "poisson_enabled": true,
+          "poisson_seed": 234
+        },
+        "exact_expected": true,
+        "exact_sampled": true,
+        "exact_lines_vacancies_photons": true,
+        "counts": 0.49991393303465353,
+        "rates_available": true
+      },
+      {
+        "case": 2,
+        "settings": {
+          "detector_efficiency": 0.0
+        },
+        "exact_expected": true,
+        "exact_sampled": true,
+        "exact_lines_vacancies_photons": true,
+        "counts": 0.0,
+        "rates_available": true
+      },
+      {
+        "case": 3,
+        "settings": {
+          "incident_electrons": 0.0
+        },
+        "exact_expected": true,
+        "exact_sampled": true,
+        "exact_lines_vacancies_photons": true,
+        "counts": 0.0,
+        "rates_available": false
+      }
+    ]
+  },
+  "native_cache_scope": "Automatic versioned cache with application-order imports. A pytest plugin preimports Numba; final tests explicitly import temsim before pytest.main, without a forced cache path.",
+  "archive_mapping_validation": "Explicit coefficient key tuples preserved; JSON mapping insertion order excluded from identity.",
+  "fresh_full": {
+    "status": "COMPLETE_FULL_PHASE",
+    "stages": {
+      "initial_section": {
+        "wall_s": 61.368190099994536
+      },
+      "section_save": {
+        "wall_s": 1.6600373999972362
+      },
+      "section_load": {
+        "wall_s": 1.6176250999997137
+      },
+      "section_exact_comparison": {
+        "wall_s": 0.8613240999984555
+      },
+      "full_continuation": {
+        "wall_s": 135.1709289999999
+      },
+      "full_save": {
+        "wall_s": 37.51871370000299
+      },
+      "full_acceptance_checks": {
+        "wall_s": 0.08213529999920866
+      },
+      "full_load": {
+        "wall_s": 46.83928569999989
+      },
+      "full_exact_comparison": {
+        "wall_s": 3.914342400006717
+      }
+    },
+    "total_wall_s": 289.84783369999786,
+    "peak_rss_bytes": 10871644160,
+    "trace_calls": {
+      "initial_gun": 1,
+      "forbidden_gun": 0,
+      "forbidden_material": 0,
+      "forbidden_eds": 0
+    },
+    "full_archive": {
+      "eds_completed": true,
+      "energy_filter_completed": false,
+      "identity": "6988c6352c36092cd7a74a72bef42457ce03028878abe7e4199cc6100c978b1f",
+      "particle_count": 5000,
+      "path": "F:\\tem_simulator_v2\\tmp\\eds-readout-20260919\\material-acceptance-5000\\archives\\section-high-accuracy-6988c6352c36092cd7a74a72bef42457ce03028878abe7e4199cc6100c978b1f.temsection",
+      "plane_name": "Custom plane",
+      "quality": "High accuracy",
+      "resumable_through_z_mm": 3026.4,
+      "resume_details": "Column transport calculated from Z = 1589.2 mm.",
+      "resume_policy": "Matching upstream state can resume here; changed source, fields, material or numerical settings are checked and recalculated where required.",
+      "saved_at_utc": "2026-09-19T23:06:12.335135+00:00",
+      "target_z_mm": 3026.4,
+      "reused": false
+    },
+    "pipeline_stages": [
+      {
+        "stage": "Preparing state and physical layout",
+        "seconds": 0.3156996999969124
+      },
+      {
+        "stage": "Tracing the electron column",
+        "seconds": 4.532968500003335
+      },
+      {
+        "stage": "Transporting electrons through the specimen",
+        "seconds": 18.409135799993237
+      },
+      {
+        "stage": "Resolving the EDS point spectrum",
+        "seconds": 102.13289140000416
+      },
+      {
+        "stage": "Propagating specimen-exit electrons downstream",
+        "seconds": 8.18207429999893
+      },
+      {
+        "stage": "Finalising optical diagnostics",
+        "seconds": 1.2542851000034716
+      }
+    ],
+    "material_hits": 5000,
+    "eds_line_count": 82592,
+    "eds_total_expected_counts": 25887.507241510004
+  },
+  "comparison": {
+    "schema": "eds-response-replay-acceptance-v1",
+    "status": "COMPLETE",
+    "stages": {
+      "full_load": {
+        "wall_s": 45.32883949999814
+      },
+      "dose_replay": {
+        "wall_s": 11.776645799996913
+      },
+      "replay_acceptance_checks": {
+        "wall_s": 0.06800970000040252
+      },
+      "replay_save": {
+        "wall_s": 39.072738599999866
+      },
+      "dose_recompute": {
+        "wall_s": 110.2939170000027
+      },
+      "compare_all_eds_physical_records": {
+        "wall_s": 1.763540899999498
+      },
+      "compare_events": {
+        "wall_s": 0.09636409999802709
+      },
+      "compare_conservation": {
+        "wall_s": 0.00012859999696956947
+      },
+      "compare_couplings": {
+        "wall_s": 6.829999620094895e-05
+      },
+      "control_acceptance_checks": {
+        "wall_s": 0.07304540000041015
+      },
+      "control_save": {
+        "wall_s": 39.86819800000376
+      },
+      "noise_only": {
+        "wall_s": 1.4277960000035819
+      },
+      "binning_resolution": {
+        "wall_s": 1.5799432000058005
+      },
+      "static_dwell": {
+        "wall_s": 6.523032899996906
+      }
+    },
+    "events": [
+      {
+        "event": "STAGE_START",
+        "stage": "full_load"
+      },
+      {
+        "event": "PROGRESS",
+        "stage": "full_load",
+        "elapsed_s": 30.564496200000576
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "full_load",
+        "wall_s": 45.32883949999814
+      },
+      {
+        "event": "STAGE_START",
+        "stage": "dose_replay"
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "dose_replay",
+        "wall_s": 11.776645799996913
+      },
+      {
+        "event": "STAGE_START",
+        "stage": "replay_acceptance_checks"
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "replay_acceptance_checks",
+        "wall_s": 0.06800970000040252
+      },
+      {
+        "event": "STAGE_START",
+        "stage": "replay_save"
+      },
+      {
+        "event": "PROGRESS",
+        "stage": "replay_save",
+        "elapsed_s": 60.80477989999781
+      },
+      {
+        "event": "PROGRESS",
+        "stage": "replay_save",
+        "elapsed_s": 90.94612689999485
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "replay_save",
+        "wall_s": 39.072738599999866
+      },
+      {
+        "event": "STAGE_START",
+        "stage": "dose_recompute"
+      },
+      {
+        "event": "PROGRESS",
+        "stage": "dose_recompute",
+        "elapsed_s": 120.9624158000006
+      },
+      {
+        "event": "PROGRESS",
+        "stage": "dose_recompute",
+        "elapsed_s": 150.98289659999864
+      },
+      {
+        "event": "PROGRESS",
+        "stage": "dose_recompute",
+        "elapsed_s": 181.08438349999778
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "dose_recompute",
+        "wall_s": 110.2939170000027
+      },
+      {
+        "event": "STAGE_START",
+        "stage": "compare_all_eds_physical_records"
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "compare_all_eds_physical_records",
+        "wall_s": 1.763540899999498
+      },
+      {
+        "event": "STAGE_START",
+        "stage": "compare_events"
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "compare_events",
+        "wall_s": 0.09636409999802709
+      },
+      {
+        "event": "STAGE_START",
+        "stage": "compare_conservation"
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "compare_conservation",
+        "wall_s": 0.00012859999696956947
+      },
+      {
+        "event": "STAGE_START",
+        "stage": "compare_couplings"
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "compare_couplings",
+        "wall_s": 6.829999620094895e-05
+      },
+      {
+        "event": "STAGE_START",
+        "stage": "control_acceptance_checks"
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "control_acceptance_checks",
+        "wall_s": 0.07304540000041015
+      },
+      {
+        "event": "STAGE_START",
+        "stage": "control_save"
+      },
+      {
+        "event": "PROGRESS",
+        "stage": "control_save",
+        "elapsed_s": 211.62240539999766
+      },
+      {
+        "event": "PROGRESS",
+        "stage": "control_save",
+        "elapsed_s": 243.0879868999982
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "control_save",
+        "wall_s": 39.86819800000376
+      },
+      {
+        "event": "STAGE_START",
+        "stage": "noise_only"
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "noise_only",
+        "wall_s": 1.4277960000035819
+      },
+      {
+        "event": "STAGE_START",
+        "stage": "binning_resolution"
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "binning_resolution",
+        "wall_s": 1.5799432000058005
+      },
+      {
+        "event": "STAGE_START",
+        "stage": "static_dwell"
+      },
+      {
+        "event": "STAGE_COMPLETE",
+        "stage": "static_dwell",
+        "wall_s": 6.523032899996906
+      },
+      {
+        "event": "COMPLETE",
+        "wall_s": 259.70702809999784,
+        "reduction_percent": 89.32248838347392
+      }
+    ],
+    "implementation_identity": "c557ea139b6e4e12132ea96294c2a3c5cf0b2b31c079d38e64575c03c0792a34",
+    "scope": "One actual 5000-particle finite-Si loaded-archive pair; same material histories and readout settings, recomputing only EDS in the control.",
+    "tolerance": {
+      "rtol": 2e-12,
+      "atol": 1e-12
+    },
+    "cpu_resources": {
+      "available_cpus": 32,
+      "numerical_thread_budget": 12,
+      "numba_threads": 12,
+      "blas_threads": 1,
+      "numerical_jobs": 1
+    },
+    "active_stage": "static_dwell",
+    "input_identity": "3a9e4fa70e826815ad7f981ca65580f3ad4980c0a67196694ad2134c950175d7",
+    "original_archive": {
+      "eds_completed": true,
+      "energy_filter_completed": false,
+      "identity": "6988c6352c36092cd7a74a72bef42457ce03028878abe7e4199cc6100c978b1f",
+      "particle_count": 5000,
+      "path": "F:\\tem_simulator_v2\\tmp\\eds-readout-20260919\\material-acceptance-5000\\archives\\section-high-accuracy-6988c6352c36092cd7a74a72bef42457ce03028878abe7e4199cc6100c978b1f.temsection",
+      "plane_name": "Custom plane",
+      "quality": "High accuracy",
+      "resumable_through_z_mm": 3026.4,
+      "resume_details": "Column transport calculated from Z = 1589.2 mm.",
+      "resume_policy": "Matching upstream state can resume here; changed source, fields, material or numerical settings are checked and recalculated where required.",
+      "saved_at_utc": "2026-09-19T23:06:12.335135+00:00",
+      "target_z_mm": 3026.4
+    },
+    "changed": {
+      "column_current_limit_percent": 50.0
+    },
+    "replay_calls": {
+      "gun": 0,
+      "material": 0,
+      "eds": 0
+    },
+    "replay": {
+      "material_hits": 5000,
+      "terminal_histories": 5000,
+      "material_metrics": {
+        "backscattered_fraction": 0.0,
+        "continuous_square_mesh_sidewalls": true,
+        "elastic_cross_section_reference": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3165039/",
+        "elastic_energy_loss_included": false,
+        "elastic_trajectory_generation": true,
+        "electron_transport_model": "relativistic_screened_rutherford_demers_2010",
+        "emitted_ray_count": 5000,
+        "energy_within_stated_range": false,
+        "event_limit_fraction": 0.0,
+        "finite_sample_envelope": true,
+        "incident_chief_direction": [
+          -7.38476370169946e-08,
+          -5.151670427972796e-06,
+          0.9999009568504106
+        ],
+        "incident_energy_range_ev": [
+          299999.71113621094,
+          300000.4944933914
+        ],
+        "incident_mean_energy_ev": 300000.0,
+        "incident_position_centroid_nm": [
+          -0.08229338226757854,
+          -1.6454045008481628
+        ],
+        "incident_position_rms_radius_nm": 4494.69808200903,
+        "incident_weights_normalised": true,
+        "inelastic_angular_deflection_included": false,
+        "initial_beam_model": "calculated_surviving_sample_plane_phase_space",
+        "lateral_escape_fraction": 0.0,
+        "material_hit_definition": "Positive-weight trajectories with nonzero material path, not elastic-event counts. Weights are conditional on reaching the specimen plane. Zero sampled hits alone do not establish zero physical beam overlap.",
+        "material_hit_trajectory_count": 5000,
+        "material_hit_weight_fraction": 0.9999999999999225,
+        "material_sampling_status": "sampled_material_hits",
+        "maximum_events_per_trajectory": 10000,
+        "mean_elastic_events_per_trajectory": 0.03319999999999992,
+        "mean_material_path_by_source_nm": {
+          "sample": 5.000553708805755
+        },
+        "mean_material_path_nm": 5.000553708805758,
+        "nuclear_recoil_included": false,
+        "outcome_counts": {
+          "backscattered": 0,
+          "event_limit": 0,
+          "lateral_escape": 0,
+          "path_limit": 0,
+          "transmitted": 5000
+        },
+        "outcome_weight_fractions": {
+          "backscattered": 0.0,
+          "event_limit": 0.0,
+          "lateral_escape": 0.0,
+          "path_limit": 0.0,
+          "transmitted": 0.9999999999999225
+        },
+        "path_limit_fraction": 0.0,
+        "positive_weight_trajectory_count": 5000,
+        "reaching_sample_ray_count": 5000,
+        "recommended_high_accuracy_model": "ELSEPA Dirac partial-wave",
+        "recommended_high_accuracy_reference": "https://www.nist.gov/publications/elsepa-dirac-partial-wave-calculation-elastic-scattering-electrons-and-positrons-atoms",
+        "rutherford_heavy_element_warning": false,
+        "rutherford_stated_energy_range_kev": [
+          100.0,
+          300.0
+        ],
+        "sample_axial_field_t": 0.49130740463484934,
+        "sample_centre_xy_nm": [
+          0.0,
+          0.0
+        ],
+        "sample_envelope_shape": "disk",
+        "sample_face_fields_t": [
+          0.4913074046348416,
+          0.4913074046348416
+        ],
+        "sample_field_active_lens_contributions_t": [
+          [
+            "objective_lens",
+            0.49130740463484934
+          ]
+        ],
+        "sample_field_energy_change_ev": 0.0,
+        "sample_field_face_variation_t": 0.0,
+        "sample_field_geometry_material_coupled": false,
+        "sample_field_source": "same provisional TOML analytic providers as global column solver; not a pole-shape magnetostatic solve",
+        "sample_field_transport_model": "shared_vector_field_relativistic_boris",
+        "sample_hit_trajectory_count": 5000,
+        "sample_hit_weight_fraction": 0.9999999999999225,
+        "sample_objective_field_t": 0.49130740463484934,
+        "sample_plane_chief_angle_mrad": [
+          -6.56301056243718e-05,
+          -0.005159343682183707
+        ],
+        "sample_plane_energy_range_ev": [
+          299999.71113621094,
+          300000.4944933914
+        ],
+        "sample_plane_original_centroid_nm": [
+          -0.08229338226759131,
+          -1.645404500848176
+        ],
+        "sample_plane_surviving_fraction": 0.9999999999999996,
+        "sample_plane_target_centroid_nm": [
+          -0.08229338226759131,
+          -1.645404500848176
+        ],
+        "sample_size_xy_nm": [
+          100000.0,
+          100000.0
+        ],
+        "sample_thickness_nm": 5.0,
+        "stored_elastic_event_count": 8,
+        "stored_trajectory_count": 256,
+        "support_contact_assumption": "support grid begins at specimen downstream face",
+        "terminal_mean_energy_ev": 300000.0,
+        "total_elastic_events": 166,
+        "trajectory_count": 5000,
+        "trajectory_seed": 0,
+        "transmitted_fraction": 0.9999999999999225,
+        "unweighted_mean_elastic_events_per_trajectory": 0.0332
+      },
+      "ledger": {
+        "model": "finite_geometry_elastic_x_inelastic_tensor_product",
+        "coupling_approximation": "independent finite-geometry screened-Rutherford terminal state times exclusive aggregate Poisson energy-loss population",
+        "sample_incident_source_probability": 1.0,
+        "elastic_forward_conditional_probability": 1.0,
+        "elastic_nontransmitted_conditional_probability": 0.0,
+        "inelastic_tracked_conditional_probability": 0.9999999999999999,
+        "inelastic_absorbed_conditional_probability": 0.0,
+        "inelastic_material_path_known": true,
+        "inelastic_geometry_scope": "executed_material_paths",
+        "vacuum_miss_forward_conditional_probability": 0.0,
+        "tracked_downstream_source_probability": 0.9999999999999999,
+        "inelastic_absorbed_source_probability": 0.0,
+        "elastic_nontransmitted_source_probability": 0.0,
+        "pre_sample_lost_source_probability": 0.0,
+        "downstream_branch_weight_sum": 0.9999999999999999,
+        "downstream_forward_weight": 1.0,
+        "downstream_source_ray_count": 5000,
+        "exit_plane_source_probability": 0.9999999999999999,
+        "exit_plane_weight": 0.9999999999999999,
+        "post_sample_reinjection_plane_z_mm": 1599.2,
+        "material_terminal_z_collapsed_to_reference_plane": false,
+        "terminal_state_projection_model": "inverse shared-vector-field reference-plane matching",
+        "source_probability_conservation_error": -1.1102230246251565e-16,
+        "source_probability_conserved": true,
+        "terminal_state_projected_to_sample_reference_plane": true,
+        "terminal_state_projection_preserves_free_flight_line": false,
+        "sample_axial_field_t": 0.49130740463484934,
+        "sample_objective_field_t": 0.49130740463484934,
+        "geometric_reference_point_only": true,
+        "pixel_resolved_specimen_contrast": false,
+        "used_by_wave_multislice": false,
+        "downstream_stop_z_mm": 3026.4,
+        "flight_time_model": "executed elastic flights with signed reference-plane matching",
+        "flight_time_missing_inelastic_event_depth": true,
+        "flight_time_terminal_rows_known": 5000,
+        "flight_time_virtual_reference_rows_unavailable": true,
+        "material_section_reused_prefix": true,
+        "material_section_resume": [
+          {
+            "branch": "specimen_primary:000",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_elastic:000",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_primary:real_plasmon",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_elastic:real_plasmon",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_primary:real_ionisation",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_elastic:real_ionisation",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_primary:real_plural_inelastic",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_elastic:real_plural_inelastic",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          }
+        ],
+        "material_section_vacuum_restart": "not_participating",
+        "sample_downstream_signature": "10c59a8dcefc6f17ac0412644cb17b7aadf53dfc009e87720f259abec70b634f"
+      },
+      "branch_clocks": [
+        {
+          "name": "specimen_primary:000",
+          "channel_energy_loss_ev": 0.0,
+          "positive_loss": false,
+          "relative_energy_min_ev": -0.2888637890573591,
+          "relative_energy_max_ev": 0.4944933914230205,
+          "finite_clock_samples": 3306176,
+          "unknown_clock_samples": 1135108
+        },
+        {
+          "name": "specimen_elastic:000",
+          "channel_energy_loss_ev": 0.0,
+          "positive_loss": false,
+          "relative_energy_min_ev": -0.25990204291883856,
+          "relative_energy_max_ev": 0.3282835009158589,
+          "finite_clock_samples": 103470,
+          "unknown_clock_samples": 45246
+        },
+        {
+          "name": "specimen_primary:real_plasmon",
+          "channel_energy_loss_ev": 16.7,
+          "positive_loss": true,
+          "relative_energy_min_ev": -16.988863789069,
+          "relative_energy_max_ev": -16.20550660858862,
+          "finite_clock_samples": 0,
+          "unknown_clock_samples": 4441284
+        },
+        {
+          "name": "specimen_elastic:real_plasmon",
+          "channel_energy_loss_ev": 16.7,
+          "positive_loss": true,
+          "relative_energy_min_ev": -16.95990204293048,
+          "relative_energy_max_ev": -16.371716499095783,
+          "finite_clock_samples": 0,
+          "unknown_clock_samples": 148716
+        },
+        {
+          "name": "specimen_primary:real_ionisation",
+          "channel_energy_loss_ev": 99.2,
+          "positive_loss": true,
+          "relative_energy_min_ev": -99.488863789069,
+          "relative_energy_max_ev": -98.70550660858862,
+          "finite_clock_samples": 0,
+          "unknown_clock_samples": 4441284
+        },
+        {
+          "name": "specimen_elastic:real_ionisation",
+          "channel_energy_loss_ev": 99.2,
+          "positive_loss": true,
+          "relative_energy_min_ev": -99.45990204293048,
+          "relative_energy_max_ev": -98.87171649909578,
+          "finite_clock_samples": 0,
+          "unknown_clock_samples": 148716
+        },
+        {
+          "name": "specimen_primary:real_plural_inelastic",
+          "channel_energy_loss_ev": 52.939701392958064,
+          "positive_loss": true,
+          "relative_energy_min_ev": -53.22856518201297,
+          "relative_energy_max_ev": -52.44520800153259,
+          "finite_clock_samples": 0,
+          "unknown_clock_samples": 4441284
+        },
+        {
+          "name": "specimen_elastic:real_plural_inelastic",
+          "channel_energy_loss_ev": 52.939701392958064,
+          "positive_loss": true,
+          "relative_energy_min_ev": -53.19960343587445,
+          "relative_energy_max_ev": -52.61141789203975,
+          "finite_clock_samples": 0,
+          "unknown_clock_samples": 148716
+        }
+      ],
+      "eds_total_expected_counts": 12943.753620755002,
+      "eds_line_count": 82592,
+      "detector_readouts": [
+        {
+          "key": "haadf",
+          "name": "HAADF Detector",
+          "status": "AVAILABLE",
+          "fraction": 0.47441488216390665,
+          "simulated_electrons": 2372.074410819533,
+          "current_pa": 2372074.4108195333,
+          "electrons_per_second": 14805323960426.285,
+          "expected_electrons": null
+        },
+        {
+          "key": "flu_screen",
+          "name": "Fluorescent Screen",
+          "status": "AVAILABLE",
+          "fraction": 0.4493756749035549,
+          "simulated_electrons": 2246.8783745177743,
+          "current_pa": 2246878.3745177747,
+          "electrons_per_second": 14023911763762.338,
+          "expected_electrons": null
+        },
+        {
+          "key": "df",
+          "name": "DF Detector",
+          "status": "AVAILABLE",
+          "fraction": 0.0,
+          "simulated_electrons": 0.0,
+          "current_pa": 0.0,
+          "electrons_per_second": 0.0,
+          "expected_electrons": null
+        },
+        {
+          "key": "bf",
+          "name": "BF Detector",
+          "status": "AVAILABLE",
+          "fraction": 0.0,
+          "simulated_electrons": 0.0,
+          "current_pa": 0.0,
+          "electrons_per_second": 0.0,
+          "expected_electrons": null
+        },
+        {
+          "key": "camera",
+          "name": "Pixelated camera",
+          "status": "AVAILABLE",
+          "fraction": 0.0,
+          "simulated_electrons": 0.0,
+          "current_pa": 0.0,
+          "electrons_per_second": 0.0,
+          "expected_electrons": null
+        }
+      ],
+      "performance": {
+        "pipeline_seconds": 11.776545000000624,
+        "stages": [
+          {
+            "stage": "Preparing state and physical layout",
+            "seconds": 0.3342713000020012
+          },
+          {
+            "stage": "Tracing the electron column",
+            "seconds": 4.22576869999466
+          },
+          {
+            "stage": "Transporting electrons through the specimen",
+            "seconds": 0.5838385000024573
+          },
+          {
+            "stage": "Updating EDS dose and spectral readout",
+            "seconds": 1.0860344999964582
+          },
+          {
+            "stage": "Propagating specimen-exit electrons downstream",
+            "seconds": 4.31152380000276
+          },
+          {
+            "stage": "Finalising optical diagnostics",
+            "seconds": 1.235108200002287
+          }
+        ],
+        "timing_scope": "Current pipeline call; excludes GUI drawing and worker setup",
+        "last_cuda_column_execution": null
+      },
+      "calculated_products": [
+        "column",
+        "diagnostics",
+        "eds",
+        "energy_filter",
+        "sample_downstream"
+      ],
+      "reused_products": [
+        "eds_response",
+        "elastic"
+      ],
+      "column_cache": {
+        "mode": "full_incident",
+        "hit": true,
+        "resume_z_mm": 1599.2,
+        "reused_prefix_rows": 956,
+        "recomputed_history_rows": 0,
+        "reused_integration_nodes": 2310,
+        "recomputed_integration_nodes": 0,
+        "checkpoint_spacing_mm": 0.0,
+        "checkpoint_count": 232,
+        "checkpoint_retained_bytes": 46400000,
+        "checkpoint_memory_budget_bytes": 536870912,
+        "field_sigma_cutoff": 7.0
+      }
+    },
+    "replay_archive": {
+      "eds_completed": true,
+      "energy_filter_completed": false,
+      "identity": "be04ed4b872df03643689e98fb39011b554999296251bfd73e1ee6dacc50c342",
+      "particle_count": 5000,
+      "path": "F:\\tem_simulator_v2\\tmp\\eds-readout-20260919\\replay-archives\\section-high-accuracy-be04ed4b872df03643689e98fb39011b554999296251bfd73e1ee6dacc50c342.temsection",
+      "plane_name": "Custom plane",
+      "quality": "High accuracy",
+      "resumable_through_z_mm": 3026.4,
+      "resume_details": "Column transport calculated from Z = 1599.2 mm.",
+      "resume_policy": "Matching upstream state can resume here; changed source, fields, material or numerical settings are checked and recalculated where required.",
+      "saved_at_utc": "2026-09-19T23:09:13.791649+00:00",
+      "target_z_mm": 3026.4,
+      "reused": false
+    },
+    "expected_max_absolute_difference": 5.4569682106375694e-12,
+    "all_physical_eds_records_agree": true,
+    "control": {
+      "material_hits": 5000,
+      "terminal_histories": 5000,
+      "material_metrics": {
+        "backscattered_fraction": 0.0,
+        "continuous_square_mesh_sidewalls": true,
+        "elastic_cross_section_reference": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3165039/",
+        "elastic_energy_loss_included": false,
+        "elastic_trajectory_generation": true,
+        "electron_transport_model": "relativistic_screened_rutherford_demers_2010",
+        "emitted_ray_count": 5000,
+        "energy_within_stated_range": false,
+        "event_limit_fraction": 0.0,
+        "finite_sample_envelope": true,
+        "incident_chief_direction": [
+          -7.38476370169946e-08,
+          -5.151670427972796e-06,
+          0.9999009568504106
+        ],
+        "incident_energy_range_ev": [
+          299999.71113621094,
+          300000.4944933914
+        ],
+        "incident_mean_energy_ev": 300000.0,
+        "incident_position_centroid_nm": [
+          -0.08229338226757854,
+          -1.6454045008481628
+        ],
+        "incident_position_rms_radius_nm": 4494.69808200903,
+        "incident_weights_normalised": true,
+        "inelastic_angular_deflection_included": false,
+        "initial_beam_model": "calculated_surviving_sample_plane_phase_space",
+        "lateral_escape_fraction": 0.0,
+        "material_hit_definition": "Positive-weight trajectories with nonzero material path, not elastic-event counts. Weights are conditional on reaching the specimen plane. Zero sampled hits alone do not establish zero physical beam overlap.",
+        "material_hit_trajectory_count": 5000,
+        "material_hit_weight_fraction": 0.9999999999999225,
+        "material_sampling_status": "sampled_material_hits",
+        "maximum_events_per_trajectory": 10000,
+        "mean_elastic_events_per_trajectory": 0.03319999999999992,
+        "mean_material_path_by_source_nm": {
+          "sample": 5.000553708805755
+        },
+        "mean_material_path_nm": 5.000553708805758,
+        "nuclear_recoil_included": false,
+        "outcome_counts": {
+          "backscattered": 0,
+          "event_limit": 0,
+          "lateral_escape": 0,
+          "path_limit": 0,
+          "transmitted": 5000
+        },
+        "outcome_weight_fractions": {
+          "backscattered": 0.0,
+          "event_limit": 0.0,
+          "lateral_escape": 0.0,
+          "path_limit": 0.0,
+          "transmitted": 0.9999999999999225
+        },
+        "path_limit_fraction": 0.0,
+        "positive_weight_trajectory_count": 5000,
+        "reaching_sample_ray_count": 5000,
+        "recommended_high_accuracy_model": "ELSEPA Dirac partial-wave",
+        "recommended_high_accuracy_reference": "https://www.nist.gov/publications/elsepa-dirac-partial-wave-calculation-elastic-scattering-electrons-and-positrons-atoms",
+        "rutherford_heavy_element_warning": false,
+        "rutherford_stated_energy_range_kev": [
+          100.0,
+          300.0
+        ],
+        "sample_axial_field_t": 0.49130740463484934,
+        "sample_centre_xy_nm": [
+          0.0,
+          0.0
+        ],
+        "sample_envelope_shape": "disk",
+        "sample_face_fields_t": [
+          0.4913074046348416,
+          0.4913074046348416
+        ],
+        "sample_field_active_lens_contributions_t": [
+          [
+            "objective_lens",
+            0.49130740463484934
+          ]
+        ],
+        "sample_field_energy_change_ev": 0.0,
+        "sample_field_face_variation_t": 0.0,
+        "sample_field_geometry_material_coupled": false,
+        "sample_field_source": "same provisional TOML analytic providers as global column solver; not a pole-shape magnetostatic solve",
+        "sample_field_transport_model": "shared_vector_field_relativistic_boris",
+        "sample_hit_trajectory_count": 5000,
+        "sample_hit_weight_fraction": 0.9999999999999225,
+        "sample_objective_field_t": 0.49130740463484934,
+        "sample_plane_chief_angle_mrad": [
+          -6.56301056243718e-05,
+          -0.005159343682183707
+        ],
+        "sample_plane_energy_range_ev": [
+          299999.71113621094,
+          300000.4944933914
+        ],
+        "sample_plane_original_centroid_nm": [
+          -0.08229338226759131,
+          -1.645404500848176
+        ],
+        "sample_plane_surviving_fraction": 0.9999999999999996,
+        "sample_plane_target_centroid_nm": [
+          -0.08229338226759131,
+          -1.645404500848176
+        ],
+        "sample_size_xy_nm": [
+          100000.0,
+          100000.0
+        ],
+        "sample_thickness_nm": 5.0,
+        "stored_elastic_event_count": 8,
+        "stored_trajectory_count": 256,
+        "support_contact_assumption": "support grid begins at specimen downstream face",
+        "terminal_mean_energy_ev": 300000.0,
+        "total_elastic_events": 166,
+        "trajectory_count": 5000,
+        "trajectory_seed": 0,
+        "transmitted_fraction": 0.9999999999999225,
+        "unweighted_mean_elastic_events_per_trajectory": 0.0332
+      },
+      "ledger": {
+        "model": "finite_geometry_elastic_x_inelastic_tensor_product",
+        "coupling_approximation": "independent finite-geometry screened-Rutherford terminal state times exclusive aggregate Poisson energy-loss population",
+        "sample_incident_source_probability": 1.0,
+        "elastic_forward_conditional_probability": 1.0,
+        "elastic_nontransmitted_conditional_probability": 0.0,
+        "inelastic_tracked_conditional_probability": 0.9999999999999999,
+        "inelastic_absorbed_conditional_probability": 0.0,
+        "inelastic_material_path_known": true,
+        "inelastic_geometry_scope": "executed_material_paths",
+        "vacuum_miss_forward_conditional_probability": 0.0,
+        "tracked_downstream_source_probability": 0.9999999999999999,
+        "inelastic_absorbed_source_probability": 0.0,
+        "elastic_nontransmitted_source_probability": 0.0,
+        "pre_sample_lost_source_probability": 0.0,
+        "downstream_branch_weight_sum": 0.9999999999999999,
+        "downstream_forward_weight": 1.0,
+        "downstream_source_ray_count": 5000,
+        "exit_plane_source_probability": 0.9999999999999999,
+        "exit_plane_weight": 0.9999999999999999,
+        "post_sample_reinjection_plane_z_mm": 1599.2,
+        "material_terminal_z_collapsed_to_reference_plane": false,
+        "terminal_state_projection_model": "inverse shared-vector-field reference-plane matching",
+        "source_probability_conservation_error": -1.1102230246251565e-16,
+        "source_probability_conserved": true,
+        "terminal_state_projected_to_sample_reference_plane": true,
+        "terminal_state_projection_preserves_free_flight_line": false,
+        "sample_axial_field_t": 0.49130740463484934,
+        "sample_objective_field_t": 0.49130740463484934,
+        "geometric_reference_point_only": true,
+        "pixel_resolved_specimen_contrast": false,
+        "used_by_wave_multislice": false,
+        "downstream_stop_z_mm": 3026.4,
+        "flight_time_model": "executed elastic flights with signed reference-plane matching",
+        "flight_time_missing_inelastic_event_depth": true,
+        "flight_time_terminal_rows_known": 5000,
+        "flight_time_virtual_reference_rows_unavailable": true,
+        "material_section_reused_prefix": true,
+        "material_section_resume": [
+          {
+            "branch": "specimen_primary:000",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_elastic:000",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_primary:real_plasmon",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_elastic:real_plasmon",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_primary:real_ionisation",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_elastic:real_ionisation",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_primary:real_plural_inelastic",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          },
+          {
+            "branch": "specimen_elastic:real_plural_inelastic",
+            "hit": true,
+            "resume_z_mm": 3026.4
+          }
+        ],
+        "material_section_vacuum_restart": "not_participating",
+        "sample_downstream_signature": "10c59a8dcefc6f17ac0412644cb17b7aadf53dfc009e87720f259abec70b634f"
+      },
+      "branch_clocks": [
+        {
+          "name": "specimen_primary:000",
+          "channel_energy_loss_ev": 0.0,
+          "positive_loss": false,
+          "relative_energy_min_ev": -0.2888637890573591,
+          "relative_energy_max_ev": 0.4944933914230205,
+          "finite_clock_samples": 3306176,
+          "unknown_clock_samples": 1135108
+        },
+        {
+          "name": "specimen_elastic:000",
+          "channel_energy_loss_ev": 0.0,
+          "positive_loss": false,
+          "relative_energy_min_ev": -0.25990204291883856,
+          "relative_energy_max_ev": 0.3282835009158589,
+          "finite_clock_samples": 103470,
+          "unknown_clock_samples": 45246
+        },
+        {
+          "name": "specimen_primary:real_plasmon",
+          "channel_energy_loss_ev": 16.7,
+          "positive_loss": true,
+          "relative_energy_min_ev": -16.988863789069,
+          "relative_energy_max_ev": -16.20550660858862,
+          "finite_clock_samples": 0,
+          "unknown_clock_samples": 4441284
+        },
+        {
+          "name": "specimen_elastic:real_plasmon",
+          "channel_energy_loss_ev": 16.7,
+          "positive_loss": true,
+          "relative_energy_min_ev": -16.95990204293048,
+          "relative_energy_max_ev": -16.371716499095783,
+          "finite_clock_samples": 0,
+          "unknown_clock_samples": 148716
+        },
+        {
+          "name": "specimen_primary:real_ionisation",
+          "channel_energy_loss_ev": 99.2,
+          "positive_loss": true,
+          "relative_energy_min_ev": -99.488863789069,
+          "relative_energy_max_ev": -98.70550660858862,
+          "finite_clock_samples": 0,
+          "unknown_clock_samples": 4441284
+        },
+        {
+          "name": "specimen_elastic:real_ionisation",
+          "channel_energy_loss_ev": 99.2,
+          "positive_loss": true,
+          "relative_energy_min_ev": -99.45990204293048,
+          "relative_energy_max_ev": -98.87171649909578,
+          "finite_clock_samples": 0,
+          "unknown_clock_samples": 148716
+        },
+        {
+          "name": "specimen_primary:real_plural_inelastic",
+          "channel_energy_loss_ev": 52.939701392958064,
+          "positive_loss": true,
+          "relative_energy_min_ev": -53.22856518201297,
+          "relative_energy_max_ev": -52.44520800153259,
+          "finite_clock_samples": 0,
+          "unknown_clock_samples": 4441284
+        },
+        {
+          "name": "specimen_elastic:real_plural_inelastic",
+          "channel_energy_loss_ev": 52.939701392958064,
+          "positive_loss": true,
+          "relative_energy_min_ev": -53.19960343587445,
+          "relative_energy_max_ev": -52.61141789203975,
+          "finite_clock_samples": 0,
+          "unknown_clock_samples": 148716
+        }
+      ],
+      "eds_total_expected_counts": 12943.753620755002,
+      "eds_line_count": 82592,
+      "detector_readouts": [
+        {
+          "key": "haadf",
+          "name": "HAADF Detector",
+          "status": "AVAILABLE",
+          "fraction": 0.47441488216390665,
+          "simulated_electrons": 2372.074410819533,
+          "current_pa": 2372074.4108195333,
+          "electrons_per_second": 14805323960426.285,
+          "expected_electrons": null
+        },
+        {
+          "key": "flu_screen",
+          "name": "Fluorescent Screen",
+          "status": "AVAILABLE",
+          "fraction": 0.4493756749035549,
+          "simulated_electrons": 2246.8783745177743,
+          "current_pa": 2246878.3745177747,
+          "electrons_per_second": 14023911763762.338,
+          "expected_electrons": null
+        },
+        {
+          "key": "df",
+          "name": "DF Detector",
+          "status": "AVAILABLE",
+          "fraction": 0.0,
+          "simulated_electrons": 0.0,
+          "current_pa": 0.0,
+          "electrons_per_second": 0.0,
+          "expected_electrons": null
+        },
+        {
+          "key": "bf",
+          "name": "BF Detector",
+          "status": "AVAILABLE",
+          "fraction": 0.0,
+          "simulated_electrons": 0.0,
+          "current_pa": 0.0,
+          "electrons_per_second": 0.0,
+          "expected_electrons": null
+        },
+        {
+          "key": "camera",
+          "name": "Pixelated camera",
+          "status": "AVAILABLE",
+          "fraction": 0.0,
+          "simulated_electrons": 0.0,
+          "current_pa": 0.0,
+          "electrons_per_second": 0.0,
+          "expected_electrons": null
+        }
+      ],
+      "performance": {
+        "pipeline_seconds": 110.29378509999515,
+        "stages": [
+          {
+            "stage": "Preparing state and physical layout",
+            "seconds": 0.30713689999538474
+          },
+          {
+            "stage": "Tracing the electron column",
+            "seconds": 4.229757100001734
+          },
+          {
+            "stage": "Transporting electrons through the specimen",
+            "seconds": 0.5973910000029719
+          },
+          {
+            "stage": "Updating EDS dose and spectral readout",
+            "seconds": 99.62663469999825
+          },
+          {
+            "stage": "Propagating specimen-exit electrons downstream",
+            "seconds": 4.297734200001287
+          },
+          {
+            "stage": "Finalising optical diagnostics",
+            "seconds": 1.2351311999955215
+          }
+        ],
+        "timing_scope": "Current pipeline call; excludes GUI drawing and worker setup",
+        "last_cuda_column_execution": null
+      },
+      "calculated_products": [
+        "column",
+        "diagnostics",
+        "eds",
+        "energy_filter",
+        "sample_downstream"
+      ],
+      "reused_products": [
+        "elastic"
+      ],
+      "column_cache": {
+        "mode": "full_incident",
+        "hit": true,
+        "resume_z_mm": 1599.2,
+        "reused_prefix_rows": 956,
+        "recomputed_history_rows": 0,
+        "reused_integration_nodes": 2310,
+        "recomputed_integration_nodes": 0,
+        "checkpoint_spacing_mm": 0.0,
+        "checkpoint_count": 232,
+        "checkpoint_retained_bytes": 46400000,
+        "checkpoint_memory_budget_bytes": 536870912,
+        "field_sigma_cutoff": 7.0
+      }
+    },
+    "control_archive": {
+      "eds_completed": true,
+      "energy_filter_completed": false,
+      "identity": "be04ed4b872df03643689e98fb39011b554999296251bfd73e1ee6dacc50c342",
+      "particle_count": 5000,
+      "path": "F:\\tem_simulator_v2\\tmp\\eds-readout-20260919\\control-archives\\section-high-accuracy-be04ed4b872df03643689e98fb39011b554999296251bfd73e1ee6dacc50c342.temsection",
+      "plane_name": "Custom plane",
+      "quality": "High accuracy",
+      "resumable_through_z_mm": 3026.4,
+      "resume_details": "Column transport calculated from Z = 1599.2 mm.",
+      "resume_policy": "Matching upstream state can resume here; changed source, fields, material or numerical settings are checked and recalculated where required.",
+      "saved_at_utc": "2026-09-19T23:11:45.158272+00:00",
+      "target_z_mm": 3026.4,
+      "reused": false
+    },
+    "readout_cases": {
+      "noise_only": {
+        "performance": {
+          "pipeline_seconds": 1.426146499994502,
+          "stages": [
+            {
+              "stage": "Preparing state and physical layout",
+              "seconds": 0.2967804999934742
+            },
+            {
+              "stage": "Updating EDS dose and spectral readout",
+              "seconds": 0.735047800000757
+            },
+            {
+              "stage": "Finalising optical diagnostics",
+              "seconds": 0.39431820000027074
+            }
+          ],
+          "timing_scope": "Current pipeline call; excludes GUI drawing and worker setup",
+          "last_cuda_column_execution": null
+        },
+        "calculated_products": [
+          "eds"
+        ],
+        "reused_products": [
+          "column",
+          "diagnostics",
+          "eds_response",
+          "elastic",
+          "energy_filter",
+          "sample_downstream"
+        ],
+        "expected_counts": 12943.753620755002,
+        "replay_kind": "noise_only"
+      },
+      "binning_resolution": {
+        "performance": {
+          "pipeline_seconds": 1.5782127999991644,
+          "stages": [
+            {
+              "stage": "Preparing state and physical layout",
+              "seconds": 0.30296500000258675
+            },
+            {
+              "stage": "Updating EDS dose and spectral readout",
+              "seconds": 0.8810266000000411
+            },
+            {
+              "stage": "Finalising optical diagnostics",
+              "seconds": 0.3942211999965366
+            }
+          ],
+          "timing_scope": "Current pipeline call; excludes GUI drawing and worker setup",
+          "last_cuda_column_execution": null
+        },
+        "calculated_products": [
+          "eds"
+        ],
+        "reused_products": [
+          "column",
+          "diagnostics",
+          "eds_response",
+          "elastic",
+          "energy_filter",
+          "sample_downstream"
+        ],
+        "expected_counts": 12943.753620755002,
+        "replay_kind": "dose_or_spectrum"
+      },
+      "static_dwell": {
+        "performance": {
+          "pipeline_seconds": 6.5213596999965375,
+          "stages": [
+            {
+              "stage": "Preparing state and physical layout",
+              "seconds": 0.305500899994513
+            },
+            {
+              "stage": "Updating EDS dose and spectral readout",
+              "seconds": 1.4594862000012654
+            },
+            {
+              "stage": "Propagating specimen-exit electrons downstream",
+              "seconds": 4.366811799998686
+            },
+            {
+              "stage": "Finalising optical diagnostics",
+              "seconds": 0.38956080000207294
+            }
+          ],
+          "timing_scope": "Current pipeline call; excludes GUI drawing and worker setup",
+          "last_cuda_column_execution": null
+        },
+        "calculated_products": [
+          "eds",
+          "energy_filter",
+          "sample_downstream"
+        ],
+        "reused_products": [
+          "column",
+          "diagnostics",
+          "eds_response",
+          "elastic"
+        ],
+        "expected_counts": 25887.507241510004,
+        "replay_kind": "dose_or_spectrum"
+      }
+    },
+    "total_wall_s": 259.70702809999784,
+    "peak_rss_bytes": 10948505600,
+    "calls": {
+      "gun": 0,
+      "material": 0,
+      "eds": 1
+    },
+    "calculation_time_reduction_percent": 89.32248838347392
+  }
+}

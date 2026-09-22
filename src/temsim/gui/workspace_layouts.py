@@ -56,6 +56,7 @@ class WorkspaceLayouts(QObject):
             dock.dockLocationChanged.connect(self.schedule_save)
         workspace.ray_layout_changing.connect(self._before_ray_change)
         workspace.ray_layout_changed.connect(self._after_ray_change)
+        workspace.transverse_beam.plot_sizes_changed.connect(self.schedule_save)
         self.defaults = self._snapshot()
         self.action_group = None
         self.menu.aboutToShow.connect(self.refresh_menu)
@@ -141,6 +142,7 @@ class WorkspaceLayouts(QObject):
             "splitters": deepcopy(self.splitter_states),
             "tabs": {name: tabs.tabText(tabs.currentIndex()) for name, tabs in self.tabs.items()},
             "toggles": {name: toggle.isChecked() for name, toggle in self.toggles.items()},
+            "transverse_plot_sizes": self.window.workspace.transverse_beam.plot_size_state(),
             "live_width_initialized": getattr(self.window, "_live_tuning_layout_initialized", False),
         }
 
@@ -186,6 +188,11 @@ class WorkspaceLayouts(QObject):
         self.restore_timer.stop()
         self.restoring = True
         try:
+            # Picture sizes belong to each named presentation layout. Legacy
+            # layouts use defaults instead of inheriting another layout's sizes.
+            self.window.workspace.transverse_beam.set_plot_size_state(
+                data.get("transverse_plot_sizes")
+            )
             for field, restore in (("geometry", self.window.restoreGeometry), ("docks", self.window.restoreState)):
                 value = data.get(field)
                 if isinstance(value, QByteArray) and not value.isEmpty():
@@ -224,6 +231,12 @@ class WorkspaceLayouts(QObject):
             self.restoring = False
         # Hidden pages get their own saved sizes after being laid out on Show.
         self.restore_timer.start(0)
+        # The blocked tab signal also carries a read-only cache-status refresh.
+        # Restore that notification explicitly without emitting calculation or
+        # parameter-edit signals. Clean/hidden pages avoid unnecessary work.
+        self.window._design_explorer_tab_changed(
+            self.window.workspace.tabs.currentIndex()
+        )
 
     def save_current(self):
         if self.restoring:

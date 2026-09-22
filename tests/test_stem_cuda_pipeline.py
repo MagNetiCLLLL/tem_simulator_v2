@@ -8,7 +8,7 @@ from temsim.physics import compute_backend, stem_wave_imaging
 from temsim.physics.compute_backend import WAVE_BACKEND_CUPY
 from temsim.physics.stem_wave_imaging import (
     AngularDetector,
-    simulate_angle_resolved_stem,
+    _simulate_angle_resolved_stem_single as simulate_local_stem_operator,
 )
 from temsim.specimen.atomistic import atomistic_capability
 
@@ -74,7 +74,7 @@ def test_explicit_cuda_keeps_stem_arrays_resident_until_one_bulk_transfer(
     monkeypatch.setattr(cp, "asnumpy", counted_asnumpy)
     scan_x, scan_y = _scan()
     progress = []
-    result = simulate_angle_resolved_stem(
+    result = simulate_local_stem_operator(
         _state("CUDA GPU"),
         SimpleNamespace(incident=_incident_bundle()),
         _detectors(),
@@ -112,14 +112,14 @@ def test_resident_cuda_frozen_phonon_detector_signals_match_cpu_reference():
         pytest.skip("Atomistic backend unavailable")
     scan_x, scan_y = _scan()
     simulation = SimpleNamespace(incident=_incident_bundle())
-    cpu = simulate_angle_resolved_stem(
+    cpu = simulate_local_stem_operator(
         _state("CPU", atomistic=True),
         simulation,
         _detectors(),
         scan_x,
         scan_y,
     )
-    gpu = simulate_angle_resolved_stem(
+    gpu = simulate_local_stem_operator(
         _state("CUDA GPU", atomistic=True),
         simulation,
         _detectors(),
@@ -166,14 +166,14 @@ def test_resident_cuda_projected_phase_object_matches_cpu_reference():
     scan_x, scan_y = _scan()
     simulation = SimpleNamespace(incident=_incident_bundle())
 
-    cpu = simulate_angle_resolved_stem(
+    cpu = simulate_local_stem_operator(
         cpu_state,
         simulation,
         _detectors(),
         scan_x,
         scan_y,
     )
-    gpu = simulate_angle_resolved_stem(
+    gpu = simulate_local_stem_operator(
         gpu_state,
         simulation,
         _detectors(),
@@ -217,7 +217,7 @@ def test_resident_cuda_failure_discards_partial_work_and_recomputes_on_cpu(
         lambda: None,
     )
     scan_x, scan_y = _scan()
-    result = simulate_angle_resolved_stem(
+    result = simulate_local_stem_operator(
         _state("CUDA GPU"),
         SimpleNamespace(incident=_incident_bundle()),
         _detectors(),
@@ -240,13 +240,13 @@ def test_resident_cuda_failure_discards_partial_work_and_recomputes_on_cpu(
 
 
 @pytest.mark.parametrize("fail_after_first_batch", [False, True])
-def test_dynamic_detector_centres_match_cpu_even_after_partial_cuda_failure(monkeypatch, fail_after_first_batch):
+def test_dynamic_detector_centres_match_cpu_even_after_partial_cuda_resource_failure(monkeypatch, fail_after_first_batch):
     if not compute_backend.cupy_capability().available:
         pytest.skip("CuPy CUDA backend unavailable")
     scan_x, scan_y = _scan()
     centres = {"bf": (np.array([[-3., 0.], [3., 6.]]), np.zeros((2, 2)))}
     inputs = (SimpleNamespace(incident=_incident_bundle()), _detectors(), scan_x, scan_y)
-    cpu = simulate_angle_resolved_stem(_state("CPU"), *inputs,
+    cpu = simulate_local_stem_operator(_state("CPU"), *inputs,
                                      detector_center_shifts_mrad=centres)
     original_cuda = stem_wave_imaging.run_resident_stem_cuda
     callback_starts = []
@@ -257,7 +257,7 @@ def test_dynamic_detector_centres_match_cpu_even_after_partial_cuda_failure(monk
         def checked_masks(start, stop):
             callback_starts.append(start)
             if start > 0 and fail_after_first_batch:
-                raise compute_backend.GPUExecutionError("kernel_or_runtime_failure", "synthetic failure after completed GPU batch")
+                raise compute_backend.GPUExecutionError("out_of_memory", "synthetic resource failure after completed GPU batch")
             return provider(start, stop)
 
         kwargs["detector_mask_provider"] = checked_masks
@@ -266,7 +266,7 @@ def test_dynamic_detector_centres_match_cpu_even_after_partial_cuda_failure(monk
     monkeypatch.setattr(stem_wave_imaging, "resident_stem_batch_size", lambda *a, **k: 2)
     monkeypatch.setattr(stem_wave_imaging, "run_resident_stem_cuda", cuda_with_mask_check)
     progress = []
-    result = simulate_angle_resolved_stem(
+    result = simulate_local_stem_operator(
         _state("CUDA GPU"), *inputs, detector_center_shifts_mrad=centres,
         progress_callback=lambda done, total, stage: progress.append(done / total))
     assert callback_starts == [0, 2]
@@ -281,3 +281,7 @@ def test_dynamic_detector_centres_match_cpu_even_after_partial_cuda_failure(monk
     np.testing.assert_allclose(result.truncated_fraction, cpu.truncated_fraction, rtol=2e-4, atol=2e-7)
     assert progress == sorted(progress)
     assert progress[-1] == 1.0
+
+
+# This module tests supplied local fields; production admission remains active.
+from local_wave_operator_fixture import supplied_local_probe

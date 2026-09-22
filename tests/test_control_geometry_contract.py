@@ -43,7 +43,9 @@ def test_geometry_requires_explicit_approximation_and_legacy_is_named():
         field_geometry_admission(state, _binding(), {"geometry_policy": "require_full_geometry"})
     report = field_geometry_admission(state, _binding(), {"geometry_policy": "authoritative_dimensions"})
     assert report["ignored_model_3d_parts"] == ["coil"] and report["status"] == "explicit_approximation"
-    assert field_geometry_admission(state, _binding(), {})["legacy_policy"]
+    # Omitting a policy cannot silently admit unrepresented 3D geometry.
+    with pytest.raises(ValueError, match="cannot consume"):
+        field_geometry_admission(state, _binding(), {})
 
 
 def test_geometry_effects_separate_cad_material_vacuum_and_optical_dimensions():
@@ -90,7 +92,7 @@ def test_calibration_state_profile_roundtrip_preserves_operating_point(tmp_path)
     path = tmp_path / "current.toml"
     save_profile(path, state, AssemblyCatalog().default_selection())
     _, values = read_profile(path)
-    assert apply_profile_values(restored, values) == []
+    assert apply_profile_values(restored, values) is None
     assert calibration_from_recipe(restored.lens_field_map_descriptors[lens.key]).turns == 200
 
 

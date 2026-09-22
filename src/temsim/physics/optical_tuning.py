@@ -1,4 +1,4 @@
-"""Bounded ray-only tuning; never a specimen signal calculation.
+"""Numerical budgets for optical diagnostics and physical particle tuning.
 
 X/Y are metres, slopes radians and axial positions millimetres. Medium
 tuning traces interior source quadrature plus zero-current support probes.
@@ -47,21 +47,23 @@ def check_tuning_cancelled(state):
         raise RuntimeError("Superseded optical tuning request")
 
 
-def prepare_tuning_snapshot(state, quality):
+def prepare_tuning_snapshot(state, quality, *, particle_signals=False):
     profile = TUNING_PROFILES[quality]
-    state._optical_tuning = True
+    state._optical_tuning = not particle_signals
+    state._particle_tuning = bool(particle_signals)
     state._tuning_quality = quality
     emitter = getattr(state.electron_gun, "emitter", None)
     if emitter is not None:
         emitter._tuning_boundary_probes = profile.boundary_probes
         emitter._tuning_surface_probes = (33 if quality == "Medium" else 1)
-    # Static user offsets still act. Time-dependent raster calibration,
-    # multislice, inelastic branches and spectra are not tuning products.
-    state.ac_deflector.scan_enabled = False
-    state.descan_deflector.scan_enabled = False
+    # The legacy optical diagnostic omits raster and material observables.
+    # Physical particle tuning preserves raster, elastic/inelastic scattering
+    # and independently selected EDS. Coherent wave development stays paused.
+    if not particle_signals:
+        state.ac_deflector.scan_enabled = False
+        state.descan_deflector.scan_enabled = False
     state.sample.wave_enabled = False
     state.sample.stem_wave_enabled = False
-    state.sample.diffraction_enabled = False
 
 
 def add_source_support_probes(bundle, emitter):

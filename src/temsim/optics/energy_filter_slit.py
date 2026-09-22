@@ -98,9 +98,8 @@ class EnergySelectionSlitComponent:
     @property
     def derived_centre_loss_ev(self):
         return (
-            float(self.centre_m) - float(self.zero_loss_offset_m)
-        * 1.0e6
-            / float(self.calibrated_dispersion_um_per_ev)
+            (float(self.centre_m) - float(self.zero_loss_offset_m))
+            * 1.0e6 / float(self.calibrated_dispersion_um_per_ev)
         )
 
     def configure_energy_window(
@@ -202,22 +201,19 @@ def serialise_energy_selection_slit(slit):
     }
 
 
-def energy_selection_slit_from_dict(values, **legacy):
-    if not isinstance(values, dict):
-        return create_energy_selection_slit(**legacy)
-    allowed = {
-        "name",
-        "key",
-        "inserted",
-        "gap_m",
-        "centre_m",
-        "zero_loss_offset_m",
-        "requested_width_ev",
-        "requested_centre_loss_ev",
-        "calibrated_dispersion_um_per_ev",
+def energy_selection_slit_from_dict(values):
+    """Read the complete current operating record; geometry comes from TOML."""
+
+    expected = {
+        "name", "key", "inserted", "gap_m", "centre_m", "zero_loss_offset_m",
+        "requested_width_ev", "requested_centre_loss_ev", "calibrated_dispersion_um_per_ev",
     }
-    return EnergySelectionSlitComponent(**{
-        key: value
-        for key, value in values.items()
-        if key in allowed
-    })
+    if not isinstance(values, dict):
+        raise ValueError("Energy selection slit requires a complete current record.")
+    missing = expected - values.keys()
+    unknown = values.keys() - expected
+    if missing or unknown:
+        raise ValueError(f"Energy selection slit fields invalid: missing {sorted(missing)}, unknown {sorted(unknown)}.")
+    if not isinstance(values["inserted"], bool):
+        raise ValueError("Energy selection slit inserted must be a Boolean.")
+    return EnergySelectionSlitComponent(**values)

@@ -13,6 +13,40 @@ import numpy as np
 from temsim.immutable_json import freeze_json, json_digest
 from temsim.instrument_snapshot import InstrumentSnapshot
 
+DEFAULT_MAXIMUM_UNPACKED_BYTES = 8 * 1024**3
+MAXIMUM_MANIFEST_BYTES = 256 * 1024**2
+MAXIMUM_PACKAGE_ENTRIES = 10000
+
+
+def _validate_budget(maximum):
+    if type(maximum) is not int or maximum <= 0:
+        raise ValueError("Working-point memory budget must be a positive integer number of bytes")
+    return maximum
+
+
+def prepare_manifest(document, arrays, *, maximum_unpacked_bytes):
+    """Validate the same bounds as the reader before creating an output file."""
+    maximum = _validate_budget(maximum_unpacked_bytes)
+    if len(arrays) + 1 > MAXIMUM_PACKAGE_ENTRIES:
+        raise ValueError("Working-point package exceeds the entry limit")
+    total = 0
+    for value in arrays.values():
+        total += _numeric_size(value.shape, value.dtype, maximum)
+        header = BytesIO()
+        np.lib.format.write_array_header_1_0(header, np.lib.format.header_data_from_array_1_0(value))
+        total += header.tell()
+    limit = min(maximum, MAXIMUM_MANIFEST_BYTES)
+    output, size = BytesIO(), 0
+    for chunk in json.JSONEncoder(allow_nan=False, separators=(",", ":")).iterencode(document):
+        encoded = chunk.encode("utf-8")
+        size += len(encoded)
+        if size > limit:
+            raise ValueError("Missing or oversized working-point manifest")
+        output.write(encoded)
+    if total + size > maximum:
+        raise ValueError("Working-point package exceeds the declared memory budget")
+    return output.getvalue()
+
 
 def _unique_pairs(pairs):
     result = {}
@@ -25,15 +59,16 @@ def _unique_pairs(pairs):
 
 def read_manifest(archive, *, maximum_unpacked_bytes):
     from temsim.working_point import PACKAGE_SCHEMA
+    _validate_budget(maximum_unpacked_bytes)
     entries = archive.infolist()
     names = {entry.filename for entry in entries}
     if len(names) != len(entries):
         raise ValueError("Duplicate package entries")
     if any(stat.S_ISLNK(entry.external_attr >> 16) for entry in entries):
         raise ValueError("Working-point package links are not supported")
-    if len(entries) > 10000 or sum(entry.file_size for entry in entries) > maximum_unpacked_bytes:
+    if len(entries) > MAXIMUM_PACKAGE_ENTRIES or sum(entry.file_size for entry in entries) > maximum_unpacked_bytes:
         raise ValueError("Working-point package exceeds the declared memory budget")
-    if "manifest.json" not in names or archive.getinfo("manifest.json").file_size > min(maximum_unpacked_bytes, 256*1024**2):
+    if "manifest.json" not in names or archive.getinfo("manifest.json").file_size > min(maximum_unpacked_bytes, MAXIMUM_MANIFEST_BYTES):
         raise ValueError("Missing or oversized working-point manifest")
     def nonfinite(value):
         raise ValueError("Nonfinite JSON value in working-point manifest")
@@ -54,6 +89,8 @@ def read_manifest(archive, *, maximum_unpacked_bytes):
         _numeric_size(record["shape"], record["dtype"], maximum_unpacked_bytes)
     if names != {"manifest.json", *declared}:
         raise ValueError("Missing or undeclared package entry")
+    for record in records.values():
+        validate_numeric_entry(archive, record, maximum_unpacked_bytes=maximum_unpacked_bytes)
     snapshot = InstrumentSnapshot.from_dict(data["snapshot"])
     plane = data["plane_z_mm"]
     if not isinstance(plane, (int, float)) or not math.isfinite(plane) or not data["stage_signature"]:
@@ -78,7 +115,7 @@ def _numeric_size(shape, dtype, maximum):
     return size
 
 
-def read_numeric_entry(archive, record, *, maximum_unpacked_bytes):
+def validate_numeric_entry(archive, record, *, maximum_unpacked_bytes):
     # Check header dimensions before np.load is allowed to allocate a buffer.
     with archive.open(record["entry"]) as stream:
         version = np.lib.format.read_magic(stream)
@@ -92,7 +129,12 @@ def read_numeric_entry(archive, record, *, maximum_unpacked_bytes):
             raise ValueError("Numeric header does not match the manifest")
         if archive.getinfo(record["entry"]).file_size != stream.tell() + size:
             raise ValueError("Numeric payload length does not match its header")
-    return np.load(BytesIO(archive.read(record["entry"])), allow_pickle=False, max_header_size=16384)
+
+
+def read_numeric_entry(archive, record, *, maximum_unpacked_bytes):
+    validate_numeric_entry(archive, record, maximum_unpacked_bytes=maximum_unpacked_bytes)
+    with archive.open(record["entry"]) as stream:
+        return np.load(stream, allow_pickle=False, max_header_size=16384)
 
 
 @dataclass(frozen=True)
@@ -108,14 +150,17 @@ class WorkingPointArchiveIndex:
     index_summary: object
     evidence: object
     maximum_unpacked_bytes: int
+    unpacked_size_bytes: int
 
     @classmethod
     def read(cls, path, *, maximum_unpacked_bytes=8*1024**3):
         with ZipFile(path) as archive:
             data, snapshot = read_manifest(archive, maximum_unpacked_bytes=maximum_unpacked_bytes)
+            unpacked_size_bytes = sum(item.file_size for item in archive.infolist())
         return cls(Path(path).resolve(), snapshot, data["plane_z_mm"], data["stage_signature"],
             freeze_json(data["metadata"]), data["parent_id"], data["digest"], freeze_json(data["arrays"]),
-            freeze_json(data.get("index_summary", {})), freeze_json(data.get("evidence", [])), maximum_unpacked_bytes)
+            freeze_json(data.get("index_summary", {})), freeze_json(data.get("evidence", [])),
+            maximum_unpacked_bytes, unpacked_size_bytes)
 
     @property
     def plane_id(self):

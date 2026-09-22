@@ -111,6 +111,8 @@ def test_projector_search_keeps_the_captured_field_model(state, equivalent):
     from temsim.optics.direct_alignment import (
         _ProjectorMeasurementModel, _EquivalentImageFirstOrderModel, _LiveFirstOrderModel)
     state.projector_mode = "image"
+    for detector in state.stem_detectors:
+        detector.inserted = False
     state.equivalent_image_lenses_enabled = equivalent
     before = capture_instrument_snapshot(state).digest
     model = _ProjectorMeasurementModel(state, direct_alignment_by_key("image_magnification"), step_mm=.2)

@@ -1,0 +1,185 @@
+{
+  "test_count": 5869,
+  "outcomes": {
+    "passed": 5868,
+    "skipped": 1
+  },
+  "unexecuted": [],
+  "skipped": [
+    {
+      "nodeid": "tests/test_direct_alignment.py::test_fixed_lens_aperture_scaling_matches_recalculated_toml_metrics",
+      "when": "call",
+      "outcome": "skipped",
+      "duration": 0.0002523000002838671,
+      "detail": "('F:\\\\tem_simulator_v2\\\\tests\\\\test_direct_alignment.py', 364, 'Skipped: stored aperture-scaling metrics predate the C2 aperture move')"
+    }
+  ],
+  "changed_input_files": [],
+  "input_file_count": 1051,
+  "input_digest": "d42b6b70f4176577a465db7f70ccf2e84b6eb7a97219efa3f00a02795bb49aed",
+  "executions": [
+    {
+      "shard": 0,
+      "exit_code": 0,
+      "tests": 1742,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1021.771
+    },
+    {
+      "shard": 1,
+      "exit_code": 0,
+      "tests": 540,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "seconds": 1010.155
+    },
+    {
+      "shard": 2,
+      "exit_code": 0,
+      "tests": 1794,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1224.004
+    },
+    {
+      "shard": 3,
+      "exit_code": 0,
+      "tests": 1793,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1281.3
+    }
+  ],
+  "static_calls": {
+    "files": 1011,
+    "resolved_calls": 18786,
+    "syntax_errors": [],
+    "issues": [],
+    "limitations": "Static module-level imports and explicit constructors only; dynamic methods/kwargs and runtime monkeypatches require separate review."
+  },
+  "packaging": {
+    "working-wheel-check": {
+      "wheel": "tmp\\project-audit-20260921\\wheel\\tem_simulator_v2-0.1.0-py3-none-any.whl",
+      "python_modules": 456,
+      "missing_modules": [],
+      "extra_modules": [
+        "temsim/column/effective_axis.py",
+        "temsim/detector/eels_camera.py",
+        "temsim/detector/planes.py",
+        "temsim/optics/column_modes.py",
+        "temsim/optics/dc_deflector.py",
+        "temsim/optics/energy_filter_drawing.py",
+        "temsim/optics/objective_station.py",
+        "temsim/physics/electrons.py",
+        "temsim/physics/scales.py",
+        "temsim/presets.py"
+      ],
+      "config_files": 36,
+      "svg_assets": 9
+    },
+    "clean-wheel-check": {
+      "wheel": "tmp\\project-audit-20260921\\clean-wheel\\tem_simulator_v2-0.1.0-py3-none-any.whl",
+      "python_modules": 446,
+      "missing_modules": [],
+      "extra_modules": [],
+      "config_files": 36,
+      "svg_assets": 9
+    },
+    "installed-smoke": {
+      "package_path": "F:\\tem_simulator_v2\\tmp\\project-audit-20260921\\installed\\temsim\\__init__.py",
+      "config_root": "F:\\tem_simulator_v2\\tmp\\project-audit-20260921\\installed\\configs",
+      "window_created": true,
+      "window_title": "TEM Simulator v2",
+      "tabs": 13,
+      "startup_transport_executed": false
+    }
+  },
+  "findings": [
+    {
+      "priority": "P1",
+      "title": "Ordinary transverse plots bypass the executed filter-plane population",
+      "file": "src/temsim/gui/beam_analysis.py",
+      "line": 491,
+      "related": [
+        {
+          "file": "src/temsim/gui/diagnostic_tabs.py",
+          "line": 4697
+        }
+      ],
+      "evidence": "Same selected filter output fixture: TOF shows 2 arrived paths,30%source at [1,2] micrometres; source and angular modes show16 straight-column incident rays and angular reports100%source.",
+      "receipt": "filter-plane-repro.jsonl"
+    },
+    {
+      "priority": "P2",
+      "title": "Archive reuse reports an overwritten file as an older completed result",
+      "file": "src/temsim/gui/calculation_controller.py",
+      "line": 774,
+      "related": [
+        {
+          "file": "src/temsim/gui/calculation_controller.py",
+          "line": 822
+        }
+      ],
+      "evidence": "Actual49-particle Preview sections A1629.2mm and continued B1630.2mm saved to same path; actual load returnsB but later automatic archive(A) reportsA saved/reused and schedules0 jobs.",
+      "receipt": "../audit-persistence-20260921/archive-overwrite-repro.json"
+    },
+    {
+      "priority": "P2",
+      "title": "Ordinary full-pipeline progress callbacks do not consume cancellation",
+      "file": "src/temsim/gui/calculation_controller.py",
+      "line": 601,
+      "related": [
+        {
+          "file": "src/temsim/simulation_pipeline.py",
+          "line": 742
+        },
+        {
+          "file": "src/temsim/simulation_pipeline.py",
+          "line": 1163
+        }
+      ],
+      "evidence": "Real32-particle elastic material kernel cancelled at0/32 still finishes32/32; same state token raises immediately when explicitly checked. Full-pipeline sample/EDS/STEM share nonchecking progress route; section pipeline checks it.",
+      "receipt": "specimen_cancellation_result.json"
+    },
+    {
+      "priority": "P2",
+      "title": "Zero camera pixel count is accepted by runtime and profile inputs",
+      "file": "src/temsim/runtime_parameters.py",
+      "line": 255,
+      "related": [
+        {
+          "file": "src/temsim/gui/parameter_panel.py",
+          "line": 1221
+        }
+      ],
+      "evidence": "Actual offscreen Camera operating editor accepts2048->0 withouterror and emits runtime_changed; next complete state clone raises Camera pixel count must be positive. Profile application also accepts0.",
+      "receipt": "camera-pixels-repro.json"
+    },
+    {
+      "priority": "P2",
+      "title": "Experiments workspace selection leaves Design Explorer status stale",
+      "file": "src/temsim/gui/workspace_layouts.py",
+      "line": 226,
+      "related": [
+        {
+          "file": "src/temsim/gui/main_window.py",
+          "line": 768
+        }
+      ],
+      "evidence": "Actual offscreen MainWindow selecting Experiments with dirty explorer triggers0 refreshes; explicit tab leave/return triggers1. Layout blocks currentChanged without scheduling readonly refresh.",
+      "receipt": "layout-refresh-repro.jsonl"
+    }
+  ],
+  "validation": {
+    "dependency_check": "passed",
+    "main_import_creates_qapplication": false,
+    "compileall_exit_code": 0,
+    "git_diff_check_exit_code": 0,
+    "production_repairs_applied": false
+  }
+}

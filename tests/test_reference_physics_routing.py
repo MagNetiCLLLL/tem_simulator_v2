@@ -114,7 +114,6 @@ def test_live_reference_column_ignores_legacy_virtual_rows_and_budget_remains_re
     state.sample.reference_sample_key = "si_110"
     state.sample.virtual_interactions = [{"kind": "invalid obsolete channel", "probability": 1000}]
     state.sample.virtual_regions = [{"kind": "invalid obsolete region"}]
-    state.sample.diffraction_enabled = True
     state.step_mm = state.history_step_mm = 5.0
     emitter = getattr(state.electron_gun, "emitter", state.electron_gun)
     emitter.ray_count = 9

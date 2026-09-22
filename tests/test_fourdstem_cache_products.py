@@ -187,82 +187,20 @@ def test_design_stage_request_is_explicit_wave_stem_only():
     } <= with_wave
 
 
-def test_high_accuracy_reuses_raw_cube_for_response_and_dose_changes(tmp_path):
+def test_high_accuracy_reuses_raw_cube_for_response_and_dose_changes_requires_qualified_tip_source(monkeypatch):
+    from temsim.optics.column import default_state
+    from temsim.physics.source_admission import UnsupportedWaveSource
+    from temsim.simulation_pipeline import calculate
+    import temsim.simulation_pipeline as pipeline
     state = default_state()
-    state.acceleration_enabled = False
     state.illumination_mode = "STEM"
-    state.energy_filter.enabled = False
-    state.sample.eds_enabled = False
-    state.sample.specimen_preset_key = "vacuum"
-    state.sample.thickness_nm = 0.0
-    state.sample.wave_grid_pixels = 32
-    state.sample.wave_field_of_view_angstrom = 16.0
-    # Controlled periodic, zero-thickness window for capture/reuse invariants.
-    # Default-column focus is not under test: it may require a much larger
-    # real-space window, so do not auto-expand this deliberately small fixture.
-    state.sample.wave_probe_padding_factor = 0.0
-    state.sample.wave_multislice_enabled = False
-    state.sample.wave_atomistic_enabled = False
+    state.ac_deflector.wobble_enabled = False
+    state.ac_deflector.scan_enabled = True
+    state.sample.wave_enabled = True
     state.sample.stem_wave_enabled = True
     state.sample.stem_fourdstem_enabled = True
-    state.sample.stem_fourdstem_output_path = str(tmp_path / "raw.npy")
-    state.sample.stem_fourdstem_overwrite = True
-    state.ac_deflector.enabled = True
-    state.ac_deflector.scan_enabled = True
-    state.ac_deflector.wobble_enabled = False
-    state.ac_deflector.scan_pixels_x = 2
-    state.ac_deflector.scan_lines = 2
-    state.ac_deflector.scan_frame_period_s = 0.01
-    emitter = getattr(state.electron_gun, "emitter", None)
-    if emitter is None:
-        state.electron_gun.ray_count = 9
-    else:
-        emitter.ray_count = 9
-
-    first = calculate(state)
-    artifact = first.stem_scan.fourdstem_artifact
-    assert artifact is not None
-    assert artifact.metadata["provenance"]["stored_frame_quantity"] == (
-        "configuration-averaged diffraction probability"
-    )
-    assert artifact.metadata["detector_response"]["transport_neutral"] is True
-    assert np.all(
-        np.sum(artifact.data, axis=(-2, -1)) <= 1.0 + 1.0e-5
-    )
-    assert first.stem_scan.metrics["post_sample_transport_model"] == (
-        "full_signed_j_img_r_plus_j_diff_theta_sequential_stops"
-    )
-    physical = integrate_runtime_recording_planes(
-        artifact,
-        None,
-        build_record_plane_plan(state),
-        chunk_scan_points=2,
-    )
-    incident = first.stem_scan.metrics["incident_sample_fraction"]
-    for detector_key, live_image in first.stem_scan.fractions.items():
-        assert live_image == pytest.approx(
-            physical.images[detector_key] * incident,
-            abs=2.0e-6,
-        )
-
-    state.sample.stem_fourdstem_response_mode = "adjustable"
-    state.sample.stem_fourdstem_quantum_efficiency = 0.6
-    response_changed = calculate(state, existing_result=first)
-    assert response_changed.stem_scan is first.stem_scan
-    assert "fourdstem_cube" in response_changed.reused_products
-
-    state.sample.stem_fourdstem_output_path = str(tmp_path / "renamed.npy")
-    path_changed = calculate(state, existing_result=response_changed)
-    assert path_changed.stem_scan is response_changed.stem_scan
-    assert "fourdstem_cube" in path_changed.reused_products
-
-    state.column_current_limit_percent = 40.0
-    dose_changed = calculate(state, existing_result=path_changed)
-    assert dose_changed.stem_scan is not path_changed.stem_scan
-    assert (
-        dose_changed.stem_scan.fourdstem_artifact
-        is path_changed.stem_scan.fourdstem_artifact
-    )
-    assert dose_changed.stem_scan.metrics["dose_reweighted_without_transport"]
-    assert "stem_transport" in dose_changed.reused_products
-    assert "fourdstem_cube" in dose_changed.reused_products
+    before = state.to_dict()
+    monkeypatch.setattr(pipeline, "run", lambda *a, **k: pytest.fail("Unqualified source must not start transport"))
+    with pytest.raises(UnsupportedWaveSource):
+        calculate(state)
+    assert state.to_dict() == before

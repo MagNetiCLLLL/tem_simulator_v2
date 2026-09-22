@@ -57,6 +57,20 @@ def clear_calibration_cache(monkeypatch):
     monkeypatch.setattr(alignment, "_refine_nanoprobe_production_focus",
                         lambda _state, _definition, _target, vector, _step:
                         (vector, 0))
+    actual_capture = recalibration.capture_instrument_snapshot
+    def capture(candidate):
+        if not isinstance(candidate, SimpleNamespace):
+            return actual_capture(candidate)
+        from copy import deepcopy
+        copied = deepcopy(candidate)
+        copied.to_dict = lambda: {
+            "beam_voltage_kv": 300.0,
+            "beam_blanked": copied.beam_blanked,
+            "nanopulser": {"blanked": copied.nanopulser.blanked},
+            "gun_alignment": vars(copied.electron_gun.deflector).copy(),
+        }
+        return SimpleNamespace(restore=lambda: copied)
+    monkeypatch.setattr(recalibration, "capture_instrument_snapshot", capture)
     recalibration._CACHE.clear()
     yield
     recalibration._CACHE.clear()
@@ -80,7 +94,8 @@ def test_preset_uses_transmitted_beam_and_replaces_old_geometry_metrics(monkeypa
     result = recalibration.recalibrate_nanopulser_condenser(
         state, mode, load_operating_mode_catalog(),
     )
-    assert calls == [("nanoprobe_convergence", 25.0, 0.05)]
+    assert calls == [("nanoprobe_convergence", 25.0,
+                      recalibration.direct_alignment_by_key("nanoprobe_convergence").targets["validation_step_mm"])]
     assert state.beam_blanked
     assert state.nanopulser.blanked
     assert state.electron_gun.emitter.ray_count == 15000
@@ -215,31 +230,97 @@ def test_real_gun_blank_property_and_independent_nanopulser_gate_are_preserved(m
 @pytest.mark.parametrize("mode,target", (
     ("nanoprobe_convergence", 25.0), ("microprobe_illumination", 2.0),
 ))
-@pytest.mark.parametrize("outcome", ("success", "unreachable", "error"))
+@pytest.mark.parametrize("outcome", ("success", "unreachable", "error", "validation_failure"))
 def test_general_condenser_alignment_opens_only_the_calculation_gates(
     monkeypatch, mode, target, outcome,
 ):
     import temsim.optics.direct_alignment as alignment
 
-    state = _state()
+    from dataclasses import replace
+    from temsim.assembly_catalog import AssemblyCatalog
+    from temsim.instrument_snapshot import capture_instrument_snapshot
+    from temsim.optics.column import default_state
+    from temsim.working_point import WorkingPointCheckpoint
+
+    # This is a transaction fixture: only the numerical search and forward
+    # measurement are synthetic. Snapshot admission and commit use real State.
+    state = default_state()
+    catalog = AssemblyCatalog()
+    catalog.apply(state, replace(catalog.default_selection(),
+                                beam_blanker="Electrostatic beam blanker"))
+    state.illumination_mode = "STEM" if mode == "nanoprobe_convergence" else "TEM"
+    state.beam_blanked = state.nanopulser.blanked = True
+    fields = ("upper_field_x_mt", "upper_field_y_mt",
+              "lower_field_x_mt", "lower_field_y_mt")
+    for name, value in zip(fields, (.12, -.23, -.34, .45)):
+        setattr(state.electron_gun.deflector, name, value)
+    alignment_values = tuple(getattr(state.electron_gun.deflector, name) for name in fields)
     before = state.to_dict()
+    initial_snapshot = capture_instrument_snapshot(state)
+    calls = []
+
+    def check_calculation_copy(candidate):
+        assert candidate is not state
+        assert not candidate.beam_blanked
+        assert not candidate.electron_gun.deflector.beam_blanked
+        assert not candidate.nanopulser.blanked
+        assert candidate.nanopulser.installed
+        assert tuple(getattr(candidate.electron_gun.deflector, name) for name in fields) == alignment_values
+        assert state.beam_blanked and state.nanopulser.blanked
+        assert state.to_dict() == before
 
     def solve(candidate, *_args, **_kwargs):
-        assert not candidate.beam_blanked
-        assert not candidate.nanopulser.blanked
-        assert vars(candidate.electron_gun.deflector) == before["gun_alignment"]
+        check_calculation_copy(candidate)
+        calls.append("search")
         if outcome == "error":
             raise RuntimeError("integration failed")
-        return _result(success=outcome == "success")
+        return _result(key=mode, requested=target, achieved=target,
+                       success=outcome != "unreachable")
+
+    def forward(candidate, **kwargs):
+        check_calculation_copy(candidate)
+        calls.append("forward")
+        assert kwargs["optical_only"]
+        assert candidate.step_mm == pytest.approx(.025)
+        assert {lens.key: lens.percent for lens in candidate.lenses
+                if lens.key in _result().strengths} == _result().strengths
+        return SimpleNamespace(incident=object())
+
+    def checkpoint(cls, result, **kwargs):
+        snapshot = result.calculation_manifest.instrument_snapshot
+        assert kwargs["parent_id"] == initial_snapshot.digest
+        check_calculation_copy(snapshot.restore())
+        return cls(snapshot, {}, state.sample.z_mm, "transaction fixture",
+                   {"validation_status": "NOT_RUN"})
+
+    measurement = alignment.DirectAlignmentMeasurement(mode,
+        target * (2. if outcome == "validation_failure" else 1.),
+        "mrad" if mode == "nanoprobe_convergence" else "um", 0.,
+        "mm" if mode == "nanoprobe_convergence" else "1/m",
+        convergence_95_mrad=.1, convergence_99_mrad=.1,
+        illumination_diameter_95_um=2.)
 
     monkeypatch.setattr(alignment, "_solve_direct_alignment", solve)
+    monkeypatch.setattr("temsim.physics.simulation.run", forward)
+    monkeypatch.setattr("temsim.physics.beam_statistics.branch_sample_statistics", lambda _: object())
+    monkeypatch.setattr(alignment, "_condenser_measurement", lambda *_: measurement)
+    monkeypatch.setattr(WorkingPointCheckpoint, "from_result", classmethod(checkpoint))
     if outcome == "error":
         with pytest.raises(RuntimeError, match="integration failed"):
             alignment.apply_direct_alignment(state, mode, target)
     else:
         result = alignment.apply_direct_alignment(state, mode, target)
         assert result.success is (outcome == "success")
-    assert state.to_dict() == before
+    expected = initial_snapshot.restore()
+    if outcome == "success":
+        for lens in expected.lenses:
+            if lens.key in _result().strengths:
+                lens.percent = _result().strengths[lens.key]
+    assert state.to_dict() == expected.to_dict()
+    assert state.beam_blanked and state.electron_gun.deflector.beam_blanked
+    assert state.nanopulser.blanked and state.nanopulser.installed
+    assert calls == (["search", "forward"] if outcome in {"success", "validation_failure"}
+                     else ["search"])
 
 
 def test_microprobe_metadata_reports_fresh_parallel_illumination(monkeypatch):
@@ -310,3 +391,54 @@ def test_condenser_candidate_search_respects_the_installed_blanking_stop():
               for key in ("condenser_lens_2", "condenser_lens_3")]
     with pytest.raises(ValueError, match="No finite surviving rays"):
         model.measure(vector)
+
+
+def test_recalibration_uses_registered_api_and_preserves_live_tree(monkeypatch):
+    from copy import deepcopy
+    from temsim.optics.column import default_state
+    import temsim.alignment_transaction as transaction
+    from temsim.operating_modes import direct_alignment_by_key
+    state = default_state()
+    state.beam_blanked = state.nanopulser.blanked = True
+    state.electron_gun.emitter.ray_count = 1234
+    source = state.electron_gun.emitter
+    before = deepcopy(state.to_dict())
+    captured = []
+    class StoppedAtRequest(Exception):
+        pass
+    def solve(request):
+        captured.append(request)
+        restored = request.start_snapshot.restore()
+        assert not restored.beam_blanked
+        assert not restored.nanopulser.blanked
+        assert restored.electron_gun.emitter.ray_count == recalibration.CALIBRATION_RAYS
+        raise StoppedAtRequest
+    monkeypatch.setattr(transaction, "solve_alignment_candidate", solve)
+    with pytest.raises(StoppedAtRequest):
+        recalibration.recalibrate_nanopulser_condenser(
+            state, mode_by_key("nano_probe"), load_operating_mode_catalog())
+    assert len(captured) == 1
+    assert state.electron_gun.emitter is source
+    assert state.to_dict() == before
+
+
+def test_recalibration_does_not_publish_replaced_solver_tree(monkeypatch):
+    from temsim.optics.column import default_state
+    import temsim.optics.direct_alignment as alignment
+    state = default_state()
+    state.beam_blanked = state.nanopulser.blanked = True
+    state.electron_gun.emitter.ray_count = 15000
+    source = state.electron_gun.emitter
+    blanker = state.nanopulser
+    def solve(candidate, *args, **kwargs):
+        replaced = recalibration.capture_instrument_snapshot(candidate).restore()
+        candidate.__dict__ = replaced.__dict__
+        candidate.beam_blanked = candidate.nanopulser.blanked = False
+        return _result()
+    monkeypatch.setattr(alignment, "apply_direct_alignment", solve)
+    recalibration.recalibrate_nanopulser_condenser(
+        state, mode_by_key("nano_probe"), load_operating_mode_catalog())
+    assert state.electron_gun.emitter is source
+    assert state.nanopulser is blanker
+    assert state.beam_blanked and state.nanopulser.blanked
+    assert source.ray_count == 15000

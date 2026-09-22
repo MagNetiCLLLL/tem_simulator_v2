@@ -254,7 +254,10 @@ def plane_interaction_budget(result, z_mm: float) -> PlaneInteractionBudget:
                 * sample_alive.astype(float)
             )
         )
-        reaches = _reaches_plane(branch, selected)
+        # Reference branches may retain histories for every emitted ray. The
+        # authoritative incident mask still gates them: an upstream stop must
+        # never be undone by a downstream branch's incomplete stop metadata.
+        reaches = sample_alive & _reaches_plane(branch, selected)
         at_plane = float(
             np.sum(
                 incident_weights

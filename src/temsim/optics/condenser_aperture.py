@@ -11,7 +11,7 @@ from temsim import module_manifest
 from temsim.component_keys import (
     CONDENSER_APERTURE_2,
     CONDENSER_APERTURE_3,
-    canonical_aperture_key,
+    require_current_aperture_key,
 )
 
 
@@ -361,7 +361,7 @@ def condenser_aperture_from_dict(data):
     """Restore one condenser aperture into its owned component type."""
 
     values = dict(data)
-    key = canonical_aperture_key(values["key"])
+    key = require_current_aperture_key(values["key"])
     component = CONDENSER_APERTURE_DEFINITION_BY_KEY[key].create_component()
     allowed = ContinuousApertureComponent.__dataclass_fields__
     for attribute, value in values.items():
@@ -371,5 +371,5 @@ def condenser_aperture_from_dict(data):
             not in ContinuousApertureComponent._TOML_GEOMETRY_FIELDS
         ):
             setattr(component, attribute, value)
-    component.key = canonical_aperture_key(component.key)
+    component.key = require_current_aperture_key(component.key)
     return component

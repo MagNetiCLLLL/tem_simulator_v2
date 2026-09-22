@@ -92,9 +92,7 @@ def prepare_inputs(archive, output):
     selection, values = read_profile(output / "original_operating_profile.toml")
     state = State.from_dict(original["state"])
     catalog.apply(state, selection, preserve_operating_parameters=True)
-    skipped = apply_profile_values(state, values)
-    if skipped:
-        raise ValueError(f"Archived profile has unsupported fields: {skipped}")
+    apply_profile_values(state, values)
     # Profile load retains operating fields. Geometry is independently owned by
     # this validated assembly, never by the process-default catalog.
     apply_physical_layout_to_state(state, assembly_root=input_root, preserve_operating_parameters=True)

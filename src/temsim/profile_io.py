@@ -16,7 +16,6 @@ import tomli_w
 
 from temsim.assembly_catalog import AssemblySelection
 from temsim.runtime_parameters import (
-    RETIRED_SAMPLE_FIELDS,
     SAMPLE_SOURCE_FIELDS,
     editable_parameters,
     runtime_targets,
@@ -24,18 +23,19 @@ from temsim.runtime_parameters import (
 )
 from temsim.specimen.geometry import (
     normalise_quaternion_wxyz,
-    quaternion_from_euler_xyz_deg,
     sample_orientation_quaternion,
     set_sample_orientation,
 )
-from temsim.specimen.source import migrate_legacy_structure_source
 
 
-PROFILE_FORMAT_VERSION = 11
+PROFILE_FORMAT_VERSION = 12
 _GUN_SOURCE_MODEL_KEY = "__gun_source_model__"
+_ENERGY_FILTER_MODEL_KEY = "__energy_filter_model__"
+_GUN_CONTROLS_KEY = "__gun_controls__"
 _SAMPLE_MODEL_KEY = "__sample_model__"
 _SIMULATION_MODEL_KEY = "__simulation_model__"
 _PROFILE_VERSION_KEY = "__profile_format_version__"
+_SLIT_PHYSICAL_FIELDS = frozenset({"gap_m", "centre_m", "zero_loss_offset_m", "calibrated_dispersion_um_per_ev"})
 
 
 @lru_cache(maxsize=None)
@@ -73,9 +73,15 @@ def _atomic_write_profile(path: Path, document: dict) -> None:
 def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
     from dataclasses import asdict
     from temsim.simulation_modes import capture_mode_settings, mode_key
+    _validate_profile_assembly(state, selection)
+    from temsim.optics.electron_gun.profile_controls import capture_gun_profile_controls
+    from temsim.component_keys import ENERGY_FILTER_MULTIPOLE_KEYS
     devices = {}
     none_values = {}
     for key, target in runtime_targets(state).items():
+        if key in ENERGY_FILTER_MULTIPOLE_KEYS:
+            # One complete operating record owns every carrier field and calibration.
+            continue
         values = {}
         for parameter in editable_parameters(target):
             if parameter.value is None:
@@ -84,6 +90,8 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
                 none_values.setdefault(key, []).append(parameter.name)
             else:
                 values[parameter.name] = parameter.value
+        if key == "energy_filter_slit":
+            values.update({name: getattr(target.obj, name) for name in sorted(_SLIT_PHYSICAL_FIELDS)})
         if key == "sample":
             values.update({name: getattr(state.sample, name) for name in sorted(SAMPLE_SOURCE_FIELDS)})
         if values:
@@ -97,6 +105,7 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
             "beam_blanker": selection.beam_blanker,
         },
         "devices": devices,
+        "gun_controls": capture_gun_profile_controls(state.electron_gun),
         "vacuum_map": state.vacuum_map.to_dict(),
         "gun_source_model": {
             "representation": getattr(state.electron_gun, "source_representation", "classical_particles"),
@@ -109,13 +118,15 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
             **({"curvature_model": state.electron_gun.emitter.curvature_model}
                if getattr(state.electron_gun.emitter, "curvature_nm_inv", 0.0) else {}),
         },
-        # TOML has no null literal. Keep absence (legacy/default behaviour)
-        # distinct from explicitly clearing an optional runtime coefficient.
+        # TOML has no null literal; clearing an optional coefficient is explicit.
         "none_values": none_values,
         "simulation_model": {
             "mode": mode_key(state),
             "profiles": deepcopy(state.simulation_mode_profiles),
-            "settings": capture_mode_settings(state),
+            # Active lens controls already have one owner in devices. Mode
+            # shelves retain their own excitations for explicit mode changes.
+            "settings": {key: value for key, value in capture_mode_settings(state).items()
+                         if key != "lens_excitation"},
         },
         "sample_model": {
             "wave_illumination": deepcopy(state.sample.wave_illumination),
@@ -131,7 +142,47 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
             ),
         },
     }
+    if state.energy_filter_installed:
+        if tuple(element.key for element in state.energy_filter.multipoles) != ENERGY_FILTER_MULTIPOLE_KEYS:
+            raise ValueError("Energy filter profile requires the ten installed multipole carriers in order")
+        from temsim.optics.energy_filter_m12 import serialise_energy_filter_m12
+        document["energy_filter_model"] = {
+            "multipoles": [serialise_energy_filter_m12(element)
+                           for element in state.energy_filter.multipoles],
+        }
     _atomic_write_profile(Path(path), document)
+
+
+def _validate_profile_assembly(state, selection):
+    """Refuse an unreadable mixture of installed hardware and another catalog choice."""
+    from temsim.assembly_catalog import AssemblyCatalog
+    from temsim.paths import INSTRUMENT_CONFIG_ROOT
+    catalog = AssemblyCatalog(getattr(state.electron_gun, "_manifest_catalog_root", None) or INSTRUMENT_CONFIG_ROOT)
+    selection = catalog.normalise_selection(selection)
+    assembly = getattr(state, "_resolved_assembly", None)
+    if assembly is None or catalog.selection_for_resolved(assembly) != selection:
+        raise ValueError("Profile assembly selection does not match the resolved instrument")
+    recording = next(option for option in catalog.recording_systems if option.name == selection.recording)
+    has_filter = bool(recording.properties["energy_filter"])
+    gun = next(option for option in catalog.guns if option.name == selection.gun)
+    column = next(option for option in catalog.columns if option.name == selection.column)
+    expected = {
+        "energy_filter_installed": has_filter,
+        "energy_filter_mode": "energy_filter" if has_filter else "no_energy_filter",
+        "monochromator_installed": bool(gun.properties.get("monochromator", False)),
+        "probe_corrector_installed": bool(column.properties["probe_corrector"]),
+        "image_corrector_installed": bool(column.properties["image_corrector"]),
+    }
+    mismatches = [name for name, value in expected.items() if getattr(state, name) != value]
+    if state.energy_filter.enabled != has_filter:
+        mismatches.append("energy_filter.enabled")
+    expected_gun = "thermionic" if gun.properties["electron_gun"] == "Thermionic" else "cold_feg"
+    if state.electron_gun.type_key != expected_gun:
+        mismatches.append("electron_gun")
+    if bool(state.nanopulser.installed) != (selection.beam_blanker != "None"):
+        mismatches.append("beam_blanker")
+    if mismatches:
+        raise ValueError("Profile hardware flags disagree with the selected assembly: " + ", ".join(mismatches))
 
 
 def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
@@ -139,9 +190,13 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
         document = tomllib.load(stream)
     if not isinstance(document, dict):
         raise ValueError("Operating profile must be a TOML table")
-    format_version = int(document.get("format_version", 0))
-    if format_version not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, PROFILE_FORMAT_VERSION}:
-        raise ValueError("Unsupported operating-profile format")
+    format_version = document.get("format_version")
+    if type(format_version) is not int or format_version != PROFILE_FORMAT_VERSION:
+        raise ValueError(f"Unsupported operating-profile format {format_version!r}; expected {PROFILE_FORMAT_VERSION}")
+    unknown = set(document) - {"format_version", "assembly", "devices", "none_values",
+        "vacuum_map", "simulation_model", "gun_source_model", "sample_model", "energy_filter_model", "gun_controls"}
+    if unknown:
+        raise ValueError(f"Unknown operating-profile tables: {', '.join(sorted(unknown))}")
     assembly = document.get("assembly")
     if not isinstance(assembly, dict):
         raise ValueError("Operating profile is missing the assembly table")
@@ -158,8 +213,6 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
     none_values = document.get("none_values", {})
     if not isinstance(none_values, dict):
         raise ValueError("Operating profile none_values must be a table")
-    if none_values and format_version < 4:
-        raise ValueError("Operating profile none_values requires format version 4")
     for key, names in none_values.items():
         if not isinstance(names, list) or not all(
             isinstance(name, str) for name in names
@@ -174,17 +227,16 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
             raise ValueError(f"Operating profile device {key} has conflicting none values")
         values[key] = {**attributes, **dict.fromkeys(names)}
     values[_PROFILE_VERSION_KEY] = format_version
-    values["__vacuum_map__"] = document.get("vacuum_map")
-    model = document.get("simulation_model", {"mode": "custom"})
-    if not isinstance(model, dict):
-        raise ValueError("Operating profile simulation_model must be a table")
-    values[_SIMULATION_MODEL_KEY] = model
-    values[_GUN_SOURCE_MODEL_KEY] = document.get("gun_source_model", {"representation": "classical_particles"})
-    if format_version >= 2:
-        sample_model = document.get("sample_model", {})
-        if not isinstance(sample_model, dict):
-            raise ValueError("Operating profile sample_model must be a table")
-        values[_SAMPLE_MODEL_KEY] = dict(sample_model)
+    for table, target in (("vacuum_map", "__vacuum_map__"),
+                         ("simulation_model", _SIMULATION_MODEL_KEY),
+                         ("gun_source_model", _GUN_SOURCE_MODEL_KEY),
+                         ("sample_model", _SAMPLE_MODEL_KEY),
+                         ("energy_filter_model", _ENERGY_FILTER_MODEL_KEY),
+                         ("gun_controls", _GUN_CONTROLS_KEY)):
+        if table in document:
+            if not isinstance(document[table], dict):
+                raise ValueError(f"Operating profile {table} must be a table")
+            values[target] = dict(document[table])
     return selection, values
 
 
@@ -192,6 +244,10 @@ def _apply_sample_model(sample, model: dict) -> None:
     from temsim.physics.illumination import validate_illumination_config, require_production_illumination
     if not isinstance(model, dict):
         raise ValueError("Operating profile sample_model must be a table")
+    unknown = set(model) - {"wave_illumination", "orientation_quaternion_wxyz",
+        "zone_axis_uvw", "in_plane_axis_uvw", "frozen_phonon_sigma_by_element_angstrom"}
+    if unknown:
+        raise ValueError(f"Unknown sample-model fields: {', '.join(sorted(unknown))}")
     illumination = validate_illumination_config(model.get("wave_illumination", sample.wave_illumination))
     require_production_illumination(illumination)
     quaternion = normalise_quaternion_wxyz(
@@ -230,22 +286,39 @@ def _apply_sample_model(sample, model: dict) -> None:
     sample.wave_illumination = illumination
 
 
-def apply_profile_values(state, values: dict) -> list[str]:
+def apply_profile_values(state, values: dict) -> None:
+    """Apply validated current controls atomically; omitted controls stay unchanged."""
     if not isinstance(values, dict):
         raise ValueError("Operating profile devices must be a table")
     values = dict(values)
-    lens = getattr(state.electron_gun, "electrostatic_lens", None)
-    if lens is not None and isinstance(values.get(lens.key), dict):
-        # Missing in historical profiles means the original additive gauge,
-        # not whichever reference happens to be active before loading them.
-        values[lens.key] = dict(values[lens.key])
-        values[lens.key].setdefault("voltage_reference", "extractor")
+    gun_controls_present = _GUN_CONTROLS_KEY in values
+    gun_controls = values.pop(_GUN_CONTROLS_KEY, None)
+    if gun_controls_present and not isinstance(gun_controls, dict):
+        raise ValueError("Operating profile gun_controls must be a table")
+    filter_model_present = _ENERGY_FILTER_MODEL_KEY in values
+    filter_model = values.pop(_ENERGY_FILTER_MODEL_KEY, None)
+    if filter_model_present and not isinstance(filter_model, dict):
+        raise ValueError("Operating profile energy_filter_model must be a table")
     from temsim.vacuum import VacuumMap
     vacuum_data = values.pop("__vacuum_map__", None)
-    vacuum_candidate = VacuumMap.from_dict(vacuum_data) if vacuum_data is not None else VacuumMap.historical()
-    format_version = int(values.pop(_PROFILE_VERSION_KEY, 1))
+    vacuum_candidate = VacuumMap.from_dict(vacuum_data) if vacuum_data is not None else state.vacuum_map
+    format_version = values.pop(_PROFILE_VERSION_KEY, PROFILE_FORMAT_VERSION)
+    if type(format_version) is not int or format_version != PROFILE_FORMAT_VERSION:
+        raise ValueError(f"Unsupported operating-profile format {format_version!r}; expected {PROFILE_FORMAT_VERSION}")
     sample_model = values.pop(_SAMPLE_MODEL_KEY, None)
-    gun_source = values.pop(_GUN_SOURCE_MODEL_KEY, {"representation": "classical_particles"})
+    from dataclasses import asdict
+    emitter = state.electron_gun.emitter
+    current_source = {"representation": getattr(state.electron_gun, "source_representation", "classical_particles")}
+    current_effective = getattr(state.electron_gun, "effective_source", None)
+    if current_effective is not None:
+        current_source["effective"] = asdict(current_effective)
+    if getattr(emitter, "coherence", None) is not None:
+        current_source["tip_coherence"] = asdict(emitter.coherence)
+    if getattr(emitter, "surface_model", None) is not None:
+        current_source["surface_model"] = emitter.surface_model.to_dict()
+    if hasattr(emitter, "curvature_model"):
+        current_source["curvature_model"] = emitter.curvature_model
+    gun_source = values.pop(_GUN_SOURCE_MODEL_KEY, current_source)
     if not isinstance(gun_source, dict) or set(gun_source)-{"representation", "effective", "tip_coherence", "surface_model", "curvature_model"}:
         raise ValueError("Operating profile has invalid electron-gun source fields")
     representation = gun_source.get("representation")
@@ -274,49 +347,42 @@ def apply_profile_values(state, values: dict) -> list[str]:
         except TypeError as error:
             raise ValueError("Operating profile has invalid tip coherence fields") from error
     from temsim.simulation_modes import validate_mode, normalise_profiles, MODEL_SETTINGS
-    model = values.pop(_SIMULATION_MODEL_KEY, {"mode": "custom"})
+    model = values.pop(_SIMULATION_MODEL_KEY, {"mode": state.simulation_mode,
+        "profiles": state.simulation_mode_profiles, "settings": {}})
     if not isinstance(model, dict):
         raise ValueError("Operating profile simulation_model must be a table")
+    if set(model) - {"mode", "profiles", "settings"}:
+        raise ValueError("Unknown simulation-model fields")
     selected_mode = validate_mode(model.get("mode", "custom"))
     model_profiles = normalise_profiles(model.get("profiles", {}))
     model_settings = normalise_profiles({selected_mode: model.get("settings", {})})[selected_mode]
+    if "lens_excitation" in model_settings:
+        raise ValueError("Active lens excitation belongs only in profile devices, not simulation_model.settings")
     targets = runtime_targets(state)
-    skipped = []
     pending = []
-    legacy_sample_source = ""
-    sample_mode_was_explicit = False
-    sample_cif_was_explicit = False
-    sample_preset_was_explicit = False
-    sample_attributes = values.get("sample", {})
     for key, attributes in values.items():
         target = targets.get(key)
         if target is None:
-            if isinstance(attributes, dict) and any(
-                value is None for value in attributes.values()
-            ):
-                raise ValueError(f"Unknown operating-profile device for none values: {key}")
-            skipped.append(key)
-            continue
+            raise ValueError(f"Unknown operating-profile device: {key}")
         if not isinstance(attributes, dict):
             raise ValueError(f"Operating profile device {key} must be a table")
         allowed = {parameter.name for parameter in editable_parameters(target)}
-        if hasattr(target.obj, "quadrupole_tensor_m2") and "field_model" not in attributes:
-            pending.append((target.obj, "field_model", "legacy_difference"))
         if key == getattr(state.electron_gun.emitter, "key", None) and state.electron_gun.type_key == "cold_feg":
-            # The incoming model, not the currently active one, determines
-            # which historical fields may be restored. No implicit migration.
+            # Validate emission controls against the incoming physical model.
             from temsim.runtime_parameters import RuntimeTarget
             incoming_emitter = copy(target.obj)
             incoming_emitter.surface_model = surface_model
             incoming_emitter.coherence = tip_coherence
             allowed = {p.name for p in editable_parameters(RuntimeTarget(key, target.label, incoming_emitter))}
             if "curvature_nm_inv" in attributes:
-                # Validate even when the incoming historical model hides the
+                # Validate even when the incoming model hides the
                 # control. Incompatible inputs must not be silently skipped.
                 allowed.add("curvature_nm_inv")
         if surface_model is None and target.hidden_parameters:
             from temsim.runtime_parameters import RuntimeTarget
             allowed = {p.name for p in editable_parameters(RuntimeTarget(key, target.label, target.obj))}
+        if key == "energy_filter_slit":
+            allowed.update(_SLIT_PHYSICAL_FIELDS)
         if key == "sample":
             allowed.update(SAMPLE_SOURCE_FIELDS)
         for name, value in attributes.items():
@@ -325,104 +391,55 @@ def apply_profile_values(state, values: dict) -> list[str]:
                     raise ValueError(f"{key}.{name} cannot be none")
                 pending.append((target.obj, name, None))
                 continue
-            if key == "sample" and name == "atomic_structure_source":
-                legacy_sample_source = str(value).strip().lower()
-                if legacy_sample_source not in {"preset", "cif"}:
-                    raise ValueError(
-                        "Legacy sample.atomic_structure_source must be "
-                        "preset or cif"
-                    )
-                continue
-            if key == "sample" and name == "specimen_mode":
-                sample_mode_was_explicit = True
-                if format_version < 5 and str(value).lower() == "virtual":
-                    pending.append((target.obj, name, "virtual"))
-                    continue
-            if key == "sample" and name == "cif_path":
-                sample_cif_was_explicit = True
-            if key == "sample" and name == "specimen_preset_key":
-                sample_preset_was_explicit = True
-                if format_version < 5:
-                    pending.append((target.obj, name, validate_runtime_assignment(target, name, value)))
-                continue
-            if key == "sample" and (name in RETIRED_SAMPLE_FIELDS or name.startswith("virtual_")):
-                # Retired idealized controls have no role in real CIF samples.
-                continue
-            if key == "sample" and name == "eds_elastic_trajectory_count":
-                # Retired in schema 69: EDS histories now come from the exact
-                # upstream ray bundle reaching the physical sample plane.
-                # Old profiles remain loadable without reporting this known
-                # no-op field as an unrelated unsupported parameter.
-                continue
             if name not in allowed:
-                skipped.append(f"{key}.{name}")
-                continue
+                raise ValueError(f"Unknown operating-profile field: {key}.{name}")
             # Coupled tip inputs are validated together below, against the
             # incoming model/width, never against partially restored values.
             converted = validate_runtime_assignment(target, name, value,
                                                      validate_source_geometry=False)
             pending.append((target.obj, name, converted))
-    # Validate sample tables and legacy migration on a separate sample before
+    # Validate coupled controls on a separate sample before
     # committing any device changes, including optional coefficient resets.
     candidate_sample = copy(state.sample)
-    migration_notes = []
-    if format_version < 6:
-        migration_notes.append("Model switches preserve current lens excitation and polarity; historical shelves do not retune hardware.")
-        if not isinstance(sample_model, dict) or "wave_illumination" not in sample_model:
-            candidate_sample.wave_illumination = {"model": "ray_conditioned_reduced_order"}
-            migration_notes.append("Missing illumination definition retained as legacy ray-conditioned reduced-order mode.")
-        if "stem_execution_policy" not in sample_attributes:
-            candidate_sample.stem_execution_policy = "auto"
-            migration_notes.append("STEM execution uses the existing toolbar backend (auto policy).")
+    candidate_emitter = None
     if state.electron_gun.type_key == "cold_feg":
         candidate_emitter = copy(state.electron_gun.emitter)
-        candidate_emitter.curvature_nm_inv = 0.0  # absent in historical records
         for obj, name, value in pending:
             if obj is state.electron_gun.emitter:
                 setattr(candidate_emitter, name, value)
         candidate_emitter.coherence = tip_coherence
         candidate_emitter.surface_model = surface_model
-        from temsim.optics.electron_gun.tip_curvature import MODEL, ANGLE_ONLY_MODEL, LEGACY_MODEL
-        candidate_emitter.curvature_model = gun_source.get("curvature_model",
-            LEGACY_MODEL if format_version < 10 else ANGLE_ONLY_MODEL if format_version == 10 else MODEL)
+        from temsim.optics.electron_gun.tip_curvature import MODEL
+        candidate_emitter.curvature_model = gun_source.get("curvature_model", MODEL)
+    prepared_gun_controls = None
+    if gun_controls is not None:
+        from temsim.optics.electron_gun.profile_controls import prepare_gun_profile_controls
+        candidate_accelerator = copy(state.electron_gun.accelerator)
+        for obj, name, value in pending:
+            if obj is state.electron_gun.accelerator:
+                setattr(candidate_accelerator, name, value)
+        prepared_gun_controls = prepare_gun_profile_controls(
+            state.electron_gun, gun_controls,
+            emitter=candidate_emitter, accelerator=candidate_accelerator,
+        )
+        if candidate_emitter is not None:
+            candidate_emitter.quadrature = prepared_gun_controls.tip_quadrature
+    if candidate_emitter is not None:
         candidate_emitter.validate()
     for obj, name, value in pending:
         if obj is state.sample:
             setattr(candidate_sample, name, value)
-    legacy_orientation_fields = tuple(f"specimen_rotation_{axis}_deg" for axis in "xyz")
-    if format_version < 5 and (
-        legacy_sample_source in {"preset", "cif"}
-        or (sample_mode_was_explicit and candidate_sample.specimen_mode in {"atomic", "virtual"})
-        or (sample_cif_was_explicit and not sample_mode_was_explicit)
-        or (sample_preset_was_explicit and not sample_mode_was_explicit and not sample_cif_was_explicit)
-        or any(name in sample_attributes for name in legacy_orientation_fields)
-    ):
-        # Legacy presets started from an identity *relative* rotation, while
-        # a new reference sample already contains its CIF zone alignment.
-        # Never use that new default as an extra legacy tilt.
-        set_sample_orientation(candidate_sample, quaternion_from_euler_xyz_deg(
-            tuple(sample_attributes.get(name, 0.0) for name in legacy_orientation_fields)
-        ))
     if sample_model is not None:
         _apply_sample_model(candidate_sample, sample_model)
-    if format_version < 5:
-        if not sample_mode_was_explicit:
-            if sample_cif_was_explicit and str(candidate_sample.cif_path).strip():
-                candidate_sample.specimen_mode = "atomic"
-            elif sample_preset_was_explicit:
-                candidate_sample.specimen_mode = "virtual"
-        # Older presets applied their crystal zone before the saved relative
-        # orientation. Migrate only after the sample-model quaternion is loaded.
-        migrated = migrate_legacy_structure_source(
-            deepcopy(vars(candidate_sample)), legacy_source=legacy_sample_source,
-            infer_implicit_atomic_preset=False,
-        )
-        vars(candidate_sample).update(migrated)
-        migration_notes.append("Legacy specimen selection/orientation converted to the real-structure schema; virtual interaction controls retired.")
-        if sample_attributes or sample_model is not None:
-            for name in ("real_tail_material_source", "real_tail_screening_source"):
-                if name not in sample_attributes:
-                    setattr(candidate_sample, name, "manual")
+    # Scan and wobble are a coupled constraint: checking individual fields
+    # against the old object would permit an invalid simultaneous enable.
+    for pair in (state.ac_deflector, state.descan_deflector):
+        candidate_pair = copy(pair)
+        for obj, name, value in pending:
+            if obj is pair:
+                setattr(candidate_pair, name, value)
+        candidate_pair.validate()
+    filter_candidate = _filter_controls_candidate(state, values, targets, pending, filter_model)
     candidate_sample.virtual_interactions = []
     candidate_sample.virtual_regions = []
     for obj, name, value in pending:
@@ -433,6 +450,12 @@ def apply_profile_values(state, values: dict) -> list[str]:
         state.electron_gun.emitter.surface_model = surface_model
         state.electron_gun.emitter.curvature_nm_inv = candidate_emitter.curvature_nm_inv
         state.electron_gun.emitter.curvature_model = candidate_emitter.curvature_model
+    if prepared_gun_controls is not None:
+        from temsim.optics.electron_gun.profile_controls import apply_prepared_gun_profile_controls
+        apply_prepared_gun_profile_controls(state.electron_gun, prepared_gun_controls)
+    if filter_candidate is not None:
+        for original, candidate in filter_candidate:
+            vars(original).update(vars(candidate))
     vars(state.sample).update(vars(candidate_sample))
     state.vacuum_map = vacuum_candidate
     state.simulation_mode = selected_mode
@@ -440,21 +463,91 @@ def apply_profile_values(state, values: dict) -> list[str]:
     for name in MODEL_SETTINGS:
         if name in model_settings:
             setattr(state, name, deepcopy(model_settings[name]))
-    for lens in state.lenses:
-        row = model_settings.get("lens_excitation", {}).get(lens.key)
-        if row is not None:
-            lens.percent, lens.polarity = row["percent"], row["polarity"]
     state._runtime_lens_field_provider_cache = {}
     state._lens_field_map_bindings = {}
     state._simulation_mode_maps = {}
     if hasattr(state.electron_gun, "source_representation"):
         state.electron_gun.source_representation = representation
         state.electron_gun.effective_source = parameters
-    state._profile_migration_report = {
-        "from_version":format_version,"to_version":PROFILE_FORMAT_VERSION,
-        "status":"migrated" if format_version < PROFILE_FORMAT_VERSION else "current",
-        "notes":migration_notes,"skipped_fields":list(skipped),
-        "hardware_policy":"Only explicit profile operating values applied; no automatic geometry or lens retuning to preserve an image",
-        "geometry_policy":"Catalog TOML remains authoritative",
-    }
-    return skipped
+
+
+def _filter_controls_candidate(state, values, targets, pending, filter_model=None):
+    """Apply explicit software requests on detached physical filter components."""
+    ef = state.energy_filter
+    if ef is None or "energy_filter" not in targets:
+        if filter_model is not None:
+            raise ValueError("Energy filter model requires an installed energy filter")
+        return None
+    restored_multipoles = None
+    if filter_model is not None:
+        from temsim.component_keys import ENERGY_FILTER_MULTIPOLE_KEYS
+        from temsim.optics.energy_filter_m12 import energy_filter_multipole_from_dict
+        if set(filter_model) != {"multipoles"}:
+            raise ValueError("Energy filter model requires only the current multipoles table")
+        saved = filter_model["multipoles"]
+        if not isinstance(saved, list) or len(saved) != len(ENERGY_FILTER_MULTIPOLE_KEYS):
+            raise ValueError("Energy filter model requires exactly ten current multipole records")
+        conflicts = set(ENERGY_FILTER_MULTIPOLE_KEYS) & values.keys()
+        if conflicts:
+            raise ValueError("Multipole controls appear in both devices and energy_filter_model: " + ", ".join(sorted(conflicts)))
+        restored_multipoles = [
+            energy_filter_multipole_from_dict(record, index, ef.voltage_reference_kv)
+            for index, record in enumerate(saved, start=1)
+        ]
+        for current, restored in zip(ef.multipoles, restored_multipoles, strict=True):
+            if current.name != restored.name:
+                raise ValueError(f"Multipole name must match the installed component {current.key}")
+    children = [ef, ef.energy_slit, ef.bias_tube, ef.fast_shutter,
+                ef.camera_deflector, ef.zebra_detector, *ef.multipoles]
+    if restored_multipoles is None and not any(obj is child for obj, _, _ in pending for child in children):
+        return None
+    candidate = copy(ef)
+    for attribute in ("energy_slit", "bias_tube", "fast_shutter", "camera_deflector", "zebra_detector", "multipoles"):
+        setattr(candidate, attribute, deepcopy(getattr(ef, attribute)))
+    copies = [candidate, candidate.energy_slit, candidate.bias_tube,
+              candidate.fast_shutter, candidate.camera_deflector,
+              candidate.zebra_detector, *candidate.multipoles]
+    pairs = list(zip(children, copies))
+    by_id = {id(original): cloned for original, cloned in pairs}
+    parent_values = values.get("energy_filter", {})
+    for obj, name, value in pending:
+        if obj is ef:
+            setattr(candidate, name, value)
+    from temsim.optics.energy_filter import configure_energy_filter_operating_mode
+    mode_requested = {"operating_mode", "multi_eels_enabled", "multi_eels_region_count"} & parent_values.keys()
+    if mode_requested:
+        configure_energy_filter_operating_mode(candidate, candidate.operating_mode)
+    # Complete records override mode defaults. Partial mode commands apply them.
+    for obj, name, value in pending:
+        if id(obj) in by_id:
+            setattr(by_id[id(obj)], name, value)
+    slit_values = values.get(candidate.energy_slit.key, {})
+    physical_present = _SLIT_PHYSICAL_FIELDS & slit_values.keys()
+    if physical_present and physical_present != _SLIT_PHYSICAL_FIELDS:
+        raise ValueError("Physical slit state requires gap, centre, zero-loss offset and dispersion together")
+    if not physical_present and {"requested_width_ev", "requested_centre_loss_ev"} & slit_values.keys():
+        candidate.energy_slit.configure_energy_window(
+            candidate.energy_slit.requested_centre_loss_ev,
+            candidate.energy_slit.requested_width_ev,
+        )
+    if restored_multipoles is not None:
+        from temsim.physics.finite_multipole_field import FiniteMultipoleField
+        for component, restored in zip(candidate.multipoles, restored_multipoles, strict=True):
+            # Preserve the installed field envelope and coordinate frame. The
+            # profile owns excitation, not a replacement mechanical layout.
+            component.field_backend = FiniteMultipoleField(
+                restored.multipole_field,
+                component.field_backend.envelope,
+                fringe_expansion_order=restored.field_backend.fringe_expansion_order,
+            )
+            component.calibration = restored.calibration
+            component.enabled = restored.enabled
+            component.__post_init__()
+    candidate.energy_slit.__post_init__()
+    for component in (candidate.bias_tube, candidate.fast_shutter,
+                      candidate.camera_deflector, candidate.zebra_detector):
+        component.validate()
+    # Keep original component identities; candidates never become a second tree.
+    for attribute in ("energy_slit", "bias_tube", "fast_shutter", "camera_deflector", "zebra_detector", "multipoles"):
+        setattr(candidate, attribute, getattr(ef, attribute))
+    return pairs

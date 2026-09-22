@@ -15,7 +15,6 @@ from temsim.component_keys import (
     HAADF_DETECTOR,
     SELECTED_AREA_APERTURE,
     STEM_DETECTOR_KEYS,
-    canonical_recording_plane_key,
 )
 from temsim.optics.selected_area_aperture import (
     SELECTED_AREA_APERTURE_DEFINITION,
@@ -138,7 +137,6 @@ class StemDetectorComponent:
         return self.outer_width_mm
 
     def validate(self):
-        self.key = canonical_recording_plane_key(self.key)
         if self.key not in STEM_DETECTOR_KEYS:
             raise ValueError("Unknown STEM detector key.")
         if self.anchor_key != SELECTED_AREA_APERTURE:
@@ -340,40 +338,15 @@ def create_stem_detectors(
 
 
 def stem_detector_from_dict(
-    data,
-    anchor_z_mm=(
-        SELECTED_AREA_APERTURE_DEFINITION
-        .standalone_optical_reference_z_mm
-    ),
+    data, anchor_z_mm=SELECTED_AREA_APERTURE_DEFINITION.standalone_optical_reference_z_mm,
 ):
-    values = dict(data)
-    key = canonical_recording_plane_key(values.get("key", ""))
-    definition = STEM_DETECTOR_DEFINITION_BY_KEY[key]
-    component = definition.create_component(anchor_z_mm)
-    known = component.__dataclass_fields__
-    has_explicit_readout = "readout_enabled" in values
-    for field, value in values.items():
-        if field in known and field in {
-            "inserted",
-            "readout_enabled",
-            "centre_offset_x_mm",
-            "centre_offset_y_mm",
-            "colour",
-        }:
-            setattr(component, field, value)
-    # Before this split, ``readout_enabled`` was an alias of ``inserted``.
-    # Preserve that behaviour when loading an older payload.
-    if not has_explicit_readout:
-        component.readout_enabled = bool(component.inserted)
-    component.key = key
-    component.name = definition.label
-    legacy_anchor = values.get("anchor_key") != SELECTED_AREA_APERTURE
-    component.anchor_key = SELECTED_AREA_APERTURE
-    if legacy_anchor:
-        component.optical_reference_downstream_of_anchor_mm = (
-            downstream_optical_offset_mm(key)
-        )
-        component.layout_center_downstream_of_anchor_mm = downstream_offset_mm(
-            key
-        )
-    return component.resolve_against(anchor_z_mm).validate()
+    from temsim.detector.input_controls import restore_detector_controls
+    key = data.get("key")
+    if key not in STEM_DETECTOR_DEFINITION_BY_KEY:
+        raise ValueError("Unknown current STEM detector key")
+    component = STEM_DETECTOR_DEFINITION_BY_KEY[key].create_component(anchor_z_mm)
+    return restore_detector_controls(
+        component, data,
+        fields=("inserted", "readout_enabled", "centre_offset_x_mm", "centre_offset_y_mm", "colour"),
+        required=("inserted", "readout_enabled"),
+    )

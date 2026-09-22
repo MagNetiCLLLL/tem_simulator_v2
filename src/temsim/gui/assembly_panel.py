@@ -408,11 +408,7 @@ class AssemblyPanel(QWidget):
         c3 = float(devices["condenser_lens_3"]["percent"])
         objective = float(devices["objective_lens"]["percent"])
         aperture_values = condenser.apertures["condenser_aperture_2"]
-        if "diameter_mm" in aperture_values:
-            aperture_um = float(aperture_values["diameter_mm"]) * 1000.0
-        else:
-            # Read-only compatibility for an external pre-diameter catalog.
-            aperture_um = float(aperture_values["radius_mm"]) * 2000.0
+        aperture_um = float(aperture_values["diameter_mm"]) * 1000.0
         detail_text = (
             f"Preset reference sample semi-angle: {float(angle):.3f} mrad. "
             f"C2 {c2:.2f}%, C3 {c3:.2f}%, C2 aperture "

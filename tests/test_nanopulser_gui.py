@@ -42,14 +42,14 @@ def test_nanopulser_profile_and_snapshot_restore_installed_operating_state(tmp_p
     assert fresh.nanopulser.to_dict() == state.nanopulser.to_dict()
 
 
-def test_legacy_profile_has_no_optional_nanopulser(tmp_path):
+def test_obsolete_profile_is_rejected_before_defaulting_optional_blanker(tmp_path):
     path = tmp_path / "legacy.toml"
     path.write_text(
         'format_version=2\n[assembly]\ngun="FEG"\ncolumn="C3"\nrecording="Energy Filter"\n',
         encoding="utf-8",
     )
-    selection, _ = read_profile(path)
-    assert selection.beam_blanker == "None"
+    with pytest.raises(ValueError, match="Unsupported operating-profile format"):
+        read_profile(path)
 
 
 def test_assembly_selector_and_quick_blanking_controls(qtbot):

@@ -8,7 +8,7 @@ from temsim.optics.column import default_state
 from temsim.optics.model import Sample, State
 from temsim.specimen import reference_catalog as catalog
 from temsim.specimen.geometry import quaternion_to_matrix
-from temsim.specimen.source import active_cif_path, migrate_legacy_structure_source
+from temsim.specimen.source import active_cif_path
 from temsim.specimen.rutherford import read_cif_composition
 from temsim.calculation_cache import _cif_content_identity
 from temsim.calculation_manifest import capture_external_input_identities
@@ -74,26 +74,18 @@ def test_directory_discovery_refresh_and_missing_reference(tmp_path, monkeypatch
         catalog.get_reference_sample("missing")
 
 
-def test_default_roundtrip_and_legacy_migration_preserve_dimensions():
+def test_current_roundtrip_preserves_explicit_dimensions():
     state = default_state()
+    state.sample.thickness_nm = 27
+    state.sample.size_x_nm = 1000
     data = state.to_dict()
     assert not any(key.startswith("virtual_") for key in data["sample"])
     restored = State.from_dict(data)
-    assert restored.sample.thickness_nm == 5
-    assert restored.sample.size_x_nm == 10
-    data["schema_version"] = 76
-    data["sample"].update(specimen_mode="virtual", specimen_preset_key="si_110", thickness_nm=27, size_x_nm=1000,
-                           specimen_rotation_x_deg=0, specimen_rotation_y_deg=0,
-                           specimen_orientation_quaternion_wxyz=[1, 0, 0, 0])
-    restored = State.from_dict(data)
-    assert restored.sample.specimen_mode == "reference"
     assert restored.sample.thickness_nm == 27
     assert restored.sample.size_x_nm == 1000
-    assert restored.sample.real_tail_material_source == "structure"  # explicit value survives
-    old = migrate_legacy_structure_source({"specimen_mode": "virtual", "specimen_preset_key": "vacuum"})
-    assert old["inserted"] is False
-    with pytest.raises(ValueError, match="unavailable"):
-        migrate_legacy_structure_source({"specimen_mode": "virtual", "specimen_preset_key": "amorphous_carbon"})
+    data["schema_version"] = 76
+    with pytest.raises(ValueError, match="schema"):
+        State.from_dict(data)
 
 
 def test_reference_content_and_metadata_are_cache_and_manifest_inputs(tmp_path, monkeypatch):

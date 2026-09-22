@@ -272,10 +272,10 @@ def test_projector_manifest_accepts_air_core_without_a_pair_of_poles(tmp_path):
     from temsim.assembly_catalog import AssemblyCatalog
     from temsim.optics.column import default_state
     from temsim.module_manifest import validate_document
+    from temsim.part_model_document import PartModelDocument
     from temsim.paths import INSTRUMENT_CONFIG_ROOT
     path = INSTRUMENT_CONFIG_ROOT / "project_and_recording_system" / "EnergyFilter.toml"
-    with path.open("rb") as stream:
-        document = tomllib.load(stream)
+    document = tomllib.loads(PartModelDocument(path).independent_copy_text())
     document["parts"] = [p for p in document["parts"] if p["key"] not in {
         "projector_lens_2_yoke", "projector_lens_2_upper_pole", "projector_lens_2_lower_pole"}]
     parent = next(p for p in document["parts"] if p["key"] == "projector_lens_2")
@@ -290,7 +290,7 @@ def test_projector_manifest_accepts_air_core_without_a_pair_of_poles(tmp_path):
     catalog = AssemblyCatalog(root)
     state = default_state()
     original_keys = [lens.key for lens in state.lenses]
-    catalog.apply(state, catalog.default_selection())
+    catalog.apply(state, replace(catalog.default_selection(), recording="Energy Filter"))
     assert [lens.key for lens in state.lenses] == original_keys
     assert "projector_lens_2_upper_pole" not in {p.key for p in state._resolved_assembly.parts}
     state.lens_field_map_descriptors["projector_lens_2"] = dict(solver="axisymmetric_linear_fem", relative_permeability=1,

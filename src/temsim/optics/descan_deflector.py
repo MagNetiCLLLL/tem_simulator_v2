@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from math import isfinite
 from typing import ClassVar
 
 from temsim import module_manifest
 from temsim.component_keys import (
     DESCAN_DEFLECTOR,
-    canonical_corrector_element_key,
+    SELECTED_AREA_APERTURE,
 )
 
 _DEFAULT_OBJECTIVE_MODULE_PATH = "column/C3_ProbeCorrector.toml"
@@ -144,7 +144,7 @@ class DescanDeflectorComponent:
     scan_pixel_size_nm: float = 1.0
     upper_coil_gain: float = 0.5
     lower_coil_gain: float = 0.5
-    descan_target_key: str = "legacy_image_reference"
+    descan_target_key: str = SELECTED_AREA_APERTURE
 
     EXPECTED_KEY: ClassVar[str] = DESCAN_DEFLECTOR
     KIND: ClassVar[str] = "paired_deflector"
@@ -255,6 +255,10 @@ class DescanDeflectorComponent:
         return self.z_mm + self.optical_plane_separation_mm / 2.0
 
     def validate(self):
+        if not isinstance(self.descan_target_key, str) or not self.descan_target_key.strip():
+            raise ValueError("Descan observation plane must be an explicit physical component key.")
+        if self.descan_target_key == "legacy_image_reference":
+            raise ValueError("Implicit descan reference is unsupported; select an installed physical observation plane.")
         if self.key != self.EXPECTED_KEY:
             raise ValueError("Descan Deflector key is not canonical.")
         if self.mechanical_center_below_sample_mm <= 0.0:
@@ -573,6 +577,12 @@ class DescanDeflectorComponent:
             "shape_profile": self.shape_profile,
         }
 
+    def to_dict(self):
+        """Current operating record; lower gain is a derived matrix readback."""
+        values = asdict(self)
+        values.pop("lower_coil_gain")
+        return values
+
     def draw_ray_overlay(self):
         return {
             "key": self.key,
@@ -617,10 +627,12 @@ def create_descan_deflector():
 
 
 def descan_deflector_from_dict(data):
+    """Restore the current paired-coil controls using TOML-owned geometry."""
     values = dict(data)
-    values["key"] = canonical_corrector_element_key(
-        values.get("key", "")
-    )
+    if "lower_coil_gain" in values:
+        raise ValueError("Descan lower_coil_gain is a derived readback, not an operating input")
+    if values.get("key") != DESCAN_DEFLECTOR:
+        raise ValueError(f"Descan record requires component key {DESCAN_DEFLECTOR!r}.")
     component = create_descan_deflector()
     for attribute in (
         "kick_x_mrad",

@@ -35,7 +35,8 @@ def capture_worker_backends(function):
         # Bounded call receipts, not arrays. Repeated scan/diagnostic calls may
         # evict old entries; the result explicitly states this limit.
         worker.backend_evidence = deque(maxlen=256)
-        with backend_receipts(worker.backend_evidence):
+        from temsim.cpu_resources import numerical_job
+        with numerical_job(), backend_receipts(worker.backend_evidence):
             return function(worker, *args, **kwargs)
     return wrapped
 

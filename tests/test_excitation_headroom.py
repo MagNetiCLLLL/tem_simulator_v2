@@ -55,48 +55,11 @@ def test_focal_length_adjustment_rebases_a_saturated_objective_to_sixty_percent(
     ) == pytest.approx(target_focal_mm)
 
 
-def test_v62_state_migration_preserves_fields_while_adding_headroom():
-    state = default_state()
-    payload = state.to_dict()
+def test_old_excitation_schema_is_rejected_without_rescaling_fields():
+    from copy import deepcopy
+    payload = default_state().to_dict()
     payload["schema_version"] = 62
-    factors = {
-        "condenser_lens_2": 0.7,
-        "probe_tl22_lens": 0.6,
-        "probe_tl21_lens": 0.6,
-        "probe_tl12_lens": 0.6,
-        "image_ol_post_lens": 0.6,
-        "image_tl11_lens": 0.6,
-        "image_tl12_lens": 0.6,
-        "image_tl21_lens": 0.6,
-        "image_tl22_lens": 0.6,
-        "image_adapter_lens": 0.6,
-    }
-    current = {lens.key: lens for lens in state.lenses}
-    expected_fields = {
-        key: current[key].b0_t * current[key].percent / 100.0
-        for key in factors
-    }
-    expected_fields["objective_lens"] = (
-        current["objective_lens"].b0_t
-        * current["objective_lens"].percent
-        / 100.0
-    )
-
-    for row in payload["lenses"]:
-        key = row["key"]
-        if key in factors:
-            factor = factors[key]
-            row["b0_t"] *= factor
-            row["percent"] /= factor
-        elif key == "objective_lens":
-            row["percent"] /= 0.7
-
-    restored = type(state).from_dict(payload)
-    restored_by_key = {lens.key: lens for lens in restored.lenses}
-
-    assert restored.schema_version == default_state().schema_version
-    for key, expected_field_t in expected_fields.items():
-        lens = restored_by_key[key]
-        assert lens.b0_t * lens.percent / 100.0 == pytest.approx(
-            expected_field_t
-        )
+    before = deepcopy(payload)
+    with pytest.raises(ValueError, match="schema"):
+        type(default_state()).from_dict(payload)
+    assert payload == before

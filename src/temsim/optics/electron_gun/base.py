@@ -33,6 +33,9 @@ class GunExitBundle:
     weight: np.ndarray
     ray_id: np.ndarray
     alive: np.ndarray
+    # Seconds since simultaneous tip emission; NaN for a ray that did not
+    # reach this plane. None preserves historical results without a clock.
+    flight_time_s: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -152,6 +155,9 @@ class GunTraceResult:
     # Immutable arrays at actual emission, before extraction/mesh remapping.
     # None in historical caches; never infer a new source from a later plane.
     emission_reference: dict | None = None
+    # Float64 (axial plane, ray) first-arrival times since tip emission.
+    # Unvisited planes are NaN; historical results may have no timing array.
+    flight_time_s: np.ndarray | None = None
 
     def equal_time_front_at_plane(self, key: str) -> GunEqualTimeFront:
         """Sample the beam when the median ray reaches an important plane."""

@@ -283,11 +283,21 @@ def serialise_detector_component(component):
 
 
 def detector_component_from_dict(component_type, values):
+    """Restore complete operating values against authoritative TOML geometry."""
+
     defaults = component_type()
+    expected = defaults.__dataclass_fields__.keys() - _TOML_OWNED_FIELDS
     if not isinstance(values, dict):
-        return defaults.validate()
-    allowed = defaults.__dataclass_fields__.keys() - _TOML_OWNED_FIELDS
-    component = component_type(**{
-        key: value for key, value in values.items() if key in allowed
-    })
-    return component.validate()
+        raise ValueError(f"{defaults.key} requires a complete current record.")
+    missing = expected - values.keys()
+    unknown = values.keys() - expected
+    if missing or unknown:
+        raise ValueError(f"{defaults.key} fields invalid: missing {sorted(missing)}, unknown {sorted(unknown)}.")
+    for key, value in values.items():
+        default = getattr(defaults, key)
+        if isinstance(default, bool) and not isinstance(value, bool):
+            raise ValueError(f"{defaults.key}.{key} must be a Boolean.")
+        if isinstance(default, int) and not isinstance(default, bool):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"{defaults.key}.{key} must be an integer.")
+    return component_type(**values).validate()

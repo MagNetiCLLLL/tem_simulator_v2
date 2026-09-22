@@ -11,7 +11,7 @@ from temsim.optics.column import default_state
 from temsim.physics import wave_imaging
 from temsim.physics.stem_wave_imaging import (
     AngularDetector,
-    simulate_angle_resolved_stem,
+    _simulate_angle_resolved_stem_single as simulate_local_stem_operator,
 )
 from temsim.physics.wave_imaging import prepare_specimen_potentials
 from temsim.physics.wave_sampling import plan_wave_sampling
@@ -293,7 +293,7 @@ def test_vacuum_stem_current_is_preserved_when_defocus_expands_the_domain():
     state.sample.wave_grid_pixels = 256
     scan = np.zeros((1, 1))
     results = [
-        simulate_angle_resolved_stem(
+        simulate_local_stem_operator(
             state,
             SimpleNamespace(incident=_waist_bundle(waist_nm)),
             (AngularDetector("all", 0.0, 50.0),),
@@ -336,7 +336,7 @@ def test_stem_preparation_uses_lab_beam_origin_minus_baseline_scan_offset():
     state = _small_wave_state()
     state.sample.inserted = False
     state.sample.wave_grid_pixels = 256
-    result = simulate_angle_resolved_stem(
+    result = simulate_local_stem_operator(
         state,
         SimpleNamespace(incident=_waist_bundle(0.0, centre_nm=(3.0, -4.0))),
         (AngularDetector("all", 0.0, 50.0),),
@@ -373,7 +373,7 @@ def test_finite_silicon_cif_stem_responds_to_focus_with_a_padded_wave_domain(tmp
     )
     detectors = (AngularDetector("bf", 0.0, 20.0), AngularDetector("df", 20.0, 40.0))
     focused, defocused = (
-        simulate_angle_resolved_stem(
+        simulate_local_stem_operator(
             state,
             SimpleNamespace(incident=_waist_bundle(waist_nm)),
             detectors,
@@ -415,3 +415,7 @@ def test_finite_silicon_cif_stem_responds_to_focus_with_a_padded_wave_domain(tmp
         not np.allclose(focused.fractions[key], defocused.fractions[key], atol=1.0e-6)
         for key in ("bf", "df")
     )
+
+
+# This module tests supplied local fields; production admission remains active.
+from local_wave_operator_fixture import supplied_local_probe

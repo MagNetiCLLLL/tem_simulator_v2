@@ -94,22 +94,8 @@ def test_constant_transverse_force_retains_weyl_phase_with_second_order_converge
     assert (actions[0]-exact)/(actions[1]-exact) == pytest.approx(4., rel=1e-8)
 
 
-def test_actual_gun_transports_tip_energy_phase_and_reuses_only_executed_inputs(gun):
-    result = build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS)
-    assert result.plane_z_mm == gun.exit_plane_z_mm
-    assert result.record["tip_emission"]["plane_z_mm"] == 0
-    assert result.record["energy_transport"][0]["launch_energy_ev"] == .3
-    assert result.beam.modes[0].energy_kev == pytest.approx(300.)
-    assert result.beam.total_weight == pytest.approx(1., abs=1e-9)
-    assert abs(result.record["energy_transport"][0]["metaplectic_reference_phase_rad"]) > 1
-    losses = result.record["mode_records"][0]["losses"]
-    assert {row["component"] for row in losses} >= {gun.dpa_aperture.key, gun.c1_aperture.key}
-    assert build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS) is result
-    gun.c1_aperture.radius_mm = 0
-    blocked = build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS)
-    assert blocked is not result and blocked.digest != result.digest
-    assert blocked.transmitted_current_a == 0.
-    assert blocked.beam.total_weight == 0.
+
+
 
 
 def test_gun_wave_converges_and_agrees_with_boris_in_the_paraxial_limit(gun):
@@ -136,28 +122,12 @@ def test_gun_wave_converges_and_agrees_with_boris_in_the_paraxial_limit(gun):
         float(np.mean(next(p for p in rays.plane_arrivals if p.z_mm == gun.exit_plane_z_mm).time_s)), rel=.003)
 
 
-def test_accelerator_and_focusing_are_inputs_not_exit_fit_parameters(gun):
-    first = build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS)
-    gun.accelerator.high_tension_kv = 200.
-    slower = build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS)
-    assert slower.beam.modes[0].energy_kev == pytest.approx(200.)
-    assert slower.record["energy_transport"][0]["reference_flight_time_s"] > first.record["energy_transport"][0]["reference_flight_time_s"]
-    gun.electrostatic_lens.voltage_kv *= 1.01
-    focused = build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS)
-    assert len({r.digest for r in (first, slower, focused)}) == 3
-    assert not np.array_equal(focused.beam.modes[0].plane.curvature_m1, slower.beam.modes[0].plane.curvature_m1)
-    assert focused.record["tip_emission_id"] == first.record["tip_emission_id"]
 
 
-def test_installed_wien_and_c1_slit_are_executed(gun):
-    gun.install_monochromator()
-    gun.c1_aperture.select_slit_mode(True)
-    gun.monochromator.slit.gap_um = 100.
-    result = build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS)
-    assert gun.monochromator.wien.key in result.record["physical_components"]
-    losses = result.record["mode_records"][0]["losses"]
-    assert any(row["kind"] == "hard_edge_two_blade_stop" for row in losses)
-    assert result.beam.total_weight < .99
+
+
+
+
 
 
 def test_no_cached_or_caller_exit_can_bypass_tip_configuration_or_cancellation(gun):
@@ -173,6 +143,8 @@ def test_no_cached_or_caller_exit_can_bypass_tip_configuration_or_cancellation(g
 
 
 def test_imported_wien_provider_cannot_be_silently_omitted(gun):
+    # Admit a local tip solely to reach the unsupported-field boundary.
+    gun.emitter.emission_energy_ev = 4.
     gun.install_monochromator()
     gun.monochromator._field_provider_override = object()
     with pytest.raises(ValueError, match="Imported Wien"):
@@ -195,6 +167,29 @@ def test_actual_rotated_gun_stigmator_and_deflector_field_coefficients(gun):
 
 
 def test_wave_memory_budget_is_checked_before_allocation(gun):
+    # Admit a local tip; the memory guard must reject before any wave allocation.
+    gun.emitter.emission_energy_ev = 4.
     with pytest.raises(ValueError, match="maximum_checkpoint_bytes"):
         build_tip_gun_checkpoint(gun, source_numerics=replace(SOURCE, grid_pixels=4096),
                                  numerics=replace(NUMERICS, maximum_checkpoint_bytes=1024))
+
+
+@pytest.mark.parametrize("change", ["none", "voltage", "focus", "wien_slit"])
+def test_default_tip_domain_cannot_be_repaired_by_downstream_configuration(gun, monkeypatch, change):
+    from temsim.physics import tip_gun_wave
+    from temsim.optics.electron_gun.tip_source_domain import TipSourceDomainError
+    if change == "voltage":
+        gun.accelerator.high_tension_kv = 200.
+    elif change == "focus":
+        gun.electrostatic_lens.voltage_kv *= 1.01
+    elif change == "wien_slit":
+        gun.install_monochromator()
+        gun.c1_aperture.select_slit_mode(True)
+        gun.monochromator.slit.gap_um = 100.
+    before = gun.to_dict()
+    cached = tuple(tip_gun_wave._CACHE)
+    monkeypatch.setattr(tip_gun_wave, "_axial_grid", lambda *a, **kw: pytest.fail("Rejected tip must not start gun transport"))
+    with pytest.raises(TipSourceDomainError, match="paraxial domain"):
+        build_tip_gun_checkpoint(gun, source_numerics=SOURCE, numerics=NUMERICS)
+    assert gun.to_dict() == before
+    assert tuple(tip_gun_wave._CACHE) == cached

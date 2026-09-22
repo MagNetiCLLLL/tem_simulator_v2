@@ -555,9 +555,6 @@ def _prepared_specimen_identity(
         "wave_frozen_phonon_sigma_angstrom": 0.0,
         "wave_frozen_phonon_seed": 100,
         "wave_frozen_phonon_sigma_by_element_angstrom": {},
-        "specimen_rotation_x_deg": 0.0,
-        "specimen_rotation_y_deg": 0.0,
-        "specimen_rotation_z_deg": 0.0,
     }
     parameters = {key: getattr(sample, key, default) for key, default in defaults.items()}
     parameters["effective_thermal_sigma_angstrom"] = reference_thermal_sigma(sample)
@@ -684,12 +681,9 @@ def _prepare_specimen_potentials_uncached(
     # an interaction-free reference plane. Dormant CIF settings must neither
     # load a file nor make a Virtual-reference calculation fail validation.
     cif_path = configured_cif_path if thickness_nm > 0.0 else ""
-    rotation_deg_xyz = (
-        float(getattr(state.sample, "specimen_rotation_x_deg", 0.0)),
-        float(getattr(state.sample, "specimen_rotation_y_deg", 0.0)),
-        float(getattr(state.sample, "specimen_rotation_z_deg", 0.0)),
-    )
     orientation_quaternion = scene.orientation_quaternion_wxyz
+    from temsim.specimen.geometry import quaternion_to_euler_xyz_deg
+    rotation_deg_xyz = quaternion_to_euler_xyz_deg(orientation_quaternion)
     orientation_matrix = quaternion_to_matrix(orientation_quaternion)
     roi_centre_nm = tuple(float(value) for value in calculation_roi_centre_nm)
     if len(roi_centre_nm) != 2 or not all(

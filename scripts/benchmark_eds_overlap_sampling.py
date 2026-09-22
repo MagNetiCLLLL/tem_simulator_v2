@@ -55,7 +55,7 @@ def main():
     profile = ROOT / "outputs/haadf_dpa_clearance/si110_haadf_dpa_12mm.toml"
     selection, values = d.read_profile(profile)
     assembly = d.AssemblyCatalog().apply(state, selection)
-    assert d.apply_profile_values(state, values) == []
+    d.apply_profile_values(state, values)
     shutil.copyfile(profile, output / "baseline_profile.toml")
     state.sample.size_x_nm = state.sample.size_y_nm = 10.0
     state.sample.thickness_nm = 5.0

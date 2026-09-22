@@ -444,17 +444,8 @@ def place_multipoles_in_sector_frames(energy_filter):
             )
             tangent = sector.exit_tangent
         element.frame = beam_frame(origin, tangent)
-    # Compatibility aliases point to the two historical field locations.
-    energy_filter.entrance_m12 = energy_filter.multipoles[2]
-    energy_filter.exit_m12 = energy_filter.multipoles[3]
     energy_filter.m12_frames_placed = True
     return tuple(energy_filter.multipoles)
-
-
-def place_m12_in_sector_frames(energy_filter):
-    """Backward-compatible name for the completed ten-carrier placement."""
-
-    return place_multipoles_in_sector_frames(energy_filter)
 
 
 @dataclass

@@ -258,7 +258,9 @@ def _refine_intervals(roots, incoming, budget, work):
         except BaseException as failure:
             work.abort(failure)
             raise
-    if work.settings.workers == 1:
+    from temsim.cpu_resources import numerical_thread_budget, initialize_numerical_thread
+    worker_count = numerical_thread_budget(work.settings.workers)
+    if worker_count == 1:
         return [refine(item) for item in roots.items()]
     if work.settings.executor == "process":
         from temsim.physics.occupied_wave_processes import refine_process_intervals
@@ -276,8 +278,9 @@ def _refine_intervals(roots, incoming, budget, work):
             roots.update(pending)
         return sorted(local, key=lambda row: row[0])
     try:
-        with ThreadPoolExecutor(max_workers=work.settings.workers,
-                                thread_name_prefix="occupied-wave") as executor:
+        from threadpoolctl import threadpool_limits
+        with threadpool_limits(limits=1, user_api="blas"), ThreadPoolExecutor(max_workers=worker_count, initializer=initialize_numerical_thread,
+                                initargs=(1,), thread_name_prefix="occupied-wave") as executor:
             return list(executor.map(refine, roots.items()))
     except BaseException:
         if work.failure is not None:

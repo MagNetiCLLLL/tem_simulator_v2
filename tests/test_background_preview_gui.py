@@ -25,7 +25,7 @@ def window(qtbot, monkeypatch, tmp_path, request):
 
 
 @pytest.mark.parametrize("window", [("gpu", False), ("Require GPU", False)], indirect=True)
-def test_backend_display_preserves_historical_policy_and_explicit_disabled_flag(window):
+def test_backend_display_preserves_requested_policy_and_explicit_disabled_flag(window):
     requested = window.state.acceleration_backend
     assert requested in {"gpu", "Require GPU"}
     assert not window.state.acceleration_enabled
@@ -44,12 +44,12 @@ def test_toolbar_preview_uses_background_preparation(window, monkeypatch, qualit
     window.tuning_quality.setCurrentIndex(window.tuning_quality.findData(quality))
     window.preview_timer.stop()
     calls = []
-    monkeypatch.setattr(window.calculations, "submit_background", lambda *args: calls.append(args))
+    monkeypatch.setattr(window.calculations, "submit_background", lambda *args, **kwargs: calls.append((args, kwargs)))
     monkeypatch.setattr(window.calculations, "submit", lambda *args: pytest.fail("Foreground request preparation"))
     window.run_preview()
     profile = TUNING_PROFILES[quality]
-    assert calls == [(window.state, quality, profile.rays, profile.step_mm)]
-    snapshot = window.calculations._calculation_snapshot(*calls[0])
+    assert calls == [((window.state, quality, profile.rays, profile.step_mm), {"particle_tuning": True})]
+    snapshot = window.calculations._calculation_snapshot(*calls[0][0])
     assert snapshot.electron_gun.emitter.surface_model is None
     snapshot.electron_gun.validate()
 
@@ -117,7 +117,7 @@ def test_tip_navigation_preserves_unsaved_geometry(window, monkeypatch):
 
 
 def test_capture_error_does_not_leave_live_queue_running(window, monkeypatch):
-    def fail_capture(*_args):
+    def fail_capture(*_args, **_kwargs):
         raise ValueError("Controlled invalid capture")
     errors = []
     monkeypatch.setattr(window.calculations, "submit_background", fail_capture)
@@ -178,7 +178,7 @@ def test_high_toolbar_routes_to_background_without_foreground_memory_preparation
     monkeypatch.setattr(module, "estimate_calculation_memory_bytes", lambda *_: pytest.fail("Heavy memory estimation belongs in preparation worker"))
     window.run_high_accuracy()
     assert len(calls) == 1 and calls[0][0][1] == "High accuracy"
-    assert calls[0][1] == {"parent_id": "captured-parent-fixture"}
+    assert calls[0][1] == {"parent_id": "captured-parent-fixture", "section_request": None}
 
 
 @pytest.mark.parametrize("dispatch_attempt", range(5))

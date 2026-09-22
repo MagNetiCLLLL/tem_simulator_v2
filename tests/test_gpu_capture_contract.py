@@ -1,4 +1,4 @@
-"""WP-07 real CUDA capture and failure/transaction boundaries."""
+"""WP-07 real CUDA local-field capture and transaction boundaries; no gun chain."""
 import json
 from types import SimpleNamespace
 
@@ -17,7 +17,7 @@ def test_actual_gpu_capture_matches_cpu_cube_and_detector_reintegration(tmp_path
     scan_x, scan_y = _scan()
     sim = SimpleNamespace(incident=_incident_bundle())
     cpu_sink = FourDSTEMCaptureSink(tmp_path / "cpu.npy", electrons_per_frame=100, store_raw_probability=True)
-    cpu = stem_wave_imaging.simulate_angle_resolved_stem(_state("CPU", atomistic=True), sim, _detectors(), scan_x, scan_y, diffraction_sink=cpu_sink)
+    cpu = stem_wave_imaging._simulate_angle_resolved_stem_single(_state("CPU", atomistic=True), sim, _detectors(), scan_x, scan_y, diffraction_sink=cpu_sink)
     def forbidden(*args, **kwargs):
         raise AssertionError("GPU capture must not repropagate or FFT on CPU")
     monkeypatch.setattr(stem_wave_imaging, "propagate_multislice", forbidden)
@@ -26,7 +26,7 @@ def test_actual_gpu_capture_matches_cpu_cube_and_detector_reintegration(tmp_path
     gpu_state = _state("CUDA GPU", atomistic=True)
     gpu_state.sample.stem_execution_policy = "require_gpu"
     gpu_sink = FourDSTEMCaptureSink(tmp_path / "gpu.npy", electrons_per_frame=999, store_raw_probability=True)
-    gpu = stem_wave_imaging.simulate_angle_resolved_stem(gpu_state, sim, _detectors(), scan_x, scan_y, diffraction_sink=gpu_sink)
+    gpu = stem_wave_imaging._simulate_angle_resolved_stem_single(gpu_state, sim, _detectors(), scan_x, scan_y, diffraction_sink=gpu_sink)
     assert gpu.metrics["cuda_resident_pipeline"]
     assert gpu.metrics["cuda_diffraction_batch_transfer_count"] == 2
     assert gpu.metrics["cuda_diffraction_host_bound_bytes"] <= gpu.metrics["cuda_diffraction_host_budget_bytes"]
@@ -133,7 +133,7 @@ def test_capture_host_budget_rejects_oversized_frame_before_gpu_work(tmp_path):
     state.sample.stem_fourdstem_host_budget_mb = 0
     sink = FourDSTEMCaptureSink(tmp_path / "budget.npy", electrons_per_frame=1)
     with pytest.raises(MemoryError, match="budget"):
-        stem_wave_imaging.simulate_angle_resolved_stem(state, SimpleNamespace(incident=_incident_bundle()), _detectors(), *_scan(), diffraction_sink=sink)
+        stem_wave_imaging._simulate_angle_resolved_stem_single(state, SimpleNamespace(incident=_incident_bundle()), _detectors(), *_scan(), diffraction_sink=sink)
     sink.close_partial()
 
 
@@ -154,3 +154,7 @@ def test_stem_known_bandwidth_loss_keeps_absolute_probability(tmp_path):
     sink.begin(cal,np.ones((n,n),bool),maximum_isotropic_angle_mrad=20)
     sink.write_frame(0,0,probability)
     assert sink.finish().data.sum()==pytest.approx(.2,abs=2e-8)
+
+
+# This module tests supplied local fields; production admission remains active.
+from local_wave_operator_fixture import supplied_local_probe

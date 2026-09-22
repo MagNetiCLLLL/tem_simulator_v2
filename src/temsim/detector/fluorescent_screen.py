@@ -232,31 +232,8 @@ def create_fluorescent_screen(
     )
 
 
-def fluorescent_screen_from_dict(
-    data,
-    anchor_z_mm=(
-        SELECTED_AREA_APERTURE_DEFINITION
-        .standalone_optical_reference_z_mm
-    ),
-):
-    values = dict(data)
-    component = create_fluorescent_screen(anchor_z_mm)
-    known = component.__dataclass_fields__
-    for field, value in values.items():
-        if field in known and field in {
-            "inserted",
-            "colour",
-        }:
-            setattr(component, field, value)
-    component.key = FLUORESCENT_SCREEN
-    component.name = FLUORESCENT_SCREEN_DEFINITION.label
-    legacy_anchor = values.get("anchor_key") != SELECTED_AREA_APERTURE
-    component.anchor_key = SELECTED_AREA_APERTURE
-    if legacy_anchor:
-        component.optical_reference_downstream_of_anchor_mm = (
-            downstream_optical_offset_mm(FLUORESCENT_SCREEN)
-        )
-        component.layout_center_downstream_of_anchor_mm = downstream_offset_mm(
-            FLUORESCENT_SCREEN
-        )
-    return component.resolve_against(anchor_z_mm).validate()
+def fluorescent_screen_from_dict(data, anchor_z_mm=SELECTED_AREA_APERTURE_DEFINITION.standalone_optical_reference_z_mm):
+    from temsim.detector.input_controls import restore_detector_controls
+    return restore_detector_controls(
+        create_fluorescent_screen(anchor_z_mm), data, fields=("inserted", "colour"),
+    )

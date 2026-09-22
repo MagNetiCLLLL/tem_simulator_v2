@@ -187,7 +187,6 @@ def test_selected_plane_budget_uses_all_weighted_rays_and_conserves_source():
             z_mm=1.0,
             specimen_mode="atomic",
             inserted=True,
-            diffraction_enabled=True,
         )
     )
     result = SimpleNamespace(simulation=simulation, state_snapshot=state)

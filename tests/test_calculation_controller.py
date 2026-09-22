@@ -137,8 +137,12 @@ def test_worker_snapshot_keeps_exact_selected_assembly_and_layout(
 
 def test_high_accuracy_pipeline_reports_completed_real_stages(monkeypatch):
     state = default_state()
+    state.energy_filter.enabled = False
     state.sample.wave_enabled = False
     state.sample.eds_enabled = False
+    # This lifecycle double has no particle arrays. Keep the specimen retracted
+    # so it does not request the now-mandatory non-scanning material transport.
+    state.sample.inserted = False
     state.ac_deflector.scan_enabled = False
     simulation = SimpleNamespace(
         incident=SimpleNamespace(),
@@ -175,11 +179,10 @@ def test_high_accuracy_pipeline_reports_completed_real_stages(monkeypatch):
         "run",
         lambda _state, resolved_layout: simulation,
     )
-    monkeypatch.setattr(
-        simulation_pipeline,
-        "simulate_energy_filter",
-        lambda _state, _simulation: "energy-filter",
-    )
+    def inactive_filter_must_not_run(*args, **kwargs):
+        pytest.fail("The disabled energy filter must not be calculated")
+
+    monkeypatch.setattr(simulation_pipeline, "simulate_energy_filter", inactive_filter_must_not_run)
     monkeypatch.setattr(
         simulation_pipeline,
         "calculate_scan_geometry",
@@ -214,12 +217,14 @@ def test_high_accuracy_pipeline_reports_completed_real_stages(monkeypatch):
     assert not result.specimen_interactions.completed_observables
     assert result.scan_geometry is None
     assert result.scan_ray_paths is None
+    assert result.energy_filter is None
     assert progress == [
-        (0, 40_000, "Stage 1/4 | Preparing state and physical layout"),
-        (10_000, 40_000, "Stage 2/4 | Tracing the electron column"),
-        (20_000, 40_000, "Stage 3/4 | Tracing the energy filter"),
-        (30_000, 40_000, "Stage 4/4 | Finalising optical diagnostics"),
-        (40_000, 40_000, "Complete"),
+        (0, 30_000, "Stage 1/3 | Preparing state and physical layout"),
+        (10_000, 30_000, "Stage 2/3 | Tracing the electron column"),
+        (20_000, 30_000, "Stage 3/3 | Finalising optical diagnostics"),
+        (29_900, 30_000, "Stage 3/3 | Recording specimen interaction events | stage progress 99.0%"),
+        (29_999, 30_000, "Stage 3/3 | Specimen interactions complete | stage progress 100.0%"),
+        (30_000, 30_000, "Complete"),
     ]
 
 
@@ -487,6 +492,10 @@ def test_reused_sample_region_rebinds_current_shared_observables():
 
 
 def test_pipeline_reprojects_only_stale_sample_downstream(monkeypatch):
+    # Cache lifecycle fixture: physical centroid extraction is covered by the
+    # material pipeline tests; this double deliberately has no ray arrays.
+    monkeypatch.setattr("temsim.specimen.elastic_transport.incident_rays_from_simulation",
+                        lambda *a, **k: SimpleNamespace(original_centroid_nm=(0., 0.)))
     state = default_state()
     state.sample.wave_enabled = False
     state.ac_deflector.scan_enabled = False
@@ -516,6 +525,7 @@ def test_pipeline_reprojects_only_stale_sample_downstream(monkeypatch):
         inelastic_distribution=object(),
         metrics={"dependency_signatures": signatures},
         completed_observables=frozenset(),
+        conservation=(object(),),  # Already completed in this cache-routing fixture.
     )
     existing = simulation_pipeline.CalculationResult(
         simulation=object(),
@@ -650,6 +660,7 @@ def test_pipeline_shares_cached_specimen_exit_with_geometric_stem(monkeypatch):
         inelastic_distribution=object(),
         metrics={"dependency_signatures": signatures},
         completed_observables=frozenset(),
+        conservation=(object(),),  # Already completed in this cache-routing fixture.
     )
     checkpoint = simulation_pipeline.GeometricSpecimenExit(
         downstream_branches,
@@ -805,6 +816,7 @@ def test_pipeline_builds_one_first_class_specimen_exit_for_geometric_stem(
         inelastic_distribution=object(),
         metrics={},
         completed_observables=frozenset(),
+        conservation=(object(),),  # Already completed in this cache-routing fixture.
     )
     simulation = SimpleNamespace(incident=SimpleNamespace(), branches={})
     for name in (
@@ -924,6 +936,7 @@ def test_high_accuracy_pipeline_maps_stem_batches_inside_stage(monkeypatch):
     # production-source refusal is tested separately in test_source_admission.
     monkeypatch.setattr("temsim.physics.source_admission.admit_requested_wave_products", lambda state: None)
     state = default_state()
+    state.energy_filter.enabled = False
     state.sample.wave_enabled = False
     state.sample.eds_enabled = False
     state.ac_deflector.enabled = True
@@ -956,11 +969,10 @@ def test_high_accuracy_pipeline_maps_stem_batches_inside_stage(monkeypatch):
         "run",
         lambda _state, resolved_layout: simulation,
     )
-    monkeypatch.setattr(
-        simulation_pipeline,
-        "simulate_energy_filter",
-        lambda _state, _simulation: "energy-filter",
-    )
+    def inactive_filter_must_not_run(*args, **kwargs):
+        pytest.fail("The disabled energy filter must not be calculated")
+
+    monkeypatch.setattr(simulation_pipeline, "simulate_energy_filter", inactive_filter_must_not_run)
     monkeypatch.setattr(
         simulation_pipeline,
         "calculate_scan_geometry",
@@ -1008,14 +1020,20 @@ def test_high_accuracy_pipeline_maps_stem_batches_inside_stage(monkeypatch):
     )
 
     assert result.stem_scan == "stem-frame"
+    assert result.energy_filter is None
     assert received_specimen_interactions == [result.specimen_interactions]
     nested = [item for item in progress if " | stage progress " in item[2]]
     assert nested == [
-        (50_000, 70_000, "Stage 6/7 | Preparing STEM | stage progress 0.0%"),
-        (55_000, 70_000, "Stage 6/7 | STEM probes 16/32 | stage progress 50.0%"),
-        (59_999, 70_000, "Stage 6/7 | STEM detector frame complete | stage progress 100.0%"),
+        (29_900, 60_000, "Stage 3/6 | Recording specimen interaction events | stage progress 99.0%"),
+        (29_999, 60_000, "Stage 3/6 | Specimen interactions complete | stage progress 100.0%"),
+        (40_000, 60_000, "Stage 5/6 | Preparing STEM | stage progress 0.0%"),
+        (45_000, 60_000, "Stage 5/6 | STEM probes 16/32 | stage progress 50.0%"),
+        (49_999, 60_000, "Stage 5/6 | STEM detector frame complete | stage progress 100.0%"),
     ]
-    assert nested[0][0] / nested[0][1] == 5 / 7
+    # Specimen ledger boundaries also consume cancellation; STEM still starts
+    # at its own stage, after those newly forwarded local progress events.
+    assert nested[2][0] / nested[2][1] == 4 / 6
+    assert all("energy filter" not in stage.lower() for _, _, stage in progress)
     percentages = [completed / total for completed, total, _stage in progress]
     assert percentages == sorted(percentages)
 
@@ -1074,6 +1092,7 @@ def test_high_accuracy_worker_automatically_loads_and_saves_incident_seed(
     loaded_seed = SimpleNamespace(name="persistent-incident-seed")
     completed_simulation = SimpleNamespace(name="completed-simulation")
     calls = {"load": [], "save": [], "existing": []}
+    monkeypatch.setattr("temsim.detector.particle_readout.measure_particle_detectors", lambda result: ())
 
     class FakeStore:
         def get_incident_simulation_seed(self, manifest):
@@ -1113,6 +1132,7 @@ def test_high_accuracy_worker_automatically_loads_and_saves_incident_seed(
 def test_persistent_incident_cache_failure_never_fails_calculation(monkeypatch):
     completed_simulation = SimpleNamespace(name="completed-simulation")
     calls = {"manifest": None, "calculate": 0, "save": 0}
+    monkeypatch.setattr("temsim.detector.particle_readout.measure_particle_detectors", lambda result: ())
 
     class FailingStore:
         def get_incident_simulation_seed(self, manifest):
@@ -1269,13 +1289,12 @@ def test_real_sample_preview_disables_synthetic_ray_scattering():
     state.ac_deflector.scan_enabled = True
     state.sample.specimen_mode = "atomic"
     state.sample.cif_path = "real-sample.cif"
-    state.sample.diffraction_enabled = True
     state.sample.stem_wave_enabled = True
 
     controller.submit(state, "Preview", 25, 5.0)
 
     snapshot = captured[0].state
-    assert snapshot.sample.diffraction_enabled is False
+    assert snapshot._optical_tuning is True
     assert snapshot.sample.stem_wave_enabled is False
 
 
@@ -1285,12 +1304,12 @@ def test_reference_sample_preview_defers_interaction_channels_until_high_accurac
     controller.pool.start = captured.append
     state = default_state()
     state.sample.specimen_mode = "reference"
-    state.sample.diffraction_enabled = True
 
     controller.submit(state, "Preview", 25, 5.0)
 
-    assert captured[0].state.sample.diffraction_enabled is False
-    assert state.sample.diffraction_enabled is True
+    assert captured[0].state._optical_tuning is True
+    assert captured[0].state.sample.inserted == state.sample.inserted
+    assert not getattr(state, "_optical_tuning", False)
 
 
 def test_high_accuracy_preserves_selected_compute_backend():

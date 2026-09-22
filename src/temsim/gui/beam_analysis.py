@@ -20,7 +20,8 @@ from PySide6.QtWidgets import (
 )
 
 from temsim.gui.input_policy import WheelSafeComboBox
-from temsim.physics.ray_identity import emission_colour_values
+from temsim.gui.emission_source_data import EmissionSourceData
+from temsim.gui.filter_plane_data import sample_filter_plane
 from temsim.gui.beam_plane_data import (
     sample_beam_plane, spatial_histogram, angular_histogram,
 )
@@ -48,14 +49,32 @@ class BeamAnalysisControls:
     COLOUR_MODES = (("Source position", "source"),
                    ("Emission direction (azimuth)", "emission_direction"),
                    ("Emission angle to normal", "emission_angle"),
+                   ("Time of flight", "tof"),
                    ("Interaction type", "interaction"))
+    # A tracking selection defines both coordinates and colour. Independent
+    # combinations belong only to the explicitly selected diagnostics view.
+    TRACKING_PRESETS = {
+        "source": ("Source position → position X-Y", "position", "source"),
+        "emission_direction": (
+            "Emission direction → angular X-Y", "angular", "emission_direction"),
+        "tof": ("Time of flight → position X-Y", "position", "tof"),
+    }
 
     def __init__(self, owner):
         self.owner = owner
         self.mode = "position"
         self.wave = None
+        from temsim.gui.beam_tof_analysis import BeamTimeOfFlight
+        self.tof = BeamTimeOfFlight(self)
         self._cache = None
         self._cache_key = None
+        self._filter_cache = None
+        self._filter_cache_key = None
+        self._source_data = None
+        self._source_has_positions = False
+        self._source_brush_cache = {}
+        self._source_plot_key = None
+        self._advanced = False
         self._ranges = {}
         self._hover_payload = None
         self._drawing = False
@@ -67,6 +86,25 @@ class BeamAnalysisControls:
             "Analyse cached rays at the selected Z. Intensity and distributions "
             "use physical weights, not the displayed point count. No retracing."
         )
+        self.tracking_combo = WheelSafeComboBox()
+        self.tracking_combo.setObjectName("beamTrackingPreset")
+        for key, (label, _mode, _colour) in self.TRACKING_PRESETS.items():
+            self.tracking_combo.addItem(label, key)
+        self.tracking_combo.addItem("Advanced diagnostics", "advanced")
+        self.tracking_combo.setItemData(2,
+            "Arrival delay at the selected plane, since simultaneous tip emission. "
+            "Incomplete or historical path clocks remain grey. This is not wave phase.", Qt.ItemDataRole.ToolTipRole)
+        self.tracking_combo.setToolTip(
+            "One selection sets both plots. Source position: position below, fixed launch-position colour. "
+            "Emission direction: angles below, fixed launch-azimuth colour. "
+            "Time of flight: position below, the same per-path arrival-delay colour in both plots. "
+            "The upper axes always show actual tip emission positions. "
+            "Advanced diagnostics exposes separate analysis controls. No retracing."
+        )
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(QLabel("Plot"))
+        preset_row.addWidget(self.tracking_combo, 1)
+        owner.initial_beam_panel.layout().insertLayout(0, preset_row)
         self.colour_combo = WheelSafeComboBox()
         self.colour_combo.setObjectName("beamAnalysisColourBy")
         for label, key in self.COLOUR_MODES:
@@ -74,11 +112,13 @@ class BeamAnalysisControls:
         self.colour_combo.setToolTip(
             "Source position and emission angles are fixed at actual launch, before extraction. "
             "Emission azimuth is about +Z; emission angle is relative to the local surface normal. "
-            "Grey means unavailable launch data. Interaction colour follows the recorded channel."
+            "Grey means unavailable launch or timing data. TOF follows saved path clocks; "
+            "interaction colour follows the recorded channel."
         )
         self.legend = QLabel()
         self.legend.setWordWrap(True)
         self.readout = QLabel()
+        self.readout.setWordWrap(True)
         for label in (self.legend, self.readout):
             label.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextSelectableByMouse
@@ -97,8 +137,14 @@ class BeamAnalysisControls:
         for column in (1, 2):
             self.table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         self.table.hide()
+        self.view_label = QLabel("View")
+        self.view_label.setWordWrap(True)
+        self.view_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
         controls = QHBoxLayout()
-        controls.addWidget(QLabel("View"))
+        controls.addWidget(self.view_label)
         controls.addWidget(self.mode_combo, 1)
         colours = QHBoxLayout()
         self.colour_label = QLabel("Colour by")
@@ -112,6 +158,7 @@ class BeamAnalysisControls:
         layout.insertWidget(6, self.readout)
         self.mode_combo.currentIndexChanged.connect(self._mode_changed)
         self.colour_combo.currentIndexChanged.connect(self._colour_changed)
+        self.tracking_combo.currentIndexChanged.connect(self._tracking_changed)
         owner.plot.scene().sigMouseMoved.connect(self._mouse_moved)
         self._resize_timer = QTimer(owner)
         self._resize_timer.setSingleShot(True)
@@ -133,11 +180,89 @@ class BeamAnalysisControls:
     def invalidate(self):
         self._cache_key = None
         self._cache = None
+        self._filter_cache = None
+        self._filter_cache_key = None
+        self._source_data = None
+        self._source_has_positions = False
+        self._source_brush_cache.clear()
+        self._source_plot_key = None
+
+    def source_data(self):
+        """One immutable launch lookup per publication, independent of Z."""
+        if self._source_data is None and self.owner._result is not None:
+            self._source_data = EmissionSourceData.from_simulation(self.owner._result.simulation)
+            self._source_has_positions = bool(np.any(np.all(np.isfinite(self._source_data.position_m), axis=1)))
+        return self._source_data
+
+    def _tracking_changed(self):
+        key = self.tracking_combo.currentData()
+        if key == "advanced":
+            self._advanced = True
+            self._update_controls(advanced=True)
+            return
+        self._advanced = False
+        _label, mode, colour = self.TRACKING_PRESETS[key]
+        for combo in (self.mode_combo, self.colour_combo):
+            combo.blockSignals(True)
+        self.mode_combo.setCurrentIndex(self.mode_combo.findData(mode))
+        self.colour_combo.setCurrentIndex(self.colour_combo.findData(colour))
+        for combo in (self.mode_combo, self.colour_combo):
+            combo.blockSignals(False)
+        self._mode_changed()
+
+    def refresh_source_plot(self):
+        """Draw actual launch positions, never downstream survivors or a colour wheel."""
+        colour = self.colour_combo.currentData()
+        if self.mode not in self.POINT_MODES or colour not in {"source", "emission_direction", "emission_angle"}:
+            return
+        data = self.source_data()
+        key = (id(data), colour, self.owner._projection_angle_deg)
+        if key == self._source_plot_key:
+            return
+        self._source_plot_key = key
+        if data is None or not self._source_has_positions:
+            self.owner.source_plot.clear("Original emission positions are unavailable in this result.")
+            self.owner.source_plot.summary.setToolTip(data.status if data is not None else "No result")
+            return
+        selected = data.display_indices(self.owner.MAX_DISPLAY_RAYS)
+        self.owner.source_plot.set_projection_angle(self.owner._projection_angle_deg)
+        self.owner.source_plot.set_source(
+            ids=data.source_ids[selected], position_m=data.position_m[selected],
+            brushes=self.source_brushes(data.source_ids[selected]),
+            azimuth_rad=data.direction_azimuth_rad[selected],
+            angle_to_normal_rad=data.angle_to_normal_rad[selected],
+            status=(f"of {len(data.source_ids):,} emitted. " +
+                ("Colour: launch azimuth (0–360°). " if colour == "emission_direction" else
+                 "Colour: angle to local normal (0–90°). " if colour == "emission_angle" else
+                 "Colour: source-position azimuth (0–360°). ")),
+        )
+        self.owner.source_plot.summary.setToolTip(
+            "All source samples remain eligible, including those later blocked. "
+            "Grey means the selected launch quantity is undefined or unavailable. "
+            + ("Colour shows the launch angle to the local normal. " if colour == "emission_angle" else
+               "Hue encodes original azimuth only. Hover shows the launch angle to the local normal. ") +
+            "The lower coordinates describe the selected plane, with the same original emission colours. "
+            "Coincident emission positions are retained without artificial offsets. " + data.status)
+
+    def _plane_key(self):
+        return (id(self.owner._result), self.owner._plane_z_mm, self.owner._focused_component_key)
+
+    def filter_plane_data(self):
+        """Resolve named physical crossings independently of observable choice."""
+        key = self._plane_key()
+        if key != self._filter_cache_key:
+            self._filter_cache = (sample_filter_plane(
+                self.owner._result, self.owner._plane_z_mm, self.owner._focused_component_key)
+                if self.owner._result is not None and self.owner._plane_z_mm is not None else None)
+            self._filter_cache_key = key
+        return self._filter_cache
 
     def plane_data(self):
-        key = (id(self.owner._result), self.owner._plane_z_mm)
+        key = self._plane_key()
         if key != self._cache_key:
-            self._cache = sample_beam_plane(self.owner._result, self.owner._plane_z_mm)
+            filtered = self.filter_plane_data()
+            self._cache = (sample_beam_plane(self.owner._result, self.owner._plane_z_mm)
+                           if filtered is None else filtered)
             self._cache_key = key
         return self._cache
 
@@ -163,14 +288,33 @@ class BeamAnalysisControls:
         self._update_controls()
         self.owner._redraw()
 
-    def _update_controls(self):
+    def _update_controls(self, *, advanced=False):
         points = self.mode in self.POINT_MODES
-        self.colour_combo.setVisible(points)
-        self.colour_label.setVisible(points)
         colour = self.colour_combo.currentData()
-        self.owner.initial_beam_panel.setVisible(points and colour in {"source", "emission_direction"})
+        preset = next((key for key, (_label, mode, quantity) in self.TRACKING_PRESETS.items()
+                       if (self.mode, colour) == (mode, quantity)), None)
+        advanced = advanced or self._advanced or preset is None
+        self._advanced = advanced
+        self.tracking_combo.blockSignals(True)
+        self.tracking_combo.setCurrentIndex(self.tracking_combo.findData("advanced" if advanced else preset))
+        self.tracking_combo.blockSignals(False)
+        self.mode_combo.setVisible(advanced)
+        self.view_label.setText("Diagnostic view" if advanced else
+                               f"Selected plane: {self.mode_combo.currentText()}")
+        self.colour_combo.setVisible(points and advanced)
+        self.colour_label.setVisible(points and advanced)
+        self.owner.initial_beam_panel.show()
+        source_visible = points and colour in {"source", "emission_direction", "emission_angle", "tof"}
+        self.owner.source_plot.setVisible(source_visible)
+        self.owner.initial_beam_heading.setVisible(source_visible)
+        wheel_visible = source_visible and colour not in {"emission_angle", "tof"}
+        self.owner.colour_legend_toggle.setVisible(wheel_visible)
+        self.owner.angle_colour_wheel.setVisible(wheel_visible and self.owner.colour_legend_toggle.isChecked())
         self.owner.initial_beam_heading.setText(
-            "Emission direction colour" if colour == "emission_direction" else "Source position colour")
+            "Emission positions · arrival delay" if colour == "tof" else
+            "Emission direction colour · actual source positions" if colour == "emission_direction" else
+            "Emission angle to normal · actual source positions" if colour == "emission_angle" else
+            "Source position colour · actual source positions")
         self.owner.angle_colour_wheel.set_colour_quantity(colour)
         self.owner.plot.setVisible(self.mode != "interactions")
         self.table.setVisible(self.mode == "interactions")
@@ -180,15 +324,21 @@ class BeamAnalysisControls:
         )
         self.legend.clear()
         self.readout.clear()
-        self.legend.setVisible(colour in {"interaction", "emission_angle"} or not points)
+        self.legend.setVisible(colour in {"interaction", "emission_angle", "tof"} or not points)
         if colour == "emission_angle" and points:
             self._emission_angle_legend()
-        self.readout.setVisible(self.mode in {"intensity", "angle_histogram"})
+        self.readout.setVisible(self.mode in {"intensity", "angle_histogram"} or colour == "tof")
 
-    def update_labels(self):
+    def update_labels(self, data=None):
         u = projection_axis_name(self.owner._projection_angle_deg)
         v = orthogonal_axis_name(self.owner._projection_angle_deg)
-        if self.mode == "angular":
+        local = data is not None and data.coordinate_frame == "sector_exit_local"
+        if local:
+            u = "Dispersive U (rotated)" if self.owner._projection_angle_deg else "Dispersive"
+            v = "Non-dispersive V (rotated)" if self.owner._projection_angle_deg else "Non-dispersive"
+        if self.mode == "position":
+            labels = ((f"{u} displacement", "µm"), (f"{v} displacement", "µm"))
+        elif self.mode == "angular":
             labels = ((f"θ {u}", "mrad"), (f"θ {v}", "mrad"))
         elif self.mode in {"phase_u", "phase_v"}:
             axis = u if self.mode == "phase_u" else v
@@ -196,11 +346,16 @@ class BeamAnalysisControls:
         elif self.mode == "intensity":
             labels = ((f"{u} displacement", "µm"), (f"{v} displacement", "µm"))
         else:
-            labels = (("Polar angle to +Z", "mrad"), ("Flux per bin", ""))
+            labels = (("Polar angle to outgoing axis" if local else "Polar angle to +Z", "mrad"),
+                      ("Flux per bin", ""))
         for axis, (text, unit) in zip(("bottom", "left"), labels):
             self.owner.plot.getAxis(axis).enableAutoSIPrefix(False)
             self.owner.plot.getAxis(axis).setLabel(text, units=unit, siPrefixEnableRanges=())
         self.owner.plot.setToolTip(
+            "Executed crossing in the filter exit frame: dispersive/non-dispersive coordinates. "
+            "Angles are atan of slopes along the outgoing axis, not global +Z. "
+            "The selected rotation is within this local transverse plane. "
+            "Incident rays at this plane, before detector response." if local else
             "U/V follow the Ray Diagram projection. Angles are atan of the "
             "projected ray slopes relative to +Z; polar angle is atan(hypot(tx, ty)). "
             "Geometric ray transport, not a diffraction pattern or detector image."
@@ -211,8 +366,6 @@ class BeamAnalysisControls:
         self._hover_payload = None
         self._annotate_emission(self.owner._display_source_ids)
         if self.colour_combo.currentData() in {"emission_direction", "emission_angle"}:
-            if self.owner._scatter is not None:
-                self.owner._scatter.setBrush(self.source_brushes(self.owner._display_source_ids))
             self.owner.summary.setToolTip(
                 "Colours follow original tip emission, not the current propagation angle. "
                 "Extraction, focusing and scattering preserve this label. Grey: launch data unavailable.")
@@ -241,18 +394,31 @@ class BeamAnalysisControls:
 
     def source_brushes(self, ids, source_azimuth=None):
         mode = self.colour_combo.currentData()
-        angles = (source_azimuth if mode == "source" else
-                  emission_colour_values(self.owner._result.simulation, ids, mode))
+        if mode == "interaction":
+            mode = "source"  # Replaced by recorded interaction style after drawing.
+        data = self.source_data()
+        # Preserve historical lower-plane colours when original launch data are
+        # absent. The upper panel never substitutes those later coordinates.
+        angles = (source_azimuth if mode == "source" and source_azimuth is not None
+                  and not self._source_has_positions else
+                  data.values(ids, mode) if data is not None else np.full(len(ids), np.nan))
         result = []
         cmap = pg.colormap.get("viridis") if mode == "emission_angle" else None
         for ray_id, angle in zip(ids, angles):
+            key = (mode, float(angle) if ray_id >= 0 and np.isfinite(angle) else None)
+            cached = self._source_brush_cache.get(key)
+            if cached is not None:
+                result.append(cached)
+                continue
             if ray_id < 0 or not np.isfinite(angle):
                 colour = QColor("#94a3b8")
             elif cmap is not None:
                 colour = cmap.mapToQColor(float(np.clip(angle/(math.pi/2), 0., 1.)))
             else:
                 colour = QColor.fromHsvF(float(angle % (2*math.pi))/(2*math.pi), .88, 1.)
-            result.append(pg.mkBrush(colour))
+            brush = pg.mkBrush(colour)
+            self._source_brush_cache[key] = brush
+            result.append(brush)
         return result
 
     def _annotate_emission(self, ids):
@@ -260,14 +426,15 @@ class BeamAnalysisControls:
         scatter = self.owner._scatter
         if scatter is None or self.owner._result is None:
             return
-        simulation = self.owner._result.simulation
-        azimuth = emission_colour_values(simulation, ids, "emission_direction")
-        polar = emission_colour_values(simulation, ids, "emission_angle")
+        data = self.source_data()
+        azimuth = data.values(ids, "emission_direction")
+        polar = data.values(ids, "emission_angle")
         for spot, phi, theta in zip(scatter.points(), azimuth, polar):
-            if np.isfinite(theta):
-                phi_text = f"{math.degrees(phi):.5g}°" if np.isfinite(phi) else "undefined"
+            if np.isfinite(theta) or np.isfinite(phi):
+                phi_text = f"{math.degrees(phi):.5g}°" if np.isfinite(phi) else "undefined/unavailable"
+                theta_text = f"{math.degrees(theta):.5g}°" if np.isfinite(theta) else "unavailable"
                 spot.setData({**spot.data(), "emission":
-                    f"Launch azimuth {phi_text} | angle to local normal {math.degrees(theta):.5g}°"})
+                    f"Launch azimuth {phi_text} | angle to local normal {theta_text}"})
 
     def _interaction_legend(self, styles):
         unique = {row[0]: row for row in styles}
@@ -351,10 +518,25 @@ class BeamAnalysisControls:
                 return
             owner.heading.setText(f"{label} | Z {owner._plane_z_mm:.6g} mm")
             data = self.plane_data()
+            self.update_labels(data)
+            if data.coordinate_frame == "sector_exit_local":
+                owner.heading.setText(f"{label} | Filter exit frame")
+            if data.status == "Unavailable":
+                self._summary(data)
+                self.readout.setText(" ".join(data.diagnostics))
+                self.readout.setVisible(True)
+                if self.colour_combo.currentData() == "tof":
+                    self.tof.draw(data)
+                return
+            self.readout.setVisible(self.mode in {"intensity", "angle_histogram"}
+                                    or self.colour_combo.currentData() == "tof")
             if self.mode == "interactions":
                 self._draw_interactions(data)
-            elif self.mode in {"angular", "phase_u", "phase_v"}:
-                self._draw_points(data)
+            elif self.mode in self.POINT_MODES:
+                if self.colour_combo.currentData() == "tof":
+                    self.tof.draw(data)
+                else:
+                    self._draw_points(data)
             elif self.mode == "intensity":
                 self._draw_intensity(data)
             elif self.mode == "angle_histogram":
@@ -372,7 +554,7 @@ class BeamAnalysisControls:
         u, v = transverse_view_coordinates(data.x_m, data.y_m, owner._projection_angle_deg)
         tu, tv = transverse_view_coordinates(data.tx, data.ty, owner._projection_angle_deg)
         au, av = np.arctan(tu)*1e3, np.arctan(tv)*1e3
-        x, y = ((au, av) if self.mode == "angular" else
+        x, y = ((u*1e6, v*1e6) if self.mode == "position" else (au, av) if self.mode == "angular" else
                 (u*1e6, au) if self.mode == "phase_u" else (v*1e6, av))
         pool = np.unique(np.linspace(0, data.total_column_count-1,
             min(data.total_column_count, owner.MAX_DISPLAY_RAYS), dtype=int))
@@ -390,6 +572,7 @@ class BeamAnalysisControls:
         axis_x = owner.plot.getAxis("bottom").labelText
         axis_y = owner.plot.getAxis("left").labelText
         xunit = "mrad" if self.mode == "angular" else "µm"
+        yunit = "µm" if self.mode == "position" else "mrad"
         owner._scatter = pg.ScatterPlotItem(
             x=x[selected], y=y[selected], brush=brushes, symbol=symbols,
             size=8 if self.colour_combo.currentData() == "interaction" else 5,
@@ -397,14 +580,22 @@ class BeamAnalysisControls:
             data=[{"source_ray_id": int(data.source_ray_id[index]),
                    "interaction": str(data.interaction_label[index])} for index in np.flatnonzero(selected)],
             tip=lambda px, py, info: f"Source {info['source_ray_id']} | {info['interaction']}\n"
-                f"{axis_x} {px:.6g} {xunit} | {axis_y} {py:.6g} mrad"
+                f"{axis_x} {px:.6g} {xunit} | {axis_y} {py:.6g} {yunit}"
                 + ("\n"+info["emission"] if "emission" in info else ""),
         )
         self._annotate_emission(owner._display_source_ids)
         owner.plot.addItem(owner._scatter)
         owner.plot.addLine(x=0, pen=pg.mkPen("#94a3b8", width=.8))
         owner.plot.addLine(y=0, pen=pg.mkPen("#94a3b8", width=.8))
-        self._set_ranges(self._ranges.get(self.mode, self._point_bounds(x, y)))
+        if self.mode == "position":
+            owner._fit_coordinates = (x, y)
+            owner._settle_panel_layout()
+            if owner._view_scale_initialized:
+                owner._restore_centered_view_ranges()
+            else:
+                owner._fit_beam_view()
+        else:
+            self._set_ranges(self._ranges.get(self.mode, self._point_bounds(x, y)))
         if self.colour_combo.currentData() == "interaction":
             self._interaction_legend(list(zip(data.interaction_key, data.interaction_label,
                 map(tuple, data.interaction_rgb), data.interaction_symbol)))

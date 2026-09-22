@@ -159,14 +159,14 @@ def test_controller_explicit_configuration_disables_fallback(monkeypatch, qapp, 
         factory.assert_not_called()
 
 
-def test_default_primary_failure_still_dispatches_manifest_and_updated_fallback_quota(
+def test_default_primary_failure_dispatches_prepared_manifest_and_updated_fallback_quota(
     monkeypatch, qapp,
 ):
     monkeypatch.setattr(
         controller_module, "ArtifactStore", Mock(side_effect=OSError("primary unavailable")),
     )
     manifest = SimpleNamespace(calculation_signatures={"incident": "exact incident"})
-    capture = Mock(return_value=manifest)
+    capture = Mock(side_effect=AssertionError("Dispatch must use the prepared working point"))
     monkeypatch.setattr(controller_module, "capture_calculation_manifest", capture)
     controller = CalculationController()
     controller.configure_cache(disk_cache_budget_bytes=654321)
@@ -175,15 +175,17 @@ def test_default_primary_failure_still_dispatches_manifest_and_updated_fallback_
     monkeypatch.setattr(controller, "_make_room_for_calculation", Mock(return_value=None))
     start = Mock()
     monkeypatch.setattr(controller.pool, "start", start)
-    state = SimpleNamespace()
+    from temsim.optics.column import default_state
+    state = default_state()
+    generation = controller._begin_request("High accuracy")
 
     controller._dispatch_prepared(
         state, "High accuracy", 3, 0.25,
         model_signature="model", request_signatures={"request": "request"},
-        generation=controller.generation, estimate=0,
+        generation=generation, estimate=0, calculation_manifest=manifest,
     )
 
-    capture.assert_called_once_with(state, ray_count=3, step_mm=0.25)
+    capture.assert_not_called()
     worker = start.call_args.args[0]
     assert worker.calculation_manifest is manifest
     assert worker.allow_project_artifact_fallback

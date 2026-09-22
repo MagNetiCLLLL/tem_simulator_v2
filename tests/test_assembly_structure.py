@@ -17,7 +17,15 @@ def state():
     return default_state()
 
 
-def test_mapping_does_not_mutate_physics_or_historical_snapshot(state, monkeypatch):
+@pytest.fixture
+def filter_state(state):
+    catalog = AssemblyCatalog()
+    catalog.apply(state, replace(catalog.default_selection(), recording="Energy Filter"))
+    return state
+
+
+def test_mapping_does_not_mutate_physics_or_historical_snapshot(filter_state, monkeypatch):
+    state = filter_state
     before = capture_instrument_snapshot(state)
     assembly = state._resolved_assembly
     def no_io(*args, **kwargs):
@@ -28,7 +36,8 @@ def test_mapping_does_not_mutate_physics_or_historical_snapshot(state, monkeypat
         restored = decode_instrument(before.graph)
         assert build_assembly_structure(restored._resolved_assembly).to_dict() == structure.to_dict()
     assert capture_instrument_snapshot(state).digest == before.digest
-    assert len(structure.components) == len(assembly.parts) == 141
+    assert len(structure.components) == len(assembly.parts)
+    assert "energy_filter_slit" in structure.by_key
     for part in assembly.parts:
         row = structure.resolve(part.key)
         assert (row.start_z_mm, row.center_z_mm, row.end_z_mm) == (part.start_z_mm, part.center_z_mm, part.end_z_mm)
@@ -89,7 +98,8 @@ def test_invalid_hierarchy_is_reported_without_silently_dropping_parts(state, pa
         build_assembly_structure(invalid)
 
 
-def test_functional_groups_do_not_split_mechanical_parents_or_filter_path(state):
+def test_functional_groups_do_not_split_mechanical_parents_or_filter_path(filter_state):
+    state = filter_state
     structure = build_assembly_structure(state._resolved_assembly)
     groups = {key: row.group_key for key, row in structure.by_key.items()}
     assert groups["intermediate_lens"] == "imaging"
@@ -139,13 +149,14 @@ def test_tree_preserves_selection_and_parent_links_on_renamed_storage(state, qtb
     assert tree.currentItem().parent().text(0).startswith("Detection and recording")
 
 
-def test_panel_assembly_navigation_and_export_use_same_components(state, qtbot, tmp_path, monkeypatch):
+def test_panel_assembly_navigation_and_export_use_same_components(filter_state, qtbot, tmp_path, monkeypatch):
+    state = filter_state
     import json
     from PySide6.QtWidgets import QFileDialog
     from temsim.gui.assembly_panel import AssemblyPanel
     from temsim.runtime_parameters import runtime_targets
     catalog = AssemblyCatalog()
-    panel = AssemblyPanel(catalog, catalog.default_selection())
+    panel = AssemblyPanel(catalog, catalog.selection_for_resolved(state._resolved_assembly))
     qtbot.addWidget(panel)
     panel.load_assembly(state._resolved_assembly, runtime_targets(state))
     before = capture_instrument_snapshot(state).digest

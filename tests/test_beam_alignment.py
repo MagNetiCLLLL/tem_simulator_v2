@@ -17,18 +17,22 @@ def state():
     return result
 
 
-def test_current_condenser_stigmator_has_one_independent_field_direction():
-    from temsim.physics.core import multipole_focusing_fields
+def test_current_condenser_stigmator_has_two_independent_field_directions():
+    from temsim.physics.core import multipole_focusing_fields, skew_quadrupole_field
     source = state()
     stig = source.condenser_stigmator
     z = np.array([stig.z_mm])
+    def fields():
+        return np.r_[*multipole_focusing_fields(z, source), skew_quadrupole_field(z, source)]
+    stig.strength_x_percent = stig.strength_y_percent = 0.
+    baseline = fields()
     stig.strength_x_percent, stig.strength_y_percent = 1., 0.
-    x = multipole_focusing_fields(z, source)
-    stig.strength_x_percent, stig.strength_y_percent = 0., -1.
-    y = multipole_focusing_fields(z, source)
-    for a, b in zip(x, y, strict=True):
-        np.testing.assert_array_equal(a, b)
-    assert abs(x[0][0]) > 0
+    x = fields() - baseline
+    stig.strength_x_percent, stig.strength_y_percent = 0., 1.
+    y = fields() - baseline
+    assert np.linalg.matrix_rank(np.vstack((x, y)), tol=1e-12) == 2
+    assert x[0] + x[1] == pytest.approx(0., abs=1e-12)
+    assert y[0] + y[1] == pytest.approx(0., abs=1e-12)
 
 
 def test_actual_tip_origin_beam_responds_to_physical_deflector():

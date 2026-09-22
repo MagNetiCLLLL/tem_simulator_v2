@@ -255,7 +255,7 @@ def test_checkpoint_capture_does_not_change_a_non_divisible_rk4_grid():
 def test_checkpoint_density_respects_the_memory_budget():
     ray_count = 100_000
     planes = _column_checkpoint_planes(450.0, 1_600.0, ray_count)
-    used_bytes = len(planes) * ray_count * 4 * np.dtype(np.float64).itemsize
+    used_bytes = len(planes) * ray_count * 5 * np.dtype(np.float64).itemsize
 
     assert used_bytes <= INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES
     assert len(planes) > 0
@@ -264,7 +264,7 @@ def test_checkpoint_density_respects_the_memory_budget():
 def test_default_checkpoint_cache_retains_more_column_history():
     ray_count = 15_000
     planes = _column_checkpoint_planes(450.0, 1_600.0, ray_count)
-    used_bytes = len(planes) * ray_count * 4 * np.dtype(np.float64).itemsize
+    used_bytes = len(planes) * ray_count * 5 * np.dtype(np.float64).itemsize
 
     assert INCIDENT_CHECKPOINT_SPACING_MM == 5.0
     assert INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES == 512 * 1024 * 1024
@@ -279,13 +279,13 @@ def test_checkpoint_cache_disables_capture_if_one_plane_exceeds_budget(
     monkeypatch.setattr(
         simulation_module,
         "INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES",
-        31,
+        39,
     )
 
     assert _column_checkpoint_planes(450.0, 1_600.0, 1) == ()
 
 
 def test_single_checkpoint_budget_prioritizes_exact_endpoint(monkeypatch):
-    monkeypatch.setattr(simulation_module, "INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES", 32)
+    monkeypatch.setattr(simulation_module, "INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES", 40)
     assert _column_checkpoint_planes(450.0, 1_601.23, 1) == (1_601.23,)
     assert _column_checkpoint_planes(450.0, 450.1, 1) == (450.1,)

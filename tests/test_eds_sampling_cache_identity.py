@@ -18,7 +18,7 @@ from temsim.specimen.interaction_types import (
 from temsim.specimen.scene import SpecimenScene
 
 
-EDS_PRODUCTS = {"request", "eds", "sample_region"}
+EDS_PRODUCTS = {"request", "eds", "eds_response", "sample_region"}
 
 
 def changed(before, after):
@@ -69,7 +69,7 @@ def test_eds_sampling_settings_survive_state_and_profile_serialization(tmp_path)
     _, values = read_profile(path)
     loaded = default_state()
     skipped = apply_profile_values(loaded, values)
-    assert not any("eds_overlap_sampling" in str(item) for item in skipped)
+    assert skipped is None
     assert loaded.sample.eds_overlap_sampling_enabled is False
     assert loaded.sample.eds_overlap_sampling_points == 1024
 

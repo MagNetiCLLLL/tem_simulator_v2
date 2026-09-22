@@ -91,7 +91,7 @@ confirmed_prism_type = "large_tapered_prism"
 bend_angle_status = "provisional_patent_example_not_product_confirmed"
 outer_yoke_envelope_status = "not_public_not_drawn"
 mechanical_geometry_status = "provisional_parameterized_non_oem"
-mechanical_geometry_source = "Legacy simulator reference orbit retained as an adjustable start value; public Iliad evidence confirms a large tapered prism but not radius, bend angle, gap or field length."
+mechanical_geometry_source = "Legacy simulator reference orbit retained as an adjustable start value; public energy-filter evidence confirms a large tapered prism but not radius, bend angle, gap or field length."
 
 [[parts]]
 order = 101
@@ -473,7 +473,7 @@ electrode_length_mm = 8.0
 electrode_gap_mm = 10.0
 mechanical_outer_diameter_mm = 30.0
 mechanical_geometry_status = "provisional_parameterized_non_oem"
-mechanical_geometry_source = "Public material confirms rapid deflection among five Zebra strips; plate geometry and coordinate are not public."
+mechanical_geometry_source = "Public material confirms rapid deflection among five EELS detector strips; plate geometry and coordinate are not public."
 
 [[parts]]
 order = 116
@@ -493,7 +493,7 @@ mechanical_part_role = "optional_output_plane"
 mechanical_only = true
 active_width_mm = 57.344
 mechanical_geometry_status = "provisional_parameterized_non_oem"
-mechanical_geometry_source = "Existing simulator EFTEM plane retained as an adjustable non-OEM reference; public Iliad mechanical dimensions are not available."
+mechanical_geometry_source = "Existing simulator EFTEM plane retained as an adjustable non-OEM reference; reference energy-filter mechanical dimensions are not available."
 
 [[parts]]
 order = 117

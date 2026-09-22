@@ -7,6 +7,7 @@ import pytest
 
 from temsim.physics.axis_regular_potential import AxisRegularPotential
 from temsim.physics.axisymmetric_cut_field import AxisymmetricCutField
+from temsim.optics.electron_gun.tip_surface import load_tip_surface_reference
 
 
 def nodal_fixture():
@@ -103,7 +104,7 @@ def test_real_gun_axis_limit_is_stable_and_tip_boundary_is_unchanged(electrode_c
     from temsim.optics.column import default_state
     from temsim.physics.grounded_tip_field import grounded_field
     gun = default_state().electron_gun
-    model = gun.emitter.surface_model
+    model = load_tip_surface_reference()
     gun.emitter.surface_model = replace(model,
         field_numerics=replace(model.field_numerics, electrode_cells_per_bore=electrode_cells))
     field = grounded_field(gun)
@@ -138,6 +139,7 @@ def test_numerical_option_roundtrips_and_invalidates_only_matching_cache_identit
     from temsim.instrument_snapshot import capture_instrument_snapshot
     state = default_state()
     gun = state.electron_gun
+    gun.emitter.surface_model = load_tip_surface_reference()
     before = field_request(gun), gun._cache_key(193)
     original = gun.emitter.surface_model
     assert "axis_core_fraction" not in original.to_dict()["field_numerics"]
@@ -170,7 +172,9 @@ def test_static_energy_step_with_regular_potential_preserves_work():
 
 def test_compiled_and_numpy_paths_agree_in_cut_cells_core_and_off_axis():
     from temsim.optics.column import default_state
-    field = default_state().electron_gun.electric_field
+    gun = default_state().electron_gun
+    gun.emitter.surface_model = load_tip_surface_reference()
+    field = gun.electric_field
     compiled = field._regular
     reference = AxisRegularPotential(field._fem, bore_radius_m=.002,
         fraction=compiled.fraction, compiled=False)

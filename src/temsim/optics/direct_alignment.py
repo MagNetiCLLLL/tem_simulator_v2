@@ -2082,7 +2082,7 @@ def _solve_direct_alignment(
                     " Projector field calibration status: "
                     + ", ".join(statuses)
                     + "; update the recording-system TOML from measured or "
-                    "manufacturer field calibration before expanding limits."
+                    "validated field calibration for the simulator geometry before expanding limits."
                 )
         return DirectAlignmentResult(
             key=definition.key,

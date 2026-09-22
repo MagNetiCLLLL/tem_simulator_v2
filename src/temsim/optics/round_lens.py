@@ -451,11 +451,8 @@ class AnchoredRoundLensComponent(Lens):
         }
 
 
-def restore_anchored_round_lens(
-    component,
-    values,
-    legacy_anchor_reference_z_mm=None,
-):
+def restore_anchored_round_lens(component, values):
+    """Restore current fields, retaining factory geometry when not serialized."""
     values = dict(values)
     allowed = component.__dataclass_fields__
     object.__setattr__(component, "_position_coupling_ready", False)
@@ -467,17 +464,5 @@ def restore_anchored_round_lens(
             ]
         if attribute in allowed:
             object.__setattr__(component, attribute, value)
-    if "optical_reference_downstream_of_anchor_mm" not in values:
-        anchor_reference = float(
-            legacy_anchor_reference_z_mm
-            if legacy_anchor_reference_z_mm is not None
-            else component.z_mm
-            - component.optical_reference_downstream_of_anchor_mm
-        )
-        object.__setattr__(
-            component,
-            "optical_reference_downstream_of_anchor_mm",
-            float(values.get("z_mm", component.z_mm)) - anchor_reference,
-        )
     object.__setattr__(component, "_position_coupling_ready", True)
     return component.validate()

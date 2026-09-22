@@ -16,7 +16,7 @@ import numpy as np
 
 PLAN_INDICES = (0, 1, 2, 3, 4, 6, 7, 8, 9, 14, 15, 16, 17, 18)
 PARTICLE_INDICES = (5, 10, 11, 12, 13)
-SCHEMA = b"column-rk4-f64-quadrupole-tensor-v2"
+SCHEMA = b"column-rk4-f64-quadrupole-tensor-tof-v3"
 _DEVICE_BUDGET = ContextVar("column_device_budget", default=8 * 1024**3)
 _LAST_RECEIPT = ContextVar("column_device_receipt", default=None)
 
@@ -31,23 +31,24 @@ def device_budget(byte_count):
 
 
 def plan_identity(inputs):
-    inputs = _with_skew(inputs)
+    inputs = _validated_inputs(inputs)
     digest = sha256(SCHEMA)
+    digest.update(str(len(inputs)).encode())  # Timing and ray-only buffers differ.
     for index in PLAN_INDICES:
         value = np.ascontiguousarray(inputs[index])
         digest.update(str((index, value.shape, value.dtype.str)).encode())
         digest.update(memoryview(value).cast("B"))
     digest.update(str(tuple(inputs[i].dtype.str for i in PARTICLE_INDICES)).encode())
+    if len(inputs) == 21:
+        digest.update(str(tuple(inputs[i].dtype.str for i in (19, 20))).encode())
     return digest.hexdigest()
 
 
-def _with_skew(inputs):
-    # Historical eighteen-array callers represent zero skew, not a new source.
+def _validated_inputs(inputs):
+    """Require the current explicit tensor (and optional particle-clock) input."""
     inputs = tuple(inputs)
-    if len(inputs) == 18:
-        inputs += (np.zeros_like(inputs[0]),)
-    if len(inputs) != 19 or any(np.asarray(a).ndim != 1 for a in inputs):
-        raise ValueError("RK4 device inputs must be nineteen one-dimensional arrays")
+    if len(inputs) not in (19, 21) or any(np.asarray(a).ndim != 1 for a in inputs):
+        raise ValueError("RK4 device inputs must be nineteen arrays, with optional time and inverse speed")
     if inputs[18].shape != inputs[0].shape:
         raise ValueError("RK4 skew coefficients must match the other quadrupole stages")
     return inputs
@@ -107,12 +108,16 @@ class RayDeviceCache:
     def execute(self, cuda, kernel, inputs):
         self.assert_usable()
         started = perf_counter()
-        inputs = _with_skew(inputs)
+        inputs = _validated_inputs(inputs)
         key = plan_identity(inputs)
         rays, saved, checkpoints = inputs[10].size, inputs[16].size, inputs[17].size
-        if any(inputs[i].size != rays for i in PARTICLE_INDICES):
+        timed = len(inputs) == 21
+        particle_indices = (*PARTICLE_INDICES, 19, 20) if timed else PARTICLE_INDICES
+        if any(inputs[i].size != rays for i in particle_indices):
             raise ValueError("RK4 particle arrays must have identical populations")
         required = sum(a.nbytes for a in inputs) + rays * (saved * 16 + checkpoints * 32)
+        if timed:
+            required += rays*(saved+checkpoints)*8
         if required > _DEVICE_BUDGET.get():
             from temsim.physics.compute_backend import GPUExecutionError
             raise GPUExecutionError("out_of_memory", "Column CUDA buffers exceed the shared device reservation")
@@ -137,10 +142,13 @@ class RayDeviceCache:
                     receipt["plan_upload_s"] = perf_counter() - before
                     before = perf_counter()
                     particles = {i: cuda.device_array(inputs[i].shape, dtype=inputs[i].dtype)
-                                 for i in PARTICLE_INDICES}
+                                 for i in particle_indices}
                     outputs = [cuda.device_array((n, rays), dtype=dtype)
                                for n, dtype in ((saved, np.float32), (checkpoints, np.float64))
                                for _ in range(4)]
+                    if timed:
+                        outputs += [cuda.device_array((n, rays), dtype=np.float64)
+                                    for n in (saved, checkpoints)]
                     receipt["allocation_s"] = perf_counter() - before
                     token = _allocation_token(context, particles[10])
                     entry = dict(context=context, key=key, rays=rays, constants=constants,
@@ -152,7 +160,7 @@ class RayDeviceCache:
                 for i, array in particle_views.items():
                     array.copy_to_device(inputs[i])
                 receipt["particle_upload_s"] = perf_counter() - before
-                device_inputs = [entry["constants"].get(i, particle_views.get(i)) for i in range(19)]
+                device_inputs = [entry["constants"].get(i, particle_views.get(i)) for i in range(len(inputs))]
                 outputs = [array[:, :rays] for array in entry["outputs"]]
                 before = perf_counter()
                 if rays:

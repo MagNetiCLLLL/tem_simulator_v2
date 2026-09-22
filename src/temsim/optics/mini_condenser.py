@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from temsim import module_manifest
-from temsim.component_keys import MINI_CONDENSER, canonical_lens_key
+from temsim.component_keys import MINI_CONDENSER, require_current_lens_key
 from temsim.optics.condenser_lens import AxialFieldTerm
 from temsim.optics.round_lens import (
     RoundLensComponent,
@@ -303,7 +303,7 @@ def create_mini_condenser():
 
 def mini_condenser_from_dict(data):
     values = dict(data)
-    values["key"] = canonical_lens_key(values.get("key", ""))
+    values["key"] = require_current_lens_key(values.get("key"), expected=MINI_CONDENSER)
     component = create_mini_condenser()
     manifest_owned = {
         "z_mm",

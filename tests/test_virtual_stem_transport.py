@@ -61,7 +61,9 @@ def test_geometric_stem_consumes_shared_specimen_exit_without_retracing(
         scan_enabled=False,
         scan_kick_mrad=lambda _time_s: (0.0, 0.0),
     )
+    from temsim.vacuum import VacuumMap
     state = SimpleNamespace(
+        vacuum_map=VacuumMap(),
         simulation_time_s=0.0,
         sample=SimpleNamespace(
             inserted=True,

@@ -1,0 +1,141 @@
+{
+  "test_count": 5927,
+  "outcomes": {
+    "passed": 5926,
+    "skipped": 1
+  },
+  "unexecuted": [],
+  "changed_input_files": [],
+  "input_file_count": 1056,
+  "input_digest": "69f650de1cd2dc8e7601332ef6aca028d0527101ce81cca202717f2250b2750b",
+  "executions": [
+    {
+      "shard": 0,
+      "exit_code": 0,
+      "tests": 1752,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 900.582
+    },
+    {
+      "shard": 1,
+      "exit_code": 0,
+      "tests": 567,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "seconds": 911.471
+    },
+    {
+      "shard": 2,
+      "exit_code": 0,
+      "tests": 1805,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1096.19
+    },
+    {
+      "shard": 3,
+      "exit_code": 0,
+      "tests": 1803,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1169.512
+    }
+  ],
+  "skipped": [
+    {
+      "nodeid": "tests/test_direct_alignment.py::test_fixed_lens_aperture_scaling_matches_recalculated_toml_metrics",
+      "when": "call",
+      "outcome": "skipped",
+      "duration": 0.00012830000014218967,
+      "detail": "('F:\\\\tem_simulator_v2\\\\tests\\\\test_direct_alignment.py', 364, 'Skipped: stored aperture-scaling metrics predate the C2 aperture move')",
+      "shard": 1
+    }
+  ],
+  "initial_attempt_note": "Three obsolete test expectations failed in shard 1; only its two test modules changed. Full shard 1 restarted from the beginning; its discarded attempt is preserved. Production inputs unchanged throughout all final executions.",
+  "packaging": {
+    "working-wheel-check": {
+      "wheel": "tmp\\audit-fixes-20260921\\wheel\\tem_simulator_v2-0.1.0-py3-none-any.whl",
+      "python_modules": 447,
+      "missing_modules": [],
+      "extra_modules": [],
+      "changed_modules": [],
+      "config_files": 32,
+      "svg_assets": 9
+    },
+    "installed-smoke": {
+      "package_path": "F:\\tem_simulator_v2\\tmp\\audit-fixes-20260921\\installed\\temsim\\__init__.py",
+      "config_root": "F:\\tem_simulator_v2\\tmp\\audit-fixes-20260921\\installed\\configs",
+      "window_created": true,
+      "window_title": "TEM Simulator v2",
+      "tabs": 13,
+      "startup_transport_executed": false
+    },
+    "independent_build_review": {
+      "status": "passed",
+      "checks": [
+        "PEP517 requirements for wheel and sdist",
+        "prepare metadata",
+        "wheel",
+        "sdist",
+        "wheel from sdist",
+        "runtime package and dependency imports blocked",
+        "wheel Python modules exactly equal current source",
+        "stale outputs excluded and left untouched",
+        "own temporary wheel staging cleaned"
+      ],
+      "staging_directories": [
+        "C:\\Users\\54019\\AppData\\Local\\Temp\\temsim-wheel-6fcnnraa",
+        "C:\\Users\\54019\\AppData\\Local\\Temp\\temsim-wheel-inonbcuv"
+      ],
+      "review_note": "Initial cleanup harness incorrectly required no globally prefixed directories; unrelated preexisting temsim-wheel-check remains untouched. Corrected check verifies only the two directories allocated by these builds."
+    }
+  },
+  "status": "completed",
+  "scope": "Five reproduced project-audit defects and stale wheel contents; classical model preserved; coherent development paused.",
+  "affected_files": {
+    "modified": [
+      "pyproject.toml",
+      "src/temsim/gui/beam_analysis.py",
+      "src/temsim/gui/beam_tof_analysis.py",
+      "src/temsim/gui/calculation_controller.py",
+      "src/temsim/gui/diagnostic_tabs.py",
+      "src/temsim/gui/workspace_layouts.py",
+      "src/temsim/particle_section_io.py",
+      "src/temsim/runtime_parameters.py",
+      "src/temsim/simulation_pipeline.py",
+      "tests/test_archive_budget_gui.py",
+      "tests/test_calculation_controller.py",
+      "tests/test_calculation_timing_view.py",
+      "tests/test_cif_import_formats.py",
+      "tests/test_flight_time_display.py",
+      "tests/test_section_archiving_gui.py",
+      "tests/test_workspace_layouts.py"
+    ],
+    "added": [
+      "src/temsim/_build.py",
+      "src/temsim/gui/filter_plane_data.py",
+      "tests/test_camera_pixel_validation.py",
+      "tests/test_filter_plane_analysis.py",
+      "tests/test_particle_pipeline_cancellation.py",
+      "tests/test_section_archive_identity.py"
+    ],
+    "removed": [
+      "src/temsim/gui/filter_time_data.py"
+    ]
+  },
+  "verification": {
+    "compileall": "passed serially after all test processes completed",
+    "pip_check": "passed",
+    "git_diff_check": "passed",
+    "runtime": ".venv/Scripts/python.exe",
+    "numerical_threads_per_shard": 2,
+    "nested_blas_threads": 1,
+    "shards": 4,
+    "source_inputs_unchanged": true
+  }
+}

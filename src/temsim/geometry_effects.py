@@ -6,7 +6,7 @@ import json
 from temsim.parameter_impact import component_impact_summary
 
 GEOMETRY_EFFECTS_SCHEMA = "geometry-consumers-v1"
-GEOMETRY_POLICIES = ("require_full_geometry", "authoritative_dimensions", "legacy_authoritative_dimensions")
+GEOMETRY_POLICIES = ("require_full_geometry", "authoritative_dimensions")
 
 
 def geometry_effects(part, **context):
@@ -27,10 +27,9 @@ def geometry_effects(part, **context):
 def field_geometry_admission(state, binding, descriptor):
     """Run before provider cache lookup; an unsupported new CAD edit must fail.
 
-    Existing recipes retain a named legacy approximation. New research recipes
-    require represented geometry unless the user explicitly selects dimensions.
+    Require represented geometry unless the user explicitly selects dimensions.
     """
-    policy = descriptor.get("geometry_policy", "legacy_authoritative_dimensions")
+    policy = descriptor.get("geometry_policy", "require_full_geometry")
     if policy not in GEOMETRY_POLICIES:
         raise ValueError("Unknown field geometry policy")
     geometry = json.loads(binding.canonical_geometry_json)["lens_assembly"]
@@ -41,8 +40,7 @@ def field_geometry_admission(state, binding, descriptor):
         raise ValueError("Axisymmetric field solver cannot consume model_3d features/transforms on " + ", ".join(unsupported)
                          + "; explicitly choose authoritative_dimensions approximation or provide a matching 3D field model")
     report = {"schema": GEOMETRY_EFFECTS_SCHEMA, "policy": policy, "ignored_model_3d_parts": unsupported,
-            "status": "explicit_approximation" if unsupported else "authoritative_dimensions_represented",
-            "legacy_policy": policy == "legacy_authoritative_dimensions"}
+            "status": "explicit_approximation" if unsupported else "authoritative_dimensions_represented"}
     key = json.loads(binding.canonical_geometry_json).get("lens_key", "unknown")
     state._geometry_effects_diagnostics = {**getattr(state, "_geometry_effects_diagnostics", {}), key: report}
     return report
@@ -57,7 +55,9 @@ def admit_state_geometry(state):
     from temsim.physics.nonlinear_circuits import resolve_nonlinear_provider
     for lens in state.lenses:
         recipe = state.lens_field_map_descriptors.get(lens.key,{})
-        if recipe.get("geometry_policy") != "require_full_geometry":
+        if recipe.get("geometry_policy", "require_full_geometry") not in GEOMETRY_POLICIES:
+            raise ValueError("Unknown field geometry policy")
+        if recipe.get("geometry_policy", "require_full_geometry") != "require_full_geometry":
             continue
         binding = lens_geometry_binding(state,lens.key,lens)
         if recipe.get("solver") == "axisymmetric_nonlinear_fem":

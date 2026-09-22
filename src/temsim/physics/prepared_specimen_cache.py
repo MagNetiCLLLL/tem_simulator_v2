@@ -149,15 +149,15 @@ class PreparedSpecimenCache:
             self._generation += 1
             self._entries.clear()
             self._memory.clear()
-
-    def retained_roots(self):
-        with self._lock:
-            return tuple(self._entries.values())
             # Running callers still receive their result, but new requests do
             # not join a build begun before clear().
             self._inflight.clear()
             self._hits = self._misses = self._builds = self._waits = 0
             self._failures = self._evictions = self._skipped = 0
+
+    def retained_roots(self):
+        with self._lock:
+            return tuple(self._entries.values())
 
     def info(self):
         with self._lock:

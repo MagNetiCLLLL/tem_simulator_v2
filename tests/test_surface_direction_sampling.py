@@ -11,7 +11,8 @@ from temsim.optics.electron_gun.tip_surface import (
 from temsim.optics.electron_gun.field_emission import FieldEmissionGun
 from temsim import module_manifest
 from temsim.optics.electron_gun.tip_assembly import model_from_part
-from temsim.physics.ray_identity import emission_reference, emission_colour_values, source_identity
+from temsim.physics.ray_identity import emission_reference, emitted_source_identity
+from temsim.gui.emission_source_data import EmissionSourceData
 
 
 @pytest.mark.parametrize("count", [9, 49, 193, 1000, 15000])
@@ -79,24 +80,25 @@ def test_launch_lineage_uses_surface_not_resampled_plane_and_full_hemisphere():
     model = load_tip_surface_reference()
     bundle = surface_bundle(model, 49)
     reference = emission_reference(bundle, model)
-    incident = SimpleNamespace(x=np.full((2, 49), 1.), y=np.full((2, 49), -2.))
     trace = SimpleNamespace(exit_bundle=SimpleNamespace(ray_id=bundle.ray_id), emission_reference=reference)
-    ids, angles = source_identity(incident, trace)
+    ids, angles = emitted_source_identity(trace)
     expected = np.mod(np.arctan2(bundle.y_m, bundle.x_m), 2*np.pi)
     np.testing.assert_allclose(angles, expected, atol=1e-14)
     simulation = SimpleNamespace(gun_trace=trace)
+    data = EmissionSourceData.from_simulation(simulation)
     selected = ids[[5, 1, 5, 0]]  # reordered, repeated scattered ancestors
     for mode in ("emission_direction", "emission_angle"):
-        values = emission_colour_values(simulation, ids, mode)
-        np.testing.assert_array_equal(emission_colour_values(simulation, selected, mode), values[[5, 1, 5, 0]])
-        assert np.isnan(emission_colour_values(simulation, [-1, 999], mode)).all()
-        assert np.isnan(emission_colour_values(SimpleNamespace(), ids, mode)).all()
+        values = data.values(ids, mode)
+        np.testing.assert_array_equal(data.values(selected, mode), values[[5, 1, 5, 0]])
+        assert np.isnan(data.values([-1, 999], mode)).all()
+        assert np.isnan(EmissionSourceData.from_simulation(SimpleNamespace()).values(ids, mode)).all()
     assert not reference["direction"].flags.writeable
     # Slopes alone invert azimuth for dz<0. The full original direction must win.
     trace.emission_reference = {"ray_id": np.array([12]), "direction": np.array([[.8, 0, -.6]]),
                                 "normal": np.array([[1., 0, 0]])}
-    assert emission_colour_values(simulation, [12], "emission_direction")[0] == 0.
-    assert emission_colour_values(simulation, [12], "emission_angle")[0] == pytest.approx(np.arccos(.8))
+    data = EmissionSourceData.from_simulation(simulation)
+    assert data.values([12], "emission_direction")[0] == 0.
+    assert data.values([12], "emission_angle")[0] == pytest.approx(np.arccos(.8))
 
 
 def test_direction_budget_editor_is_draft_only(qtbot):

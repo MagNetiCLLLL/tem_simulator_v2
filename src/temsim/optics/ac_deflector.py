@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from math import isfinite, pi, sin
 from typing import ClassVar
 
 from temsim import module_manifest
 from temsim.component_keys import (
     AC_DEFLECTOR,
-    canonical_corrector_element_key,
 )
 
 
@@ -305,22 +304,6 @@ class AcDeflectorComponent:
     @property
     def effective_aperture_radius_mm(self):
         return self.mechanical_clear_bore_diameter_mm / 2.0
-
-    @property
-    def dc_offset_x_mrad(self):
-        return self.kick_x_mrad
-
-    @dc_offset_x_mrad.setter
-    def dc_offset_x_mrad(self, value):
-        self.kick_x_mrad = float(value)
-
-    @property
-    def dc_offset_y_mrad(self):
-        return self.kick_y_mrad
-
-    @dc_offset_y_mrad.setter
-    def dc_offset_y_mrad(self, value):
-        self.kick_y_mrad = float(value)
 
     def validate(self):
         if self.calibration_mode not in ("automatic", "held"):
@@ -637,6 +620,12 @@ class AcDeflectorComponent:
             "shape_profile": self.shape_profile,
         }
 
+    def to_dict(self):
+        """Current operating record; lower gain is a derived matrix readback."""
+        values = asdict(self)
+        values.pop("lower_coil_gain")
+        return values
+
     def draw_ray_overlay(self):
         return {
             "key": self.key,
@@ -726,9 +715,13 @@ def create_ac_deflector():
 
 
 def ac_deflector_from_dict(data):
-    """Restore a paired AC record or migrate the obsolete single plane."""
+    """Restore the current paired-coil controls using TOML-owned geometry."""
 
     values = dict(data)
+    if "lower_coil_gain" in values:
+        raise ValueError("Scan lower_coil_gain is a derived readback, not an operating input")
+    if values.get("key") != AC_DEFLECTOR:
+        raise ValueError(f"Scan record requires component key {AC_DEFLECTOR!r}.")
     component = create_ac_deflector()
     for attribute in (
         "kick_x_mrad",
@@ -754,11 +747,5 @@ def ac_deflector_from_dict(data):
     ):
         if attribute in values:
             setattr(component, attribute, values[attribute])
-    component.key = canonical_corrector_element_key(
-        values.get("key", AC_DEFLECTOR)
-    )
-    component.key = AC_DEFLECTOR
-    if component.wobble_enabled and component.scan_enabled:
-        component.wobble_enabled = False
     component.corrector = AC_DEFLECTOR_DEFINITION.owner
     return component.validate()

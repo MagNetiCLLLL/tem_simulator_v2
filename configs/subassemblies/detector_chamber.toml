@@ -78,7 +78,7 @@ housing_outside_axial_model = true
 [[parts]]
 order = 18
 key = "camera"
-name = "Camera"
+name = "Pixelated camera"
 branch = "detection"
 local_start_z_mm = 399.75
 local_center_z_mm = 400.0
@@ -194,7 +194,7 @@ contained_recording_plane_keys = [
 ]
 upstream_boundary_aperture_key = "projection_chamber_dpa_aperture"
 mechanical_geometry_status = "public_titan_topology_absolute_dimensions_provisional_non_oem"
-mechanical_geometry_source = "Public Titan column diagrams place a distinct viewing/detector section immediately below P2 and show HAADF before the main screen and BF/DF stack. The configured 772.5-1100 mm envelope and 180/200 mm ID/OD are an adjustable simulator drawing, not an OEM production dimension."
+mechanical_geometry_source = "Public transmission-electron-microscope column diagrams place a distinct viewing/detector section immediately below P2 and show HAADF before the main screen and BF/DF stack. The configured 772.5-1100 mm envelope and 180/200 mm ID/OD are an adjustable simulator drawing, not an OEM production dimension."
 mechanical_geometry_source_urls = [
     "https://repository.uantwerpen.be/docman/irua/6e3afa/130499.pdf",
     "https://scholarsbank.uoregon.edu//bitstreams/d56b2b6e-e2d1-4fbe-abe0-eafe58bfee67/download",
@@ -228,7 +228,7 @@ mechanical_axial_thickness_status = "not_public_zero_length_reference_with_schem
 conjugate_plane_status = "operating_mode_dependent_not_imposed_by_mechanical_layout"
 optical_constraint_policy = "always_inserted_hard_edge_no_automatic_preset_recalculation"
 mechanical_geometry_status = "documented_family_topology_titan_specific_dimensions_unverified"
-mechanical_geometry_source = "FEI/Thermo Fisher manuals place a differential-pumping aperture between the column and projection chamber and document a 200 micrometre aperture for Tecnai/Talos-family instruments. The Titan-specific plate thickness and bore are not established by a production drawing; the zero-length axial row preserves the interface without inventing thickness."
+mechanical_geometry_source = "Public microscope manuals place a differential-pumping aperture between the column and projection chamber and document a 200 micrometre reference aperture. This simulator does not reproduce a specific instrument; its plate thickness and bore are not established by a production drawing. The zero-length axial row preserves the interface without inventing thickness."
 mechanical_geometry_source_urls = [
     "https://imf.ucmerced.edu/sites/g/files/ufvvjh1081/f/documents/tem_talosbasicguide_1.pdf",
     "https://www.dartmouth.edu/emlab/docs/fei_tecnai_f20_column_description_doc.pdf",

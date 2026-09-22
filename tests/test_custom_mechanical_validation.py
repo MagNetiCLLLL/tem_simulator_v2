@@ -8,7 +8,7 @@ import pytest
 
 from temsim.component_operations import added_component_document, copied_component_document, make_component
 from temsim.magnetic_circuits import belongs_to_circuit, circuit_inventory, optical_owner
-from temsim.module_manifest import validate_document
+from temsim.module_manifest import read_document, validate_document
 from temsim.parameter_impact import component_impact_summary, describe_parameter_impact
 from temsim.part_materials import (
     is_magnetostatic_body, material_application_scope, material_catalog, validate_part_materials,
@@ -18,7 +18,7 @@ from temsim.paths import INSTRUMENT_CONFIG_ROOT
 
 
 def document(relative):
-    return tomllib.loads((INSTRUMENT_CONFIG_ROOT / relative).read_text(encoding="utf-8-sig"))
+    return read_document(INSTRUMENT_CONFIG_ROOT / relative)
 
 
 def part(doc, key):
@@ -30,7 +30,7 @@ MODULES = tuple(path for path in INSTRUMENT_CONFIG_ROOT.rglob("*.toml") if path.
 
 @pytest.mark.parametrize("path", MODULES, ids=lambda path: str(path.relative_to(INSTRUMENT_CONFIG_ROOT)))
 def test_each_native_module_accepts_independent_solid_without_changing_native_rows(path):
-    original = tomllib.loads(path.read_text(encoding="utf-8-sig"))
+    original = read_document(path)
     candidate, _ = added_component_document(original, make_component(
         key="custom_fixture", inner_diameter_mm=0, center_z_mm=12))
     validate_document(candidate)

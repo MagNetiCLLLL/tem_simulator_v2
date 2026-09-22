@@ -24,7 +24,7 @@ def diagnose(folder):
     raw=np.load(folder/'raw_scan.npz')
     state=default_state(); catalog=AssemblyCatalog()
     selection,values=read_profile(folder/'operating_profile.toml')
-    catalog.apply(state,selection); assert not apply_profile_values(state,values)
+    catalog.apply(state,selection); apply_profile_values(state,values)
     n=int(m['grid_pixels_x']); length=float(m['field_of_view_angstrom'])
     spacing=length/n; wavelength=float(m['wavelength_angstrom'])
     frequencies=np.fft.fftshift(np.fft.fftfreq(n,d=spacing))

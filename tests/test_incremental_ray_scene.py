@@ -101,10 +101,54 @@ def _result(scale=1.0, *, lens_z=3.0, bore_mm=2.0, aperture_mm=0.15,
         ),
         lens_crossovers=({"z_mm": 4.0 + scale * 0.2, "rms_radius_mm": 0.001,
                           "name": "Synthetic crossover"},),
-        aperture_stops=({"key": "test_aperture", "enabled": True,
+        aperture_stops=({"key": "test_aperture", "shape": "circular", "enabled": True,
                          "installed": True, "z_mm": 7.0, "diameter_mm": aperture_mm,
                          "offset_x_mm": 0.01, "offset_y_mm": -0.02},),
     )
+
+
+@pytest.mark.parametrize("changed_field, changed_value", [
+    ("slit_gap_mm", 0.8), ("slit_centre_x_mm", 0.5),
+    ("slit_inserted", False), ("bore_diameter_mm", 4.0),
+])
+def test_slit_controls_refresh_only_aperture_drawing(make_workspace, changed_field, changed_value):
+    view = make_workspace()
+    initial = _result()
+    record = {
+        "key": "test_aperture", "shape": "two_blade_slit", "enabled": True,
+        "installed": True, "z_mm": 7.0, "bore_diameter_mm": 2.0,
+        "slit_gap_mm": 0.2, "slit_centre_x_mm": 0.2, "slit_inserted": True,
+    }
+    initial.aperture_stops = (record,)
+    view.display_result(initial, "Preview")
+    previous = view.aperture_marker_items[0]
+    lens, walls = _marker(view, "Test Lens"), tuple(view.column_wall_items)
+    changed = _result(1.2)
+    changed.aperture_stops = ({**record, changed_field: changed_value},)
+    view.display_result(changed, "Preview")
+    assert view.aperture_marker_items[0] is not previous
+    assert _marker(view, "Test Lens") is lens
+    assert tuple(view.column_wall_items) == walls
+    assert "SLIT OPTICAL STOP" in view.aperture_marker_items[0].label.toPlainText()
+    assert "Two-blade slit" in view.aperture_marker_items[0].toolTip()
+    assert "Circular radius" not in view.aperture_marker_items[0].toolTip()
+    _, _, centre, half_span = view._aperture_span_records[0]
+    if changed_field == "slit_inserted":
+        assert (centre, half_span) == pytest.approx((0.0, 1.0))
+    else:
+        assert centre == pytest.approx(changed.aperture_stops[0]["slit_centre_x_mm"])
+        assert half_span == pytest.approx(changed.aperture_stops[0]["slit_gap_mm"] / 2)
+    # Rotation reuses the graphics but changes the projected physical opening.
+    aperture = view.aperture_marker_items[0]
+    view._set_projection_angle(90.0)
+    assert view.aperture_marker_items[0] is aperture
+    assert "Allowed Y opening" in aperture.toolTip()
+    changed_again = _result(1.4)
+    changed_again.aperture_stops = changed.aperture_stops
+    before_span = view._aperture_span_records[0][-2:]
+    view.display_result(changed_again, "Preview")
+    assert view.aperture_marker_items[0] is aperture
+    assert view._aperture_span_records[0][-2:] == pytest.approx(before_span)
 
 
 @pytest.fixture

@@ -394,14 +394,22 @@ def _component_payload(component, *, include_geometry=False):
 
 def _restore_component_settings(component, row):
     allowed = component.__dataclass_fields__
+    extra = {"quadrature", "curvature_nm_inv", "emission_geometry_model", "coherence", "surface_model"} if isinstance(component, ColdFieldEmitter) else set()
+    unknown = set(row) - set(allowed) - extra
+    if unknown:
+        raise ValueError(f"Unknown {component.key} fields: {', '.join(sorted(unknown))}")
+    if row.get("key") != component.key:
+        raise ValueError(f"Electron-gun component key must be {component.key}")
     if isinstance(component, ColdFieldEmitter):
         from temsim.optics.electron_gun.emitter import EmissionQuadrature
         component.quadrature = None if row.get("quadrature") is None else EmissionQuadrature(**row["quadrature"])
-        from temsim.optics.electron_gun.tip_curvature import LEGACY_MODEL
+        from temsim.optics.electron_gun.tip_curvature import MODEL
         component.curvature_nm_inv = row.get("curvature_nm_inv", 0.0)
-        component.curvature_model = row.get("emission_geometry_model", LEGACY_MODEL)
+        if component.curvature_nm_inv and "emission_geometry_model" not in row:
+            raise ValueError("Curved tip records require an explicit emission_geometry_model")
+        component.curvature_model = row.get("emission_geometry_model", MODEL)
     if isinstance(component, ElectrostaticGunLens) and "voltage_reference" not in row:
-        component.voltage_reference = "extractor"  # old additive semantics, never migrate
+        raise ValueError("Electrostatic gun lens requires explicit voltage_reference")
     if isinstance(component, ColdFieldEmitter) and "surface_model" not in row:
         component.surface_model = None  # Explicit planar record; never infer a curved source.
     for attribute, value in row.items():
@@ -834,19 +842,6 @@ class FieldEmissionGun:
         self.validate()
         return self.monochromator
 
-    def migrate_legacy_monochromator_bay(self):
-        """Discard legacy geometry and reload the selected TOML module."""
-
-        if self.monochromator is None:
-            return None
-        self.monochromator.installation_model_version = 3
-        self.monochromator.accelerator_restore_profile = None
-        self.monochromator.installed = True
-        self.apply_manifest_geometry(True)
-        self._bind_c1_mechanism()
-        self.validate()
-        return self.monochromator
-
     @property
     def field_supports_mm(self):
         if getattr(self.emitter, "surface_model", None) is not None:
@@ -997,15 +992,6 @@ def field_emission_gun_from_dict(data=None):
         integrator.get("history_step_mm", gun.history_step_mm)
     )
     gun._bind_c1_mechanism()
-    if (
-        gun.monochromator_installed
-        and (
-            int(gun.monochromator.installation_model_version) < 2
-            or gun.monochromator.wien.mechanical_center_from_tip_mm
-            > gun.accelerator.mechanical_center_from_tip_mm
-        )
-    ):
-        gun.migrate_legacy_monochromator_bay()
     gun.apply_manifest_geometry(gun.monochromator_installed)
     gun.validate()
     # Preserve historical data without activation. Production source guards

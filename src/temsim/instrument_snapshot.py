@@ -1,4 +1,4 @@
-"""Exact working-point records, separate from migrating operating profiles.
+"""Exact current working-point records, separate from operating profiles.
 
 No constructors, presets, layout resolvers or defaults run during restoration.
 Only allow-listed model types are decoded; this is not pickle or an arbitrary
@@ -95,11 +95,6 @@ def encode_instrument(state, *, asset_store=None) -> Mapping:
     Arrays are stored as exact bytes, with dtype/shape; JSON is finite and
     floating-point values are never rounded to display precision.
     """
-    return _encode_instrument(state, asset_store=asset_store)
-
-
-def _encode_instrument(state, *, include_legacy_state_results=False, asset_store=None):
-    """Legacy results are included only to verify an existing archive on read."""
     nodes, seen, array_aliases = [], {}, {}
     registry = _model_types()
 
@@ -147,7 +142,7 @@ def _encode_instrument(state, *, include_legacy_state_results=False, asset_store
         else:
             node["fields"] = [f.name for f in fields(value)] if is_dataclass(value) else []
             names = _attribute_names(value)
-            if type_key == "temsim.optics.model:State" and not include_legacy_state_results:
+            if type_key == "temsim.optics.model:State":
                 names = [k for k in names if k not in _STATE_PRODUCT_NAMES]
             node["attributes"] = {k: encode(getattr(value, k)) for k in names}
         return {"ref": index}
@@ -167,7 +162,6 @@ def decode_instrument(graph, *, assets=None):
     if graph.get("schema") == ASSET_SNAPSHOT_SCHEMA and assets is None:
         raise ValueError("This working point requires its pinned input assets")
     registry, nodes, restored = _model_types(), graph["nodes"], {}
-    legacy_gauge_nodes = set()
     array_aliases = {}
 
     def decode(value):
@@ -188,19 +182,9 @@ def decode_instrument(graph, *, assets=None):
                 restored[index] = result
                 return result
             current_fields = [f.name for f in fields(cls)] if is_dataclass(cls) else []
-            # Older gun snapshots used exactly the additive extractor gauge.
-            # Name that existing convention without changing any electrode
-            # voltage, source or saved graph. All other schema mismatches fail.
-            old_gun_gauge = (cls.__module__ == "temsim.optics.electron_gun.electrostatic"
-                and cls.__name__ == "ElectrostaticGunLens"
-                and list(node["fields"]) == [name for name in current_fields if name != "voltage_reference"]
-                and "voltage_reference" not in node["attributes"])
-            if list(node["fields"]) != current_fields and not old_gun_gauge:
-                raise ValueError(f"Model schema changed for {node['type']}; explicit migration required")
+            if list(node["fields"]) != current_fields:
+                raise ValueError(f"Unsupported model schema for {node['type']}; only current fields are accepted")
             attributes = node["attributes"]
-            if old_gun_gauge:
-                attributes = dict(attributes,voltage_reference="extractor")
-                legacy_gauge_nodes.add(index)
             required_fields = set(current_fields)
             if cls.__name__ == "MagneticFieldMap":
                 required_fields.discard("_interpolators")
@@ -270,24 +254,47 @@ def decode_instrument(graph, *, assets=None):
         raise ValueError("Invalid working-point value")
 
     result = decode(graph["root"])
-    from temsim.optics.model import State
+    from temsim.optics.model import State, STATE_SCHEMA_VERSION
     if not isinstance(result, State):
         raise ValueError("Working-point root must be an instrument State")
+    if type(result.schema_version) is not int or result.schema_version != STATE_SCHEMA_VERSION:
+        raise ValueError(f"Unsupported instrument state schema; expected {STATE_SCHEMA_VERSION}")
+    if result.energy_filter.enabled is not bool(result.energy_filter_installed):
+        raise ValueError("Energy filter participation must match its assembly installation")
+    from temsim.optics.model import Stigmator
+    from temsim.optics.ac_deflector import AcDeflectorComponent
+    from temsim.optics.descan_deflector import DescanDeflectorComponent
+    from temsim.component_keys import AC_DEFLECTOR, DESCAN_DEFLECTOR
+    from temsim.optics.model import Sample
+    from temsim.optics.electron_gun.emitter import ColdFieldEmitter
+    from temsim.optics.electron_gun.tip_curvature import validate_curvature
+    for component in restored.values():
+        if isinstance(component, Sample) and any(
+            name in vars(component) for name in (
+                "specimen_rotation_x_deg", "specimen_rotation_y_deg", "specimen_rotation_z_deg",
+                "diffraction_enabled", "g_inv_nm", "excitation_error_inv_nm",
+                "rocking_width_inv_nm", "diffuse_broadening_mrad",
+            )
+        ):
+            raise ValueError("Sample snapshot contains retired fields; use the current sample model and quaternion")
+        if isinstance(component, ColdFieldEmitter):
+            if component.curvature_nm_inv and "_tip_curvature_model" not in vars(component):
+                raise ValueError("Curved tip snapshot requires an explicit current curvature model")
+            validate_curvature(component)
+        if isinstance(component, Stigmator) and component.field_model != "normal_skew":
+            raise ValueError("Unsupported stigmator field model; expected normal_skew")
+        if isinstance(component, AcDeflectorComponent) and component.key != AC_DEFLECTOR:
+            raise ValueError(f"Scan component key must be {AC_DEFLECTOR}")
+        if isinstance(component, DescanDeflectorComponent):
+            if component.key != DESCAN_DEFLECTOR:
+                raise ValueError(f"Descan component key must be {DESCAN_DEFLECTOR}")
+            if not component.descan_target_key or component.descan_target_key == "legacy_image_reference":
+                raise ValueError("Descan requires an explicit current component key")
     if "archived_inputs" in graph:
         input_io.bind_archive(result, graph["archived_inputs"])
-    # Preserve every value in a readable historical graph, including old
-    # diagnostic aliases. A later input capture excludes only those aliases;
-    # neither the archived graph nor the restored object is rewritten here.
-    reencoded = _encode_instrument(result, include_legacy_state_results=True,
+    # Exact current graphs restore without injected defaults or aliases.
+    reencoded = encode_instrument(result,
         asset_store=assets if graph.get("schema") == ASSET_SNAPSHOT_SCHEMA else None)
-    if legacy_gauge_nodes:
-        from temsim.immutable_json import thaw_json
-        reencoded = thaw_json(reencoded)
-        for index in legacy_gauge_nodes:
-            node = reencoded["nodes"][index]
-            if node["attributes"].pop("voltage_reference") != "extractor":
-                raise ValueError("Historical gun voltage reference was not preserved")
-            node["fields"].remove("voltage_reference")
     if json_digest(reencoded) != json_digest(graph):
         raise ValueError("Working-point restoration did not preserve every captured value")
     return result
@@ -370,7 +377,7 @@ class InstrumentSnapshot:
             actual = {(row.role, row.path, row.sha256) for row in capture_external_input_identities(result)}
             expected = {(row["role"], row["path"], row["sha256"]) for row in self.external_inputs}
             if actual != expected:
-                raise ValueError("External dependency inventory changed; migrate inputs explicitly")
+                raise ValueError("External dependency inventory changed; capture current inputs before recalculating")
             illumination_config(result)
             result.electron_gun.validate()
         return result

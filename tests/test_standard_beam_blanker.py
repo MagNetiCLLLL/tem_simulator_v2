@@ -82,7 +82,7 @@ def test_ordinary_blanking_persists_in_json_toml_and_across_gun_switches(tmp_pat
     save_profile(path, state, AssemblyCatalog().default_selection())
     _, values = read_profile(path)
     restored.beam_blanked = False
-    assert apply_profile_values(restored, values) == []
+    assert apply_profile_values(restored, values) is None
     assert restored.beam_blanked
     restored.select_electron_gun("thermionic")
     assert restored.beam_blanked
@@ -133,7 +133,7 @@ def test_ordinary_blanker_pipeline_returns_zero_and_reopens_without_stale_cache(
     assert blocked.simulation.metrics["sample_surviving_current_pa"] == 0.0
     assert blocked.wave_imaging is None
     assert blocked.specimen_interactions is None
-    assert blocked.energy_filter.eels_transmitted_current_pa == 0.0
+    assert blocked.energy_filter is None
     assert progress[-1][0] == progress[-1][1]
     state.beam_blanked = False
     state.sample.eds_enabled = False

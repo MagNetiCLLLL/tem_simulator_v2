@@ -1,0 +1,101 @@
+{
+  "expected": 5859,
+  "counts": {
+    "passed": 5858,
+    "skipped": 1
+  },
+  "unexecuted": [],
+  "failures": [],
+  "changed_production_files": [],
+  "executions": [
+    {
+      "directory": "tmp/contract-final-shard-0",
+      "counts": {
+        "passed": 1740,
+        "failed": 2
+      },
+      "exit": {
+        "exit_code": 1,
+        "finished": 1789905645.8325377
+      }
+    },
+    {
+      "directory": "tmp/contract-final-shard-1",
+      "counts": {
+        "passed": 539,
+        "skipped": 1
+      },
+      "exit": {
+        "exit_code": 0,
+        "finished": 1789905455.542535
+      }
+    },
+    {
+      "directory": "tmp/contract-final-shard-2",
+      "counts": {
+        "passed": 1786,
+        "failed": 8
+      },
+      "exit": {
+        "exit_code": 1,
+        "finished": 1789905649.4715376
+      }
+    },
+    {
+      "directory": "tmp/contract-final-shard-3",
+      "counts": {
+        "passed": 1777,
+        "failed": 6
+      },
+      "exit": {
+        "exit_code": 1,
+        "finished": 1789905704.1138268
+      }
+    },
+    {
+      "directory": "tmp/contract-final-retest-0",
+      "counts": {
+        "passed": 25
+      },
+      "exit": {
+        "exit_code": 0,
+        "finished": 1789905834.5880325
+      }
+    },
+    {
+      "directory": "tmp/contract-final-retest-2",
+      "counts": {
+        "passed": 94
+      },
+      "exit": {
+        "exit_code": 0,
+        "finished": 1789906007.4733868
+      }
+    },
+    {
+      "directory": "tmp/contract-final-retest-3",
+      "counts": {
+        "passed": 98
+      },
+      "exit": {
+        "exit_code": 0,
+        "finished": 1789905855.159032
+      }
+    }
+  ],
+  "completed_utc": "2026-09-20T12:09:20.458678+00:00",
+  "production_file_count": 581,
+  "production_digest": "8196eaa7e4fb9ae46c088ef5edb69c952fdae13bb2611ed82d17c9912fcf4ab6",
+  "static_calls": {
+    "files": 1011,
+    "resolved_calls": 18778,
+    "syntax_errors": [],
+    "issues": [],
+    "limitations": "Static module-level imports and explicit constructors only; dynamic methods/kwargs and runtime monkeypatches require separate review."
+  },
+  "compileall_exit_code": 0,
+  "diff_check_exit_code": 0,
+  "skip_reason": "Stored aperture-scaling reference metrics predate the C2 aperture move.",
+  "scope": "Complete four-shard run plus complete affected-module retests against unchanged production sources; not a single all-green invocation.",
+  "receipts": "Local complete per-node ledger: tmp/current-contract-accepted-ledger.json"
+}

@@ -14,7 +14,11 @@ from temsim.physics.beam_observation import observation_slices
 
 @dataclass(frozen=True)
 class DetectorResponseImage:
-    """Ideal detector hits and their forward PSF response on one plane."""
+    """Weighted virtual optical-reference hits, not acquired detector counts.
+
+    ``intensity`` alone is peak-normalized for display. The two other images
+    and their sums preserve the supplied weights, including an all-zero beam.
+    """
 
     key: str
     name: str
@@ -40,26 +44,29 @@ def _column_plane_samples(simulation, state, z_mm):
     positions = []
     weights = []
     for item in slices:
+        item_weights = np.asarray(item.weight, dtype=float)
+        if (item_weights.shape != np.shape(item.x_m)
+                or not np.all(np.isfinite(item_weights)) or np.any(item_weights < 0.0)):
+            raise ValueError("Detector weights must be finite, non-negative and match the rays.")
         finite = np.isfinite(item.x_m) & np.isfinite(item.y_m)
         if not np.any(finite):
             continue
         positions.append(
             np.column_stack((item.x_m[finite], item.y_m[finite])) * 1.0e3
         )
-        weights.append(np.maximum(np.asarray(item.weight)[finite], 0.0))
+        weights.append(item_weights[finite])
     if not positions:
         return np.empty((0, 2), dtype=float), np.empty(0, dtype=float)
     positions = np.vstack(positions)
     weights = np.concatenate(weights)
-    if float(weights.sum()) <= 0.0:
-        weights = np.ones(positions.shape[0], dtype=float)
     return positions, weights
 
 
 def detector_response_image(simulation, state, key, *, pixels=192):
     """Render accepted detector hits followed by the detector-plane PSF.
 
-    Recording planes are sampled virtually so inspecting a retracted or
+    This is a virtual optical-reference response, not physical collected current
+    or a readout channel. Recording planes are sampled virtually so inspecting a retracted or
     downstream detector does not change the ray trace.  Its active-area mask
     is nevertheless applied before and after the PSF, so response spreading
     into a central hole or beyond the sensitive outer edge is explicitly lost.
@@ -84,8 +91,12 @@ def detector_response_image(simulation, state, key, *, pixels=192):
 
     n = max(64, int(pixels))
     active_half_span = 0.5 * float(plane.outer_width_mm)
+    centre = np.array([getattr(plane, "centre_offset_x_mm", 0.0),
+                       getattr(plane, "centre_offset_y_mm", 0.0)], dtype=float)
+    if not np.isfinite(active_half_span) or active_half_span <= 0 or not np.all(np.isfinite(centre)):
+        raise ValueError("Detector width must be finite and positive and its centre finite.")
     if positions.size:
-        coordinate_span = float(np.max(np.abs(positions)))
+        coordinate_span = float(np.max(np.abs(positions - centre)))
         spread_support = 4.0 * max(
             point_spread.sigma_x_mm,
             point_spread.sigma_y_mm,
@@ -102,10 +113,11 @@ def detector_response_image(simulation, state, key, *, pixels=192):
     else:
         half_span = active_half_span
     edges = np.linspace(-half_span, half_span, n + 1)
+    x_edges, y_edges = edges + centre[0], edges + centre[1]
     ideal, _, _ = np.histogram2d(
         positions[:, 1] if positions.size else np.empty(0),
         positions[:, 0] if positions.size else np.empty(0),
-        bins=(edges, edges),
+        bins=(y_edges, x_edges),
         weights=weights if positions.size else None,
     )
     pixel_size = 2.0 * half_span / n
@@ -116,7 +128,7 @@ def detector_response_image(simulation, state, key, *, pixels=192):
         pixel_size_y_mm=pixel_size,
     )
     centres = 0.5 * (edges[:-1] + edges[1:])
-    xx, yy = np.meshgrid(centres, centres)
+    xx, yy = np.meshgrid(centres + centre[0], centres + centre[1])
     active = np.asarray(plane.hit_mask(xx, yy), dtype=bool)
     response = np.where(active, response, 0.0)
     accepted_weight = float(ideal.sum())
@@ -133,7 +145,7 @@ def detector_response_image(simulation, state, key, *, pixels=192):
         ideal_intensity=ideal,
         response_intensity=response,
         intensity=display,
-        extent=(-half_span, half_span, -half_span, half_span),
+        extent=(float(x_edges[0]), float(x_edges[-1]), float(y_edges[0]), float(y_edges[-1])),
         unit="mm",
         accepted_weight=accepted_weight,
         response_weight=response_weight,

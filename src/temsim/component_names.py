@@ -180,7 +180,7 @@ RECORDING_PLANE_NAMES = {
     FLUORESCENT_SCREEN: "Fluorescent Screen",
     DARK_FIELD_DETECTOR: "DF Detector",
     "bf": "BF Detector",
-    CAMERA: "Camera",
+    CAMERA: "Pixelated camera",
 }
 
 RECORDING_PLANE_SHORT_NAMES = {

@@ -1,11 +1,10 @@
 from dataclasses import dataclass, asdict
 from temsim.optics.image_corrector import (
     create_image_corrector_elements,
-    image_corrector_component_from_dict,
-    is_image_corrector_component,
 )
 from temsim.component_keys import (
     AC_DEFLECTOR,
+    require_current_component_key,
     ADAPTER_LENS,
     DC_DEFLECTOR,
     DESCAN_DEFLECTOR,
@@ -31,13 +30,11 @@ from temsim.component_keys import (
 )
 from temsim.optics.ac_deflector import (
     AcDeflectorComponent,
-    ac_deflector_from_dict,
     create_ac_deflector,
 )
 from temsim.optics.descan_deflector import (
     DescanDeflectorComponent,
     create_descan_deflector,
-    descan_deflector_from_dict,
 )
 from temsim.optics.probe_corrector import (
     create_dph2_deflector,
@@ -53,8 +50,6 @@ from temsim.optics.probe_corrector import (
     create_qph1_quadrupole,
     create_qpol_quadrupole,
     create_qph2_quadrupole,
-    dph2_deflector_from_dict,
-    qph2_quadrupole_from_dict,
 )
 
 
@@ -140,103 +135,27 @@ def default_corrector_elements():
 
 def ensure_corrector_structure(state):
 
-    state.deflectors[:]=[q for q in state.deflectors if str(q.key) not in {"corr_pre_def","corr_mid_def","corr_post_def"}]
-
-    normalised_elements = []
-    for item in getattr(state, "corrector_elements", []):
-        key = getattr(item, "key", None)
-        if key == "dph2":
-            item = dph2_deflector_from_dict(asdict(item))
-        elif key == "qph2":
-            item = qph2_quadrupole_from_dict(asdict(item))
-        elif key in {"dc", DC_DEFLECTOR}:
-            # DC deflector has been removed from the column. Silently discard
-            # legacy saved rows instead of restoring the obsolete component.
-            continue
-        elif (
-            key in {"ac", AC_DEFLECTOR}
-            and not isinstance(item, AcDeflectorComponent)
-        ):
-            item = ac_deflector_from_dict(asdict(item))
-        elif (
-            key in {"descan", DESCAN_DEFLECTOR}
-            and not isinstance(item, DescanDeflectorComponent)
-        ):
-            item = descan_deflector_from_dict(asdict(item))
-        elif (
-            key in IMAGE_CORRECTOR_ELEMENT_KEYS
-            and not is_image_corrector_component(item)
-        ):
-            item = image_corrector_component_from_dict(asdict(item))
-        elif key in {
-            "ic_hpol_qpol_dp11",
-            "ic_dsh_dstg",
-            "ic_ol_post",
-            "ic_tl11",
-            "ic_tl21",
-            "ic_tl22",
-            "ic_adl",
-        }:
-            continue
-        normalised_elements.append(item)
-    unique_elements = []
-    unique_modular_keys = {
-        PROBE_DPH2_DEFLECTOR,
-        PROBE_DP22_DEFLECTOR,
-        PROBE_DP21_DEFLECTOR,
-        PROBE_DP11_DEFLECTOR,
-        PROBE_DPH1_DEFLECTOR,
-        PROBE_HP1_HEXAPOLE,
-        PROBE_HPOL_HEXAPOLE,
-        PROBE_QPH2_QUADRUPOLE,
-        PROBE_QPC_QUADRUPOLE,
-        PROBE_QPH1_QUADRUPOLE,
-        PROBE_QPOL_QUADRUPOLE,
-        PROBE_HP2_HEXAPOLE,
-        PROBE_HPC_HEXAPOLE,
-        AC_DEFLECTOR,
-        DESCAN_DEFLECTOR,
-        *IMAGE_CORRECTOR_ELEMENT_KEYS,
-    }
-    seen_modular_keys = set()
-    for item in normalised_elements:
-        if item.key in unique_modular_keys:
-            if item.key in seen_modular_keys:
-                continue
-            seen_modular_keys.add(item.key)
-        unique_elements.append(item)
-    state.corrector_elements = unique_elements
-
+    for pair in state.deflectors:
+        require_current_component_key(pair.key)
     defaults = default_corrector_elements()
-
-    if not getattr(state,"corrector_elements",None):
-
-        state.corrector_elements=defaults
-
-    else:
-
-        present = {item.key for item in state.corrector_elements}
-
-        state.corrector_elements.extend(
-            item for item in defaults if item.key not in present
-        )
-
-    state.corrector_elements[:]=[
-        item for item in state.corrector_elements
-        if item.key not in {
-            "dc", DC_DEFLECTOR,
-            "adl", ADAPTER_LENS,
-            "tl22", PROBE_TL22_LENS,
-            "tl21", PROBE_TL21_LENS,
-            "tl12", PROBE_TL12_LENS,
-            "dp12_virtual", IMAGE_CORRECTOR_OL_POST_LENS,
-            "lorentz", "bsh_btlt", "tem_corrector",
-            "ic_hpol_qpol_dp11", "ic_dsh_dstg",
-            "ic_dp12", "ic_hp1", "ic_dp21", "ic_dp22",
-            "ic_hp2", "ic_ish", "ic_sad_plane",
-        }
-    ]
-
+    expected_types = {item.key: type(item) for item in defaults}
+    elements = list(getattr(state, "corrector_elements", ()))
+    seen = set()
+    separately_owned = {ADAPTER_LENS, PROBE_TL22_LENS, PROBE_TL21_LENS,
+                        PROBE_TL12_LENS, IMAGE_CORRECTOR_OL_POST_LENS,
+                        "probe_dp12_scan_deflector"}
+    for item in elements:
+        key = require_current_component_key(item.key)
+        if key in separately_owned:
+            raise ValueError(f"{key}: this component belongs to the current lens or deflector collection")
+        if key in seen:
+            raise ValueError(f"Duplicate corrector component key {key!r}")
+        seen.add(key)
+        expected = expected_types.get(key)
+        if expected is not None and not isinstance(item, expected):
+            raise ValueError(f"{key}: current corrector component type {expected.__name__} is required")
+    elements.extend(item for item in defaults if item.key not in seen)
+    state.corrector_elements = elements
 
     probe_on=bool(getattr(state,"probe_corrector_installed",True))
 
@@ -334,19 +253,6 @@ def ensure_corrector_structure(state):
             lens._layout_installed = image_on
 
 
-    # V6.0.17 kept three grouped compatibility deflectors. The explicit
-
-    # corrector elements now own these planes, so the legacy groups must never
-
-    # steer rays or create a second set of labels.
-
-    for pair in state.deflectors:
-
-        if str(pair.key) in {"corr_pre_def","corr_mid_def","corr_post_def"}:
-
-            pair.enabled=False
-
-
     return state
 
 
@@ -355,4 +261,5 @@ def serialise_corrector_structure(state):
 
     ensure_corrector_structure(state)
 
-    return [asdict(item) for item in state.corrector_elements]
+    return [item.to_dict() if isinstance(item, (AcDeflectorComponent, DescanDeflectorComponent))
+            else asdict(item) for item in state.corrector_elements]

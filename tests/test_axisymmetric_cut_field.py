@@ -55,7 +55,9 @@ def test_rejects_invalid_grid_and_outside_queries():
 
 def test_actual_tip_boundary_is_equipotential_and_nearly_normal():
     from temsim.optics.column import default_state
+    from temsim.optics.electron_gun.tip_surface import load_tip_surface_reference
     gun = default_state().electron_gun
+    gun.emitter.surface_model = load_tip_surface_reference()
     field = gun.electric_field
     geometry = gun.emitter.surface_model.geometry
     radius = geometry.apex_radius_nm*1e-9

@@ -293,38 +293,8 @@ def create_camera_detector(
     )
 
 
-def camera_detector_from_dict(
-    data,
-    anchor_z_mm=(
-        SELECTED_AREA_APERTURE_DEFINITION
-        .standalone_optical_reference_z_mm
-    ),
-):
-    values = dict(data)
-    component = create_camera_detector(anchor_z_mm)
-    known = component.__dataclass_fields__
-    for field, value in values.items():
-        if field in known and field in {
-            "inserted",
-            "pixels",
-            "colour",
-            "detector_axis_rotation_deg",
-            "detector_flip_x",
-            "detector_flip_y",
-            "detector_orientation_uncertainty_deg",
-            "detector_orientation_status",
-            "detector_orientation_source",
-        }:
-            setattr(component, field, value)
-    component.key = CAMERA
-    component.name = CAMERA_DETECTOR_DEFINITION.label
-    legacy_anchor = values.get("anchor_key") != SELECTED_AREA_APERTURE
-    component.anchor_key = SELECTED_AREA_APERTURE
-    if legacy_anchor:
-        component.optical_reference_downstream_of_anchor_mm = (
-            downstream_optical_offset_mm(CAMERA)
-        )
-        component.layout_center_downstream_of_anchor_mm = downstream_offset_mm(
-            CAMERA
-        )
-    return component.resolve_against(anchor_z_mm).validate()
+def camera_detector_from_dict(data, anchor_z_mm=SELECTED_AREA_APERTURE_DEFINITION.standalone_optical_reference_z_mm):
+    from temsim.detector.input_controls import restore_detector_controls
+    return restore_detector_controls(
+        create_camera_detector(anchor_z_mm), data, fields=("inserted", "pixels", "colour"),
+    )

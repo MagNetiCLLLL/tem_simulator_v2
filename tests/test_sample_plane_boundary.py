@@ -110,7 +110,6 @@ def test_preview_incident_and_outgoing_bundles_meet_only_at_sample_plane():
     state.history_step_mm = 2.5
     state.acceleration_enabled = False
     state.acceleration_backend = "CPU"
-    state.sample.diffraction_enabled = False
     state.sample.wave_enabled = False
     emitter = getattr(state.electron_gun, "emitter", None)
     if emitter is not None:
@@ -127,8 +126,8 @@ def test_preview_incident_and_outgoing_bundles_meet_only_at_sample_plane():
     assert outgoing.z[0] == sample_z_mm
     assert np.all(incident.z <= sample_z_mm)
     assert np.all(outgoing.z >= sample_z_mm)
-    assert np.array_equal(incident.x[-1], outgoing.x[0])
-    assert np.array_equal(incident.y[-1], outgoing.y[0])
+    assert np.array_equal(incident.x[-1].astype(outgoing.x.dtype), outgoing.x[0])
+    assert np.array_equal(incident.y[-1].astype(outgoing.y.dtype), outgoing.y[0])
 
 
 def test_retracted_sample_keeps_probe_plane_but_removes_scattering_branches():
@@ -141,8 +140,6 @@ def test_retracted_sample_keeps_probe_plane_but_removes_scattering_branches():
     state.acceleration_enabled = False
     state.acceleration_backend = "CPU"
     state.sample.inserted = False
-    state.sample.diffraction_enabled = True
-    state.sample.diffuse_broadening_mrad = 25.0
     state.electron_gun.emitter.ray_count = 9
 
     simulation = run(state, resolved_layout=layout)
@@ -172,12 +169,6 @@ def test_real_sample_never_creates_user_invented_diffraction_branches():
     state.sample.real_ionisation_mean_free_path_nm = 1059.1304347826087
     state.sample.real_plasmon_energy_ev = 16.7
     state.sample.real_ionisation_energy_ev = 99.2
-    state.sample.diffraction_enabled = True
-    # These persisted legacy values must be dormant in Real sample mode.
-    state.sample.g_inv_nm = 1.0e5
-    state.sample.excitation_error_inv_nm = 3.0
-    state.sample.rocking_width_inv_nm = 0.01
-    state.sample.diffuse_broadening_mrad = 100.0
     state.electron_gun.emitter.ray_count = 9
 
     simulation = run(state, resolved_layout=layout)

@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+from sysconfig import get_platform
 import zipfile
 
 import numpy as np
@@ -57,6 +58,15 @@ def test_wheel_contains_reference_formats_with_original_bytes(tmp_path):
     filenames = [f"Test{index}{extension}" for index, extension in enumerate((".cif", ".CIF", ".mcif", ".MCIF"))]
     for name in filenames:
         (reference_dir / name).write_bytes(contents)
+    # Ordinary incremental builds used to package deleted modules from build/
+    # even though they no longer exist in src/. Include an interrupted wheel
+    # staging tree as well as the previous build library.
+    stale_files = [project / "build/lib/temsim/retired_probe.py",
+                   project / f"build/bdist.{get_platform()}/wheel/temsim/retired_install.py",
+                   project / "build/lib/temsim/gui/assets/retired.svg"]
+    for path in stale_files:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("stale build output", encoding="utf-8")
     completed = subprocess.run(
         [sys.executable, "-c", "from setuptools.build_meta import build_wheel; build_wheel('dist')"],
         cwd=project, capture_output=True, text=True, timeout=60,
@@ -64,6 +74,14 @@ def test_wheel_contains_reference_formats_with_original_bytes(tmp_path):
     assert completed.returncode == 0, completed.stdout + completed.stderr
     wheel, = (project / "dist").glob("*.whl")
     with zipfile.ZipFile(wheel) as archive:
+        expected = {p.relative_to(project / "src").as_posix(): p.read_bytes()
+                    for p in (project / "src/temsim").rglob("*.py")}
+        packaged = {name for name in archive.namelist()
+                    if name.startswith("temsim/") and name.endswith(".py")}
+        assert packaged == set(expected)
+        for name, original in expected.items():
+            assert archive.read(name) == original
+        assert "temsim/gui/assets/retired.svg" not in archive.namelist()
         for name in filenames:
             member, = [p for p in archive.namelist() if p.endswith("/configs/reference_samples/" + name)]
             assert archive.read(member) == contents

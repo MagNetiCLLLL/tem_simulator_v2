@@ -1,4 +1,5 @@
 from copy import deepcopy
+from dataclasses import replace
 from itertools import product
 from pathlib import Path
 import shutil
@@ -12,7 +13,8 @@ from temsim.column.module_assembly import (
     STRUCTURAL_FIELD_SOURCES,
     _state_targets,
 )
-from temsim.manifest_editor import ManifestEditor
+from temsim.manifest_editor import ManifestEditor, ManifestTarget
+from temsim.column.state_layout import layout_configuration_from_state
 from temsim.optics.column import default_state
 
 
@@ -48,14 +50,15 @@ def test_catalog_reports_variant_scope_and_unique_active_authorities():
     assert audit.part_definition_count == 482
     assert audit.logical_part_key_count == 198
     assert audit.variant_scoped_duplicate_count == 284
-    assert audit.assembly_count == 30
-    assert audit.resolved_part_authority_count == 4088
+    catalog = AssemblyCatalog()
+    assert audit.assembly_count == len(catalog.guns) * len(catalog.columns) * len(catalog.recording_systems) * len(catalog.beam_blankers)
+    assert audit.resolved_part_authority_count == 7576
 
 
 def test_selected_runtime_components_record_their_one_toml_authority():
     catalog = AssemblyCatalog()
     state = default_state()
-    assembly = catalog.apply(state, catalog.default_selection())
+    assembly = catalog.apply(state, replace(catalog.default_selection(), recording="Energy Filter"))
 
     assert len(assembly.part_authorities) == len(assembly.parts)
     assert len(set(assembly.part_authorities.values())) == len(assembly.parts)
@@ -100,32 +103,23 @@ def test_custom_catalog_root_is_the_final_geometry_and_gun_exit_authority(
     })
     path.write_text(staged, encoding="utf-8")
 
-    recording_path = (
-        root
-        / "project_and_recording_system"
-        / "EnergyFilter.toml"
-    )
-    recording_text = recording_path.read_text(encoding="utf-8")
-    recording_staged = module_manifest.stage_manifest_text(
-        recording_text,
-        {
-            (
-                "parts",
-                "selected_area_aperture",
-                "mechanical_outer_diameter_mm",
-            ): 82.0,
-            (
-                "parts",
-                "energy_filter_slit",
-                "clear_height_mm",
-            ): 13.25,
-        },
-    )
-    recording_path.write_text(recording_staged, encoding="utf-8")
+    # Let the composite editor route each part to its shared definition and
+    # validate the fully assembled module, not a partial subassembly alone.
+    catalog = AssemblyCatalog(root)
+    state = default_state()
+    catalog.apply(state, replace(catalog.default_selection(), recording="Energy Filter"))
+    configuration = layout_configuration_from_state(state)
+    editor = ManifestEditor(root)
+    editor.save(ManifestTarget("project_and_recording_system/EnergyFilter.toml", "selected_area_aperture"), {
+        ("parts", "selected_area_aperture", "mechanical_outer_diameter_mm"): 82.0,
+    }, configuration)
+    editor.save(ManifestTarget("project_and_recording_system/EnergyFilter.toml", "energy_filter_slit"), {
+        ("parts", "energy_filter_slit", "clear_height_mm"): 13.25,
+    }, configuration)
 
     catalog = AssemblyCatalog(root)
     state = default_state()
-    assembly = catalog.apply(state, catalog.default_selection())
+    assembly = catalog.apply(state, replace(catalog.default_selection(), recording="Energy Filter"))
     lens = state.electron_gun.electrostatic_lens
 
     assert assembly.root == root.resolve()
@@ -203,7 +197,7 @@ def test_missing_toml_structure_cannot_fall_back_to_python(
     root = tmp_path / "instruments"
     from temsim.shared_tip import copy_catalog_tree
     copy_catalog_tree(module_manifest.MODULE_ROOT, root)
-    path = root / "project_and_recording_system" / "EnergyFilter.toml"
+    path = root.parent / "subassemblies" / "projector_stack.toml"
     text = path.read_text(encoding="utf-8")
     field = "mechanical_outer_diameter_mm = 80.0\n"
     assert text.count(field) >= 1
@@ -211,7 +205,7 @@ def test_missing_toml_structure_cannot_fall_back_to_python(
 
     with pytest.raises(ValueError, match="mechanical_outer_diameter_mm"):
         catalog = AssemblyCatalog(root)
-        catalog.apply(default_state(), catalog.default_selection())
+        catalog.apply(default_state(), replace(catalog.default_selection(), recording="Energy Filter"))
 
 
 def test_all_catalog_assemblies_apply_one_authority_per_runtime_part():
@@ -247,7 +241,7 @@ def test_all_catalog_assemblies_apply_one_authority_per_runtime_part():
                             assert component.name == assembly.part(key).name
                 assembly_count += 1
 
-    assert assembly_count == 30
+    assert assembly_count == len(catalog.guns) * len(catalog.columns) * len(catalog.recording_systems) * len(catalog.beam_blankers)
 
 
 def test_saved_state_omits_every_manifest_owned_structural_attribute():

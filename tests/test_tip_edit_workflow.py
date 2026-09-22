@@ -137,7 +137,7 @@ def test_installed_curved_design_remains_readable_without_overriding_new_default
     assert geometry["attributes"]["apex_radius_nm"] == 100.
     # Historical input designs require matching dependencies. Neither their
     # archived model choice nor this guard may be rewritten for new defaults.
-    with pytest.raises(ValueError, match="Changed assembly:gun"):
+    with pytest.raises(ValueError, match="Changed assembly:"):
         point.compatible_state()
     assert path.read_bytes() == before
     assert FieldEmissionGun().emitter.surface_model is None

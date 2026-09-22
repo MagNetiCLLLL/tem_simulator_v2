@@ -267,6 +267,35 @@ def test_builtin_task_layouts_use_existing_pages_without_changing_inputs(windows
     assert not window.preview_timer.isActive()
 
 
+def test_experiments_layout_refreshes_dirty_status_without_requesting_work(windows, qtbot, monkeypatch):
+    make, _ = windows
+    window = make()
+    before = deepcopy(window.state.to_dict())
+    revision = window._physical_revision
+    refreshes = []
+    describe = window.calculations.describe_high_accuracy_reuse
+
+    def record(*args, **kwargs):
+        refreshes.append(True)
+        return describe(*args, **kwargs)
+
+    monkeypatch.setattr(window.calculations, "describe_high_accuracy_reuse", record)
+    window.design_explorer_timer.stop()
+    window._design_explorer_dirty = True
+    window.workspace_layouts.select("task_experiments")
+    qtbot.waitUntil(lambda: len(refreshes) == 1)
+    assert not window._design_explorer_dirty
+    assert not window.preview_timer.isActive()
+    assert window._physical_revision == revision
+    assert window.state.to_dict() == before
+
+    # A clean restored page does not repeat the signature work.
+    window.workspace_layouts.select("default")
+    window.workspace_layouts.select("task_experiments")
+    qtbot.wait(30)
+    assert len(refreshes) == 1
+
+
 def test_small_window_scrolls_pages_while_retaining_fixed_result_identity(windows, qtbot):
     make, _ = windows
     window = make()

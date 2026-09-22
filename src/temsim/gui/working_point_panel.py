@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QTa
 
 from temsim.immutable_json import thaw_json
 from temsim.working_point import (WorkingPointCheckpoint, WorkingPointArchiveIndex,
-    OBSERVABLE_DEFINITIONS, snapshot_changes, migrate_working_point_inputs)
+    OBSERVABLE_DEFINITIONS, snapshot_changes)
 from temsim.calculation_manifest import solver_source_identity
 from temsim.sampling_diagnostics import checkpoint_sampling_summary, working_point_description
 from temsim.gui.sampling_panel import SamplingPanel
@@ -56,7 +56,7 @@ class WorkingPointPanel(QWidget):
         for label, callback in (("Compare with current", self._compare), ("Apply illumination...", self._apply_illumination),
                                 ("Restore working point", lambda: self._restore(False)),
                                 ("Fork compatible point", lambda: self._restore(True)),
-                                ("Migrate inputs", self._migrate), ("Undo last apply", self.undo_requested.emit)):
+                                ("Undo last apply", self.undo_requested.emit)):
             button = QPushButton(label)
             button.clicked.connect(callback)
             bar.addWidget(button)
@@ -344,9 +344,15 @@ class WorkingPointPanel(QWidget):
             self.status.setText("An archive is already loading; the current record remains readable")
             return
         from temsim.gui.working_point_loader import ArchiveLoader
+        self._archive_cancel = Event()
+        try:
+            worker = ArchiveLoader(point, self._archive_cancel,
+                maximum_unpacked_bytes=self._archive_pool.coordinator.ram_budget_bytes)
+        except (ValueError, TypeError) as exc:
+            self.error.emit(str(exc))
+            return
         self._archive_loading = True
         self.status.setText(f"Verifying retained numeric products for {point.digest[:12]}...")
-        worker = ArchiveLoader(point, self._archive_cancel)
         self._archive_worker = worker
         worker.signals.ready.connect(self._accept_archive, Qt.ConnectionType.QueuedConnection)
         worker.signals.failed.connect(self.error.emit)
@@ -372,9 +378,15 @@ class WorkingPointPanel(QWidget):
             self.status.setText("Archive work is already running; the selected record remains readable")
             return
         from temsim.gui.working_point_loader import ArchiveLoader
+        self._archive_cancel = Event()
+        try:
+            worker = ArchiveLoader(point, self._archive_cancel, portable_inputs=True,
+                maximum_unpacked_bytes=self._archive_pool.coordinator.ram_budget_bytes)
+        except (ValueError, TypeError) as exc:
+            self.error.emit(str(exc))
+            return
         self._archive_loading = True
         self.status.setText("Capturing a portable input copy; existing results retain their original identity...")
-        worker = ArchiveLoader(point, self._archive_cancel, portable_inputs=True)
         self._archive_worker = worker
         worker.signals.ready.connect(self._accept_archive, Qt.ConnectionType.QueuedConnection)
         worker.signals.failed.connect(self.error.emit)
@@ -386,20 +398,6 @@ class WorkingPointPanel(QWidget):
         archive_done = self._archive_pool.waitForDone(timeout_ms)
         sampling_done = self.sampling.shutdown(timeout_ms)
         return archive_done and sampling_done
-
-    def _migrate(self):
-        if self.selected is None:
-            self.status.setText("Select a historical record to create a new input candidate")
-            return
-        if self.selected.is_metadata_only:
-            self.status.setText("Metadata-only records cannot migrate absent input assets")
-            return
-        try:
-            migrated = migrate_working_point_inputs(self.selected)
-            self.add_checkpoint(migrated, label="Migrated inputs")
-            self.status.setText("New input-only identity created. Historical results remain with the original record; live controls unchanged.")
-        except Exception as exc:
-            self.error.emit(f"Input migration unavailable: {exc}")
 
     def _save_inputs(self):
         if self.current_snapshot is None:
@@ -431,7 +429,8 @@ class WorkingPointPanel(QWidget):
         path, _ = QFileDialog.getOpenFileName(self, "Import working point", "", "Working point (*.temwp)")
         if path:
             try:
-                self.add_checkpoint(WorkingPointArchiveIndex.read(path), label="Indexed archive")
+                self.add_checkpoint(WorkingPointArchiveIndex.read(path,
+                    maximum_unpacked_bytes=self._archive_pool.coordinator.ram_budget_bytes), label="Indexed archive")
             except Exception as exc:
                 self.error.emit(str(exc))
 
@@ -456,7 +455,8 @@ class WorkingPointPanel(QWidget):
                 current = self._evidence.get(point.digest)
                 if current is not None and current not in reports:
                     reports.append(current)
-                point.write_package(path, overwrite=True, evidence=reports, mode=mode)  # Native dialog confirms an existing target.
+                point.write_package(path, overwrite=True, evidence=reports, mode=mode,
+                    maximum_unpacked_bytes=self._archive_pool.coordinator.ram_budget_bytes)  # Native dialog confirms an existing target.
                 self.status.setText(f"Exported {choice.lower()}; no live controls changed")
             except Exception as exc:
                 self.error.emit(str(exc))

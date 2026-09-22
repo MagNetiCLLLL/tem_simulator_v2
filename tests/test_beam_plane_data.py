@@ -226,12 +226,22 @@ def test_zero_relative_probabilities_are_not_replaced_by_uniform_probabilities()
     assert plane.weights_valid and plane.ray_count == 0 and plane.current_pa == 0.0
 
 
-def test_missing_source_weights_use_only_documented_legacy_convention():
+def test_missing_source_weights_leave_quantitative_readout_unavailable():
     incident = make_branch(ray_weight=None)
     plane = sample_beam_plane(make_result(incident), 5.0)
-    assert plane.weights_valid
-    np.testing.assert_allclose(plane.source_fraction, [0.25] * 4)
-    assert any("Legacy source" in text for text in plane.diagnostics)
+    assert not plane.weights_valid
+    assert plane.ray_count == 4
+    assert np.all(np.isnan(plane.source_fraction))
+    assert plane.current_pa is None
+    assert any("probabilities are unavailable" in text for text in plane.diagnostics)
+
+
+def test_missing_branch_probability_convention_is_not_assumed_relative():
+    result = make_result()
+    del result.simulation.metrics["branch_weights_are_absolute"]
+    plane = sample_beam_plane(result, 15.0)
+    assert not plane.weights_valid and plane.current_pa is None
+    assert any("probability convention" in text for text in plane.diagnostics)
 
 
 @pytest.mark.parametrize("weights", [[0.1, 0.15, 0.25, 0.0], [1.0, 2.0, 3.0, 0.0], [0.0] * 4])

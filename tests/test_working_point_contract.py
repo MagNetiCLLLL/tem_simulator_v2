@@ -81,17 +81,17 @@ def test_input_snapshot_excludes_legacy_result_aliases_without_mutating_results(
         encode_instrument(instrument)
 
 
-def test_historical_result_aliases_remain_readable_without_becoming_new_inputs(instrument):
+def test_input_graph_rejects_embedded_historical_result_aliases(instrument):
     original = encode_instrument(instrument)
     graph = thaw_json(original)
     attrs = graph["nodes"][graph["root"]["ref"]]["attributes"]
     attrs["energy_filter_result"] = None
     attrs["all_lens_crossovers"] = {"list": []}
     digest = json_digest(graph)
-    restored = decode_instrument(graph)
-    assert restored.energy_filter_result is None and restored.all_lens_crossovers == []
+    with pytest.raises(ValueError, match="did not preserve every captured value"):
+        decode_instrument(graph)
     assert json_digest(graph) == digest
-    assert encode_instrument(restored) == original
+    assert encode_instrument(instrument) == original
 
 
 def test_restored_immutable_model_arrays_remain_immutable(instrument):
@@ -156,7 +156,7 @@ def test_snapshot_preserves_new_public_model_inputs_and_audits_schema(instrument
     assert snapshot.restore().lenses[0].new_calibrated_parameter == {"coefficient": [1., 2.]}
     graph = thaw_json(snapshot.graph)
     graph["nodes"][0]["fields"].append("unreviewed_field")
-    with pytest.raises(ValueError, match="schema changed"):
+    with pytest.raises(ValueError, match="Unsupported model schema"):
         decode_instrument(graph)
 
 

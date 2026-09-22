@@ -181,12 +181,10 @@ ENERGY_FILTER_GEOMETRY_FIELDS = (
     "prism_radius_mm",
     "bend_angle_deg",
     "prism_radial_field_index",
-    "entrance_multipole_s_mm",
     "prism_entrance_s_mm",
     "prism_fringe_mm",
     "pole_gap_mm",
     "sector_radial_aperture_mm",
-    "exit_multipole_d_mm",
     "multipole_01_s_mm",
     "multipole_02_s_mm",
     "multipole_03_s_mm",
@@ -1017,7 +1015,7 @@ def _validate_custom_mechanical_parts(parts):
             if parent_key in by_key and is_custom_mechanical_part(by_key[parent_key]):
                 raise ValueError(f"{key}: a built-in physical part cannot be owned by a custom mechanical copy")
             continue
-        if key in reserved or component_keys.canonical_component_placement_key(key) in reserved or component_keys.canonical_recording_plane_key(key) in reserved:
+        if key in reserved or key in component_keys.RETIRED_COMPONENT_KEYS:
             raise ValueError(f"{key}: custom mechanical keys cannot replace reserved built-in components")
         if part.get("mechanical_only") is not True or part.get("axial_vacuum_context_only") is not True:
             raise ValueError(f"{key}: custom mechanical parts require mechanical_only=True and axial_vacuum_context_only=True")
@@ -2472,10 +2470,10 @@ def _validate_objective_assembly(parts):
     declared_gap = float(lens["s_twin_pole_gap_mm"])
     if abs(gap - declared_gap) > tolerance:
         raise ValueError(
-            "Objective pole positions must produce the TOML S-TWIN gap"
+            "Objective pole positions must produce the TOML symmetric-objective gap"
         )
     if declared_gap <= 0.0:
-        raise ValueError("The S-TWIN pole-piece gap must be positive")
+        raise ValueError("The symmetric objective pole-piece gap must be positive")
     gap_center = 0.5 * (
         float(upper_pole["local_end_z_mm"])
         + float(lower_pole["local_start_z_mm"])
@@ -2483,7 +2481,7 @@ def _validate_objective_assembly(parts):
     sample_center = float(sample["local_center_z_mm"])
     if abs(sample_center - gap_center) > tolerance:
         raise ValueError(
-            "The S-TWIN sample must remain centered in the pole gap"
+            "The symmetric objective sample must remain centered in the pole gap"
         )
     if (
         stage.get("mechanical_profile") != "transverse_goniometer"
@@ -2526,7 +2524,7 @@ def _validate_objective_assembly(parts):
         (yoke_ranges[0][1] - yoke_ranges[0][0])
         - (yoke_ranges[1][1] - yoke_ranges[1][0])
     ) > tolerance:
-        raise ValueError("The S-TWIN upper and lower yokes must be symmetric")
+        raise ValueError("The symmetric objective upper and lower yokes must be symmetric")
     if (
         abs(
             (sample_center - yoke_ranges[0][0])
@@ -2538,7 +2536,7 @@ def _validate_objective_assembly(parts):
         ) > tolerance
     ):
         raise ValueError(
-            "The S-TWIN yoke ranges must mirror about the sample"
+            "The symmetric objective yoke ranges must mirror about the sample"
         )
 
     for field in (
@@ -2551,7 +2549,7 @@ def _validate_objective_assembly(parts):
             float(upper_pole[field]) - float(lower_pole[field])
         ) > tolerance:
             raise ValueError(
-                f"The S-TWIN pole pieces must match in {field}"
+                f"The symmetric objective pole pieces must match in {field}"
             )
 
     upper_reference = float(lens["upper_field_reference_local_z_mm"])
@@ -2561,22 +2559,22 @@ def _validate_objective_assembly(parts):
         - (lower_reference - sample_center)
     ) > tolerance:
         raise ValueError(
-            "The S-TWIN field references must be symmetric about the sample"
+            "The symmetric objective field references must be symmetric about the sample"
         )
     if float(lens["upper_peak_field_t"]) != float(
         lens["lower_peak_field_t"]
     ):
-        raise ValueError("The S-TWIN peak-field calibration must be symmetric")
+        raise ValueError("The symmetric objective peak-field calibration must be symmetric")
     if float(lens["upper_field_half_width_mm"]) != float(
         lens["lower_field_half_width_mm"]
     ):
-        raise ValueError("The S-TWIN field widths must be symmetric")
+        raise ValueError("The symmetric objective field widths must be symmetric")
     for suffix in ("amplitudes", "offsets", "sigmas"):
         upper_values = tuple(lens[f"upper_field_profile_{suffix}"])
         lower_values = tuple(lens[f"lower_field_profile_{suffix}"])
         if not upper_values or upper_values != lower_values:
             raise ValueError(
-                f"The S-TWIN {suffix} profile must be non-empty and symmetric"
+                f"The symmetric objective {suffix} profile must be non-empty and symmetric"
             )
     if any(
         float(value) <= 0.0

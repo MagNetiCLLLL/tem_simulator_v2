@@ -216,7 +216,7 @@ def test_profile_and_snapshot_preserve_surface_identity(gun, tmp_path):
     save_profile(path, state, AssemblyCatalog().default_selection())
     _, values = read_profile(path)
     other = default_state()
-    assert apply_profile_values(other, values) == []
+    assert apply_profile_values(other, values) is None
     assert other.electron_gun.emitter.surface_model == gun.emitter.surface_model
     targets = runtime_targets(other)
     assert [p.name for p in editable_parameters(targets["feg_tip"])] == ["ray_count"]
@@ -234,7 +234,7 @@ def test_surface_editor_has_one_parameter_set_and_derived_quantities(gun, qtbot)
     dialog = GunSourceDialog(gun)
     qtbot.addWidget(dialog)
     assert dialog.surface_enabled.isChecked()
-    assert dialog.legacy_panel.isHidden()
+    assert dialog.analytic_tip_panel.isHidden()
     assert set(dialog.surface_inputs) == {"current_na", "cap_half_angle_deg", "normal_mean_energy_ev", "tangential_mean_energy_ev",
                                          "flux_electrons_per_nm2_s", "maximum_angle_deg", "kinetic_mean_ev", "kinetic_sigma_ev"}
     assert "Final anode 0 V" in dialog.surface_voltage.text()

@@ -51,9 +51,8 @@ def main():
         from temsim.column.state_layout import apply_physical_layout_to_state
         selection, values = read_profile(args.profile)
         AssemblyCatalog().apply(state, selection)
-        skipped = apply_profile_values(state, values)
+        apply_profile_values(state, values)
         apply_physical_layout_to_state(state, preserve_operating_parameters=True)
-        print("Profile skipped fields:", skipped, flush=True)
     if hasattr(state, "vacuum_map"):
         state.vacuum_map.enabled = False  # Declared vacuum-free optical comparison.
     state._optical_tuning = True

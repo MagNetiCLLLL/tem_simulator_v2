@@ -101,7 +101,7 @@ def test_lens_beam_voltage_and_detector_response_are_not_potential_dependencies(
     ("wave_frozen_phonon_enabled", True), ("wave_frozen_phonon_seed", 101),
     ("wave_frozen_phonon_configurations", 2), ("wave_frozen_phonon_sigma_angstrom", 0.02),
     ("wave_frozen_phonon_sigma_by_element_angstrom", {"Si": 0.08}),
-    ("specimen_rotation_x_deg", 5.0), ("inserted", False),
+    ("specimen_orientation_quaternion_wxyz", (0.9990482215818578, 0.043619387365336, 0., 0.)), ("inserted", False),
 ])
 def test_potential_input_change_invalidates(monkeypatch, field, value):
     monkeypatch.setattr(wave_imaging, "_prepare_specimen_potentials_uncached",
@@ -348,6 +348,41 @@ def test_running_build_does_not_refill_cleared_or_reduced_cache(action):
         release.set()
         assert running.result(timeout=5)[0] is not None
     assert cache.info()["entries"] == cache.info()["used_bytes"] == 0
+
+
+def test_clear_isolates_new_same_key_request_from_running_build():
+    cache = PreparedSpecimenCache(budget_bytes=100_000)
+    entered, release = Event(), Event()
+
+    def old_builder():
+        entered.set()
+        assert release.wait(5)
+        value = _small_product()
+        value.metrics["generation"] = "old"
+        return value
+
+    def new_builder():
+        value = _small_product()
+        value.metrics["generation"] = "new"
+        return value
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        old = pool.submit(cache.get_or_build, "same", old_builder)
+        assert entered.wait(5)
+        cache.clear()
+        assert cache.info()["builds"] == cache.info()["hits"] == 0
+        try:
+            fresh = pool.submit(cache.get_or_build, "same", new_builder).result(timeout=2)
+            assert fresh[1] is False
+            assert fresh[0].metrics["generation"] == "new"
+        finally:
+            release.set()
+        previous = old.result(timeout=5)
+    assert previous[0].metrics["generation"] == "old"
+    retained = cache.get_or_build("same", lambda: pytest.fail("New result must remain cached"))
+    assert retained[1] is True
+    assert retained[0].metrics["generation"] == "new"
+    assert cache.info()["builds"] == 1
 
 
 @pytest.mark.parametrize("kwargs", [{"budget_bytes": -1}, {"budget_bytes": True},

@@ -8,14 +8,12 @@ from __future__ import annotations
 
 import numpy as np
 
-LEGACY = "legacy_difference"
-DUAL = "normal_skew"
-MODELS = (LEGACY, DUAL)
+FIELD_MODEL = "normal_skew"
 
 
 def validate_stigmator_field(component):
-    if component.field_model not in MODELS:
-        raise ValueError(f"Unknown stigmator field model: {component.field_model}")
+    if component.field_model != FIELD_MODEL:
+        raise ValueError(f"Stigmator field model must be {FIELD_MODEL}; got {component.field_model!r}")
     values = (component.channel_x_angle_deg, component.channel_y_angle_deg,
               component.strength_x_percent, component.strength_y_percent,
               component.max_strength_m2, component.length_mm)
@@ -38,9 +36,6 @@ def quadrupole_tensor_components(component, z_mm):
     envelope = np.exp(-0.5 * ((z - component.z_mm) / (component.length_mm / 2.355)) ** 2)
     x = component.max_strength_m2 * component.strength_x_percent / 100.0
     y = component.max_strength_m2 * component.strength_y_percent / 100.0
-    if component.field_model == LEGACY:
-        normal = 0.5 * (x - y) * envelope
-        return normal, -normal, zero
     ax, ay = np.deg2rad(2 * np.array([component.channel_x_angle_deg, component.channel_y_angle_deg]))
     normal = (x * np.cos(ax) + y * np.cos(ay)) * envelope
     skew = (x * np.sin(ax) + y * np.sin(ay)) * envelope

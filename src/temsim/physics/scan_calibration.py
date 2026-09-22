@@ -25,7 +25,8 @@ def validate_record(text):
     if not text:
         raise ValueError("No held scan calibration. Use Calibrate and hold first.")
     record = json.loads(text)
-    if not isinstance(record, dict) or record.get("version") != 1:
+    if (not isinstance(record, dict) or type(record.get("version")) is not int
+            or record["version"] != 1):
         raise ValueError("Unsupported scan calibration record")
     for key in ("ac_ratio", "descan_ratio", "command_mrad"):
         values = np.asarray(record.get(key), dtype=float)
@@ -38,12 +39,20 @@ def validate_record(text):
         raise ValueError("Held descan target must be finite")
     if not isinstance(record.get("descan_calibrated"), bool):
         raise ValueError("Held scan record must declare descan calibration status")
+    target_key = record.get("target_key")
+    if not isinstance(target_key, str):
+        raise ValueError("Held scan record must declare its physical descan target key")
+    if record["descan_calibrated"] and (
+        not target_key.strip() or target_key == "legacy_image_reference"
+    ):
+        raise ValueError("Held descan calibration requires an explicit physical target key")
     if record.get("reference") not in ("sample_centre", "sample_entrance"):
         raise ValueError("Invalid held scan reference")
     return record
 
 
-def capture_record(state):
+def capture_record(state, *, descan_calibrated: bool):
+    """Capture only the calibration stages executed in the accepted solve."""
     from temsim.instrument_snapshot import capture_instrument_snapshot
     ac, descan = state.ac_deflector, state.descan_deflector
     record = dict(version=1, calibrated_snapshot_id=capture_instrument_snapshot(state).digest,
@@ -53,7 +62,7 @@ def capture_record(state):
                   fov_nm=(ac.scan_field_of_view_x_nm, ac.scan_field_of_view_y_nm),
                   target_key=descan.image_plane_target_key,
                   target_z_mm=descan.image_plane_target_z_mm or float(state.sample.z_mm),
-                  descan_calibrated=bool(descan.enabled and descan.scan_enabled),
+                  descan_calibrated=descan_calibrated,
                   reference=ac.scan_reference)
     encoded = json.dumps(record, sort_keys=True, allow_nan=False, separators=(",", ":"))
     validate_record(encoded)

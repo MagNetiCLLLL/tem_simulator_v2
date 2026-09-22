@@ -1,7 +1,6 @@
 from dataclasses import asdict, dataclass
 import math
 
-import numpy as np
 
 from temsim import module_manifest
 from temsim.component_keys import (
@@ -19,9 +18,8 @@ from temsim.component_keys import (
 from temsim.optics.energy_filter_m12 import (
     MAXIMUM_MATCH_VOLTAGE_KV,
     MINIMUM_MATCH_VOLTAGE_KV,
-    create_iliad_multipoles,
+    create_energy_filter_multipoles,
     energy_filter_multipole_from_dict,
-    energy_filter_m12_from_dict,
     magnetic_rigidity_t_m,
     rigidity_scale,
     serialise_energy_filter_m12,
@@ -73,7 +71,6 @@ def _multipole_path_mm(index):
 class EnergyFilterSystem:
     enabled: bool=False
     operating_mode: str="eels"
-    optical_integration_enabled: bool=True
     multi_eels_enabled: bool=False
     multi_eels_region_count: int=1
     calibration_status: str="reference_calibration_non_oem_300kv"
@@ -86,9 +83,6 @@ class EnergyFilterSystem:
     prism_radial_field_index: float = _manifest_geometry_float(
         ENERGY_FILTER_TAPERED_PRISM, "prism_radial_field_index"
     )
-    slit_width_ev: float=10.0
-    selected_loss_ev: float=0.0
-    entrance_multipole_s_mm: float = _multipole_path_mm(3)
     prism_entrance_s_mm: float = _manifest_geometry_float(
         ENERGY_FILTER_TAPERED_PRISM, "path_entrance_mm"
     )
@@ -103,7 +97,6 @@ class EnergyFilterSystem:
     )
     ray_step_mm: float=0.25
     maximum_trace_rays: int=256
-    exit_multipole_d_mm: float = _multipole_path_mm(4)
     multipole_01_s_mm: float = _multipole_path_mm(1)
     multipole_02_s_mm: float = _multipole_path_mm(2)
     multipole_03_s_mm: float = _multipole_path_mm(3)
@@ -157,8 +150,6 @@ class EnergyFilterSystem:
     matched_voltage_kv: object=None
     sector_reference_field_t: object=None
     sector_field_t: object=None
-    entrance_m12: object=None
-    exit_m12: object=None
     multipoles: object=None
     m12_frames_placed: bool=False
     energy_slit: object=None
@@ -166,6 +157,22 @@ class EnergyFilterSystem:
     fast_shutter: object=None
     camera_deflector: object=None
     zebra_detector: object=None
+
+    @property
+    def slit_width_ev(self):
+        return float(self.energy_slit.requested_width_ev)
+
+    @slit_width_ev.setter
+    def slit_width_ev(self, value):
+        self.energy_slit.requested_width_ev = float(value)
+
+    @property
+    def selected_loss_ev(self):
+        return float(self.energy_slit.requested_centre_loss_ev)
+
+    @selected_loss_ev.setter
+    def selected_loss_ev(self, value):
+        self.energy_slit.requested_centre_loss_ev = float(value)
 
     @property
     def sector_soft_edges_enabled(self):
@@ -258,8 +265,6 @@ class EnergyFilterVoltageMatchResult:
     target_voltage_kv: float
     rigidity_scale: float
     sector_field_t: float
-    entrance_m12_scale: float
-    exit_m12_scale: float
     multipole_scales: tuple = ()
     slit_dispersion_um_per_ev: object = None
     diagnostic_message: str = ""
@@ -267,6 +272,7 @@ class EnergyFilterVoltageMatchResult:
 
 def _initialise_voltage_reference(ef, voltage_kv):
     voltage = float(voltage_kv)
+    new_operating_state = ef.energy_slit is None
     if ef.voltage_reference_kv is None:
         ef.voltage_reference_kv = voltage
     reference_voltage = float(ef.voltage_reference_kv)
@@ -289,22 +295,21 @@ def _initialise_voltage_reference(ef, voltage_kv):
         ef.sector_field_t = float(ef.sector_reference_field_t)
     if ef.matched_voltage_kv is None:
         ef.matched_voltage_kv = reference_voltage
+    if ef.multipoles is None:
+        ef.multipoles = create_energy_filter_multipoles(reference_voltage)
     if not isinstance(ef.multipoles, list) or len(ef.multipoles) != 10:
-        ef.multipoles = create_iliad_multipoles(reference_voltage)
-    # The legacy aliases remain readable for old profiles and external code;
-    # they refer to the historical pre-prism and first post-prism locations.
-    ef.entrance_m12 = ef.multipoles[2]
-    ef.exit_m12 = ef.multipoles[3]
+        raise ValueError("Energy filter requires exactly ten current multipole carriers.")
+    for index, element in enumerate(ef.multipoles, start=1):
+        if element.key != ENERGY_FILTER_MULTIPOLE_KEYS[index - 1] or element.role != f"m{index:02d}":
+            raise ValueError("Energy filter multipole identity does not match its carrier position.")
     if not bool(ef.m12_frames_placed):
         from temsim.optics.energy_filter_sector import (
-            place_m12_in_sector_frames,
+            place_multipoles_in_sector_frames,
         )
 
-        place_m12_in_sector_frames(ef)
+        place_multipoles_in_sector_frames(ef)
     if ef.energy_slit is None:
         ef.energy_slit = create_energy_selection_slit(
-            centre_loss_ev=float(ef.selected_loss_ev),
-            width_ev=float(ef.slit_width_ev),
             dispersion_um_per_ev=0.7490714,
             distance_from_sector_exit_m=(
                 float(ef.slit_d_mm) * 1.0e-3
@@ -318,18 +323,23 @@ def _initialise_voltage_reference(ef, voltage_kv):
         ef.camera_deflector = EnergyFilterCameraDeflector().validate()
     if ef.zebra_detector is None:
         ef.zebra_detector = ZebraEELSDetector().validate()
-    configure_energy_filter_operating_mode(ef, ef.operating_mode)
+    if new_operating_state:
+        configure_energy_filter_operating_mode(ef, ef.operating_mode)
+    elif ef.operating_mode not in ENERGY_FILTER_OPERATING_MODES:
+        raise ValueError("Energy filter operating mode must be EELS or EFTEM.")
     return ef
 
 
 def ensure_energy_filter(state):
-    created=not bool(getattr(state,'energy_filter',None))
-    if created: state.energy_filter=EnergyFilterSystem()
-    defaults=EnergyFilterSystem();ef=state.energy_filter
-    for name in defaults.__dataclass_fields__:
-        if not hasattr(ef,name):setattr(ef,name,getattr(defaults,name))
-    if not hasattr(state,'energy_filter_mode'):state.energy_filter_mode='no_energy_filter'
-    if not hasattr(state,'show_field_diagram'):state.show_field_diagram=True
+    if state.energy_filter is None:
+        state.energy_filter = EnergyFilterSystem(enabled=state.energy_filter_installed)
+    ef = state.energy_filter
+    if not isinstance(ef, EnergyFilterSystem):
+        raise TypeError("Energy filter state must be an EnergyFilterSystem.")
+    if not isinstance(state.energy_filter_installed, bool) or not isinstance(ef.enabled, bool):
+        raise ValueError("Energy filter installation and enabled state must be Boolean.")
+    if ef.enabled != state.energy_filter_installed:
+        raise ValueError("Energy filter enabled state must match its physical installation.")
     selected_area = getattr(state, "selected_area_aperture", None)
     aperture=next((
         item for item in getattr(state,'apertures',[])
@@ -337,11 +347,7 @@ def ensure_energy_filter(state):
     ),None)
     if selected_area is not None and aperture is not None:
         aperture.resolve_against(selected_area.z_mm).validate()
-        aperture.installed=bool(
-            ef.enabled
-            or getattr(state,'energy_filter_mode','no_energy_filter')
-            == 'energy_filter'
-        )
+        aperture.installed = state.energy_filter_installed
         ef.bind_entrance_aperture(aperture)
     _initialise_voltage_reference(
         ef,
@@ -390,8 +396,6 @@ def match_energy_filter_to_voltage(state, voltage_kv=None):
         element.apply_voltage_match(target_voltage)
         for element in ef.multipoles
     )
-    entrance_scale = multipole_scales[2]
-    exit_scale = multipole_scales[3]
     ef.matched_voltage_kv = target_voltage
     from temsim.optics.energy_filter_metrics import (
         measure_slit_plane_metrics,
@@ -416,8 +420,6 @@ def match_energy_filter_to_voltage(state, voltage_kv=None):
         target_voltage_kv=target_voltage,
         rigidity_scale=scale,
         sector_field_t=float(ef.sector_field_t),
-        entrance_m12_scale=entrance_scale,
-        exit_m12_scale=exit_scale,
         multipole_scales=multipole_scales,
         slit_dispersion_um_per_ev=(
             metrics.dispersion_um_per_ev
@@ -463,7 +465,7 @@ def serialise_energy_filter(energy_filter):
     for field in module_manifest.ENERGY_FILTER_MECHANICAL_METADATA_FIELDS:
         data.pop(field, None)
     for field in (
-        "multipoles", "entrance_m12", "exit_m12", "energy_slit",
+        "multipoles", "energy_slit", "m12_frames_placed",
         "bias_tube", "fast_shutter", "camera_deflector", "zebra_detector",
     ):
         data.pop(field, None)
@@ -471,13 +473,6 @@ def serialise_energy_filter(energy_filter):
         serialise_energy_filter_m12(element)
         for element in energy_filter.multipoles
     ]
-    # Retain the legacy names as migration snapshots.
-    data["entrance_m12"] = serialise_energy_filter_m12(
-        energy_filter.entrance_m12
-    )
-    data["exit_m12"] = serialise_energy_filter_m12(
-        energy_filter.exit_m12
-    )
     data["energy_slit"] = serialise_energy_selection_slit(
         energy_filter.energy_slit
     )
@@ -497,77 +492,32 @@ def serialise_energy_filter(energy_filter):
 
 
 def energy_filter_from_dict(values, source_voltage_kv):
-    values = dict(values or {})
-    known = EnergyFilterSystem.__dataclass_fields__
-    scalar_values = {
-        key: value
-        for key, value in values.items()
-        if key in known and key not in {
-            "multipoles",
-            "entrance_m12",
-            "exit_m12",
-            "energy_slit",
-            "bias_tube",
-            "fast_shutter",
-            "camera_deflector",
-            "zebra_detector",
-            *module_manifest.ENERGY_FILTER_GEOMETRY_FIELDS,
-            *module_manifest.ENERGY_FILTER_MECHANICAL_METADATA_FIELDS,
-        }
+    expected = EnergyFilterSystem.__dataclass_fields__.keys() - {
+        *module_manifest.ENERGY_FILTER_GEOMETRY_FIELDS,
+        *module_manifest.ENERGY_FILTER_MECHANICAL_METADATA_FIELDS,
+        "m12_frames_placed",
     }
+    if not isinstance(values, dict):
+        raise ValueError("Energy filter requires a complete current record.")
+    missing = expected - values.keys()
+    unknown = values.keys() - expected
+    if missing or unknown:
+        raise ValueError(f"Energy filter fields invalid: missing {sorted(missing)}, unknown {sorted(unknown)}.")
+    children = {"multipoles", "energy_slit", "bias_tube", "fast_shutter", "camera_deflector", "zebra_detector"}
+    scalar_values = {key: value for key, value in values.items() if key not in children}
     energy_filter = EnergyFilterSystem(**scalar_values)
-    reference_voltage = float(
-        energy_filter.voltage_reference_kv
-        if energy_filter.voltage_reference_kv is not None
-        else source_voltage_kv
-    )
-    saved_multipoles = values.get("multipoles")
-    if isinstance(saved_multipoles, list) and len(saved_multipoles) == 10:
-        energy_filter.multipoles = [
-            energy_filter_multipole_from_dict(
-                item, index, reference_voltage
-            )
-            for index, item in enumerate(saved_multipoles, start=1)
-        ]
-    else:
-        energy_filter.multipoles = create_iliad_multipoles(reference_voltage)
-        # Migrate the former two-carrier state into the corresponding slots.
-        for target, role, saved in (
-            (
-                energy_filter.multipoles[2],
-                "entrance",
-                values.get("entrance_m12"),
-            ),
-            (
-                energy_filter.multipoles[3],
-                "exit",
-                values.get("exit_m12"),
-            ),
-        ):
-            if not isinstance(saved, dict):
-                continue
-            legacy = energy_filter_m12_from_dict(
-                saved, role, reference_voltage
-            )
-            legacy_values = np.concatenate((
-                legacy.multipole_field.normal_coefficients,
-                legacy.multipole_field.skew_coefficients,
-                legacy.calibration.reference_normal_coefficients,
-                legacy.calibration.reference_skew_coefficients,
-            ))
-            if np.any(np.abs(legacy_values) > 0.0):
-                target.field_backend = legacy.field_backend
-                target.calibration = legacy.calibration
-                target.enabled = legacy.enabled
-    energy_filter.energy_slit = energy_selection_slit_from_dict(
-        values.get("energy_slit"),
-        centre_loss_ev=float(energy_filter.selected_loss_ev),
-        width_ev=float(energy_filter.slit_width_ev),
-        dispersion_um_per_ev=0.7490714,
-        distance_from_sector_exit_m=(
-            float(energy_filter.slit_d_mm) * 1.0e-3
-        ),
-    )
+    for key, field in EnergyFilterSystem.__dataclass_fields__.items():
+        if field.type is bool and key in scalar_values and not isinstance(scalar_values[key], bool):
+            raise ValueError(f"Energy filter {key} must be a Boolean.")
+    reference_voltage = float(energy_filter.voltage_reference_kv)
+    saved_multipoles = values["multipoles"]
+    if not isinstance(saved_multipoles, list) or len(saved_multipoles) != 10:
+        raise ValueError("Energy filter requires exactly ten current multipole records.")
+    energy_filter.multipoles = [
+        energy_filter_multipole_from_dict(item, index, reference_voltage)
+        for index, item in enumerate(saved_multipoles, start=1)
+    ]
+    energy_filter.energy_slit = energy_selection_slit_from_dict(values["energy_slit"])
     energy_filter.bias_tube = detector_component_from_dict(
         EnergyFilterBiasTube, values.get("bias_tube")
     )

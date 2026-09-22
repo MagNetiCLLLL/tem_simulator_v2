@@ -7,7 +7,7 @@ import pytest
 
 from temsim.module_manifest import (
     _validate_projector_lens_clearances,
-    validate_document,
+    validate_document, read_document,
 )
 
 
@@ -15,7 +15,7 @@ from temsim.module_manifest import (
 def recording_document(request):
     path = (Path(__file__).parents[1] / "configs" / "instruments"
             / "project_and_recording_system" / request.param)
-    return tomllib.loads(path.read_text(encoding="utf-8"))
+    return read_document(path)
 
 
 def _housing(document):

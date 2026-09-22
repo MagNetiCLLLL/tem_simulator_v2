@@ -207,16 +207,20 @@ class GunSourceDialog(QDialog):
         self.near_field_button.clicked.connect(self._preview_surface)
         surface_form.addRow(self.near_field_button)
         panel_layout.addWidget(self.surface_panel)
-        self.legacy_panel = QWidget()
-        form = QFormLayout(self.legacy_panel)
-        self.legacy_form = form
+        self.analytic_tip_panel = QWidget()
+        form = QFormLayout(self.analytic_tip_panel)
+        self.analytic_tip_form = form
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form.addRow(QLabel("One tip source · projected size and local emission law"))
-        panel_layout.addWidget(self.legacy_panel)
+        panel_layout.addWidget(self.analytic_tip_panel)
         scroll.setWidget(panel)
         self.inputs = {}
         for key, label in self.fields:
             edit = QLineEdit(str(getattr(gun.emitter, key)))
+            from temsim.parameter_registry import parameter_definition
+            definition = parameter_definition("feg_tip", key)
+            if definition is not None:
+                edit.setToolTip(f"{definition.label} ({definition.unit or 'dimensionless'})\n{definition.description}")
             self.inputs[key] = edit
             form.addRow(label, edit)
         self.inputs["curvature_nm_inv"].setToolTip(
@@ -238,7 +242,7 @@ class GunSourceDialog(QDialog):
             "when this option is off. Total angular spread includes diffraction, incoherent spread and curvature. "
             "All physical apertures remain active. Full TEM/STEM wave imaging is still under development.")
         description.setWordWrap(True)
-        self.legacy_coherent_description = description
+        self.coherence_description = description
         form.addRow(description)
         parameters = gun.emitter.coherence or TipCoherence()
         self.coherence_inputs = {}
@@ -266,10 +270,7 @@ class GunSourceDialog(QDialog):
 
     def _sync_fields(self):
         text = self.inputs['curvature_nm_inv'].text()
-        from temsim.optics.electron_gun.tip_curvature import ANGLE_ONLY_MODEL, LEGACY_MODEL
-        scope = ("Historical angle only · launch Z = 0" if self._curvature_model == ANGLE_ONLY_MODEL
-                 else "Historical sag model · centre Z = 0" if self._curvature_model == LEGACY_MODEL
-                 else "Centre Z = 0 · edges bend to negative Z")
+        scope = "Centre Z = 0 · edges bend to negative Z"
         self.model_change_summary.setText(
             "Historical source: separate emission law and electrode-field solver."
             if self.surface_enabled.isChecked() else
@@ -280,13 +281,13 @@ class GunSourceDialog(QDialog):
             "It does not recompute a self-consistent field for a deformed metal tip. "
             f"Analytic gun-lens scale: {self._gun.electrostatic_lens.potential_scale:g} (uncalibrated).")
         self.surface_panel.setVisible(self.surface_enabled.isChecked())
-        self.legacy_panel.setVisible(not self.surface_enabled.isChecked())
+        self.analytic_tip_panel.setVisible(not self.surface_enabled.isChecked())
         self.match_transport.setEnabled(self._instrument_state is not None and not self.surface_coherent.isChecked())
         enabled = self.coherence_enabled.isChecked()
         for edit in self.coherence_inputs.values():
             edit.setEnabled(enabled)
-            self.legacy_form.setRowVisible(edit, enabled)
-        self.legacy_coherent_description.setVisible(enabled)
+            self.analytic_tip_form.setRowVisible(edit, enabled)
+        self.coherence_description.setVisible(enabled)
         self.coherence_enabled.setVisible(enabled)
         self.inputs["curvature_nm_inv"].setEnabled(not enabled)
         self.continuous_preview.setVisible(not enabled)

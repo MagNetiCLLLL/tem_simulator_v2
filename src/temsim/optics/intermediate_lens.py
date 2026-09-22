@@ -9,7 +9,6 @@ from temsim import module_manifest
 from temsim.component_keys import (
     INTERMEDIATE_LENS,
     SELECTED_AREA_APERTURE,
-    canonical_lens_key,
 )
 from temsim.optics.selected_area_downstream import downstream_offset_mm
 from temsim.optics.model import Gaussian
@@ -149,29 +148,18 @@ def create_intermediate_lens():
     return component
 
 
-def intermediate_lens_from_dict(
-    data,
-    legacy_anchor_reference_z_mm=None,
-    legacy_reference_z_mm=None,
-):
+def intermediate_lens_from_dict(data):
     values = dict(data)
-    values["key"] = canonical_lens_key(values.get("key", ""))
-    if (
-        "optical_reference_downstream_of_anchor_mm" not in values
-        and legacy_reference_z_mm is not None
-    ):
-        values["z_mm"] = float(legacy_reference_z_mm)
+    if values.get("key") != INTERMEDIATE_LENS:
+        raise ValueError("Lens record requires canonical key 'intermediate_lens'")
+    if "anchor_key" in values and values["anchor_key"] != SELECTED_AREA_APERTURE:
+        raise ValueError("Lens anchor must be the current selected-area aperture")
     component = restore_anchored_round_lens(
         create_intermediate_lens(),
         values,
-        legacy_anchor_reference_z_mm=legacy_anchor_reference_z_mm,
     )
     component.key = INTERMEDIATE_LENS
     component.name = INTERMEDIATE_LENS_DEFINITION.label
     component.anchor_key = SELECTED_AREA_APERTURE
-    if values.get("anchor_key") != SELECTED_AREA_APERTURE:
-        offset = downstream_offset_mm(INTERMEDIATE_LENS)
-        component.mechanical_center_downstream_of_anchor_mm = offset
-        component.optical_reference_downstream_of_anchor_mm = offset
     component.corrector = INTERMEDIATE_LENS_DEFINITION.owner
     return component.validate()

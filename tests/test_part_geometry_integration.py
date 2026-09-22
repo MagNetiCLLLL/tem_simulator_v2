@@ -1,6 +1,7 @@
 """Component selection through a real, transactional geometry save."""
 
 from copy import deepcopy
+from dataclasses import replace
 import shutil
 
 import pytest
@@ -34,6 +35,9 @@ def window(qtbot, tmp_path, monkeypatch):
     monkeypatch.setattr(main_window.MainWindow, "schedule_preview", lambda *args: None)
     widget = main_window.MainWindow()
     qtbot.addWidget(widget)
+    widget.selection = replace(widget.selection, recording="Energy Filter")
+    widget.assembly = widget.catalog.apply(widget.state, widget.selection)
+    widget._refresh_assembly_views()
     widget.preview_timer.stop()
     yield widget
     assert source.read_bytes() == original

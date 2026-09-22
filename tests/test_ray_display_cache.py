@@ -130,7 +130,7 @@ def test_rotation_keeps_graphics_ranges_and_detector_offset_current(workspace, m
     detector_item = workspace.recording_surface_range_items[0]
     aperture = workspace._add_aperture_stop(
         SimpleNamespace(name="Offset aperture"), 5.0,
-        {"enabled": True, "installed": True, "diameter_mm": 2.0,
+        {"shape": "circular", "enabled": True, "installed": True, "diameter_mm": 2.0,
          "offset_x_mm": 0.5, "offset_y_mm": -0.25},
     )
     workspace.plot.setRange(xRange=(2.0, 8.0), yRange=(-2.0, 2.0), padding=0.0, disableAutoRange=True)

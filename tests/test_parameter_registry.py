@@ -36,7 +36,7 @@ def test_dependency_explanations_are_conservative_and_never_solve(change, monkey
     monkeypatch.setattr(core, "propagate", forbidden)
     monkeypatch.setattr(simulation, "run", forbidden)
     plan = dependency_plan(before, after)
-    assert all(not row["reusable"] or row["legacy_reusable"] for row in plan["stages"].values())
+    assert all(not row["reusable"] or row["signature_matches"] for row in plan["stages"].values())
     if change in {"unknown", "vacuum"}:
         assert plan["unknown_paths"]
         assert not any(row["reusable"] for row in plan["stages"].values())
@@ -85,7 +85,7 @@ def test_lens_metadata_exceptions_do_not_hide_unrelated_controls():
 
 def test_computed_gun_waist_is_not_a_new_physical_input():
     from temsim.calculation_cache import calculation_signatures
-    from temsim.instrument_snapshot import capture_instrument_snapshot, encode_instrument, decode_instrument, _encode_instrument
+    from temsim.instrument_snapshot import capture_instrument_snapshot, encode_instrument, decode_instrument
     from temsim.parameter_registry import unmapped_public_inputs
     state = default_state()
     signatures = calculation_signatures(state)
@@ -94,11 +94,8 @@ def test_computed_gun_waist_is_not_a_new_physical_input():
     assert calculation_signatures(state) == signatures
     assert not unmapped_public_inputs(state)
     assert capture_instrument_snapshot(state).digest == snapshot.digest
-    # Historical graphs retain the diagnostic for readability, but future input
-    # capture does not promote that output to a new source/optical control.
-    historical = _encode_instrument(state, include_legacy_state_results=True)
-    restored = decode_instrument(historical)
-    assert restored.last_gun_waist_mm == 45.125
+    restored = decode_instrument(encode_instrument(state))
+    assert not hasattr(restored, "last_gun_waist_mm")
     assert encode_instrument(restored) == snapshot.graph
 
 

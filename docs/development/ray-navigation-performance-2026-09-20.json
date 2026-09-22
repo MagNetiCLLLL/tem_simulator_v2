@@ -1,0 +1,184 @@
+{
+  "scope": "Real executed archive; selected display arrays only; no full checksum validation or physics rerun; isolated offscreen ray PlotWidget, not full GUI or physical solver",
+  "same_input_digest": true,
+  "displayed_rays": 432,
+  "source_points": 1171088,
+  "source_hashes": {
+    "src/temsim/gui/ray_curve_item.py": "fc940a519cb156c212fc4044afa619a4fba6e1c0fae099ee6a1ba9bf25265098",
+    "src/temsim/gui/ray_curve_simplification.py": "fd00108156cd25e686f93a49c753963eb7615722dbfbd3a1c634b5fdc5e1bfa6",
+    "src/temsim/gui/visualization.py": "a185e97ec933928f69ec5850f866ebf1699aab501fb8948c9f88aaa891ec5509",
+    "tmp/ray-navigation-20260920/benchmark_ray_navigation.py": "5594238e6b4a73fe09964ac571bd124f6d637e37201d52f2e9a94b4612f98642"
+  },
+  "source_unchanged_after": true,
+  "cold_compilation": "after-compiled used a verified previously nonexistent isolated NUMBA_CACHE_DIR; compile cost included in item_build_ms",
+  "baseline_item_build_ms": 64.94929999462329,
+  "after_item_build_ms": 969.0644000002067,
+  "baseline_initial_paint": {
+    "submit_ms": 4.218299996864516,
+    "events_ms": 389.860299997963,
+    "image_render_ms": 360.6987000021036,
+    "total_frame_ms": 754.7772999969311,
+    "actual_paint_ms": 743.0616999990889,
+    "paint_events": 2,
+    "displayed_curve_points": 1171088
+  },
+  "after_initial_paint": {
+    "submit_ms": 22.229000001971144,
+    "events_ms": 25.46520000032615,
+    "image_render_ms": 9.849399997619912,
+    "total_frame_ms": 57.543599999917205,
+    "actual_paint_ms": 28.05610000359593,
+    "paint_events": 2,
+    "displayed_curve_points": 13185
+  },
+  "scenarios": {
+    "horizontal_pan": {
+      "baseline": {
+        "submit_ms": 1.120949997130083,
+        "events_ms": 437.40545000400743,
+        "image_render_ms": 420.26389999955427,
+        "total_frame_ms": 857.7102999952331,
+        "actual_paint_ms": 855.4788000001281,
+        "paint_events": 2.0,
+        "displayed_curve_points": 1171088.0
+      },
+      "after": {
+        "submit_ms": 2.709050000703428,
+        "events_ms": 16.628400000627153,
+        "image_render_ms": 8.821799998258939,
+        "total_frame_ms": 28.217499999300344,
+        "actual_paint_ms": 24.43275000041467,
+        "paint_events": 2.0,
+        "displayed_curve_points": 13185.0
+      },
+      "render_speedup": 47.63924596822611,
+      "total_frame_speedup": 30.396395854221673,
+      "after_first_visit_total_ms": [
+        21.24079999339301,
+        28.742300004523713,
+        30.06230000028154,
+        28.509499999927357,
+        29.422200001135934,
+        27.474999995320104,
+        28.132999999797903,
+        28.39959999982966,
+        29.24249999341555,
+        28.744100003677886,
+        28.836899997259025,
+        28.909599997859914
+      ],
+      "after_first_visit_max_ms": 30.06230000028154
+    },
+    "zoom": {
+      "baseline": {
+        "submit_ms": 6.346649999613874,
+        "events_ms": 412.19139999884646,
+        "image_render_ms": 377.83869999839226,
+        "total_frame_ms": 792.5085499991837,
+        "actual_paint_ms": 778.3201000020199,
+        "paint_events": 2.0,
+        "displayed_curve_points": 1171088.0
+      },
+      "after": {
+        "submit_ms": 7.2053000003506895,
+        "events_ms": 27.70119999695453,
+        "image_render_ms": 11.537400001543574,
+        "total_frame_ms": 46.67340000378317,
+        "actual_paint_ms": 35.564249999879394,
+        "paint_events": 2.0,
+        "displayed_curve_points": 8589.0
+      },
+      "render_speedup": 32.74903357323502,
+      "total_frame_speedup": 16.979876116480607,
+      "after_first_visit_total_ms": [
+        28.27209999668412,
+        33.75279999454506,
+        63.190799999574665,
+        46.41510000510607,
+        50.78440000215778,
+        56.06389999593375,
+        44.97990000527352,
+        42.480399999476504,
+        35.884299999452196,
+        26.569900001049973,
+        30.302899998787325,
+        34.52500000275904
+      ],
+      "after_first_visit_max_ms": 63.190799999574665
+    },
+    "vertical_pan": {
+      "baseline": {
+        "submit_ms": 6.478049996076152,
+        "events_ms": 475.9185000002617,
+        "image_render_ms": 438.1752499975846,
+        "total_frame_ms": 919.5623499981593,
+        "actual_paint_ms": 906.2290999936522,
+        "paint_events": 2.0,
+        "displayed_curve_points": 1171088.0
+      },
+      "after": {
+        "submit_ms": 3.4791000034601893,
+        "events_ms": 21.894450001127552,
+        "image_render_ms": 11.112199998024153,
+        "total_frame_ms": 36.16514999521314,
+        "actual_paint_ms": 31.587500005116453,
+        "paint_events": 2.0,
+        "displayed_curve_points": 13185.0
+      },
+      "render_speedup": 39.43190817979303,
+      "total_frame_speedup": 25.42675338329507,
+      "after_first_visit_total_ms": [
+        56.305599995539524,
+        31.32309999637073,
+        33.91330000158632,
+        34.19239999493584,
+        34.92320000077598,
+        37.19099999580067,
+        36.801499998546205,
+        45.79580000427086,
+        34.51089999725809,
+        35.10779999487568,
+        35.44690000126138,
+        35.36810000514379
+      ],
+      "after_first_visit_max_ms": 56.305599995539524
+    },
+    "full_column": {
+      "baseline": {
+        "submit_ms": 1.1313500035612378,
+        "events_ms": 530.3944000006595,
+        "image_render_ms": 507.62619999659364,
+        "total_frame_ms": 1037.8291999986686,
+        "actual_paint_ms": 1035.744849999901,
+        "paint_events": 2.0,
+        "displayed_curve_points": 1171088.0
+      },
+      "after": {
+        "submit_ms": 3.006300001288764,
+        "events_ms": 15.995350000594044,
+        "image_render_ms": 5.496549998497358,
+        "total_frame_ms": 24.829899997712346,
+        "actual_paint_ms": 20.91179999843007,
+        "paint_events": 2.0,
+        "displayed_curve_points": 5602.0
+      },
+      "render_speedup": 92.3536036487193,
+      "total_frame_speedup": 41.797558592434406,
+      "after_first_visit_total_ms": [
+        60.36699999822304,
+        36.93089999433141,
+        26.007400003436487,
+        28.275700002268422,
+        28.280899998208042,
+        23.226399993291125,
+        20.233499999449123,
+        19.390599998587277,
+        22.27570000104606,
+        25.089499999012332,
+        25.33929999481188,
+        24.753599995165132
+      ],
+      "after_first_visit_max_ms": 60.36699999822304
+    }
+  }
+}

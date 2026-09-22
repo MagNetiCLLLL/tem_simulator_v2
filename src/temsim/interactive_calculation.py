@@ -22,6 +22,18 @@ from temsim.simulation_pipeline import calculate
 
 
 MAX_OPTICAL_POINTS = 256
+LIVE_CONTROL_GROUPS = frozenset({"lens", "aperture", "source", "stigmator", "deflector", "corrector"})
+_STIGMATOR_FIELDS = (("strength_x_percent", "X strength", "%"),
+                     ("strength_y_percent", "Y strength", "%"))
+_DEFLECTOR_FIELDS = (("upper_x_mrad", "Upper X", "mrad"),
+                     ("upper_y_mrad", "Upper Y", "mrad"),
+                     ("lower_x_mrad", "Lower X", "mrad"),
+                     ("lower_y_mrad", "Lower Y", "mrad"),
+                     ("kick_x_mrad", "Static X deflection", "mrad"),
+                     ("kick_y_mrad", "Static Y deflection", "mrad"))
+_CORRECTOR_FIELDS = (("strength_m2", "Quadrupole strength", "m^-2"),
+                     ("strength_m3", "Hexapole strength", "m^-3"),
+                     ("orientation_rad", "Hexapole orientation", "rad"))
 
 
 class InteractiveCancelled(RuntimeError):
@@ -124,6 +136,21 @@ def available_controls(state):
         for field, label in (("offset_x_mm", "Centre X"), ("offset_y_mm", "Centre Y")):
             if hasattr(aperture, field):
                 add("aperture", aperture, field, label, "mm", stage)
+    for group, objects, fields in (
+            ("stigmator", getattr(state, "stigmators", ()), _STIGMATOR_FIELDS),
+            ("deflector", (*getattr(state, "deflectors", ()),
+                           *getattr(state, "corrector_elements", ())), _DEFLECTOR_FIELDS),
+            ("corrector", getattr(state, "corrector_elements", ()), _CORRECTOR_FIELDS)):
+        seen = set()
+        for component in objects:
+            if (component.key in seen or not bool(getattr(component, "installed", True))
+                    or not bool(getattr(component, "enabled", True))):
+                continue
+            seen.add(component.key)
+            for field, label, unit in fields:
+                if (hasattr(component, field)
+                        and (field != "orientation_rad" or hasattr(component, "strength_m3"))):
+                    add(group, component, field, label, unit, "optical")
     for detector in state.recording_planes:
         if not bool(getattr(detector, "inserted", False)):
             continue
@@ -146,6 +173,12 @@ def _target(state, control):
     elif control.group == "aperture":
         candidates = list(state.apertures) + [getattr(state.electron_gun, name, None)
                                             for name in ("dpa_aperture", "c1_aperture")]
+    elif control.group == "stigmator":
+        candidates = getattr(state, "stigmators", ())
+    elif control.group == "deflector":
+        candidates = (*getattr(state, "deflectors", ()), *getattr(state, "corrector_elements", ()))
+    elif control.group == "corrector":
+        candidates = getattr(state, "corrector_elements", ())
     else:
         raise ValueError("Unknown interactive control group")
     for item in candidates:
@@ -179,7 +212,26 @@ def _validated_assignment(state, control, value):
     if control.group == "detector" and control.field == "z_mm":
         if value <= state.sample.z_mm:
             raise ValueError("Recording planes must remain downstream of the sample")
+    if control.group in {"stigmator", "deflector", "corrector"}:
+        from copy import copy
+        fields = {"stigmator": _STIGMATOR_FIELDS, "deflector": _DEFLECTOR_FIELDS,
+                  "corrector": _CORRECTOR_FIELDS}[control.group]
+        if control.field not in {item[0] for item in fields}:
+            raise ValueError("Unsupported live optical scalar")
+        candidate = copy(obj)
+        setattr(candidate, control.field, value)
+        _validate_optical_scalar_component(candidate, control.group)
     return obj, value
+
+
+def _validate_optical_scalar_component(component, group):
+    if group == "stigmator":
+        from temsim.optics.stigmator_field import validate_stigmator_field
+        validate_stigmator_field(component)
+    else:
+        validator = getattr(component, "validate", None)
+        if callable(validator):
+            validator()
 
 
 def _assign(state, control, value):
@@ -193,17 +245,18 @@ def _assign(state, control, value):
 def apply_live_tuning_values(state, axes_and_values):
     """Validate scalar edits without constructing a full instrument snapshot.
 
-    Only installed live lens/aperture controls are allowed. Stage, bounds and
+    Only installed live physical scalar controls are allowed. Stage, bounds and
     component setter validation finish before writing any live scalar. Worker
     submission still creates its own complete, detached physical snapshot.
     """
     from copy import copy
     allowed = {control.identity: control for control in available_controls(state)}
     pending = []
+    candidates = {}
     seen = set()
     for axis, value in axes_and_values:
         control = axis.control
-        if control.group not in {"lens", "aperture", "source"}:
+        if control.group not in LIVE_CONTROL_GROUPS:
             raise ValueError("Use Advanced bank for detached detector geometry readout")
         active = allowed.get(control.identity)
         if active is None or active.stage != control.stage:
@@ -214,9 +267,14 @@ def apply_live_tuning_values(state, axes_and_values):
         target, value = _validated_assignment(state, control, axis.validate_value(value))
         # These supported setters change scalar excitation/radius/offset only.
         # Validate against a shallow component copy, not the whole microscope.
-        draft = copy(target)
+        draft, _group = candidates.setdefault(id(target), (copy(target), control.group))
         setattr(draft, control.field, value)
         pending.append((target, control.field, value, getattr(target, control.field)))
+    # Several channels can belong to the same physical component. Validate
+    # their combined candidate before changing any live object.
+    for draft, group in candidates.values():
+        if group in {"stigmator", "deflector", "corrector"}:
+            _validate_optical_scalar_component(draft, group)
     applied = []
     try:
         for target, field, value, old in pending:

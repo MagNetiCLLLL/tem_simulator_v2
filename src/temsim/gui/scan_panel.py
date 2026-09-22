@@ -38,9 +38,12 @@ from temsim.component_keys import STEM_DETECTOR_KEYS
 from temsim.physics.scan_geometry import (
     SHARED_RASTER_FIELDS,
     calibrate_scan_system,
+    physical_descan_targets,
+    require_supported_descan_target,
 )
 from temsim.specimen.source import active_cif_path
 from temsim.physics.stem_sampling import frame_sampling_report
+from temsim.parameter_registry import parameter_definition
 
 
 class ScanControlView(QWidget):
@@ -85,6 +88,7 @@ class ScanControlView(QWidget):
         self.summary.setObjectName("scanGeometrySummary")
         self.summary.setWordWrap(True)
         self.summary.setStyleSheet("color: #0f172a; font-weight: 600;")
+        self.summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         scope = QLabel(
             "AC/Descan raster with physical HAADF, DF and BF readout."
         )
@@ -110,10 +114,10 @@ class ScanControlView(QWidget):
         calibration_form = QFormLayout(calibration)
         self.scan_calibration_mode = QComboBox()
         self.scan_calibration_mode.setObjectName("scanCalibrationMode")
-        self.scan_calibration_mode.addItem("Automatic (legacy)", "automatic")
+        self.scan_calibration_mode.addItem("Automatic recalibration", "automatic")
         self.scan_calibration_mode.addItem("Hold saved calibration", "held")
         self.scan_reference = QComboBox()
-        self.scan_reference.addItem("Specimen centre (legacy)", "sample_centre")
+        self.scan_reference.addItem("Specimen centre", "sample_centre")
         self.scan_reference.addItem("Specimen entrance", "sample_entrance")
         self.descan_target = QComboBox()
         self.descan_target.setObjectName("descanObservationTarget")
@@ -132,6 +136,12 @@ class ScanControlView(QWidget):
         self.scan_reference.currentIndexChanged.connect(lambda: self._scan_calibration_changed("scan_reference", self.scan_reference.currentData()))
         self.descan_target.currentIndexChanged.connect(lambda: self._scan_calibration_changed("descan_target_key", self.descan_target.currentData()))
         self.calibrate_hold_button.clicked.connect(self._calibrate_and_hold)
+        for widget, key, name in (
+            (self.scan_calibration_mode, "ac_deflector", "calibration_mode"),
+            (self.scan_reference, "ac_deflector", "scan_reference"),
+            (self.descan_target, "descan_deflector", "descan_target_key"),
+        ):
+            widget.setToolTip(parameter_definition(key, name).tooltip())
         controls_layout.addWidget(calibration)
         self.component_fov_labels = {}
         self.ac_controls = self._add_component_controls(
@@ -825,6 +835,11 @@ class ScanControlView(QWidget):
                           minimum=-10., maximum=10., step=.001)
                 widgets[f"pivot_offset_{axis}"].setToolTip("Dimensionless change to the calibrated lower-foil ratio. Use held calibration to see its effect on diffraction-pattern motion.")
 
+        for name, widget in widgets.items():
+            definition = parameter_definition(f"{prefix}_deflector", name)
+            if definition is not None:
+                widget.setToolTip(definition.tooltip())
+
         enabled.toggled.connect(
             lambda value: self._control_changed(
                 prefix, "scan_enabled", bool(value)
@@ -1475,15 +1490,12 @@ class ScanControlView(QWidget):
         self.scan_calibration_mode.setCurrentIndex(self.scan_calibration_mode.findData(ac.calibration_mode))
         self.scan_reference.setCurrentIndex(self.scan_reference.findData(ac.scan_reference))
         self.descan_target.clear()
-        self.descan_target.addItem("SAA image reference (legacy)", "legacy_image_reference")
-        for plane in getattr(self._state, "recording_planes", ()):
-            if float(plane.z_mm) > float(ds.lower_z_mm):
-                from temsim.physics.scan_geometry import require_supported_descan_target
-                try:
-                    require_supported_descan_target(self._state, plane.z_mm)
-                except ValueError:
-                    continue
-                self.descan_target.addItem(plane.name, plane.key)
+        for plane in physical_descan_targets(self._state):
+            try:
+                require_supported_descan_target(self._state, plane.z_mm)
+            except ValueError:
+                continue
+            self.descan_target.addItem(f"{plane.name} — Z {float(plane.z_mm):.6f} mm", plane.key)
         index = self.descan_target.findData(ds.descan_target_key)
         if index < 0:
             self.descan_target.addItem(f"Unavailable: {ds.descan_target_key}", ds.descan_target_key)
@@ -1945,6 +1957,8 @@ class ScanControlView(QWidget):
             f"{sample_span_y:.6g} um | drift-only pivot: "
             f"AC {ac_pivot}, Descan {descan_pivot}"
             f"{symmetry_text}{coupling_text}{descan_text}"
+            + (" | Unavailable scan planes: " + "; ".join(result.unavailable_planes.values())
+               if getattr(result, "unavailable_planes", None) else "")
         )
 
     def mark_stem_frame_stale(self) -> None:
@@ -2116,8 +2130,8 @@ class ScanControlView(QWidget):
         sampling = frame_sampling_report(metrics)
         if sampling is not None and not sampling["coverage_complete"]:
             text = "Limited angular coverage | diagnostic image only" + compact_scale
-            if sampling.get("legacy_unchecked"):
-                text = "Angular coverage unchecked | recalculate this older frame"
+            if sampling.get("sampling_unavailable"):
+                text = "Angular coverage unavailable | no sampling diagnostics recorded"
             detail_text += (
                 " Angular sampling is incomplete or unchecked. Partial detector "
                 "values are not full-band signals; an outside-grid zero is not "

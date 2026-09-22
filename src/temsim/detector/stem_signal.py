@@ -699,10 +699,7 @@ def _virtual_stem_scan(
 
     probe = probe_state_from_simulation(state, simulation)
     sample_is_vacuum = specimen_is_vacuum(state.sample)
-    interaction_enabled = bool(
-        not sample_is_vacuum
-        and getattr(state.sample, "diffraction_enabled", True)
-    )
+    interaction_enabled = not sample_is_vacuum
     if interaction_enabled:
         distribution = build_virtual_angular_distribution(
             state.sample,
@@ -1119,6 +1116,8 @@ def acquire_stem_scan(
     specimen_interactions=None,
     geometric_specimen_exit=None,
     geometric_specimen_exit_signature: str = "",
+    observation_stop_z_mm: float | None = None,
+    scan_calibrated: bool = False,
     progress_callback: ProgressCallback | None = None,
     diffraction_sink=None,
 ):
@@ -1169,9 +1168,11 @@ def acquire_stem_scan(
         # Derive the authoritative identity before scan calibration.  A caller
         # may supply the signature it used to build a checkpoint, but that
         # value is an assertion to verify rather than an alternate authority.
-        current_downstream_signature = calculation_signatures(state)[
-            "sample_downstream"
-        ]
+        if observation_stop_z_mm is None:
+            current_downstream_signature = calculation_signatures(state)["sample_downstream"]
+        else:
+            from temsim.physics.particle_sections import particle_section_downstream_signature
+            current_downstream_signature = particle_section_downstream_signature(state, observation_stop_z_mm)
         supplied_signature_is_current = bool(
             not supplied_downstream_signature
             or supplied_downstream_signature == current_downstream_signature
@@ -1213,6 +1214,12 @@ def acquire_stem_scan(
         detector for detector in state.stem_detectors
         if bool(detector.inserted)
     ]
+    if observation_stop_z_mm is not None:
+        stop = float(observation_stop_z_mm)
+        if not math.isfinite(stop) or stop <= float(state.sample.z_mm):
+            raise ValueError("A detector scan requires a finite observation plane beyond the specimen")
+        if any(float(detector.z_mm) > stop for detector in inserted):
+            raise ValueError("The selected section has not reached every inserted scanning detector")
     inserted_by_key = {detector.key: detector for detector in inserted}
     requested_keys = (
         {
@@ -1236,7 +1243,8 @@ def acquire_stem_scan(
         component.scan_pixels_x if pixels_x is None else pixels_x
     )
     pixels_y = int(component.scan_lines if pixels_y is None else pixels_y)
-    calibrate_scan_system(state)
+    if not scan_calibrated:
+        calibrate_scan_system(state)
     x_factors, y_factors, scan_times_s = raster_sample_grid(
         component,
         pixels_x=pixels_x,
@@ -1611,6 +1619,7 @@ def acquire_stem_scan(
                 shared_elastic,
                 real_interactions,
                 save_z_mm=save_z_mm,
+                stop_z_mm=observation_stop_z_mm,
                 dependency_signature=downstream_signature,
             )
         else:
@@ -1630,6 +1639,7 @@ def acquire_stem_scan(
         (
             plane for plane in state.recording_planes
             if bool(getattr(plane, "inserted", False))
+            and (observation_stop_z_mm is None or float(plane.z_mm) <= float(observation_stop_z_mm))
         ),
         key=lambda plane: float(plane.z_mm),
     )

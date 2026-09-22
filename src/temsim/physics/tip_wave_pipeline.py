@@ -165,7 +165,7 @@ retain their established workflows and are not replaced by this entry point.
         raise ValueError("Only executed upstream caches may replace distributed optics")
     nano = getattr(working, "nanopulser", None)
     if nano is not None and nano.installed:
-        raise ValueError("Installed nanopulser needs time-energy wavepacket propagation")
+        raise ValueError("Installed electrostatic beam blanker needs time-energy wavepacket propagation")
     if request.stop == "tip_near_field":
         return _surface_segment(working, request, snapshot, use_cache=use_cache,
             cancelled=cancelled, progress_callback=progress_callback)

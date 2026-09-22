@@ -22,7 +22,7 @@ def main():
     state = d.default_state()
     selection, values = d.read_profile(output / "baseline_profile.toml")
     d.AssemblyCatalog().apply(state, selection)
-    assert d.apply_profile_values(state, values) == []
+    d.apply_profile_values(state, values)
     state.sample.size_x_nm = state.sample.size_y_nm = 10.0
     state.sample.thickness_nm = 5.0
     state.sample.centre_x_nm = state.sample.centre_y_nm = 0.0
@@ -58,14 +58,14 @@ def main():
         restored = d.default_state()
         restored_selection, restored_values = d.read_profile(profile)
         d.AssemblyCatalog().apply(restored, restored_selection)
-        skipped = d.apply_profile_values(restored, restored_values)
+        d.apply_profile_values(restored, restored_values)
         assert restored.sample.eds_overlap_sampling_enabled == row["enabled"]
         assert restored.sample.eds_overlap_sampling_points == row["requested_points"]
         assert restored.objective_lens.percent == 68.0
         assert restored.sample.z_mm == state.sample.z_mm
         assert (restored.sample.size_x_nm,restored.sample.size_y_nm,restored.sample.thickness_nm)==(10.,10.,5.)
         checks["profiles"][label] = dict(sampling_settings_reload_match=True,objective_percent=restored.objective_lens.percent,
-            sample_z_mm=restored.sample.z_mm,profile_sha256=hashlib.sha256(profile.read_bytes()).hexdigest(),skipped=skipped,
+            sample_z_mm=restored.sample.z_mm,profile_sha256=hashlib.sha256(profile.read_bytes()).hexdigest(),profile_applied=True,
             limitation="Loading the profile computes new optical rays; this diagnostic used a separately stored real cached bundle with unknown original column state.")
     assert checks["original_terminal_identical"] and checks["original_zero_hits"] and checks["cif_copy_identical"]
     assert all(all(row.values()) for row in checks["spectra"].values())

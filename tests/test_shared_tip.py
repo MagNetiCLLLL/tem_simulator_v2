@@ -142,7 +142,7 @@ def test_copy_and_save_copy_detach_from_shared_tip(root, tmp_path):
 
 def test_save_copy_cannot_replace_shared_authority(root):
     draft = PartModelDocument(root / "gun/FEG.toml")
-    with pytest.raises(ValueError, match="shared tip definition"):
+    with pytest.raises(ValueError, match="linked physical definition"):
         draft.save_copy(shared_path(root))
 
 

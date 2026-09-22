@@ -50,16 +50,14 @@ def main():
     catalog = AssemblyCatalog()
     selection, values = read_profile(args.profile)
     catalog.apply(state, selection)
-    skipped = apply_profile_values(state, values)
-    if skipped:
-        raise ValueError(f"Profile has skipped fields: {skipped}")
+    apply_profile_values(state, values)
     baseline_percent = float(state.objective_lens.percent)
     percentages = list(dict.fromkeys([baseline_percent, *args.percent]))
     shutil.copyfile(args.profile, output / "input_profile.toml")
     source_cif = Path(state.sample.cif_path).resolve()
     shutil.copyfile(source_cif, output / "input.cif")
     sample = state.sample
-    sample.mode = "atomic"
+    sample.specimen_mode = "atomic"
     sample.cif_path = str(output / "input.cif")
     sample.inserted = True
     sample.envelope_shape = "disk"

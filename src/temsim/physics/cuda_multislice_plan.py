@@ -26,10 +26,60 @@ from temsim.physics.multislice import (
     _frequency_grid,
     _intensity_per_wave,
     _pixel_spacing_yx,
-    _propagate,
     _propagator,
     _validate_wave_and_sampling,
 )
+
+
+_ROUNDING_KERNELS = None
+_ROUNDING_BACKEND = None
+
+
+def _rounding_kernels(xp):
+    global _ROUNDING_KERNELS, _ROUNDING_BACKEND
+    if _ROUNDING_BACKEND is not xp:
+        reduction = xp.ReductionKernel(
+            "T values", "float64 power",
+            "(double)values.real() * (double)values.real() + "
+            "(double)values.imag() * (double)values.imag()",
+            "a + b", "power = a", "0", "temsim_complex_norm_f64",
+        )
+        scaling = xp.ElementwiseKernel(
+            "T values, float64 scale", "T output",
+            "output = T((double)values.real() * scale, (double)values.imag() * scale)",
+            "temsim_complex_scale_f64",
+        )
+        _ROUNDING_KERNELS, _ROUNDING_BACKEND = (reduction, scaling), xp
+    return _ROUNDING_KERNELS
+
+
+def _norm_per_wave_double(wave, *, xp):
+    """Sum real/imaginary squares in double without a double image buffer."""
+    return _rounding_kernels(xp)[0](wave, axis=(-2, -1))
+
+
+def _propagate(wave, propagator, *, xp):
+    """Control complex64 FFT norm drift while retaining the bandpass loss.
+
+    A Fresnel phase is unitary on its retained Fourier support. Its target
+    norm is the incoming norm times the retained spectral fraction, never
+    unity. All reductions stay on the device and have one value per probe.
+    In-place spectral operations avoid adding a full wave workspace.
+    """
+    incoming = _norm_per_wave_double(wave, xp=xp)
+    spectrum = xp.fft.fft2(wave, axes=(-2, -1))
+    spectral_norm = _norm_per_wave_double(spectrum, xp=xp)
+    spectrum *= propagator != 0
+    retained = _norm_per_wave_double(spectrum, xp=xp)
+    expected = incoming * retained / xp.maximum(spectral_norm, 1.0e-30)
+    spectrum *= propagator
+    result = xp.fft.ifft2(spectrum, axes=(-2, -1))
+    actual = _norm_per_wave_double(result, xp=xp)
+    correction = xp.sqrt(expected / xp.maximum(actual, 1.0e-30))
+    # Fuse double scale arithmetic with the final complex64 write. Ordinary
+    # in-place multiplication would round the scale itself to float32 first.
+    _rounding_kernels(xp)[1](result, correction[..., None, None], result)
+    return result
 
 
 def _unique_device_bytes(arrays) -> int:

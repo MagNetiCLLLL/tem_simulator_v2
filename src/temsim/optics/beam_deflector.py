@@ -10,7 +10,6 @@ from temsim.component_keys import (
     BEAM_DEFLECTOR,
     CONDENSER_APERTURE_2,
     CONDENSER_APERTURE_3,
-    canonical_deflector_key,
 )
 from temsim.optics.condenser_aperture import (
     CONDENSER_APERTURE_2_DEFINITION,
@@ -410,10 +409,14 @@ def resolve_beam_deflector_after_active_aperture(state):
 
 
 def beam_deflector_from_dict(data):
-    """Restore current records and migrate obsolete dual-coordinate records."""
+    """Restore the current beam-deflector record with one physical coordinate."""
 
     values = dict(data)
-    values["key"] = canonical_deflector_key(values.get("key", ""))
+    if values.get("key") != BEAM_DEFLECTOR:
+        raise ValueError(f"Beam-deflector key must be {BEAM_DEFLECTOR}")
+    unknown = set(values) - set(BeamDeflectorComponent.__dataclass_fields__)
+    if unknown:
+        raise ValueError(f"Unknown beam-deflector fields: {', '.join(sorted(unknown))}")
     thickness_mm = float(values.get(
         "thickness_mm",
         BEAM_DEFLECTOR_DEFINITION.effective_coil_thickness_mm,

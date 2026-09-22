@@ -19,7 +19,9 @@ def controlled_solver_requests(monkeypatch):
     The real sustained-drag test below uses the production background path.
     """
     def install(window):
-        monkeypatch.setattr(window.calculations, "submit_background", window.calculations.submit)
+        def solver_boundary(*args, parent_id=None, **kwargs):
+            return window.calculations.submit(*args, **kwargs)
+        monkeypatch.setattr(window.calculations, "submit_background", solver_boundary)
     return install
 
 

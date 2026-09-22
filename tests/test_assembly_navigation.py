@@ -11,7 +11,10 @@ from temsim.vacuum import boundary_anchors, resolve_regions, VacuumMap
 
 @pytest.fixture
 def state():
-    return default_state()
+    state = default_state()
+    catalog = AssemblyCatalog()
+    catalog.apply(state, replace(catalog.default_selection(), recording="Energy Filter"))
+    return state
 
 
 def test_named_sections_cover_every_component_without_changing_physical_inputs(state):
@@ -92,14 +95,15 @@ def test_subassembly_anchor_follows_saved_placement_and_survives_map_roundtrip(t
     copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, root)
     catalog = AssemblyCatalog(root)
     state = default_state()
-    catalog.apply(state, catalog.default_selection())
+    selection = replace(catalog.default_selection(), recording="Energy Filter")
+    catalog.apply(state, selection)
     section = next(r for r in assembly_sections(state._resolved_assembly) if r.name == "Energy filter")
     anchor = section.key+".origin"
     before = boundary_anchors(state)[anchor]
     draft = PartModelDocument(root/"project_and_recording_system/EnergyFilter.toml")
     draft.place_subassembly("iliad_filter", {"mode": "fixed", "origin_z_mm": 1210.0})
     draft.save()
-    catalog.apply(state, catalog.default_selection())
+    catalog.apply(state, selection)
     assert boundary_anchors(state)[anchor] == pytest.approx(before-1.5)
     region = state.vacuum_map.regions[-1]
     region.end_anchor, region.end_offset_mm = anchor, boundary_anchors(state)["column_end"]-boundary_anchors(state)[anchor]
@@ -147,7 +151,7 @@ def test_primary_tree_context_menu_routes_to_existing_component(qtbot, state):
     from temsim.gui.assembly_panel import AssemblyPanel
     from temsim.runtime_parameters import runtime_targets
     catalog = AssemblyCatalog()
-    page = AssemblyPanel(catalog, catalog.default_selection())
+    page = AssemblyPanel(catalog, catalog.selection_for_resolved(state._resolved_assembly))
     qtbot.addWidget(page)
     page.load_assembly(state._resolved_assembly, runtime_targets(state))
     page.resize(450, 750)

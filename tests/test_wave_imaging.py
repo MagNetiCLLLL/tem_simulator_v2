@@ -23,7 +23,7 @@ from temsim.physics.recording_stop import (
 from temsim.physics.stem_wave_imaging import (
     AngularDetector,
     probe_focus_aberrations,
-    simulate_angle_resolved_stem,
+    _simulate_angle_resolved_stem_single as simulate_local_stem_operator,
 )
 
 
@@ -115,97 +115,8 @@ def test_tem_recording_rejects_an_inserted_upstream_stem_detector():
         active_tem_recording_plane(state)
 
 
-def test_projector_checkpoint_reprojection_matches_fresh_wave_calculation():
-    state = default_state()
-    _retract_stem_detectors(state)
-    state.illumination_mode = "TEM"
-    state.projector_mode = "image"
-    state.fluorescent_screen.inserted = False
-    state.camera.inserted = True
-    state.sample.reference_sample_key = "si_110"
-    state.sample.thickness_nm = 2.0
-    state.sample.wave_grid_pixels = 32
-    state.sample.wave_field_of_view_angstrom = 16.0
-    state.sample.wave_multislice_enabled = True
-    state.sample.wave_atomistic_enabled = True
-    incident = _incident_bundle(
-        [0.0, 1.0e-4, -1.0e-4],
-        [0.0, 0.0, 0.0],
-        [0.8, 0.1, 0.1],
-    )
-    simulation = SimpleNamespace(incident=incident)
 
-    previous = simulate_wave_image(state, simulation)
-    previous_exit_wave = previous.exit_wave.copy()
-    previous_transfer = np.asarray(
-        previous.metrics["projector_transfer_matrix"], dtype=float
-    )
-    state.intermediate_lens.percent += 2.0
-    reprojected = reproject_wave_image(state, previous)
-    fresh = simulate_wave_image(state, simulation)
 
-    np.testing.assert_array_equal(previous.exit_wave, previous_exit_wave)
-    np.testing.assert_allclose(
-        reprojected.image_intensity, fresh.image_intensity, rtol=0.0, atol=0.0
-    )
-    np.testing.assert_allclose(
-        reprojected.camera_electron_optical_intensity,
-        fresh.camera_electron_optical_intensity,
-        rtol=0.0,
-        atol=0.0,
-    )
-    np.testing.assert_array_equal(reprojected.camera_x_mm, fresh.camera_x_mm)
-    np.testing.assert_array_equal(reprojected.camera_y_mm, fresh.camera_y_mm)
-    assert reprojected.metrics["projector_checkpoint_reused"] is True
-    assert reprojected.metrics["recording_plane_key"] == "camera"
-    assert not np.allclose(
-        previous_transfer,
-        np.asarray(reprojected.metrics["projector_transfer_matrix"], dtype=float),
-    )
-    checkpoint = previous.projector_checkpoint
-    xx, _yy = np.meshgrid(
-        checkpoint.x_angstrom,
-        checkpoint.y_angstrom,
-        indexing="xy",
-    )
-    first_wave = checkpoint.objective_wave_configurations[0]
-    second_wave = first_wave * np.exp(1j * 2.0 * np.pi * xx / 4.0)
-    forward = reproject_wave_image(
-        state,
-        replace(
-            previous,
-            projector_checkpoint=replace(
-                checkpoint,
-                objective_wave_configurations=(first_wave, second_wave),
-                unapertured_wave_configurations=(first_wave, second_wave),
-            ),
-        ),
-    )
-    reversed_order = reproject_wave_image(
-        state,
-        replace(
-            previous,
-            projector_checkpoint=replace(
-                checkpoint,
-                objective_wave_configurations=(second_wave, first_wave),
-                unapertured_wave_configurations=(second_wave, first_wave),
-            ),
-        ),
-    )
-    np.testing.assert_allclose(
-        forward.image_intensity,
-        reversed_order.image_intensity,
-        rtol=1.0e-14,
-        atol=1.0e-14,
-    )
-    assert forward.metrics[
-        "camera_collected_zero_loss_relative_intensity"
-    ] == pytest.approx(
-        reversed_order.metrics[
-            "camera_collected_zero_loss_relative_intensity"
-        ],
-        rel=1.0e-14,
-    )
 
 
 def test_defocused_image_wave_uses_symplectic_specimen_canonical_transfer():
@@ -277,27 +188,8 @@ def test_tem_wave_memory_estimate_accounts_for_large_fft_grid():
     assert estimate > 15 * 1024**3
 
 
-def test_retracted_sample_ignores_dormant_custom_cif_settings(tmp_path):
-    state = default_state()
-    _retract_stem_detectors(state)
-    state.sample.inserted = False
-    state.sample.cif_path = str(tmp_path / "missing.cif")
-    state.sample.wave_atomistic_enabled = False
-    state.sample.wave_multislice_enabled = False
-    state.sample.wave_grid_pixels = 32
-    state.sample.wave_field_of_view_angstrom = 16.0
-    incident = _incident_bundle(
-        [0.0, 1.0e-4, -1.0e-4],
-        [0.0, 0.0, 0.0],
-        [0.8, 0.1, 0.1],
-    )
 
-    result = simulate_wave_image(state, SimpleNamespace(incident=incident))
 
-    assert result.preset_key == "vacuum"
-    assert result.metrics["specimen_sample_inserted"] is False
-    assert result.metrics["specimen_sample_interaction_applied"] is False
-    assert result.metrics["specimen_total_thickness_angstrom"] == 0.0
 
 
 def test_weighted_convergence_uses_chief_ray_and_99_percent_semiangle():
@@ -334,29 +226,8 @@ def test_probe_focus_uses_traced_waist_once_with_fresnel_sign():
     assert coefficients.c1_mm == pytest.approx(-3.0e-6)
 
 
-def test_tem_incident_wave_uses_traced_condenser_focus_curvature():
-    state = default_state()
-    state.illumination_mode = "TEM"
-    frequencies = np.fft.fftshift(np.fft.fftfreq(32, d=0.5))
-    focused_stats = _weighted_ray_statistics(
-        _incident_bundle_with_waist(0.0)
-    )
-    defocused_stats = _weighted_ray_statistics(
-        _incident_bundle_with_waist(10.0)
-    )
 
-    focused = _incident_wave(
-        state, focused_stats, frequencies, frequencies, 0.025
-    )
-    defocused = _incident_wave(
-        state, defocused_stats, frequencies, frequencies, 0.025
-    )
 
-    assert focused_stats["radial_wavefront_curvature_per_m"] == pytest.approx(
-        0.0
-    )
-    assert abs(defocused_stats["radial_wavefront_curvature_per_m"]) > 0.0
-    assert not np.allclose(focused, defocused)
 
 
 def test_si_110_stem_detector_signals_respond_to_position_and_traced_defocus():
@@ -382,14 +253,14 @@ def test_si_110_stem_detector_signals_respond_to_position_and_traced_defocus():
         AngularDetector("haadf", 40.0, 60.0),
     )
 
-    focused = simulate_angle_resolved_stem(
+    focused = simulate_local_stem_operator(
         state,
         SimpleNamespace(incident=_incident_bundle_with_waist(0.0)),
         detectors,
         scan_x_um,
         scan_y_um,
     )
-    defocused = simulate_angle_resolved_stem(
+    defocused = simulate_local_stem_operator(
         state,
         SimpleNamespace(incident=_incident_bundle_with_waist(10.0)),
         detectors,
@@ -410,69 +281,12 @@ def test_si_110_stem_detector_signals_respond_to_position_and_traced_defocus():
         )
 
 
-def test_tem_wave_image_reports_multislice_model_and_sampling_metrics():
-    state = default_state()
-    _retract_stem_detectors(state)
-    state.illumination_mode = "TEM"
-    state.sample.reference_sample_key = "si_110"
-    state.sample.thickness_nm = 2.0
-    state.sample.wave_grid_pixels = 32
-    state.sample.wave_field_of_view_angstrom = 16.0
-    state.sample.wave_multislice_enabled = True
-    state.sample.wave_slice_thickness_angstrom = 2.0
-    incident = _incident_bundle(
-        [0.0, 1.0e-4, -1.0e-4],
-        [0.0, 0.0, 0.0],
-        [0.8, 0.1, 0.1],
-    )
-
-    result = simulate_wave_image(state, SimpleNamespace(incident=incident))
-
-    assert result.image_intensity.shape == (32, 32)
-    assert result.exit_wave.shape == (32, 32)
-    assert result.linear_diffraction_probability.shape == (32, 32)
-    assert np.sum(result.linear_diffraction_probability) == pytest.approx(1.0)
-    assert result.spatial_frequency_inv_angstrom.shape == (32,)
-    assert result.spatial_frequency_y_inv_angstrom.shape == (32,)
-    assert result.metrics["specimen_model"] == "atomistic_static_multislice"
-    assert result.metrics["specimen_slice_count"] == 10
-    assert result.metrics["specimen_slice_thickness_angstrom"] == pytest.approx(2.0)
-    assert result.metrics["convergence_semiangle_rad"] > 0.0
-    # Real IAM scattering can leave the finite reciprocal-space bandwidth.
-    # Its diagnostic must account for that norm loss without creating charge.
-    initial = result.metrics["specimen_initial_integrated_intensity"]
-    final = result.metrics["specimen_final_integrated_intensity"]
-    assert 0.0 < final <= initial
-    assert result.metrics["specimen_maximum_relative_intensity_change"] == pytest.approx(
-        (initial - final) / initial, abs=1.0e-12
-    )
-    assert result.metrics["specimen_compute_backend"] == "NumPy CPU"
-    assert result.metrics["fft_compute_backend"] == "NumPy CPU"
-    assert 0.0 <= result.metrics[
-        "elastic_exit_intensity_outside_incident_cone_fraction"
-    ] <= 1.0
-    assert 0.0 <= result.metrics[
-        "elastic_incident_baseline_outside_cone_fraction"
-    ] <= 1.0
 
 
-def test_reference_cif_rejects_projected_phase_preview():
-    state = default_state()
-    _retract_stem_detectors(state)
-    state.illumination_mode = "TEM"
-    state.sample.reference_sample_key = "si_110"
-    state.sample.thickness_nm = 2.0
-    state.sample.wave_grid_pixels = 32
-    state.sample.wave_field_of_view_angstrom = 16.0
-    state.sample.wave_multislice_enabled = False
-    incident = _incident_bundle(
-        [0.0, 1.0e-4, -1.0e-4],
-        [0.0, 0.0, 0.0],
-        [0.8, 0.1, 0.1],
-    )
 
-    with pytest.raises(ValueError, match="CIF requires multislice"):
-        simulate_wave_image(state, SimpleNamespace(incident=incident))
+
+
+
 
 
 def test_angle_resolved_stem_uses_the_same_multislice_specimen_model():
@@ -492,7 +306,7 @@ def test_angle_resolved_stem_uses_the_same_multislice_specimen_model():
     scan_x = np.zeros((1, 1))
     scan_y = np.zeros((1, 1))
 
-    result = simulate_angle_resolved_stem(
+    result = simulate_local_stem_operator(
         state,
         SimpleNamespace(incident=incident),
         (AngularDetector("bf", 0.0, 10.0),),
@@ -526,7 +340,7 @@ def test_angle_resolved_stem_reports_completed_cpu_probe_batches():
     scan_y = np.zeros((1, 9))
     progress = []
 
-    simulate_angle_resolved_stem(
+    simulate_local_stem_operator(
         state,
         SimpleNamespace(incident=incident),
         (AngularDetector("bf", 0.0, 10.0),),
@@ -562,7 +376,7 @@ def test_angle_resolved_stem_applies_per_probe_descan_detector_shift():
     scan_x = np.zeros((1, 2))
     scan_y = np.zeros((1, 2))
 
-    result = simulate_angle_resolved_stem(
+    result = simulate_local_stem_operator(
         state,
         SimpleNamespace(incident=incident),
         (AngularDetector("bf", 0.0, 5.0),),
@@ -577,29 +391,37 @@ def test_angle_resolved_stem_applies_per_probe_descan_detector_shift():
     assert result.fractions["bf"][0, 0] > result.fractions["bf"][0, 1]
 
 
-def test_explicit_cuda_preference_reaches_tem_multislice_and_imaging_fft():
-    if not compute_backend.cupy_capability().available:
-        pytest.skip("CuPy CUDA backend unavailable")
+
+
+
+
+# This module tests supplied local fields; production admission remains active.
+from local_wave_operator_fixture import supplied_local_probe
+
+
+@pytest.mark.parametrize("entry", ["image", "internal_image", "incident", "reprojection"])
+@pytest.mark.parametrize("inserted", [False, True])
+def test_tem_requests_require_executed_coherent_source_before_any_operator(monkeypatch, entry, inserted):
+    from temsim.instrument_snapshot import capture_instrument_snapshot
+    from temsim.physics import wave_imaging as wave
+    from temsim.physics.source_admission import UnsupportedWaveSource
     state = default_state()
     _retract_stem_detectors(state)
     state.illumination_mode = "TEM"
-    state.acceleration_enabled = True
-    state.acceleration_backend = "CUDA GPU"
-    state.sample.reference_sample_key = "si_110"
-    state.sample.thickness_nm = 0.4
+    state.sample.inserted = inserted
     state.sample.wave_grid_pixels = 32
-    state.sample.wave_field_of_view_angstrom = 16.0
-    state.sample.wave_multislice_enabled = True
-    state.sample.wave_slice_thickness_angstrom = 2.0
-    incident = _incident_bundle(
-        [0.0, 1.0e-4, -1.0e-4],
-        [0.0, 0.0, 0.0],
-        [0.8, 0.1, 0.1],
-    )
-
-    result = simulate_wave_image(state, SimpleNamespace(incident=incident))
-
-    assert result.metrics["specimen_compute_backend"] == "CuPy CUDA"
-    assert result.metrics["fft_compute_backend"] == "CuPy CUDA"
-    assert result.metrics["wave_compute_backend"] == "CuPy CUDA"
-    assert result.metrics["specimen_fallback_reason"] is None
+    before = capture_instrument_snapshot(state).digest
+    forbidden = lambda *a, **kw: pytest.fail("Unqualified source must not execute any TEM operator")
+    monkeypatch.setattr(wave, "prepare_specimen_potentials", forbidden)
+    simulation = SimpleNamespace(incident=_incident_bundle_with_waist(10.0))
+    frequencies = np.fft.fftshift(np.fft.fftfreq(32, d=.5))
+    with pytest.raises(UnsupportedWaveSource, match="coherent phase is unavailable"):
+        if entry == "image":
+            wave.simulate_wave_image(state, simulation)
+        elif entry == "internal_image":
+            wave._simulate_wave_image(state, simulation)
+        elif entry == "reprojection":
+            wave.reproject_wave_image(state, SimpleNamespace(metrics={}))
+        else:
+            wave._incident_wave(state, _weighted_ray_statistics(simulation.incident), frequencies, frequencies, .025)
+    assert capture_instrument_snapshot(state).digest == before

@@ -8,8 +8,6 @@ from dataclasses import replace
 import numpy as np
 
 MODEL = "analytic-tip-centred-curvature-v3"
-ANGLE_ONLY_MODEL = "analytic-tip-angle-only-v2"
-LEGACY_MODEL = "analytic-tip-curvature-v1"
 FWHM_TO_SIGMA = 2.354820045
 
 
@@ -18,13 +16,13 @@ def support_radius_nm(emitter):
 
 
 def validate_curvature(emitter):
-    if emitter.curvature_model not in {MODEL, ANGLE_ONLY_MODEL, LEGACY_MODEL}:
+    if emitter.curvature_model != MODEL:
         raise ValueError("Unsupported continuous tip geometry model")
     curvature = float(emitter.curvature_nm_inv)
     if not np.isfinite(curvature) or curvature < 0:
         raise ValueError("Tip curvature must be finite and non-negative (nm^-1)")
     if curvature == 0:
-        return  # historical models do not consume the inactive flat supports
+        return
     if curvature and (emitter.surface_model is not None or emitter.coherence is not None):
         raise ValueError("Continuous curvature requires classical analytic-field tip emission")
     # A graph over the projected disk must stay short of the hemisphere rim.
@@ -47,9 +45,7 @@ def curve_bundle(bundle, emitter):
     normal = np.column_stack((nx, ny, nz))
     # The tip centre/apex remains (0, 0, 0); every off-axis point bends upstream.
     # Rationalized spherical sag avoids cancellation as curvature tends to zero.
-    # Historical v2 keeps its explicitly prescribed planar launch positions.
-    z = (np.zeros_like(x) if emitter.curvature_model == ANGLE_ONLY_MODEL
-         else -k*(x*x + y*y)/(1.0 + nz))
+    z = -k*(x*x + y*y)/(1.0 + nz)
     tx = np.column_stack((1-nx*nx/(1+nz), -nx*ny/(1+nz), -nx))
     ty = np.column_stack((-nx*ny/(1+nz), 1-ny*ny/(1+nz), -ny))
     direction = normal + bundle.tx_rad[:, None]*tx + bundle.ty_rad[:, None]*ty

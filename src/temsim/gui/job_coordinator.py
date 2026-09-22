@@ -115,8 +115,12 @@ class _OutcomeObserver(QObject):
         self.adapter.finished_notified = True
 
 
-def legacy_adapter(worker):
-    """Confine unconverted worker conventions here, not in queue policy."""
+def worker_adapter(worker):
+    """Adapt current Qt workers whose signals carry zero, one or two keys.
+
+    Calculation/preparation workers provide their own explicit adapters. File,
+    inspection, sweep and alignment workers keep their current signal APIs.
+    """
     prefix = _signal_prefix(worker)
     signals = worker.signals
     failure = getattr(signals, "error", None)
@@ -194,24 +198,15 @@ class _Runner(QRunnable):
         # Setup has its own timing: admission is not worker entry. Preparation
         # still uses these limits because it can build active mapped fields.
         with job_stage("library_setup", backend="CPU setup"):
-            from threadpoolctl import threadpool_limits
+            from temsim.cpu_resources import numerical_job, NumericalJobCancelled
             from temsim.physics.ray_device_cache import device_budget
-            try:
-                import numba
-            except ImportError:
-                numba = None
-            limits = threadpool_limits(limits=self.numerical_threads)
-            previous = numba.get_num_threads() if numba is not None else None
         try:
-            with limits, device_budget(self.vram_budget_bytes):
-                if previous is not None:
-                    numba.set_num_threads(min(previous, self.numerical_threads))
-                try:
-                    with job_stage("worker_body"):
-                        self.job.worker.run()
-                finally:
-                    if previous is not None:
-                        numba.set_num_threads(previous)
+            with numerical_job(self.numerical_threads, cancelled=self.job.cancellation.is_set) as resources, device_budget(self.vram_budget_bytes):
+                job_event("cpu_resources", **resources.to_dict())
+                with job_stage("worker_body"):
+                    self.job.worker.run()
+        except NumericalJobCancelled:
+            return
         finally:
             job_event("library_cleanup")
 
@@ -219,7 +214,7 @@ class _Runner(QRunnable):
 class JobCoordinator(QObject):
     changed = Signal()
 
-    def __init__(self, parent=None, *, ram_budget_bytes=40*GIB, vram_budget_bytes=8*GIB, numerical_threads=4):
+    def __init__(self, parent=None, *, ram_budget_bytes=40*GIB, vram_budget_bytes=8*GIB, numerical_threads=None):
         application = QCoreApplication.instance()
         # Queued Qt delivery and pool threads outlive Python local references.
         # Give the dispatch owner a Qt lifetime, including embedded/test users
@@ -230,7 +225,8 @@ class JobCoordinator(QObject):
             from temsim.gui.garbage_collection import install_gui_gc
             install_gui_gc(application)
         self.ram_budget_bytes, self.vram_budget_bytes = ram_budget_bytes, vram_budget_bytes
-        self.numerical_threads = numerical_threads
+        from temsim.cpu_resources import numerical_thread_budget
+        self.numerical_threads = numerical_thread_budget(numerical_threads)
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(1)
         self.queue = deque()
@@ -297,7 +293,7 @@ class JobCoordinator(QObject):
 
     def submit(self, owner, worker, *, claim=None):
         factory = getattr(worker, "job_adapter", None)
-        adapter = factory() if factory is not None else legacy_adapter(worker)
+        adapter = factory() if factory is not None else worker_adapter(worker)
         if claim is not None:
             adapter.claim = claim
         parent = owner.parent() if isinstance(owner, QObject) else None
@@ -419,15 +415,21 @@ class JobCoordinator(QObject):
                 self.events.record("cancellation_request", metadata=job.metadata())
                 job.cancellation.set()
         retained = deque()
+        cancelled = []
         for job in self.queue:
             if job.owner is owner and (predicate is None or predicate(job.worker)):
                 self.events.record("cancellation_request", metadata=job.metadata())
                 job.cancellation.set()
-                job.adapter.finish_once()
-                self._record(job, "cancelled")
+                cancelled.append(job)
             else:
                 retained.append(job)
         self.queue = retained
+        # Finished/changed receivers can enqueue or cancel jobs synchronously.
+        # Remove this batch first so callbacks see the current queue, and new
+        # submissions keep their position behind previously queued survivors.
+        for job in cancelled:
+            job.adapter.finish_once()
+            self._record(job, "cancelled")
 
     def diagnostic_snapshot(self, *, include_stacks=False):
         """Scalar ownership plus thread stacks for an observed timeout."""

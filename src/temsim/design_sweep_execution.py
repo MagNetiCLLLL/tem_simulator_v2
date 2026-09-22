@@ -357,7 +357,15 @@ def rebuild_recipe_state(
         changed = {row.path: row.value for row in flatten_payload(payload)}
         if original.keys() != changed.keys():
             raise ValueError("A runtime experiment cannot add or remove captured model inputs")
+        orientation_paths = {
+            f"sample.specimen_orientation_quaternion_wxyz[{index}]" for index in range(4)
+        }
+        if any(changed[path] != original[path] for path in orientation_paths):
+            from temsim.specimen.geometry import set_sample_orientation
+            set_sample_orientation(state.sample, payload["sample"]["specimen_orientation_quaternion_wxyz"])
         for path, value in changed.items():
+            if path in orientation_paths:
+                continue
             if value != original[path]:
                 validate_runtime_sweep_path(payload, path)
                 target, attribute = _runtime_target_for_path(state, path)
@@ -509,16 +517,18 @@ def _assert_sweep_coordinates_applied(
                 f"Sweep point {point.index} coordinate {path!r} does not "
                 "match its state payload"
             )
-        target, field_name = _runtime_target_for_path(state, path)
-        old_value = getattr(target.obj, field_name)
-        candidate: object = expected
-        if (
-            isinstance(old_value, int)
-            and not isinstance(old_value, bool)
-            and expected.is_integer()
-        ):
-            candidate = int(expected)
-        validate_runtime_assignment(target, field_name, candidate)
+        from temsim.design_experiments import _orientation_control_axis
+        if _orientation_control_axis(path) is None:
+            target, field_name = _runtime_target_for_path(state, path)
+            old_value = getattr(target.obj, field_name)
+            candidate: object = expected
+            if (
+                isinstance(old_value, int)
+                and not isinstance(old_value, bool)
+                and expected.is_integer()
+            ):
+                candidate = int(expected)
+            validate_runtime_assignment(target, field_name, candidate)
         actual = validate_runtime_sweep_path(serialized, path)
         if not math.isclose(
             actual, expected, rel_tol=1.0e-12, abs_tol=1.0e-12

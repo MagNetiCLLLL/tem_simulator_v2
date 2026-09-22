@@ -11,7 +11,6 @@ from temsim import module_manifest
 from temsim.component_keys import (
     DIFFRACTION_LENS,
     SELECTED_AREA_APERTURE,
-    canonical_lens_key,
 )
 from temsim.optics.lens_focal_length import (
     focal_length_mm as _focal_length_mm,
@@ -523,11 +522,13 @@ def create_diffraction_lens():
 
 def diffraction_lens_from_dict(
     data,
-    legacy_reference_z_mm=None,
     active_installation=None,
 ):
     values = dict(data)
-    values["key"] = canonical_lens_key(values.get("key", ""))
+    if values.get("key") != DIFFRACTION_LENS:
+        raise ValueError("Lens record requires canonical key 'diffraction_lens'")
+    if "anchor_key" in values and values["anchor_key"] != SELECTED_AREA_APERTURE:
+        raise ValueError("Lens anchor must be the current selected-area aperture")
     component = create_diffraction_lens()
     allowed = component.__dataclass_fields__
     object.__setattr__(component, "_position_coupling_ready", False)
@@ -539,29 +540,6 @@ def diffraction_lens_from_dict(
             ]
         if attribute in allowed:
             object.__setattr__(component, attribute, value)
-    if "standalone_optical_reference_z_mm" not in values:
-        standalone_reference = float(
-            legacy_reference_z_mm
-            if legacy_reference_z_mm is not None
-            else values.get("z_mm", component.z_mm)
-        )
-        object.__setattr__(
-            component,
-            "standalone_optical_reference_z_mm",
-            standalone_reference,
-        )
-        if "image_corrected_optical_reference_z_mm" not in values:
-            reference_delta = (
-                DIFFRACTION_LENS_DEFINITION
-                .image_corrected_optical_reference_z_mm
-                - DIFFRACTION_LENS_DEFINITION
-                .standalone_optical_reference_z_mm
-            )
-            object.__setattr__(
-                component,
-                "image_corrected_optical_reference_z_mm",
-                standalone_reference + reference_delta,
-            )
     object.__setattr__(component, "_position_coupling_ready", True)
     component.key = DIFFRACTION_LENS
     component.name = DIFFRACTION_LENS_DEFINITION.label

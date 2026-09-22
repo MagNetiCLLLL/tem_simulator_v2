@@ -7,11 +7,10 @@ from temsim.assembly_catalog import AssemblyCatalog, AssemblySelection
 from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.manifest_editor import ManifestEditor
 from temsim.module_manifest import read_document, validate_document
-from temsim.operating_modes import load_operating_mode_catalog
+from temsim.operating_modes import load_operating_mode_catalog, apply_operating_mode_pair
 from temsim.optics.column import default_state
 from temsim.physics.simulation import run
 from temsim.profile_io import apply_profile_values, read_profile, save_profile
-from temsim import presets
 
 
 PROJECTOR_RECONSTRUCTION = {
@@ -113,9 +112,10 @@ def test_every_lens_and_preset_uses_at_most_one_hundred_percent():
 
     state = default_state()
     catalog.apply(state, catalog.default_selection())
-    for preset_name in presets.P:
+    for condenser, projector in (("micro_probe", "imaging"), ("micro_probe", "diffraction"),
+                                 ("nano_probe", "imaging"), ("nano_probe", "diffraction")):
         candidate = type(state).from_dict(state.to_dict())
-        presets.apply(candidate, preset_name)
+        apply_operating_mode_pair(candidate, condenser, projector)
         assert all(
             0.0 <= lens.percent <= 100.0
             for lens in candidate.lenses
@@ -1043,7 +1043,7 @@ def test_operating_profile_round_trip_uses_toml(tmp_path: Path):
     skipped = apply_profile_values(restored, values)
 
     assert loaded_selection == selection
-    assert skipped == []
+    assert skipped is None
     assert restored.objective_lens.percent == 87.25
     assert restored.objective_lens.cs_mm == 0.85
     assert restored.objective_lens.polarity == -1
@@ -1067,11 +1067,10 @@ def test_every_c2_assembly_can_propagate_beyond_its_last_wall(gun):
     catalog = AssemblyCatalog()
     state = default_state()
     assembly = catalog.apply(
-        state, AssemblySelection(gun, "C2", "Energy Filter")
+        state, AssemblySelection(gun, "C2", "No Energy Filter")
     )
     state.step_mm = 5.0
     state.history_step_mm = 5.0
-    state.sample.diffraction_enabled = False
     emitter = getattr(state.electron_gun, "emitter", None)
     if emitter is not None:
         emitter.ray_count = 9
@@ -1117,12 +1116,10 @@ def test_profile_assignments_are_transactional_and_domain_checked():
 
 def test_profile_cannot_override_catalog_owned_topology():
     state = default_state()
-    skipped = apply_profile_values(
-        state, {"simulation": {"corrector_mode": "no_corrector"}}
-    )
-
-    assert skipped == ["simulation.corrector_mode"]
-    assert state.corrector_mode == "probe_corrector"
+    before = state.corrector_mode
+    with pytest.raises(ValueError, match="Unknown operating-profile field"):
+        apply_profile_values(state, {"simulation": {"corrector_mode": "no_corrector"}})
+    assert state.corrector_mode == before
 
 
 def test_profile_operating_values_survive_layout_revalidation():

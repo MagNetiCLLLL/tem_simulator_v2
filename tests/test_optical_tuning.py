@@ -75,6 +75,7 @@ def test_tuning_does_not_call_specimen_or_scan_solvers(monkeypatch):
     state.sample.specimen_mode = "atomic"
     state.sample.cif_path = "must-not-load-during-tuning.cif"
     state.sample.wave_enabled = state.sample.stem_wave_enabled = True
+    state.ac_deflector.wobble_enabled = False
     state.ac_deflector.scan_enabled = True
     result = tuning_result("Preview", state)
     assert result.wave_imaging is result.stem_scan is result.sample_region is None
@@ -136,7 +137,8 @@ def test_support_guide_respects_rotation_and_physical_stops():
     np.testing.assert_allclose(low, [0, 0, 3], atol=1e-12)
 
 
-def test_serial_tuning_kernel_matches_numpy_and_falls_back(monkeypatch):
+@pytest.mark.parametrize("tuning_flag", ("_optical_tuning", "_particle_tuning"))
+def test_serial_tuning_kernel_matches_numpy_and_falls_back(monkeypatch, tuning_flag):
     from temsim.physics import core
     if not core.NUMBA_AVAILABLE:
         pytest.skip("Numba unavailable")
@@ -152,7 +154,7 @@ def test_serial_tuning_kernel_matches_numpy_and_falls_back(monkeypatch):
     reference = core.execute_propagation_plan(state, plan, *source)
     state.acceleration_enabled = True
     state.acceleration_backend = "Auto"
-    state._optical_tuning = True
+    setattr(state, tuning_flag, True)
     accelerated = core.execute_propagation_plan(state, plan, *source)
     assert state._tuning_kernel == "serial_numba"
     for name in ("x_m", "y_m", "tx_rad", "ty_rad"):
@@ -217,7 +219,7 @@ def test_main_live_tuning_applies_final_value_then_requests_high_accuracy_once(q
     window.preview_timer.stop()
     page = window.workspace.interactive_calculation
     calls = []
-    monkeypatch.setattr(window.calculations, "submit", lambda *args: calls.append(args))
+    monkeypatch.setattr(window.calculations, "submit_background", lambda *args, **kwargs: calls.append(args))
     window._capture_interactive_settings()
     index = next(i for i in range(page.choice.count()) if page.choice.itemData(i).key == OBJECTIVE_LENS)
     page.choice.setCurrentIndex(index)

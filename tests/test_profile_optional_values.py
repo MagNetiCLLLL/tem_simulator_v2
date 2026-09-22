@@ -22,7 +22,7 @@ def _load_like_gui(catalog, current_state, path):
     catalog.apply(candidate, selection)
     skipped = apply_profile_values(candidate, values)
     apply_physical_layout_to_state(candidate, preserve_operating_parameters=True)
-    assert skipped == []
+    assert skipped is None
     return candidate
 
 
@@ -70,34 +70,10 @@ def test_profile_restores_estimates_on_all_runtime_lens_types(tmp_path):
 
     assert all(lens.cs_mm is None and lens.cc_mm is None for lens in restored.lenses)
     document = tomllib.loads(path.read_text(encoding="utf-8"))
-    assert document["format_version"] == PROFILE_FORMAT_VERSION == 11
+    assert document["format_version"] == PROFILE_FORMAT_VERSION == 12
 
 
-@pytest.mark.parametrize("version", [1, 2, 3, 4])
-def test_legacy_profile_keeps_omitted_coefficients_and_explicit_numbers(tmp_path, version):
-    catalog = AssemblyCatalog()
-    selection = catalog.default_selection()
-    path = tmp_path / "legacy.toml"
-    path.write_text(
-        tomli_w.dumps({
-            "format_version": version,
-            "assembly": {
-                "gun": selection.gun,
-                "column": selection.column,
-                "recording": selection.recording,
-            },
-            "devices": {"objective_lens": {"cs_mm": 0.85}},
-        }),
-        encoding="utf-8",
-    )
-    state = default_state()
-    catalog.apply(state, selection)
-    original_cc_mm = state.objective_lens.cc_mm
 
-    restored = _load_like_gui(catalog, state, path)
-
-    assert restored.objective_lens.cs_mm == 0.85
-    assert restored.objective_lens.cc_mm == original_cc_mm
 
 
 @pytest.mark.parametrize(
@@ -120,7 +96,7 @@ def test_profile_rejects_malformed_or_conflicting_none_values(
     path = tmp_path / "invalid.toml"
     path.write_text(
         tomli_w.dumps({
-            "format_version": 4,
+            "format_version": PROFILE_FORMAT_VERSION,
             "assembly": {"gun": "FEG", "column": "C3 + Probe Corrector", "recording": "Energy Filter"},
             "devices": devices,
             "none_values": none_values,
@@ -171,4 +147,4 @@ def test_explicit_none_clears_a_numeric_optional_field_without_replacing_sample(
 
     assert state.objective_lens.cs_mm is None
     assert state.sample is sample
-    assert skipped == []
+    assert skipped is None

@@ -134,10 +134,7 @@ def determine_tem_stop_z(state):
             interaction_positions.extend(
                 float(event[0]) for event in events
             )
-    furthest_interaction_z_mm = max(
-        MINIMUM_TEM_STOP_Z_MM,
-        *interaction_positions,
-    )
+    furthest_interaction_z_mm = max((MINIMUM_TEM_STOP_Z_MM, *interaction_positions))
     # This is a physical observation coordinate, not an integration-grid
     # sentinel.  Tying it to ``state.step_mm`` moved the image/diffraction
     # conjugate plane whenever preview accuracy changed.

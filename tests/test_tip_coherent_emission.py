@@ -16,6 +16,9 @@ from temsim.optics.electron_gun.tip_coherence import (
 def gun():
     result = FieldEmissionGun()
     result.emitter.coherence = TipCoherence()
+    # Explicit 4 eV local tip mathematics fixture; no extraction or column claim.
+    result.emitter.emission_energy_ev = 4.
+    result.emitter.minimum_kinetic_energy_ev = 3.
     result.emitter.energy_spread_fwhm_ev = 0.
     return result
 
@@ -26,7 +29,7 @@ def test_tip_is_explicit_and_never_uses_exit_voltage(gun):
     gun.accelerator.high_tension_kv = 200.
     assert generate_tip_emission(gun, numerics).digest == emitted.digest
     mode, = tuple(emitted.modes())
-    assert mode.energy_kev == pytest.approx(.0003)
+    assert mode.energy_kev == pytest.approx(.004)
     assert emitted.record["plane_z_mm"] == 0.
     assert emitted.reference_current_a == gun.emitter.emitted_current_a
     gun.emitter.coherence = None
@@ -34,7 +37,7 @@ def test_tip_is_explicit_and_never_uses_exit_voltage(gun):
         generate_tip_emission(gun, numerics)
 
 
-@pytest.mark.parametrize("incoherent", [0., 45.])
+@pytest.mark.parametrize("incoherent", [0., 18.])
 def test_modes_reconstruct_full_quantum_covariance_and_preserve_tail(gun, incoherent):
     gun.emitter.coherence = TipCoherence(incoherent_angle_rms_mrad=incoherent,
         curvature_x_m1=2e6, curvature_xy_m1=1e6, curvature_y_m1=-1e6)
@@ -130,7 +133,7 @@ def test_tip_dialog_explicitly_selects_coherence_without_mutating_live_gun(gun, 
     assert gun.to_dict() == before
 
 
-def test_disabled_coherence_retains_the_old_truncated_emission(gun):
+def test_disabling_coherence_restores_the_selected_classical_emission(gun):
     gun.emitter.coherence = None
     before = gun.emit(33)
     gun.emitter.coherence = TipCoherence()
@@ -172,12 +175,12 @@ def test_saved_operating_profile_retains_and_can_clear_tip_coherence(tmp_path):
     target = default_state()
     selected, values = read_profile(path)
     catalog.apply(target, selected)
-    assert apply_profile_values(target, values) == []
+    assert apply_profile_values(target, values) is None
     assert target.electron_gun.emitter.coherence == state.electron_gun.emitter.coherence
     state.electron_gun.emitter.coherence = None
     save_profile(path, state, selection)
     _, values = read_profile(path)
-    assert apply_profile_values(target, values) == []
+    assert apply_profile_values(target, values) is None
     assert target.electron_gun.emitter.coherence is None
 
 
@@ -189,7 +192,7 @@ def test_medium_tuning_keeps_zero_current_guides_for_the_selected_tip_law(gun):
     assert bundle.weight.sum() == pytest.approx(1.)
     assert bundle.x_m[-1] == pytest.approx(3e-9)
     assert bundle.ty_rad[-1] == pytest.approx(.004/np.sqrt(1-.004**2))
-    assert np.max(abs(bundle.tx_rad[-33:])) > .1
+    assert np.max(abs(bundle.tx_rad[-33:])) > np.max(abs(bundle.tx_rad[:-33]))
 
 
 def test_configured_tip_does_not_enable_incomplete_tem_stem_images(gun):

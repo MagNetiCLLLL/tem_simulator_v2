@@ -24,7 +24,7 @@ def main():
     saved=json.loads(source.read_text())
     state=default_state();catalog=AssemblyCatalog()
     selection,values=read_profile(saved['baseline_profile']);assembly=catalog.apply(state,selection)
-    assert apply_profile_values(state,values)==[]
+    apply_profile_values(state,values)
     profile_sample_z=float(state.sample.z_mm)
     state.sample.size_x_nm=state.sample.size_y_nm=10.;state.sample.thickness_nm=5.
     state.sample.centre_x_nm=state.sample.centre_y_nm=0.

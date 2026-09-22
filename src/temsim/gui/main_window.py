@@ -204,6 +204,11 @@ class MainWindow(QMainWindow):
         self.workspace.interactive_calculation.tuning_changed.connect(self._apply_interactive_tuning)
         self.workspace.interactive_calculation.current_state = lambda: self.state
         self.workspace.interactive_calculation.high_accuracy_requested.connect(self.run_high_accuracy)
+        self.workspace.interactive_calculation.section_changed.connect(self._section_configuration_changed)
+        self.workspace.interactive_calculation.section_save_requested.connect(self._save_particle_section)
+        self.workspace.interactive_calculation.section_load_requested.connect(self._load_particle_section)
+        self.calculations.section_archive_changed.connect(self._section_archive_status_changed)
+        self.calculations.section_loaded.connect(self._particle_section_loaded)
         self.workspace.interactive_calculation.operation_allowed = self._interactive_work_allowed
         self._preview_deferred_for_interactive = False
         self.workspace.interactive_calculation.operation_finished.connect(self._interactive_operation_finished)
@@ -595,7 +600,7 @@ class MainWindow(QMainWindow):
             "sufficiently large ray bundles and CuPy for sufficiently large "
             "multislice/FFT workloads; small jobs remain on CPU. "
             "Prefer GPU reports CPU fallback; Require GPU rejects unavailable or unsupported accelerated stages. "
-            "CUDA GPU is the legacy preference with declared CPU retry, not a strict GPU requirement. "
+            "CUDA GPU requests acceleration and reports any CPU retry. "
             "Gun extraction/acceleration and other CPU-only preparation remain separate. "
             f"Ray CUDA: {cuda_detail}. Wave CUDA: {cupy_detail}."
         )
@@ -861,6 +866,82 @@ class MainWindow(QMainWindow):
             return
         self.preview_timer.stop()
         page.start_build()
+
+    def _section_configuration_changed(self) -> None:
+        page = self.workspace.interactive_calculation
+        if page._live_mode:
+            self.schedule_preview("interactive_tuning")
+
+    def _save_particle_section(self) -> None:
+        from temsim.calculation_cache import state_model_signature
+        page = self.workspace.interactive_calculation
+        result = page._section_result
+        try:
+            if (result is None or result.model_signature != state_model_signature(self.state)
+                    or page.timer.isActive() or self._interactive_preview_pending):
+                page.invalidate_section_result("Current settings need a completed section calculation before saving.")
+                return
+            path, _ = QFileDialog.getSaveFileName(self, "Save executed particle section", "",
+                                                  "Particle section (*.temsection)")
+            if not path:
+                return
+            page.expect_section_archive(result)
+            self.calculations.archive_completed_section(result, path=path)
+        except (ValueError, RuntimeError, OSError, TypeError) as exc:
+            page.show_error(str(exc), affects_readout=False)
+
+    def _load_particle_section(self) -> None:
+        page = self.workspace.interactive_calculation
+        path, _ = QFileDialog.getOpenFileName(self, "Load executed particle section", "",
+                                              "Particle section (*.temsection)")
+        if not path:
+            return
+        try:
+            self.calculations.load_section_archive(path)
+        except (ValueError, RuntimeError, OSError, TypeError) as exc:
+            page.show_error(str(exc), affects_readout=False)
+
+    def _particle_section_loaded(self, result, info) -> None:
+        page = self.workspace.interactive_calculation
+        page.invalidate_section_result(
+            f"Loaded executed state through Z = {info.get('resumable_through_z_mm', info['target_z_mm']):.9g} mm "
+            f"({info['quality']}). Choose the next cutoff. Current settings are unchanged; "
+            "matching upstream calculations will be reused.")
+        page.set_section_archive_status(dict(info, status="loaded"))
+        self.log_output.appendPlainText(f"Loaded particle section cache: {info['path']}")
+
+    def _section_archive_status_changed(self, info) -> None:
+        self.workspace.interactive_calculation.set_section_archive_status(info)
+        if info.get("status") == "saved":
+            self.log_output.appendPlainText(f"Particle state saved through Z = {info['target_z_mm']:.9g} mm: {info['path']}")
+        elif info.get("status") == "failed":
+            self.log_output.appendPlainText(f"Particle section archive failed: {info.get('error', 'Unknown error')}")
+
+    def _archive_matching_particle_result(self, result) -> None:
+        """Only current, completed section state is eligible for automatic storage."""
+        from temsim.calculation_cache import state_model_signature
+        page = self.workspace.interactive_calculation
+        simulation = getattr(result, "simulation", None)
+        if getattr(simulation, "section_checkpoint", None) is None:
+            return
+        if (getattr(result, "model_signature", None) != state_model_signature(self.state)
+                or self._interactive_preview_pending or page.timer.isActive()):
+            return
+        metrics = simulation.metrics
+        request = page.segment_request()
+        if request is None:
+            if not metrics.get("section_full_path", False):
+                return
+        elif (not np.isclose(float(metrics.get("section_target_z_mm", float("nan"))),
+                            request["target_z_mm"], rtol=0., atol=5e-7)
+              or sorted(metrics.get("section_component_keys", ())) != sorted(request["component_keys"])):
+            return
+        try:
+            page.expect_section_archive(result)
+            self.calculations.archive_completed_section(result)
+        except (ValueError, RuntimeError, OSError, TypeError) as exc:
+            page.section_archive_status.setText(f"Calculation complete; automatic section save could not start: {exc}")
+            self.log_output.appendPlainText(f"Automatic section save could not start: {exc}")
 
     def _interactive_work_allowed(self) -> bool:
         return not ("calculation" in self._progress_owners or self.design_sweeps.running
@@ -1811,6 +1892,11 @@ class MainWindow(QMainWindow):
                 and self._interactive_preview_generation == self.calculations.generation)
 
     def schedule_preview(self, _parameter: str = "") -> None:
+        page = self.workspace.interactive_calculation
+        if page.particle_signal_table.rowCount():
+            page.particle_signal_status.setText("Previous pixel | settings changed; awaiting calculation.")
+        if page._section_result is not None:
+            page.invalidate_section_result("Settings changed; calculate the section again before saving.")
         self.workspace.mark_ray_stale(self.state)
         self.workspace.physical_layout.model_editor.set_calculation_status(
             "stale", "Saved geometry, operating values or model settings changed; previous simulation results are out of date."
@@ -1927,11 +2013,15 @@ class MainWindow(QMainWindow):
         self._interactive_preview_pending = False
         self._interactive_preview_generation = None
         try:
+            section = self.workspace.interactive_calculation.segment_request()
+            section_options = {"section_request": section} if section is not None else {}
             self.calculations.submit_background(
                 self.state,
                 profile.quality,
                 profile.rays,
                 profile.step_mm,
+                particle_tuning=True,
+                **section_options,
             )
         except ValueError as exc:
             self._show_error(str(exc))
@@ -1952,6 +2042,7 @@ class MainWindow(QMainWindow):
                 self.high_rays.value(),
                 self.high_step.value(),
                 parent_id=getattr(self, "_working_point_parent", None),
+                section_request=self.workspace.interactive_calculation.segment_request(),
             )
         except ValueError as exc:
             from temsim.physics.source_admission import UnsupportedWaveSource
@@ -1982,7 +2073,7 @@ class MainWindow(QMainWindow):
         total: int,
         stage: str,
     ) -> None:
-        if quality != "High accuracy" or total <= 0:
+        if total <= 0:
             return
         bounded_completed = min(max(int(completed), 0), int(total))
         self.progress.setRange(0, int(total))
@@ -2015,21 +2106,33 @@ class MainWindow(QMainWindow):
                 self._schedule_design_explorer_refresh()
                 return
         self.workspace.display_result(result, quality)
+        self.workspace.interactive_calculation.calculation_timing.set_result(result, duration)
+        if getattr(result, "particle_signals", None) is not None:
+            self.workspace.interactive_calculation.set_particle_signals(result.particle_signals)
         if quality in ("Preview", "Medium"):
             self.workspace.interactive_calculation.display_tuning_status(result)
             page = self.workspace.interactive_calculation
+            page.set_section_result(result)
             newer_values_pending = (self._interactive_preview_pending
                                     or (page._live_mode and page.timer.isActive()))
             if self._interactive_preview_in_flight() and newer_values_pending:
-                self.workspace.result_readout.mark_stale("ray")
+                page.invalidate_section_result("Newer settings are waiting; save after their section calculation completes.")
+                self.workspace.mark_ray_stale(self.state)
                 # This is a completed intermediate frame, not the latest lens
                 # setting. Never write its snapshot back into the live controls.
                 self.workspace.heading.setText(self.workspace.heading.text() + " | Updating")
                 self.workspace.interactive_calculation.live_status.setText(
                     "Live tuning | last completed frame; updating to latest settings")
+                page.particle_signal_status.setText(
+                    "Last completed pixel | updating to the latest settings.")
                 self.status_label.setText(
                     "Live tuning: completed ray frame displayed; newer settings pending")
                 return
+            if page._section_result is result:
+                self.workspace.jump_to_ray_position(float(result.simulation.metrics["section_target_z_mm"]), activate_tab=False)
+        else:
+            self.workspace.interactive_calculation.set_section_result(result)
+        self._archive_matching_particle_result(result)
         self.workspace.model_inspector.display_result(result)
         self.workspace.physical_layout.model_editor.set_calculation_status(
             "current", f"{quality} result matches the accepted simulation state. CAD-only features remain excluded from physics."
@@ -2467,7 +2570,6 @@ class MainWindow(QMainWindow):
             self._show_error(f"Unable to save profile: {exc}")
 
     def open_profile(self) -> None:
-        self._invalidate_direct_alignment()
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Open operating profile",
@@ -2483,7 +2585,7 @@ class MainWindow(QMainWindow):
             candidate_assembly = self.catalog.apply(
                 candidate_state, selection
             )
-            skipped = apply_profile_values(candidate_state, values)
+            apply_profile_values(candidate_state, values)
             # Reassert the catalog-owned topology and TOML geometry after the
             # operating values have been applied. Only validated operating
             # fields survive this second assembly resolution.
@@ -2491,17 +2593,15 @@ class MainWindow(QMainWindow):
                 candidate_state, preserve_operating_parameters=True
             )
             candidate_assembly = candidate_state._resolved_assembly
+            self._invalidate_direct_alignment()
             self.selection = selection
             self.state = candidate_state
             self.assembly = candidate_assembly
             self.assembly_panel.set_selection(selection)
             self._refresh_assembly_views()
             self.log_output.appendPlainText(
-                f"Loaded profile: {path}; skipped values: {len(skipped)}."
+                f"Loaded current profile: {path}."
             )
-            migration = getattr(self.state, "_profile_migration_report", {})
-            for note in migration.get("notes", ()):
-                self.log_output.appendPlainText("Profile migration: " + note)
             self.schedule_preview()
         except Exception as exc:
             self._show_error(f"Unable to open profile: {exc}")
@@ -2600,13 +2700,14 @@ class MainWindow(QMainWindow):
         settings.setValue(self.SETTINGS_LIVE_TUNING_LAYOUT, self._live_tuning_layout_initialized)
         self.calculations.invalidate_pending(include_explicit=True)
         calculations_done = self.calculations.pool.waitForDone(3_000)
+        archives_done = self.calculations.section_file_pool.waitForDone(3_000)
         self.design_sweeps.invalidate_pending()
         sweeps_done = self.design_sweeps.pool.waitForDone(3_000)
         self.operating_presets.invalidate_pending()
         presets_done = self.operating_presets.pool.waitForDone(3_000)
         self.direct_alignments.invalidate_pending()
         alignments_done = self.direct_alignments.pool.waitForDone(3_000)
-        if not all((calculations_done, sweeps_done, presets_done, alignments_done, interactive_done, magnetic_done, experiment_files_done)):
+        if not all((calculations_done, archives_done, sweeps_done, presets_done, alignments_done, interactive_done, magnetic_done, experiment_files_done)):
             self.status_label.setText("Waiting for owned calculations to reach their cancellation boundary; close again when they finish")
             event.ignore()
             return

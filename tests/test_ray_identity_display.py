@@ -6,7 +6,9 @@ import pytest
 
 from temsim.gui.diagnostic_tabs import TransverseBeamView, InitialDirectionColourWheel
 from temsim.gui.beam_display_source import downstream_display_branches
-from temsim.physics.ray_identity import source_identity, branch_identity, select_identity
+from temsim.physics.ray_identity import (
+    source_identity, branch_identity, select_identity, emitted_source_identity,
+)
 from temsim.specimen.downstream_transport import GeometricSpecimenExit
 
 
@@ -21,6 +23,9 @@ def result():
     end_x, end_y = np.cos(theta + .7)*1e-6, np.sin(theta + .7)*1e-6
     incident = branch("incident", [0., 1.], [source_x, end_x], [source_y, end_y])
     post = branch("000", [1., 2.], [end_x, end_x], [end_y, end_y])
+    for current in (incident, post):
+        current.source_ray_id = np.arange(12, dtype=np.int64)
+        current.source_azimuth_rad = theta.copy()
     return SimpleNamespace(simulation=SimpleNamespace(incident=incident, branches={"000":post}),
                           signatures={"sample_downstream":"current"})
 
@@ -32,11 +37,11 @@ def displayed(view):
 
 def test_source_identity_is_fixed_immutable_and_not_velocity_or_clipping():
     res = result(); inc = res.simulation.incident
-    gun = SimpleNamespace(exit_bundle=SimpleNamespace(ray_id=np.arange(12)*7+100))
-    ids, angles = source_identity(inc, gun)
+    inc.source_ray_id = np.arange(12)*7+100
+    ids, angles = source_identity(inc)
     inc.blocked_z[:5] = .5
     inc.tx = np.ones_like(inc.x)*99
-    ids2, angles2 = source_identity(inc, gun)
+    ids2, angles2 = source_identity(inc)
     np.testing.assert_array_equal(ids, ids2)
     np.testing.assert_array_equal(angles, angles2)
     # Azimuth is periodic: roundoff around +X may produce either 0 or 2*pi.
@@ -116,6 +121,8 @@ def test_z_clipping_does_not_replace_fixed_display_sample(qtbot):
     res=result(); inc=res.simulation.incident
     x=np.linspace(-1e-6,1e-6,3000); y=np.sin(np.arange(3000))*1e-6
     inc=branch("incident",[0.,1.],[x,x],[y,y]); res.simulation.incident=inc
+    inc.source_ray_id = np.arange(3000, dtype=np.int64)
+    inc.source_azimuth_rad = np.mod(np.arctan2(y, x), 2*np.pi)
     inc.blocked_z=np.where(np.arange(3000)%3 == 0,.5,np.nan)
     view=TransverseBeamView(); qtbot.addWidget(view); view.display_result(res)
     view.focus_z(.1); before=dict(displayed(view)); view.focus_z(.9)
@@ -138,12 +145,51 @@ def test_incomplete_legacy_exit_falls_back_without_crashing():
     assert downstream_display_branches(res)[1] == "Optical reference"
 
 
-def test_corrupt_duplicate_incident_ids_are_recovered_but_descendants_can_repeat():
+def test_corrupt_duplicate_incident_ids_stay_unknown_but_descendants_can_repeat():
     res=result(); inc=res.simulation.incident
     inc.source_ray_id=np.full(12,7,dtype=np.int64)
     inc.source_azimuth_rad=np.zeros(12)
     ids, angles=source_identity(inc)
-    np.testing.assert_array_equal(ids,np.arange(12))
+    np.testing.assert_array_equal(ids,np.full(12, -1))
+    assert np.all(np.isnan(angles))
     np.testing.assert_array_equal(branch_identity(inc,res.simulation)[0],ids)
-    children=select_identity(ids,angles,np.array([7,2,7]))
+    children=select_identity(np.arange(12), np.zeros(12), np.array([7,2,7]))
     np.testing.assert_array_equal(children[0],[7,2,7])
+
+
+def test_current_gun_handoff_uses_original_ids_and_launch_positions():
+    gun = SimpleNamespace(
+        exit_bundle=SimpleNamespace(ray_id=np.array([20, 7, 42])),
+        emission_reference={"ray_id": np.array([42, 99, 7, 20]),
+                            "position_m": np.array([[1e-9, 0., 0.], [0., 0., 0.],
+                                                    [0., 2e-9, -1e-9], [-1e-9, 0., 0.]])},
+    )
+    ids, angles = emitted_source_identity(gun)
+    np.testing.assert_array_equal(ids, [20, 7, 42])
+    np.testing.assert_allclose(angles, [np.pi, np.pi/2, 0.])
+    # A repeated compact material population follows explicit parent indices.
+    inc = branch("incident", [0., 1.], np.zeros((2, 3)), np.zeros((2, 3)),
+                 source_ray_id=ids, source_azimuth_rad=angles)
+    child = branch("specimen_exit", [1., 2.], np.zeros((2, 2)), np.zeros((2, 2)),
+                   source_ray_index=np.array([1, 1]))
+    selected = branch_identity(child, SimpleNamespace(incident=inc))
+    np.testing.assert_array_equal(selected[0], [7, 7])
+    np.testing.assert_allclose(selected[1], [np.pi/2, np.pi/2])
+
+
+def test_missing_incident_metadata_and_coincident_optical_branch_do_not_invent_ids():
+    res = result()
+    for current in (res.simulation.incident, res.simulation.branches["000"]):
+        del current.source_ray_id
+        del current.source_azimuth_rad
+        ids, angles = branch_identity(current, res.simulation)
+        assert np.all(ids == -1) and np.all(np.isnan(angles))
+
+
+def test_gun_handoff_rejects_missing_or_mismatched_emission_records():
+    gun = SimpleNamespace(exit_bundle=SimpleNamespace(ray_id=np.array([4])))
+    with pytest.raises(ValueError, match="recorded emission"):
+        emitted_source_identity(gun)
+    gun.emission_reference = {"ray_id": np.array([5]), "position_m": np.zeros((1, 3))}
+    with pytest.raises(ValueError, match="recorded emission"):
+        emitted_source_identity(gun)

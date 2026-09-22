@@ -308,25 +308,18 @@ def energy_filter_entrance_aperture_from_dict(
         .standalone_optical_reference_z_mm
     ),
 ):
-    values = dict(data)
+    if not isinstance(data, dict):
+        raise ValueError("Spectrometer entrance-aperture controls must be a mapping")
     component = create_energy_filter_entrance_aperture(selected_area_z_mm)
-    known = component.__dataclass_fields__
-    for field, value in values.items():
-        if field in known:
-            setattr(component, field, value)
-    component.key = ENERGY_FILTER_ENTRANCE_APERTURE
-    component.name = ENERGY_FILTER_ENTRANCE_APERTURE_DEFINITION.label
-    legacy_anchor = values.get("anchor_key") != SELECTED_AREA_APERTURE
-    component.anchor_key = SELECTED_AREA_APERTURE
-    if legacy_anchor:
-        offset = downstream_offset_mm(
-            ENERGY_FILTER_ENTRANCE_APERTURE
-        )
-        component.optical_reference_downstream_of_anchor_mm = offset
-        component.layout_center_downstream_of_anchor_mm = offset
-    if "optical_reference_downstream_of_anchor_mm" not in values:
-        component.optical_reference_downstream_of_anchor_mm = (
-            float(values.get("z_mm", component.z_mm))
-            - float(selected_area_z_mm)
-        )
+    if data.get("key") != component.key:
+        raise ValueError("Spectrometer entrance aperture requires its current component key")
+    if data.get("anchor_key", component.anchor_key) != component.anchor_key:
+        raise ValueError("Spectrometer entrance aperture requires its current anchor")
+    unknown = set(data) - component.__dataclass_fields__.keys()
+    if unknown:
+        raise ValueError(f"Unknown entrance-aperture fields: {sorted(unknown)}")
+    for name, value in data.items():
+        if name in {"enabled", "installed"} and type(value) is not bool:
+            raise ValueError(f"Entrance-aperture {name} must be a boolean")
+        setattr(component, name, value)
     return component.resolve_against(selected_area_z_mm).validate()

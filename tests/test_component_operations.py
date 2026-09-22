@@ -2,7 +2,6 @@
 
 from copy import deepcopy
 from dataclasses import replace
-import shutil
 import tomllib
 
 import numpy as np
@@ -14,20 +13,24 @@ from temsim.component_operations import (
 from temsim.part_model_document import PartModelDocument
 from temsim.part_model_3d import part_model_from_document
 from temsim.paths import INSTRUMENT_CONFIG_ROOT
+from temsim.shared_tip import copy_catalog_tree, dependencies, materialized_text
 
 
 @pytest.fixture
 def documents(tmp_path):
     loaded = {}
     originals = {}
+    catalog = tmp_path / "instruments"
+    copy_catalog_tree(INSTRUMENT_CONFIG_ROOT, catalog)
     for name, relative in {
         "recording": "project_and_recording_system/EnergyFilter.toml",
         "column": "column/C2.toml", "gun": "gun/FEG.toml",
     }.items():
         source = INSTRUMENT_CONFIG_ROOT / relative
         originals[source] = source.read_bytes()
-        target = tmp_path / (name + ".toml")
-        shutil.copyfile(source, target)
+        originals.update(dependencies(source))
+        target = catalog / relative
+        assert all(path.is_relative_to(tmp_path) for path in dependencies(target))
         loaded[name] = PartModelDocument(target)
     yield loaded
     assert all(path.read_bytes() == data for path, data in originals.items())
@@ -69,7 +72,9 @@ def test_new_component_roundtrip_in_any_historical_file_category(documents, modu
     document.redo()
     document.save()
     assert not document.dirty
-    assert tomllib.loads(document.path.read_text(encoding="utf-8")) == document.document
+    assert tomllib.loads(materialized_text(
+        document.path.read_text(encoding="utf-8"), document.path,
+    )) == document.document
     assert document.document["parts"][:-1] == baseline["parts"]
     assert all(document.document[field] == baseline[field] for field in ("module", "geometry", "ports"))
 
@@ -270,7 +275,9 @@ def test_undo_after_first_save_persists_component_removal_without_touching_exist
     assert changes.removed_keys == ("new",) and changes
     document.save()
     assert document.document == baseline
-    assert tomllib.loads(document.path.read_text(encoding="utf-8")) == baseline
+    assert tomllib.loads(materialized_text(
+        document.path.read_text(encoding="utf-8"), document.path,
+    )) == baseline
 
 
 @pytest.mark.parametrize("branch_path", [False, True])

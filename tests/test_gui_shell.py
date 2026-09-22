@@ -44,6 +44,74 @@ from temsim.runtime_parameters import editable_parameters, runtime_targets
 DIRECT_CONDENSER_KEYS = ("condenser_lens_2", "condenser_lens_3")
 
 
+@pytest.fixture(autouse=True)
+def isolated_workspace_settings(monkeypatch, tmp_path):
+    """UI tests own their settings and cannot restore or save the user's UI."""
+    from temsim.gui import main_window, interactive_calculation, instrument_configuration_dialog
+
+    settings = QSettings(str(tmp_path / "workspace.ini"), QSettings.Format.IniFormat)
+    settings.setFallbacksEnabled(False)
+    for module in (main_window, interactive_calculation, instrument_configuration_dialog):
+        monkeypatch.setattr(module, "QSettings", lambda: settings)
+    # Startup transport is unrelated to the UI assertions; explicit actions
+    # still exercise the real preview scheduling/submission paths.
+    monkeypatch.setattr(MainWindow, "INITIAL_PREVIEW_DELAY_MS", 60_000)
+
+
+def _install_energy_filter(window):
+    current = window.assembly_panel.current_selection()
+    window.load_assembly(AssemblySelection(current.gun, current.column, "Energy Filter"))
+    window.preview_timer.stop()
+    assert window.state.energy_filter_installed
+
+
+@pytest.mark.parametrize("outcome", ["cancel", "invalid"])
+def test_unaccepted_profile_does_not_cancel_alignment_or_change_state(qtbot, monkeypatch, outcome):
+    from temsim.gui import main_window as shell
+    window = MainWindow()
+    qtbot.addWidget(window)
+    before = window.state
+    cancelled, errors = [], []
+    monkeypatch.setattr(window, "_invalidate_direct_alignment", lambda: cancelled.append(True))
+    monkeypatch.setattr(window, "_show_error", errors.append)
+    monkeypatch.setattr(shell.QFileDialog, "getOpenFileName", lambda *args: ("" if outcome == "cancel" else "invalid.toml", ""))
+    def invalid(*args):
+        raise ValueError("Unsupported operating profile format")
+    monkeypatch.setattr(shell, "read_profile", invalid)
+    window.open_profile()
+    assert window.state is before
+    assert not cancelled
+    assert bool(errors) == (outcome == "invalid")
+
+
+def test_open_current_profile_uses_mutator_contract_and_commits_once(qtbot, monkeypatch):
+    from temsim.gui import main_window as shell
+    window = MainWindow()
+    qtbot.addWidget(window)
+    before = window.state
+    selection = window.selection
+    requested = before.objective_lens.percent + .2
+    actions, errors = [], []
+    monkeypatch.setattr(shell.QFileDialog, "getOpenFileName", lambda *args: ("current.toml", ""))
+    monkeypatch.setattr(shell, "read_profile", lambda path: (selection, {"fixture": requested}))
+    def apply(candidate, values):
+        assert candidate is not before
+        candidate.objective_lens.percent = values["fixture"]
+        actions.append("applied")
+        # Current profile application is an in-place mutator with no skip list.
+    monkeypatch.setattr(shell, "apply_profile_values", apply)
+    monkeypatch.setattr(window, "_invalidate_direct_alignment", lambda: actions.append("invalidated"))
+    monkeypatch.setattr(window, "schedule_preview", lambda: actions.append("preview"))
+    monkeypatch.setattr(window, "_show_error", errors.append)
+    window.open_profile()
+    assert not errors
+    assert actions == ["applied", "invalidated", "preview"]
+    assert window.state is not before
+    assert window.state.objective_lens.percent == pytest.approx(requested)
+    assert "Loaded current profile: current.toml" in window.log_output.toPlainText()
+    assert "skipped values" not in window.log_output.toPlainText()
+
+
 def test_wave_image_axes_use_pixel_edges_and_physical_sampling():
     position, scale = WaveImagingView._axis_transform(
         np.array([-1.0, 0.0, 1.0]),
@@ -201,7 +269,7 @@ def test_transverse_view_is_embedded_right_of_ray_diagram_and_stacked(qtbot):
     assert workspace_splitter.widget(1) is workspace.transverse_beam
     assert workspace_splitter.handleWidth() >= 7
 
-    transverse_layout = workspace.transverse_beam.layout()
+    transverse_layout = workspace.transverse_beam.plot_layout.content.layout()
     assert transverse_layout.itemAt(0).widget() is (
         workspace.transverse_beam.initial_beam_panel
     )
@@ -386,8 +454,9 @@ def test_transverse_z_change_preserves_user_scale_and_zero_centre(qtbot):
     assert fitted_ranges[1][1] >= np.max(np.abs(view._scatter.data["y"]))
 
 
-def test_transverse_ray_colours_follow_angle_about_offset_bundle_centroid(
-    qtbot,
+@pytest.mark.parametrize("recorded_identity", [True, False])
+def test_transverse_ray_colours_use_recorded_source_azimuth_after_bundle_offset(
+    qtbot, recorded_identity,
 ):
     view = TransverseBeamView()
     qtbot.addWidget(view)
@@ -401,14 +470,17 @@ def test_transverse_ray_colours_follow_angle_about_offset_bundle_centroid(
         y=np.vstack((start_y, start_y)),
         blocked_z=np.full(angles.size, np.nan),
     )
+    if recorded_identity:
+        branch.source_ray_id = np.arange(angles.size, dtype=np.int64)
+        branch.source_azimuth_rad = angles.copy()
 
     view.display_result(SimpleNamespace(
         simulation=SimpleNamespace(incident=branch, branches={})
     ))
 
     brushes = view._scatter.data["brush"]
-    assert len({brush.color().rgba() for brush in brushes}) == angles.size
-    assert "bundle centroid" in view.summary.toolTip()
+    assert len({brush.color().rgba() for brush in brushes}) == (angles.size if recorded_identity else 1)
+    assert "source axis" in view.summary.toolTip()
 
 
 def test_transverse_selected_detector_shows_psf_and_arbitrary_z_clears_it(
@@ -1031,8 +1103,9 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
     ] == ["Parameters"]
     assert not hasattr(window.assembly_panel, "recording")
     assert window.assembly_panel.current_selection().recording == (
-        "Energy Filter"
+        "No Energy Filter"
     )
+    assert not window.state.energy_filter_installed
     assert window.assembly_panel.tree.topLevelItemCount() >= 3
     assert window.assembly_panel.probe_mode.currentData() == "nano_probe"
     assert window.assembly_panel.projector_mode.currentData() == "diffraction"
@@ -1046,9 +1119,10 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
     assert camera_length.target.maximum() == pytest.approx(2.5)
     assert window.compute_backend.objectName() == "computeBackend"
     assert window.compute_backend.currentData() == "Auto"
-    assert "C2 + C3 + C2 aperture" in (
-        window.assembly_panel.operating_mode_status.toolTip()
-    )
+    # Calibration provenance is owned by the active catalog, not an older
+    # UI sentence that claimed these retained settings were qualified.
+    preset = mode_by_key("nano_probe", window.assembly_panel.operating_mode_catalog)
+    assert window.assembly_panel.operating_mode_status.toolTip() == preset.calibration_reference
 
     window.load_assembly(AssemblySelection(
         "FEG", "C3 + Probe Corrector", "No Energy Filter"
@@ -1058,10 +1132,10 @@ def test_main_window_contains_the_toml_backed_workspace(qtbot):
     assert window.state.energy_filter_installed is False
 
 
-def test_energy_filter_page_owns_iliad_navigation_and_eels_controls(qtbot):
+def test_energy_filter_page_owns_installed_filter_navigation_and_eels_controls(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
-    window.preview_timer.stop()
+    _install_energy_filter(window)
 
     selector = window.workspace.energy_filter_component_selector
     selector_keys = {
@@ -1584,7 +1658,7 @@ def test_main_window_discards_a_stale_background_alignment(
         solve,
     )
     window.apply_direct_alignment("nanoprobe_convergence", 30.0)
-    assert worker_started.wait(timeout=5.0)
+    qtbot.waitUntil(worker_started.is_set, timeout=5_000)
     lenses = {lens.key: lens for lens in window.state.lenses}
     manual_value = lenses["condenser_lens_2"].percent + 0.35
     lenses["condenser_lens_2"].percent = manual_value
@@ -1617,7 +1691,7 @@ def test_invalidating_a_running_alignment_clears_busy_progress_and_status(
         solve,
     )
     window.apply_direct_alignment("nanoprobe_convergence", 30.0)
-    assert worker_started.wait(timeout=5.0)
+    qtbot.waitUntil(worker_started.is_set, timeout=5_000)
     assert not window.progress.isHidden()
 
     window._runtime_parameter_changed("condenser_lens_2.percent")
@@ -1703,7 +1777,7 @@ def test_direct_alignment_worker_error_clears_solving_status(qtbot, monkeypatch)
     assert errors and "synthetic worker failure" in errors[0]
 
 
-def test_direct_alignment_and_calculation_progress_are_mutually_guarded(
+def test_alignment_defers_live_preview_but_queues_explicit_high_accuracy(
     qtbot, monkeypatch
 ):
     window = MainWindow()
@@ -1712,16 +1786,19 @@ def test_direct_alignment_and_calculation_progress_are_mutually_guarded(
     submissions = []
     monkeypatch.setattr(
         window.calculations,
-        "submit",
+        "submit_background",
         lambda *args, **kwargs: submissions.append((args, kwargs)),
     )
     window._direct_alignment_state_token = "busy"
 
     window.run_preview()
-    window.run_high_accuracy()
-
     assert submissions == []
     assert "deferred until Direct Alignment" in window.status_label.text()
+    window.run_high_accuracy()
+    assert len(submissions) == 1
+    args, kwargs = submissions[0]
+    assert args[:2] == (window.state, "High accuracy")
+    assert kwargs["section_request"] is None
     window._set_progress_active("calculation", True)
     window._set_progress_active("direct_alignment", True)
     window._set_progress_active("calculation", False)
@@ -1958,7 +2035,7 @@ def test_layout_selection_opens_energy_slit_editor_and_updates_window(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.show()
-    window.preview_timer.stop()
+    _install_energy_filter(window)
     panel = window.assembly_panel
 
     panel.optical_filter.setCurrentIndex(
@@ -2025,11 +2102,11 @@ def test_layout_selection_opens_energy_slit_editor_and_updates_window(qtbot):
     )
 
 
-def test_layout_selection_opens_unmodelled_iliad_component_toml(qtbot):
+def test_layout_selection_opens_unmodelled_filter_component_toml(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.show()
-    window.preview_timer.stop()
+    _install_energy_filter(window)
 
     key = "energy_filter_dynamic_focus_electrostatic_quadrupole"
     window.workspace.component_selected.emit(key)
@@ -2058,6 +2135,7 @@ def test_layout_selection_opens_unmodelled_iliad_component_toml(qtbot):
 def test_lens_selection_exposes_live_excitation_control(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
+    window.assembly_panel.component_pages.setCurrentIndex(0)
     tree = window.assembly_panel.tree
     objective = _find_tree_item(tree, "objective_lens")
     tree.setCurrentItem(objective)
@@ -2084,6 +2162,7 @@ def test_lens_selection_exposes_live_excitation_control(qtbot):
 def test_aperture_selection_exposes_unit_aware_quick_controls(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
+    window.assembly_panel.component_pages.setCurrentIndex(0)
     aperture = _find_tree_item(
         window.assembly_panel.tree, "condenser_aperture_2"
     )
@@ -2142,6 +2221,7 @@ def test_source_selection_routes_to_single_emission_editor_with_flat_default(qtb
     qtbot.addWidget(window)
     window.preview_timer.stop()
     source = _find_tree_item(window.assembly_panel.tree, "feg_tip")
+    window.assembly_panel.component_pages.setCurrentIndex(0)
     window.assembly_panel.tree.setCurrentItem(source)
     fields = {
         "emission_current_na",
@@ -2460,8 +2540,11 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     state.selected_area_aperture.enabled = True
     state.electron_gun.emitter.ray_count = 25
     state.step_mm = 3.0
-    state.sample.diffraction_enabled = False
     layout = apply_physical_layout_to_state(state)
+    # Exercise inserted scanning detectors and parked viewing devices
+    # explicitly; insertion defaults are not part of this rendering fixture.
+    for plane in state.recording_planes:
+        plane.inserted = plane.key in {"haadf", "df", "bf"}
     simulation = run(state, resolved_layout=layout)
     crossovers = detect_all_lens_crossovers(
         [simulation.incident, *simulation.branches.values()], state.lenses
@@ -2502,7 +2585,7 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         item
         for item in window.workspace.component_marker_items
         if hasattr(item, "label")
-        and "Camera [RETRACTED]" in item.label.toPlainText()
+        and f"{assembly.part('camera').name} [RETRACTED" in item.label.toPlainText()
     )
     assert camera_signal_marker.value() == pytest.approx(
         assembly.part("camera").start_z_mm

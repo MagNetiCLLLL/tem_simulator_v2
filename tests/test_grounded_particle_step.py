@@ -28,7 +28,9 @@ def test_compiled_magnetic_fields_match_driven_and_blanked_coils(blanked):
 
 
 def test_compiled_step_matches_reference_at_emitter_electrodes_and_alignment():
+    from temsim.optics.electron_gun.tip_surface import load_tip_surface_reference
     gun = FieldEmissionGun()
+    gun.emitter.surface_model = load_tip_surface_reference()
     field = gun.electric_field
     gun.deflector.upper_field_y_mt = .7
     gun.stigmator.gradient_t_per_m = 2.

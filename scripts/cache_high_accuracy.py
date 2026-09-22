@@ -149,9 +149,7 @@ def main(argv=None) -> int:
     if args.profile:
         selection, values = read_profile(args.profile)
         catalog.apply(state, selection)
-        skipped = apply_profile_values(state, values)
-        if skipped:
-            raise ValueError(f"Unsupported profile fields: {skipped}")
+        apply_profile_values(state, values)
     else:
         selection = catalog.default_selection()
         catalog.apply(state, selection)

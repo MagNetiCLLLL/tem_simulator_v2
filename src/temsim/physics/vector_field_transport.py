@@ -12,7 +12,7 @@ turning trajectories must be handled by a time-domain particle solver.
 import math
 import numpy as np
 
-from temsim.physics.ray_integrator import canonical_rk4_step
+from temsim.physics.ray_integrator import canonical_rk4_step, canonical_rk4_step_with_time
 
 
 def vector_map_rk4(
@@ -21,6 +21,7 @@ def vector_map_rk4(
     kickx, kicky, save_index, checkpoint_index, kxy=None, *, z_mm, mapped_fields,
     defer_nonfinite_until_clipping=False,
     step_operator=None,
+    initial_time_s=None, inverse_speed=None,
 ):
     if kxy is None:
         kxy = np.zeros_like(kx)
@@ -29,6 +30,9 @@ def vector_map_rk4(
     X, TX, Y, TY = (np.empty((ns, nr), np.float64) for _ in range(4))
     CX, CTX, CY, CTY = (np.empty((nc, nr), np.float64) for _ in range(4))
     saved = captured = 0
+    time = np.array(initial_time_s, dtype=np.float64, copy=True) if initial_time_s is not None else None
+    T = np.empty((ns, nr), np.float64) if time is not None else None
+    CT = np.empty((nc, nr), np.float64) if time is not None else None
     charge_over_p = -1.602176634e-19 * inverse_momentum
     supports = tuple((item, *item.field_map.field_support_mm)
                      for item in mapped_fields if item.scale != 0.0)
@@ -43,9 +47,13 @@ def vector_map_rk4(
         tx, ty = tx - radial*x, ty - radial*y
         if saved < ns and j == save_index[saved]:
             X[saved], TX[saved], Y[saved], TY[saved] = x, tx, y, ty
+            if time is not None:
+                T[saved] = time
             saved += 1
         if captured < nc and j == checkpoint_index[captured]:
             CX[captured], CTX[captured], CY[captured], CTY[captured] = x, tx, y, ty
+            if time is not None:
+                CT[captured] = time
             captured += 1
         if j == step_m.size:
             continue
@@ -55,12 +63,17 @@ def vector_map_rk4(
         active = tuple(item for item, lower, upper in supports
                        if lower < z_mm[j+1] and upper > z_mm[j])
         if not active:
-            x, tx, y, ty = canonical_rk4_step(
+            step = canonical_rk4_step_with_time if time is not None else canonical_rk4_step
+            result = step(
                 x, tx, y, ty, step_m[j], *g,
                 kx[a], kx[b], kx[c], ky[a], ky[b], ky[c],
                 hn[a], hn[b], hn[c], hs[a], hs[b], hs[c],
                 kxy[a], kxy[b], kxy[c],
+                *((inverse_speed,) if time is not None else ()),
             )
+            x, tx, y, ty = result[:4]
+            if time is not None:
+                time += result[4]
             if step_operator is not None:
                 x, tx, y, ty = step_operator(j, before, (x, tx, y, ty))
             continue
@@ -105,6 +118,12 @@ def vector_map_rk4(
         k2 = derivative(initial+0.5*h*k1, 1, zm)
         k3 = derivative(initial+0.5*h*k2, 1, zm)
         k4 = derivative(initial+h*k3, 2, zc)
+        if time is not None:
+            time += h*inverse_speed*(
+                np.sqrt(1.+k1[0]**2+k1[2]**2)
+                + 2.*np.sqrt(1.+k2[0]**2+k2[2]**2)
+                + 2.*np.sqrt(1.+k3[0]**2+k3[2]**2)
+                + np.sqrt(1.+k4[0]**2+k4[2]**2))/6.
         xx, px, yy, py = initial + h*(k1+2*k2+2*k3+k4)/6.0
         x, tx, y, ty = xx, px+g[2]*yy, yy, py-g[2]*xx
         if step_operator is not None:
@@ -114,4 +133,7 @@ def vector_map_rk4(
             if not defer_nonfinite_until_clipping:
                 raise ValueError("Vector field trajectory leaves the forward-Z domain; reduce the step or use time-domain transport")
             x[invalid] = tx[invalid] = y[invalid] = ty[invalid] = np.nan
-    return X, TX, Y, TY, CX, CTX, CY, CTY
+            if time is not None:
+                time[invalid] = np.nan
+    result = X, TX, Y, TY, CX, CTX, CY, CTY
+    return (*result, T, CT) if time is not None else result

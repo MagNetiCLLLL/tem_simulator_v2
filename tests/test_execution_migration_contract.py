@@ -49,32 +49,21 @@ def test_cad_display_changes_do_not_invalidate_scattering_or_field_geometry():
         admit_state_geometry(state)
 
 
-def test_old_profile_migration_preserves_explicit_hardware_and_sample(tmp_path):
+def test_old_profile_is_rejected_before_applying_hardware_values(tmp_path):
     import tomllib, tomli_w
     from temsim.optics.column import default_state
-    from temsim.profile_io import save_profile,read_profile,apply_profile_values
+    from temsim.profile_io import save_profile, read_profile
     from temsim.assembly_catalog import AssemblyCatalog
-    from temsim.physics.illumination import default_illumination_config
-    state=default_state()
-    state.objective_lens.percent=68.
-    state.sample.diameter_nm=10.; state.sample.thickness_nm=5.
-    path=tmp_path/"legacy.toml"
-    save_profile(path,state,AssemblyCatalog().default_selection())
-    document=tomllib.loads(path.read_text())
-    document["format_version"]=5
-    document["sample_model"].pop("wave_illumination",None)
-    for name in ("stem_execution_policy","stem_fourdstem_host_budget_mb"):
-        document["devices"]["sample"].pop(name,None)
+    state = default_state()
+    path = tmp_path / "old.toml"
+    save_profile(path, state, AssemblyCatalog().default_selection())
+    document = tomllib.loads(path.read_text())
+    document["format_version"] = 5
     path.write_text(tomli_w.dumps(document))
-    before=[(l.key,l.percent,l.polarity,l.z_mm) for l in state.lenses]
-    state.sample.wave_illumination=default_illumination_config()
-    _,values=read_profile(path)
-    assert apply_profile_values(state,values)==[]
-    assert [(l.key,l.percent,l.polarity,l.z_mm) for l in state.lenses]==before
-    assert state.sample.diameter_nm==10 and state.sample.thickness_nm==5
-    assert state.sample.wave_illumination["model"]=="ray_conditioned_reduced_order"
-    report=state._profile_migration_report
-    assert report["from_version"]==5 and report["to_version"]==6 and report["notes"]
+    before = deepcopy(state.to_dict())
+    with pytest.raises(ValueError, match="Unsupported operating-profile format"):
+        read_profile(path)
+    assert state.to_dict() == before
 
 
 def test_stem_execution_policy_and_budget_are_persisted_and_validated(tmp_path,qtbot):

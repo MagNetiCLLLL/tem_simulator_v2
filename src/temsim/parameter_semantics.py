@@ -10,6 +10,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import re
 
+from temsim.component_keys import CAMERA, FLUORESCENT_SCREEN, STEM_DETECTOR_KEYS
+
 
 CATEGORY_LABELS = {
     "physical": "Physical dimension", "envelope": "Envelope / allocation",
@@ -44,6 +46,22 @@ _ENVELOPE_FIELDS = {"length_mm", "mechanical_outer_diameter_mm", "mechanical_out
 _DIMENSION_WORDS = ("diameter", "radius", "length", "width", "height", "thickness", "gap", "inset", "angle")
 _SPLIT_ENDPOINTS = {f"{side}_yoke_{edge}_local_z_mm" for side in ("upper", "lower") for edge in ("start", "end")}
 _UNITS = ("mrad", "keV", "eV", "kV", "MHz", "kHz", "Hz", "nm", "um", "mm", "deg", "rad", "m", "s")
+# Composite dimensions must be resolved before their last suffix (for example
+# a magnetic gradient is T/m, not m). Inverse powers below are field strengths,
+# not a blanket interpretation of every name ending in m2 or m3.
+_FIELD_UNITS = {"maximum_strength_m2": "m⁻²", "max_strength_m2": "m⁻²", "strength_m2": "m⁻²",
+                "maximum_strength_m3": "m⁻³", "max_strength_m3": "m⁻³", "strength_m3": "m⁻³"}
+_DETECTOR_UNITS = {"pixels": "pixels", "stem_fourdstem_charge_spread_sigma_px": "pixels",
+    "stem_fourdstem_dark_electrons_per_pixel": "electrons/pixel/exposure",
+    "stem_fourdstem_read_noise_electrons_rms": "electrons RMS",
+    "stem_fourdstem_saturation_electrons": "electrons",
+    "stem_fourdstem_gain_counts_per_electron": "counts/electron",
+    "stem_fourdstem_offset_counts": "counts"}
+_COMPOSITE_UNITS = (("electrons_per_nm2_s", "electrons/(nm² s)"),
+                    ("v_per_m2", "V/m²"), ("v_per_m", "V/m"),
+                    ("t_per_m", "T/m"), ("nm_inv", "nm⁻¹"),
+                    ("na", "nA"), ("pa", "Pa"), ("mt", "mT"),
+                    ("t", "T"), ("a", "A"))
 _FRIENDLY = {
     "mechanical_inner_diameter_mm": "Material inner diameter",
     "mechanical_outer_diameter_mm": "Material outer diameter",
@@ -68,8 +86,13 @@ def parameter_unit(path):
     if "scale_xy" in words:
         return "×"
     for word in reversed(words):
-        if word == "emission_flux_electrons_per_nm2_s":
-            return "electrons/(nm² s)"
+        if word in _DETECTOR_UNITS:
+            return _DETECTOR_UNITS[word]
+        if word in _FIELD_UNITS:
+            return _FIELD_UNITS[word]
+        for suffix, unit in _COMPOSITE_UNITS:
+            if word.endswith("_" + suffix):
+                return unit
         if word.endswith("_ev"):
             return "eV"
         if word.endswith("_kv"):
@@ -120,6 +143,18 @@ def _meaning(part, path, by_key):
         name = next((str(item) for item in reversed(path[3:]) if isinstance(item, str)), "model")
         return "3D model: " + _label(name, ("parts", "", name, *[p for p in path[3:] if isinstance(p, int)])), "cad", (
             "Explicit user CAD base, transform or Boolean feature. This controls the 3D solid; the optical/magnetic solver does not infer a new field law from the mesh.")
+    if part.get("key") in {CAMERA, FLUORESCENT_SCREEN, *STEM_DETECTOR_KEYS}:
+        # Local import avoids the registry/unit adapter cycle. Structural and
+        # runtime editors share explanations without introducing new controls.
+        from temsim.parameter_registry import parameter_definition
+        definition = parameter_definition(part.get("key"), field)
+        if definition is not None:
+            category = ("physical" if field in {"outer_width_mm", "inner_diameter_mm"}
+                        else "envelope" if field == "external_envelope"
+                        else "unknown" if definition.category == "metadata"
+                        else "operating" if definition.category == "structural"
+                        else definition.category)
+            return label, category, definition.description
     if part.get("tip_particle_model") == "curved_surface_particles":
         if field in {"tip_radius_nm", "tip_cone_half_angle_deg", "length_mm", "tip_shape"}:
             return label, "physical", "Actual conducting tip geometry used by the 3D shape, emission surface and extraction-field boundary. Apex curvature is 1/radius; the apex remains at the gun origin."

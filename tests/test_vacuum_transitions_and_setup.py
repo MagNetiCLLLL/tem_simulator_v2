@@ -79,6 +79,7 @@ def test_setup_changes_readouts_not_scan_or_detectors(qtbot, state, tmp_path):
     from temsim.assembly_catalog import AssemblyCatalog
     from temsim.instrument_snapshot import capture_instrument_snapshot
     s = capture_instrument_snapshot(state).restore()
+    s.ac_deflector.wobble_enabled = False
     s.ac_deflector.scan_enabled = True
     dialog = CalculateSetupDialog(s)
     qtbot.addWidget(dialog)
@@ -108,6 +109,7 @@ def test_setup_stem_off_skips_frame_without_retracting_detectors(state, monkeypa
     s = copy(state)
     s.sample = replace(state.sample, stem_image_enabled=False)
     s.deflectors = deepcopy(state.deflectors)
+    s.ac_deflector.wobble_enabled = False
     s.ac_deflector.scan_enabled = True
     monkeypatch.setattr("temsim.simulation_pipeline.acquire_stem_scan", lambda *a, **k: pytest.fail("disabled readout ran"))
     assert calculate_stem_scan_frame(s, object()) is None

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from temsim.physics.core import propagate
+from temsim.physics.first_order import trace_transverse_transfer, transverse_position_response_path
 
 
 @dataclass(frozen=True)
@@ -132,22 +132,7 @@ def transverse_kick_response_path(
             np.array([start], dtype=float),
             np.zeros((1, 2, 2), dtype=float),
         )
-    probe_rad = 1.0e-6
-    zeros = np.zeros(2, dtype=float)
-    z, x, _, y, _ = propagate(
-        state,
-        start,
-        stop,
-        zeros,
-        np.array([probe_rad, 0.0]),
-        zeros,
-        np.array([0.0, probe_rad]),
-        save_z_mm=save_z_mm,
-    )
-    response = np.empty((len(z), 2, 2), dtype=float)
-    response[:, 0, :] = x
-    response[:, 1, :] = y
-    return np.asarray(z, dtype=float), response / probe_rad
+    return transverse_position_response_path(state, start, stop, save_z_mm=save_z_mm)
 
 
 def transverse_kick_response(state, start_z_mm, observation_z_mm):
@@ -180,29 +165,5 @@ def transverse_kick_phase_space_response(
     if stop <= start:
         zeros = np.zeros((2, 2), dtype=float)
         return zeros, zeros.copy()
-    probe_rad = 1.0e-6
-    zeros = np.zeros(2, dtype=float)
-    _, x, tx, y, ty = propagate(
-        state,
-        start,
-        stop,
-        zeros,
-        np.array([probe_rad, 0.0]),
-        zeros,
-        np.array([0.0, probe_rad]),
-    )
-    position = np.array(
-        (
-            (x[-1, 0], x[-1, 1]),
-            (y[-1, 0], y[-1, 1]),
-        ),
-        dtype=float,
-    ) / probe_rad
-    angle = np.array(
-        (
-            (tx[-1, 0], tx[-1, 1]),
-            (ty[-1, 0], ty[-1, 1]),
-        ),
-        dtype=float,
-    ) / probe_rad
-    return position, angle
+    transfer = trace_transverse_transfer(state, start, stop)
+    return transfer.j_diff_m_per_rad, transfer.k_diff

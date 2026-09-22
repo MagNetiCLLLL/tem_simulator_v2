@@ -6,9 +6,10 @@ import math
 
 import numpy as np
 
-ANALYTIC_ENERGY_SCHEMA = "launch-potential-reference-v1"
-ANALYTIC_STEP_SCHEMA = "all-active-field-step-doubled-boris-v1"
+ANALYTIC_ENERGY_SCHEMA = "launch-potential-handoff-v2"
+ANALYTIC_STEP_SCHEMA = "all-active-field-step-doubled-boris-compiled-v2"
 ANALYTIC_MAXIMUM_RELATIVE_IMPULSE = .025
+GUN_FLIGHT_TIME_SCHEMA = "tip-clock-first-crossing-v1"
 
 from temsim.component_keys import FEG_MONOCHROMATOR_SLIT
 from temsim.optics.electron_gun.base import (
@@ -84,6 +85,7 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
     dpa_passed = np.zeros(n, dtype=bool)
     c1_passed = np.zeros(n, dtype=bool)
     blocked_z = np.full(n, np.nan, dtype=float)
+    blocked_time_s = np.full(n, np.nan, dtype=float)
     blocked_key = [""] * n
     exit_position = np.full((n, 3), np.nan, dtype=float)
     exit_momentum = np.full((n, 3), np.nan, dtype=float)
@@ -121,98 +123,157 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
     # (notably thermionic and monochromated guns).
     maximum_steps = max(int(np.ceil(gun.exit_plane_z_mm / gun.trace_step_mm)) * 8, 100000)
 
-    for step_index in range(maximum_steps):
+    from temsim.physics.analytic_particle_step import (
+        prepare_analytic_execution, try_analytic_time_step,
+    )
+    analytic_execution = (prepare_analytic_execution(
+        gun, magnetic_provider, electric_provider, n,
+    ) if surface_model is None else None)
+
+    from temsim.physics.analytic_particle_batch import prepare_analytic_batch
+    analytic_batch = prepare_analytic_batch(gun, analytic_execution, cancelled)
+    step_index = 0
+    while step_index < maximum_steps:
         if cancelled is not None and cancelled():
             raise RuntimeError("Superseded optical tuning request")
         active = alive & ~completed
         if not np.any(active):
             break
-        velocity = velocity_from_momentum_m_per_s(
-            phase.momentum_kg_m_per_s[active]
-        )
-        forward = velocity[:, 2] > 0.0
-        if surface_model is None and not np.all(forward):
-            indices = np.flatnonzero(active)[~forward]
-            alive[indices] = False
-            for index in indices:
-                blocked_z[index] = phase.position_m[index, 2] * 1000.0
-                blocked_key[index] = (
-                    "feg_backstream"
-                    if gun.type_key == "cold_feg"
-                    else f"{gun.type_key}_backstream"
-                )
-            active = alive & ~completed
-            if not np.any(active):
-                break
+        # A batch stops at every possible physical event and at the next
+        # existing history step. The final accepted segment is processed below
+        # by the unchanged Python boundary, arrival-time and history routines.
+        until_history = history_stride - ((step_index - 1) % history_stride)
+        batched = (analytic_batch.advance(
+            phase, active, invariant_energy, dpa_passed, c1_passed,
+            maximum_steps=min(until_history, maximum_steps-step_index),
+            impulse=ANALYTIC_MAXIMUM_RELATIVE_IMPULSE,
+        ) if analytic_batch is not None else None)
+        if batched is not None:
+            phase, previous_position, previous_momentum, previous_time_s, dt, batch_count = batched
+            step_index += batch_count-1
+        else:
             velocity = velocity_from_momentum_m_per_s(
                 phase.momentum_kg_m_per_s[active]
             )
-        active_z_mm = phase.position_m[active, 2] * 1000.0
-        step_m = gun.integration_step_mm_at(active_z_mm) * 1e-3
-        dt = step_m / max(float(np.max(velocity[:, 2])), 1.0)
-        previous_position = phase.position_m.copy()
-        previous_momentum = phase.momentum_kg_m_per_s.copy()
-        previous_time_s = float(phase.time_s)
-        if medium.regions:
-            energies = kinetic_energy_ev_from_momentum(phase.momentum_kg_m_per_s[active])
-            speed = np.linalg.norm(velocity, axis=1)
-            for region in medium.regions:
-                local = (phase.position_m[active, 2]*1000 >= region.start_z_mm) & (phase.position_m[active, 2]*1000 < region.end_z_mm)
-                if np.any(local):
-                    rate = region_rate_bound(region, energies[local])*speed[local]
-                    if np.max(rate, initial=0) > 0:
-                        dt = min(dt, medium.max_step_tau/(2*np.max(rate)))
-        if surface_model is not None:
-            # Tip-scale stepping and local momentum-change control execute the
-            # strong extraction field rather than injecting accelerated rays.
-            from temsim.physics.relativistic_lorentz import ELEMENTARY_CHARGE_C
-            nearest = max(0., float(np.min(phase.position_m[active, 2])))
-            spatial_step = min(step_m, .025*(surface_model.geometry.apex_radius_nm*1e-9+nearest))
-            dt = min(dt, spatial_step/max(np.max(np.linalg.norm(velocity, axis=1)), 1.))
-            field_strength = np.linalg.norm(electric_provider.field_at_global_positions_v_per_m(phase.position_m[active]), axis=1)
-            momentum_size = np.linalg.norm(phase.momentum_kg_m_per_s[active], axis=1)
-            if np.any(field_strength > 0):
-                dt = min(dt, float(np.min(.025*momentum_size[field_strength>0]/(ELEMENTARY_CHARGE_C*field_strength[field_strength>0]))))
-            advanced, dt = _surface_step(phase, dt, active, magnetic_provider, electric_provider)
-        else:
-            # A spatial cap alone is unsafe at emission: a sub-eV electron can
-            # gain keV within that step. Resolve the local Lorentz impulse
-            # before applying Boris; energy projection cannot repair a wrong
-            # direction or a skipped extraction trajectory.
-            from temsim.physics.relativistic_lorentz import lorentz_derivative
-            _, force = lorentz_derivative(
-                phase.position_m[active], phase.momentum_kg_m_per_s[active],
-                magnetic_provider, electric_field=electric_provider,
-            )
-            # Include the same predicted midpoint as Boris. At the compact
-            # extractor-field entrance the current force can be exactly zero.
-            _, midpoint_force = lorentz_derivative(
-                phase.position_m[active] + .5 * dt * velocity,
-                phase.momentum_kg_m_per_s[active], magnetic_provider,
-                electric_field=electric_provider,
-            )
-            force_size = np.maximum(np.linalg.norm(force, axis=1),
-                                    np.linalg.norm(midpoint_force, axis=1))
-            nonzero = force_size > 0
-            if np.any(nonzero):
+            forward = velocity[:, 2] > 0.0
+            if surface_model is None and not np.all(forward):
+                indices = np.flatnonzero(active)[~forward]
+                alive[indices] = False
+                blocked_time_s[indices] = float(phase.time_s)
+                for index in indices:
+                    blocked_z[index] = phase.position_m[index, 2] * 1000.0
+                    blocked_key[index] = (
+                        "feg_backstream"
+                        if gun.type_key == "cold_feg"
+                        else f"{gun.type_key}_backstream"
+                    )
+                active = alive & ~completed
+                if not np.any(active):
+                    break
+                velocity = velocity_from_momentum_m_per_s(
+                    phase.momentum_kg_m_per_s[active]
+                )
+            # This workspace belongs to one executed trace. begin_step checks the
+            # current providers/inputs before sharing preparation across its two
+            # kernels; unsupported or changed providers retain the reference path.
+            step_execution = (analytic_execution if analytic_execution is not None
+                              and analytic_execution.begin_step(phase, active) else None)
+            active_z_mm = phase.position_m[active, 2] * 1000.0
+            step_m = gun.integration_step_mm_at(active_z_mm) * 1e-3
+            dt = step_m / max(float(np.max(velocity[:, 2])), 1.0)
+            # The prepared step returns an independently owned phase. Boundary
+            # routines only read the previous arrays, and histories own copies.
+            previous_position = (phase.position_m if step_execution is not None
+                                 else phase.position_m.copy())
+            previous_momentum = (phase.momentum_kg_m_per_s if step_execution is not None
+                                 else phase.momentum_kg_m_per_s.copy())
+            previous_time_s = float(phase.time_s)
+            if medium.regions:
+                energies = kinetic_energy_ev_from_momentum(phase.momentum_kg_m_per_s[active])
+                speed = np.linalg.norm(velocity, axis=1)
+                for region in medium.regions:
+                    local = (phase.position_m[active, 2]*1000 >= region.start_z_mm) & (phase.position_m[active, 2]*1000 < region.end_z_mm)
+                    if np.any(local):
+                        rate = region_rate_bound(region, energies[local])*speed[local]
+                        if np.max(rate, initial=0) > 0:
+                            dt = min(dt, medium.max_step_tau/(2*np.max(rate)))
+            if surface_model is not None:
+                # Tip-scale stepping and local momentum-change control execute the
+                # strong extraction field rather than injecting accelerated rays.
+                from temsim.physics.relativistic_lorentz import ELEMENTARY_CHARGE_C
+                nearest = max(0., float(np.min(phase.position_m[active, 2])))
+                spatial_step = min(step_m, .025*(surface_model.geometry.apex_radius_nm*1e-9+nearest))
+                dt = min(dt, spatial_step/max(np.max(np.linalg.norm(velocity, axis=1)), 1.))
+                field_strength = np.linalg.norm(electric_provider.field_at_global_positions_v_per_m(phase.position_m[active]), axis=1)
                 momentum_size = np.linalg.norm(phase.momentum_kg_m_per_s[active], axis=1)
-                dt = min(dt, float(np.min(ANALYTIC_MAXIMUM_RELATIVE_IMPULSE
-                                         * momentum_size[nonzero] / force_size[nonzero])))
-            advanced, dt = _analytic_step(
-                gun, phase, dt, active, magnetic_provider, electric_provider,
-                invariant_energy[active])
-        new_position = phase.position_m.copy()
-        new_momentum = phase.momentum_kg_m_per_s.copy()
-        new_position[active] = advanced.position_m[active]
-        if surface_model is not None:
-            # No energy projection or forced nominal exit energy in this model.
-            new_momentum[active] = advanced.momentum_kg_m_per_s[active]
-        else:
-            new_momentum[active] = _enforce_static_field_energy(
-                gun, advanced.position_m[active], advanced.momentum_kg_m_per_s[active], invariant_energy[active])
-        phase = RelativisticPhaseSpace(
-            new_position, new_momentum, phase.time_s + dt
-        )
+                if np.any(field_strength > 0):
+                    dt = min(dt, float(np.min(.025*momentum_size[field_strength>0]/(ELEMENTARY_CHARGE_C*field_strength[field_strength>0]))))
+                advanced, dt = _surface_step(phase, dt, active, magnetic_provider, electric_provider)
+            else:
+                # A spatial cap alone is unsafe at emission: a sub-eV electron can
+                # gain keV within that step. Resolve the local Lorentz impulse
+                # before applying Boris; energy projection cannot repair a wrong
+                # direction or a skipped extraction trajectory.
+                if step_execution is not None:
+                    bounded_dt = step_execution.time_step(dt, ANALYTIC_MAXIMUM_RELATIVE_IMPULSE)
+                elif getattr(gun, "compiled_particle_steps", True):
+                    bounded_dt = try_analytic_time_step(
+                        phase, dt, active, magnetic_provider, electric_provider,
+                        ANALYTIC_MAXIMUM_RELATIVE_IMPULSE,
+                    )
+                else:
+                    bounded_dt = None
+                if bounded_dt is not None:
+                    dt = bounded_dt
+                else:
+                    from temsim.physics.relativistic_lorentz import lorentz_derivative
+                    _, force = lorentz_derivative(
+                        phase.position_m[active], phase.momentum_kg_m_per_s[active],
+                        magnetic_provider, electric_field=electric_provider,
+                    )
+                    # Include the same predicted midpoint as Boris. At the compact
+                    # extractor-field entrance the current force can be exactly zero.
+                    _, midpoint_force = lorentz_derivative(
+                        phase.position_m[active] + .5 * dt * velocity,
+                        phase.momentum_kg_m_per_s[active], magnetic_provider,
+                        electric_field=electric_provider,
+                    )
+                    force_size = np.maximum(np.linalg.norm(force, axis=1),
+                                            np.linalg.norm(midpoint_force, axis=1))
+                    nonzero = force_size > 0
+                    if np.any(nonzero):
+                        momentum_size = np.linalg.norm(phase.momentum_kg_m_per_s[active], axis=1)
+                        dt = min(dt, float(np.min(ANALYTIC_MAXIMUM_RELATIVE_IMPULSE
+                                                 * momentum_size[nonzero] / force_size[nonzero])))
+                advanced, dt = _analytic_step(
+                    gun, phase, dt, active, magnetic_provider, electric_provider,
+                    invariant_energy[active], execution=step_execution)
+            if step_execution is not None:
+                # Preserve the existing outer projection, including its validation
+                # and floating-point ordering, without recopying the entire phase.
+                phase = advanced
+                active_position = phase.position_m[active]
+                active_momentum = phase.momentum_kg_m_per_s[active]
+                active_energy = invariant_energy[active]
+                projected = step_execution.project_momentum(
+                    active_position, active_momentum, active_energy)
+                if projected is None:
+                    projected = _enforce_static_field_energy(
+                        gun, active_position, active_momentum, active_energy)
+                phase.momentum_kg_m_per_s[active] = projected
+            else:
+                new_position = phase.position_m.copy()
+                new_momentum = phase.momentum_kg_m_per_s.copy()
+                new_position[active] = advanced.position_m[active]
+                if surface_model is not None:
+                    # No energy projection or forced nominal exit energy in this model.
+                    new_momentum[active] = advanced.momentum_kg_m_per_s[active]
+                else:
+                    new_momentum[active] = _enforce_static_field_energy(
+                        gun, advanced.position_m[active], advanced.momentum_kg_m_per_s[active], invariant_energy[active])
+                phase = RelativisticPhaseSpace(
+                    new_position, new_momentum, phase.time_s + dt
+                )
 
         if surface_field is not None:
             returned = np.flatnonzero(alive & ~completed & surface_field.tip_material_mask(phase.position_m))
@@ -318,6 +379,27 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             for values in (c1_arrival_time, c1_arrival_x, c1_arrival_y):
                 values[missed_c1] = np.nan
             completed &= alive
+        newly_stopped = active & ~alive & ~np.isfinite(blocked_time_s)
+        if np.any(newly_stopped):
+            # Reuse the accepted segment and the already-resolved physical
+            # stop. A body or tip reabsorption is detected at the step end;
+            # plane and medium stops retain their position within that step.
+            indices = np.flatnonzero(newly_stopped)
+            dz = phase.position_m[indices, 2] - previous_position[indices, 2]
+            fraction = np.divide(
+                blocked_z[indices] * 1e-3 - previous_position[indices, 2], dz,
+                out=np.ones(indices.size), where=dz != 0.,
+            )
+            blocked_time_s[indices] = previous_time_s + np.clip(fraction, 0., 1.) * dt
+            # A removal position stores only Z. If that segment has zero axial
+            # travel, its sampled removal time cannot be recovered from Z.
+            unknown = [index for index, delta in zip(indices, dz)
+                       if delta == 0. and blocked_key[index].startswith("medium_removal:")]
+            blocked_time_s[unknown] = np.nan
+            for aperture, arrival in ((gun.dpa_aperture, dpa_arrival_time),
+                                      (gun.c1_aperture, c1_arrival_time)):
+                at_plane = newly_stopped & np.isfinite(arrival) & (blocked_z == aperture.z_mm)
+                blocked_time_s[at_plane] = arrival[at_plane]
         if (
             step_index % history_stride == 0
             or not np.any(alive & ~completed)
@@ -332,6 +414,7 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             history_time.append(float(phase.time_s))
             history_alive.append(alive.copy())
             history_completed.append(completed.copy())
+        step_index += 1
     else:
         raise RuntimeError(
             f"{gun.display_name} trace did not reach its exit plane "
@@ -346,8 +429,6 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             exit_momentum[passed_exit],
             invariant_energy[passed_exit],
         )
-    history_position_array = np.asarray(history_position)
-    history_momentum_array = np.asarray(history_momentum)
     pz = exit_momentum[:, 2]
     tx = np.divide(
         exit_momentum[:, 0], pz,
@@ -357,40 +438,23 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
         exit_momentum[:, 1], pz,
         out=np.zeros(n, dtype=float), where=passed_exit,
     )
-    history_pz = history_momentum_array[..., 2]
-    history_tx = np.divide(
-        history_momentum_array[..., 0],
-        history_pz,
-        out=np.zeros_like(history_pz),
-        where=np.abs(history_pz) > 0.0,
-    )
-    history_ty = np.divide(
-        history_momentum_array[..., 1],
-        history_pz,
-        out=np.zeros_like(history_pz),
-        where=np.abs(history_pz) > 0.0,
+    equal_time_history = _finalize_gun_history(
+        history_position, history_momentum, history_time, history_alive,
+        history_completed, cancelled=cancelled,
     )
     common_z, path_x, path_y, path_tx, path_ty = _resample_gun_paths(
         gun,
-        history_position_array,
-        history_tx,
-        history_ty,
+        None,
+        equal_time_history.tx_rad,
+        equal_time_history.ty_rad,
         exit_position,
         tx,
         ty,
         passed_exit,
         blocked_z,
         slit_plane,
-    )
-    equal_time_history = GunEqualTimeHistory(
-        time_s=np.asarray(history_time, dtype=float),
-        z_mm=history_position_array[..., 2] * 1000.0,
-        x_m=history_position_array[..., 0],
-        y_m=history_position_array[..., 1],
-        tx_rad=history_tx,
-        ty_rad=history_ty,
-        alive=np.asarray(history_alive, dtype=bool),
-        completed=np.asarray(history_completed, dtype=bool),
+        equal_time_history=equal_time_history,
+        cancelled=cancelled,
     )
     plane_arrivals = [
         GunPlaneArrival(
@@ -438,13 +502,33 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
         reached=np.isfinite(exit_arrival_time),
         transmitted=passed_exit.copy(),
     ))
-    # Static fields preserve each emitted energy offset exactly.  Keep that
-    # invariant directly instead of subtracting two ~300 keV float values.
+    terminal_z_mm = np.where(passed_exit, float(gun.exit_plane_z_mm), blocked_z)
+    terminal_time_s = np.where(passed_exit, exit_arrival_time, blocked_time_s)
+    flight_time_s = _resample_gun_flight_times(
+        common_z, equal_time_history, plane_arrivals=plane_arrivals,
+        terminal_z_mm=terminal_z_mm, terminal_time_s=terminal_time_s,
+        path_outputs=(path_x, path_y, path_tx, path_ty),
+        terminal_path_values=(exit_position[:, 0], exit_position[:, 1], tx, ty),
+        terminal_path_valid=passed_exit,
+        cancelled=cancelled,
+    )
+    # The downstream energy is referenced to nominal HT, not to the launch
+    # mean. Preserve K - e*phi across the same physical endpoints used by the
+    # executed trajectory. Copying launch offsets is only valid when launch
+    # potential is zero and the analytic ramp reaches its nominal exit value.
     energy_offset = emitted.energy_offset_ev.copy()
     if surface_model is not None:
         # Relative to e*HT: surface kinetic energy is additional, not cancelled
         # by changing the field. This is the static-energy invariant.
         energy_offset = launch_energy.copy()
+    elif np.any(passed_exit):
+        nominal_potential_rise = gun.nominal_exit_energy_ev - float(gun.emitter.emission_energy_ev)
+        exit_potential = electric_provider.potential_v_at_global_positions(exit_position[passed_exit])
+        launch_potential = launch_energy - invariant_energy
+        # Preserve the original small offsets exactly for the historical
+        # field-free endpoints; only add the actual potential correction.
+        energy_offset[passed_exit] += (exit_potential - nominal_potential_rise
+                                       - launch_potential[passed_exit])
     current = gun.emitted_current_a
     monochromator_current = None
     slit_dispersion = None
@@ -483,6 +567,7 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             weight=emitted.weight,
             ray_id=emitted.ray_id,
             alive=passed_exit,
+            flight_time_s=exit_arrival_time.copy(),
         ),
         blocked_z_mm=blocked_z,
         blocked_key=tuple(blocked_key),
@@ -502,6 +587,7 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
         plane_arrivals=tuple(plane_arrivals),
         vacuum_report=medium.report() if medium.regions else None,
         emission_reference=launch_reference,
+        flight_time_s=flight_time_s,
     )
     if surface_model is not None:
         from scipy.constants import c, m_e, e
@@ -530,13 +616,18 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
     return result
 
 
-def _analytic_step(gun, phase, dt, active, magnetic, electric, invariant_energy):
+def _analytic_step(gun, phase, dt, active, magnetic, electric, invariant_energy, *, execution=None):
     """Bound transverse trajectory error as well as the static energy error.
 
     Energy projection is part of each compared step, not an error estimator.
     The two-half-step solution is accepted only after comparison to one full
     step. Stopped rays cannot constrain the live population's time step.
     """
+    from temsim.physics.analytic_particle_step import try_analytic_step
+    compiled = (execution.step(dt, invariant_energy) if execution is not None else
+                try_analytic_step(gun, phase, dt, active, magnetic, electric, invariant_energy))
+    if compiled is not None:
+        return compiled
     local = RelativisticPhaseSpace(phase.position_m[active],
                                   phase.momentum_kg_m_per_s[active], phase.time_s)
 
@@ -635,6 +726,54 @@ def _resolve_surface_exit_crossing(exit_z_m, previous_position, previous_momentu
         completed[index] = True
 
 
+def _finalize_gun_history(positions, momenta, times, alive, completed, *, cancelled=None):
+    """Consume saved rows into the unchanged float64 equal-time schema.
+
+    Convert momenta first, releasing each row instead of building a second full
+    momentum history. Coordinates own only their declared arrays, so X/Y views
+    do not retain a hidden three-vector base alongside the public Z array.
+    """
+    shape = (len(positions), len(positions[0]))
+    tx, ty = np.empty(shape), np.empty(shape)
+    for row, momentum in enumerate(momenta):
+        if row % 64 == 0 and cancelled is not None and cancelled():
+            raise RuntimeError("Superseded optical tuning request")
+        pz = momentum[:, 2]
+        nonzero = np.abs(pz) > 0.
+        tx[row] = np.divide(momentum[:, 0], pz, out=np.zeros(shape[1]), where=nonzero)
+        ty[row] = np.divide(momentum[:, 1], pz, out=np.zeros(shape[1]), where=nonzero)
+        momenta[row] = None
+    x, y, z = np.empty(shape), np.empty(shape), np.empty(shape)
+    for row, position in enumerate(positions):
+        if row % 64 == 0 and cancelled is not None and cancelled():
+            raise RuntimeError("Superseded optical tuning request")
+        x[row], y[row], z[row] = position[:, 0], position[:, 1], position[:, 2] * 1000.
+        positions[row] = None
+    return GunEqualTimeHistory(
+        time_s=np.asarray(times, dtype=float), z_mm=z, x_m=x, y_m=y,
+        tx_rad=tx, ty_rad=ty, alive=np.asarray(alive, dtype=bool),
+        completed=np.asarray(completed, dtype=bool),
+    )
+
+
+def _retained_axial_indices(values):
+    """Original chronological record test and its 1e-12 mm threshold."""
+    indices = np.empty(len(values), dtype=np.int64)
+    count, previous = 0, -math.inf
+    for index in range(len(values)):
+        value = values[index]
+        if math.isfinite(value) and value > previous + 1e-12:
+            indices[count] = index
+            count += 1
+            previous = value
+    return indices[:count]
+
+
+from temsim.physics.analytic_gun_field import njit as _history_njit
+_history_indices = (_history_njit(cache=True, nogil=True)(_retained_axial_indices)
+                    if _history_njit is not None else _retained_axial_indices)
+
+
 def _resample_gun_paths(
     gun,
     equal_time_position,
@@ -646,6 +785,9 @@ def _resample_gun_paths(
     passed_exit,
     blocked_z_mm,
     slit_plane,
+    *,
+    equal_time_history=None,
+    cancelled=None,
 ):
     """Return ray paths on one strict, shared axial grid.
 
@@ -669,13 +811,15 @@ def _resample_gun_paths(
                 axis_values.append(float(value))
     common_z = np.unique(np.asarray(axis_values, dtype=float))
 
-    raw_z = np.asarray(equal_time_position[..., 2], dtype=float) * 1000.0
-    raw_values = (
-        np.asarray(equal_time_position[..., 0], dtype=float),
-        np.asarray(equal_time_position[..., 1], dtype=float),
-        np.asarray(equal_time_tx, dtype=float),
-        np.asarray(equal_time_ty, dtype=float),
-    )
+    if equal_time_history is None:
+        raw_z = np.asarray(equal_time_position[..., 2], dtype=float) * 1000.0
+        raw_values = (np.asarray(equal_time_position[..., 0], dtype=float),
+                      np.asarray(equal_time_position[..., 1], dtype=float),
+                      np.asarray(equal_time_tx, dtype=float), np.asarray(equal_time_ty, dtype=float))
+    else:
+        raw_z = equal_time_history.z_mm
+        raw_values = (equal_time_history.x_m, equal_time_history.y_m,
+                      equal_time_history.tx_rad, equal_time_history.ty_rad)
     ray_count = raw_z.shape[1]
     outputs = [
         np.empty((common_z.size, ray_count), dtype=float)
@@ -683,6 +827,8 @@ def _resample_gun_paths(
     ]
 
     for ray in range(ray_count):
+        if ray % 64 == 0 and cancelled is not None and cancelled():
+            raise RuntimeError("Superseded optical tuning request")
         if bool(passed_exit[ray]):
             limit = exit_z
             endpoint = (
@@ -697,16 +843,8 @@ def _resample_gun_paths(
             limit = min(max(limit, 0.0), exit_z)
             endpoint = None
 
-        finite = np.isfinite(raw_z[:, ray])
-        indices = np.flatnonzero(finite)
-        keep = []
-        previous_z = -math.inf
-        for index in indices:
-            value = float(raw_z[index, ray])
-            if value > previous_z + 1.0e-12:
-                keep.append(int(index))
-                previous_z = value
-        if not keep:
+        keep = _history_indices(raw_z[:, ray])
+        if not keep.size:
             raise RuntimeError("Electron-gun trace contains no finite path samples")
 
         monotonic_z = raw_z[keep, ray]
@@ -739,6 +877,199 @@ def _resample_gun_paths(
                 left=path_values[0], right=end_value,
             )
     return common_z, *outputs
+
+
+def _resample_gun_flight_times(
+    common_z_mm,
+    equal_time_history,
+    *,
+    plane_arrivals=(),
+    terminal_z_mm=None,
+    terminal_time_s=None,
+    path_outputs=None,
+    terminal_path_values=None,
+    terminal_path_valid=None,
+    cancelled=None,
+):
+    """First arrival at each plane, from the executed laboratory-time path.
+
+    Interpolation uses float64 equal-time trajectories, with resolved plane
+    events inserted at their actual crossing times. The terminal event replaces
+    an overshooting/frozen history endpoint. A turning path is searched in time
+    order, not sorted by Z: earlier crossings survive a later return. No time
+    is extrapolated before emission or to an unvisited axial plane.
+
+    Optional existing X/Y/slope display arrays are updated in place using the
+    same chronological crossing segments. Their untimed readability tails are
+    retained. Intermediate coordinates remain interpolated display data; only
+    recorded plane X/Y values and supplied terminal states are exact events.
+    """
+    planes = np.asarray(common_z_mm, dtype=np.float64)
+    times = np.asarray(equal_time_history.time_s, dtype=np.float64)
+    z_history = np.asarray(equal_time_history.z_mm, dtype=np.float64)
+    if (planes.ndim != 1 or not np.all(np.isfinite(planes))
+            or times.ndim != 1 or not times.size
+            or not np.all(np.isfinite(times)) or times[0] != 0.
+            or np.any(np.diff(times) <= 0.) or z_history.ndim != 2
+            or z_history.shape[0] != times.size):
+        raise ValueError("Gun timing requires finite planes and increasing tip-origin history times")
+    ray_count = z_history.shape[1]
+    active = (np.asarray(equal_time_history.alive, dtype=bool)
+              & ~np.asarray(equal_time_history.completed, dtype=bool))
+    if active.shape != z_history.shape:
+        raise ValueError("Gun timing activity must match the time-by-ray history")
+    terminal_z = (np.full(ray_count, np.nan) if terminal_z_mm is None
+                  else np.asarray(terminal_z_mm, dtype=np.float64))
+    terminal_time = (np.full(ray_count, np.nan) if terminal_time_s is None
+                     else np.asarray(terminal_time_s, dtype=np.float64))
+    if terminal_z.shape != (ray_count,) or terminal_time.shape != (ray_count,):
+        raise ValueError("Gun timing terminal events must contain one value per ray")
+    history_values = None
+    if path_outputs is not None:
+        if (len(path_outputs) != 4
+                or any(np.shape(output) != (planes.size, ray_count) for output in path_outputs)):
+            raise ValueError("Gun display outputs must contain four plane-by-ray arrays")
+        history_values = tuple(np.asarray(values, dtype=np.float64) for values in (
+            equal_time_history.x_m, equal_time_history.y_m,
+            equal_time_history.tx_rad, equal_time_history.ty_rad,
+        ))
+        if any(values.shape != z_history.shape for values in history_values):
+            raise ValueError("Gun display history must match the time-by-ray positions")
+    if terminal_path_values is not None:
+        terminal_path_values = tuple(np.asarray(values, dtype=np.float64)
+                                     for values in terminal_path_values)
+        if (len(terminal_path_values) != 4
+                or any(values.shape != (ray_count,) for values in terminal_path_values)):
+            raise ValueError("Gun terminal states must contain four values per ray")
+    terminal_path_valid = (np.zeros(ray_count, dtype=bool) if terminal_path_valid is None
+                           else np.asarray(terminal_path_valid, dtype=bool))
+    if terminal_path_valid.shape != (ray_count,):
+        raise ValueError("Gun terminal state validity must contain one flag per ray")
+    arrivals = []
+    for arrival in plane_arrivals:
+        crossing_time = np.asarray(arrival.time_s, dtype=np.float64)
+        reached = np.asarray(arrival.reached, dtype=bool)
+        if crossing_time.shape != (ray_count,) or reached.shape != (ray_count,):
+            raise ValueError("Gun plane arrival times must contain one value per ray")
+        arrivals.append((float(arrival.z_mm), crossing_time, reached, arrival.x_m, arrival.y_m))
+    result = np.full((planes.size, ray_count), np.nan, dtype=np.float64)
+
+    for ray in range(ray_count):
+        if ray % 64 == 0 and cancelled is not None and cancelled():
+            raise RuntimeError("Superseded optical tuning request")
+        stop = float(terminal_time[ray])
+        known_stop = np.isfinite(stop) and np.isfinite(terminal_z[ray])
+        if known_stop:
+            if stop < 0.:
+                raise ValueError("Gun terminal time cannot precede tip emission")
+            count = int(np.searchsorted(times, stop, side="left"))
+        else:
+            # Without a crossing clock, a frozen or overshooting inactive row
+            # cannot supply its own arrival time. Preserve only live samples.
+            inactive = np.flatnonzero(~active[:, ray])
+            count = int(inactive[0]) if inactive.size else times.size
+        # Retained times are already strictly ordered. Keep them as NumPy
+        # views; only the few exact terminal/aperture events need sorting.
+        path_time = times[:count]
+        path_z = z_history[:count, ray]
+        extra_times, extra_z = [], []
+        # Only one ray's display values are gathered at a time. The four full
+        # histories remain views and the common-Z outputs are reused in place.
+        path_values = (None if history_values is None else
+                       np.stack([values[:count, ray] for values in history_values]))
+        extra_values = []
+
+        def event_values(plane_z, event_time):
+            # Locate the retained chronological segment. Interpolate by Z so a
+            # normal monotone path retains its original geometric interpolation,
+            # even when a resolved event refines its crossing clock.
+            upper = min(int(np.searchsorted(times, event_time)), times.size - 1)
+            lower = max(upper - 1, 0)
+            dz = z_history[upper, ray] - z_history[lower, ray]
+            if dz != 0.:
+                fraction = (plane_z - z_history[lower, ray]) / dz
+            elif times[upper] != times[lower]:
+                fraction = (event_time - times[lower]) / (times[upper] - times[lower])
+            else:
+                fraction = 0.
+            fraction = np.clip(fraction, 0., 1.)
+            return [values[lower, ray] + fraction * (values[upper, ray] - values[lower, ray])
+                    for values in history_values]
+
+        if known_stop:
+            extra_times.append(stop)
+            extra_z.append(float(terminal_z[ray]))
+            if path_values is not None:
+                endpoint = (tuple(values[ray] for values in terminal_path_values)
+                            if terminal_path_values is not None and terminal_path_valid[ray]
+                            else event_values(float(terminal_z[ray]), stop))
+                extra_values.append(endpoint)
+        exact = []
+        for plane_z, event_time, reached, event_x, event_y in arrivals:
+            time = float(event_time[ray])
+            if reached[ray] and np.isfinite(time) and 0. <= time <= (stop if known_stop else times[-1]):
+                extra_times.append(time)
+                extra_z.append(plane_z)
+                exact.append((plane_z, time, event_x[ray], event_y[ray]))
+                if path_values is not None:
+                    values_at_event = event_values(plane_z, time)
+                    values_at_event[:2] = (event_x[ray], event_y[ray])
+                    if (known_stop and time == stop and plane_z == terminal_z[ray]
+                            and terminal_path_values is not None and terminal_path_valid[ray]):
+                        values_at_event[2:] = (terminal_path_values[2][ray], terminal_path_values[3][ray])
+                    extra_values.append(values_at_event)
+        if not path_time.size and not extra_times:
+            continue
+        if extra_times:
+            order = np.argsort(extra_times, kind="stable")
+            events_t = np.asarray(extra_times, dtype=np.float64)[order]
+            insert = np.searchsorted(path_time, events_t, side="right")
+            t = np.insert(path_time, insert, events_t)
+            z = np.insert(path_z, insert, np.asarray(extra_z, dtype=np.float64)[order])
+            if path_values is not None:
+                path_values = np.insert(path_values, insert, np.asarray(extra_values).T[:, order], axis=1)
+        else:
+            t, z = path_time, path_z
+        finite = np.isfinite(z)
+        t, z = t[finite], z[finite]
+        values = None if path_values is None else path_values[:, finite]
+        if not t.size:
+            continue
+        # Explicit physical crossings were appended last and own a coincident
+        # time sample instead of a retained step-end position.
+        unique = np.r_[t[1:] != t[:-1], True]
+        t, z = t[unique], z[unique]
+        if values is not None:
+            values = values[:, unique]
+        result[planes == z[0], ray] = t[0]
+        if values is not None:
+            for output, coordinate in zip(path_outputs, values):
+                output[planes == z[0], ray] = coordinate[0]
+        for sign in (1., -1.):
+            along = sign * z
+            # A new axial maximum/minimum is first reached on the immediately
+            # preceding temporal segment, which can start after a reversal.
+            records = np.flatnonzero(along[1:] > np.maximum.accumulate(along)[:-1]) + 1
+            query_rows = np.flatnonzero(sign * planes > along[0])
+            if not records.size or not query_rows.size:
+                continue
+            queries = sign * planes[query_rows]
+            lookup = np.searchsorted(along[records], queries, side="left")
+            valid = lookup < records.size
+            rows = query_rows[valid]
+            upper = records[lookup[valid]]
+            fraction = ((sign * planes[rows] - along[upper - 1])
+                        / (along[upper] - along[upper - 1]))
+            result[rows, ray] = t[upper - 1] + fraction * (t[upper] - t[upper - 1])
+            if values is not None:
+                for output, coordinate in zip(path_outputs, values):
+                    output[rows, ray] = coordinate[upper - 1] + fraction * (coordinate[upper] - coordinate[upper - 1])
+        for plane_z, time, event_x, event_y in exact:
+            result[planes == plane_z, ray] = time
+            if path_outputs is not None:
+                path_outputs[0][planes == plane_z, ray] = event_x
+                path_outputs[1][planes == plane_z, ray] = event_y
+    return result
 
 
 def _weighted_fwhm_from_standard_deviation(values, weights):
@@ -915,3 +1246,11 @@ def _clip_body_bores(
                 alive[index] = False
                 blocked_z[index] = z_mm[local_index]
                 blocked_key[index] = component.key
+
+
+# Batch admission must not bypass instrumentation or custom event/step hooks.
+_BATCH_ORIGINAL_FUNCTIONS = {name: globals()[name] for name in (
+    "velocity_from_momentum_m_per_s", "_analytic_step", "_enforce_static_field_energy",
+    "_clip_body_bores", "_resolve_aperture_crossing", "_resolve_exit_crossing",
+    "_crossing_fraction",
+)}

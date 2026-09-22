@@ -385,7 +385,7 @@ def test_material_dimension_save_reloads_assembly_without_changing_unrelated_con
 
     catalog = AssemblyCatalog(root)
     state = default_state()
-    selection = catalog.default_selection()
+    selection = replace(catalog.default_selection(), recording="Energy Filter")
     initial_assembly = catalog.apply(state, selection, preserve_operating_parameters=True)
     initial_fingerprint = resolved_assembly_geometry_fingerprint(state)
     old_lens_strengths = {lens.key: lens.percent for lens in state.lenses}

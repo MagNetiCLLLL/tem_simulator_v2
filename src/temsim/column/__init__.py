@@ -13,11 +13,6 @@ from .layout import (
     ObjectiveLayout,
     build_optics_layout,
 )
-from .effective_axis import (
-    EffectiveAxisResolution,
-    MECHANICAL_TO_EFFECTIVE_SCALE,
-    apply_effective_axis,
-)
 from .module_assembly import (
     ModuleAssembly,
     ResolvedAssembly,

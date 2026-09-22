@@ -60,7 +60,7 @@ from temsim.diagnostics import (
 from temsim.detector.plane_image import detector_response_image
 from temsim.gui.beam_display_source import downstream_display_branches
 from temsim.gui.beam_tracking_modes import branch_interaction_style
-from temsim.physics.ray_identity import branch_identity, source_identity
+from temsim.physics.ray_identity import branch_identity
 from temsim.detector.eds_geometry import (
     EDSDetectorArrayGeometry,
     assess_axisymmetric_pole_centerline,
@@ -4156,7 +4156,7 @@ class InitialDirectionColourWheel(QWidget):
             )
         description = (
             "Continuous colour = original emission-position azimuth about the source axis "
-            "(legacy caches: emitted bundle centroid), fixed for the entire trajectory. +X is 0 degrees and the angle increases "
+            "and fixed for the entire trajectory. +X is 0 degrees and the angle increases "
             "counter-clockwise toward +Y. This is position azimuth, not velocity direction; "
             "it does not represent ray radius, energy, intensity or "
             "survival state. Scattered weighted paths inherit their source colour; "
@@ -4205,6 +4205,11 @@ class InitialDirectionColourWheel(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
+        # Keep the scientific angle legend circular at any user-defined size.
+        scale = min(self.width(), self.height()) / 184.0
+        painter.translate((self.width() - 184.0 * scale) / 2.0,
+                          (self.height() - 184.0 * scale) / 2.0)
+        painter.scale(scale, scale)
         wheel_rect = QRectF(31.0, 31.0, 122.0, 122.0)
         painter.setPen(Qt.PenStyle.NoPen)
         for degree in range(360):
@@ -4258,6 +4263,7 @@ class InitialDirectionColourWheel(QWidget):
 class TransverseBeamView(QWidget):
     """X-Y beam slice that makes round-lens image rotation observable."""
 
+    plot_sizes_changed = Signal()
     MAX_DISPLAY_RAYS = 2_000
     CENTRE_DIRECTION_TOLERANCE_M = 1.0e-15
     DEFAULT_HALF_RANGE_DISPLAY = 1.0
@@ -4335,9 +4341,21 @@ class TransverseBeamView(QWidget):
         self.initial_beam_heading.setStyleSheet(
             "color: #e2e8f0; font-weight: 700;"
         )
+        self.initial_beam_heading.setWordWrap(True)
+        for label in (self.heading, self.summary, self.initial_beam_heading):
+            label.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+                | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            )
+        from temsim.gui.emission_source_plot import EmissionSourcePlot
+
+        self.source_plot = EmissionSourcePlot()
+        self.colour_legend_toggle = QPushButton("Show colour legend")
+        self.colour_legend_toggle.setCheckable(True)
+        self.colour_legend_toggle.toggled.connect(self.angle_colour_wheel.setVisible)
+        self.angle_colour_wheel.hide()
         self.initial_beam_panel = QWidget()
         self.initial_beam_panel.setObjectName("transverseInitialBeamPanel")
-        self.initial_beam_panel.setMaximumWidth(520)
         self.initial_beam_panel.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
@@ -4345,6 +4363,8 @@ class TransverseBeamView(QWidget):
         initial_beam_layout = QVBoxLayout(self.initial_beam_panel)
         initial_beam_layout.setContentsMargins(4, 4, 4, 4)
         initial_beam_layout.addWidget(self.initial_beam_heading)
+        initial_beam_layout.addWidget(self.source_plot)
+        initial_beam_layout.addWidget(self.colour_legend_toggle)
         initial_beam_layout.addWidget(
             self.angle_colour_wheel,
             0,
@@ -4353,7 +4373,6 @@ class TransverseBeamView(QWidget):
 
         self.section_beam_panel = QWidget()
         self.section_beam_panel.setObjectName("transverseSectionBeamPanel")
-        self.section_beam_panel.setMaximumWidth(520)
         self.section_beam_panel.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
@@ -4365,25 +4384,20 @@ class TransverseBeamView(QWidget):
         section_beam_layout.addWidget(self.plot, 1)
         section_beam_layout.addWidget(self.summary)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(
-            self.initial_beam_panel,
-            0,
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
-        )
-        layout.addWidget(
-            self.section_beam_panel,
-            0,
-            Qt.AlignmentFlag.AlignTop,
-        )
-        layout.addStretch(1)
+        from temsim.gui.transverse_plot_layout import TransversePlotLayout
+        self.plot_layout = TransversePlotLayout(self)
         self.fit_beam.clicked.connect(self._fit_beam_view)
         from temsim.gui.beam_analysis import BeamAnalysisControls
 
         self.analysis = BeamAnalysisControls(self)
         self.analysis_mode = self.analysis.mode_combo
         self.colour_mode = self.analysis.colour_combo
+
+    def plot_size_state(self):
+        return self.plot_layout.state()
+
+    def set_plot_size_state(self, state):
+        self.plot_layout.set_state(state)
 
     def _update_projection_labels(self) -> None:
         if hasattr(self, "analysis") and self.analysis.wave is not None:
@@ -4470,7 +4484,7 @@ class TransverseBeamView(QWidget):
         if self.analysis.wave is not None:
             self.analysis.wave.capture_range()
             return
-        if hasattr(self, "analysis") and self.analysis.mode != "position":
+        if hasattr(self, "analysis") and (self.analysis.mode != "position" or self.analysis.colour_combo.currentData() == "tof"):
             self.analysis.capture_manual_range()
             return
         x_range, y_range = self.plot.getViewBox().viewRange()
@@ -4486,7 +4500,7 @@ class TransverseBeamView(QWidget):
         if self.analysis.wave is not None:
             self.analysis.wave.fit()
             return
-        if hasattr(self, "analysis") and self.analysis.mode != "position":
+        if hasattr(self, "analysis") and (self.analysis.mode != "position" or self.analysis.colour_combo.currentData() == "tof"):
             self.analysis.fit()
             return
         if self._fit_coordinates is None:
@@ -4654,8 +4668,9 @@ class TransverseBeamView(QWidget):
         image.setOpacity(0.62)
         image.setZValue(-20.0)
         image.setToolTip(
-            "Peak-normalized forward detector PSF response; original rays "
-            "remain as the coloured point overlay."
+            "Peak-normalized virtual optical-reference PSF response, not acquired counts "
+            "or collected current. Recording stops are ignored in this diagnostic; "
+            "original rays remain as the coloured point overlay."
         )
         self.plot.addItem(image)
         self._point_spread_image = image
@@ -4665,9 +4680,15 @@ class TransverseBeamView(QWidget):
         if self.analysis.wave is not None:
             self.analysis.wave.redraw()
             return
-        if self.analysis.mode != "position":
+        self.analysis.refresh_source_plot()
+        if (self.analysis.mode != "position" or self.analysis.colour_combo.currentData() == "tof"
+                or self.analysis.filter_plane_data() is not None):
             self.analysis.redraw()
             return
+        # A preceding named filter view used local axes; ordinary Z positions
+        # return to the column projection even when the plot mode is unchanged.
+        self.analysis.update_labels()
+        self.analysis.readout.setVisible(False)
         self.plot.clear()
         self._scatter = None
         self._point_spread_image = None
@@ -4687,13 +4708,7 @@ class TransverseBeamView(QWidget):
         counts = [np.asarray(branch.x).shape[1] for branch in branches]
         total = sum(counts)
         pool = np.unique(np.linspace(0, total - 1, min(total, self.MAX_DISPLAY_RAYS), dtype=int))
-        source_ids, _ = source_identity(simulation.incident, getattr(simulation, "gun_trace", None))
-        source_lookup = {int(value): index for index, value in enumerate(source_ids) if value >= 0}
-        launch = getattr(getattr(simulation, "gun_trace", None), "emission_reference", None)
-        launch_positions = np.asarray((launch or {}).get("position_m", ()))
-        if (launch_positions.shape != (len(source_ids), 3)
-                or not np.array_equal((launch or {}).get("ray_id"), source_ids)):
-            launch_positions = None
+        emission = self.analysis.source_data()
         parts = []
         interaction_styles = []
         offset = 0
@@ -4711,14 +4726,10 @@ class TransverseBeamView(QWidget):
             ids, azimuth = branch_identity(branch, simulation)
             ids, azimuth = ids[selected], azimuth[selected]
             sx, sy = np.full(selected.size, np.nan), np.full(selected.size, np.nan)
-            for row, ray_id in enumerate(ids):
-                source_index = source_lookup.get(int(ray_id))
-                if source_index is not None:
-                    if launch_positions is not None:
-                        sx[row], sy[row] = launch_positions[source_index, :2]
-                    else:
-                        sx[row] = simulation.incident.x[0, source_index]
-                        sy[row] = simulation.incident.y[0, source_index]
+            if emission is not None:
+                source_rows = emission.indices_for(ids)
+                known = source_rows >= 0
+                sx[known], sy[known] = emission.position_m[source_rows[known], :2].T
             parts.append((
                 self._interpolate(branch.x, z_values, plane)[selected],
                 self._interpolate(branch.y, z_values, plane)[selected],
@@ -4745,16 +4756,7 @@ class TransverseBeamView(QWidget):
         point_spread_response = (
             self._add_point_spread_response() if source_label != "Specimen exit" else None
         )
-        brushes = []
-        for index in indices:
-            colour = (
-                InitialDirectionColourWheel.NEUTRAL_COLOUR
-                if ids[index] < 0 or not np.isfinite(initial_angle[index])
-                else InitialDirectionColourWheel.colour_for_angle(
-                    initial_angle[index]
-                )
-            )
-            brushes.append(pg.mkBrush(colour))
+        brushes = self.analysis.source_brushes(ids, initial_angle)
         display_x_m, display_y_m = transverse_view_coordinates(
             x_m[indices],
             y_m[indices],
@@ -4821,7 +4823,7 @@ class TransverseBeamView(QWidget):
             )
             point_spread = point_spread_response.point_spread
             point_spread_text = (
-                f" | detector PSF {point_spread.model}, sigma(X,Y)="
+                f" | virtual optical-reference detector PSF {point_spread.model}, sigma(X,Y)="
                 f"({point_spread.sigma_x_mm:.6g}, "
                 f"{point_spread.sigma_y_mm:.6g}) mm, "
                 f"rotation {point_spread.rotation_deg:.6g} deg, "
@@ -4841,7 +4843,7 @@ class TransverseBeamView(QWidget):
             f"pattern orientation relative to the source {rotation_text} | "
             f"display basis U={primary_name}, V={orthogonal_name} | "
             "colour identifies original emission-position azimuth about the source axis "
-            "(legacy caches: bundle centroid). Pattern rotation includes inversion/deformation; "
+            "using recorded tip positions. Pattern rotation includes inversion/deformation; "
             "it is not the integrated Larmor angle. Weighted descendants may "
             "share a source identity. Grey means undefined or unavailable lineage."
             + point_spread_text

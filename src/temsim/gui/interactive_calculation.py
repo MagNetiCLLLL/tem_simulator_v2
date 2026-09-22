@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSettings, QTimer, Signal
@@ -9,7 +10,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QLineEdit, QHeaderView, QSplitter, QFormLayout,
     QGroupBox, QProgressBar, QFileDialog,
-    QSlider,
+    QSlider, QListWidget, QListWidgetItem,
 )
 from temsim.gui.input_policy import WheelSafeComboBox as QComboBox
 from temsim.gui.input_policy import WheelSafeDoubleSpinBox as QDoubleSpinBox
@@ -18,6 +19,7 @@ from temsim.gui.interactive_controller import InteractiveController
 from temsim.gui.aligned_control_table import AlignedControlTable
 from temsim.interactive_calculation import (
     CalculationRange, InteractivePlan, available_controls, validate_plan,
+    LIVE_CONTROL_GROUPS,
 )
 
 
@@ -43,6 +45,9 @@ class InteractiveCalculationPage(QWidget):
     rays_requested = Signal()
     readout_updated = Signal(object)
     readout_status_changed = Signal(str)
+    section_changed = Signal()
+    section_save_requested = Signal()
+    section_load_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -57,6 +62,7 @@ class InteractiveCalculationPage(QWidget):
         self._live_mode = False
         self._readout = None
         self._failed = False
+        self._section_result = None
         self.operation_allowed = lambda: True
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
@@ -81,7 +87,7 @@ class InteractiveCalculationPage(QWidget):
         self.capture = QPushButton("Capture current settings")
         self.capture.clicked.connect(self.capture_requested)
         form.addWidget(self.capture)
-        self.capture_info = _label("Capture settings and enter ranges. Tune rays first; calculate high accuracy once when ready.")
+        self.capture_info = _label("Capture settings and enter ranges for live tuning. Run a final high-accuracy calculation when ready.")
         form.addWidget(self.capture_info)
         self.choice = QComboBox()
         self.choice.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
@@ -103,6 +109,77 @@ class InteractiveCalculationPage(QWidget):
         remove = QPushButton("Remove selected range")
         remove.clicked.connect(self._remove_range)
         form.addWidget(remove)
+        self.section_group = QGroupBox("Calculation section (optional)")
+        self.section_group.setObjectName("interactiveSectionTuning")
+        self.section_group.setCheckable(True)
+        self.section_group.setChecked(False)
+        self.section_group.setEnabled(False)
+        section_layout = QVBoxLayout(self.section_group)
+        self.section_body = QWidget()
+        section_layout.addWidget(self.section_body)
+        section_form = QVBoxLayout(self.section_body)
+        section_form.setContentsMargins(0, 0, 0, 0)
+        self.section_scope = _label("Particle transport to the selected plane; inserted specimens scatter electrons.")
+        section_form.addWidget(self.section_scope)
+        self.section_plane = QComboBox()
+        self.section_plane.setObjectName("interactiveSectionPlane")
+        self.section_plane.addItem("Custom Z", None)
+        self.section_z = QDoubleSpinBox()
+        self.section_z.setObjectName("interactiveSectionZ")
+        self.section_z.setDecimals(6)
+        self.section_z.setRange(0., 1e6)
+        self.section_z.setSuffix(" mm")
+        self.section_z.setSingleStep(1.)
+        section_position = QFormLayout()
+        section_position.addRow("Target plane", self.section_plane)
+        section_position.addRow("Target Z", self.section_z)
+        section_form.addLayout(section_position)
+        section_form.addWidget(_label("Participating range components"))
+        self.section_components = QListWidget()
+        self.section_components.setObjectName("interactiveSectionComponents")
+        self.section_components.setMaximumHeight(96)
+        self.section_components.setToolTip(
+            "Select the components whose ranges participate in section tuning. "
+            "Other components retain their current settings. Detector ranges belong to Advanced bank.")
+        section_form.addWidget(self.section_components)
+        self.section_status = _label("Capture settings and choose an end plane. Add ranges only for live tuning.")
+        self.section_status.setObjectName("interactiveSectionStatus")
+        section_form.addWidget(self.section_status)
+        self.section_save = QPushButton("Save section state...")
+        self.section_save.setObjectName("saveInteractiveSection")
+        self.section_save.setEnabled(False)
+        self.section_save.setToolTip("Save a completed calculation at the current section and settings.")
+        self.section_save.clicked.connect(self.section_save_requested)
+        self.section_load = QPushButton("Load section state...")
+        self.section_load.setObjectName("loadInteractiveSection")
+        self.section_load.setToolTip("Load a saved executed section for compatible onward calculation.")
+        self.section_load.clicked.connect(self.section_load_requested)
+        section_actions = QHBoxLayout()
+        section_actions.addWidget(self.section_save)
+        section_actions.addWidget(self.section_load)
+        section_form.addLayout(section_actions)
+        self.section_body.hide()
+        self.section_group.toggled.connect(self.section_body.setVisible)
+        self.section_group.toggled.connect(self._section_options_changed)
+        self.section_plane.currentIndexChanged.connect(self._section_plane_selected)
+        self.section_z.valueChanged.connect(self._section_z_changed)
+        self.section_components.itemChanged.connect(self._section_options_changed)
+        form.addWidget(self.section_group)
+        archive_group = QGroupBox("Saved particle state")
+        archive_layout = QVBoxLayout(archive_group)
+        self.section_archive_status = _label(
+            "Completed matching particle calculations are saved automatically. No saved state yet.")
+        self.section_archive_status.setObjectName("particleSectionArchiveStatus")
+        archive_layout.addWidget(self.section_archive_status)
+        self.section_archive_load = QPushButton("Load saved section...")
+        self.section_archive_load.setToolTip(
+            "Load executed upstream state without changing current instrument settings.")
+        self.section_archive_load.clicked.connect(self.section_load_requested)
+        archive_layout.addWidget(self.section_archive_load)
+        form.addWidget(archive_group)
+        self._section_archive_identity = None
+        self._section_archive_current = True
+        self._section_archive_info = None
         self.live_start = QPushButton("Start live tuning")
         self.live_start.setToolTip("Uses continuous values inside the declared ranges and updates current settings and Ray Diagram. Does not build a high-accuracy bank.")
         self.live_start.clicked.connect(self.start_live_tuning)
@@ -168,6 +245,23 @@ class InteractiveCalculationPage(QWidget):
         self.readout_panel.setObjectName("interactiveReadoutPanel")
         self.readout_panel.hide()
         right_layout = QVBoxLayout(self.readout_panel)
+        from temsim.gui.calculation_timing_view import CalculationTimingView
+        self.calculation_timing = CalculationTimingView()
+        right_layout.addWidget(self.calculation_timing)
+        self.particle_signal_group = QGroupBox("Current pixel")
+        self.particle_signal_group.setObjectName("interactiveParticleSignals")
+        pixel_layout = QVBoxLayout(self.particle_signal_group)
+        self.particle_signal_status = _label("No completed particle-detector readout.")
+        pixel_layout.addWidget(self.particle_signal_status)
+        self.particle_signal_table = QTableWidget(0, 4)
+        self.particle_signal_table.setObjectName("interactiveParticleSignalTable")
+        self.particle_signal_table.setHorizontalHeaderLabels([
+            "Detector", "Simulated electrons\n(weighted)", "Electrons/s", "Status",
+        ])
+        self.particle_signal_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.particle_signal_table.setMaximumHeight(190)
+        pixel_layout.addWidget(self.particle_signal_table)
+        right_layout.addWidget(self.particle_signal_group)
         self.result_status = _label("No signal readout")
         right_layout.addWidget(self.result_status)
         self.signal_table = QTableWidget(0, 3)
@@ -192,6 +286,246 @@ class InteractiveCalculationPage(QWidget):
     def _add_control_row(self, control, widget):
         self.live_table.add_control(control, widget)
 
+    def set_particle_signals(self, rows):
+        """Publish completed current-pixel counts independently of bank readout."""
+        rows = tuple(rows or ())
+        self.particle_signal_table.setRowCount(len(rows))
+        available = 0
+        for row_index, row in enumerate(rows):
+            status = str(row.status)
+            valid = status == "AVAILABLE"
+            available += int(valid)
+
+            def number(value):
+                if not valid or value is None or not math.isfinite(float(value)):
+                    return "—"
+                return f"{float(value):.9g}"
+
+            values = (str(row.name), number(row.simulated_electrons),
+                      number(row.electrons_per_second), status.replace("_", " ").capitalize())
+            for column, text in enumerate(values):
+                item = QTableWidgetItem(text)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                item.setData(Qt.ItemDataRole.UserRole, str(row.key))
+                self.particle_signal_table.setItem(row_index, column, item)
+        self.particle_signal_status.setText(
+            f"Current pixel | {available} of {len(rows)} detector readouts available."
+            if rows else "No completed particle-detector readout.")
+        self.particle_signal_status.setToolTip(
+            "Weighted simulated electrons describe this particle calculation. "
+            "Electrons per second uses the physical source current. A dash means unavailable, not zero.")
+
+    def segment_request(self):
+        """Return an explicit section request; ordinary live tuning stays default."""
+        if not self.section_group.isChecked():
+            return None
+        return {
+            "target_z_mm": float(self.section_z.value()),
+            "component_keys": tuple(
+                str(self.section_components.item(row).data(Qt.ItemDataRole.UserRole))
+                for row in range(self.section_components.count())
+                if self.section_components.item(row).checkState() == Qt.CheckState.Checked
+            ),
+        }
+
+    def invalidate_section_result(self, message="Section settings changed; calculate again before saving."):
+        self._section_result = None
+        self.section_save.setEnabled(False)
+        self.section_status.setText(message)
+        self._section_archive_current = False
+        if self._section_archive_info is not None:
+            self.set_section_archive_status(self._section_archive_info)
+
+    def expect_section_archive(self, result):
+        from temsim.particle_section_io import section_archive_identity
+        self._section_archive_identity = section_archive_identity(result)
+        self._section_archive_current = True
+
+    def set_section_archive_status(self, info):
+        """Only successful IO is described as saved; earlier captures stay labelled."""
+        status = info.get("status", "loaded")
+        identity = info.get("identity")
+        if status in {"loading", "loaded"}:
+            self._section_archive_identity = identity
+            self._section_archive_current = False
+        elif self._section_archive_identity is not None and identity != self._section_archive_identity:
+            return False
+        self._section_archive_info = dict(info)
+        if status == "loading":
+            self.section_archive_status.setText(f"Loading saved particle state from {info.get('path', '')}...")
+            return True
+        if status == "failed":
+            operation = "Loading" if info.get("operation") == "load" else "Saving"
+            self.section_archive_status.setText(
+                f"{operation} failed: {info.get('error', 'Unknown error')}. The completed calculation remains available.")
+            return True
+        prefix = ("Saving completed state..." if status == "saving" else "Loaded executed state."
+                  if status == "loaded" else "Saved current calculated state." if self._section_archive_current
+                  else "Saved earlier calculated state; current settings require a compatibility check.")
+        details = [prefix,
+            f"{info.get('plane_name', 'Custom plane')} | Z = {float(info['target_z_mm']):.9g} mm | "
+            f"{info.get('quality', 'Unknown quality')} | {int(info.get('particle_count', 0))} emitted particles."]
+        if info.get("saved_at_utc"):
+            details.append(f"Saved at {info['saved_at_utc']}.")
+        from temsim.calculation_performance import _seconds
+        io_seconds = _seconds(info.get("file_io_seconds"))
+        if io_seconds is not None and status in {"loaded", "saved"}:
+            operation = {"load": "Load", "save": "Save", "verify_existing": "Existing archive verification"}.get(
+                info.get("file_io_operation"), "File")
+            if info.get("file_io_reused_measurement"):
+                operation = "Previous " + operation.lower()
+            details.append(f"{operation} operation: {io_seconds} (excludes queue wait).")
+        if info.get("path"):
+            details.append(f"File: {info['path']}")
+        if info.get("resumable_through_z_mm") is not None:
+            details.append(f"Saved axial state reaches Z = {float(info['resumable_through_z_mm']):.9g} mm.")
+        if info.get("energy_filter_completed"):
+            details.append("Energy-filter calculation completed; bent filter trajectories are recalculated when needed.")
+        if info.get("resume_details"):
+            details.append(info["resume_details"])
+        if info.get("resume_policy"):
+            details.append(info["resume_policy"])
+        self.section_archive_status.setText("\n".join(details))
+        return True
+
+    def set_section_result(self, result):
+        """Offer only a completed matching section; the controller checks its inputs."""
+        if result is None:
+            self.invalidate_section_result("Waiting for a completed section calculation.")
+            return False
+        request = self.segment_request()
+        simulation = getattr(result, "simulation", None)
+        metrics = getattr(simulation, "metrics", {})
+        target = metrics.get("section_target_z_mm")
+        keys = tuple(metrics.get("section_component_keys", ()))
+        if (not isinstance(target, (int, float))
+                or not math.isfinite(target)
+                or (request is not None and (
+                    not math.isclose(float(target), request["target_z_mm"], rel_tol=0., abs_tol=5e-7)
+                    or sorted(keys) != sorted(request["component_keys"])))):
+            return False
+        self._section_result = result
+        self.section_save.setEnabled(not self.busy)
+        details = [f"Completed section at Z = {float(target):.9g} mm."]
+        resume = metrics.get("section_resume_z_mm")
+        if isinstance(resume, (int, float)) and math.isfinite(resume):
+            details.append(
+                f"Column state reused through Z = {float(resume):.9g} mm."
+                if metrics.get("section_reused_prefix", False)
+                else f"Column transport calculated from Z = {float(resume):.9g} mm.")
+        if "section_gun_reused" in metrics:
+            details.append("Gun calculation reused." if metrics["section_gun_reused"]
+                           else "Gun transport calculated from tip emission.")
+        if metrics.get("section_reuse_reason"):
+            details.append(str(metrics["section_reuse_reason"]))
+        if metrics.get("section_vacuum_restart") == "recomputed":
+            details.append("Vacuum transport recalculated.")
+        elif metrics.get("section_vacuum_restart") == "not_participating":
+            details.append("Vacuum scattering disabled.")
+        details.append("You can save this completed state or select the next section.")
+        self.section_status.setText(" ".join(details))
+        return True
+
+    def _section_options_changed(self, *_):
+        self.invalidate_section_result()
+        if self._live_mode and self.live_plan is not None:
+            request = self.segment_request()
+            keys = None if request is None else set(request["component_keys"])
+            for axis in self.live_plan.ranges:
+                row = self.live_table.control_row(axis.control.identity)
+                self.live_table.cellWidget(row, 1).setEnabled(keys is None or axis.control.key in keys)
+            if keys is not None and keys - {axis.control.key for axis in self.live_plan.ranges}:
+                self.section_status.setText(
+                    "Range selection changed; start live tuning to apply the selected components.")
+        self.section_changed.emit()
+
+    def _section_plane_selected(self, _index):
+        value = self.section_plane.currentData()
+        if value is not None:
+            self.section_z.blockSignals(True)
+            self.section_z.setValue(float(value))
+            self.section_z.blockSignals(False)
+            self._section_options_changed()
+
+    def _section_z_changed(self, _value):
+        current = self.section_plane.currentData()
+        if current is not None and not math.isclose(
+                float(current), self.section_z.value(), rel_tol=0., abs_tol=5e-7):
+            self.section_plane.blockSignals(True)
+            self.section_plane.setCurrentIndex(0)
+            self.section_plane.blockSignals(False)
+        self._section_options_changed()
+
+    def _refresh_section_planes(self, state):
+        from temsim.component_names import (
+            APERTURE_NAMES, LENS_NAMES, RECORDING_PLANE_NAMES, STIGMATOR_NAMES, DEFLECTOR_NAMES,
+        )
+        from temsim.physics.particle_sections import section_limits
+
+        minimum, maximum = section_limits(state)
+        choices = [("Gun exit", minimum), ("Specimen reference plane", float(state.sample.z_mm))]
+        for attribute, names, generic in (
+                ("lenses", LENS_NAMES, "Lens"),
+                ("apertures", APERTURE_NAMES, "Aperture"),
+                ("stigmators", STIGMATOR_NAMES, "Stigmator"),
+                ("deflectors", DEFLECTOR_NAMES, "Deflector"),
+                ("corrector_elements", {}, "Corrector element"),
+                ("recording_planes", RECORDING_PLANE_NAMES, "Recording plane")):
+            for index, component in enumerate(getattr(state, attribute, ())):
+                if not bool(getattr(component, "installed", True)):
+                    continue
+                label = names.get(component.key, f"{generic} {index + 1}")
+                if attribute == "corrector_elements":
+                    label = str(component.name)
+                for field, suffix in (("z_mm", ""), ("upper_z_mm", " upper plane"),
+                                      ("lower_z_mm", " lower plane")):
+                    value = getattr(component, field, None)
+                    if value is not None:
+                        choices.append((label + suffix, float(value)))
+        choices.append(("Last available axial section", maximum))
+        self.section_plane.blockSignals(True)
+        self.section_z.blockSignals(True)
+        self.section_plane.clear()
+        self.section_plane.addItem("Custom Z", None)
+        for label, value in sorted(choices, key=lambda choice: (choice[1], choice[0])):
+            if math.isfinite(value) and minimum <= value <= maximum:
+                self.section_plane.addItem(f"{label} | Z = {value:.9g} mm", value)
+        self.section_z.setRange(minimum, maximum)
+        target = min(max(float(state.sample.z_mm), minimum), maximum)
+        self.section_z.setValue(target)
+        for index in range(1, self.section_plane.count()):
+            if self.section_plane.itemData(index) == target:
+                self.section_plane.setCurrentIndex(index)
+                break
+        self.section_z.setToolTip(
+            f"Axial sections from {minimum:.9g} to {maximum:.9g} mm. "
+            "When an energy filter is enabled, sections end at its entrance.")
+        self.section_z.blockSignals(False)
+        self.section_plane.blockSignals(False)
+
+    def _refresh_section_components(self):
+        previous = {self.section_components.item(row).data(Qt.ItemDataRole.UserRole):
+                    self.section_components.item(row).checkState()
+                    for row in range(self.section_components.count())}
+        groups = {}
+        for row in range(self.ranges.rowCount()):
+            control = self.ranges.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            if control.group in LIVE_CONTROL_GROUPS:
+                groups.setdefault(control.key, []).append(control)
+        self.section_components.blockSignals(True)
+        self.section_components.clear()
+        for key, controls in groups.items():
+            label = controls[0].label.rsplit(" / ", 1)[0]
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, key)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(previous.get(key, Qt.CheckState.Checked))
+            item.setToolTip("\n".join(control.label for control in controls))
+            self.section_components.addItem(item)
+        self.section_components.blockSignals(False)
+        if self.section_group.isChecked():
+            self._section_options_changed()
+
     @property
     def busy(self):
         return self.controller.busy
@@ -215,11 +549,18 @@ class InteractiveCalculationPage(QWidget):
         for control in self.controls:
             self.choice.addItem(f"{control.label} ({control.unit})", control)
         self.ranges.setRowCount(0)
+        self._refresh_section_planes(state)
+        self._refresh_section_components()
+        self.section_group.setEnabled(True)
+        self.invalidate_section_result("Choose the end plane. Participating range components are optional.")
         self.live_table.sync_draft()
         self.build.setEnabled(True)
         self.capture_info.setText(f"Final calculation: {state.electron_gun.ray_count:,} rays | step {state.step_mm:g} mm. Live tuning uses a small ray bundle.")
         self.status.setText("New settings captured. Previous bank remains available until a replacement completes.")
         self._mark_readout_previous("New settings captured")
+        # Named planes are refreshed with widget signals blocked. Publish the
+        # final selection once so the main ray coverage marker stays in sync.
+        self.section_changed.emit()
 
     def set_tuning_quality(self, quality):
         from temsim.physics.optical_tuning import TUNING_PROFILES, resolve_tuning_ray_count
@@ -236,6 +577,8 @@ class InteractiveCalculationPage(QWidget):
             plan = self.plan(precompute=False, live_only=True)
             if not self.operation_allowed():
                 raise ValueError("Finish the active calculation before starting live tuning")
+            previous_values = ({key: widget.value() for key, widget in self.live_widgets.items()}
+                               if self._live_mode and self.section_group.isChecked() else {})
             self.timer.stop()
             self._failed = False
             self.live_plan = plan
@@ -259,7 +602,8 @@ class InteractiveCalculationPage(QWidget):
                 value.setRange(axis.minimum, axis.maximum)
                 value.setSuffix(f" {axis.control.unit}")
                 value.setSingleStep((axis.maximum-axis.minimum)/1000)
-                value.setValue(min(max(axis.control.current, axis.minimum), axis.maximum))
+                initial = previous_values.get(axis.control.identity, axis.control.current)
+                value.setValue(min(max(initial, axis.minimum), axis.maximum))
                 slider.setValue(round(10000*(value.value()-axis.minimum)/(axis.maximum-axis.minimum)))
                 slider.valueChanged.connect(lambda i, w=value, a=axis: w.setValue(
                     a.minimum + i*(a.maximum-a.minimum)/10000))
@@ -275,7 +619,7 @@ class InteractiveCalculationPage(QWidget):
                 self._add_control_row(axis.control, row)
             self.live_status.setText("Live tuning | waiting for rays")
             self.rays_requested.emit()
-            self.status.setText("Live tuning: tip, lenses and apertures; no specimen calculation."
+            self.status.setText("Live tuning: selected particle controls update current settings and detector readout."
                                 + (" Detector rows: Advanced bank only."
                                    if len(plan.ranges) < self.ranges.rowCount() else ""))
             self.timer.start(_LIVE_REFRESH_MS)
@@ -296,7 +640,11 @@ class InteractiveCalculationPage(QWidget):
     def display_tuning_status(self, result):
         """Report the shared ray frame without drawing or changing cached signals."""
         if self._live_mode:
-            self.live_status.setText(f"{result.simulation.metrics.get('tuning_quality', 'Preview')} | rays updated; sample signals not calculated")
+            metrics = result.simulation.metrics
+            detail = ("Particle transport and detector signals updated"
+                      if metrics.get("particle_tuning", False)
+                      else "rays updated; sample signals not calculated")
+            self.live_status.setText(f"{metrics.get('tuning_quality', 'Preview')} | {detail}")
 
     def _add_range(self):
         control = self.choice.currentData()
@@ -347,26 +695,31 @@ class InteractiveCalculationPage(QWidget):
         stage.setFlags(stage.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.ranges.setItem(row, 4, stage)
         self.live_table.sync_draft()
+        self._refresh_section_components()
 
     def _remove_range(self):
         if self.ranges.currentRow() >= 0:
             self.ranges.removeRow(self.ranges.currentRow())
             self.live_table.sync_draft()
+            self._refresh_section_components()
 
     def plan(self, *, precompute=True, live_only=False):
         axes = []
+        section = self.segment_request() if live_only else None
         for row in range(self.ranges.rowCount()):
             control = self.ranges.item(row, 0).data(Qt.ItemDataRole.UserRole)
             # Detector geometry belongs to detached bank readout. Its draft
             # endpoints must not prevent unrelated live optical tuning.
             if live_only and control.group == "detector":
                 continue
+            if section is not None and control.key not in section["component_keys"]:
+                continue
             lo, hi = (self.ranges.cellWidget(row, c).text().strip() for c in (1, 2))
             if not lo or not hi:
                 raise ValueError(f"Range {row + 1}: minimum and maximum are required")
             axes.append(CalculationRange(control, float(lo), float(hi), self.ranges.cellWidget(row, 3).value()))
         if live_only and not axes:
-            raise ValueError("Add a tip, lens or aperture range for live tuning. Detector rows use Advanced bank.")
+            raise ValueError("Add and select a physical component range for live tuning. Detector geometry rows use Advanced bank.")
         plan = InteractivePlan(tuple(axes), int(self.budget.value() * 1024**3), precompute)
         if self.source_state is None:
             raise ValueError("Capture the current settings first")
@@ -390,8 +743,10 @@ class InteractiveCalculationPage(QWidget):
 
     def _busy(self, busy):
         for widget in (self.capture, self.build, self.ranges, self.choice, self.budget,
-                       self.live_start, self.final_calculation):
+                       self.live_start, self.final_calculation, self.section_group):
             widget.setEnabled(not busy)
+        self.section_group.setEnabled(not busy and self.source_state is not None)
+        self.section_save.setEnabled(not busy and self._section_result is not None)
         self.cancel.setEnabled(busy)
         if not busy:
             self.operation_finished.emit()
@@ -435,6 +790,8 @@ class InteractiveCalculationPage(QWidget):
 
     def _queue_read(self, *_):
         if self._live_mode:
+            if self.section_group.isChecked():
+                self.invalidate_section_result("Live settings changed; waiting for the section calculation.")
             self.live_status.setText("Live tuning | updating rays")
             # Throttle instead of debounce: sustained motion must not postpone
             # every update until the mouse stops. Read the latest values only.
@@ -458,8 +815,12 @@ class InteractiveCalculationPage(QWidget):
         if not self.live_widgets:
             return
         if self._live_mode:
-            self.tuning_changed.emit(tuple((axis, self.live_widgets[axis.control.identity].value())
-                                          for axis in self.live_plan.ranges))
+            section = self.segment_request()
+            values = tuple((axis, self.live_widgets[axis.control.identity].value())
+                           for axis in self.live_plan.ranges
+                           if section is None or axis.control.key in section["component_keys"])
+            if values:
+                self.tuning_changed.emit(values)
             return
         if not self.operation_allowed():
             self.show_error("Finish the main calculation or alignment before reading the interactive bank")

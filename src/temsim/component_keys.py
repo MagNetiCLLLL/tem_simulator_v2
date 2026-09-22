@@ -1,4 +1,4 @@
-"""Canonical runtime component identifiers and load-boundary migrations."""
+"""Current component identifiers and explicit input validation."""
 
 NANOPULSER_DEFLECTOR = "nanopulser_deflector"
 NANOPULSER_APERTURE = "nanopulser_aperture"
@@ -175,8 +175,6 @@ CONDENSER_APERTURE_3 = "condenser_aperture_3"
 OBJECTIVE_APERTURE = "objective_aperture"
 SELECTED_AREA_APERTURE = "selected_area_aperture"
 ENERGY_FILTER_ENTRANCE_APERTURE = "energy_filter_entrance_aperture"
-ENERGY_FILTER_ENTRANCE_M12 = "energy_filter_entrance_m12"
-ENERGY_FILTER_EXIT_M12 = "energy_filter_exit_m12"
 ENERGY_FILTER_TAPERED_PRISM = "energy_filter_tapered_prism"
 ENERGY_FILTER_SLIT = "energy_filter_slit"
 ENERGY_FILTER_MULTIPOLE_KEYS = tuple(
@@ -282,157 +280,134 @@ FIXED_APERTURE_KEYS = frozenset({
     NANOPULSER_APERTURE,
 })
 
-_LEGACY_LENS_KEYS = {
-    "c1": CONDENSER_LENS_1,
-    "c2": CONDENSER_LENS_2,
-    "c3": CONDENSER_LENS_3,
-    "adl": ADAPTER_LENS,
-    "tl22": PROBE_TL22_LENS,
-    "tl21": PROBE_TL21_LENS,
-    "tl1": PROBE_TL12_LENS,
-    "tl12": PROBE_TL12_LENS,
-    "minic": MINI_CONDENSER,
-    "integrated_mini_condenser": MINI_CONDENSER,
-    "standalone_mini_condenser": MINI_CONDENSER,
-    "uobj": OBJECTIVE_LENS,
-    "lobj": OBJECTIVE_LENS,
-    "diff": DIFFRACTION_LENS,
-    "il": INTERMEDIATE_LENS,
-    "p1": PROJECTOR_LENS_1,
-    "p2": PROJECTOR_LENS_2,
-    "ic_ol_post": IMAGE_CORRECTOR_OL_POST_LENS,
-    "ic_tl11": IMAGE_CORRECTOR_TL11_LENS,
-    "ic_tl12": IMAGE_CORRECTOR_TL12_LENS,
-    "ic_tl21": IMAGE_CORRECTOR_TL21_LENS,
-    "ic_tl22": IMAGE_CORRECTOR_TL22_LENS,
-    "ic_adl": IMAGE_CORRECTOR_ADAPTER_LENS,
-}
-def canonical_lens_key(key):
-    """Translate legacy condenser keys only at persistence/input boundaries."""
-    return _LEGACY_LENS_KEYS.get(str(key), str(key))
+# Retired identifiers are rejected, never translated into active components.
+RETIRED_COMPONENT_KEYS = frozenset({
+    "corr_pre_def", "corr_mid_def", "corr_post_def",
+    "lorentz", "bsh_btlt", "tem_corrector",
+    'ac',
+    'adf',
+    'adl',
+    'beam_def',
+    'c1',
+    'c2',
+    'c3',
+    'ccd_cmos',
+    'ceta',
+    'cond_def',
+    'cond_stig',
+    'dc',
+    'dc_deflector',
+    'descan',
+    'df_s',
+    'diff',
+    'diff_stig',
+    'dp11',
+    'dp12_virtual',
+    'dp21',
+    'dp22',
+    'dph1',
+    'dph2',
+    'energy_filter_entrance_m12',
+    'energy_filter_exit_m12',
+    'fluorescent_screen',
+    'hp1',
+    'hp2',
+    'hpc',
+    'hpol',
+    'ic_adl',
+    'ic_dp12',
+    'ic_dp21',
+    'ic_dp22',
+    'ic_dph1',
+    'ic_dph2',
+    'ic_dsh_dstg',
+    'ic_hp1',
+    'ic_hp2',
+    'ic_hpol_qpol_dp11',
+    'ic_ish',
+    'ic_ol_post',
+    'ic_sad_plane',
+    'ic_tl11',
+    'ic_tl12',
+    'ic_tl21',
+    'ic_tl22',
+    'il',
+    'image_def',
+    'integrated_mini_condenser',
+    'lobj',
+    'minic',
+    'obj_stig',
+    'p1',
+    'p2',
+    'post_scan_def',
+    'qpc',
+    'qph1',
+    'qph2',
+    'qpol',
+    'standalone_mini_condenser',
+    'tl1',
+    'tl12',
+    'tl21',
+    'tl22',
+    'uobj',
+})
 
 
-def canonical_aperture_key(key):
-    """Return an aperture key without introducing runtime aliases."""
-    return str(key)
+def require_current_component_key(key, *, expected=None):
+    """Validate an identifier without changing its value or physical owner."""
+    if not isinstance(key, str) or not key or key.strip() != key:
+        raise ValueError("A current component key must be a nonempty string without surrounding whitespace")
+    if key in RETIRED_COMPONENT_KEYS:
+        raise ValueError(f"Retired component key {key!r} is unsupported; use an explicit current component")
+    if expected is not None and key != expected:
+        raise ValueError(f"Expected current component key {expected!r}, found {key!r}")
+    return key
 
 
-_LEGACY_STIGMATOR_KEYS = {
-    "cond_stig": CONDENSER_STIGMATOR,
-    "obj_stig": OBJECTIVE_STIGMATOR,
-    "diff_stig": DIFFRACTION_STIGMATOR,
-}
+def require_current_lens_key(key, *, expected=None):
+    """Require a current lens identifier; no alias conversion."""
+    return require_current_component_key(key, expected=expected)
 
 
-def canonical_stigmator_key(key):
-    """Translate historical stigmator keys at input boundaries."""
-    return _LEGACY_STIGMATOR_KEYS.get(str(key), str(key))
+def require_current_aperture_key(key, *, expected=None):
+    """Require a current aperture identifier; no alias conversion."""
+    return require_current_component_key(key, expected=expected)
 
 
-_LEGACY_CORRECTOR_ELEMENT_KEYS = {
-    "dph2": PROBE_DPH2_DEFLECTOR,
-    "qph2": PROBE_QPH2_QUADRUPOLE,
-    "hp2": PROBE_HP2_HEXAPOLE,
-    "tl22": PROBE_TL22_LENS,
-    "dp22": PROBE_DP22_DEFLECTOR,
-    "hpc": PROBE_HPC_HEXAPOLE,
-    "qpc": PROBE_QPC_QUADRUPOLE,
-    "dp21": PROBE_DP21_DEFLECTOR,
-    "tl21": PROBE_TL21_LENS,
-    "dph1": PROBE_DPH1_DEFLECTOR,
-    "qph1": PROBE_QPH1_QUADRUPOLE,
-    "hp1": PROBE_HP1_HEXAPOLE,
-    "hpol": PROBE_HPOL_HEXAPOLE,
-    "qpol": PROBE_QPOL_QUADRUPOLE,
-    "dp11": PROBE_DP11_DEFLECTOR,
-    "tl12": PROBE_TL12_LENS,
-    "dp12_virtual": PROBE_DP12_SCAN_DEFLECTOR,
-    "dc": DC_DEFLECTOR,
-    "ac": AC_DEFLECTOR,
-    "descan": DESCAN_DEFLECTOR,
-    "ic_dp12": IMAGE_CORRECTOR_DP12_DEFLECTOR,
-    "ic_dph1": IMAGE_CORRECTOR_DPH1_DEFLECTOR,
-    "ic_hp1": IMAGE_CORRECTOR_HP1_HEXAPOLE,
-    "ic_dp21": IMAGE_CORRECTOR_DP21_DEFLECTOR,
-    "ic_dp22": IMAGE_CORRECTOR_DP22_DEFLECTOR,
-    "ic_dph2": IMAGE_CORRECTOR_DPH2_DEFLECTOR,
-    "ic_hp2": IMAGE_CORRECTOR_HP2_HEXAPOLE,
-    "ic_ish": IMAGE_CORRECTOR_ISH_DEFLECTOR,
-    "ic_sad_plane": IMAGE_CORRECTOR_SAD_PLANE,
-}
+def require_current_stigmator_key(key, *, expected=None):
+    """Require a current stigmator identifier; no alias conversion."""
+    return require_current_component_key(key, expected=expected)
 
 
-def canonical_corrector_element_key(key):
-    return _LEGACY_CORRECTOR_ELEMENT_KEYS.get(str(key), str(key))
+def require_current_corrector_element_key(key, *, expected=None):
+    """Require a current corrector element identifier; no alias conversion."""
+    return require_current_component_key(key, expected=expected)
 
 
-_LEGACY_DEFLECTOR_KEYS = {
-    "cond_def": CONDENSER_DEFLECTOR,
-    "beam_def": BEAM_DEFLECTOR,
-    "post_scan_def": PROBE_DP12_SCAN_DEFLECTOR,
-    "image_def": IMAGE_DIFFRACTION_DEFLECTOR,
-}
+def require_current_deflector_key(key, *, expected=None):
+    """Require a current deflector identifier; no alias conversion."""
+    return require_current_component_key(key, expected=expected)
 
 
-def canonical_deflector_key(key):
-    """Translate the old condenser-deflector key at input boundaries."""
-    return _LEGACY_DEFLECTOR_KEYS.get(str(key), str(key))
+def require_current_component_placement_key(key, *, expected=None):
+    """Require a current component placement identifier; no alias conversion."""
+    return require_current_component_key(key, expected=expected)
 
 
-def canonical_component_placement_key(key):
-    return canonical_corrector_element_key(
-        canonical_deflector_key(
-            canonical_stigmator_key(
-                canonical_aperture_key(canonical_lens_key(key))
-            )
-        )
-    )
+def require_current_recording_plane_key(key, *, expected=None):
+    """Require a current recording plane identifier; no alias conversion."""
+    return require_current_component_key(key, expected=expected)
 
 
-_LEGACY_RECORDING_PLANE_KEYS = {
-    "df_s": DARK_FIELD_DETECTOR,
-    "adf": DARK_FIELD_DETECTOR,
-    "fluorescent_screen": FLUORESCENT_SCREEN,
-    "ceta": CAMERA,
-    "ccd_cmos": CAMERA,
-}
-
-
-def canonical_recording_plane_key(key):
-    """Translate historical detector-plane keys at input boundaries."""
-    return _LEGACY_RECORDING_PLANE_KEYS.get(str(key), str(key))
-
-
-def canonical_binding_key(key):
-    text = str(key)
-    if text.startswith("recording:"):
-        prefix, recording_key = text.split(":", 1)
-        return f"{prefix}:{canonical_recording_plane_key(recording_key)}"
-    if text == "corrector:tl22":
-        return f"lens:{PROBE_TL22_LENS}"
-    if text == "corrector:tl21":
-        return f"lens:{PROBE_TL21_LENS}"
-    if text == "corrector:tl12":
-        return f"lens:{PROBE_TL12_LENS}"
-    if text == "corrector:dp12_virtual":
-        return f"deflector:{PROBE_DP12_SCAN_DEFLECTOR}"
-    if text == "stigmator:hpol":
-        return f"corrector:{PROBE_HPOL_HEXAPOLE}"
-    if text.startswith("lens:"):
-        prefix, lens_key = text.split(":", 1)
-        return f"{prefix}:{canonical_lens_key(lens_key)}"
-    if text.startswith("aperture:"):
-        prefix, aperture_key = text.split(":", 1)
-        return f"{prefix}:{canonical_aperture_key(aperture_key)}"
-    if text.startswith("deflector:"):
-        prefix, deflector_key = text.split(":", 1)
-        return f"{prefix}:{canonical_deflector_key(deflector_key)}"
-    if text.startswith("stigmator:"):
-        prefix, stigmator_key = text.split(":", 1)
-        return f"{prefix}:{canonical_stigmator_key(stigmator_key)}"
-    if text.startswith("corrector:"):
-        prefix, element_key = text.split(":", 1)
-        return (
-            f"{prefix}:{canonical_corrector_element_key(element_key)}"
-        )
-    return text
+def require_current_binding_key(key):
+    """Validate a typed layout binding while preserving its exact identity."""
+    if not isinstance(key, str) or not key or key.strip() != key:
+        raise ValueError("A current layout binding must be a nonempty string")
+    if ":" in key:
+        category, component = key.split(":", 1)
+        if not category or not component:
+            raise ValueError(f"Invalid layout binding {key!r}")
+        require_current_component_key(component)
+    else:
+        require_current_component_key(key)
+    return key

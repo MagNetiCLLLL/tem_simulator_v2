@@ -52,9 +52,9 @@ def test_simplified_pole_fem_against_independent_flux_fvm(record_property):
 
 
 def test_si_multislice_refinement_and_high_angle_coverage(record_property):
+    # Supplied local 10 mrad Fourier pupil; no tip/gun chain admission.
     from test_stem_cuda_pipeline import _state, _incident_bundle, _scan
-    from temsim.physics.stem_wave_imaging import AngularDetector, simulate_angle_resolved_stem
-    from temsim.physics.illumination import default_illumination_config
+    from temsim.physics.stem_wave_imaging import AngularDetector, _simulate_angle_resolved_stem_single as simulate_local_stem_operator
     detectors=(AngularDetector("bf",0,10),AngularDetector("df",30,45),AngularDetector("haadf",60,80))
     cases={"grid": [(128,8.,1.,2/3,4),(192,8.,1.,2/3,4),(256,8.,1.,2/3,4)],
            "fov": [(128,8.,1.,2/3,4),(192,12.,1.,2/3,4),(256,16.,1.,2/3,4)],
@@ -73,9 +73,10 @@ def test_si_multislice_refinement_and_high_angle_coverage(record_property):
                 state.sample.wave_slice_thickness_angstrom=slice_step
                 state.sample.wave_bandwidth_fraction=bw
                 state.sample.wave_frozen_phonon_configurations=phonons
-                state.sample.wave_illumination=default_illumination_config()
-                state.sample.wave_illumination["pupil"]["semi_axes_mrad"]=[10.,10.]
-                result=simulate_angle_resolved_stem(state,SimpleNamespace(incident=_incident_bundle()),detectors,*_scan())
+                incident = _incident_bundle()
+                incident.tx *= np.tan(.01) / .002
+                incident.ty *= np.tan(.01) / .002
+                result=simulate_local_stem_operator(state,SimpleNamespace(incident=incident),detectors,*_scan())
                 assert result.metrics["angular_coverage_complete"]
                 cache[parameters]={"requested_grid":n,"fov_angstrom":fov,"slice_angstrom":slice_step,"bandwidth":bw,"phonons":phonons,
                     "maximum_angle_mrad":result.maximum_isotropic_angle_mrad,
@@ -90,7 +91,7 @@ def test_si_multislice_refinement_and_high_angle_coverage(record_property):
             stochastic=3*sum(row["sem"][k]*row["fractions"][k] for row in rows[-2:])
             assert delta <= 5e-4 + .05*abs(rows[-1]["fractions"][k]) + stochastic, (name,k,delta,rows)
         studies[name]={"cases":rows,"last_delta":deltas}
-    record_property("wp06_multislice",json.dumps({"case":"Si [110], 0.4 nm thick, 10 mrad explicit pupil, 2x2 scan", "scope":"thin specimen local convergence; not a 5 nm production accuracy claim", "probability_floor":5e-4,"relative_tolerance":.05,"stochastic_tolerance":"3 times sum of independent SEM estimates", "studies":studies}))
+    record_property("wp06_multislice",json.dumps({"case":"Si [110], 0.4 nm thick, 10 mrad explicit pupil, 2x2 scan", "scope":"supplied local pupil and thin specimen convergence; no tip/gun transport or full image qualification", "probability_floor":5e-4,"relative_tolerance":.05,"stochastic_tolerance":"3 times sum of independent SEM estimates", "studies":studies}))
 
 
 def test_external_abtem_split_propagation_on_identical_potential(record_property):
@@ -127,7 +128,7 @@ def test_external_abtem_split_propagation_on_identical_potential(record_property
         "independent":"abTEM transmission, FFT and Fresnel propagator", "shared":"identical supplied synthetic potential, boundary and bandwidth; does not validate potential construction", "dose":"one electron incident; no survival renormalization"}))
 
 
-def test_at33_fixed_control_field_crystal_aperture_camera_chain(record_property):
+def test_at33_unqualified_coherent_chain_rejects_without_changing_controls(record_property):
     from test_interactive_calculation import small_real_state
     from temsim.simulation_pipeline import calculate
     from temsim.calculation_manifest import solver_source_identity
@@ -145,15 +146,15 @@ def test_at33_fixed_control_field_crystal_aperture_camera_chain(record_property)
     state.lens_field_map_descriptors[state.objective_lens.key]={"solver":"axisymmetric_linear_fem","ampere_turns":250,
         "relative_permeability":100,"radial_nodes":24,"axial_nodes":48,"padding_factor":2.,"geometry_policy":"authoritative_dimensions"}
     before=[(l.key,l.percent,l.polarity) for l in state.lenses]
-    result=calculate(state)
-    assert result.wave_imaging is not None
-    assert before==[(l.key,l.percent,l.polarity) for l in state.lenses]
-    metrics=result.wave_imaging.metrics
-    assert np.all(np.isfinite(result.wave_imaging.camera_intensity))
-    assert metrics["specimen_atomistic_applied"]
-    assert any(r["physical_element_id"]=="aperture:"+state.objective_aperture.key for r in metrics["camera_flux_ledger"])
-    assert 0 < metrics["camera_collected_zero_loss_relative_intensity"] <= 1+1e-6
-    record_property("wp06_full_chain",json.dumps({"solver_sha256":solver_source_identity(),"controls":before,
-        "field_recipe":state.lens_field_map_descriptors,"sample":"Si [110], 0.4 nm", "illumination":metrics.get("illumination_scope"),
-        "camera_probability":metrics["camera_collected_zero_loss_relative_intensity"],"flux_ledger":metrics["camera_flux_ledger"],
-        "scope":"complete production path, synthetic linear permeability/NI; no instrument calibration, coarse ray integration for smoke test"}))
+    from temsim.instrument_snapshot import capture_instrument_snapshot
+    from temsim.physics.source_admission import UnsupportedWaveSource
+    snapshot = capture_instrument_snapshot(state).digest
+    with pytest.raises(UnsupportedWaveSource, match="coherent phase is unavailable"):
+        calculate(state)
+    assert capture_instrument_snapshot(state).digest == snapshot
+    assert before == [(l.key,l.percent,l.polarity) for l in state.lenses]
+    record_property("wp06_full_chain", json.dumps({"validation_status": "NOT_IMPLEMENTED",
+        "controls": before, "scope": "Full coherent source chain is rejected; no field/crystal/camera execution"}))
+
+
+from local_wave_operator_fixture import supplied_local_probe

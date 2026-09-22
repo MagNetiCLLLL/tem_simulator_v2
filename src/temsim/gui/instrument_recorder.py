@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 import pyqtgraph as pg
 
 from temsim.gui.input_policy import WheelSafeComboBox as QComboBox
+from temsim.gui.scientific_equipment_names import scientific_equipment_text
 from temsim.recorder.backend import InstrumentRecorder
 from temsim.recorder.records import CaptureRequest
 from temsim.recorder.paths import prepare_output_directory
@@ -110,7 +111,7 @@ class InstrumentRecorderWindow(QMainWindow):
         layout = QVBoxLayout(root)
         row = QHBoxLayout()
         self.capture_buttons = {}
-        for route, title in (("flucam", "Collect Flucam"), ("ceta", "Collect Ceta"),
+        for route, title in (("flucam", "Collect screen camera"), ("ceta", "Collect pixelated camera"),
                              ("stem_all", "Collect all STEM detectors")):
             button = QPushButton(title)
             button.setObjectName(f"recorderCollect_{route}")
@@ -187,14 +188,14 @@ class InstrumentRecorderWindow(QMainWindow):
             if not self._output_directory.is_dir():
                 raise ValueError("Output folder is unavailable. Use Records → Choose output folder.")
         except ValueError as exc:
-            self.status.setText(str(exc))
+            self.status.setText(scientific_equipment_text(exc))
             return
         self._start("capture", request)
 
     @Slot(str)
     def _progress(self, message):
         prefix = "Stop requested; finishing safely. " if self.cancel_event.is_set() else ""
-        self.status.setText(prefix + message)
+        self.status.setText(prefix + scientific_equipment_text(message))
 
     @Slot(str, object)
     def _completed(self, operation, result):
@@ -203,10 +204,10 @@ class InstrumentRecorderWindow(QMainWindow):
             self.connected = True
             self._devices = result["detectors"]
             identity = result["identity"]
-            self.identity_label.setText(f"{identity['name']} · {identity['serial_number']} · "
+            self.identity_label.setText(f"Microscope · {identity['serial_number']} · "
                                         f"{result['mode']} / {result['projector_mode']}")
             self.status.setText("Connected. Start the signal on the microscope, then collect it here.")
-            self.status.setToolTip(json.dumps(result["errors"], indent=2) if result["errors"] else "")
+            self.status.setToolTip(scientific_equipment_text(json.dumps(result["errors"], indent=2)) if result["errors"] else "")
         elif operation == "disconnect":
             self.connected = False
             self.identity_label.setText("Disconnected")
@@ -217,7 +218,7 @@ class InstrumentRecorderWindow(QMainWindow):
             if result["previews"]:
                 self._previews = result["previews"]
                 self.image_channel.clear()
-                self.image_channel.addItems([item["label"] for item in self._previews])
+                self.image_channel.addItems([scientific_equipment_text(item["label"]) for item in self._previews])
                 self.image_channel.setVisible(len(self._previews) > 1)
                 self.preview_label.setText(f"Last collected signal · {manifest['record_id'][:12]}")
             else:
@@ -226,9 +227,9 @@ class InstrumentRecorderWindow(QMainWindow):
             self.status.setText(f"{manifest['status'].replace('_', ' ')} · "
                                 f"{len(manifest['images'])} signal(s) saved")
             details = "\n".join([result["path"], manifest.get("error", ""), *manifest.get("warnings", [])])
-            self.status.setToolTip(details)
+            self.status.setToolTip(scientific_equipment_text(details))
             context = manifest.get("preflight", manifest["acquisition_context"])
-            self.identity_label.setText(f"{manifest['instrument']['name']} · "
+            self.identity_label.setText("Microscope · "
                                         f"{context['optical_mode']} / {context['projector_mode']}")
         self._refresh_buttons()
         if operation == "disconnect" and self._closing:
@@ -244,7 +245,7 @@ class InstrumentRecorderWindow(QMainWindow):
         self.busy = False
         self.connected = connection_retained
         self._closing = False
-        self.status.setText(f"{operation.title()} failed: {message}")
+        self.status.setText(f"{operation.title()} failed: {scientific_equipment_text(message)}")
         self._refresh_buttons()
 
     def _browse(self):
@@ -262,7 +263,11 @@ class InstrumentRecorderWindow(QMainWindow):
         box = QMessageBox(self)
         box.setWindowTitle("Last record")
         box.setText(f"{self._last_manifest['status']}\n{self._last_path}")
-        box.setDetailedText(json.dumps(self._last_manifest, indent=2, ensure_ascii=False))
+        display_record = dict(self._last_manifest)
+        display_record["instrument"] = {**display_record.get("instrument", {}), "name": "Microscope"}
+        box.setDetailedText(
+            "Functional equipment labels are shown here. Original hardware identifiers are preserved in the saved record.\n\n"
+            + scientific_equipment_text(json.dumps(display_record, indent=2, ensure_ascii=False)))
         box.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         box.exec()
 
@@ -278,7 +283,7 @@ class InstrumentRecorderWindow(QMainWindow):
                     "Images and system readbacks are named and saved automatically.")
         box.setDetailedText(
             "No sample type, particle, pixel size, exposure or dwell is assumed.\n"
-            "Flucam accepts any optical mode; Ceta requires TEM; STEM requires STEM.\n"
+            "The screen camera accepts any optical mode; the pixelated camera requires TEM; STEM detectors require STEM.\n"
             "Only existing streams exposed by AutoScript 1.18 can be read. Vendor GUI streams "
             "are not guaranteed to be visible. No stream is started, stopped or reconfigured.\n"
             "The SDK reads the next available buffered frame (10-second timeout per read). "

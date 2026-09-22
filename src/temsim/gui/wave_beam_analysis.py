@@ -53,6 +53,8 @@ class WaveBeamAnalysis:
         a.colour_label.setText("Mode")
         a.colour_combo.setToolTip("Independent modes add intensities, never phases.")
         self.owner.initial_beam_panel.hide()
+        a.mode_combo.show()
+        a.view_label.setText("View")
         a._hover_payload = None
         a._resize_timer.stop()
         self.owner.plot.setAspectLocked(True)

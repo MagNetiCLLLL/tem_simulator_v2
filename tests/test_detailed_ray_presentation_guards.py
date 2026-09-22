@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from temsim.gui.visualization import VisualizationWorkspace
-from temsim.physics.ray_identity import source_identity, select_identity
+from temsim.physics.ray_identity import select_identity
 from temsim.specimen.downstream_transport import GeometricSpecimenExit
 
 
@@ -19,13 +19,14 @@ def _branch(name, start, stop, count=3):
         alive=np.ones(count, dtype=bool), blocked_z=np.full(count, np.nan),
         blocked_key=[""] * count, ray_weight=np.full(count, 1.0 / count),
         weight=1.0, colour=(.3, .9, .4),
+        source_ray_id=np.arange(count, dtype=np.int64),
+        source_azimuth_rad=np.mod(np.arctan2(y[0], x[0]), 2*np.pi),
         interaction_kind="incident" if name == "incident" else "sample_region_elastic",
     )
 
 
 def _result():
     incident = _branch("incident", 0., 10.)
-    incident.source_ray_id, incident.source_azimuth_rad = source_identity(incident)
     reference = _branch("000", 10., 20.)
     reference.source_ray_id = incident.source_ray_id
     reference.source_azimuth_rad = incident.source_azimuth_rad

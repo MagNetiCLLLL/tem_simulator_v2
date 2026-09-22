@@ -113,11 +113,7 @@ def emission_note(part, runtime):
     if dims is None:
         return None
     radius = "flat (R = ∞)" if not dims["curvature_nm_inv"] else f"R {dims['emission_radius_nm']:.6g} nm"
-    from temsim.optics.electron_gun.tip_curvature import ANGLE_ONLY_MODEL, LEGACY_MODEL
-    model = analytic_emission(part, runtime).curvature_model
-    historical = ("Historical angle-only launch plane; curvature defines emission axes. " if model == ANGLE_ONLY_MODEL else
-                  "Historical sag model. " if model == LEGACY_MODEL else "")
-    return (historical + f"Active emission: κ {dims['curvature_nm_inv']:.6g} nm⁻¹ · {radius} · "
+    return (f"Active emission: κ {dims['curvature_nm_inv']:.6g} nm⁻¹ · {radius} · "
             f"support diameter {dims['emission_support_diameter_nm']:.6g} nm · "
             f"edge depth {dims['emission_depth_nm']:.6g} nm. Gold: launch surface; green: local emission axes. "
             "Equal XYZ scale. Reference body and electrode field are unchanged.")

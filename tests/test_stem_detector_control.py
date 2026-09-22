@@ -36,12 +36,12 @@ def test_camera_length_has_no_detector_selector_in_serialised_state():
     assert "stem_diffraction_target_detector_key" not in payload
 
 
-def test_legacy_detector_payload_keeps_old_inserted_equals_readout_semantics():
+def test_detector_payload_requires_independent_readout_flag():
     state = default_state()
-    restore_recording_system(state, [{"key": "haadf", "inserted": False}])
-
-    assert state.haadf_detector.inserted is False
-    assert state.haadf_detector.readout_enabled is False
+    before = serialise_recording_system(state)
+    with pytest.raises(ValueError, match="Missing detector operating fields"):
+        restore_recording_system(state, [{"key": "haadf", "inserted": False}])
+    assert serialise_recording_system(state) == before
 
 
 def test_detector_centre_offset_moves_the_physical_hit_mask():

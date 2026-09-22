@@ -1,5 +1,6 @@
 """Storage migration, persistent placements, transactions and physics identity."""
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 import json
 import tomllib
@@ -29,7 +30,7 @@ def test_migration_keeps_all_instance_ids_and_physical_positions():
     from temsim.optics.column import default_state
     from temsim.assembly_structure import build_assembly_structure
     catalog = AssemblyCatalog()
-    assembly = catalog.apply(default_state(), catalog.default_selection())
+    assembly = catalog.apply(default_state(), replace(catalog.default_selection(), recording="Energy Filter"))
     actual = build_assembly_structure(assembly).to_dict()
     previous = json.loads(Path("docs/development/evidence/default-assembly-identity-map-v1.json").read_text())
     # Display naming was later made manufacturer-neutral. Keep the historical
@@ -202,7 +203,7 @@ def test_subassembly_edit_changes_consumed_input_identity(catalog):
     from temsim.calculation_manifest import _external_inputs
     cat = AssemblyCatalog(catalog)
     state = default_state()
-    cat.apply(state, cat.default_selection())
+    cat.apply(state, replace(cat.default_selection(), recording="Energy Filter"))
     before = _external_inputs(state)
     rows = [row for row in before if row.role == "assembly:subassembly"]
     assert len(rows) == 3

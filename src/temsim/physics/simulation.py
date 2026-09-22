@@ -135,12 +135,92 @@ class Branch:
     source_ray_id: np.ndarray | None = None
     source_azimuth_rad: np.ndarray | None = None
     vacuum_report: dict | None = None
+    # Lab seconds since the original simultaneous tip emission. Like geometry,
+    # histories can include computational continuation past a stop; readouts
+    # must apply blocked_z. None denotes historical/unsupported timing.
+    flight_time_s: np.ndarray | None = None
 
 @dataclass
 
 class Simulation:
 
     incident:Branch; branches:dict; metrics:dict; gun_waist:dict|None=None; c2c3_crossover:dict|None=None; corrector_crossovers:list|None=None; gun_trace:object|None=None; sample_to_analysis_transfer:object|None=None; optical_transfers:tuple=(); real_interactions:object|None=None; incident_plan:object|None=None; incident_checkpoints:PropagationCheckpoints|None=None
+    section_checkpoint: object | None = None
+    material_section_cache: object | None = None
+    completed_post_sections: tuple = ()
+
+
+def validate_flight_time_array(value, shape, label="Particle"):
+    """Validate an optional clock without casting, reshaping or broadcasting."""
+    if value is None:
+        return False
+    clock = np.asarray(value)
+    if (clock.shape != tuple(shape) or clock.dtype != np.dtype(np.float64)
+            or np.any(np.isinf(clock)) or np.any(clock < 0.)):
+        raise ValueError(f"{label} flight times must be float64, match geometry exactly, and be non-negative or NaN")
+    return True
+
+
+def _validate_history_clock(owner, plane_name, phase_names, label):
+    value = getattr(owner, "flight_time_s", None)
+    if value is None:
+        return False
+    shape = np.shape(getattr(owner, phase_names[0]))
+    if (len(shape) != 2 or np.shape(getattr(owner, plane_name)) != (shape[0],)
+            or any(np.shape(getattr(owner, name)) != shape for name in phase_names)):
+        raise ValueError(f"{label} geometry does not align with its flight times")
+    return validate_flight_time_array(value, shape, label)
+
+
+def _validate_gun_flight_times(trace):
+    if trace is None:
+        return False
+    history = _validate_history_clock(trace, "z_mm", ("x_m", "tx_rad", "y_m", "ty_rad"), "Gun")
+    exit = trace.exit_bundle
+    shape = np.shape(exit.x_m)
+    if getattr(exit, "flight_time_s", None) is not None and (
+            len(shape) != 1 or any(np.shape(getattr(exit, name)) != shape
+                                  for name in ("y_m", "tx_rad", "ty_rad", "ray_id", "alive"))):
+        raise ValueError("Gun exit geometry does not align with its flight times")
+    boundary = validate_flight_time_array(getattr(exit, "flight_time_s", None), shape, "Gun exit")
+    if history and boundary and np.shape(trace.x_m)[1:] != shape:
+        raise ValueError("Gun history and exit flight times have different populations")
+    for plane in getattr(trace, "plane_arrivals", ()):
+        validate_flight_time_array(plane.time_s, shape, "Gun crossing")
+        if any(np.shape(getattr(plane, name)) != shape
+               for name in ("x_m", "y_m", "reached", "transmitted")):
+            raise ValueError("Gun crossing geometry does not align with its flight times")
+    equal_time = getattr(trace, "equal_time_history", None)
+    if equal_time is not None:
+        history_shape = np.shape(equal_time.x_m)
+        if (len(history_shape) != 2 or history_shape[1:] != shape
+                or any(np.shape(getattr(equal_time, name)) != history_shape
+                       for name in ("z_mm", "y_m", "tx_rad", "ty_rad", "alive", "completed"))):
+            raise ValueError("Gun equal-time history has a different particle population")
+        validate_flight_time_array(equal_time.time_s, (history_shape[0],), "Gun common-time history")
+    return history and boundary
+
+
+def validate_incident_flight_times(simulation):
+    """Validate stored clocks; False means readable but incomplete history.
+
+    NaNs preserve unknown clocks. No monotonicity is assumed for gun first
+    crossings, which can include turning trajectories.
+    """
+    if simulation is None:
+        return False
+    incident = getattr(simulation, "incident", None)
+    checkpoints = getattr(simulation, "incident_checkpoints", None)
+    trace = getattr(simulation, "gun_trace", None)
+    incident_valid = _validate_history_clock(incident, "z", ("x", "tx", "y", "ty"), "Incident")
+    checkpoint_valid = _validate_history_clock(checkpoints, "z_mm", ("x_m", "tx_rad", "y_m", "ty_rad"), "Checkpoint")
+    gun_valid = _validate_gun_flight_times(trace)
+    if incident_valid and checkpoint_valid and gun_valid:
+        count = np.size(trace.exit_bundle.x_m)
+        if np.shape(incident.x)[1] != count or np.shape(checkpoints.x_m)[1] != count:
+            raise ValueError("Incident, checkpoint and gun clocks have different particle populations")
+        return True
+    return False
 
 
 def _column_checkpoint_planes(start_z_mm, stop_z_mm, ray_count):
@@ -151,7 +231,7 @@ def _column_checkpoint_planes(start_z_mm, stop_z_mm, ray_count):
     desired_count = int(
         math.floor((stop - start) / INCIDENT_CHECKPOINT_SPACING_MM)
     )
-    bytes_per_checkpoint = 4 * np.dtype(np.float64).itemsize * max(
+    bytes_per_checkpoint = 5 * np.dtype(np.float64).itemsize * max(
         int(ray_count), 1
     )
     maximum_count = (
@@ -177,6 +257,11 @@ def _column_checkpoint_planes(start_z_mm, stop_z_mm, ray_count):
 def _gun_traces_match(previous, current):
     if previous is None or current is None:
         return False
+    try:
+        if not _validate_gun_flight_times(previous) or not _validate_gun_flight_times(current):
+            return False
+    except (AttributeError, TypeError, ValueError):
+        return False
     scalar_names = (
         "emitted_current_a", "dpa_transmitted_current_a",
         "c1_transmitted_current_a", "monochromator_transmitted_current_a",
@@ -187,7 +272,9 @@ def _gun_traces_match(previous, current):
         for name in scalar_names
     ):
         return False
-    array_names = ("z_mm", "x_m", "y_m", "tx_rad", "ty_rad", "blocked_z_mm")
+    array_names = ("z_mm", "x_m", "y_m", "tx_rad", "ty_rad", "blocked_z_mm", "flight_time_s")
+    if any(getattr(trace, "flight_time_s", None) is None for trace in (previous, current)):
+        return False  # Historical phase-space-only seeds cannot supply a clock.
     if any(
         not np.array_equal(
             np.asarray(getattr(previous, name)),
@@ -201,6 +288,8 @@ def _gun_traces_match(previous, current):
         return False
     old_exit = previous.exit_bundle
     new_exit = current.exit_bundle
+    if any(getattr(exit, "flight_time_s", None) is None for exit in (old_exit, new_exit)):
+        return False
     return all(
         np.array_equal(
             np.asarray(getattr(old_exit, name)),
@@ -209,7 +298,7 @@ def _gun_traces_match(previous, current):
         )
         for name in (
             "x_m", "y_m", "tx_rad", "ty_rad", "energy_offset_ev",
-            "weight", "ray_id", "alive",
+            "weight", "ray_id", "alive", "flight_time_s",
         )
     )
 
@@ -225,11 +314,23 @@ def _merge_checkpoints(previous, suffix, resume_z_mm):
         merged = np.ascontiguousarray(np.concatenate((old, new)), dtype=np.float64)
         merged.setflags(write=False)
         arrays[name] = merged
+    old_times = getattr(previous, "flight_time_s", None)
+    new_times = getattr(suffix, "flight_time_s", None)
+    if old_times is not None and new_times is not None:
+        arrays["flight_time_s"] = np.concatenate((np.asarray(old_times)[keep], new_times))
     return PropagationCheckpoints(**arrays)
 
 
 @input_io.using_state_inputs
-def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False):
+def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False,
+        observation_stop_z_mm=None, tuning_component_keys=()):
+    if observation_stop_z_mm is not None:
+        if not optical_only:
+            raise ValueError("Section transport is an optical tuning product")
+        from temsim.physics.particle_sections import run_particle_section
+        return run_particle_section(s, observation_stop_z_mm=observation_stop_z_mm,
+            tuning_component_keys=tuning_component_keys, existing_simulation=existing_simulation,
+            resolved_layout=resolved_layout)
     from temsim.optics.electron_gun.source_policy import require_physical_gun_source
     require_physical_gun_source(s.electron_gun)
     # The low-level entry point is also public and is used directly by tests
@@ -254,7 +355,22 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
 
     gun=s.electron_gun.validate()
     from temsim.optics.electron_gun.source import trace_source_to_exit
-    gun_trace = trace_source_to_exit(s)
+    gun_trace = None
+    saved_section = getattr(existing_simulation, "section_checkpoint", None)
+    if saved_section is not None:
+        from temsim.physics.particle_sections import (
+            gun_dependency_signature, validate_section_checkpoint,
+        )
+        try:
+            validate_section_checkpoint(saved_section)
+            if saved_section.gun_dependency_signature == gun_dependency_signature(s):
+                gun_trace = saved_section.gun_trace
+        except ValueError:
+            saved_section = None
+    if gun_trace is None:
+        saved_section = None
+        gun_trace = trace_source_to_exit(s)
+    _validate_gun_flight_times(gun_trace)
     emitted=gun_trace.exit_bundle
     x,y=emitted.x_m,emitted.y_m
     tx,ty=emitted.tx_rad,emitted.ty_rad
@@ -302,12 +418,18 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
                 else post_events
             ).append(event)
 
-    checkpoint_planes = _column_checkpoint_planes(
+    checkpoint_planes = (float(gun.exit_plane_z_mm), *_column_checkpoint_planes(
         gun.exit_plane_z_mm, s.sample.z_mm, n
-    )
+    ))
+    retained_section_planes = ()
+    if saved_section is not None:
+        retained_section_planes = tuple(float(z) for z in saved_section.segments[0].checkpoints.z_mm
+            if gun.exit_plane_z_mm <= z <= s.sample.z_mm)
+        checkpoint_planes = tuple(sorted(set((*checkpoint_planes, *retained_section_planes))))
     incident_plan = build_propagation_plan(
         s, gun.exit_plane_z_mm, s.sample.z_mm, pre_events,
         checkpoint_z_mm=checkpoint_planes,
+        save_z_mm=tuple(sorted(set((*checkpoint_planes, *retained_section_planes)))),
         particle_medium=s.vacuum_map.enabled,
         medium_energy_ev=s.beam_voltage_kv*1000+dE,
     )
@@ -333,6 +455,12 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
     # do not restart stochastic transport from an incomplete optical checkpoint.
     if incident_medium is not None:
         source_matches = False
+    try:
+        clocks_reusable = validate_incident_flight_times(existing_simulation)
+    except (AttributeError, TypeError, ValueError):
+        clocks_reusable = False
+    if not clocks_reusable:
+        source_matches = False
 
     if (
         source_matches
@@ -351,6 +479,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         TX = np.asarray(previous_incident.tx).copy()
         Y = np.asarray(previous_incident.y).copy()
         TY = np.asarray(previous_incident.ty).copy()
+        TIMES = np.asarray(previous_incident.flight_time_s, dtype=np.float64).copy()
         incident_checkpoints = previous_checkpoints
         cache_mode = "full_incident"
         resume_z_mm = float(s.sample.z_mm)
@@ -364,7 +493,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
             if source_matches else 0
         )
         resume = None
-        if common_nodes > 0 and previous_checkpoints is not None:
+        if (common_nodes > 0 or (saved_section is not None and source_matches)) and previous_checkpoints is not None:
             current_checkpoint_indices = np.asarray(
                 incident_plan.checkpoint_index, dtype=np.int64
             )
@@ -382,7 +511,13 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
                     continue
                 current_row = int(matches[-1])
                 current_index = int(current_checkpoint_indices[current_row])
-                if current_index < common_nodes:
+                candidate_safe = current_index < common_nodes
+                if saved_section is not None and source_matches:
+                    from temsim.physics.particle_sections import _prefix_matches
+                    old_indices = np.flatnonzero(np.asarray(previous_plan.z_mm) == candidate_z)
+                    candidate_safe = bool(old_indices.size and _prefix_matches(
+                        previous_plan, incident_plan, int(old_indices[-1]), current_index))
+                if candidate_safe:
                     resume = (
                         old_checkpoint_row, current_index, candidate_z
                     )
@@ -393,16 +528,22 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
                 s, incident_plan, x, tx, y, ty, dE,
                 defer_nonfinite_until_clipping=True,
                 medium_transport=incident_medium,
+                initial_time_s=getattr(emitted, "flight_time_s", None),
+                return_flight_times=True,
             )
             (
                 z_column, X_column, TX_column, Y_column, TY_column,
-                incident_checkpoints,
+                column_times, incident_checkpoints,
             ) = column_result
             z=np.r_[gun_trace.z_mm,z_column[1:]]
             X=np.vstack((gun_trace.x_m,X_column[1:]))
             TX=np.vstack((gun_trace.tx_rad,TX_column[1:]))
             Y=np.vstack((gun_trace.y_m,Y_column[1:]))
             TY=np.vstack((gun_trace.ty_rad,TY_column[1:]))
+            gun_times = getattr(gun_trace, "flight_time_s", None)
+            if gun_times is None:
+                gun_times = np.full(np.shape(gun_trace.x_m), np.nan, dtype=np.float64)
+            TIMES=np.vstack((gun_times, column_times[1:]))
         else:
             old_row, start_index, resume_z_mm = resume
             suffix_result = execute_propagation_plan(
@@ -414,10 +555,12 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
                 dE, start_index=start_index,
                 include_initial_plane_kicks=False,
                 defer_nonfinite_until_clipping=True,
+                initial_time_s=previous_checkpoints.flight_time_s[old_row],
+                return_flight_times=True,
             )
             (
                 z_suffix, X_suffix, TX_suffix, Y_suffix, TY_suffix,
-                suffix_checkpoints,
+                suffix_times, suffix_checkpoints,
             ) = suffix_result
             previous_incident = existing_simulation.incident
             keep = np.asarray(previous_incident.z) < resume_z_mm
@@ -426,12 +569,20 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
             TX = np.vstack((np.asarray(previous_incident.tx)[keep], TX_suffix))
             Y = np.vstack((np.asarray(previous_incident.y)[keep], Y_suffix))
             TY = np.vstack((np.asarray(previous_incident.ty)[keep], TY_suffix))
+            TIMES = np.vstack((np.asarray(previous_incident.flight_time_s)[keep], suffix_times))
             incident_checkpoints = _merge_checkpoints(
                 previous_checkpoints, suffix_checkpoints, resume_z_mm
             )
             cache_mode = "checkpoint"
             reused_prefix_rows = int(np.count_nonzero(keep))
             reused_plan_nodes = int(start_index + 1)
+    # Subsequent material transport and persisted restarts consume the same
+    # full-precision terminal state, not a rounded plotting-history row.
+    if incident_checkpoints is not None and incident_checkpoints.z_mm[-1] == z[-1]:
+        X, TX, Y, TY = (np.asarray(value, dtype=np.float64).copy()
+                       for value in (X, TX, Y, TY))
+        for value, key in zip((X, TX, Y, TY), ("x_m", "tx_rad", "y_m", "ty_rad")):
+            value[-1] = getattr(incident_checkpoints, key)[-1]
     alive=emitted.alive.copy()
     blocked=gun_trace.blocked_z_mm.copy()
     keys=list(gun_trace.blocked_key)
@@ -454,12 +605,11 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         blocked,keys,1.,dE,emitted.weight,
         interaction_kind=incident_kind,
         vacuum_report=incident_medium.report() if incident_medium is not None else None,
+        flight_time_s=TIMES,
     )
-    from temsim.physics.ray_identity import source_identity
+    from temsim.physics.ray_identity import emitted_source_identity
 
-    incident.source_ray_id, incident.source_azimuth_rad = source_identity(
-        incident, gun_trace
-    )
+    incident.source_ray_id, incident.source_azimuth_rad = emitted_source_identity(gun_trace)
     retained_checkpoint_count = (
         int(len(incident_checkpoints.z_mm))
         if incident_checkpoints is not None else 0
@@ -467,7 +617,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
     retained_checkpoint_bytes = (
         sum(
             int(np.asarray(getattr(incident_checkpoints, name)).nbytes)
-            for name in ("x_m", "tx_rad", "y_m", "ty_rad")
+            for name in ("x_m", "tx_rad", "y_m", "ty_rad", "flight_time_s")
         )
         if incident_checkpoints is not None else 0
     )
@@ -560,12 +710,29 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
     branches_per_batch=max(
         1,MAX_VECTORIZED_POST_RAYS//max(n,1)
     )
+    completed_post_sections = []
+    from temsim.physics.particle_sections import section_limits
+    post_stop_z_mm = section_limits(s)[1]
+    post_events = [event for event in post_events if float(event[0]) <= post_stop_z_mm]
+    if sample_is_vacuum and not optical_only:
+        from temsim.physics.particle_sections import _trace_segment
+        cx, cy = branch_chromatic_kick(dE)
+        previous_post = next((item for item in saved_section.segments if item.name == "000"), None) if saved_section else None
+        post, _, _ = _trace_segment(s, "000", float(s.sample.z_mm), post_stop_z_mm,
+            (X[-1], TX[-1]+cx, Y[-1], TY[-1]+cy, np.where(alive, TIMES[-1], np.nan)),
+            dE, emitted.weight, (incident.source_ray_id, incident.source_azimuth_rad),
+            (alive, blocked, keys), post_events, previous_post, math.inf, initial_kicks=False)
+        post.branch.interaction_kind = "vacuum"
+        post.branch.colour = _interaction_colour("vacuum")
+        branches["000"] = post.branch
+        completed_post_sections.append(post)
+        branch_specs = []
     for batch_start in range(0,len(branch_specs),branches_per_batch):
         batch_specs=branch_specs[
             batch_start:batch_start+branches_per_batch
         ]
         post_payloads=[]
-        post_x=[];post_tx=[];post_y=[];post_ty=[];post_energy=[]
+        post_x=[];post_tx=[];post_y=[];post_ty=[];post_energy=[];post_times=[]
         for name,kick_x,kick_y,w,interaction_kind,energy_loss_ev in batch_specs:
             branch_energy_offset=dE-float(energy_loss_ev)
             chromatic_tx,chromatic_ty=branch_chromatic_kick(
@@ -586,10 +753,16 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
             post_y.append(Y[-1])
             post_ty.append(TY[-1]+kick_y+chromatic_ty)
             post_energy.append(branch_energy_offset)
+            post_times.append(np.full(n, np.nan, dtype=np.float64) if float(energy_loss_ev) > 0.
+                              else np.where(alive, TIMES[-1], np.nan))
 
         downstream_media = []
-        zp,XP_all,TP_all,YP_all,TYP_all=propagate(
-            s,s.sample.z_mm,determine_tem_stop_z(s),
+        # Aggregate energy-loss channels contain no event depth. The specimen
+        # reference plane therefore cannot supply their physical loss clock.
+        # Detailed specimen clocks are carried by downstream_transport.
+        start_times = np.concatenate(post_times)
+        zp,XP_all,TP_all,YP_all,TYP_all,TIMES_all=propagate(
+            s,s.sample.z_mm,post_stop_z_mm,
             np.concatenate(post_x),np.concatenate(post_tx),
             np.concatenate(post_y),np.concatenate(post_ty),
             post_events,np.concatenate(post_energy),
@@ -597,6 +770,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
             defer_nonfinite_until_clipping=True,
             particle_medium=s.vacuum_map.enabled,
             medium_alive=np.tile(alive, len(post_payloads)), medium_output=downstream_media,
+            initial_time_s=start_times, return_flight_times=True,
         )
 
         for branch_index,(name,w,interaction_kind,branch_energy_offset,kick_x_array,kick_y_array) in enumerate(post_payloads):
@@ -627,6 +801,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
                 source_ray_id=incident.source_ray_id,
                 source_azimuth_rad=incident.source_azimuth_rad,
                 vacuum_report=downstream_media[0].report(branch_slice) if downstream_media else None,
+                flight_time_s=TIMES_all[:,branch_slice],
             )
 
     if optical_only:
@@ -860,5 +1035,5 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         incident_plan=incident_plan,
         incident_checkpoints=incident_checkpoints,
     )
-
+    result.completed_post_sections = tuple(completed_post_sections)
     return result

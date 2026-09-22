@@ -21,12 +21,16 @@ def make_result(n=12, current=200.):
             y=np.stack((y, y*.1)), tx=np.tile(np.cos(phase)*.01, (2, 1)),
             ty=np.tile(np.sin(phase)*.02, (2, 1)), blocked_z=np.full(n, np.nan),
             ray_weight=np.full(n, 1/n), weight=1.,
+            source_ray_id=np.arange(n, dtype=np.int64),
+            source_azimuth_rad=np.mod(np.arctan2(y, x), 2*np.pi),
         )
     incident=branch("incident", [0., 1.])
     post=branch("000", [1., 2.])
     post.x[0]=incident.x[-1]; post.y[0]=incident.y[-1]
     post.x[1]=0.; post.y[1]=0.  # Projector focus must not erase lineage.
-    metrics={} if current is None else {"effective_source_current_pa": current}
+    metrics={"branch_weights_are_absolute": True}
+    if current is not None:
+        metrics["effective_source_current_pa"] = current
     return SimpleNamespace(simulation=SimpleNamespace(incident=incident, branches={"000":post},
         metrics=metrics), signatures={"sample_downstream":"current"})
 
@@ -76,7 +80,15 @@ def view(qtbot):
 def test_each_function_reads_existing_result_without_mutation(view, mode):
     res=make_result(); original=res.simulation.incident.x.copy()
     view.display_result(res); switch(view, mode)
-    assert "unavailable" not in view.summary.text().lower()
+    if mode == "position":
+        # These retained positions have no tip-launch rotation reference.
+        # Position data remain usable without inventing that separate angle.
+        assert "rotation unavailable" in view.summary.text().lower()
+        x, y = view._scatter.getData()
+        assert len(x) == len(y) == res.simulation.incident.x.shape[1]
+        assert np.all(np.isfinite(x)) and np.all(np.isfinite(y))
+    else:
+        assert "unavailable" not in view.summary.text().lower()
     assert view._result is res
     np.testing.assert_array_equal(res.simulation.incident.x, original)
     if mode == "interactions":
@@ -237,7 +249,8 @@ def test_intensity_rebins_resized_view_without_resampling_plane(view, qtbot, mon
     def forbidden(*_args):
         pytest.fail("Resizing must only rebin the existing selected-plane cache")
     monkeypatch.setattr(beam_analysis, "sample_beam_plane", forbidden)
-    view.resize(510, 900); qtbot.wait(20)
+    view.set_plot_size_state({**view.plot_size_state(), "plane": [510, 380]})
+    qtbot.wait(20)
     assert view.analysis.plane_data() is cached
     payload=view.analysis._hover_payload
     np.testing.assert_allclose(payload[2][[0,-1]], view.plot.viewRange()[0])

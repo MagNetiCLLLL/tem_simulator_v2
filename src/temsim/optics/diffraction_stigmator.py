@@ -11,7 +11,6 @@ from temsim import module_manifest
 from temsim.component_keys import (
     DIFFRACTION_STIGMATOR,
     SELECTED_AREA_APERTURE,
-    canonical_stigmator_key,
 )
 from temsim.optics.model import Stigmator
 from temsim.optics.selected_area_aperture import (
@@ -486,40 +485,21 @@ def create_diffraction_stigmator():
 
 def diffraction_stigmator_from_dict(
     data,
-    legacy_reference_z_mm=None,
     active_installation=None,
 ):
     values = dict(data)
-    values["key"] = canonical_stigmator_key(values.get("key", ""))
+    if values.get("key") != DIFFRACTION_STIGMATOR:
+        raise ValueError(f"Diffraction stigmator requires component key {DIFFRACTION_STIGMATOR!r}")
+    if values.get("field_model") != "normal_skew":
+        raise ValueError("Diffraction stigmator record requires field_model='normal_skew'")
+    # Current instrument files store operating controls. Mechanical stations
+    # come from the selected TOML module, not a missing-field migration.
     component = create_diffraction_stigmator()
     allowed = component.__dataclass_fields__
     object.__setattr__(component, "_position_coupling_ready", False)
     for attribute, value in values.items():
         if attribute in allowed:
             object.__setattr__(component, attribute, value)
-    if "standalone_optical_reference_z_mm" not in values:
-        standalone_reference = float(
-            legacy_reference_z_mm
-            if legacy_reference_z_mm is not None
-            else values.get("z_mm", component.z_mm)
-        )
-        object.__setattr__(
-            component,
-            "standalone_optical_reference_z_mm",
-            standalone_reference,
-        )
-        if "image_corrected_optical_reference_z_mm" not in values:
-            reference_delta = (
-                DIFFRACTION_STIGMATOR_DEFINITION
-                .image_corrected_optical_reference_z_mm
-                - DIFFRACTION_STIGMATOR_DEFINITION
-                .standalone_optical_reference_z_mm
-            )
-            object.__setattr__(
-                component,
-                "image_corrected_optical_reference_z_mm",
-                standalone_reference + reference_delta,
-            )
     object.__setattr__(component, "_position_coupling_ready", True)
     component.key = DIFFRACTION_STIGMATOR
     component.name = "Diffraction Stigmator"

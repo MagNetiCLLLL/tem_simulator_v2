@@ -186,7 +186,7 @@ def test_identical_inflight_high_requests_share_one_worker():
     assert running_key == workers[0].request_signatures["request"]
 
 
-def test_preview_supersedes_high_without_leaving_a_stale_running_token():
+def test_preview_preserves_high_and_completion_clears_only_its_token():
     controller = CalculationController()
     workers = []
     controller.pool.start = workers.append
@@ -194,10 +194,20 @@ def test_preview_supersedes_high_without_leaving_a_stale_running_token():
 
     controller.submit(state, HIGH_QUALITY, RAY_COUNT, STEP_MM)
     old_high = workers[-1]
+    high_key = controller._running_high_key
     controller.submit(state, "Preview", RAY_COUNT, STEP_MM)
+    preview = workers[-1]
 
-    assert controller._running_high_key is None
+    # Preview and High own independent jobs. A preview must not cancel or
+    # discard an in-flight High request; identical High requests still dedupe.
+    assert controller._running_high_key == high_key
+    assert controller._running_high_generation == old_high.generation
+    controller.submit(state, HIGH_QUALITY, RAY_COUNT, STEP_MM)
+    assert len(workers) == 2
+    controller._accept_finished(preview.generation, "Preview")
+    assert controller._running_high_key == high_key
     controller._accept_finished(old_high.generation, HIGH_QUALITY)
+    assert controller._running_high_key is None
     controller.submit(state, HIGH_QUALITY, RAY_COUNT, STEP_MM)
 
     assert len(workers) == 3
@@ -252,7 +262,7 @@ def test_eds_only_parameter_changes_only_request_and_eds_signatures():
         for product in before
         if before[product] != after[product]
     }
-    assert changed == {"request", "eds", "sample_region"}
+    assert changed == {"request", "eds", "eds_response", "sample_region"}
     for reusable_product in ("column", "elastic", "wave", "stem"):
         assert after[reusable_product] == before[reusable_product]
 

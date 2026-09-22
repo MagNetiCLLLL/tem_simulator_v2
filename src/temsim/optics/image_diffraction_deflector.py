@@ -8,7 +8,7 @@ from typing import ClassVar
 from temsim import module_manifest
 from temsim.component_keys import (
     IMAGE_DIFFRACTION_DEFLECTOR,
-    canonical_deflector_key,
+    require_current_deflector_key,
 )
 
 _DEFAULT_OBJECTIVE_MODULE_PATH = "column/C3_ProbeCorrector.toml"
@@ -428,7 +428,7 @@ def create_image_diffraction_deflector():
 
 def image_diffraction_deflector_from_dict(data):
     values = dict(data)
-    values["key"] = canonical_deflector_key(values.get("key", ""))
+    values["key"] = require_current_deflector_key(values.get("key"), expected=IMAGE_DIFFRACTION_DEFLECTOR)
     component = create_image_diffraction_deflector()
     for attribute in (
         "upper_x_mrad",
