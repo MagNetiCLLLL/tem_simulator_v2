@@ -1,7 +1,7 @@
 """Fixed display sizes for cached beam plots; no numerical model inputs."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, QTimer, Qt
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QGridLayout, QHBoxLayout, QLabel, QLayout,
     QPushButton, QScrollArea, QVBoxLayout, QWidget,
@@ -10,21 +10,22 @@ from PySide6.QtWidgets import (
 from temsim.gui.input_policy import WheelSafeSpinBox
 
 
-class TransversePlotLayout:
+class TransversePlotLayout(QObject):
     """Size plot widgets in Qt logical pixels, independently of window space."""
 
-    DEFAULTS = {"source": (400, 196), "plane": (400, 360), "legend": (184, 184)}
-    LABELS = {"source": "Source plot", "plane": "Selected-plane plot", "legend": "Colour legend"}
-    MINIMUMS = {"source": (240, 160), "plane": (240, 160), "legend": (120, 120)}
+    DEFAULTS = {"beam": (400, 360), "legend": (184, 184)}
+    LABELS = {"beam": "Source and selected-plane plots", "legend": "Colour legend"}
+    MINIMUMS = {"beam": (240, 160), "legend": (120, 120)}
     MAXIMUM = 2400
 
     def __init__(self, owner):
+        super().__init__(owner)
         self.owner = owner
         self._sizes = {}
         self.dialog = None
         self.button = QPushButton("Plot sizes…")
         self.button.setObjectName("transversePlotSizesButton")
-        self.button.setToolTip("Set and keep each picture's width and height. Saved with the workspace layout.")
+        self.button.setToolTip("Set one fixed width and height for both beam plots. Saved with the workspace layout.")
         self.button.clicked.connect(self.open_dialog)
         toolbar = QHBoxLayout()
         toolbar.addStretch(1)
@@ -44,12 +45,47 @@ class TransversePlotLayout:
         self.scroll.setMinimumSize(0, 0)
         self.scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self.scroll.setWidget(self.content)
+        # Equal outer sizes also need equal axis gutters, otherwise the source
+        # and selected-plane plotting rectangles still have different sizes.
+        for plot in (owner.source_plot.plot, owner.plot):
+            plot.getAxis("left").setWidth(76)
+            plot.getAxis("bottom").setHeight(46)
+            # AxisItem nudges the bottom title 5 px outside its own boundary.
+            # Reserve that overhang within the fixed picture, including after
+            # labels change between position and angular coordinates.
+            plot.getPlotItem().layout.setContentsMargins(1, 1, 1, 8)
         layout = QVBoxLayout(owner)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         layout.addLayout(toolbar)
         layout.addWidget(self.scroll, 1)
+        self._height_timer = QTimer(owner)
+        self._height_timer.setSingleShot(True)
+        self._height_timer.timeout.connect(self._refresh_panel_heights)
+        self._height_panels = (owner.source_plot, owner.initial_beam_panel, owner.section_beam_panel)
+        for panel in self._height_panels:
+            panel.installEventFilter(self)
         self.set_state(None, emit=False)
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.Type.LayoutRequest, QEvent.Type.Resize, QEvent.Type.Show):
+            self._height_timer.start(0)
+        return False
+
+    def _refresh_panel_heights(self):
+        # Qt's ordinary minimumSizeHint can be lower than heightForWidth for
+        # wrapped captions. Enforce the latter so a scroll viewport cannot push
+        # a caption upwards over its fixed-size plot. Work from inner to outer.
+        changed = False
+        for panel in self._height_panels:
+            layout = panel.layout()
+            height = layout.totalHeightForWidth(panel.width())
+            if height >= 0 and panel.minimumHeight() != height:
+                panel.setMinimumHeight(height)
+                changed = True
+        if changed:
+            self.content.layout().invalidate()
+            self.content.layout().activate()
 
     def state(self):
         return {key: list(size) for key, size in self._sizes.items()}
@@ -73,17 +109,19 @@ class TransversePlotLayout:
             return
         self._sizes = sizes
         owner = self.owner
-        for key, widget in (("source", owner.source_plot.plot), ("plane", owner.plot),
+        for key, widget in (("beam", owner.source_plot.plot), ("beam", owner.plot),
                             ("legend", owner.angle_colour_wheel)):
             widget.setFixedSize(*sizes[key])
         # Text and controls wrap separately; their contents cannot resize the
         # pictures. A large legend is also reachable inside the local scroll area.
-        owner.initial_beam_panel.setFixedWidth(max(340, sizes["source"][0] + 8, sizes["legend"][0] + 8))
-        owner.section_beam_panel.setFixedWidth(max(340, sizes["plane"][0] + 8))
+        panel_width = max(340, sizes["beam"][0] + 8, sizes["legend"][0] + 8)
+        owner.initial_beam_panel.setFixedWidth(panel_width)
+        owner.section_beam_panel.setFixedWidth(panel_width)
         owner.source_plot.layout().setAlignment(owner.source_plot.plot, Qt.AlignmentFlag.AlignLeft)
         owner.section_beam_panel.layout().setAlignment(owner.plot, Qt.AlignmentFlag.AlignLeft)
         self.content.layout().invalidate()
         self.content.layout().activate()
+        self._height_timer.start(0)
         if emit:
             owner.plot_sizes_changed.emit()
 
@@ -99,7 +137,7 @@ class TransversePlotLayout:
         dialog.setMinimumWidth(430)
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         layout = QVBoxLayout(dialog)
-        note = QLabel("Fixed width and height, including axes, in display pixels.\n"
+        note = QLabel("Both beam plots share one fixed width and height, including axes, in display pixels.\n"
                       "Scroll to see larger plots. Sizes are saved with the workspace layout.")
         note.setWordWrap(True)
         note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse

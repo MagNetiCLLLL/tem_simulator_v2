@@ -4,8 +4,8 @@ from copy import deepcopy
 from test_workspace_layouts import windows  # noqa: F401
 
 
-SMALL = {"source": [360, 210], "plane": [440, 330], "legend": [200, 200]}
-LARGE = {"source": [520, 280], "plane": [560, 420], "legend": [240, 260]}
+SMALL = {"beam": [360, 330], "legend": [200, 200]}
+LARGE = {"beam": [560, 420], "legend": [240, 260]}
 
 
 def test_named_layouts_restore_distinct_picture_sizes_without_changing_inputs(windows):
@@ -58,6 +58,7 @@ def test_restart_restores_picture_sizes_while_transverse_panel_is_hidden(windows
     assert restored.workspace.transverse_beam.plot_size_state() == LARGE
     restored.workspace.transverse_beam_toggle.setChecked(True)
     assert restored.workspace.transverse_beam.plot_size_state() == LARGE
+    assert restored.workspace.transverse_beam.source_plot.plot.size() == restored.workspace.transverse_beam.plot.size()
     assert not restored.preview_timer.isActive()
 
 

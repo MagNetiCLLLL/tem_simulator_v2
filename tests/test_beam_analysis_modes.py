@@ -249,7 +249,7 @@ def test_intensity_rebins_resized_view_without_resampling_plane(view, qtbot, mon
     def forbidden(*_args):
         pytest.fail("Resizing must only rebin the existing selected-plane cache")
     monkeypatch.setattr(beam_analysis, "sample_beam_plane", forbidden)
-    view.set_plot_size_state({**view.plot_size_state(), "plane": [510, 380]})
+    view.set_plot_size_state({**view.plot_size_state(), "beam": [510, 380]})
     qtbot.wait(20)
     assert view.analysis.plane_data() is cached
     payload=view.analysis._hover_payload

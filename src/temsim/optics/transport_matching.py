@@ -37,7 +37,7 @@ def target_plane(state):
     aperture = next((a for a in state.apertures
                      if a.key == "projection_chamber_dpa_aperture"), None)
     if aperture is None or not aperture.enabled or not getattr(aperture, "installed", True):
-        raise ValueError("Match transport requires the installed projection-chamber entrance aperture")
+        raise ValueError("Condenser adjustment requires the installed projection-chamber entrance aperture")
     z = float(aperture.z_mm)
     if not np.isfinite(z) or z <= state.sample.z_mm:
         raise ValueError("Projection-chamber entrance must be downstream of the specimen")
@@ -139,6 +139,8 @@ def solve_transport_candidate(request, *, cancelled=lambda:False):
     if request.registry_digest != json_digest(asdict(DEFINITION)):
         raise ValueError("Transport matching definition changed")
     scratch=request.start_snapshot.restore()
+    starting_strengths = {lens.key: float(lens.percent) for lens in scratch.lenses
+                          if lens.key in LENSES}
     from temsim.physics.beam_current import effective_source_current_a
     if effective_source_current_a(scratch) <= 0:
         raise ValueError("No source current is enabled; transport matching cannot create electrons")
@@ -205,7 +207,18 @@ def solve_transport_candidate(request, *, cancelled=lambda:False):
         if not passed:
             attempts[-1]["refinement_rejected"]={"reference":reference,"refined":measured}
             continue
-        message=(f"Transport matched: {measured['rays']} / 193 rays, {100*measured['source_fraction']:.3g}% of source current "
+        source_count = len(refined.gun_trace.exit_bundle.ray_id)
+        controls = tuple(dict(key=key, label=f"C{index}",
+                              before_percent=starting_strengths[key], after_percent=strengths[key])
+                         for index, key in enumerate(LENSES, 1))
+        refined.metrics["transport_adjustment"] = dict(
+            controls=controls, source_ray_count=source_count,
+            validation_step_mm=validation.step_mm, target_plane_z_mm=z,
+            source_fraction=measured["source_fraction"], physics_scope="optical_transport_only",
+        )
+        changes = "; ".join(f"{row['label']} {row['before_percent']:.6g}% → {row['after_percent']:.6g}%"
+                            for row in controls)
+        message=(f"Condensers adjusted: {changes}. Transport matched: {measured['rays']} / {source_count} rays, {100*measured['source_fraction']:.3g}% of source current "
                  "past the projection-chamber entrance. Probe/image focus is not calibrated.")
         result=DirectAlignmentResult(KEY,True,request.target,measured["source_fraction"],"source fraction",
             measured["radius_mm"],"mm",strengths,len(attempts),validation.step_mm,spread,message,
@@ -216,7 +229,7 @@ def solve_transport_candidate(request, *, cancelled=lambda:False):
             assembly=validation._resolved_assembly,
             lens_crossovers=tuple(detect_all_lens_crossovers([refined.incident,*refined.branches.values()],validation.lenses)),
             aperture_stops=aperture_stop_records(validation),calculation_manifest=manifest,
-            signatures=manifest.calculation_signatures,calculated_products=frozenset({"incident","column"}))
+            signatures=dict(manifest.calculation_signatures),calculated_products=frozenset({"incident","column"}))
         return AlignmentCandidate(request,result,checkpoint,{"status":"PASS",
             "candidate_snapshot":candidate_snapshot.to_dict(),"forward_snapshot_id":manifest.instrument_snapshot.digest,
             "reference":reference,"refined":measured,"current_spread":spread,"envelope_spread":radius_spread,

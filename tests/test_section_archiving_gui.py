@@ -54,10 +54,12 @@ def test_archive_summary_is_selectable_and_distinguishes_pending_failure_and_sav
     assert "Existing archive verification operation: 2.500 s" in page.section_archive_status.text()
     page.invalidate_section_result()
     assert "Saved earlier" in page.section_archive_status.text()
-    assert page.section_archive_load.isEnabled()  # Recovery is available before capture/live tuning.
+    assert page.section_load.isEnabled()  # Recovery is available before capture/live tuning.
 
 
 def test_automatic_save_runs_off_thread_and_duplicate_cache_hit_does_not_write_again(qtbot, monkeypatch, tmp_path, completed):
+    # This test owns IO dispatch only; real input/array capture is tested by the codec suite.
+    monkeypatch.setattr("temsim.particle_section_io.capture_result_for_save", lambda result: result)
     calls, states = [], []
     started, release = Event(), Event()
     gui_thread = get_ident()
@@ -94,6 +96,7 @@ def test_automatic_save_runs_off_thread_and_duplicate_cache_hit_does_not_write_a
 
 
 def test_background_save_failure_does_not_report_saved_or_discard_result(qtbot, monkeypatch, tmp_path, completed):
+    monkeypatch.setattr("temsim.particle_section_io.capture_result_for_save", lambda result: result)
     monkeypatch.setattr("temsim.particle_section_io.archive_section_result",
         lambda *args, **kwargs: (_ for _ in ()).throw(OSError("Read-only directory")))
     owner = controller.CalculationController(persistent_cache_enabled=False, artifact_cache_root=tmp_path)
@@ -140,7 +143,8 @@ def test_final_button_passes_empty_participant_section_without_live_mode(page):
     page.section_z.setValue(1100.)
     shell = NS(workspace=NS(interactive_calculation=page), preview_timer=NS(stop=lambda: None),
                calculations=NS(submit_background=lambda *args, **kwargs: submitted.append((args, kwargs))),
-               high_rays=NS(value=lambda: 5000), high_step=NS(value=lambda: .2), state=object())
+               high_rays=NS(value=lambda: 5000), high_step=NS(value=lambda: .2), state=object(),
+               result_files=NS(loading=False, hold_automatic_preview=False))
     MainWindow.run_high_accuracy(shell)
     assert submitted[0][0][1:] == ("High accuracy", 5000, .2)
     assert submitted[0][1]["section_request"] == {"target_z_mm": 1100., "component_keys": ()}
@@ -201,7 +205,7 @@ def test_loaded_and_completed_histories_share_entry_limit(qtbot, monkeypatch, co
 def test_decoded_archive_rejected_by_memory_budget_reports_failure_to_waiting_page(
         qtbot, monkeypatch, page, completed, tmp_path):
     monkeypatch.setattr("temsim.working_point.WorkingPointArchiveIndex.read",
-                        lambda *args, **kwargs: NS(unpacked_size_bytes=1024))
+                        lambda *args, **kwargs: NS(unpacked_size_bytes=1024, digest='a'*64))
     owner = controller.CalculationController(persistent_cache_enabled=False,
                                               high_cache_budget_bytes=0)
     workers, states = [], []

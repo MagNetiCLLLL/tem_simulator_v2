@@ -78,6 +78,8 @@ def test_section_file_operations_capture_and_enforce_shared_budget(qtbot, monkey
     monkeypatch.setattr(owner.section_file_pool, "start", workers.append)
     owner.section_archive_changed.connect(events.append)
     monkeypatch.setattr(codec, "section_archive_summary", lambda result: {"identity": "routing-fixture"})
+    # This fixture tests worker admission/routing; real result capture has its own regressions.
+    monkeypatch.setattr(codec, "capture_result_for_save", lambda result: result)
     payload = SimpleNamespace(state_snapshot=None)
     def receipt(target):
         target = Path(target)

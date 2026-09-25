@@ -1,0 +1,119 @@
+{
+  "date": "2026-09-22",
+  "scope": "Working points integrated into Live tuning; infrequent controls collapsed",
+  "tests": {
+    "passed": 190
+  },
+  "unique_cases": 190,
+  "runs": [
+    {
+      "path": "tmp/live-working-points-20260922/regression-final/results.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "148",
+      "time": "482.858",
+      "timestamp": "2026-09-22T15:33:14.711013+01:00",
+      "hostname": "Royal_Gray"
+    },
+    {
+      "path": "tmp/live-integration-layouts-final-20260922.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "12",
+      "time": "85.577",
+      "timestamp": "2026-09-22T15:34:51.064716+01:00",
+      "hostname": "Royal_Gray"
+    },
+    {
+      "path": "tmp/working-point-advanced-ui-20260922.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "6",
+      "time": "17.107",
+      "timestamp": "2026-09-22T15:28:53.397116+01:00",
+      "hostname": "Royal_Gray"
+    },
+    {
+      "path": "tmp/working-point-browser-regression-20260922.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "24",
+      "time": "24.222",
+      "timestamp": "2026-09-22T15:29:25.943639+01:00",
+      "hostname": "Royal_Gray"
+    }
+  ],
+  "input_files": 459,
+  "input_sha256": "b031d92f60ecb08f551c4776be7791d3c2138a3b1d0edaf6c6539edb7dc18176",
+  "source_unchanged_during_final_regression": true,
+  "source_ui_checks": {
+    "same_panel_nested": true,
+    "nested_tab_names": true,
+    "old_top_level_tab_removed": true,
+    "correct_live_dock_widget": true,
+    "calculation_default_page": true,
+    "captured_section_target_visible": true,
+    "usual_calculation_controls_reachable": true,
+    "advanced_default_collapsed": true,
+    "working_point_identity_preserved": true,
+    "advanced_expands": true,
+    "advanced_actions_exist": true,
+    "sampling_accessible": true,
+    "advanced_collapses_again": true,
+    "page_switch_preserves_state_and_point": true,
+    "size_not_forced_huge": true,
+    "no_numerical_dispatch": true
+  },
+  "installed_ui_checks": {
+    "same_panel_nested": true,
+    "nested_tab_names": true,
+    "old_top_level_tab_removed": true,
+    "correct_live_dock_widget": true,
+    "calculation_default_page": true,
+    "captured_section_target_visible": true,
+    "usual_calculation_controls_reachable": true,
+    "advanced_default_collapsed": true,
+    "working_point_identity_preserved": true,
+    "advanced_expands": true,
+    "advanced_actions_exist": true,
+    "sampling_accessible": true,
+    "advanced_collapses_again": true,
+    "page_switch_preserves_state_and_point": true,
+    "size_not_forced_huge": true,
+    "no_numerical_dispatch": true
+  },
+  "ui_fixture": "Input-only record; startup optical fitting stubbed and numerical dispatch forbidden",
+  "requested_and_actual_dock_size": [
+    900,
+    700
+  ],
+  "wheel": {
+    "wheel": "F:\\tem_simulator_v2\\tmp\\live-working-points-20260922\\packaging\\wheel\\tem_simulator_v2-0.1.0-py3-none-any.whl",
+    "wheel_sha256": "1330ef27290b7c5caca7e3f665773f64da347e3ac2f0054a80e91eac30db0121",
+    "python_modules": 449,
+    "source_modules": 449,
+    "missing_modules": [],
+    "extra_modules": [],
+    "changed_modules": [],
+    "config_files": 36,
+    "svg_assets": 9,
+    "installed": "F:\\tem_simulator_v2\\tmp\\live-working-points-20260922\\packaging\\installed",
+    "installed_changed_modules": []
+  },
+  "compileall_exit_code": 0,
+  "diff_check_exit_code": 0,
+  "qualification": "Focused integration tests; no complete-suite or instrument-physics qualification claim",
+  "retained_attempts": [
+    "regression: stopped before geometry refinement; not counted as a completed run",
+    "source-1: identified 768 px minimum-height issue; fixed and rerun",
+    "installed-1: temporary target-install root missing; corrected validation harness"
+  ]
+}

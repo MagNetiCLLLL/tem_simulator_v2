@@ -628,13 +628,14 @@ class SectionFileSignals(QObject):
 class SectionFileWorker(QRunnable):
     """Archive/capture work stays off the GUI thread and shares resource admission."""
     def __init__(self, token, operation, path, result=None, *, automatic=False,
-                 maximum_unpacked_bytes, unpacked_size_bytes=None):
+                 maximum_unpacked_bytes, unpacked_size_bytes=None, expected_package_digest=None):
         super().__init__()
         self.token, self.operation, self.path = token, operation, Path(path)
         self.payload = result
         self.state = getattr(result, "state_snapshot", None)
         self.automatic = automatic
         self.maximum_unpacked_bytes = int(maximum_unpacked_bytes)
+        self.expected_package_digest = expected_package_digest
         # A queued archive must not outgrow its admission reservation if the
         # file is replaced before execution. The codec checks the bound again.
         self.read_limit_bytes = (self.maximum_unpacked_bytes if unpacked_size_bytes is None
@@ -657,7 +658,8 @@ class SectionFileWorker(QRunnable):
             if self.cancel_event.is_set():
                 return
             if self.operation == "load":
-                result = load_section_result(self.path, maximum_unpacked_bytes=self.read_limit_bytes)
+                result = load_section_result(self.path, maximum_unpacked_bytes=self.read_limit_bytes,
+                                             expected_package_digest=self.expected_package_digest)
                 output = {"result": result, "info": result.section_archive_info}
             elif self.automatic:
                 output = archive_section_result(self.payload, self.path,
@@ -712,6 +714,7 @@ class CalculationController(QObject):
         self._section_file_jobs = {}
         self._section_file_pending = {}
         self._section_archive_records = OrderedDict()
+        self._latest_section_load_token = None
         self._loaded_section_seeds = OrderedDict()
         self._loaded_section_memory = RetainedMemoryLedger()
         self._loaded_tuning_sections = OrderedDict()
@@ -773,7 +776,7 @@ class CalculationController(QObject):
 
     def archive_completed_section(self, result, *, path=None):
         """Queue only an already accepted completed result; never execute transport."""
-        from temsim.particle_section_io import section_archive_summary
+        from temsim.particle_section_io import capture_result_for_save, section_archive_summary
         info = section_archive_summary(result)
         automatic = path is None
         destination = self.section_archive_root if automatic else Path(path)
@@ -789,20 +792,32 @@ class CalculationController(QObject):
         pending_key = (identity, os.path.normcase(str(destination.resolve())), automatic)
         if pending_key in self._section_file_pending:
             return identity
+        # Pin the displayed product references before returning to the event
+        # loop: sample/EDS panels may publish additional products during IO.
+        # Dense, published numerical buffers remain shared until the worker
+        # freezes them, avoiding a whole-history copy on the GUI thread.
+        payload = capture_result_for_save(result)
         if not automatic:
             # A queued replacement already makes the old association unsafe:
             # another GUI cache hit must not claim its old contents will persist.
             self._forget_section_archive_path(destination)
         token = uuid4().hex
+        info = dict(info, operation_token=token)
+        if not automatic:
+            info["path"] = str(destination.resolve())
         self._section_file_pending[pending_key] = token
-        worker = SectionFileWorker(token, "save", destination, result, automatic=automatic,
+        worker = SectionFileWorker(token, "save", destination, payload, automatic=automatic,
                                    maximum_unpacked_bytes=self.section_file_pool.coordinator.ram_budget_bytes)
         self._section_file_jobs[token] = worker
         self.section_archive_changed.emit(dict(info, status="saving", automatic=automatic))
         worker.signals.result.connect(self._section_file_completed)
         worker.signals.error.connect(lambda message: self._section_file_failed(token, info, message))
         worker.signals.finished.connect(lambda: self._section_file_finished(token))
-        self.section_file_pool.start(worker)
+        try:
+            self.section_file_pool.start(worker)
+        except Exception:
+            self._section_file_finished(token)
+            raise
         return identity
 
     @staticmethod
@@ -859,21 +874,33 @@ class CalculationController(QObject):
         maximum = self.section_file_pool.coordinator.ram_budget_bytes
         index = WorkingPointArchiveIndex.read(path, maximum_unpacked_bytes=maximum)
         token = uuid4().hex
+        for pending in self._section_file_jobs.values():
+            if pending.operation == "load":
+                pending.cancel_event.set()
+        self._latest_section_load_token = token
         worker = SectionFileWorker(token, "load", path, maximum_unpacked_bytes=maximum,
-                                   unpacked_size_bytes=index.unpacked_size_bytes)
+                                   unpacked_size_bytes=index.unpacked_size_bytes,
+                                   expected_package_digest=index.digest)
         self._section_file_jobs[token] = worker
-        info = {"path": str(Path(path).resolve()), "identity": token}
+        info = {"path": str(Path(path).resolve()), "identity": token, "operation_token": token}
         self.section_archive_changed.emit(dict(info, status="loading"))
         worker.signals.result.connect(self._section_file_completed)
         worker.signals.error.connect(lambda message: self._section_file_failed(token, info, message))
         worker.signals.finished.connect(lambda: self._section_file_finished(token))
-        self.section_file_pool.start(worker)
+        try:
+            self.section_file_pool.start(worker)
+        except Exception:
+            self._section_file_finished(token)
+            raise
+        return token
 
     def _section_file_completed(self, token, output):
         worker = self._section_file_jobs.get(token)
         if worker is None:
             return
         if worker.operation == "load":
+            if token != self._latest_section_load_token or worker.cancel_event.is_set():
+                return
             if not self._section_archive_record_current(output["info"]):
                 self._section_file_failed(token, output["info"], "Section archive changed after loading; load it again")
                 return
@@ -882,9 +909,9 @@ class CalculationController(QObject):
             except (ValueError, TypeError, RuntimeError) as exc:
                 self._section_file_failed(token, output["info"], str(exc))
                 return
-            self.section_loaded.emit(output["result"], output["info"])
+            self.section_loaded.emit(output["result"], dict(output["info"], operation_token=token))
             return
-        info = dict(output, status="saved")
+        info = dict(output, status="saved", operation_token=token)
         if not self._remember_section_archive(info):
             self._section_file_failed(token, info, "Section archive changed after saving; save the result again")
             return
@@ -893,15 +920,20 @@ class CalculationController(QObject):
     def _section_file_failed(self, token, info, message):
         worker = self._section_file_jobs.get(token)
         if worker is not None:
+            if worker.operation == "load" and token != self._latest_section_load_token:
+                return
             # Loading displays the operation token until the archive has been
             # admitted. Budget/admission failures occur after decoding exposes
             # a different archive identity, which must not hide this error.
             identity = token if worker.operation == "load" else info.get("identity")
-            self.section_archive_changed.emit(dict(info, identity=identity, status="failed", error=str(message),
+            self.section_archive_changed.emit(dict(info, identity=identity, operation_token=token,
+                                                   status="failed", error=str(message),
                                                    operation=worker.operation))
 
     def _section_file_finished(self, token):
         self._section_file_jobs.pop(token, None)
+        if token == self._latest_section_load_token:
+            self._latest_section_load_token = None
         for key, pending in tuple(self._section_file_pending.items()):
             if pending == token:
                 del self._section_file_pending[key]

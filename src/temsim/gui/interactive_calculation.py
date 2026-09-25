@@ -5,12 +5,12 @@ import json
 import math
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QSettings, QTimer, Signal
+from PySide6.QtCore import Qt, QSettings, QSignalBlocker, QTimer, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QLineEdit, QHeaderView, QSplitter, QFormLayout,
     QGroupBox, QProgressBar, QFileDialog,
-    QSlider, QListWidget, QListWidgetItem,
+    QSlider, QListWidget, QListWidgetItem, QTabWidget, QScrollArea,
 )
 from temsim.gui.input_policy import WheelSafeComboBox as QComboBox
 from temsim.gui.input_policy import WheelSafeDoubleSpinBox as QDoubleSpinBox
@@ -63,6 +63,7 @@ class InteractiveCalculationPage(QWidget):
         self._readout = None
         self._failed = False
         self._section_result = None
+        self._tuning_quality_name = "Preview"
         self.operation_allowed = lambda: True
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
@@ -80,7 +81,20 @@ class InteractiveCalculationPage(QWidget):
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         layout = QVBoxLayout(self)
-        layout.addWidget(self.splitter)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.pages = QTabWidget(self)
+        self.pages.setObjectName("liveTuningPages")
+        self.calculation_page = QWidget()
+        self.calculation_page.setObjectName("liveTuningCalculationPage")
+        calculation_layout = QVBoxLayout(self.calculation_page)
+        calculation_layout.setContentsMargins(0, 0, 0, 0)
+        self.calculation_scroll = QScrollArea()
+        self.calculation_scroll.setObjectName("liveTuningCalculationScroll")
+        self.calculation_scroll.setWidgetResizable(True)
+        self.calculation_scroll.setWidget(self.splitter)
+        calculation_layout.addWidget(self.calculation_scroll)
+        self.pages.addTab(self.calculation_page, "Calculation")
+        layout.addWidget(self.pages)
         form = QVBoxLayout(left)
         self.tuning_quality = _label("Live tuning: Preview (49 rays). Change quality in the toolbar.")
         form.addWidget(self.tuning_quality)
@@ -145,19 +159,15 @@ class InteractiveCalculationPage(QWidget):
         self.section_status = _label("Capture settings and choose an end plane. Add ranges only for live tuning.")
         self.section_status.setObjectName("interactiveSectionStatus")
         section_form.addWidget(self.section_status)
-        self.section_save = QPushButton("Save section state...")
+        self.section_save = QPushButton("Export result…")
         self.section_save.setObjectName("saveInteractiveSection")
         self.section_save.setEnabled(False)
-        self.section_save.setToolTip("Save a completed calculation at the current section and settings.")
+        self.section_save.setToolTip("Export the displayed calculation, its calculated settings and exact continuation state.")
         self.section_save.clicked.connect(self.section_save_requested)
-        self.section_load = QPushButton("Load section state...")
+        self.section_load = QPushButton("Open result…")
         self.section_load.setObjectName("loadInteractiveSection")
-        self.section_load.setToolTip("Load a saved executed section for compatible onward calculation.")
+        self.section_load.setToolTip("Restore calculated settings and display the saved result without recalculation.")
         self.section_load.clicked.connect(self.section_load_requested)
-        section_actions = QHBoxLayout()
-        section_actions.addWidget(self.section_save)
-        section_actions.addWidget(self.section_load)
-        section_form.addLayout(section_actions)
         self.section_body.hide()
         self.section_group.toggled.connect(self.section_body.setVisible)
         self.section_group.toggled.connect(self._section_options_changed)
@@ -165,17 +175,16 @@ class InteractiveCalculationPage(QWidget):
         self.section_z.valueChanged.connect(self._section_z_changed)
         self.section_components.itemChanged.connect(self._section_options_changed)
         form.addWidget(self.section_group)
-        archive_group = QGroupBox("Saved particle state")
+        archive_group = QGroupBox("Saved result")
         archive_layout = QVBoxLayout(archive_group)
         self.section_archive_status = _label(
             "Completed matching particle calculations are saved automatically. No saved state yet.")
         self.section_archive_status.setObjectName("particleSectionArchiveStatus")
         archive_layout.addWidget(self.section_archive_status)
-        self.section_archive_load = QPushButton("Load saved section...")
-        self.section_archive_load.setToolTip(
-            "Load executed upstream state without changing current instrument settings.")
-        self.section_archive_load.clicked.connect(self.section_load_requested)
-        archive_layout.addWidget(self.section_archive_load)
+        result_actions = QHBoxLayout()
+        result_actions.addWidget(self.section_load)
+        result_actions.addWidget(self.section_save)
+        archive_layout.addLayout(result_actions)
         form.addWidget(archive_group)
         self._section_archive_identity = None
         self._section_archive_current = True
@@ -283,6 +292,10 @@ class InteractiveCalculationPage(QWidget):
         self.splitter.splitterMoved.connect(lambda *_: QSettings().setValue(
             _SPLITTER_SETTINGS_KEY, self.splitter.saveState()))
 
+    def install_working_points(self, panel):
+        """Keep captured records beside the section controls in the same dock."""
+        self.pages.addTab(panel, "Working points")
+
     def _add_control_row(self, control, widget):
         self.live_table.add_control(control, widget)
 
@@ -347,7 +360,7 @@ class InteractiveCalculationPage(QWidget):
         identity = info.get("identity")
         if status in {"loading", "loaded"}:
             self._section_archive_identity = identity
-            self._section_archive_current = False
+            self._section_archive_current = status == "loaded" and bool(info.get("restored", False))
         elif self._section_archive_identity is not None and identity != self._section_archive_identity:
             return False
         self._section_archive_info = dict(info)
@@ -377,6 +390,11 @@ class InteractiveCalculationPage(QWidget):
             details.append(f"{operation} operation: {io_seconds} (excludes queue wait).")
         if info.get("path"):
             details.append(f"File: {info['path']}")
+        from temsim.gui.result_files import format_data_size
+        if info.get("compressed_size_bytes") is not None:
+            details.append(f"File size: {format_data_size(info['compressed_size_bytes'])} (lossless compression).")
+        if info.get("unpacked_size_bytes") is not None:
+            details.append(f"Unpacked data: {format_data_size(info['unpacked_size_bytes'])}.")
         if info.get("resumable_through_z_mm") is not None:
             details.append(f"Saved axial state reaches Z = {float(info['resumable_through_z_mm']):.9g} mm.")
         if info.get("energy_filter_completed"):
@@ -425,6 +443,121 @@ class InteractiveCalculationPage(QWidget):
         details.append("You can save this completed state or select the next section.")
         self.section_status.setText(" ".join(details))
         return True
+
+    def pause_live_tuning(self):
+        """Disarm delayed edits before an explicit result-file operation."""
+        self.timer.stop()
+        self.controller.cancel()
+        self._live_mode = False
+        self.live_plan = None
+        self.live_widgets = {}
+        self.live_table.clear_controls()
+        self.live_heading.setText("Excitation / live controls")
+
+    def capture_result_presentation(self):
+        """Keep references and small controls for a failed file-open rollback."""
+        return {
+            "attributes": {key: getattr(self, key) for key in (
+                "source_state", "seeds", "controls", "_readout", "_failed",
+                "_section_result", "_section_archive_identity", "_section_archive_current",
+                "_section_archive_info", "_tuning_quality_name")},
+            "ranges": [(self.ranges.item(row, 0).data(Qt.ItemDataRole.UserRole),
+                self.ranges.cellWidget(row, 1).text(), self.ranges.cellWidget(row, 2).text(),
+                self.ranges.cellWidget(row, 3).value()) for row in range(self.ranges.rowCount())],
+            "planes": [(self.section_plane.itemText(i), self.section_plane.itemData(i))
+                       for i in range(self.section_plane.count())],
+            "plane_index": self.section_plane.currentIndex(),
+            "z": (self.section_z.decimals(), self.section_z.minimum(),
+                  self.section_z.maximum(), self.section_z.value()),
+            "section": self.section_group.isChecked(),
+            "components": [self.section_components.item(i).clone()
+                           for i in range(self.section_components.count())],
+            "labels": [(label, label.text(), label.toolTip()) for label in self.findChildren(QLabel)],
+            "timing": (self.calculation_timing.title(), self.calculation_timing.text.toPlainText()),
+            "signals": [[self.particle_signal_table.item(r, c).clone()
+                         if self.particle_signal_table.item(r, c) else None
+                         for c in range(self.particle_signal_table.columnCount())]
+                        for r in range(self.particle_signal_table.rowCount())],
+        }
+
+    def restore_result_presentation(self, saved):
+        """Restore controls/readouts while deliberately keeping live work paused."""
+        with QSignalBlocker(self), QSignalBlocker(self.section_group), QSignalBlocker(self.section_z), QSignalBlocker(self.section_components):
+            for key, value in saved["attributes"].items():
+                setattr(self, key, value)
+            with QSignalBlocker(self.choice):
+                self.choice.clear()
+                for control in self.controls:
+                    self.choice.addItem(f"{control.label} ({control.unit})", control)
+            self.ranges.setRowCount(0)
+            for control, lower, upper, count in saved["ranges"]:
+                index = next(i for i, item in enumerate(self.controls) if item.identity == control.identity)
+                self.choice.setCurrentIndex(index)
+                self._add_range()
+                row = self.ranges.rowCount() - 1
+                self.ranges.cellWidget(row, 1).setText(lower)
+                self.ranges.cellWidget(row, 2).setText(upper)
+                self.ranges.cellWidget(row, 3).setValue(count)
+            with QSignalBlocker(self.section_plane):
+                self.section_plane.clear()
+                for text, data in saved["planes"]:
+                    self.section_plane.addItem(text, data)
+                self.section_plane.setCurrentIndex(saved["plane_index"])
+            decimals, lower, upper, value = saved["z"]
+            self.section_z.setDecimals(decimals)
+            self.section_z.setRange(lower, upper)
+            self.section_z.setValue(value)
+            self.section_group.setChecked(saved["section"])
+            self.section_body.setVisible(saved["section"])
+            self.section_components.clear()
+            for item in saved["components"]:
+                self.section_components.addItem(item)
+            # Range rebuilding invalidates the section; restore its provenance last.
+            for key, value in saved["attributes"].items():
+                setattr(self, key, value)
+            self.section_save.setEnabled(self._section_result is not None and not self.busy)
+            self.particle_signal_table.setRowCount(len(saved["signals"]))
+            for row, items in enumerate(saved["signals"]):
+                for column, item in enumerate(items):
+                    if item is not None:
+                        self.particle_signal_table.setItem(row, column, item)
+            for label, text, tooltip in saved["labels"]:
+                label.setText(text)
+                label.setToolTip(tooltip)
+            self.calculation_timing.setTitle(saved["timing"][0])
+            self.calculation_timing.text.setPlainText(saved["timing"][1])
+
+    def restore_calculated_result(self, result, info):
+        """Restore section controls and saved readouts without emitting edits."""
+        from temsim.instrument_snapshot import decode_instrument, encode_instrument
+        state = decode_instrument(encode_instrument(result.state_snapshot))
+        metrics = result.simulation.metrics
+        with (QSignalBlocker(self), QSignalBlocker(self.section_group),
+              QSignalBlocker(self.section_plane), QSignalBlocker(self.section_z),
+              QSignalBlocker(self.section_components)):
+            self.set_source(state)
+            self.set_tuning_quality(info["quality"] if info["quality"] in {"Preview", "Medium"} else "Preview")
+            self.section_plane.setCurrentIndex(0)
+            self.section_z.setDecimals(12)
+            self.section_z.setValue(float(info["target_z_mm"]))
+            full_path = bool(metrics.get("section_full_path", False))
+            self.section_group.setChecked(not full_path)
+            self.section_body.setVisible(not full_path)
+            self.section_components.clear()
+            by_key = {control.key: control.label.rsplit(" / ", 1)[0] for control in self.controls}
+            for key in metrics.get("section_component_keys", ()):
+                item = QListWidgetItem(by_key.get(key, key))
+                item.setData(Qt.ItemDataRole.UserRole, key)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Checked)
+                self.section_components.addItem(item)
+            self.set_section_result(result)
+            self.expect_section_archive(result)
+            self.set_section_archive_status(dict(info, status="loaded", restored=True))
+            self.calculation_timing.set_result(result)
+            self.set_particle_signals(getattr(result, "particle_signals", None) or ())
+        self.live_status.setText("Saved result loaded; live tuning is paused.")
+        self.status.setText("Calculated settings restored. Choose a new cutoff or explicitly run a calculation to continue.")
 
     def _section_options_changed(self, *_):
         self.invalidate_section_result()
@@ -743,7 +876,8 @@ class InteractiveCalculationPage(QWidget):
 
     def _busy(self, busy):
         for widget in (self.capture, self.build, self.ranges, self.choice, self.budget,
-                       self.live_start, self.final_calculation, self.section_group):
+                       self.live_start, self.final_calculation, self.section_group,
+                       self.section_load):
             widget.setEnabled(not busy)
         self.section_group.setEnabled(not busy and self.source_state is not None)
         self.section_save.setEnabled(not busy and self._section_result is not None)

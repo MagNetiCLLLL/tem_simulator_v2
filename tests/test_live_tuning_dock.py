@@ -115,6 +115,34 @@ def test_dock_close_and_reopen_retains_controls_readout_and_cache(windows, qtbot
     page._readout = None
 
 
+def test_working_points_share_live_dock_without_changing_calculation(windows, qtbot):
+    make, _ = windows
+    window = make()
+    page = window.workspace.interactive_calculation
+    points = window.working_points
+    assert window.workspace.tabs.indexOf(points) == -1
+    assert "Working Points" not in [window.workspace.tabs.tabText(i)
+                                    for i in range(window.workspace.tabs.count())]
+    assert page.isAncestorOf(points)
+    assert page.pages.currentWidget() is page.calculation_page
+    window.live_tuning_dock.toggleViewAction().trigger()
+    page = _configure(window)
+    slider = page.live_table.findChild(QSlider)
+    live_state, plan = window.state, page.live_plan
+    last_result = window.workspace._last_result
+    page.pages.setCurrentWidget(points)
+    qtbot.waitUntil(points.isVisible)
+    window.live_tuning_dock.close()
+    window.live_tuning_dock.toggleViewAction().trigger()
+    qtbot.waitUntil(points.isVisible)
+    assert page.pages.currentWidget() is points
+    assert window.state is live_state and page.live_plan is plan
+    assert window.workspace._last_result is last_result
+    assert not page.timer.isActive() and not window.preview_timer.isActive()
+    page.pages.setCurrentWidget(page.calculation_page)
+    assert page.live_table.findChild(QSlider) is slider
+
+
 def test_shared_ray_status_cannot_replace_cached_signal_readout(windows, qtbot, monkeypatch):
     make, _ = windows
     window = make()
@@ -140,6 +168,27 @@ def test_shared_ray_status_cannot_replace_cached_signal_readout(windows, qtbot, 
     window.workspace.show_ray_diagram()
     assert window.workspace.ray_result_tabs.currentWidget() is window.workspace.ray_workspace_splitter
     assert page._readout is old_readout
+
+
+def test_cutoff_controls_remain_reachable_in_a_small_floating_dock(windows, qtbot):
+    make, _ = windows
+    window = make()
+    dock = window.live_tuning_dock
+    dock.toggleViewAction().trigger()
+    dock.setFloating(True)
+    window._capture_interactive_settings()
+    page = window.workspace.interactive_calculation
+    page.section_group.setChecked(True)
+    dock.resize(900, 700)
+    qtbot.wait(30)
+    assert dock.height() <= 700
+    page.calculation_scroll.ensureWidgetVisible(page.final_calculation)
+    qtbot.wait(10)
+    centre = page.final_calculation.mapTo(page.calculation_scroll.viewport(),
+                                          page.final_calculation.rect().center())
+    assert page.calculation_scroll.viewport().rect().contains(centre)
+    assert page.section_load.isEnabled()
+    assert not page.timer.isActive() and not window.preview_timer.isActive()
 
 
 def test_live_tuning_dock_float_visibility_and_size_restore(windows, qtbot):

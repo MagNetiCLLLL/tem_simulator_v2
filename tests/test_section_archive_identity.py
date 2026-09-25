@@ -79,13 +79,16 @@ def test_delayed_completion_cannot_report_replaced_file_as_saved(
         dispatcher, executed_section, continued_section, tmp_path, operation):
     from temsim.particle_section_io import checked_section_archive_info
     from types import SimpleNamespace
+    from threading import Event
     owner, _, events = dispatcher
     path = tmp_path / "delayed.temsection"
     package = save_section_result(executed_section, path)
     info = checked_section_archive_info(executed_section, path,
         maximum_unpacked_bytes=8 * 1024**3, expected_package_digest=package.digest)
     save_section_result(continued_section, path, overwrite=True)
-    owner._section_file_jobs["delayed"] = SimpleNamespace(operation=operation)
+    owner._section_file_jobs["delayed"] = SimpleNamespace(operation=operation, cancel_event=Event())
+    if operation == "load":
+        owner._latest_section_load_token = "delayed"
     output = info if operation == "save" else {"result": executed_section, "info": info}
     owner._section_file_completed("delayed", output)
     assert events[-1]["status"] == "failed"
@@ -104,6 +107,53 @@ def test_unknown_existing_archive_is_verified_without_loading_arrays(
     second = archive_section_result(executed_section, tmp_path)
     assert second["identity"] == first["identity"] and second["reused"]
     assert second["_file_fingerprint"] == first["_file_fingerprint"]
+
+
+def test_queued_open_rejects_replacement_before_loading_arrays(
+        dispatcher, executed_section, continued_section, tmp_path, monkeypatch):
+    owner, workers, events = dispatcher
+    path = tmp_path / "queued.temresult"
+    save_section_result(continued_section, path)
+    owner.load_section_archive(path)
+    save_section_result(executed_section, path, overwrite=True)
+    def no_arrays(*_args, **_kwargs):
+        pytest.fail("A replaced file must be rejected before loading arrays")
+    monkeypatch.setattr("temsim.working_point_archive.WorkingPointArchiveIndex.load", no_arrays)
+    workers[-1].run()
+    assert events[-1]["status"] == "failed"
+    assert "changed while waiting" in events[-1]["error"]
+    assert not owner._loaded_section_seeds
+
+
+def test_queued_export_pins_products_and_identity_before_later_gui_enrichment(
+        dispatcher, executed_section, tmp_path):
+    from dataclasses import replace
+    from temsim.instrument_snapshot import decode_instrument, encode_instrument
+    owner, workers, events = dispatcher
+    result = replace(executed_section, signatures=dict(executed_section.signatures),
+        performance={"display": {"seconds": 1.}},
+        simulation=replace(executed_section.simulation, metrics=dict(executed_section.simulation.metrics)),
+        state_snapshot=decode_instrument(encode_instrument(executed_section.state_snapshot)))
+    expected_identity = section_archive_identity(result)
+    expected_lens = result.state_snapshot.lenses[0].percent
+    path = tmp_path / "captured.temresult"
+    owner.archive_completed_section(result, path=path)
+    # Model normal GUI enrichment by replacing a root product while the save
+    # waits in its resource queue; numerical histories remain published data.
+    result.sample_region = object()
+    result.signatures["later_product"] = "not-present-at-export"
+    result.performance["display"]["seconds"] = 9.
+    result.simulation.metrics["section_target_z_mm"] += 1.
+    result.state_snapshot.lenses[0].percent += 1.
+    workers[-1].run()
+    assert events[-1]["status"] == "saved", events[-1]
+    assert events[-1]["identity"] == expected_identity
+    restored = load_section_result(path)
+    assert restored.sample_region is executed_section.sample_region
+    assert restored.performance["display"]["seconds"] == 1.
+    assert restored.state_snapshot.lenses[0].percent == expected_lens
+    assert section_archive_identity(restored) == expected_identity
+    assert not owner._section_file_pending
 
 
 def test_existing_automatic_archive_payload_corruption_is_not_reused(executed_section, tmp_path):

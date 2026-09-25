@@ -1,9 +1,79 @@
 # TEM Simulator v2 — Project Handoff
 
-Last updated: **2026-09-21**. Current checkpoint:
+Last updated: **2026-09-25**. Current checkpoint:
 **classical particle transport and qualitative scientific trends**.
 
-Latest continuation: [Project audit repairs](docs/development/project-audit-fixes-2026-09-21.md).
+Latest continuation: [Condenser adjustment and accelerator annotations](docs/development/condenser-adjustment-display-2026-09-25.md).
+The Ray Diagram action is now Auto-adjust condensers, with captured C1/C2/C3
+before/after values and explicit optical-validation scope. A persisted
+Acceleration gaps toggle draws snapshot-based stage annotations without changing
+trajectories. Completed optical validation supplies its actual straight-column
+extent; it does not acquire a resumable particle checkpoint. All 116 distinct
+targeted cases passed. A native 193-source-sample candidate passed application,
+undo and GUI publication using an isolated compilation cache; both screenshots
+were inspected. The note records the earlier default-cache native crash and
+verification limits. No solver smoothing, coherent development, commit/push or
+user-application restart was performed. Restart to load the changes.
+
+Previous repair: [Match transport result signatures](docs/development/match-transport-signatures-2026-09-25.md).
+The transport result producer now copies immutable manifest signatures into the
+current result dictionary contract. Two new tests reproduced the user's exact
+error before the fix; all 33 targeted checks pass afterward. No physical solver
+or compatibility policy changed. Restart the application to load the repair.
+
+Previous continuation: [Shared beam plot sizes and ray colours](docs/development/unified-beam-colours-2026-09-25.md).
+The two transverse plots share fixed dimensions and axis gutters. Plot choices
+now synchronize Ray Diagram colours in both directions. Source/angle colours
+stay fixed per emitted identity; TOF uses a saved cumulative-time gradient with
+one common result-wide palette, while relative arrival delay remains in hover.
+The distance-versus-time clarification was left open; cumulative time was the
+explicit implementation assumption. Geometric path length was not added.
+Gradient rendering retains stop clipping, missing-clock grey paths, rotation
+and the existing screen-detail caches. Numerical transport was not changed.
+Focused validation covers 252 distinct passing cases; see the linked note for
+scope and the existing old-archive source-identity rejection. No commit/push
+or user-application restart was performed. Coherent work remains paused.
+
+Previous continuation: [Working points inside Live tuning](docs/development/live-tuning-working-points-2026-09-22.md).
+The independent Working Points workspace tab has been removed. Live tuning now
+contains Calculation and Working points subpages; infrequent record tools,
+captured details and convergence checks are in a default-collapsed Advanced area.
+Calculation has one Open/Export pair and scrollable cutoff/range controls. The
+same records, signals, restoration and continuation paths remain connected.
+New/reset Results layouts open the nested Working points page, while existing
+custom layouts are preserved. All 190 distinct related tests passed. Source and
+isolated installed GUI checks each passed 16/16 with calculations forbidden;
+all four tested page states fit 900 × 700. The final wheel matches all 449 current
+Python modules. Compilation and whitespace checks passed. This is targeted
+verification; the prior complete-suite live-slider timing issue below remains
+unresolved. Restart to use the changed interface. No commit or push was made.
+
+Previous continuation: [Compact result files and startup results](docs/development/result-files-and-startup-2026-09-22.md).
+The toolbar and File menu now provide Open result / Export result (Ctrl+O / Ctrl+S),
+named saved results and an optional startup result. Files preserve calculated
+inputs, full-precision executed state and dependency-checked continuation;
+opening restores editable settings and saved views without transport or an
+automatic Preview. Exports use lossless compression and exact array deduplication;
+a real 49-particle fixture shrank 39.53%. Internal automatic archives retain
+their low-overhead storage policy. Generated result packages remain excluded
+from Git, and the named library is separate from disposable calculation caches.
+
+Result-file, archive and library checks pass, including actual Preview/High
+accuracy file loading with physical calculations forbidden. Full regression
+executed 6,000 cases: 5,998 passed, one historical skip, one live-slider timing
+failure. Following the final menu optimization, all 31 result/archive GUI cases
+(including two new menu checks) passed as part of a 38-case run: 37 passed,
+the same slider final-frame timeout failed. Final collection has 6,002 cases, all covered by
+the full run or affected-module follow-up. The unchanged slider single case
+then passed on both HEAD and current code with matched one-thread budgets, but
+the intermittent module timing failure remains unresolved: do not claim a
+fully green regression or proven new transport regression. Compilation,
+dependency checks, final wheel byte comparison (449 Python modules), and
+isolated installed GUI startup checks passed. Restart the application to use the new controls;
+no GUI restart, commit or push was performed for this feature.
+Coherent development remains paused.
+
+Previous continuation: [Project audit repairs](docs/development/project-audit-fixes-2026-09-21.md).
 The five independently reproduced defects are fixed: all filter-plane plots use
 executed physical crossings, archive reuse checks verified file identity,
 ordinary sample/EDS/STEM cancellation reaches existing safe boundaries, camera

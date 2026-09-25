@@ -3,6 +3,8 @@ import numpy as np
 import pyqtgraph as pg
 
 from temsim.gui.transverse_projection import transverse_view_coordinates
+from temsim.gui.flight_time_colours import FlightTimeColourScale
+from temsim.gui.ray_scalar_colours import scalar_colour_indices, scalar_rgb
 
 
 class BeamTimeOfFlight:
@@ -11,6 +13,17 @@ class BeamTimeOfFlight:
         self.owner = analysis.owner
         self.reference_s = None
         self.delay_s = np.empty(0)
+        self.invalidate()
+
+    def invalidate(self):
+        self._scale_result = None
+        self._scale = None
+
+    def colour_scale(self, result):
+        if self._scale is None or self._scale_result is not result:
+            self._scale = FlightTimeColourScale.from_result(result)
+            self._scale_result = result
+        return self._scale
 
     def draw(self, data):
         a, owner = self.analysis, self.owner
@@ -28,10 +41,9 @@ class BeamTimeOfFlight:
         known = np.isfinite(times) & (times >= 0)
         self.reference_s = float(np.min(times[known])) if np.any(known) else None
         self.delay_s = times - self.reference_s if self.reference_s is not None else np.full(times.shape, np.nan)
-        maximum = float(np.max(self.delay_s[known])) if np.any(known) else 0.
-        cmap = pg.colormap.get("viridis")
-        brushes = [pg.mkBrush(cmap.mapToQColor(float(value/maximum if maximum > 0 else 0)))
-                   if np.isfinite(value) else pg.mkBrush("#94a3b8") for value in self.delay_s[selected]]
+        scale = self.colour_scale(owner._result)
+        colour_bins = scalar_colour_indices(times[selected], scale.maximum_s)
+        brushes = [pg.mkBrush(scalar_rgb(int(index))) for index in colour_bins]
         indices = np.flatnonzero(selected)
         records = [{"source_ray_id": int(data.source_ray_id[i]), "column_index": int(data.column_index[i]),
                     "flight_time_s": float(times[i]), "delay_s": float(self.delay_s[i])} for i in indices]
@@ -48,14 +60,14 @@ class BeamTimeOfFlight:
         owner.plot.addLine(x=0, pen=pg.mkPen("#94a3b8", width=.8))
         owner.plot.addLine(y=0, pen=pg.mkPen("#94a3b8", width=.8))
         a._set_ranges(a._ranges.get(a.mode, a._point_bounds(x, y)))
-        unit, scale = ("fs", 1e15) if maximum < 1e-12 else ("ps", 1e12) if maximum < 1e-9 else ("ns", 1e9)
         a.legend.setVisible(True)
         a.legend.setText(
-            f'<span style="color:#440154">■</span> 0 — '
-            f'<span style="color:#fde725">■</span> {maximum*scale:.6g} {unit} delay'
+            f'<span style="color:#440154">■</span> — '
+            f'<span style="color:#fde725">■</span> {scale.label}'
             if self.reference_s is not None else "Arrival times unavailable in this result")
         a.legend.setToolTip(
-            "Delay relative to the earliest timed arrival in the saved plane population, before display subsampling. "
+            "Cumulative flight time on a shared scale for the whole captured result, including Ray Diagram. "
+            "Hover also shows delay from the earliest timed arrival at this plane. "
             "Grey: incomplete clock. Interpolation reads saved integration clocks, not drawing-path lengths. "
             "This is classical laboratory time, not quantum phase.")
         a._summary(data, f" | {np.count_nonzero(known):,}/{len(times):,} paths timed")
@@ -80,7 +92,7 @@ class BeamTimeOfFlight:
             azimuth_rad=source.values(data.source_ray_id[selected], "emission_direction"),
             angle_to_normal_rad=source.values(data.source_ray_id[selected], "emission_angle"),
             flight_time_s=times[selected], reference_time_s=self.reference_s,
-            status="Arriving paths at this plane. Grey: time unknown; non-arrivals have no arrival time.")
+            status="Colour: arrival time at this plane. Grey: time unknown; non-arrivals are omitted.")
         owner.source_plot.summary.setToolTip(
             "Each displayed downstream path retains its own arrival time, including paths with the same source ID. "
             "Only arriving display paths are shown here; this is not the full emitted population. "

@@ -241,7 +241,7 @@ class WorkingPointCheckpoint:
         return bool(self.arrays)
 
     def write_package(self, path, *, overwrite=False, evidence=(), mode=None,
-                      compression=ZIP_DEFLATED, maximum_unpacked_bytes=8*1024**3):
+                      compression=ZIP_DEFLATED, compresslevel=None, maximum_unpacked_bytes=8*1024**3):
         if mode is not None:
             from temsim.working_point_export import export_checkpoint
             self = export_checkpoint(self, mode)
@@ -263,7 +263,7 @@ class WorkingPointCheckpoint:
         with NamedTemporaryFile(dir=path.parent, prefix=".working-point-", suffix=".tmp", delete=False) as stream:
             temporary = Path(stream.name)
         try:
-            with ZipFile(temporary, "w", compression=compression) as archive:
+            with ZipFile(temporary, "w", compression=compression, compresslevel=compresslevel) as archive:
                 for index, (key, value) in enumerate(sorted(self.arrays.items())):
                     entry = f"arrays/{index}.npy"
                     # Stream NPY chunks into the atomic package. Large particle

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from temsim.gui.input_policy import WheelSafeComboBox
 from temsim.gui.emission_source_data import EmissionSourceData
+from temsim.gui.beam_colours import emission_colour
 from temsim.gui.filter_plane_data import sample_filter_plane
 from temsim.gui.beam_plane_data import (
     sample_beam_plane, spatial_histogram, angular_histogram,
@@ -75,6 +76,7 @@ class BeamAnalysisControls:
         self._source_brush_cache = {}
         self._source_plot_key = None
         self._advanced = False
+        self._published_colour = None
         self._ranges = {}
         self._hover_payload = None
         self._drawing = False
@@ -92,12 +94,12 @@ class BeamAnalysisControls:
             self.tracking_combo.addItem(label, key)
         self.tracking_combo.addItem("Advanced diagnostics", "advanced")
         self.tracking_combo.setItemData(2,
-            "Arrival delay at the selected plane, since simultaneous tip emission. "
+            "Cumulative arrival time at the selected plane, since simultaneous tip emission. "
             "Incomplete or historical path clocks remain grey. This is not wave phase.", Qt.ItemDataRole.ToolTipRole)
         self.tracking_combo.setToolTip(
             "One selection sets both plots. Source position: position below, fixed launch-position colour. "
             "Emission direction: angles below, fixed launch-azimuth colour. "
-            "Time of flight: position below, the same per-path arrival-delay colour in both plots. "
+            "Time of flight: position below, the same arrival-time colour in both plots and Ray Diagram. "
             "The upper axes always show actual tip emission positions. "
             "Advanced diagnostics exposes separate analysis controls. No retracing."
         )
@@ -178,6 +180,7 @@ class BeamAnalysisControls:
             self.redraw()
 
     def invalidate(self):
+        self.tof.invalidate()
         self._cache_key = None
         self._cache = None
         self._filter_cache = None
@@ -209,6 +212,16 @@ class BeamAnalysisControls:
         for combo in (self.mode_combo, self.colour_combo):
             combo.blockSignals(False)
         self._mode_changed()
+
+    def set_colour_quantity(self, quantity):
+        """Apply a Ray Diagram choice through the same plot controls."""
+        if self.wave is not None or self.colour_combo.currentData() == quantity:
+            return
+        if quantity in self.TRACKING_PRESETS:
+            self.tracking_combo.setCurrentIndex(self.tracking_combo.findData(quantity))
+        else:
+            self._advanced = True
+            self.colour_combo.setCurrentIndex(self.colour_combo.findData(quantity))
 
     def refresh_source_plot(self):
         """Draw actual launch positions, never downstream survivors or a colour wheel."""
@@ -311,11 +324,14 @@ class BeamAnalysisControls:
         self.owner.colour_legend_toggle.setVisible(wheel_visible)
         self.owner.angle_colour_wheel.setVisible(wheel_visible and self.owner.colour_legend_toggle.isChecked())
         self.owner.initial_beam_heading.setText(
-            "Emission positions · arrival delay" if colour == "tof" else
+            "Emission positions · arrival time at selected plane" if colour == "tof" else
             "Emission direction colour · actual source positions" if colour == "emission_direction" else
             "Emission angle to normal · actual source positions" if colour == "emission_angle" else
             "Source position colour · actual source positions")
         self.owner.angle_colour_wheel.set_colour_quantity(colour)
+        if colour != self._published_colour:
+            self._published_colour = colour
+            self.owner.colour_quantity_changed.emit(colour)
         self.owner.plot.setVisible(self.mode != "interactions")
         self.table.setVisible(self.mode == "interactions")
         self.owner.fit_beam.setEnabled(self.mode != "interactions")
@@ -403,19 +419,13 @@ class BeamAnalysisControls:
                   and not self._source_has_positions else
                   data.values(ids, mode) if data is not None else np.full(len(ids), np.nan))
         result = []
-        cmap = pg.colormap.get("viridis") if mode == "emission_angle" else None
         for ray_id, angle in zip(ids, angles):
             key = (mode, float(angle) if ray_id >= 0 and np.isfinite(angle) else None)
             cached = self._source_brush_cache.get(key)
             if cached is not None:
                 result.append(cached)
                 continue
-            if ray_id < 0 or not np.isfinite(angle):
-                colour = QColor("#94a3b8")
-            elif cmap is not None:
-                colour = cmap.mapToQColor(float(np.clip(angle/(math.pi/2), 0., 1.)))
-            else:
-                colour = QColor.fromHsvF(float(angle % (2*math.pi))/(2*math.pi), .88, 1.)
+            colour = emission_colour(mode, float(angle), int(ray_id))
             brush = pg.mkBrush(colour)
             self._source_brush_cache[key] = brush
             result.append(brush)

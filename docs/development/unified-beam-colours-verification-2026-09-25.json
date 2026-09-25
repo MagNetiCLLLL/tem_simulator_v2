@@ -1,0 +1,138 @@
+{
+  "created_at_utc": "2026-09-25T10:42:30.375489+00:00",
+  "scope": "Shared plot sizes, source/angle colour linking, cumulative-TOF gradient GUI validation",
+  "unique_tests_passed": 252,
+  "test_summaries": [
+    {
+      "path": "tmp/unified-beam-colours-first-20260925.xml",
+      "cases": 84,
+      "duplicate_cases": 0,
+      "failures": 0,
+      "skipped": 0,
+      "sha256": "5ab1ff83ac67b66c9e6bf0f2814dd3e4b23b28ad12466a9e34274e5164e23f6e"
+    },
+    {
+      "path": "tmp/unified-beam-colours-regression-20260925.xml",
+      "cases": 113,
+      "duplicate_cases": 0,
+      "failures": 0,
+      "skipped": 0,
+      "sha256": "1937563ad06158deb30615eca6b4d8f357a2ddda51648103a714c7a3fe12d759"
+    },
+    {
+      "path": "tmp/unified-beam-colours-20260925/sizes-final.xml",
+      "cases": 21,
+      "duplicate_cases": 1,
+      "failures": 0,
+      "skipped": 0,
+      "sha256": "01e2ad848e8ee0ffb7b0ad8875a1395fcb82d94551e92b9f62118c6dcbfdf84d"
+    },
+    {
+      "path": "tmp/unified-ray-source-colours-20260925.xml",
+      "cases": 11,
+      "duplicate_cases": 0,
+      "failures": 0,
+      "skipped": 0,
+      "sha256": "50bade718860389663dfbb532a9d12d26ef6450e15ce0a302b31341ed1df6980"
+    },
+    {
+      "path": "tmp/ray-tof-gradient-final-20260925.xml",
+      "cases": 24,
+      "duplicate_cases": 0,
+      "failures": 0,
+      "skipped": 0,
+      "sha256": "2831ce10f3f8580cd4500dc58e12d385f91bf28fdb7cf3eca83241e5c9cf85a6"
+    },
+    {
+      "path": "tmp/unified-beam-colours-layout-followup-20260925.xml",
+      "cases": 67,
+      "duplicate_cases": 67,
+      "failures": 0,
+      "skipped": 0,
+      "sha256": "8a82c6b955f61dd730d5a3abfbf6f8fa0b94373584341f70d0d5235e0e9ef875"
+    }
+  ],
+  "source_modules_at_receipt": 453,
+  "source_digest_at_receipt": "788baed25816a13612d8ae6ef76c33797d82824f0948f8b39d98c8a5bd52fd30",
+  "compilation_exit_code": 0,
+  "whitespace_exit_code": 0,
+  "visual_checks": {
+    "source_synchronised_mode": true,
+    "source_equal_outer": true,
+    "source_equal_inner": true,
+    "source_unclipped_plots": true,
+    "source_axis_titles_inside": true,
+    "source_captions_clear": true,
+    "source_layout_idle": true,
+    "source_shared_scatter_colours": true,
+    "source_ray_colours_match_source": true,
+    "emission_direction_synchronised_mode": true,
+    "emission_direction_equal_outer": true,
+    "emission_direction_equal_inner": true,
+    "emission_direction_unclipped_plots": true,
+    "emission_direction_axis_titles_inside": true,
+    "emission_direction_captions_clear": true,
+    "emission_direction_layout_idle": true,
+    "emission_direction_shared_scatter_colours": true,
+    "emission_direction_ray_colours_match_source": true,
+    "tof_synchronised_mode": true,
+    "tof_equal_outer": true,
+    "tof_equal_inner": true,
+    "tof_unclipped_plots": true,
+    "tof_axis_titles_inside": true,
+    "tof_captions_clear": true,
+    "tof_layout_idle": true,
+    "tof_shared_scatter_colours": true,
+    "tof_has_gradient": true,
+    "custom_equal_outer": true,
+    "custom_equal_inner": true,
+    "custom_captions_clear": true,
+    "custom_layout_idle": true,
+    "no_numerical_dispatch": true
+  },
+  "visual_scope": "Display-only visual QA of a clearly labelled synthetic 49-particle cached fixture; no new physics",
+  "screenshots": [
+    {
+      "path": "tmp/unified-beam-colours-20260925/source-workspace.png",
+      "sha256": "9aa58004bd7e6852b9c3b70ade799a753759c692ffb85b7c3f15121bec0c604a"
+    },
+    {
+      "path": "tmp/unified-beam-colours-20260925/source-transverse.png",
+      "sha256": "915f3ee4c24417cf21da28d594f67e335724ed8305ce4093bd75b722b6fb6653"
+    },
+    {
+      "path": "tmp/unified-beam-colours-20260925/emission_direction-workspace.png",
+      "sha256": "826c7754d81c07ead2fd54d70b7911486cefaa7ba870995eaa7a9b9c0e66c0e5"
+    },
+    {
+      "path": "tmp/unified-beam-colours-20260925/emission_direction-transverse.png",
+      "sha256": "297490d008dd2990727019494230bbdfad4757df3e0fb213c12028190785b2af"
+    },
+    {
+      "path": "tmp/unified-beam-colours-20260925/tof-workspace.png",
+      "sha256": "b4909d97c62915fb48be02d8fa39378f6086c171069aa48c214d9ba465038b16"
+    },
+    {
+      "path": "tmp/unified-beam-colours-20260925/tof-transverse.png",
+      "sha256": "68d0e5e8b4da92006c2469c049e835fd0a323d65725b669aee75f92d366f4a3a"
+    },
+    {
+      "path": "tmp/unified-beam-colours-20260925/tof-custom-size-transverse.png",
+      "sha256": "0712b4e6ac54b5629dde9aa84904e6c9db6b81d195ff9b70ad0c6454ac310751"
+    }
+  ],
+  "visual_numerical_dispatch_attempts": [],
+  "old_archive_visual_attempt": {
+    "status": "rejected_without_bypass",
+    "error": "Solver implementation changed; historical viewing only",
+    "reason": "Existing source identity hashes all Python modules, including GUI code",
+    "record": "tmp/unified-beam-colours-20260925/visual-check.json"
+  },
+  "limitations": [
+    "TOF uses cumulative time, not geometric path length; clarification remained unanswered",
+    "A synthetic visual fixture does not qualify the physical microscope chain",
+    "Regression includes the existing bounded 49-particle result-file fixture",
+    "No full repository regression or performance qualification was attempted",
+    "Earlier intermittent live-slider timing issue remains outside this scope"
+  ]
+}

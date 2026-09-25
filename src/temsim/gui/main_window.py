@@ -103,19 +103,22 @@ class MainWindow(QMainWindow):
         self.resize(1500, 920)
         self.setDockNestingEnabled(True)
 
+        from temsim.gui.result_files import ResultFiles
+        self.result_files = ResultFiles(self)
+
         self.catalog = AssemblyCatalog()
         self.selection = self.catalog.default_selection()
         self.state = default_state()
         self.assembly = self.catalog.apply(self.state, self.selection)
         # Source defaults are owned by the shared tip / assembly loader, not a
         # GUI-only override. Explicit profile and model choices remain separate.
-        if self._apply_state_operating_modes(
-            self.state, self.selection
-        ) is None:
+        if (not self.result_files.hold_automatic_preview
+                and self._apply_state_operating_modes(self.state, self.selection) is None):
             raise ValueError(
                 "The default assembly has no compatible operating-mode pair"
             )
-        switch_mode(self.state, "ideal")
+        if not self.result_files.hold_automatic_preview:
+            switch_mode(self.state, "ideal")
         self.manifest_editor = ManifestEditor()
         catalog_audit = self.manifest_editor.validate_catalog()
         self._runtime_targets = {}
@@ -131,7 +134,7 @@ class MainWindow(QMainWindow):
         self._alignment_commits = AlignmentCommitGate()
         self._active_working_checkpoint = None
         self.working_points = WorkingPointPanel(self)
-        self.workspace.tabs.addTab(self.working_points, "Working Points")
+        self.workspace.interactive_calculation.install_working_points(self.working_points)
         self.working_points.current_snapshot = lambda: capture_instrument_snapshot(self.state)
         self.working_points.restore_requested.connect(self._restore_working_point)
         self.working_points.illumination_requested.connect(self._preview_illumination_apply)
@@ -357,7 +360,12 @@ class MainWindow(QMainWindow):
         self.workspace_layouts = WorkspaceLayouts(self, QSettings(), self.layouts_menu)
         self._restore_workspace()
         self.workspace_layouts.restore_active()
-        self.preview_timer.start(self.INITIAL_PREVIEW_DELAY_MS)
+        self.workspace.interactive_calculation.controller.busy_changed.connect(self.result_files.refresh_actions)
+        self.result_files.refresh_actions()
+        if self.result_files.hold_automatic_preview:
+            QTimer.singleShot(0, self.result_files.start)
+        else:
+            self.preview_timer.start(self.INITIAL_PREVIEW_DELAY_MS)
 
     def _create_dock(self, title, object_name, widget, area) -> QDockWidget:
         dock = QDockWidget(title, self)
@@ -374,10 +382,8 @@ class MainWindow(QMainWindow):
 
     def _create_actions(self) -> None:
         self.open_profile_action = QAction("Open operating profile...", self)
-        self.open_profile_action.setShortcut("Ctrl+O")
         self.open_profile_action.triggered.connect(self.open_profile)
         self.save_profile_action = QAction("Save operating profile...", self)
-        self.save_profile_action.setShortcut("Ctrl+S")
         self.save_profile_action.triggered.connect(self.save_profile)
         self.reload_toml_action = QAction(
             "Reload and validate TOML catalog", self
@@ -391,9 +397,12 @@ class MainWindow(QMainWindow):
         self.reset_layout_action.triggered.connect(self.reset_workspace)
 
         file_menu = self.menuBar().addMenu("File")
-        file_menu.addAction(self.open_profile_action)
-        file_menu.addAction(self.save_profile_action)
-        file_menu.addAction(self.reload_toml_action)
+        self.result_files.install_actions(file_menu)
+        file_menu.addSeparator()
+        settings_menu = file_menu.addMenu("Settings")
+        settings_menu.addAction(self.open_profile_action)
+        settings_menu.addAction(self.save_profile_action)
+        settings_menu.addAction(self.reload_toml_action)
         self.dimension_audit_action = file_menu.addAction("Dimension definitions and evidence audit…")
         self.dimension_audit_action.triggered.connect(self._show_dimension_audit)
         file_menu.addSeparator()
@@ -536,6 +545,10 @@ class MainWindow(QMainWindow):
         toolbar.setObjectName("calculationToolbar")
         toolbar.setMovable(False)
 
+        toolbar.addAction(self.open_result_action)
+        toolbar.addAction(self.export_result_action)
+        toolbar.addSeparator()
+
         setup_button = QPushButton("Calculate setup")
         setup_button.setObjectName("calculateSetupButton")
         setup_button.clicked.connect(self._open_calculate_setup)
@@ -668,6 +681,7 @@ class MainWindow(QMainWindow):
         else:
             self._progress_owners.discard(str(owner))
         self.progress.setVisible(bool(self._progress_owners))
+        self.result_files.refresh_actions()
 
     @input_io.using_state_inputs
     def _refresh_assembly_views(self) -> None:
@@ -868,50 +882,27 @@ class MainWindow(QMainWindow):
         page.start_build()
 
     def _section_configuration_changed(self) -> None:
+        if self.result_files.loading:
+            return
         page = self.workspace.interactive_calculation
         if page._live_mode:
             self.schedule_preview("interactive_tuning")
 
     def _save_particle_section(self) -> None:
-        from temsim.calculation_cache import state_model_signature
-        page = self.workspace.interactive_calculation
-        result = page._section_result
-        try:
-            if (result is None or result.model_signature != state_model_signature(self.state)
-                    or page.timer.isActive() or self._interactive_preview_pending):
-                page.invalidate_section_result("Current settings need a completed section calculation before saving.")
-                return
-            path, _ = QFileDialog.getSaveFileName(self, "Save executed particle section", "",
-                                                  "Particle section (*.temsection)")
-            if not path:
-                return
-            page.expect_section_archive(result)
-            self.calculations.archive_completed_section(result, path=path)
-        except (ValueError, RuntimeError, OSError, TypeError) as exc:
-            page.show_error(str(exc), affects_readout=False)
+        self.result_files.export_dialog()
 
     def _load_particle_section(self) -> None:
-        page = self.workspace.interactive_calculation
-        path, _ = QFileDialog.getOpenFileName(self, "Load executed particle section", "",
-                                              "Particle section (*.temsection)")
-        if not path:
-            return
-        try:
-            self.calculations.load_section_archive(path)
-        except (ValueError, RuntimeError, OSError, TypeError) as exc:
-            page.show_error(str(exc), affects_readout=False)
+        self.result_files.open_dialog()
 
     def _particle_section_loaded(self, result, info) -> None:
-        page = self.workspace.interactive_calculation
-        page.invalidate_section_result(
-            f"Loaded executed state through Z = {info.get('resumable_through_z_mm', info['target_z_mm']):.9g} mm "
-            f"({info['quality']}). Choose the next cutoff. Current settings are unchanged; "
-            "matching upstream calculations will be reused.")
-        page.set_section_archive_status(dict(info, status="loaded"))
-        self.log_output.appendPlainText(f"Loaded particle section cache: {info['path']}")
+        self.result_files.loaded(result, info)
 
     def _section_archive_status_changed(self, info) -> None:
+        info = self.result_files.presentation_status(info)
+        if info is None:
+            return
         self.workspace.interactive_calculation.set_section_archive_status(info)
+        self.result_files.archive_status(info)
         if info.get("status") == "saved":
             self.log_output.appendPlainText(f"Particle state saved through Z = {info['target_z_mm']:.9g} mm: {info['path']}")
         elif info.get("status") == "failed":
@@ -948,6 +939,9 @@ class MainWindow(QMainWindow):
                     or self._direct_alignment_state_token is not None or self._preset_state_token is not None)
 
     def _interactive_operation_finished(self) -> None:
+        if self.result_files.hold_automatic_preview:
+            self._preview_deferred_for_interactive = False
+            return
         if self._preview_deferred_for_interactive:
             self._preview_deferred_for_interactive = False
             self.preview_timer.start(0)
@@ -1000,6 +994,10 @@ class MainWindow(QMainWindow):
 
     def _design_sweep_finished(self) -> None:
         self.workspace.design_explorer.set_sweep_finished()
+        self.result_files.refresh_actions()
+        if self.result_files.hold_automatic_preview:
+            self._preview_deferred_for_sweep = False
+            return
         if self._preview_deferred_for_sweep:
             self._preview_deferred_for_sweep = False
             self.preview_timer.start(0)
@@ -1892,6 +1890,9 @@ class MainWindow(QMainWindow):
                 and self._interactive_preview_generation == self.calculations.generation)
 
     def schedule_preview(self, _parameter: str = "") -> None:
+        if self.result_files.loading:
+            return
+        self.result_files.hold_automatic_preview = False
         page = self.workspace.interactive_calculation
         if page.particle_signal_table.rowCount():
             page.particle_signal_status.setText("Previous pixel | settings changed; awaiting calculation.")
@@ -1982,6 +1983,10 @@ class MainWindow(QMainWindow):
         self._schedule_design_explorer_refresh()
 
     def run_preview(self) -> None:
+        if self.result_files.loading or (self.sender() is self.preview_timer
+                                         and self.result_files.hold_automatic_preview):
+            return
+        self.result_files.hold_automatic_preview = False
         if self.workspace.interactive_calculation.busy:
             self._preview_deferred_for_interactive = True
             return
@@ -2030,6 +2035,9 @@ class MainWindow(QMainWindow):
             self._interactive_preview_generation = self.calculations.generation
 
     def run_high_accuracy(self) -> None:
+        if self.result_files.loading:
+            return
+        self.result_files.hold_automatic_preview = False
         # Shared admission queues this explicitly captured request behind any
         # existing experiment/alignment without losing the user's submission.
         self.preview_timer.stop()
@@ -2088,6 +2096,8 @@ class MainWindow(QMainWindow):
             self.log_output.appendPlainText(stage)
 
     def _calculation_ready(self, quality: str, result, duration: float) -> None:
+        if self.result_files.loading or self.result_files.hold_automatic_preview:
+            return
         if quality not in ("Preview", "Medium") and getattr(result, "calculation_manifest", None) is not None:
             from temsim.working_point import WorkingPointCheckpoint
             try:
@@ -2106,6 +2116,7 @@ class MainWindow(QMainWindow):
                 self._schedule_design_explorer_refresh()
                 return
         self.workspace.display_result(result, quality)
+        self.result_files.refresh_actions()
         self.workspace.interactive_calculation.calculation_timing.set_result(result, duration)
         if getattr(result, "particle_signals", None) is not None:
             self.workspace.interactive_calculation.set_particle_signals(result.particle_signals)
@@ -2198,6 +2209,8 @@ class MainWindow(QMainWindow):
                 self.log_output.appendPlainText(line)
 
     def _calculation_failed(self, quality: str, message: str) -> None:
+        if self.result_files.loading or self.result_files.hold_automatic_preview:
+            return
         self.workspace.physical_layout.model_editor.set_calculation_status("failed", f"{quality}: {message}. Previous results have not been replaced.")
         self._show_error(f"{quality} calculation failed: {message}")
         self._schedule_design_explorer_refresh()
@@ -2207,6 +2220,9 @@ class MainWindow(QMainWindow):
         self._schedule_design_explorer_refresh()
         if _quality in ("Preview", "Medium"):
             self._interactive_preview_generation = None
+        if self.result_files.hold_automatic_preview:
+            self._interactive_preview_pending = False
+            return
         if self._interactive_preview_pending:
             self.preview_timer.start(0)
 
@@ -2713,4 +2729,5 @@ class MainWindow(QMainWindow):
             return
         from temsim.physics.ray_device_cache import DEVICE_CACHE
         DEVICE_CACHE.clear()
+        self.result_files.close()
         super().closeEvent(event)

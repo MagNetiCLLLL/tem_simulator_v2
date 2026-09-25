@@ -13,7 +13,8 @@ class WorkspaceLayouts(QObject):
     ROOT = "workspace_layouts/v1"
     RAY_SPLITTERS = {"rayDiagramVerticalSplitter", "rayDiagramWorkspaceSplitter"}
     TASK_PAGES = {"Instrument": "Physical Layout", "Alignment": "Ray Diagram",
-                  "Experiments": "Design Explorer", "Results": "Working Points"}
+                  "Experiments": "Design Explorer", "Results": "Ray Diagram"}
+    LIVE_PAGES = {"Alignment": "Calculation", "Results": "Working points"}
 
     def __init__(self, window, settings, menu):
         super().__init__(window)
@@ -26,6 +27,7 @@ class WorkspaceLayouts(QObject):
         self.toggles = {
             "magnetic": workspace.magnetic_field_toggle,
             "transverse": workspace.transverse_beam_toggle,
+            "accelerator_gaps": workspace.accelerator_gaps,
             "advanced_bank": workspace.interactive_calculation.advanced_bank,
         }
         self.ray_variant = self._ray_variant()
@@ -149,6 +151,15 @@ class WorkspaceLayouts(QObject):
     def _key(self, layout_id, field):
         return f"{self.ROOT}/layouts/{layout_id}/{field}"
 
+    def _task_snapshot(self, name):
+        data = deepcopy(self.defaults)
+        data["tabs"]["visualizationTabs"] = self.TASK_PAGES[name]
+        if name in self.LIVE_PAGES:
+            data["tabs"]["liveTuningPages"] = self.LIVE_PAGES[name]
+        data["dock_visibility"] = {"instrumentDock": name != "Results",
+                                   "liveTuningDock": name in self.LIVE_PAGES}
+        return data
+
     def entries(self):
         self.settings.beginGroup(f"{self.ROOT}/layouts")
         keys = self.settings.childGroups()
@@ -160,16 +171,13 @@ class WorkspaceLayouts(QObject):
             self.settings.setValue(self._key("default", "name"), "Default")
         # Seed arrangements once; keep every existing named/active layout.
         names = {name.casefold() for name in self.entries().values()}
-        for name, page in self.TASK_PAGES.items():
+        for name in self.TASK_PAGES:
             if name.casefold() in names:
                 continue
             layout_id = "task_"+name.lower()
             if layout_id in self.entries():
                 continue
-            data = deepcopy(self.defaults)
-            data["tabs"]["visualizationTabs"] = page
-            data["dock_visibility"] = {"instrumentDock": name != "Results",
-                                       "liveTuningDock": name == "Alignment"}
+            data = self._task_snapshot(name)
             self.settings.setValue(self._key(layout_id, "name"), name)
             self.settings.setValue(self._key(layout_id, "data"), data)
         selected = str(self.settings.value(f"{self.ROOT}/active", "default"))
@@ -308,11 +316,9 @@ class WorkspaceLayouts(QObject):
 
     def reset_current(self):
         data = deepcopy(self.defaults)
-        for name, page in self.TASK_PAGES.items():
+        for name in self.TASK_PAGES:
             if self.active_id == "task_"+name.lower():
-                data["tabs"]["visualizationTabs"] = page
-                data["dock_visibility"] = {"instrumentDock": name != "Results",
-                                           "liveTuningDock": name == "Alignment"}
+                data = self._task_snapshot(name)
         self._apply(data)
         self.schedule_save()
 

@@ -8,6 +8,7 @@ section solver before any saved upstream calculation is reused.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import copy
 from dataclasses import fields, is_dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
@@ -15,6 +16,8 @@ import math
 import json
 from pathlib import Path
 import stat
+from types import MappingProxyType
+from zipfile import ZIP_DEFLATED, ZIP_STORED
 
 import numpy as np
 
@@ -198,7 +201,8 @@ def checked_section_archive_info(result, path, *, maximum_unpacked_bytes,
     if section_file_fingerprint(path) != before:
         raise ValueError("Section archive changed during verification; retry the operation")
     return dict(stored, path=str(Path(path).resolve()), _file_fingerprint=before,
-                _package_digest=index.digest)
+                _package_digest=index.digest, compressed_size_bytes=before[2],
+                unpacked_size_bytes=index.unpacked_size_bytes)
 
 
 def archive_section_result(result, directory, *, maximum_unpacked_bytes=8*1024**3):
@@ -212,7 +216,10 @@ def archive_section_result(result, directory, *, maximum_unpacked_bytes=8*1024**
         info = checked_section_archive_info(result, path,
             maximum_unpacked_bytes=maximum_unpacked_bytes, verify_payload=True)
         return dict(info, reused=True)
-    package = save_section_result(result, path, maximum_unpacked_bytes=maximum_unpacked_bytes)
+    # Internal automatic archives favour low save latency. Explicit exports
+    # use the compact default without altering any result or restart field.
+    package = save_section_result(result, path, maximum_unpacked_bytes=maximum_unpacked_bytes,
+                                  compression=ZIP_STORED, compresslevel=None, deduplicate_arrays=False)
     info = checked_section_archive_info(result, path, maximum_unpacked_bytes=maximum_unpacked_bytes,
                                         expected_package_digest=package.digest)
     return dict(info, reused=False)
@@ -466,8 +473,60 @@ def _unpack(value, arrays, types, depth=0, _records=None, _definitions=None):
     raise ValueError("Unknown section data type or record")
 
 
-def _pack_record_graph(value, arrays):
+def _numeric_content_chunks(value):
+    """C-order bytes in bounded chunks, including strided and big-endian arrays."""
+    size = max(1, (1024 * 1024) // value.dtype.itemsize)
+    iterator = np.nditer(value, flags=["external_loop", "buffered", "zerosize_ok"],
+                         op_flags=["readonly"], order="C", buffersize=size)
+    for chunk in iterator:
+        yield np.ascontiguousarray(chunk).view(np.uint8)
+
+
+def _deduplicate_record_arrays(tree, arrays):
+    """Share only byte-identical arrays; dtype, shape and all float bits remain."""
+    from collections import Counter
+    from hashlib import sha256
+    shapes = Counter((value.dtype.str, value.shape) for value in arrays.values())
+    identities, aliases, retained = {}, {}, {}
+    for name, value in arrays.items():
+        shape = value.dtype.str, value.shape
+        candidates = []
+        if shapes[shape] > 1:
+            digest = sha256()
+            for chunk in _numeric_content_chunks(value):
+                digest.update(chunk)
+            candidates = identities.setdefault((*shape, digest.digest()), [])
+        canonical = None
+        for previous in candidates:
+            # Hash matches are only a filter. The bounded exact comparison also
+            # protects float signed zero, NaN payloads and hypothetical collisions.
+            if all(np.array_equal(left, right) for left, right in zip(
+                    _numeric_content_chunks(value), _numeric_content_chunks(retained[previous]), strict=True)):
+                canonical = previous
+                break
+        if canonical is None:
+            canonical = name
+            retained[name] = value
+            candidates.append(name)
+        aliases[name] = canonical
+    pending = [tree]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            if set(value) == {"array"}:
+                value["array"] = aliases[value["array"]]
+            else:
+                pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+    arrays.clear()
+    arrays.update(retained)
+
+
+def _pack_record_graph(value, arrays, *, deduplicate_arrays=False):
     tree = _pack(value, arrays, {}, _data_classes())
+    if deduplicate_arrays:
+        _deduplicate_record_arrays(tree, arrays)
     return np.frombuffer(json.dumps(tree, allow_nan=False,
         separators=(",", ":")).encode("utf-8"), dtype=np.uint8)
 
@@ -494,12 +553,91 @@ def _result_records(result):
     return {name: getattr(result, name) for name in sorted(_RESULT_FIELDS - _SNAPSHOT_RESULT_FIELDS)}
 
 
-def save_section_result(result, path, *, overwrite=False, maximum_unpacked_bytes=8*1024**3):
-    """Save a completed section and its executed upstream state atomically."""
+class _SaveInputArrayReferences:
+    """Transient input-clone references, never archive asset identities."""
+
+    def __init__(self):
+        self._arrays = {}
+
+    def register(self, value):
+        key = str(id(value))
+        self._arrays[key] = value
+        return key
+
+    def array(self, key, dtype, shape, *, readonly):
+        value = self._arrays[key]
+        if (value.dtype.str != dtype or value.shape != tuple(shape)
+                or bool(readonly) != (not value.flags.writeable)):
+            raise ValueError("Captured input array changed during save preparation")
+        return value
+
+
+def capture_result_for_save(result):
+    """Pin the completed result's current structure before queuing file work.
+
+    Call on the result owner's thread. Mutable result records, metadata and
+    input controls are detached, so later GUI enrichment or control edits
+    cannot change this save request. Completed frozen products and numeric
+    buffers are shared: the production ownership contract permits replacing
+    published products, but forbids editing their buffers or frozen product
+    contents in place. This is not a general deep copy of arbitrary objects.
+
+    Large arrays are neither copied nor hashed here. The file worker freezes
+    their bytes when building the package. The exact snapshot encoder clones
+    input controls while a transient reference table retains large input
+    arrays, including their original writeability and alias relationships.
+    No physical calculation, preset application or precision reduction runs.
+    """
+    from temsim.instrument_snapshot import decode_instrument, encode_instrument
+
+    _result_records(result)  # Enforce the explicit current result contract.
+    references = _SaveInputArrayReferences()
+    snapshot = decode_instrument(
+        encode_instrument(result.state_snapshot, asset_store=references), assets=references)
+    memo = {id(result.state_snapshot): snapshot}
+
+    def capture(value):
+        if id(value) in memo:
+            return memo[id(value)]
+        if isinstance(value, np.ndarray):
+            return value
+        if is_dataclass(value):
+            if value.__dataclass_params__.frozen:
+                return value
+            detached = copy(value)
+            memo[id(value)] = detached
+            names = {field.name for field in fields(value)}
+            if hasattr(value, "__dict__"):
+                names.update(vars(value))
+            for name in names:
+                object.__setattr__(detached, name, capture(getattr(value, name)))
+            return detached
+        if isinstance(value, Mapping):
+            detached = {}
+            wrapped = MappingProxyType(detached) if isinstance(value, MappingProxyType) else detached
+            memo[id(value)] = wrapped
+            detached.update((key, capture(item)) for key, item in value.items())
+            return wrapped
+        if isinstance(value, list):
+            detached = []
+            memo[id(value)] = detached
+            detached.extend(capture(item) for item in value)
+            return detached
+        if type(value) in (tuple, set, frozenset):
+            detached = type(value)(capture(item) for item in value)
+            memo[id(value)] = detached
+            return detached
+        return value
+
+    return capture(result)
+
+
+def save_section_result(result, path, *, overwrite=False, maximum_unpacked_bytes=8*1024**3,
+                        compression=ZIP_DEFLATED, compresslevel=1, deduplicate_arrays=True):
+    """Save complete results and exact restart state with optional lossless packing."""
     from temsim.instrument_snapshot import capture_instrument_snapshot
     from temsim.working_point import WorkingPointCheckpoint
     from temsim.physics.particle_sections import validate_section_checkpoint
-    from zipfile import ZIP_STORED
     simulation = result.simulation
     checkpoint = getattr(simulation, "section_checkpoint", None)
     if checkpoint is None:
@@ -517,7 +655,7 @@ def save_section_result(result, path, *, overwrite=False, maximum_unpacked_bytes
     arrays = {}
     # Record every executed result field. Snapshot-owned input geometry is
     # restored independently; no readout or interaction is recomputed at load.
-    graph = _pack_record_graph(_result_records(result), arrays)
+    graph = _pack_record_graph(_result_records(result), arrays, deduplicate_arrays=deduplicate_arrays)
     # The complete typed graph is a checksummed numeric product. The manifest
     # remains a small index even for millions of material/EDS event records.
     arrays[_GRAPH_ARRAY] = graph
@@ -536,21 +674,22 @@ def save_section_result(result, path, *, overwrite=False, maximum_unpacked_bytes
                 and not simulation.metrics.get("optical_tuning", False)
              else "Historical optical preview without specimen scattering"),
          "source_representation": "executed-tip-origin-particle-section"})
-    package.write_package(path, overwrite=overwrite, compression=ZIP_STORED,
+    package.write_package(path, overwrite=overwrite, compression=compression, compresslevel=compresslevel,
                           maximum_unpacked_bytes=maximum_unpacked_bytes)
     return package
 
 
-def load_section_result(path, *, maximum_unpacked_bytes=8*1024**3):
+def load_section_result(path, *, maximum_unpacked_bytes=8*1024**3, expected_package_digest=None):
     """Validate a checked package and report malformed input as a user error."""
     from zipfile import BadZipFile
     try:
-        return _load_section_result(path, maximum_unpacked_bytes=maximum_unpacked_bytes)
+        return _load_section_result(path, maximum_unpacked_bytes=maximum_unpacked_bytes,
+                                    expected_package_digest=expected_package_digest)
     except (BadZipFile, KeyError, IndexError, TypeError, AttributeError) as exc:
         raise ValueError("Incomplete or invalid particle-section checkpoint") from exc
 
 
-def _load_section_result(path, *, maximum_unpacked_bytes):
+def _load_section_result(path, *, maximum_unpacked_bytes, expected_package_digest=None):
     """Restore a seed without changing any live instrument parameter."""
     from temsim.working_point import WorkingPointCheckpoint
     from temsim.simulation_pipeline import CalculationResult
@@ -560,6 +699,8 @@ def _load_section_result(path, *, maximum_unpacked_bytes):
     from temsim.working_point_archive import WorkingPointArchiveIndex
     before = section_file_fingerprint(path)
     index = WorkingPointArchiveIndex.read(path, maximum_unpacked_bytes=maximum_unpacked_bytes)
+    if expected_package_digest is not None and index.digest != expected_package_digest:
+        raise ValueError("Result file changed while waiting to load; open the file again")
     if index.metadata.get("package_kind") != SECTION_PACKAGE_SCHEMA:
         raise ValueError("Unsupported particle-section schema; calculate and save a current section")
     package = index.load()
@@ -610,6 +751,7 @@ def _load_section_result(path, *, maximum_unpacked_bytes):
     if section_file_fingerprint(path) != before:
         raise ValueError("Section archive changed during loading; retry the operation")
     result.section_archive_info = dict(summary, _file_fingerprint=before,
-                                      _package_digest=index.digest)
+                                      _package_digest=index.digest, compressed_size_bytes=before[2],
+                                      unpacked_size_bytes=index.unpacked_size_bytes)
     result.loaded_section_only = True
     return result

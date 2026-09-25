@@ -2658,7 +2658,6 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         "Optical Transfer",
         "Model Inspector",
         "Design Explorer",
-        "Working Points",
     ]
     assert window.workspace.scanning_page.count() == 2
     assert window.workspace.scanning_page.widget(0) is (

@@ -711,6 +711,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         1,MAX_VECTORIZED_POST_RAYS//max(n,1)
     )
     completed_post_sections = []
+    optical_completed_z_mm = None
     from temsim.physics.particle_sections import section_limits
     post_stop_z_mm = section_limits(s)[1]
     post_events = [event for event in post_events if float(event[0]) <= post_stop_z_mm]
@@ -772,6 +773,15 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
             medium_alive=np.tile(alive, len(post_payloads)), medium_output=downstream_media,
             initial_time_s=start_times, return_flight_times=True,
         )
+        if optical_only:
+            # Capture the successful solver boundary before these arrays are
+            # handed to display consumers. propagate's endpoint-exact plan
+            # must have executed this whole straight-column span. This is an
+            # optical reference domain, not a specimen calculation or restart.
+            if (float(zp[0]) != float(incident_plan.z_mm[-1])
+                    or float(zp[-1]) != float(post_stop_z_mm)):
+                raise ValueError("Optical transport did not reach its executed column boundary")
+            optical_completed_z_mm = float(post_stop_z_mm)
 
         for branch_index,(name,w,interaction_kind,branch_energy_offset,kick_x_array,kick_y_array) in enumerate(post_payloads):
             branch_slice=slice(branch_index*n,(branch_index+1)*n)
@@ -809,6 +819,13 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         metrics = tuning_metrics(s, incident)
         metrics['column_segment_cache'] = segment_cache_metrics
         metrics['vacuum_transport'] = {"gun": gun_trace.vacuum_report, "incident": incident.vacuum_report}
+        if optical_completed_z_mm is not None:
+            metrics['optical_execution_extent'] = {
+                'coordinate_system': 'column_axial_z_mm',
+                'physics_scope': 'optical_reference_without_specimen_interactions',
+                'start_z_mm': float(gun_trace.z_mm[0]),
+                'completed_z_mm': optical_completed_z_mm,
+            }
         return Simulation(incident, branches, metrics, gun_waist=gun_waist,
                           gun_trace=gun_trace, incident_plan=incident_plan,
                           incident_checkpoints=incident_checkpoints)

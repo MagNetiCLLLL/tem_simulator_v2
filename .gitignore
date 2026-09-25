@@ -12,6 +12,7 @@ dist/
 
 # Scratch files and reusable calculation caches are local only.
 *.temsection
+*.temresult
 /tmp/
 /outputs/high_accuracy/
 /outputs/high_accuracy_artifacts/

@@ -3,9 +3,9 @@ import json
 from threading import Event
 
 from PySide6.QtCore import Qt, Signal, Slot, QThreadPool
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QTabWidget,
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QTabWidget,
     QTreeWidget, QTreeWidgetItem, QTableWidget, QTableWidgetItem, QSplitter,
-    QLabel, QPushButton, QFileDialog, QAbstractItemView, QInputDialog)
+    QLabel, QPushButton, QToolButton, QScrollArea, QFileDialog, QAbstractItemView, QInputDialog)
 
 from temsim.immutable_json import thaw_json
 from temsim.working_point import (WorkingPointCheckpoint, WorkingPointArchiveIndex,
@@ -44,34 +44,26 @@ class WorkingPointPanel(QWidget):
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         bar = QHBoxLayout()
-        for label, callback in (("Import...", self._import), ("Export...", self._export),
-                                ("Load retained data", self._load_selected),
-                                ("Make portable input copy", self._make_portable),
-                                ("Save input candidate", self._save_inputs)):
-            button = QPushButton(label)
-            button.clicked.connect(callback)
-            bar.addWidget(button)
+        self.load_button = QPushButton("Load retained data")
+        self.load_button.setObjectName("workingPointLoadData")
+        self.load_button.setToolTip("Verify and load the selected working point's stored numeric data. "
+            "This does not run a calculation or replace the displayed result.")
+        self.load_button.clicked.connect(self._load_selected)
+        self.restore_button = QPushButton("Restore working point")
+        self.restore_button.setObjectName("workingPointRestore")
+        self.restore_button.setToolTip("Restore the selected settings and verified checkpoint association. "
+            "This does not restore the complete result display. Use Open result (.temresult) to load "
+            "a saved calculation and continue its section.")
+        self.restore_button.clicked.connect(lambda: self._restore(False))
+        bar.addWidget(self.load_button)
+        bar.addWidget(self.restore_button)
+        bar.addStretch()
         layout.addLayout(bar)
-        bar = QHBoxLayout()
-        for label, callback in (("Compare with current", self._compare), ("Apply illumination...", self._apply_illumination),
-                                ("Restore working point", lambda: self._restore(False)),
-                                ("Fork compatible point", lambda: self._restore(True)),
-                                ("Undo last apply", self.undo_requested.emit)):
-            button = QPushButton(label)
-            button.clicked.connect(callback)
-            bar.addWidget(button)
-        layout.addLayout(bar)
-        compare_bar = QHBoxLayout()
         self.filter = QLineEdit()
+        self.filter.setObjectName("workingPointFilter")
         self.filter.setPlaceholderText("Filter source, assembly, mode, status, date or identity")
         self.filter.textChanged.connect(self._filter_rows)
-        compare_bar.addWidget(self.filter)
-        for label, callback in (("Pin A", lambda: self._pin("A")), ("Pin B", lambda: self._pin("B")),
-                                ("Compare A / B", self._compare_pins)):
-            button = QPushButton(label)
-            button.clicked.connect(callback)
-            compare_bar.addWidget(button)
-        layout.addLayout(compare_bar)
+        layout.addWidget(self.filter)
         self.points = QTableWidget(0, 12)
         self.points.setObjectName("workingPointIndex")
         self.points.setHorizontalHeaderLabels(["Record", "Source", "Assembly", "Mode", "Current (pA)",
@@ -83,6 +75,41 @@ class WorkingPointPanel(QWidget):
         for column, width in enumerate((210, 150, 210, 160, 125, 110, 140, 110, 250, 150, 260, 150)):
             self.points.setColumnWidth(column, width)
         layout.addWidget(self.points, 1)
+        self.advanced_toggle = QToolButton()
+        self.advanced_toggle.setObjectName("workingPointAdvancedToggle")
+        self.advanced_toggle.setText("Advanced")
+        self.advanced_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self.advanced_toggle.setToolTip("Show input records, comparison tools and numerical validation. "
+            "Opening this area does not start a calculation.")
+        layout.addWidget(self.advanced_toggle)
+        self.advanced = QScrollArea()
+        self.advanced.setObjectName("workingPointAdvanced")
+        self.advanced.setWidgetResizable(True)
+        advanced_content = QWidget()
+        advanced_layout = QVBoxLayout(advanced_content)
+        actions = QGridLayout()
+        for index, (label, name, callback) in enumerate((
+                ("Import...", "workingPointImport", self._import),
+                ("Export...", "workingPointExport", self._export),
+                ("Make portable input copy", "workingPointPortable", self._make_portable),
+                ("Save input candidate", "workingPointSaveInputs", self._save_inputs),
+                ("Compare with current", "workingPointCompareCurrent", self._compare),
+                ("Apply illumination...", "workingPointApplyIllumination", self._apply_illumination),
+                ("Fork compatible point", "workingPointFork", lambda: self._restore(True)),
+                ("Undo last apply", "workingPointUndo", self.undo_requested.emit),
+                ("Pin A", "workingPointPinA", lambda: self._pin("A")),
+                ("Pin B", "workingPointPinB", lambda: self._pin("B")),
+                ("Compare A / B", "workingPointComparePins", self._compare_pins))):
+            button = QPushButton(label)
+            button.setObjectName(name)
+            button.clicked.connect(callback)
+            if name in {"workingPointImport", "workingPointExport"}:
+                button.setToolTip("Working point record (.temwp). For complete calculation results "
+                    "and section continuation, use Open result / Export result (.temresult).")
+            actions.addWidget(button, index // 3, index % 3)
+        advanced_layout.addLayout(actions)
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setObjectName("workingPointBrowserSplitter")
         self.tree = QTreeWidget()
@@ -106,14 +133,27 @@ class WorkingPointPanel(QWidget):
         for widget in (self.tree, right):
             self.splitter.addWidget(widget)
         self.splitter.setSizes([250, 570])
-        tabs = QTabWidget()
-        tabs.addTab(self.splitter, "Captured state and readouts")
+        self.detail_tabs = QTabWidget()
+        self.detail_tabs.setObjectName("workingPointDetailsTabs")
+        self.detail_tabs.addTab(self.splitter, "Captured state and readouts")
         self.sampling = SamplingPanel(self)
-        tabs.addTab(self.sampling, "Sampling and Convergence")
+        sampling_scroll = QScrollArea()
+        sampling_scroll.setObjectName("workingPointSamplingScroll")
+        sampling_scroll.setWidgetResizable(True)
+        sampling_scroll.setWidget(self.sampling)
+        self.detail_tabs.addTab(sampling_scroll, "Sampling and Convergence")
         self.sampling.evidence_ready.connect(self._accept_evidence)
-        layout.addWidget(tabs, 2)
+        advanced_layout.addWidget(self.detail_tabs, 1)
+        self.advanced.setWidget(advanced_content)
+        self.advanced.setVisible(False)
+        layout.addWidget(self.advanced, 2)
+        self.advanced_toggle.toggled.connect(self._set_advanced_visible)
         self.points.currentCellChanged.connect(lambda row, *_: self._select(row))
         self.tree.currentItemChanged.connect(self._component)
+
+    def _set_advanced_visible(self, visible):
+        self.advanced.setVisible(visible)
+        self.advanced_toggle.setArrowType(Qt.ArrowType.DownArrow if visible else Qt.ArrowType.RightArrow)
 
     @property
     def selected(self):

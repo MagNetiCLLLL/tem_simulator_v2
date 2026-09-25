@@ -56,6 +56,8 @@ from temsim.gui.ray_scene import StaticRayLayers
 from temsim.gui.ray_curve_item import RayCurveItem
 from temsim.gui.ray_calculation_extent import RayCalculationExtentBar
 from temsim.gui.ray_extent_data import completed_ray_extent
+from temsim.gui.accelerator_gap_overlay import AcceleratorGapOverlay, ACCELERATOR_GAP_TOOLTIP
+from temsim.gui.transport_adjustment_readout import TransportAdjustmentReadout
 from temsim.gui.design_explorer import DesignExplorerPage
 from temsim.gui.interactive_calculation import InteractiveCalculationPage
 from temsim.gui.model_inspector import ModelInspectorPage
@@ -631,11 +633,14 @@ class VisualizationWorkspace(QWidget):
         self.ray_colour_mode = QComboBox()
         self.ray_colour_mode.setObjectName("rayColourMode")
         self.ray_colour_mode.addItem("Source position", "source")
+        self.ray_colour_mode.addItem("Emission direction (azimuth)", "emission_direction")
+        self.ray_colour_mode.addItem("Emission angle to normal", "emission_angle")
+        self.ray_colour_mode.addItem("Time of flight", "tof")
         self.ray_colour_mode.addItem("Interaction type", "interaction")
         self.ray_colour_mode.setToolTip(
-            "Source position keeps each electron's emitted-position colour "
-            "through scattering and downstream lenses. Grey means undefined "
-            "source azimuth. Interaction type uses channel hue and convergence shade."
+            "Shared with the Transverse Beam Plot choice. Source position and "
+            "emission angles keep the same colour along a path. Time of flight "
+            "colours propagation using the saved clock. Grey means unavailable data."
         )
         self.auto_zoom = QPushButton("Auto")
         self.auto_zoom.setObjectName("autoZoomToggle")
@@ -656,12 +661,19 @@ class VisualizationWorkspace(QWidget):
         self.fit_column.setToolTip(
             "Fit the complete axial range and column inner diameter"
         )
-        self.match_transport = QPushButton("Match transport")
+        self.accelerator_gaps = QPushButton("Acceleration gaps")
+        self.accelerator_gaps.setObjectName("acceleratorGapsToggle")
+        self.accelerator_gaps.setCheckable(True)
+        self.accelerator_gaps.setChecked(True)
+        self.accelerator_gaps.setToolTip(ACCELERATOR_GAP_TOOLTIP)
+        self.match_transport = QPushButton("Auto-adjust condensers")
         self.match_transport.setObjectName("matchColumnTransportButton")
         self.match_transport.setToolTip(
-            "Adjust C1/C2/C3 to transmit tip-origin particles into the projection chamber. "
-            "Keeps every aperture and wall. This is not probe or image focus alignment; "
-            "only a forward-validated candidate is applied."
+            "Changes C1/C2/C3 lens excitations and automatically applies a validated transport match. "
+            "The result shows before → after values. Targets particle transmission through the "
+            "projection-chamber entrance, retaining apertures and walls. The displayed optical "
+            "validation uses 193 source samples and defers specimen signals; probe/image focus "
+            "is not calibrated. Undo is available in Live tuning → Working points → Advanced."
         )
         self.axial_position = QDoubleSpinBox()
         self.axial_position.setObjectName("rayDiagramAxialPosition")
@@ -700,6 +712,7 @@ class VisualizationWorkspace(QWidget):
             self.auto_zoom,
             self.component_centres,
             self.crossovers,
+            self.accelerator_gaps,
             self.match_transport,
             self.column_walls,
             self.fit_column,
@@ -738,6 +751,7 @@ class VisualizationWorkspace(QWidget):
             self.column_walls,
             self.component_centres,
             self.crossovers,
+            self.accelerator_gaps,
             self.match_transport,
         )
         for button in option_buttons:
@@ -806,6 +820,8 @@ class VisualizationWorkspace(QWidget):
         self.plot.showGrid(x=True, y=True, alpha=0.18)
         self.plot.setMenuEnabled(True)
         self._style_ray_legend(self.plot.addLegend(offset=(10, 10)))
+        self.accelerator_gap_overlay = AcceleratorGapOverlay(self.plot)
+        self.transport_adjustment_readout = TransportAdjustmentReadout()
         self.component_marker_items = []
         self._component_labels = []
         self._ray_label_items = []
@@ -886,6 +902,7 @@ class VisualizationWorkspace(QWidget):
         ray_primary_layout.setContentsMargins(0, 0, 0, 0)
         ray_primary_layout.addLayout(heading_row)
         ray_primary_layout.addWidget(self.view_controls_scroll)
+        ray_primary_layout.addWidget(self.transport_adjustment_readout)
         ray_primary_layout.addWidget(navigation_hint)
         ray_primary_layout.addLayout(navigation_controls)
         ray_primary_layout.addWidget(self.plot, 1)
@@ -1001,6 +1018,8 @@ class VisualizationWorkspace(QWidget):
         self.energy_filter_page.setStretchFactor(1, 1)
         self.energy_filter_page.setSizes((420, 1000))
         self.transverse_beam = TransverseBeamView()
+        from temsim.gui.ray_flight_time_colours import RayFlightTimeColours
+        self._ray_flight_time_colours = RayFlightTimeColours(self)
         self.transverse_beam.setMinimumWidth(340)
         self.transverse_beam.setSizePolicy(
             QSizePolicy.Policy.Ignored,
@@ -1134,7 +1153,9 @@ class VisualizationWorkspace(QWidget):
         self.component_centres.toggled.connect(self._redraw_last_result)
         self.crossovers.toggled.connect(self._redraw_last_result)
         self.column_walls.toggled.connect(self._redraw_last_result)
+        self.accelerator_gaps.toggled.connect(self.accelerator_gap_overlay.setVisible)
         self.ray_colour_mode.currentIndexChanged.connect(self._ray_colour_mode_changed)
+        self.transverse_beam.colour_quantity_changed.connect(self._beam_colour_quantity_changed)
         self.magnetic_field_toggle.toggled.connect(
             lambda visible: self._set_ray_panel_visible(self.magnetic_field, visible)
         )
@@ -1524,7 +1545,7 @@ class VisualizationWorkspace(QWidget):
         scan_offset = self._scan_ray_offsets_m.get(
             str(getattr(branch, "name", ""))
         )
-        if scan_offset is not None:
+        if scan_offset is not None and self.ray_colour_mode.currentData() != "tof":
             scan_offset = np.asarray(scan_offset, dtype=float)
             if scan_offset.shape == (len(branch.z), 2):
                 offsets_mm = self._project_transverse(
@@ -1794,6 +1815,9 @@ class VisualizationWorkspace(QWidget):
 
     def _ray_record_lines(self, payload) -> tuple[np.ndarray, np.ndarray]:
         """Rebuild one grouped plot item after projection or scan changes."""
+        from temsim.gui.ray_flight_time_colours import TimeColourPayload
+        if isinstance(payload, TimeColourPayload):
+            return self._ray_flight_time_colours.lines(payload)
 
         segments = (
             ((payload, None),)
@@ -1832,6 +1856,7 @@ class VisualizationWorkspace(QWidget):
         return (incident, *downstream)
 
     def _ray_colour_mode_changed(self, *_args) -> None:
+        self.transverse_beam.analysis.set_colour_quantity(self.ray_colour_mode.currentData())
         bundles = self._display_ray_bundles()
         if not bundles:
             return
@@ -1840,6 +1865,11 @@ class VisualizationWorkspace(QWidget):
         self.plot.disableAutoRange()
         self._sync_ray_curves(self._last_result.simulation, bundles)
         self._update_scale_notice()
+
+    def _beam_colour_quantity_changed(self, quantity: str) -> None:
+        index = self.ray_colour_mode.findData(quantity)
+        if index >= 0 and index != self.ray_colour_mode.currentIndex():
+            self.ray_colour_mode.setCurrentIndex(index)
 
     def _set_sample_region_result(
         self, result, *, mark_calculated: bool = True
@@ -1899,6 +1929,8 @@ class VisualizationWorkspace(QWidget):
         self.sample_interactions_3d.set_sample_region_result(result)
         if (self._last_result is self._high_accuracy_result and self._last_result is not None
                 and previous_display != tuple(id(branch) for branch in self._display_ray_bundles())):
+            self.transverse_beam.analysis.tof.invalidate()
+            self._ray_flight_time_colours.invalidate()
             # Publication enriches the same result object. Mark this panel dirty
             # explicitly, including while hidden, so its retained scatter does
             # not keep the previous optical reference when reopened.
@@ -2861,6 +2893,13 @@ class VisualizationWorkspace(QWidget):
             magnification_text = f"{transverse_magnification:.2f}×"
         if self.ray_colour_mode.currentData() == "source":
             colour_text = "Hue = fixed emitted-position azimuth | grey = undefined source azimuth"
+        elif self.ray_colour_mode.currentData() == "emission_direction":
+            colour_text = "Hue = fixed launch-direction azimuth | grey = undefined launch azimuth"
+        elif self.ray_colour_mode.currentData() == "emission_angle":
+            colour_text = "Colour = fixed launch angle to the local tip normal (0–90°) | grey = unavailable"
+        elif self.ray_colour_mode.currentData() == "tof":
+            scale = self.transverse_beam.analysis.tof.colour_scale(self._last_result)
+            colour_text = f"TOF gradient = {scale.label} | grey = unavailable clock | captured paths"
         elif self._convergence_colour_reference_mrad > 0.0:
             colour_text = (
                 "Hue = interaction type | shade = sample convergence "
@@ -3683,6 +3722,7 @@ class VisualizationWorkspace(QWidget):
         return signature
 
     def _sync_ray_static_layers(self, result) -> None:
+        self.accelerator_gap_overlay.sync(result, visible=self.accelerator_gaps.isChecked())
         layers = self._ray_static_layers
         layers.begin(self)
         assembly = getattr(result, "assembly", None)
@@ -3764,7 +3804,10 @@ class VisualizationWorkspace(QWidget):
                     self.plot.removeItem(item)
 
     def _sync_ray_curves(self, simulation, bundles) -> None:
-        if self.ray_colour_mode.currentData() == "source":
+        if self.ray_colour_mode.currentData() == "tof":
+            self._ray_flight_time_colours.sync(bundles)
+            return
+        if self.ray_colour_mode.currentData() in {"source", "emission_direction", "emission_angle"}:
             self._sync_source_ray_curves(simulation, bundles)
             return
         self._convergence_colour_reference_mrad = self._convergence_reference_mrad(simulation)
@@ -3826,10 +3869,22 @@ class VisualizationWorkspace(QWidget):
 
     def _source_colour_groups(self, simulation, bundles):
         """Group exact source colours within the existing drawn-ray budget."""
+        from temsim.gui.beam_colours import emission_colour
+        from temsim.gui.emission_source_data import EmissionSourceData
+        mode = self.ray_colour_mode.currentData()
+        reference = getattr(getattr(simulation, "gun_trace", None), "emission_reference", None)
+        cached = getattr(self, "_ray_emission_data", None)
+        if cached is None or cached[0] is not reference:
+            cached = (reference, EmissionSourceData.from_simulation(simulation))
+            self._ray_emission_data = cached
+        source = cached[1]
+        source_has_positions = bool(np.any(np.all(np.isfinite(source.position_m), axis=1)))
         groups = {}
         for branch in bundles:
             indices = self._display_ray_indices(branch)
             _ids, angles = branch_identity(branch, simulation)
+            if mode != "source" or source_has_positions:
+                angles = source.values(_ids, mode)
             by_rgb = {}
             for index in indices:
                 weights = getattr(branch, "ray_weight", None)
@@ -3837,12 +3892,11 @@ class VisualizationWorkspace(QWidget):
                     groups.setdefault(("support", (248, 250, 252)), []).append((branch, np.array([index], dtype=int)))
                     continue
                 angle = float(angles[index])
-                colour = (QColor.fromHsvF((angle % (2 * np.pi)) / (2 * np.pi), 0.88, 1.0)
-                          if _ids[index] >= 0 and np.isfinite(angle) else QColor("#94a3b8"))
+                colour = emission_colour(mode, angle, int(_ids[index]))
                 rgb = (colour.red(), colour.green(), colour.blue())
                 by_rgb.setdefault(rgb, []).append(index)
             for rgb, selected in by_rgb.items():
-                groups.setdefault(("source", rgb), []).append(
+                groups.setdefault((mode, rgb), []).append(
                     (branch, np.asarray(selected, dtype=int))
                 )
         return groups
@@ -3870,9 +3924,9 @@ class VisualizationWorkspace(QWidget):
             item.setToolTip(
                 "Zero-current diagnostic probe emitted on the physical tip; all gun fields, apertures and column walls apply. Not a predicted beam current."
                 if key[0] == "support" else
-                "Source position colour: fixed azimuth about the emitted bundle centre.\n"
-                "Retained through scattering; not instantaneous direction or signal type.\n"
-                "Grey: source-centre ray or unavailable source lineage."
+                f"{self.ray_colour_mode.currentText()}: fixed at actual tip emission.\n"
+                "Retained through focusing, deflection and scattering.\n"
+                "Grey: undefined launch quantity or unavailable source lineage."
             )
             self._ray_bundle_records.append((item, payload))
         for key in tuple(self._ray_items_by_group):
@@ -3974,10 +4028,79 @@ class VisualizationWorkspace(QWidget):
         self._update_interaction_detail()
         self._ray_scene_last_update_ms = (perf_counter() - started) * 1000.0
 
+    def clear_result(self) -> None:
+        """Remove published observations without replacing the editable assembly.
+
+        Used when the first result-file presentation fails. Timers and retained
+        result references are cleared too, so opening a hidden page cannot
+        republish the rejected file. Widget layout and fixed plot sizes survive.
+        """
+        self._projection_redraw_timer.stop()
+        self._projection_finalize_timer.stop()
+        self._ray_panel_refresh_timer.stop()
+        self._pending_ray_panels.clear()
+        self._pending_ray_focus.clear()
+        self._presented_ray_panels.clear()
+        self._last_result = self._preview_result = self._high_accuracy_result = None
+        self._last_quality = ""
+        self._high_accuracy_current = self._ray_extent_stale = False
+        self.accelerator_gap_overlay.clear()
+        self.transport_adjustment_readout.display_result(None)
+        self._sample_region_result = None
+        self._scan_ray_paths = None
+        self._scan_ray_offsets_m = {}
+        self._scan_playback_active = False
+        self._ray_display_cache.clear()
+        self._ray_display_cache_bytes = 0
+        self._ray_display_cache_result = None
+        self._ray_static_layers = StaticRayLayers()
+        self._ray_emission_data = None
+        self._ray_flight_time_colours.invalidate()
+        self._ray_scene_initialized = False
+        for mapping in (self._ray_items_by_group, self._ray_legend_items,
+                        self._stop_items_by_group, self._support_items_by_branch):
+            mapping.clear()
+        for name in (*StaticRayLayers.RECORD_NAMES, "stop_marker_items",
+                     "_stop_projection_records", "_ray_bundle_records", "_tuning_envelopes"):
+            getattr(self, name).clear()
+        self.axial_cursor_item = None
+        self._selected_z_mm = None
+        self._show_notice("Waiting for a calculated result")
+        self.heading.setText("Electron ray paths — no calculated result")
+        self.ray_source_status.setText("No calculated source")
+        self.stop_detail.clear()
+        self.interaction_detail.clear()
+        self.result_readout._records.clear()
+        self.result_readout._stale.clear()
+        self.result_readout._refresh()
+        self._refresh_ray_calculation_extent()
+        self.transverse_beam._result = None
+        self.transverse_beam.analysis.invalidate()
+        self.transverse_beam._redraw()
+        self.magnetic_field.display_result(None)
+        # Physical Layout keeps the live assembly, but not the failed result.
+        self.physical_layout._result = None
+        self.energy_filter.display_result(None)
+        self.probe_aberrations.display_result(None)
+        self.image_aberrations.display_result(None)
+        self.optical_transfer.display_result(None)
+        self.scan_control.display_result(None, None, complete=True)
+        self.sample_page.display_result(None)
+        self.sample_interactions_3d.display_result(None)
+        self.eds_page.display_result(None)
+        self.wave_imaging.display_result(None)
+        self.model_inspector.display_result(None)
+        self.vacuum_map.result_text.setText("No completed calculation.")
+        self.interactive_calculation.set_particle_signals(())
+        self.interactive_calculation.calculation_timing.text.setPlainText("No completed calculation.")
+
     def display_result(self, result, quality: str) -> None:
         # Explicit republication is also the invalidation boundary for callers
         # that updated an existing result/array in place before handing it back.
         self._ray_display_cache.clear()
+        self._ray_emission_data = None
+        self._ray_flight_time_colours.invalidate()
+        self.transverse_beam.analysis.tof.invalidate()
         self._ray_display_cache_bytes = 0
         self._ray_display_cache_result = result
         is_preview = str(quality).strip().lower().startswith("preview") or quality == "Medium"
@@ -4001,6 +4124,7 @@ class VisualizationWorkspace(QWidget):
         preserve_ray_view = self._last_result is not None
         self._last_result = result
         self.result_readout.publish(result, quality)
+        self.transport_adjustment_readout.display_result(result)
         from temsim.optics.electron_gun.tip_edit import tip_model_label
         captured_gun = getattr(getattr(result, "state_snapshot", None), "electron_gun", None)
         self.ray_source_status.setText(

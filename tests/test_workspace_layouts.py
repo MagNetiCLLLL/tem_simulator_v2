@@ -16,6 +16,9 @@ def windows(qtbot, monkeypatch, tmp_path):
     monkeypatch.setattr(shell, "QSettings", lambda: settings)
     monkeypatch.setattr(gui, "QSettings", lambda: settings)
     monkeypatch.setattr(shell.MainWindow, "INITIAL_PREVIEW_DELAY_MS", 60000)
+    # These tests check presentation only. Skip the constructor's operating-
+    # preset solve; calculation dispatch is forbidden once the window exists.
+    monkeypatch.setattr(shell.MainWindow, "_apply_state_operating_modes", lambda *_: object())
 
     def make():
         window = shell.MainWindow()
@@ -100,6 +103,7 @@ def test_restart_restores_active_layout_and_hidden_splitters(windows, qtbot):
     window.live_tuning_dock.toggleViewAction().trigger()
     qtbot.wait(30)
     workspace.interactive_calculation.advanced_bank.setChecked(True)
+    workspace.accelerator_gaps.setChecked(False)
     qtbot.wait(30)
     control_ratio = _resize_splitter(window, "interactiveCalculationSplitter", [610, 370], qtbot)
     manager.save_current()
@@ -112,6 +116,7 @@ def test_restart_restores_active_layout_and_hidden_splitters(windows, qtbot):
     assert manager.active_id == saved_id
     assert not restored.live_tuning_dock.isHidden()
     assert workspace.interactive_calculation.advanced_bank.isChecked()
+    assert not workspace.accelerator_gaps.isChecked()
     _assert_ratio(manager.splitters["interactiveCalculationSplitter"], control_ratio)
     for page, name, expected in (
         (workspace.sample_page, "samplePageSplitter", sample_width),
@@ -259,12 +264,53 @@ def test_builtin_task_layouts_use_existing_pages_without_changing_inputs(windows
         qtbot.wait(20)
         tabs = window.workspace.tabs
         assert tabs.tabText(tabs.currentIndex()) == page
+        live = window.workspace.interactive_calculation
+        if name in manager.LIVE_PAGES:
+            assert not window.live_tuning_dock.isHidden()
+            assert live.pages.tabText(live.pages.currentIndex()) == manager.LIVE_PAGES[name]
+            assert live.pages.currentWidget() is (
+                window.working_points if name == "Results" else live.calculation_page)
+            live.pages.setCurrentIndex(1 - live.pages.currentIndex())
         assert json_digest(encode_instrument(window.state)) == before
         assert window._physical_revision == revision
         manager.reset_current()
         assert tabs.tabText(tabs.currentIndex()) == page
+        if name in manager.LIVE_PAGES:
+            assert live.pages.tabText(live.pages.currentIndex()) == manager.LIVE_PAGES[name]
     manager.select("default")
     assert not window.preview_timer.isActive()
+
+
+def test_live_tuning_subpage_is_preserved_in_named_layouts_and_on_restart(windows, qtbot):
+    make, settings = windows
+    window = make()
+    manager = window.workspace_layouts
+    live = window.workspace.interactive_calculation
+    assert manager.tabs["liveTuningPages"] is live.pages
+    assert window.workspace.tabs.indexOf(window.working_points) == -1
+    assert live.pages.currentWidget() is live.calculation_page
+    window.live_tuning_dock.toggleViewAction().trigger()
+    manager.save_current()
+
+    result_layout = manager.save_as("Saved calculation records")
+    live.pages.setCurrentWidget(window.working_points)
+    manager.save_current()
+    saved = settings.value(manager._key(result_layout, "data"))
+    assert saved["tabs"]["liveTuningPages"] == "Working points"
+    manager.select("default")
+    assert live.pages.currentWidget() is live.calculation_page
+    manager.select(result_layout)
+    assert live.pages.currentWidget() is window.working_points
+    assert not window.preview_timer.isActive()
+    window.close()
+
+    restored = make()
+    qtbot.wait(40)
+    assert restored.workspace_layouts.active_id == result_layout
+    assert not restored.live_tuning_dock.isHidden()
+    assert (restored.workspace.interactive_calculation.pages.currentWidget()
+            is restored.working_points)
+    assert not restored.preview_timer.isActive()
 
 
 def test_experiments_layout_refreshes_dirty_status_without_requesting_work(windows, qtbot, monkeypatch):

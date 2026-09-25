@@ -103,6 +103,8 @@ def test_match_button_starts_transaction_without_a_new_image_option(qtbot,monkey
     window.show()
     window.workspace.show_ray_diagram()
     button=window.workspace.match_transport
+    assert button.text() == 'Auto-adjust condensers'
+    assert 'Changes C1/C2/C3 lens excitations' in button.toolTip()
     assert button.parentWidget() is window.workspace.view_controls_panel
     assert window.workspace.view_controls_panel.layout().indexOf(button)>=0
     assert button.isVisibleTo(window)

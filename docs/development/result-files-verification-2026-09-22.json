@@ -1,0 +1,135 @@
+{
+  "date": "2026-09-22",
+  "status": "Implemented with intermittent live-slider timing test failures",
+  "scope": "Classical particle result export/import, exact continuation and named startup results",
+  "final_input_files": 1063,
+  "final_input_sha256": "d439ee50e2ed42e3de904ae316093b6e6f102f1a443b688e280d9a001fca42d5",
+  "complete_run": {
+    "passed": 5998,
+    "skipped": 1,
+    "failed": 1
+  },
+  "complete_run_count": 6000,
+  "affected_module_followup": {
+    "tests": 38,
+    "passed": 37,
+    "failed": 1
+  },
+  "final_collected_count": 6002,
+  "all_cases_executed": true,
+  "changed_after_complete_run": [
+    "src/temsim/gui/result_files.py",
+    "tests/test_result_files_gui.py"
+  ],
+  "matched_budget_slider_followup": {
+    "exit_code": 0,
+    "numerical_threads": 1,
+    "total_seconds": 56.30157210000107,
+    "original_test_and_limits_unchanged": true
+  },
+  "slider_limitation": "Single-case HEAD/current pass at one thread; module final-frame timing failures remain intermittent, including at one thread. No all-green claim.",
+  "compression_fixture": {
+    "quality": "Preview",
+    "particles": 49,
+    "original_bytes": 7157409,
+    "compact_bytes": 4328261,
+    "reduction_percent": 39.52754411547531,
+    "exact_numeric_restoration": true,
+    "executed_prefix_continuation": true
+  },
+  "high_accuracy_fixture": {
+    "particles": 49,
+    "step_mm": 2,
+    "target_z_mm": 1629.2,
+    "compact_bytes": 4328049,
+    "calculation_seconds": 11.739349,
+    "save_seconds": 0.721699,
+    "gui_load_seconds": 5.232232,
+    "load_performed_physical_transport": false,
+    "note": "Bounded workflow fixture, not a 5000-particle benchmark"
+  },
+  "compileall_exit_code": 0,
+  "dependency_check_exit_code": 0,
+  "diff_check_exit_code": 0,
+  "wheel": {
+    "wheel": "tmp\\result-files-20260922\\packaging-final\\wheel\\tem_simulator_v2-0.1.0-py3-none-any.whl",
+    "python_modules": 449,
+    "missing_modules": [],
+    "extra_modules": [],
+    "changed_modules": [],
+    "config_files": 36,
+    "svg_assets": 9,
+    "wheel_sha256": "bf144f1735cc3bdc797b239e9e79b0ce7129a3867476c9cc4003ae3fb60e6e2d",
+    "wheel_size_bytes": 2072112,
+    "isolated_install_succeeded": true,
+    "build_install_exit_code": 0,
+    "compared_previous_wheel": "F:\\tem_simulator_v2\\tmp\\result-files-20260922\\wheel\\tem_simulator_v2-0.1.0-py3-none-any.whl",
+    "changed_since_previous_package": [
+      "temsim/gui/result_files.py"
+    ]
+  },
+  "installed_gui_smoke": {
+    "scope": "Installed wheel Qt initialization, new result-file actions and rendering; not physical transport or performance validation",
+    "package_path": "F:\\tem_simulator_v2\\tmp\\result-files-20260922\\packaging-final\\installed\\temsim\\__init__.py",
+    "config_root": "F:\\tem_simulator_v2\\tmp\\result-files-20260922\\packaging-final\\installed\\configs",
+    "loaded_package_modules": 286,
+    "modules_outside_installation": {},
+    "window_created": true,
+    "window_title": "TEM Simulator v2",
+    "workspace_tabs": 13,
+    "file_menu": [
+      "Open result…",
+      "Export result…",
+      "Save current as named result…",
+      "Open saved results",
+      "Startup result",
+      "",
+      "Settings",
+      "Dimension definitions and evidence audit…",
+      "",
+      "Exit"
+    ],
+    "open_result": {
+      "shortcut": "Ctrl+O",
+      "enabled": true,
+      "in_toolbar": true
+    },
+    "export_result": {
+      "shortcut": "Ctrl+S",
+      "enabled": false,
+      "in_toolbar": true
+    },
+    "offscreen_font": {
+      "source": "C:\\WINDOWS\\Fonts\\segoeui.ttf",
+      "family": "Segoe UI",
+      "scope": "Harness-only explicit font registration for the offscreen platform"
+    },
+    "settings_path": "F:\\tem_simulator_v2\\tmp\\result-files-20260922\\packaging-final\\smoke-settings\\TEM Simulator\\TEM Simulator v2.ini",
+    "localappdata": "F:\\tem_simulator_v2\\tmp\\result-files-20260922\\packaging-final\\smoke-localappdata",
+    "result_library_root": "F:\\tem_simulator_v2\\tmp\\result-files-20260922\\packaging-final\\smoke-localappdata\\TEM Simulator v2\\saved_results",
+    "startup_preview_pending": false,
+    "submitted_work": [],
+    "gui_errors": [],
+    "stub_boundaries": {
+      "suppressed": [
+        "MainWindow._apply_state_operating_modes"
+      ],
+      "detail": "Startup optical preset application was replaced by a sentinel; preview timer delayed then stopped before event processing. Calculation dispatch, background job submission and high-level transport entry points raise if invoked.",
+      "production_calculations_executed": false
+    },
+    "images": [
+      "F:\\tem_simulator_v2\\tmp\\result-files-20260922\\packaging-final\\installed-startup.png",
+      "F:\\tem_simulator_v2\\tmp\\result-files-20260922\\packaging-final\\installed-file-menu.png"
+    ],
+    "exit_code": 0,
+    "visual_review": {
+      "inspected_images": [
+        "installed-startup.png",
+        "installed-file-menu.png"
+      ],
+      "result": "Readable startup layout and File menu; Open/Export actions and Ctrl+O/Ctrl+S shortcuts are visible without overlapping labels.",
+      "scope": "Offscreen rendering only, with a harness-registered Segoe UI font; fixed-size transverse plots retain scrollbars and extend beyond the visible viewport. No production transport or native file dialog interaction."
+    }
+  },
+  "evidence_report": "docs/development/result-files-and-startup-2026-09-22.md"
+}

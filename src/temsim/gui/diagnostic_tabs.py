@@ -4264,6 +4264,7 @@ class TransverseBeamView(QWidget):
     """X-Y beam slice that makes round-lens image rotation observable."""
 
     plot_sizes_changed = Signal()
+    colour_quantity_changed = Signal(str)
     MAX_DISPLAY_RAYS = 2_000
     CENTRE_DIRECTION_TOLERANCE_M = 1.0e-15
     DEFAULT_HALF_RANGE_DISPLAY = 1.0
