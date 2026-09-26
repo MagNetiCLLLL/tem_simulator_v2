@@ -26,6 +26,7 @@ class WorkspaceLayouts(QObject):
         workspace = window.workspace
         self.toggles = {
             "magnetic": workspace.magnetic_field_toggle,
+            "magnetic_link_ray": workspace.magnetic_field.field_lines.link_view,
             "transverse": workspace.transverse_beam_toggle,
             "accelerator_gaps": workspace.accelerator_gaps,
             "advanced_bank": workspace.interactive_calculation.advanced_bank,
@@ -157,7 +158,8 @@ class WorkspaceLayouts(QObject):
         if name in self.LIVE_PAGES:
             data["tabs"]["liveTuningPages"] = self.LIVE_PAGES[name]
         data["dock_visibility"] = {"instrumentDock": name != "Results",
-                                   "liveTuningDock": name in self.LIVE_PAGES}
+                                   "liveTuningDock": name in self.LIVE_PAGES,
+                                   "virtualElectronsDock": False}
         return data
 
     def entries(self):

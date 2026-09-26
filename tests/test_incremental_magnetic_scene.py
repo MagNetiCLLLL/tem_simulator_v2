@@ -55,6 +55,7 @@ def planes_for(state):
 
 @pytest.fixture
 def view(qtbot, monkeypatch):
+    from temsim.magnetic_field_scene import MagneticDiagnosticProfile, MagneticSourceRegion
     widget = MagneticFieldView()
     qtbot.addWidget(widget)
     calls = []
@@ -67,163 +68,247 @@ def view(qtbot, monkeypatch):
         calls.append(("planes", state))
         return planes_for(state)
 
+    def prepare(state, *, z_limits_mm):
+        calls.append(("prepare", state))
+        regions = tuple(MagneticSourceRegion(key, key.title(), "lens", np.asarray(((-.001, -.001, .0), (.001, .001, .1))))
+                        for key in state.lens_keys)
+        regions += (MagneticSourceRegion("deflector", "Deflector", "deflector", np.asarray(((-.001, -.001, .03), (.001, .001, .04)))),
+                    MagneticSourceRegion("stigmator", "Stigmator", "stigmator", np.asarray(((-.001, -.001, .06), (.001, .001, .07)))))
+        return SimpleNamespace(state=state, source_keys=tuple(r.key for r in regions), source_regions=regions,
+                               notes=("Synthetic combined field; not transport validation.",))
+
+    def sample(scene, z):
+        state = scene.state
+        calls.append(("sample", state))
+        bz, _ = records_for(state, z)
+        bx = np.full(len(z), state.amplitude*.01)
+        by = np.full(len(z), state.amplitude*-.02)
+        if getattr(state, "zero_transverse_axis", False):
+            bx[:] = by[:] = 0.
+        rms = np.sqrt(bx*bx + by*by + (.003*state.amplitude)**2)
+        return MagneticDiagnosticProfile(z, np.column_stack((bx, by, bz)), rms,
+                                         np.full(len(z), state.amplitude*.1),
+                                         np.full(len(z), 1e-5), np.ones(len(z), dtype=bool))
+
     monkeypatch.setattr("temsim.gui.diagnostic_tabs.lens_field_records", fields)
     monkeypatch.setattr("temsim.gui.diagnostic_tabs.image_plane_rotation_records", planes)
+    monkeypatch.setattr("temsim.magnetic_field_scene.prepare_magnetic_scene", prepare)
+    monkeypatch.setattr("temsim.magnetic_field_scene.sample_magnetic_diagnostic", sample)
     widget.test_provider_calls = calls
     yield widget
+    widget.field_lines.set_active(False)
+    qtbot.waitUntil(lambda: widget._profile_worker is None, timeout=5000)
     if hasattr(widget, "test_container"):
         widget.plot.setXLink(None)
         widget.setParent(None)
         del widget.test_container
 
 
-def test_new_snapshot_updates_existing_curves_legend_lines_and_labels(view, monkeypatch):
+def publish(view, qtbot, latest):
+    view.display_result(latest)
+    qtbot.waitUntil(lambda: view._profile_worker is None, timeout=5000)
+    assert view._profile is not None, view.details.toPlainText()
+
+
+def test_new_snapshot_updates_four_combined_curves_without_graphics_recreation(view, qtbot, monkeypatch):
     first = result()
-    view.display_result(first)
-    view.focus_component(SimpleNamespace(key="c1"))
+    publish(view, qtbot, first)
     curves = dict(view._curves)
-    total = view._total_curve
     specimen_line = view._sample_field_items[0]
-    annotations = dict(view._rotation_by_key)
-    support = view._support_item
     legend_items = tuple(view.legend.items)
-    formula_samples = tuple(view._formula_samples)
     owned_items = tuple(view.plot.plotItem.items)
     monkeypatch.setattr(view.plot, "clear", lambda: pytest.fail("Do not clear a completed magnetic scene"))
-    monkeypatch.setattr(view.plot, "plot", lambda *_a, **_k: pytest.fail("Same lens keys must reuse curves"))
-    monkeypatch.setattr(view.plot, "addItem", lambda *_a, **_k: pytest.fail("Same keys must reuse graphics"))
-
-    latest = result(amplitude=2.0, sample_z=52.0)
-    view.display_result(latest)
-
-    assert view._curves == curves and view._total_curve is total
+    monkeypatch.setattr(view.plot, "plot", lambda *_a, **_k: pytest.fail("Combined curves must be reused"))
+    monkeypatch.setattr(view.plot, "addItem", lambda *_a, **_k: pytest.fail("Existing graphics must be reused"))
+    latest = result(amplitude=2., sample_z=52.)
+    publish(view, qtbot, latest)
+    assert view._curves == curves
     assert view._sample_field_items == [specimen_line]
-    assert view._rotation_by_key == annotations and view._support_item is support
     assert tuple(view.legend.items) == legend_items
-    assert tuple(view._formula_samples) == formula_samples
     assert tuple(view.plot.plotItem.items) == owned_items
-    assert specimen_line.value() == 52.0
-    assert "+0.8 T" in specimen_line.toolTip()
-    assert "20%" in curves["c1"].toolTip()
-    assert "+10°" in annotations[("lens", "c1")].toPlainText()
-    assert "+14°" in annotations[("plane_label", "image")].toPlainText()
+    assert specimen_line.value() == 52.
+    assert set(curves) == {"bz", "bu", "bv", "transverse_rms"}
+    np.testing.assert_allclose(curves["bu"].getData()[1], .02)
+    np.testing.assert_allclose(curves["bv"].getData()[1], -.04)
+    np.testing.assert_array_equal(curves["bz"].getData()[1], records_for(latest.state_snapshot, view._profile.z_mm)[0])
     assert "excitation 20%" in view.diagnostic_text("c1")
-    assert "20%" in view.summary.text()
-    for row in view._records:
-        np.testing.assert_array_equal(curves[row.key].getData()[1], row.field_t)
-    assert view.test_provider_calls == [("fields", first.state_snapshot), ("planes", first.state_snapshot),
-                                        ("fields", latest.state_snapshot), ("planes", latest.state_snapshot)]
+    assert len(view.test_provider_calls) == 8
 
 
-def test_added_removed_lenses_planes_and_formulas_reconcile_without_scene_clear(view, monkeypatch):
-    view.display_result(result())
-    view.focus_component(SimpleNamespace(key="objective"))
-    survivor = view._curves["c1"]
-    removed = view._curves["objective"]
-    removed_label = view._rotation_by_key[("lens", "objective")]
-    removed_plane = view._rotation_by_key[("plane_line", "image")]
-    removed_formula = view._formula_samples[0]
-    selected_support = view._support_item
-    monkeypatch.setattr(view.plot, "clear", lambda: pytest.fail("Key changes require reconciliation, not plot.clear"))
-
-    view.display_result(result(lens_keys=("c1", "p1"), plane_keys=("camera",), formula="map"))
-
-    assert set(view._curves) == {"c1", "p1"}
-    assert view._curves["c1"] is survivor
-    for item in (removed, removed_label, removed_plane, removed_formula, selected_support):
-        assert item.scene() is None
-    assert set(view._rotation_by_key) == {("lens", "c1"), ("lens", "p1"),
-                                          ("plane_line", "camera"), ("plane_label", "camera")}
-    assert view._selected_key is None and view._support_item is None
-    assert len(view.legend.items) == 2
-    assert view.legend.items[1][1].text == "map field"
+def test_component_changes_and_focus_preserve_the_combined_scene(view, qtbot, monkeypatch):
+    publish(view, qtbot, result())
+    curves = dict(view._curves)
+    data = {key: curve.getData()[1].copy() for key, curve in curves.items()}
+    ranges = view.plot.viewRange()
+    calls = len(view.test_provider_calls)
+    view.focus_component(SimpleNamespace(key="c1"))
+    view.focus_component(SimpleNamespace(key="deflector"))
+    assert len(view.test_provider_calls) == calls
+    assert view.plot.viewRange() == ranges
+    assert all(curve.isVisible() for curve in curves.values())
+    for key, curve in curves.items():
+        np.testing.assert_array_equal(curve.getData()[1], data[key])
+    assert "Deflector | deflector | included in the combined" in view.diagnostic_text("deflector")
+    assert not hasattr(view, "show_individual")
+    monkeypatch.setattr(view.plot, "clear", lambda: pytest.fail("Do not clear combined graphics"))
+    publish(view, qtbot, result(lens_keys=("c1", "p1"), plane_keys=("camera",)))
+    assert view._curves == curves
+    assert len(view.legend.items) == 4
+    assert {record.key for record in view._records} == {"c1", "p1"}
 
 
-def test_subsequent_publications_preserve_user_y_range_and_linked_ray_x(view, qtbot):
+def test_projection_only_rotates_cached_xy_vectors_and_3d_view(view, qtbot, monkeypatch):
+    publish(view, qtbot, result())
+    calls = len(view.test_provider_calls)
+    angles = []
+    monkeypatch.setattr(view.field_lines, "set_projection_angle", angles.append)
+    curves = dict(view._curves)
+    bz = curves["bz"].getData()[1].copy()
+    rms = curves["transverse_rms"].getData()[1].copy()
+    view.set_projection_angle(90.)
+    np.testing.assert_allclose(curves["bu"].getData()[1], -.02, atol=1e-16)
+    np.testing.assert_allclose(curves["bv"].getData()[1], -.01, atol=1e-16)
+    view.set_projection_angle(180.)
+    np.testing.assert_allclose(curves["bu"].getData()[1], -.01, atol=1e-16)
+    np.testing.assert_allclose(curves["bv"].getData()[1], .02, atol=1e-16)
+    np.testing.assert_array_equal(curves["bz"].getData()[1], bz)
+    np.testing.assert_array_equal(curves["transverse_rms"].getData()[1], rms)
+    assert angles == [90., 180.]
+    assert len(view.test_provider_calls) == calls
+    assert view._curves == curves
+
+
+def test_finite_radius_curve_exposes_stigmator_when_on_axis_transverse_field_is_zero(view, qtbot):
+    latest = result()
+    latest.state_snapshot.zero_transverse_axis = True
+    publish(view, qtbot, latest)
+    np.testing.assert_array_equal(view._curves["bu"].getData()[1], 0.)
+    np.testing.assert_array_equal(view._curves["bv"].getData()[1], 0.)
+    assert np.all(view._curves["transverse_rms"].getData()[1] > 0)
+    assert "eight-point ring" in view._curves["transverse_rms"].toolTip()
+    assert "10" in view.status.text()
+
+
+def test_publications_preserve_y_range_and_both_views_follow_linked_ray_x(view, qtbot, monkeypatch):
+    assert view.plot.getAxis("bottom").labelUnits == "m"
+    assert view.plot.getAxis("bottom").scale == 1e-3
     source = pg.PlotWidget()
     container = QWidget()
-    view.test_container = container  # Keep the reparented fixture's native owner alive through teardown.
+    view.test_container = container
     qtbot.addWidget(container)
     layout = QVBoxLayout(container)
-    layout.setContentsMargins(0, 0, 0, 0)
     layout.addWidget(source)
     layout.addWidget(view)
-    container.resize(1600, 900)
+    container.resize(1200, 800)
     container.show()
     source.getAxis("left").setWidth(65)
+    intervals = []
+    monkeypatch.setattr(view.field_lines, "set_view_range_mm", lambda axial, transverse: intervals.append(tuple(axial)))
     view.link_axial_axis(source)
-    source.setXRange(15.0, 35.0, padding=0)
+    source.setXRange(15., 35., padding=0)
     qtbot.wait(10)
-    view.display_result(result())
-    first_y = tuple(view.plot.viewRange()[1])
-    assert first_y[0] < 0.1 and first_y[1] > 0.9  # Initial Y fit still includes the total field.
-    view.plot.setYRange(-0.15, 0.25, padding=0)
-    source.setXRange(31.0, 39.0, padding=0)
+    publish(view, qtbot, result())
+    assert view.plot.viewRange()[1][1] > .9
+    view.plot.setYRange(-.15, .25, padding=0)
+    source.setXRange(31., 39., padding=0)
     qtbot.wait(10)
     before_x = tuple(view.plot.viewRange()[0])
-    view.display_result(result(amplitude=100.0))
-    np.testing.assert_allclose(view.plot.viewRange()[1], (-0.15, 0.25), rtol=0, atol=1e-12)
-    np.testing.assert_allclose(view.plot.viewRange()[0], before_x, rtol=0, atol=1e-12)
-    np.testing.assert_allclose(view.plot.viewRange()[0], source.viewRange()[0], rtol=0, atol=1e-9)
+    publish(view, qtbot, result(amplitude=100.))
+    np.testing.assert_allclose(view.plot.viewRange()[1], (-.15, .25), atol=1e-12)
+    np.testing.assert_allclose(view.plot.viewRange()[0], before_x, atol=1e-12)
+    np.testing.assert_allclose(view.plot.viewRange()[0], source.viewRange()[0], atol=1e-9)
+    np.testing.assert_allclose(intervals[-1], (31., 39.), atol=1e-9)
+    view.plot.setXRange(42., 58., padding=0)
+    qtbot.wait(10)
+    np.testing.assert_allclose(source.viewRange()[0], (42., 58.), atol=1e-9)
+    np.testing.assert_allclose(intervals[-1], (42., 58.), atol=1e-9)
 
 
-def test_toggles_and_curve_click_connections_survive_repeated_updates(view):
-    view.display_result(result())
-    view.show_individual.setChecked(False)
-    view.show_rotation_labels.setChecked(False)
-    view.focus_component(SimpleNamespace(key="c1"))
-    chosen = []
-    view.component_selected.connect(chosen.append)
-    curve = view._curves["c1"]
-    count = len(view.plot.plotItem.items)
-    for value in range(2, 8):
-        view.display_result(result(amplitude=float(value)))
-        assert len(view.plot.plotItem.items) == count
-    assert view._curves["c1"] is curve and curve.isVisible()
-    assert not view._curves["objective"].isVisible()
-    assert all(not item.isVisible() for item in view._rotation_items)
-    curve.sigClicked.emit(curve, None)
-    assert chosen == ["c1"]  # No duplicate connection per published result.
-
-
-def test_pending_diagnostics_and_clear_never_expose_stale_fields(view, monkeypatch):
-    view.display_result(result(amplitude=123.0))
-    total, old_items = view._total_curve, tuple(view.plot.plotItem.items)
+def test_pending_and_clear_remove_stale_fields_without_plot_clear(view, qtbot, monkeypatch):
+    publish(view, qtbot, result(amplitude=123.))
+    old_items = tuple(view.plot.plotItem.items)
     view.mark_presentation_pending()
     assert "pending" in view.diagnostic_text("c1")
     assert "123" not in view.diagnostic_text("c1")
-    monkeypatch.setattr(view.plot, "clear", lambda: pytest.fail("Clear only magnetic-owned items"))
+    assert view._profile is None
+    monkeypatch.setattr(view.plot, "clear", lambda: pytest.fail("Remove only owned items"))
     view.display_result(SimpleNamespace(state_snapshot=None))
     assert view._records == () and view._plane_records == ()
     assert not view._presentation_pending and not view._has_field_scene
-    assert view._total_curve is None and total.scene() is None
-    assert view.legend.items == []
-    assert "123" not in view.heading.text()
+    assert view._curves == {} and view.legend.items == []
     assert all(item.scene() is None for item in old_items if item is not view.legend)
+    publish(view, qtbot, result())
+    assert view._has_field_scene
+
+
+def test_advanced_controls_do_not_consume_plot_area_and_share_one_toolbar(view, qtbot):
+    view.resize(1000, 500)
+    view.show()
+    qtbot.wait(10)
+    assert not view.field_map_import.isVisible()
+    assert not view.field_lines.reference.isVisible()
+    assert view.field_lines.fit_button.isVisible()
+    assert view.plot.height() > .8*view.height()
+    view._show_advanced()
+    qtbot.wait(10)
+    assert view.field_map_import.isVisible()
+    assert view.field_lines.reference.isVisible()
+    assert view.field_lines.match_reference.isVisible()
+    assert view.advanced_dialog.isAncestorOf(view.field_map_import)
+    view.advanced_dialog.hide()
+    controls = (view.display_mode, view.field_lines.fit_button, view.advanced_button)
+    centers = [control.mapTo(view, control.rect().center()).y() for control in controls]
+    assert max(centers)-min(centers) <= 1
+
+
+def test_profile_errors_remain_readable_in_advanced(view, qtbot, monkeypatch):
+    def fail(*args, **kwargs):
+        raise ValueError("Synthetic unavailable map")
+    monkeypatch.setattr("temsim.magnetic_field_scene.prepare_magnetic_scene", fail)
     view.display_result(result())
-    assert view._has_field_scene and view._total_curve is not total
+    qtbot.waitUntil(lambda: view._profile_worker is None, timeout=5000)
+    assert "unavailable" in view.status.text()
+    view._show_advanced()
+    assert "Synthetic unavailable map" in view.details.toPlainText()
+    assert view._profile is None
 
 
-def test_formula_colour_update_reuses_legend_sample_with_latest_colour(view):
-    view.display_result(result())
-    curve, sample = view._curves["c1"], view._formula_samples[0]
-    legend_items = tuple(view.legend.items)
-    view.display_result(result(colour="#ef4444"))
-    assert view._curves["c1"] is curve and view._formula_samples[0] is sample
-    assert tuple(view.legend.items) == legend_items
-    assert curve.opts["pen"].color().name() == "#ef4444"
-    assert sample.opts["pen"].color().name() == "#ef4444"
+def test_first_profile_fits_hidden_2d_curve_before_leaving_3d(view, qtbot):
+    view.display_mode.setCurrentIndex(view.display_mode.findData("3d"))
+    publish(view, qtbot, result(amplitude=5.))
+    view.display_mode.setCurrentIndex(view.display_mode.findData("2d"))
+    assert view.plot.viewRange()[1][1] > 4.9
 
 
-def test_selected_support_and_curve_domain_follow_latest_geometry(view):
-    view.display_result(result())
-    view.focus_component(SimpleNamespace(key="c1"))
-    support, curve = view._support_item, view._curves["c1"]
-    assert support.getRegion() == (20.0, 30.0)
-    latest = result(lens_keys=("objective", "c1"))
-    latest.simulation.incident.z = np.array([-50.0, 150.0])
+def test_new_snapshot_discards_inflight_profile_before_publishing(view, qtbot):
+    view.display_result(result(amplitude=1.))
+    latest = result(amplitude=77.)
     view.display_result(latest)
-    assert view._support_item is support and view._curves["c1"] is curve
-    assert support.getRegion() == (50.0, 60.0)
-    assert curve.getData()[0][0] == -50.0 and curve.getData()[0][-1] == 150.0
-    assert view._rotation_by_key[("lens", "c1")].pos().x() == 55.0
+    qtbot.waitUntil(lambda: view._profile_worker is None, timeout=5000)
+    assert view._state_snapshot is latest.state_snapshot
+    assert view._profile is not None
+    np.testing.assert_allclose(view._profile.on_axis_t[:, 0], .77)
+    assert "excitation 770%" in view.diagnostic_text("c1")
+
+
+def test_diagnostic_signal_reports_pending_then_current_and_clear(view, qtbot):
+    states = []
+    view.diagnostics_updated.connect(lambda: states.append(view.diagnostic_text("c1")))
+    publish(view, qtbot, result())
+    assert "pending" in states[0]
+    assert "peak |Bz|" in states[-1]
+    view.display_result(None)
+    assert "Recalculate" in states[-1]
+
+
+def test_failed_captured_scene_never_invokes_a_diagnostic_field_solver(view, qtbot, monkeypatch):
+    def unavailable(*_args, **_kwargs):
+        raise ValueError("Captured FEM cache missing")
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Diagnostics must not rebuild a missing FEM field")
+    monkeypatch.setattr("temsim.magnetic_field_scene.prepare_magnetic_scene", unavailable)
+    monkeypatch.setattr("temsim.gui.diagnostic_tabs.lens_field_records", forbidden)
+    view.display_result(result())
+    qtbot.waitUntil(lambda: view._profile_worker is None, timeout=5000)
+    assert view._profile is None
+    assert "Captured FEM cache missing" in view.details.toPlainText()

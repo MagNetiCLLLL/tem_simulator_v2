@@ -11,7 +11,11 @@ piecewise grid fields require independent step/grid convergence checks.
 from __future__ import annotations
 
 import numpy as np
-from scipy.constants import c, e, m_e
+from temsim.physics.relativistic_lorentz import (
+    SPEED_OF_LIGHT_M_PER_S as c,
+    ELEMENTARY_CHARGE_C as e,
+    ELECTRON_MASS_KG as m_e,
+)
 
 from temsim.physics.relativistic_lorentz import RelativisticPhaseSpace
 

@@ -1,9 +1,308 @@
 # TEM Simulator v2 — Project Handoff
 
-Last updated: **2026-09-25**. Current checkpoint:
+Last updated: **2026-09-26**. Current checkpoint:
 **classical particle transport and qualitative scientific trends**.
 
-Latest continuation: [Condenser adjustment and accelerator annotations](docs/development/condenser-adjustment-display-2026-09-25.md).
+Latest continuation: **Fine polar-angle controls and small-angle audit**
+([evidence and scope](docs/development/virtual-electron-polar-angle-audit-2026-09-26.md)).
+The polar slider now covers 0–5 mrad with 0.0025 mrad increments; numeric steps
+are 0.01 mrad and larger explicitly entered angles remain intact. The existing
+energy panel reports initial/final physical direction angles and the plot footer
+states that angles are not to scale. Polar/azimuth tooltips distinguish initial
+direction from projection rotation. 168 affected GUI/display checks pass.
+
+Full GUI startup reconstruction matches the screenshot's 0.866371 mrad case:
+9,512 steps, Z3026.392986 mm, TOF14193.718 ps. Its actual final direction angle
+is 1.813557 mrad and radial displacement 1.216858 mm. The 294x drawing ratio
+makes the projected final angle appear about 27.3 degrees. Small-angle response
+is approximately linear; tighter integration changes final radius by about
+0.293%, and compiled/reference sampled positions agree within 1.64e-13 m.
+No numerical or physical model changes were needed for this control repair.
+See the audit for the bounded scope and difference from bare default_state.
+
+Previous continuation: **Continuous virtual-electron trajectories and mrad controls**
+([verification and scope](docs/development/continuous-electron-response-2026-09-26.md)).
+Sliders now publish actual integrated prefixes and completed sampled settings
+while held. The previous same-field path stays visible as a dashed comparison;
+stale/partial paths never become exact current results. Release requests the
+latest value. The primary polar input is mrad with adjacent equivalent degrees.
+Numeric typing still commits on Enter/focus loss. Captured fields, process and
+exact-result caches are reused; unchanged magnetic backgrounds now reuse one
+raster layer across electron updates.
+
+Supported captured E+B models use compiled field sampling, adaptive integration
+and chronological hardware contacts at the original tolerances. Reference
+comparisons preserve step counts, stopping reasons and energy invariants.
+Unrepresented/custom field laws and geometry retain the complete reference path;
+exact-type and original-method checks prevent incorrect Gaussian substitution.
+Pure warm integration measured 7.52 s to 0.202 s for the default full path and
+4.69 s to 0.096 s for the 2.61-degree aperture case. First compilation remains
+an extra startup cost; coherent development remains paused.
+
+Actual Qt dock/process/canvas test: 80 distinct slider inputs over 1.574 s,
+6 complete path updates plus 7 partial path updates, zero empty display states,
+and 0.200 s from release to the final latest-settings trajectory. The 10 ms
+timer's p95/max gaps were 23.1/39.6 ms. One process and field preparation were
+reused and the process exited on close. These are measured diagnostic cases,
+not a monitor frame-rate guarantee or full-instrument qualification.
+
+Final combined affected-feature regression: **447 passed**, zero failures,
+errors or skips, 199.494 s (`tmp/continuous-electron-final.xml`). Includes delayed
+IPC input-starvation, exact-cache races, mrad extrema/layout, field-raster cache
+invalidation, real compiled/reference fields, hardware stops, cancellation,
+process lifecycle, docking/navigation and CPU admission. Compile and diff
+checks passed. Local evidence: `tmp/continuous-electron-live-20260926/`.
+Restart the application to load changes. Generated reports/caches remain local.
+
+Previous continuation: **Dockable virtual electrons and responsive field display**
+([verification and scope](docs/development/virtual-electron-dock-response-2026-09-26.md)).
+Virtual electrons is a native dock with View-menu access, tabifying/floating,
+named-layout and restart restoration. Narrow panels stack their list and
+scrollable editor; closing the panel preserves cached trajectories. Linked
+spatial/2D field axes now match the Ray Diagram's actual horizontal pixels
+through dock, sidebar, scroll and resize changes. Electron strokes are 1.0/1.4
+pixels; magnetic lines use 75% opacity and fixed-size screen arrowheads, removing
+stretched arrow spikes. Fit retains a common physical scale for both populations.
+
+Captured-field preparation and unchanged E+B transport now use one persistent,
+hidden, single-CPU process. Parent-side numerical admission still serializes it
+with other numerical jobs; scene/result caches avoid repeat work. Two real
+transport cases retained bitwise identical saved arrays. The measured Qt timer
+maximum gap changed from about 39–40 ms to 16–18 ms; solve time was similar,
+and first use includes process startup. This improves responsiveness without
+lowering physical or numerical accuracy. An actual MainWindow diagnostic run
+reused one field preparation for two trajectories and needed no additional
+execution for overlay, docking, floating or resize; axial pixel errors were
+below 0.02 logical pixels. These are diagnostic and GUI checks, not full-column
+scientific qualification. Restart the app to load these changes.
+
+Final affected-feature regression: **332 passed**, zero failures/errors/skips,
+178.143 s (`tmp/virtual-electron-dock-response-final.xml`). Thirteen process
+tests cover exact parity, cold startup, scene ownership, CPU admission,
+cancellation/recovery and the actual Windows compute-process PID/exit. A final
+MainWindow run confirmed the same PID ownership and exit, two real E+B paths,
+one shared prepared scene and no layout-triggered integration. Compile and
+diff checks passed. Generated reports/arrays/screenshots remain local; no
+commit or push was requested.
+
+Previous continuation: **Linked trajectory axes and faster parameter response**
+([verification and scope](docs/development/test-electron-navigation-performance-2026-09-26.md)).
+Spatial field/electron plots now have physical Z/U axes, Ray Diagram wheel
+anchoring and single-axis zoom/pan. **Link Ray Diagram** is optional, works in
+both directions and is retained with workspace layouts. Independent ranges
+survive resizing and new trajectories; Fit establishes an explicit range.
+The 2D field-strength axis remains in tesla.
+
+Numerical edits commit on Enter/focus loss and slider release, avoiding work
+for intermediate values. Enter no longer triggers Reset to tip accidentally.
+Equivalent scalar field interpolation, axial hardware candidate filtering
+and dependency-complete Gaussian peak caching reduced the measured default
+3.0264 m integration from 13.219 to 7.132 s and a 550 mm off-axis integration
+from 7.919 to 3.794 s. All saved trajectory arrays were bitwise identical.
+These timings exclude first field preparation; numerical settings and physical
+models are unchanged. Restart the application to load the modified interface.
+
+Final affected-feature regression: **309 passed, one existing default-provider
+assertion deselected**, 97.15 s. The excluded failure was independently reproduced
+with all three old numerical implementations restored. Real Qt plot/axis wheels,
+linked/independent navigation and resize passed a stored-trajectory replay;
+readable captures and exact array digests are retained locally. Compilation and
+fatal-error lint checks passed. See the linked verification note for evidence
+paths, scientific limits and the excluded test. No commit or push was requested.
+
+Previous continuation: **Multiple virtual electrons and trajectory overlays**
+([guide](docs/development/magnetic-test-electron-2026-09-26.md)).
+The Magnetic field menu now offers **Electron trajectories → Electrons…**.
+An electron list supports adding tip-default entries, duplicating a selected
+entry, editing its independent parameters, renaming it and removing it.
+**Selected electron** shows one row; **Overlay checked** shows checked rows in
+matching colours with independent start/end markers and direction arrows.
+Clicking a row selects its editor without changing overlay membership.
+
+One captured E+B scene serves the list. A serial one-thread queue calculates
+only requested missing paths. Each record retains its current result; an
+additional eight-entry exact-settings cache permits reuse between identical
+electrons. Row selection, visibility and name changes do not retrace physics.
+Edits invalidate only their own record. Stable IDs, per-record revisions and
+scene generations prevent deleted or stale work from being published. A new
+captured field clears all results while preserving list parameters. These
+remain independent test particles without electron-electron interactions;
+the existing E+B solver, tip defaults and hardware stops are unchanged.
+The list is session-local and does not create production particle archives.
+
+Final validation: **243 targeted checks passed**, zero failures/errors/skips
+(43 solver, 25 scene, 34 controller GUI, 55 canvas and 86 related checks).
+An actual configured E+B GUI run executed three distinct 550 mm tip-origin
+paths with **one field preparation and three trajectory calculations**.
+Exact duplication, row selection and visibility changes reused the results.
+Screenshots at 1280×760 and 900×350 were inspected; the canvas retained 93.3%
+and 85.4% of panel height. Local evidence is under `tmp/multiple-test-electrons-*`.
+The regression also caught and fixed unrelated controls rounding exact stored
+parameters: each edit now updates only that field or XYZ coordinate. No legacy
+single-path display adapter remains. Compilation and whitespace checks passed.
+Restart the application to load the new interface; no commit or push requested.
+
+Previous continuation: [Virtual electron from the physical tip in E+B fields](docs/development/magnetic-test-electron-2026-09-26.md).
+**Magnetic field → Single electron trajectory → Electron…** now starts at the
+captured physical tip with its local emission energy: default XYZ=(0,0,0),
+0.3 eV and the full supported column path. Initial energy is entered in eV;
+XYZ, polar/azimuth direction and path remain editable, and **Reset to tip
+emission** restores the tip state. Extraction, electrostatic focusing, all
+accelerator electrodes, optional installed velocity-selector E+B, magnetic
+optics and physical aperture/electrode/wall stops participate. The readout
+shows changing kinetic energy and distinguishes hardware interception,
+unsupported fields, field-domain limits and numerical truncation. Specimen
+and detector interactions are excluded; this is a deterministic frozen-field
+diagnostic, not a residual-gas scattering or time-dependent scan calculation.
+
+The electric provider is prepared lazily on an isolated gun clone, with
+existing dependency-bound caches. A full-column diagnostic may extend the
+numerical E domain through the existing grounded liner. Physical settings
+remain unchanged, but the extended mesh is a different numerical solution,
+not the original short-domain field array. The bounded on-axis comparison
+found at most 58.5 V potential difference and 1.18% of the old peak axial E
+field; see the guide before treating these arrays as interchangeable. The
+bent energy filter and an active electrostatic blanker without a continuous
+field provider cause explicit upstream stops; no field-free bypass is used.
+
+Static E+B transport uses adaptive discrete-gradient Lorentz integration
+without forced exit energy or momentum rescaling. Time and travelled path
+are integrated with changing speed. Default controls allow a 1 mm maximum
+step, 20,000 steps and advanced tolerances. One numerical CPU thread, 150 ms
+input coalescing, latest-only publication, cancellation and eight exact cached
+trajectories keep controls responsive. Camera and field-line changes reuse
+paths. Main source settings, instrument particle runs, checkpoints and
+archives are unchanged; coherent development remains paused.
+
+Final validation: **213 affected checks passed** (43 solver tests plus 170
+scene/GUI/display regressions). The actual default on-axis tip-to-3.0264 m
+case completed in **9.319 s**, 8,799 steps, from **0.3 to 300000.3000000185 eV**,
+on one numerical worker. Halving the maximum step completed in 10.857 s with
+10,191 steps; both reached the requested path and conserved K−eφ to below
+2e-8 eV. An actual Qt initial view completed in 19.297 s including profile,
+field geometry and trajectory. A 5°/45° tip launch over 550 mm completed in
+11.125 s, and changing initial energy to 0.6 eV took 7.437 s using the same
+prepared scene. The canvas retained 85.4–93.3% of tested panel height; local
+GUI evidence is `tmp/test-electron-em-render.json` and matching PNGs.
+This is a single-electron diagnostic benchmark, not a full-instrument
+simulation or a guarantee for arbitrary launch conditions. Local evidence:
+`tmp/test-electron-em-actual.json` and
+`tmp/test-electron-em-gui-regression.xml`; generated data remain excluded from
+Git. Restart to load the interface. No commit or push in this continuation.
+
+Previous continuation: [Stable instrument navigation layout](docs/development/direct-alignment-layout-2026-09-26.md).
+Direct Alignment's variable-height content now scrolls inside the page, with
+Cancel fixed below it. Navigation tabs do not pass width-dependent height
+requests into the setup layout. Setup area, tab positions and user splitter/
+floating-dock dimensions remain stable when switching pages or showing long
+messages, including 420 px width. Existing controls and layout identities are
+retained; restart requires no layout reset. All 34 targeted layout/alignment
+checks passed. Local before/after evidence is under `tmp/alignment-layout-*`.
+
+Previous continuation: [Combined magnetic field views](docs/development/magnetic-field-lines-3d-2026-09-26.md).
+Both 2D/3D views now show the combined lens, stigmator, corrector and deflector
+field. Per-lens display selection and independent orbit controls are removed.
+Ray Diagram rotation uses the same U/Z projection in both field views, with
+shared physical axial ranges. A single toolbar leaves 85–93% of tested panel
+height for the canvas; map import and reference/details are in Advanced.
+2D adds total projected transverse components and finite-ring RMS to expose
+zero-axis multipole fields. Captured finite gun providers are reused directly;
+column angular kicks use explicitly labelled finite-coil display equivalents.
+Electrostatic fields and the bent post-column filter are outside this magnetic
+scene. Exactly-zero controls do not truncate neighbouring field domains.
+One-thread async sampling shares its frozen scene with the cached 3D renderer;
+rotation/pan/zoom do not rerun fields or electron transport. Async diagnostic
+completion refreshes the currently selected hardware's parameter information.
+Missing/stale FEM cache fails before diagnostic helpers can start a new solve.
+Final 113 targeted checks passed (zero failures/skips), including MainWindow
+selection, map controls, projection, stale work, field direction and domains.
+The final active-field render prepared 241 lines/19,329 segments in 1.985 s on one
+numerical thread; this is not a full-simulation benchmark. Final screenshot and
+timing evidence remain under `tmp/magnetic-combined-*`. Restart to use the new
+interface. Other uncommitted gun repair and hardware tuning work is preserved.
+No coherent development, commit or push in this continuation.
+
+Previous continuation: [Production gun-electrode field repair](docs/development/gun-electrode-field-repair-2026-09-26.md).
+The default classical flat/continuous-curvature cold FEG now executes a coupled
+electrode field with explicit downstream electrical closure. Existing ten
+accelerator stages, extractor, gun lens, original tip emission, apertures,
+magnetic controls and optional velocity selector remain active. Grounded liner
+wiring and selector housing common bias are declared simulator assumptions.
+No artificial exit source, drawing smoothing or final-energy reset is used.
+Flat mesh/domain qualification and actual curved/selector traces passed;
+261 distinct targeted regression checks have final passing outcomes. This is
+not full-project or complete microscope qualification. The independent 193-ray
+16-to-32 mesh envelope difference is 0.2016%; production step halving changes
+maximum exit position by 0.5904 nm. A completed 5,000-particle gun trace took
+108.829 s on one CPU thread, with 19.43 ms exact cached-result reuse and
+4.831e-9 eV maximum exit energy residual. It is not a full-column timing or an
+equivalent old/new speed comparison. Local reports and raw accepted histories
+are in `tmp/gun-repair-20260926/`; the before/after figure and independent
+five-case evidence are in `tmp/closed-gun-qualification/`.
+Snapshots exclude generated field objects, archive electrostatic provenance,
+and invalidate execution reuse when consumed field inputs/implementations
+change. Obsolete analytic field controls are hidden for geometry fields;
+Ray Diagram marks actual accelerator electrodes. Restart and recalculate;
+old matched lens/selector drives may need retuning. The historical explicitly
+selected advanced tip-surface provider remains separate and was not newly
+qualified by the flat outlet study. No coherent work, commit or push.
+
+Previous continuation: [Accelerator turning mechanism and proportional reference](docs/development/accelerator-turning-mechanism-2026-09-26.md).
+Twelve new 193-particle tip-to-450 mm cases isolate analytic transition width,
+reference contour, mesh, step and outlet sensitivity. Strong repeated transverse
+turns arise in the compact analytic stage ramps before rendering; smaller steps
+retain them. No longitudinal reversal was observed in these admitted forward
+cases. A bounded patent-proportional reference uses six divider nodes and five
+intervals, with explicit planar-cathode/extractor-enclosure limitations. Shaped
+versus flat intermediate electrodes show resolved physical focusing differences.
+The 80-340 mm result is stable to tested mesh/outlet changes, while final energy
+remains outlet-sensitive: do not promote the reference to the default provider.
+123 related tests plus five renderer/arrival checks passed. Source states, IDs
+and weights match exactly; generated archives/figures remain local under
+`tmp/accelerator-mechanism-20260926/`. Production/GUI defaults are unchanged.
+No coherent work, commit or push. True reflected-ray drawing remains a separate
+chronological-history limitation of the common-Z display.
+
+Previous continuation: [Gun electrode potentials and patent cross-section review](docs/development/gun-electrode-patent-review-2026-09-26.md).
+The outlet energy variation is explained by the changed potential at the fixed
+450 mm observation plane. The default analytic lens amplitude and the diagnostic
+electrode voltage have different meanings; the report records both, including
+the 0.3 eV final-energy convention difference. Original patent cross-sections
+identify extraction, electrostatic control, staged acceleration and grounding.
+The next specification separates physical conductors/electrical nodes from the
+numerical domain and proposes explicitly wired downstream shielding using
+existing geometry. It has not been implemented or qualified. This continuation
+changes documentation/reference figures only; no new particle run or default
+solver change, and no commit or push.
+
+Previous continuation: [Coupled reference gun field with an explicit planar cathode](docs/development/planar-gun-coupled-field-2026-09-26.md).
+An opt-in diagnostic now solves the extractor, gun lens and all accelerator
+electrodes in one vacuum field, starting trajectories at the unchanged flat
+emission samples. Eleven 193-particle cases and 101 targeted/regression tests
+completed. The 16-to-32 mesh envelope difference is 0.23045%; executed cutoff
+save/load/continuation checks at 26/30/34 mm passed. Static field caches are
+compressed and dependency checked. Production defaults and GUI are unchanged.
+Do not promote this model yet: extending the fixed-potential outlet changes
+the energy observed at 450 mm by up to 9.518 keV despite good energy conservation.
+Cathode geometry and outlet electrical closure/shielding still require explicit
+definitions. Diagnostic archives are not GUI result files; generated arrays
+remain ignored under `tmp/planar-gun-20260926/`. No commit or push performed.
+
+Previous continuation: [Independent Hardware tuning tab](docs/development/hardware-tuning-tab-2026-09-25.md).
+The new main-workspace tab has a searchable alignment list on the left and
+inline hardware controls on the right. Its 27 task entries resolve to current
+instrument objects, with functional names, explicit units and availability.
+It is independent of Direct Alignment and introduces no automatic solver or
+new physical state. Scalar and component validation happen before live edits;
+accepted changes use existing invalidation/preview and synchronize other editors.
+All 97 targeted cases passed, including five invalid-drive regressions first
+reproduced before the validation fix. Compact and main-window screenshots were
+inspected. The prior default-cache native crash recurred in an existing test;
+the full affected test group passed with an isolated compilation cache. Details
+and scope are in the linked note. Restart to load the new tab. No commit/push
+or user-application restart was performed for this feature.
+
+Previous continuation: [Condenser adjustment and accelerator annotations](docs/development/condenser-adjustment-display-2026-09-25.md).
 The Ray Diagram action is now Auto-adjust condensers, with captured C1/C2/C3
 before/after values and explicit optical-validation scope. A persisted
 Acceleration gaps toggle draws snapshot-based stage annotations without changing

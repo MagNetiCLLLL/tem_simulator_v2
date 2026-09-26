@@ -28,6 +28,13 @@ from temsim.operating_modes import (
 )
 
 
+class _NavigationTabs(QTabWidget):
+    """Scrolling navigation pages must not resize the surrounding setup area."""
+
+    def hasHeightForWidth(self) -> bool:
+        return False
+
+
 class AssemblyPanel(QWidget):
     configuration_requested = Signal()
     selection_requested = Signal(object)
@@ -139,7 +146,7 @@ class AssemblyPanel(QWidget):
         self.mechanical_tree.setObjectName("mechanicalInstrumentTree")
         mechanical_layout.addWidget(self.mechanical_tree, 1)
 
-        self.component_pages = QTabWidget()
+        self.component_pages = _NavigationTabs()
         self.component_pages.setObjectName("componentNavigationPages")
         self.component_pages.addTab(optical_page, "Optical")
         self.component_pages.addTab(mechanical_page, "Mechanical")

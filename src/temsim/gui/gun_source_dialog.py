@@ -276,10 +276,11 @@ class GunSourceDialog(QDialog):
             if self.surface_enabled.isChecked() else
             f"Tip curvature {text} nm⁻¹ · Flat tip at 0 · {scope}")
         self.model_change_summary.setToolTip(
-            "Continuous geometry keeps the same projected spatial distribution, current, "
-            "local directions, energy law, extraction, acceleration and apertures. "
-            "It does not recompute a self-consistent field for a deformed metal tip. "
-            f"Analytic gun-lens scale: {self._gun.electrostatic_lens.potential_scale:g} (uncalibrated).")
+            "Tip inputs specify emission positions, local directions, energies and current. "
+            "The flat tip uses one coupled electrode field for extraction, gun focusing and acceleration, "
+            "including the grounded downstream liner. Gun-lens voltage is the electrode potential "
+            "relative to its selected reference; an analytic focusing multiplier is not used. "
+            "A deformed conductor requires its corresponding curved-tip field.")
         self.surface_panel.setVisible(self.surface_enabled.isChecked())
         self.analytic_tip_panel.setVisible(not self.surface_enabled.isChecked())
         self.match_transport.setEnabled(self._instrument_state is not None and not self.surface_coherent.isChecked())

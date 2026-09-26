@@ -1,7 +1,8 @@
-"""Centre-anchored tip curvature in the existing analytic gun field.
+"""Centre-anchored classical tip emission with unchanged local distributions.
 
 The projected truncated Gaussian, local slopes, energies and current are held
-fixed. This is not a self-consistent electrode-field solution for a metal tip.
+fixed. The separate conductor adapter supplies this surface to the electrode
+field solve; this module only constructs the emitted particle state.
 """
 from dataclasses import replace
 
@@ -24,7 +25,7 @@ def validate_curvature(emitter):
     if curvature == 0:
         return
     if curvature and (emitter.surface_model is not None or emitter.coherence is not None):
-        raise ValueError("Continuous curvature requires classical analytic-field tip emission")
+        raise ValueError("Continuous curvature requires classical tip emission")
     # A graph over the projected disk must stay short of the hemisphere rim.
     if curvature * support_radius_nm(emitter) > 0.95:
         raise ValueError("Tip curvature times emitting support radius must not exceed 0.95")

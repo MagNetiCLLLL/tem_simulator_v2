@@ -91,7 +91,7 @@ parameters rather than whichever values happen to be currently installed.
         stage.soft_edge_mm = _finite_number(row["soft_edge_mm"], f"Accelerator stage {index} edge width")
         stages.append(stage)
     incoming_accelerator.stages = stages
-    grounded = getattr(incoming_emitter, "surface_model", None) is not None
+    grounded = gun.type_key == "cold_feg"
     incoming_accelerator.validate(grounded=grounded)
     if grounded and stages[-1].voltage_fraction != 1.0:
         raise ValueError("Grounded gun requires the final accelerator fraction to equal one")

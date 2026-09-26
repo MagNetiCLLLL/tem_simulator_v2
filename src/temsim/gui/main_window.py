@@ -143,6 +143,7 @@ class MainWindow(QMainWindow):
         self.workspace.model_inspector.set_state(self.state)
         self.workspace.model_inspector.changed.connect(self._runtime_parameter_changed)
         self.workspace.model_inspector.error.connect(self._show_error)
+        self.workspace.hardware_tuning.runtime_changed.connect(self._hardware_tuning_changed)
         self.setCentralWidget(self.workspace)
 
         self.assembly_panel = AssemblyPanel(
@@ -183,6 +184,17 @@ class MainWindow(QMainWindow):
         self.live_tuning_dock.hide()
         self.workspace.live_tuning_toggle.setDefaultAction(self.live_tuning_dock.toggleViewAction())
         self.live_tuning_dock.toggleViewAction().triggered.connect(self._live_tuning_visibility_requested)
+        self.virtual_electrons_dock = self._create_dock(
+            "Virtual electrons", "virtualElectronsDock",
+            self.workspace.magnetic_field.field_lines.electron.panel,
+            Qt.DockWidgetArea.LeftDockWidgetArea,
+        )
+        self.tabifyDockWidget(self.instrument_dock, self.virtual_electrons_dock)
+        self.virtual_electrons_dock.hide()
+        self.workspace.magnetic_field.field_lines.electron.controls_requested.connect(
+            self._show_virtual_electrons)
+        self.virtual_electrons_dock.toggleViewAction().triggered.connect(
+            self._virtual_electrons_visibility_requested)
         self.log_dock = self._create_dock(
             "Status and calculation log", "logDock", self.log_output,
             Qt.DockWidgetArea.BottomDockWidgetArea,
@@ -248,6 +260,9 @@ class MainWindow(QMainWindow):
         )
         self.workspace.component_selected.connect(
             self._select_component_from_workspace
+        )
+        self.workspace.magnetic_field.diagnostics_updated.connect(
+            self._refresh_magnetic_diagnostics
         )
         self.workspace.magnetic_field.field_map_import_requested.connect(
             self._import_lens_field_map
@@ -410,6 +425,7 @@ class MainWindow(QMainWindow):
         view_menu = self.menuBar().addMenu("View")
         view_menu.addAction(self.instrument_dock.toggleViewAction())
         view_menu.addAction(self.live_tuning_dock.toggleViewAction())
+        view_menu.addAction(self.virtual_electrons_dock.toggleViewAction())
         view_menu.addAction(self.log_dock.toggleViewAction())
         self.layouts_menu = view_menu.addMenu("Layouts")
         view_menu.addSeparator()
@@ -504,6 +520,7 @@ class MainWindow(QMainWindow):
     def _refresh_parameter_simulation_context(self):
         if not hasattr(self, "workspace"):
             return
+        self.workspace.hardware_tuning.set_state(self.state)
         parts = {part.key: {**part.data, "key": part.key, "parent_key": part.parent_key}
                  for part in getattr(getattr(self, "assembly", None), "parts", ())}
         mode = mode_key(self.state)
@@ -839,6 +856,18 @@ class MainWindow(QMainWindow):
                     self.resizeDocks([self.live_tuning_dock], [900], Qt.Orientation.Horizontal)
                 self._live_tuning_layout_initialized = True
 
+    def _show_virtual_electrons(self) -> None:
+        self.workspace.show_ray_diagram()
+        self.workspace.magnetic_field_toggle.setChecked(True)
+        field = self.workspace.magnetic_field
+        field.display_mode.setCurrentIndex(field.display_mode.findData("electron"))
+        self.virtual_electrons_dock.show()
+        self.virtual_electrons_dock.raise_()
+
+    def _virtual_electrons_visibility_requested(self, visible: bool) -> None:
+        if visible:
+            self._show_virtual_electrons()
+
     def _capture_interactive_settings(self) -> None:
         page = self.workspace.interactive_calculation
         try:
@@ -1090,6 +1119,13 @@ class MainWindow(QMainWindow):
         self.parameter_panel.set_lens_diagnostics(
             self.workspace.magnetic_field.diagnostic_text(selection.key)
         )
+
+    def _refresh_magnetic_diagnostics(self) -> None:
+        """Publish asynchronously completed field diagnostics for the selection."""
+        if self._selected_component_key is not None:
+            self.parameter_panel.set_lens_diagnostics(
+                self.workspace.magnetic_field.diagnostic_text(self._selected_component_key)
+            )
 
     def _reveal_tree_item(self, selection, source: str) -> None:
         """Navigate a double-clicked tree component to its visual view."""
@@ -1924,6 +1960,13 @@ class MainWindow(QMainWindow):
         self._set_progress_active("calculation", False)
         self.preview_timer.start(self.PREVIEW_DEBOUNCE_MS)
 
+    def _hardware_tuning_changed(self, parameter: str) -> None:
+        key = parameter.rsplit(".", 1)[0]
+        self.parameter_panel.refresh_live_values({key})
+        if key in {"ac_deflector", "descan_deflector"}:
+            self.workspace.scan_control.set_state(self.state)
+        self._runtime_parameter_changed(parameter)
+
     def _runtime_parameter_changed(self, parameter: str = "") -> None:
         self.workspace.physical_layout.set_cell_state(self.state)
         # A background coupled solution was calculated for the pre-edit state.
@@ -2680,19 +2723,24 @@ class MainWindow(QMainWindow):
         for dock, area in (
             (self.instrument_dock, Qt.DockWidgetArea.LeftDockWidgetArea),
             (self.live_tuning_dock, Qt.DockWidgetArea.LeftDockWidgetArea),
+            (self.virtual_electrons_dock, Qt.DockWidgetArea.LeftDockWidgetArea),
             (self.log_dock, Qt.DockWidgetArea.BottomDockWidgetArea),
         ):
             dock.setFloating(False)
             self.addDockWidget(area, dock)
             dock.show()
         self.tabifyDockWidget(self.instrument_dock, self.live_tuning_dock)
+        self.tabifyDockWidget(self.instrument_dock, self.virtual_electrons_dock)
         self.live_tuning_dock.hide()
+        self.virtual_electrons_dock.hide()
         self._live_tuning_layout_initialized = False
         self.instrument_dock.raise_()
         self.instrument_editor.setSizes([430, 430])
         self.resize(1500, 920)
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        # Release shared numerical admission before waiting for other workers.
+        self.workspace.magnetic_field.field_lines.set_active(False)
         if not self.working_points.shutdown():
             self.working_points.status.setText("Waiting for sampling or archive verification to reach its cancellation boundary; close again when it finishes")
             event.ignore()
@@ -2728,6 +2776,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         from temsim.physics.ray_device_cache import DEVICE_CACHE
+        self.workspace.magnetic_field.field_lines.electron.shutdown()
         DEVICE_CACHE.clear()
         self.result_files.close()
         super().closeEvent(event)

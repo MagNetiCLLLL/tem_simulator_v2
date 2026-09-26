@@ -2647,6 +2647,7 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         for index in range(window.workspace.tabs.count())
     ] == [
         "Ray Diagram",
+        "Hardware tuning",
         "Physical Layout",
         "Energy Filter",
         "Sample",
@@ -2931,30 +2932,14 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     for callout in label_callouts.values():
         assert callout.label.isVisible() == callout.leader.isVisible()
     window.workspace.show_ray_diagram()
-    assert len(window.workspace.magnetic_field._curves) == len(state.lenses)
-    formula_records = window.workspace.magnetic_field._records
-    assert len({record.formula_key for record in formula_records}) == 3
-    for record in formula_records:
-        curve = window.workspace.magnetic_field._curves[record.key]
-        assert curve.opts["pen"].color().name() == record.formula_colour
-    assert len(window.workspace.magnetic_field._formula_samples) == 3
-    assert len(window.workspace.magnetic_field.legend.items) == 4
-    assert window.workspace.magnetic_field.show_rotation_labels.isChecked()
-    assert window.workspace.magnetic_field._rotation_items
-    assert window.workspace.magnetic_field._plane_records
-    assert "Objective image plane" in (
-        window.workspace.magnetic_field.summary.toolTip()
-    )
-    window.workspace.magnetic_field.show_rotation_labels.setChecked(False)
-    assert all(
-        not item.isVisible()
-        for item in window.workspace.magnetic_field._rotation_items
-    )
-    window.workspace.magnetic_field.show_rotation_labels.setChecked(True)
-    assert all(
-        item.isVisible()
-        for item in window.workspace.magnetic_field._rotation_items
-    )
+    magnetic = window.workspace.magnetic_field
+    qtbot.waitUntil(lambda: magnetic._profile is not None, timeout=15000)
+    assert set(magnetic._curves) == {"bz", "bu", "bv", "transverse_rms"}
+    assert len(magnetic.legend.items) == 4
+    assert {"lens", "stigmator", "deflector", "corrector"}.issubset(magnetic._scene.source_categories)
+    assert not hasattr(magnetic, "show_individual")
+    assert not magnetic.field_map_import.isVisible()
+    assert "Combined magnetic field" in magnetic.details.toPlainText()
     assert window.workspace.transverse_beam._scatter is not None
     assert window.workspace.stop_marker_items
     assert len(window.workspace.crossover_marker_items) >= len(crossovers)
@@ -3277,11 +3262,12 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     focused_range = window.workspace.plot.getViewBox().viewRange()[0]
     assert focused_range[0] < objective.center_z_mm < focused_range[1]
     assert focused_range[1] - focused_range[0] <= 520.0
+    qtbot.waitUntil(lambda: "peak |Bz|" in window.parameter_panel.lens_diagnostics.text(), timeout=15000)
     assert "peak |Bz|" in window.parameter_panel.lens_diagnostics.text()
     assert "field direction" in window.parameter_panel.lens_diagnostics.text()
     assert "column cumulative" in window.parameter_panel.lens_diagnostics.text()
-    assert "focal length" in window.workspace.magnetic_field.summary.text()
-    assert "Larmor rotation" in window.workspace.magnetic_field.summary.toolTip()
+    assert "focal length" in window.workspace.magnetic_field.details.toPlainText()
+    assert "Larmor rotation" in window.workspace.magnetic_field.details.toPlainText()
     assert "orientation relative" in window.workspace.transverse_beam.summary.toolTip()
     window.workspace.optical_transfer.target_plane.setCurrentIndex(
         window.workspace.optical_transfer.target_plane.findData("camera")

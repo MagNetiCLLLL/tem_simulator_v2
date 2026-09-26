@@ -15,7 +15,7 @@ from temsim.gui.accelerator_gap_overlay import (
 
 def _result(*, surface=False, offset=1.25):
     gun = NS(
-        type_key="cold_feg", emitter=NS(surface_model=object() if surface else None),
+        type_key="cold_feg" if surface else "thermionic", emitter=NS(surface_model=object() if surface else None),
         accelerator=NS(field_center_offset_mm=offset, stages=[
             NS(center_from_tip_mm=60.0, soft_edge_mm=4.0),
             NS(center_from_tip_mm=90.0, soft_edge_mm=3.0),
@@ -47,6 +47,14 @@ def test_solved_field_has_electrodes_only_and_ignores_analytic_offsets():
     assert all(r.start_z_mm is None and r.end_z_mm is None for r in records)
     assert "Electrode centre" in records[0].tooltip
     assert "not a field boundary" in records[0].tooltip
+
+
+def test_flat_cold_source_also_displays_electrode_positions_not_analytic_bands():
+    result = _result(surface=True, offset=999.)
+    result.state_snapshot.electron_gun.emitter.surface_model = None
+    records = accelerator_gap_records(result)
+    assert [row.center_z_mm for row in records] == [60., 90.]
+    assert all(row.start_z_mm is None for row in records)
 
 
 @pytest.mark.parametrize("result", [None, NS(), NS(state_snapshot=NS())])

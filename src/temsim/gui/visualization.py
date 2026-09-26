@@ -661,7 +661,7 @@ class VisualizationWorkspace(QWidget):
         self.fit_column.setToolTip(
             "Fit the complete axial range and column inner diameter"
         )
-        self.accelerator_gaps = QPushButton("Acceleration gaps")
+        self.accelerator_gaps = QPushButton("Accelerator electrodes")
         self.accelerator_gaps.setObjectName("acceleratorGapsToggle")
         self.accelerator_gaps.setCheckable(True)
         self.accelerator_gaps.setChecked(True)
@@ -696,7 +696,7 @@ class VisualizationWorkspace(QWidget):
         self.magnetic_field_toggle.setCheckable(True)
         self.magnetic_field_toggle.setChecked(False)
         self.magnetic_field_toggle.setToolTip(
-            "Show or hide the axial magnetic-field panel below the ray diagram"
+            "Show or hide magnetic fields below the ray diagram; choose 2D strength or 3D field lines"
         )
         self.transverse_beam_toggle = QPushButton("Beam analysis")
         self.transverse_beam_toggle.setObjectName("rayTransverseBeamToggle")
@@ -1117,12 +1117,15 @@ class VisualizationWorkspace(QWidget):
         self.interactive_calculation.readout_status_changed.connect(self.scan_control.mark_bank_readout_pending)
         self.interactive_calculation.readout_status_changed.connect(self.wave_imaging.mark_bank_readout_pending)
         self.model_inspector = ModelInspectorPage()
+        from temsim.gui.hardware_tuning_panel import HardwareTuningPanel
+        self.hardware_tuning = HardwareTuningPanel()
         self.tabs = QTabWidget()
         self.tabs.setObjectName("visualizationTabs")
         self.tabs.tabBar().setExpanding(False)
         self.tabs.tabBar().setUsesScrollButtons(True)
         self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideNone)
         self.tabs.addTab(self.ray_page, "Ray Diagram")
+        self.tabs.addTab(self.hardware_tuning, "Hardware tuning")
         self.tabs.addTab(self.physical_layout, "Physical Layout")
         self.tabs.addTab(self.energy_filter_page, "Energy Filter")
         self.tabs.addTab(self.sample_page, "Sample")
@@ -2252,6 +2255,7 @@ class VisualizationWorkspace(QWidget):
             angle, redraw=(self.transverse_beam.isVisible()
                            and self.transverse_beam not in self._pending_ray_panels)
         )
+        self.magnetic_field.set_projection_angle(angle)
         if changed and not self.transverse_beam.isVisible() and self._last_result is not None:
             self._pending_ray_panels[self.transverse_beam] = self._last_result
         if changed and self._last_result is not None:

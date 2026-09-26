@@ -20,6 +20,9 @@ from scipy.sparse.linalg import spsolve
 def tip_surface_z(s, geometry):
     """Analytic spherical-cap/tangent-cone upper metal boundary, metres."""
     s = np.asarray(s, float)
+    surface = getattr(geometry, "surface_z_m", None)
+    if callable(surface):
+        return surface(np.sqrt(s))
     radius = geometry.apex_radius_nm * 1e-9
     angle = np.deg2rad(geometry.cone_half_angle_deg)
     join_r = radius * np.cos(angle)
@@ -81,6 +84,11 @@ class AxisymmetricCutField:
             fractions[signed[edges[:,0]] == 0.] = 0.
             fractions[signed[edges[:,1]] == 0.] = 1.
             intersections = start+fractions[:,None]*delta
+            # Near a nearly planar cap, subtracting a whole axial cell to
+            # recover its tiny sag loses significant digits.  The root's
+            # radial coordinate is still resolved; evaluate the conductor
+            # graph there so adjacent cut elements share its actual contour.
+            intersections[:,1] = tip_surface_z(intersections[:,0], geometry)
             edge_ids = {}
             added = []
             for pair, fraction, point in zip(edges, fractions, intersections):

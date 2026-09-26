@@ -180,21 +180,62 @@ def test_medium_boundary_probes_receive_same_geometry_mapping():
 
 
 def test_actual_gun_transport_is_continuous_near_flat_and_cache_reusable():
+    from temsim.physics.gun_field_environment import ensure_gun_field_environment
+
+    def execute(source):
+        original = source.emit(49)
+        reference = emission_reference(original)
+        result = source.trace_to_exit(49)
+        assert source.trace_to_exit(49) is result
+        after = source.emit(49)
+        for name in ("x_m", "y_m", "tx_rad", "ty_rad", "energy_offset_ev", "weight", "ray_id",
+                     "surface_position_m", "surface_normal", "surface_direction"):
+            if hasattr(original, name):
+                np.testing.assert_array_equal(getattr(after, name), getattr(original, name))
+        for name in reference:
+            np.testing.assert_array_equal(result.emission_reference[name], reference[name])
+        np.testing.assert_array_equal(result.equal_time_history.z_mm[0],
+                                      reference["position_m"][:, 2]*1000)
+        return result
+
+    def exit_xy(result):
+        return np.column_stack((result.exit_bundle.x_m, result.exit_bundle.y_m))
+
+    def separation(left, right):
+        np.testing.assert_array_equal(left.exit_bundle.alive, right.exit_bundle.alive)
+        return np.max(np.linalg.norm(exit_xy(left)-exit_xy(right), axis=1))
+
     gun = FieldEmissionGun()
-    flat = gun.trace_to_exit(49)
-    positions = flat.exit_bundle.x_m.copy()
-    errors = []
+    ensure_gun_field_environment(gun)
+    gun._gun_field_cells_per_bore = 16
+    flat = execute(gun)
     for k in (1e-8, 2e-8):
         gun.emitter.curvature_nm_inv = k
-        result = gun.trace_to_exit(49)
+        result = execute(gun)
         assert result is not flat
-        assert gun.trace_to_exit(49) is result
-        np.testing.assert_array_equal(result.exit_bundle.alive, flat.exit_bundle.alive)
-        errors.append(np.max(np.abs(result.exit_bundle.x_m-positions)))
-        np.testing.assert_array_equal(result.equal_time_history.z_mm[0], gun.emit(49).surface_position_m[:, 2]*1000)
+        assert separation(result, flat) > 0
         assert np.all(result.equal_time_history.z_mm[0] < 0)
-    assert 0 < errors[0] < 1e-7
-    assert errors[1] == pytest.approx(2*errors[0], rel=.08)
+    # R=100/50 mm changes the macroscopic cathode boundary as well as launch
+    # normals, so these two finite curvatures need not give an exactly 2x
+    # response. Test the actual planar limit separately, with optics, source,
+    # exit plane and transport budget held fixed.
+    gun.emitter.curvature_nm_inv = 1e-14
+    weak = execute(gun)
+    coarse = FieldEmissionGun()
+    ensure_gun_field_environment(coarse)
+    coarse._gun_field_cells_per_bore = 8
+    coarse_flat = execute(coarse)
+    coarse.emitter.curvature_nm_inv = 1e-14
+    coarse_weak = execute(coarse)
+    fine_gap = separation(weak, flat)
+    coarse_gap = separation(coarse_weak, coarse_flat)
+    mesh_change = separation(coarse_flat, flat) + separation(coarse_weak, weak)
+    # The two providers use different meshes/interpolation near the axis.
+    # Bound their discrepancy by the measured combined 8->16 mesh change,
+    # and require the discrepancy itself to fall under refinement. This is
+    # a scoped discretisation comparison, not a fitted absolute tolerance.
+    assert fine_gap < coarse_gap
+    assert fine_gap <= mesh_change
     gun.emitter.curvature_nm_inv = 0
     assert gun.trace_to_exit(49) is flat
 

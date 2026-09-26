@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPolygonF, QTransform
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -5219,152 +5220,213 @@ class OpticalTransferView(QWidget):
 
 
 class MagneticFieldView(QWidget):
+    """Whole-column magnetic diagnostics; view changes reuse captured vectors."""
+
     component_selected = Signal(str)
     axial_position_selected = Signal(float)
     field_map_import_requested = Signal(str, str, str, float, int)
     field_map_clear_requested = Signal(str)
+    diagnostics_updated = Signal()
 
     def __init__(self, parent=None) -> None:
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
         super().__init__(parent)
         self._records = ()
+        self._plane_records = ()
         self._curves = {}
-        self._total_curve = None
-        self._formula_sample_by_key = {}
-        self._legend_key = None
-        self._rotation_by_key = {}
+        self._sample_field_items = []
         self._has_field_scene = False
         self._selected_key = None
-        self._support_item = None
-        self._formula_samples = []
-        self._rotation_items = []
-        self._sample_field_items = []
-        self._plane_records = ()
         self._state_snapshot = None
         self._presentation_pending = False
+        self._profile = None
+        self._profile_error = None
+        self._scene = None
+        self._projection_angle_deg = 0.0
+        self._profile_generation = 0
+        self._profile_worker = None
+        self._profile_request = None
+        self._linked_axial_plot = None
+        self._syncing_axial_range = False
+        self._alignment_widgets = ()
+        self._alignment_timer = QTimer(self)
+        self._alignment_timer.setSingleShot(True)
+        self._alignment_timer.timeout.connect(self._sync_plot_pixel_edges)
+        self._z_limits_mm = None
 
-        self.heading = QLabel("Axial magnetic field Bz")
-        self.summary = QLabel("Recalculate to evaluate lens fields.")
-        self.summary.setWordWrap(True)
-        self.summary.setStyleSheet("color: #64748b; font-weight: 600;")
-        self.show_individual = QPushButton("Individual lenses")
-        self.show_individual.setCheckable(True)
-        self.show_individual.setChecked(True)
-        self.show_individual.setStyleSheet(BUTTON_STYLE)
-        self.show_rotation_labels = QPushButton("Rotation labels")
-        self.show_rotation_labels.setCheckable(True)
-        self.show_rotation_labels.setChecked(True)
-        self.show_rotation_labels.setStyleSheet(BUTTON_STYLE)
-
-        self.field_map_lens = QComboBox()
-        self.field_map_lens.setObjectName("magneticFieldMapLens")
-        self.field_map_lens.setMinimumContentsLength(18)
-        self.field_map_provenance = QComboBox()
-        self.field_map_provenance.setObjectName(
-            "magneticFieldMapProvenance"
-        )
-        self.field_map_provenance.addItem("Select source", None)
-        self.field_map_provenance.addItem("Measured", "measured")
-        self.field_map_provenance.addItem("FEM", "fem")
-        self.field_map_reference = QDoubleSpinBox()
-        self.field_map_reference.setObjectName(
-            "magneticFieldMapReferenceExcitation"
-        )
-        self.field_map_reference.setRange(0.0, 1_000_000.0)
-        self.field_map_reference.setDecimals(6)
-        self.field_map_reference.setSuffix(" %")
-        self.field_map_reference.setSpecialValueText("Reference required")
-        self.field_map_reference.setValue(0.0)
-        self.field_map_polarity = QComboBox()
-        self.field_map_polarity.setObjectName(
-            "magneticFieldMapReferencePolarity"
-        )
-        self.field_map_polarity.addItem("Select polarity", None)
-        self.field_map_polarity.addItem("+Z", 1)
-        self.field_map_polarity.addItem("-Z", -1)
-        self.field_map_import = QPushButton("Import SI map")
-        self.field_map_import.setObjectName("magneticFieldMapImport")
-        self.field_map_import.setToolTip(
-            "Import NPZ/CSV with coordinates in metres and magnetic field in "
-            "tesla. No unit inference or conversion is performed. NPZ may "
-            "carry explicit registration metadata; tidy CSV coordinates must "
-            "already use the global column frame."
-        )
-        self.field_map_clear = QPushButton("Clear map")
-        self.field_map_clear.setObjectName("magneticFieldMapClear")
-        self.field_map_status = QLabel(
-            "Select a lens to inspect its geometry-bound field provider."
-        )
-        self.field_map_status.setObjectName("magneticFieldMapStatus")
-        self.field_map_status.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        self.field_map_status.setStyleSheet("color: #94a3b8;")
-        self.digital_twin_status = QLabel(
-            "Digital-twin fit: no sourced axial Bz dataset attached."
-        )
-        self.digital_twin_status.setObjectName(
-            "magneticFieldCalibrationStatus"
-        )
-        self.digital_twin_status.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        self.digital_twin_status.setStyleSheet("color: #64748b;")
-
-        field_map_row = QHBoxLayout()
-        field_map_row.addWidget(QLabel("Field map"))
-        field_map_row.addWidget(self.field_map_lens, 1)
-        field_map_row.addWidget(self.field_map_provenance)
-        field_map_row.addWidget(self.field_map_reference)
-        field_map_row.addWidget(self.field_map_polarity)
-        field_map_row.addWidget(self.field_map_import)
-        field_map_row.addWidget(self.field_map_clear)
-
-        heading_row = QHBoxLayout()
-        heading_row.addWidget(self.heading)
-        heading_row.addStretch(1)
-        action_row = QHBoxLayout()
-        action_row.addStretch(1)
-        action_row.addWidget(self.show_rotation_labels)
-        action_row.addWidget(self.show_individual)
+        self.heading = QLabel("Magnetic field")
+        self.heading.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.display_mode = QComboBox()
+        self.display_mode.setObjectName("magneticFieldDisplayMode")
+        self.display_mode.addItem("2D combined field", "2d")
+        self.display_mode.addItem("3D field lines", "3d")
+        self.display_mode.addItem("Electron trajectories", "electron")
+        self.display_mode.setToolTip("Combined magnetic field, or independent virtual electrons in captured electric and magnetic fields. Add and select electrons, or overlay checked paths. New electrons default to tip emission; projection follows Ray Diagram.")
+        self.advanced_button = QPushButton("Advanced…")
+        self.advanced_button.setObjectName("magneticFieldAdvanced")
+        self.status = QLabel("Recalculate to capture the total magnetic field.")
+        self.status.setObjectName("magneticFieldStatus")
+        self.status.setWordWrap(False)
+        self.status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.status.setStyleSheet("color: #94a3b8;")
 
         self.plot = pg.PlotWidget(background="#050816")
         self.plot.setObjectName("magneticFieldPlot")
-        self.plot.setLabel("bottom", "Axial position", units="mm")
-        self.plot.setLabel("left", "Bz", units="T")
-        self.plot.showGrid(x=True, y=True, alpha=0.18)
-        self.legend = self.plot.addLegend(offset=(10, 10))
+        self.plot.setLabel("bottom", "Axial position", units="m")
+        self.plot.getAxis("bottom").setScale(1e-3)
+        self.plot.setLabel("left", "Combined magnetic field", units="T")
+        self.plot.showGrid(x=True, y=True, alpha=.18)
+        self.legend = self.plot.addLegend(offset=(10, 10), colCount=4)
+        from temsim.gui.magnetic_field_3d import MagneticField3DPage
+        self.field_lines = MagneticField3DPage()
+        self.view_stack = QStackedWidget()
+        self.view_stack.setObjectName("magneticFieldViewStack")
+        self.view_stack.addWidget(self.plot)
+        self.view_stack.addWidget(self.field_lines)
 
+        self.advanced_dialog = QDialog(self)
+        self.advanced_dialog.setObjectName("magneticFieldAdvancedDialog")
+        self.advanced_dialog.setWindowTitle("Magnetic field — advanced")
+        self.advanced_dialog.resize(760, 600)
+        self.field_map_lens = QComboBox()
+        self.field_map_lens.setObjectName("magneticFieldMapLens")
+        self.field_map_provenance = QComboBox()
+        self.field_map_provenance.setObjectName("magneticFieldMapProvenance")
+        for label, value in (("Select source", None), ("Measured", "measured"), ("FEM", "fem")):
+            self.field_map_provenance.addItem(label, value)
+        self.field_map_reference = QDoubleSpinBox()
+        self.field_map_reference.setObjectName("magneticFieldMapReferenceExcitation")
+        self.field_map_reference.setRange(0., 1_000_000.)
+        self.field_map_reference.setDecimals(6)
+        self.field_map_reference.setSuffix(" %")
+        self.field_map_reference.setSpecialValueText("Reference required")
+        self.field_map_polarity = QComboBox()
+        self.field_map_polarity.setObjectName("magneticFieldMapReferencePolarity")
+        for label, value in (("Select polarity", None), ("+Z", 1), ("−Z", -1)):
+            self.field_map_polarity.addItem(label, value)
+        self.field_map_import = QPushButton("Import SI map")
+        self.field_map_import.setObjectName("magneticFieldMapImport")
+        self.field_map_import.setToolTip("Import NPZ/CSV: positions in metres and B in tesla. No unit inference or conversion. NPZ may carry explicit registration; CSV uses global column coordinates.")
+        self.field_map_clear = QPushButton("Clear map")
+        self.field_map_clear.setObjectName("magneticFieldMapClear")
+        self.field_map_status = QLabel("Select a map target to inspect its field provider.")
+        self.field_map_status.setObjectName("magneticFieldMapStatus")
+        self.digital_twin_status = QLabel("Calibration: no sourced axial Bz dataset attached.")
+        self.digital_twin_status.setObjectName("magneticFieldCalibrationStatus")
+        for label in (self.field_map_status, self.digital_twin_status):
+            label.setWordWrap(True)
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.details = QPlainTextEdit()
+        self.details.setObjectName("magneticFieldDetails")
+        self.details.setReadOnly(True)
+        self.details.setPlainText("Recalculate to update magnetic diagnostics.")
+        form = QFormLayout()
+        form.addRow("Fixed colour/density reference", self.field_lines.reference)
+        form.addRow("", self.field_lines.match_reference)
+        form.addRow("Field map target", self.field_map_lens)
+        form.addRow("Source", self.field_map_provenance)
+        form.addRow("Reference excitation", self.field_map_reference)
+        form.addRow("Reference polarity", self.field_map_polarity)
+        map_actions = QHBoxLayout()
+        map_actions.addWidget(self.field_map_import)
+        map_actions.addWidget(self.field_map_clear)
+        form.addRow("", map_actions)
+        advanced = QVBoxLayout(self.advanced_dialog)
+        advanced.addLayout(form)
+        advanced.addWidget(self.field_map_status)
+        advanced.addWidget(self.digital_twin_status)
+        advanced.addWidget(self.details, 1)
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close.rejected.connect(self.advanced_dialog.hide)
+        advanced.addWidget(close)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        row.addWidget(self.heading)
+        row.addWidget(self.display_mode)
+        row.addStretch(1)
+        self.density_label = QLabel("Density")
+        row.addWidget(self.density_label)
+        row.addWidget(self.field_lines.density)
+        row.addWidget(self.field_lines.link_view)
+        row.addWidget(self.field_lines.electron.controls_button)
+        row.addWidget(self.field_lines.fit_button)
+        row.addWidget(self.advanced_button)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addLayout(heading_row)
-        layout.addLayout(action_row)
-        layout.addLayout(field_map_row)
-        layout.addWidget(self.field_map_status)
-        layout.addWidget(self.digital_twin_status)
-        layout.addWidget(self.plot, 1)
-        layout.addWidget(self.summary)
-        self.show_individual.toggled.connect(self._apply_curve_styles)
-        self.show_rotation_labels.toggled.connect(
-            self._apply_rotation_marker_visibility
-        )
-        self.plot.scene().sigMouseClicked.connect(
-            self._plot_position_clicked
-        )
-        self.field_map_lens.currentIndexChanged.connect(
-            self._refresh_field_map_status
-        )
-        self.field_map_provenance.currentIndexChanged.connect(
-            self._update_field_map_import_enabled
-        )
-        self.field_map_reference.valueChanged.connect(
-            self._update_field_map_import_enabled
-        )
-        self.field_map_polarity.currentIndexChanged.connect(
-            self._update_field_map_import_enabled
-        )
+        layout.setSpacing(3)
+        layout.addLayout(row)
+        layout.addWidget(self.view_stack, 1)
+        layout.addWidget(self.status)
+        self.field_lines.fit_button.clicked.connect(self._fit_visible_profile)
+        self.advanced_button.clicked.connect(self._show_advanced)
+        self.plot.scene().sigMouseClicked.connect(self._plot_position_clicked)
+        self.plot.getViewBox().sigXRangeChanged.connect(self._field_axial_range_changed)
+        self.plot.getViewBox().sigResized.connect(self._schedule_plot_alignment)
+        self.field_lines.view_range_changed.connect(self._spatial_range_changed)
+        self.field_lines.canvas.plot_geometry_changed.connect(self._schedule_plot_alignment)
+        self.field_lines.link_view.toggled.connect(self._spatial_link_changed)
+        self.field_map_lens.currentIndexChanged.connect(self._refresh_field_map_status)
+        self.field_map_provenance.currentIndexChanged.connect(self._update_field_map_import_enabled)
+        self.field_map_reference.valueChanged.connect(self._update_field_map_import_enabled)
+        self.field_map_polarity.currentIndexChanged.connect(self._update_field_map_import_enabled)
         self.field_map_import.clicked.connect(self._choose_field_map)
         self.field_map_clear.clicked.connect(self._clear_field_map)
+        self.display_mode.currentIndexChanged.connect(self._display_mode_changed)
+        self.display_mode.activated.connect(self._display_mode_activated)
         self._update_field_map_import_enabled()
+        self._display_mode_changed()
+        self.field_lines.fit_button.show()
+        self.field_lines.reference.show()
+        self.field_lines.match_reference.show()
+
+    def _display_mode_changed(self, *_args):
+        three_d = self.display_mode.currentData() == "3d"
+        electron = self.display_mode.currentData() == "electron"
+        spatial = three_d or electron
+        self.field_lines.set_electron_mode(electron)
+        self.view_stack.setCurrentWidget(self.field_lines if spatial else self.plot)
+        self.density_label.setVisible(three_d)
+        self.field_lines.density.setVisible(three_d)
+        self.field_lines.link_view.setVisible(spatial)
+        self.field_lines.electron.controls_button.setVisible(electron)
+        self.status.setVisible(not spatial)
+        self.field_lines.fit_button.setText("Fit")
+        self.field_lines.set_active(spatial and self.isVisible())
+        if spatial and self.field_lines.link_view.isChecked():
+            self._spatial_link_changed(True)
+        self._schedule_plot_alignment()
+
+    def _display_mode_activated(self, *_args):
+        if self.display_mode.currentData() == "electron":
+            self.field_lines.electron.show_controls()
+
+    def _show_advanced(self):
+        self._refresh_details()
+        self.advanced_dialog.show()
+        self.advanced_dialog.raise_()
+        self.advanced_dialog.activateWindow()
+
+    def _fit_visible_profile(self):
+        if self.display_mode.currentData() == "2d":
+            self._fit_2d()
+
+    def _fit_2d(self):
+        box = self.plot.getViewBox()
+        box.enableAutoRange(axis=pg.ViewBox.YAxis, enable=True)
+        box.updateAutoRange()
+        box.disableAutoRange(axis=pg.ViewBox.YAxis)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.field_lines.set_active(self.display_mode.currentData() in {"3d", "electron"})
+        self._schedule_plot_alignment()
+
+    def hideEvent(self, event):
+        self.field_lines.set_active(False)
+        super().hideEvent(event)
 
     def _update_field_map_import_enabled(self, *_args) -> None:
         self.field_map_import.setEnabled(bool(
@@ -5511,342 +5573,391 @@ class MagneticFieldView(QWidget):
             )
 
     def link_axial_axis(self, source_plot) -> None:
-        """Share the Ray Diagram's axial range and plotting boundaries."""
+        """Link physical ranges without coupling axes with different units.
 
-        self.plot.getAxis("left").setWidth(
-            source_plot.getAxis("left").minimumWidth()
-        )
+        The field profile keeps its magnetic Y axis. Spatial field/electron
+        views can link both Z and projected displacement to Ray Diagram.
+        All spatial range values use the Ray Diagram's internal mm units.
+        """
+        if self._linked_axial_plot is not None:
+            self._linked_axial_plot.getViewBox().sigRangeChanged.disconnect(self._ray_range_changed)
+            self._linked_axial_plot.getViewBox().sigResized.disconnect(self._schedule_plot_alignment)
+            self._linked_axial_plot.destroyed.disconnect(self._linked_plot_destroyed)
+        self._syncing_axial_range = True
+        self._linked_axial_plot = source_plot
+        self.plot.getAxis("left").setWidth(source_plot.getAxis("left").minimumWidth())
         self.plot.getViewBox().disableAutoRange(axis=pg.ViewBox.XAxis)
-        self.plot.setXLink(source_plot)
+        # Physical limits and screen placement are separate. Do not use
+        # pyqtgraph's offset link, which changes the physical interval to
+        # compensate for margins. Measure and align the drawing edges instead.
+        self.plot.setXLink(None)
+        self._syncing_axial_range = False
+        source_box = source_plot.getViewBox()
+        self.field_lines.set_wheel_scale_factor(source_box.state["wheelScaleFactor"])
+        source_box.sigRangeChanged.connect(self._ray_range_changed)
+        source_box.sigResized.connect(self._schedule_plot_alignment)
+        source_plot.destroyed.connect(self._linked_plot_destroyed)
+        self._ray_range_changed(source_box, source_plot.viewRange())
+        self._schedule_plot_alignment()
+
+    def _linked_plot_destroyed(self, *_args):
+        self._linked_axial_plot = None
+        self._schedule_plot_alignment()
+
+    def _schedule_plot_alignment(self, *_args):
+        # ViewBox geometry can change after its widget's resize event (axis
+        # labels, splitter handles, sidebars and dock layouts all participate).
+        self._alignment_timer.start(0)
+
+    def _refresh_alignment_event_filters(self):
+        widgets = []
+        for widget in (self._linked_axial_plot, self.field_lines.canvas, self.plot):
+            while widget is not None:
+                if widget not in widgets:
+                    widgets.append(widget)
+                widget = widget.parentWidget()
+        if self._linked_axial_plot is not None:
+            widgets.append(self._linked_axial_plot.viewport())
+        widgets = tuple(widgets)
+        if widgets == self._alignment_widgets:
+            return
+        for widget in self._alignment_widgets:
+            try:
+                widget.removeEventFilter(self)
+            except RuntimeError:  # A previous dock/window was destroyed.
+                pass
+        self._alignment_widgets = widgets
+        for widget in widgets:
+            widget.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Move, QEvent.Type.Show,
+                            QEvent.Type.LayoutRequest, QEvent.Type.ParentChange):
+            self._schedule_plot_alignment()
+        return super().eventFilter(watched, event)
+
+    def _sync_plot_pixel_edges(self):
+        self._refresh_alignment_event_filters()
+        source = self._linked_axial_plot
+        canvas = self.field_lines.canvas
+        if source is None or source.window() is not canvas.window():
+            # Independent floating windows have no common horizontal layout.
+            canvas.set_horizontal_plot_edges(None)
+            return
+        origin = canvas.mapToGlobal(QPointF(0., 0.))
+        target = self._axial_plot_global_edges(source)
+        canvas.set_horizontal_plot_edges(tuple(value-origin.x() for value in target))
+        if self.plot.isVisible():
+            # The 2D profile uses a QGraphicsLayout, so align its left-axis
+            # allocation and right margin instead of altering its X interval.
+            current = self._axial_plot_global_edges(self.plot)
+            left_delta, right_delta = (a-b for a, b in zip(target, current))
+            if abs(left_delta) > .02:
+                axis = self.plot.getAxis("left")
+                axis.setWidth(max(25., axis.width()+left_delta))
+            if abs(right_delta) > .02:
+                layout = self.plot.getPlotItem().layout
+                left, top, right, bottom = layout.getContentsMargins()
+                layout.setContentsMargins(left, top, max(0., right-right_delta), bottom)
+
+    @staticmethod
+    def _axial_plot_global_edges(plot):
+        box = plot.getViewBox()
+        axial, transverse = box.viewRange()
+        return tuple(plot.viewport().mapToGlobal(plot.viewportTransform().map(
+            box.mapViewToScene(QPointF(z, transverse[0])))).x() for z in axial)
+
+    def _ray_range_changed(self, _box, ranges, *_args):
+        if self._syncing_axial_range:
+            return
+        self._syncing_axial_range = True
+        try:
+            limits = ranges[0]
+            self.plot.getViewBox().setXRange(float(limits[0]), float(limits[1]), padding=0)
+            if self.field_lines.link_view.isChecked():
+                self.field_lines.set_view_range_mm(ranges[0], ranges[1])
+        finally:
+            self._syncing_axial_range = False
+        self._schedule_plot_alignment()
+
+    def _field_axial_range_changed(self, _box, limits):
+        if self._syncing_axial_range or self._linked_axial_plot is None:
+            return
+        self._syncing_axial_range = True
+        try:
+            self._linked_axial_plot.getViewBox().setXRange(float(limits[0]), float(limits[1]), padding=0)
+            if self.field_lines.link_view.isChecked():
+                ranges = self._linked_axial_plot.viewRange()
+                self.field_lines.set_view_range_mm(ranges[0], ranges[1])
+        finally:
+            self._syncing_axial_range = False
+
+    def _spatial_range_changed(self, axial, transverse):
+        if (self._syncing_axial_range or self._linked_axial_plot is None
+                or self.display_mode.currentData() not in {"3d", "electron"}
+                or not self.field_lines.link_view.isChecked()):
+            return
+        self._syncing_axial_range = True
+        try:
+            self._linked_axial_plot.getViewBox().setRange(
+                xRange=axial, yRange=transverse, padding=0)
+            # Honor any source limits and freeze the accepted Fit range. The
+            # recursion guard intentionally suppressed the source callback.
+            ranges = self._linked_axial_plot.viewRange()
+            self.field_lines.set_view_range_mm(ranges[0], ranges[1])
+            self.plot.getViewBox().setXRange(*ranges[0], padding=0)
+        finally:
+            self._syncing_axial_range = False
+
+    def _spatial_link_changed(self, linked):
+        if linked and self._linked_axial_plot is not None:
+            source = self._linked_axial_plot
+            self._ray_range_changed(source.getViewBox(), source.viewRange())
+
+    def set_projection_angle(self, angle_deg):
+        angle = float(angle_deg)
+        if not math.isfinite(angle):
+            raise ValueError("Projection angle must be finite")
+        self._projection_angle_deg = angle % 360.0
+        self.field_lines.set_projection_angle(self._projection_angle_deg)
+        self._render_cached_profile()
 
     def _plot_position_clicked(self, event) -> None:
-        if (
-            event.button() != Qt.MouseButton.LeftButton
-            or not event.double()
-        ):
+        if event.button() != Qt.MouseButton.LeftButton or not event.double():
             return
         view_box = self.plot.getViewBox()
-        if not view_box.sceneBoundingRect().contains(event.scenePos()):
-            return
-        position = view_box.mapSceneToView(event.scenePos())
-        self.axial_position_selected.emit(float(position.x()))
-        event.accept()
+        if view_box.sceneBoundingRect().contains(event.scenePos()):
+            self.axial_position_selected.emit(float(view_box.mapSceneToView(event.scenePos()).x()))
+            event.accept()
 
     @staticmethod
     def _simulation_limits(simulation):
         bundles = (simulation.incident, *simulation.branches.values())
-        return (
-            min(float(np.min(branch.z)) for branch in bundles),
-            max(float(np.max(branch.z)) for branch in bundles),
-        )
+        return (min(float(np.min(branch.z)) for branch in bundles),
+                max(float(np.max(branch.z)) for branch in bundles))
 
     def mark_presentation_pending(self) -> None:
-        """Do not report the old field's numbers as current while hidden."""
+        self._profile_generation += 1
+        self._profile_request = None
         self._presentation_pending = True
+        self._profile = None
+        self._profile_error = None
+        self._scene = None
+        if self._profile_worker is not None:
+            self._profile_worker.cancelled.set()
+        self.field_lines.invalidate()
+        for curve in self._curves.values():
+            curve.setData([], [])
+        for item in self._sample_field_items:
+            item.hide()
+        self.status.setText("Magnetic field pending a current snapshot.")
+        self._refresh_details()
+        self.diagnostics_updated.emit()
 
     def _clear_field_graphics(self) -> None:
-        """Discard only owned graphics when there is no calculation snapshot."""
-        items = [self._total_curve, self._support_item, *self._curves.values(),
-                 *self._formula_samples, *self._rotation_items, *self._sample_field_items]
-        for item in items:
-            if item is not None:
-                self.plot.removeItem(item)
+        for item in (*self._curves.values(), *self._sample_field_items):
+            self.plot.removeItem(item)
         self.legend.clear()
         self._curves = {}
-        self._total_curve = None
-        self._support_item = None
-        self._formula_samples = []
-        self._formula_sample_by_key = {}
-        self._legend_key = None
-        self._rotation_items = []
-        self._rotation_by_key = {}
         self._sample_field_items = []
         self._has_field_scene = False
 
-    def _update_formula_legend(self) -> None:
-        formula_records = {}
-        for record in self._records:
-            formula_records.setdefault(record.formula_key, record)
-        for key in self._formula_sample_by_key.keys() - formula_records.keys():
-            self.plot.removeItem(self._formula_sample_by_key.pop(key))
-        for key, record in formula_records.items():
-            sample = self._formula_sample_by_key.get(key)
-            if sample is None:
-                sample = pg.PlotDataItem([], [])
-                self.plot.addItem(sample)
-                self._formula_sample_by_key[key] = sample
-            sample.setPen(pg.mkPen(record.formula_colour, width=2.4))
-        legend_key = tuple((record.formula_key, record.formula_label)
-                           for record in formula_records.values())
-        if legend_key != self._legend_key:
-            self.legend.clear()
-            self.legend.addItem(self._total_curve, "Total solver Bz")
-            for key, record in formula_records.items():
-                self.legend.addItem(self._formula_sample_by_key[key], record.formula_label)
-            self._legend_key = legend_key
-        self._formula_samples = [self._formula_sample_by_key[key] for key in formula_records]
-        self.legend.update()
-
     def display_result(self, result) -> None:
-        self._presentation_pending = False
+        self.mark_presentation_pending()
         state = getattr(result, "state_snapshot", None)
         self._state_snapshot = state
+        self._records = ()
+        self._plane_records = ()
         if state is None:
-            self._clear_field_graphics()
-            self._records = ()
-            self._plane_records = ()
-            self.heading.setText("Axial magnetic field Bz")
-            self.summary.setText("No calculation state snapshot is available.")
-            self.summary.setToolTip("")
-            self._populate_field_map_lenses()
-            return
-        view_box = self.plot.getViewBox()
-        previous_y = tuple(view_box.viewRange()[1]) if self._has_field_scene else None
-        view_box.disableAutoRange(axis=pg.ViewBox.YAxis)
-        start, end = self._simulation_limits(result.simulation)
-        z_mm = np.linspace(start, end, 3_000)
-        # Evaluate the authoritative providers for every new snapshot. Reusing
-        # Qt items must not turn partial field dependencies into a physics cache.
-        total, self._records = lens_field_records(state, z_mm)
-        self._populate_field_map_lenses()
-        self._plane_records = image_plane_rotation_records(state)
-        if self._total_curve is None:
-            self._total_curve = self.plot.plot(pen=pg.mkPen("#f8fafc", width=2.6))
-        self._total_curve.setData(z_mm, total)
-        sample_z_mm = float(state.sample.z_mm)
-        sample_field_t = float(sum(
-            record.field_at_sample_t for record in self._records
-        ))
-        if not self._sample_field_items:
-            sample_line = pg.InfiniteLine(
-                angle=90, movable=False,
-                pen=pg.mkPen("#f97316", width=1.4, style=Qt.PenStyle.DashLine),
-            )
-            self.plot.addItem(sample_line)
-            self._sample_field_items.append(sample_line)
-        sample_line = self._sample_field_items[0]
-        sample_line.setValue(sample_z_mm)
-        sample_line.setToolTip(
-            f"Specimen plane Z {sample_z_mm:.6g} mm\n"
-            f"Total solver Bz {sample_field_t:+.6g} T\n"
-            "The specimen-local electron model uses this field; X-rays remain "
-            "undeflected."
-        )
-        record_keys = {record.key for record in self._records}
-        for key in self._curves.keys() - record_keys:
-            self.plot.removeItem(self._curves.pop(key))
-        if self._selected_key not in record_keys:
+            self._presentation_pending = False
             self._selected_key = None
-            if self._support_item is not None:
-                self.plot.removeItem(self._support_item)
-                self._support_item = None
-        for record in self._records:
-            curve = self._curves.get(record.key)
-            if curve is None:
-                curve = self.plot.plot()
-                self._curves[record.key] = curve
+            self._z_limits_mm = None
+            self._clear_field_graphics()
+            self.field_lines.invalidate("No calculation state snapshot is available.")
+            self.status.setText("No calculation state snapshot is available.")
+            self._populate_field_map_lenses()
+            self._refresh_details()
+            self.diagnostics_updated.emit()
+            return
+        self._z_limits_mm = self._simulation_limits(result.simulation)
+        self._profile_request = (self._profile_generation, state, self._z_limits_mm)
+        self.status.setText("Preparing combined magnetic field…")
+        self._start_profile_worker()
+
+    def _start_profile_worker(self):
+        if self._profile_worker is not None or self._profile_request is None:
+            return
+        from PySide6.QtCore import QObject, QRunnable, QThreadPool
+        from threading import Event
+
+        class Signals(QObject):
+            finished = Signal(int, object, object)
+
+        class Worker(QRunnable):
+            def __init__(worker, request):
+                super().__init__()
+                worker.request = request
+                worker.cancelled = Event()
+                worker.signals = Signals()
+
+            def run(worker):
+                generation, state, limits = worker.request
+                payload, error = None, None
                 try:
-                    curve.setCurveClickable(True, width=8)
-                    curve.sigClicked.connect(
-                        lambda *_args, key=record.key: self.component_selected.emit(key)
-                    )
-                except AttributeError:
-                    pass
-            curve.setData(z_mm, record.field_t)
-            curve.setToolTip(
-                f"{record.name}\nPeak |Bz| {record.peak_t:.6g} T\n"
-                f"Excitation {record.excitation_percent:.6g}%\n"
-                f"Formula: {record.formula_label}\n"
-                f"{record.formula_expression}\n"
-                f"At specimen {record.field_at_sample_t:+.6g} T\n"
-                f"Numerical support: {record.support_definition}\n"
-                f"Model status: {record.field_model_status}\n"
-                f"Geometry/material coupling: {record.geometry_material_coupling}\n"
-                f"Signed field integral {record.signed_field_integral_t_m:.6g} T m\n"
-                f"Field direction {'+Z' if record.polarity > 0 else '-Z'}\n"
-                f"Polarity status {record.field_polarity_status}\n"
-                f"Polarity source {record.field_polarity_source}\n"
-                f"Lens Larmor rotation {record.larmor_rotation_deg:+.6g} deg\n"
-                f"Cumulative column rotation "
-                f"{record.cumulative_column_rotation_deg:+.6g} deg"
-            )
-        self._update_formula_legend()
-        self._add_rotation_markers(total)
-        if previous_y is None:
-            view_box.disableAutoRange()
-            view_box.enableAutoRange(axis=pg.ViewBox.YAxis, enable=True)
-            view_box.updateAutoRange()
-            view_box.disableAutoRange(axis=pg.ViewBox.YAxis)
-        else:
-            view_box.setYRange(*previous_y, padding=0)
-        self._has_field_scene = True
-        peak = float(np.max(np.abs(total))) if total.size else 0.0
-        total_rotation_deg = sum(
-            record.larmor_rotation_deg for record in self._records
-        )
-        self.heading.setText(
-            f"Axial magnetic field Bz — {len(self._records)} lenses | "
-            f"total peak {peak:.6g} T | sample {sample_field_t:+.6g} T"
-        )
-        plane_text = "; ".join(
-            f"{record.name} θsample "
-            f"{record.image_rotation_from_sample_deg:+.4g}°"
-            for record in self._plane_records
-        )
-        detail_text = (
-            "Positive rotation follows the right-hand rule about +Z | "
-            f"full-column signed Larmor rotation {total_rotation_deg:+.6g} deg | "
-            "Gaussian fields use numerical 7σ tails; field maps use finite grid "
-            "support. Inspect each curve for geometry/material coupling. "
-            "Joint B-H fields are counted once, not decomposed per lens."
-            + (f" | {plane_text}" if plane_text else "")
-        )
-        self.summary.setText(
-            f"Signed Larmor rotation {total_rotation_deg:+.6g}° | "
-            f"{len(self._plane_records)} reference plane(s) | Provider-defined support"
-        )
-        self.summary.setToolTip(detail_text)
-        self._apply_curve_styles()
-        if self._selected_key is not None:
-            self.focus_component(next(record for record in self._records
-                                      if record.key == self._selected_key))
+                    from temsim.cpu_resources import numerical_job
+                    from temsim.magnetic_field_scene import prepare_magnetic_scene, sample_magnetic_diagnostic
+                    with numerical_job(1, cancelled=worker.cancelled.is_set):
+                        z_mm = np.linspace(*limits, 3000)
+                        # Lens records remain diagnostic/import metadata only.
+                        # All plotted vectors come from the combined scene.
+                        # Validate captured FEM ownership before any diagnostic
+                        # helper can resolve or regenerate a missing field map.
+                        scene = prepare_magnetic_scene(state, z_limits_mm=limits)
+                        _unused, records = lens_field_records(state, z_mm)
+                        if not worker.cancelled.is_set():
+                            profile = sample_magnetic_diagnostic(scene, z_mm)
+                            planes = image_plane_rotation_records(state)
+                            payload = (scene, profile, records, planes)
+                except Exception as exc:
+                    error = str(exc)
+                if worker.cancelled.is_set():
+                    payload, error = None, None
+                worker.signals.finished.emit(generation, payload, error)
 
-    def _add_rotation_markers(self, total_field_t) -> None:
-        """Refresh keyed annotations without accumulating new graphics items."""
-        peak = max(
-            float(np.max(np.abs(total_field_t)))
-            if np.size(total_field_t) else 0.0,
-            1.0e-6,
-        )
-        items = {}
-        for index, record in enumerate(sorted(
-            self._records, key=lambda item: item.center_z_mm
-        )):
-            field_index = int(np.argmin(np.abs(record.z_mm - record.center_z_mm)))
-            field_value = float(record.field_t[field_index])
-            offset = (0.055 + 0.025 * (index % 3)) * peak
-            y_value = field_value + offset if field_value >= 0.0 else field_value - offset
-            anchor_y = 1.0 if field_value >= 0.0 else 0.0
-            key = ("lens", record.key)
-            label = self._rotation_by_key.get(key)
-            if label is None:
-                label = pg.TextItem(color="#cbd5e1", fill=pg.mkBrush(5, 8, 22, 185))
-                self.plot.addItem(label)
-            label.setText(
-                f"{record.key}\nΔφL {record.larmor_rotation_deg:+.3g}°"
-            )
-            label.setAnchor((0.5, anchor_y))
-            label.border = pg.mkPen(record.formula_colour, width=0.8)
-            label.setPos(record.center_z_mm, y_value)
-            label.setToolTip(
-                f"{record.name}\n"
-                f"single-lens ΔφL {record.larmor_rotation_deg:+.6g} deg\n"
-                f"column cumulative ΣφL "
-                f"{record.cumulative_column_rotation_deg:+.6g} deg"
-            )
-            label.update()
-            items[key] = label
+        worker = Worker(self._profile_request)
+        self._profile_worker = worker
+        worker.destruction_connection = self.destroyed.connect(lambda *_args, stop=worker.cancelled: stop.set())
+        worker.signals.finished.connect(self._profile_finished)
+        QThreadPool.globalInstance().start(worker)
 
-        plane_colour = "#fbbf24"
-        for index, record in enumerate(self._plane_records):
-            key = ("plane_line", record.key)
-            line = self._rotation_by_key.get(key)
-            if line is None:
-                line = pg.InfiniteLine(
-                    angle=90, movable=False,
-                    pen=pg.mkPen(plane_colour, width=1.1, style=Qt.PenStyle.DashLine),
-                )
+    def _profile_finished(self, generation, payload, error):
+        from PySide6.QtCore import QObject
+        worker = self._profile_worker
+        if worker is not None:
+            QObject.disconnect(worker.destruction_connection)
+        self._profile_worker = None
+        if generation != self._profile_generation:
+            self._start_profile_worker()
+            return
+        self._profile_request = None
+        self._presentation_pending = False
+        if error:
+            self._profile_error = str(error)
+            self.status.setText("Magnetic field unavailable — see Advanced.")
+            self.details.setPlainText(f"Could not prepare the captured magnetic field: {error}")
+            self.field_lines.invalidate(str(error))
+            self._populate_field_map_lenses()
+            self.diagnostics_updated.emit()
+            return
+        if payload is None:
+            return
+        scene, profile, self._records, self._plane_records = payload
+        self._scene, self._profile = scene, profile
+        previous_y = tuple(self.plot.viewRange()[1]) if self._has_field_scene else None
+        self.plot.getViewBox().disableAutoRange(axis=pg.ViewBox.YAxis)
+        self._render_cached_profile()
+        sample = getattr(self._state_snapshot, "sample", None)
+        if sample is not None:
+            if not self._sample_field_items:
+                line = pg.InfiniteLine(angle=90, movable=False,
+                    pen=pg.mkPen("#f97316", width=1.2, style=Qt.PenStyle.DashLine))
                 self.plot.addItem(line)
-            line.setValue(record.z_mm)
-            line.setToolTip(
-                f"{record.name}\n"
-                f"image orientation from sample "
-                f"{record.image_rotation_from_sample_deg:+.6g} deg\n"
-                f"sample-to-plane Larmor integral "
-                f"{record.larmor_rotation_from_sample_deg:+.6g} deg\n"
-                f"|A| {record.magnification:.6g} | "
-                f"||B|| {record.conjugacy_error_m:.6g} m/rad | "
-                f"anisotropy {record.anisotropy_ratio:.6g}"
-            )
-            items[key] = line
-            y_value = peak * (0.92 - 0.13 * (index % 4))
-            key = ("plane_label", record.key)
-            label = self._rotation_by_key.get(key)
-            if label is None:
-                label = pg.TextItem(
-                    color=plane_colour, anchor=(0.5, 0.0),
-                    fill=pg.mkBrush(5, 8, 22, 210),
-                    border=pg.mkPen(plane_colour, width=0.9),
-                )
-                self.plot.addItem(label)
-            label.setText(
-                f"{record.name}\nθsample {record.image_rotation_from_sample_deg:+.3g}°"
-            )
-            label.setPos(record.z_mm, y_value)
-            label.setToolTip(line.toolTip())
-            items[key] = label
-        for key in self._rotation_by_key.keys() - items.keys():
-            self.plot.removeItem(self._rotation_by_key[key])
-        self._rotation_by_key = items
-        self._rotation_items = list(items.values())
-        self._apply_rotation_marker_visibility()
+                self._sample_field_items.append(line)
+            line = self._sample_field_items[0]
+            line.setValue(float(sample.z_mm))
+            line.setToolTip(f"Specimen plane Z {float(sample.z_mm):.6g} mm")
+            line.show()
+        if previous_y is None:
+            self._fit_2d()
+        else:
+            self.plot.getViewBox().setYRange(*previous_y, padding=0)
+        self._has_field_scene = True
+        values = np.concatenate((np.linalg.norm(profile.on_axis_t, axis=1), profile.transverse_rms_t))
+        finite = values[np.isfinite(values)]
+        peak = float(np.max(finite)) if len(finite) else 0.
+        self.field_lines.update_snapshot(self._state_snapshot, self._records, self._z_limits_mm,
+                                         peak_t=peak, prepared_scene=scene)
+        self._populate_field_map_lenses()
+        self._refresh_details()
+        self.diagnostics_updated.emit()
 
-    def _apply_rotation_marker_visibility(self) -> None:
-        visible = self.show_rotation_labels.isChecked()
-        for item in self._rotation_items:
-            item.setVisible(visible)
-
-    def _apply_curve_styles(self) -> None:
-        show = self.show_individual.isChecked()
-        for record in self._records:
-            curve = self._curves.get(record.key)
+    def _render_cached_profile(self):
+        if self._profile is None:
+            return
+        profile = self._profile
+        u, v = transverse_view_coordinates(profile.on_axis_t[:, 0], profile.on_axis_t[:, 1], self._projection_angle_deg)
+        rows = (("bz", "Bz", "#f8fafc", profile.on_axis_t[:, 2]),
+                ("bu", "Bu", "#38bdf8", u), ("bv", "Bv", "#c084fc", v),
+                ("transverse_rms", "Transverse RMS", "#fbbf24", profile.transverse_rms_t))
+        for key, label, colour, values in rows:
+            curve = self._curves.get(key)
             if curve is None:
-                continue
-            curve.setVisible(show or record.key == self._selected_key)
-            width = 3.2 if record.key == self._selected_key else 1.15
-            alpha = 255 if record.key == self._selected_key else 145
-            curve.setPen(pg.mkPen(record.formula_colour, width=width))
-            curve.setOpacity(alpha / 255.0)
+                curve = self.plot.plot(pen=pg.mkPen(colour, width=1.6), connect="finite")
+                self._curves[key] = curve
+                self.legend.addItem(curve, label)
+            curve.setData(profile.z_mm, values)
+        self._curves["bu"].setToolTip(f"Total B projected along {projection_axis_name(self._projection_angle_deg)}")
+        self._curves["bv"].setToolTip(f"Total B projected along {orthogonal_axis_name(self._projection_angle_deg)}")
+        radii = profile.probe_radius_m[np.isfinite(profile.probe_radius_m)]
+        radius_text = (f"{np.min(radii)*1e6:.4g}–{np.max(radii)*1e6:.4g} µm" if len(radii) else "unavailable")
+        self._curves["transverse_rms"].setToolTip(
+            f"RMS transverse field on an eight-point ring; actual radius {radius_text}. "
+            "Shows off-axis stigmator/corrector fields even when B is zero on axis.")
+        self.status.setText(f"{len(self._scene.source_keys)} combined components · projection {format_projection_angle(self._projection_angle_deg)}° · RMS ring {radius_text}")
+        self.status.setToolTip("\n".join(self._scene.notes))
+
+    def _refresh_details(self):
+        if self._presentation_pending:
+            self.details.setPlainText("Field view pending a current calculation snapshot.")
+            return
+        if self._profile_error is not None:
+            self.details.setPlainText(f"Could not prepare the captured magnetic field: {self._profile_error}")
+            return
+        if self._scene is None or self._profile is None:
+            self.details.setPlainText("Recalculate to update magnetic diagnostics.")
+            return
+        lines = ["Combined magnetic field: lenses, stigmators, correctors and deflectors.",
+                 "Physical coordinates: right-handed XYZ, +Z downstream; field values in tesla.",
+                 "Bz, Bu and Bv are total on-axis components. U/V follow Ray Diagram projection.",
+                 "Transverse RMS uses an eight-point ring. Its actual radius is shown beside the plot; it is not an on-axis amplitude.",
+                 *self._scene.notes]
+        gradient = self._profile.transverse_gradient_rms_t_per_m
+        finite = gradient[np.isfinite(gradient)]
+        if len(finite):
+            lines.append(f"Peak sampled transverse gradient RMS: {np.max(finite):.6g} T/m.")
+        if self._selected_key is not None:
+            lines.extend(("", self.diagnostic_text(self._selected_key)))
+        lines.extend(("", "Field sources:"))
+        for region in self._scene.source_regions:
+            lines.append(f"{region.label} [{region.category}] | Z {region.bounds_m[0,2]*1e3:.6g}–{region.bounds_m[1,2]*1e3:.6g} mm")
+        lines.extend(("", "Lens diagnostics:"))
+        lines.extend(self.diagnostic_text(record.key) for record in self._records)
+        if self._plane_records:
+            lines.extend(("", "Image-plane reference rotations:"))
+            lines.extend(f"{record.name}: {record.image_rotation_from_sample_deg:+.6g} deg" for record in self._plane_records)
+        self.details.setPlainText("\n".join(lines))
 
     def focus_component(self, part) -> None:
-        key = getattr(part, "key", "")
-        record = next((item for item in self._records if item.key == key), None)
-        if record is None:
-            return
-        self._selected_key = key
-        self._apply_curve_styles()
-        support_colour = pg.mkColor(record.formula_colour)
-        support_colour.setAlpha(34)
-        if self._support_item is None:
-            self._support_item = pg.LinearRegionItem(
-                values=record.support_mm, orientation="vertical", movable=False,
-                brush=pg.mkBrush(support_colour),
-                pen=pg.mkPen(record.formula_colour, width=1.2),
-            )
-            self._support_item.setZValue(-5)
-            self.plot.addItem(self._support_item)
-        else:
-            self._support_item.setRegion(record.support_mm)
-            self._support_item.setBrush(pg.mkBrush(support_colour))
-            for line in self._support_item.lines:
-                line.setPen(pg.mkPen(record.formula_colour, width=1.2))
-        detail_text = self.diagnostic_text(key)
-        focal = (
-            f"{record.focal_length_mm:.6g} mm"
-            if math.isfinite(record.focal_length_mm) else "unfocused"
-        )
-        self.summary.setText(
-            f"Selected: {record.name} | {record.excitation_percent:.6g}% | "
-            f"peak |Bz| {record.peak_t:.6g} T | focal length {focal} | "
-            f"ΔφL {record.larmor_rotation_deg:+.6g}°"
-        )
-        self.summary.setToolTip(detail_text)
+        # Component selection may choose an Advanced diagnostic/map target,
+        # but never hides other fields or changes the camera/range.
+        self._selected_key = str(getattr(part, "key", ""))
+        index = self.field_map_lens.findData(self._selected_key)
+        if index >= 0:
+            self.field_map_lens.setCurrentIndex(index)
+        self._refresh_details()
 
     def diagnostic_text(self, key: str) -> str:
         if self._presentation_pending:
             return "Field view pending | show Magnetic field to update diagnostics."
+        if self._profile_error is not None:
+            return f"Field view unavailable | {self._profile_error}"
         record = next((item for item in self._records if item.key == key), None)
         if record is None:
+            if self._scene is not None:
+                region = next((item for item in self._scene.source_regions if item.key == key), None)
+                if region is not None:
+                    return (f"{region.label} | {region.category} | included in the combined vector field | "
+                            f"support Z {region.bounds_m[0, 2]*1e3:.6g}–{region.bounds_m[1, 2]*1e3:.6g} mm")
             return "Recalculate to update field and focal diagnostics."
         focal = (
             f"{record.focal_length_mm:.6g} mm"

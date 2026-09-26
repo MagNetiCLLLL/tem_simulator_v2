@@ -67,7 +67,7 @@ def test_explicit_current_profile_can_clear_quadrature(tmp_path):
 
 
 @pytest.mark.parametrize("damage", [
-    lambda controls: controls["accelerator_stages"][0].update(soft_edge_mm=-1.),
+    lambda controls: controls["accelerator_stages"][0].update(voltage_fraction=-1.),
     lambda controls: controls["accelerator_stages"][0].update(center_from_tip_mm=999.),
     lambda controls: controls["tip_quadrature"].update(spatial=5),
     lambda controls: controls.pop("accelerator_stages"),

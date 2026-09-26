@@ -189,6 +189,9 @@ def test_installed_monochromator_preserves_slit_and_bore_before_handoff():
     gun = FieldEmissionGun()
     gun.install_monochromator()
     gun.emitter.surface_model = None  # exercise the retained classical planar model
+    # The changed electrode geometry sets the local energy. Match the Wien
+    # condition explicitly; retaining an old field ratio is not calibration.
+    gun.match_monochromator_to_local_energy()
     gun.monochromator.slit.inserted = False
     opened = gun.trace_to_exit(9)
     slit = next(p for p in opened.plane_arrivals if p.key == 'feg_monochromator_slit')

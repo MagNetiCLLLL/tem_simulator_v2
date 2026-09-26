@@ -1,6 +1,10 @@
 """Equivalent focal length for each isolated three-Gaussian magnetic lens."""
 from __future__ import annotations
+
 import math
+from functools import lru_cache
+from types import SimpleNamespace
+
 import numpy as np
 
 from temsim.optics.excitation_policy import (
@@ -50,9 +54,30 @@ def _unit_field_samples(lens, samples=4001):
         field /= max(float(np.max(np.abs(field))), 1e-15)
     return z_mm, field
 
-def unit_field_peak(lens, samples=4001):
+@lru_cache(maxsize=128)
+def _unit_field_peak_cached(a_mm, gaussian, normalise_profile_peak, samples):
+    # Numeric inputs, not object identity: editing any consumed Gaussian
+    # parameter or sample count must produce a fresh normalization. Only the
+    # scalar result is cached; the unchanged sampled field defines its value.
+    lens = SimpleNamespace(a_mm=a_mm[1], normalise_profile_peak=normalise_profile_peak,
+        gaussian=tuple(SimpleNamespace(amplitude=a[1], sigma=s[1], offset=o[1]) for a, s, o in gaussian))
     _, field = _unit_field_samples(lens, samples)
     return float(np.max(np.abs(field)))
+
+def unit_field_peak(lens, samples=4001):
+    if not lens.gaussian:
+        return 0.0
+    # Preserve scalar arithmetic types too: float32*float32 and float64*float64
+    # may differ even when their input values compare equal. Unhashable custom
+    # numeric inputs retain the preceding uncached behavior.
+    width = (type(lens.a_mm), lens.a_mm)
+    terms = tuple(tuple((type(value), value) for value in (g.amplitude, g.sigma, g.offset)) for g in lens.gaussian)
+    try:
+        hash((width, terms))
+    except TypeError:
+        return float(np.max(np.abs(_unit_field_samples(lens, samples)[1])))
+    return _unit_field_peak_cached(width, terms,
+                                  bool(getattr(lens, "normalise_profile_peak", False)), int(samples))
 
 def unit_field_integral(lens, samples=4001):
     z_mm, field = _unit_field_samples(lens, samples)

@@ -237,16 +237,15 @@ def parameter_definition(component, name, *, lens=False):
                          "angular_cutoff_mrad", "energy_spread_fwhm_ev"}
     elif component == "feg_extractor" and name in {"voltage_kv", "transition_start_mm", "transition_end_mm"}:
         category = "operating" if name == "voltage_kv" else "structural"
-        detail = ("Extractor potential rise from the tip, or the transition support of the analytic field. "
+        detail = ("Extractor electrode potential rise from the tip. "
                   "Extraction changes acceleration and focusing; prescribed emission current is held independently. "
                   "At fixed final potential, increasing extraction voltage is not an additional final-energy gain. "
-                  "The solved surface-field model uses physical electrode boundaries instead of transition endpoints.")
+                  "The coupled electrode field uses physical metal boundaries instead of analytic transition endpoints.")
     elif component == "feg_electrostatic_lens" and name in {"voltage_kv", "voltage_reference", "potential_scale", "soft_edge_mm"}:
         category = "structural" if name == "soft_edge_mm" else "operating"
         detail = ("Changes electrostatic gun focusing, with no universal monotonic downstream spot-size response. "
-                  "For solved surface fields, voltage_reference selects tip, extractor or ground. "
-                  "The historical analytic model retains its extractor reference and potential_scale multiplier; "
-                  "that multiplier is not a calibrated electrode-voltage conversion and is unused by the solved field.")
+                  "Voltage reference selects tip, extractor or ground for the actual electrode potential. "
+                  "The coupled field does not multiply this voltage by an analytic focusing coefficient.")
     elif component == "feg_accelerator" and name == "high_tension_kv":
         category, label, detail, sweep = "operating", "Gun accelerating voltage", (
             "Changes the connected gun field and every dependent electron transport stage. "

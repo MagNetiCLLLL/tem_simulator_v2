@@ -811,6 +811,7 @@ class ArtifactStore:
                 "coordinate_system": "column-z-downstream",
                 "flight_time_reference": "laboratory seconds since simultaneous tip emission",
                 "gun_plane_arrivals": arrivals,
+                "gun_electrostatic_model_report": gun_trace.electrostatic_model_report,
                 "plan_solver_signature": str(plan.solver_signature),
                 "beam_observables": observables,
                 "observable_coordinate_precision": np.asarray(incident.x).dtype.str,
@@ -917,6 +918,7 @@ class ArtifactStore:
                 exit_bundle=exit_bundle,
                 blocked_key=tuple(metadata["gun_blocked_key"]),
                 **gun_scalars,
+                electrostatic_model_report=metadata.get("gun_electrostatic_model_report"),
                 flight_time_s=arrays.get("gun.flight_time_s"),
                 plane_arrivals=tuple(GunPlaneArrival(
                     **row, **fields(f"arrival{index}", ("time_s", "x_m", "y_m", "reached", "transmitted")))

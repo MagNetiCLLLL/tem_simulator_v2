@@ -304,6 +304,7 @@ def test_complete_incident_seed_restarts_ray_solver(tmp_path, with_vector_map, m
 
     assert restored is not None
     assert restored.incident_plan.signature == first.incident_plan.signature
+    assert restored.gun_trace.electrostatic_model_report == first.gun_trace.electrostatic_model_report
     for name in ("sxy_m2", "midpoint_sxy_m2"):
         expected = getattr(first.incident_plan, name)
         assert np.any(expected != 0.)

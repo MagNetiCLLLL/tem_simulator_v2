@@ -68,16 +68,19 @@ def test_named_layouts_restore_each_page_and_do_not_change_optics(windows, qtbot
     custom_ratio = _resize_splitter(window, "samplePageSplitter", [750, 940], qtbot)
     assert not np.allclose(default_ratio, custom_ratio)
     workspace.magnetic_field_toggle.setChecked(True)
+    workspace.magnetic_field.field_lines.link_view.setChecked(False)
     manager.save_current()
     manager.select("default")
     qtbot.wait(40)
     assert workspace.tabs.currentWidget() is workspace.sample_page
     _assert_ratio(manager.splitters["samplePageSplitter"], default_ratio)
     assert not workspace.magnetic_field_toggle.isChecked()
+    assert workspace.magnetic_field.field_lines.link_view.isChecked()
     manager.select(saved_id)
     qtbot.wait(40)
     _assert_ratio(manager.splitters["samplePageSplitter"], custom_ratio)
     assert workspace.magnetic_field_toggle.isChecked()
+    assert not workspace.magnetic_field.field_lines.link_view.isChecked()
     assert workspace._high_accuracy_result is old_high
     assert workspace.interactive_calculation.controller.bank is old_bank
     assert window.state.to_dict() == before_state

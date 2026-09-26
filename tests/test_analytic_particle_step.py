@@ -13,7 +13,21 @@ from temsim.physics.relativistic_lorentz import (
 
 @pytest.fixture
 def gun():
-    value = FieldEmissionGun()
+    # Mathematical regression fixture for the historical analytic kernel.
+    # Production cold FEGs now use the coupled electrode field.
+    from temsim.optics.electron_gun.electrostatic import FegElectrostaticField
+
+    class AnalyticGunFixture(FieldEmissionGun):
+        @property
+        def uses_geometry_electric_field(self):
+            return False
+
+        @property
+        def base_electric_field(self):
+            return FegElectrostaticField(self.emitter, self.extractor,
+                                         self.electrostatic_lens, self.accelerator)
+
+    value = AnalyticGunFixture()
     value.emitter.surface_model = None
     return value
 

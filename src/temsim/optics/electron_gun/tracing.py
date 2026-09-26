@@ -33,7 +33,15 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
     from temsim.physics.ray_identity import emission_reference
     launch_reference = emission_reference(emitted, getattr(gun.emitter, "surface_model", None))
     surface_model = getattr(gun.emitter, "surface_model", None)
+    geometry_field = bool(getattr(gun, "uses_geometry_electric_field", surface_model is not None))
     electric_provider = gun.electric_field
+    electric_base = getattr(electric_provider, "base_field", electric_provider)
+    grounded_liner = getattr(electric_base, "request", {}).get("grounded_liner", ())
+    tip_geometry = getattr(electric_base, "geometry", None) if geometry_field else None
+    tip_material_mask = getattr(electric_base, "tip_material_mask", None) if geometry_field else None
+    trace_potential = (getattr(electric_provider, "potential_rise_v_at_global_positions",
+                               electric_provider.potential_v_at_global_positions)
+                       if geometry_field else electric_provider.potential_v_at_global_positions)
     if cancelled is not None and cancelled():
         raise RuntimeError("Superseded optical tuning request")
     magnetic_provider = gun.magnetic_field
@@ -74,10 +82,11 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
     elif hasattr(emitted, "surface_normal"):
         position = emitted.surface_position_m.copy()
         direction = emitted.surface_direction
-    invariant_energy = launch_energy
-    if surface_model is None:
-        # K - e*phi is conserved; local launch energy is unchanged by curvature.
-        invariant_energy = launch_energy - electric_provider.potential_v_at_global_positions(position)
+    # K - e*phi is conserved. Use a stable voltage gauge for solved fields;
+    # the emitted positions, directions and local kinetic energies are untouched.
+    invariant_energy = launch_energy - trace_potential(position)
+    launch_boundary_report = (electric_base.launch_boundary_report(position)
+                              if hasattr(electric_base, "launch_boundary_report") else None)
     momentum = momentum_from_kinetic_energy_ev(launch_energy, direction)
     phase = RelativisticPhaseSpace(position, momentum)
     alive = np.ones(n, dtype=bool)
@@ -128,7 +137,7 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
     )
     analytic_execution = (prepare_analytic_execution(
         gun, magnetic_provider, electric_provider, n,
-    ) if surface_model is None else None)
+    ) if not geometry_field else None)
 
     from temsim.physics.analytic_particle_batch import prepare_analytic_batch
     analytic_batch = prepare_analytic_batch(gun, analytic_execution, cancelled)
@@ -156,7 +165,7 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
                 phase.momentum_kg_m_per_s[active]
             )
             forward = velocity[:, 2] > 0.0
-            if surface_model is None and not np.all(forward):
+            if not geometry_field and not np.all(forward):
                 indices = np.flatnonzero(active)[~forward]
                 alive[indices] = False
                 blocked_time_s[indices] = float(phase.time_s)
@@ -197,13 +206,14 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
                         rate = region_rate_bound(region, energies[local])*speed[local]
                         if np.max(rate, initial=0) > 0:
                             dt = min(dt, medium.max_step_tau/(2*np.max(rate)))
-            if surface_model is not None:
-                # Tip-scale stepping and local momentum-change control execute the
-                # strong extraction field rather than injecting accelerated rays.
+            if geometry_field:
+                # Resolve local extraction impulse for the same unaccelerated
+                # source. Only an actual curved conductor needs the apex-scale cap.
                 from temsim.physics.relativistic_lorentz import ELEMENTARY_CHARGE_C
-                nearest = max(0., float(np.min(phase.position_m[active, 2])))
-                spatial_step = min(step_m, .025*(surface_model.geometry.apex_radius_nm*1e-9+nearest))
-                dt = min(dt, spatial_step/max(np.max(np.linalg.norm(velocity, axis=1)), 1.))
+                if tip_geometry is not None:
+                    nearest = max(0., float(np.min(phase.position_m[active, 2])))
+                    spatial_step = min(step_m, .025*(tip_geometry.apex_radius_nm*1e-9+nearest))
+                    dt = min(dt, spatial_step/max(np.max(np.linalg.norm(velocity, axis=1)), 1.))
                 field_strength = np.linalg.norm(electric_provider.field_at_global_positions_v_per_m(phase.position_m[active]), axis=1)
                 momentum_size = np.linalg.norm(phase.momentum_kg_m_per_s[active], axis=1)
                 if np.any(field_strength > 0):
@@ -265,8 +275,8 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
                 new_position = phase.position_m.copy()
                 new_momentum = phase.momentum_kg_m_per_s.copy()
                 new_position[active] = advanced.position_m[active]
-                if surface_model is not None:
-                    # No energy projection or forced nominal exit energy in this model.
+                if geometry_field:
+                    # A solved field evolves momentum without energy projection.
                     new_momentum[active] = advanced.momentum_kg_m_per_s[active]
                 else:
                     new_momentum[active] = _enforce_static_field_energy(
@@ -275,8 +285,8 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
                     new_position, new_momentum, phase.time_s + dt
                 )
 
-        if surface_field is not None:
-            returned = np.flatnonzero(alive & ~completed & surface_field.tip_material_mask(phase.position_m))
+        if tip_material_mask is not None:
+            returned = np.flatnonzero(alive & ~completed & tip_material_mask(phase.position_m))
             alive[returned] = False
             blocked_z[returned] = phase.position_m[returned, 2]*1000
             for index in returned:
@@ -286,6 +296,11 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             gun, previous_position, phase.position_m,
             alive, completed, blocked_z, blocked_key,
         )
+        if grounded_liner:
+            _clip_grounded_liner(
+                grounded_liner, previous_position, phase.position_m,
+                active & ~completed, alive, blocked_z, blocked_key,
+            )
         _resolve_aperture_crossing(
             gun.dpa_aperture,
             dpa_z_m,
@@ -303,8 +318,10 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             arrival_time_s=dpa_arrival_time,
             arrival_x_m=dpa_arrival_x,
             arrival_y_m=dpa_arrival_y,
+            **({"electric": electric_provider, "magnetic": magnetic_provider}
+               if geometry_field else {}),
         )
-        extra = {"electric": electric_provider, "magnetic": magnetic_provider} if surface_model is not None else {}
+        extra = {"electric": electric_provider, "magnetic": magnetic_provider} if geometry_field else {}
         # C1 owns either its circular opening or the bound monochromator slit
         # and mechanical bore. Apply it once, where the component is installed.
         # The column handoff is a propagation plane, not another aperture.
@@ -327,7 +344,7 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             arrival_y_m=c1_arrival_y,
             **extra,
         )
-        exit_resolver = _resolve_surface_exit_crossing if surface_model is not None else _resolve_exit_crossing
+        exit_resolver = _resolve_surface_exit_crossing if geometry_field else _resolve_exit_crossing
         exit_resolver(
             exit_z_m,
             previous_position,
@@ -422,7 +439,7 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
         )
 
     passed_exit = alive & completed
-    if surface_model is None and np.any(passed_exit):
+    if not geometry_field and np.any(passed_exit):
         exit_momentum[passed_exit] = _enforce_static_field_energy(
             gun,
             exit_position[passed_exit],
@@ -517,10 +534,13 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
     # executed trajectory. Copying launch offsets is only valid when launch
     # potential is zero and the analytic ramp reaches its nominal exit value.
     energy_offset = emitted.energy_offset_ev.copy()
-    if surface_model is not None:
-        # Relative to e*HT: surface kinetic energy is additional, not cancelled
-        # by changing the field. This is the static-energy invariant.
-        energy_offset = launch_energy.copy()
+    if geometry_field:
+        # Carry the actually integrated energy through the handoff. A finite
+        # grounded outlet can retain residual potential at the selected plane.
+        energy_offset[passed_exit] = (
+            kinetic_energy_ev_from_momentum(exit_momentum[passed_exit])
+            - gun.nominal_exit_energy_ev
+        )
     elif np.any(passed_exit):
         nominal_potential_rise = gun.nominal_exit_energy_ev - float(gun.emitter.emission_energy_ev)
         exit_potential = electric_provider.potential_v_at_global_positions(exit_position[passed_exit])
@@ -589,17 +609,18 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
         emission_reference=launch_reference,
         flight_time_s=flight_time_s,
     )
-    if surface_model is not None:
-        from scipy.constants import c, m_e, e
-        scale = np.sum((exit_momentum[passed_exit]/(m_e*c))**2, axis=1)
-        kinetic = (m_e*c*c/e)*scale/(np.sqrt(1+scale)+1)
-        expected = gun.nominal_exit_energy_ev+launch_energy[passed_exit]
+    if geometry_field:
+        kinetic = kinetic_energy_ev_from_momentum(exit_momentum[passed_exit])
+        exit_potential = trace_potential(exit_position[passed_exit])
+        expected = invariant_energy[passed_exit]+exit_potential
         energy_error = float(np.max(np.abs(kinetic-expected), initial=0))
         if energy_error > 1e-3:
-            raise ValueError(f"Surface trace exit energy error {energy_error:.6g} eV exceeds 0.001 eV; result not accepted")
-        object.__setattr__(result, "surface_model_report", {
-            "model": surface_model.schema, "surface_mesh_displacement_m": surface_mesh_error,
-            "potential_reference": "final_anode_ground_0V",
+            raise ValueError(f"Electrode-field trace exit energy error {energy_error:.6g} eV exceeds 0.001 eV; result not accepted")
+        report = {
+            "model": (surface_model.schema if surface_model is not None
+                      else electric_base.request["schema"]),
+            "surface_mesh_displacement_m": surface_mesh_error,
+            "potential_reference": "work_relative_to_executed_emission_positions",
             "exit_energy_status": "verified" if kinetic.size else "no_transmitted_particles",
             "transmitted_particle_count": int(kinetic.size),
             "minimum_exit_kinetic_energy_ev": float(kinetic.min()) if kinetic.size else None,
@@ -610,9 +631,13 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             "exit_energy_error_budget_ev": 1e-3,
             "accelerating_voltage_kv": float(gun.accelerator.high_tension_kv),
             "extraction_voltage_kv": float(gun.extractor.voltage_kv),
-            "electrostatic_field": dict(surface_field.report),
+            "electrostatic_field": dict(electric_base.report),
+            "launch_boundary": launch_boundary_report,
             "scope": "classical prescribed outgoing flux; no coherent phase or tunnelling prediction",
-        })
+        }
+        object.__setattr__(result, "electrostatic_model_report", report)
+        if surface_model is not None:
+            object.__setattr__(result, "surface_model_report", report)
     return result
 
 
@@ -1246,6 +1271,55 @@ def _clip_body_bores(
                 alive[index] = False
                 blocked_z[index] = z_mm[local_index]
                 blocked_key[index] = component.key
+
+
+def _clip_grounded_liner(rows, previous, current, eligible, alive, blocked_z, blocked_key):
+    """Intercept the accepted segment at a grounded tube wall or bore-step face.
+
+    Coordinates and radii are metres. This event interpolation uses physical
+    liner rows, not the finite numerical field boundary or a display outline.
+    A preceding body stop is retained if it occurs earlier on the same segment.
+    """
+    indices = np.flatnonzero(eligible)
+    if not indices.size:
+        return
+    start, delta = previous[indices], current[indices]-previous[indices]
+    low_z = np.minimum(start[:, 2], current[indices, 2])
+    high_z = np.maximum(start[:, 2], current[indices, 2])
+    for row in rows:
+        z0, z1, radius = row["start_m"], row["stop_m"], row["inner_m"]
+        selected = np.flatnonzero((low_z <= z1) & (high_z >= z0))
+        if not selected.size:
+            continue
+        p, d = start[selected], delta[selected]
+        first = np.divide(z0-p[:, 2], d[:, 2], out=np.zeros(len(p)), where=d[:, 2] != 0.)
+        last = np.divide(z1-p[:, 2], d[:, 2], out=np.ones(len(p)), where=d[:, 2] != 0.)
+        low, high = np.maximum(0., np.minimum(first, last)), np.minimum(1., np.maximum(first, last))
+        xy = p[:, :2]+low[:, None]*d[:, :2]
+        offset = np.sum(xy*xy, axis=1)-radius*radius
+        fraction = np.where(offset >= 0., low, np.inf)
+        a = np.sum(d[:, :2]**2, axis=1)
+        moving = (offset < 0.) & (a > 0.)
+        if np.any(moving):
+            b = 2.*np.sum(xy[moving]*d[moving, :2], axis=1)
+            root = np.sqrt(np.maximum(0., b*b-4.*a[moving]*offset[moving]))
+            step = np.empty_like(b)
+            positive = b >= 0.
+            step[positive] = -2.*offset[moving][positive]/(b[positive]+root[positive])
+            step[~positive] = (-b[~positive]+root[~positive])/(2.*a[moving][~positive])
+            fraction[moving] = low[moving]+step
+        actual = indices[selected]
+        preceding = np.isfinite(blocked_z[actual])
+        previous_stop = np.full(len(actual), np.inf)
+        previous_stop[preceding] = np.clip(np.divide(
+            blocked_z[actual][preceding]*1e-3-p[preceding, 2], d[preceding, 2],
+            out=np.ones(np.sum(preceding)), where=d[preceding, 2] != 0.), 0., 1.)
+        hit = (fraction <= high) & (fraction < previous_stop)
+        stopped = actual[hit]
+        alive[stopped] = False
+        blocked_z[stopped] = (p[hit, 2]+fraction[hit]*d[hit, 2])*1000.
+        for index in stopped:
+            blocked_key[index] = row["key"]
 
 
 # Batch admission must not bypass instrumentation or custom event/step hooks.

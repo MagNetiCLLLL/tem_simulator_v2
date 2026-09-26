@@ -1532,6 +1532,8 @@ def _apply_manifest_runtime_geometry(state, parts, assembly):
             - float(gun_module.entrance_z_mm)
         ),
     )
+    from temsim.physics.gun_field_environment import bind_gun_field_environment
+    bind_gun_field_environment(gun, assembly)
     targets = _state_targets(state)
     for key, target in targets.items():
         part = parts.get(key)

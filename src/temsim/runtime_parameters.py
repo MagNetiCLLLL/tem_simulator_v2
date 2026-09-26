@@ -138,7 +138,7 @@ def runtime_targets(state) -> dict[str, RuntimeTarget]:
 
     def add(key: str, obj: object) -> None:
         hidden = frozenset()
-        if getattr(getattr(state.electron_gun, "emitter", None), "surface_model", None) is not None:
+        if getattr(state.electron_gun, "uses_geometry_electric_field", False):
             if obj is getattr(state.electron_gun, "extractor", None):
                 hidden = frozenset({"transition_start_mm", "transition_end_mm", "field_center_offset_mm"})
             elif obj is getattr(state.electron_gun, "electrostatic_lens", None):

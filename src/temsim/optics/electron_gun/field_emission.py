@@ -506,6 +506,9 @@ class FieldEmissionGun:
         self._resolved_exit_plane_z_mm = module_manifest.port_z_mm(
             module_path, "exit"
         )
+        self.__dict__.pop("_grounded_outlet_liner_segments", None)
+        from temsim.physics.gun_field_environment import ensure_gun_field_environment
+        ensure_gun_field_environment(self)
         return self
 
     def apply_resolved_manifest_geometry(
@@ -646,7 +649,7 @@ class FieldEmissionGun:
     @property
     def diagnostic_waist_region_mm(self):
         lens = self.electrostatic_lens
-        if getattr(self.emitter, "surface_model", None) is not None:
+        if self.uses_geometry_electric_field:
             # A search region, not an assertion that the electric field ends.
             return lens.mechanical_center_from_tip_mm + .5*lens.mechanical_length_mm, self.exit_plane_z_mm
         start = (
@@ -657,14 +660,31 @@ class FieldEmissionGun:
         return start, self.exit_plane_z_mm
 
     @property
-    def electric_field(self):
+    def uses_geometry_electric_field(self):
+        """Select the field family without building a field or changing emission."""
+        return self.type_key == "cold_feg"
+
+    @property
+    def base_electric_field(self):
+        """The gun electrodes, before any installed Wien field is added."""
         if self.type_key == "cold_feg" and self.emitter.surface_model is not None:
             from temsim.physics.grounded_tip_field import grounded_field
-            base = grounded_field(self)
-        else:
-            base = FegElectrostaticField(
-                self.emitter, self.extractor, self.electrostatic_lens, self.accelerator,
-            )
+            return grounded_field(self)
+        if self.uses_geometry_electric_field:
+            from temsim.physics.gun_field_environment import ensure_gun_field_environment
+            ensure_gun_field_environment(self)
+            if float(self.emitter.curvature_nm_inv) != 0.:
+                from temsim.physics.continuous_gun_field import continuous_field
+                return continuous_field(self)
+            from temsim.physics.closed_gun_field import closed_field
+            return closed_field(self)
+        return FegElectrostaticField(
+            self.emitter, self.extractor, self.electrostatic_lens, self.accelerator,
+        )
+
+    @property
+    def electric_field(self):
+        base = self.base_electric_field
         if not self.monochromator_installed:
             return base
         return CombinedElectricField(
@@ -686,15 +706,24 @@ class FieldEmissionGun:
     def validate(self):
         from temsim.optics.electron_gun.source_policy import require_physical_gun_source
         require_physical_gun_source(self)
+        from temsim.physics.gun_field_environment import ensure_gun_field_environment
+        ensure_gun_field_environment(self)
         surface = getattr(self.emitter, "surface_model", None) is not None
         for component in self.base_components:
-            if surface and any(component is item for item in (self.extractor, self.electrostatic_lens, self.accelerator)):
+            if self.uses_geometry_electric_field and any(component is item for item in (self.extractor, self.electrostatic_lens, self.accelerator)):
                 component.validate(grounded=True)
             else:
                 component.validate()
         if surface:
             from temsim.physics.grounded_tip_field import field_request
             field_request(self)  # validate physical boundary inputs, not old ramps
+        elif self.uses_geometry_electric_field:
+            if float(self.emitter.curvature_nm_inv) != 0.:
+                from temsim.physics.continuous_gun_field import continuous_field_request
+                continuous_field_request(self)
+            else:
+                from temsim.physics.closed_gun_field import closed_field_request
+                closed_field_request(self)
         if self.monochromator is not None:
             self.monochromator.validate()
         self._bind_c1_mechanism()
@@ -719,6 +748,8 @@ class FieldEmissionGun:
     def _cache_key(self, count):
         from temsim.vacuum import ensure_standalone_gun_environment
         ensure_standalone_gun_environment(self)
+        from temsim.physics.gun_field_environment import ensure_gun_field_environment
+        ensure_gun_field_environment(self)
         payload = self.to_dict()
         # Profiles defer geometry to TOML; executed caches must retain it.
         # Hard stops and alignment coils also matter outside the field solve.
@@ -752,6 +783,14 @@ class FieldEmissionGun:
         if self.type_key == "cold_feg" and self.emitter.surface_model is not None:
             from temsim.physics.grounded_tip_field import field_request
             payload["grounded_field"] = field_request(self)
+        elif self.uses_geometry_electric_field:
+            if float(self.emitter.curvature_nm_inv) != 0.:
+                from temsim.physics.continuous_gun_field import continuous_field_request
+                payload["closed_electrode_field"] = continuous_field_request(self)
+            else:
+                from temsim.physics.closed_gun_field import closed_field_request
+                payload["closed_electrode_field"] = closed_field_request(self)
+        payload["geometry_transport_schema"] = "electrode-discrete-gradient-actual-endpoint-v1"
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
     def trace_to_exit(self, count=None, *, cancelled=None):
@@ -777,28 +816,21 @@ class FieldEmissionGun:
     def local_wien_reference_energy_ev(self):
         if self.type_key != "cold_feg" or self.monochromator is None:
             raise ValueError("Only a cold FEG can own a monochromator.")
-        if self.emitter.surface_model is not None:
-            from temsim.physics.grounded_tip_field import grounded_field
-            base = grounded_field(self)
-            position = np.array([[0., 0., self.monochromator.wien.optical_reference_from_tip_mm*1e-3]])
-            return float(base.potential_v_at_global_positions(position)[0]) + self.nominal_exit_energy_ev + self.emitter.surface_model.emission.mean_energy_ev
-        base = FegElectrostaticField(
-            self.emitter,
-            self.extractor,
-            self.electrostatic_lens,
-            self.accelerator,
-        )
+        base = self.base_electric_field
         position = np.array([[
             0.0,
             0.0,
             self.monochromator.wien.optical_reference_from_tip_mm * 1.0e-3,
         ]])
-        potential_v = float(
-            base.potential_v_at_global_positions(position)[0]
-        )
+        potential = getattr(base, "potential_rise_v_at_global_positions",
+                            base.potential_v_at_global_positions)
+        potential_v = float(potential(position)[0] - potential(np.zeros((1, 3)))[0])
+        launch_energy = (self.emitter.surface_model.emission.mean_energy_ev
+                         if self.emitter.surface_model is not None
+                         else self.emitter.emission_energy_ev)
         return max(
             0.0,
-            float(self.emitter.emission_energy_ev) + potential_v,
+            float(launch_energy) + potential_v,
         )
 
     def match_monochromator_to_local_energy(self):
@@ -848,6 +880,12 @@ class FieldEmissionGun:
             # Laplace fields extend through the vacuum domain; legacy compact
             # ramps cannot declare a field-free section of this solved gun.
             return ((-self.emitter.surface_model.geometry.shank_length_um*.001, self.exit_plane_z_mm),)
+        if self.uses_geometry_electric_field:
+            # Every vacuum interval participates in the coupled Laplace solve.
+            # No compact analytic window can declare an internal drift gap.
+            entrance = (-float(self.emitter.mechanical_length_mm)
+                        if self.emitter.curvature_nm_inv != 0. else 0.)
+            return ((entrance, self.exit_plane_z_mm),)
         lens = self.electrostatic_lens
         supports = [
             (
@@ -913,12 +951,17 @@ class FieldEmissionGun:
         # still be accelerating after the leading electron leaves a field.
         z = np.asarray(z_mm, dtype=float)
         lo, hi = float(np.min(z)), float(np.max(z))
-        step = self.drift_step_mm
-        for start, end in self.field_supports_mm:
-            if lo <= end and hi >= start:
-                step = min(step, self.trace_step_mm)
-            elif hi < start:
-                step = min(step, max(start - hi, 1e-10))
+        if getattr(self, "uses_geometry_electric_field", False):
+            # The solved vacuum is active everywhere along the executed gun.
+            # Do not rebuild field requests or invent internal drift gaps here.
+            step = self.trace_step_mm
+        else:
+            step = self.drift_step_mm
+            for start, end in self.field_supports_mm:
+                if lo <= end and hi >= start:
+                    step = min(step, self.trace_step_mm)
+                elif hi < start:
+                    step = min(step, max(start - hi, 1e-10))
         if self.monochromator_installed:
             start, end = self.monochromator.wien.field_support_mm
             if lo <= end and hi >= start:
@@ -935,7 +978,7 @@ class FieldEmissionGun:
         payload = {
             "type": self.type_key,
             "integrator": {
-                "method": ("static_discrete_gradient" if getattr(self.emitter, "surface_model", None) is not None else "boris"),
+                "method": ("static_discrete_gradient" if self.uses_geometry_electric_field else "boris"),
                 "trace_step_mm": self.trace_step_mm,
                 "drift_step_mm": self.drift_step_mm,
                 "history_step_mm": self.history_step_mm,
@@ -979,7 +1022,7 @@ def field_emission_gun_from_dict(data=None):
             raise ValueError(f"Missing electron-gun component: {component.key}")
         _restore_component_settings(component, row)
     integrator = dict(values.get("integrator", {}))
-    expected_method = "static_discrete_gradient" if gun.emitter.surface_model is not None else "boris"
+    expected_method = "static_discrete_gradient" if gun.uses_geometry_electric_field else "boris"
     if integrator.get("method", "boris") != expected_method:
         raise ValueError("Saved FEG integrator does not match its tip model.")
     gun.trace_step_mm = float(

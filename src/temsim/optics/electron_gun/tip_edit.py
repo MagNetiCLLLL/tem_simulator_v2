@@ -28,4 +28,6 @@ def tip_model_label(gun):
     k = getattr(gun.emitter, "curvature_nm_inv", 0.0)
     geometry = f"Curved tip · curvature {k:g} nm^-1 · R {1/k:g} nm" if k else "Flat tip · curvature 0"
     scope = "centre Z = 0; edges bend upstream"
-    return f"{geometry} · {scope} · analytic gun field · {gun.emitted_current_a*1e9:g} nA"
+    field = ("coupled electrode field" if gun.uses_geometry_electric_field
+             else "analytic gun field")
+    return f"{geometry} · {scope} · {field} · {gun.emitted_current_a*1e9:g} nA"

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QLabel,
+    QLayout,
     QPushButton,
     QPlainTextEdit,
     QScrollArea,
@@ -155,24 +156,32 @@ class DirectAlignmentPanel(QWidget):
         self._control_layout.setContentsMargins(0, 0, 0, 0)
         self._control_layout.setSpacing(8)
 
-        scroll = QScrollArea()
-        scroll.setObjectName("directAlignmentScrollArea")
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll.setWidget(self._control_host)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(introduction)
-        layout.addWidget(self.mode_status)
-        layout.addWidget(scroll, 1)
-        layout.addWidget(self.result_status)
+        # Keep all variable-height content inside one viewport. Wrapping status
+        # text must not change the tab's height-for-width or steal setup space.
+        content = QWidget()
+        content.setObjectName("directAlignmentScrollContent")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
+        content_layout.addWidget(introduction)
+        content_layout.addWidget(self.mode_status)
+        content_layout.addWidget(self._control_host)
+        content_layout.addWidget(self.result_status)
         self.validation_details = QPlainTextEdit()
         self.validation_details.setObjectName("directAlignmentValidationDetails")
         self.validation_details.setReadOnly(True)
         self.validation_details.setMaximumHeight(145)
         self.validation_details.setPlaceholderText("Candidate controls, constraints and forward evidence appear here.")
-        layout.addWidget(self.validation_details)
+        content_layout.addWidget(self.validation_details)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setObjectName("directAlignmentScrollArea")
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.scroll_area.setWidget(content)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.scroll_area, 1)
         self.cancel_button = QPushButton("Cancel alignment")
         self.cancel_button.setObjectName("cancelDirectAlignment")
         self.cancel_button.setEnabled(False)

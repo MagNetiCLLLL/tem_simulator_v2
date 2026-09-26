@@ -158,6 +158,8 @@ class GunTraceResult:
     # Float64 (axial plane, ray) first-arrival times since tip emission.
     # Unvisited planes are NaN; historical results may have no timing array.
     flight_time_s: np.ndarray | None = None
+    # Executed electrode geometry, numerical scope and energy verification.
+    electrostatic_model_report: dict | None = None
 
     def equal_time_front_at_plane(self, key: str) -> GunEqualTimeFront:
         """Sample the beam when the median ray reaches an important plane."""

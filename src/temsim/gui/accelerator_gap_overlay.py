@@ -17,7 +17,7 @@ ACCELERATOR_GAP_TOOLTIP = (
     "Amber marks show the displayed calculation's accelerator stages. "
     "For the analytic field, bands span each potential transition "
     "(field centre plus or minus soft edge); lines mark its centre. "
-    "For a solved curved-tip field, lines mark electrode positions only; "
+    "For a coupled electrode field, lines mark electrode positions only; "
     "they do not define the electric-field extent. Hover for stage coordinates."
 )
 
@@ -37,7 +37,7 @@ class AcceleratorGapRecord:
             return (
                 f"Accelerator electrode {self.stage_number}\n"
                 f"Electrode centre Z = {self.center_z_mm:.9g} mm\n"
-                "Solved curved-tip field: this is an electrode position, "
+                "Coupled electrode field: this is an electrode position, "
                 "not a field boundary."
             )
         return (
@@ -70,10 +70,7 @@ def accelerator_gap_records(result) -> tuple[AcceleratorGapRecord, ...]:
     accelerator = getattr(gun, "accelerator", None)
     if accelerator is None:
         return ()
-    solved = (
-        getattr(gun, "type_key", None) == "cold_feg"
-        and getattr(getattr(gun, "emitter", None), "surface_model", None) is not None
-    )
+    solved = getattr(gun, "type_key", None) == "cold_feg"
     offset = 0.0 if solved else _finite_float(
         getattr(accelerator, "field_center_offset_mm", None)
     )

@@ -55,6 +55,7 @@ _PLAIN_TYPES = frozenset({
 # including extra parameters attached by the assembly/calibration loaders.
 _RUNTIME_NAMES = frozenset({
     "_trace_cache", "_trace_cache_key", "_active_backends_used",
+    "_closed_gun_field", "_continuous_gun_field",  # Rebuildable static field solutions, not source inputs.
     "_runtime_lens_field_provider_cache", "_field_provider_diagnostics",
     "_objective_plane_signature", "_equivalent_image_calibration_cache",
     "_tuning_cancelled",  # Worker cancellation callback, never a physical input.

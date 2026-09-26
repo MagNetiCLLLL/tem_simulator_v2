@@ -6,7 +6,11 @@ Other field providers (including the Wien assembly) use the general reference.
 """
 import math
 import numpy as np
-from scipy.constants import c, e, m_e
+from .relativistic_lorentz import (
+    SPEED_OF_LIGHT_M_PER_S as c,
+    ELEMENTARY_CHARGE_C as e,
+    ELECTRON_MASS_KG as m_e,
+)
 from .axis_field_interpolation import compiled_evaluate, njit
 
 
@@ -39,24 +43,31 @@ def _magnetic(p, parameters):
     return result
 
 
-def _electric(p, data, ht):
+def _electric(p, data, ht, strict_domain=False, planar_cathode=False):
     query = p.copy()
     for i in range(len(p)):
         if not np.isfinite(p[i]).all():
             raise ValueError("Field positions must be finite xyz coordinates in metres")
-        if math.hypot(p[i,0], p[i,1]) > data[0][-1] or p[i,2] < data[1][0]:
+        if math.hypot(p[i,0], p[i,1]) > data[0][-1] or (p[i,2] < data[1][0] and not planar_cathode):
+            raise ValueError("Requested position is outside the solved gun field")
+        if strict_domain and p[i,2] > data[1][-1]:
             raise ValueError("Requested position is outside the solved gun field")
         query[i,2] = min(p[i,2], data[1][-1])
+        if planar_cathode:
+            query[i,2] = max(query[i,2], 0.)
     potential, field = compiled_evaluate(query, *data)
     for i in range(len(p)):
-        if p[i,2] >= data[1][-1]:
+        if not strict_domain and p[i,2] >= data[1][-1]:
             potential[i] = ht
+            field[i,:] = 0.
+        if planar_cathode and p[i,2] < 0:
+            potential[i] = 0.
             field[i,:] = 0.
     return potential, field
 
 
-def _step(x0, p0, dt, tolerance, iterations, data, ht, magnetic):
-    phi0, _ = _electric(x0, data, ht)
+def _step(x0, p0, dt, tolerance, iterations, data, ht, magnetic, strict_domain=False, planar_cathode=False):
+    phi0, _ = _electric(x0, data, ht, strict_domain, planar_cathode)
     gamma0 = np.sqrt(1+np.sum((p0/(m_e*c))**2, axis=1))
     p1 = p0.copy()
     for _ in range(iterations):
@@ -65,9 +76,9 @@ def _step(x0, p0, dt, tolerance, iterations, data, ht, magnetic):
         dx = dt*vbar
         x1 = x0+dx
         midpoint = .5*(x0+x1)
-        _, emid = _electric(midpoint, data, ht)
+        _, emid = _electric(midpoint, data, ht, strict_domain, planar_cathode)
         bmid = _magnetic(midpoint, magnetic)
-        phi1, _ = _electric(x1, data, ht)
+        phi1, _ = _electric(x1, data, ht, strict_domain, planar_cathode)
         updated = np.empty_like(p0)
         error = 0.
         for i in range(len(x0)):
@@ -98,17 +109,22 @@ if njit is not None:
 def try_step(phase, dt, magnetic, electric, tolerance, iterations):
     from temsim.optics.electron_gun.alignment import FegMagneticField, GunDeflector, GunStigmator
     from .grounded_tip_field import GroundedTipField
+    from .closed_gun_field import ClosedGunField
+    from .continuous_gun_field import ContinuousGunField
+    planar = type(electric) is ClosedGunField
+    closed = type(electric) in (ClosedGunField, ContinuousGunField)
     # Exact providers only: never substitute for added/overridden physics.
-    if (njit is None or phase.position_m.ndim != 2 or type(electric) is not GroundedTipField
+    if (njit is None or phase.position_m.ndim != 2 or type(electric) not in (GroundedTipField, ClosedGunField, ContinuousGunField)
             or not getattr(electric, 'compiled_particle_steps', True)
-            or not hasattr(electric, '_regular') or not electric._regular.compiled
+            or (not planar and (not hasattr(electric, '_regular') or not electric._regular.compiled))
             or type(magnetic) is not FegMagneticField
             or type(magnetic.deflector) is not GunDeflector
             or type(magnetic.stigmator) is not GunStigmator):
         return None
     d, s = magnetic.deflector, magnetic.stigmator
     for provider, names in (
-            (electric, ('potential_rise_v_at_global_positions', 'field_at_global_positions_v_per_m', '_interpolate')),
+            (electric, ('potential_v_at_global_positions', 'potential_rise_v_at_global_positions',
+                        'field_at_global_positions_v_per_m', '_interpolate', 'interpolate')),
             (magnetic, ('field_at_global_positions_t',)),
             (d, ('field_at_global_positions_t',)),
             (s, ('field_at_global_positions_t',))):
@@ -125,10 +141,30 @@ def try_step(phase, dt, magnetic, electric, tolerance, iterations):
         d.soft_edge_mm, lower[0]*1e-3, lower[1]*1e-3,
         s.optical_reference_from_tip_mm, .5*s.effective_length_mm, s.soft_edge_mm,
         s.gradient_t_per_m if s.enabled else 0., math.radians(s.rotation_deg)])
-    f, regular = electric._fem, electric._regular
-    data = (f.r, f.z, f.nodal_voltage, f.cut_cells, f.lookup, f.origin,
-            f.inverse, f.gradient, f.phi0, regular.s, regular.slope)
+    if planar:
+        data = _closed_field_data(electric)
+        high_tension = float(electric.request['high_tension_v'])
+    else:
+        f, regular = electric._fem, electric._regular
+        data = (f.r, f.z, f.nodal_voltage, f.cut_cells, f.lookup, f.origin,
+                f.inverse, f.gradient, f.phi0, regular.s, regular.slope)
+        high_tension = (float(electric.request['high_tension_v']) if closed
+                        else electric.high_tension_v)
     from .relativistic_lorentz import RelativisticPhaseSpace
     x, p = _step(phase.position_m, phase.momentum_kg_m_per_s, dt,
-                 tolerance, iterations, data, electric.high_tension_v, parameters)
+                 tolerance, iterations, data, high_tension, parameters, closed, planar)
     return RelativisticPhaseSpace(x, p, phase.time_s+dt)
+
+
+def _closed_field_data(electric):
+    """Use the same bilinear potential as the reference, without axis fitting."""
+    data = getattr(electric, '_compiled_field_data', None)
+    if data is None:
+        r, z = electric.r, electric.z
+        data = (r, z, electric.voltage,
+                np.zeros((len(r)-1, len(z)-1), dtype=np.bool_),
+                np.empty((0, 2), dtype=np.int64), np.empty((0, 2)),
+                np.empty((0, 2, 2)), np.empty((0, 2)), np.empty(0),
+                np.zeros(len(z)), np.zeros(len(z)))
+        electric._compiled_field_data = data
+    return data

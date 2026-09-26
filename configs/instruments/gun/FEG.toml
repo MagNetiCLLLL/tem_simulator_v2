@@ -24,6 +24,11 @@ local_z_mm = 450.0
 length_mm = 450.0
 vacuum_drift_inner_diameter_mm = 5
 vacuum_liner_wall_thickness_mm = 0.25
+# Electrical design of this simulator, not a measured commercial gun.
+gun_electric_field_model = "axisymmetric_electrode_laplace"
+downstream_liner_electrical_boundary = "ground"
+gun_field_cells_per_bore = 16
+gun_field_exit_extension_mm = 100.0
 parts_start_z_mm = -1.0
 parts_end_z_mm = 446.0
 
