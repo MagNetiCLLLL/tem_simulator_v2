@@ -126,7 +126,7 @@ uses reference trajectories and does not recalculate a separate cell collision
 history at every scan pixel. Thus this is **not acceptance of quantitative
 gas/liquid TEM or STEM wave imaging**. Paused coherent-source development has
 not been restarted. The existing forward-Z and finite-step scattering limits
-are documented in [Vacuum map](VACUUM_MAP_2026-09-14.md).
+are documented in [Vacuum map](https://github.com/MagNetiCLLLL/tem_simulator_v2/blob/04e87584ecb88a802813e2f109d67a5719615399/docs/development/VACUUM_MAP_2026-09-14.md).
 
 ## Validation
 

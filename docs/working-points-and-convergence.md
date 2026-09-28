@@ -205,5 +205,5 @@ CSV and PNG exports have distinct `.csv.manifest.json` and `.png.manifest.json`
 files containing the exported file's SHA-256. Cancelling before a new point
 finishes retains preceding completed results, including an already resumed prefix.
 
-See [the progress receipt](development/PRODUCT_USABILITY_PROGRESS.md) for actual
+See [the progress receipt](https://github.com/MagNetiCLLLL/tem_simulator_v2/blob/04e87584ecb88a802813e2f109d67a5719615399/docs/development/PRODUCT_USABILITY_PROGRESS.md) for actual
 test/measurement evidence and remaining development-guide packages.

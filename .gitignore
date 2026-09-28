@@ -1,98 +1,28 @@
+# Local environments, editor state and build/test products.
 .idea/
 .venv/
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
+.ruff_cache/
 .coverage
 build/
 dist/
-# Local binary dependency pool; keep wheels/README.md in version control.
-/wheels/**/*.whl
-*.egg-info/
 
-# Scratch files and reusable calculation caches are local only.
+# Local binary dependency pool; retain wheels/README.md for setup_env.py.
+/wheels/**/*.whl
+
+# Generated calculations, screenshots, reports and scratch/reference downloads.
+# Curated input settings, tests and original acquisitions live outside these.
+/outputs/
+/tmp/
+/environment/
+/.temsim-wave-cache/
 *.temsection
 *.temresult
-/tmp/
-/outputs/high_accuracy/
-/outputs/high_accuracy_artifacts/
-/outputs/tem-p0/
-/outputs/tem-p0-final/
-/outputs/tem-p0-core-final/
-/outputs/tem-p0-core.xml
+*.temdiag
 
-# Build checks and transient validation logs (selected result archives are tracked).
-/outputs/reference_packaging_validation/
-/outputs/reference_cache_recheck.txt
-/outputs/reference_cache_regression.txt
-/outputs/reference_cache_validation.txt
-/outputs/reference_cuda_pipeline_validation.txt
-/outputs/reference_cuda_validation.txt
-/outputs/reference_integration_validation.txt
-
-# Shared-tip regression logs and isolated package smoke installations.
-/outputs/shared-tip-*.xml
-/outputs/shared-tip-wheel/
-/outputs/shared-tip-installed/
-/outputs/vacuum-validation/
-/outputs/setup-validation/
-# Frozen comparison trajectories/source bundles, retained locally for regression.
-/outputs/assembly-baselines/
-/outputs/crossover-audit-20260914/
-/outputs/pull-review/
-
-# Incomplete DF preparation attempts; the sibling *_final archive is retained.
-/outputs/df_direct_beam_clearance/si110_32px_004nm_df60_100/
-/outputs/df_direct_beam_clearance/si110_32px_004nm_df60_100_v2/
-/outputs/df_direct_beam_clearance/si110_32px_004nm_df60_100_v3/
-
-# Superseded preparation/calibration attempts and interrupted acquisition.
-/outputs/si110_cif_5nm_64px_002nm/prepare/
-/outputs/si110_cif_5nm_64px_002nm/benchmark_1024/
-/outputs/si110_cif_5nm_64px_002nm/benchmark_512_single/
-/outputs/si110_cif_5nm_64px_002nm/acquisition_gpu_1024/
-/outputs/si110_underfocus_100nm/benchmark_static_8nm/
-
-# Invalid or incomplete exploratory EDS outputs; corrected diagnostics are tracked.
-/outputs/eds_defocus_diagnostic/broad_cached_center/
-/outputs/eds_defocus_diagnostic/broad_cached_raw/
-/outputs/eds_defocus_diagnostic/broad_cached_center_photon_review/
-/outputs/eds_defocus_diagnostic/photon_quadrature/
-/outputs/eds_defocus_diagnostic/latest_cached_baseline_eds/
-/outputs/eds_defocus_diagnostic/baseline/
-
-# WP-03 local validation logs / UI rendering; curated reports live in docs/validation.
-/outputs/illumination-final/
-/outputs/illumination-audit/
-/outputs/illumination/
-/outputs/illumination-dialog.png
-/outputs/render_illumination_dialog.py
-
-# WP-04 local logs and UI renders; curated report lives in docs/validation.
-/outputs/aberrations/
-/outputs/aberration-audit/
-
-# Development-spec acceptance workspaces; final reports are curated separately.
-/outputs/spec-acceptance*/
-/outputs/wp06-exploration.xml
-/outputs/acceptance-install/
-
-# Executed physical-tip checkpoints; never source inputs or repository assets.
-/.temsim-wave-cache/
-# Generated numerical arrays and checkpoints stay local regardless of size.
-# Scope these rules to calculation outputs; instrument_records/, data/ and
-# test input fixtures are NOT excluded by extension.
-/docs/development/evidence/**/*.npz
-/docs/development/evidence/**/*.npy
-/docs/development/evidence/**/*.pkl
-/docs/development/evidence/**/*.pickle
-/docs/development/evidence/**/*.h5
-/docs/development/evidence/**/*.hdf5
-/docs/development/evidence/**/*.zarr/
-/outputs/**/*.npz
-/outputs/**/*.npy
-/outputs/**/*.pkl
-/outputs/**/*.pickle
-/outputs/**/*.h5
-/outputs/**/*.hdf5
-/outputs/**/*.zarr/
+# Retain the immutable assembly regression fixture, not generated evidence.
+/docs/development/evidence/*
+!/docs/development/evidence/default-assembly-identity-map-v1.json

@@ -54,7 +54,7 @@ mechanism geometry and runtime-defined openings can all be intentional.
 **Needs review** additionally includes unclassified meanings and unspecified
 evidence, so its row count can exceed the structural review-item count.
 
-The initial [catalog report](reports/dimension_audit.md) covers 11 module files,
+The initial [catalog report](https://github.com/MagNetiCLLLL/tem_simulator_v2/blob/04e87584ecb88a802813e2f109d67a5719615399/docs/reports/dimension_audit.md) covers 11 module files,
 482 component definitions and 4,480 numeric dimensional values. It identifies
 280 structural review items, 182 values with estimation evidence and 4,298
 values without established field-specific evidence. No values are promoted to

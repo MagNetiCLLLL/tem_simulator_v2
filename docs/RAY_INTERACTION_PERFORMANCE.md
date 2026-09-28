@@ -178,7 +178,7 @@ or an actual desktop/GPU frame rate.
 
 The final benchmark ran separately after the test processes stopped, with ten
 measured samples and two warmups per operation. The
-[complete benchmark output](benchmarks/RAY_SCENE_2026-09-07.json) records the
+[complete benchmark output](https://github.com/MagNetiCLLLL/tem_simulator_v2/blob/04e87584ecb88a802813e2f109d67a5719615399/docs/benchmarks/RAY_SCENE_2026-09-07.json) records the
 environment, fixture and counters.
 
 | Operation | Synchronous update median / p95 | Update plus event dispatch median / p95 |

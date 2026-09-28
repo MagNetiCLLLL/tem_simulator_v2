@@ -18,4 +18,4 @@ public links above preserve access to the complete context.
 Fig. 2 of US8803411B2 is a conventional gun described in the background section,
 not its distinct conductive-insulator invention. Do not combine the electrode
 design or voltage references of different embodiments without declaring a new
-simulator design. See the [review and proposed electrical-boundary work](../../development/gun-electrode-patent-review-2026-09-26.md).
+simulator design. See the [review and proposed electrical-boundary work](https://github.com/MagNetiCLLLL/tem_simulator_v2/blob/04e87584ecb88a802813e2f109d67a5719615399/docs/development/gun-electrode-patent-review-2026-09-26.md).

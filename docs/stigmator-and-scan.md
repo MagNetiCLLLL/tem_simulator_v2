@@ -145,7 +145,7 @@ data, but do not supply new tensor restarts. Changing a basis/model invalidates
 affected propagation. Other cached high-accuracy results are retained as stale
 evidence rather than silently becoming current.
 
-See [the Round 2 progress receipt](development/ROUND2_OPTIMIZATION_PROGRESS.md)
+See [the Round 2 progress receipt](https://github.com/MagNetiCLLLL/tem_simulator_v2/blob/04e87584ecb88a802813e2f109d67a5719615399/docs/development/ROUND2_OPTIMIZATION_PROGRESS.md)
 for executed tests and remaining work. Coherent tip propagation remains paused.
-The [second qualitative batch](development/qualitative-second-batch-2026-09-19.md)
+The [second qualitative batch](https://github.com/MagNetiCLLLL/tem_simulator_v2/blob/04e87584ecb88a802813e2f109d67a5719615399/docs/development/qualitative-second-batch-2026-09-19.md)
 records subsequent observer fixes, local symmetry checks and tip-origin evidence.
