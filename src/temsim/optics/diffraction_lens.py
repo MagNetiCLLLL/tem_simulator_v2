@@ -14,6 +14,7 @@ from temsim.component_keys import (
 )
 from temsim.optics.lens_focal_length import (
     focal_length_mm as _focal_length_mm,
+    raw_unit_field_peak,
 )
 from temsim.optics.model import Gaussian, Lens
 from temsim.optics.selected_area_aperture import (
@@ -404,7 +405,7 @@ class DiffractionLensComponent(Lens):
                 -0.5 * ((z - centre) / sigma) ** 2
             )
         if self.normalise_profile_peak:
-            field /= max(float(np.max(np.abs(field))), 1e-15)
+            field /= max(raw_unit_field_peak(self), 1e-15)
         return float(self.polarity) * self.scale() * field
 
     def focal_length_mm(self):

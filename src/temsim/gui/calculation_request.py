@@ -9,7 +9,7 @@ lightweight legacy previews may share its recursively frozen definition.
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from threading import Event
 from types import SimpleNamespace
 
@@ -23,6 +23,7 @@ from temsim.column.state_layout import apply_physical_layout_to_state
 from temsim.instrument_snapshot import encode_instrument, decode_instrument
 from temsim import input_io
 from temsim.job_events import job_stage
+from temsim.calculation_workflow import admit_workflow, validate_workflow, workflow_signatures
 
 
 class PreparationCancelled(Exception):
@@ -100,12 +101,15 @@ class CapturedCalculationRequest:
     _simulation_time_s: float | None
     _instrument_graph: object = None
     _input_assets: object = None
+    workflow: str = "full"
 
     @classmethod
     @input_io.using_state_inputs
     def capture(
         cls, state: object, quality: str, ray_count: int, step_mm: float,
+        *, workflow: str = "full",
     ) -> CapturedCalculationRequest:
+        validate_workflow(workflow)
         from temsim.optics.electron_gun.source_policy import require_physical_gun_source
         require_physical_gun_source(getattr(state, "electron_gun", None))
         from temsim.physics.optical_tuning import resolve_tuning_ray_count
@@ -153,7 +157,7 @@ class CapturedCalculationRequest:
         if input_io.archive_payload(state) is not None:
             view._archive_inputs = input_io.archive_payload(state)
         return cls(
-            type(state), str(quality), int(ray_count), float(step_mm), view, time_s, graph, assets,
+            type(state), str(quality), int(ray_count), float(step_mm), view, time_s, graph, assets, workflow,
         )
 
     @input_io.using_state_inputs
@@ -180,20 +184,22 @@ class CapturedCalculationRequest:
         from temsim.physics.backend_execution import classical_backend_preflight
         classical_backend_preflight(snapshot)
         with job_stage("prepare_signatures", backend="CPU"):
-            signatures = calculation_signatures(snapshot)
+            signatures = workflow_signatures(calculation_signatures(snapshot), self.workflow)
         check_cancelled()
         assert_external_input_inventory_unchanged(snapshot, external_inputs)
         manifest, estimate = None, 0
         if self.quality == "High accuracy":
-            from temsim.physics.source_admission import admit_requested_wave_products
             from temsim.gui.calculation_controller import estimate_calculation_memory_bytes, HIGH_ACCURACY_MEMORY_BUDGET_BYTES
             from temsim.calculation_manifest import capture_calculation_manifest
-            admit_requested_wave_products(snapshot)
+            admit_workflow(snapshot, self.workflow)
             check_cancelled()
-            estimate = estimate_calculation_memory_bytes(snapshot, self.quality, self.ray_count, self.step_mm)
+            estimate = estimate_calculation_memory_bytes(snapshot, self.quality, self.ray_count, self.step_mm,
+                                                        workflow=self.workflow)
             if estimate > HIGH_ACCURACY_MEMORY_BUDGET_BYTES:
                 raise ValueError("Requested calculation exceeds the configured working-memory budget; change numerical settings explicitly")
             manifest = capture_calculation_manifest(snapshot, ray_count=self.ray_count, step_mm=self.step_mm)
+            if self.workflow != "full":
+                manifest = replace(manifest, calculation_signatures=signatures)
             check_cancelled()
         return PreparedCalculationRequest(
             snapshot, model_signature, signatures, self.ray_count, self.step_mm,

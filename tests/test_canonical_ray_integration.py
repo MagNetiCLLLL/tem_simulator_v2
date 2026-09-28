@@ -1,22 +1,23 @@
-"""Accuracy gates for the physical ray solver, independent of lens presets."""
+"""Isolated magnetic ODE gates; no physical gun or complete-column claim."""
+
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
 
-from temsim.optics.column import default_state
 from temsim.physics import core
 from temsim.physics.ray_integrator import NUMBA_AVAILABLE
 
 
 def _isolated_state():
-    state = default_state()
-    for component in (*state.lenses, *state.stigmators, *state.corrector_elements):
-        component.enabled = False
-    state.acceleration_enabled = False
-    state.acceleration_backend = "CPU"
-    state.history_step_mm = 1.0
-    return state
+    # The independent reference equations contain B only. A real gun would
+    # correctly introduce residual E and exact electrostatic mesh boundaries.
+    return SimpleNamespace(lenses=[], stigmators=[], corrector_elements=[], deflectors=[],
+        beam_voltage_kv=300., step_mm=.1, history_step_mm=1.,
+        acceleration_enabled=False, acceleration_backend="CPU", simulation_mode="custom",
+        projector_mode="diffraction", equivalent_image_lenses_enabled=False,
+        sample=SimpleNamespace(z_mm=0.))
 
 
 def _gaussian_field(monkeypatch, state):
@@ -140,6 +141,7 @@ def test_checkpoint_resume_inside_magnetic_field_preserves_physical_slopes(monke
         state, plan, *checkpoint_source,
         start_index=int(plan.checkpoint_index[0]),
         include_initial_plane_kicks=False,
+        initial_kinetic_energy_ev=full.kinetic_energy_ev[0],
     )[5]
     for name in ("x_m", "tx_rad", "y_m", "ty_rad"):
         np.testing.assert_array_equal(getattr(resumed, name)[-1], getattr(full, name)[-1])

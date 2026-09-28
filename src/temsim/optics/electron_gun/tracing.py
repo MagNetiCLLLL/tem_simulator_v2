@@ -24,6 +24,7 @@ from temsim.physics.relativistic_lorentz import (
     momentum_from_kinetic_energy_ev,
     velocity_from_momentum_m_per_s,
 )
+from temsim.physics.gun_transport_domain import bounded_gun_time_step
 
 
 def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
@@ -44,7 +45,8 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
                        if geometry_field else electric_provider.potential_v_at_global_positions)
     if cancelled is not None and cancelled():
         raise RuntimeError("Superseded optical tuning request")
-    magnetic_provider = gun.magnetic_field
+    from temsim.physics.gun_field_environment import gun_transport_magnetic_field
+    magnetic_provider = gun_transport_magnetic_field(gun)
     n = emitted.x_m.size
     from temsim.physics.residual_medium import MediumTransport, region_rate_bound
     from temsim.physics.relativistic_lorentz import kinetic_energy_ev_from_momentum
@@ -190,6 +192,11 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             active_z_mm = phase.position_m[active, 2] * 1000.0
             step_m = gun.integration_step_mm_at(active_z_mm) * 1e-3
             dt = step_m / max(float(np.max(velocity[:, 2])), 1.0)
+            # Bound before any force predictor: both rejected DG/Boris trials
+            # and accepted substeps must consume only the cached gun B scope.
+            dt = bounded_gun_time_step(
+                getattr(gun, "_instrument_magnetic_query_upper_m", np.inf),
+                float(np.max(phase.position_m[active, 2])), dt)
             # The prepared step returns an independently owned phase. Boundary
             # routines only read the previous arrays, and histories own copies.
             previous_position = (phase.position_m if step_execution is not None
@@ -1327,4 +1334,5 @@ _BATCH_ORIGINAL_FUNCTIONS = {name: globals()[name] for name in (
     "velocity_from_momentum_m_per_s", "_analytic_step", "_enforce_static_field_energy",
     "_clip_body_bores", "_resolve_aperture_crossing", "_resolve_exit_crossing",
     "_crossing_fraction",
+    "bounded_gun_time_step",
 )}

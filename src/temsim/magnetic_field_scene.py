@@ -2,9 +2,9 @@
 
 Coordinates are global right-handed XYZ in metres; +Z is downstream and B is
 in tesla. This combines the existing lens, stigmator, corrector and gun fields.
-Column deflectors, transported as angular kicks, have explicitly labelled
-finite-coil equivalents with the same signed field integral; they are display
-models, not a reconstruction of unmodelled fields inside magnetic material. The
+Column deflectors use the same finite-coil field as particle transport, with
+the configured signed integral and effective length. This is not a
+reconstruction of unmodelled fields inside magnetic material. The
 analytic provider's first-order off-axis expansion is restricted to a small
 near-axis cylinder.  Imported/generated maps retain their registered volume.
 No particle propagation or magnetostatic solve is started by this module.
@@ -27,6 +27,7 @@ from scipy._lib._array_api import array_namespace
 
 from temsim import input_io
 from temsim.component_keys import CONDENSER_LENS_KEYS
+from temsim.physics.instrument_magnetic import ColumnDipoleField, column_dipole_fields
 from temsim.physics.lens_field_provider import (
     CoordinateRegistration,
     FrozenMappedField,
@@ -430,29 +431,6 @@ class _MultipoleField:
         return result
 
 
-@dataclass(frozen=True)
-class _EquivalentDeflectorField:
-    """Display-only uniform field over the configured effective coil length.
-
-    At the captured reference momentum, d(theta_x)/dz=-q*By/p and
-    d(theta_y)/dz=q*Bx/p. No fringe shape or magnetic circuit is inferred
-    from an integrated angular command. Runtime still owns the original kick.
-    """
-
-    low_m: float
-    high_m: float
-    bx_t: float
-    by_t: float
-
-    def field_at_global_positions_t(self, points):
-        points = np.asarray(points, dtype=float)
-        result = np.zeros_like(points)
-        active = (points[..., 2] >= self.low_m) & (points[..., 2] <= self.high_m)
-        result[..., 0] = np.where(active, self.bx_t, 0.)
-        result[..., 1] = np.where(active, self.by_t, 0.)
-        return result
-
-
 def _component_support_mm(component):
     support = getattr(component, "field_support_mm", None)
     if callable(support):
@@ -497,6 +475,9 @@ def _implementation_inputs(provider_type, native_type=None, component_type=None)
         if cls is not None:
             # Include inherited field methods, not just the concrete class file.
             paths.update(Path(inspect.getfile(base)) for base in cls.__mro__ if base.__module__.startswith("temsim."))
+    if native_type is not None:
+        from temsim.optics import lens_focal_length
+        paths.add(Path(lens_focal_length.__file__))
     if provider_type is _MultipoleField:
         from temsim.physics import core
         from temsim.optics import stigmator_field
@@ -574,12 +555,12 @@ def _source_field_inputs(source, original_provider, reference):
         numerical = {"axial_support_mm": tuple(support),
                      "axial_derivative_step_mm": max(abs(support[1] - support[0]), 1.) * 1e-6}
         return "near_axis_first_order", physical, numerical, "First-order off-axis expansion; higher radial orders unmodelled; radius is a support restriction, not an error bound."
-    if type(provider) is _EquivalentDeflectorField:
+    if type(provider) is ColumnDipoleField:
         if reference is None:
             return None  # A B value alone cannot reconstruct its reference momentum/time.
-        physical = {**reference, "coil_range_m": (provider.low_m, provider.high_m),
+        physical = {**reference, "coil_range_m": (provider.lower_m, provider.upper_m),
                     "bx_t": provider.bx_t, "by_t": provider.by_t}
-        return "integrated_kick_equivalent", physical, {}, "Uniform finite-coil equivalent at captured momentum/time; compare signed integral and exit angle, not the internal thin-kick path."
+        return "finite_coil_dipole", physical, {}, "Shared uniform finite-coil field at captured momentum/time; fringe shape is unmodelled."
     if type(provider) is _MultipoleField:
         components = (*provider.state.stigmators, *provider.state.corrector_elements)
         if len(components) != 1 or not multipole_is_supported(components[0]):
@@ -720,47 +701,28 @@ def _extra_sources(state, z_clip, notes):
                 and type(component).hexapole_strength_components_m3 is HexapoleComponent.hexapole_strength_components_m3
                 and (component.strength_m3 == 0. or is_ideal(context))
             )
+            from temsim.test_electron_compiled_laws import multipole_is_supported
+            known_zero = known_zero and multipole_is_supported(component)
             append(key, _MultipoleField(context, momentum_over_charge), support, radius,
                    "stigmator" if is_stigmator else "corrector", label, known_zero=known_zero,
                    reference={"reference_momentum_kg_m_s": momentum, "reference_charge_c": charge})
             notes.append(f"{label}: existing effective multipole field at the captured reference energy; near-axis radius <= {radius*1e3:.6g} mm.")
-        captured_time = None
-        if hasattr(component, "kick_events"):
-            try:
-                captured_time = float(getattr(state, "simulation_time_s", 0.))
-                events = component.kick_events(time_s=captured_time)
-            except TypeError:
-                captured_time = None
-                events = component.kick_events()
-        elif all(hasattr(component, name) for name in
-                 ("upper_z_mm", "lower_z_mm", "upper_x_mrad", "upper_y_mrad", "lower_x_mrad", "lower_y_mrad")):
-            events = ((component.upper_z_mm, component.upper_x_mrad*1e-3, component.upper_y_mrad*1e-3),
-                      (component.lower_z_mm, component.lower_x_mrad*1e-3, component.lower_y_mrad*1e-3))
-        else:
-            continue
-        events = tuple(events)
-        if not events:
-            # Layout-only virtual controls do not own a magnetic field.
-            continue
-        thickness_mm = float(getattr(component, "effective_thickness_mm", getattr(component, "thickness_mm", 0.)))
-        if not np.isfinite(thickness_mm) or thickness_mm <= 0.:
-            raise ValueError(f"{label}: deflector display needs its configured effective coil thickness")
+    # One definition supplies production interval forces and diagnostic B.
+    by_key = {str(component.key): component for component in components}
+    for provider in column_dipole_fields(state):
+        component = by_key[provider.key.rsplit(":", 1)[0]]
+        label = str(getattr(component, "name", getattr(component, "label", component.key)))
+        thickness_mm = (provider.upper_m-provider.lower_m)*1e3
         radius = _component_radius_m(component, axial_scale_mm=thickness_mm)
-        length_m = thickness_mm*1e-3
-        for index, (z_mm, dx_rad, dy_rad) in enumerate(events):
-            if not np.isfinite((z_mm, dx_rad, dy_rad)).all():
-                raise ValueError(f"{label}: deflector kick must be finite")
-            support = (z_mm-.5*thickness_mm, z_mm+.5*thickness_mm)
-            provider = _EquivalentDeflectorField(support[0]*1e-3, support[1]*1e-3,
-                                                 momentum_over_charge*dy_rad/length_m,
-                                                 -momentum_over_charge*dx_rad/length_m)
-            append(f"{key}:{index}", provider, support, radius, "deflector", label,
-                   known_zero=(dx_rad == 0. and dy_rad == 0.), reference={
-                       "reference_momentum_kg_m_s": momentum, "reference_charge_c": charge,
-                       "captured_time_s": captured_time,
-                       "kick_xy_rad": (float(dx_rad), float(dy_rad)),
-                   })
-        notes.append(f"{label}: display-only equivalent finite-coil field; its signed integral reproduces the existing kick at {getattr(state, 'beam_voltage_kv', 0.):.6g} kV and time {getattr(state, 'simulation_time_s', 0.):.6g} s. The effective coil thickness is {thickness_mm:.6g} mm; no fringe shape is inferred.")
+        append(provider.key, provider, (provider.lower_m*1e3, provider.upper_m*1e3),
+               radius, "deflector", label,
+               known_zero=(provider.bx_t == 0. and provider.by_t == 0.), reference={
+                   "reference_momentum_kg_m_s": provider.reference_momentum,
+                   "reference_charge_c": charge,
+                   "captured_time_s": provider.captured_time_s,
+                   "kick_xy_rad": (provider.event_dx_rad, provider.event_dy_rad),
+               })
+        notes.append(f"{label}: shared uniform finite-coil magnetic field; effective length {thickness_mm:.6g} mm. No fringe shape is inferred.")
 
     gun = getattr(state, "electron_gun", None)
     if gun is not None:
@@ -785,6 +747,8 @@ def _extra_sources(state, z_clip, notes):
             known_zero = (component.gradient_t_per_m == 0. if name == "stigmator" else
                           not component.beam_blanked and all(getattr(component, item) == 0.
                           for item in ("upper_field_x_mt", "upper_field_y_mt", "lower_field_x_mt", "lower_field_y_mt")))
+            from temsim.test_electron_compiled_laws import magnetic_provider_is_supported
+            known_zero = known_zero and magnetic_provider_is_supported(component)
             append(component.key, component, support, radius, category, component.name, known_zero=known_zero)
             notes.append(f"{component.name}: existing finite gun magnetic provider, including the captured blanking/alignment setting.")
         if bool(getattr(gun, "monochromator_installed", False)):

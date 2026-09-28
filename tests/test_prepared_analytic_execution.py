@@ -4,17 +4,19 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from temsim.optics.electron_gun.field_emission import FieldEmissionGun
 from temsim.optics.electron_gun.tracing import _enforce_static_field_energy
 from temsim.physics import analytic_particle_step as stepping
 from temsim.physics.relativistic_lorentz import RelativisticPhaseSpace, momentum_from_kinetic_energy_ev
+from test_analytic_particle_step import analytic_gun_fixture
 
 
 pytestmark = pytest.mark.skipif(stepping._compiled_step is None, reason="Numba optional")
 
 
 def setup(count=11):
-    gun = FieldEmissionGun()
+    # Explicit historical analytic-E kernel fixture. Production cold FEG uses
+    # the coupled electrode solver, covered separately by closed-gun tests.
+    gun = analytic_gun_fixture()
     gun.emitter.surface_model = None
     gun.deflector.upper_field_x_mt = .7
     gun.deflector.lower_field_y_mt = -.3

@@ -94,8 +94,10 @@ def closed_field_request(gun, *, liner_segments=None,
         ensure_gun_field_environment(gun)
     if cells_per_bore is None:
         cells_per_bore = getattr(gun, "_gun_field_cells_per_bore", DEFAULT_CELLS_PER_BORE)
+    instrument_end_mm = getattr(gun, "_instrument_electric_end_mm", None) if exit_extension_mm is None else None
     if exit_extension_mm is None:
-        exit_extension_mm = getattr(gun, "_gun_field_exit_extension_mm", DEFAULT_EXIT_EXTENSION_MM)
+        exit_extension_mm = (float(instrument_end_mm)-float(gun.exit_plane_z_mm) if instrument_end_mm is not None
+                             else getattr(gun, "_gun_field_exit_extension_mm", DEFAULT_EXIT_EXTENSION_MM))
     # Reuse geometry validation without treating the monochromator's independent
     # transverse fields as axisymmetric annular electrodes.  They are not part
     # of this scalar base field and remain required in the composed provider.
@@ -117,6 +119,11 @@ def closed_field_request(gun, *, liner_segments=None,
     request = planar_field_request(base, cathode_boundary="planar_equipotential",
         cells_per_bore=cells_per_bore, outer_factor=outer_factor,
         exit_extension_mm=exit_extension_mm)
+    if instrument_end_mm is not None:
+        # Use the same mm-to-m conversion as the physical liner face. Adding
+        # gun_exit_m + extension_m can differ by one ULP, inventing two almost
+        # coincident physical boundaries at the assembled downstream end.
+        request["domain"]["exit_m"] = float(instrument_end_mm)*1e-3
     if bool(getattr(gun, "monochromator_installed", False)):
         if getattr(gun, "_wien_housing_voltage_reference", None) != "gun_lens":
             raise ValueError("Installed velocity selector needs an explicit gun-lens-referenced housing boundary")

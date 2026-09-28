@@ -137,7 +137,7 @@ class HighAccuracyReusePlan:
 
 
 def estimate_calculation_memory_bytes(
-    state, quality: str, ray_count: int, step_mm: float
+    state, quality: str, ray_count: int, step_mm: float, *, workflow: str = "full"
 ) -> int:
     """Conservatively estimate peak solver memory for one calculation.
 
@@ -147,6 +147,8 @@ def estimate_calculation_memory_bytes(
     TEM wave grid, atomistic slices and frozen-phonon configurations.
     """
 
+    from temsim.calculation_workflow import validate_workflow
+    validate_workflow(workflow)
     rays = int(ray_count)
     step = float(step_mm)
     if rays <= 0:
@@ -193,7 +195,7 @@ def estimate_calculation_memory_bytes(
     specimen_mode = str(
         getattr(state.sample, "specimen_mode", "atomic")
     ).strip().lower()
-    if specimen_mode in {"atomic", "reference"} and bool(
+    if workflow != "rays" and specimen_mode in {"atomic", "reference"} and bool(
         getattr(state.sample, "inserted", True)
     ):
         from temsim.specimen.inelastic import (
@@ -249,7 +251,7 @@ def estimate_calculation_memory_bytes(
     )
     wave_imaging = (
         estimate_tem_wave_memory_bytes(state)
-        if quality == "High accuracy"
+        if quality == "High accuracy" and workflow in {"full", "imaging"}
         else 0
     )
     return int(
@@ -352,6 +354,7 @@ class CalculationWorker(QRunnable):
         artifact_cache_budget_bytes: int = PERSISTENT_ARTIFACT_CACHE_BUDGET_BYTES,
         section_request: dict | None = None,
         particle_tuning: bool = False,
+        workflow: str = "full",
     ) -> None:
         super().__init__()
         self.generation = generation
@@ -366,6 +369,8 @@ class CalculationWorker(QRunnable):
         self.existing_result = existing_result
         self.section_request = section_request
         self.particle_tuning = bool(particle_tuning)
+        from temsim.calculation_workflow import validate_workflow
+        self.workflow = validate_workflow(workflow)
         self.artifact_store = artifact_store
         self.calculation_manifest = calculation_manifest
         if external_inputs is None:
@@ -495,6 +500,8 @@ class CalculationWorker(QRunnable):
                 job_event("backend_preflight", **requirement)
             self.state.active_backend = "CPU"
             self.state._active_backends_used = set()
+            if self.quality == "High accuracy" and self.workflow != "full":
+                self.state._tuning_quality = self.quality
             # Gun integration and column transport already consume this
             # worker-local callback. Explicit high-accuracy jobs need the
             # same cancellation boundary as live optical tuning.
@@ -550,20 +557,27 @@ class CalculationWorker(QRunnable):
                     signatures=self.request_signatures,
                 )
             else:
-                existing_result = self._load_persistent_incident_seed(
-                    self.existing_result
-                )
+                # Page calculations continue the displayed, executed beam.
+                # A disk cache from another run must not silently replace it.
+                existing_result = (self._load_persistent_incident_seed(self.existing_result)
+                                   if self.workflow in {"full", "rays"} else self.existing_result)
                 calculation_kwargs = {
                     "progress_callback": self._report_progress,
                 }
                 if existing_result is not None:
                     calculation_kwargs["existing_result"] = existing_result
+                if self.workflow != "full":
+                    calculation_kwargs["workflow"] = self.workflow
                 with job_stage("calculation_pipeline"):
                     result = calculate(self.state, **calculation_kwargs)
                 if isinstance(result, CalculationResult):
                     result.model_signature = self.model_signature
+                    result.signatures = dict(result.signatures or {})
+                    for key in ("request", "workflow"):
+                        if key in self.request_signatures:
+                            result.signatures[key] = self.request_signatures[key]
                     from temsim.detector.particle_readout import measure_particle_detectors
-                    if result.simulation is not None:
+                    if result.simulation is not None and self.workflow == "full":
                         result.particle_signals = measure_particle_detectors(result)
                     assert_external_input_inventory_unchanged(self.state, self.external_inputs)
                     self._persist_incident_seed(result)
@@ -772,6 +786,7 @@ class CalculationController(QObject):
     def retained_roots(self):
         return (self._high_cache, self._tuning_cache, self._tuning_seeds, self._loaded_section_seeds,
                 self._loaded_tuning_sections,
+                tuple(item.get("seed_result") for item in self._requests.values()),
                 tuple(worker.payload for worker in self._section_file_jobs.values()))
 
     def archive_completed_section(self, result, *, path=None):
@@ -1579,6 +1594,7 @@ class CalculationController(QObject):
     def submit_background(
         self, state, quality: str, ray_count: int, step_mm: float,
         *, parent_id=None, section_request=None, particle_tuning=False,
+        workflow="full", existing_result=None,
     ) -> None:
         """Capture inputs now and prepare the complete request off-thread.
 
@@ -1586,12 +1602,15 @@ class CalculationController(QObject):
         synchronous submit API remains available. Edits immediately after
         capture returns affect a later request, never this request's inputs.
         """
+        from temsim.calculation_workflow import admit_workflow, validate_workflow
+        validate_workflow(workflow)
+        if workflow != "full" and (quality != "High accuracy" or section_request is not None):
+            raise ValueError("Page calculations require High accuracy without a Live tuning cutoff")
         if quality == "High accuracy" or input_io.archive_payload(state) is not None:
             from copy import copy
-            from temsim.physics.source_admission import admit_requested_wave_products
             # This gate only reads controls. A shallow shell contains any lazy
             # State getter aliases; no input buffers or optical fields are copied.
-            admit_requested_wave_products(copy(state))
+            admit_workflow(copy(state), workflow)
         if not is_tuning_quality(quality) and quality != "High accuracy":
             raise ValueError("Unknown calculation quality")
         from temsim.particle_section_io import normalise_section_request
@@ -1614,12 +1633,12 @@ class CalculationController(QObject):
         request = None
         try:
             request = CapturedCalculationRequest.capture(
-                state, quality, ray_count, step_mm,
+                state, quality, ray_count, step_mm, workflow=workflow,
             )
             from temsim.immutable_json import json_digest
             identity = json_digest(dict(graph=request._instrument_graph,
                 controls=request._model_state.to_dict(), quality=quality, rays=ray_count, step=step_mm,
-                section_request=section_request, particle_tuning=bool(particle_tuning)))
+                section_request=section_request, particle_tuning=bool(particle_tuning), workflow=workflow))
         except Exception as exc:
             if request is not None and request._input_assets is not None:
                 request._input_assets.close()
@@ -1629,6 +1648,8 @@ class CalculationController(QObject):
         generation = self._begin_request(quality)
         self._requests[generation]["section_request"] = section_request
         self._requests[generation]["particle_tuning"] = bool(particle_tuning)
+        self._requests[generation]["workflow"] = workflow
+        self._requests[generation]["seed_result"] = existing_result
         self._requests[generation]["request_id"] = capture_id
         self._trace_request(generation, "capture_exit", outcome="captured", elapsed_s=perf_counter()-capture_started)
         self._requests[generation]["parent_id"] = parent_id
@@ -1681,8 +1702,12 @@ class CalculationController(QObject):
         quality: str,
         ray_count: int,
         step_mm: float,
-        *, section_request=None, particle_tuning=False,
+        *, section_request=None, particle_tuning=False, workflow="full", existing_result=None,
     ) -> None:
+        from temsim.calculation_workflow import admit_workflow, validate_workflow, workflow_signatures
+        validate_workflow(workflow)
+        if workflow != "full" and (quality != "High accuracy" or section_request is not None):
+            raise ValueError("Page calculations require High accuracy without a Live tuning cutoff")
         from temsim.optics.electron_gun.source_policy import require_physical_gun_source
         require_physical_gun_source(getattr(state, "electron_gun", None))
         if not is_tuning_quality(quality) and quality != "High accuracy":
@@ -1700,10 +1725,9 @@ class CalculationController(QObject):
                 # Preflight/signature helpers can refresh derived values. They
                 # must not touch the live controls before capture or on failure.
                 state = decode_instrument(encode_instrument(state))
-                from temsim.physics.source_admission import admit_requested_wave_products
-                admit_requested_wave_products(state)
+                admit_workflow(state, workflow)
         estimate = estimate_calculation_memory_bytes(
-            state, quality, ray_count, step_mm
+            state, quality, ray_count, step_mm, workflow=workflow
         )
         if (
             quality == "High accuracy"
@@ -1733,7 +1757,7 @@ class CalculationController(QObject):
         snapshot = self._calculation_snapshot(
             state, quality, ray_count, step_mm
         )
-        request_signatures = calculation_signatures(snapshot)
+        request_signatures = workflow_signatures(calculation_signatures(snapshot), workflow)
         assert_external_input_inventory_unchanged(snapshot, external_inputs)
         request_key = request_signatures["request"]
         if (
@@ -1749,12 +1773,16 @@ class CalculationController(QObject):
                 calculation_manifest = capture_calculation_manifest(
                     snapshot, ray_count=ray_count, step_mm=step_mm,
                 )
+                if workflow != "full":
+                    calculation_manifest = replace(calculation_manifest, calculation_signatures=request_signatures)
             except Exception as exc:
                 raise ValueError(f"Could not capture the complete working point: {exc}") from exc
 
         generation = self._begin_request(quality)
         self._requests[generation]["section_request"] = section_request
         self._requests[generation]["particle_tuning"] = bool(particle_tuning)
+        self._requests[generation]["workflow"] = workflow
+        self._requests[generation]["seed_result"] = existing_result
         self._dispatch_prepared(
             snapshot, quality, ray_count, step_mm,
             model_signature=model_signature, request_signatures=request_signatures,
@@ -1775,6 +1803,7 @@ class CalculationController(QObject):
                                 if external_inputs is None else external_inputs)
         assert_external_input_inventory_unchanged(snapshot, external_inputs)
         section_request = self._requests[generation].get("section_request")
+        workflow = self._requests[generation].get("workflow", "full")
         particle_tuning = self._requests[generation].get("particle_tuning", False) or section_request is not None
         if particle_tuning:
             from temsim.immutable_json import json_digest
@@ -1897,6 +1926,13 @@ class CalculationController(QObject):
         else:
             self._running_high_key = request_key
             self._running_high_generation = generation
+        explicit_seed = self._requests[generation].get("seed_result")
+        if explicit_seed is not None:
+            existing_result = explicit_seed
+        elif workflow not in {"full", "rays"}:
+            # A page continues the user's displayed beam, not an arbitrary
+            # historical result selected by the general cache heuristic.
+            existing_result = None
         worker = CalculationWorker(
             generation,
             quality,
@@ -1913,6 +1949,7 @@ class CalculationController(QObject):
             artifact_cache_budget_bytes=self._artifact_cache_budget_bytes,
             section_request=section_request,
             particle_tuning=particle_tuning,
+            workflow=workflow,
         )
         from temsim.gui.job_coordinator import ResourceClaim
         worker.resource_claim = ResourceClaim(working_bytes=int(estimate))

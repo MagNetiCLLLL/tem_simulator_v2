@@ -5240,6 +5240,7 @@ class MagneticFieldView(QWidget):
         self._state_snapshot = None
         self._result_reference = None
         self._presentation_pending = False
+        self._inputs_stale = False
         self._profile = None
         self._profile_error = None
         self._scene = None
@@ -5737,8 +5738,24 @@ class MagneticFieldView(QWidget):
         return (min(float(np.min(branch.z)) for branch in bundles),
                 max(float(np.max(branch.z)) for branch in bundles))
 
+    def mark_inputs_stale(self) -> None:
+        """Stop old field preparation and retain prior plots with a stale label."""
+        if self._inputs_stale:
+            return
+        self._inputs_stale = True
+        self._profile_generation += 1
+        self._profile_request = None
+        self._presentation_pending = False
+        if self._profile_worker is not None:
+            self._profile_worker.cancelled.set()
+        self.field_lines.mark_inputs_stale()
+        self.status.setText("Stale magnetic field — instrument inputs changed; recalculate the main beam.")
+        self._refresh_details()
+        self.diagnostics_updated.emit()
+
     def mark_presentation_pending(self) -> None:
         self._profile_generation += 1
+        self._inputs_stale = False
         self._profile_request = None
         self._result_reference = None
         self._presentation_pending = True
@@ -5912,10 +5929,17 @@ class MagneticFieldView(QWidget):
         self._curves["transverse_rms"].setToolTip(
             f"RMS transverse field on an eight-point ring; actual radius {radius_text}. "
             "Shows off-axis stigmator/corrector fields even when B is zero on axis.")
-        self.status.setText(f"{len(self._scene.source_keys)} combined components · projection {format_projection_angle(self._projection_angle_deg)}° · RMS ring {radius_text}")
+        self.status.setText("Stale magnetic field — instrument inputs changed; recalculate the main beam."
+                            if self._inputs_stale else
+                            f"{len(self._scene.source_keys)} combined components · projection {format_projection_angle(self._projection_angle_deg)}° · RMS ring {radius_text}")
         self.status.setToolTip("\n".join(self._scene.notes))
 
     def _refresh_details(self):
+        if self._inputs_stale:
+            self.details.setPlainText("Stale captured fields: instrument inputs changed. "
+                                      "Displayed plots belong to the previous calculation; "
+                                      "recalculate the main beam before tracing virtual electrons.")
+            return
         if self._presentation_pending:
             self.details.setPlainText("Field view pending a current calculation snapshot.")
             return
@@ -5956,6 +5980,8 @@ class MagneticFieldView(QWidget):
         self._refresh_details()
 
     def diagnostic_text(self, key: str) -> str:
+        if self._inputs_stale:
+            return "Stale captured field | instrument inputs changed; recalculate the main beam."
         if self._presentation_pending:
             return "Field view pending | show Magnetic field to update diagnostics."
         if self._profile_error is not None:

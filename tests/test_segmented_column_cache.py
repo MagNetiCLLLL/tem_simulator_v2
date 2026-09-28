@@ -13,13 +13,15 @@ from temsim.physics.simulation import (
 
 def _small_vacuum_state():
     state = default_state()
-    # This fixture tests phase-only optical restarts. Residual-medium histories
+    # This fixture tests executed optical restarts. Residual-medium histories
     # additionally need collision clocks; tested separately in test_vacuum_transport.
     state.vacuum_map.enabled = False
     state.step_mm = 5.0
     state.history_step_mm = 5.0
-    state.acceleration_enabled = False
-    state.acceleration_backend = "CPU"
+    # Use the same accelerated solver for cold and resumed paths; independent
+    # numerical tests cover agreement with the Python reference implementation.
+    state.acceleration_enabled = True
+    state.acceleration_backend = "Numba CPU"
     state.sample.specimen_mode = "reference"
     state.sample.inserted = False
     state.sample.stem_wave_enabled = False  # Optical checkpoint fixture.
@@ -235,27 +237,31 @@ def test_checkpoint_capture_does_not_change_a_non_divisible_rk4_grid():
     initial_y = initial_x[::-1].copy()
     initial_tx = np.asarray((-1.0e-3, 0.0, 1.0e-3))
     initial_ty = initial_tx[::-1].copy()
+    planes = (475.0, 500.0, 525.0, 550.0, 575.0)
 
+    # Exact requested planes are integration nodes. Hold those nodes fixed in
+    # both executions, then verify that retaining checkpoints changes no state.
     baseline = propagate(
         state, 450.0, 800.0,
         initial_x, initial_tx, initial_y, initial_ty,
+        save_z_mm=planes,
     )
     captured = propagate(
         state, 450.0, 800.0,
         initial_x, initial_tx, initial_y, initial_ty,
-        checkpoint_z_mm=(475.0, 500.0, 525.0, 550.0, 575.0),
+        save_z_mm=planes, checkpoint_z_mm=planes,
         return_checkpoints=True,
     )
 
     for actual, expected in zip(captured[:5], baseline):
         np.testing.assert_array_equal(actual, expected)
-    assert captured[5].z_mm.size == 5
+    np.testing.assert_array_equal(captured[5].z_mm, planes)
 
 
 def test_checkpoint_density_respects_the_memory_budget():
     ray_count = 100_000
     planes = _column_checkpoint_planes(450.0, 1_600.0, ray_count)
-    used_bytes = len(planes) * ray_count * 5 * np.dtype(np.float64).itemsize
+    used_bytes = len(planes) * ray_count * 6 * np.dtype(np.float64).itemsize
 
     assert used_bytes <= INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES
     assert len(planes) > 0
@@ -264,7 +270,7 @@ def test_checkpoint_density_respects_the_memory_budget():
 def test_default_checkpoint_cache_retains_more_column_history():
     ray_count = 15_000
     planes = _column_checkpoint_planes(450.0, 1_600.0, ray_count)
-    used_bytes = len(planes) * ray_count * 5 * np.dtype(np.float64).itemsize
+    used_bytes = len(planes) * ray_count * 6 * np.dtype(np.float64).itemsize
 
     assert INCIDENT_CHECKPOINT_SPACING_MM == 5.0
     assert INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES == 512 * 1024 * 1024
@@ -279,13 +285,13 @@ def test_checkpoint_cache_disables_capture_if_one_plane_exceeds_budget(
     monkeypatch.setattr(
         simulation_module,
         "INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES",
-        39,
+        47,
     )
 
     assert _column_checkpoint_planes(450.0, 1_600.0, 1) == ()
 
 
 def test_single_checkpoint_budget_prioritizes_exact_endpoint(monkeypatch):
-    monkeypatch.setattr(simulation_module, "INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES", 40)
+    monkeypatch.setattr(simulation_module, "INCIDENT_CHECKPOINT_MEMORY_BUDGET_BYTES", 48)
     assert _column_checkpoint_planes(450.0, 1_601.23, 1) == (1_601.23,)
     assert _column_checkpoint_planes(450.0, 450.1, 1) == (450.1,)

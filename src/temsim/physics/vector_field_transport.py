@@ -18,13 +18,12 @@ from temsim.physics.ray_integrator import canonical_rk4_step, canonical_rk4_step
 def vector_map_rk4(
     kx, ky, hn, hs, larmor_axis, inverse_momentum, cs_kick,
     thin_power, thin_rotation, step_m, x, tx, y, ty,
-    kickx, kicky, save_index, checkpoint_index, kxy=None, *, z_mm, mapped_fields,
+    kickx, kicky, save_index, checkpoint_index, kxy,
+    dipole_bx_t, dipole_by_t, reference_momentum, *, z_mm, mapped_fields,
     defer_nonfinite_until_clipping=False,
     step_operator=None,
     initial_time_s=None, inverse_speed=None,
 ):
-    if kxy is None:
-        kxy = np.zeros_like(kx)
     nr, ns, nc = x.size, save_index.size, checkpoint_index.size
     # Finite-difference transfer Jacobians need float64 even in saved history.
     X, TX, Y, TY = (np.empty((ns, nr), np.float64) for _ in range(4))
@@ -34,6 +33,7 @@ def vector_map_rk4(
     T = np.empty((ns, nr), np.float64) if time is not None else None
     CT = np.empty((nc, nr), np.float64) if time is not None else None
     charge_over_p = -1.602176634e-19 * inverse_momentum
+    magnetic_scale = reference_momentum[0] * inverse_momentum
     supports = tuple((item, *item.field_map.field_support_mm)
                      for item in mapped_fields if item.scale != 0.0)
     for j in range(step_m.size + 1):
@@ -58,6 +58,7 @@ def vector_map_rk4(
         if j == step_m.size:
             continue
         a, b, c = 2*j, 2*j+1, 2*j+2
+        d = 3*j
         before = (x.copy(), tx.copy(), y.copy(), ty.copy()) if step_operator is not None else None
         g = larmor_axis[[a,b,c], None] * inverse_momentum[None, :]
         active = tuple(item for item, lower, upper in supports
@@ -70,6 +71,9 @@ def vector_map_rk4(
                 hn[a], hn[b], hn[c], hs[a], hs[b], hs[c],
                 kxy[a], kxy[b], kxy[c],
                 *((inverse_speed,) if time is not None else ()),
+                magnetic_scale,
+                -charge_over_p*dipole_by_t[d], -charge_over_p*dipole_by_t[d+1], -charge_over_p*dipole_by_t[d+2],
+                charge_over_p*dipole_bx_t[d], charge_over_p*dipole_bx_t[d+1], charge_over_p*dipole_bx_t[d+2],
             )
             x, tx, y, ty = result[:4]
             if time is not None:
@@ -99,12 +103,14 @@ def vector_map_rk4(
             factor = charge_over_p * np.sqrt(1.0 + ux*ux + uy*uy)
             fx = factor * (uy*bz - (1.0+ux*ux)*by + ux*uy*bx)
             fy = factor * ((1.0+uy*uy)*bx - ux*bz - ux*uy*by)
+            fx -= charge_over_p * dipole_by_t[d+stage]
+            fy += charge_over_p * dipole_bx_t[d+stage]
             index = (a,b,c)[stage]
             hu, hv = xx*xx - yy*yy, 2.0*xx*yy
             return np.array((ux,
-                -(kx[index]+gg*gg)*xx - kxy[index]*yy + gg*py - hn[index]*hu - hs[index]*hv + fx,
+                -(kx[index]*magnetic_scale+gg*gg)*xx - kxy[index]*magnetic_scale*yy + gg*py - magnetic_scale*(hn[index]*hu + hs[index]*hv) + fx,
                 uy,
-                -(ky[index]+gg*gg)*yy - kxy[index]*xx - gg*px + hn[index]*hv - hs[index]*hu + fy))
+                -(ky[index]*magnetic_scale+gg*gg)*yy - kxy[index]*magnetic_scale*xx - gg*px + magnetic_scale*(hn[index]*hv - hs[index]*hu) + fy))
 
         initial = np.array((x, tx-g[0]*y, y, ty+g[0]*x))
         h = float(step_m[j])

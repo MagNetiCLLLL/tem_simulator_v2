@@ -83,7 +83,7 @@ def test_wave_display_clears_previous_picture_and_reports_absent_current(qtbot):
     assert "No incident current" in view.summary.text()
 
 
-def test_eds_no_current_clears_spectrum_and_disables_acquisition(qtbot):
+def test_eds_no_current_clears_spectrum_and_allows_explicit_refresh(qtbot):
     from temsim.gui.eds_panel import EDSPage
 
     state = default_state()
@@ -99,8 +99,8 @@ def test_eds_no_current_clears_spectrum_and_disables_acquisition(qtbot):
     page.display_result(result)
     assert page._spectrum_counts.size == 0
     assert not hasattr(page, "eds_lines")
-    assert not page.eds_acquire.isEnabled()
-    assert not page.sample_region_calculation_available()
+    assert page.eds_acquire.isEnabled()
+    assert not hasattr(page, "calculate_sample_region")
     assert "No incident current" in page.eds_summary.text()
 
 

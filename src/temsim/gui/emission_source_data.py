@@ -20,6 +20,21 @@ def _frozen(values, dtype):
     return np.frombuffer(values.tobytes(order="C"), dtype=values.dtype).reshape(values.shape)
 
 
+def _display_order(source_ids):
+    """Rank IDs once, without coupling thinning to emission sequence periods.
+
+    SplitMix64's bijective integer mixer gives each unique ID a stable display
+    priority. Unsigned arithmetic deliberately wraps modulo 2**64. Positions,
+    angles and weights never enter this display-only choice.
+    """
+    with np.errstate(over="ignore"):
+        priority = source_ids.astype(np.uint64) + np.uint64(0x9E3779B97F4A7C15)
+        priority = (priority ^ (priority >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+        priority = (priority ^ (priority >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+        priority ^= priority >> np.uint64(31)
+    return _frozen(np.argsort(priority, kind="stable"), np.int64)
+
+
 def _vectors(reference, key, count, diagnostics):
     """Retain independent recorded quantities even in a partial old record."""
     try:
@@ -68,13 +83,14 @@ class EmissionSourceData:
     status: str
     _sorted_ids: np.ndarray
     _sorted_rows: np.ndarray
+    _display_rows: np.ndarray
 
     @classmethod
     def _empty(cls, status):
         empty = _frozen([], np.float64)
         ids = _frozen([], np.int64)
         return cls(ids, _frozen(np.empty((0, 3)), np.float64), empty,
-                   empty, empty, str(status), ids, ids)
+                   empty, empty, str(status), ids, ids, ids)
 
     @classmethod
     def from_simulation(cls, simulation):
@@ -131,7 +147,8 @@ class EmissionSourceData:
         return cls(_frozen(ids, np.int64), _frozen(positions, np.float64),
                    _frozen(source_azimuth, np.float64), _frozen(direction_azimuth, np.float64),
                    _frozen(polar, np.float64), status,
-                   _frozen(sorted_ids, np.int64), _frozen(order, np.int64))
+                   _frozen(sorted_ids, np.int64), _frozen(order, np.int64),
+                   _display_order(ids))
 
     def indices_for(self, ids):
         """Return original record rows, or -1, in the query's original shape."""
@@ -165,7 +182,7 @@ class EmissionSourceData:
         return _frozen(values, np.float64)
 
     def display_indices(self, limit):
-        """Select a fixed subset of all launch rows, independent of survival."""
+        """Select nested ID-ranked subsets, independent of views and survival."""
         try:
             if isinstance(limit, (bool, np.bool_)):
                 raise TypeError
@@ -175,4 +192,6 @@ class EmissionSourceData:
         if count < 0:
             raise ValueError("Source display limit must be a non-negative integer")
         count = min(count, self.source_ids.size)
-        return _frozen(np.linspace(0, self.source_ids.size - 1, count, dtype=np.int64), np.int64)
+        if count == self.source_ids.size:
+            return _frozen(np.arange(count, dtype=np.int64), np.int64)
+        return self._display_rows[:count]

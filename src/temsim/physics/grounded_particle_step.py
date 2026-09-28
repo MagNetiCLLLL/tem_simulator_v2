@@ -1,10 +1,12 @@
 """Compiled evaluation of the existing discrete-gradient gun step.
 
-Same solved potential, Lorentz equation, stopping tolerance and finite magnetic
-coils as the Python reference. No fast-math, voltage scaling or beam matching.
+Same solved potential, Lorentz equation, stopping tolerance and captured magnetic
+sum as the Python reference. No fast-math, voltage scaling or beam matching.
 Other field providers (including the Wien assembly) use the general reference.
 """
 import math
+from collections import OrderedDict
+from threading import RLock
 import numpy as np
 from .relativistic_lorentz import (
     SPEED_OF_LIGHT_M_PER_S as c,
@@ -12,6 +14,29 @@ from .relativistic_lorentz import (
     ELECTRON_MASS_KG as m_e,
 )
 from .axis_field_interpolation import compiled_evaluate, njit
+from .compiled_magnetic_field import compiled_magnetic_batch, prepare_compiled_magnetic_sources
+from .instrument_magnetic import InstrumentMagneticField
+from .discrete_gradient import discrete_gradient_update, NORMALIZED_MOMENTUM_FLOOR
+
+
+_PACKED_INSTRUMENT_FIELDS = OrderedDict()
+_PACKED_INSTRUMENT_LOCK = RLock()
+_INSTRUMENT_FIELD_METHOD = InstrumentMagneticField.field_at_global_positions_t
+
+
+def _packed_instrument_field(provider):
+    """Memoize immutable captures, never arrays derived from live hardware."""
+    key = id(provider)
+    with _PACKED_INSTRUMENT_LOCK:
+        cached = _PACKED_INSTRUMENT_FIELDS.get(key)
+        if cached is not None and cached[0] is provider:
+            _PACKED_INSTRUMENT_FIELDS.move_to_end(key)
+            return cached[1]
+        packed = prepare_compiled_magnetic_sources(provider._sources)
+        _PACKED_INSTRUMENT_FIELDS[key] = (provider, packed)
+        while len(_PACKED_INSTRUMENT_FIELDS) > 4:
+            _PACKED_INSTRUMENT_FIELDS.popitem(last=False)
+        return packed
 
 
 def _window(z, center, half, edge):
@@ -66,36 +91,39 @@ def _electric(p, data, ht, strict_domain=False, planar_cathode=False):
     return potential, field
 
 
-def _step(x0, p0, dt, tolerance, iterations, data, ht, magnetic, strict_domain=False, planar_cathode=False):
-    phi0, _ = _electric(x0, data, ht, strict_domain, planar_cathode)
-    gamma0 = np.sqrt(1+np.sum((p0/(m_e*c))**2, axis=1))
-    p1 = p0.copy()
+def _step(x0, p0, dt, tolerance, iterations, data, ht, magnetic, strict_domain=False,
+          planar_cathode=False, instrument_sources=None, instrument_terms=None):
+    phi0, e0 = _electric(x0, data, ht, strict_domain, planar_cathode)
+    u0 = p0/(m_e*c)
+    gamma0 = np.sqrt(1+np.sum(u0*u0, axis=1))
+    u1 = u0-e*dt/(m_e*c)*e0
     for _ in range(iterations):
-        gamma1 = np.sqrt(1+np.sum((p1/(m_e*c))**2, axis=1))
-        vbar = (p1+p0)/(m_e*(gamma1+gamma0).reshape((-1,1)))
+        gamma1 = np.sqrt(1+np.sum(u1*u1, axis=1))
+        vbar = c*(u1+u0)/(gamma1+gamma0).reshape((-1,1))
         dx = dt*vbar
         x1 = x0+dx
         midpoint = .5*(x0+x1)
         _, emid = _electric(midpoint, data, ht, strict_domain, planar_cathode)
-        bmid = _magnetic(midpoint, magnetic)
+        bmid = (_magnetic(midpoint, magnetic) if instrument_sources is None else
+                compiled_magnetic_batch(midpoint, instrument_sources, instrument_terms))
         phi1, _ = _electric(x1, data, ht, strict_domain, planar_cathode)
-        updated = np.empty_like(p0)
+        updated = np.empty_like(u0)
         error = 0.
         for i in range(len(x0)):
-            length2 = np.sum(dx[i]*dx[i])
-            defect = phi1[i]-phi0[i]+np.sum(emid[i]*dx[i])
-            correction = defect/length2 if length2 > 0 else 0.
-            vx, vy, vz = vbar[i]
+            ux, uy, uz = u0[i]
+            dx0, dx1, dx2 = dx[i]
+            ex, ey, ez = emid[i]
             bx, by, bz = bmid[i]
-            cross = np.array([vy*bz-vz*by, vz*bx-vx*bz, vx*by-vy*bx])
-            updated[i] = p0[i]-e*dt*(emid[i]-correction*dx[i]+cross)
+            vx, vy, vz = discrete_gradient_update(ux, uy, uz, gamma1[i]+gamma0[i],
+                dx0, dx1, dx2, ex, ey, ez, bx, by, bz, phi0[i], phi1[i], dt)
+            updated[i, 0], updated[i, 1], updated[i, 2] = vx, vy, vz
             if not np.isfinite(updated[i]).all():
                 raise ValueError("Non-finite discrete-gradient iteration")
-            scale = max(np.sqrt(np.sum(p0[i]**2)), np.sqrt(np.sum(updated[i]**2)), 1e-30)
-            error = max(error, np.sqrt(np.sum((updated[i]-p1[i])**2))/scale)
+            scale = max(np.sqrt(np.sum(u0[i]**2)), np.sqrt(np.sum(updated[i]**2)), NORMALIZED_MOMENTUM_FLOOR)
+            error = max(error, np.sqrt(np.sum((updated[i]-u1[i])**2))/scale)
         if error <= tolerance:
-            return x1, updated
-        p1 = updated
+            return x1, updated*(m_e*c)
+        u1 = updated
     raise ValueError("Discrete-gradient Lorentz iteration did not converge")
 
 
@@ -116,31 +144,41 @@ def try_step(phase, dt, magnetic, electric, tolerance, iterations):
     # Exact providers only: never substitute for added/overridden physics.
     if (njit is None or phase.position_m.ndim != 2 or type(electric) not in (GroundedTipField, ClosedGunField, ContinuousGunField)
             or not getattr(electric, 'compiled_particle_steps', True)
-            or (not planar and (not hasattr(electric, '_regular') or not electric._regular.compiled))
-            or type(magnetic) is not FegMagneticField
-            or type(magnetic.deflector) is not GunDeflector
-            or type(magnetic.stigmator) is not GunStigmator):
+            or (not planar and (not hasattr(electric, '_regular') or not electric._regular.compiled))):
         return None
-    d, s = magnetic.deflector, magnetic.stigmator
     for provider, names in (
             (electric, ('potential_v_at_global_positions', 'potential_rise_v_at_global_positions',
                         'field_at_global_positions_v_per_m', '_interpolate', 'interpolate')),
-            (magnetic, ('field_at_global_positions_t',)),
-            (d, ('field_at_global_positions_t',)),
-            (s, ('field_at_global_positions_t',))):
+            (magnetic, ('field_at_global_positions_t',))):
         if any(name in provider.__dict__ for name in names):
             return None
-    upper = (d.upper_field_x_mt, d.upper_field_y_mt) if d.enabled else (0., 0.)
-    lower = (d.lower_field_x_mt, d.lower_field_y_mt) if d.enabled else (0., 0.)
-    if d.beam_blanked:
-        upper, lower = (0., d.blanking_field_y_mt), (0., 0.)
-    parameters = np.array([
-        d.upper_center_from_tip_mm+d.field_center_offset_mm, .5*d.coil_length_mm,
-        d.soft_edge_mm, upper[0]*1e-3, upper[1]*1e-3,
-        d.lower_center_from_tip_mm+d.field_center_offset_mm, .5*d.coil_length_mm,
-        d.soft_edge_mm, lower[0]*1e-3, lower[1]*1e-3,
-        s.optical_reference_from_tip_mm, .5*s.effective_length_mm, s.soft_edge_mm,
-        s.gradient_t_per_m if s.enabled else 0., math.radians(s.rotation_deg)])
+    instrument_sources = instrument_terms = None
+    if type(magnetic) is InstrumentMagneticField:
+        if getattr(magnetic.field_at_global_positions_t, '__func__', None) is not _INSTRUMENT_FIELD_METHOD:
+            return None
+        packed = _packed_instrument_field(magnetic)
+        if packed is None:
+            return None
+        instrument_sources, instrument_terms = packed
+        parameters = np.empty(0)
+    elif (type(magnetic) is FegMagneticField and type(magnetic.deflector) is GunDeflector
+            and type(magnetic.stigmator) is GunStigmator):
+        d, s = magnetic.deflector, magnetic.stigmator
+        if any('field_at_global_positions_t' in provider.__dict__ for provider in (d, s)):
+            return None
+        upper = (d.upper_field_x_mt, d.upper_field_y_mt) if d.enabled else (0., 0.)
+        lower = (d.lower_field_x_mt, d.lower_field_y_mt) if d.enabled else (0., 0.)
+        if d.beam_blanked:
+            upper, lower = (0., d.blanking_field_y_mt), (0., 0.)
+        parameters = np.array([
+            d.upper_center_from_tip_mm+d.field_center_offset_mm, .5*d.coil_length_mm,
+            d.soft_edge_mm, upper[0]*1e-3, upper[1]*1e-3,
+            d.lower_center_from_tip_mm+d.field_center_offset_mm, .5*d.coil_length_mm,
+            d.soft_edge_mm, lower[0]*1e-3, lower[1]*1e-3,
+            s.optical_reference_from_tip_mm, .5*s.effective_length_mm, s.soft_edge_mm,
+            s.gradient_t_per_m if s.enabled else 0., math.radians(s.rotation_deg)])
+    else:
+        return None
     if planar:
         data = _closed_field_data(electric)
         high_tension = float(electric.request['high_tension_v'])
@@ -152,7 +190,8 @@ def try_step(phase, dt, magnetic, electric, tolerance, iterations):
                         else electric.high_tension_v)
     from .relativistic_lorentz import RelativisticPhaseSpace
     x, p = _step(phase.position_m, phase.momentum_kg_m_per_s, dt,
-                 tolerance, iterations, data, high_tension, parameters, closed, planar)
+                 tolerance, iterations, data, high_tension, parameters, closed, planar,
+                 instrument_sources, instrument_terms)
     return RelativisticPhaseSpace(x, p, phase.time_s+dt)
 
 

@@ -65,7 +65,7 @@ class ElectronSessionActions:
         self.save_button.setEnabled(bool(c.records) and not c._shutdown)
         self.load_button.setEnabled(not c._shutdown)
         self.recalculate_button.setEnabled(
-            not c._shutdown and record is not None and record.historical
+            not c._shutdown and not c._fields_stale and record is not None and record.historical
             and (c._scene is not None or c._scene_request is not None))
 
     def snapshot(self):

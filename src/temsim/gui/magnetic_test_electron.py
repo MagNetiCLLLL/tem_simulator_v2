@@ -180,6 +180,7 @@ class TestElectronController(QObject):
         self._scene_error = None
         self._scene_details = "Captured field identity pending."
         self._fields_lost = False
+        self._fields_stale = False
         self._diagnostic = None
         self._shutdown = False
         self._generation = 0
@@ -254,8 +255,8 @@ class TestElectronController(QObject):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 6, 0)
         self.scope_label = QLabel(
-            "Virtual electron in captured electric and magnetic fields. Starts at the tip by default; "
-            "kinetic energy changes during extraction and acceleration. "
+            "Uses the tip beam's captured electric and magnetic fields and its forward column model. "
+            "Starts at the tip by default; kinetic energy follows the electric potential along the path. "
             "Hardware interception is included; specimen and detector interactions are excluded.")
         self.scope_label.setWordWrap(True)
         self.scope_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -316,14 +317,16 @@ class TestElectronController(QObject):
         self.step.setSuffix(" mm")
         self.step.setToolTip("Maximum spatial step. Actual steps also resolve electric acceleration, field maps and hardware boundaries.")
         self.max_steps = QSpinBox()
-        self.max_steps.setRange(100, 100000)
-        self.max_steps.setValue(20000)
+        self.max_steps.setRange(100, 200000)
+        self.max_steps.setValue(100000)
         self.max_steps.setSingleStep(1000)
         self.relative_tolerance = QDoubleSpinBox()
         self.relative_tolerance.setDecimals(8)
         self.relative_tolerance.setRange(1e-8, 1e-2)
         self.relative_tolerance.setValue(1e-4)
         self.relative_tolerance.setSingleStep(1e-4)
+        self.relative_tolerance.setToolTip(
+            "Adaptive gun integration tolerance. Forward column propagation shares the main beam's model; reduce Maximum step to refine that segment.")
         self.position_tolerance = QDoubleSpinBox()
         self.position_tolerance.setDecimals(6)
         self.position_tolerance.setRange(.000001, 1000.)
@@ -525,10 +528,13 @@ class TestElectronController(QObject):
         return None if record is None else record.settings
 
     def _has_result(self, record):
-        return trajectory_is_current(record, self._generation, typing=self._is_typing(record))
+        return (not self._fields_stale
+                and trajectory_is_current(record, self._generation, typing=self._is_typing(record)))
 
     def history_fields_match(self, records=None):
         """Hide current field context when saved paths have another dependency."""
+        if self._fields_stale:
+            return False
         for record in self._wanted_records() if records is None else records:
             if not record.historical:
                 continue
@@ -552,7 +558,7 @@ class TestElectronController(QObject):
     def recalculate_historical(self):
         """Explicitly execute a saved diagnostic input in the current fields."""
         record = self.selected_record
-        if (self._shutdown or record is None or not record.historical
+        if (self._shutdown or self._fields_stale or record is None or not record.historical
                 or (self._scene is None and self._scene_request is None)):
             return
         record.historical = False
@@ -580,9 +586,10 @@ class TestElectronController(QObject):
         paths = []
         for record in self._wanted_records():
             current = self._has_result(record)
-            progress_matches = progress_is_current(record, self._generation, typing=self._is_typing(record))
+            progress_matches = (not self._fields_stale and
+                                progress_is_current(record, self._generation, typing=self._is_typing(record)))
             signature = (self._generation, id(record.trajectory), id(record.progress_trajectory),
-                         progress_matches, current, record.label, record.colour)
+                         progress_matches, current, self._fields_stale, record.label, record.colour)
             if signature != record._path_signature:
                 record._paths.clear()
                 record._path_signature = signature
@@ -592,13 +599,17 @@ class TestElectronController(QObject):
                 if trajectory_is_visible(record, self._generation):
                     result = record.trajectory
                     shown.append(ElectronPath(
-                        key=record.key, label=record.label if current else record.label+(" · history" if record.historical else " · previous"),
+                        key=record.key, label=(record.label if current else record.label+
+                            (" · history" if record.historical else " · previous")+
+                            (" · stale fields" if self._fields_stale else "")),
                         colour=record.colour, positions_m=result.positions_m, time_s=result.time_s,
                         selected=selected, state="current" if current else "previous"))
                 if not current and progress_belongs_to_record(record, self._generation):
                     result = record.progress_trajectory
                     shown.append(ElectronPath(
-                        key=record.key+"/progress", label=record.label+" · live preview"+("" if progress_matches else " · earlier settings"),
+                        key=record.key+"/progress", label=record.label+
+                            (" · previous incomplete path · stale fields" if self._fields_stale else
+                             " · live preview"+("" if progress_matches else " · earlier settings")),
                         colour=record.colour, positions_m=result.positions_m, time_s=result.time_s,
                         selected=selected, state="in_progress" if progress_matches else "previous"))
                 record._paths[selected] = tuple(shown)
@@ -612,7 +623,7 @@ class TestElectronController(QObject):
             position_m=tuple(float(v) for v in self._scene.initial_position_m),
             polar_angle_deg=0., azimuth_angle_deg=0.,
             max_path_length_m=float(self._scene.default_path_length_m),
-            step_m=.001, max_steps=20000,
+            step_m=.001, max_steps=100000,
             relative_tolerance=1e-4, position_tolerance_m=1e-12)
 
     def _new_record(self, settings):
@@ -629,7 +640,7 @@ class TestElectronController(QObject):
         return record
 
     def add_electron(self, *_args):
-        if self._scene is None:
+        if self._fields_stale or self._scene is None:
             return None
         record = self._new_record(self._tip_settings())
         self._reuse_result(record)
@@ -640,7 +651,7 @@ class TestElectronController(QObject):
 
     def duplicate_electron(self, *_args):
         original = self.selected_record
-        if original is None or (self._scene is None and not original.historical):
+        if original is None or ((self._fields_stale or self._scene is None) and not original.historical):
             return None
         record = self._new_record(original.settings)
         if original.historical:
@@ -741,7 +752,8 @@ class TestElectronController(QObject):
                 self.position_tolerance.setValue(settings.position_tolerance_m*1e9)
         finally:
             self._loading_editor = False
-        self._set_inputs_enabled(record is not None and self._scene is not None and not record.historical)
+        self._set_inputs_enabled(not self._fields_stale and record is not None
+                                 and self._scene is not None and not record.historical)
 
     def _clear_result(self, record, *, retain_display=False):
         if not retain_display:
@@ -756,7 +768,8 @@ class TestElectronController(QObject):
         record.error = None
 
     def _changed(self, name):
-        if self._loading_editor or self.selected_record is None or self.selected_record.historical:
+        if (self._loading_editor or self._fields_stale or self.selected_record is None
+                or self.selected_record.historical):
             return
         record = self.selected_record
         was_pending = not self._has_result(record) and not record.attempted
@@ -796,7 +809,7 @@ class TestElectronController(QObject):
 
     def _reset_to_tip(self):
         record = self.selected_record
-        if self._scene is None or record is None or record.historical:
+        if self._fields_stale or self._scene is None or record is None or record.historical:
             return
         default = self._tip_settings()
         updated = replace(record.settings,
@@ -870,8 +883,24 @@ class TestElectronController(QObject):
         self._refresh()
         self._schedule()
 
+    def mark_fields_stale(self):
+        """Retain captured paths as previous, but stop using their field inputs."""
+        if self._fields_stale:
+            return
+        self._fields_stale = True
+        self._cache.clear()
+        self._timer.stop()
+        self._editing_controls.clear()
+        for worker in (self._worker, self._scene_worker):
+            if worker is not None:
+                worker.cancelled.set()
+        self._set_inputs_enabled(False)
+        self.domain_label.setText("Previous captured fields — instrument inputs changed; recalculate the main beam.")
+        self._refresh()
+
     def invalidate(self):
         self._generation += 1
+        self._fields_stale = False
         self._scene = None
         self._scene_request = None
         self._result_reference = None
@@ -913,7 +942,7 @@ class TestElectronController(QObject):
 
     def _restore_lost_execution(self):
         """An explicit edit/reopen may reprepare after child loss, never loop."""
-        if self._shutdown:
+        if self._shutdown or self._fields_stale:
             return
         if (isinstance(self._scene, RemoteElectronScene) and self._scene_request is not None
                 and not self._execution_backend.owns_scene(self._scene)):
@@ -960,7 +989,7 @@ class TestElectronController(QObject):
 
     def retry_failed_execution(self):
         """Explicit bounded retry; never clear another electron's accepted path."""
-        if self._shutdown or self._worker is not None or self._scene_worker is not None:
+        if self._shutdown or self._fields_stale or self._worker is not None or self._scene_worker is not None:
             return False
         record = self.selected_record
         if record is not None and record.historical:
@@ -1008,16 +1037,17 @@ class TestElectronController(QObject):
 
     def set_axial_range_mm(self, lower, upper):
         self._view_limits_mm = (float(lower), float(upper))
-        self.start_at_view.setEnabled(self._scene is not None and self.selected_record is not None
+        self.start_at_view.setEnabled(not self._fields_stale and self._scene is not None and self.selected_record is not None
                                      and not self.selected_record.historical)
 
     def _use_view_centre(self):
-        if (self._view_limits_mm is not None and self.selected_record is not None
+        if (not self._fields_stale and self._view_limits_mm is not None and self.selected_record is not None
                 and not self.selected_record.historical):
             self.z.setValue(sum(self._view_limits_mm)/2.)
 
     def _reuse_result(self, record):
-        if self._scene is None or record.historical or self._has_result(record) or self._is_typing(record):
+        if (self._fields_stale or self._scene is None or record.historical
+                or self._has_result(record) or self._is_typing(record)):
             return False
         key = self._generation, record.settings
         result = self._cache.get(key)
@@ -1080,7 +1110,7 @@ class TestElectronController(QObject):
 
     def _schedule(self):
         self._cancel_unwanted_worker()
-        if not self._active or self._shutdown or self._scene_error is not None:
+        if not self._active or self._shutdown or self._fields_stale or self._scene_error is not None:
             self._timer.stop()
             return
         if self._worker is not None or self._scene_worker is not None:
@@ -1106,6 +1136,8 @@ class TestElectronController(QObject):
         self.status_changed.emit(text)
 
     def _row_status(self, record):
+        if self._fields_stale:
+            return "History · fields stale" if record.historical else "Stale fields"
         if record.historical:
             return "History" if record.trajectory is not None and record.trajectory.completed else "History · incomplete"
         if self._is_typing(record):
@@ -1152,14 +1184,14 @@ class TestElectronController(QObject):
 
     def _refresh(self):
         self.session_actions.refresh()
-        self.add_button.setEnabled(self._scene is not None)
+        self.add_button.setEnabled(not self._fields_stale and self._scene is not None)
         self.duplicate_button.setEnabled(self.selected_record is not None
-            and (self._scene is not None or self.selected_record.historical))
+            and ((not self._fields_stale and self._scene is not None) or self.selected_record.historical))
         self.remove_button.setEnabled(self.selected_record is not None)
         retry_fields = self._scene_request is not None and (self._scene_error is not None or self._fields_lost)
         retry_record = self._scene is not None and self.selected_record is not None and bool(self.selected_record.error)
         self.retry_button.setText("Rebuild fields and retry" if retry_fields else "Retry selected electron")
-        self.retry_button.setEnabled(not self._shutdown and self._active
+        self.retry_button.setEnabled(not self._shutdown and not self._fields_stale and self._active
             and self._worker is None and self._scene_worker is None and bool(retry_fields or retry_record)
             and not (self.selected_record is not None and self.selected_record.historical))
         self._refresh_list()
@@ -1170,6 +1202,18 @@ class TestElectronController(QObject):
         record = self.selected_record
         self.status_label.setToolTip("")
         self.energy_status.setToolTip("")
+        if self._fields_stale:
+            if record is not None and record.trajectory is not None:
+                self._show_result_status(record)
+            else:
+                self.energy_status.setText("No current trajectory; captured fields are stale.")
+            self.field_details.setPlainText(
+                "Stale captured fields: instrument inputs changed. Recalculate the main beam before tracing.\n\n"
+                + (str(record.history_dependency) if record is not None and record.historical else self._scene_details))
+            self._status("Stale fields — instrument inputs changed. Previous "
+                         + ("historical " if record is not None and record.historical else "")
+                         + "paths are retained; recalculate the main beam to continue.")
+            return
         if record is not None and record.historical:
             if record.trajectory is not None:
                 self._show_result_status(record)
@@ -1218,7 +1262,7 @@ class TestElectronController(QObject):
 
     @Slot()
     def _request(self):
-        if not self._active or self._shutdown or self._scene_error is not None:
+        if not self._active or self._shutdown or self._fields_stale or self._scene_error is not None:
             return
         self._cancel_unwanted_worker()
         if self._wanted_records() and all(record.historical for record in self._wanted_records()):
@@ -1252,7 +1296,7 @@ class TestElectronController(QObject):
         QThreadPool.globalInstance().start(worker)
 
     def _prepare_scene(self):
-        if (self._shutdown or self._scene_request is None or self._scene_worker is not None
+        if (self._shutdown or self._fields_stale or self._scene_request is None or self._scene_worker is not None
                 or self._worker is not None or self._scene_error is not None):
             return
         worker = _SceneWorker(self._generation, *self._scene_request, backend=self._execution_backend)
@@ -1272,7 +1316,7 @@ class TestElectronController(QObject):
             return
         QObject.disconnect(worker.destruction_connection)
         self._scene_worker = None
-        if self._shutdown:
+        if self._shutdown or self._fields_stale:
             return
         if generation == self._generation and error:
             self._capture_failure(error)
@@ -1292,7 +1336,7 @@ class TestElectronController(QObject):
         worker = self._worker
         record = self._records.get(key[2])
         sender = self.sender()
-        if (self._shutdown or worker is None or worker.key != key or worker.cancelled.is_set() or not self._active
+        if (self._shutdown or self._fields_stale or worker is None or worker.key != key or worker.cancelled.is_set() or not self._active
                 or (sender is not None and sender is not worker.signals)
                 or key[0] != self._generation or record is None or record not in self._wanted_records()
                 or self._is_typing(record) or result.reason != "in_progress" or result.completed
@@ -1313,7 +1357,7 @@ class TestElectronController(QObject):
             return
         QObject.disconnect(worker.destruction_connection)
         self._worker = None
-        if self._shutdown:
+        if self._shutdown or self._fields_stale:
             return
         if key[0] == self._generation and error:
             self._capture_failure(error)

@@ -57,7 +57,7 @@ def test_extension_resumes_actual_material_checkpoints_with_original_clocks(case
     assert_same_endpoint(resumed, cold)
     for branch in resumed.branches:
         assert np.all(np.isnan(branch.flight_time_s[0]))  # virtual reference row
-        if np.any(branch.energy_offset_ev < 0.):
+        if branch.name.rsplit(":", 1)[-1] not in {"000", "vacuum_miss"}:
             assert np.all(np.isnan(branch.flight_time_s))  # aggregate loss lacks event depth
         else:
             assert np.all(branch.flight_time_s[-1] > 1e-8)

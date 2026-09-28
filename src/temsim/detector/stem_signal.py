@@ -1292,6 +1292,22 @@ def acquire_stem_scan(
         + float(getattr(state.sample, "scan_origin_y_nm", 0.0)) * 1.0e-3
     )
 
+    if not bool(state.sample.stem_wave_enabled):
+        particle_model = str(state.sample.stem_particle_model)
+        if particle_model not in {"projected_atoms", "material_paths"}:
+            raise ValueError(f"Unknown particle STEM model: {particle_model}")
+        if particle_model == "projected_atoms" and inserted:
+            from temsim.detector.projected_stem import acquire_projected_stem_scan
+            result = acquire_projected_stem_scan(
+                simulation, state, inserted, scan_x_um=scan_x_um, scan_y_um=scan_y_um,
+                kick_grid_mrad=kick_grid_mrad, baseline_scan_mrad=baseline_scan_mrad,
+                scan_times_s=scan_times_s, baseline_descan_scan_mrad=baseline_descan_scan_mrad,
+                sample_response=sample_response, real_interactions=real_interactions,
+                progress_callback=progress_callback,
+            )
+            return _readout_view(result, inserted_keys=[detector.key for detector in inserted],
+                                 readout_keys=[detector.key for detector in selected])
+
     physical_detectors, detector_angles = physical_angular_detectors(
         state,
         inserted,

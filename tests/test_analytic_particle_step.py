@@ -11,8 +11,7 @@ from temsim.physics.relativistic_lorentz import (
 )
 
 
-@pytest.fixture
-def gun():
+def analytic_gun_fixture():
     # Mathematical regression fixture for the historical analytic kernel.
     # Production cold FEGs now use the coupled electrode field.
     from temsim.optics.electron_gun.electrostatic import FegElectrostaticField
@@ -30,6 +29,11 @@ def gun():
     value = AnalyticGunFixture()
     value.emitter.surface_model = None
     return value
+
+
+@pytest.fixture
+def gun():
+    return analytic_gun_fixture()
 
 
 def _phase(gun, z_mm, *, count=None):

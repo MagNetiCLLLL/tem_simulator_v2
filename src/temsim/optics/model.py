@@ -310,6 +310,8 @@ class Sample:
 
     # Readout selection is independent of scan coils / detector absorption.
     stem_image_enabled: bool = True
+    # Distinct current physical approximations, not a historical compatibility mode.
+    stem_particle_model: str = "projected_atoms"
     # Current defaults use classical tip particles. Historical explicit wave
     # requests remain readable and subject to coherent-source admission.
     stem_wave_enabled: bool = False

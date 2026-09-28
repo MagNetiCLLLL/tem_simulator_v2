@@ -378,7 +378,13 @@ def incident_rays_from_simulation(
     x_nm = x_nm + target_centroid[0] - original_centroid[0]
     y_nm = y_nm + target_centroid[1] - original_centroid[1]
 
-    energy_ev = float(state.beam_voltage_kv) * 1000.0 + energy_offset[indices]
+    executed_energy = getattr(branch, "kinetic_energy_ev", None)
+    if executed_energy is not None:
+        energy_ev = sample_row(executed_energy, "kinetic energy")
+    else:
+        # Standalone material fixtures may supply a declared incident energy.
+        # Executed current column results always carry their energy history.
+        energy_ev = float(state.beam_voltage_kv) * 1000.0 + energy_offset[indices]
     if not np.all(np.isfinite(energy_ev)) or np.any(energy_ev <= 0.0):
         raise ValueError("Incident kinetic energies must be finite and positive")
     direction_rows = np.column_stack((tx, ty, np.ones_like(tx)))

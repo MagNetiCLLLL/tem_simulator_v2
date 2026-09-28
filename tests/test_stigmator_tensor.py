@@ -64,7 +64,7 @@ def tensor_inputs():
             np.zeros(n+1), np.zeros(n+1), np.zeros(n+1), np.full(n, 1.e-4),
             x, x*100., -x*.5, x*30., np.zeros(n+1), np.zeros(n+1),
             np.array([0, n], dtype=np.int64), np.array([n], dtype=np.int64),
-            np.full(stages, 80.))
+            np.full(stages, 80.), np.zeros(3*n), np.zeros(3*n), np.ones(1))
 
 
 @pytest.mark.parametrize("engine", [rk.vectorised_rk4, rk.serial_rk4, rk.parallel_rk4])
@@ -94,9 +94,9 @@ def test_cuda_tensor_matches_cpu_when_available():
 
 def test_skew_has_cache_identity_and_zero_skew_is_explicit():
     inputs = tensor_inputs()
-    changed = (*inputs[:18], np.zeros_like(inputs[18]))
+    changed = (*inputs[:18], np.zeros_like(inputs[18]), *inputs[19:])
     assert plan_identity(inputs) != plan_identity(changed)
-    assert plan_identity(changed) == plan_identity((*inputs[:18], np.zeros_like(inputs[18])))
+    assert plan_identity(changed) == plan_identity((*inputs[:18], np.zeros_like(inputs[18]), *inputs[19:]))
 
 
 @pytest.mark.parametrize("timed", [False, True])
@@ -104,7 +104,7 @@ def test_device_identity_rejects_old_input_lengths_without_skew(timed):
     inputs = tensor_inputs()[:18]
     if timed:
         inputs = (*inputs, np.zeros(3), np.ones(3))
-    with pytest.raises(ValueError, match="nineteen arrays"):
+    with pytest.raises(ValueError, match="twenty-two arrays"):
         plan_identity(inputs)
 
 

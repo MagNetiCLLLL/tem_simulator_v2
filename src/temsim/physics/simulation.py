@@ -35,6 +35,7 @@ from temsim.physics.beam_current import (
     column_current_limit_percent,
     effective_source_current_pa,
 )
+from temsim.physics.particle_energy import validate_kinetic_energy_array, energy_survival_mask
 
 
 from temsim.physics.corrector_crossovers import detect_corrector_crossovers
@@ -129,6 +130,8 @@ def _sample_to_stop_larmor_rotation_rad(state, stop_z_mm):
 @dataclass
 
 class Branch:
+    # energy_offset_ev is the terminal energy relative to nominal beam energy.
+    # Plane-specific consumers use kinetic_energy_ev instead.
     name:str; colour:tuple; z:np.ndarray; x:np.ndarray; y:np.ndarray; tx:np.ndarray; ty:np.ndarray; alive:np.ndarray; blocked_z:np.ndarray; blocked_key:list; weight:float; energy_offset_ev:np.ndarray; ray_weight:np.ndarray|None=None; interaction_kind:str='unknown'; interaction_kick_x_rad:np.ndarray|None=None; interaction_kick_y_rad:np.ndarray|None=None
     # Display lineage only: gun ray IDs and source-position azimuth in radians.
     # Neither value is an instantaneous velocity angle or a physical weight.
@@ -139,6 +142,9 @@ class Branch:
     # histories can include computational continuation past a stop; readouts
     # must apply blocked_z. None denotes historical/unsupported timing.
     flight_time_s: np.ndarray | None = None
+    # Executed kinetic energy at each retained plane; historical paths may
+    # omit it. NaN denotes an unavailable gun-history value, never nominal HT.
+    kinetic_energy_ev: np.ndarray | None = None
 
 @dataclass
 
@@ -231,7 +237,7 @@ def _column_checkpoint_planes(start_z_mm, stop_z_mm, ray_count):
     desired_count = int(
         math.floor((stop - start) / INCIDENT_CHECKPOINT_SPACING_MM)
     )
-    bytes_per_checkpoint = 5 * np.dtype(np.float64).itemsize * max(
+    bytes_per_checkpoint = 6 * np.dtype(np.float64).itemsize * max(
         int(ray_count), 1
     )
     maximum_count = (
@@ -318,6 +324,10 @@ def _merge_checkpoints(previous, suffix, resume_z_mm):
     new_times = getattr(suffix, "flight_time_s", None)
     if old_times is not None and new_times is not None:
         arrays["flight_time_s"] = np.concatenate((np.asarray(old_times)[keep], new_times))
+    old_energy = getattr(previous, "kinetic_energy_ev", None)
+    new_energy = getattr(suffix, "kinetic_energy_ev", None)
+    if old_energy is not None and new_energy is not None:
+        arrays["kinetic_energy_ev"] = np.concatenate((np.asarray(old_energy)[keep], new_energy))
     return PropagationCheckpoints(**arrays)
 
 
@@ -375,49 +385,15 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
     x,y=emitted.x_m,emitted.y_m
     tx,ty=emitted.tx_rad,emitted.ty_rad
     dE=emitted.energy_offset_ev
+    gun_exit_energy = np.asarray(gun.nominal_exit_energy_ev+dE, dtype=np.float64)
     n=x.size
-    pre_events=[]
-
-    post_events=[]
-
-    for d in s.deflectors:
-
-        if not d.enabled:
-
-            continue
-
-        if hasattr(d, "kick_events"):
-            try:
-                pair = d.kick_events(
-                    time_s=float(getattr(s, "simulation_time_s", 0.0))
-                )
-            except TypeError:
-                pair = d.kick_events()
-        else:
-            pair=[(d.upper_z_mm,d.upper_x_mrad*1e-3,d.upper_y_mrad*1e-3),(d.lower_z_mm,d.lower_x_mrad*1e-3,d.lower_y_mrad*1e-3)]
-
-        for event in pair:
-
-            (pre_events if event[0] <= s.sample.z_mm else post_events).append(event)
-
-    for component in getattr(s, "corrector_elements", []):
-        if not getattr(component, "enabled", False):
-            continue
-        if not hasattr(component, "kick_events"):
-            continue
-        try:
-            events = component.kick_events(
-                time_s=float(getattr(s, "simulation_time_s", 0.0))
-            )
-        except TypeError:
-            events = component.kick_events()
-        for event in events:
-            (
-                pre_events
-                if event[0] <= s.sample.z_mm
-                else post_events
-            ).append(event)
-
+    from temsim.physics.instrument_magnetic import active_column_events, events_overlapping_interval
+    all_column_events = active_column_events(s)
+    pre_events = events_overlapping_interval(s, all_column_events,
+                                             gun.exit_plane_z_mm, s.sample.z_mm)
+    # Keep all commands until the actual downstream endpoint is known. A
+    # finite coil may straddle the specimen or a saved calculation boundary.
+    post_events = all_column_events
     checkpoint_planes = (float(gun.exit_plane_z_mm), *_column_checkpoint_planes(
         gun.exit_plane_z_mm, s.sample.z_mm, n
     ))
@@ -431,12 +407,12 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         checkpoint_z_mm=checkpoint_planes,
         save_z_mm=tuple(sorted(set((*checkpoint_planes, *retained_section_planes)))),
         particle_medium=s.vacuum_map.enabled,
-        medium_energy_ev=s.beam_voltage_kv*1000+dE,
+        medium_energy_ev=gun_exit_energy,
     )
     incident_medium = None
     if s.vacuum_map.enabled:
         from temsim.physics.residual_medium import ColumnMediumTransport
-        incident_medium = ColumnMediumTransport(s, incident_plan, n, s.beam_voltage_kv*1000+dE,
+        incident_medium = ColumnMediumTransport(s, incident_plan, n, gun_exit_energy,
                                                 alive=emitted.alive, stream=1)
     cache_mode = "none"
     resume_z_mm = float(gun.exit_plane_z_mm)
@@ -457,9 +433,16 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         source_matches = False
     try:
         clocks_reusable = validate_incident_flight_times(existing_simulation)
+        energies_reusable = (
+            validate_kinetic_energy_array(getattr(previous_checkpoints, "kinetic_energy_ev", None),
+                np.shape(previous_checkpoints.x_m), "Checkpoint", allow_unknown=True,
+                required=energy_survival_mask(existing_simulation.incident, previous_checkpoints.z_mm))
+            and validate_kinetic_energy_array(getattr(existing_simulation.incident, "kinetic_energy_ev", None),
+                                             np.shape(existing_simulation.incident.x), "Incident", allow_unknown=True))
     except (AttributeError, TypeError, ValueError):
         clocks_reusable = False
-    if not clocks_reusable:
+        energies_reusable = False
+    if not clocks_reusable or not energies_reusable:
         source_matches = False
 
     if (
@@ -480,6 +463,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         Y = np.asarray(previous_incident.y).copy()
         TY = np.asarray(previous_incident.ty).copy()
         TIMES = np.asarray(previous_incident.flight_time_s, dtype=np.float64).copy()
+        ENERGIES = np.asarray(previous_incident.kinetic_energy_ev, dtype=np.float64).copy()
         incident_checkpoints = previous_checkpoints
         cache_mode = "full_incident"
         resume_z_mm = float(s.sample.z_mm)
@@ -524,12 +508,14 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
                     break
 
         if resume is None:
+            energy_output = []
             column_result = execute_propagation_plan(
                 s, incident_plan, x, tx, y, ty, dE,
                 defer_nonfinite_until_clipping=True,
                 medium_transport=incident_medium,
                 initial_time_s=getattr(emitted, "flight_time_s", None),
                 return_flight_times=True,
+                initial_kinetic_energy_ev=gun_exit_energy, energy_output=energy_output,
             )
             (
                 z_column, X_column, TX_column, Y_column, TY_column,
@@ -544,19 +530,26 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
             if gun_times is None:
                 gun_times = np.full(np.shape(gun_trace.x_m), np.nan, dtype=np.float64)
             TIMES=np.vstack((gun_times, column_times[1:]))
+            gun_energies = np.full(np.shape(gun_trace.x_m), np.nan, dtype=np.float64)
+            gun_energies[-1] = gun_exit_energy
+            ENERGIES = np.vstack((gun_energies, energy_output[0][1:]))
         else:
             old_row, start_index, resume_z_mm = resume
+            energy_output = []
+            resume_energy = np.asarray(previous_checkpoints.kinetic_energy_ev[old_row])
+            previous_incident = existing_simulation.incident
+            unknown_stopped = ~np.isfinite(resume_energy) & ~np.asarray(previous_incident.alive, dtype=bool)
+            resume_phase = [np.where(unknown_stopped, np.nan, getattr(previous_checkpoints, name)[old_row])
+                            for name in ("x_m", "tx_rad", "y_m", "ty_rad")]
             suffix_result = execute_propagation_plan(
-                s, incident_plan,
-                np.asarray(previous_checkpoints.x_m[old_row]).copy(),
-                np.asarray(previous_checkpoints.tx_rad[old_row]).copy(),
-                np.asarray(previous_checkpoints.y_m[old_row]).copy(),
-                np.asarray(previous_checkpoints.ty_rad[old_row]).copy(),
+                s, incident_plan, *resume_phase,
                 dE, start_index=start_index,
                 include_initial_plane_kicks=False,
                 defer_nonfinite_until_clipping=True,
                 initial_time_s=previous_checkpoints.flight_time_s[old_row],
                 return_flight_times=True,
+                initial_kinetic_energy_ev=resume_energy,
+                energy_output=energy_output,
             )
             (
                 z_suffix, X_suffix, TX_suffix, Y_suffix, TY_suffix,
@@ -570,6 +563,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
             Y = np.vstack((np.asarray(previous_incident.y)[keep], Y_suffix))
             TY = np.vstack((np.asarray(previous_incident.ty)[keep], TY_suffix))
             TIMES = np.vstack((np.asarray(previous_incident.flight_time_s)[keep], suffix_times))
+            ENERGIES = np.vstack((np.asarray(previous_incident.kinetic_energy_ev)[keep], energy_output[0]))
             incident_checkpoints = _merge_checkpoints(
                 previous_checkpoints, suffix_checkpoints, resume_z_mm
             )
@@ -583,6 +577,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
                        for value in (X, TX, Y, TY))
         for value, key in zip((X, TX, Y, TY), ("x_m", "tx_rad", "y_m", "ty_rad")):
             value[-1] = getattr(incident_checkpoints, key)[-1]
+        ENERGIES[-1] = incident_checkpoints.kinetic_energy_ev[-1]
     alive=emitted.alive.copy()
     blocked=gun_trace.blocked_z_mm.copy()
     keys=list(gun_trace.blocked_key)
@@ -602,10 +597,11 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
     incident_kind = 'incident'
     incident=Branch(
         'incident',_interaction_colour(incident_kind),z,X,Y,TX,TY,alive,
-        blocked,keys,1.,dE,emitted.weight,
+        blocked,keys,1.,ENERGIES[-1]-s.beam_voltage_kv*1000,emitted.weight,
         interaction_kind=incident_kind,
         vacuum_report=incident_medium.report() if incident_medium is not None else None,
         flight_time_s=TIMES,
+        kinetic_energy_ev=ENERGIES,
     )
     from temsim.physics.ray_identity import emitted_source_identity
 
@@ -617,7 +613,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
     retained_checkpoint_bytes = (
         sum(
             int(np.asarray(getattr(incident_checkpoints, name)).nbytes)
-            for name in ("x_m", "tx_rad", "y_m", "ty_rad", "flight_time_s")
+            for name in ("x_m", "tx_rad", "y_m", "ty_rad", "flight_time_s", "kinetic_energy_ev")
         )
         if incident_checkpoints is not None else 0
     )
@@ -714,15 +710,16 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
     optical_completed_z_mm = None
     from temsim.physics.particle_sections import section_limits
     post_stop_z_mm = section_limits(s)[1]
-    post_events = [event for event in post_events if float(event[0]) <= post_stop_z_mm]
+    post_events = events_overlapping_interval(s, post_events, s.sample.z_mm, post_stop_z_mm)
     if sample_is_vacuum and not optical_only:
         from temsim.physics.particle_sections import _trace_segment
-        cx, cy = branch_chromatic_kick(dE)
+        cx, cy = branch_chromatic_kick(ENERGIES[-1]-s.beam_voltage_kv*1000)
         previous_post = next((item for item in saved_section.segments if item.name == "000"), None) if saved_section else None
         post, _, _ = _trace_segment(s, "000", float(s.sample.z_mm), post_stop_z_mm,
             (X[-1], TX[-1]+cx, Y[-1], TY[-1]+cy, np.where(alive, TIMES[-1], np.nan)),
             dE, emitted.weight, (incident.source_ray_id, incident.source_azimuth_rad),
-            (alive, blocked, keys), post_events, previous_post, math.inf, initial_kicks=False)
+            (alive, blocked, keys), post_events, previous_post, math.inf, initial_kicks=False,
+            initial_kinetic_energy_ev=ENERGIES[-1])
         post.branch.interaction_kind = "vacuum"
         post.branch.colour = _interaction_colour("vacuum")
         branches["000"] = post.branch
@@ -735,7 +732,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         post_payloads=[]
         post_x=[];post_tx=[];post_y=[];post_ty=[];post_energy=[];post_times=[]
         for name,kick_x,kick_y,w,interaction_kind,energy_loss_ev in batch_specs:
-            branch_energy_offset=dE-float(energy_loss_ev)
+            branch_energy_offset=ENERGIES[-1]-s.beam_voltage_kv*1000-float(energy_loss_ev)
             chromatic_tx,chromatic_ty=branch_chromatic_kick(
                 branch_energy_offset
             )
@@ -762,6 +759,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         # reference plane therefore cannot supply their physical loss clock.
         # Detailed specimen clocks are carried by downstream_transport.
         start_times = np.concatenate(post_times)
+        energy_output = []
         zp,XP_all,TP_all,YP_all,TYP_all,TIMES_all=propagate(
             s,s.sample.z_mm,post_stop_z_mm,
             np.concatenate(post_x),np.concatenate(post_tx),
@@ -772,6 +770,8 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
             particle_medium=s.vacuum_map.enabled,
             medium_alive=np.tile(alive, len(post_payloads)), medium_output=downstream_media,
             initial_time_s=start_times, return_flight_times=True,
+            initial_kinetic_energy_ev=s.beam_voltage_kv*1000+np.concatenate(post_energy),
+            energy_output=energy_output,
         )
         if optical_only:
             # Capture the successful solver boundary before these arrays are
@@ -804,7 +804,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
 
             branches[name]=Branch(
                 name,_interaction_colour(interaction_kind),zp,XP,YP,TP,TYP,al,
-                bl,ks,w,branch_energy_offset,emitted.weight,
+                bl,ks,w,energy_output[0][-1,branch_slice]-s.beam_voltage_kv*1000,emitted.weight,
                 interaction_kind=interaction_kind,
                 interaction_kick_x_rad=kick_x_array,
                 interaction_kick_y_rad=kick_y_array,
@@ -812,6 +812,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
                 source_azimuth_rad=incident.source_azimuth_rad,
                 vacuum_report=downstream_media[0].report(branch_slice) if downstream_media else None,
                 flight_time_s=TIMES_all[:,branch_slice],
+                kinetic_energy_ev=energy_output[0][:,branch_slice],
             )
 
     if optical_only:

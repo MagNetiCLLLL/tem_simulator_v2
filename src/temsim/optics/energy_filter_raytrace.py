@@ -377,6 +377,11 @@ def extract_entrance_rays(state, simulation):
             getattr(branch, "energy_offset_ev", np.zeros_like(x)),
             dtype=float,
         )
+        from temsim.physics.particle_energy import sample_kinetic_energy
+        executed_energy = sample_kinetic_energy(branch, float(energy_filter.entrance_z_mm))
+        if executed_energy is not None:
+            offsets = executed_energy-float(state.beam_voltage_kv)*1000
+            valid &= np.isfinite(executed_energy) & (executed_energy > 0.)
         ray_weights = getattr(branch, "ray_weight", None)
         if ray_weights is None:
             ray_weights = np.full(

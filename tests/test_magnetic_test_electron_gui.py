@@ -1236,6 +1236,101 @@ def test_pending_main_snapshot_clears_probe_and_preserves_user_parameters(qtbot,
         qtbot.waitUntil(lambda: page._worker is None and page.electron._worker is None and page.electron._scene_worker is None, timeout=10000)
 
 
+def test_stale_instrument_retains_previous_path_but_blocks_execution_until_new_snapshot(controller, qtbot, monkeypatch):
+    calls = install_trace(monkeypatch)
+    preparations = install_scene_preparer(monkeypatch)
+    first, replacement = UniformScene(), UniformScene(field=(0., .02, 0.))
+    controller.set_captured_scene(object(), first, (0., 100.))
+    controller.set_active(True)
+    previous = wait_for_result(qtbot, controller)
+    settings = controller.settings()
+    controller.mark_fields_stale()
+    assert controller.current_trajectory is None
+    assert controller.selected_record.trajectory is previous
+    assert not controller._cache and not controller._timer.isActive()
+    assert not controller.energy.isEnabled() and not controller.add_button.isEnabled()
+    assert not controller.history_fields_match()
+    assert "Stale" in controller.status_text
+    path = controller.visible_paths()[0]
+    assert path.state == "previous" and "stale fields" in path.label
+    np.testing.assert_array_equal(path.positions_m, previous.positions_m)
+    controller.energy.setValue(123.)  # Programmatic changes must not bypass disabled inputs.
+    controller._reset_to_tip()
+    controller._use_view_centre()
+    assert controller.add_electron() is None and controller.duplicate_electron() is None
+    assert not controller.retry_failed_execution()
+    controller.set_active(False)
+    controller.set_active(True)
+    controller._request()
+    qtbot.wait(100)
+    assert controller.settings() == settings
+    assert len(calls) == len(preparations) == 1
+    controller.set_captured_scene(object(), replacement, (0., 100.))
+    current = wait_for_result(qtbot, controller)
+    assert current is not previous and controller.settings() == settings
+    assert controller.energy.isEnabled() and not controller._fields_stale
+    assert len(calls) == len(preparations) == 2
+    assert calls[-1][0] is replacement
+
+
+def test_stale_instrument_rejects_late_trajectory_and_preserves_last_complete_path(controller, qtbot, monkeypatch):
+    started, release = Event(), Event()
+    calls = []
+
+    def trace(scene, settings, **_kwargs):
+        calls.append(settings)
+        if len(calls) == 2:
+            started.set()
+            assert release.wait(5.)
+        return synthetic_trajectory(settings)  # Deliberately ignores cancellation.
+
+    monkeypatch.setattr("temsim.magnetic_test_particle.trace_test_electron", trace)
+    controller.set_scene(UniformScene())
+    controller.set_active(True)
+    previous = wait_for_result(qtbot, controller)
+    controller.energy.setValue(123000.)
+    qtbot.waitUntil(started.is_set)
+    try:
+        worker = controller._worker
+        controller.mark_fields_stale()
+        assert worker.cancelled.is_set()
+    finally:
+        release.set()
+    qtbot.waitUntil(lambda: controller._worker is None)
+    assert controller.selected_record.trajectory is previous
+    assert controller.current_trajectory is None and not controller._cache
+    assert all(path.state == "previous" for path in controller.visible_paths())
+    qtbot.wait(100)
+    assert len(calls) == 2 and "Stale" in controller.status_text
+
+
+def test_stale_instrument_rejects_inflight_field_preparation(controller, qtbot, monkeypatch):
+    started, release = Event(), Event()
+    calls = install_trace(monkeypatch)
+
+    def prepare(_state, magnetic_scene, **_kwargs):
+        started.set()
+        assert release.wait(5.)
+        return magnetic_scene
+
+    monkeypatch.setattr("temsim.test_electron_scene.prepare_test_electron_scene", prepare)
+    controller.set_captured_scene(object(), UniformScene(), (0., 100.))
+    controller.set_active(True)
+    qtbot.waitUntil(started.is_set)
+    try:
+        worker = controller._scene_worker
+        controller.mark_fields_stale()
+        assert worker.cancelled.is_set()
+    finally:
+        release.set()
+    qtbot.waitUntil(lambda: controller._scene_worker is None)
+    assert controller._scene is None and not calls
+    assert controller.current_trajectory is None and "Stale" in controller.status_text
+    controller._request()
+    qtbot.wait(100)
+    assert not calls and controller._scene_worker is None
+
+
 def test_compact_view_overlays_checked_paths_and_restores_them_without_retrace(qtbot, monkeypatch):
     from temsim.gui.diagnostic_tabs import MagneticFieldView
 

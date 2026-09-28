@@ -1,5 +1,6 @@
 """Lossless compact results preserve every retained field and executed restart."""
 from pathlib import Path
+from dataclasses import replace
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 import json
 
@@ -65,9 +66,24 @@ def test_compact_result_preserves_complete_records_and_actual_continuation(
     with ZipFile(compact) as archive:
         assert all(row.compress_type == ZIP_DEFLATED for row in archive.infolist())
         manifest = json.loads(archive.read('manifest.json'))
-        assert manifest['metadata']['package_kind'] == 'optical-particle-section-package-v2'
+        from temsim.particle_section_io import SECTION_PACKAGE_SCHEMA
+        assert manifest['metadata']['package_kind'] == SECTION_PACKAGE_SCHEMA
     restored = load_section_result(compact)
-    assert _same_executed_record(_result_records(restored), _result_records(executed_section))
+    uncompressed = load_section_result(fast)
+    # Both archives retain the same complete records. Runtime E providers are
+    # intentionally rebuilt from captured inputs instead of being serialized.
+    assert _same_executed_record(_result_records(restored), _result_records(uncompressed))
+    original = executed_section.simulation.section_checkpoint
+    for decoded in (restored, uncompressed):
+        saved = decoded.simulation.section_checkpoint
+        assert saved.gun_dependency_signature == original.gun_dependency_signature
+        for before, after in zip(original.segments, saved.segments, strict=True):
+            assert after.plan.electric_field is None
+            assert before.plan.electric_field_identity is not None
+            assert _same_executed_record(replace(before.plan, electric_field=None), after.plan)
+            # Includes exact float64 K, clocks, complete phase space and ancestry.
+            assert _same_executed_record(before.checkpoints, after.checkpoints)
+            assert _same_executed_record(before.branch, after.branch)
     checked = checked_section_archive_info(executed_section, compact,
         maximum_unpacked_bytes=8*1024**3, expected_package_digest=package.digest, verify_payload=True)
     for info in (checked, restored.section_archive_info):

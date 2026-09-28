@@ -29,7 +29,6 @@ from temsim.specimen.support import (
     available_support_materials,
     available_support_meshes,
 )
-from temsim.specimen.source import specimen_interactions_active
 from temsim.gui.eds_peak_labels import EDSPeakLabels
 
 
@@ -38,8 +37,10 @@ class EDSPage(QWidget):
 
     parameters_changed = Signal(str)
     error = Signal(str)
+    calculation_requested = Signal()
     sample_region_result_ready = Signal(object)
     specimen_interactions_updated = Signal(object)
+    sample_region_view_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -217,7 +218,6 @@ class EDSPage(QWidget):
         )
         eds_form.addRow("Shot noise", self.eds_poisson_enabled)
         eds_form.addRow("Poisson seed", self.eds_poisson_seed)
-        eds_form.addRow(self.eds_acquire)
         controls_layout.addWidget(eds)
 
         local = QGroupBox("Detailed sample region")
@@ -279,6 +279,13 @@ class EDSPage(QWidget):
 
         spectrum_layout = QVBoxLayout(self)
         spectrum_layout.setContentsMargins(6, 6, 6, 6)
+        from temsim.gui.page_calculation import PageCalculationBar
+        self.calculation_bar = PageCalculationBar(
+            "EDS", "sampleEdsAcquirePoint", button=self.eds_acquire,
+            note="Uses the current instrument and executed upstream state.",
+        )
+        self.calculate_button = self.eds_acquire
+        spectrum_layout.addWidget(self.calculation_bar)
         self.spectrum_plot = pg.PlotWidget(background="#050816")
         self.spectrum_plot.setObjectName("edsSpectrumPlot")
         self.spectrum_plot.setLabel("bottom", "X-ray energy", units="keV")
@@ -358,7 +365,7 @@ class EDSPage(QWidget):
         self.eds_elastic_max_events.valueChanged.connect(
             lambda value: self._set_integer("eds_elastic_max_events", value)
         )
-        self.eds_acquire.clicked.connect(self._calculate_eds_point)
+        self.calculation_bar.requested.connect(self._request_eds_calculation)
         for control, field in (
             (
                 self.sample_region_upstream,
@@ -445,7 +452,7 @@ class EDSPage(QWidget):
         changed = result is not self._result or (result is None and self._eds_result is not None)
         if changed:
             self._clear_result(
-                "No EDS product is available in this shared result."
+                "No EDS product in this result. Click Calculate EDS on this page."
             )
         self._result = result
         if changed:
@@ -466,7 +473,8 @@ class EDSPage(QWidget):
             self._sample_region_result = getattr(
                 result, "sample_region", None
             )
-        if not self._has_incident_current():
+        self.calculation_bar.set_result_available(self._eds_result is not None)
+        if result is not None and not self._has_incident_current():
             self.eds_summary.setText("No incident current at the specimen | no EDS signal")
             self.sample_region_summary.setText(
                 "No incident current at the specimen | sample transport unavailable"
@@ -482,33 +490,10 @@ class EDSPage(QWidget):
             getattr(self._result, "state_snapshot", self._state),
         )
 
-    def _result_calculation_state(self):
-        """Return the immutable calculation context that produced the rays.
-
-        Manual EDS enrichment must use the High-accuracy snapshot, including
-        its overridden ray count and integration step.  Using the editable
-        live state here can relabel a retained 15k-ray interaction as a 1k-ray
-        product and make a later cache lookup reuse the wrong artifact.
-        """
-
-        if self._result is None:
-            raise ValueError("No completed calculation result is available.")
-        snapshot = getattr(self._result, "state_snapshot", None)
-        if snapshot is not None:
-            return snapshot
-        # Lightweight legacy/test results predate calculation snapshots.  A
-        # signed production result must never silently fall back to live state.
-        if getattr(self._result, "signatures", None):
-            raise ValueError(
-                "The completed result has no calculation-state snapshot."
-            )
-        if self._state is None:
-            raise ValueError("No microscope state is available.")
-        return self._state
-
     def mark_result_stale(self) -> None:
         """Detach live calculation controls without erasing complete plots."""
 
+        self.calculation_bar.mark_stale()
         if self._result is None:
             return
         self._result = None
@@ -517,7 +502,7 @@ class EDSPage(QWidget):
         )
         self.eds_summary.setToolTip(
             "The displayed spectrum belongs to the previous High accuracy "
-            "state. Run High accuracy before calculating new EDS data."
+            "state. Click Calculate EDS to update it."
         )
         self._update_signal_diagnostics(self._eds_result, stale=True)
         self.sample_region_summary.setText(
@@ -609,9 +594,10 @@ class EDSPage(QWidget):
         self._changed(name)
 
     def _changed(self, name):
+        self.calculation_bar.mark_stale()
         if self._result is None:
             self.eds_summary.setText(
-                "EDS inputs changed | run High accuracy to update the shared result"
+                "EDS inputs changed | click Calculate EDS to update this page"
             )
         else:
             self.mark_result_stale()
@@ -635,7 +621,7 @@ class EDSPage(QWidget):
             *self.eds_scalar_controls.values(),
         ):
             control.setEnabled(enabled)
-        self.eds_acquire.setEnabled(enabled and self._has_incident_current())
+        self.eds_acquire.setEnabled(enabled)
         self.eds_support_mesh.setEnabled(enabled and not material_is_vacuum)
         self.eds_poisson_seed.setEnabled(
             enabled and self.eds_poisson_enabled.isChecked()
@@ -656,19 +642,17 @@ class EDSPage(QWidget):
         self._reset_spectrum_hover()
         self._update_signal_diagnostics(None)
         self._clear_sample_region_result(
-            "Sample-region result is stale; run the manual calculation again."
+            "Click Calculate detailed sample to update the local view.",
+            notify=False,
         )
 
-    def _clear_sample_region_result(self, text: str) -> None:
-        """Invalidate display geometry without discarding shared EDS physics."""
+    def _clear_sample_region_result(self, text: str, *, notify=True) -> None:
+        """Drop a local view reference without modifying executed checkpoints."""
 
-        had_sample_region = self._sample_region_result is not None
         self._sample_region_result = None
-        if self._result is not None:
-            self._result.sample_region = None
         self.sample_region_summary.setText(text)
-        if had_sample_region:
-            self.sample_region_result_ready.emit(None)
+        if notify:
+            self.sample_region_view_changed.emit()
 
     def _store_specimen_interactions(self, interactions) -> bool:
         """Share enrichment only when its scoped cache identities match."""
@@ -691,9 +675,9 @@ class EDSPage(QWidget):
         if mismatched:
             self.error.emit(
                 "Manual specimen result does not match the completed "
-                "High-accuracy calculation ("
+                "calculation ("
                 + ", ".join(mismatched)
-                + "). Run High accuracy again."
+                + "). Click Calculate EDS again."
             )
             return False
 
@@ -703,240 +687,15 @@ class EDSPage(QWidget):
         self.specimen_interactions_updated.emit(interactions)
         return True
 
-    def sample_region_calculation_available(self) -> bool:
-        """Return whether an explicit bounded specimen calculation can run."""
-
-        if self._state is None or self._result is None:
-            return False
-        if not self._has_incident_current():
-            return False
-        try:
-            sample = self._result_calculation_state().sample
-        except ValueError:
-            return False
-        return bool(
-            self.eds_enabled.isChecked()
-            and str(self.eds_transport.currentData())
-            == "elastic_monte_carlo"
-            and specimen_interactions_active(sample)
-        )
-
-    def calculate_sample_region(self) -> bool:
-        """Run the user-requested bounded specimen calculation once."""
-
-        if self._state is None or self._result is None:
-            self.error.emit(
-                "Run High accuracy before building the detailed sample view."
-            )
-            return False
-        if not self.sample_region_calculation_available():
-            self.error.emit(
-                "Sample-region transport requires an inserted Real CIF or "
-                "Virtual reference sample, enabled EDS, and Elastic Monte "
-                "Carlo transport."
-            )
-            return False
-        self.sample_region_summary.setText(
-            "Calculating the manually requested bounded sample region..."
-        )
-        try:
-            from temsim.component_keys import EDS_DETECTOR_SYSTEM
-            from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
-            from temsim.specimen.sample_region import simulate_sample_region
-
-            assembly = getattr(self._result, "assembly", None)
-            if assembly is None:
-                raise ValueError(
-                    "The current result has no installed EDS geometry."
-                )
-            geometry = EDSDetectorArrayGeometry.from_part_data(
-                assembly.part(EDS_DETECTOR_SYSTEM).data
-            )
-            result = simulate_sample_region(
-                self._result_calculation_state(),
-                self._result,
-                geometry,
-                upstream_distance_um=self.sample_region_upstream.value(),
-                downstream_distance_um=self.sample_region_downstream.value(),
-                photon_path_count=self.sample_region_photons.value(),
-                secondary_path_count=0,
-                seed=self.sample_region_seed.value(),
-                existing_interactions=self._specimen_interactions,
-            )
-        except Exception as exc:
-            self.error.emit(str(exc))
-            self.sample_region_summary.setText(f"Calculation failed: {exc}")
-            return False
-        if not self._store_specimen_interactions(result.interactions):
-            self.sample_region_summary.setText(
-                "Calculation discarded because its cache identity did not "
-                "match the High-accuracy result."
-            )
-            return False
-        self._sample_region_result = result
-        self._result.sample_region = result
-        self._result.specimen_exit = result.specimen_exit
-        result_signatures = dict(
-            getattr(self._result, "signatures", None) or {}
-        )
-        for key in ("sample_region", "sample_downstream"):
-            signature = str(result.metrics.get(f"{key}_signature", ""))
-            if signature:
-                result_signatures[key] = signature
-        self._result.signatures = result_signatures
-        self._result.calculated_products = frozenset(
-            set(getattr(self._result, "calculated_products", ()) or ())
-            | {"sample_region", "sample_downstream"}
-        )
-        self._eds_result = result.spectrum
-        self._elastic_result = result.spectrum.elastic_transport
-        self._plot_spectrum(result.spectrum)
-        metrics = result.metrics
-        forward = 100.0 * float(metrics.get("downstream_forward_weight", 0.0))
-        exit_weight = 100.0 * float(metrics.get("exit_plane_weight", 0.0))
-        shared_text = (
-            " Reused the cached EDS and elastic specimen calculation."
-            if not metrics.get(
-                "specimen_observables_calculated_for_this_view", ()
-            )
-            else " Calculated the missing specimen signals once."
-        )
-        detail_text = (
-            f"Entry {result.entry_z_mm:.6g} mm -> exit {result.exit_z_mm:.6g} mm; "
-            f"{metrics['sample_ray_count']:,} specimen histories, "
-            f"{len(result.photon_paths):,} isotropic X-ray representatives, "
-            f"Forward elastic terminal weight {forward:.6g}%; "
-            f"{exit_weight:.6g}% tracked electron weight reaches the selected "
-            f"exit boundary after specimen losses.{shared_text}"
-        )
-        self.sample_region_summary.setText(
-            f"{metrics['sample_ray_count']:,} histories | "
-            f"{len(result.photon_paths):,} X-ray paths | "
-            f"forward {forward:.6g}% | exit {exit_weight:.6g}%"
-        )
-        self.sample_region_summary.setToolTip(
-            detail_text
-            + "\n\n"
-            + "\n".join(
-                f"{key}: {value}"
-                for key, value in metrics.items()
-                if not str(key).startswith("secondary_")
-            )
-        )
-        eds_detail = (
-            f"Bounded EDS result: {result.spectrum.total_expected_counts:.6g} "
-            "expected counts. X-ray lines are propagated isotropically for "
-            "display; detected paths use the exact aggregate-solid-angle "
-            "angular surrogate, not an invented sensor face."
-        )
-        self.eds_summary.setText(
-            f"Bounded EDS | {result.spectrum.total_expected_counts:.6g} "
-            f"expected counts | {len(result.spectrum.lines)} line contributions"
-        )
-        self.eds_summary.setToolTip(eds_detail)
-        self.sample_region_result_ready.emit(result)
-        return True
-
-    def _calculate_eds_point(self):
-        if self._state is None or self._result is None:
-            self.error.emit(
-                "Run a column calculation before the explicit EDS acquisition."
-            )
+    def _request_eds_calculation(self):
+        """Send an explicit request; numerical execution belongs to the worker."""
+        if self._state is None:
+            self.error.emit("Load an instrument before calculating EDS.")
             return
         if not self.eds_enabled.isChecked():
-            self.eds_summary.setText("EDS acquisition is disabled.")
+            self.eds_summary.setText("Enable EDS acquisition before clicking Calculate EDS.")
             return
-        try:
-            from temsim.component_keys import EDS_DETECTOR_SYSTEM
-            from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
-            from temsim.specimen.interaction_engine import (
-                run_specimen_interactions,
-            )
-            from temsim.specimen.interaction_types import (
-                SpecimenInteractionRequest,
-            )
-
-            assembly = getattr(self._result, "assembly", None)
-            if assembly is None:
-                raise ValueError("The current result has no installed EDS geometry.")
-            geometry = EDSDetectorArrayGeometry.from_part_data(
-                assembly.part(EDS_DETECTOR_SYSTEM).data
-            )
-            interactions = run_specimen_interactions(
-                self._result_calculation_state(),
-                getattr(self._result, "simulation", None),
-                SpecimenInteractionRequest.eds_point(),
-                detector_geometry=geometry,
-                existing_result=self._specimen_interactions,
-            )
-            spectrum = interactions.eds_spectrum
-            if spectrum is None:
-                raise RuntimeError(
-                    "Specimen interaction engine returned no EDS spectrum"
-                )
-        except Exception as exc:
-            self.error.emit(str(exc))
-            self.eds_summary.setText(f"EDS calculation failed: {exc}")
-            return
-        if not self._store_specimen_interactions(interactions):
-            self.eds_summary.setText(
-                "EDS result discarded because its cache identity did not "
-                "match the High-accuracy result."
-            )
-            return
-        self._eds_result = spectrum
-        self._elastic_result = spectrum.elastic_transport
-        self._plot_spectrum(spectrum)
-        sampled_text = (
-            ""
-            if spectrum.sampled_counts is None
-            else f"; sampled {int(np.sum(spectrum.sampled_counts))} counts"
-        )
-        source_names = ", ".join(
-            dict.fromkeys(line.source_key for line in spectrum.lines)
-        ) or "no characteristic contributions"
-        if self._elastic_result is None:
-            transport_text = "Straight-primary reference; no elastic MC."
-        else:
-            metrics = self._elastic_result.metrics
-            transport_text = (
-                f"Elastic MC used all {metrics['trajectory_count']:,} rays "
-                f"reaching the sample plane; "
-                f"{metrics['mean_elastic_events_per_trajectory']:.6g} "
-                f"weighted mean events, "
-                f"{100.0 * metrics['transmitted_fraction']:.5g}% forward, "
-                f"{100.0 * metrics['backscattered_fraction']:.5g}% reverse. "
-                f"{metrics['stored_trajectory_count']:,} histories are available in Sample Interactions 3D."
-            )
-            if metrics["rutherford_heavy_element_warning"]:
-                transport_text += " Z>30 encountered; ELSEPA is recommended."
-        reused_text = (
-            " Cached specimen result reused."
-            if "characteristic_x_ray" not in set(
-                interactions.metrics.get(
-                    "calculated_observables_this_call", ()
-                )
-            )
-            else ""
-        )
-        detail_text = (
-            f"EDS point: {spectrum.total_expected_counts:.6g} expected "
-            f"counts{sampled_text}; {len(spectrum.lines)} characteristic "
-            f"track-line contributions; sources: {source_names}. "
-            f"{transport_text} Bremsstrahlung is not yet included.{reused_text}"
-        )
-        self.eds_summary.setText(
-            f"EDS point | {spectrum.total_expected_counts:.6g} expected "
-            f"counts{sampled_text} | {len(spectrum.lines)} line contributions | "
-            f"{source_names}"
-        )
-        self.eds_summary.setToolTip(
-            detail_text
-            + "\n\n"
-            + "\n".join(
-                f"{key}: {value}" for key, value in spectrum.metrics.items()
-            )
-        )
+        self.calculation_requested.emit()
 
     def _update_signal_diagnostics(self, spectrum, *, stale=False) -> None:
         """Explain the displayed estimate using its completed transport only."""

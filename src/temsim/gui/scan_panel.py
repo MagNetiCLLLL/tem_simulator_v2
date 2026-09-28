@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -30,6 +31,8 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -54,6 +57,7 @@ class ScanControlView(QWidget):
     playback_time_changed = Signal(float)
     playback_active_changed = Signal(bool)
     df_geometry_requested = Signal(object)
+    calculation_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -154,18 +158,32 @@ class ScanControlView(QWidget):
             title="Descan Foils",
             prefix="descan",
         )
-        self.image_enabled = QCheckBox("Generate STEM detector images (High accuracy)")
+        self.image_enabled = QCheckBox("Generate STEM detector images")
         self.image_enabled.setObjectName("stemImageEnabled")
         self.image_enabled.toggled.connect(self._image_readout_changed)
         controls_layout.addWidget(self.image_enabled)
+        particle_model_row = QHBoxLayout()
+        particle_model_row.addWidget(QLabel("Particle model"))
+        self.stem_particle_model = QComboBox()
+        self.stem_particle_model.setObjectName("stemParticleModel")
+        self.stem_particle_model.addItem("Projected atoms (fast approximation)", "projected_atoms")
+        self.stem_particle_model.addItem("Material particle paths", "material_paths")
+        self.stem_particle_model.setToolTip(
+            "Projected atoms uses the selected atomic structure and particle-probe intensity "
+            "for a non-wave scattering approximation; a structure is required. "
+            "Material particle paths uses the simulated material-scattering trajectories. "
+            "Changing this selection requires Calculate STEM and does not select a new source."
+        )
+        self.stem_particle_model.currentIndexChanged.connect(self._stem_particle_model_changed)
+        particle_model_row.addWidget(self.stem_particle_model, 1)
+        controls_layout.addLayout(particle_model_row)
         self.wave_scan_enabled = QCheckBox(
             "Coherent STEM wave imaging (paused)"
         )
         self.wave_scan_enabled.setObjectName("stemWaveScanEnabled")
         self.wave_scan_enabled.setToolTip(
-            "Use the specimen wave model for BF, DF and HAADF images during "
-            "High accuracy. Shared multislice and wave-grid settings are on Sample. "
-            "Preview remains geometric; this switch does not start a calculation."
+            "Coherent tip-to-column imaging is paused. Historical settings remain readable. "
+            "Calculate STEM does not enable a coherent source."
         )
         self.wave_scan_enabled.toggled.connect(
             self._wave_scan_model_changed
@@ -410,6 +428,12 @@ class ScanControlView(QWidget):
         self.parameters_page.setObjectName("scanningParametersPage")
         parameters_layout = QVBoxLayout(self.parameters_page)
         parameters_layout.setContentsMargins(0, 0, 0, 0)
+        from temsim.gui.page_calculation import PageCalculationBar
+        self.calculation_bar = PageCalculationBar("STEM", "calculateStem")
+        self.calculate_button = self.calculation_bar.button
+        self.calculation_bar.requested.connect(self.calculation_requested.emit)
+        self.parameters_changed.connect(self.calculation_bar.mark_stale)
+        parameters_layout.addWidget(self.calculation_bar)
         parameters_layout.addWidget(self.summary)
         parameters_layout.addWidget(scope)
         parameters_layout.addWidget(self.controls_scroll, 1)
@@ -507,6 +531,18 @@ class ScanControlView(QWidget):
         )
         self.image_display_quantity.currentIndexChanged.connect(self._image_quantity_changed)
         quantity_row.addWidget(self.image_display_quantity)
+        self.image_contrast_mode = QComboBox()
+        self.image_contrast_mode.setObjectName("stemImageContrastMode")
+        self.image_contrast_mode.addItem("Auto contrast", "auto")
+        self.image_contrast_mode.addItem("Fixed fraction 0–1", "fixed_fraction")
+        self.image_contrast_mode.setToolTip(
+            "Display only: Auto contrast uses each detector's full-frame signal range; "
+            "Fixed fraction 0–1 preserves absolute fraction brightness. Neither changes "
+            "stored signals, scan settings or calculation caches. Count views retain "
+            "their shared electron-count scale."
+        )
+        self.image_contrast_mode.currentIndexChanged.connect(self._image_quantity_changed)
+        quantity_row.addWidget(self.image_contrast_mode)
         self.image_quantity_notice = QLabel("Ideal intensity | No STEM frame")
         self.image_quantity_notice.setObjectName("stemImageQuantityNotice")
         self.image_quantity_notice.setWordWrap(True)
@@ -527,10 +563,26 @@ class ScanControlView(QWidget):
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
         detector_layout.addWidget(self.detector_playback_summary)
+        self.current_pixel_status = QLabel("No current-pixel readout. Click Calculate STEM.")
+        self.current_pixel_status.setObjectName("stemCurrentPixelStatus")
+        self.current_pixel_status.setWordWrap(True)
+        self.current_pixel_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.current_pixel_table = QTableWidget(0, 4)
+        self.current_pixel_table.setObjectName("stemCurrentPixelTable")
+        self.current_pixel_table.setHorizontalHeaderLabels(
+            ("Detector", "Simulated electrons", "Electrons/s", "Status")
+        )
+        self.current_pixel_table.verticalHeader().hide()
+        self.current_pixel_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.current_pixel_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.current_pixel_table.hide()
+        self.current_pixel_status.hide()
+        detector_layout.addWidget(self.current_pixel_status)
+        detector_layout.addWidget(self.current_pixel_table)
         self.image_model_notice = QLabel("No STEM frame loaded.")
         self.image_model_notice.setToolTip(
             "Run a STEM calculation to identify whether the images are a "
-            "geometry/material-particle preview or CIF multislice signal."
+            "projected-atom scattering approximation, geometry preview or historical wave signal."
         )
         self.image_model_notice.setObjectName("stemImageModelNotice")
         self.image_model_notice.setWordWrap(True)
@@ -547,10 +599,10 @@ class ScanControlView(QWidget):
         self.enable_wave_images.setObjectName("stemEnableCifWaveImages")
         self.enable_wave_images.setToolTip(
             "Coherent tip-to-column imaging is paused. "
-            "Run High accuracy separately; the displayed frame remains unchanged."
+            "Click Calculate STEM separately; the displayed frame remains unchanged."
         )
         self.enable_wave_images.clicked.connect(lambda: self.wave_scan_enabled.setChecked(True))
-        self.wave_image_action_note = QLabel("Then run High accuracy to calculate specimen contrast.")
+        self.wave_image_action_note = QLabel("Then click Calculate STEM to calculate specimen contrast.")
         self.wave_image_action_note.setWordWrap(True)
         model_action_row.addWidget(self.enable_wave_images)
         model_action_row.addWidget(self.wave_image_action_note, 1)
@@ -563,10 +615,11 @@ class ScanControlView(QWidget):
             "configured scattered-angle band; HAADF records the configured "
             "high-angle band. Exact angular ranges appear above each image. "
             "Small-angle BF and low-angle DF can reverse atomic contrast with "
-            "thickness, focus and detector angle. Geometry/particle previews "
-            "use a fixed 0–1 fraction scale; uniform nonzero signals use "
-            "mid-gray and an explicit constant-value label. Wave images use "
-            "per-channel auto contrast. Larger signal is brighter. No inversion "
+            "thickness, focus and detector angle. Ideal intensity offers "
+            "per-channel Auto contrast or Fixed fraction 0–1. Auto contrast "
+            "can make small signal differences conspicuous; inspect the displayed "
+            "actual range. Uniform nonzero signals use mid-gray in Auto contrast "
+            "and an explicit constant-value label. Larger signal is brighter. No inversion "
             "or forced BF/DF complement is applied. Expected electrons and "
             "Poisson counts share a zero-based count scale for each detector "
             "and frame; stored noise is not resampled during playback."
@@ -913,6 +966,9 @@ class ScanControlView(QWidget):
             )
             self._update_fov_labels()
             self.image_enabled.setChecked(bool(getattr(state.sample, "stem_image_enabled", True)))
+            self.stem_particle_model.setCurrentIndex(
+                self.stem_particle_model.findData(state.sample.stem_particle_model)
+            )
             self.wave_scan_enabled.setChecked(
                 bool(getattr(state.sample, "stem_wave_enabled", False))
             )
@@ -990,6 +1046,15 @@ class ScanControlView(QWidget):
             return
         self._state.sample.stem_image_enabled = bool(enabled)
         self.parameters_changed.emit("sample.stem_image_enabled")
+
+    def _stem_particle_model_changed(self, _index: int) -> None:
+        if self._updating or self._state is None:
+            return
+        model = self.stem_particle_model.currentData()
+        if model is None:
+            return
+        self._state.sample.stem_particle_model = model
+        self.parameters_changed.emit("sample.stem_particle_model")
 
     def _wave_scan_model_changed(self, enabled: bool) -> None:
         if self._updating or self._state is None:
@@ -1172,7 +1237,7 @@ class ScanControlView(QWidget):
             )
         elif self.fourdstem_enabled.isChecked():
             self.fourdstem_summary.setText(
-                "Enabled; run High accuracy to save the diffraction cube."
+                "Enabled; click Calculate STEM to save the diffraction cube."
             )
             self.fourdstem_summary.setToolTip(
                 "Requires STEM illumination and wave / multislice detector signal."
@@ -1618,6 +1683,7 @@ class ScanControlView(QWidget):
 
     def _image_quantity_changed(self, _index: int = 0) -> None:
         """Change presentation of stored arrays without touching acquisition."""
+        self.image_contrast_mode.setEnabled(self.image_display_quantity.currentData() == "ideal")
         bank = self._showing_bank_images()
         frame = (getattr(self._bank_readout, "stem", None) if bank else
                  self._paused_display_frame if self.pause_image_refresh.isChecked()
@@ -1669,11 +1735,11 @@ class ScanControlView(QWidget):
             if quantity != "ideal":
                 text += ("\nSelect a bank frame containing these counts."
                          if self._showing_bank_images() else
-                         "\nEnable Generate seeded Poisson counts and run High accuracy."
-                         if quantity == "poisson" else "\nRun High accuracy to store expected electrons.")
+                         "\nEnable Generate seeded Poisson counts and click Calculate STEM."
+                         if quantity == "poisson" else "\nClick Calculate STEM to store expected electrons.")
             self.image_quantity_notice.setText(text)
             self.image_quantity_notice.setToolTip(
-                "Run High accuracy to calculate a frame; for Poisson counts, "
+                "Click Calculate STEM to calculate a frame; for Poisson counts, "
                 "enable Generate seeded Poisson counts before calculating. "
                 "The display selector does not calculate or resample data."
             )
@@ -1711,8 +1777,8 @@ class ScanControlView(QWidget):
             text += "\nUnavailable: " + "; ".join(f"{key.upper()} ({reason})" for key, reason in unavailable)
             if quantity != "ideal" and any("stored" in reason or "invalid" in reason
                                            for _key, reason in unavailable):
-                action = ("Enable Generate seeded Poisson counts and run High accuracy."
-                          if quantity == "poisson" else "Run High accuracy to store expected electrons.")
+                action = ("Enable Generate seeded Poisson counts and click Calculate STEM."
+                          if quantity == "poisson" else "Click Calculate STEM to store expected electrons.")
                 if bank:
                     action += " Regenerate or select a bank frame containing these data."
                 elif self.pause_image_refresh.isChecked():
@@ -1829,12 +1895,14 @@ class ScanControlView(QWidget):
                 )
             self.image_model_notice.setToolTip(self.image_model_notice.toolTip() + "\n" + "\n".join(detail))
 
-    def display_result(self, result, stem_frame=None, *, complete=False, state_snapshot=None) -> None:
+    def display_result(self, result, stem_frame=None, *, complete=False, state_snapshot=None,
+                       explicit_calculation=False) -> None:
         """Display scan geometry and one reusable detector-signal frame."""
 
         self._result = result
         if stem_frame is not None:
-            self._set_stem_frame(stem_frame, state_snapshot=state_snapshot)
+            self._set_stem_frame(stem_frame, state_snapshot=state_snapshot,
+                                 explicit_calculation=explicit_calculation)
         elif complete:
             self._stem_frame = None
             self._stem_frame_context = None
@@ -1844,6 +1912,7 @@ class ScanControlView(QWidget):
                 self._clear_detector_images()
                 self._update_image_model_notice(None)
             self._update_fourdstem_summary(None)
+            self.calculation_bar.set_result_available(False)
         live_ac = (
             getattr(self._state, "ac_deflector", None)
             if self._state is not None
@@ -1964,6 +2033,9 @@ class ScanControlView(QWidget):
     def mark_stem_frame_stale(self) -> None:
         """Freeze the previous complete detector frame after input changes."""
 
+        self.calculation_bar.mark_stale()
+        if self.current_pixel_table.rowCount():
+            self.current_pixel_status.setText("Previous current-pixel readout | inputs changed; click Calculate STEM.")
         if self._stem_frame is None:
             return
         self._stem_frame_stale = True
@@ -1973,6 +2045,47 @@ class ScanControlView(QWidget):
             return
         frame = self._paused_display_frame or self._stem_frame
         self._update_image_model_notice(frame, check_cif=False)
+
+    def set_particle_signals(self, rows, *, scan_enabled=False) -> None:
+        """Show executed detector counts; never derive a pixel from a raster image."""
+        rows = tuple(row for row in (rows or ()) if row.key in STEM_DETECTOR_KEYS)
+        self.current_pixel_table.setRowCount(len(rows))
+        for index, row in enumerate(rows):
+            valid = str(row.status) == "AVAILABLE"
+
+            def number(value):
+                return (f"{float(value):.9g}" if valid and value is not None
+                        and np.isfinite(float(value)) else "—")
+
+            values = (str(row.name), number(row.simulated_electrons),
+                      number(row.electrons_per_second), str(row.status).replace("_", " "))
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.current_pixel_table.setItem(index, column, item)
+        self.current_pixel_table.ensurePolished()
+        self.current_pixel_table.resizeRowsToContents()
+        header = self.current_pixel_table.horizontalHeader()
+        self.current_pixel_table.setFixedHeight(
+            max(header.height(), header.sizeHint().height())
+            + sum(self.current_pixel_table.rowHeight(index) for index in range(min(len(rows), 4)))
+            + 2 * self.current_pixel_table.frameWidth()
+        )
+        visible = bool(rows) and not scan_enabled
+        self.current_pixel_table.setVisible(visible)
+        self.current_pixel_status.setVisible(visible)
+        self.current_pixel_status.setText(
+            "Current pixel | completed particle-detector readout"
+            if rows else "No current-pixel readout. Click Calculate STEM."
+        )
+        self.current_pixel_status.setToolTip(
+            "Simulated electrons are weighted counts in the executed numerical bundle. "
+            "Electrons/s uses the physical source current. A dash means unavailable, "
+            "not zero; a physical electron count additionally requires an exposure."
+        )
+        if visible:
+            self.calculation_bar.set_result_available(True)
+            self.image_model_notice.setText("Scan is off | current pixel signals shown on this page; no raster image calculated")
 
     @staticmethod
     def _validate_stem_frame(frame) -> None:
@@ -1992,7 +2105,7 @@ class ScanControlView(QWidget):
             if not np.all(np.isfinite(array)):
                 raise ValueError(f"{key}: detector image must be finite.")
 
-    def _set_stem_frame(self, frame, *, state_snapshot=None) -> None:
+    def _set_stem_frame(self, frame, *, state_snapshot=None, explicit_calculation=False) -> None:
         self._validate_stem_frame(frame)
         previous_frame = self._stem_frame
         previous_context = self._stem_frame_context
@@ -2002,12 +2115,20 @@ class ScanControlView(QWidget):
         )
         self._stem_frame_stale = False
         if self.pause_image_refresh.isChecked():
-            if self._paused_display_frame is None:
+            if explicit_calculation:
+                # An explicit page request publishes its completed frame while
+                # retaining the user's choice to pause automatic playback.
+                self._paused_display_frame = frame
+                self._paused_display_context = self._stem_frame_context
+            elif self._paused_display_frame is None:
                 self._paused_display_frame = previous_frame or frame
                 self._paused_display_context = previous_context if previous_frame is not None else self._stem_frame_context
             display_frame = self._paused_display_frame
         else:
             display_frame = frame
+        self.calculation_bar.set_result_available(True)
+        if explicit_calculation and self._showing_bank_images():
+            self.image_source.setCurrentIndex(self.image_source.findData("current"))
         self._update_fourdstem_summary(display_frame)
         self._stem_auto_range_pending = True
         if self._showing_bank_images():
@@ -2023,10 +2144,10 @@ class ScanControlView(QWidget):
             self._wave_action_needed = True
             self._update_wave_image_action()
             self.image_model_notice.setText(
-                "No STEM frame | High accuracy: selected particle readouts · coherent imaging paused"
+                "No STEM frame | Click Calculate STEM · coherent imaging paused"
             )
             self.image_model_notice.setToolTip(
-                "Select STEM images in Calculate setup and enable the AC raster, then run High accuracy. "
+                "Enable the AC raster, then click Calculate STEM on this page. "
                 "Current calculations use classical particles; atomic wave contrast is paused."
             )
             return
@@ -2096,6 +2217,55 @@ class ScanControlView(QWidget):
             colour = (
                 "color: #92400e; background: #fffbeb; border: 1px solid #f59e0b;"
             )
+        elif model == "projected_atomic_scattering":
+            text = "Projected-atom scattering approximation" + compact_scale
+            detail_text = (
+                "Classical, non-wave image from projected independent atoms and the "
+                "executed particle-probe intensity. It estimates position-dependent "
+                "scattering into the physical detectors; coherent diffraction, "
+                "channeling and coherent multiple scattering are not modelled. "
+                "This is a qualitative approximation, not a quantitative atomic-resolution qualification."
+            )
+            sigma = metrics.get("probe_sigma_principal_nm")
+            if isinstance(sigma, (list, tuple, np.ndarray)) and len(sigma) == 2:
+                sigma = np.asarray(sigma, dtype=float)
+                if np.all(np.isfinite(sigma)) and np.all(sigma > 0):
+                    text += f" | Probe σ {sigma[0]:.3g}/{sigma[1]:.3g} nm"
+                    detail_text += (
+                        " Probe σ values are the two principal standard deviations of "
+                        "the executed incident-position covariance; they are not fitted widths."
+                    )
+            plural = metrics.get("maximum_plural_event_fraction")
+            if isinstance(plural, (float, int)) and np.isfinite(plural) and 0 <= plural <= 1:
+                text += f" | plural ≤ {plural:.3g}"
+                detail_text += (
+                    " Plural is the maximum conditional probability of two or more elastic "
+                    "events across the scan, estimated from the projected optical depth. "
+                    "The image uses one effective angular draw and does not resolve plural "
+                    "angular redistribution; this value is not an acceptance threshold."
+                )
+            unresolved = metrics.get("maximum_numerical_truncation_fraction", 0.)
+            if isinstance(unresolved, (float, int)) and np.isfinite(unresolved) and unresolved > 0:
+                text += f" | unresolved ≤ {unresolved:.3%}"
+                detail_text += (
+                    " Unresolved is the maximum emitted-current fraction whose response "
+                    "left the numerical field domain before a detector intersection. "
+                    "It is unknown, not physical absorption or a calculated detector signal. "
+                    "Particles already intercepted by a detector are excluded from this fraction."
+                )
+            limitation = str(metrics.get("model_limitation", "")).strip()
+            notes = metrics.get("approximation_notes", ())
+            if isinstance(notes, str):
+                notes = (notes,)
+            detail_text += " " + " ".join(str(note) for note in (notes or ()))
+            if limitation:
+                detail_text += " " + limitation
+            if cif_path:
+                detail_text += f" Captured structure: {Path(cif_path).name}."
+            detail_text += scale
+            colour = (
+                "color: #1e40af; background: #eff6ff; border: 1px solid #60a5fa;"
+            )
         elif model in {"multislice_angle_resolved", "thin_phase_angle_resolved"}:
             potential = str(metrics.get("specimen_potential_model", "specimen potential"))
             detail_text = (
@@ -2140,7 +2310,7 @@ class ScanControlView(QWidget):
             colour = "color: #92400e; background: #fffbeb; border: 1px solid #f59e0b;"
         if not bank and self._stem_frame_stale:
             text = "Previous frame | inputs changed\n" + text
-            detail_text = "Retained completed frame; run High accuracy to update it. " + detail_text
+            detail_text = "Retained completed frame; click Calculate STEM to update it. " + detail_text
         self._wave_action_needed = model == "geometric_detector_interception"
         self._update_wave_image_action()
         self.image_model_notice.setText(text)
@@ -2218,13 +2388,13 @@ class ScanControlView(QWidget):
                  and self._paused_display_frame is not None else self._stem_frame)
         if (self._showing_bank_images() or self._stem_frame_stale or frame is None
                 or frame is not self._stem_frame or frame is not shown or self._state is None):
-            raise ValueError("DF dimensions require the current calculated frame. Resume refresh and run High accuracy.")
+            raise ValueError("DF dimensions require the current calculated frame. Resume refresh and click Calculate STEM.")
         metrics = getattr(frame, "metrics", None) or {}
         signature = metrics.get("sampling_state_signature")
         if not signature or signature != calculation_signatures(self._state)["stem"]:
             raise ValueError(
                 "DF proposal belongs to an older camera length or microscope state. "
-                "Run High accuracy to update it."
+                "Click Calculate STEM to update it."
             )
 
     def _request_df_geometry(self) -> None:
@@ -2249,13 +2419,13 @@ class ScanControlView(QWidget):
         if self._state is None or pixels is None or not self.match_detector_sampling.isEnabled():
             return
         if metrics.get("sampling_state_signature") != calculation_signatures(self._state)["stem"]:
-            self.error.emit("Sampling proposal belongs to an older state. Run High accuracy to update it.")
+            self.error.emit("Sampling proposal belongs to an older state. Click Calculate STEM to update it.")
             return
         answer = QMessageBox.question(
             self, "Update wave sampling",
             f"Set wave Grid to {pixels}? Grid area grows about {report['grid_area_factor']:.1f}x.\n"
             "FOV, scan pixels, lenses and detectors stay unchanged.\n"
-            "Existing results are retained. Run High accuracy when ready.",
+            "Existing results are retained. Click Calculate STEM when ready.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -2533,7 +2703,7 @@ class ScanControlView(QWidget):
         self._update_image_quantity_notice(None)
 
     def _update_detector_contrast(self, key: str, levels, *, signal_range=None,
-                                  geometry_preview=False, quantity="ideal") -> None:
+                                  fixed_fraction=False, quantity="ideal") -> None:
         label = self.detector_contrast_labels[key]
         if levels is None:
             label.clear()
@@ -2554,19 +2724,25 @@ class ScanControlView(QWidget):
             )
         elif constant:
             value = signal_range[0]
-            label.setText(f"Constant signal: {value:.12g}\n" + ("Zero shown black" if value == 0 else "Uniform mid-gray"))
-            detail = "Uniform nonzero signals are shown mid-gray; zero is black. A uniform image does not imply zero signal. "
-        elif geometry_preview and signal_range is not None:
+            presentation = ("Uniform on fixed fraction scale: 0–1" if fixed_fraction else
+                            "Zero shown black" if value == 0 else "Uniform mid-gray")
+            label.setText(f"Constant signal: {value:.12g}\n{presentation}")
+            detail = "The signal is constant; no spatial contrast is introduced. A uniform image does not imply zero signal. "
+        elif fixed_fraction and signal_range is not None:
             label.setText(f"Fixed fraction scale: 0–1\nSignal range: {signal_range[0]:.9g}–{signal_range[1]:.9g}")
             detail = (
-                "Geometry/particle preview uses a fixed fraction-of-emitted-current scale. "
-                "Small ray-count changes are not stretched to full black and white. "
+                "The selected fixed fraction-of-emitted-current scale preserves "
+                "absolute fraction brightness rather than stretching the signal range. "
             )
         else:
-            label.setText(f"Auto contrast: {low:.6g}\u2013{high:.6g}")
-            detail = "Each nonconstant wave-image channel uses its own full-frame range. "
+            label.setText(f"Auto contrast\nSignal range: {low:.12g}\u2013{high:.12g}")
+            detail = "Each nonconstant detector channel uses its actual full-frame range, including small variations. "
+        if quantity == "ideal" and not constant and signal_range is not None:
+            precision = 9 if fixed_fraction else 12
+            if format(signal_range[0], f".{precision}g") == format(signal_range[1], f".{precision}g"):
+                label.setText(label.text() + f" | Δ {signal_range[1]-signal_range[0]:.3g}")
         label.setToolTip(
-            f"Black = minimum ({low:.9g}); white = maximum ({high:.9g}) of this "
+            f"Black = minimum ({low:.17g}); white = maximum ({high:.17g}) of this "
             "display range. " + detail + "Stored values are unchanged. "
             "The range stays fixed during line playback."
         )
@@ -2585,8 +2761,8 @@ class ScanControlView(QWidget):
         image_rect = self._stem_image_rect(frame)
         metrics = getattr(frame, "metrics", None) or {}
         report = frame_sampling_report(metrics)
-        geometry_preview = metrics.get("model") == "geometric_detector_interception"
         quantity = self.image_display_quantity.currentData()
+        fixed_fraction = self.image_contrast_mode.currentData() == "fixed_fraction"
         unavailable = []
         any_image = False
         for key, view in self.detector_image_views.items():
@@ -2618,11 +2794,11 @@ class ScanControlView(QWidget):
                 signal_range = (low, high)
                 if quantity != "ideal":
                     levels = self._shared_count_levels(frame, key)
+                elif fixed_fraction:
+                    levels = (0.0, 1.0)
                 elif high == low:
                     levels = ((0.0, 1.0) if low == 0 else
                               (min(0.0, 2.0 * low), max(0.0, 2.0 * low)))
-                elif geometry_preview:
-                    levels = (0.0, 1.0)
                 else:
                     levels = signal_range
             else:
@@ -2633,7 +2809,7 @@ class ScanControlView(QWidget):
                 levels=levels,
             )
             self._update_detector_contrast(key, levels, signal_range=signal_range,
-                                           geometry_preview=geometry_preview, quantity=quantity)
+                                           fixed_fraction=fixed_fraction, quantity=quantity)
             image_item.setRect(image_rect)
             if auto_range:
                 view.getViewBox().autoRange()

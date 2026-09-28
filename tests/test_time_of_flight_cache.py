@@ -116,7 +116,7 @@ def test_persistence_does_not_silently_upgrade_a_float32_checkpoint_clock(tmp_pa
     manifest = _manifest(state, selection)
     checkpoint = _checkpoints()
     store = ArtifactStore(tmp_path, quota_bytes=100_000_000)
-    arrays = {name: getattr(checkpoint, name) for name in ("z_mm", "x_m", "tx_rad", "y_m", "ty_rad")}
+    arrays = {name: getattr(checkpoint, name) for name in ("z_mm", "x_m", "tx_rad", "y_m", "ty_rad", "kinetic_energy_ev")}
     arrays["flight_time_s"] = np.zeros(checkpoint.x_m.shape, dtype=np.float32)
     store.put_array_bundle(manifest, product_key="incident",
         dependency_signature=str(manifest.calculation_signatures["incident"]),

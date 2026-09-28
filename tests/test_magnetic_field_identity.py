@@ -1,4 +1,4 @@
-"""Captured identities and paraxial equivalent-field bounds, not OEM validation."""
+"""Captured identities and finite-coil field bounds, not OEM validation."""
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
@@ -252,8 +252,8 @@ def test_finite_deflector_signed_integral_and_angle_at_exit_reference_plane(dx, 
     from temsim.physics.core import electron
 
     # Two separated configured coils; compare the first coil's exit Z only.
-    # The main model changes slope at the centre; the finite model bends within
-    # the coil. Their internal polylines and transverse exit position need not match.
+    # The captured finite field is shared with main transport. This fixture
+    # checks its signed paraxial integral, not a measured fringe-field shape.
     component = DeflectorPair("Deflector", "d", 25., 45., upper_x_mrad=dx * 1e3,
                                upper_y_mrad=dy * 1e3, thickness_mm=4.)
     state = bare_state(deflectors=(component,))
@@ -275,8 +275,8 @@ def test_finite_deflector_signed_integral_and_angle_at_exit_reference_plane(dx, 
     # Small-angle equivalence is only claimed here for |theta| < 3 mrad,
     # fixed 300 keV, axial incidence and no other active field.
     np.testing.assert_allclose(direction[:2] / direction[2], (dx, dy), rtol=2e-5, atol=2e-9)
-    assert info.model == "integrated_kick_equivalent"
-    assert "not the internal" in info.limitation
+    assert info.model == "finite_coil_dipole"
+    assert "fringe shape is unmodelled" in info.limitation
 
 
 def test_empty_scene_is_known_zero_but_keeps_unsupported_filter_explicit():

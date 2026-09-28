@@ -48,6 +48,7 @@ from temsim.physics.ray_identity import (
     select_identity,
     source_identity,
 )
+from temsim.physics.particle_energy import validate_kinetic_energy_array
 from temsim.specimen.axial_field_transport import (
     sample_axial_field_diagnostic,
 )
@@ -418,6 +419,15 @@ def _virtual_region_outlines(sample) -> tuple[np.ndarray, ...]:
     return tuple(rows)
 
 
+def _boundary_energies(state, branch, row):
+    """Read the displayed boundary's energy, including historical display data."""
+    history = getattr(branch, "kinetic_energy_ev", None)
+    if history is None:
+        return float(state.beam_voltage_kv)*1000.+np.asarray(branch.energy_offset_ev)
+    validate_kinetic_energy_array(history, np.shape(branch.x), allow_unknown=True)
+    return np.asarray(history)[row]
+
+
 def _sample_boundary_paths(
     calculation_result,
     scene: SpecimenScene,
@@ -456,6 +466,7 @@ def _sample_boundary_paths(
     ]
     rows: list[ScenePath] = []
     source_ids, source_angles = source_identity(incident)
+    incident_energy = _boundary_energies(state, incident, -1)
     for index in incident_indices if include_incident else ():
         x_nm = float(incident.x[-1, index]) * 1.0e9
         y_nm = float(incident.y[-1, index]) * 1.0e9
@@ -463,9 +474,9 @@ def _sample_boundary_paths(
         ty = float(incident.ty[-1, index])
         direction = np.asarray((tx, ty, 1.0), dtype=float)
         direction /= np.linalg.norm(direction)
-        energy_ev = float(state.beam_voltage_kv) * 1000.0 + float(
-            incident.energy_offset_ev[index]
-        )
+        energy_ev = float(incident_energy[index])
+        if not math.isfinite(energy_ev) or energy_ev <= 0.:
+            continue
         points, _ = field_transport.plane_polyline(
             (x_nm, y_nm, 0.0),
             direction,
@@ -522,6 +533,7 @@ def _sample_boundary_paths(
             "sample_region_primary",
         } or str(getattr(branch, "name", "")) == "000"
         category = "downstream_primary" if direct else "downstream_elastic"
+        boundary_energy = _boundary_energies(state, branch, 0)
         for index in candidates:
             x_nm = float(branch.x[0, index]) * 1.0e9
             y_nm = float(branch.y[0, index]) * 1.0e9
@@ -529,9 +541,9 @@ def _sample_boundary_paths(
             ty = float(branch.ty[0, index])
             direction = np.asarray((tx, ty, 1.0), dtype=float)
             direction /= np.linalg.norm(direction)
-            energy_ev = float(state.beam_voltage_kv) * 1000.0 + float(
-                branch.energy_offset_ev[index]
-            )
+            energy_ev = float(boundary_energy[index])
+            if not math.isfinite(energy_ev) or energy_ev <= 0.:
+                continue
             points, _ = field_transport.plane_polyline(
                 (x_nm, y_nm, 0.0),
                 direction,
@@ -894,7 +906,7 @@ def _beam_model_diagnostic_text(calculation_result) -> str:
     energy_text = ""
     if energy_offsets.size and np.all(np.isfinite(energy_offsets)):
         energy_text = (
-            f"; ΔE {float(np.min(energy_offsets)):+.4g} to "
+            f"; terminal ΔE {float(np.min(energy_offsets)):+.4g} to "
             f"{float(np.max(energy_offsets)):+.4g} eV"
         )
     emitter = getattr(getattr(state, "electron_gun", None), "emitter", None)
@@ -917,7 +929,7 @@ def _beam_model_diagnostic_text(calculation_result) -> str:
     if source_text:
         source_text = "; " + source_text
     return (
-        f"Beam cache: {int(np.count_nonzero(alive)):,}/{alive.size:,} rays at "
+        f"Beam cache: {int(np.count_nonzero(alive)):,}/{alive.size:,} rays; nominal "
         f"{float(state.beam_voltage_kv):.6g} kV; each carries x, y, θx, θy, "
         f"ΔE and current weight{energy_text}{source_text}."
     )

@@ -348,6 +348,7 @@ def _live_component_geometry(
         "end_z_mm",
         "length_mm",
         "effective_length_mm",
+        "effective_thickness_mm",
         "active_length_mm",
         "thickness_mm",
         "a_mm",

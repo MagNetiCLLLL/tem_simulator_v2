@@ -23,14 +23,12 @@ def _context(monkeypatch, *, size=8, state=None):
             stigmators=[], corrector_elements=[], strength=0.5,
         )
 
-    def provider(_state, _key, _native):
-        strength = state.strength
-        return SimpleNamespace(
-            field_support_mm=lambda: (-10.0, 10.0),
-            field_at_global_positions_t=lambda p: np.asarray(p) + strength,
-        )
+    def capture(snapshot):
+        strength = snapshot.strength
+        return SimpleNamespace(_sources=(),
+            field_at_global_positions_t=lambda p: np.asarray(p) + strength)
 
-    monkeypatch.setattr(field_module, "resolve_runtime_lens_field_provider", provider)
+    monkeypatch.setattr(field_module, "capture_instrument_magnetic_field", capture)
     transport = SpecimenFieldTransport(state, field_cache_size=size)
     uncached = Mock(wraps=transport._field_at_global_positions_t_uncached)
     monkeypatch.setattr(transport, "_field_at_global_positions_t_uncached", uncached)

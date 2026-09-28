@@ -56,6 +56,11 @@ _PLAIN_TYPES = frozenset({
 _RUNTIME_NAMES = frozenset({
     "_trace_cache", "_trace_cache_key", "_active_backends_used",
     "_closed_gun_field", "_continuous_gun_field",  # Rebuildable static field solutions, not source inputs.
+    "_instrument_magnetic_field",  # Scoped execution field, reconstructed from captured hardware inputs.
+    "_instrument_magnetic_identity",
+    "_instrument_magnetic_supports_mm",
+    "_instrument_magnetic_query_upper_m",
+    "_instrument_electric_end_mm",  # Canonical worker domain, derived from resolved mechanics.
     "_runtime_lens_field_provider_cache", "_field_provider_diagnostics",
     "_objective_plane_signature", "_equivalent_image_calibration_cache",
     "_tuning_cancelled",  # Worker cancellation callback, never a physical input.

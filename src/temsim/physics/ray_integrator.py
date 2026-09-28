@@ -10,6 +10,8 @@ import math
 
 import numpy as np
 
+ELECTRON_CHARGE_C = -1.602176634e-19
+
 try:
     from numba import cuda, njit, prange
     from numba.extending import register_jitable
@@ -31,6 +33,8 @@ def _canonical_rk4_stages(
     x, tx, y, ty, h,
     g0, gm, g1, kx0, kxm, kx1, ky0, kym, ky1,
     hn0, hnm, hn1, hs0, hsm, hs1, kxy0=0.0, kxym=0.0, kxy1=0.0,
+    magnetic_scale=1.0, fx0=0.0, fxm=0.0, fx1=0.0,
+    fy0=0.0, fym=0.0, fy1=0.0,
 ):
     """Advance one interval with exact coefficient values at all RK stages.
 
@@ -38,35 +42,42 @@ def _canonical_rk4_stages(
     canonical transformation is valid at nonzero-field source/checkpoint
     planes too; returning slopes preserves after-kick checkpoint semantics.
     """
+    # Effective multipoles are frozen at one reference momentum. Their shared
+    # B field stays fixed while each particle's q/p changes the force.
+    kx0, kxm, kx1 = kx0*magnetic_scale, kxm*magnetic_scale, kx1*magnetic_scale
+    ky0, kym, ky1 = ky0*magnetic_scale, kym*magnetic_scale, ky1*magnetic_scale
+    kxy0, kxym, kxy1 = kxy0*magnetic_scale, kxym*magnetic_scale, kxy1*magnetic_scale
+    hn0, hnm, hn1 = hn0*magnetic_scale, hnm*magnetic_scale, hn1*magnetic_scale
+    hs0, hsm, hs1 = hs0*magnetic_scale, hsm*magnetic_scale, hs1*magnetic_scale
     px = tx - g0 * y
     py = ty + g0 * x
 
     ax = px + g0 * y
     ay = py - g0 * x
     hu, hv = x * x - y * y, 2.0 * x * y
-    apx = -(kx0 + g0 * g0) * x - kxy0 * y + g0 * py - hn0 * hu - hs0 * hv
-    apy = -(ky0 + g0 * g0) * y - kxy0 * x - g0 * px + hn0 * hv - hs0 * hu
+    apx = -(kx0 + g0 * g0) * x - kxy0 * y + g0 * py - hn0 * hu - hs0 * hv + fx0
+    apy = -(ky0 + g0 * g0) * y - kxy0 * x - g0 * px + hn0 * hv - hs0 * hu + fy0
 
     bx, by = x + 0.5 * h * ax, y + 0.5 * h * ay
     bpx, bpy = px + 0.5 * h * apx, py + 0.5 * h * apy
     bx1, by1 = bpx + gm * by, bpy - gm * bx
     hu, hv = bx * bx - by * by, 2.0 * bx * by
-    bpx1 = -(kxm + gm * gm) * bx - kxym * by + gm * bpy - hnm * hu - hsm * hv
-    bpy1 = -(kym + gm * gm) * by - kxym * bx - gm * bpx + hnm * hv - hsm * hu
+    bpx1 = -(kxm + gm * gm) * bx - kxym * by + gm * bpy - hnm * hu - hsm * hv + fxm
+    bpy1 = -(kym + gm * gm) * by - kxym * bx - gm * bpx + hnm * hv - hsm * hu + fym
 
     cx, cy = x + 0.5 * h * bx1, y + 0.5 * h * by1
     cpx, cpy = px + 0.5 * h * bpx1, py + 0.5 * h * bpy1
     cx1, cy1 = cpx + gm * cy, cpy - gm * cx
     hu, hv = cx * cx - cy * cy, 2.0 * cx * cy
-    cpx1 = -(kxm + gm * gm) * cx - kxym * cy + gm * cpy - hnm * hu - hsm * hv
-    cpy1 = -(kym + gm * gm) * cy - kxym * cx - gm * cpx + hnm * hv - hsm * hu
+    cpx1 = -(kxm + gm * gm) * cx - kxym * cy + gm * cpy - hnm * hu - hsm * hv + fxm
+    cpy1 = -(kym + gm * gm) * cy - kxym * cx - gm * cpx + hnm * hv - hsm * hu + fym
 
     dx, dy = x + h * cx1, y + h * cy1
     dpx, dpy = px + h * cpx1, py + h * cpy1
     dx1, dy1 = dpx + g1 * dy, dpy - g1 * dx
     hu, hv = dx * dx - dy * dy, 2.0 * dx * dy
-    dpx1 = -(kx1 + g1 * g1) * dx - kxy1 * dy + g1 * dpy - hn1 * hu - hs1 * hv
-    dpy1 = -(ky1 + g1 * g1) * dy - kxy1 * dx - g1 * dpx + hn1 * hv - hs1 * hu
+    dpx1 = -(kx1 + g1 * g1) * dx - kxy1 * dy + g1 * dpy - hn1 * hu - hs1 * hv + fx1
+    dpy1 = -(ky1 + g1 * g1) * dy - kxy1 * dx - g1 * dpx + hn1 * hv - hs1 * hu + fy1
 
     x = x + h * (ax + 2.0 * bx1 + 2.0 * cx1 + dx1) / 6.0
     y = y + h * (ay + 2.0 * by1 + 2.0 * cy1 + dy1) / 6.0
@@ -79,11 +90,14 @@ def canonical_rk4_step(
     x, tx, y, ty, h,
     g0, gm, g1, kx0, kxm, kx1, ky0, kym, ky1,
     hn0, hnm, hn1, hs0, hsm, hs1, kxy0=0.0, kxym=0.0, kxy1=0.0,
+    magnetic_scale=1.0, fx0=0.0, fxm=0.0, fx1=0.0,
+    fy0=0.0, fym=0.0, fy1=0.0,
 ):
     """Existing ray-only API, using the same four RK stage states."""
     return _canonical_rk4_stages(
         x, tx, y, ty, h, g0, gm, g1, kx0, kxm, kx1, ky0, kym, ky1,
         hn0, hnm, hn1, hs0, hsm, hs1, kxy0, kxym, kxy1,
+        magnetic_scale, fx0, fxm, fx1, fy0, fym, fy1,
     )[:4]
 
 
@@ -100,10 +114,13 @@ def canonical_rk4_step_with_time(
     x, tx, y, ty, h,
     g0, gm, g1, kx0, kxm, kx1, ky0, kym, ky1,
     hn0, hnm, hn1, hs0, hsm, hs1, kxy0, kxym, kxy1, inverse_speed,
+    magnetic_scale=1.0, fx0=0.0, fxm=0.0, fx1=0.0,
+    fy0=0.0, fym=0.0, fy1=0.0,
 ):
     values = _canonical_rk4_stages(
         x, tx, y, ty, h, g0, gm, g1, kx0, kxm, kx1, ky0, kym, ky1,
         hn0, hnm, hn1, hs0, hsm, hs1, kxy0, kxym, kxy1,
+        magnetic_scale, fx0, fxm, fx1, fy0, fym, fy1,
     )
     elapsed = _rk4_flight_increment(h, inverse_speed, values[4], values[5],
         values[6], values[7], values[8], values[9], values[10], values[11])
@@ -111,18 +128,16 @@ def canonical_rk4_step_with_time(
 
 
 _canonical_step_numba = njit(cache=True, inline="always")(canonical_rk4_step)
-_canonical_time_numba = njit(cache=True, inline="always")(canonical_rk4_step_with_time)
 
 
 @njit(cache=True, parallel=True)
 def _parallel_rk4(
     kx, ky, hn, hs, larmor_axis, inverse_momentum, cs_kick,
     thin_power, thin_rotation, step_m, x0, tx0, y0, ty0,
-    kickx, kicky, save_index, checkpoint_index, kxy=None,
+    kickx, kicky, save_index, checkpoint_index, kxy,
+    dipole_bx_t, dipole_by_t, reference_momentum,
     initial_time_s=None, inverse_speed=None,
 ):
-    if kxy is None:
-        kxy = np.zeros_like(kx)
     nr, ns, nc = x0.size, save_index.size, checkpoint_index.size
     X = np.empty((ns, nr), np.float32)
     TX = np.empty((ns, nr), np.float32)
@@ -138,6 +153,8 @@ def _parallel_rk4(
         x, tx, y, ty = x0[ray], tx0[ray], y0[ray], ty0[ray]
         saved, captured = 0, 0
         inv_p = inverse_momentum[ray]
+        magnetic_scale = reference_momentum[0] * inv_p
+        charge_over_p = ELECTRON_CHARGE_C * inv_p
         time = initial_time_s[ray] if initial_time_s is not None else 0.
         for j in range(step_m.size + 1):
             tx -= thin_power[j] * x
@@ -167,15 +184,22 @@ def _parallel_rk4(
             if j == step_m.size:
                 continue
             a, b, c = 2 * j, 2 * j + 1, 2 * j + 2
+            d = 3*j
             if initial_time_s is not None:
-                x, tx, y, ty, elapsed = _canonical_time_numba(
+                values = _canonical_rk4_stages(
                     x, tx, y, ty, step_m[j],
                     larmor_axis[a]*inv_p, larmor_axis[b]*inv_p, larmor_axis[c]*inv_p,
                     kx[a], kx[b], kx[c], ky[a], ky[b], ky[c],
                     hn[a], hn[b], hn[c], hs[a], hs[b], hs[c],
-                    kxy[a], kxy[b], kxy[c], inverse_speed[ray],
+                    kxy[a], kxy[b], kxy[c],
+                    magnetic_scale,
+                    -charge_over_p*dipole_by_t[d], -charge_over_p*dipole_by_t[d+1], -charge_over_p*dipole_by_t[d+2],
+                    charge_over_p*dipole_bx_t[d], charge_over_p*dipole_bx_t[d+1], charge_over_p*dipole_bx_t[d+2],
                 )
-                time += elapsed
+                x, tx, y, ty = values[:4]
+                time += _rk4_flight_increment(step_m[j], inverse_speed[ray],
+                    values[4], values[5], values[6], values[7],
+                    values[8], values[9], values[10], values[11])
                 continue
             x, tx, y, ty = _canonical_step_numba(
                 x, tx, y, ty, step_m[j],
@@ -184,6 +208,9 @@ def _parallel_rk4(
                 kx[a], kx[b], kx[c], ky[a], ky[b], ky[c],
                 hn[a], hn[b], hn[c], hs[a], hs[b], hs[c],
                 kxy[a], kxy[b], kxy[c],
+                magnetic_scale,
+                -charge_over_p*dipole_by_t[d], -charge_over_p*dipole_by_t[d+1], -charge_over_p*dipole_by_t[d+2],
+                charge_over_p*dipole_bx_t[d], charge_over_p*dipole_bx_t[d+1], charge_over_p*dipole_bx_t[d+2],
             )
     return X, TX, Y, TY, CX, CTX, CY, CTY, T, CT
 
@@ -207,12 +234,13 @@ def serial_rk4(*inputs, initial_time_s=None, inverse_speed=None):
 def vectorised_rk4(
     kx, ky, hn, hs, larmor_axis, inverse_momentum, cs_kick,
     thin_power, thin_rotation, step_m, x, tx, y, ty,
-    kickx, kicky, save_index, checkpoint_index, kxy=None, *, step_operator=None,
+    kickx, kicky, save_index, checkpoint_index, kxy,
+    dipole_bx_t, dipole_by_t, reference_momentum, *, step_operator=None,
     initial_time_s=None, inverse_speed=None,
 ):
-    if kxy is None:
-        kxy = np.zeros_like(kx)
     nr, ns, nc = x.size, save_index.size, checkpoint_index.size
+    magnetic_scale = reference_momentum[0] * inverse_momentum
+    charge_over_p = ELECTRON_CHARGE_C * inverse_momentum
     X, TX, Y, TY = (np.empty((ns, nr), np.float32) for _ in range(4))
     CX, CTX, CY, CTY = (np.empty((nc, nr), np.float64) for _ in range(4))
     saved, captured = 0, 0
@@ -245,6 +273,7 @@ def vectorised_rk4(
         if j == step_m.size:
             continue
         a, b, c = 2 * j, 2 * j + 1, 2 * j + 2
+        d = 3*j
         before = (x.copy(), tx.copy(), y.copy(), ty.copy()) if step_operator is not None else None
         step = canonical_rk4_step_with_time if time is not None else canonical_rk4_step
         result = step(
@@ -256,6 +285,9 @@ def vectorised_rk4(
             hn[a], hn[b], hn[c], hs[a], hs[b], hs[c],
             kxy[a], kxy[b], kxy[c],
             *((inverse_speed,) if time is not None else ()),
+            magnetic_scale,
+            -charge_over_p*dipole_by_t[d], -charge_over_p*dipole_by_t[d+1], -charge_over_p*dipole_by_t[d+2],
+            charge_over_p*dipole_bx_t[d], charge_over_p*dipole_bx_t[d+1], charge_over_p*dipole_bx_t[d+2],
         )
         x, tx, y, ty = result[:4]
         if time is not None:
@@ -275,6 +307,7 @@ if NUMBA_AVAILABLE:
         kx, ky, hn, hs, larmor_axis, inverse_momentum, cs_kick,
         thin_power, thin_rotation, step_m, x0, tx0, y0, ty0,
         kickx, kicky, save_index, checkpoint_index, kxy,
+        dipole_bx_t, dipole_by_t, reference_momentum,
         X, TX, Y, TY, CX, CTX, CY, CTY,
     ):
         ray = cuda.grid(1)
@@ -283,6 +316,8 @@ if NUMBA_AVAILABLE:
         x, tx, y, ty = x0[ray], tx0[ray], y0[ray], ty0[ray]
         saved, captured = 0, 0
         inv_p = inverse_momentum[ray]
+        magnetic_scale = reference_momentum[0] * inv_p
+        charge_over_p = ELECTRON_CHARGE_C * inv_p
         for j in range(step_m.size + 1):
             tx -= thin_power[j] * x
             ty -= thin_power[j] * y
@@ -307,6 +342,7 @@ if NUMBA_AVAILABLE:
             if j == step_m.size:
                 continue
             a, b, c = 2 * j, 2 * j + 1, 2 * j + 2
+            d = 3*j
             values = _canonical_stages_cuda(
                 x, tx, y, ty, step_m[j],
                 larmor_axis[a] * inv_p, larmor_axis[b] * inv_p,
@@ -314,6 +350,9 @@ if NUMBA_AVAILABLE:
                 kx[a], kx[b], kx[c], ky[a], ky[b], ky[c],
                 hn[a], hn[b], hn[c], hs[a], hs[b], hs[c],
                 kxy[a], kxy[b], kxy[c],
+                magnetic_scale,
+                -charge_over_p*dipole_by_t[d], -charge_over_p*dipole_by_t[d+1], -charge_over_p*dipole_by_t[d+2],
+                charge_over_p*dipole_bx_t[d], charge_over_p*dipole_bx_t[d+1], charge_over_p*dipole_bx_t[d+2],
             )
             x, tx, y, ty = values[:4]
 
@@ -321,7 +360,8 @@ if NUMBA_AVAILABLE:
     def _cuda_time_rk4_kernel(
         kx, ky, hn, hs, larmor_axis, inverse_momentum, cs_kick,
         thin_power, thin_rotation, step_m, x0, tx0, y0, ty0,
-        kickx, kicky, save_index, checkpoint_index, kxy, initial_time_s, inverse_speed,
+        kickx, kicky, save_index, checkpoint_index, kxy,
+        dipole_bx_t, dipole_by_t, reference_momentum, initial_time_s, inverse_speed,
         X, TX, Y, TY, CX, CTX, CY, CTY, T, CT,
     ):
         ray = cuda.grid(1)
@@ -330,6 +370,8 @@ if NUMBA_AVAILABLE:
         x, tx, y, ty = x0[ray], tx0[ray], y0[ray], ty0[ray]
         time = initial_time_s[ray]
         inv_p, inv_v = inverse_momentum[ray], inverse_speed[ray]
+        magnetic_scale = reference_momentum[0] * inv_p
+        charge_over_p = ELECTRON_CHARGE_C * inv_p
         saved, captured = 0, 0
         for j in range(step_m.size+1):
             tx -= thin_power[j]*x
@@ -357,12 +399,16 @@ if NUMBA_AVAILABLE:
             if j == step_m.size:
                 continue
             a, b, c = 2*j, 2*j+1, 2*j+2
+            d = 3*j
             values = _canonical_stages_cuda(
                 x, tx, y, ty, step_m[j],
                 larmor_axis[a]*inv_p, larmor_axis[b]*inv_p, larmor_axis[c]*inv_p,
                 kx[a], kx[b], kx[c], ky[a], ky[b], ky[c],
                 hn[a], hn[b], hn[c], hs[a], hs[b], hs[c],
                 kxy[a], kxy[b], kxy[c],
+                magnetic_scale,
+                -charge_over_p*dipole_by_t[d], -charge_over_p*dipole_by_t[d+1], -charge_over_p*dipole_by_t[d+2],
+                charge_over_p*dipole_bx_t[d], charge_over_p*dipole_bx_t[d+1], charge_over_p*dipole_bx_t[d+2],
             )
             x, tx, y, ty = values[:4]
             time += _rk4_flight_cuda(step_m[j], inv_v, values[4], values[5],

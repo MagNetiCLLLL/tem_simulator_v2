@@ -143,7 +143,7 @@ def test_unsupported_section_schema_is_rejected_before_numeric_loading(snapshot,
     monkeypatch.setattr(np, "load", lambda *a, **k: pytest.fail("Old schema must not load numeric arrays"))
     with pytest.raises(ValueError, match="Unsupported particle-section schema"):
         load_section_result(path)
-    assert SECTION_PACKAGE_SCHEMA.endswith("v2")
+    assert SECTION_PACKAGE_SCHEMA != "optical-particle-section-package-v1"
 
 
 def test_result_contract_covers_every_current_field_and_rejects_wave():

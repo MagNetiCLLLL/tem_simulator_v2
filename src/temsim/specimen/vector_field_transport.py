@@ -12,8 +12,7 @@ from collections import OrderedDict
 import math
 import numpy as np
 
-from temsim.component_keys import CONDENSER_LENS_KEYS
-from temsim.physics.lens_field_provider import resolve_runtime_lens_field_provider
+from temsim.physics.instrument_magnetic import capture_instrument_magnetic_field
 from temsim.physics.relativistic_lorentz import (
     ELECTRON, RelativisticPhaseSpace, boris_step,
     momentum_from_kinetic_energy_ev, velocity_from_momentum_m_per_s,
@@ -38,34 +37,20 @@ class SpecimenFieldTransport:
         self._field_cache: OrderedDict[bytes, np.ndarray] = OrderedDict()
         self._field_cache_hits = 0
         self._field_cache_misses = 0
-        from temsim.physics.core import electron
-        self.state = state
-        charge, momentum, _ = electron(state)
-        self.reference_momentum_over_charge = momentum / charge
         self.origin_m = np.array((0.0, 0.0, float(state.sample.z_mm) * 1e-3))
-        self.providers = tuple(
-            resolve_runtime_lens_field_provider(
-                state, lens.key,
-                state.condenser_system[lens.key]
-                if lens.key in CONDENSER_LENS_KEYS else lens,
-            )
-            for lens in state.lenses if lens.enabled
-        )
-        # This context is owned by one immutable calculation. Support geometry
-        # cannot change between collisions, so do not reconstruct it per query.
-        self._provider_supports = tuple(
-            (provider, *provider.field_support_mm()) for provider in self.providers
-        )
-        # Resolve spatial variation of every imported grid, including rotated
-        # grids. Analytic fields are resolved relative to their axial support.
+        self.magnetic_field = capture_instrument_magnetic_field(state)
+        # The specimen uses the same immutable magnetic graph as gun and
+        # virtual electrons; only the coordinates here are specimen-local.
         scales = []
-        for provider, low, high in self._provider_supports:
-            field_map = getattr(provider, "field_map", None)
+        for source in self.magnetic_field._sources:
+            if source.known_zero:
+                continue
+            field_map = source.field_map
             if field_map is not None:
                 scales.extend(float(np.min(np.diff(axis))) * 1e9 / 4
                               for axis in field_map.axes_m)
             else:
-                scales.append(max((high - low) * 1e6 / 128, 1e-6))
+                scales.append(max((source.bounds_m[1, 2]-source.bounds_m[0, 2])*1e9/128, 1e-6))
         self.spatial_step_nm = min(scales, default=1e6)
 
     def field_at_global_positions_t(self, local_positions_m):
@@ -110,22 +95,7 @@ class SpecimenFieldTransport:
     def _field_at_global_positions_t_uncached(self, local_positions_m):
         """Original vector-field evaluation, also used as a test reference."""
         positions = np.asarray(local_positions_m, dtype=float) + self.origin_m
-        total = np.zeros_like(positions)
-        for provider, low, high in self._provider_supports:
-            if np.all((positions[..., 2] * 1e3 < low) | (positions[..., 2] * 1e3 > high)):
-                continue
-            total += provider.field_at_global_positions_t(positions)
-        if hasattr(self, "state"):
-            from temsim.physics.core import multipole_focusing_fields, hexapole_field_components, skew_quadrupole_field
-            z = positions[..., 2] * 1e3
-            kx, ky = multipole_focusing_fields(z, self.state)
-            kxy = skew_quadrupole_field(z, self.state)
-            hn, hs = hexapole_field_components(z, self.state)
-            x, y = positions[..., 0], positions[..., 1]
-            u, v = x*x-y*y, 2*x*y
-            total[..., 0] += self.reference_momentum_over_charge * (-ky*y - kxy*x + hn*v - hs*u)
-            total[..., 1] += self.reference_momentum_over_charge * (kx*x + kxy*y + hn*u + hs*v)
-        return total
+        return self.magnetic_field.field_at_global_positions_t(positions)
 
     def advance(self, position_nm, direction, path_length_nm, *, energy_ev,
                 return_elapsed_time=False):

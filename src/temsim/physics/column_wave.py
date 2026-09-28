@@ -73,6 +73,8 @@ def _prepare_column(state, start, stop, maximum_step_mm):
     events, owners = _component_events(state, start, stop)
     plan = build_propagation_plan(state, start, stop, events,
         save_z_mm=[a.z_mm for a in apertures]+boundaries, maximum_step_mm=maximum_step_mm)
+    from temsim.physics.wave_field_admission import require_supported_wave_dipoles
+    require_supported_wave_dipoles(state, start, stop, plan)
     if plan.mapped_fields:
         raise ValueError("Installed 3-D field maps need their non-polynomial wave Hamiltonian; no linear substitute is allowed")
     if np.any(plan.thin_power_m1) or np.any(plan.thin_rotation_rad):

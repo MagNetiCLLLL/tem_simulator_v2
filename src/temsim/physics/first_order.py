@@ -21,17 +21,24 @@ import numpy as np
 
 from temsim.physics.core import propagate
 
-FIRST_ORDER_RESPONSE_SCHEMA = "axis-linear-float64-checkpoints-v2"
+FIRST_ORDER_RESPONSE_SCHEMA = "captured-field-affine-float64-checkpoints-v3"
 
 
-def _trace_basis(state, source, stop, *, save_z_mm=(), maximum_step_mm=None, events=()):
+def _trace_basis(state, source, stop, *, save_z_mm=(), maximum_step_mm=None, events=None):
     """One shared linear observer; finite-ray transport retains nonlinear fields.
 
     Analytic multipoles are linearised on the column axis. Mapped fields use
     small central differences. These diagnostic bases are never a beam source.
     """
     from temsim.physics.lens_field_provider import active_mapped_providers
-    vector_maps = bool(active_mapped_providers(state))
+    from temsim.physics.instrument_magnetic import active_column_events, events_overlapping_interval
+    # Normal observers trace the actual captured affine orbit. An explicitly
+    # supplied empty tuple is reserved for an undriven mathematical response.
+    events = events_overlapping_interval(state,
+        active_column_events(state) if events is None else events, source, stop)
+    # A physical electrostatic provider has finite radial bounds and can be
+    # nonlinear off axis. Unit-metre basis rays are not admissible queries.
+    vector_maps = bool(active_mapped_providers(state) or getattr(state, "electron_gun", None) is not None)
     steps = np.array((1e-8, 1e-8, 1e-6, 1e-6)) if vector_maps else np.ones(4)
     basis = np.column_stack((np.zeros(4), np.diag(steps)))
     if vector_maps:
@@ -271,7 +278,7 @@ def trace_transverse_transfers(
     target_z_values_mm: Iterable[float],
     *,
     maximum_step_mm: float | None = None,
-    events=(),
+    events=None,
 ) -> dict[float, TransverseTransfer]:
     """Trace a reference and bases once, using small central differences for maps."""
 
@@ -329,6 +336,7 @@ def trace_transverse_transfer(
     target_z_mm: float,
     *,
     maximum_step_mm: float | None = None,
+    events=None,
 ) -> TransverseTransfer:
     """Return one signed first-order transverse transfer."""
 
@@ -338,6 +346,7 @@ def trace_transverse_transfer(
         source_z_mm,
         (target,),
         maximum_step_mm=maximum_step_mm,
+        events=events,
     )[target]
 
 

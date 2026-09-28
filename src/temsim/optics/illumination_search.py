@@ -1,11 +1,14 @@
 """First-order focus-branch proposals, never accepted illumination presets.
 
-The physical gun is executed normally. A round-lens transfer map then scans
-objective-focus roots at fixed primary excitation. It retains real pupil
-locations, but neglects nonlinear ray forces and column-wall clipping: every
-proposal therefore needs full transport, sampling and topology validation.
+The physical gun is executed normally. Objective-focus roots are scanned at
+fixed primary excitation. The reduced round-lens map is used only when its
+field assumptions hold; distributed electric or coupled fields trace the
+representative gun particles with their executed energies. Real pupil locations
+are retained, but column-wall clipping and final sampling/topology acceptance
+still belong to production validation.
 """
 from dataclasses import dataclass
+from functools import lru_cache
 import math
 
 import numpy as np
@@ -50,15 +53,24 @@ def focus_grid_proposals(state, keys, mode, *, primary_points=49,
     apertures.sort(key=lambda a: a.z_mm)
     planes = [a.z_mm for a in apertures]+[end]
     model = _LiveFirstOrderModel(state, start, end, keys, step_mm=.1, capture_z_mm=planes)
-    if model.vector_maps:
-        raise ValueError('First-order branch scouting is not qualified for mapped fields')
+    source_energy = (float(state.electron_gun.nominal_exit_energy_ev)
+                     + np.asarray(e.energy_offset_ev, dtype=float)) if model.full_field_transfer else None
     evaluations, proposals = 0, []
+
+    @lru_cache(maxsize=32)
+    def captured_coordinates(primary, objective):
+        if model.full_field_transfer:
+            return model.rays_at((primary, objective), source, planes,
+                initial_kinetic_energy_ev=source_energy,
+                defer_nonfinite_until_clipping=True)
+        return model.matrices_at((primary, objective), planes) @ source
 
     def measure(primary, objective):
         nonlocal evaluations
         evaluations += 1
-        coordinates = model.matrices_at((primary, objective), planes) @ source
+        coordinates = captured_coordinates(float(primary), float(objective))
         alive = e.alive.copy() & (e.weight > 0)
+        alive &= np.all(np.isfinite(coordinates), axis=(0, 1))
         for aperture, rays in zip(apertures, coordinates[:-1]):
             if hasattr(aperture, 'transmission_mask'):
                 alive &= aperture.transmission_mask(rays[0]*1e3, rays[1]*1e3)

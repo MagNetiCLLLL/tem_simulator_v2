@@ -56,7 +56,7 @@ def test_display_quantities_use_stored_arrays_and_shared_count_scale_without_cal
                 for field in ("fractions", "expected_electrons", "poisson_counts")}
     view._set_stem_frame(frame)
     assert view.image_display_quantity.currentData() == "ideal"
-    assert tuple(view.detector_image_items["bf"].levels) == (0., 1.)
+    assert tuple(view.detector_image_items["bf"].levels) == (0., .055)
     changes = []
     view.parameters_changed.connect(changes.append)
 
@@ -68,6 +68,7 @@ def test_display_quantities_use_stored_arrays_and_shared_count_scale_without_cal
     monkeypatch.setattr("temsim.simulation_pipeline.calculate_stem_scan_frame", forbidden)
     monkeypatch.setattr(np.random, "default_rng", forbidden)
     choose(view, "expected")
+    assert not view.image_contrast_mode.isEnabled()
     item = view.detector_image_items["bf"]
     np.testing.assert_array_equal(item.image, frame.expected_electrons["bf"].T)
     assert tuple(item.levels) == (0., 12.)  # Stored Poisson peak exceeds expected max 5.5.
@@ -84,7 +85,8 @@ def test_display_quantities_use_stored_arrays_and_shared_count_scale_without_cal
     assert "Dwell 0.01 s/pixel" in view.image_quantity_notice.text()
     choose(view, "ideal")
     np.testing.assert_array_equal(item.image, frame.fractions["bf"].T)
-    assert tuple(item.levels) == (0., 1.)
+    assert tuple(item.levels) == (0., .055)
+    assert view.image_contrast_mode.isEnabled()
     assert changes == []
     for field, images in original.items():
         for key, values in images.items():
@@ -102,7 +104,7 @@ def test_generate_selects_counts_but_old_frame_stays_explicitly_unavailable_unti
     assert changes == ["sample.stem_poisson_enabled"]
     assert all(item.image is None for item in view.detector_image_items.values())
     assert "Unavailable" in view.image_quantity_notice.text()
-    assert "run High accuracy" in view.image_quantity_notice.text()
+    assert "click Calculate STEM" in view.image_quantity_notice.text()
     assert "Seed not recorded" in view.image_quantity_notice.text()
     assert "Dwell not recorded" in view.image_quantity_notice.text()
     assert all("not stored" in label.text() for label in view.detector_contrast_labels.values())

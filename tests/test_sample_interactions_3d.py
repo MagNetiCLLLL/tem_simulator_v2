@@ -58,6 +58,40 @@ def _calculation_result():
     )
 
 
+def test_boundary_paths_use_energy_at_the_displayed_specimen_boundary(monkeypatch):
+    import temsim.gui.sample_interactions_3d as view
+
+    calls = []
+
+    class RecordingField:
+        def plane_polyline(self, position, direction, length, *, energy_ev):
+            calls.append((length, energy_ev))
+            return np.array((position, np.asarray(position)+[0., 0., length])), direction
+
+    monkeypatch.setattr(view, "SpecimenFieldTransport", lambda state: RecordingField())
+    monkeypatch.setattr(view, "sample_axial_field_diagnostic", lambda state: None)
+    zeros = np.zeros((2, 1))
+    incident = SimpleNamespace(x=zeros, y=zeros, tx=zeros, ty=zeros,
+        alive=np.ones(1, bool), energy_offset_ev=np.array((999.,)),
+        kinetic_energy_ev=np.array(((110000.,), (120000.,))))
+    outgoing = SimpleNamespace(name="000", interaction_kind="transmitted",
+        x=zeros, y=zeros, tx=zeros, ty=zeros, energy_offset_ev=np.array((888.,)),
+        kinetic_energy_ev=np.array(((119000.,), (180000.,))))
+    result = SimpleNamespace(state_snapshot=SimpleNamespace(beam_voltage_kv=300.),
+        simulation=SimpleNamespace(incident=incident, branches={"000": outgoing}))
+    scene = SimpleNamespace(interacting_thickness_nm=10.)
+    paths = view._sample_boundary_paths(result, scene)
+
+    assert [path.category for path in paths] == ["incident", "downstream_primary"]
+    assert calls == [(-100., 120000.), (100., 119000.)]
+
+    calls.clear()
+    outgoing.kinetic_energy_ev[0, 0] = np.nan
+    paths = view._sample_boundary_paths(result, scene)
+    assert [path.category for path in paths] == ["incident"]
+    assert calls == [(-100., 120000.)]  # Unknown current energy never falls back to nominal HT.
+
+
 def test_high_accuracy_cache_builds_local_3d_scene_without_new_physics():
     scene = build_sample_interaction_scene(_calculation_result())
 

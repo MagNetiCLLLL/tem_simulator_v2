@@ -66,13 +66,20 @@ def transport_context_identity(scene):
         "electric_bounds_m": np.asarray(scene.electric_bounds_m).tolist(),
         "apertures": apertures, "bores": bores, "unbounded_outer_radius": "None means infinity",
         "flat_cathode": scene._flat_cathode, "post_exit_ground": scene._post_exit_ground,
-        "unsupported_stops": scene._unsupported_stops})
+        "unsupported_stops": scene._unsupported_stops,
+        "column_model": getattr(scene, "_column_identity", None),
+        "column_handoff_z_m": getattr(scene, "_column_handoff_z_m", None)})
 
 
 _IMPLEMENTATION_FILES = (
     "magnetic_test_particle.py", "test_electron_compiled.py", "test_electron_compiled_laws.py",
     "test_electron_intercepts.py", "physics/axis_field_interpolation.py",
-    "test_electron_scene.py", "diagnostic_execution_identity.py",
+    "test_electron_scene.py", "test_electron_sampling.py", "diagnostic_execution_identity.py",
+    "physics/instrument_magnetic.py", "physics/compiled_magnetic_field.py",
+    "physics/discrete_gradient.py", "physics/static_energy_lorentz.py",
+    "physics/grounded_particle_step.py", "physics/instrument_electric.py",
+    "physics/core.py", "physics/electrostatic_column_transport.py",
+    "test_electron_column.py",
     "physics/relativistic_lorentz.py", "optics/electron_gun/aperture.py",
     "optics/model.py", "optics/condenser_aperture.py", "optics/objective_aperture.py",
     "optics/selected_area_aperture.py", "optics/energy_filter_entrance_aperture.py",

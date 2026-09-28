@@ -65,6 +65,31 @@ def test_loaded_history_survives_absent_and_replaced_fields(qtbot, controller, m
     assert controller.session_actions.recalculate_button.isEnabled()
 
 
+def test_history_cannot_recalculate_in_stale_instrument_fields(qtbot, controller, monkeypatch, tmp_path):
+    calls = calculated(qtbot, controller, monkeypatch)
+    path = tmp_path / "previous.temdiag"
+    controller.session_actions.save(path)
+    controller.mark_fields_stale()
+    controller.session_actions.load(path)
+    history = controller.selected_record.trajectory
+    assert controller.selected_record.historical
+    assert not controller.session_actions.recalculate_button.isEnabled()
+    assert not controller.history_fields_match()
+    assert "Stale" in controller.status_text and "historical" in controller.status_text
+    controller.recalculate_historical()
+    controller._request()
+    qtbot.wait(100)
+    assert len(calls) == 1 and controller.selected_record.trajectory is history
+    assert controller.current_trajectory is None
+    controller.set_scene(UniformScene(field=(0., .2, 0.)))
+    qtbot.wait(100)
+    assert controller.selected_record.historical and controller.current_trajectory is None
+    assert controller.session_actions.recalculate_button.isEnabled()
+    controller.recalculate_historical()
+    wait_for_result(qtbot, controller)
+    assert len(calls) == 2
+
+
 def test_corrupt_load_preserves_live_records_and_pending_ownership(qtbot, controller, monkeypatch, tmp_path):
     calculated(qtbot, controller, monkeypatch)
     records, generation, scene = controller.records, controller._generation, controller._scene

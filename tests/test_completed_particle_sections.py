@@ -22,7 +22,8 @@ def completed():
     state.step_mm = 2.
     state.sample.inserted = False
     state.sample.eds_enabled = False
-    state.acceleration_backend = "CPU"
+    # This fixture validates persistence, not the Python reference integrator.
+    state.acceleration_backend = "Numba CPU"
     assert not state.sample.wave_enabled and not state.sample.stem_wave_enabled
     return pipeline.calculate(state)
 

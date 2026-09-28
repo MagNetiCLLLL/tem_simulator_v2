@@ -134,25 +134,8 @@ def validated_geometric_specimen_exit(
 
 
 def _post_sample_events(state) -> tuple[tuple[float, float, float], ...]:
-    events: list[tuple[float, float, float]] = []
-    for collection_name in ("deflectors", "corrector_elements"):
-        for component in getattr(state, collection_name, ()):
-            if not bool(getattr(component, "enabled", False)):
-                continue
-            if not hasattr(component, "kick_events"):
-                continue
-            try:
-                component_events = component.kick_events(
-                    time_s=float(getattr(state, "simulation_time_s", 0.0))
-                )
-            except TypeError:
-                component_events = component.kick_events()
-            events.extend(
-                (float(z), float(dx), float(dy))
-                for z, dx, dy in component_events
-                if float(z) > float(state.sample.z_mm)
-            )
-    return tuple(sorted(events))
+    from temsim.physics.instrument_magnetic import active_column_events
+    return active_column_events(state)
 
 
 def _sample_incident_fraction(simulation) -> float:
@@ -252,7 +235,7 @@ def _material_previous_segment(value, count):
                 or branch.z[0] != plan.z_mm[0] or branch.z[-1] != plan.z_mm[-1]
                 or z[-1] != branch.z[-1]):
             return None
-        for key in ("x_m", "tx_rad", "y_m", "ty_rad", "flight_time_s"):
+        for key in ("x_m", "tx_rad", "y_m", "ty_rad", "flight_time_s", "kinetic_energy_ev"):
             array = np.asarray(getattr(cp, key))
             if array.dtype != np.float64 or array.shape != (len(z), count):
                 return None
@@ -261,14 +244,15 @@ def _material_previous_segment(value, count):
                     return None
             elif not np.all(np.isfinite(array)):
                 return None
-        for key in ("x", "tx", "y", "ty", "flight_time_s"):
+        for key in ("x", "tx", "y", "ty", "flight_time_s", "kinetic_energy_ev"):
             if np.shape(getattr(branch, key)) != (len(branch.z), count):
                 return None
         for key in ("source_ray_id", "source_azimuth_rad", "ray_weight", "energy_offset_ev",
                     "alive", "blocked_z"):
             if np.shape(getattr(branch, key)) != (count,):
                 return None
-        for key, cp_key in (("x", "x_m"), ("tx", "tx_rad"), ("y", "y_m"), ("ty", "ty_rad")):
+        for key, cp_key in (("x", "x_m"), ("tx", "tx_rad"), ("y", "y_m"), ("ty", "ty_rad"),
+                           ("kinetic_energy_ev", "kinetic_energy_ev")):
             if not np.array_equal(getattr(branch, key)[-1], getattr(cp, cp_key)[-1]):
                 return None
         return value
@@ -288,6 +272,8 @@ def build_geometric_specimen_exit(
     progress_callback: ProgressCallback | None = None,
     existing_exit: GeometricSpecimenExit | None = None,
     tuning_component_keys: tuple[str, ...] = (),
+    capture_sections: bool = True,
+    recording_interceptions: bool = True,
 ) -> GeometricSpecimenExit:
     """Combine elastic exit phase space and exclusive inelastic populations.
 
@@ -435,8 +421,9 @@ def build_geometric_specimen_exit(
     nominal_energy_ev = float(state.beam_voltage_kv) * 1000.0
     if np.any(eligible) and np.any(float(state.sample.z_mm) + positions_nm[eligible, 2]*1e-6 > stop_z_mm + 1e-12):
         raise ValueError("Requested section lies inside finite specimen/support transport; choose a plane beyond the material exit")
-    events = tuple(event for event in _post_sample_events(state)
-                   if float(state.sample.z_mm) < float(event[0]) <= stop_z_mm)
+    from temsim.physics.instrument_magnetic import events_overlapping_interval
+    events = events_overlapping_interval(state, _post_sample_events(state),
+                                         float(state.sample.z_mm), stop_z_mm)
     chromatic_focal_mm = configured_objective_chromatic_focal_mm(state)
     field_diagnostic = sample_axial_field_diagnostic(state)
     field_transport = SpecimenFieldTransport(state)
@@ -445,7 +432,8 @@ def build_geometric_specimen_exit(
     resume_records = []
     # Historical lightweight adapters and participating stochastic vacuum use
     # the original complete transport. Vacuum restart needs collision/RNG state.
-    sectional = (callable(getattr(state, "to_dict", None))
+    sectional = (capture_sections and recording_interceptions
+                 and callable(getattr(state, "to_dict", None))
                  and not state.vacuum_map.enabled)
     previous_segments = {}
     if sectional:
@@ -568,6 +556,7 @@ def build_geometric_specimen_exit(
                     source_ids, source_azimuths, terminal_indices[mask])
                 branch_name = f"specimen_{elastic_label}:{channel_name}"
                 medium_results = []
+                energy_output = []
                 traced_segment = None
                 alive = np.ones(np.count_nonzero(mask), dtype=bool)
                 blocked = np.full(alive.size, np.nan, dtype=float)
@@ -583,17 +572,31 @@ def build_geometric_specimen_exit(
                         _material_previous_segment(previous_segments.get(branch_name), alive.size),
                         boundary, initial_kicks=False, save_z_mm=save_z_mm,
                         dependency_context=(restart_identity, branch_name, absolute_probability),
+                        initial_kinetic_energy_ev=outgoing_energy[mask],
                     )
                     propagated = traced_segment.branch
                     z, x, tx, y, ty, flight_times = (getattr(propagated, key) for key in
                                                     ("z", "x", "tx", "y", "ty", "flight_time_s"))
                     alive, blocked, blocked_keys = (propagated.alive, propagated.blocked_z,
                                                      propagated.blocked_key)
+                    kinetic_energy = propagated.kinetic_energy_ev
                     resume_records.append({"branch": branch_name, "hit": bool(reused),
                                            "resume_z_mm": float(resume_z)})
                 else:
+                    propagation_state = state
+                    if not recording_interceptions:
+                        # Medium transport performs physical interception
+                        # during each step, before accumulating gas path.
+                        # Defer recording there as well, never resurrect its
+                        # already-absorbed diagnostic continuation afterwards.
+                        from copy import copy
+                        propagation_state = copy(state)
+                        propagation_state.recording_planes = [
+                            copy(plane) for plane in getattr(state, "recording_planes", ())]
+                        for plane in propagation_state.recording_planes:
+                            plane.inserted = False
                     z, x, tx, y, ty, flight_times = propagate(
-                        state, float(state.sample.z_mm), stop_z_mm,
+                        propagation_state, float(state.sample.z_mm), stop_z_mm,
                         reference_xy_nm[mask, 0] * 1.0e-9, start_tx[mask],
                         reference_xy_nm[mask, 1] * 1.0e-9, start_ty[mask],
                         events, energy_offset[mask], save_z_mm=save_z_mm,
@@ -601,17 +604,46 @@ def build_geometric_specimen_exit(
                         particle_medium=state.vacuum_map.enabled, medium_output=medium_results,
                         medium_stream=100+progress_completed,
                         initial_time_s=initial_times[mask], return_flight_times=True,
+                        initial_kinetic_energy_ev=outgoing_energy[mask], energy_output=energy_output,
+                        defer_nonfinite_until_clipping=not capture_sections,
                     )
+                    kinetic_energy = energy_output[0]
                 flight_times = np.asarray(flight_times, dtype=np.float64).copy()
                 terminal_z_mm = float(state.sample.z_mm) + local_positions[mask, 2] * 1e-6
                 flight_times[np.asarray(z)[:, None] < terminal_z_mm[None, :] - 1e-12] = np.nan
                 if medium_results:
                     alive, blocked, blocked_keys = medium_results[0].merge_stops(alive, blocked, blocked_keys)
                 if traced_segment is None:
+                    clipping_state = state
+                    if not recording_interceptions:
+                        # A raster response defers detector absorption to its
+                        # per-pixel physical ordering, but never defers apertures.
+                        from types import SimpleNamespace
+                        clipping_state = SimpleNamespace(
+                            sample=state.sample,
+                            apertures=getattr(state, "apertures", ()),
+                            recording_planes=(),
+                        )
                     alive, blocked, blocked_keys = clip_recording_planes(
-                        state, z, x, y, alive, blocked, blocked_keys)
+                        clipping_state, z, x, y, alive, blocked, blocked_keys)
                     alive, blocked, blocked_keys = clip_column_wall(
                         state, z, x, y, alive, blocked, blocked_keys)
+                    if not capture_sections:
+                        # Auxiliary angular responses can leave the field or
+                        # forward-column domain after a physical intercept.
+                        # An earlier finite aperture/wall stop owns that ray.
+                        # Otherwise retain a distinct numerical truncation;
+                        # never label missing propagation as physical loss.
+                        invalid = ~(np.isfinite(x) & np.isfinite(y) & np.isfinite(tx)
+                                    & np.isfinite(ty) & np.isfinite(kinetic_energy))
+                        for ray in np.flatnonzero(np.any(invalid, axis=0)):
+                            first = int(np.flatnonzero(invalid[:, ray])[0])
+                            invalid_z = float(z[first])
+                            if np.isfinite(blocked[ray]) and blocked[ray] < invalid_z - 1e-12:
+                                continue
+                            alive[ray] = False
+                            blocked[ray] = invalid_z
+                            blocked_keys[ray] = "projected_field_domain"
                 flight_times[np.asarray(z)[:, None] > blocked[None, :] + 1e-12] = np.nan
                 if save_z_mm:
                     boundary_z_mm = float(save_z_mm[0])
@@ -644,7 +676,7 @@ def build_geometric_specimen_exit(
                         blocked_z=blocked,
                         blocked_key=blocked_keys,
                         weight=absolute_probability,
-                        energy_offset_ev=energy_offset[mask],
+                        energy_offset_ev=np.asarray(kinetic_energy[-1])-nominal_energy_ev,
                         ray_weight=group_weights / group_weight,
                         interaction_kind=interaction_kind,
                         vacuum_report=medium_results[0].report() if medium_results else None,
@@ -653,6 +685,7 @@ def build_geometric_specimen_exit(
                         source_ray_id=group_source_ids,
                         source_azimuth_rad=group_source_azimuths,
                         flight_time_s=flight_times,
+                        kinetic_energy_ev=kinetic_energy,
                     )
                 )
                 if traced_segment is not None:

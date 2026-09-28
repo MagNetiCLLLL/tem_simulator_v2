@@ -87,8 +87,11 @@ class CalculationResult:
     calculation_manifest: object | None = None
     working_point_parent_id: str | None = None
     particle_signals: object | None = None
+    workflow: str = "full"
 
     def __post_init__(self):
+        from temsim.calculation_workflow import validate_workflow
+        validate_workflow(self.workflow)
         if not isinstance(self.signatures, dict):
             raise TypeError("CalculationResult.signatures must be a dictionary")
         if any(not isinstance(key, str) or not key.strip()
@@ -380,6 +383,7 @@ def calculate(
     progress_callback: ProgressCallback | None = None,
     existing_result: CalculationResult | None = None,
     diffraction_sink=None,
+    workflow: str = "full",
 ):
     """Calculate a complete result while reusing compatible cached products.
 
@@ -389,6 +393,13 @@ def calculate(
     work therefore cannot partially mutate the previous complete result.
     """
 
+    from temsim.calculation_workflow import validate_workflow
+    workflow = validate_workflow(workflow)
+    if workflow != "full":
+        from temsim.simulation_workflow import calculate_workflow
+        return calculate_workflow(state, workflow=workflow,
+            progress_callback=progress_callback, existing_result=existing_result,
+            diffraction_sink=diffraction_sink)
     calculation_started = perf_counter()
     progress_callback = _cancellable_progress(state, progress_callback)
     from temsim.physics.illumination import illumination_config
@@ -1109,6 +1120,7 @@ def calculate(
     assert_external_input_inventory_unchanged(state, external_inputs)
     advance_stage()
     result.performance = {
+        "workflow": workflow,
         "pipeline_seconds": max(0.0, progress.stage_started_at - calculation_started),
         "stages": tuple(progress.timings),
         "timing_scope": "Current pipeline call; excludes GUI drawing and worker setup",
@@ -1211,7 +1223,7 @@ def calculate_particle_section(state, target_z_mm=None, component_keys=(), *,
     if reaches_material and not no_illumination:
         incident = simulation.incident
         incident_digest = _digest_arrays(*(getattr(incident, name)[-1]
-            for name in ("x", "tx", "y", "ty", "flight_time_s")),
+            for name in ("x", "tx", "y", "ty", "flight_time_s", "kinetic_energy_ev")),
             incident.alive, incident.blocked_z, incident.energy_offset_ev,
             incident.ray_weight, incident.source_ray_id)
         # Preserve the actual deflected beam position. The point-interaction

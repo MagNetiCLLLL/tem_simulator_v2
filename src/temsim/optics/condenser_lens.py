@@ -26,7 +26,7 @@ from temsim.component_keys import (
     CONDENSER_LENS_KEYS,
     THERMIONIC_C1_APERTURE,
 )
-from temsim.optics.lens_focal_length import focal_length_mm, unit_field_peak
+from temsim.optics.lens_focal_length import focal_length_mm, raw_unit_field_peak
 
 
 @dataclass(frozen=True)
@@ -645,10 +645,7 @@ class CondenserLensComponent:
                 -0.5 * ((z - centre) / sigma) ** 2
             )
         if lens.normalise_profile_peak:
-            raw_peak = unit_field_peak(
-                replace(lens, normalise_profile_peak=False)
-            )
-            field /= max(raw_peak, 1e-15)
+            field /= max(raw_unit_field_peak(lens), 1e-15)
         return float(lens.polarity) * lens.scale() * field
 
     def focal_length_mm(self):

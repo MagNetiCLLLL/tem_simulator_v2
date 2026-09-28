@@ -50,7 +50,7 @@ _LOADED_INPUT_DIGEST_CACHE: dict[str, tuple[object, str]] = {}
 _WAVE_COORDINATE_SCHEMA = "centred-real-space-v2"
 _WAVE_SPECIMEN_SCHEMA = "cif-reference-occupancy-absorption-v3"
 _TEM_PROJECTION_SCHEMA = "physical-aperture-pre-loss-flux-v1"
-_STEM_RECORDING_SCHEMA = "physical-envelope-pre-specimen-flux-gpu-capture-v6"
+_STEM_RECORDING_SCHEMA = "projected-atoms-or-material-paths-physical-recording-v7"
 _PARTICLE_POINT_SCHEMA = "resolved-point-material-hit-diagnostics-v2"
 _EDS_SIGNAL_SCHEMA = "eds-only-overlap-importance-v1"
 _EDS_RESPONSE_SCHEMA = "executed-eds-response-per-arrival-electron-v1"
@@ -525,13 +525,20 @@ def live_lens_parameters(lens) -> dict[str, object]:
     Profile serialization deliberately omits assembly-owned fields; it is not
     a solver identity. Retain all declared component fields, including both
     objective poles, disabled components and complete Gaussian terms. Only
-    presentation labels/colours are excluded. External model bytes and shared
+    presentation labels/colours and the derived specimen-relative Objective
+    readback are excluded. External model bytes and shared
     circuits remain bound by the existing assembly/content inventories.
     """
     if not is_dataclass(lens):
         raise TypeError(f"No declared lens parameter inventory for {type(lens).__name__}")
     return {field.name: _json_value(getattr(lens, field.name)) for field in fields(lens)
-            if field.name not in {"name", "label", "colour", "color"}}
+            if field.name not in {"name", "label", "colour", "color",
+                # Assembly resolver derives this display reference from the
+                # fixed virtual-plane Z minus the sample's lower face. It is
+                # not read by a force law or a position setter. Keep actual
+                # z_mm, virtual_lens_reference_z_mm and both pole/field centres
+                # authoritative; a thickness edit alone does not move a lens.
+                "virtual_lens_offset_below_lower_surface_mm"}}
 
 
 @input_io.using_state_inputs
@@ -552,6 +559,7 @@ def _state_payload(state) -> dict[str, object]:
     from temsim.optics.electron_gun.tracing import GUN_FLIGHT_TIME_SCHEMA
     payload["_particle_flight_time_schema"] = FLIGHT_TIME_SCHEMA
     payload["_gun_flight_time_schema"] = GUN_FLIGHT_TIME_SCHEMA
+    payload["_particle_energy_transport_schema"] = "executed-electromagnetic-kinetic-energy-v1"
     payload["_elastic_terminal_material_path_schema"] = "executed-terminal-material-path-current-pixel-centroid-v2"
     # Scan calibration changes physical foil commands, so its numerical law
     # belongs to dependent transport identities as well as the geometry view.
@@ -696,6 +704,48 @@ def calculation_signatures(state) -> dict[str, str]:
     """Return dependency-scoped identities for reusable calculation products."""
 
     return _calculation_signatures_from_payload(_state_payload(state))
+
+
+def scan_controls_only_incident_change(previous_state, state, previous_incident_signature):
+    """Admit scan-driven *re-execution*, never reuse a changed incident beam.
+
+    Compare the complete canonical incident dependencies after substituting
+    only the two previous scan-coil controls. Geometry, source, other optics,
+    numerical settings and field inputs must still match. The caller must
+    separately validate an executed restart and propagate the changed fields.
+    """
+    if previous_state is None or not previous_incident_signature:
+        return False
+    previous = _state_payload(previous_state)
+    if _calculation_signatures_from_payload(previous)["incident"] != previous_incident_signature:
+        return False  # The snapshot is not the one that produced this beam.
+    current = _state_payload(state)
+    if _calculation_signatures_from_payload(current)["incident"] == previous_incident_signature:
+        return False
+    scan_keys = {"ac_deflector", "descan_deflector"}
+    old_rows = {row.get("key"): row for row in previous.get("corrector_elements", ())
+                if row.get("key") in scan_keys}
+    new_keys = [row.get("key") for row in current.get("corrector_elements", ())
+                if row.get("key") in scan_keys]
+    if set(old_rows) != scan_keys or set(new_keys) != scan_keys or len(new_keys) != 2:
+        return False
+    drive_fields = {
+        "enabled", "kick_x_mrad", "kick_y_mrad", "upper_coil_gain",
+        "wobble_enabled", "wobble_amplitude_x_mrad", "wobble_amplitude_y_mrad",
+        "wobble_period_s", "wobble_phase_deg", "scan_enabled",
+        "scan_frame_period_s", "scan_pixels_x", "scan_lines", "scan_pixel_size_nm",
+        "calibration_mode", "calibration_record_json", "scan_reference",
+        "pivot_offset_x", "pivot_offset_y", "descan_target_key",
+    }
+    for row in current["corrector_elements"]:
+        if row.get("key") in scan_keys:
+            old = old_rows[row["key"]]
+            for field in drive_fields:
+                if field in old:
+                    row[field] = deepcopy(old[field])
+                else:
+                    row.pop(field, None)
+    return _calculation_signatures_from_payload(current)["incident"] == previous_incident_signature
 
 
 def calculation_signatures_for_request(

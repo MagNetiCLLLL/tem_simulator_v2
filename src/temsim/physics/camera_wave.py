@@ -52,30 +52,10 @@ class CameraWaveProjection:
 
 
 def _post_sample_kick_events(state, target_z_mm: float):
-    """Collect the same enabled affine events used by ``simulation.run``."""
-
-    sample_z_mm = float(state.sample.z_mm)
-    target_z_mm = float(target_z_mm)
-    events = []
-    for collection_name in ("deflectors", "corrector_elements"):
-        for component in getattr(state, collection_name, ()):
-            if not bool(getattr(component, "enabled", False)):
-                continue
-            if not hasattr(component, "kick_events"):
-                continue
-            try:
-                component_events = component.kick_events(
-                    time_s=float(getattr(state, "simulation_time_s", 0.0))
-                )
-            except TypeError:
-                component_events = component.kick_events()
-            for event in component_events:
-                z_mm, kick_x_rad, kick_y_rad = (
-                    float(value) for value in event
-                )
-                if sample_z_mm <= z_mm <= target_z_mm:
-                    events.append((z_mm, kick_x_rad, kick_y_rad))
-    return tuple(sorted(events, key=lambda event: event[0]))
+    """Retain every finite coil intersecting the camera/multiplane path."""
+    from temsim.physics.instrument_magnetic import active_column_events, events_overlapping_interval
+    return events_overlapping_interval(state, active_column_events(state),
+                                       float(state.sample.z_mm), float(target_z_mm))
 
 
 def _camera_affine_offset_m(state, camera) -> np.ndarray:

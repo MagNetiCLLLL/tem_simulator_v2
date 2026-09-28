@@ -16,6 +16,7 @@ def material_case(optical_fixture, monkeypatch):
     state, gun, gun_calls = optical_fixture
     state.sample.inserted = True
     state.sample.wave_enabled = state.sample.stem_wave_enabled = False
+    state.sample.stem_particle_model = "material_paths"
     state.sample.eds_enabled = False
     state.sample.specimen_mode = "reference"
     state.sample.thickness_nm = 30.
@@ -54,7 +55,8 @@ def test_inserted_non_scanning_specimen_executes_elastic_and_inelastic(material_
     assert all(branch.interaction_kind != "optical_reference" for branch in result.simulation.branches.values())
     assert tuple(result.simulation.branches.values()) == result.specimen_exit.branches
     # Positive-loss channels retain the honest unknown event-depth clock.
-    losses = [b for b in result.specimen_exit.branches if np.any(b.energy_offset_ev < 0.)]
+    losses = [b for b in result.specimen_exit.branches
+              if b.name.rsplit(":", 1)[-1] not in {"000", "vacuum_miss"}]
     assert losses and all(np.all(np.isnan(branch.flight_time_s)) for branch in losses)
 
 

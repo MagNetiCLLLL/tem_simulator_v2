@@ -27,7 +27,7 @@ def successful_transport(monkeypatch):
     weights = np.full(count, 1 / count)
     gun = SimpleNamespace(exit_bundle=SimpleNamespace(
         x_m=x, y_m=zeros, tx_rad=zeros, ty_rad=zeros, weight=weights,
-        alive=np.ones(count, bool), ray_id=np.arange(count),
+        alive=np.ones(count, bool), ray_id=np.arange(count), energy_offset_ev=zeros,
     ))
     calls = []
 
@@ -44,9 +44,11 @@ def successful_transport(monkeypatch):
             tx=np.zeros(shape), ty=np.zeros(shape), alive=np.ones(count, bool),
             blocked_z=np.full(count, np.nan), blocked_key=[""] * count,
             weight=1., energy_offset_ev=zeros, ray_weight=weights,
+            kinetic_energy_ev=np.full(shape, working.electron_gun.nominal_exit_energy_ev),
         )
         exact = PropagationCheckpoints(
             np.array([working.sample.z_mm]), x[None], zeros[None], zeros[None], zeros[None],
+            kinetic_energy_ev=np.full((1, count), working.electron_gun.nominal_exit_energy_ev),
         )
         simulation = Simulation(branch, {"000": branch}, {}, gun_trace=gun,
                                 incident_checkpoints=exact)
@@ -55,7 +57,7 @@ def successful_transport(monkeypatch):
 
     monkeypatch.setattr("temsim.optics.electron_gun.source.trace_source_to_exit", lambda _: gun)
     monkeypatch.setattr("temsim.optics.transport_matching._candidate_vectors",
-                        lambda *args: [strengths])
+                        lambda *args, **kwargs: [strengths])
     monkeypatch.setattr("temsim.physics.simulation.run", forward)
     return state, request, calls
 

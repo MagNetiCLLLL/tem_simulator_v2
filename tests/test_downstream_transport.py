@@ -116,8 +116,10 @@ def _stub_times(z, tx, ty, energy_offset, **kwargs):
     assert kwargs["return_flight_times"] is True
     initial = np.asarray(kwargs["initial_time_s"], dtype=np.float64)
     assert initial.shape == np.asarray(tx).shape
+    energy = np.asarray(kwargs["initial_kinetic_energy_ev"], dtype=np.float64)
+    kwargs["energy_output"].append(np.broadcast_to(energy, (len(z), len(tx))).copy())
     distance = (z-z[0])[:, None] * 1e-3 * np.sqrt(1.+tx*tx+ty*ty)[None, :]
-    return initial[None, :] + distance / _speed(200_000.+energy_offset)[None, :]
+    return initial[None, :] + distance / _speed(energy)[None, :]
 
 
 def test_geometric_exit_multiplies_elastic_and_inelastic_probabilities(monkeypatch):

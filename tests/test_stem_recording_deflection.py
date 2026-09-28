@@ -1,5 +1,6 @@
 """Recording deflection checks against independently propagated ray positions."""
 from dataclasses import replace
+from copy import copy
 from types import SimpleNamespace
 
 import numpy as np
@@ -56,8 +57,10 @@ def _reference_positions(state, descan, planes, times, positions, angles):
     """Direct column propagation, without the plan or its offset helpers."""
     output = [[] for _ in planes]
     for time, position, angle in zip(times.ravel(), positions, angles):
+        working = copy(state)
+        working.simulation_time_s = float(time)
         z, x, tx, y, ty = propagate(
-            state, state.sample.z_mm, planes[-1].z_mm,
+            working, state.sample.z_mm, planes[-1].z_mm,
             position[..., 0].ravel(), angle[..., 0].ravel(),
             position[..., 1].ravel(), angle[..., 1].ravel(),
             events=descan.kick_events(time_s=float(time)),
@@ -245,19 +248,19 @@ def test_resident_cuda_keeps_exact_physical_recording_masks(recording_column, mo
     np.testing.assert_allclose(gpu.truncated_fraction, cpu.truncated_fraction, rtol=2e-4, atol=2e-7)
 
 
-def test_legacy_pair_and_wobble_events_follow_the_same_recording_path(recording_column):
+def test_pair_and_wobble_fields_follow_the_same_recording_path(recording_column):
     state, descan, planes = recording_column
     descan.enabled = False
     z = float(descan.upper_z_mm)
-    legacy = SimpleNamespace(
-        enabled=True, upper_z_mm=z, lower_z_mm=z + 1,
-        upper_x_mrad=0.2, upper_y_mrad=-0.1, lower_x_mrad=0.3, lower_y_mrad=0.1,
-    )
+    from temsim.optics.model import DeflectorPair
+    pair = DeflectorPair("Fixture pair", "fixture_pair", z, z+1,
+                         .2, -.1, .3, .1, thickness_mm=.5)
     wobble = SimpleNamespace(
-        enabled=True, z_mm=z + 2, wobble_enabled=True,
+        key="fixture_wobble", enabled=True, z_mm=z + 2, wobble_enabled=True,
+        thickness_mm=.5,
         kick_events=lambda time_s=0.: ((z + 2, 0.001 * np.sin(2 * np.pi * time_s), 0.),),
     )
-    state.deflectors = [legacy]
+    state.deflectors = [pair]
     state.corrector_elements = [wobble]
     times = np.array([[0., .25, .5]])
     plan = build_record_plane_plan(state, scan_times_s=times)
@@ -265,10 +268,12 @@ def test_legacy_pair_and_wobble_events_follow_the_same_recording_path(recording_
     routed = route_record_planes(plan, np.zeros((3, 2)), np.zeros((3, 2)))
     actual = []
     for time in times.ravel():
+        working = copy(state)
+        working.simulation_time_s = float(time)
         events = ((z, .0002, -.0001), (z + 1, .0003, .0001), *wobble.kick_events(time))
         zero = np.zeros(1)
         zs, x, tx, y, ty = propagate(
-            state, state.sample.z_mm, planes[-1].z_mm, zero, zero, zero, zero,
+            working, state.sample.z_mm, planes[-1].z_mm, zero, zero, zero, zero,
             events=events, include_spherical_aberration=False, include_hexapole=False,
         )
         actual.append((x[-1, 0], y[-1, 0]))

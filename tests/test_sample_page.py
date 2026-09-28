@@ -169,7 +169,7 @@ def test_dedicated_eds_page_uses_calculated_sample_plane_rays(qtbot):
     assert state.sample.eds_support_material_key == "copper"
     assert state.sample.eds_support_offset_x_um == pytest.approx(-60.0)
     assert page._eds_result is None
-    assert "run High accuracy" in page.eds_summary.text()
+    assert "Calculate EDS" in page.eds_summary.text()
     assert "Ultra" not in page.eds_group.title()
 
     catalog = AssemblyCatalog()
@@ -198,8 +198,25 @@ def test_dedicated_eds_page_uses_calculated_sample_plane_rays(qtbot):
             signatures=result_signatures,
         )
     )
+    requests = []
+    page.calculation_requested.connect(lambda: requests.append(True))
     page.eds_acquire.click()
-
+    assert requests == [True]
+    assert page._eds_result is None
+    # Stand in for completed worker publication. The page does not run this
+    # transport: the executed sample-plane snapshot is the worker's input.
+    from temsim.component_keys import EDS_DETECTOR_SYSTEM
+    from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
+    from temsim.specimen.interaction_engine import run_specimen_interactions
+    from temsim.specimen.interaction_types import SpecimenInteractionRequest
+    interactions = run_specimen_interactions(
+        calculation_state, simulation, SpecimenInteractionRequest.eds_point(),
+        detector_geometry=EDSDetectorArrayGeometry.from_part_data(assembly.part(EDS_DETECTOR_SYSTEM).data),
+    )
+    page.display_result(SimpleNamespace(
+        assembly=assembly, simulation=simulation, state_snapshot=calculation_state,
+        signatures=result_signatures, specimen_interactions=interactions,
+    ))
     assert page._eds_result is not None
     assert page._eds_result.metrics["system_name"] == "EDS"
     assert page._eds_result.metrics["elastic_trajectory_generation"] is True
@@ -219,7 +236,7 @@ def test_dedicated_eds_page_uses_calculated_sample_plane_rays(qtbot):
     assert {
         line.source_key for line in page._eds_result.lines
     } >= {"sample", "support:bar"}
-    assert "EDS point |" in page.eds_summary.text()
+    assert "Cached EDS |" in page.eds_summary.text()
     assert "Ultra" not in page.eds_summary.text()
 
 

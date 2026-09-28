@@ -1,11 +1,12 @@
-"""Explicit field laws admitted by the virtual-electron compiled backend.
+"""Explicit field laws admitted by the shared compiled particle backends.
 
 A derived or individually replaced provider is an arbitrary physical callback,
 not evidence that its field is still Gaussian. Capture the original functions
 and require both a listed concrete type and unchanged method identities.
 """
 from temsim.physics.lens_field_provider import GeometryAwareAnalyticFieldProvider
-from temsim.magnetic_field_scene import _EquivalentDeflectorField, _MultipoleField
+from temsim.magnetic_field_scene import _MultipoleField
+from temsim.physics.instrument_magnetic import ColumnDipoleField
 from temsim.optics.condenser_lens import CondenserLensComponent
 from temsim.optics.objective_lens import ObjectiveLensComponent
 from temsim.optics.round_lens import RoundLensComponent, AnchoredRoundLensComponent
@@ -83,7 +84,7 @@ for base, concrete, names in (
 
 _PROVIDERS = {
     cls: _contract(cls, ('field_at_global_positions_t',))
-    for cls in (GeometryAwareAnalyticFieldProvider, _EquivalentDeflectorField, _MultipoleField,
+    for cls in (GeometryAwareAnalyticFieldProvider, ColumnDipoleField, _MultipoleField,
                 GunDeflector, GunStigmator)
 }
 _PROVIDERS[GeometryAwareAnalyticFieldProvider] += _contract(

@@ -213,7 +213,7 @@ def test_fresh_process_load_edit_and_extend_reuses_executed_prefix(executed_sect
     archive = tmp_path / "restart.temsection"
     save_section_result(executed_section, archive)
     checkpoint = executed_section.simulation.section_checkpoint
-    fields = ("z_mm", "x_m", "y_m", "tx_rad", "ty_rad", "flight_time_s")
+    fields = ("z_mm", "x_m", "y_m", "tx_rad", "ty_rad", "flight_time_s", "kinetic_energy_ev")
     arrays = {
         f"{segment.name}_{field}": getattr(segment.checkpoints, field)
         for segment in checkpoint.segments for field in fields
@@ -245,7 +245,7 @@ def test_fresh_process_load_edit_and_extend_reuses_executed_prefix(executed_sect
         before = sections.validate_section_checkpoint(restored.simulation.section_checkpoint)
         identity = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
         assert before.gun_dependency_signature == identity["gun"]
-        fields = ("z_mm", "x_m", "y_m", "tx_rad", "ty_rad", "flight_time_s")
+        fields = ("z_mm", "x_m", "y_m", "tx_rad", "ty_rad", "flight_time_s", "kinetic_energy_ev")
         with np.load(sys.argv[2], allow_pickle=False) as expected:
             for segment in before.segments:
                 assert segment.initial_dependency_signature == identity["segments"][segment.name]
@@ -285,8 +285,10 @@ def test_fresh_process_load_edit_and_extend_reuses_executed_prefix(executed_sect
             assert index > 0
             actual_z = float(plan.z_mm[index])
             assert actual_z == float(segment.checkpoints.z_mm[-1])
-            for value, field in zip((x, tx, y, ty, kwargs["initial_time_s"]),
-                                    ("x_m", "tx_rad", "y_m", "ty_rad", "flight_time_s")):
+            for value, field in zip((x, tx, y, ty, kwargs["initial_time_s"],
+                                     kwargs["initial_kinetic_energy_ev"]),
+                                    ("x_m", "tx_rad", "y_m", "ty_rad", "flight_time_s",
+                                     "kinetic_energy_ev")):
                 np.testing.assert_array_equal(value, getattr(segment.checkpoints, field)[-1])
             starts.append(actual_z)
             return original_execute(state, plan, x, tx, y, ty, energy, **kwargs)

@@ -176,10 +176,12 @@ class WorkingPointCheckpoint:
         matches = np.flatnonzero(np.asarray(exact.z_mm) == plane) if exact is not None else []
         if len(matches) != 1:
             raise ValueError("No unique full-precision incident checkpoint at the result plane; display history is not a scientific checkpoint")
+        if getattr(exact, "kinetic_energy_ev", None) is None:
+            raise ValueError("Historical checkpoint has no executed kinetic energy; recalculate from tip emission")
         arrays = {name: np.asarray(getattr(exact, name)[matches[0]])
-                  for name in ("x_m", "y_m", "tx_rad", "ty_rad")}
+                  for name in ("x_m", "y_m", "tx_rad", "ty_rad", "kinetic_energy_ev")}
         arrays.update(weight=incident.ray_weight, alive=incident.alive,
-                      energy_offset_ev=incident.energy_offset_ev,
+                      energy_offset_ev=arrays["kinetic_energy_ev"]-captured.beam_voltage_kv*1000,
                       gun_ray_id=gun.exit_bundle.ray_id)
         return cls(manifest.instrument_snapshot, arrays, plane,
                    str(result.signatures["incident"]),

@@ -218,7 +218,8 @@ class MainWindow(QMainWindow):
         self.workspace.interactive_calculation.build_requested.connect(self._build_interactive_cache)
         self.workspace.interactive_calculation.tuning_changed.connect(self._apply_interactive_tuning)
         self.workspace.interactive_calculation.current_state = lambda: self.state
-        self.workspace.interactive_calculation.high_accuracy_requested.connect(self.run_high_accuracy)
+        self.workspace.interactive_calculation.high_accuracy_requested.connect(self.run_section_high_accuracy)
+        self.workspace.calculation_requested.connect(self.run_page_calculation)
         self.workspace.interactive_calculation.section_changed.connect(self._section_configuration_changed)
         self.workspace.interactive_calculation.section_save_requested.connect(self._save_particle_section)
         self.workspace.interactive_calculation.section_load_requested.connect(self._load_particle_section)
@@ -271,7 +272,7 @@ class MainWindow(QMainWindow):
             self._clear_lens_field_map
         )
         self.workspace.scan_parameters_changed.connect(
-            self._runtime_parameter_changed
+            self._page_parameters_changed
         )
         self.workspace.scan_control.df_geometry_requested.connect(self._review_df_geometry)
         self.workspace.scan_error.connect(self._show_error)
@@ -641,6 +642,7 @@ class MainWindow(QMainWindow):
 
         high_button = QPushButton("Run high-accuracy once")
         high_button.setObjectName("highAccuracyButton")
+        high_button.setToolTip("Update Ray Diagram and retain the executed beam before the sample. Calculate sample interactions and detector readouts with the buttons on their pages.")
         high_button.clicked.connect(self.run_high_accuracy)
         toolbar.addWidget(high_button)
         cancel_button = QPushButton("Cancel calculations")
@@ -672,7 +674,7 @@ class MainWindow(QMainWindow):
         self.workspace.eds_page.set_state(self.state)
         self.parameter_panel.refresh_runtime_values()
         self.workspace.mark_high_accuracy_stale()
-        self._runtime_parameter_changed(parameter)
+        self._runtime_parameter_changed(parameter, request_preview=False)
 
     def _create_status_bar(self) -> None:
         self.status_label = QLabel("Ready")
@@ -933,7 +935,10 @@ class MainWindow(QMainWindow):
         self.workspace.interactive_calculation.set_section_archive_status(info)
         self.result_files.archive_status(info)
         if info.get("status") == "saved":
-            self.log_output.appendPlainText(f"Particle state saved through Z = {info['target_z_mm']:.9g} mm: {info['path']}")
+            resumable = info.get("resumable_through_z_mm", info["target_z_mm"])
+            self.log_output.appendPlainText(
+                f"Particle result saved | calculated Z = {info['target_z_mm']:.9g} mm | "
+                f"resumable Z = {resumable:.9g} mm | {info.get('physics_scope', 'classical particles')} | {info['path']}")
         elif info.get("status") == "failed":
             self.log_output.appendPlainText(f"Particle section archive failed: {info.get('error', 'Unknown error')}")
 
@@ -948,7 +953,7 @@ class MainWindow(QMainWindow):
                 or self._interactive_preview_pending or page.timer.isActive()):
             return
         metrics = simulation.metrics
-        request = page.segment_request()
+        request = (page.segment_request() if getattr(result, "workflow", "full") == "full" else None)
         if request is None:
             if not metrics.get("section_full_path", False):
                 return
@@ -1927,7 +1932,7 @@ class MainWindow(QMainWindow):
         return (self._interactive_preview_generation is not None
                 and self._interactive_preview_generation == self.calculations.generation)
 
-    def schedule_preview(self, _parameter: str = "") -> None:
+    def schedule_preview(self, _parameter: str = "", *, automatic: bool = True) -> None:
         if self.result_files.loading:
             return
         self.result_files.hold_automatic_preview = False
@@ -1959,8 +1964,12 @@ class MainWindow(QMainWindow):
         self.calculations.invalidate_pending()
         self.workspace.mark_high_accuracy_stale()
         self._schedule_design_explorer_refresh()
-        self._set_progress_active("calculation", False)
-        self.preview_timer.start(self.PREVIEW_DEBOUNCE_MS)
+        self._set_progress_active("calculation", self.calculations.has_pending_requests)
+        if automatic:
+            self.preview_timer.start(self.PREVIEW_DEBOUNCE_MS)
+        else:
+            self.preview_timer.stop()
+            self.status_label.setText("Settings changed. Click Calculate on this page to reuse valid upstream checkpoints and update the affected calculation stages.")
 
     def _hardware_tuning_changed(self, parameter: str) -> None:
         key = parameter.rsplit(".", 1)[0]
@@ -1969,7 +1978,10 @@ class MainWindow(QMainWindow):
             self.workspace.scan_control.set_state(self.state)
         self._runtime_parameter_changed(parameter)
 
-    def _runtime_parameter_changed(self, parameter: str = "") -> None:
+    def _page_parameters_changed(self, parameter: str = "") -> None:
+        self._runtime_parameter_changed(parameter, request_preview=False)
+
+    def _runtime_parameter_changed(self, parameter: str = "", *, request_preview=True) -> None:
         self.workspace.physical_layout.set_cell_state(self.state)
         # A background coupled solution was calculated for the pre-edit state.
         # Its generation must not be allowed to overwrite a newer manual edit.
@@ -1980,7 +1992,10 @@ class MainWindow(QMainWindow):
         self._add_tip_render_values(geometry_runtime)
         self.workspace.physical_layout.model_editor.set_runtime_values(geometry_runtime)
         self.workspace.physical_layout.assembly_3d.set_runtime_values(geometry_runtime)
-        self.schedule_preview(parameter)
+        if request_preview:
+            self.schedule_preview(parameter)
+        else:
+            self.schedule_preview(parameter, automatic=False)
 
     def _invalidate_direct_alignment(self) -> None:
         self._physical_revision += 1
@@ -2081,6 +2096,28 @@ class MainWindow(QMainWindow):
             self._interactive_preview_generation = self.calculations.generation
 
     def run_high_accuracy(self) -> None:
+        """The toolbar prepares rays; page buttons request their own readouts."""
+        self._submit_high_accuracy(workflow="rays")
+
+    def run_section_high_accuracy(self) -> None:
+        """Keep user-selected cutoff/continuation in the Live tuning workflow."""
+        self._submit_high_accuracy(
+            section_request=self.workspace.interactive_calculation.segment_request())
+
+    def run_page_calculation(self, workflow: str) -> None:
+        from temsim.calculation_workflow import validate_workflow
+        try:
+            validate_workflow(workflow)
+            if workflow in {"rays", "full"}:
+                raise ValueError("Use the Ray Diagram or Live tuning calculation button for this request")
+            seed = self.workspace._high_accuracy_result
+            if seed is None or getattr(seed, "simulation", None) is None:
+                raise ValueError("Run high-accuracy once to calculate Ray Diagram before calculating this page.")
+            self._submit_high_accuracy(workflow=workflow, existing_result=seed)
+        except ValueError as exc:
+            self._show_error(str(exc))
+
+    def _submit_high_accuracy(self, *, workflow="full", section_request=None, existing_result=None) -> None:
         if self.result_files.loading:
             return
         self.result_files.hold_automatic_preview = False
@@ -2096,7 +2133,9 @@ class MainWindow(QMainWindow):
                 self.high_rays.value(),
                 self.high_step.value(),
                 parent_id=getattr(self, "_working_point_parent", None),
-                section_request=self.workspace.interactive_calculation.segment_request(),
+                section_request=section_request,
+                workflow=workflow,
+                existing_result=existing_result,
             )
         except ValueError as exc:
             from temsim.physics.source_admission import UnsupportedWaveSource
@@ -2161,7 +2200,9 @@ class MainWindow(QMainWindow):
                 self.log_output.appendPlainText(f"Captured High accuracy completed in {duration:.3f} s; live settings and displayed results retained.")
                 self._schedule_design_explorer_refresh()
                 return
-        self.workspace.display_result(result, quality)
+        from temsim.calculation_workflow import WORKFLOW_LABELS
+        workflow = getattr(result, "workflow", "full")
+        self.workspace.display_result(result, quality, calculation_scope=workflow)
         self.result_files.refresh_actions()
         self.workspace.interactive_calculation.calculation_timing.set_result(result, duration)
         if getattr(result, "particle_signals", None) is not None:
@@ -2240,7 +2281,7 @@ class MainWindow(QMainWindow):
             cache_status += " | incident beam reused"
             cache_log += ", incident beam reused"
         self.status_label.setText(
-            f"{quality} completed in {duration:.3f} s | "
+            f"{WORKFLOW_LABELS.get(workflow, quality)} completed in {duration:.3f} s | "
             f"mode: {mode} | {MODE_BY_KEY[mode_key(result.state_snapshot)].label} | rays: {backend}{wave_status}{cache_status}"
         )
         self.log_output.appendPlainText(
@@ -2277,7 +2318,7 @@ class MainWindow(QMainWindow):
         result = self.workspace._high_accuracy_result
         if (result is None or getattr(result, "stem_scan", None) is not frame
                 or getattr(result, "state_snapshot", None) is None):
-            raise ValueError("DF fitting needs the matching High accuracy state and full raster. Run High accuracy first.")
+            raise ValueError("DF fitting needs the matching state and full raster. Click Calculate STEM on the Scanning Image page first.")
         return result
 
     def _df_chamber_diameter(self, part, detector_z_mm):
@@ -2320,7 +2361,7 @@ class MainWindow(QMainWindow):
         chief_mrad = np.asarray((statistics["mean_tx_rad"], statistics["mean_ty_rad"])) * 1e3
         report = frame_sampling_report(getattr(frame, "metrics", None) or {})
         if report is None or report.get("probe_semiangle_mrad") is None:
-            raise ValueError("This frame does not record the model illumination disk. Run High accuracy again.")
+            raise ValueError("This frame does not record the model illumination disk. Click Calculate STEM again.")
         plan = build_record_plane_plan(snapshot, scan_times_s=times)
         return plan, positions_m, float(report["probe_semiangle_mrad"]), chief_mrad
 
@@ -2419,7 +2460,7 @@ class MainWindow(QMainWindow):
                 # view. Retain the original completed frame with its own context.
                 self.workspace.scan_control._set_stem_frame(frame, state_snapshot=result.state_snapshot)
                 self.workspace.scan_control.mark_stem_frame_stale()
-                self.status_label.setText("DF dimensions saved; previous images are stale. Run High accuracy to update them.")
+                self.status_label.setText("DF dimensions saved; previous images are stale. Click Calculate STEM to update them.")
                 dialog.accept()
             except Exception as exc:
                 error.setText(f"DF dimensions were not saved: {exc}")

@@ -21,6 +21,28 @@ def records():
     return (SimpleNamespace(key="lens", name="Magnetic lens", peak_t=1.),)
 
 
+def test_stale_field_geometry_stays_visible_without_rebuilding_for_display_edits(qtbot, monkeypatch):
+    calls = install_builder(monkeypatch)
+    page = MagneticField3DPage()
+    qtbot.addWidget(page)
+    page.update_snapshot(object(), records(), (0., 10.))
+    page.set_active(True)
+    qtbot.waitUntil(lambda: page._current_geometry is not None and page._worker is None)
+    previous = page._current_geometry
+    page.mark_inputs_stale()
+    assert page._current_geometry is previous
+    assert page.electron._fields_stale and "Stale" in page.status.text()
+    assert not page._cache
+    page.reference.setValue(2.)
+    page.set_projection_angle(45.)
+    page.set_view_range_mm((0., 5.), (-1., 1.))
+    page._request_geometry()
+    qtbot.wait(130)
+    assert len(calls) == 1 and page._worker is None
+    assert page._current_geometry is previous and "Stale" in page.status.text()
+    page.set_active(False)
+
+
 def install_builder(monkeypatch):
     calls = []
 

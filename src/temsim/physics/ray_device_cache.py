@@ -14,9 +14,9 @@ import weakref
 
 import numpy as np
 
-PLAN_INDICES = (0, 1, 2, 3, 4, 6, 7, 8, 9, 14, 15, 16, 17, 18)
+PLAN_INDICES = (0, 1, 2, 3, 4, 6, 7, 8, 9, 14, 15, 16, 17, 18, 19, 20, 21)
 PARTICLE_INDICES = (5, 10, 11, 12, 13)
-SCHEMA = b"column-rk4-f64-quadrupole-tensor-tof-v3"
+SCHEMA = b"column-rk4-f64-shared-magnetic-forcing-tof-v4"
 _DEVICE_BUDGET = ContextVar("column_device_budget", default=8 * 1024**3)
 _LAST_RECEIPT = ContextVar("column_device_receipt", default=None)
 
@@ -39,18 +39,22 @@ def plan_identity(inputs):
         digest.update(str((index, value.shape, value.dtype.str)).encode())
         digest.update(memoryview(value).cast("B"))
     digest.update(str(tuple(inputs[i].dtype.str for i in PARTICLE_INDICES)).encode())
-    if len(inputs) == 21:
-        digest.update(str(tuple(inputs[i].dtype.str for i in (19, 20))).encode())
+    if len(inputs) == 24:
+        digest.update(str(tuple(inputs[i].dtype.str for i in (22, 23))).encode())
     return digest.hexdigest()
 
 
 def _validated_inputs(inputs):
-    """Require the current explicit tensor (and optional particle-clock) input."""
+    """Require shared-field coefficients and optional particle-clock arrays."""
     inputs = tuple(inputs)
-    if len(inputs) not in (19, 21) or any(np.asarray(a).ndim != 1 for a in inputs):
-        raise ValueError("RK4 device inputs must be nineteen arrays, with optional time and inverse speed")
+    if len(inputs) not in (22, 24) or any(np.asarray(a).ndim != 1 for a in inputs):
+        raise ValueError("RK4 device inputs must be twenty-two arrays, with optional time and inverse speed")
     if inputs[18].shape != inputs[0].shape:
         raise ValueError("RK4 skew coefficients must match the other quadrupole stages")
+    if any(inputs[index].shape != (3 * inputs[9].size,) for index in (19, 20)):
+        raise ValueError("RK4 dipole fields require three interior samples per interval")
+    if inputs[21].shape != (1,) or not np.isfinite(inputs[21][0]) or inputs[21][0] <= 0.:
+        raise ValueError("RK4 reference momentum must be one positive finite SI value")
     return inputs
 
 
@@ -111,8 +115,8 @@ class RayDeviceCache:
         inputs = _validated_inputs(inputs)
         key = plan_identity(inputs)
         rays, saved, checkpoints = inputs[10].size, inputs[16].size, inputs[17].size
-        timed = len(inputs) == 21
-        particle_indices = (*PARTICLE_INDICES, 19, 20) if timed else PARTICLE_INDICES
+        timed = len(inputs) == 24
+        particle_indices = (*PARTICLE_INDICES, 22, 23) if timed else PARTICLE_INDICES
         if any(inputs[i].size != rays for i in particle_indices):
             raise ValueError("RK4 particle arrays must have identical populations")
         required = sum(a.nbytes for a in inputs) + rays * (saved * 16 + checkpoints * 32)

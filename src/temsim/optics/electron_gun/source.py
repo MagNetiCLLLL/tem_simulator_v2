@@ -10,8 +10,10 @@ def trace_source_to_exit(state, count=None):
     from temsim.vacuum import bind_gun_environment
     bind_gun_environment(state)
     cancelled = getattr(state, "_tuning_cancelled", None)
-    if cancelled is not None:
-        return gun.trace_to_exit(count, cancelled=cancelled)
-    if count is None:
-        return gun.trace_to_exit()
-    return gun.trace_to_exit(count)
+    from temsim.physics.gun_field_environment import instrument_gun_field_context
+    with instrument_gun_field_context(state):
+        if cancelled is not None:
+            return gun.trace_to_exit(count, cancelled=cancelled)
+        if count is None:
+            return gun.trace_to_exit()
+        return gun.trace_to_exit(count)

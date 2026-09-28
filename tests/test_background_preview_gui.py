@@ -135,6 +135,7 @@ def test_capture_error_does_not_leave_live_queue_running(window, monkeypatch):
 
 @pytest.mark.parametrize("coherent", [False, True])
 def test_rejected_surface_image_keeps_applied_source_and_previous_result(window, qtbot, monkeypatch, coherent):
+    from types import SimpleNamespace
     from temsim.gui.gun_source_dialog import GunSourceDialog
     from temsim.instrument_snapshot import capture_instrument_snapshot
 
@@ -155,11 +156,12 @@ def test_rejected_surface_image_keeps_applied_source_and_previous_result(window,
     before = capture_instrument_snapshot(window.state).digest
     previous = object()
     window.workspace._last_result = previous
+    window.workspace._high_accuracy_result = SimpleNamespace(simulation=object())
     errors = []
     monkeypatch.setattr(window, "_show_error", errors.append)
     monkeypatch.setattr(window.calculations.pool, "start", lambda *_: pytest.fail("Unsupported imaging must not start a worker"))
-    window.run_high_accuracy()
-    assert len(errors) == 1 and "Wave imaging" in errors[0]
+    window.run_page_calculation("stem")
+    assert len(errors) == 1 and "STEM wave imaging" in errors[0]
     assert "Source selection and previous results are unchanged" in errors[0]
     assert capture_instrument_snapshot(window.state).digest == before
     assert window.workspace._last_result is previous
@@ -178,7 +180,32 @@ def test_high_toolbar_routes_to_background_without_foreground_memory_preparation
     monkeypatch.setattr(module, "estimate_calculation_memory_bytes", lambda *_: pytest.fail("Heavy memory estimation belongs in preparation worker"))
     window.run_high_accuracy()
     assert len(calls) == 1 and calls[0][0][1] == "High accuracy"
-    assert calls[0][1] == {"parent_id": "captured-parent-fixture", "section_request": None}
+    assert calls[0][1] == {"parent_id": "captured-parent-fixture", "section_request": None,
+                            "workflow": "rays", "existing_result": None}
+
+
+def test_sample_edits_and_tab_switches_do_not_launch_calculation(window, monkeypatch, qtbot):
+    calls = []
+    monkeypatch.setattr(window.calculations, "submit_background", lambda *args, **kw: calls.append((args, kw)))
+    window.workspace.sample_page.parameters_changed.emit("sample.thickness_nm")
+    assert not window.preview_timer.isActive()
+    for page in (window.workspace.sample_page, window.workspace.eds_page, window.workspace.scan_control):
+        window.workspace.tabs.setCurrentWidget(page)
+    qtbot.wait(40)
+    assert not calls
+    assert "Click Calculate" in window.status_label.text()
+
+
+def test_page_button_routes_current_beam_to_background(window, monkeypatch):
+    from types import SimpleNamespace
+    calls = []
+    seed = SimpleNamespace(simulation=object())
+    window.workspace._high_accuracy_result = seed
+    monkeypatch.setattr(window.calculations, "submit_background", lambda *args, **kw: calls.append((args, kw)))
+    window.workspace.sample_page.calculation_bar.button.click()
+    assert len(calls) == 1
+    assert calls[0][1]["workflow"] == "sample"
+    assert calls[0][1]["existing_result"] is seed
 
 
 @pytest.mark.parametrize("dispatch_attempt", range(5))

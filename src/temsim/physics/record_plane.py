@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from copy import copy
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass, replace
 import hashlib
 import json
 import math
@@ -432,70 +432,99 @@ def resolved_runtime_geometry_fingerprint(state, planes: Sequence[PlaneStop]) ->
     })
 
 
-def _downstream_deflector_events(state, source_z_mm, target_z_mm, time_s, *, dynamic_only=False):
-    """Match the explicit kick events used by the geometric column solver."""
-    events = {}
-    for collection in ("deflectors", "corrector_elements"):
-        for component in getattr(state, collection, ()):
-            if not getattr(component, "enabled", False):
-                continue
-            if dynamic_only and not (getattr(component, "scan_enabled", False)
-                                     or getattr(component, "wobble_enabled", False)):
-                continue
-            if hasattr(component, "kick_events"):
-                try:
-                    rows = component.kick_events(time_s=float(time_s))
-                except TypeError:
-                    rows = component.kick_events()
-            elif collection == "deflectors":
-                rows = (
-                    (component.upper_z_mm, component.upper_x_mrad * 1e-3, component.upper_y_mrad * 1e-3),
-                    (component.lower_z_mm, component.lower_x_mrad * 1e-3, component.lower_y_mrad * 1e-3),
-                )
-            else:
-                continue
-            for z, x, y in rows:
-                # The specimen-exit phase space already contains kicks at or
-                # before the sample reference plane.
-                if float(source_z_mm) < float(z) <= float(target_z_mm):
-                    value = events.setdefault(float(z), np.zeros(2))
-                    value += (float(x), float(y))
-    return events
+def _dynamic_column_coils(state, source_z_mm, target_z_mm):
+    """Captured dynamic coils whose physical support intersects this span."""
+    from temsim.physics.instrument_magnetic import column_dipole_fields
+    keys = {str(component.key)
+        for collection in ("deflectors", "corrector_elements", "stigmators")
+        for component in getattr(state, collection, ())
+        if getattr(component, "enabled", False)
+        and (getattr(component, "scan_enabled", False) or getattr(component, "wobble_enabled", False))}
+    return tuple(coil for coil in column_dipole_fields(state)
+        if coil.key.rsplit(":", 1)[0] in keys
+        and coil.lower_m < target_z_mm*1e-3 and coil.upper_m > source_z_mm*1e-3)
 
 
-def _scan_deflection_offsets(state, source, planes, reference_time, times, maximum_step_mm):
-    """Transport only time-varying downstream kicks, relative to the static plan."""
-    offsets = []
+def _scan_deflection_offsets(state, source, planes, times, maximum_step_mm,
+                             reference_transfers):
+    """Trace finite-coil responses through overlapping fields, then combine.
+
+    Linear analytic fields need at most two reference trajectories per driven
+    coil, independent of raster size. Electric fields and imported maps trace the central
+    orbit at each distinct time. Their Jacobian remains the declared local map
+    at the reference working point; this is not a nonlinear per-pixel map.
+    """
+    from temsim.physics.core import build_propagation_plan, execute_propagation_plan
+    from temsim.physics.instrument_magnetic import active_column_events
+    from temsim.physics.lens_field_provider import active_mapped_providers
+    from temsim.physics.electrostatic_column_transport import active_electric_field
+
     if not planes:
-        return tuple(offsets)
-    reference_events = _downstream_deflector_events(
-        state, source, planes[-1].z_mm, reference_time, dynamic_only=True,
-    )
-    if not reference_events:
+        return ()
+    reference_coils = _dynamic_column_coils(state, source, planes[-1].z_mm)
+    if not reference_coils:
         return ()
     unique_times, inverse = np.unique(times, return_inverse=True)
-    timed_events = [
-        _downstream_deflector_events(state, source, planes[-1].z_mm, time, dynamic_only=True)
-        for time in unique_times
-    ]
-    event_planes = set(reference_events).union(*(set(events) for events in timed_events))
-    for z in sorted(event_planes):
-        reference = reference_events.get(z, np.zeros(2))
-        delta = np.asarray([events.get(z, np.zeros(2)) - reference for events in timed_events])
-        if not np.any(delta):
-            continue
-        if not offsets:
-            offsets = [np.zeros(times.shape + (2,)) for _ in planes]
-        maps = trace_transverse_transfers(
-            state, z, (plane.z_mm for plane in planes if plane.z_mm >= z),
-            maximum_step_mm=maximum_step_mm,
-        )
-        commands = delta[inverse].reshape(times.shape + (2,))
-        for index, plane in enumerate(planes):
-            if plane.z_mm >= z:
-                offsets[index] += np.einsum(
-                    "ij,...j->...i", maps[plane.z_mm].j_diff_m_per_rad, commands,
-                )
+    timed_states, timed_coils = [], []
+    for time in unique_times:
+        working = copy(state)
+        working.simulation_time_s = float(time)
+        timed_states.append(working)
+        coils = _dynamic_column_coils(working, source, planes[-1].z_mm)
+        if tuple((c.key, c.lower_m, c.upper_m) for c in coils) != tuple(
+                (c.key, c.lower_m, c.upper_m) for c in reference_coils):
+            raise ValueError("Scan-dependent magnetic coil geometry requires a time-dependent transport model")
+        timed_coils.append(coils)
+    deltas = np.asarray([[(c.bx_t-r.bx_t, c.by_t-r.by_t)
+        for c, r in zip(coils, reference_coils)] for coils in timed_coils])
+    if not np.any(deltas):
+        return ()
+    targets = tuple(float(plane.z_mm) for plane in planes)
+    offsets = [np.zeros(times.shape + (2,)) for _ in planes]
+    zero = np.zeros(1)
+    plan = build_propagation_plan(state, source, targets[-1], active_column_events(state),
+        include_spherical_aberration=False, include_hexapole=False,
+        checkpoint_z_mm=targets, maximum_step_mm=maximum_step_mm)
+    if active_mapped_providers(state) or active_electric_field(plan) is not None:
+        positions = []
+        for working in timed_states:
+            plan = build_propagation_plan(working, source, targets[-1],
+                active_column_events(working), include_spherical_aberration=False,
+                include_hexapole=False, checkpoint_z_mm=targets,
+                maximum_step_mm=maximum_step_mm)
+            points = execute_propagation_plan(working, plan, zero, zero, zero, zero)[-1]
+            indices = np.searchsorted(points.z_mm, targets)
+            positions.append(np.column_stack((points.x_m[indices, 0], points.y_m[indices, 0])))
+        for index, transfer in enumerate(reference_transfers):
+            delta = np.asarray(positions)[:, index]-np.asarray(transfer.position_offset_m)
+            offsets[index] = delta[inverse].reshape(times.shape+(2,))
+        return tuple(offsets)
+
+    sample = np.zeros((len(plan.step_m), 3))
+    sample[:, 2] = .5*(plan.z_mm[:-1]+plan.z_mm[1:])*1e-3
+    for coil_index, coil in enumerate(reference_coils):
+        for axis in (0, 1):
+            change = deltas[:, coil_index, axis]
+            scale = float(np.max(np.abs(change)))
+            if scale == 0.:
+                continue
+            # Normalise to the actual command range, avoiding an artificially
+            # huge unit field. This is a response basis, never a beam source.
+            basis_coil = replace(coil, bx_t=scale if axis == 0 else 0.,
+                                 by_t=scale if axis == 1 else 0.)
+            values = basis_coil.field_at_global_positions_t(sample)
+            response_plan = replace(plan,
+                dipole_bx_t=np.repeat(values[:, 0], 3),
+                dipole_by_t=np.repeat(values[:, 1], 3),
+                kick_x_rad=np.zeros_like(plan.kick_x_rad),
+                kick_y_rad=np.zeros_like(plan.kick_y_rad),
+                signature=_digest((plan.signature, "finite-coil-response", coil.key, axis, scale)))
+            points = execute_propagation_plan(state, response_plan, zero, zero, zero, zero)[-1]
+            indices = np.searchsorted(points.z_mm, targets)
+            response = np.column_stack((points.x_m[indices, 0], points.y_m[indices, 0]))
+            command = (change[inverse]/scale).reshape(times.shape)
+            for index in range(len(planes)):
+                offsets[index] += command[..., None]*response[index]
     return tuple(offsets)
 
 
@@ -522,34 +551,23 @@ def build_record_plane_plan(
         calibrate_scan_system(state)
     source = float(state.sample.z_mm if source_z_mm is None else source_z_mm)
     planes = runtime_recording_stops(state, source)
-    reference_time = float(getattr(state, "simulation_time_s", 0.0))
-    reference_events = _downstream_deflector_events(
-        state, source, planes[-1].z_mm if planes else source, reference_time,
-    )
     transfers_by_z = trace_transverse_transfers(
         state,
         source,
         (plane.z_mm for plane in planes),
         maximum_step_mm=maximum_step_mm,
-        events=tuple((z, *kick) for z, kick in sorted(reference_events.items())),
     )
     transfers = tuple(transfers_by_z[plane.z_mm] for plane in planes)
     times = None if scan_times_s is None else np.asarray(scan_times_s, dtype=float)
     if times is not None and (times.ndim != 2 or not times.size or not np.all(np.isfinite(times))):
         raise ValueError("Record-plane scan times must be a finite non-empty 2-D array")
     scan_offsets = () if times is None else _scan_deflection_offsets(
-        state, source, planes, reference_time, times, maximum_step_mm,
+        state, source, planes, times, maximum_step_mm, transfers,
     )
-    time_dependent = any(
-        getattr(component, "enabled", False)
-        and (getattr(component, "scan_enabled", False) or getattr(component, "wobble_enabled", False))
-        and float(getattr(component, "z_mm", source)) > source
-        for name in ("deflectors", "corrector_elements")
-        for component in getattr(state, name, ())
-    )
+    time_dependent = bool(planes and _dynamic_column_coils(state, source, planes[-1].z_mm))
     geometry_fingerprint = resolved_runtime_geometry_fingerprint(state, planes)
     fingerprint = _digest({
-        "model": "signed_mixed_plane_first_order_scan_deflection_v2",
+        "model": "finite_coil_first_order_recording_v3",
         "source_z_mm": source,
         "resolved_geometry_fingerprint": geometry_fingerprint,
         "planes": planes,
@@ -575,7 +593,8 @@ def record_plane_plan_provenance(plan: RecordPlanePlan) -> Mapping[str, object]:
     """Return finite JSON data for the exact runtime stops and signed maps."""
 
     return MappingProxyType({
-        "model": "signed_mixed_plane_first_order_scan_deflection_v2",
+        "model": "finite_coil_first_order_recording_v3",
+        "scan_mapping_scope": "Local fixed Jacobian at the reference working point; finite-coil affine responses. Electric-field and imported-map central orbits are traced at each distinct scan time, without claiming the off-axis Jacobian stays constant.",
         "axis": "laboratory +Z downstream",
         "source_z_mm": float(plan.source_z_mm),
         "fingerprint": plan.fingerprint,

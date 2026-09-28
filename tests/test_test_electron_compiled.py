@@ -14,7 +14,12 @@ def captured_scene():
     with numerical_job(1):
         state=default_state()
         magnetic=prepare_magnetic_scene(state,z_limits_mm=(0.,3026.4))
-        return prepare_test_electron_scene(state,magnetic,z_limits_mm=(0.,3026.4))
+        scene = prepare_test_electron_scene(state,magnetic,z_limits_mm=(0.,3026.4))
+        # This suite isolates the scalar/compiled full-field pusher. The
+        # application's shared production-column dispatch is covered by
+        # test_shared_electron_column, including real CPU/compiled parity.
+        return replace(scene, _column_input_graph=None, _column_identity=None,
+                       _column_handoff_z_m=None, transport_identity=None)
 
 
 def settings(scene,**kwargs):
@@ -53,6 +58,25 @@ def test_compiled_complete_paths_match_reference_and_hardware_stops(captured_sce
     np.testing.assert_allclose(actual.time_s,reference.time_s,rtol=2e-10,atol=1e-17)
     np.testing.assert_allclose(actual.path_length_m,reference.path_length_m,rtol=2e-10,atol=2e-12)
     assert actual.energy_invariant_error_ev<1e-5
+
+
+@pytest.mark.parametrize('use_compiled', [False, True])
+def test_accepted_step_growth_is_bounded_after_a_fine_electric_cell(captured_scene, use_compiled):
+    # A narrow cell followed by a coarse cell used to jump to an unbounded
+    # proposed dt when step doubling happened to return zero rounding error.
+    # One ULP instead produced dt*2, changing the saved sampling sequence.
+    z = captured_scene.electric_base.z
+    widths = np.diff(z)
+    candidates = np.flatnonzero((z[:-2] > 1.) & (widths[1:] > 100.*widths[:-1]))
+    assert len(candidates)
+    index = candidates[0]
+    cfg = replace(settings(captured_scene, max_path_length_m=min(.001, .5*widths[index+1])),
+                  kinetic_energy_ev=300000., position_m=(0., 0., .5*(z[index]+z[index+1])))
+    result = trace_test_electron(captured_scene, cfg, use_compiled=use_compiled)
+    assert result.completed and result.reason == 'path_limit'
+    intervals = np.diff(result.time_s)
+    assert len(intervals) > 3
+    assert np.all(intervals[1:] <= 2.*intervals[:-1]*(1.+2e-12))
 
 
 def test_compiled_streaming_prefix_is_executed_immutable_and_does_not_change_result(captured_scene):
@@ -97,7 +121,8 @@ def test_progress_interval_validation_and_unsupported_provider_fallback(captured
 @pytest.mark.parametrize('category',['stigmator','corrector','hexapole','deflector','gun_deflector','gun_stigmator'])
 def test_nonzero_configured_magnetic_components_are_not_omitted(captured_scene,category):
     from copy import deepcopy
-    from temsim.magnetic_field_scene import _EquivalentDeflectorField,_MultipoleField
+    from temsim.magnetic_field_scene import _MultipoleField
+    from temsim.physics.instrument_magnetic import ColumnDipoleField
     from temsim.optics.electron_gun.alignment import GunDeflector,GunStigmator
     scene=captured_scene
     sources=list(scene.magnetic_scene._sources)
@@ -107,7 +132,7 @@ def test_nonzero_configured_magnetic_components_are_not_omitted(captured_scene,c
         match=((category=='stigmator' and type(provider) is _MultipoleField and provider.state.stigmators)
                or(category=='corrector' and type(provider) is _MultipoleField and provider.state.corrector_elements and hasattr(provider.state.corrector_elements[0],'quadrupole_strength_m2'))
                or(category=='hexapole' and type(provider) is _MultipoleField and provider.state.corrector_elements and hasattr(provider.state.corrector_elements[0],'hexapole_strength_components_m3'))
-               or(category=='deflector' and type(provider) is _EquivalentDeflectorField)
+               or(category=='deflector' and type(provider) is ColumnDipoleField)
                or(category=='gun_deflector' and type(provider) is GunDeflector)
                or(category=='gun_stigmator' and type(provider) is GunStigmator))
         if not match:continue

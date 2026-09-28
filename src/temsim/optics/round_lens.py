@@ -9,6 +9,7 @@ import numpy as np
 
 from temsim.optics.condenser_lens import AxialFieldTerm
 from temsim.optics.lens_focal_length import focal_length_mm as _focal_length_mm
+from temsim.optics.lens_focal_length import raw_unit_field_peak
 from temsim.optics.model import Gaussian, Lens
 
 
@@ -165,6 +166,8 @@ class RoundLensComponent:
             field += term.amplitude * np.exp(
                 -0.5 * ((z - centre) / sigma) ** 2
             )
+        if self.normalise_profile_peak:
+            field /= max(raw_unit_field_peak(self), 1e-15)
         return float(self.polarity) * self.scale() * field
 
     def focal_length_mm(self):
@@ -354,7 +357,7 @@ class AnchoredRoundLensComponent(Lens):
                 -0.5 * ((z - centre) / sigma) ** 2
             )
         if self.normalise_profile_peak:
-            field /= max(float(np.max(np.abs(field))), 1e-15)
+            field /= max(raw_unit_field_peak(self), 1e-15)
         return float(self.polarity) * self.scale() * field
 
     def focal_length_mm(self):

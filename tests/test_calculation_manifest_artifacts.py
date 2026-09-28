@@ -71,6 +71,7 @@ def _checkpoints(offset=0.0):
         tx_rad=(values + offset) * 1.0e-6,
         y_m=(values + offset + 1.0) * 1.0e-9,
         ty_rad=(values + offset + 1.0) * 1.0e-6,
+        kinetic_energy_ev=np.full(shape, 300000., dtype=np.float64),
     )
 
 

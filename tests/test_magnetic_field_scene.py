@@ -249,7 +249,7 @@ def test_deflector_signed_integrals_use_effective_thickness_and_snapshot_energy(
         integral = np.trapezoid(values, z, axis=0)
         np.testing.assert_allclose((-charge*integral[1]/momentum, charge*integral[0]/momentum), (dx, dy), rtol=1e-14)
         assert region.category == "deflector" and region.label == "Deflector"
-    assert any("display-only equivalent" in note for note in scene.notes)
+    assert any("shared uniform finite-coil" in note for note in scene.notes)
     points = np.array(((0., 0., .0229), (0., 0., .0271), (0., 0., .030)))
     np.testing.assert_array_equal(scene.field_at_global_positions_t(points), 0.)
     before = scene.field_at_global_positions_t(np.array(((0., 0., .025),)))

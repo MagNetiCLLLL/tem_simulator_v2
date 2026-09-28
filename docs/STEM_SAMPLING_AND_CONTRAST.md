@@ -1,5 +1,60 @@
 # STEM sampling and contrast
 
+## Current non-wave CIF workflow
+
+Run **High-accuracy once** for the optical ray calculation. In **Sample**, load
+the desired CIF, retain its crystallography, choose orientation/finite dimensions
+and use that page's Calculate button. In **Scanning Image**, select **Projected
+atoms (fast approximation)**, enable the raster, set pixel size/pixels, then
+click **Calculate STEM**. The compatible executed incident beam is reused;
+neither changing tabs nor switching display contrast performs a calculation.
+
+After Ray Diagram or Sample completes, enabling the raster or changing its
+pitch, dimensions or scan-coil controls can change the reference incident beam.
+The page Calculate action recalibrates and resumes the affected optical segment
+from a validated upstream checkpoint before updating specimen/detector results.
+It does not relabel the old incident beam as the new one. Changes to the source,
+other upstream optics or numerical resolution still require Ray Diagram first.
+
+The projected model reads actual CIF sites, symmetry and occupancies. It uses
+the full XY covariance and energy distribution of the executed incident rays.
+The probe is not silently narrowed to create atomic resolution. Pixel spacing
+samples an image; it does not improve the probe itself. Auto contrast scales
+each image for inspection while the actual intensity range remains displayed.
+Constant intensities stay spatially uniform.
+
+For each element, the normalized probe convolves projected site density and
+the shared screened-Rutherford cross section to obtain an optical depth.
+Finite Gaussian/material overlap separates vacuum from material. Within that
+overlap the probabilities of no elastic event and at least one elastic event
+sum to one; the latter is represented by an effective angular draw. The
+reported plural-event probability indicates the limitation of this closure.
+It does **not** execute plural elastic angular redistribution or channeling.
+
+Auxiliary angular responses retain executed incident positions, directions and
+energies, and run through the same downstream electric/magnetic transport,
+apertures, walls and optional vacuum. Recording surfaces then intercept current
+in physical order at each raster position, even with readout disabled. Scan
+and descan use the local affine response around those trajectories; changes in
+nonlinear hardware clipping across a wide raster require a more complete model.
+Numerically unresolved paths are separately reported, not counted as detected
+electrons. Responses and projected intensities have bounded dependency-checked
+caches. They never replace exact material/EDS histories or resumable states.
+
+This is a thin-specimen, independent-atom intensity approximation. It can
+produce atomic-position-dependent HAADF and particle BF/DF contrast. It cannot
+claim agreement with general BF/DF diffraction theory: Bragg interference,
+phase contrast and channeling remain outside its scope. Material support grids
+and detector paths traversing an energy filter are explicitly unsupported in
+this readout; they are not silently ignored. **Material particle paths** retains
+the finite-volume Monte Carlo readout. Coherent tip-to-column work remains paused.
+
+Implementation: `specimen/projected_scattering.py` owns CIF/probe probabilities;
+`detector/projected_response.py` owns conditional physical response paths;
+`detector/projected_stem.py` owns per-pixel detector integration. Tests use
+declared local numerical fixtures as well as separate bounded real-column
+smokes; local atomic contrast is not full-instrument resolution qualification.
+
 ## Reading a detector image
 
 The detector name does not prescribe the sign of atomic contrast. Small-angle
@@ -8,7 +63,8 @@ orientation and collection angle matter. Incoherent high-angle ADF normally
 shows bright atomic columns. No image is inverted to enforce that expectation.
 Each image uses an independent linear grayscale (larger signal is brighter).
 
-The Images page now reports angular coverage for each detector:
+For historical coherent-wave results, the Images page reports angular coverage
+for each detector (the coherent source development remains paused):
 
 - **Band covered:** the conservative acceptance bound fits inside the grid.
   This is necessary, but it is not a convergence certificate.

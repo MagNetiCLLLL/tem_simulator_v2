@@ -1,4 +1,4 @@
-"""An isolated relativistic test electron in captured electromagnetic fields.
+"""A diagnostic electron in the captured production electromagnetic model.
 
 This diagnostic never supplies a microscope source or transport checkpoint.
 It solves dx/dt = p/(gamma*m), dp/dt = -e*(E + v cross B) in right-handed
@@ -6,6 +6,9 @@ global XYZ metres; +Z is downstream. E is V/m, B tesla and potential volts.
 Scene-owned hardware intercepts stop the path; specimen and detector signal
 interactions are excluded. No field solve or source substitution occurs here.
 
+Captured instruments share the production forward-column propagator after
+the executed gun segment. Independent field fixtures and backward diagnostic
+launches retain the full time-domain reference below.
 Static electric fields use a symmetric discrete-gradient Lorentz step, with
 step-doubling error control. It conserves K-e*phi to iteration tolerance without
 rescaling momentum. The pure-B specialization uses a symmetric Boris rotation.
@@ -29,6 +32,10 @@ import numpy as np
 from temsim.physics.relativistic_lorentz import (
     ELEMENTARY_CHARGE_C, ELECTRON_MASS_KG, SPEED_OF_LIGHT_M_PER_S,
 )
+from temsim.physics.discrete_gradient import (
+    discrete_gradient_update, ITERATION_TOLERANCE, MAXIMUM_ITERATIONS,
+    NORMALIZED_MOMENTUM_FLOOR, dot3, norm3,
+)
 
 
 @dataclass(frozen=True)
@@ -39,7 +46,7 @@ class TestElectronSettings:
     azimuth_angle_deg: float = 0.
     max_path_length_m: float = .05
     step_m: float = 1e-4
-    max_steps: int = 12_000
+    max_steps: int = 100_000
     relative_tolerance: float = 1e-4
     position_tolerance_m: float = 1e-12
 
@@ -410,7 +417,7 @@ class _TraceCancelled(Exception):
 
 
 def _velocity_u(u):
-    return SPEED_OF_LIGHT_M_PER_S*u/sqrt(1.+float(u@u))
+    return SPEED_OF_LIGHT_M_PER_S*u/sqrt(1.+dot3(u, u))
 
 
 def _cross3(first, second):
@@ -421,14 +428,14 @@ def _cross3(first, second):
 
 def _collinear_force(velocity, electric, magnetic):
     """Exact axial/parallel motion has no magnetic rotation to resolve."""
-    norm = float(np.linalg.norm(velocity))
+    norm = norm3(velocity)
     axis = velocity/norm if norm > 0. else electric
-    axis_norm = float(np.linalg.norm(axis))
+    axis_norm = norm3(axis)
     if axis_norm == 0.:
         return True
     for field in (electric, magnetic):
-        field_norm = float(np.linalg.norm(field))
-        if np.linalg.norm(_cross3(axis, field)) > 1e-14*axis_norm*field_norm:
+        field_norm = norm3(field)
+        if norm3(_cross3(axis, field)) > 1e-14*axis_norm*field_norm:
             return False
     return True
 
@@ -461,13 +468,13 @@ def _discrete_gradient_step(sampler, x0, u0, fields0, dt, cancelled):
     c = SPEED_OF_LIGHT_M_PER_S
     alpha = -ELEMENTARY_CHARGE_C*dt/(ELECTRON_MASS_KG*c)
     phi0 = fields0[2]
-    gamma0 = sqrt(1.+float(u0@u0))
+    gamma0 = sqrt(1.+dot3(u0, u0))
     # An electric predictor permits rapid acceleration from sub-eV emission.
     u1 = u0+alpha*fields0[1]
-    for _ in range(32):
+    for _ in range(MAXIMUM_ITERATIONS):
         if cancelled():
             raise _TraceCancelled
-        gamma1 = sqrt(1.+float(u1@u1))
+        gamma1 = sqrt(1.+dot3(u1, u1))
         vbar = c*(u1+u0)/(gamma1+gamma0)
         dx = dt*vbar
         x1 = x0+dx
@@ -478,35 +485,21 @@ def _discrete_gradient_step(sampler, x0, u0, fields0, dt, cancelled):
             stop_reason = hit[1] if hit is not None and hit[1].startswith("unsupported_field:") else None
             raise _TrialOutside(stop_reason)
         if (not _collinear_force(vbar, midpoint[1], midpoint[0])
-                and ELEMENTARY_CHARGE_C*dt*float(np.linalg.norm(midpoint[0]))
+                and ELEMENTARY_CHARGE_C*dt*norm3(midpoint[0])
                 /(ELECTRON_MASS_KG*.5*(gamma1+gamma0)) > .05*(1.+1e-12)):
             # Initial alignment does not justify a large rotation after the
             # particle enters a differently directed field within the trial.
             raise _TrialConvergence
-        electric = midpoint[1]
-        length2 = float(dx@dx)
-        potential_difference = endpoint[2]-phi0
-        midpoint_work = float(electric@dx)
-        potential_resolution = 64.*np.finfo(float).eps*max(abs(endpoint[2]), abs(phi0), 1.)
-        if length2 > 0. and abs(potential_difference)+abs(midpoint_work) > potential_resolution:
-            defect = potential_difference+midpoint_work
-            electric = electric-(defect/length2)*dx
-        # At a turning point, a displacement can round back to x0 and its
-        # potential difference becomes unresolvable. The discrete gradient's
-        # limiting value is E(midpoint), not zero. Dividing that roundoff by
-        # dx**2 would cancel the force and artificially strand the electron.
-        t = alpha*c*midpoint[0]/(gamma1+gamma0)
-        a = 2.*u0+alpha*electric
-        # w - w cross t = a, w=u1+u0. This inverse preserves the same
-        # discrete-gradient equation and is exact for its linear B term.
-        updated = (a+_cross3(a, t)+t*float(a@t))/(1.+float(t@t))-u0
+        updated = np.asarray(discrete_gradient_update(
+            *u0, gamma1+gamma0, *dx, *midpoint[1], *midpoint[0],
+            phi0, endpoint[2], dt))
         if not np.isfinite(updated).all():
             raise _TrialConvergence
-        scale = max(float(np.linalg.norm(u0)), float(np.linalg.norm(updated)), 1e-9)
-        if float(np.linalg.norm(updated-u1)) <= 2e-11*scale:
-            speed0 = float(np.linalg.norm(_velocity_u(u0)))
-            speed1 = float(np.linalg.norm(_velocity_u(updated)))
-            speed_mid = float(np.linalg.norm(_velocity_u(.5*(u0+updated))))
+        scale = max(norm3(u0), norm3(updated), NORMALIZED_MOMENTUM_FLOOR)
+        if norm3(updated-u1) <= ITERATION_TOLERANCE*scale:
+            speed0 = norm3(_velocity_u(u0))
+            speed1 = norm3(_velocity_u(updated))
+            speed_mid = norm3(_velocity_u(.5*(u0+updated)))
             path = dt*(speed0+4.*speed_mid+speed1)/6.
             return x1, updated, endpoint, path
         u1 = updated
@@ -565,7 +558,7 @@ def _trace_electromagnetic_electron(scene, settings, cancelled, progress=None, p
     if cancelled() or fields is None:
         reason = "cancelled" if cancelled() else "initial_outside_domain"
         return _electromagnetic_result(settings, positions, momenta_u, times, distances, potentials, reason)
-    u_floor = max(float(np.linalg.norm(u))*.1, 1e-9)
+    u_floor = max(norm3(u)*.1, 1e-9)
     suggested_dt = np.inf
     reason = "step_limit"
     path_tolerance = max(settings.max_path_length_m*2e-12, settings.position_tolerance_m*.01)
@@ -579,10 +572,10 @@ def _trace_electromagnetic_electron(scene, settings, cancelled, progress=None, p
             reason = "path_limit"
             break
         velocity = _velocity_u(u)
-        speed = float(np.linalg.norm(velocity))
+        speed = norm3(velocity)
         direction = velocity/speed if speed > 0. else np.zeros(3)
         requested = sampler.spatial_step(x, direction, min(settings.step_m, remaining))
-        electric_norm, magnetic_norm = float(np.linalg.norm(fields[1])), float(np.linalg.norm(fields[0]))
+        electric_norm, magnetic_norm = norm3(fields[1]), norm3(fields[0])
         collinear = _collinear_force(velocity, fields[1], fields[0])
         rotation_field = 0. if collinear else magnetic_norm
         acceleration_bound = ELEMENTARY_CHARGE_C/ELECTRON_MASS_KG*(electric_norm+SPEED_OF_LIGHT_M_PER_S*rotation_field)
@@ -594,11 +587,11 @@ def _trace_electromagnetic_electron(scene, settings, cancelled, progress=None, p
             reason = "numerical_limit"
             break
         if electric_norm > 0.:
-            impulse_time = (.05*max(float(np.linalg.norm(u)), u_floor)
+            impulse_time = (.05*max(norm3(u), u_floor)
                             *ELECTRON_MASS_KG*SPEED_OF_LIGHT_M_PER_S/(ELEMENTARY_CHARGE_C*electric_norm))
             dt = min(dt, impulse_time)
         if rotation_field > 0.:
-            dt = min(dt, .05*sqrt(1.+float(u@u))*ELECTRON_MASS_KG/(ELEMENTARY_CHARGE_C*magnetic_norm))
+            dt = min(dt, .05*sqrt(1.+dot3(u, u))*ELECTRON_MASS_KG/(ELEMENTARY_CHARGE_C*magnetic_norm))
         dt = min(dt, suggested_dt)
         dt = sampler.curved_support_step(x, velocity, acceleration_bound, dt)
         accepted = False
@@ -629,9 +622,9 @@ def _trace_electromagnetic_electron(scene, settings, cancelled, progress=None, p
                 continue
             path = first[3]+second[3]
             position_scale = settings.position_tolerance_m+settings.relative_tolerance*max(path, full[3])
-            momentum_scale = settings.relative_tolerance*max(float(np.linalg.norm(u)), float(np.linalg.norm(second[1])), u_floor*.01)
-            error = max(float(np.linalg.norm(second[0]-full[0]))/position_scale,
-                        float(np.linalg.norm(second[1]-full[1]))/momentum_scale,
+            momentum_scale = settings.relative_tolerance*max(norm3(u), norm3(second[1]), u_floor*.01)
+            error = max(norm3(second[0]-full[0])/position_scale,
+                        norm3(second[1]-full[1])/momentum_scale,
                         abs(path-full[3])/position_scale)
             if error > 1.:
                 dt *= max(.1, .8*error**(-1./3.))
@@ -654,12 +647,10 @@ def _trace_electromagnetic_electron(scene, settings, cancelled, progress=None, p
                     dt *= fraction
                     continue
             accepted = True
-            # An almost exact, geometry-limited step does not establish a tiny
-            # physical time scale for the next cell. Recompute its local field
-            # and impulse bounds instead of spending dozens of doubling steps
-            # recovering from a face reached to floating-point precision.
-            suggested_dt = (np.inf if error < 1e-6 else
-                            dt*min(2., max(.5, .9*error**(-1./3.))))
+            # An exactly/near-zero estimate can be one rounding ULP away
+            # from a finite estimate at a tiny native cell. Keep the same
+            # bounded growth in both cases instead of jumping to infinity.
+            suggested_dt = dt*(2. if error == 0. else min(2., max(.5, .9*error**(-1./3.))))
             break
         if not accepted:
             if reason == "step_limit":
@@ -704,7 +695,7 @@ def _trace_compiled_electromagnetic_electron(sampler, settings, cancelled, progr
     rows[0, 6:8], rows[0, 8] = 0., np.nan if fields is None else fields[2]
     count, suggested_dt = 1, np.inf
     reason = "cancelled" if cancelled() else "initial_outside_domain" if fields is None else "step_limit"
-    u_floor = max(float(np.linalg.norm(u))*.1, 1e-9)
+    u_floor = max(norm3(u)*.1, 1e-9)
     next_progress = monotonic()+interval
 
     def snapshot(reason):
@@ -768,6 +759,10 @@ def trace_test_electron(scene, settings: TestElectronSettings, *, cancelled: Cal
         return replace(result, **identities)
 
     callback = (lambda result: progress(identified(result))) if progress is not None else None
+    if getattr(scene, "_column_input_graph", None) is not None:
+        from temsim.test_electron_column import trace_instrument_electron
+        return identified(trace_instrument_electron(scene, settings, cancelled or (lambda: False),
+            callback, progress_interval_s, use_compiled))
     if bool(getattr(scene, "has_electric_field", False)):
         if not callable(getattr(scene, "diagnostic_fields_at_global_position", None)):
             raise TypeError("Electric scene must expose captured E, B and potential")

@@ -112,7 +112,7 @@ def test_auto_contrast_exposes_nonzero_black_level_from_actual_displayed_frame(q
     view.show()
     label = view.detector_contrast_labels["df"]
     qtbot.waitUntil(label.isVisible)
-    assert label.text() == "Auto contrast: 0.2\u20130.8"
+    assert label.text() == "Auto contrast\nSignal range: 0.2\u20130.8"
     assert "Black = minimum (0.2)" in label.toolTip()
     assert "white = maximum (0.8)" in label.toolTip()
     assert tuple(view.detector_image_items["df"].levels) == (.2, .8)
@@ -123,24 +123,24 @@ def test_auto_contrast_exposes_nonzero_black_level_from_actual_displayed_frame(q
     view.pause_image_refresh.setChecked(True)
     newer = replace(frame, fractions={**frame.fractions, "df": values + 1.})
     view._set_stem_frame(newer)
-    assert label.text() == "Auto contrast: 0.2\u20130.8"
+    assert label.text() == "Auto contrast\nSignal range: 0.2\u20130.8"
     np.testing.assert_array_equal(view.detector_image_items["df"].image, values.T)
 
     bank = replace(frame, fractions={**frame.fractions, "df": values + 2.})
     view.set_bank_readout(SimpleNamespace(stem=bank))
     view.image_source.setCurrentIndex(view.image_source.findData("bank"))
-    assert label.text() == "Auto contrast: 2.2\u20132.8"
+    assert label.text() == "Auto contrast\nSignal range: 2.2\u20132.8"
     np.testing.assert_array_equal(view.detector_image_items["df"].image, (values + 2.).T)
     view.mark_bank_readout_pending("Another bank selection is still computing")
-    assert label.text() == "Auto contrast: 2.2\u20132.8"
+    assert label.text() == "Auto contrast\nSignal range: 2.2\u20132.8"
     view.set_bank_readout(None)
     assert label.isHidden() and label.text() == ""
     assert view.detector_image_items["df"].image is None
 
     view.image_source.setCurrentIndex(view.image_source.findData("current"))
-    assert label.text() == "Auto contrast: 0.2\u20130.8"
+    assert label.text() == "Auto contrast\nSignal range: 0.2\u20130.8"
     view.pause_image_refresh.setChecked(False)
-    assert label.text() == "Auto contrast: 1.2\u20131.8"
+    assert label.text() == "Auto contrast\nSignal range: 1.2\u20131.8"
     np.testing.assert_array_equal(view.detector_image_items["df"].image, (values + 1.).T)
     view.display_result(None, complete=True)
     assert all(item.isHidden() and item.text() == "" for item in view.detector_contrast_labels.values())

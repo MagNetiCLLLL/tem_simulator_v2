@@ -141,11 +141,14 @@ def test_manual_zero_acquisition_uses_same_diagnostics_without_calling_it_vacuum
     errors = []
     page.error.connect(errors.append)
     assert page.eds_acquire.isEnabled()
+    requests = []
+    page.calculation_requested.connect(lambda: requests.append(True))
     page.eds_acquire.click()
-    assert not errors
-    assert received == [result.state_snapshot]
+    assert not errors and requests == [True]
+    assert received == []  # Numerical work is owned by the background worker.
+    _publish(page, spectrum)
     assert "No sampled ray crossed material" in page.signal_diagnostics.text()
-    assert "no characteristic contributions" in page.eds_summary.text()
+    assert "0 expected counts" in page.eds_summary.text()
     assert "vacuum only" not in page.eds_summary.text()
     assert "vacuum only" not in page.eds_summary.toolTip()
     np.testing.assert_array_equal(page._spectrum_counts, np.zeros(3))
@@ -256,7 +259,7 @@ def test_stale_and_cleared_spectra_never_leave_current_diagnostics(page):
     assert "Previous EDS result | inputs changed" in page.signal_diagnostics.text()
     assert "No sampled ray crossed material" in page.signal_diagnostics.text()
     np.testing.assert_array_equal(page._spectrum_counts, original)
-    assert not page.eds_acquire.isEnabled()
+    assert page.eds_acquire.isEnabled()  # Explicit requests can refresh stale data.
     _publish(page, None)
     assert page.signal_diagnostics.isHidden() and page.signal_diagnostics.text() == ""
     assert page._spectrum_counts.size == 0

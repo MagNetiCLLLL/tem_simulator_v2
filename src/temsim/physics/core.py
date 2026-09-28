@@ -67,6 +67,7 @@ class PropagationCheckpoints:
     y_m: np.ndarray
     ty_rad: np.ndarray
     flight_time_s: np.ndarray | None = None
+    kinetic_energy_ev: np.ndarray | None = None
 
     def __post_init__(self):
         z = np.asarray(self.z_mm)
@@ -88,6 +89,12 @@ class PropagationCheckpoints:
                 raise ValueError("Checkpoint flight times must match rays and be non-negative or NaN")
             frozen = np.frombuffer(time.tobytes(order="C"), dtype=time.dtype).reshape(time.shape)
             object.__setattr__(self, "flight_time_s", frozen)
+        if self.kinetic_energy_ev is not None:
+            energy = np.asarray(self.kinetic_energy_ev, dtype=np.float64)
+            if energy.shape != shape or np.any(np.isinf(energy)) or np.any(energy <= 0.):
+                raise ValueError("Checkpoint kinetic energies must match rays and be positive or NaN")
+            frozen = np.frombuffer(energy.tobytes(order="C"), dtype=energy.dtype).reshape(energy.shape)
+            object.__setattr__(self, "kinetic_energy_ev", frozen)
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,7 +124,13 @@ class AxialPropagationPlan:
     checkpoint_index: np.ndarray
     solver_signature: str
     signature: str
+    dipole_bx_t: np.ndarray
+    dipole_by_t: np.ndarray
+    reference_momentum_kg_m_s: float
     mapped_fields: tuple = ()
+    electric_field: object | None = None
+    electric_field_identity: str | None = None
+    electric_reference_invariant_ev: float | None = None
 
 
 def _frozen_array(values, dtype=np.float64):
@@ -255,6 +268,10 @@ def fields(z,state, *, exclude_mapped_keys=()):
             _support_mask(z, provider), contribution, 0.0
         )
     sx, sy = multipole_focusing_fields(z, state)
+    from temsim.physics.instrument_magnetic import gun_paraxial_fields
+    _, _, gun_sx, gun_sy, _ = gun_paraxial_fields(state, z)
+    sx += gun_sx
+    sy += gun_sy
     return magnetic, sx, sy
 
 
@@ -287,6 +304,8 @@ def skew_quadrupole_field(z, state):
         if stig.enabled:
             _, _, value = stig.quadrupole_tensor_m2(z)
             skew += np.where(_support_mask(z, stig), value, 0.0)
+    from temsim.physics.instrument_magnetic import gun_paraxial_fields
+    skew += gun_paraxial_fields(state, z)[4]
     return skew
 
 def bz(z,state): return fields(z,state)[0]
@@ -542,7 +561,32 @@ def build_propagation_plan(
     """Build the single global axial plan used by full and resumed traces."""
 
     events = tuple(events)
+    electric_field = None
+    electric_reference = None
+    if getattr(state, "electron_gun", None) is not None:
+        from temsim.physics.instrument_electric import capture_instrument_electric_field
+        electric_field = capture_instrument_electric_field(state)
+        gun = electric_field.gun_snapshot
+        reference_point = np.array([[0., 0., float(gun.exit_plane_z_mm)*1e-3]])
+        reference_phi = float(electric_field.potential_rise_v_at_global_positions(reference_point)[0])
+        electric_reference = float(state.beam_voltage_kv)*1000.-reference_phi
+    from temsim.physics.instrument_magnetic import (
+        column_dipole_fields, gun_magnetic_support_edges_mm, gun_paraxial_fields,
+    )
+    # Only consume declared magnetic steering events. Electrostatic blanking,
+    # calibration probes and other independently supplied actions remain kicks.
+    remaining_events = list(events)
+    dipoles = []
+    for field in column_dipole_fields(state) if events else ():
+        event = (field.event_z_mm, field.event_dx_rad, field.event_dy_rad)
+        for index, supplied in enumerate(remaining_events):
+            if tuple(supplied) == event:
+                remaining_events.pop(index)
+                dipoles.append(field)
+                break
+    events = tuple(remaining_events)
     save_z_mm = tuple(save_z_mm)
+    checkpoint_z_mm = tuple(checkpoint_z_mm)
     # Physical clipping must never depend on the sparse plotting history.
     # Keep each active aperture at its exact plane in every caller, including
     # full-column runs and Direct Alignment. Adding a saved plane is not a
@@ -586,6 +630,16 @@ def build_propagation_plan(
     )
     mapped_keys = {item.lens_key for item in mapped_fields}
     exact_z_mm = [event.z_mm for event in image_lens_events]
+    if electric_field is not None:
+        electric_z = getattr(electric_field.base_field, "z", ())
+        exact_z_mm.extend(float(value)*1e3 for value in electric_z if z0 < float(value)*1e3 < z1)
+    gun_edges_mm = gun_magnetic_support_edges_mm(state)
+    gun_in_span = (bool(gun_edges_mm) and max(gun_edges_mm) > float(z0)
+                   and min(gun_edges_mm) < float(z1))
+    if gun_in_span:
+        exact_z_mm.extend(gun_edges_mm)
+    for field in dipoles:
+        exact_z_mm.extend((field.lower_m * 1e3, field.upper_m * 1e3))
     if particle_medium:
         from temsim.physics.residual_medium import medium_grid_nodes
         exact_z_mm.extend(medium_grid_nodes(state, z0, z1, medium_energy_ev))
@@ -603,6 +657,9 @@ def build_propagation_plan(
         exact_z_mm.extend(np.linspace(lower, upper,
             max(1, int(math.ceil((upper-lower)/local_step)))+1))
     exact_z_mm.extend(float(value) for value in save_z_mm)
+    # A resumable state belongs to its requested plane, not the nearest
+    # plotting/integration node (which can even merge distinct checkpoints).
+    exact_z_mm.extend(float(value) for value in checkpoint_z_mm)
     # Impulsive actions must occur at their physical planes, independent of
     # the requested integration step or an unrelated observation plane.
     exact_z_mm.extend(float(event[0]) for event in events)
@@ -620,6 +677,29 @@ def build_propagation_plan(
     )
     step_m=np.ascontiguousarray(step_mm*1e-3,np.float64)
     midpoint_z_mm = 0.5 * (zfull[:-1] + zfull[1:])
+    # A uniform finite coil is discontinuous at its ends. All three stage
+    # values belong to this interval's interior, never a shared boundary node.
+    # Since every coil edge is an exact node, its midpoint gives the exact
+    # constant field throughout each open interval, including overlapping coils.
+    dipole_points = np.zeros((len(midpoint_z_mm), 3), dtype=np.float64)
+    dipole_points[:, 2] = midpoint_z_mm * 1e-3
+    dipole_values = np.zeros_like(dipole_points)
+    for field in dipoles:
+        dipole_values += field.field_at_global_positions_t(dipole_points)
+    dipole_bx = np.repeat(dipole_values[:, 0], 3)
+    dipole_by = np.repeat(dipole_values[:, 1], 3)
+    # Smooth gun coils can extend past the nominal gun exit. Sample the
+    # original providers at the same one-sided RK stages, preserving their
+    # soft edges rather than converting them to another centre-plane kick.
+    if gun_in_span:
+        gun_stages_mm = np.column_stack((
+            np.nextafter(zfull[:-1], zfull[1:]), midpoint_z_mm,
+            np.nextafter(zfull[1:], zfull[:-1]),
+        )).reshape(-1)
+        gun_bx, gun_by, _, _, _ = gun_paraxial_fields(state, gun_stages_mm)
+        dipole_bx += gun_bx
+        dipole_by += gun_by
+    reference_momentum = electron(state)[1]
     grid_start=float(zfull[0])
     had_equivalent_propagation_flag = hasattr(
         state, "_using_equivalent_image_propagation"
@@ -703,11 +783,19 @@ def build_propagation_plan(
         bool(getattr(state, "acceleration_enabled", False)),
         str(getattr(state, "acceleration_backend", "Auto")),
         FIELD_SIGMA_CUTOFF,
-        'canonical-rk4-quadrupole-tensor-tof-v4',
+        'canonical-rk4-shared-electric-magnetic-energy-v6',
         mode_key(state),
         state.vacuum_map.signature() if particle_medium else "optical-map-no-medium",
     ))
     digest.update(solver_signature.encode("utf-8"))
+    if electric_field is not None:
+        digest.update(str(electric_field.numerical_identity).encode("utf-8"))
+        digest.update(repr(electric_reference).encode("ascii"))
+        if electric_field.numerical_identity is None:
+            # An unidentified provider can execute, but never establish cache
+            # equivalence just because two absent identities compare equal.
+            from uuid import uuid4
+            digest.update(uuid4().bytes)
     for item in mapped_fields:
         digest.update(item.fingerprint.encode("ascii"))
     for values in (
@@ -715,7 +803,7 @@ def build_propagation_plan(
         midpoint_magnetic, midpoint_sx, midpoint_sy, midpoint_sxy,
         midpoint_hex_normal, midpoint_hex_skew,
         cs_kick, thin_power, thin_rotation, kickx, kicky, save,
-        checkpoint_indices,
+        checkpoint_indices, dipole_bx, dipole_by, np.asarray((reference_momentum,)),
     ):
         contiguous = np.ascontiguousarray(values, dtype=np.float64)
         digest.update(contiguous.shape.__repr__().encode("ascii"))
@@ -744,7 +832,13 @@ def build_propagation_plan(
         checkpoint_index=_frozen_array(checkpoint_indices, np.int64),
         solver_signature=solver_signature,
         signature=digest.hexdigest(),
+        dipole_bx_t=_frozen_array(dipole_bx),
+        dipole_by_t=_frozen_array(dipole_by),
+        reference_momentum_kg_m_s=reference_momentum,
         mapped_fields=mapped_fields,
+        electric_field=electric_field,
+        electric_field_identity=None if electric_field is None else electric_field.numerical_identity,
+        electric_reference_invariant_ev=electric_reference,
     )
 
 
@@ -753,7 +847,15 @@ def propagation_plan_common_prefix_nodes(previous, current):
 
     if previous is None or current is None:
         return 0
+    if any(plan.electric_field is not None and plan.electric_field_identity is None
+           for plan in (previous, current)):
+        return 0
     if previous.solver_signature != current.solver_signature:
+        return 0
+    if previous.reference_momentum_kg_m_s != current.reference_momentum_kg_m_s:
+        return 0
+    if (previous.electric_field_identity != current.electric_field_identity
+            or previous.electric_reference_invariant_ev != current.electric_reference_invariant_ev):
         return 0
     old_z = np.asarray(previous.z_mm)
     new_z = np.asarray(current.z_mm)
@@ -796,6 +898,11 @@ def propagation_plan_common_prefix_nodes(previous, current):
         old, new = getattr(previous, name), getattr(current, name)
         interval_count = min(count, old.size, new.size)
         equal[:interval_count] &= old[:interval_count] == new[:interval_count]
+    for name in ("dipole_bx_t", "dipole_by_t"):
+        old = getattr(previous, name).reshape(-1, 3)
+        new = getattr(current, name).reshape(-1, 3)
+        interval_count = min(count, len(old), len(new))
+        equal[:interval_count] &= np.all(old[:interval_count] == new[:interval_count], axis=1)
     changed = np.flatnonzero(~equal)
     if changed.size:
         # Preserve the preceding interval when an endpoint or its midpoint
@@ -812,6 +919,7 @@ def execute_propagation_plan(
     defer_nonfinite_until_clipping=False,
     medium_transport=None,
     initial_time_s=None, return_flight_times=False,
+    initial_kinetic_energy_ev=None, energy_output=None,
 ):
     """Execute a complete plan or resume it from an after-action checkpoint.
 
@@ -822,6 +930,16 @@ def execute_propagation_plan(
 
     from temsim.physics.optical_tuning import check_tuning_cancelled
     check_tuning_cancelled(state)
+    if (plan.electric_field_identity is not None or plan.electric_reference_invariant_ev is not None) and plan.electric_field is None:
+        raise ValueError("This archived plan needs its captured electric field reconstructed before execution")
+    from temsim.physics.electrostatic_column_transport import active_electric_field
+    electric_field = active_electric_field(plan)
+    if electric_field is not None:
+        # This kernel currently uploads its own immutable electric buffers;
+        # an older magnetic-kernel residency receipt must not describe it.
+        state._last_ray_device_receipt = None
+    if electric_field is not None and int(start_index) > 0 and initial_kinetic_energy_ev is None:
+        raise ValueError("Resuming an electric column plan requires the checkpoint's actual kinetic energy")
 
     start_index = int(start_index)
     if not 0 <= start_index < len(plan.z_mm):
@@ -853,6 +971,16 @@ def execute_propagation_plan(
         kickx[0]=0.0
         kicky[0]=0.0
     arrays=[np.array(a,dtype=np.float64,order="C",copy=True) for a in (x,tx,y,ty)]
+    actual_initial_energy = np.broadcast_to(np.asarray(
+        (float(state.beam_voltage_kv)*1000.+np.asarray(0. if energy_offset_ev is None else energy_offset_ev))
+        if initial_kinetic_energy_ev is None else initial_kinetic_energy_ev,
+        dtype=np.float64), arrays[0].shape).copy()
+    initial_phase_finite = np.all(np.isfinite(arrays), axis=0)
+    invalid_energy = ~np.isfinite(actual_initial_energy) | (actual_initial_energy <= 0.)
+    if np.any(invalid_energy & (initial_phase_finite | (not bool(defer_nonfinite_until_clipping)))):
+        raise ValueError("Column entrance kinetic energies must be positive and finite")
+    actual_initial_energy[invalid_energy] = np.nan
+    actual_offsets = actual_initial_energy-float(state.beam_voltage_kv)*1000.
     global_save = np.asarray(plan.save_index, dtype=np.int64)
     save = np.ascontiguousarray(
         global_save[global_save >= start_index] - start_index, np.int64
@@ -867,12 +995,21 @@ def execute_propagation_plan(
         acceleration_enabled=bool(getattr(state, "acceleration_enabled", False)),
         ray_count=arrays[0].size,
     )
-    # Post-gun momentum is constant along Z, including with an energy spread.
-    # Keep this factor separate on every backend; no (Z, ray) coefficient
-    # matrices or finite-difference magnetic derivatives are necessary.
-    # Ideal column optics is evaluated at the reference energy. The caller's
-    # energy array remains unchanged for scattering, EDS and EELS bookkeeping.
-    momentum_at_start = momentum_profile(state, zfull[:1], None if is_ideal(state) else energy_offset_ev)
+    # Constant-field specialisation retains the original compact magnetic
+    # ABI. With E present, the dimensional canonical kernel recomputes p and
+    # speed from the conserved potential invariant at every actual RK stage.
+    optical_offsets = None if is_ideal(state) else actual_offsets
+    if (electric_field is None and plan.electric_field is not None and is_ideal(state)
+            and plan.electric_reference_invariant_ev is not None):
+        # Exact constant-potential continuation still belongs to the same
+        # fixed gun-exit reference; starting a new segment cannot reset it.
+        potential = float(np.asarray(plan.electric_field.potential_rise_v_at_global_positions(
+            np.asarray(((0., 0., float(zfull[0])*1e-3),))))[0])
+        optical_energy = float(plan.electric_reference_invariant_ev)+potential
+        if not np.isfinite(optical_energy) or optical_energy <= 0.:
+            raise ValueError("Ideal reference kinetic energy must remain positive and finite")
+        optical_offsets = np.full(arrays[0].size, optical_energy-float(state.beam_voltage_kv)*1000.)
+    momentum_at_start = momentum_profile(state, zfull[:1], optical_offsets)
     if momentum_at_start.ndim == 1:
         inverse_momentum = np.full(
             arrays[0].size, 1.0 / float(momentum_at_start[0]), dtype=np.float64
@@ -886,6 +1023,9 @@ def execute_propagation_plan(
         sx, sy, hex_normal, hex_skew, larmor_axis, inverse_momentum,
         cs_kick, thin_power, thin_rotation, step_m, *arrays, kickx, kicky,
         save, checkpoint_index, sxy,
+        np.ascontiguousarray(plan.dipole_bx_t[3*start_index:]),
+        np.ascontiguousarray(plan.dipole_by_t[3*start_index:]),
+        np.asarray((plan.reference_momentum_kg_m_s,), dtype=np.float64),
     )
     timing = {}
     if return_flight_times:
@@ -893,10 +1033,9 @@ def execute_propagation_plan(
                    if initial_time_s is None else np.asarray(initial_time_s, dtype=np.float64))
         if initial.shape != (arrays[0].size,) or np.any(np.isinf(initial)) or np.any(initial < 0.):
             raise ValueError("Initial flight times must be one non-negative or NaN value per ray")
-        # Acceleration has already executed in the gun. The present column
-        # model has constant energy; use actual per-particle energy even when
-        # Ideal optics evaluates its trajectory at the reference energy.
-        actual_momentum = np.asarray(momentum_profile(state, zfull[:1], energy_offset_ev)[0])
+        # Used only by the proven constant-potential specialisation. The
+        # electric kernel integrates time using the varying actual energy.
+        actual_momentum = np.asarray(momentum_profile(state, zfull[:1], actual_offsets)[0])
         actual_momentum = np.broadcast_to(actual_momentum, (arrays[0].size,))
         inverse_speed = np.sqrt(M*M+(actual_momentum/C)**2)/actual_momentum
         timing = dict(initial_time_s=np.ascontiguousarray(initial),
@@ -904,7 +1043,7 @@ def execute_propagation_plan(
     policy = normalise_backend(getattr(state, "acceleration_backend", "Auto")).lower().replace(" ", "_")
     tuning = bool(getattr(state, "_optical_tuning", False) or getattr(state, "_particle_tuning", False))
     workload = None
-    if medium_transport is None and not plan.mapped_fields and not tuning:
+    if electric_field is None and medium_transport is None and not plan.mapped_fields and not tuning:
         from temsim.physics.ray_device_cache import STAGE_COSTS, measured_workload
         workload = measured_workload((*inputs, *timing.values()) if timing else inputs)
         if policy == "auto" and getattr(state, "acceleration_enabled", False):
@@ -920,7 +1059,36 @@ def execute_propagation_plan(
     retried = False
     if policy == "require_gpu" and (medium_transport is not None or plan.mapped_fields):
         raise GPUExecutionError("unsupported_stage", "Requested column transport requires the existing CPU vector-field or residual-medium solver")
-    if medium_transport is not None and not plan.mapped_fields:
+    if electric_field is not None:
+        from temsim.physics.electrostatic_column_transport import electrostatic_column_rk4
+        electric_options = dict(z_mm=zfull, electric_field=electric_field,
+            initial_kinetic_energy_ev=actual_initial_energy,
+            optical_reference_invariant_ev=(plan.electric_reference_invariant_ev if is_ideal(state) else None),
+            initial_time_s=timing.get("initial_time_s"), policy=policy,
+            mapped_fields=plan.mapped_fields, step_operator=medium_transport,
+            defer_nonfinite_until_clipping=defer_nonfinite_until_clipping,
+            serial=bool(tuning or arrays[0].size <= 16),
+            cancel_check=lambda: check_tuning_cancelled(state))
+        # A local Jacobian has only nine particles, but traversing thousands
+        # of E-field nodes is still expensive in Python. Include axial work,
+        # not only ray count, while preserving explicit CPU/disabled choices.
+        electric_work = max(0, len(zfull)-1)*arrays[0].size
+        if (NUMBA_AVAILABLE and getattr(state, "acceleration_enabled", False)
+                and policy == "auto" and backend == BACKEND_CPU
+                and (tuning or electric_work >= 4096)):
+            backend = BACKEND_NUMBA
+            fallback_reason = None
+        try:
+            outputs, backend, electric_reason = electrostatic_column_rk4(inputs, backend=backend, **electric_options)
+            fallback_reason = electric_reason or fallback_reason
+        except Exception as exc:
+            if backend != BACKEND_CUDA:
+                raise
+            fallback_reason = gpu_retry_reason(exc, policy, stage="electric_column_transport")
+            retried = True
+            outputs, backend, _ = electrostatic_column_rk4(inputs,
+                backend=BACKEND_NUMBA if NUMBA_AVAILABLE else BACKEND_CPU, **electric_options)
+    elif medium_transport is not None and not plan.mapped_fields:
         outputs = _vectorised_rk4(*inputs, step_operator=medium_transport, **timing)
         backend, fallback_reason = BACKEND_CPU, "classical residual-medium collisions between optical steps"
     elif plan.mapped_fields:
@@ -963,7 +1131,7 @@ def execute_propagation_plan(
     check_tuning_cancelled(state)
     if workload is not None and not retried:
         STAGE_COSTS.record(workload, backend, perf_counter() - transport_started)
-    if backend == BACKEND_CUDA:
+    if backend == BACKEND_CUDA and electric_field is None:
         from temsim.physics.ray_device_cache import last_device_receipt
         state._last_ray_device_receipt = last_device_receipt()
     _record_active_backend(state, backend, fallback_reason)
@@ -971,6 +1139,12 @@ def execute_propagation_plan(
     record_backend("column", getattr(state, "acceleration_backend", "Auto"), backend,
                    reason=fallback_reason or "", retried=retried)
     X,TX,Y,TY,CX,CTX,CY,CTY=outputs[:8]
+    saved_energy = (outputs[10] if electric_field is not None else
+                    np.broadcast_to(actual_initial_energy, (len(save), len(actual_initial_energy))).copy())
+    checkpoint_energy = (outputs[11] if electric_field is not None else
+                         np.broadcast_to(actual_initial_energy, np.shape(CX)).copy())
+    if energy_output is not None:
+        energy_output.append(_frozen_array(saved_energy))
     checkpoints = PropagationCheckpoints(
         z_mm=_frozen_array(zfull[checkpoint_index]),
         x_m=_frozen_array(CX),
@@ -978,6 +1152,7 @@ def execute_propagation_plan(
         y_m=_frozen_array(CY),
         ty_rad=_frozen_array(CTY),
         flight_time_s=outputs[9] if return_flight_times else None,
+        kinetic_energy_ev=checkpoint_energy,
     )
     if return_flight_times:
         return zfull[save],X,TX,Y,TY,outputs[8],checkpoints
@@ -992,7 +1167,12 @@ def propagate(
     defer_nonfinite_until_clipping=False,
     particle_medium=False, medium_alive=None, medium_stream=2, medium_output=None,
     initial_time_s=None, return_flight_times=False,
+    initial_kinetic_energy_ev=None, energy_output=None,
 ):
+    entrance_energy_ev = (state.beam_voltage_kv*1000
+                         + np.asarray(0 if energy_offset_ev is None else energy_offset_ev)
+                         if initial_kinetic_energy_ev is None
+                         else np.asarray(initial_kinetic_energy_ev))
     plan = build_propagation_plan(
         state,z0,z1,events,
         include_spherical_aberration=include_spherical_aberration,
@@ -1001,7 +1181,7 @@ def propagate(
         checkpoint_z_mm=checkpoint_z_mm,
         maximum_step_mm=maximum_step_mm,
         particle_medium=particle_medium,
-        medium_energy_ev=(state.beam_voltage_kv*1000+np.asarray(0 if energy_offset_ev is None else energy_offset_ev)),
+        medium_energy_ev=entrance_energy_ev,
     )
     if particle_medium and len(plan.z_mm) > state.vacuum_map.max_transport_nodes:
         raise ValueError("Particle / vacuum integration exceeds the configured node budget")
@@ -1009,7 +1189,7 @@ def propagate(
     if particle_medium and state.vacuum_map.enabled:
         from temsim.physics.residual_medium import ColumnMediumTransport
         transport = ColumnMediumTransport(state, plan, len(x),
-            state.beam_voltage_kv*1000+np.asarray(0 if energy_offset_ev is None else energy_offset_ev),
+            entrance_energy_ev,
             alive=medium_alive, stream=medium_stream)
         if medium_output is not None:
             medium_output.append(transport)
@@ -1019,26 +1199,31 @@ def propagate(
         defer_nonfinite_until_clipping=defer_nonfinite_until_clipping,
         medium_transport=transport,
         initial_time_s=initial_time_s, return_flight_times=return_flight_times,
+        initial_kinetic_energy_ev=initial_kinetic_energy_ev, energy_output=energy_output,
     )
     return result if return_checkpoints else result[:6 if return_flight_times else 5]
 
 def transfer(state,z0,z1):
-    if active_mapped_providers(state):
+    if active_mapped_providers(state) or getattr(state, "electron_gun", None) is not None:
         from temsim.physics.first_order import trace_transverse_transfer
         matrix = trace_transverse_transfer(state, z0, z1).matrix
         return matrix[np.ix_((0, 2), (0, 2))]
-    _,x,tx,_,_=propagate(
+    checkpoints=propagate(
         state,z0,z1,
-        np.array([1.,0.]),np.array([0.,1.]),np.zeros(2),np.zeros(2),
+        np.array([0.,1.,0.]),np.array([0.,0.,1.]),np.zeros(3),np.zeros(3),
         include_spherical_aberration=False,include_hexapole=False,
-    )
-    return np.array([[x[-1,0],x[-1,1]],[tx[-1,0],tx[-1,1]]],float)
+        checkpoint_z_mm=(z1,),return_checkpoints=True,
+    )[-1]
+    # A finite gun magnet may extend into this span and displace the origin.
+    # The transfer matrix is the linear part, with that affine orbit removed.
+    x,tx=checkpoints.x_m[-1],checkpoints.tx_rad[-1]
+    return np.array([x[1:]-x[0],tx[1:]-tx[0]],float)
 
 
 def complex_transfer(state, z0, z1):
     """Return the first-order, Larmor-coupled transfer in complex form."""
 
-    if active_mapped_providers(state):
+    if active_mapped_providers(state) or getattr(state, "electron_gun", None) is not None:
         from temsim.physics.first_order import trace_transverse_transfer
         matrix = trace_transverse_transfer(state, z0, z1).matrix
         result = np.empty((2, 2), dtype=np.complex128)
@@ -1052,20 +1237,15 @@ def complex_transfer(state, z0, z1):
                 result[i,j] = block[0,0] + 1j*block[1,0]
         return result
 
-    _, x, tx, y, ty = propagate(
+    checkpoints = propagate(
         state, z0, z1,
-        np.array([1.0, 0.0]), np.array([0.0, 1.0]),
-        np.zeros(2), np.zeros(2),
+        np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0]),
+        np.zeros(3), np.zeros(3),
         include_spherical_aberration=False,
         include_hexapole=False,
-    )
-    return np.array(
-        [
-            [x[-1, 0] + 1j * y[-1, 0], x[-1, 1] + 1j * y[-1, 1]],
-            [
-                tx[-1, 0] + 1j * ty[-1, 0],
-                tx[-1, 1] + 1j * ty[-1, 1],
-            ],
-        ],
-        dtype=np.complex128,
-    )
+        checkpoint_z_mm=(z1,), return_checkpoints=True,
+    )[-1]
+    position = checkpoints.x_m[-1] + 1j*checkpoints.y_m[-1]
+    slope = checkpoints.tx_rad[-1] + 1j*checkpoints.ty_rad[-1]
+    return np.asarray([position[1:]-position[0], slope[1:]-slope[0]],
+                      dtype=np.complex128)

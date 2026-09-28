@@ -7,16 +7,17 @@ import pytest
 from temsim.optics.illumination_search import focus_grid_proposals
 
 
-def test_focus_grid_proposes_distinct_branches_without_changing_optics(monkeypatch):
+@pytest.mark.parametrize('full_field', [False, True])
+def test_focus_grid_proposes_distinct_branches_without_changing_optics(monkeypatch, full_field):
     import temsim.optics.direct_alignment as alignment
     import temsim.optics.electron_gun.source as source_module
     phi = np.linspace(0, 2*np.pi, 32, endpoint=False)
     bundle = SimpleNamespace(x_m=np.cos(phi)*1e-9, y_m=np.sin(phi)*1e-9,
         tx_rad=np.cos(phi)*.03, ty_rad=np.sin(phi)*.03,
-        alive=np.ones(32,bool), weight=np.ones(32)/32)
+        alive=np.ones(32,bool), weight=np.ones(32)/32, energy_offset_ev=np.linspace(-1., 1., 32))
     monkeypatch.setattr(source_module, 'trace_source_to_exit', lambda s:SimpleNamespace(exit_bundle=bundle))
     class Map:
-        vector_maps = False
+        full_field_transfer = full_field
         upper = np.array([100.,100.])
         def __init__(self,*args,**kwargs):
             pass
@@ -29,8 +30,13 @@ def test_focus_grid_proposes_distinct_branches_without_changing_optics(monkeypat
             matrix[2,0] = matrix[3,1] = (objective-50)*1e6
             matrix[2,3], matrix[3,2] = -primary/50, primary/50
             return np.array([matrix]*len(planes))
+        def rays_at(self, vector, source, planes, *, initial_kinetic_energy_ev,
+                    defer_nonfinite_until_clipping):
+            np.testing.assert_array_equal(initial_kinetic_energy_ev, 300000.+bundle.energy_offset_ev)
+            assert defer_nonfinite_until_clipping
+            return self.matrices_at(vector, planes) @ source
     monkeypatch.setattr(alignment,'_LiveFirstOrderModel',Map)
-    state = SimpleNamespace(electron_gun=SimpleNamespace(exit_plane_z_mm=1),
+    state = SimpleNamespace(electron_gun=SimpleNamespace(exit_plane_z_mm=1, nominal_exit_energy_ev=300000.),
         sample=SimpleNamespace(z_mm=100,thickness_nm=10),apertures=[],
         nanopulser=SimpleNamespace(installed=False))
     proposals, audit = focus_grid_proposals(state, ('c1','objective_lens'), 'nano_probe',

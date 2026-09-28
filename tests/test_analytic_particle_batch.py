@@ -4,8 +4,10 @@ from threading import Event
 import numpy as np
 import pytest
 
-from test_analytic_particle_step import gun, _phase
+from test_analytic_particle_step import analytic_gun_fixture, _phase
 from temsim.optics.electron_gun import tracing
+from temsim.optics.electron_gun.electrostatic import FegElectrostaticField
+from temsim.optics.electron_gun.field_emission import FieldEmissionGun
 from temsim.physics import analytic_particle_batch as batching
 from temsim.physics import analytic_particle_step as stepping
 from temsim.physics.relativistic_lorentz import velocity_from_momentum_m_per_s
@@ -14,19 +16,68 @@ from temsim.physics.relativistic_lorentz import velocity_from_momentum_m_per_s
 pytestmark = pytest.mark.skipif(batching._compiled_batch is None, reason="Numba optional")
 
 
+@pytest.fixture
+def gun():
+    # Isolated numerical fixture for the historical analytic electric law.
+    # The batch guard deliberately admits only the concrete production class;
+    # do not loosen it to accept the subclass used by single-step tests. These
+    # scoped E properties exercise the batch kernel, not a production cold FEG.
+    # Use an independent patch scope: individual guard tests call undo() on
+    # their own monkeypatch fixture while this electric law must remain fixed.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(FieldEmissionGun, "uses_geometry_electric_field", property(lambda self: False))
+        patch.setattr(FieldEmissionGun, "base_electric_field", property(
+            lambda self: FegElectrostaticField(self.emitter, self.extractor,
+                                               self.electrostatic_lens, self.accelerator)))
+        value = FieldEmissionGun()
+        value.emitter.surface_model = None
+        yield value
+
+
+def test_custom_gun_subclasses_remain_excluded_from_production_batch():
+    custom = analytic_gun_fixture()
+    assert not batching._unmodified_gun(custom)
+    assert batching.prepare_analytic_batch(custom, object(), None) is None
+
+
 def _execution(gun, count):
     return stepping.prepare_analytic_execution(gun, gun.magnetic_field, gun.electric_field, count)
 
 
 def _reference_step(gun, execution, phase, active, energy):
+    from temsim.physics.gun_transport_domain import bounded_gun_time_step
     velocity = velocity_from_momentum_m_per_s(phase.momentum_kg_m_per_s[active])
     dt = gun.integration_step_mm_at(phase.position_m[active, 2]*1000.)*1e-3/max(float(np.max(velocity[:, 2])), 1.)
+    dt = bounded_gun_time_step(getattr(gun, '_instrument_magnetic_query_upper_m', np.inf),
+                               float(np.max(phase.position_m[active, 2])), dt)
     assert execution.begin_step(phase, active)
     dt = execution.time_step(dt, tracing.ANALYTIC_MAXIMUM_RELATIVE_IMPULSE)
     advanced, dt = execution.step(dt, energy[active])
     advanced.momentum_kg_m_per_s[active] = execution.project_momentum(
         advanced.position_m[active], advanced.momentum_kg_m_per_s[active], energy[active])
     return advanced, dt
+
+
+def test_batch_enforces_query_envelope_on_every_internal_step(gun):
+    # Isolated analytic-law fixture: deliberately close trial envelope forces
+    # the guard to bind on all three internal steps, not only batch entry.
+    gun._instrument_magnetic_query_upper_m = .020001
+    phase, energy = _phase(gun, [20.])
+    active, passed = np.array([True]), np.array([False])
+    batch = batching.prepare_analytic_batch(gun, _execution(gun, 1), None)
+    result = batch.advance(phase, active, energy, passed, passed,
+                            maximum_steps=3, impulse=.025)
+    assert result is not None and result[-1] == 3
+    reference, execution = phase, _execution(gun, 1)
+    for _ in range(3):
+        reference, _ = _reference_step(gun, execution, reference, active, energy)
+        assert reference.position_m[0, 2] < gun._instrument_magnetic_query_upper_m
+    np.testing.assert_array_equal(result[0].position_m, reference.position_m)
+    np.testing.assert_array_equal(result[0].momentum_kg_m_per_s, reference.momentum_kg_m_per_s)
+    assert result[0].time_s == reference.time_s
+    gun._instrument_magnetic_query_upper_m = phase.position_m[0, 2]
+    with pytest.raises(ValueError, match='outside.*query envelope'):
+        batch.advance(phase, active, energy, passed, passed, maximum_steps=1, impulse=.025)
 
 
 @pytest.mark.parametrize("z", [[.01, 1., 5., 13., 14., 41., 77., 402., 418., 433., 550.], [13.]*1150])

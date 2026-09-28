@@ -48,6 +48,18 @@ def fixture(monkeypatch):
     monkeypatch.setattr("temsim.optics.electron_gun.source.trace_source_to_exit", trace)
     # A short, explicitly artificial drift geometry keeps real column kernels
     # under test without restarting the physical high-resolution gun.
+    # Its synthetic gun exit is not an executed electrostatic source, so the
+    # fixture explicitly supplies zero E instead of borrowing the real gun's
+    # residual field and then asserting an exact mathematical drift.
+    zero_electric = SimpleNamespace(
+        numerical_identity="0"*64,
+        gun_snapshot=SimpleNamespace(exit_plane_z_mm=450.),
+        base_field=SimpleNamespace(z=()),
+        potential_rise_v_at_global_positions=lambda points: np.zeros(len(points)),
+        is_constant_on_interval=lambda *_args: True,
+    )
+    monkeypatch.setattr("temsim.physics.instrument_electric.capture_instrument_electric_field",
+                        lambda _state: zero_electric)
     monkeypatch.setattr("temsim.physics.column_wall.clip_column_wall", lambda s,z,x,y,a,b,k: (a,b,k))
     monkeypatch.setattr(sections, "gun_dependency_signature", lambda s: str(s.electron_gun.emitter.ray_count))
     return state, gun, calls
@@ -117,6 +129,27 @@ def test_downstream_deflector_kick_is_not_moved_to_section_endpoint(fixture, mon
     np.testing.assert_allclose(reached.incident.tx[-1], gun.exit_bundle.tx_rad+.001, atol=1e-16)
     repeated = trace(state, 453., reached)
     np.testing.assert_array_equal(repeated.incident.tx[-1], reached.incident.tx[-1])
+
+
+@pytest.mark.parametrize("centre_mm", [453.8, 454.2])
+def test_finite_coil_crossing_sample_plane_preserves_both_halves(fixture, centre_mm):
+    state, _, _ = fixture
+    coil = state.deflectors[0]
+    coil.enabled = True
+    coil.upper_z_mm, coil.lower_z_mm = centre_mm, 460.
+    coil.thickness_mm = 2.
+    coil.upper_x_mrad, coil.upper_y_mrad = .3, 0.
+    coil.lower_x_mrad = coil.lower_y_mrad = 0.
+
+    result = trace(state, 455.5)
+
+    # A uniform finite coil starts acting before its centre and continues after
+    # the optical specimen reference plane, whichever side contains its centre.
+    incident_fraction = (state.sample.z_mm-(centre_mm-1.))/2.
+    np.testing.assert_allclose(result.incident.tx[-1, 0], .0003*incident_fraction,
+                               rtol=1e-9, atol=1e-15)
+    np.testing.assert_allclose(result.branches["000"].tx[-1, 0], .0003,
+                               rtol=1e-9, atol=1e-15)
 
 
 def test_pre_specimen_stop_does_not_apply_chromatic_reference_kick(fixture, monkeypatch):

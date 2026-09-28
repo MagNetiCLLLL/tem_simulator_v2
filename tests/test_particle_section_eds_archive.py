@@ -263,7 +263,8 @@ def test_actual_tip_origin_eds_archive_resumes_without_gun_material_or_xray_reex
         item.name for item in catalog.recording_systems if not bool(item.properties.get("energy_filter"))))
     catalog.apply(state, selection)
     state.electron_gun.emitter.ray_count = 9
-    state.acceleration_backend = "CPU"
+    # The complete physical chain is retained; this is an archive/reuse test.
+    state.acceleration_backend = "Numba CPU"
     state._tuning_quality = "High accuracy"
     state.sample.inserted = True
     state.sample.specimen_mode = "reference"

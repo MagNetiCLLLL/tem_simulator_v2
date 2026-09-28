@@ -181,32 +181,22 @@ def test_local_electric_step_crosses_cell_face_without_zeno_pinning(monkeypatch)
     assert step == pytest.approx(.0005)
 
 
-def test_electric_preparation_extends_only_isolated_gun_and_uses_existing_accessor(monkeypatch):
-    requested = []
-    class CapturedGun:
-        type_key = "cold_feg"
-        _grounded_outlet_liner_segments = ()
-        _gun_field_exit_extension_mm = 100.
-        exit_plane_z_mm = 450.
-        emitter = SimpleNamespace(surface_model=None, curvature_nm_inv=0.)
-        @property
-        def electric_field(self):
-            requested.append(("provider", self._gun_field_exit_extension_mm))
-            return "cached coupled electric provider"
-    gun = CapturedGun()
-    state = SimpleNamespace(electron_gun=gun)
-    def request(clone):
-        requested.append(("admission", clone._gun_field_exit_extension_mm))
-        return {}
-    monkeypatch.setattr("temsim.physics.closed_gun_field.closed_field_request", request)
-    monkeypatch.setattr("temsim.physics.closed_gun_field.mesh_axes", lambda request: (np.array([0., .001]), np.array([0., 3.])))
-    clone, provider, notes = _prepare_electric_provider(state, 3.)
-    assert clone is not gun
-    assert gun._gun_field_exit_extension_mm == 100.
-    assert clone._gun_field_exit_extension_mm == 2550.
-    assert requested == [("admission", 2550.), ("provider", 2550.)]
-    assert provider == "cached coupled electric provider"
-    assert any("4 mesh nodes" in note for note in notes)
+def test_electric_preparation_uses_instrument_capture_without_cutoff_remeshing(monkeypatch):
+    captured = SimpleNamespace(gun_snapshot=object(), provider=object(), notes=("fixed field",),
+                              bounds_m=np.array(((-.01, -.01, 0.), (.01, .01, 3.2))))
+    calls = []
+    def capture(state):
+        calls.append(state)
+        return captured
+    monkeypatch.setattr("temsim.physics.instrument_electric.capture_instrument_electric_field", capture)
+    state = object()
+    for stop in (.1, 1., 3.):
+        clone, provider, notes = _prepare_electric_provider(state, stop)
+        assert clone is captured.gun_snapshot and provider is captured.provider
+        assert notes == captured.notes
+    assert calls == [state]*3
+    with pytest.raises(ValueError, match="outside the fixed instrument"):
+        _prepare_electric_provider(state, 3.3)
 
 
 def test_c1_slit_opening_owns_transmission_even_when_stored_circular_radius_is_zero(monkeypatch):
@@ -232,6 +222,24 @@ def test_fine_adjacent_electric_cell_only_limits_motion_near_its_face(monkeypatc
     assert scene.diagnostic_spatial_step_m((.0002, 0., .002), (1., 0., 0.), .0001) == .0001
     near_radial = scene.diagnostic_spatial_step_m((.001-1e-8, 0., .002), (1., 0., 0.), .001)
     assert near_radial == pytest.approx(1.5e-8)
+
+
+@pytest.mark.parametrize('direction', (-1., 1.))
+def test_step_cell_face_ulp_ties_are_stable_and_preserve_thin_cell_resolution(monkeypatch, direction):
+    from temsim.test_electron_sampling import step_cell_index
+    r = np.array([0., .001, .003])
+    z = np.array([0., .005, .00500001, .01])
+    base = PlanarGunField({}, r, z, np.broadcast_to(z*1e6, (len(r), len(z))))
+    scene = fixture_scene(monkeypatch, base=base)
+    face = z[2]
+    positions = [np.nextafter(face, -np.inf), face, np.nextafter(face, np.inf)]
+    assert [step_cell_index(z, value) for value in positions] == [1, 1, 1]
+    steps = [scene.diagnostic_spatial_step_m((0., 0., value), (0., 0., direction), .001)
+             for value in positions]
+    np.testing.assert_array_equal(steps, np.full(3, .5*(z[2]-z[1])))
+    # Away from floating-point uncertainty, the actual narrow cell is retained.
+    assert step_cell_index(z, .5*(z[1]+z[2])) == 1
+    assert step_cell_index(z, face+1e-10) == 2
 
 
 def test_active_electrostatic_blanker_stops_before_unknown_continuous_field(monkeypatch):

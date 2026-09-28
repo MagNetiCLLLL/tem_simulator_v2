@@ -228,6 +228,27 @@ def test_standalone_field_diagnostic_pending_never_reports_previous_numbers(qtbo
     assert not view._presentation_pending
 
 
+def test_live_input_change_cancels_hidden_field_publication_until_new_result(workspace, qtbot, monkeypatch):
+    calls = []
+    monkeypatch.setattr(workspace.magnetic_field, "display_result", calls.append)
+    monkeypatch.setattr(workspace, "_refresh_ray_calculation_extent", lambda: None)
+    workspace.display_result(_result(), "Preview")
+    assert workspace.magnetic_field in workspace._pending_ray_panels
+    live = SimpleNamespace(electron_gun=SimpleNamespace(type_key="thermionic", display_name="Thermionic source"))
+    workspace.mark_ray_stale(live)
+    assert workspace.magnetic_field not in workspace._pending_ray_panels
+    assert workspace.magnetic_field._inputs_stale
+    assert workspace.magnetic_field.field_lines.electron._fields_stale
+    assert "Stale" in workspace.magnetic_field.diagnostic_text("camera")
+    workspace.magnetic_field_toggle.setChecked(True)
+    qtbot.wait(100)
+    assert not calls  # Opening the panel cannot turn its old queued result into current fields.
+    latest = _result(2.)
+    workspace.display_result(latest, "Preview")
+    assert calls == [latest]
+    assert not workspace.magnetic_field._inputs_stale
+
+
 def test_standalone_transverse_api_remains_eager(qtbot):
     view = TransverseBeamView()
     qtbot.addWidget(view)

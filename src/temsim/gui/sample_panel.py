@@ -743,6 +743,7 @@ class SamplePage(QWidget):
 
     parameters_changed = Signal(str)
     error = Signal(str)
+    calculation_requested = Signal()
 
     @staticmethod
     def _double_control(
@@ -1243,6 +1244,11 @@ class SamplePage(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        from temsim.gui.page_calculation import PageCalculationBar
+        self.calculation_bar = PageCalculationBar("sample", "calculateSample")
+        self.calculate_button = self.calculation_bar.button
+        self.calculation_bar.requested.connect(self.calculation_requested.emit)
+        layout.addWidget(self.calculation_bar)
         layout.addWidget(splitter)
 
         self.inserted.toggled.connect(lambda value: self._set_bool("inserted", value))
@@ -1741,6 +1747,7 @@ class SamplePage(QWidget):
         self._refresh_inelastic_summary()
         self._refresh_tail_summary()
         self.refresh_snapshot()
+        self.calculation_bar.mark_stale()
         self.parameters_changed.emit(name)
 
     def _set_tail_choice(self, name, value):
@@ -1972,6 +1979,10 @@ class SamplePage(QWidget):
 
         self._result = result
         self.refresh_snapshot(result)
+        self.calculation_bar.set_result_available(
+            getattr(result, "specimen_interactions", None) is not None
+            or getattr(result, "sample_region", None) is not None
+        )
 
     def showEvent(self, event):
         super().showEvent(event)

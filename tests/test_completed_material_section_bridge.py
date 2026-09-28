@@ -46,7 +46,7 @@ def test_normal_pipeline_consumes_saved_material_without_repeating_collisions(ma
     records = result.specimen_exit.metrics["material_section_resume"]
     assert records and all(row["hit"] and row["resume_z_mm"] == 456. for row in records)
     for branch in result.specimen_exit.branches:
-        if np.any(branch.energy_offset_ev < 0.):
+        if branch.name.rsplit(":", 1)[-1] not in {"000", "vacuum_miss"}:
             assert np.all(np.isnan(branch.flight_time_s))
 
 
@@ -72,10 +72,10 @@ def test_complete_axial_transport_stops_at_filter_entrance_without_later_kick(op
     state.energy_filter_mode = "energy_filter"
     state.energy_filter.enabled = True
     state.energy_filter.entrance_z_mm = 456.
-    deflector = state.deflectors[0]
-    deflector.enabled = True
-    monkeypatch.setattr(type(deflector), "kick_events",
-                        lambda *a, **k: ((455., .001, 0.), (457., .1, 0.)))
+    # These are explicit mathematical thin actions. A physical finite coil
+    # centred at 457 mm may correctly overlap an entrance at 456 mm.
+    monkeypatch.setattr("temsim.physics.instrument_magnetic.active_column_events",
+                        lambda _state: ((455., .001, 0.), (457., .1, 0.)))
     result = run(state, resolved_layout=object())
     outgoing = result.branches["000"]
     assert outgoing.z[-1] == 456.

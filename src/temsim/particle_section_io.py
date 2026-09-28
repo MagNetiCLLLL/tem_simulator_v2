@@ -23,7 +23,7 @@ import numpy as np
 
 from temsim.immutable_json import json_digest, thaw_json
 
-SECTION_PACKAGE_SCHEMA = "optical-particle-section-package-v2"
+SECTION_PACKAGE_SCHEMA = "optical-particle-section-package-v3-kinetic-energy"
 _GRAPH_ARRAY = "section_record_graph_utf8"
 _SNAPSHOT_RESULT_FIELDS = frozenset({"state_snapshot", "layout", "assembly"})
 _RESULT_FIELDS = frozenset({
@@ -32,8 +32,43 @@ _RESULT_FIELDS = frozenset({
     "stem_scan", "specimen_exit", "sample_region", "lens_crossovers", "aperture_stops",
     "model_signature", "signatures", "calculated_products", "reused_products", "cache_hit",
     "performance", "external_inputs", "calculation_manifest", "working_point_parent_id",
-    "particle_signals",
+    "particle_signals", "workflow",
 })
+_PLAN_MAGNETIC_FIELDS = frozenset({"dipole_bx_t", "dipole_by_t", "reference_momentum_kg_m_s"})
+_PLAN_ELECTRIC_FIELDS = frozenset({"electric_field", "electric_field_identity", "electric_reference_invariant_ev"})
+
+
+def _validate_plan_fields(plan):
+    """Admit executed field coefficients and their electrostatic identity."""
+    z = np.asarray(plan.z_mm)
+    if z.ndim != 1 or z.size < 1:
+        raise ValueError("Archived axial plan requires at least one axial node")
+    for name in ("dipole_bx_t", "dipole_by_t"):
+        values = np.asarray(getattr(plan, name))
+        if (values.dtype != np.dtype(np.float64) or values.shape != (3 * (z.size - 1),)
+                or not np.isfinite(values).all()):
+            raise ValueError("Archived finite-coil fields require finite float64 values at all three stages per interval")
+    momentum = plan.reference_momentum_kg_m_s
+    if (isinstance(momentum, (bool, np.bool_))
+            or not isinstance(momentum, (int, float, np.integer, np.floating))
+            or not math.isfinite(momentum) or momentum <= 0.):
+        raise ValueError("Archived magnetic reference momentum must be finite and positive")
+    identity = plan.electric_field_identity
+    if identity is not None and (not isinstance(identity, str) or len(identity) != 64
+                                 or any(c not in "0123456789abcdef" for c in identity)):
+        raise ValueError("Archived electric field requires its exact numerical identity")
+    provider = plan.electric_field
+    if provider is not None and identity is None:
+        raise ValueError("Unidentified electric fields cannot create a resumable archive")
+    if provider is not None and getattr(provider, "numerical_identity", None) != identity:
+        raise ValueError("Archived plan electric provider and numerical identity disagree")
+    invariant = plan.electric_reference_invariant_ev
+    if invariant is not None and identity is None:
+        raise ValueError("Archived electrostatic propagation requires a known electric-field identity")
+    if invariant is not None and (isinstance(invariant, (bool, np.bool_))
+            or not isinstance(invariant, (int, float, np.integer, np.floating))
+            or not math.isfinite(invariant)):
+        raise ValueError("Archived reference electrostatic invariant must be finite")
 
 
 def normalise_section_request(request, *, quality=None):
@@ -70,6 +105,7 @@ def section_archive_identity(result):
     return json_digest({"schema": SECTION_PACKAGE_SCHEMA,
         "signatures": dict(getattr(result, "signatures", None) or {}),
         "model": getattr(result, "model_signature", None),
+        "workflow": result.workflow,
         "quality": section_result_quality(result),
         "target_z_mm": float(metrics["section_target_z_mm"]),
         "component_keys": sorted(metrics.get("section_component_keys", ())),
@@ -132,8 +168,19 @@ def section_archive_summary(result, *, path=None, saved_at_utc=None):
     spectrum = getattr(material_cache, "eds_spectrum", None)
     eds_completed = (isinstance(spectrum, EDSSpectrum)
                      and spectrum.elastic_transport is material_cache.elastic_transport)
+    specimen_completed = (material_cache is not None
+        and material_cache.elastic_transport is not None
+        and material_cache.inelastic_distribution is not None
+        and material_cache.specimen_exit is not None)
+    scope = metrics.get("section_physics_scope", "executed_classical_particle_section")
+    if scope == "optical_reference_without_specimen_interactions":
+        details.append("The downstream display is an optical reference; specimen interactions were not calculated by this request.")
+    if float(resumable) < target:
+        details.append(f"Exact restart state is available through Z = {float(resumable):.9g} mm; the displayed endpoint is Z = {target:.9g} mm.")
     return {"identity": section_archive_identity(result), "target_z_mm": target,
             "resumable_through_z_mm": float(resumable),
+            "workflow": result.workflow, "physics_scope": scope,
+            "specimen_transport_completed": specimen_completed,
             "energy_filter_completed": getattr(result, "energy_filter", None) is not None,
             "eds_completed": eds_completed,
             "plane_name": _section_plane_name(result.state_snapshot, target),
@@ -173,7 +220,8 @@ def checked_section_archive_info(result, path, *, maximum_unpacked_bytes,
     if (metadata.get("package_kind") != SECTION_PACKAGE_SCHEMA
             or any(stored.get(key) != expected[key] for key in (
                 "identity", "target_z_mm", "resumable_through_z_mm", "quality",
-                "particle_count", "energy_filter_completed", "eds_completed"))
+                "particle_count", "energy_filter_completed", "eds_completed",
+                "workflow", "physics_scope", "specimen_transport_completed"))
             or metadata.get("signatures") != dict(result.signatures)
             or metadata.get("model_signature") != result.model_signature
             or index.plane_z_mm != expected["target_z_mm"]
@@ -328,6 +376,8 @@ def _pack(value, arrays, memo, types):
         name = type(value).__name__
         if types.get(name) is not type(value):
             raise ValueError(f"Unsupported section data type: {name}")
+        if name == "AxialPropagationPlan":
+            _validate_plan_fields(value)
         if id(value) in memo:
             key = memo[id(value)]
             if key is None:
@@ -336,7 +386,8 @@ def _pack(value, arrays, memo, types):
         key = f"record_{len(memo)}"
         memo[id(value)] = None
         record = {"record_id": key, "type": name, "fields": {
-            f.name: _pack(getattr(value, f.name), arrays, memo, types)
+            f.name: _pack(None if name == "AxialPropagationPlan" and f.name == "electric_field"
+                         else getattr(value, f.name), arrays, memo, types)
             for f in fields(value) if f.init
         }}
         memo[id(value)] = key
@@ -443,10 +494,22 @@ def _unpack(value, arrays, types, depth=0, _records=None, _definitions=None):
         _records[key] = None
         cls = types[value["type"]]
         allowed = {f.name for f in fields(cls) if f.init}
+        if (cls is types.get("AxialPropagationPlan") and isinstance(value["fields"], dict)
+                and not _PLAN_MAGNETIC_FIELDS <= value["fields"].keys()):
+            raise ValueError(
+                "Archived axial plan lacks shared finite-coil magnetic fields; historical read-only "
+                "viewing remains available, but continuation requires recalculation from tip emission.")
+        if (cls is types.get("AxialPropagationPlan") and isinstance(value["fields"], dict)
+                and not _PLAN_ELECTRIC_FIELDS <= value["fields"].keys()):
+            raise ValueError("Archived axial plan lacks the current electric-field identity; historical viewing only")
         if not isinstance(value["fields"], dict) or set(value["fields"]) != allowed:
             raise ValueError("Unknown or missing current section data fields")
         record_fields = {k: decode(v) for k, v in value["fields"].items()}
+        if cls is types.get("AxialPropagationPlan") and record_fields["electric_field"] is not None:
+            raise ValueError("Archived plans contain electric identities, never runtime field providers")
         result = cls(**record_fields)
+        if cls is types.get("AxialPropagationPlan"):
+            _validate_plan_fields(result)
         if cls is types.get("EDSSpectrum") and result.response_rates is not None:
             from temsim.detector.eds_response import _validate_alignment
             _validate_alignment(result, result.response_rates)
@@ -546,10 +609,12 @@ def _unpack_record_graph(graph, arrays, *, maximum_unpacked_bytes):
 
 def _result_records(result):
     from temsim.simulation_pipeline import CalculationResult
+    from temsim.calculation_workflow import validate_workflow
     if type(result) is not CalculationResult or {f.name for f in fields(result) if f.init} != _RESULT_FIELDS:
         raise ValueError("The current calculation-result fields require an explicit archive contract")
     if result.wave_imaging is not None:
         raise ValueError("Coherent wave results require a wave archive, not a classical particle section")
+    validate_workflow(result.workflow)
     return {name: getattr(result, name) for name in sorted(_RESULT_FIELDS - _SNAPSHOT_RESULT_FIELDS)}
 
 
@@ -669,10 +734,7 @@ def save_section_result(result, path, *, overwrite=False, maximum_unpacked_bytes
          "model_signature": result.model_signature, "signatures": dict(result.signatures),
          "particle_tuning": bool(simulation.metrics.get("particle_tuning", False)),
          "particle_section": bool(simulation.metrics.get("particle_section", False)),
-         "physics_scope": ("Classical particle transport with inserted-specimen scattering"
-             if simulation.metrics.get("particle_section", simulation.metrics.get("particle_tuning", False))
-                and not simulation.metrics.get("optical_tuning", False)
-             else "Historical optical preview without specimen scattering"),
+         "physics_scope": summary["physics_scope"], "workflow": result.workflow,
          "source_representation": "executed-tip-origin-particle-section"})
     package.write_package(path, overwrite=overwrite, compression=compression, compresslevel=compresslevel,
                           maximum_unpacked_bytes=maximum_unpacked_bytes)
@@ -721,6 +783,8 @@ def _load_section_result(path, *, maximum_unpacked_bytes, expected_package_diges
                                       maximum_unpacked_bytes=maximum_unpacked_bytes)
         if set(payload) != _RESULT_FIELDS - _SNAPSHOT_RESULT_FIELDS or payload["wave_imaging"] is not None:
             raise ValueError("Incomplete or unsupported current particle result fields")
+        from temsim.calculation_workflow import validate_workflow
+        validate_workflow(payload["workflow"])
         simulation = payload["simulation"]
         checkpoint = simulation.section_checkpoint
         if not isinstance(simulation, Simulation) or not isinstance(checkpoint, ParticleSectionCheckpoint):

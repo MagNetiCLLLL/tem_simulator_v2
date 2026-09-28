@@ -131,9 +131,12 @@ def test_unidentified_wien_composition_does_not_inherit_scalar_base_identity(mon
     assert scene.diagnostic_fields_at_global_position((0., 0., .001)) is not None
 
 
-def test_larger_field_reused_through_ordinary_accessor_without_relabelling_or_resolving(monkeypatch, gun):
-    original_extension = gun._gun_field_exit_extension_mm if hasattr(gun, "_gun_field_exit_extension_mm") else 100.
-    request = closed_field_request(gun, exit_extension_mm=200.)
+def test_fixed_instrument_field_reused_without_relabelling_or_resolving(monkeypatch, gun):
+    from temsim.physics.instrument_electric import instrument_electric_end_mm, configure_instrument_electric_domain
+    state = SimpleNamespace(electron_gun=gun)
+    configure_instrument_electric_domain(gun, instrument_electric_end_mm(state))
+    request = closed_field_request(gun)
+    del gun._instrument_electric_end_mm
     field = tiny_field(request)
     gun._closed_gun_field = field
     original_extension = gun._gun_field_exit_extension_mm
@@ -146,10 +149,11 @@ def test_larger_field_reused_through_ordinary_accessor_without_relabelling_or_re
     clone, electric, notes = _prepare_electric_provider(SimpleNamespace(electron_gun=gun), stop)
     assert clone is not gun and electric is field
     assert gun._gun_field_exit_extension_mm == original_extension
-    assert clone._gun_field_exit_extension_mm == 200.
+    assert clone._gun_field_exit_extension_mm == original_extension
+    assert clone._instrument_electric_end_mm == instrument_electric_end_mm(state)
     assert electric.request == request
     assert electric_field_identity(electric).status == "known"
-    assert any("original numerical identity" in note for note in notes)
+    assert any("observation cutoffs do not alter" in note for note in notes)
 
 
 def test_worker_protocol_five_preserves_known_immutable_cache_identity(gun):

@@ -103,8 +103,7 @@ def measure_surface_focus(state, *, step_mm=.05, upstream_spacing_nm=100.) -> Su
     apertures=tuple(a.z_mm for a in state.apertures if start<a.z_mm<end)
     z,x,tx,y,ty,checkpoints=propagate(state,start,end,e.x_m,e.tx_rad,e.y_m,e.ty_rad,
         events=_pre_sample_kick_events(state),energy_offset_ev=e.energy_offset_ev,
-        # Checkpoint requests alone select the nearest existing grid node.
-        # Explicit save planes also split integration at the exact surfaces.
+        # Save and checkpoint requests both retain exact integration surfaces.
         save_z_mm=apertures+planes,checkpoint_z_mm=planes,return_checkpoints=True,
         maximum_step_mm=step_mm)
     alive=np.asarray(e.alive,bool).copy()

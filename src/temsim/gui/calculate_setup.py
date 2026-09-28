@@ -15,7 +15,7 @@ class CalculateSetupDialog(QDialog):
         self.setObjectName("calculateSetupDialog")
         self.resize(660, 590)
         layout = QVBoxLayout(self)
-        note = QLabel("Choose outputs for the next High accuracy calculation. Preview traces particles only. Settings are saved with the operating profile.")
+        note = QLabel("Configure readouts, then use Calculate on the corresponding page. The top Run high-accuracy once button updates Ray Diagram and saves the incident beam. Settings are saved with the operating profile.")
         note.setWordWrap(True)
         layout.addWidget(note)
         group = QGroupBox("Particle calculation")
@@ -82,5 +82,5 @@ class CalculateSetupDialog(QDialog):
             if key != "vacuum":
                 setattr(self.state.sample, attr, control.isChecked())
         self.changed.emit("calculate_setup")
-        self.status.setText("Applied. Run High accuracy to generate the selected outputs.")
+        self.status.setText("Applied. Use Calculate on the Sample or detector page. If upstream optics or vacuum changed, update Ray Diagram first.")
         return True

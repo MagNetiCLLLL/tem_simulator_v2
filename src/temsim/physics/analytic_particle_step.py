@@ -2,8 +2,9 @@
 
 Positions and mechanical momenta are SI float64 arrays with shape (N, 3).
 The same two-half-step acceptance, static-energy projection, and error budgets
-as the NumPy reference are retained. Only the original analytic field providers
-are supported; custom/combined fields continue through the general reference.
+as the NumPy reference are retained. Original analytic electric fields and exact
+packed instrument magnetic laws are supported; arbitrary or unsupported fields
+continue through the general reference.
 The compatibility functions read current fields on every call. An optional
 execution-local workspace refreshes its fields at each begin_step boundary;
 it is never a persistent source or a cache shared between gun executions.
@@ -23,6 +24,8 @@ from temsim.optics.electron_gun.electrostatic import (
     FegElectrostaticField,
 )
 from .analytic_gun_field import njit
+from .instrument_magnetic import InstrumentMagneticField
+from .compiled_magnetic_field import compiled_magnetic_field, prepare_compiled_magnetic_sources
 if njit is not None:
     from numba import get_num_threads, prange
 else:
@@ -44,6 +47,7 @@ _METHODS = {
     ElectrostaticGunLens: ("axial_potential_v_and_derivatives_per_mm",),
     AcceleratorColumn: ("normalized_potential_and_derivatives_per_mm",),
     FegMagneticField: ("field_at_global_positions_t",),
+    InstrumentMagneticField: ("field_at_global_positions_t",),
     GunDeflector: ("field_at_global_positions_t",),
     GunStigmator: ("field_at_global_positions_t",),
 }
@@ -104,20 +108,33 @@ def _magnetic(x, y, z, parameters):
     return bx, by
 
 
+def _magnetic_all(x, y, z, parameters):
+    if len(parameters) == 15:
+        bx, by = _magnetic(x, y, z, parameters)
+        return bx, by, 0.
+    count = int(parameters[0])
+    split = 1+count*11
+    sources = parameters[1:split].reshape((-1, 11))
+    terms = parameters[split:].reshape((-1, 9))
+    _, field = compiled_magnetic_field(np.array((x, y, z)), sources, terms, False)
+    return field[0], field[1], field[2]
+
+
 def _advance_values(x, y, z, px, py, pz, dt, energy, terms, magnetic):
     gamma = math.sqrt(1.+(px*px+py*py+pz*pz)/(M*C)**2)
     mx, my, mz = (x+.5*dt*px/(gamma*M), y+.5*dt*py/(gamma*M),
                   z+.5*dt*pz/(gamma*M))
     _, ex, ey, ez = _electric(mx, my, mz, terms)
-    bx, by = _magnetic(mx, my, mz, magnetic)
+    bx, by, bz = _magnetic_all(mx, my, mz, magnetic)
     ix, iy, iz = -.5*E*dt*ex, -.5*E*dt*ey, -.5*E*dt*ez
     ux, uy, uz = px+ix, py+iy, pz+iz
     gamma = math.sqrt(1.+(ux*ux+uy*uy+uz*uz)/(M*C)**2)
-    tx, ty = -E*dt*bx/(2.*M*gamma), -E*dt*by/(2.*M*gamma)
-    factor = 2./(1.+tx*tx+ty*ty)
-    sx, sy = factor*tx, factor*ty
-    vx, vy, vz = ux-uz*ty, uy+uz*tx, uz+ux*ty-uy*tx
-    px, py, pz = ux-vz*sy+ix, uy+vz*sx+iy, uz+vx*sy-vy*sx+iz
+    tx, ty, tz = (-E*dt*bx/(2.*M*gamma), -E*dt*by/(2.*M*gamma),
+                  -E*dt*bz/(2.*M*gamma))
+    factor = 2./(1.+tx*tx+ty*ty+tz*tz)
+    sx, sy, sz = factor*tx, factor*ty, factor*tz
+    vx, vy, vz = ux+uy*tz-uz*ty, uy+uz*tx-ux*tz, uz+ux*ty-uy*tx
+    px, py, pz = ux+vy*sz-vz*sy+ix, uy+vz*sx-vx*sz+iy, uz+vx*sy-vy*sx+iz
     gamma = math.sqrt(1.+(px*px+py*py+pz*pz)/(M*C)**2)
     x, y, z = mx+.5*dt*px/(gamma*M), my+.5*dt*py/(gamma*M), mz+.5*dt*pz/(gamma*M)
     potential, _, _, _ = _electric(x, y, z, terms)
@@ -220,11 +237,11 @@ def _impulse_value(position, momentum, i, dt, impulse, terms, magnetic):
         y = position[i, 1]+fraction*dt*vy
         z = position[i, 2]+fraction*dt*vz
         _, ex, ey, ez = _electric(x, y, z, terms)
-        bx, by = _magnetic(x, y, z, magnetic)
+        bx, by, bz = _magnetic_all(x, y, z, magnetic)
         if not (math.isfinite(ex) and math.isfinite(ey) and math.isfinite(ez)
-                and math.isfinite(bx) and math.isfinite(by)):
+                and math.isfinite(bx) and math.isfinite(by) and math.isfinite(bz)):
             invalid = 1
-        fx, fy, fz = -E*(ex-vz*by), -E*(ey+vz*bx), -E*(ez+vx*by-vy*bx)
+        fx, fy, fz = -E*(ex+vy*bz-vz*by), -E*(ey+vz*bx-vx*bz), -E*(ez+vx*by-vy*bx)
         maximum_force = max(maximum_force, math.sqrt(fx*fx+fy*fy+fz*fz))
     limit = impulse*pnorm/maximum_force if maximum_force > 0. else math.inf
     return limit, invalid
@@ -345,6 +362,7 @@ if njit is not None:
     _electric = njit(cache=True)(_electric)
     _window = njit(cache=True)(_window)
     _magnetic = njit(cache=True)(_magnetic)
+    _magnetic_all = njit(cache=True)(_magnetic_all)
     _advance_values = njit(cache=True)(_advance_values)
     _advance = njit(cache=True)(_advance)
     _impulse_value = njit(cache=True, inline="always")(_impulse_value)
@@ -369,17 +387,64 @@ else:
     _compiled_prepared_step = None
 
 
+def _magnetic_parameters(magnetic):
+    if _original_provider(magnetic, InstrumentMagneticField):
+        packed = prepare_compiled_magnetic_sources(magnetic._sources)
+        if packed is None:
+            return None
+        sources, terms = packed
+        # A flat numeric input retains all source laws without an object callback
+        # in the inner Boris loop. Fifteen values remain the gun-local encoding.
+        return np.concatenate((np.array([len(sources)], float), sources.ravel(), terms.ravel()))
+    if not _original_provider(magnetic, FegMagneticField):
+        return None
+    d, s = magnetic.deflector, magnetic.stigmator
+    if not _original_provider(d, GunDeflector) or not _original_provider(s, GunStigmator):
+        return None
+    upper = (d.upper_field_x_mt, d.upper_field_y_mt) if d.enabled else (0., 0.)
+    lower = (d.lower_field_x_mt, d.lower_field_y_mt) if d.enabled else (0., 0.)
+    if d.beam_blanked:
+        upper, lower = (0., d.blanking_field_y_mt), (0., 0.)
+    parameters = np.array([
+        d.upper_center_from_tip_mm+d.field_center_offset_mm, .5*d.coil_length_mm,
+        d.soft_edge_mm, upper[0]*1e-3, upper[1]*1e-3,
+        d.lower_center_from_tip_mm+d.field_center_offset_mm, .5*d.coil_length_mm,
+        d.soft_edge_mm, lower[0]*1e-3, lower[1]*1e-3,
+        s.optical_reference_from_tip_mm, .5*s.effective_length_mm, s.soft_edge_mm,
+        s.gradient_t_per_m if s.enabled else 0., math.radians(s.rotation_deg)])
+    return parameters
+
+
+def _magnetic_key(magnetic):
+    if not getattr(magnetic, "compiled_particle_steps", True):
+        return None
+    if _original_provider(magnetic, InstrumentMagneticField):
+        # Instrument captures own their frozen component graph. This identity
+        # controls only the current execution's prepared arrays.
+        return ("captured-instrument", id(magnetic), magnetic.numerical_identity)
+    if not _original_provider(magnetic, FegMagneticField):
+        return None
+    d, s = magnetic.deflector, magnetic.stigmator
+    if not _original_provider(d, GunDeflector) or not _original_provider(s, GunStigmator):
+        return None
+    return (id(d), id(s), d.upper_center_from_tip_mm, d.lower_center_from_tip_mm,
+        d.field_center_offset_mm, d.coil_length_mm, d.soft_edge_mm,
+        d.enabled, d.beam_blanked, d.blanking_field_y_mt,
+        d.upper_field_x_mt, d.upper_field_y_mt, d.lower_field_x_mt, d.lower_field_y_mt,
+        s.optical_reference_from_tip_mm, s.effective_length_mm, s.soft_edge_mm,
+        s.enabled, s.gradient_t_per_m, s.rotation_deg)
+
+
 def _field_parameters(electric, magnetic):
     """Read current model inputs without caching or accepting added physics."""
     if (not getattr(electric, "compiled_particle_steps", True)
             or not getattr(magnetic, "compiled_particle_steps", True)
             or not _original_provider(electric, FegElectrostaticField)
-            or not _original_provider(magnetic, FegMagneticField)):
+            or _magnetic_key(magnetic) is None):
         return None
     extractor, lens, accelerator = electric.extractor, electric.electrostatic_lens, electric.accelerator
-    d, s = magnetic.deflector, magnetic.stigmator
     for obj, cls in ((extractor, ExtractorElectrode), (lens, ElectrostaticGunLens),
-                     (accelerator, AcceleratorColumn), (d, GunDeflector), (s, GunStigmator)):
+                     (accelerator, AcceleratorColumn)):
         if not _original_provider(obj, cls):
             return None
     start = extractor.transition_start_mm+extractor.field_center_offset_mm
@@ -397,17 +462,9 @@ def _field_parameters(electric, magnetic):
         terms.append((center-stage.soft_edge_mm, center+stage.soft_edge_mm,
                       gain*(stage.voltage_fraction-previous)))
         previous = stage.voltage_fraction
-    upper = (d.upper_field_x_mt, d.upper_field_y_mt) if d.enabled else (0., 0.)
-    lower = (d.lower_field_x_mt, d.lower_field_y_mt) if d.enabled else (0., 0.)
-    if d.beam_blanked:
-        upper, lower = (0., d.blanking_field_y_mt), (0., 0.)
-    parameters = np.array([
-        d.upper_center_from_tip_mm+d.field_center_offset_mm, .5*d.coil_length_mm,
-        d.soft_edge_mm, upper[0]*1e-3, upper[1]*1e-3,
-        d.lower_center_from_tip_mm+d.field_center_offset_mm, .5*d.coil_length_mm,
-        d.soft_edge_mm, lower[0]*1e-3, lower[1]*1e-3,
-        s.optical_reference_from_tip_mm, .5*s.effective_length_mm, s.soft_edge_mm,
-        s.gradient_t_per_m if s.enabled else 0., math.radians(s.rotation_deg)])
+    parameters = _magnetic_parameters(magnetic)
+    if parameters is None:
+        return None
     terms = np.asarray(terms, dtype=float)
     if not (np.all(np.isfinite(terms)) and np.all(np.isfinite(parameters))):
         return None  # General field validation owns invalid/custom inputs.
@@ -425,7 +482,7 @@ def _current_field_key(gun, electric, magnetic):
             or not getattr(electric, "compiled_particle_steps", True)
             or not getattr(magnetic, "compiled_particle_steps", True)
             or not _original_provider(electric, FegElectrostaticField)
-            or not _original_provider(magnetic, FegMagneticField)):
+            or _magnetic_key(magnetic) is None):
         return None
     projection = gun.electric_field
     if (not _original_provider(projection, FegElectrostaticField)
@@ -434,13 +491,12 @@ def _current_field_key(gun, electric, magnetic):
                    for name in ("emitter", "extractor", "electrostatic_lens", "accelerator"))):
         return None
     extractor, lens, accelerator = electric.extractor, electric.electrostatic_lens, electric.accelerator
-    d, s = magnetic.deflector, magnetic.stigmator
     for obj, cls in ((extractor, ExtractorElectrode), (lens, ElectrostaticGunLens),
-                     (accelerator, AcceleratorColumn), (d, GunDeflector), (s, GunStigmator)):
+                     (accelerator, AcceleratorColumn)):
         if not _original_provider(obj, cls):
             return None
     return (
-        id(electric.emitter), id(extractor), id(lens), id(accelerator), id(d), id(s),
+        id(electric.emitter), id(extractor), id(lens), id(accelerator), _magnetic_key(magnetic),
         electric.emitter.emission_energy_ev,
         extractor.transition_start_mm, extractor.transition_end_mm,
         extractor.field_center_offset_mm, extractor.voltage_kv,
@@ -449,12 +505,6 @@ def _current_field_key(gun, electric, magnetic):
         accelerator.high_tension_kv, accelerator.field_center_offset_mm,
         tuple((stage.center_from_tip_mm, stage.soft_edge_mm, stage.voltage_fraction)
               for stage in accelerator.stages),
-        d.upper_center_from_tip_mm, d.lower_center_from_tip_mm,
-        d.field_center_offset_mm, d.coil_length_mm, d.soft_edge_mm,
-        d.enabled, d.beam_blanked, d.blanking_field_y_mt,
-        d.upper_field_x_mt, d.upper_field_y_mt, d.lower_field_x_mt, d.lower_field_y_mt,
-        s.optical_reference_from_tip_mm, s.effective_length_mm, s.soft_edge_mm,
-        s.enabled, s.gradient_t_per_m, s.rotation_deg,
     )
 
 

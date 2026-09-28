@@ -15,10 +15,11 @@ import numpy as np
 from . import analytic_particle_step as stepping
 from .analytic_gun_field import njit
 from .relativistic_lorentz import RelativisticPhaseSpace
+from .gun_transport_domain import bounded_gun_time_step
 
 
 MAX_BATCH_STEPS = 16
-BATCH_EXECUTION_SCHEMA = "analytic-no-event-batch-v1"
+BATCH_EXECUTION_SCHEMA = "analytic-no-event-batch-query-envelope-v2"
 E, M, C = stepping.E, stepping.M, stepping.C
 
 
@@ -53,8 +54,10 @@ def _outer_projection(position, momentum, indices, energy, terms):
         momentum[i, 2] = pz/norm*magnitude
 
 
-def _spatial_dt(position, momentum, indices, supports, trace_step, drift_step):
+def _spatial_dt(position, momentum, indices, supports, trace_step, drift_step, magnetic_supports,
+                magnetic_query_upper_m=math.inf):
     low, high, maximum_vz = math.inf, -math.inf, -math.inf
+    maximum_z_m = -math.inf
     for i in indices:
         px, py, pz = momentum[i]
         gamma = math.sqrt(1.+(px*px+py*py+pz*pz)/(M*C)**2)
@@ -64,13 +67,20 @@ def _spatial_dt(position, momentum, indices, supports, trace_step, drift_step):
         maximum_vz = max(maximum_vz, vz)
         z = position[i, 2]*1000.
         low, high = min(low, z), max(high, z)
+        maximum_z_m = max(maximum_z_m, position[i, 2])
     step = drift_step
     for start, end in supports:
         if low <= end and high >= start:
             step = min(step, trace_step)
         elif high < start:
             step = min(step, max(start-high, 1e-10))
-    return step*1e-3/max(maximum_vz, 1.)
+    for start, end in magnetic_supports:
+        if low <= end and high >= start:
+            step = min(step, trace_step, (end-start)/16.)
+        elif high < start:
+            step = min(step, max(start-high, 1e-10))
+    return bounded_gun_time_step(magnetic_query_upper_m, maximum_z_m,
+                                 step*1e-3/max(maximum_vz, 1.))
 
 
 def _boundary_candidate(old, new, momentum, indices, bores, planes,
@@ -96,7 +106,8 @@ def _boundary_candidate(old, new, momentum, indices, bores, planes,
 
 
 def _batch(position, momentum, time_s, indices, energy, terms, magnetic,
-           supports, trace_step, drift_step, bores, planes, dpa_passed,
+           supports, trace_step, drift_step, magnetic_supports, magnetic_query_upper_m,
+           bores, planes, dpa_passed,
            c1_passed, impulse, maximum_steps, status, half, limits, invalid,
            parallel):
     current_x, current_p = position.copy(), momentum.copy()
@@ -104,7 +115,7 @@ def _batch(position, momentum, time_s, indices, energy, terms, magnetic,
     previous_time, dt, count = time_s, 0., 0
     for _ in range(maximum_steps):
         proposed = _spatial_dt(current_x, current_p, indices, supports,
-                               trace_step, drift_step)
+                               trace_step, drift_step, magnetic_supports, magnetic_query_upper_m)
         if proposed <= 0.:
             break
         bounded = stepping._compiled_prepared_time_step(current_x, current_p,
@@ -213,6 +224,8 @@ class AnalyticParticleBatch:
             return None
         gun = self.gun
         supports = np.asarray(gun.field_supports_mm, dtype=np.float64).reshape(-1, 2)
+        magnetic_supports = np.asarray(getattr(gun, "_instrument_magnetic_supports_mm", ()),
+                                       dtype=np.float64).reshape(-1, 2)
         bores = np.asarray([(part.mechanical_center_from_tip_mm,
                              .5*part.mechanical_length_mm,
                              .5*part.mechanical_clear_bore_diameter_mm)
@@ -231,7 +244,8 @@ class AnalyticParticleBatch:
         execution._phase = None
         values = _compiled_batch(phase.position_m, phase.momentum_kg_m_per_s,
             phase.time_s, indices, energy[indices], *execution._parameters,
-            supports, trace_step, drift_step, bores, planes, dpa_passed,
+            supports, trace_step, drift_step, magnetic_supports,
+            float(getattr(gun, "_instrument_magnetic_query_upper_m", math.inf)), bores, planes, dpa_passed,
             c1_passed, float(impulse), maximum_steps, execution._active_status,
             execution._active_half, execution._active_limits,
             execution._active_invalid, execution._parallel)

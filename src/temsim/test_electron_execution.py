@@ -790,7 +790,7 @@ def _child_loop(identity):
                         magnetic = command[2]
                         if magnetic is None:
                             from temsim.magnetic_field_scene import prepare_magnetic_scene
-                            magnetic = prepare_magnetic_scene(command[1], z_limits_mm=command[3])
+                            magnetic = prepare_magnetic_scene(command[1])
                         scene = prepare_test_electron_scene(command[1], magnetic, z_limits_mm=command[3])
                     else:
                         scene = command[1]

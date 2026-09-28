@@ -18,9 +18,14 @@ from temsim.physics.relativistic_lorentz import (
 )
 
 from temsim.physics.relativistic_lorentz import RelativisticPhaseSpace
+from .discrete_gradient import (
+    discrete_gradient_update, ITERATION_TOLERANCE, MAXIMUM_ITERATIONS,
+    NORMALIZED_MOMENTUM_FLOOR,
+)
 
 
-def static_energy_step(phase, dt_s, magnetic, electric, *, tolerance=1e-11, maximum_iterations=64):
+def static_energy_step(phase, dt_s, magnetic, electric, *,
+                       tolerance=ITERATION_TOLERANCE, maximum_iterations=MAXIMUM_ITERATIONS):
     dt = float(dt_s)
     if not np.isfinite(dt) or dt == 0 or not 0 < tolerance < 1e-3:
         raise ValueError("Invalid discrete-gradient step or tolerance")
@@ -34,28 +39,31 @@ def static_energy_step(phase, dt_s, magnetic, electric, *, tolerance=1e-11, maxi
         return compiled
     phi = getattr(electric, "potential_rise_v_at_global_positions", electric.potential_v_at_global_positions)
     phi0 = phi(x0)
-    gamma0 = np.sqrt(1+np.sum((p0/(m_e*c))**2, axis=-1))
-    p1 = p0.copy()
+    u0 = p0/(m_e*c)
+    gamma0 = np.sqrt(1+np.sum(u0*u0, axis=-1))
+    # The identical electric predictor and normalized Cayley iteration are
+    # used by the diagnostic scalar and compiled batch implementations.
+    u1 = u0-e*dt/(m_e*c)*electric.field_at_global_positions_v_per_m(x0)
     for _ in range(maximum_iterations):
-        gamma1 = np.sqrt(1+np.sum((p1/(m_e*c))**2, axis=-1))
-        vbar = (p1+p0)/(m_e*(gamma1+gamma0)[..., None])
+        gamma1 = np.sqrt(1+np.sum(u1*u1, axis=-1))
+        vbar = c*(u1+u0)/(gamma1+gamma0)[..., None]
         dx = dt*vbar
         x1 = x0+dx
         midpoint = .5*(x0+x1)
         electric_mid = np.asarray(electric.field_at_global_positions_v_per_m(midpoint), float)
         magnetic_mid = np.asarray(magnetic.field_at_global_positions_t(midpoint), float)
-        potential_difference = phi(x1)-phi0
-        length2 = np.sum(dx*dx, axis=-1)
-        defect = potential_difference+np.sum(electric_mid*dx, axis=-1)
-        correction = np.divide(defect, length2, out=np.zeros_like(defect), where=length2>0)
-        electric_discrete = electric_mid-correction[..., None]*dx
-        updated = p0-e*dt*(electric_discrete+np.cross(vbar, magnetic_mid))
+        updated = np.stack(discrete_gradient_update(
+            u0[..., 0], u0[..., 1], u0[..., 2], gamma1+gamma0,
+            dx[..., 0], dx[..., 1], dx[..., 2],
+            electric_mid[..., 0], electric_mid[..., 1], electric_mid[..., 2],
+            magnetic_mid[..., 0], magnetic_mid[..., 1], magnetic_mid[..., 2],
+            phi0, phi(x1), dt), axis=-1)
         if not np.all(np.isfinite(updated)):
             raise ValueError("Non-finite discrete-gradient iteration")
-        scale = np.maximum(np.maximum(np.linalg.norm(p0, axis=-1), np.linalg.norm(updated, axis=-1)), 1e-30)
-        error = np.max(np.linalg.norm(updated-p1, axis=-1)/scale, initial=0)
+        scale = np.maximum(np.maximum(np.linalg.norm(u0, axis=-1), np.linalg.norm(updated, axis=-1)), NORMALIZED_MOMENTUM_FLOOR)
+        error = np.max(np.linalg.norm(updated-u1, axis=-1)/scale, initial=0)
         if error <= tolerance:
             # Return the same x/p pair used in the last equation residual.
-            return RelativisticPhaseSpace(x1, updated, phase.time_s+dt)
-        p1 = updated
+            return RelativisticPhaseSpace(x1, updated*(m_e*c), phase.time_s+dt)
+        u1 = updated
     raise ValueError("Discrete-gradient Lorentz iteration did not converge")

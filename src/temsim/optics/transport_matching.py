@@ -1,10 +1,12 @@
 """Explicit particle transport recovery, not a probe/image-focus calibration.
 
 Only C1/C2/C3 excitation may change. The executed gun, all stops, specimen
-settings and downstream optics are retained. Linear maps propose candidates;
-the normal nonlinear optical-only pipeline decides whether they pass.
+settings and downstream optics are retained. Admitted linear maps or complete
+field trajectories propose candidates; the normal optical-only pipeline decides
+whether they pass all physical stops and numerical refinement checks.
 """
 from dataclasses import asdict
+from functools import lru_cache
 import math
 from types import SimpleNamespace
 
@@ -71,7 +73,7 @@ plane even though its final alive flag is false. Earlier stops never pass.
                 radius_mm=float(radius.max(initial=0)*1e3), finite=bool(finite), z_mm=float(z_mm))
 
 
-def _candidate_vectors(state, source, weights, check):
+def _candidate_vectors(state, source, weights, check, *, initial_kinetic_energy_ev=None):
     from temsim.optics.direct_alignment import _LiveFirstOrderModel
     start, stop = float(state.electron_gun.exit_plane_z_mm),float(state.sample.z_mm)
     aperture = state.condenser_aperture_2
@@ -80,8 +82,8 @@ def _candidate_vectors(state, source, weights, check):
     captures = np.unique(np.r_[np.arange(start,stop,10.),aperture.z_mm,stop])
     model = _LiveFirstOrderModel(state,start,stop,LENSES,
         step_mm=float(DEFINITION.targets["search_step_mm"]),capture_z_mm=captures)
-    if model.vector_maps:
-        raise ValueError("Transport search for imported/coupled vector fields is not yet qualified")
+    if model.full_field_transfer and initial_kinetic_energy_ev is None:
+        raise ValueError("Full-field transport search needs the executed gun-exit kinetic energies")
     weights = np.sqrt(weights/weights.sum())
     aperture_row = np.searchsorted(captures,aperture.z_mm)
     # This smooth proposal cost is NOT clipping or a physical acceptance mask.
@@ -90,13 +92,24 @@ def _candidate_vectors(state, source, weights, check):
                if segment.end_z_mm > start and segment.start_z_mm < stop)*.5e-3
     aperture_radius = aperture.radius_mm*1e-3
 
+    @lru_cache(maxsize=32)
+    def captured_positions(values):
+        if model.full_field_transfer:
+            return model.rays_at(values, source, captures,
+                initial_kinetic_energy_ev=initial_kinetic_energy_ev,
+                defer_nonfinite_until_clipping=True)[:,:2,:]
+        return (model.matrices_at(values,captures) @ source)[:,:2,:]
+
     def residual(values):
         check()
-        positions = (model.matrices_at(values,captures) @ source)[:,:2,:]
+        positions = captured_positions(tuple(float(value) for value in values))
         final = (positions[aperture_row]-np.array([aperture.offset_x_mm,aperture.offset_y_mm])[:,None]*1e-3)
         wall = np.maximum(np.hypot(positions[:,0],positions[:,1])-.85*bore,0)*weights/aperture_radius
         downstream = positions[captures>aperture.z_mm]*weights/max(.1*bore,aperture_radius)
-        return np.r_[(final*weights/aperture_radius).ravel(),wall.ravel(),downstream.ravel()]
+        residuals = np.r_[(final*weights/aperture_radius).ravel(),wall.ravel(),downstream.ravel()]
+        # Leaving the fixed field domain rejects a proposal; it cannot become
+        # a surviving extrapolated ray. A finite penalty lets other seeds run.
+        return np.nan_to_num(residuals, nan=1e6, posinf=1e6, neginf=-1e6)
 
     current = np.array([lens.percent for lens in model.lenses])
     seeds = [current]
@@ -160,7 +173,9 @@ def solve_transport_candidate(request, *, cancelled=lambda:False):
     if np.count_nonzero(mask)<minimum_rays:
         raise ValueError("Fewer than four current-carrying rays exit the gun; correct gun fields/alignment first")
     source=np.array([emitted.x_m,emitted.y_m,emitted.tx_rad,emitted.ty_rad])[:,mask]
-    candidates=_candidate_vectors(scratch,source,emitted.weight[mask],check)
+    candidates=_candidate_vectors(scratch,source,emitted.weight[mask],check,
+        initial_kinetic_energy_ev=float(scratch.electron_gun.nominal_exit_energy_ev)
+                                  + emitted.energy_offset_ev[mask])
     lenses={lens.key:lens for lens in scratch.lenses}
     attempts=[]
     for vector in candidates:

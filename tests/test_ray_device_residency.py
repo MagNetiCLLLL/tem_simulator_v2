@@ -56,8 +56,8 @@ class FakeCUDA:
 class ReferenceKernel:
     def __getitem__(self, launch):
         def run(*arrays):
-            result = vectorised_rk4(*(a.array for a in arrays[:19]))
-            for target, value in zip(arrays[19:], result, strict=True):
+            result = vectorised_rk4(*(a.array for a in arrays[:22]))
+            for target, value in zip(arrays[22:], result, strict=True):
                 target.array[...] = value
         return run
 
@@ -69,7 +69,7 @@ def inputs(rays=7):
             np.linspace(-.003, .001, rays), np.full(rays, .001),
             np.linspace(.002, -.001, rays), np.full(rays, -.0003),
             np.zeros(4), np.zeros(4), np.array([0, 3]), np.array([0, 1, 2, 3]),
-            np.zeros(7))
+            np.zeros(7), np.zeros(9), np.zeros(9), np.array([2.]))
 
 
 def test_unchanged_plan_has_no_reupload_or_allocation_and_outputs_are_owned():

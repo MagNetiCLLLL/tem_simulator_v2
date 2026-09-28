@@ -49,9 +49,13 @@ from temsim.optics.electron_gun.base import (
 
 
 ARTIFACT_STORE_SCHEMA_VERSION = 1
-INCIDENT_SEED_CODEC = "incident-simulation-seed-v3-flight-time"
-LEGACY_INCIDENT_SEED_CODEC = "incident-simulation-seed-v2-quadrupole-tensor"
-CHECKPOINT_CODEC = "incident-propagation-checkpoints-v2-flight-time"
+INCIDENT_SEED_CODEC = "incident-simulation-seed-v5-electromagnetic-energy"
+_HISTORICAL_INCIDENT_SEED_CODECS = (
+    "incident-simulation-seed-v1", "incident-simulation-seed-v2-quadrupole-tensor",
+    "incident-simulation-seed-v3-flight-time",
+    "incident-simulation-seed-v4-shared-magnetic-field",
+)
+CHECKPOINT_CODEC = "incident-propagation-checkpoints-v3-kinetic-energy"
 _ARRAY_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,95}$")
 _ARRAY_FILENAME = re.compile(r"^array-[0-9]{4,}\.npy$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -79,8 +83,10 @@ _INCIDENT_PLAN_ARRAY_FIELDS = (
     "kick_y_rad",
     "save_index",
     "checkpoint_index",
+    "dipole_bx_t",
+    "dipole_by_t",
 )
-_CHECKPOINT_ARRAY_FIELDS = ("z_mm", "x_m", "tx_rad", "y_m", "ty_rad")
+_CHECKPOINT_ARRAY_FIELDS = ("z_mm", "x_m", "tx_rad", "y_m", "ty_rad", "kinetic_energy_ev")
 _GUN_TRACE_ARRAY_FIELDS = (
     "z_mm",
     "x_m",
@@ -115,6 +121,7 @@ _INCIDENT_BRANCH_ARRAY_FIELDS = (
     "source_ray_id",
     "source_azimuth_rad",
     "flight_time_s",
+    "kinetic_energy_ev",
 )
 
 
@@ -435,8 +442,8 @@ class ArtifactStore:
         prepared = _prepared_arrays(arrays)
         complete_metadata = dict(metadata or {})
         if manifest.instrument_snapshot is not None and codec in {
-            "incident-propagation-checkpoints-v1", "incident-simulation-seed-v1", INCIDENT_SEED_CODEC,
-            LEGACY_INCIDENT_SEED_CODEC, CHECKPOINT_CODEC,
+            "incident-propagation-checkpoints-v1", INCIDENT_SEED_CODEC,
+            *_HISTORICAL_INCIDENT_SEED_CODECS, CHECKPOINT_CODEC,
         }:
             complete_metadata["working_point"] = manifest.instrument_snapshot.to_dict()
         frozen_metadata = freeze_json(complete_metadata)
@@ -641,6 +648,9 @@ class ArtifactStore:
         manifest: CalculationManifest,
         checkpoints: PropagationCheckpoints,
     ) -> str:
+        from temsim.physics.simulation import validate_kinetic_energy_array
+        if not validate_kinetic_energy_array(checkpoints.kinetic_energy_ev, np.shape(checkpoints.x_m), "Checkpoint", allow_unknown=True):
+            raise ValueError("Current checkpoints require executed kinetic energies; historical viewing only")
         validate_flight_time_array(checkpoints.flight_time_s, np.shape(checkpoints.x_m), "Checkpoint")
         arrays = {name: getattr(checkpoints, name) for name in _CHECKPOINT_ARRAY_FIELDS}
         if checkpoints.flight_time_s is not None:
@@ -662,6 +672,7 @@ class ArtifactStore:
                     "y_m": "m",
                     "ty_rad": "rad",
                     "flight_time_s": "s since simultaneous tip emission",
+                    "kinetic_energy_ev": "eV at the executed checkpoint",
                 },
             },
         )
@@ -678,13 +689,8 @@ class ArtifactStore:
             codec=CHECKPOINT_CODEC,
         )
         if bundle is None:
-            bundle = self.get_array_bundle(
-                manifest, product_key="incident",
-                dependency_signature=str(manifest.calculation_signatures["incident"]),
-                codec="incident-propagation-checkpoints-v1")
-        if bundle is None:
             return None
-        required = {"z_mm", "x_m", "tx_rad", "y_m", "ty_rad"}
+        required = set(_CHECKPOINT_ARRAY_FIELDS)
         if set(bundle.arrays) not in (required, required | {"flight_time_s"}):
             raise ArtifactIntegrityError(
                 "Incident checkpoint artifact has unexpected arrays"
@@ -698,6 +704,8 @@ class ArtifactStore:
                 "Incident checkpoint phase-space arrays do not align"
             )
         try:
+            from temsim.physics.simulation import validate_kinetic_energy_array
+            validate_kinetic_energy_array(bundle.arrays["kinetic_energy_ev"], shape, "Checkpoint", allow_unknown=True)
             validate_flight_time_array(bundle.arrays.get("flight_time_s"), shape, "Checkpoint")
             return PropagationCheckpoints(
                 z_mm=z,
@@ -706,9 +714,10 @@ class ArtifactStore:
                 y_m=bundle.arrays["y_m"],
                 ty_rad=bundle.arrays["ty_rad"],
                 flight_time_s=bundle.arrays.get("flight_time_s"),
+                kinetic_energy_ev=bundle.arrays["kinetic_energy_ev"],
             )
         except ValueError as exc:
-            raise ArtifactIntegrityError("Incident checkpoint clock is invalid") from exc
+            raise ArtifactIntegrityError("Incident checkpoint clock or kinetic energy is invalid") from exc
 
     def put_incident_simulation_seed(
         self,
@@ -735,6 +744,13 @@ class ArtifactStore:
         exit_bundle = getattr(gun_trace, "exit_bundle", None)
         if exit_bundle is None:
             raise ValueError("Incident restart seed has no gun exit bundle")
+        from temsim.particle_section_io import _validate_plan_fields
+        _validate_plan_fields(plan)
+        from temsim.physics.particle_energy import validate_kinetic_energy_array, energy_survival_mask
+        if (not validate_kinetic_energy_array(checkpoints.kinetic_energy_ev, np.shape(checkpoints.x_m), "Checkpoint",
+                allow_unknown=True, required=energy_survival_mask(incident, checkpoints.z_mm))
+                or not validate_kinetic_energy_array(incident.kinetic_energy_ev, np.shape(incident.x), "Incident", allow_unknown=True)):
+            raise ValueError("Current incident seeds require executed kinetic energies; historical viewing only")
         validate_incident_flight_times(simulation)
         from temsim.checkpoint_observables import incident_checkpoint_observables
         # Restart planes intentionally stop before the specimen. Read sample
@@ -813,6 +829,9 @@ class ArtifactStore:
                 "gun_plane_arrivals": arrivals,
                 "gun_electrostatic_model_report": gun_trace.electrostatic_model_report,
                 "plan_solver_signature": str(plan.solver_signature),
+                "plan_reference_momentum_kg_m_s": plan.reference_momentum_kg_m_s,
+                "plan_electric_field_identity": plan.electric_field_identity,
+                "plan_electric_reference_invariant_ev": plan.electric_reference_invariant_ev,
                 "beam_observables": observables,
                 "observable_coordinate_precision": np.asarray(incident.x).dtype.str,
                 "full_snapshot_id": (
@@ -848,7 +867,11 @@ class ArtifactStore:
         self,
         manifest: CalculationManifest,
     ) -> Simulation | None:
-        """Restore a checksum-verified incident seed for ``simulation.run``."""
+        """Restore only the current magnetic model's verified restart seed.
+
+        Older codecs remain readable as numeric bundles for historical review;
+        they never become active plans by filling missing field terms with zero.
+        """
 
         bundle = self.get_array_bundle(
             manifest,
@@ -858,11 +881,6 @@ class ArtifactStore:
             ),
             codec=INCIDENT_SEED_CODEC,
         )
-        if bundle is None:
-            bundle = self.get_array_bundle(
-                manifest, product_key="incident",
-                dependency_signature=str(manifest.calculation_signatures["incident"]),
-                codec=LEGACY_INCIDENT_SEED_CODEC)
         if bundle is None:
             return None
         arrays = bundle.arrays
@@ -878,6 +896,15 @@ class ArtifactStore:
                 ) from exc
 
         metadata = thaw_json(bundle.metadata)
+        if (any(f"plan.{name}" not in arrays for name in ("dipole_bx_t", "dipole_by_t"))
+                or "plan_reference_momentum_kg_m_s" not in metadata):
+            raise ArtifactIntegrityError(
+                "Incident seed lacks shared finite-coil magnetic fields; historical read-only data "
+                "cannot resume with the current solver. Recalculate from tip emission.")
+        if ("checkpoint.kinetic_energy_ev" not in arrays or "incident.kinetic_energy_ev" not in arrays
+                or "plan_electric_field_identity" not in metadata
+                or "plan_electric_reference_invariant_ev" not in metadata):
+            raise ArtifactIntegrityError("Incident seed lacks executed energy or electric-field identity; historical viewing only")
         try:
             mapped_fields = []
             for index, row in enumerate(metadata.get("plan_mapped_fields", ())):
@@ -900,8 +927,16 @@ class ArtifactStore:
                 **fields("plan", _INCIDENT_PLAN_ARRAY_FIELDS),
                 solver_signature=str(metadata["plan_solver_signature"]),
                 signature=str(metadata["plan_signature"]),
+                reference_momentum_kg_m_s=metadata["plan_reference_momentum_kg_m_s"],
+                electric_field_identity=metadata["plan_electric_field_identity"],
+                electric_reference_invariant_ev=metadata["plan_electric_reference_invariant_ev"],
                 mapped_fields=tuple(mapped_fields),
             )
+            from temsim.particle_section_io import _validate_plan_fields
+            _validate_plan_fields(plan)
+            from temsim.physics.simulation import validate_kinetic_energy_array
+            validate_kinetic_energy_array(arrays["checkpoint.kinetic_energy_ev"], np.shape(arrays["checkpoint.x_m"]), "Checkpoint", allow_unknown=True)
+            validate_kinetic_energy_array(arrays["incident.kinetic_energy_ev"], np.shape(arrays["incident.x"]), "Incident", allow_unknown=True)
             validate_flight_time_array(arrays.get("checkpoint.flight_time_s"),
                                       np.shape(arrays["checkpoint.x_m"]), "Checkpoint")
             checkpoints = PropagationCheckpoints(
@@ -946,6 +981,9 @@ class ArtifactStore:
                 ),
                 **incident_arrays,
             )
+            from temsim.physics.particle_energy import energy_survival_mask
+            validate_kinetic_energy_array(checkpoints.kinetic_energy_ev, np.shape(checkpoints.x_m),
+                "Checkpoint", allow_unknown=True, required=energy_survival_mask(incident, checkpoints.z_mm))
             seed = Simulation(
                 incident=incident,
                 branches={},

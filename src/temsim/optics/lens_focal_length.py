@@ -51,7 +51,7 @@ def _unit_field_samples(lens, samples=4001):
         centre_mm = g.offset * lens.a_mm
         field += g.amplitude * np.exp(-0.5 * ((z_mm - centre_mm) / sigma_mm) ** 2)
     if bool(getattr(lens, "normalise_profile_peak", False)):
-        field /= max(float(np.max(np.abs(field))), 1e-15)
+        field /= max(raw_unit_field_peak(lens), 1e-15)
     return z_mm, field
 
 @lru_cache(maxsize=128)
@@ -78,6 +78,18 @@ def unit_field_peak(lens, samples=4001):
         return float(np.max(np.abs(_unit_field_samples(lens, samples)[1])))
     return _unit_field_peak_cached(width, terms,
                                   bool(getattr(lens, "normalise_profile_peak", False)), int(samples))
+
+
+def raw_unit_field_peak(lens, samples=4001):
+    """Fixed full-profile peak, independent of a field query's coordinates.
+
+    Use the same declared sampling support as isolated-lens focal-length
+    calculations. The numeric cache includes the full profile and its sampling
+    count; no copied mechanical component or query-window maximum is involved.
+    """
+    raw = SimpleNamespace(a_mm=lens.a_mm, gaussian=lens.gaussian,
+                          normalise_profile_peak=False)
+    return unit_field_peak(raw, samples)
 
 def unit_field_integral(lens, samples=4001):
     z_mm, field = _unit_field_samples(lens, samples)

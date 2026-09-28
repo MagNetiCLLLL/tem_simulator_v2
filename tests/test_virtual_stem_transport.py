@@ -70,6 +70,7 @@ def test_geometric_stem_consumes_shared_specimen_exit_without_retracing(
             z_mm=1.0,
             specimen_mode=specimen_mode,
             stem_wave_enabled=False,
+            stem_particle_model="material_paths",
             scan_origin_x_nm=0.0,
             scan_origin_y_nm=0.0,
         ),

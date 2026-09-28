@@ -754,13 +754,21 @@ class FieldEmissionGun:
         # Profiles defer geometry to TOML; executed caches must retain it.
         # Hard stops and alignment coils also matter outside the field solve.
         payload["trace_geometry_schema"] = "physical-aperture-separate-exit-v2"
+        instrument_field = getattr(self, "_instrument_magnetic_field", None)
+        payload["magnetic_transport_scope"] = (
+            {"kind": "captured-instrument-field-trial-envelope-v2",
+             "numerical_identity": getattr(self, "_instrument_magnetic_identity", None)}
+            if instrument_field is not None else {"kind": "standalone-gun-local-field-v1"}
+        )
         payload["executed_components"] = {
             component.key: _component_payload(component, include_geometry=True)
             for component in self.components
         }
         payload["exit_plane_z_mm"] = float(self.exit_plane_z_mm)
         payload["requested_count"] = self.ray_count if count is None else count
-        payload["particle_integrator_schema"] = "discrete-gradient-compiled-v2"
+        payload["particle_integrator_schema"] = "discrete-gradient-compiled-instrument-field-query-envelope-v4"
+        from temsim.physics.gun_transport_domain import GUN_QUERY_SCHEMA
+        payload["gun_query_schema"] = GUN_QUERY_SCHEMA
         from temsim.optics.electron_gun.tracing import (
             ANALYTIC_ENERGY_SCHEMA, ANALYTIC_STEP_SCHEMA,
             ANALYTIC_MAXIMUM_RELATIVE_IMPULSE,
@@ -797,6 +805,14 @@ class FieldEmissionGun:
         if cancelled is not None and cancelled():
             raise RuntimeError("Superseded optical tuning request")
         self.validate()
+        instrument_field = getattr(self, "_instrument_magnetic_field", None)
+        if instrument_field is not None:
+            identity = getattr(self, "_instrument_magnetic_identity", None)
+            if not isinstance(identity, str) or not identity:
+                # An unknown custom field may execute its actual callback, but
+                # a name, object ID or stale numerical label cannot permit reuse.
+                return (trace_feg_to_exit(self, count) if cancelled is None else
+                        trace_feg_to_exit(self, count, cancelled=cancelled))
         key = self._cache_key(count)
         if key != self._trace_cache_key:
             cached = _SHARED_TRACE_CACHE.get(key)
@@ -944,6 +960,7 @@ class FieldEmissionGun:
         ))
         if self.monochromator_installed:
             supports.append(self.monochromator.wien.field_support_mm)
+        supports.extend(getattr(self, "_instrument_magnetic_supports_mm", ()))
         return tuple(sorted(supports))
 
     def integration_step_mm_at(self, z_mm):
@@ -962,6 +979,14 @@ class FieldEmissionGun:
                     step = min(step, self.trace_step_mm)
                 elif hi < start:
                     step = min(step, max(start - hi, 1e-10))
+        # Newly overlapping instrument fields include finite dipole coils.
+        # Resolve their finite width even if the requested gun step is larger,
+        # and approach their entrance before treating a gap as a drift.
+        for start, end in getattr(self, "_instrument_magnetic_supports_mm", ()):
+            if lo <= end and hi >= start:
+                step = min(step, self.trace_step_mm, (end-start)/16.)
+            elif hi < start:
+                step = min(step, max(start-hi, 1e-10))
         if self.monochromator_installed:
             start, end = self.monochromator.wien.field_support_mm
             if lo <= end and hi >= start:

@@ -35,7 +35,7 @@ from temsim.physics.beam_statistics import (
 )
 from temsim.physics.aperture_clipping import clip_segment
 from temsim.physics.column_wall import clip_column_wall
-from temsim.physics.core import E, fields, propagate, interleaved_rk4_values
+from temsim.physics.core import E, fields, propagate, interleaved_rk4_values, skew_quadrupole_field
 from temsim.physics.ray_integrator import _canonical_step_numba
 from temsim.physics.first_order import (
     TransverseTransfer,
@@ -43,7 +43,11 @@ from temsim.physics.first_order import (
     trace_transverse_transfers,
 )
 from temsim.physics.lens_field_provider import active_mapped_providers
+from temsim.physics.instrument_magnetic import (
+    active_column_events, column_dipole_fields, events_overlapping_interval, gun_paraxial_fields,
+)
 from temsim.physics.recording_stop import tem_projection_reference_plane
+from temsim.simulation_modes import is_ideal
 from temsim.optics.equivalent_image_lenses import (
     equivalent_image_calibrations,
     equivalent_image_transfer_matrix,
@@ -166,6 +170,28 @@ def _canonical_source_basis(larmor_rate_m1: float) -> np.ndarray:
     return basis
 
 
+def _active_column_electric_field(state, source_z_mm, target_z_mm):
+    """Admit the reduced optimiser only with a provider-proven constant E."""
+    if getattr(state, "electron_gun", None) is None:
+        return None
+    from temsim.physics.instrument_electric import capture_instrument_electric_field
+    field = capture_instrument_electric_field(state)
+    if field.is_constant_on_interval(float(source_z_mm), float(target_z_mm)):
+        return None
+    return field
+
+
+def _column_reference_momentum(state, source_z_mm, electric_field=None):
+    """Match the optical momentum used by the complete first-order tracer."""
+    kinetic_ev = float(state.beam_voltage_kv)*1000.
+    if electric_field is not None and is_ideal(state):
+        exit_z = float(electric_field.gun_snapshot.exit_plane_z_mm)*1e-3
+        points = np.array(((0.,0.,exit_z),(0.,0.,float(source_z_mm)*1e-3)))
+        potential = electric_field.potential_rise_v_at_global_positions(points)
+        kinetic_ev += float(potential[1]-potential[0])
+    return _electron_momentum_kg_m_s(kinetic_ev/1000.)
+
+
 def diffraction_transfer(
     state, target_z_mm: float, *, stable_axisymmetric: bool = True
 ) -> TransverseTransfer:
@@ -174,13 +200,15 @@ def diffraction_transfer(
     Post-specimen projector optics are axisymmetric in the configured model,
     so the Larmor-frame scalar equation avoids the severe step-size error of
     integrating fast magnetic rotation and ``dBz/dz`` separately.  A future
-    deliberately enabled post-specimen quadrupole falls back to the general
-    laboratory-frame tracer plus the same canonical input-basis transform.
+    deliberately enabled post-specimen quadrupole, imported field, or distributed
+    electric field uses the general laboratory-frame tracer and the same
+    canonical input-basis transform.
     """
 
     source_z_mm = float(state.sample.z_mm)
     target_z_mm = float(target_z_mm)
-    if not stable_axisymmetric or active_mapped_providers(state):
+    electric_field = _active_column_electric_field(state, source_z_mm, target_z_mm)
+    if not stable_axisymmetric or active_mapped_providers(state) or electric_field is not None:
         raw = trace_transverse_transfer(
             state,
             source_z_mm,
@@ -190,7 +218,7 @@ def diffraction_transfer(
         source_field_t = float(
             fields(np.asarray((source_z_mm,)), state)[0][0]
         )
-        momentum = _electron_momentum_kg_m_s(state.beam_voltage_kv)
+        momentum = _column_reference_momentum(state, source_z_mm, electric_field)
         source_g_m1 = -E * source_field_t / (2.0 * momentum)
         matrix = raw.matrix @ _canonical_source_basis(source_g_m1)
         return TransverseTransfer(
@@ -215,9 +243,17 @@ def diffraction_transfer(
     magnetic_t, sx_m2, sy_m2 = fields(stage_z_mm, state)
     momentum = _electron_momentum_kg_m_s(state.beam_voltage_kv)
     g = np.ascontiguousarray(-E * magnetic_t / (2.0 * momentum))
+    gun_bx, gun_by, *_ = gun_paraxial_fields(state, stage_z_mm)
+    position_offset = angle_offset = (0., 0.)
     if (
         np.max(np.abs(sx_m2), initial=0.0) > 1.0e-15
         or np.max(np.abs(sy_m2), initial=0.0) > 1.0e-15
+        or np.any(skew_quadrupole_field(stage_z_mm, state) != 0.)
+        or np.any(gun_bx != 0.) or np.any(gun_by != 0.)
+        or any((coil.bx_t != 0. or coil.by_t != 0.)
+               and coil.lower_m < target_z_mm*1e-3
+               and coil.upper_m > source_z_mm*1e-3
+               for coil in column_dipole_fields(state))
     ):
         raw = trace_transverse_transfer(
             state,
@@ -226,6 +262,8 @@ def diffraction_transfer(
             maximum_step_mm=0.025,
         )
         matrix = raw.matrix @ _canonical_source_basis(g[0])
+        position_offset = raw.position_offset_m
+        angle_offset = raw.angle_offset_rad
     else:
         z_m = np.ascontiguousarray(z_mm * 1.0e-3)
         radial = _rk4_axisymmetric_larmor_matrix(g, z_m)
@@ -261,6 +299,8 @@ def diffraction_transfer(
         j_diff_m_per_rad=matrix[:2, 2:],
         k_img_rad_per_m=matrix[2:, :2],
         k_diff=matrix[2:, 2:],
+        position_offset_m=position_offset,
+        angle_offset_rad=angle_offset,
     )
 
 
@@ -503,7 +543,8 @@ class _LiveFirstOrderModel:
     ) -> None:
         self.state = state
         self.variable_keys = tuple(variable_keys)
-        self.vector_maps = bool(active_mapped_providers(state))
+        self._electric_field = _active_column_electric_field(state, source_z_mm, target_z_mm)
+        self.full_field_transfer = bool(active_mapped_providers(state) or self._electric_field is not None)
         self.maximum_step_mm = float(step_mm)
         self.z_mm = _piecewise_endpoint_exact_grid(
             source_z_mm, target_z_mm, step_mm, capture_z_mm
@@ -512,6 +553,10 @@ class _LiveFirstOrderModel:
         self.stage_z_mm = interleaved_rk4_values(
             self.z_mm, 0.5 * (self.z_mm[:-1] + self.z_mm[1:])
         )
+        # The reduced analytic optimiser has no skew term. Use the existing
+        # complete Jacobian tracer whenever any captured quadrupole couples XY.
+        self.full_field_transfer = self.full_field_transfer or bool(
+            np.any(skew_quadrupole_field(self.stage_z_mm, state) != 0.))
         lenses = _lens_map(state)
         try:
             self.lenses = tuple(lenses[key] for key in self.variable_keys)
@@ -527,9 +572,9 @@ class _LiveFirstOrderModel:
         if np.any(self.upper <= 0.0):
             raise ValueError("Coupled lens limits must be positive")
 
-        if self.vector_maps:
-            # Imported fields must use the production XYZ solver, not the
-            # on-axis scalar profiles used by the analytic fast optimiser.
+        if self.full_field_transfer:
+            # Electric fields, imported B maps and skew quadrupoles need the complete
+            # production XY Jacobian instead of the reduced diagonal model.
             return
 
         original = np.asarray(
@@ -607,20 +652,24 @@ class _LiveFirstOrderModel:
                 maximum_step_mm=self.maximum_step_mm,
             )
 
-    def rays_at(self, vector, source_rays, targets):
-        """Capture actual nonlinear mapped trajectories for condenser stops."""
+    def rays_at(self, vector, source_rays, targets, *, initial_kinetic_energy_ev=None,
+                defer_nonfinite_until_clipping=False):
+        """Capture complete trajectories using the executed gun-exit energies."""
         targets = tuple(float(z) for z in targets)
         with self._mapped_candidate(vector):
             z, x, tx, y, ty = propagate(
                 self.state, self.z_mm[0], max(targets),
                 source_rays[0], source_rays[2], source_rays[1], source_rays[3],
                 save_z_mm=targets, maximum_step_mm=self.maximum_step_mm,
+                events=active_column_events(self.state),
+                initial_kinetic_energy_ev=initial_kinetic_energy_ev,
+                defer_nonfinite_until_clipping=defer_nonfinite_until_clipping,
             )
         indices = [int(np.argmin(abs(z-target))) for target in targets]
         return np.asarray([(x[i], y[i], tx[i], ty[i]) for i in indices])
 
     def matrix(self, vector) -> np.ndarray:
-        if self.vector_maps:
+        if self.full_field_transfer:
             target = float(self.z_mm[-1])
             return self._mapped_transfers(vector, (target,))[target].matrix
         g = self._field_arrays(vector)
@@ -641,11 +690,11 @@ class _LiveFirstOrderModel:
         validation checks.
         """
 
-        if self.vector_maps:
+        if self.full_field_transfer:
             matrix = self.matrix(vector)
             with self._mapped_candidate(vector):
                 source_b = fields((self.z_mm[0],), self.state)[0][0]
-            momentum = _electron_momentum_kg_m_s(self.state.beam_voltage_kv)
+            momentum = _column_reference_momentum(self.state, self.z_mm[0], self._electric_field)
             canonical = matrix @ _canonical_source_basis(-E*source_b/(2*momentum))
             return canonical[:2, :2], canonical[:2, 2:]
         g = self._field_arrays(vector)
@@ -664,7 +713,7 @@ class _LiveFirstOrderModel:
             raise ValueError("Requested capture plane is not on the model grid")
         if np.any(np.diff(indices) < 0):
             raise ValueError("Capture planes must be ordered along +Z")
-        if self.vector_maps:
+        if self.full_field_transfer:
             transfers = self._mapped_transfers(vector, requested)
             return np.asarray([transfers[float(z)].matrix for z in requested])
         g = self._field_arrays(vector)
@@ -700,6 +749,10 @@ class _CondenserMeasurementModel:
             emitted.ty_rad,
         )).astype(float, copy=False)
         self.source_alive = np.asarray(emitted.alive, dtype=bool)
+        self.source_kinetic_energy_ev = (
+            float(state.electron_gun.nominal_exit_energy_ev)
+            + np.asarray(emitted.energy_offset_ev, dtype=float)
+        )
         emitted_weights = getattr(emitted, "weight", None)
         self.source_weights = (
             np.ones(self.source_alive.size, dtype=float)
@@ -737,8 +790,11 @@ class _CondenserMeasurementModel:
             *(float(aperture.z_mm) for aperture in self.apertures),
             self.sample_z_mm,
         ]
-        if self.sample_model.vector_maps:
-            captured = self.sample_model.rays_at(vector, self.source_rays, capture_planes)
+        if self.sample_model.full_field_transfer:
+            captured = self.sample_model.rays_at(
+                vector, self.source_rays, capture_planes,
+                initial_kinetic_energy_ev=self.source_kinetic_energy_ev,
+            )
         else:
             matrices = self.sample_model.matrices_at(vector, capture_planes)
             captured = matrices @ self.source_rays
@@ -768,11 +824,14 @@ class _CondenserMeasurementModel:
 
 
 class _EquivalentImageFirstOrderModel:
-    """Fast D(z)/L(f) model used by coordinated five-lens image presets."""
+    """Selected equivalent lenses, retaining distributed E when present."""
 
     def __init__(self, state, source_z_mm: float, target_z_mm: float) -> None:
+        self.state = state
         self.source_z_mm = float(source_z_mm)
         self.target_z_mm = float(target_z_mm)
+        self._electric_field = _active_column_electric_field(
+            state, self.source_z_mm, self.target_z_mm)
         self.calibrations = equivalent_image_calibrations(
             state, self.source_z_mm, self.target_z_mm
         )
@@ -783,6 +842,24 @@ class _EquivalentImageFirstOrderModel:
         )
 
     def matrix(self, vector) -> np.ndarray:
+        if self._electric_field is not None:
+            values = np.asarray(vector, dtype=float)
+            if values.shape != (len(IMAGE_KEYS),) or not np.all(np.isfinite(values)):
+                raise ValueError("Coupled lens vector has the wrong shape or values")
+            lenses = _lens_map(self.state)
+            original = [float(lenses[key].percent) for key in IMAGE_KEYS]
+            try:
+                for key, value in zip(IMAGE_KEYS, values):
+                    lenses[key].percent = float(value)
+                # Keep the explicitly selected equivalent optical actions in
+                # the complete production plan alongside the captured E field.
+                return trace_transverse_transfer(
+                    self.state, self.source_z_mm, self.target_z_mm,
+                    maximum_step_mm=min(float(self.state.step_mm), .025),
+                ).matrix
+            finally:
+                for key, value in zip(IMAGE_KEYS, original):
+                    lenses[key].percent = value
         return equivalent_image_transfer_matrix(
             self.calibrations,
             vector,
@@ -1482,47 +1559,11 @@ def _validate_projector(
 
 
 def _pre_sample_kick_events(state) -> tuple[tuple[float, float, float], ...]:
-    """Collect the same upstream affine kicks used by ``simulation.run``."""
-
-    sample_z_mm = float(state.sample.z_mm)
-    events: list[tuple[float, float, float]] = []
-    for deflector in state.deflectors:
-        if not bool(getattr(deflector, "enabled", False)):
-            continue
-        if hasattr(deflector, "kick_events"):
-            pairs = deflector.kick_events()
-        else:
-            pairs = (
-                (
-                    deflector.upper_z_mm,
-                    deflector.upper_x_mrad * 1.0e-3,
-                    deflector.upper_y_mrad * 1.0e-3,
-                ),
-                (
-                    deflector.lower_z_mm,
-                    deflector.lower_x_mrad * 1.0e-3,
-                    deflector.lower_y_mrad * 1.0e-3,
-                ),
-            )
-        for event in pairs:
-            if float(event[0]) <= sample_z_mm:
-                events.append(tuple(float(value) for value in event))
-
-    for component in getattr(state, "corrector_elements", ()):
-        if not bool(getattr(component, "enabled", False)):
-            continue
-        if not hasattr(component, "kick_events"):
-            continue
-        try:
-            pairs = component.kick_events(
-                time_s=float(getattr(state, "simulation_time_s", 0.0))
-            )
-        except TypeError:
-            pairs = component.kick_events()
-        for event in pairs:
-            if float(event[0]) <= sample_z_mm:
-                events.append(tuple(float(value) for value in event))
-    return tuple(events)
+    """Use the production magnetic commands, including boundary-straddling coils."""
+    return events_overlapping_interval(
+        state, active_column_events(state),
+        float(state.electron_gun.exit_plane_z_mm), float(state.sample.z_mm),
+    )
 
 
 @contextmanager

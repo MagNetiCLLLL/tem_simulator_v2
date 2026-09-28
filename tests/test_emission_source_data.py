@@ -49,6 +49,7 @@ def test_arrays_are_independent_and_irreversibly_read_only():
     np.testing.assert_array_equal(data.position_m, positions)
     for array in (data.source_ids, data.position_m, data.source_azimuth_rad,
                   data.direction_azimuth_rad, data.angle_to_normal_rad,
+                  data._display_rows,
                   data.indices_for([42]), data.values([42], "source"), data.display_indices(2)):
         assert not array.flags.writeable
         with pytest.raises(ValueError):
@@ -134,17 +135,74 @@ def test_lookup_preserves_shape_and_never_coerces_invalid_ids(query):
 def test_display_sample_uses_original_rows_and_lookup_never_resorts(monkeypatch):
     simulation = make_simulation()
     data = EmissionSourceData.from_simulation(simulation)
+    selected = data.display_indices(3)
+    assert len(selected) == len(set(selected)) == 3
     def unexpected(*args, **kwargs):
         pytest.fail("Display access must not sort or resample physical emission")
     monkeypatch.setattr(np, "argsort", unexpected)
     monkeypatch.setattr(np, "unique", unexpected)
-    np.testing.assert_array_equal(data.display_indices(3), [0, 1, 3])
+    np.testing.assert_array_equal(data.display_indices(3), selected)
     np.testing.assert_array_equal(data.display_indices(100), np.arange(4))
     assert data.display_indices(0).size == 0
     for ids in ([7], [20, 20, 42], [3, 999]):
         data.values(ids, "source")
         data.values(ids, "emission_direction")
-    np.testing.assert_array_equal(data.display_indices(3), [0, 1, 3])
+    np.testing.assert_array_equal(data.display_indices(3), selected)
+
+
+def test_display_ids_are_stable_under_row_order_coordinates_and_survival_changes():
+    simulation = make_simulation()
+    original = EmissionSourceData.from_simulation(simulation)
+    selected_ids = original.source_ids[original.display_indices(3)]
+    reference = simulation.gun_trace.emission_reference
+    order = np.array([3, 2, 0, 1])
+    simulation.gun_trace.emission_reference = {key: value[order].copy()
+                                            for key, value in reference.items()}
+    shuffled = EmissionSourceData.from_simulation(simulation)
+    np.testing.assert_array_equal(shuffled.source_ids[shuffled.display_indices(3)], selected_ids)
+    # Deliberately asymmetric/off-axis recorded data must not be circularized
+    # or used to choose a different display population.
+    record = simulation.gun_trace.emission_reference
+    record["position_m"] *= [7., .1, 1.]
+    record["position_m"] += [20e-9, -30e-9, 2e-9]
+    record["direction"] = record["direction"][:, [1, 0, 2]]
+    simulation.incident = SimpleNamespace(alive=np.array([False, True, False, False]))
+    changed = EmissionSourceData.from_simulation(simulation)
+    np.testing.assert_array_equal(changed.source_ids[changed.display_indices(3)], selected_ids)
+    np.testing.assert_array_equal(changed.position_m, record["position_m"])
+    for mode in ("source", "emission_direction", "emission_angle"):
+        changed.values(selected_ids, mode)
+        np.testing.assert_array_equal(changed.source_ids[changed.display_indices(3)], selected_ids)
+    assert set(changed.source_ids[changed.display_indices(2)]) <= set(selected_ids)
+
+
+def test_real_halton_emission_display_keeps_angular_coverage_without_changing_launches():
+    from temsim.optics.electron_gun.emitter import ColdFieldEmitter
+    from temsim.physics.ray_identity import emission_reference
+
+    # Real emission only: no extraction/column trace or replacement source.
+    emitter = ColdFieldEmitter(0., .1, .01)
+    emitted = emitter.emit(3000)
+    before = {name: getattr(emitted, name).copy() for name in
+              ("x_m", "y_m", "tx_rad", "ty_rad", "weight", "energy_offset_ev", "ray_id")}
+    reference = emission_reference(emitted)
+    data = EmissionSourceData.from_simulation(
+        SimpleNamespace(gun_trace=SimpleNamespace(emission_reference=reference)))
+    selected = data.display_indices(2000)
+    assert selected.size == np.unique(selected).size == 2000
+    # Periodic row thinning used to remove broad base-3 angular sectors.
+    # This deliberately loose coverage bound detects those holes without
+    # requiring a visually forced circle or a prescribed per-bin population.
+    for azimuth in (data.source_azimuth_rad, data.direction_azimuth_rad):
+        counts, _ = np.histogram(azimuth[selected], bins=12, range=(0., 2*np.pi))
+        expected = selected.size / 12
+        assert np.all(counts > .65 * expected)
+        assert np.all(counts < 1.35 * expected)
+    np.testing.assert_array_equal(data.position_m[selected], reference["position_m"][selected])
+    for name, values in before.items():
+        np.testing.assert_array_equal(getattr(emitted, name), values)
+    np.testing.assert_array_equal(data.display_indices(3000), np.arange(3000))
+    np.testing.assert_array_equal(data.display_indices(4000), np.arange(3000))
 
 
 @pytest.mark.parametrize("limit", [-1, 2.5, True, "4"])

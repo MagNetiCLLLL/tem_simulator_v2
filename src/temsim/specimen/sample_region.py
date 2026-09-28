@@ -633,10 +633,16 @@ def simulate_sample_region(
     exit_z_mm = float(state.sample.z_mm) + downstream_um * 1.0e-3
     rng = np.random.default_rng(int(seed))
 
+    # A detailed view enriches the already executed point; it must not move
+    # an off-axis beam to the scan origin while constructing photon paths.
+    previous_request = getattr(existing_interactions, "request", None)
+    point_request = (SpecimenInteractionRequest.eds_point(
+        x_nm=previous_request.point_x_nm, y_nm=previous_request.point_y_nm)
+        if previous_request is not None else SpecimenInteractionRequest.eds_point())
     interactions = run_specimen_interactions(
         state,
         simulation,
-        SpecimenInteractionRequest.eds_point(),
+        point_request,
         detector_geometry=detector_geometry,
         existing_result=existing_interactions,
     )

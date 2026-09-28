@@ -13,6 +13,9 @@ def downstream_display_branches(result):
     optical reference in that case would resurrect absorbed/backscattered rays.
     Legacy caches without a verified exit remain explicitly labelled references.
     """
+    if getattr(result, "workflow", "full") == "rays":
+        simulation = getattr(result, "simulation", None)
+        return tuple(getattr(simulation, "branches", {}).values()), "Optical reference"
     signatures = getattr(result, "signatures", {}) or {}
     if not isinstance(signatures, Mapping):
         signatures = {}

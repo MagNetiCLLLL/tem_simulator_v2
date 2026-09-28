@@ -23,14 +23,16 @@ def incident_section_segment(state, simulation):
     initial = tuple(np.asarray(getattr(emitted, name)) for name in
                     ("x_m", "tx_rad", "y_m", "ty_rad", "flight_time_s"))
     identity = (branch.source_ray_id, branch.source_azimuth_rad)
-    dependency = _digest_arrays(*initial, emitted.energy_offset_ev, emitted.weight,
+    dependency = _digest_arrays(*initial, emitted.energy_offset_ev,
+        state.beam_voltage_kv*1000+emitted.energy_offset_ev, emitted.weight,
         emitted.alive, gun.blocked_z_mm, *identity,
         np.asarray(gun.blocked_key, dtype=str), np.asarray(""))
     keep = np.asarray(branch.z) >= plan.z_mm[0]
     phase = {}
     for name, checkpoint_name in (("x", "x_m"), ("tx", "tx_rad"),
                                   ("y", "y_m"), ("ty", "ty_rad"),
-                                  ("flight_time_s", "flight_time_s")):
+                                  ("flight_time_s", "flight_time_s"),
+                                  ("kinetic_energy_ev", "kinetic_energy_ev")):
         values = np.asarray(getattr(branch, name)[keep], dtype=np.float64).copy()
         values[-1] = getattr(cp, checkpoint_name)[-1]
         phase[name] = values
@@ -53,16 +55,24 @@ def capture_completed_particle_section(result):
     from temsim.calculation_cache import calculation_signatures
     from temsim.calculation_manifest import solver_source_identity
     simulation, state = result.simulation, result.state_snapshot
+    interactions, specimen_exit = result.specimen_interactions, result.specimen_exit
     if (not isinstance(simulation, Simulation) or simulation.gun_trace is None
             or simulation.incident_plan is None or simulation.incident_checkpoints is None
-            or getattr(state.sample, "wave_enabled", False)
-            or getattr(state.sample, "stem_wave_enabled", False)):
+            or result.wave_imaging is not None
+            or getattr(interactions, "wave_imaging", None) is not None):
         return False
     signature = gun_dependency_signature(state)
     if not signature:
         return False
     incident = incident_section_segment(state, simulation)
-    post = tuple(getattr(simulation, "completed_post_sections", ()))
+    # A rays request displays an optical reference after the specimen. Its
+    # exact incident state can restart material transport, but its reference
+    # branch is not an executed specimen-exit population. Other page products
+    # may remain attached for viewing without becoming this restart state.
+    optical_reference = (result.workflow == "rays"
+        or bool(simulation.metrics.get("optical_tuning", False)))
+    post = (() if optical_reference else
+            tuple(getattr(simulation, "completed_post_sections", ())))
     checkpoint = ParticleSectionCheckpoint(SECTION_SCHEMA, signature,
         simulation.gun_trace, (incident, *post))
     validate_section_checkpoint(checkpoint)
@@ -70,13 +80,14 @@ def capture_completed_particle_section(result):
     target = max([float(incident.branch.z[-1]), *(float(branch.z[-1])
         for branch in simulation.branches.values())])
     resume_through = float(post[-1].branch.z[-1] if post else incident.branch.z[-1])
-    interactions, specimen_exit = result.specimen_interactions, result.specimen_exit
-    if (interactions is not None and interactions.elastic_transport is not None
-            and interactions.inelastic_distribution is not None and specimen_exit is not None):
-        from temsim.specimen.elastic_transport import incident_rays_from_simulation
+    material_completed = (not optical_reference and interactions is not None
+            and interactions.elastic_transport is not None
+            and interactions.inelastic_distribution is not None and specimen_exit is not None)
+    simulation.material_section_cache = None
+    if material_completed:
         original = simulation.incident
         digest = _digest_arrays(*(getattr(original, key)[-1] for key in
-            ("x", "tx", "y", "ty", "flight_time_s")), original.alive,
+            ("x", "tx", "y", "ty", "flight_time_s", "kinetic_energy_ev")), original.alive,
             original.blocked_z, original.energy_offset_ev, original.ray_weight,
             original.source_ray_id)
         point = tuple(float(v) for v in interactions.incident_bundle.target_centroid_nm)
@@ -88,14 +99,20 @@ def capture_completed_particle_section(result):
             specimen_exit, target, eds_spectrum=interactions.eds_spectrum)
         if getattr(specimen_exit, "segments", ()):
             resume_through = min(float(s.branch.z[-1]) for s in specimen_exit.segments)
+    scope = ("optical_reference_without_specimen_interactions" if optical_reference else
+             "classical_particles_with_specimen_interactions" if material_completed else
+             "classical_particles_without_specimen_interactions")
+    quality = simulation.metrics.get("tuning_quality", getattr(state, "_tuning_quality", None))
+    if quality not in {"Preview", "Medium", "High accuracy"}:
+        quality = "High accuracy"
     simulation.metrics.update(particle_section=True, particle_tuning=False,
-        section_physics_scope="classical_particles_with_specimen_interactions",
+        section_physics_scope=scope, specimen_transport_completed=material_completed,
         section_target_z_mm=float(target), section_component_keys=(),
         section_full_path=True, section_schema=SECTION_SCHEMA,
         section_resumable_through_z_mm=resume_through,
         section_resume_z_mm=float(simulation.metrics.get("column_segment_cache", {}).get(
             "resume_z_mm", state.electron_gun.exit_plane_z_mm)),
-        tuning_quality="High accuracy")
+        tuning_quality=quality)
     return True
 
 
@@ -190,7 +207,7 @@ def restore_material_interactions(state, simulation, previous_result, *, progres
         return None, None
     incident = simulation.incident
     digest = _digest_arrays(*(getattr(incident, name)[-1] for name in
-        ("x", "tx", "y", "ty", "flight_time_s")), incident.alive,
+        ("x", "tx", "y", "ty", "flight_time_s", "kinetic_energy_ev")), incident.alive,
         incident.blocked_z, incident.energy_offset_ev, incident.ray_weight, incident.source_ray_id)
     if digest != cache.incident_digest:
         return None, None

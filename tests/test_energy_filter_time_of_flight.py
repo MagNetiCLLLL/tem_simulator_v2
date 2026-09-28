@@ -136,6 +136,20 @@ def upstream_simulation(*, known_times=True):
         metrics={"branch_weights_are_absolute": True})
 
 
+def test_filter_entrance_reads_local_executed_energy_instead_of_branch_terminal(straight_filter):
+    simulation = upstream_simulation()
+    branch = simulation.branches["loss"]
+    branch.energy_offset_ev[:] = 999.
+    branch.kinetic_energy_ev = np.array(((100000., 120000., 140000.),
+                                       (180000., 200000., 220000.)))
+    rays = tracing.extract_entrance_rays(straight_filter, simulation)
+    np.testing.assert_array_equal([ray.energy_offset_ev for ray in rays],
+                                  [-60000., -40000., -20000.])
+    branch.kinetic_energy_ev[0, 1] = np.nan
+    rays = tracing.extract_entrance_rays(straight_filter, simulation)
+    assert [ray.source_path_index for ray in rays] == [0, 2]
+
+
 def test_published_arrivals_keep_ancestry_and_do_not_include_the_reference_ray(straight_filter, monkeypatch):
     simulation = upstream_simulation()
     calls = []

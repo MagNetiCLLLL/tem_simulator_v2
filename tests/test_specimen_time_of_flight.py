@@ -117,7 +117,9 @@ def _downstream_fixture(monkeypatch, *, offsets=True, exact_plane=True):
     def drift(_s, start, stop, x, tx, y, ty, _events, energy, **kw):
         z = np.array((start, stop))
         time = np.asarray(kw["initial_time_s"])
-        elapsed = (z-start)[:, None] * 1e-3 * np.sqrt(1+tx*tx+ty*ty)[None, :] / _speed(200_000.+energy)[None, :]
+        kinetic = np.asarray(kw["initial_kinetic_energy_ev"])
+        kw["energy_output"].append(np.broadcast_to(kinetic, (2, len(x))).copy())
+        elapsed = (z-start)[:, None] * 1e-3 * np.sqrt(1+tx*tx+ty*ty)[None, :] / _speed(kinetic)[None, :]
         return z, np.tile(x, (2, 1)), np.tile(tx, (2, 1)), np.tile(y, (2, 1)), np.tile(ty, (2, 1)), time+elapsed
     monkeypatch.setattr(downstream, "propagate", drift)
     monkeypatch.setattr(downstream, "determine_tem_stop_z", lambda _: 2.)
@@ -173,6 +175,15 @@ def test_specimen_exit_integrates_clock_through_real_column_propagator(monkeypat
     state.acceleration_enabled = False
     state.chromatic_aberration_enabled = False
     state.deflectors = []
+    # The artificial 1--2 mm drift is not inside a real accelerating gun.
+    # Keep its analytical clock reference explicitly field-free.
+    zero_electric = SimpleNamespace(numerical_identity="0"*64,
+        gun_snapshot=SimpleNamespace(exit_plane_z_mm=state.electron_gun.exit_plane_z_mm),
+        base_field=SimpleNamespace(z=()),
+        potential_rise_v_at_global_positions=lambda points: np.zeros(len(points)),
+        is_constant_on_interval=lambda *_args: True)
+    monkeypatch.setattr("temsim.physics.instrument_electric.capture_instrument_electric_field",
+                        lambda _state: zero_electric)
     from temsim.physics.core import propagate
     monkeypatch.setattr(downstream, "propagate", propagate)
     result = downstream.build_geometric_specimen_exit(state, simulation, transport)

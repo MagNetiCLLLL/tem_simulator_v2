@@ -203,6 +203,8 @@ def _prepare_gun_wave_plan(snapshot):
     wall_boundaries = [z for wall in walls for z in (wall.start_z_mm, wall.end_z_mm) if start < z < stop]
     plan = build_propagation_plan(working, start, stop, events=events,
                                  save_z_mm=[a.z_mm for a in apertures]+wall_boundaries)
+    from temsim.physics.wave_field_admission import require_supported_wave_dipoles
+    require_supported_wave_dipoles(working, start, stop, plan)
     if plan.mapped_fields:
         raise ValueError("3-D imported-field coherent operators are not validated; no pupil fallback")
     if any(np.any(getattr(plan, field)) for field in ("hex_normal_m3", "hex_skew_m3", "cs_kick_m3")):

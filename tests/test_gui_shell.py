@@ -205,7 +205,7 @@ def test_eds_contains_only_spectrum_and_sample_hosts_shared_settings(qtbot):
     assert not eds.findChildren(QTableWidget)
     assert not hasattr(eds, "eds_trajectory_plot")
     assert sample.parameters_panel is eds.settings_panel
-    assert sample.isAncestorOf(eds.eds_acquire)
+    assert eds.isAncestorOf(eds.eds_acquire)
     assert sample.isAncestorOf(eds.sample_region_upstream)
     assert not hasattr(eds, "sample_region_run")
     assert not eds.isAncestorOf(eds.eds_group)
@@ -1377,20 +1377,13 @@ def test_sample_interactions_3d_requests_shared_sample_region_without_ray_redraw
     monkeypatch.setattr(workspace, "_draw_ray_diagram", lambda *_a, **_kw: redraws.append(True))
     monkeypatch.setattr(workspace.sample_interactions_3d, "set_sample_region_result", displayed.append)
 
-    def calculate_sample_region():
-        requested.append(True)
-        workspace.eds_page.sample_region_result_ready.emit(sample_result)
-        return True
-
-    monkeypatch.setattr(
-        workspace.eds_page,
-        "calculate_sample_region",
-        calculate_sample_region,
-    )
-
+    workspace.calculation_requested.connect(requested.append)
     workspace.sample_interactions_3d.calculate_paths.click()
+    assert requested == ["sample_region"]
+    assert workspace._sample_region_result is None
+    # The worker publishes later; no GUI-side solver is called by the button.
+    workspace.eds_page.sample_region_result_ready.emit(sample_result)
 
-    assert requested == [True]
     assert workspace._sample_region_result is sample_result
     assert shared_result.sample_region is sample_result
     assert shared_result.specimen_exit is checkpoint
@@ -1405,7 +1398,7 @@ def test_sample_interactions_3d_requests_shared_sample_region_without_ray_redraw
     assert displayed == [sample_result]
     assert redraws == []
     workspace.sample_interactions_3d.calculate_paths.click()
-    assert requested == [True]
+    assert requested == ["sample_region", "sample_region"]
 
 
 def test_shared_specimen_interactions_update_3d_without_ray_redraw(qtbot, monkeypatch):

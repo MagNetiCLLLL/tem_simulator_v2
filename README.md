@@ -31,6 +31,22 @@ development remains paused. Models target physical mechanisms and qualitative
 parameter trends, rather than a calibrated commercial instrument or a fully
 validated microscope.
 
+Use **Run high-accuracy once** to update Ray Diagram. Then set specimen or
+detector parameters and click **Calculate** on that page; compatible executed
+beam states before the specimen are reused, and downstream rays update with the
+result. Tab changes do not calculate. Live tuning retains its separate cutoff
+and continuation controls.
+
+For fast CIF-dependent HAADF/BF/DF images, choose **Projected atoms (fast
+approximation)** in Scanning Image, set the scan pixel size and click
+**Calculate**. This non-wave model combines actual CIF positions/occupancies,
+the executed probe footprint and physical downstream detector acceptance.
+It estimates thin-sample independent-atom contrast; BF/DF do not include Bragg
+interference or channeling. A broad probe or coarse sampling still removes
+atomic detail. **Material particle paths** retains the finite-volume particle
+transport readout. Auto contrast changes display limits only; actual intensity
+ranges remain visible. Loading a CIF does not enable coherent imaging.
+
 ## Setup and launch
 
 On Windows, install **64-bit Python 3.12** (recommended), then run these commands
@@ -48,5 +64,7 @@ for offline installation and optional GPU settings.
 
 For subsequent launches, run only the second command. In PyCharm, select
 `.venv\Scripts\python.exe` as the interpreter and run `main.py`.
+
+[Project map / 项目地图](docs/PROJECT_MAP.md): files, features, UI, tests and refactoring candidates.
 
 [MIT License](LICENSE).

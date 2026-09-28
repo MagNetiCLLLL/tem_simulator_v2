@@ -1,22 +1,23 @@
 """Time-of-flight fixtures use explicit test origins, never downstream sources."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
 
-from temsim.optics.column import default_state
 from temsim.physics import core
 from temsim.physics.ray_integrator import NUMBA_AVAILABLE
 
 
 def _state(monkeypatch):
-    state = default_state()
-    for component in (*state.lenses, *state.stigmators, *state.corrector_elements):
-        component.enabled = False
-    state.acceleration_backend = "CPU"
-    state.acceleration_enabled = False
-    state.step_mm = .25
-    state.history_step_mm = 1.
+    # These analytic references assume constant K and prescribed B; they are
+    # intentionally mathematical fixtures without a physical accelerating gun.
+    state = SimpleNamespace(lenses=[], stigmators=[], corrector_elements=[], deflectors=[],
+        beam_voltage_kv=300., step_mm=.25, history_step_mm=1.,
+        acceleration_enabled=False, acceleration_backend="CPU", simulation_mode="custom",
+        projector_mode="diffraction", equivalent_image_lenses_enabled=False,
+        sample=SimpleNamespace(z_mm=0.))
     monkeypatch.setattr(core, "fields", lambda z, _s: (np.zeros_like(z),)*3)
     return state
 
@@ -120,6 +121,7 @@ def test_checkpoint_resume_preserves_time_and_does_not_repeat_plane_kicks(monkey
     resumed = core.execute_propagation_plan(state, plan, full.x_m[0], full.tx_rad[0],
         full.y_m[0], full.ty_rad[0], start_index=int(plan.checkpoint_index[0]),
         include_initial_plane_kicks=False, initial_time_s=full.flight_time_s[0],
+        initial_kinetic_energy_ev=full.kinetic_energy_ev[0],
         return_flight_times=True)[-1]
     for name in ("x_m", "tx_rad", "y_m", "ty_rad", "flight_time_s"):
         np.testing.assert_array_equal(getattr(full, name)[-1], getattr(resumed, name)[-1])
@@ -158,6 +160,7 @@ def test_mapped_uniform_magnetic_field_time_follows_circular_arc(monkeypatch):
     resumed = core.execute_propagation_plan(state, plan, full.x_m[0], full.tx_rad[0],
         full.y_m[0], full.ty_rad[0], initial_time_s=full.flight_time_s[0],
         start_index=int(plan.checkpoint_index[0]), include_initial_plane_kicks=False,
+        initial_kinetic_energy_ev=full.kinetic_energy_ev[0],
         return_flight_times=True)[-1]
     np.testing.assert_array_equal(full.flight_time_s[-1], resumed.flight_time_s[-1])
 
@@ -183,8 +186,8 @@ def test_time_device_buffers_reuse_optics_but_upload_updated_clocks():
         def __getitem__(self, _launch):
             def run(*arrays):
                 values = tuple(a.array for a in arrays)
-                result = vectorised_rk4(*values[:19], initial_time_s=values[19], inverse_speed=values[20])
-                for target, value in zip(arrays[21:], result, strict=True):
+                result = vectorised_rk4(*values[:22], initial_time_s=values[22], inverse_speed=values[23])
+                for target, value in zip(arrays[24:], result, strict=True):
                     target.array[...] = value
             return run
     base = inputs()

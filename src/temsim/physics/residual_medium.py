@@ -138,8 +138,8 @@ class MediumTransport:
         self.solid_specimen = None
 
     def _coeff(self, region, energies):
-        # Column energy is constant between elastic collisions; gun energy is
-        # evaluated afresh on every actual accelerating step.
+        # Cache by the actual step energy. Accelerating gun/column steps update
+        # it; constant-energy intervals naturally reuse the same coefficients.
         key = (region.key, energies.tobytes())
         if key not in self._coefficients:
             first = medium_coefficients(region.medium, energies)
@@ -355,10 +355,9 @@ class ColumnMediumTransport(MediumTransport):
             self.interval_radius[mask] = np.minimum(self.interval_radius[mask], radius)
         planes = [float(a.z_mm) for a in state.apertures
                   if getattr(a, "enabled", True) and getattr(a, "installed", True)]
-        for attr in ("camera", "fluorescent_screen", "haadf_detector", "df_detector", "bf_detector"):
-            device = getattr(state, attr, None)
-            if device is not None:
-                planes.append(float(device.z_mm))
+        # The canonical recording inventory owns every screen/camera/detector.
+        # Named convenience properties require a complete inventory and cannot
+        # be queried by auxiliary response views that defer recording absorption.
         planes.extend(float(p.z_mm) for p in getattr(state, "recording_planes", ()))
         self.recording_keys = {p.key for p in getattr(state, "recording_planes", ())}
         self.plane_steps = {max(0, int(np.searchsorted(self.z, p, side="left"))-1)

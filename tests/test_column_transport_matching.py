@@ -48,6 +48,44 @@ def test_target_is_actual_permanent_projection_chamber_plane():
         target_plane(SimpleNamespace(apertures=[],sample=state.sample))
 
 
+def test_full_field_search_requires_executed_gun_energy(monkeypatch):
+    from temsim.optics import direct_alignment, transport_matching
+    state = default_state()
+    monkeypatch.setattr(direct_alignment, "_LiveFirstOrderModel",
+        lambda *args, **kwargs: SimpleNamespace(full_field_transfer=True))
+    with pytest.raises(ValueError, match="executed gun-exit kinetic energies"):
+        transport_matching._candidate_vectors(state, np.zeros((4, 1)), np.ones(1), lambda: None)
+
+
+def test_full_field_search_uses_complete_particle_paths_and_energy(monkeypatch):
+    from temsim.optics import direct_alignment, transport_matching
+    state = default_state()
+    energies = np.array([280000., 315000.])
+    calls = []
+    class CompleteModel:
+        full_field_transfer = True
+        upper = np.full(3, 100.)
+        lenses = tuple(SimpleNamespace(percent=10.) for _ in range(3))
+        def __init__(self, *_args, **_kwargs):
+            pass
+        def rays_at(self, values, source, captures, *, initial_kinetic_energy_ev,
+                    defer_nonfinite_until_clipping):
+            np.testing.assert_array_equal(initial_kinetic_energy_ev, energies)
+            assert defer_nonfinite_until_clipping
+            calls.append(tuple(values))
+            return np.broadcast_to(source, (len(captures), *source.shape)).copy()
+        def matrices_at(self, *_args):
+            pytest.fail('A reduced map must not replace full-field particle transport')
+    monkeypatch.setattr(direct_alignment, '_LiveFirstOrderModel', CompleteModel)
+    def fit(residual, seed, **_kwargs):
+        return SimpleNamespace(x=np.asarray(seed), fun=residual(seed))
+    monkeypatch.setattr(transport_matching, 'least_squares', fit)
+    selected = transport_matching._candidate_vectors(
+        state, np.zeros((4, 2)), np.ones(2), lambda: None,
+        initial_kinetic_energy_ev=energies)
+    assert calls and selected
+
+
 def test_recovery_changes_exactly_three_controls_and_preserves_source_apertures_and_mode():
     state=default_state()
     before=capture_instrument_snapshot(state)

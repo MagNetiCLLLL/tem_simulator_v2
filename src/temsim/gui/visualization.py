@@ -62,6 +62,7 @@ from temsim.gui.design_explorer import DesignExplorerPage
 from temsim.gui.interactive_calculation import InteractiveCalculationPage
 from temsim.gui.model_inspector import ModelInspectorPage
 from temsim.gui.parameter_panel import ParameterPanel
+from temsim.gui.page_calculation import PageCalculationBar
 from temsim.gui.transverse_projection import (
     format_projection_angle,
     project_transverse_values,
@@ -74,6 +75,8 @@ from temsim.physics.beam_current import sample_illumination_absent
 
 class WaveImagingView(QWidget):
     """Display the optional one-shot TEM wave image and diffraction pattern."""
+
+    calculation_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -102,10 +105,10 @@ class WaveImagingView(QWidget):
         source_row.addWidget(self.export_raw_button)
         self.export_raw_button.clicked.connect(self._export_raw_result)
         self.summary = QLabel(
-            "No TEM wave image | enable it on Sample and run High accuracy"
+            "No imaging result | coherent imaging is paused; historical images remain viewable"
         )
         self.summary.setToolTip(
-            "Enable TEM wave imaging on Sample, then run High accuracy."
+            "Calculate imaging requests this page only. It does not enable a coherent source."
         )
         self.summary.setWordWrap(True)
         self.summary.setStyleSheet("color: #94a3b8; font-weight: 600;")
@@ -133,6 +136,13 @@ class WaveImagingView(QWidget):
         panels.addWidget(self.image, 1)
         panels.addWidget(self.diffraction, 1)
         layout = QVBoxLayout(self)
+        self.calculation_bar = PageCalculationBar(
+            "imaging", "calculateImaging",
+            note="Coherent imaging is paused; historical images remain viewable.",
+        )
+        self.calculate_button = self.calculation_bar.button
+        self.calculation_bar.requested.connect(self.calculation_requested.emit)
+        layout.addWidget(self.calculation_bar)
         layout.addLayout(source_row)
         layout.addWidget(self.summary)
         layout.addLayout(panels, 1)
@@ -244,6 +254,7 @@ class WaveImagingView(QWidget):
     ) -> None:
         self._current_wave_presentation = (wave_result, state, quality, no_illumination)
         self._current_wave_stale = False
+        self.calculation_bar.set_result_available(wave_result is not None)
         if self._display_source == "current":
             self._display_wave_result(wave_result, state, quality, no_illumination=no_illumination)
             self._update_source_status()
@@ -283,8 +294,8 @@ class WaveImagingView(QWidget):
                 recording_error = str(exc)
             if quality == "Preview":
                 message = (
-                    "Preview omits TEM wave imaging. Run High accuracy to "
-                    "calculate the physical recording-plane result."
+                    "No imaging result in this calculation. Use Calculate imaging on this page. "
+                    "Coherent imaging is paused."
                 )
             elif requested and illumination != "TEM":
                 message = (
@@ -298,13 +309,12 @@ class WaveImagingView(QWidget):
                 )
             elif requested and not recording_available:
                 message = recording_error or (
-                    "Insert the Fluorescent Screen or Camera, then run High "
-                    "accuracy."
+                    "Insert the Fluorescent Screen or Camera before requesting Calculate imaging."
                 )
             else:
                 message = (
-                    "No TEM wave image in this result. Enable TEM image / "
-                    "diffraction on the Sample and run High accuracy."
+                    "No imaging result in this calculation. Use Calculate imaging on this page. "
+                    "Coherent imaging is paused; historical images remain viewable."
                 )
             self.summary.setText(message)
             return
@@ -471,6 +481,7 @@ class WaveImagingView(QWidget):
         """Retain the last complete image while preventing a false cache hit."""
 
         self._current_wave_stale = True
+        self.calculation_bar.mark_stale()
         if self._display_source == "current":
             self._show_current_stale_notice()
             self._update_source_status()
@@ -479,11 +490,11 @@ class WaveImagingView(QWidget):
         if self.image.image is None and self.diffraction.image is None:
             return
         self.summary.setText(
-            "Previous High accuracy image retained | inputs changed"
+            "Previous imaging result retained | inputs changed"
         )
         self.summary.setToolTip(
             "The displayed complete frame belongs to the previous microscope "
-            "state. Run High accuracy to update it."
+            "state. Click Calculate imaging to update this page."
         )
 
 
@@ -494,6 +505,7 @@ class VisualizationWorkspace(QWidget):
     scan_parameters_changed = Signal(str)
     scan_error = Signal(str)
     calculation_artifacts_changed = Signal(object)
+    calculation_requested = Signal(str)
     MAX_DISPLAY_RAYS = 48
     MAX_RANGE_SAMPLE_RAYS = 256
     RAY_LABEL_BASE_PT = 10
@@ -960,6 +972,15 @@ class VisualizationWorkspace(QWidget):
         )
         self.optical_transfer = OpticalTransferView()
         self.energy_filter = EnergyFilterView()
+        self.energy_filter.calculation_bar = PageCalculationBar(
+            "energy filter", "calculateEnergyFilter",
+            note="Requires an assembled filter and a path reaching its entrance.",
+        )
+        self.energy_filter.calculate_button = self.energy_filter.calculation_bar.button
+        self.energy_filter.layout().insertWidget(0, self.energy_filter.calculation_bar)
+        self.energy_filter.calculation_bar.requested.connect(
+            lambda: self.calculation_requested.emit("energy_filter")
+        )
         self.energy_filter_parameters = ParameterPanel()
         self.energy_filter_parameters.tabs.setObjectName("energyFilterEditorTabs")
         self.energy_filter_parameters.setObjectName(
@@ -1059,6 +1080,16 @@ class VisualizationWorkspace(QWidget):
             self.eds_page.settings_panel
         )
         self.wave_imaging = WaveImagingView()
+        self.sample_interactions_3d.calculation_bar = PageCalculationBar(
+            "detailed sample", "sampleInteractions3DCalculate",
+            button=self.sample_interactions_3d.calculate_paths,
+        )
+        self.sample_interactions_3d.layout().insertWidget(
+            0, self.sample_interactions_3d.calculation_bar
+        )
+        # The existing button already emits sample_region_requested. Keep one
+        # route to the worker; its old synchronous enrichment is not a UI path.
+        self.sample_interactions_3d.calculate_paths.setEnabled(True)
         scanning_parameters, scanning_results = (
             self.scan_control.take_workspace_panels()
         )
@@ -1219,14 +1250,24 @@ class VisualizationWorkspace(QWidget):
             self.scan_parameters_changed.emit
         )
         self.eds_page.error.connect(self.scan_error.emit)
+        for page, scope in (
+            (self.sample_page, "sample"), (self.eds_page, "eds"),
+            (self.scan_control, "stem"), (self.wave_imaging, "imaging"),
+        ):
+            page.calculation_requested.connect(
+                lambda scope=scope: self.calculation_requested.emit(scope)
+            )
         self.eds_page.sample_region_result_ready.connect(
             self._set_sample_region_result
         )
         self.eds_page.specimen_interactions_updated.connect(
             self._set_specimen_interactions
         )
+        self.eds_page.sample_region_view_changed.connect(
+            self.sample_interactions_3d.calculation_bar.mark_stale
+        )
         self.sample_interactions_3d.sample_region_requested.connect(
-            self._ensure_sample_region_result
+            lambda: self.calculation_requested.emit("sample_region")
         )
         self.scan_control.playback_time_changed.connect(
             self._scan_playback_time_changed
@@ -1988,17 +2029,10 @@ class VisualizationWorkspace(QWidget):
         self.calculation_artifacts_changed.emit(self._high_accuracy_result)
 
     def _update_sample_region_control_availability(self) -> None:
-        """Keep the 3-D page's request bound to the shared EDS result."""
+        """An explicit background request can update missing or stale results."""
         available = self._sample_region_result is not None
-        runnable = self.eds_page.sample_region_calculation_available()
-        self.sample_interactions_3d.calculate_paths.setEnabled(available or runnable)
-
-    def _ensure_sample_region_result(self) -> bool:
-        if self._sample_region_result is not None:
-            return True
-        calculated = self.eds_page.calculate_sample_region()
-        self._update_sample_region_control_availability()
-        return bool(calculated and self._sample_region_result is not None)
+        self.sample_interactions_3d.calculate_paths.setEnabled(True)
+        self.sample_interactions_3d.calculation_bar.set_result_available(available)
 
     def _update_projection_text(self) -> None:
         _downstream, display_status = downstream_display_branches(self._last_result)
@@ -4100,7 +4134,9 @@ class VisualizationWorkspace(QWidget):
         self.interactive_calculation.set_particle_signals(())
         self.interactive_calculation.calculation_timing.text.setPlainText("No completed calculation.")
 
-    def display_result(self, result, quality: str) -> None:
+    def display_result(self, result, quality: str, *, calculation_scope=None) -> None:
+        calculation_scope = calculation_scope or (getattr(result, "performance", None) or {}).get(
+            "workflow", getattr(result, "workflow", "full"))
         # Explicit republication is also the invalidation boundary for callers
         # that updated an existing result/array in place before handing it back.
         self._ray_display_cache.clear()
@@ -4159,7 +4195,7 @@ class VisualizationWorkspace(QWidget):
             preserve_view=preserve_ray_view,
         )
         self._refresh_visible_ray_panels()
-        if optical_tuning:
+        if optical_tuning and is_preview:
             # Low-count tuning can miss a tiny aperture. It must never erase
             # completed spectra/images or replace them with synthetic frames.
             self._update_projection_text()
@@ -4168,8 +4204,14 @@ class VisualizationWorkspace(QWidget):
         self.probe_aberrations.display_result(result)
         self.image_aberrations.display_result(result)
         self.optical_transfer.display_result(result)
+        if calculation_scope == "rays":
+            self._display_ray_scope_products(result, quality)
+            return
         if not is_preview or no_illumination or particle_tuning:
             self.energy_filter.display_result(result)
+            self.energy_filter.calculation_bar.set_result_available(
+                getattr(result, "energy_filter", None) is not None
+            )
             if no_illumination:
                 self.energy_filter.summary.setText(
                     "No incident current at the specimen | no transmitted beam"
@@ -4182,6 +4224,7 @@ class VisualizationWorkspace(QWidget):
                 getattr(result, "stem_scan", None),
                 complete=not is_preview or no_illumination or particle_tuning,
                 state_snapshot=getattr(result, "state_snapshot", None),
+                explicit_calculation=calculation_scope == "stem",
             )
             if no_illumination:
                 self.scan_control.image_model_notice.setText(
@@ -4198,6 +4241,10 @@ class VisualizationWorkspace(QWidget):
                     if scan_status == "no_inserted_detectors" else
                     "STEM image readout is disabled."
                     if scanning else "Scan is off | current pixel detector signals are available in Cached signals.")
+            self.scan_control.set_particle_signals(
+                getattr(result, "particle_signals", None),
+                scan_enabled=bool(getattr(getattr(result.state_snapshot, "ac_deflector", None), "scan_enabled", False)),
+            )
         self.sample_page.display_result(
             result,
             (
@@ -4225,6 +4272,61 @@ class VisualizationWorkspace(QWidget):
                 no_illumination=no_illumination,
             )
 
+    def _display_ray_scope_products(self, result, quality):
+        """Publish retained products and any physically required transport readout."""
+        interactions = getattr(result, "specimen_interactions", None)
+        frame = getattr(result, "stem_scan", None)
+        region = getattr(result, "sample_region", None)
+        wave = getattr(result, "wave_imaging", None)
+        self.sample_page.display_result(result)
+        if getattr(result, "energy_filter", None) is not None:
+            self.energy_filter.display_result(result)
+        else:
+            self.energy_filter.mark_result_stale()
+        if getattr(interactions, "eds_spectrum", None) is not None:
+            self.eds_page.display_result(result)
+        else:
+            self.eds_page.mark_result_stale()
+        if frame is not None:
+            self.scan_control.display_result(
+                getattr(result, "scan_geometry", None), frame, complete=True,
+                state_snapshot=getattr(result, "state_snapshot", None),
+            )
+        else:
+            self.scan_control.mark_stem_frame_stale()
+        self._sample_region_result = region
+        if region is not None:
+            self.sample_interactions_3d.display_result(result)
+            self.sample_interactions_3d.set_sample_region_result(region)
+        else:
+            self.sample_interactions_3d.mark_result_stale()
+        if wave is not None:
+            self.wave_imaging.display_result(wave, getattr(result, "state_snapshot", None), quality)
+        else:
+            self.wave_imaging.mark_result_stale()
+        self.sample_interactions_3d.calculate_paths.setEnabled(True)
+        calculated = set(getattr(result, "calculated_products", ()) or ())
+        for page, available, product_keys in (
+            (self.sample_page, interactions is not None or region is not None, {"elastic", "sample_region"}),
+            (self.eds_page, getattr(interactions, "eds_spectrum", None) is not None, {"eds"}),
+            (self.scan_control, frame is not None, {"stem", "stem_scan"}),
+            (self.wave_imaging, wave is not None, {"wave", "wave_projection"}),
+            (self.energy_filter, getattr(result, "energy_filter", None) is not None, {"energy_filter"}),
+            (self.sample_interactions_3d, region is not None, {"sample_region"}),
+        ):
+            bar = page.calculation_bar
+            bar.status.setText(
+                ("Result from this calculation displayed; required physical transport was executed."
+                 if calculated & product_keys else
+                 "Valid cached result displayed; ray calculation did not recalculate this page.")
+                if available else
+                f"Tip-to-sample rays cached. Click Calculate {bar.label} to update this page."
+            )
+        if getattr(result, "energy_filter", None) is None:
+            self.energy_filter.summary.setToolTip("Click Calculate energy filter to update this branch. Any retained trace belongs to its previous calculation.")
+        if region is None:
+            self.sample_interactions_3d.summary.setToolTip("Click Calculate detailed sample to update the local paths. Rotation is display-only.")
+
     def _refresh_ray_calculation_extent(self) -> None:
         """Keep the displayed completion and newly requested cutoff separate."""
         request = self.interactive_calculation.segment_request()
@@ -4237,6 +4339,10 @@ class VisualizationWorkspace(QWidget):
     def mark_ray_stale(self, state) -> None:
         self.result_readout.mark_stale("ray")
         self.hardware_tuning.mark_result_stale("ray")
+        # A hidden panel must not later publish the obsolete queued snapshot
+        # as current merely because the user opens Magnetic Field.
+        self._pending_ray_panels.pop(self.magnetic_field, None)
+        self.magnetic_field.mark_inputs_stale()
         self.interactive_calculation.calculation_timing.mark_stale()
         self._ray_extent_stale = True
         self._refresh_ray_calculation_extent()
@@ -4261,6 +4367,12 @@ class VisualizationWorkspace(QWidget):
         self.sample_interactions_3d.mark_result_stale()
         self.scan_control.mark_stem_frame_stale()
         self.wave_imaging.mark_result_stale()
+        for page in (self.sample_page, self.eds_page, self.scan_control,
+                     self.wave_imaging, self.energy_filter, self.sample_interactions_3d):
+            page.calculation_bar.mark_stale()
+        self.sample_interactions_3d.calculate_paths.setEnabled(True)
+        self.energy_filter.summary.setToolTip("Click Calculate energy filter to update the branch ray trace for the current state.")
+        self.sample_interactions_3d.summary.setToolTip("Click Calculate detailed sample to update this scene. Rotation and filtering remain display-only.")
 
     def high_accuracy_result_summary(self):
         """Return detached metadata for the displayed complete calculation."""

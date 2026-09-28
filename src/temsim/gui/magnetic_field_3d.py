@@ -71,6 +71,7 @@ class MagneticField3DPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._state = None
+        self._fields_stale = False
         self._prepared_scene = None
         self._result_reference = None
         self._records = ()
@@ -269,8 +270,22 @@ class MagneticField3DPage(QWidget):
         if self._active:
             self._request_timer.start(0)
 
+    def mark_inputs_stale(self):
+        """Keep old geometry visible while preventing work on obsolete fields."""
+        if self._fields_stale:
+            return
+        self._fields_stale = True
+        self._generation += 1
+        self._cache.clear()
+        self._request_timer.stop()
+        if self._worker is not None:
+            self._worker.cancelled.set()
+        self.electron.mark_fields_stale()
+        self._set_field_status("Stale magnetic field — instrument inputs changed; recalculate the main beam.")
+
     def invalidate(self, message="Magnetic field view pending a current calculation snapshot."):
         self._generation += 1
+        self._fields_stale = False
         self._state = None
         self._prepared_scene = None
         self._result_reference = None
@@ -297,7 +312,7 @@ class MagneticField3DPage(QWidget):
         return (self._generation, float(self.reference.value()), float(self.density.currentData()))
 
     def _request_geometry(self):
-        if not self._active or self._state is None:
+        if not self._active or self._fields_stale or self._state is None:
             return
         if self._electron_mode and (not self.electron.background.isChecked()
                                    or not self.electron.history_fields_match()):
@@ -332,7 +347,7 @@ class MagneticField3DPage(QWidget):
             self._cache[key] = geometry
             while len(self._cache) > 4:
                 self._cache.popitem(last=False)
-        if not self._active or self._state is None:
+        if not self._active or self._fields_stale or self._state is None:
             return
         if key != self._key():
             self._request_timer.start(0)
