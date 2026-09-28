@@ -11,13 +11,50 @@ from contextvars import ContextVar
 from dataclasses import asdict, dataclass
 import os
 import sys
-from threading import RLock
+from threading import Lock, RLock
 
 
 _NUMERICAL_JOB_LOCK = RLock()
 _STARTUP_LIBRARY_LIMIT = None
 _INITIALIZED = False
 _ACTIVE_BUDGET = ContextVar("temsim_cpu_thread_budget", default=None)
+_UNREAPED_PROCESS_LOCK = Lock()
+_UNREAPED_NUMERICAL_PROCESSES = []
+
+
+def retain_unreaped_numerical_process(process) -> None:
+    """Block later numerical admission until an owned child is confirmed dead.
+
+    Retain the process object, not just its reusable OS PID. Registration must
+    not acquire the numerical lease: a shutdown thread can hold a backend lock
+    while the request thread still owns that lease and waits for cleanup.
+    This records a failed cleanup; it does not terminate or replace the child.
+    """
+    if not callable(getattr(process, "poll", None)):
+        raise TypeError("An unreaped numerical process must expose poll()")
+    with _UNREAPED_PROCESS_LOCK:
+        if not any(item is process for item in _UNREAPED_NUMERICAL_PROCESSES):
+            _UNREAPED_NUMERICAL_PROCESSES.append(process)
+
+
+def _require_reaped_numerical_processes() -> None:
+    """Fail closed if an earlier numerical child is alive or cannot be polled."""
+    pending = []
+    with _UNREAPED_PROCESS_LOCK:
+        for process in _UNREAPED_NUMERICAL_PROCESSES:
+            try:
+                stopped = process.poll() is not None
+            except Exception:
+                # A polling error is not evidence that the process stopped.
+                stopped = False
+            if not stopped:
+                pending.append(process)
+        _UNREAPED_NUMERICAL_PROCESSES[:] = pending
+    if pending:
+        owners = ", ".join(getattr(process, "label", f"PID {getattr(process, 'pid', 'unknown')}") for process in pending)
+        raise RuntimeError(
+            f"Numerical work is blocked: a previous worker has not been confirmed stopped ({owners}). "
+            "No new numerical job has started; stop the remaining worker before retrying.")
 
 
 def available_cpu_count() -> int:
@@ -134,6 +171,7 @@ def numerical_job(requested: int | None = None, *, cancelled=None):
     try:
         if cancelled is not None and cancelled():
             raise NumericalJobCancelled("Numerical request cancelled before CPU admission")
+        _require_reaped_numerical_processes()
         budget = numerical_thread_budget(requested)
         token = _ACTIVE_BUDGET.set(budget)
         try:

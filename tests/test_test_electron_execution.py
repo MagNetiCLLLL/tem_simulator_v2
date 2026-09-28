@@ -406,3 +406,18 @@ def test_unfinished_prefix_cannot_be_returned_as_accepted_terminal_result(prepar
     monkeypatch.setattr(backend, "_request", lambda *args, **kwargs: SimpleNamespace(reason="in_progress"))
     with pytest.raises(ElectronExecutionError, match="unfinished prefix as its final"):
         backend.trace(remote, captured[3])
+
+
+@pytest.mark.parametrize("stage", ["prepare", "install"])
+def test_preparation_failure_never_binds_previous_fields_to_new_request(protocol_backend, stage):
+    backend, _ = protocol_backend
+    backend._remote_scene = SimpleNamespace(physical_identity="old-physical", numerical_identity="old-numerical")
+    incoming = SimpleNamespace(physical_identity="new-physical", numerical_identity="new-numerical")
+    backend._responses.put((1, "error", {"exception_type": "ValueError", "message": "injected new-field failure"}))
+    with pytest.raises(ElectronExecutionError) as caught:
+        backend._request((stage, incoming), request_metadata={"parameter_revision": 7})
+    report = caught.value.diagnostic
+    assert report["physical_identity"] == ("new-physical" if stage == "install" else None)
+    assert report["numerical_identity"] == ("new-numerical" if stage == "install" else None)
+    assert report["parameter_revision"] == 7
+    assert backend._scene_token is None and backend._remote_scene is None

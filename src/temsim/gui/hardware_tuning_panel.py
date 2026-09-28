@@ -2,15 +2,20 @@
 from __future__ import annotations
 
 from copy import copy
+import math
 
 from PySide6.QtCore import Qt, QSignalBlocker, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QFormLayout, QGroupBox, QLabel, QLayout, QLineEdit, QScrollArea,
-    QSizePolicy, QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QPushButton, QSizePolicy, QSplitter, QToolButton, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
-from temsim.gui.input_policy import WheelSafeComboBox
+from temsim.gui.input_policy import WheelSafeComboBox, WheelSafeDoubleSpinBox
 from temsim.hardware_tuning import TUNING_TASKS, resolve_task
+from temsim.hardware_tuning_feedback import (
+    baseline_difference, captured_hardware_values, observe_retained_beam, recorded_waists,
+)
 from temsim.runtime_parameters import convert_runtime_value, validate_runtime_assignment
 
 
@@ -44,6 +49,13 @@ class HardwareTuningPanel(QWidget):
         self._items = {}
         self.editors = {}
         self._baseline = {}
+        self._retained = {}
+        self._captured_controls = {}
+        self._result_stale = {}
+        self._observations = {}
+        self._feedback_baseline = None
+        self._revision = 0
+        self._plane_selected = False
 
         self.search = QLineEdit()
         self.search.setObjectName("hardwareTuningSearch")
@@ -84,11 +96,78 @@ class HardwareTuningPanel(QWidget):
         self._form = QVBoxLayout(self._host)
         self._form.setContentsMargins(0, 0, 0, 0)
         self._form.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        self.feedback_toggle = QToolButton()
+        self.feedback_toggle.setObjectName("hardwareTuningFeedbackToggle")
+        self.feedback_toggle.setText("Executed beam feedback (read only)")
+        self.feedback_toggle.setCheckable(True)
+        self.feedback_toggle.setChecked(True)
+        self.feedback = QWidget()
+        feedback_layout = QFormLayout(self.feedback)
+        feedback_layout.setContentsMargins(0, 0, 0, 0)
+        feedback_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        feedback_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self.result_selection = WheelSafeComboBox()
+        self.result_selection.setObjectName("hardwareTuningResultSelection")
+        self.result_selection.addItem("Ray result", "ray")
+        self.result_selection.addItem("Retained High accuracy", "high")
+        self.observation_z = WheelSafeDoubleSpinBox()
+        self.observation_z.setObjectName("hardwareTuningObservationZ")
+        self.observation_z.setRange(-1e6, 1e6)
+        self.observation_z.setDecimals(6)
+        self.observation_z.setSuffix(" mm")
+        self.observation_z.setKeyboardTracking(False)
+        self.observation_z.setToolTip("Read retained histories at this Z. Defaults to the captured sample centre; changing Z never calculates or changes the instrument.")
+        feedback_layout.addRow(_label("Result"), self.result_selection)
+        feedback_layout.addRow(_label("Observation Z"), self.observation_z)
+        self.feedback_status = _label()
+        self.feedback_status.setObjectName("hardwareTuningFeedbackStatus")
+        self.feedback_metrics = _label()
+        self.feedback_metrics.setObjectName("hardwareTuningFeedbackMetrics")
+        self.feedback_definitions = _label(
+            "Weights: source-current fractions, without renormalizing transmission after stops. "
+            "Centroid: weighted X/Y. Mean direction: projected angles of the weighted mean unit direction. "
+            "RMS radius and D95: radius RMS and twice the 95% radius about the centroid. "
+            "Angular RMS / 95%: angular deviations from the mean direction; not an aperture edge."
+        )
+        self.feedback_definitions.setObjectName("hardwareTuningFeedbackDefinitions")
+        self.feedback_captured = _label()
+        self.feedback_captured.setObjectName("hardwareTuningCapturedHardware")
+        self.feedback_waists = _label()
+        self.feedback_waists.setObjectName("hardwareTuningWaists")
+        self.baseline_button = QPushButton("Use displayed readout as baseline")
+        self.baseline_button.setObjectName("hardwareTuningSetBaseline")
+        self.feedback_delta = _label()
+        self.feedback_delta.setObjectName("hardwareTuningBaselineDelta")
+        for widget in (self.feedback_status, self.feedback_metrics,
+                       self.feedback_waists, self.baseline_button, self.feedback_delta,
+                       ):
+            feedback_layout.addRow(widget)
+        self.feedback_details_toggle = QToolButton()
+        self.feedback_details_toggle.setObjectName("hardwareTuningFeedbackDetailsToggle")
+        self.feedback_details_toggle.setText("Definitions and captured hardware")
+        self.feedback_details_toggle.setCheckable(True)
+        self.feedback_details = QWidget()
+        details_layout = QVBoxLayout(self.feedback_details)
+        details_layout.setContentsMargins(0, 0, 0, 0)
+        details_layout.addWidget(self.feedback_definitions)
+        details_layout.addWidget(self.feedback_captured)
+        self.feedback_details.hide()
+        self.feedback_details_toggle.toggled.connect(self.feedback_details.setVisible)
+        feedback_layout.addRow(self.feedback_details_toggle)
+        feedback_layout.addRow(self.feedback_details)
+        content_layout.addWidget(self.feedback_toggle)
+        content_layout.addWidget(self.feedback)
+        content_layout.addWidget(_label("Current applied hardware controls"))
+        content_layout.addWidget(self._host)
         self.scroll = QScrollArea()
         self.scroll.setObjectName("hardwareTuningControlsScroll")
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        self.scroll.setWidget(self._host)
+        self.scroll.setWidget(content)
         right = QWidget()
         right.setMinimumWidth(240)
         right_layout = QVBoxLayout(right)
@@ -117,6 +196,10 @@ class HardwareTuningPanel(QWidget):
         layout.addWidget(self.splitter, 1)
         self.tree.currentItemChanged.connect(self._selection_changed)
         self.search.textChanged.connect(self._filter)
+        self.feedback_toggle.toggled.connect(self.feedback.setVisible)
+        self.result_selection.currentIndexChanged.connect(self._refresh_feedback)
+        self.observation_z.valueChanged.connect(self._plane_changed)
+        self.baseline_button.clicked.connect(self._set_feedback_baseline)
         self.select_task(TUNING_TASKS[0].key)
 
     @property
@@ -147,6 +230,7 @@ class HardwareTuningPanel(QWidget):
         if state is not self._state:
             self._signature = None
             self.status.hide()
+            self._result_stale.update({key: True for key in self._retained})
         self._state = state
         self.refresh_values()
 
@@ -192,6 +276,166 @@ class HardwareTuningPanel(QWidget):
                         editor.setText(str(value))
                         editor.setModified(False)
                 self._baseline[identity] = value
+        self._refresh_feedback()
+
+    def publish_result(self, result, quality):
+        """Accept an already published execution; this method never calculates."""
+        self._observations.clear()
+        record = (result, str(quality), self._revision)
+        captured_state = getattr(result, "state_snapshot", None)
+        controls = {}
+        for task in TUNING_TASKS:
+            try:
+                controls[task.key] = captured_hardware_values(captured_state, task.key)
+            except (ValueError, TypeError, AttributeError, KeyError):
+                controls[task.key] = ()
+        self._retained["ray"] = record
+        self._captured_controls["ray"] = controls
+        self._result_stale["ray"] = False
+        if str(quality).strip().lower() == "high accuracy":
+            self._retained["high"] = record
+            self._captured_controls["high"] = controls
+            self._result_stale["high"] = False
+        if not self._plane_selected:
+            z = getattr(getattr(getattr(result, "state_snapshot", None), "sample", None), "z_mm", None)
+            try:
+                z = float(z)
+            except (TypeError, ValueError, OverflowError):
+                z = math.nan
+            if math.isfinite(z):
+                with QSignalBlocker(self.observation_z):
+                    self.observation_z.setValue(z)
+        self._refresh_feedback()
+
+    def mark_result_stale(self, key="ray"):
+        self._result_stale[key] = True
+        self._refresh_feedback()
+
+    def clear_results(self):
+        self._retained.clear()
+        self._captured_controls.clear()
+        self._result_stale.clear()
+        self._observations.clear()
+        self._feedback_baseline = None
+        self._plane_selected = False
+        self._refresh_feedback()
+
+    def capture_result_presentation(self):
+        """Capture read-only presentation for transactional result-file loading."""
+        return dict(retained=dict(self._retained), controls=dict(self._captured_controls),
+                    stale=dict(self._result_stale), observations=dict(self._observations),
+                    baseline=self._feedback_baseline, revision=self._revision,
+                    selection=self.result_selection.currentData(), z_mm=self.observation_z.value(),
+                    plane_selected=self._plane_selected, expanded=self.feedback_toggle.isChecked())
+
+    def restore_result_presentation(self, saved):
+        """Restore presentation only; never restore or apply instrument inputs."""
+        self._retained = dict(saved["retained"])
+        self._captured_controls = dict(saved["controls"])
+        self._result_stale = dict(saved["stale"])
+        self._observations = dict(saved["observations"])
+        self._feedback_baseline = saved["baseline"]
+        self._revision = saved["revision"]
+        self._plane_selected = saved["plane_selected"]
+        with QSignalBlocker(self.result_selection), QSignalBlocker(self.observation_z):
+            self.select_result(saved["selection"])
+            self.observation_z.setValue(saved["z_mm"])
+        self.feedback_toggle.setChecked(saved["expanded"])
+        self._refresh_feedback()
+
+    def set_revision(self, revision):
+        self._revision = int(revision)
+        self._refresh_feedback()
+
+    def select_result(self, key):
+        index = self.result_selection.findData(key)
+        if index >= 0:
+            self.result_selection.setCurrentIndex(index)
+
+    def _plane_changed(self, *_):
+        self._plane_selected = True
+        self._refresh_feedback()
+
+    def _observation(self):
+        record = self._retained.get(self.result_selection.currentData())
+        if record is None:
+            return None
+        key = (id(record[0]), self.observation_z.value())
+        if key not in self._observations:
+            # Only detached scalars are cached. No extra physical histories or
+            # solver state are retained when observation planes are visited.
+            if len(self._observations) >= 16:
+                self._observations.clear()
+            self._observations[key] = observe_retained_beam(record[0], key[1])
+        return self._observations[key]
+
+    def _set_feedback_baseline(self):
+        self._feedback_baseline = self._observation()
+        self._refresh_feedback()
+
+    def _refresh_feedback(self, *_):
+        key = self.result_selection.currentData()
+        record = self._retained.get(key)
+        row = self._observation()
+        self.baseline_button.setEnabled(row is not None and row.centroid_x_um is not None)
+        if record is None or row is None:
+            self.feedback_status.setText(f"Live revision {self._revision} · No retained result; run a calculation to obtain feedback.")
+            for label in (self.feedback_metrics, self.feedback_captured, self.feedback_waists, self.feedback_delta):
+                label.clear()
+            return
+        result, quality, revision = record
+        captured = self._captured_controls.get(key, {}).get(self.selected_key, ())
+        try:
+            live = captured_hardware_values(self._state, self.selected_key)
+        except (ValueError, TypeError, AttributeError, KeyError):
+            live = ()
+        changed = captured != live
+        stale = self._result_stale.get(key, False) or changed
+        self.feedback_status.setText(
+            f"Live revision {self._revision} · {quality} result {row.result_id[:12]} · accepted at revision {revision}\n"
+            + ("STALE — applied inputs changed or recalculation is pending.\n" if stale else "Captured execution.\n")
+            + f"Z {row.z_mm:.6g} mm · {row.population} · {row.status}\n{row.reason}"
+        )
+        self.feedback_status.setToolTip(
+            f"Request: {row.result_id}\nModel: {row.model_id}\nManifest: {row.manifest_id}\n{row.provenance}")
+        self.feedback_status.setStyleSheet("color: #fbbf24;" if stale else "")
+
+        def shown(value):
+            return "unavailable" if value is None else f"{value:.6g}"
+
+        self.feedback_metrics.setText(
+            f"Positive-weight paths: {row.ray_count} · Source transmission: {shown(None if row.source_fraction is None else row.source_fraction * 100)}% · Current: {shown(row.current_pa)} pA\n"
+            f"Centroid X/Y: {shown(row.centroid_x_um)} / {shown(row.centroid_y_um)} µm\n"
+            f"Mean direction X/Y: {shown(row.direction_x_mrad)} / {shown(row.direction_y_mrad)} mrad\n"
+            f"RMS radius: {shown(row.rms_radius_um)} µm · D95: {shown(row.diameter95_um)} µm\n"
+            f"Angular RMS: {shown(row.angular_rms_mrad)} mrad · Angular 95%: {shown(row.angular95_mrad)} mrad\n"
+            + row.provenance
+        )
+        self.feedback_captured.setText("Hardware used by this execution:\n" + (
+            "\n".join(f"{group} · {label}: {value}" + (f" {unit}" if unit else "")
+                      for _, _, group, label, unit, value in captured)
+            if captured else "Unavailable for this task in the captured instrument."
+        ))
+        task = self._tasks.get(self.selected_key)
+        focus = task is not None and "focus" in task.key
+        self.feedback_waists.setVisible(focus)
+        if focus:
+            waists = recorded_waists(result, {item[0] for item in captured})
+            self.feedback_waists.setText("Recorded optical-reference RMS waists:\n" + (
+                "\n".join(f"{component}: Z {z:.6g} mm, RMS radius {radius:.6g} µm" for component, z, radius in waists)
+                + "\nCurrent-weighted retained-node markers; at least five paths per bracket. Branch identity is not retained in these markers; this is not an image-focus calibration."
+                if waists else "Unavailable: no qualifying waist marker for these lenses is retained. No focus position is extrapolated."
+            ))
+        if self._feedback_baseline is None:
+            self.feedback_delta.setText("No baseline selected.")
+        else:
+            baseline = self._feedback_baseline
+            delta, reason = baseline_difference(row, baseline)
+            text = f"Baseline {baseline.result_id[:12]} · {baseline.population} · Z {baseline.z_mm:.6g} mm\n"
+            if delta is not None:
+                text += (f"Δ centroid X/Y: {delta['centroid_x_um']:.6g} / {delta['centroid_y_um']:.6g} µm\n"
+                         f"Δ mean direction X/Y: {delta['direction_x_mrad']:.6g} / {delta['direction_y_mrad']:.6g} mrad\n")
+            self.feedback_delta.setText(text + reason)
 
     def _rebuild(self, groups):
         self._generation += 1
@@ -291,5 +535,6 @@ class HardwareTuningPanel(QWidget):
                             (f" {field.unit}" if field.unit else ""))
         self.status.setStyleSheet("color: #86efac;")
         self.status.show()
+        self._result_stale.update({key: True for key in self._retained})
         self.refresh_values(force=True)
         self.runtime_changed.emit(f"{target.key}.{field.name}")

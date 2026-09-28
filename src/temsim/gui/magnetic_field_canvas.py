@@ -22,6 +22,7 @@ from pyqtgraph.functions import arrayToQPath, siScale
 
 from temsim.magnetic_field_lines import field_strength_fraction
 from temsim.gui.test_electron_types import ElectronPath
+from temsim.gui.electron_display_geometry import simplify_screen_vertices
 
 
 _COLOUR_BINS = 24
@@ -30,6 +31,7 @@ _MAX_ELECTRON_ARROWS = 12
 _ELECTRON_LINE_WIDTH = 1.0
 _SELECTED_ELECTRON_LINE_WIDTH = 1.4
 _ELECTRON_FIELD_OPACITY = 0.75
+_ELECTRON_DISPLAY_ERROR_PX = 0.1
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,7 @@ class _ElectronProjection:
     path: QPainterPath
     markers: tuple[tuple[str, np.ndarray], ...]
     arrows: np.ndarray
+    connections: np.ndarray
 
 
 def _segments(value: object, name: str) -> np.ndarray:
@@ -148,6 +151,7 @@ class MagneticFieldCanvas(QWidget):
         self._electron_mode = False
         self._electron_paths: tuple[ElectronPath, ...] = ()
         self._electron_projections: dict[str, _ElectronProjection] = {}
+        self._electron_display_paths: dict[str, tuple[_ElectronProjection, tuple, QPainterPath]] = {}
         self._rebuild_projection()
 
     def sizeHint(self) -> QSize:
@@ -438,8 +442,17 @@ class MagneticFieldCanvas(QWidget):
                 projections[electron.key] = previous
                 continue
             segments = np.stack((positions[:-1], positions[1:]), axis=1)
+            connections = np.ones(max(0, len(segments)-1), dtype=bool)
             if self._axial_range_m is not None:
-                segments, _ = _clip_axial_segments(segments, *self._axial_range_m)
+                segments, selected = _clip_axial_segments(segments, *self._axial_range_m)
+                indices = np.flatnonzero(selected)
+                # Only neighbouring executed segments sharing an in-slab vertex
+                # may form one display run. An excursion outside the slab is a
+                # break even when the two boundary points happen to coincide.
+                shared_z = positions[indices[:-1]+1, 2]
+                connections = ((np.diff(indices) == 1)
+                               & (shared_z >= self._axial_range_m[0])
+                               & (shared_z <= self._axial_range_m[1]))
             projected = self._project(segments)
             path = _paired_path(projected)
             markers = []
@@ -450,9 +463,52 @@ class MagneticFieldCanvas(QWidget):
             count = len(projected)
             indices = np.linspace(0, count - 1, min(count, _MAX_ELECTRON_ARROWS), dtype=np.int64)
             projections[electron.key] = _ElectronProjection(
-                positions, self._projection_revision, projected, path, tuple(markers), projected[indices],
+                positions, self._projection_revision, projected, path, tuple(markers), projected[indices], connections,
             )
         self._electron_projections = projections
+        self._electron_display_paths = {
+            key: value for key, value in self._electron_display_paths.items()
+            if projections.get(key) is value[0]
+        }
+
+    def _electron_display_path(self, key: str, transform: QTransform) -> QPainterPath:
+        """Viewport-dependent drawing only, with <=0.1 device-pixel deviation.
+
+        The full projection, physical history and chronological markers remain
+        untouched. Rebuild after zooming so previously subpixel features return.
+        Keep original painter coordinates and cosmetic stroke semantics.
+        """
+        projection = self._electron_projections[key]
+        ratio = max(float(self.devicePixelRatioF()), np.finfo(float).tiny)
+        view = (transform.m11(), transform.m22(), transform.dx(), transform.dy(), ratio)
+        cached = self._electron_display_paths.get(key)
+        if cached is not None and cached[0] is projection and cached[1] == view:
+            return cached[2]
+        segments = projection.segments
+        parts = []
+        breaks = np.concatenate(([0], np.flatnonzero(~projection.connections)+1, [len(segments)]))
+        for start, end in zip(breaks[:-1], breaks[1:]):
+            run = segments[start:end]
+            if len(run) < 2:
+                parts.append(run)
+                continue
+            points = run.reshape(-1, 2)
+            # Adjacent segment endpoints usually repeat exactly. Removing only
+            # exact duplicates avoids extra RDP work without moving a vertex.
+            unique = np.concatenate(([True], np.any(points[1:] != points[:-1], axis=1)))
+            points = points[unique]
+            # Elementwise operations keep this display work out of BLAS pools.
+            screen = points * (view[0], view[1]) + (view[2], view[3])
+            retained = simplify_screen_vertices(screen, tolerance_px=_ELECTRON_DISPLAY_ERROR_PX / ratio)
+            if len(retained) == len(points):
+                parts.append(run)
+            else:
+                vertices = points[retained]
+                parts.append(np.stack((vertices[:-1], vertices[1:]), axis=1))
+        displayed = np.concatenate(parts) if parts else segments
+        path = _paired_path(displayed)
+        self._electron_display_paths[key] = (projection, view, path)
+        return path
 
     def _update_visible_fit(self) -> None:
         """Refit cached display coordinates without rebuilding field batches."""
@@ -630,7 +686,7 @@ class MagneticFieldCanvas(QWidget):
             if self.electron_point_count:
                 # Selected paths are painted last so intersections remain clear.
                 for electron in sorted(self._electron_paths, key=lambda path: path.selected):
-                    path = self._electron_projections[electron.key].path
+                    path = self._electron_display_path(electron.key, transform)
                     width = _SELECTED_ELECTRON_LINE_WIDTH if electron.selected else _ELECTRON_LINE_WIDTH
                     previous = electron.state == "previous"
                     painter.setOpacity(.45 if previous else 1.)

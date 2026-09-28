@@ -5238,6 +5238,7 @@ class MagneticFieldView(QWidget):
         self._has_field_scene = False
         self._selected_key = None
         self._state_snapshot = None
+        self._result_reference = None
         self._presentation_pending = False
         self._profile = None
         self._profile_error = None
@@ -5739,6 +5740,7 @@ class MagneticFieldView(QWidget):
     def mark_presentation_pending(self) -> None:
         self._profile_generation += 1
         self._profile_request = None
+        self._result_reference = None
         self._presentation_pending = True
         self._profile = None
         self._profile_error = None
@@ -5779,6 +5781,12 @@ class MagneticFieldView(QWidget):
             self._refresh_details()
             self.diagnostics_updated.emit()
             return
+        signatures = getattr(result, "signatures", {})
+        request = signatures.get("request") if isinstance(signatures, dict) else None
+        manifest = getattr(getattr(result, "calculation_manifest", None), "digest", None)
+        references = [f"{label}:{value}" for label, value in (("request", request), ("manifest", manifest))
+                      if isinstance(value, str) and value.strip()]
+        self._result_reference = "; ".join(references) or None
         self._z_limits_mm = self._simulation_limits(result.simulation)
         self._profile_request = (self._profile_generation, state, self._z_limits_mm)
         self.status.setText("Preparing combined magnetic field…")
@@ -5876,7 +5884,8 @@ class MagneticFieldView(QWidget):
         finite = values[np.isfinite(values)]
         peak = float(np.max(finite)) if len(finite) else 0.
         self.field_lines.update_snapshot(self._state_snapshot, self._records, self._z_limits_mm,
-                                         peak_t=peak, prepared_scene=scene)
+                                         peak_t=peak, prepared_scene=scene,
+                                         result_reference=self._result_reference)
         self._populate_field_map_lenses()
         self._refresh_details()
         self.diagnostics_updated.emit()

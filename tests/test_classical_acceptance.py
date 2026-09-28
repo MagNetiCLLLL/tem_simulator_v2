@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from temsim.acceptance import CLASSICAL_CRITERIA, CLASSICAL_TESTS, classical_report, merge_criteria
+from temsim.acceptance import CLASSICAL_CRITERIA, CLASSICAL_TESTS, software_report, merge_criteria
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,7 +21,7 @@ def passing_receipt():
 
 
 def evaluate(receipt, **kwargs):
-    return classical_report(receipt, pytest_exit_code=kwargs.pop("pytest_exit_code", 0),
+    return software_report(receipt, pytest_exit_code=kwargs.pop("pytest_exit_code", 0),
                             source_unchanged=kwargs.pop("source_unchanged", True), **kwargs)
 
 
@@ -102,7 +102,7 @@ def test_real_failing_pytest_child_produces_nonzero_scope_exit(tmp_path):
                               "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", "PYTEST_ADDOPTS": ""})
     assert run.returncode == 1, run.stdout + run.stderr
     receipt = json.loads(output.read_text())
-    report = classical_report(receipt, pytest_exit_code=run.returncode, source_unchanged=True,
+    report = software_report(receipt, pytest_exit_code=run.returncode, source_unchanged=True,
         selected=("test_intentional.py",), criteria={"round2/R2-AT-05": ("Failing fixture", ("test_intentional.py",))})
     assert report["exit_code"] == 1
     assert report["criteria"]["round2/R2-AT-05"]["status"] == "FAIL"

@@ -153,6 +153,7 @@ def _prepare_electric_provider(state, stop_m):
     gun = deepcopy(original, memo)
     preparation = []
     if getattr(gun, "type_key", "") == "cold_feg" and getattr(gun.emitter, "surface_model", None) is None:
+        from temsim.diagnostic_field_identity import can_reuse_electric_field
         from temsim.physics.gun_field_environment import ensure_gun_field_environment
         ensure_gun_field_environment(gun)
         old = float(gun._gun_field_exit_extension_mm)
@@ -161,11 +162,24 @@ def _prepare_electric_provider(state, stop_m):
         if float(gun.emitter.curvature_nm_inv) == 0.:
             from temsim.physics.closed_gun_field import closed_field_request, mesh_axes
             request = closed_field_request(gun)
+            cached = getattr(gun, "_closed_gun_field", None)
         else:
             from temsim.physics.continuous_gun_field import continuous_field_request, mesh_axes
             request = continuous_field_request(gun)
-        r, z = mesh_axes(request)  # Admission before the existing cached solve.
-        preparation.append(f"Electric field domain {z[0]*1e3:.6g}–{z[-1]*1e3:.6g} mm; {len(r)*len(z):,} mesh nodes. Existing dependency-bound field cache reused or prepared once.")
+            cached = getattr(gun, "_continuous_gun_field", None)
+        requested_domain = request.get("domain", {})
+        required_bounds = (requested_domain.get("entrance_m", 0.), stop_m)
+        if cached is not None and can_reuse_electric_field(cached, request, required_bounds):
+            # The ordinary accessor must see the actual cached request, not a
+            # shorter-domain label attached to a different solved array. All
+            # other numerical/physical inputs were checked before this change.
+            gun._gun_field_exit_extension_mm = cached.request["numerics"]["exit_extension_mm"]
+            preparation.append(
+                f"Electric field requested through {stop_m*1e3:.6g} mm; reused immutable solved domain "
+                f"{cached.z[0]*1e3:.6g}–{cached.z[-1]*1e3:.6g} mm with its original numerical identity.")
+        else:
+            r, z = mesh_axes(request)  # Admission before the existing cached solve.
+            preparation.append(f"Electric field domain {z[0]*1e3:.6g}–{z[-1]*1e3:.6g} mm; {len(r)*len(z):,} mesh nodes. Existing dependency-bound field cache reused or prepared once.")
     electric = gun.electric_field
     return gun, electric, tuple(preparation)
 
@@ -188,6 +202,9 @@ class TestElectronScene:
     _post_exit_ground: bool = False
     has_electric_field: bool = True
     _unsupported_stops: tuple[tuple[float, str], ...] = ()
+    physical_identity: str | None = None
+    numerical_identity: str | None = None
+    transport_identity: str | None = None
     _bore_axial_bounds_m: np.ndarray = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
@@ -204,6 +221,10 @@ class TestElectronScene:
     @property
     def source_regions(self):
         return (*self.magnetic_scene.source_regions, *self._electric_regions)
+
+    @property
+    def support_metadata(self):
+        return self.magnetic_scene.support_metadata
 
     @property
     def diagnostic_sampling_regions(self):
@@ -448,18 +469,43 @@ def prepare_test_electron_scene(state, magnetic_scene, *, z_limits_mm=None):
         bounds[0, 2] = min(bounds[0, 2], float(gun.emitter.mechanical_center_from_tip_mm)*1e-3)
     if bounds[1, 2] <= float(initial[0, 2]):
         raise ValueError("The calculation cutoff must lie after the physical tip")
-    expanded_magnetic = replace(magnetic_scene, diagnostic_bounds_m=_frozen(bounds))
+    expanded_magnetic = magnetic_scene.with_diagnostic_bounds(bounds)
     electric_region = MagneticSourceRegion("gun_electric_field", "Gun electrostatic field", "electric", _frozen(electric_bounds))
     notes.extend(preparation)
     notes.extend(("Virtual electron starts at the physical tip with its local emission energy; edited diagnostic settings never replace the microscope source.",
                   "Captured supported electric and magnetic optics and hardware stops are included; specimen and detector interactions are excluded. Unsupported downstream fields stop this diagnostic explicitly.",
                   "Electric and magnetic inputs remain frozen when only the diagnostic electron is adjusted; unknown field domains stop propagation."))
-    return TestElectronScene(expanded_magnetic, electric, base, _frozen(bounds), _frozen(electric_bounds),
-                             tuple(float(v) for v in initial[0]), energy,
-                             float(bounds[1, 2]-initial[0, 2]), tuple(notes),
-                             _active_apertures(state, gun), _physical_bores(state, gun, base),
-                             (electric_region,), flat, post_exit_ground,
-                             _unsupported_stops=tuple(unsupported_stops))
+    from temsim.diagnostic_field_identity import electric_field_identity, identity_digest
+    from temsim.diagnostic_execution_identity import transport_context_identity
+    # Bind the complete provider, not only its scalar base: an unidentified
+    # custom/Wien contribution must not inherit the known base field's identity.
+    electric_identity = electric_field_identity(electric)
+    physical_identity = numerical_identity = None
+    if electric_identity.physical_id is not None and expanded_magnetic.physical_identity is not None:
+        physical_identity = identity_digest("diagnostic-electric-magnetic-physical-v1", {
+            "electric": electric_identity.physical_id, "magnetic": expanded_magnetic.physical_identity})
+    if physical_identity is not None and electric_identity.numerical_id is not None and expanded_magnetic.numerical_identity is not None:
+        numerical_identity = identity_digest("diagnostic-electric-magnetic-numerical-v1", {
+            "physical": physical_identity, "electric": electric_identity.numerical_id,
+            "magnetic": expanded_magnetic.numerical_identity})
+    notes.append(f"Requested diagnostic endpoint {requested_stop*1e3:.6g} mm; actual electric interpolation domain "
+                 f"{electric_bounds[0, 2]*1e3:.6g}–{electric_bounds[1, 2]*1e3:.6g} mm.")
+    if numerical_identity is not None:
+        notes.extend((f"Physical field identity: {physical_identity}",
+                      f"Numerical field identity: {numerical_identity}",
+                      f"Electric field request identity: {electric_identity.request_id}"))
+    else:
+        reason = (electric_identity.reason if electric_identity.numerical_id is None
+                  else "Magnetic provider identity is unknown")
+        notes.append(f"Field identity unknown: {reason}; no reproducible field identity is inferred from a worker token.")
+    scene = TestElectronScene(expanded_magnetic, electric, base, _frozen(bounds), _frozen(electric_bounds),
+                              tuple(float(v) for v in initial[0]), energy,
+                              float(bounds[1, 2]-initial[0, 2]), tuple(notes),
+                              _active_apertures(state, gun), _physical_bores(state, gun, base),
+                              (electric_region,), flat, post_exit_ground,
+                              _unsupported_stops=tuple(unsupported_stops),
+                              physical_identity=physical_identity, numerical_identity=numerical_identity)
+    return replace(scene, transport_identity=transport_context_identity(scene))
 
 
 __all__ = ["TestElectronScene", "prepare_test_electron_scene"]

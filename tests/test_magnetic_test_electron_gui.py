@@ -119,6 +119,32 @@ def electron_item(controller, key):
                 if controller.electron_list.topLevelItem(index).data(0, Qt.ItemDataRole.UserRole) == key)
 
 
+def test_advanced_field_details_are_readable_without_launching_work(controller, monkeypatch):
+    monkeypatch.setattr(controller, "_schedule", lambda: None)
+    scene = UniformScene()
+    scene.physical_identity = "physical-fixture"
+    scene.numerical_identity = "numerical-fixture"
+    scene.transport_identity = "transport-fixture"
+    scene.support_metadata = (SimpleNamespace(
+        key="deflector", model="finite equivalent field", limitation="Not a pointwise kick path.",
+        reference_momentum_kg_m_s=3e-22, captured_time_s=.25),)
+    controller.set_scene(scene)
+    text = controller.field_details.toPlainText()
+    assert "physical-fixture" in text and "numerical-fixture" in text
+    assert "transport-fixture" in text and "finite equivalent field" in text
+    assert "3e-22" in text and "0.25" in text
+    assert controller.field_details.isReadOnly()
+    assert controller.advanced.isHidden()
+    controller.invalidate()
+    assert "pending" in controller.field_details.toPlainText()
+
+
+def test_missing_field_identity_remains_unknown_in_advanced_details(controller, monkeypatch):
+    monkeypatch.setattr(controller, "_schedule", lambda: None)
+    controller.set_scene(UniformScene())
+    assert controller.field_details.toPlainText().count("Unknown") == 3
+
+
 def test_controls_convert_explicit_units_and_do_not_mutate_captured_scene(controller, qtbot, monkeypatch):
     scene = UniformScene()
     before = (scene.bounds_m.copy(), scene.field.copy(), dict(vars(scene)))
@@ -631,7 +657,7 @@ class FakeIsolatedExecution:
         self.identity = None
         self.fail_next_trace = False
 
-    def prepare(self, state, magnetic_scene, *, z_limits_mm, cancelled):
+    def prepare(self, state, magnetic_scene, *, z_limits_mm, cancelled, request_metadata=None):
         from temsim.test_electron_execution import RemoteElectronScene
         assert not cancelled()
         self.preparations.append((state, magnetic_scene, z_limits_mm))

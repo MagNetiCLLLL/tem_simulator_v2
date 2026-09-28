@@ -396,3 +396,128 @@ def test_published_hardware_tab_retains_readable_controls(window, qtbot, task):
     if task == "probe_corrector":
         assert page.scroll.widget().height() > page.scroll.viewport().height()
         assert page.scroll.verticalScrollBar().maximum() > 0
+
+
+def test_feedback_selection_baseline_and_plane_are_read_only(panel, monkeypatch, qtbot):
+    from test_hardware_tuning_feedback import retained_result
+    import temsim.gui.hardware_tuning_panel as module
+
+    high = retained_result(panel._state, request="high-execution")
+    preview = retained_result(panel._state, request="preview-execution", x_shift=2e-6)
+    panel.publish_result(high, "High accuracy")
+    panel.baseline_button.click()
+    before = deepcopy(panel._state.to_dict())
+    changes = []
+    panel.runtime_changed.connect(changes.append)
+    panel.publish_result(preview, "Preview")
+    assert "preview-exec" in panel.feedback_status.text()
+    assert "Δ centroid X/Y: 2 / 0" in panel.feedback_delta.text()
+    panel.select_result("high")
+    panel.select_result("ray")
+    # Switching tasks and opening feedback reuse scalar readouts at this plane.
+    monkeypatch.setattr(module, "observe_retained_beam", lambda *_: pytest.fail("Cached plane should not be resampled"))
+    panel.select_task("beam_tilt")
+    panel.feedback_toggle.click()
+    panel.feedback_toggle.click()
+    panel.select_result("high")
+    assert "high-executi" in panel.feedback_status.text()
+    assert "Δ centroid X/Y: 0 / 0" in panel.feedback_delta.text()
+    assert panel._state.to_dict() == before and changes == []
+    assert panel.feedback_status.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse
+    assert panel.scroll.horizontalScrollBar().maximum() == 0
+
+
+def test_feedback_captured_drives_survive_live_edit_and_retained_result_switch(panel):
+    from test_hardware_tuning_feedback import retained_result
+
+    panel.select_task("condenser_current")
+    high = retained_result(panel._state, request="original-high")
+    panel.publish_result(high, "High accuracy")
+    captured_text = panel.feedback_captured.text()
+    old_x = panel._observation().centroid_x_um
+    panel.set_revision(7)
+    _edit(panel, ("condenser_lens_1", "percent"), "43.5")
+    assert "STALE" in panel.feedback_status.text()
+    assert "Live revision 7" in panel.feedback_status.text()
+    assert panel.feedback_captured.text() == captured_text
+    assert panel._observation().centroid_x_um == old_x
+    # Captured controls are detached at publication, like the scalar baseline.
+    runtime_targets(high.state_snapshot)["condenser_lens_1"].obj.percent = 17.
+    panel.refresh_values()
+    assert panel.feedback_captured.text() == captured_text
+    panel.publish_result(retained_result(panel._state, request="new-preview", x_shift=3e-6), "Preview")
+    assert "STALE" not in panel.feedback_status.text()
+    assert "43.5 %" in panel.feedback_captured.text()
+    panel.select_result("high")
+    assert "STALE" in panel.feedback_status.text()
+    assert panel.feedback_captured.text() == captured_text
+    assert panel._observation().centroid_x_um == old_x
+
+
+def test_feedback_unreached_plane_and_missing_focus_have_explicit_reasons(panel):
+    from test_hardware_tuning_feedback import retained_result
+
+    result = retained_result(panel._state)
+    panel.publish_result(result, "Preview")
+    panel.select_task("stem_focus")
+    assert "no qualifying waist marker" in panel.feedback_waists.text()
+    panel.observation_z.setValue(result.state_snapshot.sample.z_mm + 5.)
+    assert "UNAVAILABLE" in panel.feedback_status.text()
+    assert not panel.baseline_button.isEnabled()
+    assert "unavailable" in panel.feedback_metrics.text()
+
+
+def test_workspace_feedback_publication_staleness_and_clear_follow_real_lifecycle(window, monkeypatch):
+    from test_hardware_tuning_feedback import retained_result
+
+    workspace = window.workspace
+    panel = workspace.hardware_tuning
+    # The publication method and real stale signals run; unrelated ray drawing
+    # is suppressed because this fixture is retained data, not a microscope run.
+    for name in ("_draw_ray_diagram", "_prepare_scan_ray_playback", "_publish_optional_ray_panels",
+                 "_refresh_visible_ray_panels", "_refresh_ray_calculation_extent", "_update_projection_text"):
+        monkeypatch.setattr(workspace, name, lambda *_args, **_kwargs: None)
+    high = retained_result(window.state, request="integrated-high")
+    high.simulation.metrics["optical_tuning"] = True
+    workspace.display_result(high, "High accuracy")
+    assert panel._retained["ray"][0] is high
+    assert panel._retained["high"][0] is high
+    panel.select_task("condenser_current")
+    _edit(panel, ("condenser_lens_1", "percent"), "43.5")
+    assert "STALE" in panel.feedback_status.text()
+    assert panel._revision == window._physical_revision
+    window.preview_timer.stop()
+    preview = retained_result(window.state, request="integrated-preview")
+    preview.simulation.metrics["optical_tuning"] = True
+    workspace.display_result(preview, "Preview")
+    assert "STALE" not in panel.feedback_status.text()
+    panel.select_result("high")
+    assert "STALE" in panel.feedback_status.text()
+    revision = window._physical_revision
+    panel.select_task("beam_shift")
+    panel.observation_z.setValue(10.)
+    assert window._physical_revision == revision
+    assert not window.preview_timer.isActive()
+    workspace.clear_result()
+    assert not panel._retained
+    assert "No retained result" in panel.feedback_status.text()
+
+
+def test_feedback_transaction_restores_scalar_baseline_selection_and_stale_state(panel):
+    from test_hardware_tuning_feedback import retained_result
+
+    high = retained_result(panel._state, request="history-high")
+    panel.publish_result(high, "High accuracy")
+    panel.observation_z.setValue(10.)
+    panel.baseline_button.click()
+    panel.select_result("high")
+    panel.mark_result_stale("high")
+    saved = panel.capture_result_presentation()
+    old_text = panel.feedback_status.text()
+    panel.clear_results()
+    panel.publish_result(retained_result(panel._state, request="rejected-file"), "Preview")
+    panel.restore_result_presentation(saved)
+    assert panel.capture_result_presentation() == saved
+    assert panel.feedback_status.text() == old_text
+    assert panel._retained["high"][0] is high
+    assert "rejected" not in panel.feedback_status.text()

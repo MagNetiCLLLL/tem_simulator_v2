@@ -156,6 +156,13 @@ def test_late_publication_failure_restores_every_display_and_cutoff(window, exec
     old_vacuum = window.workspace.vacuum_map.result_text.text()
     old_summary = window.workspace.result_readout.label.text()
     old_timing = page.calculation_timing.text.toPlainText()
+    hardware = window.workspace.hardware_tuning
+    hardware.observation_z.setValue(10.)
+    if has_old_result:
+        hardware.baseline_button.click()
+        hardware.mark_result_stale("ray")
+    old_feedback = hardware.capture_result_presentation()
+    old_feedback_text = hardware.feedback_status.text()
     original = window.workspace.jump_to_ray_position
     def late_failure(*args, **kwargs):
         original(*args, **kwargs)
@@ -173,6 +180,8 @@ def test_late_publication_failure_restores_every_display_and_cutoff(window, exec
     assert page.calculation_timing.text.toPlainText() == old_timing
     assert window.workspace.vacuum_map.result_text.text() == old_vacuum
     assert window.workspace.result_readout.label.text() == old_summary
+    assert hardware.capture_result_presentation() == old_feedback
+    assert hardware.feedback_status.text() == old_feedback_text
     assert window.workspace._last_result is (executed_section if has_old_result else None)
     if not has_old_result:
         assert not window.workspace._ray_bundle_records

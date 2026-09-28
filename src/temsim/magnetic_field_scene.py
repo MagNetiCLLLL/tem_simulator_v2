@@ -13,21 +13,95 @@ No particle propagation or magnetostatic solve is started by this module.
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import lru_cache
+from hashlib import sha256
+import inspect
 from itertools import product
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+from scipy.interpolate import RegularGridInterpolator
+from scipy._lib._array_api import array_namespace
 
 from temsim import input_io
 from temsim.component_keys import CONDENSER_LENS_KEYS
 from temsim.physics.lens_field_provider import (
+    CoordinateRegistration,
     FrozenMappedField,
+    MagneticFieldMap,
     MappedLensFieldProvider,
     _provider_geometry_token,
     lens_geometry_binding,
     resolve_runtime_lens_field_provider,
 )
+
+
+# Capture the admitted implementations before a caller can replace methods.
+# Exact dataclass types alone do not establish which interpolation law executes.
+_MAPPED_METHOD_CONTRACTS = {
+    cls: tuple((name, inspect.getattr_static(cls, name)) for name in names)
+    for cls, names in (
+        (MappedLensFieldProvider, ("excitation_scale", "field_support_mm", "field_at_global_positions_t")),
+        (FrozenMappedField, ("from_provider", "field_at_global_positions_t")),
+        (MagneticFieldMap, ("field_support_mm", "field_at_global_positions_t")),
+        (CoordinateRegistration, ("origin_array_m", "rotation_array", "positions_global_to_local_m", "vectors_local_to_global")),
+        (RegularGridInterpolator, ("__call__", "_prepare_xi", "_find_indices", "_evaluate_linear", "_find_out_of_bounds")),
+    )
+}
+_RGI_ARRAY_CONVERTER = array_namespace(np.empty(0)).asarray
+
+
+def _mapped_methods_match(instance):
+    contract = _MAPPED_METHOD_CONTRACTS.get(type(instance))
+    return contract is not None and all(
+        inspect.getattr_static(instance, name, None) is original
+        for name, original in contract
+    )
+
+
+def _readonly_same_array(actual, declared):
+    return (type(actual) is np.ndarray and type(declared) is np.ndarray
+            and not actual.flags.writeable and not declared.flags.writeable
+            and actual.dtype == declared.dtype and actual.shape == declared.shape
+            and (actual is declared or np.array_equal(actual, declared)))
+
+
+def _mapped_inputs_are_supported(source, original_provider):
+    """Verify the consumed arrays and law, without evaluating or rebuilding B."""
+    provider, field_map = source.provider, source.field_map
+    if (type(original_provider) is not MappedLensFieldProvider or type(provider) is not FrozenMappedField
+            or type(field_map) is not MagneticFieldMap or type(field_map.registration) is not CoordinateRegistration):
+        return False
+    if not all(_mapped_methods_match(item) for item in (original_provider, provider, field_map)):
+        return False
+    if field_map is not provider.field_map or field_map is not original_provider.field_map:
+        return False
+    if not _mapped_methods_match(field_map.registration):
+        return False
+    dimension = {"axisymmetric_rz": 2, "cartesian_xyz": 3}.get(field_map.map_type)
+    if dimension is None or len(field_map.axes_m) != dimension or len(field_map.components_t) != dimension:
+        return False
+    if len(field_map._interpolators) != dimension:
+        return False
+    for interpolator, component in zip(field_map._interpolators, field_map.components_t):
+        if not _mapped_methods_match(interpolator):
+            return False
+        if interpolator.method != "linear" or interpolator.bounds_error is not False or interpolator.fill_value != 0.:
+            return False
+        # SciPy stores the arrays privately in current releases; older releases
+        # use direct public attributes. Read storage, never an overridable property.
+        storage = vars(interpolator)
+        values = storage.get("_values", storage.get("values"))
+        grid = storage.get("_grid", storage.get("grid"))
+        if "_asarray" in storage and storage["_asarray"] is not _RGI_ARRAY_CONVERTER:
+            return False
+        if not _readonly_same_array(values, component) or not isinstance(grid, tuple) or len(grid) != dimension:
+            return False
+        if not all(_readonly_same_array(actual, axis) for actual, axis in zip(grid, field_map.axes_m)):
+            return False
+    return True
 
 
 def _points(values):
@@ -61,6 +135,22 @@ class MagneticDiagnosticSamplingRegion:
 
 
 @dataclass(frozen=True)
+class MagneticFieldSupport:
+    """Captured model identity and support, never a physical accuracy claim."""
+
+    key: str
+    model: str
+    bounds_m: tuple[tuple[float, ...], ...]
+    radial_limit_m: float
+    physical_identity: str | None = None
+    numerical_identity: str | None = None
+    reference_momentum_kg_m_s: float | None = None
+    reference_charge_c: float | None = None
+    captured_time_s: float | None = None
+    limitation: str = "Provider identity unavailable; no reproducible field claim."
+
+
+@dataclass(frozen=True)
 class MagneticDiagnosticProfile:
     """Total field along the axis and on a declared small transverse ring.
 
@@ -88,6 +178,7 @@ class _Source:
     category: str = "lens"
     label: str = "Round lens"
     known_zero: bool = False
+    identity: MagneticFieldSupport | None = None
 
     def contains(self, points):
         valid = np.all((points >= self.bounds_m[0]) & (points <= self.bounds_m[1]), axis=1)
@@ -123,6 +214,17 @@ class MagneticSceneField:
     seed_regions_m: tuple[np.ndarray, ...]
     _sources: tuple[_Source, ...]
     diagnostic_bounds_m: np.ndarray | None = None
+    physical_identity: str | None = None
+    numerical_identity: str | None = None
+    support_metadata: tuple[MagneticFieldSupport, ...] = ()
+
+    def with_diagnostic_bounds(self, bounds_m):
+        """Change numerical support without relabelling the captured physics."""
+        bounds = np.asarray(bounds_m, dtype=float)
+        if bounds.shape != (2, 3) or not np.isfinite(bounds).all() or np.any(bounds[1] <= bounds[0]):
+            raise ValueError("Magnetic diagnostic bounds must be finite increasing XYZ metres")
+        result = replace(self, diagnostic_bounds_m=_frozen_array(bounds))
+        return replace(result, numerical_identity=_scene_numerical_identity(result))
 
     def _diagnostic_sources_at_position(self, position):
         point = np.asarray(position, dtype=float)
@@ -378,6 +480,191 @@ def _component_radius_m(component, *, axial_scale_mm):
     return radius_mm * 1e-3
 
 
+def _profile_inputs(component, names):
+    """Select consumed scalar controls; presentation and mutable owners stay out."""
+    return {name: getattr(component, name) for name in names}
+
+
+def _gaussian_inputs(terms):
+    return tuple((float(term.amplitude), float(term.offset), float(term.sigma)) for term in terms)
+
+
+@lru_cache(maxsize=64)
+def _implementation_inputs(provider_type, native_type=None, component_type=None):
+    """Numerical identity follows implementation files used by known laws."""
+    paths = {Path(__file__), Path(inspect.getfile(provider_type))}
+    for cls in (native_type, component_type):
+        if cls is not None:
+            # Include inherited field methods, not just the concrete class file.
+            paths.update(Path(inspect.getfile(base)) for base in cls.__mro__ if base.__module__.startswith("temsim."))
+    if provider_type is _MultipoleField:
+        from temsim.physics import core
+        from temsim.optics import stigmator_field
+        paths.update((Path(core.__file__), Path(stigmator_field.__file__)))
+    from temsim.optics.electron_gun.alignment import GunDeflector, GunStigmator
+    if provider_type in (GunDeflector, GunStigmator):
+        from temsim.optics.electron_gun import electrostatic
+        paths.add(Path(electrostatic.__file__))
+    return {str(path.relative_to(Path(__file__).parent)).replace("\\", "/"): sha256(path.read_bytes()).hexdigest()
+            for path in sorted(paths)}
+
+
+def _source_field_inputs(source, original_provider, reference):
+    """Admit only explicitly understood field laws, not arbitrary callbacks.
+
+    The existing compiled-law registry supplies the same concrete-type and
+    method guards; using it here does not request compilation or transport.
+    Map arrays are hashed from the captured numerical data, not a path or a
+    caller-provided cache label. Unknown laws remain usable but unidentified.
+    """
+    from temsim.diagnostic_field_identity import field_array_digest
+    from temsim.test_electron_compiled_laws import (
+        lens_family, magnetic_provider_is_supported, multipole_is_supported,
+    )
+    from temsim.physics.lens_field_provider import GeometryAwareAnalyticFieldProvider
+    from temsim.optics.electron_gun.alignment import GunDeflector, GunStigmator
+
+    provider = source.provider
+    if type(original_provider) is MappedLensFieldProvider and type(provider) is FrozenMappedField:
+        field_map = source.field_map
+        if not _mapped_inputs_are_supported(source, original_provider):
+            return None
+        binding = original_provider.binding
+        if not binding.geometry_fingerprint or not field_map.geometry_fingerprint:
+            return None
+        physical = {
+            "geometry_binding": binding.geometry_fingerprint,
+            "map_geometry_binding": field_map.geometry_fingerprint,
+            "excitation_scaling": original_provider.excitation_scaling,
+            "scale": provider.scale,
+            "reference_excitation_percent": field_map.reference_excitation_percent,
+            "reference_polarity": field_map.reference_polarity,
+            "circuit_operating_point": original_provider.circuit_operating_point,
+            "origin_global_m": field_map.registration.origin_global_m,
+            "rotation_local_to_global": field_map.registration.rotation_local_to_global,
+        }
+        numerical = {
+            "map_type": field_map.map_type,
+            "axes_m": tuple(field_array_digest(axis) for axis in field_map.axes_m),
+            "components_t": tuple(field_array_digest(values) for values in field_map.components_t),
+            "interpolation": "linear; no extrapolation; native map zero-outside",
+        }
+        return "registered_mapped_field", physical, numerical, "Finite registered map; missing active map support is unknown, not zero."
+    if not magnetic_provider_is_supported(provider):
+        return None
+    if type(provider) is GeometryAwareAnalyticFieldProvider:
+        native = provider.native_provider
+        family = lens_family(native)
+        if family is None or not provider.binding.geometry_fingerprint:
+            return None
+        if family == "objective":
+            physical = _profile_inputs(native, ("enabled", "percent", "polarity"))
+            for prefix in ("upper", "lower"):
+                physical.update(_profile_inputs(native, (
+                    prefix + "_b0_t", prefix + "_a_mm", prefix + "_field_center_z_mm")))
+                physical[prefix + "_gaussian"] = _gaussian_inputs(getattr(native, prefix + "_gaussian"))
+        else:
+            lens = getattr(native, "lens", native)
+            physical = _profile_inputs(lens, ("enabled", "z_mm", "b0_t", "a_mm", "percent", "polarity"))
+            physical["normalise_profile_peak"] = bool(getattr(lens, "normalise_profile_peak", False))
+            physical["gaussian"] = _gaussian_inputs(lens.gaussian)
+        physical["geometry_binding"] = provider.binding.geometry_fingerprint
+        physical["family"] = family
+        support = provider.field_support_mm()
+        numerical = {"axial_support_mm": tuple(support),
+                     "axial_derivative_step_mm": max(abs(support[1] - support[0]), 1.) * 1e-6}
+        return "near_axis_first_order", physical, numerical, "First-order off-axis expansion; higher radial orders unmodelled; radius is a support restriction, not an error bound."
+    if type(provider) is _EquivalentDeflectorField:
+        if reference is None:
+            return None  # A B value alone cannot reconstruct its reference momentum/time.
+        physical = {**reference, "coil_range_m": (provider.low_m, provider.high_m),
+                    "bx_t": provider.bx_t, "by_t": provider.by_t}
+        return "integrated_kick_equivalent", physical, {}, "Uniform finite-coil equivalent at captured momentum/time; compare signed integral and exit angle, not the internal thin-kick path."
+    if type(provider) is _MultipoleField:
+        components = (*provider.state.stigmators, *provider.state.corrector_elements)
+        if len(components) != 1 or not multipole_is_supported(components[0]):
+            return None
+        component = components[0]
+        from temsim.optics.quadrupole import QuadrupoleComponent
+        from temsim.optics.hexapole import HexapoleComponent
+        from temsim.simulation_modes import is_ideal
+        if isinstance(component, QuadrupoleComponent):
+            names = ("enabled", "z_mm", "effective_length_mm", "strength_m2")
+            family = "quadrupole"
+        elif isinstance(component, HexapoleComponent):
+            names = ("enabled", "z_mm", "effective_length_mm", "strength_m3", "orientation_rad")
+            family = "hexapole"
+        else:
+            names = ("enabled", "z_mm", "length_mm", "field_model", "max_strength_m2",
+                     "strength_x_percent", "strength_y_percent", "channel_x_angle_deg", "channel_y_angle_deg")
+            family = "stigmator"
+        physical = {**_profile_inputs(component, names), "family": family,
+                    "momentum_over_charge": provider.momentum_over_charge}
+        if family == "hexapole":
+            physical["ideal_mode_disables_hexapole"] = is_ideal(provider.state)
+        if reference is not None:
+            physical.update(reference)
+        return "effective_multipole", physical, {}, "Existing near-axis effective multipole at captured reference momentum; no magnetic-material field reconstruction."
+    if type(provider) is GunDeflector:
+        names = ("enabled", "beam_blanked", "upper_center_from_tip_mm", "lower_center_from_tip_mm",
+                 "coil_length_mm", "field_center_offset_mm", "soft_edge_mm")
+        physical = _profile_inputs(provider, names)
+        physical.update(_profile_inputs(provider, ("blanking_field_y_mt",) if provider.beam_blanked else
+            ("upper_field_x_mt", "upper_field_y_mt", "lower_field_x_mt", "lower_field_y_mt")))
+        return "finite_gun_deflector", physical, {}, "Existing smooth finite gun field, including captured blanking setting."
+    if type(provider) is GunStigmator:
+        physical = _profile_inputs(provider, ("enabled", "optical_reference_from_tip_mm", "effective_length_mm",
+                                               "soft_edge_mm", "gradient_t_per_m", "rotation_deg"))
+        return "finite_gun_stigmator", physical, {}, "Existing finite quadrupole gun field inside the declared radial support."
+    return None
+
+
+def _bind_source_identity(source, *, original_provider=None, reference=None):
+    from temsim.diagnostic_field_identity import identity_digest
+
+    bounds = tuple(tuple(float(value) for value in row) for row in source.bounds_m)
+    inputs = _source_field_inputs(source, original_provider, reference)
+    if inputs is None:
+        support = MagneticFieldSupport(source.key, "unknown_provider", bounds, source.radius_m)
+    else:
+        model, physical, numerical, limitation = inputs
+        provider = source.provider
+        native = getattr(provider, "native_provider", None)
+        components = ((*provider.state.stigmators, *provider.state.corrector_elements)
+                      if type(provider) is _MultipoleField else ())
+        implementation = _implementation_inputs(type(provider), type(native) if native is not None else None,
+                                                  type(components[0]) if components else None)
+        libraries = {"numpy": np.__version__}
+        if source.field_map is not None:
+            import scipy
+            libraries["scipy"] = scipy.__version__
+        physical_id = identity_digest("magnetic-source-physical-v1", {"key": source.key, "model": model, "inputs": physical})
+        numerical_id = identity_digest("magnetic-source-numerical-v1", {
+            "physical_identity": physical_id, "bounds_m": bounds, "radius_m": source.radius_m,
+            "known_zero": source.known_zero, "inputs": numerical, "arithmetic": "float64",
+            "implementation_sha256": implementation, "libraries": libraries,
+        })
+        reference = reference or {}
+        support = MagneticFieldSupport(source.key, model, bounds, source.radius_m,
+            physical_id, numerical_id, reference.get("reference_momentum_kg_m_s"),
+            reference.get("reference_charge_c"), reference.get("captured_time_s"), limitation)
+    return replace(source, identity=support)
+
+
+def _scene_numerical_identity(scene):
+    from temsim.diagnostic_field_identity import identity_digest
+
+    if scene.physical_identity is None or any(item.numerical_identity is None for item in scene.support_metadata):
+        return None
+    return identity_digest("magnetic-scene-numerical-v1", {
+        "physical_identity": scene.physical_identity,
+        "sources_in_sum_order": tuple(item.numerical_identity for item in scene.support_metadata),
+        "bounds_m": scene.bounds_m.tolist(),
+        "diagnostic_bounds_m": (scene.diagnostic_bounds_m if scene.diagnostic_bounds_m is not None else scene.bounds_m).tolist(),
+        "support_rule": "all active axial contributions required; gaps zero; filter bent coordinates unsupported",
+    })
+
+
 def _extra_sources(state, z_clip, notes):
     """Freeze effective column operators and directly modelled gun magnets."""
     from temsim.physics.core import electron
@@ -390,13 +677,14 @@ def _extra_sources(state, z_clip, notes):
         momentum_over_charge = 0.
     sources = []
 
-    def append(key, provider, support_mm, radius, category, label, *, known_zero=False):
+    def append(key, provider, support_mm, radius, category, label, *, known_zero=False, reference=None):
         low, high = np.asarray(support_mm, dtype=float) * 1e-3
         low, high = max(low, z_clip[0]), min(high, z_clip[1])
         if high <= low:
             return
         bounds = _frozen_array(((-radius, -radius, low), (radius, radius, high)))
-        sources.append(_Source(str(key), provider, bounds, radius, None, category, str(label), bool(known_zero)))
+        source = _Source(str(key), provider, bounds, radius, None, category, str(label), bool(known_zero))
+        sources.append(_bind_source_identity(source, reference=reference))
 
     seen = set()
     for original in components:
@@ -433,12 +721,16 @@ def _extra_sources(state, z_clip, notes):
                 and (component.strength_m3 == 0. or is_ideal(context))
             )
             append(key, _MultipoleField(context, momentum_over_charge), support, radius,
-                   "stigmator" if is_stigmator else "corrector", label, known_zero=known_zero)
+                   "stigmator" if is_stigmator else "corrector", label, known_zero=known_zero,
+                   reference={"reference_momentum_kg_m_s": momentum, "reference_charge_c": charge})
             notes.append(f"{label}: existing effective multipole field at the captured reference energy; near-axis radius <= {radius*1e3:.6g} mm.")
+        captured_time = None
         if hasattr(component, "kick_events"):
             try:
-                events = component.kick_events(time_s=float(getattr(state, "simulation_time_s", 0.)))
+                captured_time = float(getattr(state, "simulation_time_s", 0.))
+                events = component.kick_events(time_s=captured_time)
             except TypeError:
+                captured_time = None
                 events = component.kick_events()
         elif all(hasattr(component, name) for name in
                  ("upper_z_mm", "lower_z_mm", "upper_x_mrad", "upper_y_mrad", "lower_x_mrad", "lower_y_mrad")):
@@ -463,7 +755,11 @@ def _extra_sources(state, z_clip, notes):
                                                  momentum_over_charge*dy_rad/length_m,
                                                  -momentum_over_charge*dx_rad/length_m)
             append(f"{key}:{index}", provider, support, radius, "deflector", label,
-                   known_zero=(dx_rad == 0. and dy_rad == 0.))
+                   known_zero=(dx_rad == 0. and dy_rad == 0.), reference={
+                       "reference_momentum_kg_m_s": momentum, "reference_charge_c": charge,
+                       "captured_time_s": captured_time,
+                       "kick_xy_rad": (float(dx_rad), float(dy_rad)),
+                   })
         notes.append(f"{label}: display-only equivalent finite-coil field; its signed integral reproduces the existing kick at {getattr(state, 'beam_voltage_kv', 0.):.6g} kV and time {getattr(state, 'simulation_time_s', 0.):.6g} s. The effective coil thickness is {thickness_mm:.6g} mm; no fringe shape is inferred.")
 
     gun = getattr(state, "electron_gun", None)
@@ -555,7 +851,8 @@ def prepare_magnetic_scene(state, *, z_limits_mm=None):
         if np.any(bounds[1] <= bounds[0]):
             continue
         label = str(getattr(lens, "name", getattr(lens, "label", key)))
-        sources.append(_Source(key, frozen_provider, _frozen_array(bounds), radius, field_map, "lens", label))
+        source = _Source(key, frozen_provider, _frozen_array(bounds), radius, field_map, "lens", label)
+        sources.append(_bind_source_identity(source, original_provider=provider))
     sources.extend(_extra_sources(state, z_clip, notes))
     notes.append("The post-column energy filter uses a separate bent coordinate system and is outside this straight-column scene.")
     if sources:
@@ -570,9 +867,20 @@ def prepare_magnetic_scene(state, *, z_limits_mm=None):
     diagnostic_bounds = bounds.copy()
     if np.isfinite(z_clip).all():
         diagnostic_bounds[:, 2] = z_clip
-    return MagneticSceneField(_frozen_array(bounds), float(radius), tuple(source.key for source in sources),
-                              tuple(notes), tuple(source.bounds_m for source in sources), tuple(sources),
-                              _frozen_array(diagnostic_bounds))
+    support_metadata = tuple(source.identity for source in sources)
+    if any(item.physical_identity is None for item in support_metadata):
+        physical_identity = None
+        notes.append("Some captured magnetic providers have unknown reproducible identities; total field identity remains unknown.")
+    else:
+        from temsim.diagnostic_field_identity import identity_digest
+        physical_identity = identity_digest("magnetic-scene-physical-v1", {
+            "sources": tuple(sorted((item.key, item.physical_identity) for item in support_metadata)),
+            "coordinates": "right-handed global XYZ m; downstream +Z; B tesla",
+        })
+    scene = MagneticSceneField(_frozen_array(bounds), float(radius), tuple(source.key for source in sources),
+                               tuple(notes), tuple(source.bounds_m for source in sources), tuple(sources),
+                               _frozen_array(diagnostic_bounds), physical_identity, None, support_metadata)
+    return replace(scene, numerical_identity=_scene_numerical_identity(scene))
 
 
 def sample_magnetic_diagnostic(scene, z_mm, *, probe_radius_m=1e-5):

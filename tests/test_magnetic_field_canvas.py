@@ -771,3 +771,239 @@ def test_drag_on_axis_pans_only_its_physical_direction(canvas, axis, changed):
     assert actual[changed] != ranges[changed]
     assert actual[1-changed] == ranges[1-changed]
     np.testing.assert_allclose(np.ptp(actual, axis=1), np.ptp(ranges, axis=1))
+
+
+def _assert_screen_simplification_bound(points, retained, tolerance):
+    """Independent finite-segment distance for each removed chronological vertex."""
+    assert retained.dtype.kind in "iu"
+    assert np.all(np.diff(retained) > 0)
+    if not len(points):
+        assert not len(retained)
+        return
+    assert retained[0] == 0 and retained[-1] == len(points) - 1
+    for first, last in zip(retained[:-1], retained[1:]):
+        start, end = points[first], points[last]
+        direction = end - start
+        squared_length = float(np.dot(direction, direction))
+        for point in points[first + 1:last]:
+            fraction = 0. if squared_length == 0. else float(np.dot(point - start, direction)) / squared_length
+            closest = start + min(1., max(0., fraction)) * direction
+            assert np.linalg.norm(point - closest) <= tolerance + 1e-10
+
+
+@pytest.mark.parametrize("count", [0, 1, 2])
+def test_screen_simplification_handles_short_paths(count):
+    from temsim.gui.electron_display_geometry import simplify_screen_vertices
+
+    points = np.zeros((count, 2))
+    retained = simplify_screen_vertices(points)
+    np.testing.assert_array_equal(retained, np.arange(count))
+    _assert_screen_simplification_bound(points, retained, .1)
+
+
+def test_screen_simplification_reduces_dense_near_straight_path_without_changing_samples():
+    from temsim.gui.electron_display_geometry import simplify_screen_vertices
+
+    x = np.linspace(0., 1000., 1001)
+    points = np.column_stack((x, .04 * np.sin(x * .04)))
+    before = points.copy()
+    points.setflags(write=False)
+    retained = simplify_screen_vertices(points, tolerance_px=.1)
+    assert len(retained) < 20
+    np.testing.assert_array_equal(points, before)
+    np.testing.assert_array_equal(retained, simplify_screen_vertices(points, tolerance_px=.1))
+    assert not points.flags.writeable
+    _assert_screen_simplification_bound(points, retained, .1)
+
+
+def test_screen_simplification_preserves_turning_plateau_edges_and_global_extents():
+    from temsim.gui.electron_display_geometry import simplify_screen_vertices
+
+    points = np.array([[0., 0.], [2., 0.], [2., 4.], [2., 0.], [1., 0.],
+                       [1., 0.], [3., 0.], [3., 0.], [2., -2.], [0., 0.]])
+    retained = simplify_screen_vertices(points, tolerance_px=100.)
+    # X turns at [1,3], [4,5] and [6,7]; the Y extrema must also survive.
+    assert {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}.issubset(set(retained))
+    np.testing.assert_array_equal(points[retained].min(axis=0), points.min(axis=0))
+    np.testing.assert_array_equal(points[retained].max(axis=0), points.max(axis=0))
+    _assert_screen_simplification_bound(points, retained, 100.)
+
+
+@pytest.mark.parametrize("kind", ["sine", "sharp", "vertical", "reversed", "duplicates"])
+def test_screen_simplification_has_independently_checked_segment_error(kind):
+    from temsim.gui.electron_display_geometry import simplify_screen_vertices
+
+    x = np.linspace(0., 40., 401)
+    if kind == "sine":
+        points = np.column_stack((x, np.sin(x * 2.)))
+    elif kind == "sharp":
+        points = np.column_stack((x, np.where((np.arange(len(x)) // 13) % 2, .8, -.8)))
+    elif kind == "vertical":
+        points = np.column_stack((np.zeros(len(x)), np.sin(x)))
+    elif kind == "reversed":
+        points = np.column_stack((np.cos(x), np.sin(x) * .3))
+    else:
+        points = np.repeat(np.column_stack((x[::5], np.sin(x[::5]))), 3, axis=0)
+    retained = simplify_screen_vertices(points, tolerance_px=.075)
+    _assert_screen_simplification_bound(points, retained, .075)
+    np.testing.assert_array_equal(points[retained].min(axis=0), points.min(axis=0))
+    np.testing.assert_array_equal(points[retained].max(axis=0), points.max(axis=0))
+
+
+def test_screen_simplification_retains_zero_length_run_endpoints():
+    from temsim.gui.electron_display_geometry import simplify_screen_vertices
+
+    points = np.tile([17., -3.], (100, 1))
+    retained = simplify_screen_vertices(points)
+    np.testing.assert_array_equal(retained, [0, 99])
+    _assert_screen_simplification_bound(points, retained, .1)
+
+
+def test_screen_simplification_zoom_recovers_previously_subpixel_vertices():
+    from temsim.gui.electron_display_geometry import simplify_screen_vertices
+
+    x = np.linspace(0., 1000., 1001)
+    overview = np.column_stack((x, .04 * np.sin(x * .04)))
+    zoomed = overview * [1., 100.]
+    coarse = simplify_screen_vertices(overview)
+    fine = simplify_screen_vertices(zoomed)
+    assert len(coarse) < 20 and len(fine) > 4 * len(coarse)
+    _assert_screen_simplification_bound(overview, coarse, .1)
+    _assert_screen_simplification_bound(zoomed, fine, .1)
+
+
+@pytest.mark.parametrize("budget", [0, 1, 3, np.int64(3)])
+def test_screen_simplification_exhausted_budget_returns_full_original_indices(budget):
+    from temsim.gui.electron_display_geometry import simplify_screen_vertices
+
+    x = np.linspace(0., 100., 501)
+    points = np.column_stack((x, np.sin(x)))
+    retained = simplify_screen_vertices(points, maximum_work=budget)
+    np.testing.assert_array_equal(retained, np.arange(len(points)))
+    _assert_screen_simplification_bound(points, retained, .1)
+
+
+def test_screen_simplification_overflowing_differences_keep_finite_input_unchanged():
+    from temsim.gui.electron_display_geometry import simplify_screen_vertices
+
+    largest = np.finfo(np.float64).max
+    points = np.array([[-largest, 0.], [0., 0.], [largest, 0.]])
+    with np.errstate(all="raise"):
+        retained = simplify_screen_vertices(points)
+    np.testing.assert_array_equal(retained, [0, 1, 2])
+    assert np.isfinite(points).all()
+
+
+@pytest.mark.parametrize("points", [np.zeros((2, 3)), np.zeros((2, 1)), np.zeros(2),
+                                    [[np.nan, 0.]], [[0., np.inf]]])
+def test_screen_simplification_rejects_invalid_coordinate_arrays(points):
+    from temsim.gui.electron_display_geometry import simplify_screen_vertices
+
+    with pytest.raises(ValueError, match="points_xy"):
+        simplify_screen_vertices(points)
+
+
+@pytest.mark.parametrize("tolerance", [0., -1., np.nan, np.inf, True])
+def test_screen_simplification_rejects_invalid_error_tolerance(tolerance):
+    from temsim.gui.electron_display_geometry import simplify_screen_vertices
+
+    with pytest.raises(ValueError, match="tolerance_px"):
+        simplify_screen_vertices(np.zeros((2, 2)), tolerance_px=tolerance)
+
+
+@pytest.mark.parametrize("budget", [-1, 1.5, True, "100"])
+def test_screen_simplification_rejects_invalid_work_budget(budget):
+    from temsim.gui.electron_display_geometry import simplify_screen_vertices
+
+    with pytest.raises(ValueError, match="maximum_work"):
+        simplify_screen_vertices(np.zeros((2, 2)), maximum_work=budget)
+
+
+def _display_segments(path):
+    vertices = np.array([(path.elementAt(i).x, path.elementAt(i).y)
+                         for i in range(path.elementCount())])
+    return vertices.reshape(-1, 2, 2)
+
+
+def test_display_path_cache_tracks_actual_geometry_and_view_but_not_style(canvas):
+    from dataclasses import replace
+
+    z = np.linspace(0., 1., 600)
+    positions = np.column_stack((1e-6*np.sin(12*z), np.zeros_like(z), z))
+    electron = _path(positions, time_s=z*1e-9)
+    canvas.set_electron_paths((electron,))
+    canvas.set_view_range_mm((0., 1000.), (-.004, .004))
+    transform = canvas._screen_transform()
+    original = canvas._electron_display_path('one', transform)
+    assert original.elementCount() < canvas._electron_projections['one'].path.elementCount()/3
+    assert canvas._electron_display_path('one', transform) is original
+    canvas.set_electron_paths((replace(electron, label='Renamed', colour='#55ff33', selected=True,
+                                       state='previous'),))
+    assert canvas._electron_display_path('one', canvas._screen_transform()) is original
+    canvas.set_view_range_mm((200., 800.), (-.002, .002))
+    zoomed = canvas._electron_display_path('one', canvas._screen_transform())
+    assert zoomed is not original
+    canvas.set_projection_angle(57.)
+    assert canvas._electron_display_path('one', canvas._screen_transform()) is not zoomed
+    canvas.set_electron_paths((_path(positions[:300]),))
+    assert 'one' not in canvas._electron_display_paths
+    current = canvas._electron_display_path('one', canvas._screen_transform())
+    np.testing.assert_array_equal(_display_segments(current)[-1, -1],
+                                  canvas._electron_projections['one'].segments[-1, -1])
+    np.testing.assert_array_equal(electron.positions_m, positions)
+    np.testing.assert_array_equal(electron.time_s, z*1e-9)
+    canvas.clear()
+    assert not canvas._electron_display_paths
+
+
+@pytest.mark.parametrize('ratio', [1., 1.5, 2.])
+def test_display_path_screen_error_stays_bounded_at_device_ratios(canvas, monkeypatch, ratio):
+    z = np.linspace(0., 1., 500)
+    positions = np.column_stack((2e-6*np.sin(23*z), 1e-6*np.cos(11*z), z))
+    canvas.set_electron_paths((_path(positions),))
+    canvas.set_view_range_mm((0., 1000.), (-.004, .004))
+    monkeypatch.setattr(canvas, 'devicePixelRatioF', lambda: ratio)
+    transform = canvas._screen_transform()
+    displayed = _display_segments(canvas._electron_display_path('one', transform))
+    original = canvas._electron_projections['one']
+    scale = np.array((transform.m11(), transform.m22())) * ratio
+    a, b = displayed[:, 0]*scale, displayed[:, 1]*scale
+    delta = b-a
+    denominator = np.sum(delta*delta, axis=1)
+    for point in original.segments.reshape(-1, 2)*scale:
+        fraction = np.clip(np.divide(np.sum((point-a)*delta, axis=1), denominator,
+                          out=np.zeros_like(denominator), where=denominator > 0.), 0., 1.)
+        distances = np.hypot(*(point-a-fraction[:, None]*delta).T)
+        assert distances.min() <= .1 + 1e-9
+    np.testing.assert_array_equal(displayed[0, 0], original.segments[0, 0])
+    np.testing.assert_array_equal(displayed[-1, 1], original.segments[-1, 1])
+    assert [name for name, _ in original.markers] == ['start', 'end']
+    np.testing.assert_array_equal(canvas._electron_paths[0].positions_m, positions)
+
+
+def test_display_simplification_does_not_connect_separate_slab_visits(canvas):
+    positions = np.array([[0., 0., 0.], [1e-6, 0., .4], [2e-6, 0., .8],
+                          [4e-6, 0., 1.2], [6e-6, 0., .8], [7e-6, 0., .4], [8e-6, 0., 0.]])
+    canvas.set_electron_paths((_path(positions),))
+    canvas.set_axial_range_mm(250., 750.)
+    projection = canvas._electron_projections['one']
+    assert projection.connections.tolist() == [True, False, True]
+    displayed = _display_segments(canvas._electron_display_path('one', canvas._screen_transform()))
+    # The two original collinear runs can each reduce to one segment, but their
+    # different .75 m boundary points must never acquire a connecting line.
+    assert len(displayed) == 2
+    np.testing.assert_array_equal(displayed[:, 0], projection.segments[[0, 2], 0])
+    np.testing.assert_array_equal(displayed[:, 1], projection.segments[[1, 3], 1])
+    assert projection.markers == ()
+
+
+def test_display_cache_zoom_recovers_subpixel_features(canvas):
+    z = np.linspace(0., 1., 200)
+    positions = np.column_stack((1e-10*np.sin(80*z), np.zeros_like(z), z))
+    canvas.set_electron_paths((_path(positions),))
+    canvas.set_view_range_mm((0., 1000.), (-.004, .004))
+    overview = canvas._electron_display_path('one', canvas._screen_transform())
+    canvas.set_view_range_mm((0., 1000.), (-2e-7, 2e-7))
+    zoomed = canvas._electron_display_path('one', canvas._screen_transform())
+    assert zoomed.elementCount() > overview.elementCount()*4
+    np.testing.assert_array_equal(canvas._electron_paths[0].positions_m, positions)

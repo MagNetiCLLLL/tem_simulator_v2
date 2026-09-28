@@ -354,6 +354,7 @@ class ResultFiles(QObject):
             "labels": [(label, label.text(), label.toolTip(), label.styleSheet())
                        for label in w.findChildren(QLabel)],
             "readout": (dict(workspace.result_readout._records), dict(workspace.result_readout._stale)),
+            "hardware_feedback": workspace.hardware_tuning.capture_result_presentation(),
             "model_status": (workspace.physical_layout.model_editor._calculation_status,
                              workspace.physical_layout.model_editor._calculation_detail),
         }
@@ -407,6 +408,7 @@ class ResultFiles(QObject):
             page.restore_result_presentation(previous["page"])
             workspace.result_readout._records, workspace.result_readout._stale = previous["readout"]
             workspace.result_readout._refresh()
+            workspace.hardware_tuning.restore_result_presentation(previous["hardware_feedback"])
             workspace._refresh_ray_calculation_extent()
             workspace.physical_layout.model_editor.set_calculation_status(*previous["model_status"])
             for label, text, tooltip, style in previous["labels"]:

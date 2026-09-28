@@ -1458,6 +1458,7 @@ class MainWindow(QMainWindow):
         self._install_working_point(candidate, None, fork=False)
         self._physical_revision += 1
         self.workspace.result_readout.set_revision(self._physical_revision)
+        self.workspace.hardware_tuning.set_revision(self._physical_revision)
         from types import SimpleNamespace
         self.workspace.physical_layout.display_result(SimpleNamespace(
             assembly=self.assembly, layout=self.state._resolved_optics_layout,
@@ -1650,6 +1651,7 @@ class MainWindow(QMainWindow):
                 self._install_working_point(updated, candidate.checkpoint, fork=False)
                 self._physical_revision += 1
                 self.workspace.result_readout.set_revision(self._physical_revision)
+                self.workspace.hardware_tuning.set_revision(self._physical_revision)
             except Exception as exc:
                 self.state = previous
                 self._alignment_commits.reject_application(candidate.request.request_id)
@@ -1983,6 +1985,7 @@ class MainWindow(QMainWindow):
     def _invalidate_direct_alignment(self) -> None:
         self._physical_revision += 1
         self.workspace.result_readout.set_revision(self._physical_revision)
+        self.workspace.hardware_tuning.set_revision(self._physical_revision)
         self._invalidate_operating_preset()
         was_running = self._direct_alignment_state_token is not None
         self.direct_alignments.invalidate_pending()

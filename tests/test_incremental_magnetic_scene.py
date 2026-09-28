@@ -312,3 +312,28 @@ def test_failed_captured_scene_never_invokes_a_diagnostic_field_solver(view, qtb
     qtbot.waitUntil(lambda: view._profile_worker is None, timeout=5000)
     assert view._profile is None
     assert "Captured FEM cache missing" in view.details.toPlainText()
+
+
+def test_executed_result_reference_reaches_diagnostic_snapshot_without_restoring_state(view, qtbot):
+    latest = result()
+    latest.signatures = {"request": "main-request-17"}
+    latest.calculation_manifest = SimpleNamespace(digest="main-manifest-23")
+    publish(view, qtbot, latest)
+    reference = "request:main-request-17; manifest:main-manifest-23"
+    assert view._result_reference == reference
+    assert view.field_lines._result_reference == reference
+    assert view.field_lines.electron._result_reference == reference
+    assert view.field_lines.electron.session_actions.snapshot().dependency.result_reference == reference
+    view.mark_presentation_pending()
+    assert view._result_reference is None
+    assert view.field_lines._result_reference is None
+    assert view.field_lines.electron._result_reference is None
+
+
+def test_replacing_result_without_identity_does_not_borrow_old_result_reference(view, qtbot):
+    latest = result()
+    latest.signatures = {"request": "main-request"}
+    publish(view, qtbot, latest)
+    assert view.field_lines.electron._result_reference == "request:main-request"
+    publish(view, qtbot, result(amplitude=2.))
+    assert view.field_lines.electron._result_reference is None

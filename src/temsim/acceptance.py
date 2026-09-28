@@ -21,6 +21,129 @@ CLASSICAL_CRITERIA = {
 CLASSICAL_TESTS = tuple(sorted({path for _, paths in CLASSICAL_CRITERIA.values() for path in paths}))
 
 
+ACCEPTANCE_SCOPES = {
+    "classical": {
+        "description": "Existing classical particle software contracts",
+        "evidence_kind": "software-contracts-with-offscreen-ui",
+        "criteria": CLASSICAL_CRITERIA,
+    },
+    "gun-fields": {
+        "description": "Classical tip geometry and bounded electrostatic field checks",
+        "evidence_kind": "bounded-numerical-and-software-checks",
+        "criteria": {
+            "gun-fields/GF-01": ("Conductor geometry, field boundaries and exact field cache", (
+                "tests/test_closed_gun_field.py", "tests/test_axisymmetric_cut_field.py")),
+            "gun-fields/GF-02": ("Continuous tip emission, transport and saved inputs", (
+                "tests/test_continuous_tip_curvature.py", "tests/test_tip_curvature_comparison.py")),
+            "gun-fields/GF-03": ("Exact field identity, conservative reuse and domain comparison metrics", (
+                "tests/test_diagnostic_field_identity.py", "tests/test_diagnostic_gun_domains.py")),
+        },
+    },
+    "electron-execution": {
+        "description": "Virtual electron electromagnetic transport and isolated execution",
+        "evidence_kind": "bounded-numerical-and-real-process-checks",
+        "criteria": {
+            "electron-execution/EE-01": ("Independent electromagnetic references and supported scene", (
+                "tests/test_magnetic_test_particle.py", "tests/test_test_electron_scene.py")),
+            "electron-execution/EE-02": ("Compiled field and trajectory parity with complete hardware stops", (
+                "tests/test_closed_gun_execution.py", "tests/test_test_electron_compiled.py",
+                "tests/test_test_electron_intercepts.py", "tests/test_test_electron_performance.py")),
+            "electron-execution/EE-03": ("Owned real process, cancellation and accepted progress", (
+                "tests/test_test_electron_execution.py",)),
+            "electron-execution/EE-04": ("Code-bound native caches without deleting historical evidence", (
+                "tests/test_numba_cache.py",)),
+            "electron-execution/EE-05": ("Captured field and execution identity through real metadata boundaries", (
+                "tests/test_diagnostic_scene_identity.py", "tests/test_diagnostic_execution_identity.py")),
+            "electron-execution/EE-06": ("Bounded failure recovery and retained worker diagnostics", (
+                "tests/test_electron_execution_faults.py", "tests/test_electron_execution_diagnostics.py",
+                "tests/test_electron_execution_protocol.py", "tests/test_electron_resource_cleanup.py",
+                "tests/test_cpu_resources.py")),
+            "electron-execution/EE-07": ("Safe independent diagnostic history archives and source rejection", (
+                "tests/test_electron_diagnostic_session.py",)),
+        },
+    },
+    "field-ui": {
+        "description": "Combined magnetic fields, virtual electron interaction and hardware editing",
+        "evidence_kind": "offscreen-ui-and-bounded-field-checks",
+        "criteria": {
+            "field-ui/FU-01": ("Combined field support and direction-aware field-line geometry", (
+                "tests/test_magnetic_field_scene.py", "tests/test_magnetic_field_lines.py")),
+            "field-ui/FU-02": ("Cached field rendering and physical display-range linkage", (
+                "tests/test_magnetic_field_3d.py", "tests/test_magnetic_field_canvas.py",
+                "tests/test_incremental_magnetic_scene.py", "tests/test_magnetic_navigation_link.py")),
+            "field-ui/FU-03": ("Latest electron edits, continuous progress and dock lifetime", (
+                "tests/test_magnetic_test_electron_gui.py", "tests/test_continuous_electron_gui.py",
+                "tests/test_virtual_electron_dock.py")),
+            "field-ui/FU-04": ("In-place actual hardware bindings and transactional edits", (
+                "tests/test_hardware_tuning_bindings.py", "tests/test_hardware_tuning_gui.py",
+                "tests/test_hardware_tuning_feedback.py")),
+            "field-ui/FU-05": ("Captured magnetic identities and equivalent deflector reference response", (
+                "tests/test_magnetic_field_identity.py",)),
+            "field-ui/FU-06": ("Explicit diagnostic retry and rejection of late failure signals", (
+                "tests/test_electron_failure_gui.py",)),
+            "field-ui/FU-07": ("Historical sessions and centralized diagnostic record ownership", (
+                "tests/test_electron_session_gui.py", "tests/test_diagnostic_electron_record.py")),
+        },
+    },
+    "particle-continuation": {
+        "description": "Executed classical checkpoints, material reuse and exact result archives",
+        "evidence_kind": "software-and-bounded-particle-persistence-checks",
+        "criteria": {
+            "particle-continuation/PC-01": ("Executed optical checkpoints and full-calculation continuation", (
+                "tests/test_particle_sections.py", "tests/test_completed_particle_sections.py")),
+            "particle-continuation/PC-02": ("Material continuation with incident-state dependency checks", (
+                "tests/test_material_particle_sections.py", "tests/test_material_section_resume.py",
+                "tests/test_particle_section_eds_reuse.py")),
+            "particle-continuation/PC-03": ("Exact saved records and lossless compact continuation", (
+                "tests/test_particle_section_io.py", "tests/test_particle_archive_compression.py",
+                "tests/test_particle_section_eds_archive.py")),
+            "particle-continuation/PC-04": ("Archive identity and latest file-request ownership", (
+                "tests/test_section_archive_identity.py", "tests/test_result_file_request_routing.py",
+                "tests/test_result_files_gui.py")),
+        },
+    },
+    "performance-observation": {
+        "description": "Opt-in performance receipts and bounded benchmark admissions",
+        "evidence_kind": "software-measurement-contract-checks-not-performance-qualification",
+        "criteria": {
+            "performance-observation/PO-01": ("Actual child execution observations preserve unprofiled results", (
+                "tests/test_electron_execution_performance.py",)),
+            "performance-observation/PO-02": ("Declared diagnostic cases, reference checks and executed-result reuse", (
+                "tests/test_electron_response_benchmark.py",)),
+            "performance-observation/PO-03": ("Input-to-painted-result latency and exact GUI cache accounting", (
+                "tests/test_continuous_electron_response_benchmark.py",)),
+            "performance-observation/PO-04": ("Particle identity, executed prefixes and bounded benchmark ownership", (
+                "tests/test_particle_benchmark.py",)),
+        },
+    },
+    "acceptance-policy": {
+        "description": "Declared acceptance scopes and bounded fail-closed evidence collection",
+        "evidence_kind": "synthetic-and-real-child-software-policy-checks",
+        "criteria": {
+            "acceptance-policy/AP-01": ("Explicit scope selection and complete mandatory receipts", (
+                "tests/test_acceptance_scopes.py",)),
+            "acceptance-policy/AP-02": ("Runner records failures, missing tests, empty collection and timeout", (
+                "tests/test_acceptance_runner.py",)),
+            "acceptance-policy/AP-03": ("Bounded owned process cleanup and explicit cleanup failure", (
+                "tests/test_validation_process.py",)),
+        },
+    },
+}
+
+
+def _scope_definition(scope: str) -> dict:
+    try:
+        return ACCEPTANCE_SCOPES[scope]
+    except KeyError:
+        raise ValueError(f"Unknown acceptance scope: {scope}") from None
+
+
+def scope_test_files(scope: str) -> tuple[str, ...]:
+    """Return complete test files for one declared scope; never infer a lane."""
+    criteria = _scope_definition(scope)["criteria"]
+    return tuple(sorted({path for _, paths in criteria.values() for path in paths}))
+
+
 def merge_criteria(*groups):
     result = {}
     for group in groups:
@@ -31,24 +154,51 @@ def merge_criteria(*groups):
     return result
 
 
-def classical_report(receipt, *, pytest_exit_code, source_unchanged,
-                     selected=CLASSICAL_TESTS, criteria=CLASSICAL_CRITERIA):
+def software_report(receipt, *, pytest_exit_code, source_unchanged,
+                    scope="classical", selected=None, criteria=None):
     """Require every collected item, including setup/teardown, without skips.
 
     The allowlist is a scope contract, not inferred from whichever tests happened
     to run. Unknown/omitted files, deselection, duplicates and empty collection
     fail closed. Synthetic receipts exercise this policy, not any physics.
     """
+    definition = _scope_definition(scope)
+    if criteria is None:
+        criteria = definition["criteria"]
+    if selected is None:
+        selected = scope_test_files(scope)
     expected_files = {path for _, paths in criteria.values() for path in paths}
     selected = tuple(selected)
-    collected = receipt.get("collected", [])
-    cases = receipt.get("cases", {})
     errors = []
+    if not isinstance(receipt, dict):
+        errors.append("Invalid pytest receipt: expected an object")
+        receipt = {}
+    collected = receipt.get("collected", [])
+    if not isinstance(collected, list) or not all(isinstance(node, str) for node in collected):
+        errors.append("Invalid collected test IDs: expected a list of strings")
+        collected = []
+    cases = receipt.get("cases", {})
+    if not isinstance(cases, dict):
+        errors.append("Invalid test outcomes: expected an object")
+        cases = {}
+    else:
+        valid_cases = {}
+        for node, outcomes in cases.items():
+            if not isinstance(node, str) or not isinstance(outcomes, dict) or not all(
+                    isinstance(phase, str) and isinstance(outcome, str)
+                    for phase, outcome in outcomes.items()):
+                errors.append("Invalid test outcome entry: expected named phase outcomes")
+                continue
+            valid_cases[node] = outcomes
+        cases = valid_cases
+    deselected = receipt.get("deselected", [])
+    if not isinstance(deselected, list) or not all(isinstance(node, str) for node in deselected):
+        errors.append("Invalid deselected test IDs: expected a list of strings")
     if set(selected) != expected_files or len(selected) != len(set(selected)):
         errors.append("Selected tests differ from the declared scope")
-    if not receipt.get("complete"):
+    if receipt.get("complete") is not True:
         errors.append("Missing or interrupted pytest receipt")
-    if receipt.get("deselected"):
+    if deselected:
         errors.append("Tests were deselected")
     if any(n != 1 for n in Counter(collected).values()):
         errors.append("Duplicate collected test IDs")
@@ -77,7 +227,11 @@ def classical_report(receipt, *, pytest_exit_code, source_unchanged,
         rows[key] = {"description": title, "status": status, "tests": nodes, "missing_files": missing}
     passed = not errors and bool(rows) and all(row["status"] == "PASS" for row in rows.values())
     return {
-        "schema": "classical-software-acceptance-v1", "scope": "classical-particle-software",
+        "schema": ("classical-software-acceptance-v1" if scope == "classical"
+                   else "scoped-software-acceptance-v1"),
+        "scope": "classical-particle-software" if scope == "classical" else scope,
+        "scope_key": scope, "description": definition["description"],
+        "evidence_kind": definition["evidence_kind"],
         "software_scope_status": "PASS" if passed else "INCOMPLETE",
         "full_simulator_qualification": "UNQUALIFIED",
         "exit_code": 0 if passed else 1, "criteria": merge_criteria(rows), "errors": errors,
@@ -89,6 +243,7 @@ def classical_report(receipt, *, pytest_exit_code, source_unchanged,
             "actual-gpu-scientific-parity": "NOT_RUN in this software lane; emulated policy tests are not hardware evidence",
             "native-desktop": "Offscreen tests only",
             "experimental-calibration": "NOT_RUN; no OEM or experimental qualification",
-            "round2/R2-AT-13..40": "Later packages are not selected by the R2-00..03 software lane",
+            **({"round2/R2-AT-13..40": "Later packages are not selected by the R2-00..03 software lane"}
+               if scope == "classical" else {}),
         },
     }

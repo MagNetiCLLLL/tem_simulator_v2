@@ -66,11 +66,13 @@ class MagneticField3DPage(QWidget):
 
     settings_changed = Signal()
     view_range_changed = Signal(object, object)
+    session_projection_requested = Signal(float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._state = None
         self._prepared_scene = None
+        self._result_reference = None
         self._records = ()
         self._z_limits_mm = None
         self._generation = 0
@@ -147,6 +149,22 @@ class MagneticField3DPage(QWidget):
         self.electron.paths_changed.connect(self._show_electron_paths)
         self.electron.status_changed.connect(self._electron_status_changed)
         self.electron.background_changed.connect(self._background_changed)
+        self.electron.session_actions.capture_view = self._session_display
+        self.electron.session_actions.restore_view = self._restore_session_display
+
+    def _session_display(self):
+        from temsim.electron_diagnostic_session import DiagnosticDisplayState
+        axial, transverse = self.canvas.view_range_mm()
+        return DiagnosticDisplayState(projection_degrees=self.canvas.projection_angle_deg,
+                                      axial_limits_mm=axial, transverse_limits_mm=transverse)
+
+    def _restore_session_display(self, display):
+        # Workspace owns the shared projection. This signal updates Ray Diagram
+        # too; standalone diagnostic pages still restore their own projection.
+        self.set_projection_angle(display.projection_degrees)
+        self.session_projection_requested.emit(display.projection_degrees)
+        if display.axial_limits_mm is not None and display.transverse_limits_mm is not None:
+            self.set_view_range_mm(display.axial_limits_mm, display.transverse_limits_mm, emit=True)
 
     def set_electron_mode(self, enabled):
         self._electron_mode = bool(enabled)
@@ -172,6 +190,8 @@ class MagneticField3DPage(QWidget):
             self.canvas.clear_electron_paths()
         else:
             self.canvas.set_electron_paths(paths)
+            self.canvas.set_field_lines_visible(
+                self.electron.background.isChecked() and self.electron.history_fields_match())
 
     def _electron_status_changed(self, message):
         if self._electron_mode:
@@ -188,8 +208,9 @@ class MagneticField3DPage(QWidget):
             self.status.setToolTip(tooltip)
 
     def _background_changed(self, visible):
-        self.canvas.set_field_lines_visible(not self._electron_mode or visible)
-        if self._active and visible:
+        self.canvas.set_field_lines_visible(not self._electron_mode or
+                                           (visible and self.electron.history_fields_match()))
+        if self._active and visible and (not self._electron_mode or self.electron.history_fields_match()):
             self._request_timer.start(0)
 
     def set_projection_angle(self, angle_deg):
@@ -232,11 +253,14 @@ class MagneticField3DPage(QWidget):
         if self._active:
             self._request_timer.start(100)
 
-    def update_snapshot(self, state, records, z_limits_mm, *, peak_t=None, prepared_scene=None):
+    def update_snapshot(self, state, records, z_limits_mm, *, peak_t=None, prepared_scene=None,
+                        result_reference=None):
         self.invalidate()
         self._state, self._records, self._z_limits_mm = state, tuple(records), z_limits_mm
         self._prepared_scene = prepared_scene
-        self.electron.set_captured_scene(state, prepared_scene, z_limits_mm)
+        self._result_reference = result_reference
+        self.electron.set_captured_scene(state, prepared_scene, z_limits_mm,
+                                         result_reference=result_reference)
         self._peak_t = (float(peak_t) if peak_t is not None else
                         max((float(row.peak_t) for row in records), default=0.))
         if not self._reference_initialized and self._peak_t > 0:
@@ -249,6 +273,7 @@ class MagneticField3DPage(QWidget):
         self._generation += 1
         self._state = None
         self._prepared_scene = None
+        self._result_reference = None
         self._cache.clear()
         self._current_geometry = None
         self._request_timer.stop()
@@ -274,7 +299,8 @@ class MagneticField3DPage(QWidget):
     def _request_geometry(self):
         if not self._active or self._state is None:
             return
-        if self._electron_mode and not self.electron.background.isChecked():
+        if self._electron_mode and (not self.electron.background.isChecked()
+                                   or not self.electron.history_fields_match()):
             return
         key = self._key()
         if key in self._cache:
@@ -321,7 +347,8 @@ class MagneticField3DPage(QWidget):
         geometry = presentation.geometry
         if self._prepared_scene is None and presentation.scene is not None:
             self._prepared_scene = presentation.scene
-            self.electron.set_captured_scene(self._state, presentation.scene, self._z_limits_mm)
+            self.electron.set_captured_scene(self._state, presentation.scene, self._z_limits_mm,
+                                             result_reference=self._result_reference)
         self._current_geometry = geometry
         # Fit the visible field lines, not the long near-zero tails of the
         # provider's numerical support. This changes no field or path data.

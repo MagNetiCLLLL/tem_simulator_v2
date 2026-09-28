@@ -198,3 +198,131 @@ def test_failed_archive_write_preserves_previous_file_and_calculation(executed_s
     assert path.read_bytes() == b"previous user archive"
     assert not tuple(tmp_path.glob(".working-point-*.tmp"))
     assert executed_section.simulation.section_checkpoint is checkpoint
+
+
+def test_fresh_process_load_edit_and_extend_reuses_executed_prefix(executed_section, tmp_path):
+    """A new interpreter must resume exact executed data, not an in-memory cache."""
+    import json
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+    import textwrap
+    from temsim.validation_process import run_bounded
+
+    archive = tmp_path / "restart.temsection"
+    save_section_result(executed_section, archive)
+    checkpoint = executed_section.simulation.section_checkpoint
+    fields = ("z_mm", "x_m", "y_m", "tx_rad", "ty_rad", "flight_time_s")
+    arrays = {
+        f"{segment.name}_{field}": getattr(segment.checkpoints, field)
+        for segment in checkpoint.segments for field in fields
+    }
+    for segment in checkpoint.segments:
+        for field in ("source_ray_id", "alive", "blocked_z", "energy_offset_ev", "ray_weight"):
+            arrays[f"{segment.name}_branch_{field}"] = getattr(segment.branch, field)
+    expected = tmp_path / "before-restart.npz"
+    np.savez(expected, **arrays)
+    expected_identity = tmp_path / "before-restart.json"
+    expected_identity.write_text(json.dumps({
+        "gun": checkpoint.gun_dependency_signature,
+        "segments": {segment.name: segment.initial_dependency_signature
+                     for segment in checkpoint.segments},
+    }), encoding="utf-8")
+    child = tmp_path / "resume_in_fresh_process.py"
+    child.write_text(textwrap.dedent('''
+        import json
+        import os
+        from pathlib import Path
+        import sys
+        import numpy as np
+        from temsim.cpu_resources import numerical_job
+        from temsim.particle_section_io import load_section_result
+        from temsim.physics import particle_sections as sections
+        from temsim.optics.electron_gun import source
+
+        restored = load_section_result(sys.argv[1])
+        before = sections.validate_section_checkpoint(restored.simulation.section_checkpoint)
+        identity = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
+        assert before.gun_dependency_signature == identity["gun"]
+        fields = ("z_mm", "x_m", "y_m", "tx_rad", "ty_rad", "flight_time_s")
+        with np.load(sys.argv[2], allow_pickle=False) as expected:
+            for segment in before.segments:
+                assert segment.initial_dependency_signature == identity["segments"][segment.name]
+                for field in fields:
+                    value = getattr(segment.checkpoints, field)
+                    assert value.dtype == np.float64
+                    np.testing.assert_array_equal(value, expected[f"{segment.name}_{field}"])
+                for field in ("source_ray_id", "alive", "blocked_z", "energy_offset_ev", "ray_weight"):
+                    np.testing.assert_array_equal(getattr(segment.branch, field),
+                                                  expected[f"{segment.name}_branch_{field}"])
+
+        state = restored.state_snapshot
+        assert not state.sample.inserted
+        assert not state.sample.wave_enabled and not state.sample.stem_wave_enabled
+        lens = next(lens for lens in state.lenses if lens.key == "diffraction_lens")
+        assert lens.enabled
+        old_percent = lens.percent
+        old_field = lens.magnetic_field_t(np.array([lens.z_mm]))
+        lens.percent += 0.5
+        assert not np.array_equal(lens.magnetic_field_t(np.array([lens.z_mm])), old_field)
+        lower, upper = lens.field_support_mm()
+        saved_endpoint = float(before.segments[-1].checkpoints.z_mm[-1])
+        assert saved_endpoint < lower
+        target = upper + 2.0
+        assert target <= sections.section_limits(state)[1]
+        assert sections.gun_dependency_signature(state) == before.gun_dependency_signature
+
+        def forbid_gun_retrace(*args, **kwargs):
+            raise AssertionError("An executed, matching gun archive must not be recomputed")
+        source.trace_source_to_exit = forbid_gun_retrace
+        original_execute = sections.execute_propagation_plan
+        starts = []
+        def verify_actual_integrator_start(state, plan, x, tx, y, ty, energy, **kwargs):
+            segment = next(segment for segment in before.segments
+                           if segment.plan.z_mm[0] == plan.z_mm[0])
+            index = kwargs["start_index"]
+            assert index > 0
+            actual_z = float(plan.z_mm[index])
+            assert actual_z == float(segment.checkpoints.z_mm[-1])
+            for value, field in zip((x, tx, y, ty, kwargs["initial_time_s"]),
+                                    ("x_m", "tx_rad", "y_m", "ty_rad", "flight_time_s")):
+                np.testing.assert_array_equal(value, getattr(segment.checkpoints, field)[-1])
+            starts.append(actual_z)
+            return original_execute(state, plan, x, tx, y, ty, energy, **kwargs)
+        sections.execute_propagation_plan = verify_actual_integrator_start
+        with numerical_job(1):
+            result = sections.run_particle_section(state, observation_stop_z_mm=target,
+                tuning_component_keys=(lens.key,), existing_simulation=restored.simulation)
+        after = sections.validate_section_checkpoint(result.section_checkpoint)
+        assert len(starts) == len(before.segments)
+        assert after.gun_trace is before.gun_trace
+        assert result.metrics["section_gun_reused"] and result.metrics["section_reused_prefix"]
+        assert result.metrics["section_resume_z_mm"] == saved_endpoint
+        assert result.branches["000"].z[-1] == target
+        assert lens.percent == old_percent + 0.5
+        for old, new in zip(before.segments, after.segments, strict=True):
+            keep = new.checkpoints.z_mm <= old.checkpoints.z_mm[-1]
+            for field in fields:
+                np.testing.assert_array_equal(getattr(new.checkpoints, field)[keep],
+                                              getattr(old.checkpoints, field))
+        print(json.dumps({"pid": os.getpid(), "resume_z_mm": saved_endpoint,
+                          "target_z_mm": target, "integrator_starts_mm": starts}))
+    '''), encoding="utf-8")
+    environment = dict(os.environ)
+    for name in ("TEMSIM_CPU_THREADS", "NUMBA_NUM_THREADS", "OMP_NUM_THREADS",
+                 "OMP_THREAD_LIMIT", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+                 "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        environment[name] = "1"
+    log_path = tmp_path / "restart-process.log"
+    with log_path.open("w", encoding="utf-8") as log:
+        result = run_bounded([sys.executable, str(child), str(archive), str(expected),
+                              str(expected_identity)],
+                             cwd=Path(__file__).resolve().parents[1], env=environment,
+                             stdout=log, stderr=subprocess.STDOUT, timeout=120)
+    output = log_path.read_text(encoding="utf-8", errors="replace")
+    assert result.returncode == 0, output
+    report = json.loads(output.strip().splitlines()[-1])
+    assert report["pid"] != os.getpid()
+    assert report["resume_z_mm"] == float(checkpoint.segments[-1].checkpoints.z_mm[-1])
+    assert report["target_z_mm"] > report["resume_z_mm"]

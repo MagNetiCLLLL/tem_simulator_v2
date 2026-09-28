@@ -1,0 +1,153 @@
+"""Scope receipts are software evidence, never whole-instrument qualification."""
+from copy import deepcopy
+from pathlib import Path
+
+import pytest
+
+from temsim.acceptance import (
+    ACCEPTANCE_SCOPES, CLASSICAL_CRITERIA, CLASSICAL_TESTS,
+    software_report, scope_test_files,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def receipt_for(scope):
+    nodes = [path + "::synthetic_receipt_only" for path in scope_test_files(scope)]
+    return {"collected": nodes, "complete": True, "cases": {
+        node: {"setup": "passed", "call": "passed", "teardown": "passed"}
+        for node in nodes}}
+
+
+def evaluate(scope, receipt=None, **kwargs):
+    return software_report(receipt if receipt is not None else receipt_for(scope), scope=scope,
+        pytest_exit_code=kwargs.pop("pytest_exit_code", 0),
+        source_unchanged=kwargs.pop("source_unchanged", True), **kwargs)
+
+
+def test_classical_contract_and_report_namespace_remain_unchanged():
+    assert ACCEPTANCE_SCOPES["classical"]["criteria"] is CLASSICAL_CRITERIA
+    assert scope_test_files("classical") == CLASSICAL_TESTS
+    report = software_report(receipt_for("classical"), pytest_exit_code=0, source_unchanged=True)
+    assert report["schema"] == "classical-software-acceptance-v1"
+    assert report["scope"] == "classical-particle-software"
+    assert report["software_scope_status"] == "PASS"
+
+
+@pytest.mark.parametrize("scope", tuple(ACCEPTANCE_SCOPES))
+def test_declared_scopes_use_existing_unique_whole_files_and_namespaced_criteria(scope):
+    definition = ACCEPTANCE_SCOPES[scope]
+    paths = scope_test_files(scope)
+    assert definition["description"] and definition["evidence_kind"]
+    assert paths and len(paths) == len(set(paths))
+    assert all("::" not in path and (ROOT / path).is_file() for path in paths)
+    if scope != "classical":
+        assert all(key.startswith(scope + "/") for key in definition["criteria"])
+    report = evaluate(scope)
+    assert report["scope_key"] == scope
+    assert report["software_scope_status"] == "PASS" and report["exit_code"] == 0
+    assert report["evidence_kind"] == definition["evidence_kind"]
+    assert report["selected_tests"] == list(paths)
+    assert report["full_simulator_qualification"] == "UNQUALIFIED"
+    assert {"coherent-tip-to-image", "native-desktop", "actual-gpu-scientific-parity",
+            "experimental-calibration"} <= report["exclusions"].keys()
+    if scope != "classical":
+        assert report["scope"] == scope
+        assert report["schema"] == "scoped-software-acceptance-v1"
+
+
+def test_new_lanes_explicitly_cover_reviewed_feature_and_runtime_boundaries():
+    required = {
+        "gun-fields": {"test_closed_gun_field.py", "test_continuous_tip_curvature.py",
+                       "test_tip_curvature_comparison.py", "test_axisymmetric_cut_field.py",
+                       "test_diagnostic_field_identity.py", "test_diagnostic_gun_domains.py"},
+        "electron-execution": {"test_magnetic_test_particle.py", "test_test_electron_scene.py",
+            "test_test_electron_execution.py", "test_test_electron_compiled.py",
+            "test_test_electron_intercepts.py", "test_closed_gun_execution.py",
+            "test_test_electron_performance.py", "test_numba_cache.py",
+            "test_diagnostic_scene_identity.py", "test_diagnostic_execution_identity.py",
+            "test_electron_execution_faults.py", "test_electron_execution_diagnostics.py",
+            "test_electron_execution_protocol.py", "test_electron_resource_cleanup.py", "test_cpu_resources.py",
+            "test_electron_diagnostic_session.py"},
+        "field-ui": {"test_magnetic_test_electron_gui.py", "test_continuous_electron_gui.py",
+            "test_virtual_electron_dock.py", "test_magnetic_field_3d.py", "test_magnetic_field_canvas.py",
+            "test_magnetic_field_lines.py", "test_magnetic_field_scene.py", "test_incremental_magnetic_scene.py",
+            "test_magnetic_navigation_link.py", "test_hardware_tuning_gui.py", "test_hardware_tuning_bindings.py",
+            "test_magnetic_field_identity.py", "test_electron_failure_gui.py",
+            "test_hardware_tuning_feedback.py", "test_electron_session_gui.py", "test_diagnostic_electron_record.py"},
+        "particle-continuation": {"test_particle_sections.py", "test_particle_section_io.py",
+            "test_completed_particle_sections.py", "test_material_particle_sections.py",
+            "test_material_section_resume.py", "test_particle_section_eds_archive.py",
+            "test_particle_section_eds_reuse.py", "test_particle_archive_compression.py",
+            "test_section_archive_identity.py", "test_result_file_request_routing.py", "test_result_files_gui.py"},
+        "acceptance-policy": {"test_acceptance_scopes.py", "test_acceptance_runner.py", "test_validation_process.py"},
+        "performance-observation": {"test_electron_execution_performance.py", "test_electron_response_benchmark.py",
+            "test_continuous_electron_response_benchmark.py", "test_particle_benchmark.py"},
+    }
+    for scope, expected in required.items():
+        assert {Path(path).name for path in scope_test_files(scope)} == expected
+
+
+@pytest.mark.parametrize("scope", tuple(ACCEPTANCE_SCOPES))
+@pytest.mark.parametrize("fault", ["missing-file", "empty", "skipped", "crash", "interrupted"])
+def test_mandatory_scope_cannot_pass_without_its_complete_executed_evidence(scope, fault):
+    receipt = receipt_for(scope)
+    code = 0
+    if fault == "missing-file":
+        receipt["cases"].pop(receipt["collected"].pop())
+    elif fault == "empty":
+        receipt["collected"], receipt["cases"] = [], {}
+    elif fault == "skipped":
+        receipt["cases"][receipt["collected"][0]]["call"] = "skipped"
+    elif fault == "crash":
+        code = -1
+    else:
+        receipt["complete"] = False
+    assert evaluate(scope, receipt, pytest_exit_code=code)["software_scope_status"] == "INCOMPLETE"
+
+
+def test_receipt_from_another_scope_cannot_be_relabelled():
+    receipt = receipt_for("electron-execution")
+    before = deepcopy(receipt)
+    assert evaluate("field-ui", receipt)["exit_code"] == 1
+    assert evaluate("electron-execution", receipt, selected=scope_test_files("field-ui"))["exit_code"] == 1
+    assert receipt == before
+
+
+def test_unknown_scope_is_rejected_in_selection_and_reporting():
+    with pytest.raises(ValueError, match="Unknown acceptance scope"):
+        scope_test_files("unlisted")
+    with pytest.raises(ValueError, match="Unknown acceptance scope"):
+        evaluate("unlisted", receipt_for("classical"))
+
+
+@pytest.mark.parametrize("payload", [None, [], "not an object", 1])
+def test_malformed_receipt_object_is_reported_without_aborting(payload):
+    report = software_report(payload, scope="acceptance-policy", pytest_exit_code=0,
+                             source_unchanged=True)
+    assert report["exit_code"] == 1
+    assert "Invalid pytest receipt" in report["errors"][0]
+
+
+@pytest.mark.parametrize("field,value", [
+    ("collected", None), ("collected", {}), ("collected", "one-test"),
+    ("collected", [[]]), ("collected", [None]),
+    ("cases", None), ("cases", []), ("cases", "passed"),
+    ("deselected", {}), ("deselected", ""), ("deselected", [None]),
+    ("complete", "true"), ("complete", 1),
+])
+def test_malformed_receipt_fields_cannot_pass_or_break_reporting(field, value):
+    receipt = receipt_for("acceptance-policy")
+    receipt[field] = value
+    report = evaluate("acceptance-policy", receipt)
+    assert report["exit_code"] == 1 and report["errors"]
+
+
+@pytest.mark.parametrize("outcomes", [None, [], "passed", {"call": []}, {1: "passed"}])
+def test_malformed_case_entry_is_nonpassing_evidence(outcomes):
+    receipt = receipt_for("acceptance-policy")
+    receipt["cases"][receipt["collected"][0]] = outcomes
+    report = evaluate("acceptance-policy", receipt)
+    assert report["exit_code"] == 1
+    assert any("Invalid test outcome" in error for error in report["errors"])

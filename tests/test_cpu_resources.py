@@ -143,11 +143,13 @@ def test_failed_thread_mask_restore_does_not_strand_the_shared_budget(monkeypatc
 def test_fresh_import_honours_explicit_lower_limit_and_late_numba_import_is_safe():
     # A separate process verifies import ordering without mutating the running
     # test process's already-initialised Numba pool configuration.
-    environment = dict(os.environ, TEMSIM_CPU_THREADS="2", NUMBA_NUM_THREADS="3")
+    # Keep the declared one-thread acceptance budget, including inherited
+    # OpenMP caps. The already-imported larger Numba pool must be masked down.
+    environment = dict(os.environ, TEMSIM_CPU_THREADS="1", NUMBA_NUM_THREADS="3")
     script = "import numba; import temsim; from temsim.cpu_resources import numerical_job;\nwith numerical_job() as r: print(r.numerical_thread_budget, numba.get_num_threads())"
     result = subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[1],
         env=environment, capture_output=True, text=True, timeout=20, check=True)
-    assert result.stdout.strip() == "2 2"
+    assert result.stdout.strip() == "1 1"
 
 
 def test_existing_interval_executor_uses_shared_cap_and_serial_child_kernels(monkeypatch):

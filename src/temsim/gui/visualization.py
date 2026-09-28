@@ -1200,6 +1200,7 @@ class VisualizationWorkspace(QWidget):
         self.magnetic_field.component_selected.connect(
             self.component_selected.emit
         )
+        self.magnetic_field.field_lines.session_projection_requested.connect(self._set_projection_angle)
         self.energy_filter.component_selected.connect(
             self.component_selected.emit
         )
@@ -4075,6 +4076,7 @@ class VisualizationWorkspace(QWidget):
         self.stop_detail.clear()
         self.interaction_detail.clear()
         self.result_readout._records.clear()
+        self.hardware_tuning.clear_results()
         self.result_readout._stale.clear()
         self.result_readout._refresh()
         self._refresh_ray_calculation_extent()
@@ -4128,6 +4130,7 @@ class VisualizationWorkspace(QWidget):
         preserve_ray_view = self._last_result is not None
         self._last_result = result
         self.result_readout.publish(result, quality)
+        self.hardware_tuning.publish_result(result, quality)
         self.transport_adjustment_readout.display_result(result)
         from temsim.optics.electron_gun.tip_edit import tip_model_label
         captured_gun = getattr(getattr(result, "state_snapshot", None), "electron_gun", None)
@@ -4233,6 +4236,7 @@ class VisualizationWorkspace(QWidget):
 
     def mark_ray_stale(self, state) -> None:
         self.result_readout.mark_stale("ray")
+        self.hardware_tuning.mark_result_stale("ray")
         self.interactive_calculation.calculation_timing.mark_stale()
         self._ray_extent_stale = True
         self._refresh_ray_calculation_extent()
@@ -4251,6 +4255,7 @@ class VisualizationWorkspace(QWidget):
             return
         self._high_accuracy_current = False
         self.result_readout.mark_stale("high")
+        self.hardware_tuning.mark_result_stale("high")
         self.energy_filter.mark_result_stale()
         self.eds_page.mark_result_stale()
         self.sample_interactions_3d.mark_result_stale()

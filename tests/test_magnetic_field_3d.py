@@ -273,3 +273,20 @@ def test_navigation_keeps_view_centre_action_current_without_moving_electron(qtb
     np.testing.assert_allclose(page.electron.selected_record.settings.position_m,
                                (original.position_m[0], original.position_m[1], .03))
     assert page.electron._worker is None
+
+
+def test_field_geometry_preparation_preserves_main_result_reference(qtbot):
+    from temsim.gui.magnetic_field_3d import _Presentation
+    page = MagneticField3DPage()
+    qtbot.addWidget(page)
+    reference = "request:main-request; manifest:main-manifest"
+    page.update_snapshot(object(), records(), (0., 10.), result_reference=reference)
+    assert page._prepared_scene is None
+    scene = SimpleNamespace(source_regions=(), source_categories=("lens",))
+    page._show_geometry(_Presentation(geometry(), (), ("lens",), scene))
+    assert page._prepared_scene is scene
+    assert page.electron._result_reference == reference
+    assert page.electron.session_actions.snapshot().dependency.result_reference == reference
+    page.invalidate()
+    assert page.electron._result_reference is None
+    page.electron.shutdown()

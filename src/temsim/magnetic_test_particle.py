@@ -17,7 +17,7 @@ thread pool is started here; GUI callers own cancellation and CPU budgeting.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from collections import OrderedDict
 from math import cos, radians, sin, sqrt
 from time import monotonic
@@ -84,6 +84,9 @@ class TestElectronTrajectory:
     speed_m_per_s: np.ndarray
     momentum_kg_m_per_s: np.ndarray
     notes: tuple[str, ...]
+    physical_field_identity: str | None = None
+    numerical_field_identity: str | None = None
+    execution_identity: str | None = None
 
 
 # These classes are inputs/results, not pytest test collections.
@@ -756,9 +759,19 @@ def trace_test_electron(scene, settings: TestElectronSettings, *, cancelled: Cal
         raise TypeError("settings must be TestElectronSettings")
     if not np.isfinite(progress_interval_s) or progress_interval_s < 0.:
         raise ValueError("Progress interval must be finite and nonnegative")
+    from temsim.diagnostic_execution_identity import trajectory_execution_identity
+    identities = dict(physical_field_identity=getattr(scene, "physical_identity", None),
+                      numerical_field_identity=getattr(scene, "numerical_identity", None),
+                      execution_identity=trajectory_execution_identity(scene, settings, use_compiled=use_compiled))
+
+    def identified(result):
+        return replace(result, **identities)
+
+    callback = (lambda result: progress(identified(result))) if progress is not None else None
     if bool(getattr(scene, "has_electric_field", False)):
         if not callable(getattr(scene, "diagnostic_fields_at_global_position", None)):
             raise TypeError("Electric scene must expose captured E, B and potential")
-        return _trace_electromagnetic_electron(scene, settings, cancelled or (lambda: False), progress, progress_interval_s, use_compiled)
-    return _trace_magnetic_electron(scene, settings, cancelled=cancelled,
-                                    progress=progress, progress_interval_s=progress_interval_s)
+        return identified(_trace_electromagnetic_electron(
+            scene, settings, cancelled or (lambda: False), callback, progress_interval_s, use_compiled))
+    return identified(_trace_magnetic_electron(scene, settings, cancelled=cancelled,
+                                    progress=callback, progress_interval_s=progress_interval_s))
