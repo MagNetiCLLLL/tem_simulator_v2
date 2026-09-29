@@ -26,11 +26,9 @@ import numpy as np
 
 from temsim.specimen.presets import (
     InelasticMaterial,
-    load_specimen_preset,
 )
 from temsim.specimen.source import (
     active_cif_path,
-    specimen_mode,
     specimen_is_vacuum,
 )
 
@@ -142,30 +140,6 @@ def _positive_override(sample, field: str) -> float | None:
 def _material_for_state(state) -> tuple[str, str, InelasticMaterial | None, list[str]]:
     sample = state.sample
     warnings: list[str] = []
-    if specimen_mode(sample) == "reference":
-        from temsim.specimen.reference_catalog import DEFAULT_REFERENCE_KEY, get_reference_sample
-        from temsim.specimen.rutherford import read_cif_composition
-
-        entry = get_reference_sample(getattr(sample, "reference_sample_key", DEFAULT_REFERENCE_KEY))
-        if not entry.inelastic_preset_key:
-            warnings.append("This reference CIF has no explicitly assigned inelastic material anchor; use validated overrides.")
-            return entry.key, entry.name, None, warnings
-        preset = load_specimen_preset(entry.inelastic_preset_key)
-        composition = read_cif_composition(active_cif_path(sample))
-        actual_elements = {z for z, _ in composition.atoms_per_cell}
-        anchor_elements = ({preset.atomistic.atomic_number} if preset.atomistic is not None
-                           else {column.atomic_number for column in preset.columns})
-        if not anchor_elements or actual_elements != anchor_elements:
-            raise ValueError(
-                f"Reference {entry.key}: CIF elements {sorted(actual_elements)} do not match "
-                f"the assigned inelastic material {entry.inelastic_preset_key} ({sorted(anchor_elements)})."
-            )
-        if composition.partial_occupancy or composition.mixed_occupancy:
-            warnings.append("The reference has partial/mixed occupancy; full-material inelastic anchors are not applied. Use validated overrides for this material.")
-            return entry.key, entry.name, None, warnings
-        warnings.append(f"Inelastic anchor {entry.inelastic_preset_key} is explicitly assigned to reference CIF {Path(composition.source_path).name}; its elements were checked.")
-        return entry.key, entry.name, preset.inelastic, warnings
-
     cif_value = active_cif_path(sample)
     if not cif_value:
         warnings.append(

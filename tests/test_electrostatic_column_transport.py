@@ -102,6 +102,44 @@ def test_constant_potential_reduces_to_existing_magnetic_column():
         np.testing.assert_allclose(getattr(actual[-1],name),getattr(expected[-1],name),rtol=5e-14,atol=1e-21)
 
 
+def test_cuda_electric_batches_preserve_every_ray_and_report_real_completed_counts(monkeypatch):
+    from temsim.physics import electrostatic_column_transport as transport
+    from temsim.physics.compute_backend import cuda_capability
+    from temsim.physics.transport_progress import transport_progress
+    if not cuda_capability().available:
+        pytest.skip("No CUDA hardware")
+    state, plan = fixture(radial=2e7, step=.2)
+    monkeypatch.setattr(core, "choose_ray_backend", lambda *_a, **_kw: ("CUDA GPU", None))
+    state.acceleration_enabled = True
+    state.acceleration_backend = "Require GPU"
+    energy = np.linspace(270000., 330000., transport.CUDA_PARTICLE_BATCH_SIZE+3)
+    messages = []
+    with transport_progress(messages.append):
+        actual, actual_energy = trace(state, plan, energy=energy)
+    assert any("4,096/4,099 electrons" in message for message in messages)
+    assert any("4,099/4,099 electrons" in message for message in messages)
+    monkeypatch.setattr(transport, "CUDA_PARTICLE_BATCH_SIZE", 256)
+    expected, expected_energy = trace(state, plan, energy=energy)
+    for got, wanted in zip(actual[:-1], expected[:-1]):
+        np.testing.assert_array_equal(got, wanted)
+    np.testing.assert_array_equal(actual_energy, expected_energy)
+    for name in ("x_m", "tx_rad", "y_m", "ty_rad", "flight_time_s", "kinetic_energy_ev"):
+        np.testing.assert_array_equal(getattr(actual[-1], name), getattr(expected[-1], name))
+
+
+def test_electric_batch_can_cancel_before_next_launch(monkeypatch):
+    from temsim.physics.transport_progress import transport_progress
+    state, plan = fixture(step=.2)
+    if not core.NUMBA_AVAILABLE:
+        pytest.skip("No Numba")
+    monkeypatch.setattr(core, "choose_ray_backend", lambda *_a, **_kw: ("Numba CPU", None))
+    def cancel_at_batch(label):
+        if "64/130 electrons" in label:
+            raise InterruptedError("cancel at completed batch")
+    with transport_progress(cancel_at_batch), pytest.raises(InterruptedError, match="completed batch"):
+        trace(state, plan, energy=np.full(130, 300000.))
+
+
 def test_missing_runtime_field_cannot_execute_an_archived_electric_plan():
     state,plan=fixture()
     with pytest.raises(ValueError,match='captured electric field reconstructed'):

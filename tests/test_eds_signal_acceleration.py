@@ -1,4 +1,5 @@
 """Exact-value reuse and honest substage progress; no reduced physics sampling."""
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 
 from dataclasses import replace
 import math
@@ -165,8 +166,7 @@ def test_empty_tracks_finish_without_photon_work(geometry):
 
 def test_point_progress_reserves_work_after_elastic_histories(geometry):
     state = default_state()
-    state.sample.specimen_mode = "reference"
-    state.sample.reference_sample_key = "si_110"
+    imported_sample(state.sample)
     state.sample.eds_transport_mode = "elastic_monte_carlo"
     simulation = _simulation()
     events = []

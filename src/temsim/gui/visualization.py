@@ -3550,30 +3550,16 @@ class VisualizationWorkspace(QWidget):
         specimen_mode = str(
             getattr(sample_state, "specimen_mode", "atomic")
         ).strip().lower()
+        inserted = inserted and specimen_mode != "vacuum"
         if inserted:
             label = f"SAMPLE / SPECIMEN  Z={sample_z_mm:.6g} mm"
-            if specimen_mode == "reference":
-                tooltip = (
-                    "Reference CIF sample plane (inserted)\n"
-                    f"Exact axial position Z = {sample_z_mm:.9g} mm\n"
-                    "The selected reference CIF supplies atomic structure. "
-                    "Coherent elastic scattering is calculated by multislice; "
-                    "coloured energy-loss paths represent material-based "
-                    "inelastic transport."
-                )
-            else:
-                tooltip = (
-                    "Real sample plane (inserted)\n"
-                    f"Exact axial position Z = {sample_z_mm:.9g} mm\n"
-                    "Only the imported CIF/MCIF supplies specimen structure. "
-                    "Ray Diagram adds no artificial +g/-g or diffuse "
-                    "diffraction branches. Coherent elastic scattering is "
-                    "calculated by wave/multislice; coloured energy-loss "
-                    "paths are material-IMFP/Poisson quadrature for plasmon, "
-                    "ionisation and plural inelastic transport. Brightness "
-                    "still encodes convergence semi-angle. Their common "
-                    "start remains a continuous ray boundary."
-                )
+            tooltip = (
+                "Imported CIF sample plane (inserted)\n"
+                f"Exact axial position Z = {sample_z_mm:.9g} mm\n"
+                "Calculate Sample uses the saved incident beam for elastic and "
+                "inelastic specimen interactions and downstream transport. "
+                "STEM and EDS readouts are calculated on their own pages."
+            )
             colour = "#ffffff"
             marker_brush = pg.mkBrush("#ef4444")
             line_style = Qt.PenStyle.SolidLine

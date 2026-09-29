@@ -1,4 +1,5 @@
 """Short classical particle sections exercise real finite specimen scattering."""
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -18,7 +19,10 @@ def material_case(optical_fixture, monkeypatch):
     state.sample.wave_enabled = state.sample.stem_wave_enabled = False
     state.sample.stem_particle_model = "material_paths"
     state.sample.eds_enabled = False
-    state.sample.specimen_mode = "reference"
+    imported_sample(state.sample)
+    # Explicit material settings: a CIF alone does not supply an IMFP.
+    state.sample.real_plasmon_mean_free_path_nm = 100.
+    state.sample.real_plasmon_energy_ev = 16.
     state.sample.thickness_nm = 30.
     state.sample.size_x_nm = state.sample.size_y_nm = 10_000.
     state.sample.centre_x_nm = state.sample.centre_y_nm = 0.

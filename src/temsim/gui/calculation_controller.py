@@ -195,7 +195,7 @@ def estimate_calculation_memory_bytes(
     specimen_mode = str(
         getattr(state.sample, "specimen_mode", "atomic")
     ).strip().lower()
-    if workflow != "rays" and specimen_mode in {"atomic", "reference"} and bool(
+    if workflow != "rays" and specimen_mode in {"atomic"} and bool(
         getattr(state.sample, "inserted", True)
     ):
         from temsim.specimen.inelastic import (
@@ -1385,7 +1385,7 @@ class CalculationController(QObject):
             and str(getattr(sample, "specimen_mode", "atomic"))
             .strip()
             .lower()
-            in {"atomic", "reference"}
+            in {"atomic"}
             and not bool(getattr(sample, "stem_wave_enabled", False))
             and any(
                 bool(getattr(detector, "inserted", False))

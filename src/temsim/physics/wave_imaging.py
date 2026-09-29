@@ -62,7 +62,6 @@ from temsim.specimen.geometry import (
     quaternion_to_matrix,
 )
 from temsim.specimen.scene import SpecimenScene
-from temsim.specimen.reference_catalog import reference_thermal_sigma, reference_thermal_source
 
 
 @dataclass(frozen=True)
@@ -557,8 +556,8 @@ def _prepared_specimen_identity(
         "wave_frozen_phonon_sigma_by_element_angstrom": {},
     }
     parameters = {key: getattr(sample, key, default) for key, default in defaults.items()}
-    parameters["effective_thermal_sigma_angstrom"] = reference_thermal_sigma(sample)
-    parameters["effective_thermal_source"] = reference_thermal_source(sample)
+    parameters["effective_thermal_sigma_angstrom"] = float(sample.wave_frozen_phonon_sigma_angstrom)
+    parameters["effective_thermal_source"] = "user-specified RMS" if sample.wave_frozen_phonon_sigma_angstrom > 0 else ""
     backend = {"numpy": np.__version__}
     if (parameters["wave_atomistic_enabled"] and parameters["wave_multislice_enabled"]
             and scene.interacting_thickness_nm > 0.0):
@@ -806,8 +805,8 @@ def _prepare_specimen_potentials_uncached(
                         4,
                     )
                 ),
-                thermal_sigma_override_angstrom=reference_thermal_sigma(state.sample),
-                thermal_sigma_source=reference_thermal_source(state.sample),
+                thermal_sigma_override_angstrom=float(state.sample.wave_frozen_phonon_sigma_angstrom),
+                thermal_sigma_source="user-specified RMS" if state.sample.wave_frozen_phonon_sigma_angstrom > 0 else "",
                 thermal_seed=int(
                     getattr(state.sample, "wave_frozen_phonon_seed", 100)
                 ),

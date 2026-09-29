@@ -136,6 +136,8 @@ def test_gl_draft_uses_item_transform_and_probe_updates_in_place(scene, snapshot
 
 
 def test_hidden_page_defers_and_coalesces_latest_captured_sample(qtbot, monkeypatch):
+    from specimen_inputs import imported_sample
+
     calls = []
     original = sample_panel.build_sample_geometry_snapshot
 
@@ -147,6 +149,7 @@ def test_hidden_page_defers_and_coalesces_latest_captured_sample(qtbot, monkeypa
     page = sample_panel.SamplePage()
     qtbot.addWidget(page)
     state = default_state()
+    imported_sample(state)
     page.set_state(state)
 
     def result(size):

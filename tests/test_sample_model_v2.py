@@ -41,17 +41,18 @@ def test_zone_axis_and_in_plane_axis_share_one_right_handed_orientation():
     assert np.linalg.det(rotation) == pytest.approx(1.0)
 
 
-def test_default_sample_is_a_ten_nm_diameter_five_nm_si_110_disk():
+def test_default_sample_is_vacuum_with_editable_geometry():
     sample = default_state().sample
 
-    assert sample.specimen_mode == "reference"
-    assert sample.reference_sample_key == "si_110"
+    assert sample.specimen_mode == "vacuum"
+    assert not sample.inserted
+    assert not sample.cif_path
     assert sample.envelope_shape == "disk"
     assert sample.size_x_nm == pytest.approx(10.0)
     assert sample.size_y_nm == pytest.approx(10.0)
     assert sample.thickness_nm == pytest.approx(5.0)
-    assert sample.zone_axis_uvw == (1, 1, 0)
-    assert sample.in_plane_axis_uvw == (1, -1, 0)
+    assert sample.zone_axis_uvw == (0, 0, 1)
+    assert sample.in_plane_axis_uvw == (1, 0, 0)
     assert build_sample_geometry_snapshot(
         sample, load_atoms=False
     ).envelope_shape == "disk"

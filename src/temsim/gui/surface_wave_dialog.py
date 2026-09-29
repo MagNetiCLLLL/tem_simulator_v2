@@ -70,6 +70,7 @@ class SurfaceWaveDialog(QDialog):
         layout.addWidget(self.status)
         row = QHBoxLayout()
         self.calculate = QPushButton("Calculate near field")
+        self.calculate.setProperty("calculationAction", True)
         self.cancel = QPushButton("Cancel calculation"); self.cancel.setEnabled(False)
         self.export = QPushButton("Export complex fields..."); self.export.setEnabled(False)
         self.mode = QComboBox()

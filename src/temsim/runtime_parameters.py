@@ -12,7 +12,7 @@ SCALAR_TYPES = (bool, int, float, str)
 RETIRED_SAMPLE_FIELDS = frozenset({
     "specimen_preset_key", "atomic_structure_source",
 })
-SAMPLE_SOURCE_FIELDS = frozenset({"specimen_mode", "reference_sample_key", "cif_path"})
+SAMPLE_SOURCE_FIELDS = frozenset({"specimen_mode", "cif_path"})
 IDENTITY_FIELDS = frozenset({
     "key", "name", "label", "display_name", "colour", "color", "type_key", "role",
     "corrector", "owner", "kind", "shape_profile", "interaction_kind",
@@ -315,13 +315,9 @@ def validate_runtime_assignment(
         converted = str(converted).strip().lower()
     if name == "specimen_mode" and converted not in {
         "atomic",
-        "reference",
+        "vacuum",
     }:
-        raise ValueError("sample.specimen_mode must be atomic or reference")
-    if name == "reference_sample_key":
-        from temsim.specimen.reference_catalog import get_reference_sample
-
-        get_reference_sample(str(converted))
+        raise ValueError("sample.specimen_mode must be atomic or vacuum")
     if name == "real_tail_material_source" and converted not in {"structure", "manual"}:
         raise ValueError("sample.real_tail_material_source must be structure or manual")
     if name == "real_tail_screening_source" and converted not in {"moliere", "manual"}:

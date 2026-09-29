@@ -1,3 +1,4 @@
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -365,7 +366,7 @@ def test_retired_virtual_density_map_does_not_change_physical_identity(tmp_path)
     density_path = tmp_path / "density.npy"
     np.save(density_path, np.zeros((4, 4), dtype=np.float32))
     state = default_state()
-    state.sample.specimen_mode = "reference"
+    imported_sample(state.sample)
     state.sample.virtual_regions = [{
         "kind": "map",
         "map_path": str(density_path),
@@ -624,7 +625,7 @@ def test_new_tem_calculation_rejects_legacy_source_before_cache_reprojection():
     state.projector_mode = "image"
     state.sample.eds_enabled = False
     state.sample.wave_enabled = True
-    state.sample.specimen_mode = "reference"
+    imported_sample(state.sample)
     state.sample.specimen_preset_key = "si_110"
     state.sample.thickness_nm = 2.0
     state.sample.wave_grid_pixels = 32

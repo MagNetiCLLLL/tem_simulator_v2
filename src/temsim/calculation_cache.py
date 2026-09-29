@@ -377,13 +377,8 @@ def _cif_content_identity(payload: dict[str, object]) -> dict[str, object] | Non
     sample = dict(payload.get("sample", {}))
     from types import SimpleNamespace
     from temsim.specimen.source import active_cif_path
-    from temsim.specimen.reference_catalog import get_reference_sample
     try:
-        identity = _file_content_identity(active_cif_path(SimpleNamespace(**sample)))
-        if str(sample.get("specimen_mode", "reference")).strip().lower() == "reference":
-            entry = get_reference_sample(sample.get("reference_sample_key", "si_110"))
-            return {"cif": identity, "metadata": _file_content_identity(entry.metadata_path) if entry.metadata_path else None}
-        return identity
+        return _file_content_identity(active_cif_path(SimpleNamespace(**sample)))
     except (ValueError, OSError) as exc:
         return {"available": False, "error": str(exc)}
 

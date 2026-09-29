@@ -1044,6 +1044,7 @@ class SampleInteractions3DPage(QWidget):
 
         self.calculate_paths = QPushButton("Calculate detailed paths + X-rays")
         self.calculate_paths.setObjectName("sampleInteractions3DCalculate")
+        self.calculate_paths.setProperty("calculationAction", True)
         self.calculate_paths.setEnabled(False)
         self.calculate_paths.setToolTip(
             "Explicitly calculate only missing bounded sample/EDS observables; "
@@ -1484,8 +1485,6 @@ class SampleInteractions3DPage(QWidget):
         specimen_label = (
             "Vacuum reference"
             if scene.specimen_is_vacuum
-            else "Reference CIF sample"
-            if scene.specimen_mode == "reference"
             else "Real imported CIF sample"
         )
         parts = [

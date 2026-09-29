@@ -51,6 +51,25 @@ QPushButton, QComboBox, QLineEdit {
 QPushButton:hover {
     background: #334155;
 }
+QPushButton[calculationAction="true"] {
+    background: #4ade80;
+    color: #052e16;
+    border-color: #22c55e;
+}
+QPushButton[calculationAction="true"]:enabled:hover {
+    background: #86efac;
+}
+QPushButton[calculationAction="true"]:enabled:pressed {
+    background: #22c55e;
+}
+QPushButton[calculationAction="true"]:enabled:focus {
+    border-color: #f0fdf4;
+}
+QPushButton[calculationAction="true"]:disabled {
+    background: #253a30;
+    color: #789986;
+    border-color: #3f5a49;
+}
 QCheckBox {
     spacing: 8px;
     padding: 3px 2px;

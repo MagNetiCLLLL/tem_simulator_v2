@@ -1,4 +1,5 @@
 """Fixed scientific cases. Each property states its scope and measured error."""
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 import json
 import numpy as np
 import pytest
@@ -136,7 +137,7 @@ def test_at33_unqualified_coherent_chain_rejects_without_changing_controls(recor
     state.illumination_mode="TEM"; state.projector_mode="image"
     for detector in state.stem_detectors: detector.inserted=False
     state.fluorescent_screen.inserted=False; state.camera.inserted=True
-    state.sample.specimen_mode="reference"; state.sample.reference_sample_key="si_110"
+    imported_sample(state)
     state.sample.wave_enabled=True; state.sample.wave_grid_pixels=64
     state.sample.wave_field_of_view_angstrom=16.; state.sample.thickness_nm=.4
     state.sample.wave_multislice_enabled=True; state.sample.wave_atomistic_enabled=True

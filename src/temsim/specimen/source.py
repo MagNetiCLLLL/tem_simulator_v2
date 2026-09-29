@@ -1,45 +1,26 @@
-"""A reference library CIF or an external CIF is the sole physical structure."""
-
+"""Vacuum or a user-imported CIF is the only active specimen source."""
 from __future__ import annotations
 from temsim import input_io
 
-SPECIMEN_MODES = frozenset({"atomic", "reference"})
+SPECIMEN_MODES = frozenset({"vacuum", "atomic"})
 
 
 def specimen_mode(sample) -> str:
-    mode = str(getattr(sample, "specimen_mode", "reference")).strip().lower()
+    mode = str(getattr(sample, "specimen_mode", "vacuum")).strip().lower()
     if mode not in SPECIMEN_MODES:
-        raise ValueError("Sample mode must be 'atomic' or 'reference'; Virtual mode has been retired.")
+        raise ValueError("Sample mode must be 'vacuum' or 'atomic'. Import a CIF to use a material sample.")
     return mode
 
 
 def active_specimen_source(sample) -> str:
-    specimen_mode(sample)
-    return "cif"
+    return "vacuum" if specimen_mode(sample) == "vacuum" else "cif"
 
 
 @input_io.using_state_inputs
 def active_cif_path(sample) -> str:
-    if specimen_mode(sample) == "atomic":
-        return str(getattr(sample, "cif_path", "")).strip()
-    from temsim.specimen.reference_catalog import DEFAULT_REFERENCE_KEY, get_reference_sample
-    try:
-        return str(get_reference_sample(getattr(sample, "reference_sample_key", DEFAULT_REFERENCE_KEY)).cif_path)
-    except ValueError:
-        if specimen_is_vacuum(sample):
-            return ""
-        raise
-
-
-@input_io.using_state_inputs
-def selected_reference_preset_key(sample) -> str:
-    """Numerical/explicit material template, never a substitute for CIF atoms."""
-    if specimen_mode(sample) != "reference":
+    if specimen_mode(sample) == "vacuum":
         return ""
-    if specimen_is_vacuum(sample):
-        return ""
-    from temsim.specimen.reference_catalog import DEFAULT_REFERENCE_KEY, get_reference_sample
-    return get_reference_sample(getattr(sample, "reference_sample_key", DEFAULT_REFERENCE_KEY)).template_preset_key
+    return str(getattr(sample, "cif_path", "")).strip()
 
 
 def specimen_structure_available(sample) -> bool:
@@ -47,18 +28,24 @@ def specimen_structure_available(sample) -> bool:
 
 
 def specimen_is_vacuum(sample) -> bool:
-    if not bool(getattr(sample, "inserted", True)):
-        return True
-    return float(getattr(sample, "thickness_nm", 0.0)) <= 0.0
+    return (specimen_mode(sample) == "vacuum"
+            or not bool(getattr(sample, "inserted", False))
+            or float(getattr(sample, "thickness_nm", 0.0)) <= 0.0)
 
 
 def specimen_interactions_active(sample) -> bool:
-    return bool(getattr(sample, "inserted", False) and not specimen_is_vacuum(sample)
-                and specimen_structure_available(sample))
+    return not specimen_is_vacuum(sample) and specimen_structure_available(sample)
+
+
+def validate_sample_source(sample) -> None:
+    """An inserted material request cannot silently calculate an empty sample."""
+    if not specimen_is_vacuum(sample) and not specimen_structure_available(sample):
+        raise ValueError("Import a CIF/MCIF file before calculating the sample, or select Vacuum sample.")
 
 
 def wave_template_preset_key(sample, *, inserted: bool = True) -> str:
-    if not inserted or not specimen_structure_available(sample):
+    if not inserted or specimen_is_vacuum(sample) or not specimen_structure_available(sample):
         return "vacuum"
     from temsim.specimen.presets import default_specimen_preset_key
-    return selected_reference_preset_key(sample) or default_specimen_preset_key()
+    # Numerical grid defaults only; atoms and composition always come from CIF.
+    return default_specimen_preset_key()

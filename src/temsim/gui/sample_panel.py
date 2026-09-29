@@ -10,7 +10,6 @@ from temsim.gui.input_policy import (
 
 import json
 from temsim import input_io
-import hashlib
 import math
 import os
 from dataclasses import fields
@@ -49,14 +48,11 @@ from temsim.specimen.geometry import (
     sample_orientation_quaternion,
     set_sample_orientation,
 )
-from temsim.specimen.reference_catalog import (
-    available_reference_samples, apply_reference_sample, get_reference_sample,
-    refresh_reference_samples,
-)
 from temsim.specimen.source import active_cif_path
 from temsim.specimen.rutherford import resolve_tail_material
 from temsim.gui.sample_scene_labels import sample_scene_labels
 from temsim.gui.sample_display_source import resolve_sample_display_source
+from temsim.gui.sample_projection import orthographic_pixel_size, orthographic_projection
 
 
 try:
@@ -78,6 +74,18 @@ if gl is not None:
             super().__init__(parent)
             self.edit_orientation = False
             self._edit_position = None
+            self.setCameraPosition(elevation=90., azimuth=-90.)
+
+        def projectionMatrix(self, region, viewport):
+            return orthographic_projection(
+                region, viewport, self.opts["distance"], self.opts["fov"])
+
+        def pixelSize(self, pos):
+            scale = orthographic_pixel_size(
+                self.opts["distance"], self.opts["fov"], self.width())
+            if isinstance(pos, np.ndarray):
+                return np.full(pos.shape[:-1], scale)
+            return scale
 
         def mousePressEvent(self, event):
             if self.edit_orientation and event.button() == Qt.MouseButton.LeftButton:
@@ -102,6 +110,24 @@ if gl is not None:
                 event.accept()
                 return
             super().mouseReleaseEvent(event)
+
+
+    class _OrthographicAtomPoints(gl.GLScatterPlotItem):
+        """Point sprites with the same depth-independent scale as atom meshes."""
+
+        def __init__(self, *, diameters, **kwargs):
+            self._diameters = np.asarray(diameters, dtype=np.float32)
+            self._pixel_scale = None
+            super().__init__(size=self._diameters, pxMode=True, glOptions="opaque", **kwargs)
+
+        def paint(self):
+            view = self.view()
+            scale = orthographic_pixel_size(
+                view.opts["distance"], view.opts["fov"], view.width())
+            if scale != self._pixel_scale:
+                self.setData(size=self._diameters / scale)
+                self._pixel_scale = scale
+            super().paint()
 
 
 def _rectangle_lines(bounds, z):
@@ -438,11 +464,10 @@ class SampleSceneView(QWidget):
             # Large user-selected display windows use GPU point sprites as an
             # explicit level of detail; colours and physical diameters remain
             # element-specific while avoiding millions of triangle faces.
-            item = gl.GLScatterPlotItem(
+            item = _OrthographicAtomPoints(
                 pos=positions,
                 color=colours,
-                size=2.0 * radii,
-                pxMode=False,
+                diameters=2.0 * radii,
             )
         self.view.addItem(item)
         self._items.append(item)
@@ -535,6 +560,22 @@ class SampleSceneView(QWidget):
         if self._snapshot is not None:
             self._fit_region(self._snapshot.centre_nm, self._snapshot.size_nm)
 
+    def view_along_beam(self):
+        """View lab X/Y along the optical axis; preserve the crystal rotation."""
+        if self.opengl_available:
+            self.view.setCameraPosition(elevation=90., azimuth=-90.)
+        if self._snapshot is None:
+            return
+        snapshot = self._snapshot
+        if snapshot.atom_positions_nm.size:
+            positions = self._oriented_atoms(snapshot, self._shown_rotation).copy()
+            positions[:, :2] += snapshot.centre_nm[:2]
+            radius = float(np.max(_atomic_radii_nm(snapshot.atomic_numbers)))
+            lower, upper = positions.min(axis=0)-radius, positions.max(axis=0)+radius
+            self._fit_region(.5*(lower+upper), upper-lower, along_beam=True)
+        else:
+            self.fit_local_region()
+
     def fit_local_region(self):
         """Fit the requested local material region, not its capped atom subset."""
         if self._snapshot is None:
@@ -546,16 +587,21 @@ class SampleSceneView(QWidget):
         limits = np.asarray(bounds, dtype=float).reshape(3, 2)
         self._fit_region(np.mean(limits, axis=1), np.diff(limits, axis=1).ravel())
 
-    def _fit_region(self, centre, size):
+    def _fit_region(self, centre, size, *, along_beam=False):
         centre = np.asarray(centre, dtype=float)
         size = np.maximum(np.asarray(size, dtype=float), 1.0e-3)
         if self.opengl_available:
-            # GLViewWidget uses a horizontal field of view. Fit a bounding
-            # sphere using the smaller viewport angle, without axis stretching.
+            # The orthographic width uses the camera's existing zoom scale.
+            # Fit the bounding sphere without stretching either transverse axis.
             half_angle = math.radians(float(self.view.opts["fov"]) * 0.5)
             aspect = max(self.view.height(), 1) / max(self.view.width(), 1)
-            half_angle = min(half_angle, math.atan(math.tan(half_angle) * aspect))
-            self.view.opts["distance"] = float(0.6 * np.linalg.norm(size) / math.sin(half_angle))
+            if along_beam:
+                # Depth does not consume screen space in an axial parallel view.
+                distance = 0.55 * max(size[0], size[1] / aspect) / math.tan(half_angle)
+            else:
+                half_angle = min(half_angle, math.atan(math.tan(half_angle) * aspect))
+                distance = 0.6 * np.linalg.norm(size) / math.tan(half_angle)
+            self.view.opts["distance"] = float(distance)
             self.view.opts["center"] = QVector3D(*centre)
             self.view.update()
         else:
@@ -781,7 +827,6 @@ class SamplePage(QWidget):
         super().__init__(parent)
         self.setObjectName("samplePage")
         self._state = None
-        self._reference_revision = None
         self._result = None
         self._snapshot = None
         self._refresh_pending = False
@@ -802,8 +847,8 @@ class SamplePage(QWidget):
         self.inserted.setObjectName("sampleInsertedControl")
         self.mode = QComboBox()
         self.mode.setObjectName("sampleModeControl")
-        self.mode.addItem("Reference CIF", "reference")
-        self.mode.addItem("Open CIF", "atomic")
+        self.mode.addItem("Vacuum sample", "vacuum")
+        self.mode.addItem("Imported CIF", "atomic")
         self.envelope_shape = QComboBox()
         self.envelope_shape.setObjectName("sampleEnvelopeShapeControl")
         self.envelope_shape.addItem("Circular disk", "disk")
@@ -842,36 +887,11 @@ class SamplePage(QWidget):
         real_layout = QVBoxLayout(real)
         source_form = QFormLayout()
         source_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        self.source_note = QLabel("Reference and imported samples use their actual CIF structure.")
+        self.source_note = QLabel("Vacuum sample. Import a CIF / MCIF file to add a material sample.")
         self.source_note.setWordWrap(True)
         self.source_note.setObjectName("sampleRealSourceNote")
         self.source_note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         real_layout.addWidget(self.source_note)
-        self.preset = QComboBox()
-        self.preset.setObjectName("sampleReferenceControl")
-        self.preset.setMinimumContentsLength(18)
-        self.preset.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.reference_sample = self.preset
-        try:
-            references = available_reference_samples()
-        except Exception as exc:
-            references = ()
-            self.source_note.setText(f"Reference catalog unavailable: {exc}")
-        for reference in references:
-            self.preset.addItem(reference.name, reference.key)
-        reference_row = QHBoxLayout()
-        reference_row.setContentsMargins(0, 0, 0, 0)
-        reference_row.addWidget(self.preset, 1)
-        self.refresh_references = QPushButton("Refresh")
-        self.refresh_references.setObjectName("sampleRefreshReferences")
-        self.refresh_references.setToolTip(
-            "Reload CIF / MCIF files and optional metadata from configs/reference_samples."
-        )
-        self.refresh_references.clicked.connect(self._refresh_references)
-        reference_row.addWidget(self.refresh_references)
-        self.reference_source_widget = QWidget()
-        self.reference_source_widget.setLayout(reference_row)
-        source_form.addRow("Reference CIF", self.reference_source_widget)
         path_row = QHBoxLayout()
         self.cif_path = QLineEdit()
         self.cif_path.setObjectName("sampleCifPath")
@@ -988,7 +1008,7 @@ class SamplePage(QWidget):
             "real_ionisation_energy_ev",
         ):
             self.inelastic_scalar_controls[field].setSpecialValueText(
-                "Material default"
+                "Not specified"
             )
         for field in (
             "real_other_inelastic_mean_free_path_nm",
@@ -1045,7 +1065,7 @@ class SamplePage(QWidget):
         self.frozen_sigma = self._double_control(
             "sampleFrozenPhononSigma", 0.0, 1.0e6, suffix=" Å"
         )
-        self.frozen_sigma.setSpecialValueText("Preset value")
+        self.frozen_sigma.setSpecialValueText("Not specified")
         self.frozen_seed = self._integer_control(
             "sampleFrozenPhononSeed", 0, 2_147_483_647
         )
@@ -1196,12 +1216,20 @@ class SamplePage(QWidget):
         scene_layout = QVBoxLayout(scene_page)
         scene_header = QHBoxLayout()
         scene_header.addWidget(self.scene_status, 1)
+        self.beam_axis_view_button = QPushButton("View along beam")
+        self.beam_axis_view_button.setObjectName("sampleViewAlongBeam")
+        self.beam_axis_view_button.setToolTip(
+            "Orthographic view along the optical Z axis: laboratory X right, Y up. "
+            "Fit the displayed atoms to inspect atomic columns. This changes only the camera; "
+            "use Align CIF zone axis to change the crystal orientation.")
+        self.beam_axis_view_button.clicked.connect(self.scene.view_along_beam)
         self.fit_full_sample_button = QPushButton("Fit full sample")
         self.fit_full_sample_button.setObjectName("sampleFitFullSample")
         self.fit_full_sample_button.clicked.connect(self.scene.fit_full_sample)
         self.fit_local_region_button = QPushButton("Fit local region")
         self.fit_local_region_button.setObjectName("sampleFitLocalRegion")
         self.fit_local_region_button.clicked.connect(self.scene.fit_local_region)
+        scene_header.addWidget(self.beam_axis_view_button)
         scene_header.addWidget(self.fit_full_sample_button)
         scene_header.addWidget(self.fit_local_region_button)
         scene_layout.addLayout(scene_header)
@@ -1247,6 +1275,11 @@ class SamplePage(QWidget):
         from temsim.gui.page_calculation import PageCalculationBar
         self.calculation_bar = PageCalculationBar("sample", "calculateSample")
         self.calculate_button = self.calculation_bar.button
+        self.calculate_button.setToolTip(
+            "Use the completed Ray Diagram's incident beam to calculate sample "
+            "elastic/inelastic interactions and downstream electron transport. "
+            "Vacuum applies no specimen interactions. Calculate STEM images and "
+            "EDS spectra using the buttons on their own pages.")
         self.calculation_bar.requested.connect(self.calculation_requested.emit)
         layout.addWidget(self.calculation_bar)
         layout.addWidget(splitter)
@@ -1256,7 +1289,6 @@ class SamplePage(QWidget):
         self.envelope_shape.currentIndexChanged.connect(
             self._envelope_shape_changed
         )
-        self.preset.currentIndexChanged.connect(self._preset_changed)
         for control, field in (
             (self.tem_wave_enabled, "wave_enabled"),
             (self.multislice_enabled, "wave_multislice_enabled"),
@@ -1346,14 +1378,6 @@ class SamplePage(QWidget):
         self._state = state
         self._updating = True
         try:
-            resolver = input_io.active_archive()
-            catalog_identity = resolver.identity if resolver is not None else "live"
-            if getattr(self, "_catalog_input_identity", None) != catalog_identity:
-                references = available_reference_samples()
-                self.preset.clear()
-                for reference in references:
-                    self.preset.addItem(reference.name, reference.key)
-                self._catalog_input_identity = catalog_identity
             sample = state.sample
             self.inserted.setChecked(bool(sample.inserted))
             index = self.mode.findData(str(sample.specimen_mode).lower())
@@ -1364,15 +1388,6 @@ class SamplePage(QWidget):
             self.envelope_shape.setCurrentIndex(max(shape_index, 0))
             for field, control in self.scalar_controls.items():
                 control.setValue(float(getattr(sample, field)))
-            preset_index = self.preset.findData(
-                str(sample.reference_sample_key)
-            )
-            if preset_index < 0:
-                self.preset.addItem(f"Missing reference: {sample.reference_sample_key}", sample.reference_sample_key)
-                preset_index = self.preset.count() - 1
-            self.preset.setCurrentIndex(
-                preset_index
-            )
             self.cif_path.setText(str(sample.cif_path))
             for controls, values in (
                 (self.zone_controls[1], sample.zone_axis_uvw),
@@ -1429,7 +1444,6 @@ class SamplePage(QWidget):
             self._refresh_tail_summary()
         finally:
             self._updating = False
-        self._reference_revision = self._reference_source_revision()
         self.refresh_snapshot()
 
     def _set_scalar(self, name, value):
@@ -1506,80 +1520,6 @@ class SamplePage(QWidget):
         setattr(self._state.sample, name, int(value))
         self._changed(f"sample.{name}")
 
-    @input_io.using_state_inputs
-    def _preset_changed(self, _index=None):
-        if self._updating or self._state is None:
-            return
-        key = str(self.preset.currentData() or "")
-        try:
-            apply_reference_sample(self._state.sample, key)
-        except Exception as exc:
-            self.error.emit(str(exc))
-            self.set_state(self._state)
-            return
-        self.set_state(self._state)
-        self._changed("sample.reference_sample_key")
-
-    @input_io.using_state_inputs
-    def _reference_source_revision(self):
-        if self._state is None or str(self._state.sample.specimen_mode).strip().lower() != "reference":
-            return None
-        key = str(self._state.sample.reference_sample_key)
-        try:
-            reference = get_reference_sample(key)
-            revision = [key]
-            for path in (reference.cif_path, reference.metadata_path):
-                if path is None:
-                    revision.append(None)
-                else:
-                    with input_io.open_input(path) as stream:
-                        revision.append((str(path), hashlib.file_digest(stream, "sha256").hexdigest()))
-            return tuple(revision)
-        except Exception as exc:
-            return (key, "unavailable", str(exc))
-
-    def _reference_source_refreshed(self):
-        revision = self._reference_source_revision()
-        changed = revision != self._reference_revision
-        self._reference_revision = revision
-        if changed and revision is not None:
-            # This is a file-content change rather than a selection change.
-            # Preserve the user's orientation/dimensions while invalidating
-            # calculations and notifying the normal main-window update path.
-            self._changed("sample.reference_source")
-            return True
-        return False
-
-    @input_io.using_state_inputs
-    def _refresh_references(self, _checked=False):
-        key = (str(self._state.sample.reference_sample_key)
-               if self._state is not None else str(self.preset.currentData() or ""))
-        try:
-            refresh_reference_samples()
-            references = available_reference_samples()
-        except Exception as exc:
-            self.source_note.setText(f"Reference catalog unavailable: {exc}")
-            self.error.emit(str(exc))
-            self._reference_source_refreshed()
-            return
-        self.preset.blockSignals(True)
-        try:
-            self.preset.clear()
-            for reference in references:
-                self.preset.addItem(reference.name, reference.key)
-            index = self.preset.findData(key)
-            if index < 0:
-                self.preset.addItem(f"Missing reference: {key}", key)
-                index = self.preset.count() - 1
-            self.preset.setCurrentIndex(index)
-        finally:
-            self.preset.blockSignals(False)
-        self._update_mode_controls()
-        self._update_wave_controls()
-        if not self._reference_source_refreshed():
-            self._refresh_tail_summary()
-            self.refresh_snapshot()
-
     def _element_sigma_edited(self):
         if self._updating or self._state is None:
             return
@@ -1607,15 +1547,12 @@ class SamplePage(QWidget):
         if self._updating or self._state is None:
             return
         mode = str(self.mode.currentData())
-        try:
-            if mode == "reference":
-                apply_reference_sample(self._state.sample, self._state.sample.reference_sample_key)
-            else:
-                self._state.sample.specimen_mode = mode
-        except Exception as exc:
-            self.error.emit(str(exc))
+        if mode == "atomic" and not self._state.sample.cif_path:
+            self._browse_cif()
             self.set_state(self._state)
             return
+        self._state.sample.specimen_mode = mode
+        self._state.sample.inserted = mode == "atomic"
         self.set_state(self._state)
         self._changed("sample.specimen_mode")
 
@@ -1629,16 +1566,13 @@ class SamplePage(QWidget):
 
     def _update_mode_controls(self):
         atomic = str(self.mode.currentData()) == "atomic"
-        self.reference_source_widget.setEnabled(not atomic)
-        self.cif_source_widget.setEnabled(atomic)
+        self.inserted.setEnabled(atomic)
+        # Import remains available in vacuum; selecting a valid file activates it.
+        self.cif_source_widget.setEnabled(True)
         path = self._structure_path()
         self.apply_zone.setEnabled(bool(path))
-        detail = f"Structure: {path}" if path else "No available CIF structure. Select an existing reference or open a CIF."
-        if not path and self._state is not None:
-            try:
-                active_cif_path(self._state.sample)
-            except (ValueError, OSError) as exc:
-                detail = f"CIF structure unavailable: {exc}"
+        detail = (f"Structure: {path}" if path else
+                  "Vacuum sample. Import a CIF / MCIF file to add a material sample.")
         self.source_note.setText(f"Structure: {Path(path).name}" if path else detail)
         self.source_note.setToolTip(detail)
 
@@ -1802,9 +1736,21 @@ class SamplePage(QWidget):
         if self._updating or self._state is None:
             return
         path = self.cif_path.text().strip()
+        if path:
+            try:
+                from temsim.specimen.cif_io import read_cif_atoms
+                from temsim.specimen.rutherford import composition_from_atoms
+                path = str(Path(path).expanduser().resolve())
+                atoms = read_cif_atoms(path)
+                composition_from_atoms(atoms, source_path=path)
+            except Exception as exc:
+                self.error.emit(f"CIF import failed: {exc}")
+                self.set_state(self._state)
+                return
         self._state.sample.cif_path = path
-        self._update_mode_controls()
-        self._update_wave_controls()
+        self._state.sample.specimen_mode = "atomic" if path else "vacuum"
+        self._state.sample.inserted = bool(path)
+        self.set_state(self._state)
         self._changed("sample.cif_path")
 
     @input_io.using_state_inputs
@@ -1912,11 +1858,13 @@ class SamplePage(QWidget):
                 label.clear()
             self.fit_full_sample_button.setEnabled(False)
             self.fit_local_region_button.setEnabled(False)
+            self.beam_axis_view_button.setEnabled(False)
             self.element_legend.set_atomic_numbers(())
             return
         self._snapshot = snapshot
         self.scene.display_snapshot(snapshot)
         self.fit_full_sample_button.setEnabled(True)
+        self.beam_axis_view_button.setEnabled(True)
         self.fit_local_region_button.setEnabled(snapshot.local_material_bounds_nm is not None)
         for label, text in zip(
             (self.full_sample_label, self.local_region_label, self.atom_display_label),
@@ -1933,11 +1881,11 @@ class SamplePage(QWidget):
             self.atom_display_label.setToolTip(f"Atomic preview unavailable: {atom_error}")
         self.element_legend.set_atomic_numbers(snapshot.atomic_numbers)
         backend = (
-            f"3-D OpenGL ({self.scene.opengl_detail})"
+            f"Orthographic 3-D OpenGL ({self.scene.opengl_detail})"
             if self.scene.opengl_available
             else f"safe 2-D fallback ({self.scene.opengl_detail})"
         )
-        mode = "Open CIF" if snapshot.mode == "atomic" else "Reference CIF"
+        mode = "Imported CIF" if snapshot.mode == "atomic" else "Vacuum sample"
         atom_detail = ""
         if snapshot.atomic_numbers.size:
             display_size = snapshot.atom_display_size_nm
@@ -1966,7 +1914,8 @@ class SamplePage(QWidget):
         )
         warning_count = len(snapshot.warnings) + int(atom_error is not None)
         self.scene_status.setText(
-            f"{source.provenance_label} | {'inserted' if snapshot.inserted else 'retracted'}"
+            "Orthographic | " + ("Vacuum sample | no specimen interactions" if snapshot.mode == "vacuum" else
+             f"{source.provenance_label} | {'inserted' if snapshot.inserted else 'retracted'}")
             + (f" | {warning_count} warning(s)" if warning_count else "")
         )
         self.scene_status.setToolTip(
@@ -1982,6 +1931,8 @@ class SamplePage(QWidget):
         self.calculation_bar.set_result_available(
             getattr(result, "specimen_interactions", None) is not None
             or getattr(result, "sample_region", None) is not None
+            or (getattr(result, "workflow", None) == "sample"
+                and getattr(result, "simulation", None) is not None)
         )
 
     def showEvent(self, event):

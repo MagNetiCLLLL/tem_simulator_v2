@@ -1338,8 +1338,8 @@ def test_sample_interactions_3d_requests_shared_sample_region_without_ray_redraw
     workspace = VisualizationWorkspace()
     qtbot.addWidget(workspace)
     state = default_state()
-    assert state.sample.specimen_mode == "reference"
-    assert state.sample.reference_sample_key == "si_110"
+    assert state.sample.specimen_mode == "vacuum"
+    assert state.sample.cif_path == ""
     workspace.eds_page.set_state(state)
     workspace.eds_page.display_result(SimpleNamespace(simulation=None))
     workspace._update_sample_region_control_availability()
@@ -2252,9 +2252,9 @@ def test_sample_parameters_are_owned_by_central_workspace(qtbot):
     assert window.status_label.text() == (
         "Sample parameters opened in the central Sample workspace"
     )
-    assert page.inserted.isChecked()
-    assert page.mode.currentData() == "reference"
-    assert page.reference_sample.currentData() == "si_110"
+    assert not page.inserted.isChecked()
+    assert page.mode.currentData() == "vacuum"
+    assert not hasattr(page, "reference_sample")
     assert page.multislice_enabled.isChecked()
     assert page.atomistic_enabled.isChecked()
     assert not page.frozen_enabled.isChecked()
@@ -2263,6 +2263,9 @@ def test_sample_parameters_are_owned_by_central_workspace(qtbot):
     assert page.frozen_sigma.suffix() == " Å"
     assert not page.frozen_configurations.isEnabled()
 
+    from specimen_inputs import SI_CIF
+    page.cif_path.setText(str(SI_CIF))
+    page._cif_edited()
     page.tem_wave_enabled.setChecked(True)
     page.wave_grid.setValue(64)
     page.frozen_enabled.setChecked(True)
@@ -2522,6 +2525,8 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     monkeypatch.setattr(main_window_module, "QSettings", lambda: QSettings(
         settings_path, QSettings.Format.IniFormat))
     state = default_state()
+    from specimen_inputs import imported_sample
+    imported_sample(state)
     catalog = AssemblyCatalog()
     assembly = catalog.apply(state, catalog.default_selection())
     # This test exercises active aperture clipping and span rendering. The
@@ -2611,12 +2616,12 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         assembly.part("sample").center_z_mm
     )
     assert "SAMPLE / SPECIMEN" in sample_line.label.toPlainText()
-    assert "Reference CIF sample plane (inserted)" in sample_line.toolTip()
+    assert "Imported CIF sample plane (inserted)" in sample_line.toolTip()
     assert (
         f"Exact axial position Z = {assembly.part('sample').center_z_mm:.9g} mm"
         in sample_line.toolTip()
     )
-    assert "reference CIF supplies atomic structure" in sample_line.toolTip()
+    assert "Calculate Sample uses the saved incident beam" in sample_line.toolTip()
     assert sample_line.zValue() > sample_axis_marker.zValue() - 2
     full_view_label_size = sample_line.label.textItem.font().pointSize()
     assert full_view_label_size == window.workspace.RAY_LABEL_BASE_PT

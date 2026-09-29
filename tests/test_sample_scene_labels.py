@@ -1,3 +1,4 @@
+from specimen_inputs import imported_sample
 """Sample labels do not confuse a rendering crop with a physical specimen."""
 from dataclasses import replace
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ from temsim.specimen.geometry import build_sample_geometry_snapshot
 
 def test_ten_nm_sample_and_two_nm_local_region_have_separate_dimensions():
     sample = default_state().sample
+    imported_sample(sample)
     sample.size_x_nm = sample.size_y_nm = sample.thickness_nm = 10.0
     snapshot = build_sample_geometry_snapshot(
         sample, load_atoms=False,
@@ -26,6 +28,7 @@ def test_ten_nm_sample_and_two_nm_local_region_have_separate_dimensions():
 
 def test_display_subset_does_not_claim_to_be_the_full_calculation_region():
     sample = default_state().sample
+    imported_sample(sample)
     snapshot = build_sample_geometry_snapshot(sample, load_atoms=False)
     snapshot = replace(snapshot, atomic_numbers=np.full(1800, 14),
                        atom_display_capped=True, atom_display_size_nm=(3.3, 3.3, 3.3))
@@ -39,6 +42,7 @@ def test_display_subset_does_not_claim_to_be_the_full_calculation_region():
 
 def test_empty_material_region_is_not_replaced_with_atoms():
     sample = default_state().sample
+    imported_sample(sample)
     sample.size_x_nm = sample.size_y_nm = 10.0
     snapshot = build_sample_geometry_snapshot(
         sample, load_atoms=False,
@@ -53,6 +57,7 @@ def test_page_retains_completed_region_labels_without_using_new_draft_dimensions
     from temsim.gui.sample_panel import SamplePage
 
     state = default_state()
+    imported_sample(state)
     saved = type(state).from_dict(state.to_dict())
     saved.sample.size_x_nm = saved.sample.size_y_nm = saved.sample.thickness_nm = 10.0
     result = SimpleNamespace(
@@ -82,6 +87,7 @@ def test_page_missing_cif_preserves_full_and_local_outlines(qtbot, tmp_path):
     from temsim.gui.sample_panel import SamplePage
 
     state = default_state()
+    imported_sample(state)
     state.sample.specimen_mode = "atomic"
     state.sample.cif_path = str(tmp_path / "missing-cif.cif")
     state.sample.size_x_nm = state.sample.size_y_nm = state.sample.thickness_nm = 10.0

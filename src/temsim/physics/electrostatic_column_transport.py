@@ -18,6 +18,10 @@ M = 9.1093837015e-31
 C = 299792458.0
 REST_EV = M*C*C/(-Q)
 
+# Several blocks per multiprocessor instead of two blocks followed by a full
+# device wait. Keep bounded launches for cooperative cancellation on long plans.
+CUDA_PARTICLE_BATCH_SIZE = 4096
+
 try:
     from numba import njit, prange, cuda
     from numba.extending import register_jitable
@@ -298,6 +302,12 @@ def electrostatic_column_rk4(inputs, *, z_mm, electric_field, initial_kinetic_en
     if backend==BACKEND_NUMBA and (not compiled or _parallel is None):
         backend=BACKEND_CPU;reason='electric provider, mapped field or collisions require the reference CPU solver'
     if backend in (BACKEND_NUMBA,BACKEND_CUDA):
+        from .transport_progress import report_transport_progress
+        def report(completed):
+            report_transport_progress(
+                f"Column | {backend} | {completed:,}/{count:,} electrons | "
+                f"Z {z_mm[0]:.3f} to {z_mm[-1]:.3f} mm")
+        report(0)
         coeff=np.ascontiguousarray((inputs[0],inputs[1],inputs[2],inputs[3],inputs[4],inputs[18]))
         forcing=np.ascontiguousarray((inputs[19],inputs[20]))
         actions=np.ascontiguousarray((inputs[6],inputs[7],inputs[8],inputs[14],inputs[15]))
@@ -307,19 +317,24 @@ def electrostatic_column_rk4(inputs, *, z_mm, electric_field, initial_kinetic_en
         if backend==BACKEND_CUDA:
             if _cuda_kernel is None:raise GPUExecutionError('unavailable','CUDA electric-column kernel is not available')
             device=[]
-            for value in args:
-                device.append(tuple(cuda.to_device(v) for v in value) if isinstance(value,tuple)
+            for index,value in enumerate(args):
+                # Histories are outputs, fully written by the kernel. Uploading
+                # their uninitialised host buffers wastes gigabytes of traffic.
+                device.append(cuda.device_array_like(value) if index in (len(args)-3,len(args)-2) else
+                              tuple(cuda.to_device(v) for v in value) if isinstance(value,tuple)
                               else cuda.to_device(value) if isinstance(value,np.ndarray) else value)
-            for start in range(0,count,256):
+            for start in range(0,count,CUDA_PARTICLE_BATCH_SIZE):
                 if cancel_check is not None: cancel_check()
-                stop=min(start+256,count)
+                stop=min(start+CUDA_PARTICLE_BATCH_SIZE,count)
                 _cuda_kernel[(stop-start+127)//128,128](start,stop,*device)
                 cuda.synchronize()
+                report(stop)
             history,checkpoints,error=(device[i].copy_to_host() for i in (-3,-2,-1))
         else:
             for start in range(0,count,64):
                 if cancel_check is not None: cancel_check()
                 (_serial if serial else _parallel)(start,min(start+64,count),*args)
+                report(min(start+64,count))
         if np.any(error) and not defer_nonfinite_until_clipping:
             raise ValueError('Electric column trajectory left its field domain or positive-energy forward paraxial domain')
     else:

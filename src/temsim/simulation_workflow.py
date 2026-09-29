@@ -106,6 +106,9 @@ def calculate_workflow(state, *, workflow, progress_callback=None,
     report(0, 5, f"Preparing {workflow}")
     illumination_config(state)
     admit_workflow(state, workflow)
+    if workflow != "rays":
+        from temsim.specimen.source import validate_sample_source
+        validate_sample_source(state.sample)
     p.ensure_recording_system(state)
     p.ensure_energy_filter(state)
     p.ensure_corrector_structure(state)
@@ -154,9 +157,14 @@ def calculate_workflow(state, *, workflow, progress_callback=None,
     def stage(index, label):
         progress.advance()
 
+    def run_optics(**kwargs):
+        from temsim.physics.transport_progress import transport_progress
+        with transport_progress(progress.detail):
+            return p.run(state, **kwargs)
+
     if scan_continuation:
         progress.update(0, 1, "Updating scan transport from the saved upstream checkpoints")
-        simulation = p.run(state, resolved_layout=layout,
+        simulation = run_optics(resolved_layout=layout,
             existing_simulation=previous_simulation, optical_only=True)
         calculated.add("column")
         reused.add("gun")
@@ -169,7 +177,7 @@ def calculate_workflow(state, *, workflow, progress_callback=None,
         simulation = replace(previous_simulation, metrics=dict(previous_simulation.metrics))
         reused.update(("column", "incident"))
     elif workflow == "rays":
-        simulation = p.run(state, resolved_layout=layout,
+        simulation = run_optics(resolved_layout=layout,
             existing_simulation=previous_simulation, optical_only=True)
         calculated.add("column")
     else:

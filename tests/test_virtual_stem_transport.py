@@ -24,11 +24,11 @@ def _branch(name, kind, x_mm, *, blocked_z, blocked_key, weight):
 
 def test_retired_virtual_mode_is_rejected_before_stem_acquisition():
     state = SimpleNamespace(sample=SimpleNamespace(specimen_mode="virtual"))
-    with pytest.raises(ValueError, match="Virtual mode has been retired"):
+    with pytest.raises(ValueError, match="Sample mode must be"):
         stem_signal.acquire_stem_scan(None, state)
 
 
-@pytest.mark.parametrize("specimen_mode", ["atomic", "reference"])
+@pytest.mark.parametrize("specimen_mode", ["atomic"])
 def test_geometric_stem_consumes_shared_specimen_exit_without_retracing(
     monkeypatch, specimen_mode,
 ):

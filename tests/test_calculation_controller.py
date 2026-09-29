@@ -1,3 +1,4 @@
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 from dataclasses import replace
 from pathlib import Path
 import shutil
@@ -430,7 +431,7 @@ def test_geometric_real_sample_requests_finite_specimen_transport():
     assert not simulation_pipeline._geometric_specimen_transport_requested(state)
 
     state.sample.stem_wave_enabled = False
-    state.sample.specimen_mode = "reference"
+    imported_sample(state.sample)
     assert simulation_pipeline._geometric_specimen_transport_requested(state)
 
     # Retired modes are rejected by the live routing API, rather than silently
@@ -442,7 +443,7 @@ def test_geometric_real_sample_requests_finite_specimen_transport():
 
 def test_vacuum_and_zero_thickness_skip_particle_specimen_transport():
     state = default_state()
-    state.sample.specimen_mode = "reference"
+    imported_sample(state.sample)
     state.sample.inserted = False
     state.sample.eds_enabled = True
 
@@ -1303,8 +1304,7 @@ def test_reference_sample_preview_defers_interaction_channels_until_high_accurac
     captured = []
     controller.pool.start = captured.append
     state = default_state()
-    state.sample.specimen_mode = "reference"
-
+    imported_sample(state.sample)
     controller.submit(state, "Preview", 25, 5.0)
 
     assert captured[0].state._optical_tuning is True

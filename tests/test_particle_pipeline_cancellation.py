@@ -164,7 +164,7 @@ def test_scan_entry_stops_geometric_rows_at_cancellation_boundary(monkeypatch, c
                                readout_enabled=True)
     state = SimpleNamespace(
         _tuning_cancelled=token.is_set, simulation_time_s=0.0, vacuum_map=VacuumMap(),
-        sample=SimpleNamespace(specimen_mode="reference", inserted=False, z_mm=1.0,
+        sample=SimpleNamespace(specimen_mode="vacuum", inserted=False, z_mm=1.0,
                                stem_image_enabled=True, stem_wave_enabled=False),
         ac_deflector=SimpleNamespace(
             enabled=True, scan_enabled=True, scan_pixels_x=2, scan_lines=3,

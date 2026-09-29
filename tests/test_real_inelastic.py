@@ -16,10 +16,17 @@ from temsim.specimen.inelastic import (
     real_inelastic_ray_branches,
 )
 from temsim.specimen.presets import load_specimen_preset
+from specimen_inputs import imported_sample
 
 
 def test_si_inelastic_budget_uses_measured_anchor_and_poisson_statistics():
     state = default_state()
+    imported_sample(state)
+    # Explicit settings from the declared test anchor, never inferred from CIF.
+    state.sample.real_plasmon_mean_free_path_nm = 168.0
+    state.sample.real_ionisation_mean_free_path_nm = 1.0 / (1.0 / 145.0 - 1.0 / 168.0)
+    state.sample.real_plasmon_energy_ev = 16.7
+    state.sample.real_ionisation_energy_ev = 99.2
     state.electron_gun.high_tension_kv = 200.0
     state.sample.specimen_preset_key = "si_110"
     state.sample.thickness_nm = 10.0
@@ -48,22 +55,16 @@ def test_si_inelastic_budget_uses_measured_anchor_and_poisson_statistics():
 
 
 def test_voltage_scaling_and_beb_cross_section_are_physical():
-    state = default_state()
-    state.sample.specimen_preset_key = "si_110"
-    state.sample.thickness_nm = 10.0
-    state.electron_gun.high_tension_kv = 200.0
-    at_200 = real_inelastic_distribution(state)
-    state.electron_gun.high_tension_kv = 300.0
-    at_300 = real_inelastic_distribution(state)
-
-    assert at_300.plasmon_mean_free_path_nm > at_200.plasmon_mean_free_path_nm
-    assert at_300.ionisation_mean_free_path_nm > at_200.ionisation_mean_free_path_nm
+    from temsim.specimen.inelastic import _plasmon_mfp_at_energy_nm, _ionisation_mfp_at_energy_nm
+    assert _plasmon_mfp_at_energy_nm(168., 200., 300., 16.7, 10.) > 168.
+    assert _ionisation_mfp_at_energy_nm(1000., 200., 300., 99.2) > 1000.
     assert beb_ionisation_cross_section_m2(300_000.0, 99.2) > 0.0
     assert beb_ionisation_cross_section_m2(50.0, 99.2) == 0.0
 
 
 def test_effective_absorption_is_independent_and_probability_conserving():
     state = default_state()
+    imported_sample(state)
     state.electron_gun.high_tension_kv = 200.0
     state.sample.specimen_preset_key = "si_110"
     state.sample.thickness_nm = 100.0
@@ -99,7 +100,7 @@ def test_retired_virtual_vacuum_is_rejected():
     state.sample.real_plasmon_mean_free_path_nm = 1.0
     state.sample.real_ionisation_mean_free_path_nm = 1.0
 
-    with pytest.raises(ValueError, match="Virtual mode has been retired"):
+    with pytest.raises(ValueError, match="Sample mode must be"):
         real_inelastic_distribution(state)
 
 
@@ -115,6 +116,7 @@ def test_retracted_reference_ignores_dormant_inelastic_controls():
 
 def test_custom_cif_never_silently_borrows_selected_preset_inelastic_data():
     state = default_state()
+    state.sample.inserted = True
     state.sample.specimen_mode = "atomic"
     state.sample.specimen_preset_key = "si_110"
     state.sample.cif_path = "custom-silicon.cif"
@@ -129,6 +131,7 @@ def test_custom_cif_never_silently_borrows_selected_preset_inelastic_data():
 
 def test_custom_cif_accepts_one_complete_explicit_channel_pair():
     state = default_state()
+    state.sample.inserted = True
     state.sample.specimen_mode = "atomic"
     state.sample.specimen_preset_key = "si_110"
     state.sample.cif_path = "custom-silicon.cif"

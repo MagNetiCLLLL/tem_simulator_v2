@@ -1,4 +1,5 @@
 """Small exact potential fixtures; no column, GPU or production image solve."""
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 from dataclasses import replace
 from threading import Event
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -32,7 +33,7 @@ def isolated_cache():
 
 def _state():
     sample = Sample()
-    sample.specimen_mode = "reference"
+    imported_sample(sample)
     sample.specimen_preset_key = "si_110"
     sample.envelope_shape = "rectangle"
     sample.wave_atomistic_enabled = True

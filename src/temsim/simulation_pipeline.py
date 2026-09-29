@@ -239,6 +239,11 @@ class _StageProgress:
         self.index += 1
         self.report()
 
+    def detail(self, label: str) -> None:
+        """Report a subtask without claiming an elapsed-time percentage."""
+        if self.index < len(self.stages):
+            self._emit(self.position, f"Stage {self.index + 1}/{len(self.stages)} | {label}")
+
     def update(self, completed: int, total: int, label: str) -> None:
         if self.callback is None or int(total) <= 0 or self.index >= len(self.stages):
             return
@@ -262,7 +267,7 @@ def _geometric_specimen_transport_requested(state) -> bool:
     return bool(
         specimen_interactions_active(sample)
         and str(getattr(sample, "specimen_mode", "atomic")).strip().lower()
-        in {"atomic", "reference"}
+        in {"atomic"}
         and not bool(getattr(sample, "stem_wave_enabled", False))
         and (not bool(getattr(sample, "wave_enabled", False))
              or (state.ac_deflector.enabled and state.ac_deflector.scan_enabled
@@ -401,6 +406,8 @@ def calculate(
             progress_callback=progress_callback, existing_result=existing_result,
             diffraction_sink=diffraction_sink)
     calculation_started = perf_counter()
+    from temsim.specimen.source import validate_sample_source
+    validate_sample_source(state.sample)
     progress_callback = _cancellable_progress(state, progress_callback)
     from temsim.physics.illumination import illumination_config
     illumination_config(state)
@@ -656,7 +663,9 @@ def calculate(
         run_kwargs = {"resolved_layout": layout}
         if existing_result is not None:
             run_kwargs["existing_simulation"] = existing_result.simulation
-        simulation = run(state, **run_kwargs)
+        from temsim.physics.transport_progress import transport_progress
+        with transport_progress(progress.detail):
+            simulation = run(state, **run_kwargs)
         calculated_products.add("column")
         if incident_reused:
             reused_products.add("incident")

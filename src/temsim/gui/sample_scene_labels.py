@@ -19,6 +19,8 @@ def _size(values) -> str:
 
 def sample_scene_labels(snapshot, *, completed_region: bool) -> tuple[str, str, str]:
     """Keep full material, requested local window and rendering cap distinct."""
+    if getattr(snapshot, "mode", None) == "vacuum":
+        return ("Vacuum sample — envelope guide only", "No material sample", "No atoms loaded")
     sx, sy, sz = snapshot.size_nm
     if snapshot.envelope_shape == "disk":
         full = f"Full sample — outline | Diameter {_length(sx)} | Thickness {_length(sz)}"

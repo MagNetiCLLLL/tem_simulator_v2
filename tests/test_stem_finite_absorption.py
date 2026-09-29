@@ -1,4 +1,5 @@
 """Finite-material absorption budgets; bounded waves, no full-column scan."""
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 
 from types import SimpleNamespace
 
@@ -16,8 +17,7 @@ def _state():
     state = default_state()
     state.acceleration_enabled = False
     state.illumination_mode = "STEM"
-    state.sample.specimen_mode = "reference"
-    state.sample.reference_sample_key = "si_110"
+    imported_sample(state.sample)
     state.sample.envelope_shape = "rectangle"
     state.sample.size_x_nm = state.sample.size_y_nm = 10.0
     state.sample.thickness_nm = 0.4

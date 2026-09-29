@@ -1,4 +1,4 @@
-"""Profiles retain real sources, while legacy presets acquire their CIF basis once."""
+"""Profiles retain explicit imported sources, orientation and material settings."""
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,7 +13,6 @@ from temsim.optics.column import default_state
 from temsim.profile_io import PROFILE_FORMAT_VERSION, apply_profile_values, read_profile, save_profile
 from temsim.runtime_parameters import editable_parameters, runtime_targets, validate_runtime_assignment
 from temsim.specimen.geometry import quaternion_from_euler_xyz_deg, quaternion_multiply, quaternion_to_matrix, set_sample_orientation
-from temsim.specimen.reference_catalog import apply_reference_sample
 from temsim.specimen.source import active_cif_path
 
 
@@ -38,7 +37,7 @@ def test_profile_rejects_invalid_element_rms_without_applying_other_fields(tmp_p
     state = default_state()
     before = deepcopy(state.to_dict())
     path = _write(
-        tmp_path, version, {"thickness_nm": 17.5, "specimen_mode": "reference"},
+        tmp_path, version, {"thickness_nm": 17.5, "specimen_mode": "atomic"},
         {"frozen_phonon_sigma_by_element_angstrom": {"Si": sigma}},
     )
     with pytest.raises(ValueError, match="finite and positive"):
@@ -88,7 +87,7 @@ def test_sample_runtime_hides_retired_controls_and_source_workflow():
 
 
 @pytest.mark.parametrize("field,valid,invalid", [
-    ("specimen_mode", "reference", "virtual"),
+    ("specimen_mode", "vacuum", "virtual"),
     ("real_tail_material_source", "structure", "preset"),
     ("real_tail_screening_source", "moliere", "auto"),
 ])
@@ -103,7 +102,7 @@ def test_format_five_explicit_virtual_mode_is_rejected(tmp_path):
     path = _write(tmp_path, PROFILE_FORMAT_VERSION, {"specimen_mode": "virtual"})
     state = default_state()
     before = deepcopy(state.to_dict())
-    with pytest.raises(ValueError, match="atomic or reference"):
+    with pytest.raises(ValueError, match="atomic or vacuum"):
         apply_profile_values(state, read_profile(path)[1])
     assert state.to_dict() == before
 

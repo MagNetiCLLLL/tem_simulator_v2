@@ -11,23 +11,22 @@ import numpy as np
 import pytest
 
 from temsim.optics.model import Sample
-from temsim.specimen import reference_catalog
+from specimen_inputs import SI_CIF, imported_sample
 from temsim.specimen.atomistic import build_cif_equilibrium_atoms
 from temsim.specimen.geometry import build_sample_geometry_snapshot
 
 
 @pytest.mark.parametrize("extension", [".mcif", ".MCIF"])
 def test_mcif_reference_display_and_iam_atoms_match_cif(tmp_path, monkeypatch, extension):
-    source = reference_catalog.get_reference_sample("si_110").cif_path
+    source = SI_CIF
     original = tmp_path / "original.cif"
     imported = tmp_path / ("imported" + extension)
     shutil.copyfile(source, original)
     shutil.copyfile(source, imported)
-    monkeypatch.setattr(reference_catalog, "REFERENCE_DIRECTORY", tmp_path)
     baseline = Sample(size_x_nm=1, size_y_nm=1, thickness_nm=1)
     candidate = Sample(size_x_nm=1, size_y_nm=1, thickness_nm=1)
-    reference_catalog.apply_reference_sample(baseline, "original")
-    reference_catalog.apply_reference_sample(candidate, "imported")
+    imported_sample(baseline, path=original)
+    imported_sample(candidate, path=imported)
     assert candidate.specimen_orientation_quaternion_wxyz == pytest.approx(
         baseline.specimen_orientation_quaternion_wxyz
     )
@@ -44,7 +43,7 @@ def test_mcif_reference_display_and_iam_atoms_match_cif(tmp_path, monkeypatch, e
     np.testing.assert_allclose(observed_periods, expected_periods)
 
 
-def test_wheel_contains_reference_formats_with_original_bytes(tmp_path):
+def test_wheel_excludes_reference_library_and_stale_modules(tmp_path):
     """Build a temporary source copy, never the user's checkout or environment."""
     root = Path(__file__).resolve().parents[1]
     project = tmp_path / "project"
@@ -53,11 +52,6 @@ def test_wheel_contains_reference_formats_with_original_bytes(tmp_path):
         shutil.copyfile(root / name, project / name)
     shutil.copytree(root / "src", project / "src", ignore=shutil.ignore_patterns("__pycache__", "*.egg-info"))
     shutil.copytree(root / "configs", project / "configs")
-    reference_dir = project / "configs" / "reference_samples"
-    contents = (reference_dir / "Si.cif").read_bytes()
-    filenames = [f"Test{index}{extension}" for index, extension in enumerate((".cif", ".CIF", ".mcif", ".MCIF"))]
-    for name in filenames:
-        (reference_dir / name).write_bytes(contents)
     # Ordinary incremental builds used to package deleted modules from build/
     # even though they no longer exist in src/. Include an interrupted wheel
     # staging tree as well as the previous build library.
@@ -82,9 +76,7 @@ def test_wheel_contains_reference_formats_with_original_bytes(tmp_path):
         for name, original in expected.items():
             assert archive.read(name) == original
         assert "temsim/gui/assets/retired.svg" not in archive.namelist()
-        for name in filenames:
-            member, = [p for p in archive.namelist() if p.endswith("/configs/reference_samples/" + name)]
-            assert archive.read(member) == contents
+        assert not any("reference_samples" in name for name in archive.namelist())
 
 
 def test_mcif_scan_sampling_hint_and_match_grid_action(qtbot, tmp_path, monkeypatch):
@@ -97,7 +89,7 @@ def test_mcif_scan_sampling_hint_and_match_grid_action(qtbot, tmp_path, monkeypa
     from temsim.physics.stem_sampling import detector_sampling_report
 
     path = tmp_path / "sampling.mcif"
-    shutil.copyfile(reference_catalog.get_reference_sample("si_110").cif_path, path)
+    shutil.copyfile(SI_CIF, path)
     state = default_state()
     state.sample.specimen_mode = "atomic"
     state.sample.cif_path = str(path)

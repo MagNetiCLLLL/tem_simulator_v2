@@ -202,11 +202,11 @@ def test_default_column_scan_descan_symmetry_and_optical_cancellation():
         calibration.target_key
     ]
     assert np.ptp(geometry.sample_x_um) == pytest.approx(
-        31.0e-3,
+        1.26e-3,
         rel=1.0e-5,
     )
     assert np.ptp(geometry.sample_y_um) == pytest.approx(
-        31.0e-3,
+        1.26e-3,
         rel=1.0e-5,
     )
     assert np.ptp(target_x_um) < 1.0e-6
@@ -320,13 +320,7 @@ def test_scan_pixel_size_rejects_values_outside_pm_to_mm_range(
 
 
 def test_scan_view_exposes_pixel_pitch_and_derived_fov(qtbot):
-    component = create_ac_deflector()
-    descan = create_descan_deflector()
-    state = SimpleNamespace(
-        ac_deflector=component,
-        descan_deflector=descan,
-        sample=SimpleNamespace(stem_wave_enabled=False),
-    )
+    state = default_state()
     view = ScanControlView()
     qtbot.addWidget(view)
 
@@ -338,16 +332,33 @@ def test_scan_view_exposes_pixel_pitch_and_derived_fov(qtbot):
     assert "scan_amplitude_x_mrad" not in view.descan_controls
     assert not view.ac_controls["lower_coil_gain"].isEnabled()
     assert not view.descan_controls["lower_coil_gain"].isEnabled()
-    assert view.ac_fov_x.text() == "32 nm"
-    assert view.ac_fov_y.text() == "32 nm"
-    assert view.descan_fov_x.text() == "32 nm"
-    assert view.descan_fov_y.text() == "32 nm"
+    for controls in (view.ac_controls, view.descan_controls):
+        assert controls["scan_pixel_size_nm"].value() == pytest.approx(0.02)
+        assert controls["scan_pixels_x"].value() == 64
+        assert controls["scan_lines"].value() == 64
+    assert view.ac_fov_x.text() == "1.28 nm"
+    assert view.ac_fov_y.text() == "1.28 nm"
+    assert view.descan_fov_x.text() == "1.28 nm"
+    assert view.descan_fov_y.text() == "1.28 nm"
     assert view.result_tabs.tabText(0) == "Geometry"
     assert view.result_tabs.tabText(1) == "Images"
     for image_view in view.detector_image_views.values():
         view_box = image_view.getViewBox()
         assert view_box.state["aspectLocked"] == pytest.approx(1.0)
         assert view_box.state["mouseEnabled"] == [True, True]
+
+
+def test_saved_custom_scan_sampling_survives_new_defaults():
+    state = default_state()
+    for component in (state.ac_deflector, state.descan_deflector):
+        component.scan_pixel_size_nm = 0.1
+        component.scan_pixels_x = 20
+        component.scan_lines = 30
+    loaded = type(state).from_dict(state.to_dict())
+    for component in (loaded.ac_deflector, loaded.descan_deflector):
+        assert component.scan_pixel_size_nm == pytest.approx(0.1)
+        assert component.scan_pixels_x == 20
+        assert component.scan_lines == 30
 
 
 def test_detector_position_and_size_define_collection_angle(monkeypatch):

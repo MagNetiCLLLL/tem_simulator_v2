@@ -1,3 +1,4 @@
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -234,7 +235,7 @@ def test_si_110_stem_detector_signals_respond_to_position_and_traced_defocus():
     state = default_state()
     state.acceleration_enabled = False
     state.illumination_mode = "STEM"
-    state.sample.reference_sample_key = "si_110"
+    imported_sample(state.sample)
     state.sample.thickness_nm = 2.0
     state.sample.wave_grid_pixels = 256
     state.sample.wave_field_of_view_angstrom = 40.0
@@ -292,7 +293,7 @@ def test_si_110_stem_detector_signals_respond_to_position_and_traced_defocus():
 def test_angle_resolved_stem_uses_the_same_multislice_specimen_model():
     state = default_state()
     state.illumination_mode = "STEM"
-    state.sample.reference_sample_key = "si_110"
+    imported_sample(state.sample)
     state.sample.thickness_nm = 0.4
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 16.0
@@ -325,7 +326,7 @@ def test_angle_resolved_stem_reports_completed_cpu_probe_batches():
     state = default_state()
     state.acceleration_enabled = False
     state.illumination_mode = "STEM"
-    state.sample.reference_sample_key = "si_110"
+    imported_sample(state.sample)
     state.sample.thickness_nm = 0.0
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 16.0
@@ -363,7 +364,7 @@ def test_angle_resolved_stem_reports_completed_cpu_probe_batches():
 def test_angle_resolved_stem_applies_per_probe_descan_detector_shift():
     state = default_state()
     state.illumination_mode = "STEM"
-    state.sample.reference_sample_key = "si_110"
+    imported_sample(state.sample)
     state.sample.thickness_nm = 0.0
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 16.0

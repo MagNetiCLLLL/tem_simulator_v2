@@ -1,3 +1,4 @@
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 from pathlib import Path
 
 import pytest
@@ -22,18 +23,16 @@ def test_scene_uses_sample_centre_as_the_shared_local_z_origin():
     )
 
 
-def test_scene_keeps_reference_and_external_cif_sources_mutually_exclusive():
+def test_scene_keeps_vacuum_and_imported_cif_sources_mutually_exclusive():
     state = default_state()
-    state.sample.specimen_mode = "reference"
-    state.sample.reference_sample_key = "si_110"
     state.sample.cif_path = "dormant.cif"
 
     reference = SpecimenScene.from_state(state)
 
-    assert reference.source_kind == "cif"
-    assert reference.source_key == "cif:Si.cif"
-    assert reference.preset_key == "si_110"
-    assert Path(reference.cif_path).name == "Si.cif"
+    assert reference.source_kind == "vacuum"
+    assert reference.source_key == "vacuum"
+    assert reference.preset_key == ""
+    assert reference.cif_path == ""
 
     state.sample.specimen_mode = "atomic"
     state.sample.cif_path = str(Path("user-sample.cif"))
@@ -51,12 +50,13 @@ def test_scene_rejects_retired_virtual_vacuum():
     state.sample.specimen_preset_key = "vacuum"
     state.sample.thickness_nm = 25.0
 
-    with pytest.raises(ValueError, match="Virtual mode has been retired"):
+    with pytest.raises(ValueError, match="Sample mode must be"):
         SpecimenScene.from_state(state)
 
 
 def test_scene_axial_material_query_matches_sample_and_support_geometry():
     state = default_state()
+    imported_sample(state)
     state.sample.thickness_nm = 12.0
     state.sample.size_x_nm = state.sample.size_y_nm = 3_000_000.0
     state.sample.eds_support_material_key = "copper"

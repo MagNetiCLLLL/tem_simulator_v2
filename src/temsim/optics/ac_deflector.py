@@ -103,9 +103,6 @@ class AcDeflectorDefinition:
             scan_amplitude_x_mrad=0.1,
             scan_amplitude_y_mrad=0.1,
             scan_frame_period_s=1.0,
-            scan_pixels_x=32,
-            scan_lines=32,
-            scan_pixel_size_nm=1.0,
             upper_coil_gain=0.5,
             lower_coil_gain=-0.5,
             active_installation="probe",
@@ -140,11 +137,11 @@ class AcDeflectorComponent:
     scan_amplitude_x_mrad: float = 0.1
     scan_amplitude_y_mrad: float = 0.1
     scan_frame_period_s: float = 1.0
-    scan_pixels_x: int = 32
-    scan_lines: int = 32
+    scan_pixels_x: int = 64
+    scan_lines: int = 64
     # Square specimen-plane pixel pitch.  The active column transfer matrix
     # derives the two-axis coil command; this is not an angular calibration.
-    scan_pixel_size_nm: float = 1.0
+    scan_pixel_size_nm: float = 0.02
     upper_coil_gain: float = 0.5
     lower_coil_gain: float = -0.5
     active_installation: str = "probe"

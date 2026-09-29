@@ -25,15 +25,8 @@ from temsim.detector.eds_atomic import (
 )
 from temsim.detector.eds_geometry import EDSDetectorArrayGeometry
 from temsim.detector.eds_line_library import radiative_lines as _radiative_lines
-from temsim.specimen.presets import (
-    load_specimen_preset,
-)
 from temsim.specimen.scene import SpecimenScene
-from temsim.specimen.source import (
-    active_cif_path,
-    selected_reference_preset_key,
-    specimen_mode,
-)
+from temsim.specimen.source import active_cif_path
 
 
 AVOGADRO_PER_MOL = 6.02214076e23
@@ -379,31 +372,8 @@ def material_from_sample(state) -> EDSMaterial | None:
     sample = state.sample
     if not bool(getattr(sample, "inserted", True)):
         return None
-    if specimen_mode(sample) in {"atomic", "reference"}:
-        cif_path = active_cif_path(sample)
-        return material_from_cif(cif_path) if cif_path else None
-    preset_key = selected_reference_preset_key(sample)
-    preset = load_specimen_preset(preset_key)
-    if preset.atomistic is not None:
-        z = preset.atomistic.atomic_number
-    else:
-        atomic_numbers = {column.atomic_number for column in preset.columns}
-        if not atomic_numbers:
-            return None
-        if len(atomic_numbers) != 1:
-            raise ValueError(
-                f"{preset.name} needs CIF or explicit EDS density/composition"
-            )
-        z = atomic_numbers.pop()
-    return elemental_material(
-        z,
-        key=f"specimen:{preset.key}",
-        name=preset.name,
-        provenance=(
-            f"{preset.source_path.name} elemental identity; "
-            "xraylib atomic weight and bulk elemental density"
-        ),
-    )
+    cif_path = active_cif_path(sample)
+    return material_from_cif(cif_path) if cif_path else None
 
 
 def material_from_support_grid(grid) -> EDSMaterial | None:

@@ -581,16 +581,10 @@ def _external_inputs(state: object) -> tuple[ExternalInputIdentity, ...]:
     if sample is not None:
         mode = str(getattr(sample, "specimen_mode", "")).strip().lower()
         from temsim.specimen.source import active_cif_path
-        from temsim.specimen.reference_catalog import get_reference_sample
         cif_path = active_cif_path(sample)
         if cif_path:
             row = _file_identity("specimen:cif", cif_path)
             rows[(row.role, row.path)] = row
-        if mode == "reference" and cif_path:
-            entry = get_reference_sample(sample.reference_sample_key)
-            if entry.metadata_path:
-                row = _file_identity("specimen:reference_metadata", entry.metadata_path)
-                rows[(row.role, row.path)] = row
         if mode == "virtual":
             for index, region in enumerate(
                 getattr(sample, "virtual_regions", ()) or ()

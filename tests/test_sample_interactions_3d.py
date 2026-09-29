@@ -1,3 +1,4 @@
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 from types import SimpleNamespace
 
 import numpy as np
@@ -332,7 +333,9 @@ def test_3d_page_exposes_cached_view_and_explicit_calculation_request(qtbot):
     requests = []
     page.sample_region_requested.connect(lambda: requests.append(True))
 
-    page.display_result(_calculation_result())
+    calculation = _calculation_result()
+    imported_sample(calculation.state_snapshot)
+    page.display_result(calculation)
 
     assert page.scene_snapshot is not None
     assert page.calculate_paths.isEnabled()
@@ -345,6 +348,7 @@ def test_3d_page_exposes_cached_view_and_explicit_calculation_request(qtbot):
     if not page.opengl_available:
         assert page.view.getViewBox().state["yInverted"] is True
     calculation = _calculation_result()
+    imported_sample(calculation.state_snapshot)
     calculation.state_snapshot.sample.eds_enabled = True
     page.display_result(calculation)
     page.calculate_paths.click()
@@ -520,14 +524,13 @@ def test_reference_and_retracted_scenes_use_the_active_user_selection():
         stem_scan=None,
     )
 
-    with pytest.raises(ValueError, match="Virtual mode has been retired"):
+    with pytest.raises(ValueError, match="Sample mode must be"):
         build_sample_interaction_scene(calculation)
 
-    state.sample.specimen_mode = "reference"
-    state.sample.reference_sample_key = "si_110"
+    imported_sample(state.sample)
     reference = build_sample_interaction_scene(calculation)
 
-    assert reference.specimen_mode == "reference"
+    assert reference.specimen_mode == "atomic"
     assert reference.specimen_source_key == "cif:Si.cif"
     assert not reference.specimen_is_vacuum
     # Dormant legacy density rows must not be drawn as real CIF material.

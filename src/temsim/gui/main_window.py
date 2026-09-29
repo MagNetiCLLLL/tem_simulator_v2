@@ -569,11 +569,13 @@ class MainWindow(QMainWindow):
 
         setup_button = QPushButton("Calculate setup")
         setup_button.setObjectName("calculateSetupButton")
+        setup_button.setProperty("calculationAction", True)
         setup_button.clicked.connect(self._open_calculate_setup)
         toolbar.addWidget(setup_button)
 
         preview_button = QPushButton("Update rays")
         preview_button.setObjectName("previewButton")
+        preview_button.setProperty("calculationAction", True)
         preview_button.clicked.connect(self.run_preview)
         toolbar.addWidget(preview_button)
         self.tuning_quality = QComboBox()
@@ -642,6 +644,7 @@ class MainWindow(QMainWindow):
 
         high_button = QPushButton("Run high-accuracy once")
         high_button.setObjectName("highAccuracyButton")
+        high_button.setProperty("calculationAction", True)
         high_button.setToolTip("Update Ray Diagram and retain the executed beam before the sample. Calculate sample interactions and detector readouts with the buttons on their pages.")
         high_button.clicked.connect(self.run_high_accuracy)
         toolbar.addWidget(high_button)

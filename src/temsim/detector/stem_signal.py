@@ -1162,7 +1162,7 @@ def acquire_stem_scan(
     supplied_signature_is_current = True
     if (
         getattr(specimen_interactions, "elastic_transport", None) is not None
-        and active_mode in {"atomic", "reference"}
+        and active_mode in {"atomic"}
         and not bool(getattr(state.sample, "stem_wave_enabled", False))
     ):
         # Derive the authoritative identity before scan calibration.  A caller
@@ -1590,7 +1590,7 @@ def acquire_stem_scan(
     if (
         physical_detectors
         and shared_elastic is not None
-        and active_mode in {"atomic", "reference"}
+        and active_mode in {"atomic"}
         and not bool(getattr(state.sample, "stem_wave_enabled", False))
     ):
         spectrum_elastic = getattr(

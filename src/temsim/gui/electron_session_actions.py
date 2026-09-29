@@ -48,6 +48,7 @@ class ElectronSessionActions:
         self.load_button.setObjectName("testElectronLoadSession")
         self.recalculate_button = QPushButton("Recalculate in current fields")
         self.recalculate_button.setObjectName("testElectronRecalculateSession")
+        self.recalculate_button.setProperty("calculationAction", True)
         self.recalculate_button.setToolTip(
             "Calculate the selected historical electron as a new execution in the current captured fields. "
             "Loading alone never recalculates or changes the microscope.")

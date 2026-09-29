@@ -1,4 +1,5 @@
 """Detector signals use actual stops and source-normalised particle weights."""
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -64,7 +65,7 @@ def test_weighted_zero_and_fractional_numerical_counts_are_valid(fixture, monkey
 def test_missing_material_transport_cannot_be_reported_as_detector_signal(fixture, monkeypatch):
     result = result_at(fixture, monkeypatch, 456.)
     result.state_snapshot.sample.inserted = True
-    result.state_snapshot.sample.specimen_mode = "reference"
+    imported_sample(result.state_snapshot.sample)
     assert camera_row(result).status == "NOT_CALCULATED"
     result.state_snapshot.sample.inserted = False
     result.simulation.metrics["optical_tuning"] = True

@@ -15,6 +15,8 @@ from temsim.specimen.downstream_transport import GeometricSpecimenExit
 @pytest.fixture
 def case(monkeypatch):
     state = default_state()
+    from specimen_inputs import imported_sample
+    imported_sample(state)
     state.sample.wave_enabled = state.sample.stem_wave_enabled = False
     state.sample.eds_enabled = True
     state.sample.inserted = True
@@ -315,15 +317,37 @@ def test_workflow_progress_is_monotonic_and_finishes(case):
     assert events[-1] == (1., "Complete")
 
 
+def test_ray_workflow_forwards_optical_substeps_and_cancellation(case, monkeypatch):
+    from temsim.physics.transport_progress import report_transport_progress, transport_progress_active
+    original = p.run
+    def run(*args, **kwargs):
+        report_transport_progress("Electron gun | Z 1 mm")
+        report_transport_progress("Column | 64/100 electrons")
+        return original(*args, **kwargs)
+    monkeypatch.setattr(p, "run", run)
+    events = []
+    p.calculate(case.state, workflow="rays", progress_callback=lambda *row: events.append(row))
+    labels = [row[2] for row in events]
+    assert "Stage 1/5 | Electron gun | Z 1 mm" in labels
+    assert "Stage 1/5 | Column | 64/100 electrons" in labels
+    assert not transport_progress_active()
+    def cancel(done, total, label):
+        if "Electron gun" in label:
+            raise InterruptedError("cancel requested")
+    with pytest.raises(InterruptedError, match="cancel requested"):
+        p.calculate(case.state, workflow="rays", progress_callback=cancel)
+    assert not transport_progress_active()
+
+
 def test_real_incident_signature_ignores_cif_and_thickness_but_not_upstream_lens():
     from temsim.calculation_cache import calculation_signatures
-    from temsim.specimen.reference_catalog import get_reference_sample
+    from specimen_inputs import SI_CIF
     from temsim.column.state_layout import apply_physical_layout_to_state
     state = default_state()
     original = calculation_signatures(state)
     state.sample.thickness_nm += 1.
     state.sample.specimen_mode = "atomic"
-    state.sample.cif_path = str(get_reference_sample("si_110").cif_path)
+    state.sample.cif_path = str(SI_CIF)
     apply_physical_layout_to_state(state)
     sample_changed = calculation_signatures(state)
     assert sample_changed["incident"] == original["incident"]

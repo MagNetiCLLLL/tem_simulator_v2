@@ -230,7 +230,7 @@ class Sample:
     # The axial sample coordinate remains the probe-analysis reference plane
     # when the holder is retracted.  ``inserted`` controls specimen
     # interaction only; it never moves or removes that optical reference.
-    inserted: bool = True
+    inserted: bool = False
 
     thickness_nm: float = 5.0
 
@@ -256,11 +256,8 @@ class Sample:
     # state stores only user choices and overrides, never material constants.
     wave_enabled: bool = False
 
-    # Both sources use actual CIF atoms; the library includes orientation and
-    # explicitly sourced thermal/inelastic assumptions in optional sidecars.
-    specimen_mode: str = "reference"
-
-    reference_sample_key: str = "si_110"
+    # Start without matter. Material calculations require a user-imported CIF.
+    specimen_mode: str = "vacuum"
 
     specimen_preset_key: str = "si_110"
 
@@ -268,11 +265,11 @@ class Sample:
 
     # Canonical physical orientation, stored as a unit quaternion (w,x,y,z).
     # Euler controls convert this value; they are not separate saved inputs.
-    specimen_orientation_quaternion_wxyz: tuple = (0.6532814824381883, 0.6532814824381882, -0.2705980500730985, 0.2705980500730985)
+    specimen_orientation_quaternion_wxyz: tuple = (1.0, 0.0, 0.0, 0.0)
 
-    zone_axis_uvw: tuple = (1, 1, 0)
+    zone_axis_uvw: tuple = (0, 0, 1)
 
-    in_plane_axis_uvw: tuple = (1, -1, 0)
+    in_plane_axis_uvw: tuple = (1, 0, 0)
 
     wave_defocus_nm: float = 0.0
     wave_objective_aperture_strategy: str = "physical_plane"
@@ -296,7 +293,8 @@ class Sample:
 
     wave_frozen_phonon_configurations: int = 4
 
-    # Zero means use the material value and provenance in its specimen TOML.
+    # Zero means no global RMS was supplied; imported CIFs have no implicit
+    # thermal model. Explicit per-element RMS values remain available.
     wave_frozen_phonon_sigma_angstrom: float = 0.0
 
     # Custom CIF files do not carry a trustworthy displacement model.  This
@@ -421,9 +419,8 @@ class Sample:
 
     wave_probe_padding_factor: float = 3.0
 
-    # External CIFs require explicit validated inelastic material overrides.
-    # Library references may declare a sourced, composition-checked anchor in
-    # their sidecar; a numerical wave template never supplies material identity.
+    # Imported CIFs require explicit validated inelastic material settings.
+    # A numerical wave template never supplies material identity or loss rates.
     real_inelastic_enabled: bool = True
 
     real_plasmon_mean_free_path_nm: float = 0.0
@@ -1928,6 +1925,11 @@ class State:
             raise ValueError("Monochromator installation belongs to the current electron_gun object")
 
         sample_data = dict(d.get("sample", {}))
+        if "reference_sample_key" in sample_data or sample_data.get("specimen_mode") == "reference":
+            raise ValueError("Reference CIF selection has been removed. Import the original CIF explicitly or select Vacuum sample.")
+        from temsim.specimen.source import specimen_mode
+        from types import SimpleNamespace
+        specimen_mode(SimpleNamespace(**sample_data))
         if ({"eds_elastic_trajectory_count", "atomic_structure_source",
                 "g_inv_nm", "excitation_error_inv_nm", "rocking_width_inv_nm",
                 "diffuse_broadening_mrad", "diffraction_enabled",

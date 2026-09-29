@@ -1,3 +1,4 @@
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 from types import SimpleNamespace
 
 import numpy as np
@@ -23,7 +24,6 @@ from temsim.specimen.atomistic import (
     build_equilibrium_atoms,
 )
 from temsim.specimen.presets import load_specimen_preset
-from temsim.specimen.reference_catalog import reference_thermal_source
 
 
 def _require_atomistic_backend():
@@ -47,7 +47,8 @@ def _small_atomistic_state():
     state = default_state()
     state.acceleration_enabled = False
     state.acceleration_backend = "CPU"
-    state.sample.reference_sample_key = "si_110"
+    imported_sample(state.sample)
+    state.sample.wave_frozen_phonon_sigma_angstrom = 0.085
     state.sample.thickness_nm = 0.4
     state.sample.wave_grid_pixels = 32
     state.sample.wave_field_of_view_angstrom = 8.0
@@ -280,7 +281,7 @@ def test_isolated_tem_reference_cif_frozen_phonons_average_intensities_on_finite
     )
     assert result.image_intensity.shape == result.projected_potential_v_angstrom.shape
     assert result.image_intensity.shape == (32, 32)
-    assert result.metrics["specimen_thermal_sigma_reference"] == reference_thermal_source(state.sample)
+    assert result.metrics["specimen_thermal_sigma_reference"] == "user-specified RMS"
     assert result.metrics["specimen_thermal_sigma_reference"] != "user override"
     assert np.isfinite(
         result.metrics["image_configuration_relative_standard_error"]

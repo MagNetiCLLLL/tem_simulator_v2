@@ -47,6 +47,12 @@ atomic detail. **Material particle paths** retains the finite-volume particle
 transport readout. Auto contrast changes display limits only; actual intensity
 ranges remain visible. Loading a CIF does not enable coherent imaging.
 
+The Sample page starts with **Vacuum sample**. To add material, import your own
+**CIF / MCIF**, set its dimensions and orientation, then click **Calculate
+Sample**. This calculates specimen interactions and updates downstream rays;
+STEM images and EDS spectra use their own page buttons. No built-in reference
+CIF library or automatic material selection is provided.
+
 ## Setup and launch
 
 On Windows, install **64-bit Python 3.12** (recommended), then run these commands

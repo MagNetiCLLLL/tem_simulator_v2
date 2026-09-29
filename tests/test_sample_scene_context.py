@@ -174,6 +174,45 @@ def test_redraw_and_draft_orientation_preserve_user_view_ranges(fallback_scene, 
     assert (snapshot.centre_nm, snapshot.size_nm, snapshot.orientation_quaternion_wxyz) == geometry_before
 
 
+def test_beam_view_fits_displayed_atoms_without_editing_crystal(fallback_scene, local_snapshot):
+    sample, snapshot = local_snapshot
+    before = deepcopy(vars(sample))
+    positions = snapshot.atom_positions_nm.copy()
+    fallback_scene.display_snapshot(snapshot)
+    builds = fallback_scene.model_builds
+    fallback_scene.view_along_beam()
+    bounds = np.asarray(fallback_scene.view.viewRange())
+    expected = positions[:, :2] + snapshot.centre_nm[:2]
+    assert np.all(bounds[:, 0] < expected.min(axis=0))
+    assert np.all(bounds[:, 1] > expected.max(axis=0))
+    assert np.max(np.ptp(bounds, axis=1)) < 5
+    assert vars(sample) == before
+    assert fallback_scene._snapshot is snapshot
+    assert fallback_scene.model_builds == builds
+    np.testing.assert_array_equal(snapshot.atom_positions_nm, positions)
+
+
+def test_beam_view_resets_camera_without_changing_draft(fallback_scene, local_snapshot, monkeypatch):
+    from types import SimpleNamespace
+
+    _, snapshot = local_snapshot
+    draft = quaternion_from_euler_xyz_deg((23., -12., 41.))
+    fallback_scene.display_snapshot(snapshot, draft_quaternion=draft)
+    rotation = fallback_scene._shown_rotation.copy()
+    camera_updates, fits = [], []
+    fallback_scene.opengl_available = True
+    monkeypatch.setattr(fallback_scene, "view", SimpleNamespace(
+        setCameraPosition=lambda **kwargs: camera_updates.append(kwargs)))
+    monkeypatch.setattr(fallback_scene, "_fit_region",
+                        lambda centre, size, **kwargs: fits.append((centre, size, kwargs)))
+    fallback_scene.view_along_beam()
+    assert camera_updates == [{"elevation": 90., "azimuth": -90.}]
+    assert len(fits) == 1
+    assert fits[0][2] == {"along_beam": True}
+    np.testing.assert_array_equal(fallback_scene._shown_rotation, rotation)
+    assert fallback_scene.model_builds == 1
+
+
 def test_uncapped_display_does_not_draw_misleading_subset_outline(fallback_scene, local_snapshot):
     _, snapshot = local_snapshot
     fallback_scene.display_snapshot(replace(snapshot, atom_display_capped=False))

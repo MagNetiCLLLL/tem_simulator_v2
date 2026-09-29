@@ -1,4 +1,5 @@
 """Executed section persistence and request isolation, including real tip transport."""
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -114,7 +115,7 @@ def test_material_section_round_trip_reuses_executed_scattering(executed_section
     from temsim.instrument_snapshot import decode_instrument, encode_instrument
     state = decode_instrument(encode_instrument(executed_section.state_snapshot))
     state.sample.inserted = True
-    state.sample.specimen_mode = "reference"
+    imported_sample(state.sample)
     state.sample.size_x_nm = state.sample.size_y_nm = 100_000.
     state.sample.thickness_nm = 5.
     state.sample.eds_enabled = False

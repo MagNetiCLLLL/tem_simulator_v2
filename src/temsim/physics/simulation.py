@@ -364,6 +364,8 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         calibrate_scan_system(s)
 
     gun=s.electron_gun.validate()
+    from temsim.physics.transport_progress import report_transport_progress
+    report_transport_progress("Preparing electron gun and captured electric / magnetic fields")
     from temsim.optics.electron_gun.source import trace_source_to_exit
     gun_trace = None
     saved_section = getattr(existing_simulation, "section_checkpoint", None)
@@ -380,6 +382,8 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
     if gun_trace is None:
         saved_section = None
         gun_trace = trace_source_to_exit(s)
+    else:
+        report_transport_progress("Reusing the executed electron-gun checkpoint")
     _validate_gun_flight_times(gun_trace)
     emitted=gun_trace.exit_bundle
     x,y=emitted.x_m,emitted.y_m
@@ -402,6 +406,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         retained_section_planes = tuple(float(z) for z in saved_section.segments[0].checkpoints.z_mm
             if gun.exit_plane_z_mm <= z <= s.sample.z_mm)
         checkpoint_planes = tuple(sorted(set((*checkpoint_planes, *retained_section_planes))))
+    report_transport_progress("Preparing column transport from gun exit to specimen")
     incident_plan = build_propagation_plan(
         s, gun.exit_plane_z_mm, s.sample.z_mm, pre_events,
         checkpoint_z_mm=checkpoint_planes,
@@ -578,6 +583,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         for value, key in zip((X, TX, Y, TY), ("x_m", "tx_rad", "y_m", "ty_rad")):
             value[-1] = getattr(incident_checkpoints, key)[-1]
         ENERGIES[-1] = incident_checkpoints.kinetic_energy_ev[-1]
+    report_transport_progress("Resolving incident apertures, column walls and specimen checkpoint")
     alive=emitted.alive.copy()
     blocked=gun_trace.blocked_z_mm.copy()
     keys=list(gun_trace.blocked_key)
@@ -647,8 +653,8 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
 
     sample_inserted = bool(getattr(s.sample, 'inserted', True))
     specimen_mode = str(getattr(s.sample, 'specimen_mode', 'atomic')).strip().lower()
-    if specimen_mode not in {'atomic', 'reference'}:
-        raise ValueError("Sample specimen mode must be 'atomic' or 'reference'.")
+    if specimen_mode not in {'atomic', 'vacuum'}:
+        raise ValueError("Sample specimen mode must be 'atomic' or 'vacuum'.")
     _,_,lam=electron(s)
 
     branches={}
@@ -725,6 +731,7 @@ def run(s, *, resolved_layout=None, existing_simulation=None, optical_only=False
         branches["000"] = post.branch
         completed_post_sections.append(post)
         branch_specs = []
+    report_transport_progress("Preparing downstream optical transport")
     for batch_start in range(0,len(branch_specs),branches_per_batch):
         batch_specs=branch_specs[
             batch_start:batch_start+branches_per_batch

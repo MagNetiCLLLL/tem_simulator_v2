@@ -1056,6 +1056,10 @@ def execute_propagation_plan(
             backend, measured_reason = STAGE_COSTS.choose(workload, eligible, backend)
             fallback_reason = measured_reason or fallback_reason
     transport_started = perf_counter()
+    from temsim.physics.transport_progress import report_transport_progress
+    report_transport_progress(
+        f"Column | {backend} | {arrays[0].size:,} electrons | "
+        f"Z {zfull[0]:.3f} to {zfull[-1]:.3f} mm | {len(zfull)-1:,} integration steps")
     retried = False
     if policy == "require_gpu" and (medium_transport is not None or plan.mapped_fields):
         raise GPUExecutionError("unsupported_stage", "Requested column transport requires the existing CPU vector-field or residual-medium solver")

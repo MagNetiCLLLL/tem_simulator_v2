@@ -1,4 +1,5 @@
 """Registered atom/probe tests, independent of detector names or display LUTs."""
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 from types import SimpleNamespace
 
 import numpy as np
@@ -28,7 +29,7 @@ def test_registered_weak_atom_has_bright_adf_and_dark_bf(monkeypatch):
     state.simulation_mode = "ideal"
     state.acceleration_enabled = False
     state.illumination_mode = "STEM"
-    state.sample.specimen_mode = "reference"
+    imported_sample(state.sample)
     state.sample.specimen_preset_key = "si_110"
     state.sample.wave_multislice_enabled = False
     state.sample.wave_grid_pixels = 128

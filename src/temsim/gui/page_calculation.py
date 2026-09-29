@@ -14,6 +14,7 @@ class PageCalculationBar(QWidget):
         self.button = button if button is not None else QPushButton(f"Calculate {label}")
         self.button.setText(f"Calculate {label}")
         self.button.setObjectName(object_name)
+        self.button.setProperty("calculationAction", True)
         self.button.setToolTip(
             "Request this page's calculation in the background. Valid upstream "
             "results can be reused. Changing a tab does not calculate anything."

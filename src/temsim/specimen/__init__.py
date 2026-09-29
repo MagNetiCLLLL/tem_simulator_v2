@@ -10,7 +10,6 @@ from temsim.specimen.presets import (
 from temsim.specimen.source import (
     active_cif_path,
     active_specimen_source,
-    selected_reference_preset_key,
     specimen_is_vacuum,
     specimen_structure_available,
     wave_template_preset_key,
@@ -36,7 +35,6 @@ __all__ = [
     "load_specimen_preset",
     "active_cif_path",
     "active_specimen_source",
-    "selected_reference_preset_key",
     "specimen_is_vacuum",
     "specimen_structure_available",
     "wave_template_preset_key",

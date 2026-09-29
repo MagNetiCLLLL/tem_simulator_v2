@@ -6,6 +6,9 @@ Other field providers (including the Wien assembly) use the general reference.
 """
 import math
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from contextvars import ContextVar
 from threading import RLock
 import numpy as np
 from .relativistic_lorentz import (
@@ -22,6 +25,73 @@ from .discrete_gradient import discrete_gradient_update, NORMALIZED_MOMENTUM_FLO
 _PACKED_INSTRUMENT_FIELDS = OrderedDict()
 _PACKED_INSTRUMENT_LOCK = RLock()
 _INSTRUMENT_FIELD_METHOD = InstrumentMagneticField.field_at_global_positions_t
+_STEP_POOL = ContextVar("gun_discrete_gradient_pool", default=None)
+
+
+class _StepPool:
+    """Parallel rows, with the original global iteration convergence barrier."""
+    def __init__(self):
+        self.executor = None
+        self.workers = 1
+
+    def step(self, x0, p0, dt, tolerance, iterations, *field_args):
+        from temsim.cpu_resources import numerical_thread_budget
+        workers = min(numerical_thread_budget(), len(x0)//2048)
+        if workers < 2:
+            return _step(x0, p0, dt, tolerance, iterations, *field_args)
+        if self.executor is None:
+            self.workers = workers
+            self.executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="gun-step")
+        # Every child executes serial, nogil native code. It must not acquire
+        # the parent's numerical-job lease or create another numerical pool.
+        phi0, u0, gamma0, u1 = _prepare_step(x0, p0, dt, *field_args[:5])
+        cuts = np.linspace(0, len(x0), min(workers, self.workers)+1, dtype=int)
+        slices = [slice(int(a), int(b)) for a, b in zip(cuts[:-1], cuts[1:])]
+        momenta = [u1[sl] for sl in slices]
+        for _ in range(iterations):
+            futures = [self.executor.submit(_step_iteration,
+                x0[sl], u0[sl], previous, gamma0[sl], phi0[sl], dt, *field_args)
+                for sl, previous in zip(slices, momenta)]
+            # Resolve every child even on failure, before a retry can submit
+            # another set or a cancelled calculation can release its budget.
+            results, error = [], None
+            for future in futures:
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    if error is None:
+                        error = exc
+            if error is not None:
+                raise error
+            if max(row[2] for row in results) <= tolerance:
+                return (np.concatenate([row[0] for row in results]),
+                        np.concatenate([row[1] for row in results])*(m_e*c))
+            momenta = [row[1] for row in results]
+        raise ValueError("Discrete-gradient Lorentz iteration did not converge")
+
+    def close(self):
+        if self.executor is not None:
+            self.executor.shutdown(wait=True, cancel_futures=True)
+
+
+@contextmanager
+def gun_step_workers():
+    if _STEP_POOL.get() is not None:
+        yield
+        return
+    from temsim.cpu_resources import numerical_job
+    # GUI calculations already own this reentrant lease. Direct gun callers
+    # need it too, so concurrent traces cannot multiply the process CPU cap.
+    with numerical_job():
+        pool = _StepPool()
+        token = _STEP_POOL.set(pool)
+        try:
+            yield
+        finally:
+            try:
+                pool.close()
+            finally:
+                _STEP_POOL.reset(token)
 
 
 def _packed_instrument_field(provider):
@@ -91,36 +161,48 @@ def _electric(p, data, ht, strict_domain=False, planar_cathode=False):
     return potential, field
 
 
-def _step(x0, p0, dt, tolerance, iterations, data, ht, magnetic, strict_domain=False,
-          planar_cathode=False, instrument_sources=None, instrument_terms=None):
+def _prepare_step(x0, p0, dt, data, ht, magnetic, strict_domain=False, planar_cathode=False):
     phi0, e0 = _electric(x0, data, ht, strict_domain, planar_cathode)
     u0 = p0/(m_e*c)
     gamma0 = np.sqrt(1+np.sum(u0*u0, axis=1))
     u1 = u0-e*dt/(m_e*c)*e0
+    return phi0, u0, gamma0, u1
+
+
+def _step_iteration(x0, u0, u1, gamma0, phi0, dt, data, ht, magnetic, strict_domain=False,
+                    planar_cathode=False, instrument_sources=None, instrument_terms=None):
+    gamma1 = np.sqrt(1+np.sum(u1*u1, axis=1))
+    vbar = c*(u1+u0)/(gamma1+gamma0).reshape((-1,1))
+    dx = dt*vbar
+    x1 = x0+dx
+    midpoint = .5*(x0+x1)
+    _, emid = _electric(midpoint, data, ht, strict_domain, planar_cathode)
+    bmid = (_magnetic(midpoint, magnetic) if instrument_sources is None else
+            compiled_magnetic_batch(midpoint, instrument_sources, instrument_terms))
+    phi1, _ = _electric(x1, data, ht, strict_domain, planar_cathode)
+    updated = np.empty_like(u0)
+    error = 0.
+    for i in range(len(x0)):
+        ux, uy, uz = u0[i]
+        dx0, dx1, dx2 = dx[i]
+        ex, ey, ez = emid[i]
+        bx, by, bz = bmid[i]
+        vx, vy, vz = discrete_gradient_update(ux, uy, uz, gamma1[i]+gamma0[i],
+            dx0, dx1, dx2, ex, ey, ez, bx, by, bz, phi0[i], phi1[i], dt)
+        updated[i, 0], updated[i, 1], updated[i, 2] = vx, vy, vz
+        if not np.isfinite(updated[i]).all():
+            raise ValueError("Non-finite discrete-gradient iteration")
+        scale = max(np.sqrt(np.sum(u0[i]**2)), np.sqrt(np.sum(updated[i]**2)), NORMALIZED_MOMENTUM_FLOOR)
+        error = max(error, np.sqrt(np.sum((updated[i]-u1[i])**2))/scale)
+    return x1, updated, error
+
+
+def _step(x0, p0, dt, tolerance, iterations, data, ht, magnetic, strict_domain=False,
+          planar_cathode=False, instrument_sources=None, instrument_terms=None):
+    phi0, u0, gamma0, u1 = _prepare_step(x0, p0, dt, data, ht, magnetic, strict_domain, planar_cathode)
     for _ in range(iterations):
-        gamma1 = np.sqrt(1+np.sum(u1*u1, axis=1))
-        vbar = c*(u1+u0)/(gamma1+gamma0).reshape((-1,1))
-        dx = dt*vbar
-        x1 = x0+dx
-        midpoint = .5*(x0+x1)
-        _, emid = _electric(midpoint, data, ht, strict_domain, planar_cathode)
-        bmid = (_magnetic(midpoint, magnetic) if instrument_sources is None else
-                compiled_magnetic_batch(midpoint, instrument_sources, instrument_terms))
-        phi1, _ = _electric(x1, data, ht, strict_domain, planar_cathode)
-        updated = np.empty_like(u0)
-        error = 0.
-        for i in range(len(x0)):
-            ux, uy, uz = u0[i]
-            dx0, dx1, dx2 = dx[i]
-            ex, ey, ez = emid[i]
-            bx, by, bz = bmid[i]
-            vx, vy, vz = discrete_gradient_update(ux, uy, uz, gamma1[i]+gamma0[i],
-                dx0, dx1, dx2, ex, ey, ez, bx, by, bz, phi0[i], phi1[i], dt)
-            updated[i, 0], updated[i, 1], updated[i, 2] = vx, vy, vz
-            if not np.isfinite(updated[i]).all():
-                raise ValueError("Non-finite discrete-gradient iteration")
-            scale = max(np.sqrt(np.sum(u0[i]**2)), np.sqrt(np.sum(updated[i]**2)), NORMALIZED_MOMENTUM_FLOOR)
-            error = max(error, np.sqrt(np.sum((updated[i]-u1[i])**2))/scale)
+        x1, updated, error = _step_iteration(x0, u0, u1, gamma0, phi0, dt, data, ht, magnetic,
+            strict_domain, planar_cathode, instrument_sources, instrument_terms)
         if error <= tolerance:
             return x1, updated*(m_e*c)
         u1 = updated
@@ -131,7 +213,11 @@ if njit is not None:
     _window = njit(cache=True)(_window)
     _magnetic = njit(cache=True)(_magnetic)
     _electric = njit(cache=True)(_electric)
-    _step = njit(cache=True)(_step)
+    _prepare_step = njit(cache=True, nogil=True)(_prepare_step)
+    _step_iteration = njit(cache=True, nogil=True)(_step_iteration)
+    # A large emission bundle can spend most of the job in this kernel. Release
+    # the interpreter so the GUI can paint progress and accept cancellation.
+    _step = njit(cache=True, nogil=True)(_step)
 
 
 def try_step(phase, dt, magnetic, electric, tolerance, iterations):
@@ -189,7 +275,9 @@ def try_step(phase, dt, magnetic, electric, tolerance, iterations):
         high_tension = (float(electric.request['high_tension_v']) if closed
                         else electric.high_tension_v)
     from .relativistic_lorentz import RelativisticPhaseSpace
-    x, p = _step(phase.position_m, phase.momentum_kg_m_per_s, dt,
+    pool = _STEP_POOL.get()
+    step = _step if pool is None else pool.step
+    x, p = step(phase.position_m, phase.momentum_kg_m_per_s, dt,
                  tolerance, iterations, data, high_tension, parameters, closed, planar,
                  instrument_sources, instrument_terms)
     return RelativisticPhaseSpace(x, p, phase.time_s+dt)

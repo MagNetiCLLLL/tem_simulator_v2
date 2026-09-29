@@ -1,4 +1,5 @@
 """Pure archive fixtures: preserve EDS records without running particle physics."""
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 import json
 from zipfile import ZipFile
 
@@ -267,8 +268,8 @@ def test_actual_tip_origin_eds_archive_resumes_without_gun_material_or_xray_reex
     state.acceleration_backend = "Numba CPU"
     state._tuning_quality = "High accuracy"
     state.sample.inserted = True
-    state.sample.specimen_mode = "reference"
-    state.sample.reference_sample_key = state.sample.specimen_preset_key = "si_110"
+    imported_sample(state.sample)
+    imported_sample(state)
     state.sample.thickness_nm = 5.
     state.sample.size_x_nm = state.sample.size_y_nm = 100_000.
     state.sample.centre_x_nm = state.sample.centre_y_nm = 0.

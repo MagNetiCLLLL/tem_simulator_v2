@@ -1,4 +1,5 @@
 """Bounded checks for padded wave windows; no full-column calculation."""
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 
 from copy import deepcopy
 from dataclasses import FrozenInstanceError, asdict
@@ -37,8 +38,7 @@ def _small_wave_state():
     state.illumination_mode = "STEM"
     # A finite reference CIF now supplies matter. The planning tests remain
     # bounded to a 2 nm / 0.4 nm slab and a 64-pixel base grid.
-    state.sample.specimen_mode = "reference"
-    state.sample.reference_sample_key = "si_110"
+    imported_sample(state.sample)
     state.sample.envelope_shape = "rectangle"
     state.sample.size_x_nm = 2.0
     state.sample.size_y_nm = 2.0

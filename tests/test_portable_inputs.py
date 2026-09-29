@@ -25,11 +25,17 @@ def portable_fixture(tmp_path, monkeypatch):
     state = default_state()
     state.electron_gun.emitter.ray_count = 9
     state.step_mm = 1.
+    from specimen_inputs import imported_sample, SI_CIF
+    imported_sample(state)
     graph = thaw_json(encode_instrument(state))
     copied_root = tmp_path / "copied-inputs" / "configs"
     shutil.copytree(original_root, copied_root)
+    copied_cif = copied_root / "explicit-import.cif"
+    shutil.copyfile(SI_CIF, copied_cif)
     def relocate(value):
         if isinstance(value, str):
+            if value == str(SI_CIF):
+                return str(copied_cif)
             for prefix in (str(original_root), original_root.as_posix()):
                 if value == prefix or value.startswith(prefix + "\\") or value.startswith(prefix + "/"):
                     return str(copied_root) + value[len(prefix):]
@@ -39,7 +45,6 @@ def portable_fixture(tmp_path, monkeypatch):
             return [relocate(item) for item in value]
         return value
     from temsim.specimen.presets import _preset_index, load_specimen_preset
-    from temsim.specimen import reference_catalog
     from temsim.specimen.support import load_support_catalog
     from temsim.detector.eds_atomic import load_bote_salvat_coefficients
     readers = (_preset_index, load_specimen_preset, load_support_catalog, load_bote_salvat_coefficients)

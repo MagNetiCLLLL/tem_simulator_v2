@@ -14,7 +14,6 @@ from temsim.profile_io import (
 from temsim.specimen.geometry import quaternion_from_euler_xyz_deg
 from temsim.specimen.source import (
     active_cif_path,
-    selected_reference_preset_key,
 )
 
 
@@ -144,7 +143,6 @@ def test_profile_round_trips_mode_owned_structure_sources(tmp_path: Path):
     assert restored.sample.specimen_preset_key == "si_110"
     assert restored.sample.cif_path == "ideal-sample.cif"
     assert active_cif_path(restored.sample) == "ideal-sample.cif"
-    assert selected_reference_preset_key(restored.sample) == ""
 
 
 def test_partial_cif_path_does_not_implicitly_switch_sample_mode():

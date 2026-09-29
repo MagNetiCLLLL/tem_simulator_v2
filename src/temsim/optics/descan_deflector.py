@@ -104,9 +104,6 @@ class DescanDeflectorDefinition:
             scan_amplitude_x_mrad=-0.1,
             scan_amplitude_y_mrad=-0.1,
             scan_frame_period_s=1.0,
-            scan_pixels_x=32,
-            scan_lines=32,
-            scan_pixel_size_nm=1.0,
             upper_coil_gain=0.5,
             lower_coil_gain=0.5,
         )
@@ -136,12 +133,12 @@ class DescanDeflectorComponent:
     scan_amplitude_x_mrad: float = -0.1
     scan_amplitude_y_mrad: float = -0.1
     scan_frame_period_s: float = 1.0
-    scan_pixels_x: int = 32
-    scan_lines: int = 32
+    scan_pixels_x: int = 64
+    scan_lines: int = 64
     # This is the same specimen-raster pitch shown for the AC Scan Foils.
     # Descan uses the opposite calibrated AC command; it does not define a
     # second, independent specimen field of view.
-    scan_pixel_size_nm: float = 1.0
+    scan_pixel_size_nm: float = 0.02
     upper_coil_gain: float = 0.5
     lower_coil_gain: float = 0.5
     descan_target_key: str = SELECTED_AREA_APERTURE

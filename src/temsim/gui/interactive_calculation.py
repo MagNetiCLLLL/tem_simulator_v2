@@ -194,6 +194,7 @@ class InteractiveCalculationPage(QWidget):
         self.live_start.clicked.connect(self.start_live_tuning)
         form.addWidget(self.live_start)
         self.final_calculation = QPushButton("Calculate current section (High accuracy)")
+        self.final_calculation.setProperty("calculationAction", True)
         self.final_calculation.setToolTip("Execute the selected cutoff and keep its exact continuation state. Without a cutoff, this runs the complete configured calculation.")
         self.final_calculation.clicked.connect(self._request_high_accuracy)
         form.addWidget(self.final_calculation)

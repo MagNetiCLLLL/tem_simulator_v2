@@ -197,7 +197,7 @@ flowchart LR
 | 缓存、断点与保存加载 | `test_calculation_cache*.py`、`test_particle_section*.py`、`test_section_*.py`、`test_working_point_*.py`、`test_result_*.py`、`test_input_assets.py`、`test_portable_inputs.py` |
 | 后台任务与资源 | `test_job_*.py`、`test_background_*.py`、`test_cpu_resources.py`、`test_backend_*.py`、`test_electron_execution_*.py`；`tests/electron_fault_worker.py` 是故障注入子进程，非普通测试模块 |
 | 显示与交互 | `test_ray_*.py`、`test_transverse_*.py`、`test_live_*`、`test_workspace_layouts.py`、`test_hardware_tuning_*.py`、`test_virtual_electron_dock.py` |
-| 安装、输入与记录器 | `test_setup_env.py`、`test_project_artifact_fallback.py`、`test_reference_catalog.py`、`test_reference_sample_*.py`、`test_instrument_recorder*.py` |
+| 安装、输入与记录器 | `test_setup_env.py`、`test_project_artifact_fallback.py`、`test_sample_sources.py`、`test_sample_source_*.py`、`test_instrument_recorder*.py` |
 | 历史波动和数学证据 | `test_wave_*.py`、`test_radial_*.py`、`test_galerkin_*.py`、`test_covariant_*.py`、`test_modal_covariant_slab.py`、`test_multislice.py`；保留算法/源拒绝证据，不表示当前生产链已完成 |
 
 ### 开发工具分组
@@ -927,11 +927,10 @@ flowchart LR
 | [interaction_types.py](../src/temsim/specimen/interaction_types.py) | 505 | Shared contracts for specimen-local electron and signal calculations.；入口：SpecimenObservable, InteractionProcess, IncidentElectronRay |
 | [overlap_sampling.py](../src/temsim/specimen/overlap_sampling.py) | 257 | EDS-only importance quadrature for an under-sampled finite specimen.；入口：OverlapSamplingPlan, build_overlap_sampling_plan |
 | [presets.py](../src/temsim/specimen/presets.py) | 265 | Load analytic projected-column specimen definitions from TOML.；入口：SpecimenColumn, AtomisticCrystal, InelasticMaterial |
-| [reference_catalog.py](../src/temsim/specimen/reference_catalog.py) | 131 | Discover real reference structures and their explicit modelling assumptions.；入口：ReferenceSample, available_reference_samples, refresh_reference_samples |
 | [rutherford.py](../src/temsim/specimen/rutherford.py) | 337 | Structure-derived inputs for the approximate, incoherent high-angle tail.；入口：CIFComposition, TailElement, TailMaterial |
 | [sample_region.py](../src/temsim/specimen/sample_region.py) | 828 | Manual, bounded specimen-region transport and downstream handoff.；入口：SampleRegionElectronPath, SampleRegionPhotonPath, SampleRegionResult |
 | [scene.py](../src/temsim/specimen/scene.py) | 285 | Immutable specimen scene shared by particle, EDS and wave calculations.；入口：SceneMaterialRegion, SpecimenScene |
-| [source.py](../src/temsim/specimen/source.py) | 64 | A reference library CIF or an external CIF is the sole physical structure.；入口：specimen_mode, active_specimen_source, active_cif_path |
+| [source.py](../src/temsim/specimen/source.py) | 64 | 默认真空；材料仅来自用户导入的 CIF / MCIF。；入口：specimen_mode, active_specimen_source, active_cif_path |
 | [support.py](../src/temsim/specimen/support.py) | 225 | TOML-backed TEM support-grid geometry and material lookup.；入口：SupportMaterial, SupportMesh, SupportGrid |
 | [vector_field_transport.py](../src/temsim/specimen/vector_field_transport.py) | 234 | Specimen-local SI transport using the column's registered vector fields.；入口：SpecimenFieldTransport |
 | [virtual.py](../src/temsim/specimen/virtual.py) | 732 | Finite virtual specimens with explicit, probability-conserving channels.；入口：VirtualScatteringBranch, VirtualInteractionComponent, VirtualAngularDistribution |
@@ -1060,15 +1059,15 @@ flowchart LR
 </details>
 
 <details>
-<summary>configs/reference_samples · 5 个文件</summary>
+<summary>tests/fixtures/cif · 5 个文件</summary>
 
 | 文件 | 行数 | 用途 / 源码定位 |
 | --- | ---: | --- |
-| [Au.cif](../configs/reference_samples/Au.cif) | 29 | 原始晶体结构输入；保留来源，不当作计算缓存 |
-| [Au.toml](../configs/reference_samples/Au.toml) | 10 | 结构/参数/材料输入（configs\reference_samples） |
-| [README.md](../configs/reference_samples/README.md) | 28 | 文档：Reference CIF library |
-| [Si.cif](../configs/reference_samples/Si.cif) | 222 | 原始晶体结构输入；保留来源，不当作计算缓存 |
-| [Si.toml](../configs/reference_samples/Si.toml) | 10 | 结构/参数/材料输入（configs\reference_samples） |
+| [Au.cif](../tests/fixtures/cif/Au.cif) | 29 | 原始晶体结构输入；保留来源，不当作计算缓存 |
+| [Au.toml](../tests/fixtures/cif/Au.toml) | 10 | 结构/参数/材料输入（tests\fixtures\cif） |
+| [README.md](../tests/fixtures/cif/README.md) | 28 | 测试数据与原始文件来源说明；不作为运行时样品库 |
+| [Si.cif](../tests/fixtures/cif/Si.cif) | 222 | 原始晶体结构输入；保留来源，不当作计算缓存 |
+| [Si.toml](../tests/fixtures/cif/Si.toml) | 10 | 结构/参数/材料输入（tests\fixtures\cif） |
 
 </details>
 
@@ -1490,10 +1489,9 @@ flowchart LR
 | [test_record_plane_detector_masks.py](../tests/test_record_plane_detector_masks.py) | 159 | 自动测试：Prepared signal masks agree exactly with the diagnostic recording router.；静态依赖：physics/first_order.py, physics/record_plane.py |
 | [test_recording_stop_bounds.py](../tests/test_recording_stop_bounds.py) | 28 | 自动测试：Finite column endpoints include all actual interaction stations.；静态依赖：physics/recording_stop.py |
 | [test_reference_atomic_phase.py](../tests/test_reference_atomic_phase.py) | 63 | 自动测试：A periodic reference crystal stays in sample coordinates as its ROI moves.；静态依赖：specimen/atomistic.py, specimen/presets.py |
-| [test_reference_catalog.py](../tests/test_reference_catalog.py) | 119 | 自动测试；静态依赖：calculation_cache.py, calculation_manifest.py, optics/column.py 等 |
-| [test_reference_physics_routing.py](../tests/test_reference_physics_routing.py) | 133 | 自动测试：Reference CIFs use the real physics routes, with no legacy virtual inputs.；静态依赖：optics/column.py, physics/interaction_budget.py, physics/simulation.py 等 |
-| [test_reference_sample_profile.py](../tests/test_reference_sample_profile.py) | 142 | 自动测试：Profiles retain real sources, while legacy presets acquire their CIF basis once.；静态依赖：assembly_catalog.py, optics/column.py, profile_io.py 等 |
-| [test_reference_sample_ui.py](../tests/test_reference_sample_ui.py) | 307 | 自动测试：Real CIF sources drive the visible structure and read-only material summary.；静态依赖：gui/main_window.py, gui/sample_panel.py, optics/column.py 等 |
+| [test_cif_disorder.py](../tests/test_cif_disorder.py) | 133 | 自动测试：CIF 无序占位验证；静态依赖：optics/column.py, physics/interaction_budget.py, physics/simulation.py 等 |
+| [test_sample_source_profile.py](../tests/test_sample_source_profile.py) | 142 | 自动测试：样品来源、方向与显式参数的配置读写验证；静态依赖：assembly_catalog.py, optics/column.py, profile_io.py 等 |
+| [test_sample_source_ui.py](../tests/test_sample_source_ui.py) | 307 | 自动测试：Real CIF sources drive the visible structure and read-only material summary.；静态依赖：gui/main_window.py, gui/sample_panel.py, optics/column.py 等 |
 | [test_refinement_progress.py](../tests/test_refinement_progress.py) | 58 | 自动测试：Round diagnostics cannot mutate or replace a physical boundary result.；静态依赖：immutable_json.py, physics/occupied_axial_refinement.py, physics/refinement_progress.py |
 | [test_report_workflow.py](../tests/test_report_workflow.py) | 127 | 自动测试：Bounded particle GUI/archive path; no coherent imaging qualification.；静态依赖：alignment_constraints.py, alignment_transaction.py, app.py 等 |
 | [test_result_file_request_routing.py](../tests/test_result_file_request_routing.py) | 77 | 自动测试：File-request ordering only; codec/transport correctness have real archive tests.；静态依赖：gui/calculation_controller.py |
@@ -1899,3 +1897,10 @@ flowchart LR
 新增/移除页面、模块或保存格式时更新对应功能表；调整架构时同步“数据流”和“职责不同”表。对全量附录重新使用 `git ls-files` 生成文件集合，并通过 AST 读取 Python 模块说明、顶层定义及本地导入；不导入应用、不执行计算。重新检查所有相对链接和文件数。统计必须标注基准提交，不能把旧行数或测试定义数当成新版本运行证据。
 
 本次静态扫描的可复核中间结果留在本地 `outputs/agent-validation/project-map/`；该目录不进入 Git，地图自身包含阅读所需的结论和完整列表。
+
+### 样品来源更新（2026-09-29）
+
+默认 `Vacuum sample`；样品必须由用户导入 CIF / MCIF。`Calculate Sample` 复用实际入射束，计算样品相互作用并更新后方光路；STEM / EDS 使用各自页面按钮。内置 Reference CIF 目录扫描、选择器、默认材料关联和元数据缓存已移除。原始 Si / Au 文件与来源记录移至 `tests/fixtures/cif`，仅供测试，安装包不包含该样品库。
+
+- [test_sample_sources.py](../tests/test_sample_sources.py)：真空默认、显式导入、缓存依赖及移除旧样品选择后的拒绝行为。
+- [specimen_inputs.py](../tests/specimen_inputs.py)：测试专用的显式 CIF 和取向输入。

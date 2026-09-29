@@ -79,6 +79,32 @@ def test_no_callback_does_not_require_progress_consumers():
     progress.advance()
 
 
+def test_transport_detail_keeps_stage_position_without_a_time_estimate():
+    progress, events = reporter()
+    progress.update(1, 4, "Earlier substep")
+    position = events[-1][:2]
+    progress.detail("Electron gun | Z 123 mm | 15000 active")
+    assert events[-1][:2] == position
+    assert events[-1][2] == "Stage 1/4 | Electron gun | Z 123 mm | 15000 active"
+    assert "%" not in events[-1][2]
+
+
+def test_transport_progress_scope_cleans_up_on_cancellation():
+    from temsim.physics.transport_progress import (
+        transport_progress, report_transport_progress, transport_progress_active)
+    events = []
+    def cancel(label):
+        raise InterruptedError(label)
+    with transport_progress(events.append):
+        with pytest.raises(InterruptedError, match="cancel"):
+            with transport_progress(cancel):
+                report_transport_progress("cancel")
+        report_transport_progress("outer restored")
+    assert not transport_progress_active()
+    report_transport_progress("must not leak to the next job")
+    assert events == ["outer restored"]
+
+
 def test_bank_progress_names_point_and_stage_without_global_percentage(qtbot):
     from types import SimpleNamespace
     from PySide6.QtWidgets import QProgressBar

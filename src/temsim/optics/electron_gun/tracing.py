@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from time import perf_counter
 
 import numpy as np
 
@@ -28,6 +29,15 @@ from temsim.physics.gun_transport_domain import bounded_gun_time_step
 
 
 def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
+    from temsim.physics.grounded_particle_step import gun_step_workers
+    with gun_step_workers():
+        return _trace_feg_to_exit(gun, count, cancelled=cancelled)
+
+
+def _trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
+    from temsim.physics.transport_progress import report_transport_progress, transport_progress_active
+    started = last_report = perf_counter()
+    report_transport_progress("Electron gun | preparing emission and electrode field")
     from temsim.vacuum import ensure_standalone_gun_environment
     ensure_standalone_gun_environment(gun)
     emitted = gun.emit(count)
@@ -150,6 +160,14 @@ def trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
         active = alive & ~completed
         if not np.any(active):
             break
+        now = perf_counter()
+        if transport_progress_active() and (step_index == 0 or now-last_report >= .25):
+            z_active = phase.position_m[active, 2]*1000.
+            report_transport_progress(
+                f"Electron gun | {np.count_nonzero(active):,}/{n:,} active | "
+                f"Z {z_active.min():.6g} to {z_active.max():.6g} mm / exit {gun.exit_plane_z_mm:.3f} mm | "
+                f"{step_index:,} steps | {now-started:.1f} s")
+            last_report = now
         # A batch stops at every possible physical event and at the next
         # existing history step. The final accepted segment is processed below
         # by the unchanged Python boundary, arrival-time and history routines.

@@ -1,3 +1,4 @@
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 import math
 from pathlib import Path
 from types import SimpleNamespace
@@ -82,9 +83,7 @@ def test_bote_salvat_table_covers_k_l_m_for_z_1_to_99():
 
 def test_eds_material_follows_the_mode_owned_structure_source():
     state = default_state()
-    state.sample.specimen_mode = "reference"
-    state.sample.reference_sample_key = "si_110"
-    state.sample.cif_path = "dormant-missing.cif"
+    imported_sample(state.sample)
 
     material = material_from_sample(state)
 
@@ -97,15 +96,16 @@ def test_eds_material_follows_the_mode_owned_structure_source():
 
     state.sample.specimen_mode = "virtual"
     state.sample.specimen_preset_key = "vacuum"
-    with pytest.raises(ValueError, match="Virtual mode has been retired"):
+    with pytest.raises(ValueError, match="Sample mode must be"):
         material_from_sample(state)
-    state.sample.specimen_mode = "reference"
+    imported_sample(state.sample)
     state.sample.inserted = False
     assert material_from_sample(state) is None
 
 
 def test_straight_eds_path_respects_circular_sample_edge():
     state = default_state()
+    imported_sample(state)
     centre_tracks = point_track_segments(state, x_nm=0.0, y_nm=0.0)
     corner_tracks = point_track_segments(
         state,
@@ -303,6 +303,7 @@ def test_caller_supplied_elastically_scattered_track_retains_provenance(
 
 def test_support_grid_adds_copper_only_when_track_intersects_material():
     state = default_state()
+    imported_sample(state)
     # This geometry test intentionally covers both the opening and the bar.
     state.sample.size_x_nm = state.sample.size_y_nm = 3_000_000.0
     state.sample.eds_support_material_key = "copper"
@@ -324,6 +325,7 @@ def test_point_spectrum_uses_generic_name_and_reproducible_poisson(
     installed_geometry,
 ):
     state = default_state()
+    imported_sample(state)
     state.sample.eds_poisson_enabled = True
     state.sample.eds_poisson_seed = 123
     state.sample.eds_energy_resolution_fwhm_ev = 125.0
@@ -355,6 +357,7 @@ def test_point_spectrum_retains_explicit_straight_transport_reference(
     installed_geometry,
 ):
     state = default_state()
+    imported_sample(state)
     state.sample.eds_transport_mode = "straight_primary"
 
     result = simulate_eds_point(

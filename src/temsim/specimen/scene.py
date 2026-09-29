@@ -23,7 +23,6 @@ from temsim.specimen.geometry import sample_orientation_quaternion
 from temsim.specimen.source import (
     active_cif_path,
     active_specimen_source,
-    selected_reference_preset_key,
     specimen_mode,
     specimen_structure_available,
     wave_template_preset_key,
@@ -118,12 +117,12 @@ class SpecimenScene:
         mode = specimen_mode(sample)
         source_kind = active_specimen_source(sample)
         cif_path = active_cif_path(sample)
-        preset_key = selected_reference_preset_key(sample)
+        preset_key = ""
         if source_kind == "cif":
             source_key = f"cif:{Path(cif_path).name}" if cif_path else "unconfigured"
         else:
-            source_key = f"preset:{preset_key}" if preset_key else "unconfigured"
-        inserted = bool(getattr(sample, "inserted", True))
+            source_key = "vacuum"
+        inserted = mode != "vacuum" and bool(getattr(sample, "inserted", False))
         support_grid = resolve_support_grid(
             str(getattr(sample, "eds_support_material_key", "vacuum")),
             str(getattr(sample, "eds_support_mesh_key", "square_200")),
@@ -174,9 +173,8 @@ class SpecimenScene:
     def interacting_thickness_nm(self) -> float:
         """Return the finite specimen-region propagation span.
 
-        An explicit Vacuum preset retains the user-defined free-space span for
-        wave propagation, while ``matter_thickness_nm`` remains zero. A
-        retracted or unconfigured specimen has no local propagation region.
+        Vacuum, a retracted holder or an unconfigured specimen has no local
+        material propagation region. Its optical reference plane remains.
         """
 
         if not self.inserted or not self.structure_available:
@@ -196,7 +194,7 @@ class SpecimenScene:
         return bool(
             not self.inserted
             or self.thickness_nm <= 0.0
-            or (self.mode == "virtual" and self.preset_key == "vacuum")
+            or self.mode == "vacuum"
         )
 
     @property

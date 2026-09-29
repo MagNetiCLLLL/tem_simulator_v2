@@ -1,3 +1,4 @@
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 import numpy as np
 
 import temsim.physics.simulation as simulation_module
@@ -22,7 +23,7 @@ def _small_vacuum_state():
     # numerical tests cover agreement with the Python reference implementation.
     state.acceleration_enabled = True
     state.acceleration_backend = "Numba CPU"
-    state.sample.specimen_mode = "reference"
+    imported_sample(state.sample)
     state.sample.inserted = False
     state.sample.stem_wave_enabled = False  # Optical checkpoint fixture.
     state.sample.thickness_nm = 10.0

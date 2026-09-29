@@ -1,3 +1,4 @@
+from specimen_inputs import SI_CIF, imported_sample
 from types import SimpleNamespace
 
 import numpy as np
@@ -24,16 +25,16 @@ def test_sample_page_binds_modes_envelope_and_safe_offscreen_view(qtbot):
         10.0
     )
     assert page.scalar_controls["size_y_nm"].isHidden()
-    page.mode.setCurrentIndex(page.mode.findData("reference"))
+    page.mode.setCurrentIndex(page.mode.findData("vacuum"))
     page.scalar_controls["size_x_nm"].setValue(250.0)
     page.inserted.setChecked(False)
 
-    assert state.sample.specimen_mode == "reference"
+    assert state.sample.specimen_mode == "vacuum"
     assert state.sample.size_x_nm == 250.0
     assert state.sample.size_y_nm == 250.0
     assert state.sample.inserted is False
     assert page.real_group.isHidden() is False
-    assert page.reference_source_widget.isEnabled()
+    assert page.cif_source_widget.isEnabled()
     assert page.scene.opengl_available is False
     assert "offscreen" in page.scene.opengl_detail
 
@@ -43,7 +44,7 @@ def test_sample_page_has_no_virtual_interaction_or_region_editor(qtbot):
     qtbot.addWidget(page)
     page.set_state(default_state())
 
-    assert [page.mode.itemData(index) for index in range(page.mode.count())] == ["reference", "atomic"]
+    assert [page.mode.itemData(index) for index in range(page.mode.count())] == ["vacuum", "atomic"]
     assert not hasattr(page, "virtual_group")
     assert not hasattr(page, "interaction_table")
     assert not hasattr(page, "region_table")
@@ -54,15 +55,13 @@ def test_sample_page_has_no_virtual_interaction_or_region_editor(qtbot):
 def test_sample_page_owns_shared_wave_controls_for_reference_cif(qtbot):
     state = default_state()
     state.illumination_mode = "TEM"
+    imported_sample(state)
     page = SamplePage()
     qtbot.addWidget(page)
     page.set_state(state)
     assert "total λ" in page.inelastic_summary.text()
-    assert "Silicon" in page.inelastic_summary.text()
+    assert "Si.cif" in page.inelastic_summary.text()
 
-    preset_index = page.preset.findData("si_110")
-    assert preset_index >= 0
-    page.preset.setCurrentIndex(preset_index)
     page.tem_wave_enabled.setChecked(True)
     page.wave_grid.setValue(64)
     page.wave_scalar_controls["wave_slice_thickness_angstrom"].setValue(1.5)
@@ -77,7 +76,7 @@ def test_sample_page_owns_shared_wave_controls_for_reference_cif(qtbot):
         "real_absorption_mean_free_path_nm"
     ].setValue(900.0)
 
-    assert state.sample.reference_sample_key == "si_110"
+    assert state.sample.cif_path == str(SI_CIF)
     assert state.sample.wave_enabled is True
     assert state.sample.wave_grid_pixels == 64
     assert state.sample.wave_slice_thickness_angstrom == pytest.approx(1.5)
@@ -91,44 +90,6 @@ def test_sample_page_owns_shared_wave_controls_for_reference_cif(qtbot):
     assert state.sample.real_plasmon_mean_free_path_nm == pytest.approx(175.0)
     assert state.sample.real_absorption_mean_free_path_nm == pytest.approx(900.0)
     assert page.findChild(QDoubleSpinBox, "sampleGVector") is None
-def test_mode_is_the_only_structure_source_selector(qtbot):
-    state = default_state()
-    state.sample.specimen_preset_key = "si_110"
-    state.sample.cif_path = "remembered-real-sample.cif"
-    page = SamplePage()
-    qtbot.addWidget(page)
-    page.set_state(state)
-
-    assert not hasattr(page, "structure_source")
-    assert page.mode.currentData() == "reference"
-    assert page.real_group.isAncestorOf(page.preset)
-    assert page.preset.isEnabled()
-    assert page.real_group.isHidden() is False
-    assert page.reference_source_widget.isEnabled()
-    assert not page.cif_source_widget.isEnabled()
-    assert page.preset.currentData() == "si_110"
-
-    page.mode.setCurrentIndex(
-        page.mode.findData("atomic")
-    )
-    page.cif_path.setText("ideal-sample.cif")
-    page._cif_edited()
-
-    assert state.sample.specimen_mode == "atomic"
-    assert state.sample.cif_path == "ideal-sample.cif"
-    assert state.sample.reference_sample_key == "si_110"
-    assert page.real_group.isHidden() is False
-    assert not page.reference_source_widget.isEnabled()
-    assert page.cif_source_widget.isEnabled()
-    assert page.real_group.isAncestorOf(page.cif_path)
-
-    page.mode.setCurrentIndex(
-        page.mode.findData("reference")
-    )
-
-    assert state.sample.specimen_mode == "reference"
-    assert state.sample.reference_sample_key == "si_110"
-    assert state.sample.cif_path == "ideal-sample.cif"
 
 
 def test_sample_page_keeps_unqualified_coherent_image_controls_disabled(qtbot):
@@ -158,6 +119,7 @@ def test_sample_page_keeps_unqualified_coherent_image_controls_disabled(qtbot):
 
 def test_dedicated_eds_page_uses_calculated_sample_plane_rays(qtbot):
     state = default_state()
+    imported_sample(state)
     page = EDSPage()
     qtbot.addWidget(page)
     page.set_state(state)

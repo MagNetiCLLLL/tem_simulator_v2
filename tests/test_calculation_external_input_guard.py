@@ -1,4 +1,5 @@
 """External-file edits must not publish a mixed-input complete result."""
+from specimen_inputs import imported_sample, SI_CIF, AU_CIF
 from threading import Event
 
 import pytest
@@ -12,41 +13,25 @@ from temsim.calculation_manifest import (
 from temsim.optics.column import default_state
 from temsim.simulation_modes import switch_mode
 from temsim.simulation_pipeline import CalculationResult, calculate
-from temsim.specimen import reference_catalog
+from specimen_inputs import SI_CIF
 
 
 @pytest.fixture
-def reference_case(tmp_path, monkeypatch):
+def imported_case(tmp_path):
     state = default_state()
-    original = reference_catalog.get_reference_sample("si_110").cif_path.read_text()
-    cif = tmp_path / "si_110.cif"
+    original = SI_CIF.read_text()
+    cif = tmp_path / "imported.cif"
     cif.write_text(original)
-    monkeypatch.setattr(reference_catalog, "REFERENCE_DIRECTORY", tmp_path)
-    state.sample.specimen_mode = "reference"
-    state.sample.reference_sample_key = "si_110"
-
+    imported_sample(state, path=cif)
     def prepare(kind):
-        metadata = cif.with_suffix(".toml")
-        if kind == "existing_sidecar":
-            metadata.write_text('thermal_sigma_angstrom = 0.085\nthermal_source = "test reference"\n')
-
         def mutate():
-            if kind == "cif":
-                cif.write_text(original.replace("5.44370237", "6.44370237"))
-            elif kind == "sidecar_type_error":
-                metadata.write_text('thermal_sigma_angstrom = []\n')
-            elif kind == "sidecar_overflow":
-                metadata.write_text('thermal_sigma_angstrom = ' + '9' * 400 + '\n')
-            else:
-                metadata.write_text('thermal_sigma_angstrom = 0.095\nthermal_source = "revised reference"\n')
+            cif.write_text(original.replace("5.44370237", "6.44370237"))
         return state, mutate
-
     return prepare
 
 
-@pytest.mark.parametrize("kind", ["cif", "existing_sidecar", "new_sidecar"])
-def test_input_guard_checks_changes_and_new_reference_metadata(reference_case, kind):
-    state, mutate = reference_case(kind)
+def test_input_guard_checks_imported_cif_changes(imported_case):
+    state, mutate = imported_case("cif")
     inputs = capture_external_input_identities(state)
     assert_external_input_inventory_unchanged(state, inputs)
     mutate()
@@ -54,20 +39,8 @@ def test_input_guard_checks_changes_and_new_reference_metadata(reference_case, k
         assert_external_input_inventory_unchanged(state, inputs)
 
 
-@pytest.mark.parametrize("kind,error_type", [
-    ("sidecar_type_error", TypeError), ("sidecar_overflow", OverflowError),
-])
-def test_new_sidecar_conversion_errors_are_input_change_failures(reference_case, kind, error_type):
-    state, mutate = reference_case(kind)
-    inputs = capture_external_input_identities(state)
-    mutate()
-    with pytest.raises(RuntimeError, match="Captured external inputs changed") as failure:
-        assert_external_input_inventory_unchanged(state, inputs)
-    assert isinstance(failure.value.__cause__, error_type)
-
-
-def test_real_pipeline_rejects_cif_change_after_signatures_are_captured(reference_case):
-    state, mutate = reference_case("cif")
+def test_real_pipeline_rejects_cif_change_after_signatures_are_captured(imported_case):
+    state, mutate = imported_case("cif")
     switch_mode(state, "ideal")
     state.sample.wave_enabled = state.sample.stem_wave_enabled = False
     state.sample.eds_enabled = state.energy_filter.enabled = False
@@ -88,10 +61,10 @@ def test_real_pipeline_rejects_cif_change_after_signatures_are_captured(referenc
     assert changed
 
 
-@pytest.mark.parametrize("kind", ["cif", "existing_sidecar", "new_sidecar"])
+@pytest.mark.parametrize("kind", ["cif"])
 @pytest.mark.parametrize("when", ["before_run", "during_run"])
-def test_worker_does_not_publish_or_persist_changed_inputs(qapp, monkeypatch, reference_case, kind, when):
-    state, mutate = reference_case(kind)
+def test_worker_does_not_publish_or_persist_changed_inputs(qapp, monkeypatch, imported_case, kind, when):
+    state, mutate = imported_case(kind)
     signatures = cache.calculation_signatures(state)
     worker = controllers.CalculationWorker(1, "High accuracy", state,
                                            request_signatures=signatures)
@@ -118,8 +91,8 @@ def test_worker_does_not_publish_or_persist_changed_inputs(qapp, monkeypatch, re
 
 
 @pytest.mark.parametrize("when", ["before_run", "during_run"])
-def test_cancelled_worker_stays_silent_even_if_inputs_changed(qapp, monkeypatch, reference_case, when):
-    state, mutate = reference_case("cif")
+def test_cancelled_worker_stays_silent_even_if_inputs_changed(qapp, monkeypatch, imported_case, when):
+    state, mutate = imported_case("cif")
     worker = controllers.CalculationWorker(1, "High accuracy", state)
     worker.cancel_event = Event()
     events, calls = [], []
@@ -142,8 +115,8 @@ def test_cancelled_worker_stays_silent_even_if_inputs_changed(qapp, monkeypatch,
     assert events == ["finished"]
 
 
-def test_result_changed_while_queued_is_not_cached_or_published(qapp, reference_case):
-    state, mutate = reference_case("new_sidecar")
+def test_result_changed_while_queued_is_not_cached_or_published(qapp, imported_case):
+    state, mutate = imported_case("cif")
     controller = controllers.CalculationController(persistent_cache_enabled=False)
     previous = CalculationResult(None, None, signatures={"request": "previous"})
     controller._cache_result(previous)
@@ -161,9 +134,9 @@ def test_result_changed_while_queued_is_not_cached_or_published(qapp, reference_
 
 
 @pytest.mark.parametrize("quality", ["High accuracy", "Preview"])
-@pytest.mark.parametrize("kind", ["cif", "new_sidecar", "sidecar_type_error", "sidecar_overflow"])
-def test_complete_cache_hit_is_checked_at_queued_delivery(qtbot, monkeypatch, reference_case, quality, kind):
-    state, mutate = reference_case(kind)
+@pytest.mark.parametrize("kind", ["cif"])
+def test_complete_cache_hit_is_checked_at_queued_delivery(qtbot, monkeypatch, imported_case, quality, kind):
+    state, mutate = imported_case(kind)
     controller = controllers.CalculationController(persistent_cache_enabled=False)
     workers, delivered, errors, finished = [], [], [], []
     monkeypatch.setattr(controller.pool, "start", workers.append)
@@ -192,8 +165,8 @@ def test_complete_cache_hit_is_checked_at_queued_delivery(qtbot, monkeypatch, re
     assert controller._request_input_guard is None
 
 
-def test_current_reference_source_is_captured_by_controller(qapp, monkeypatch, reference_case):
-    state, _mutate = reference_case("cif")
+def test_current_reference_source_is_captured_by_controller(qapp, monkeypatch, imported_case):
+    state, _mutate = imported_case("cif")
     restored = type(state).from_dict(state.to_dict())
     controller = controllers.CalculationController(persistent_cache_enabled=False)
     workers = []

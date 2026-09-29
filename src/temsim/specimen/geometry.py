@@ -552,8 +552,8 @@ def build_sample_geometry_snapshot(
     calculation_roi_bounds_nm_override: tuple[float, float, float, float] | None = None,
 ) -> SampleGeometrySnapshot:
     mode = str(getattr(sample, "specimen_mode", "atomic")).strip().lower()
-    if mode not in {"atomic", "reference"}:
-        raise ValueError("Sample mode must be atomic or reference.")
+    if mode not in {"atomic", "vacuum"}:
+        raise ValueError("Sample mode must be atomic or vacuum.")
     size = (
         float(getattr(sample, "size_x_nm", 0.0)),
         float(getattr(sample, "size_y_nm", 0.0)),
@@ -633,7 +633,7 @@ def build_sample_geometry_snapshot(
     )
     local_material_bounds = (
         (*display_bounds, centre[2] - size[2] / 2, centre[2] + size[2] / 2)
-        if lateral_overlap and size[2] > 0.0 else None
+        if mode != "vacuum" and lateral_overlap and size[2] > 0.0 else None
     )
     if cif and load_atoms:
         if not lateral_overlap:
@@ -684,12 +684,12 @@ def build_sample_geometry_snapshot(
                 ))
     for array in (atom_positions, atomic_numbers, atom_bonds, cell_vectors):
         array.setflags(write=False)
-    if not cif:
+    if not cif and mode != "vacuum":
         warnings.append(
             "Sample has no CIF/MCIF structure; specimen interactions are "
             "disabled until a crystallographic file is selected."
         )
-    if not bool(getattr(sample, "inserted", True)):
+    if mode != "vacuum" and not bool(getattr(sample, "inserted", True)):
         warnings.append(
             "Sample is retracted: this page retains geometry, but electron-sample interaction is disabled."
         )
@@ -706,7 +706,7 @@ def build_sample_geometry_snapshot(
     matrix_tuple = tuple(tuple(float(value) for value in row) for row in orientation)
     return SampleGeometrySnapshot(
         mode=mode,
-        inserted=bool(getattr(sample, "inserted", True)),
+        inserted=mode != "vacuum" and bool(getattr(sample, "inserted", False)),
         envelope_shape=envelope_shape,
         centre_nm=centre,
         size_nm=size,
