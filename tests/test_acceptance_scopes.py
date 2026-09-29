@@ -69,13 +69,15 @@ def test_new_lanes_explicitly_cover_reviewed_feature_and_runtime_boundaries():
             "test_diagnostic_scene_identity.py", "test_diagnostic_execution_identity.py",
             "test_electron_execution_faults.py", "test_electron_execution_diagnostics.py",
             "test_electron_execution_protocol.py", "test_electron_resource_cleanup.py", "test_cpu_resources.py",
-            "test_electron_diagnostic_session.py"},
+            "test_electron_diagnostic_session.py", "test_shared_electron_column.py"},
         "field-ui": {"test_magnetic_test_electron_gui.py", "test_continuous_electron_gui.py",
             "test_virtual_electron_dock.py", "test_magnetic_field_3d.py", "test_magnetic_field_canvas.py",
             "test_magnetic_field_lines.py", "test_magnetic_field_scene.py", "test_incremental_magnetic_scene.py",
             "test_magnetic_navigation_link.py", "test_hardware_tuning_gui.py", "test_hardware_tuning_bindings.py",
             "test_magnetic_field_identity.py", "test_electron_failure_gui.py",
-            "test_hardware_tuning_feedback.py", "test_electron_session_gui.py", "test_diagnostic_electron_record.py"},
+            "test_hardware_tuning_feedback.py", "test_electron_session_gui.py", "test_diagnostic_electron_record.py",
+            "test_assembly_selection_state.py", "test_assembly_navigation.py", "test_instrument_configuration.py",
+            "test_working_point_restore_gui.py"},
         "particle-continuation": {"test_particle_sections.py", "test_particle_section_io.py",
             "test_completed_particle_sections.py", "test_material_particle_sections.py",
             "test_material_section_resume.py", "test_particle_section_eds_archive.py",
@@ -87,6 +89,17 @@ def test_new_lanes_explicitly_cover_reviewed_feature_and_runtime_boundaries():
     }
     for scope, expected in required.items():
         assert {Path(path).name for path in scope_test_files(scope)} == expected
+
+
+def test_shared_component_regressions_are_mandatory_classical_evidence():
+    required = {"tests/test_component_position_contract.py", "tests/test_component_persistence.py"}
+    assert required <= set(scope_test_files("classical"))
+    for path in required:
+        receipt = receipt_for("classical")
+        missing = next(node for node in receipt["collected"] if node.startswith(path + "::"))
+        receipt["collected"].remove(missing)
+        del receipt["cases"][missing]
+        assert evaluate("classical", receipt)["software_scope_status"] == "INCOMPLETE"
 
 
 @pytest.mark.parametrize("scope", tuple(ACCEPTANCE_SCOPES))

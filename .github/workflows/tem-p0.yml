@@ -14,15 +14,51 @@ jobs:
           python-version: '3.12'
           cache: pip
       - name: Install CPU validation environment
-        run: python -m pip install -r requirements/validation-cpu-lock.txt -e ".[dev]"
-      - name: Build wheel and isolated CPU installation
+        id: environment
         run: |
-          python -m pip wheel --no-deps --no-build-isolation --wheel-dir outputs/spec-acceptance-wheel .
-          python -m venv outputs/acceptance-install
-          outputs/acceptance-install/Scripts/python.exe -m pip install -r requirements/validation-cpu-lock.txt outputs/spec-acceptance-wheel/tem_simulator_v2-0.1.0-py3-none-any.whl
+          python -m pip install -r requirements/validation-cpu-lock.txt -e ".[dev]"
+          if ($LASTEXITCODE -ne 0) { throw "Validation dependency installation failed" }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw "Validation dependencies are inconsistent" }
+      - name: Build wheel and isolated CPU installation
+        id: wheel
+        run: |
+          $InstallRoot = Join-Path $env:RUNNER_TEMP ("temsim-acceptance-install-" + [guid]::NewGuid().ToString("N"))
+          $WheelDir = Join-Path $InstallRoot "wheel"
+          $VenvDir = Join-Path $InstallRoot "venv"
+          New-Item -ItemType Directory -Path $WheelDir | Out-Null
+          python -m pip wheel --no-deps --no-build-isolation --wheel-dir $WheelDir .
+          if ($LASTEXITCODE -ne 0) { throw "Wheel build failed" }
+          $Wheels = @(Get-ChildItem -Path $WheelDir -Filter "tem_simulator_v2-*.whl" -File)
+          if ($Wheels.Count -ne 1) { throw "Expected exactly one newly built application wheel" }
+          python -m venv $VenvDir
+          if ($LASTEXITCODE -ne 0) { throw "Isolated environment creation failed" }
+          $InstalledPython = Join-Path $VenvDir "Scripts/python.exe"
+          & $InstalledPython -m pip install -r requirements/validation-cpu-lock.txt $Wheels[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw "Isolated wheel installation failed" }
+          & $InstalledPython -m pip check
+          if ($LASTEXITCODE -ne 0) { throw "Installed dependencies are inconsistent" }
+          "installed-python=$InstalledPython" >> $env:GITHUB_OUTPUT
+          "install-root=$InstallRoot" >> $env:GITHUB_OUTPUT
       - name: Check isolated particle and diagnostic startup without coherent execution
-        run: outputs/acceptance-install/Scripts/python.exe -I scripts/installation_diagnostic_smoke.py --output outputs/spec-acceptance-install/report.json
+        env:
+          INSTALLED_PYTHON: ${{ steps.wheel.outputs.installed-python }}
+          INSTALL_ROOT: ${{ steps.wheel.outputs.install-root }}
+        run: |
+          $SmokeScript = Join-Path $env:GITHUB_WORKSPACE "scripts/installation_diagnostic_smoke.py"
+          $SmokeOutput = Join-Path $env:GITHUB_WORKSPACE "outputs/spec-acceptance-install/report.json"
+          Push-Location $env:INSTALL_ROOT
+          try {
+            & $env:INSTALLED_PYTHON -I $SmokeScript --output $SmokeOutput
+            $SmokeCode = $LASTEXITCODE
+          } finally {
+            Pop-Location
+          }
+          exit $SmokeCode
       - name: Run bounded classical scope (not full-image qualification)
+        # Collect independent scope evidence even when the installation fails.
+        # Earlier failures still fail this job; no continue-on-error is used.
+        if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
         run: python scripts/validate_classical_scope.py --scope classical --output outputs/spec-acceptance
       - name: Retain validation records
         if: always()
@@ -46,7 +82,11 @@ jobs:
           python-version: '3.12'
           cache: pip
       - name: Install CPU validation environment
-        run: python -m pip install -r requirements/validation-cpu-lock.txt -e ".[dev]"
+        run: |
+          python -m pip install -r requirements/validation-cpu-lock.txt -e ".[dev]"
+          if ($LASTEXITCODE -ne 0) { throw "Validation dependency installation failed" }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw "Validation dependencies are inconsistent" }
       - name: Run declared scope with one numerical thread
         run: python scripts/validate_classical_scope.py --scope ${{ matrix.scope }} --output outputs/agent-validation/${{ matrix.scope }} --timeout-seconds 1800
       - name: Retain scope evidence even on failure

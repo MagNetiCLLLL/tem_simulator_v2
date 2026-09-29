@@ -25,19 +25,38 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 
 def column_history_summary(simulation) -> dict:
-    """Validate retained optical branches and distinguish specimen/end planes."""
+    """Validate executed pre-stop histories, not unavailable post-stop samples."""
     import numpy as np
     branches = (simulation.incident, *simulation.branches.values())
+    stopped_rays = []
     for index, branch in enumerate(branches):
         z = np.asarray(branch.z)
-        if z.ndim != 1 or not z.size or not np.isfinite(z).all():
+        if z.ndim != 1 or not z.size or not np.isfinite(z).all() or np.any(np.diff(z) <= 0.):
             raise AssertionError(f"Invalid axial history in installed optical branch {index}")
+        shape = np.shape(branch.x)
+        if len(shape) != 2 or shape[0] != len(z) or not shape[1]:
+            raise AssertionError(f"Invalid phase-space shape in installed optical branch {index}")
+        alive, blocked = np.asarray(branch.alive), np.asarray(branch.blocked_z)
+        keys = branch.blocked_key
+        if (alive.shape != (shape[1],) or alive.dtype != np.dtype(bool)
+                or blocked.shape != alive.shape or len(keys) != shape[1]
+                or np.isinf(blocked).any()):
+            raise AssertionError(f"Invalid stop metadata in installed optical branch {index}")
+        stopped = np.isfinite(blocked)
+        if (np.any(stopped == alive) or np.any(blocked[stopped] > z[-1])
+                or any(not isinstance(keys[j], str) or not keys[j] for j in np.flatnonzero(stopped))):
+            raise AssertionError(f"Inconsistent stop metadata in installed optical branch {index}")
+        # Downstream branches retain the incident stop and population identity.
+        # A particle stopped upstream may have no finite values in this branch.
+        required = ~stopped[None, :] | (z[:, None] <= blocked[None, :])
         for name in ("x", "y", "tx", "ty"):
-            if not np.isfinite(getattr(branch, name)).all():
-                raise AssertionError(f"Nonfinite {name} in installed optical branch {index}")
+            values = np.asarray(getattr(branch, name))
+            if values.shape != shape or np.isinf(values).any() or np.any(~np.isfinite(values) & required):
+                raise AssertionError(f"Invalid pre-stop {name} in installed optical branch {index}")
+        stopped_rays.append(int(np.count_nonzero(stopped)))
     return {"incident_endpoint_mm": float(simulation.incident.z[-1]),
             "column_endpoint_mm": max(float(np.max(branch.z)) for branch in branches),
-            "branches_checked": len(branches)}
+            "branches_checked": len(branches), "stopped_rays_per_branch": stopped_rays}
 
 
 def installation_checks(output_directory: Path) -> dict:

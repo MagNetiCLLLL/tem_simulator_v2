@@ -133,8 +133,20 @@ def test_ci_runs_every_declared_scope_and_retains_failure_evidence():
     upload = next(step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@"))
     assert upload["if"] == "always()"
     assert "${{ matrix.scope }}" in upload["with"]["name"]
-    old_commands = "\n".join(step.get("run", "") for step in jobs["cpu-acceptance"]["steps"])
-    assert "--scope classical" in old_commands
-    assert "pip wheel" in old_commands and "acceptance-install" in old_commands
+    cpu_steps = jobs["cpu-acceptance"]["steps"]
+    commands = "\n".join(step.get("run", "") for step in cpu_steps)
+    assert "pip wheel" in commands and "acceptance-install" in commands
+    wheel = next(step for step in cpu_steps if step.get("id") == "wheel")
+    assert "$env:RUNNER_TEMP" in wheel["run"] and "[guid]::NewGuid()" in wheel["run"]
+    assert '$Wheels.Count -ne 1' in wheel["run"]
+    assert 'tem_simulator_v2-*.whl' in wheel["run"]
+    assert 'pip check' in wheel["run"]
+    smoke = next(step for step in cpu_steps if ' -I ' in step.get("run", ""))
+    assert 'Push-Location $env:INSTALL_ROOT' in smoke["run"]
+    assert '$env:GITHUB_WORKSPACE "scripts/installation_diagnostic_smoke.py"' in smoke["run"]
+    assert 'exit $SmokeCode' in smoke["run"]
+    classical = next(step for step in cpu_steps if '--scope classical' in step.get("run", ""))
+    assert classical["if"] == "${{ !cancelled() && steps.environment.outcome == 'success' }}"
+    assert not any(step.get("continue-on-error") for step in cpu_steps)
     report_commands = "\n".join(step.get("run", "") for step in jobs["full-scope-status"]["steps"])
     assert "pip install -c requirements/validation-cpu-lock.txt threadpoolctl" in report_commands

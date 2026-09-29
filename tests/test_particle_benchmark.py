@@ -212,14 +212,16 @@ def installation_smoke(monkeypatch):
 def _smoke_branch(start, stop):
     coordinates = np.zeros((2, 2))
     return SimpleNamespace(z=np.array([start, stop]), x=coordinates.copy(), y=coordinates.copy(),
-                           tx=coordinates.copy(), ty=coordinates.copy())
+                           tx=coordinates.copy(), ty=coordinates.copy(), alive=np.ones(2, dtype=bool),
+                           blocked_z=np.full(2, np.nan), blocked_key=[None, None])
 
 
 def test_installed_column_endpoint_includes_downstream_branches(installation_smoke):
     simulation = SimpleNamespace(incident=_smoke_branch(0., 1599.2),
                                  branches={"optical": _smoke_branch(1599.2, 3026.4)})
     readout = installation_smoke.column_history_summary(simulation)
-    assert readout == {"incident_endpoint_mm": 1599.2, "column_endpoint_mm": 3026.4, "branches_checked": 2}
+    assert readout == {"incident_endpoint_mm": 1599.2, "column_endpoint_mm": 3026.4,
+                       "branches_checked": 2, "stopped_rays_per_branch": [0, 0]}
 
 
 @pytest.mark.parametrize("name", ["z", "x", "y", "tx", "ty"])
@@ -227,5 +229,45 @@ def test_installed_smoke_rejects_nonfinite_downstream_history(installation_smoke
     downstream = _smoke_branch(1599.2, 3026.4)
     getattr(downstream, name).flat[-1] = np.nan
     simulation = SimpleNamespace(incident=_smoke_branch(0., 1599.2), branches={"optical": downstream})
+    with pytest.raises(AssertionError, match="branch 1"):
+        installation_smoke.column_history_summary(simulation)
+
+
+@pytest.mark.parametrize("stop", [765., 2000.])
+def test_installed_smoke_accepts_nan_only_after_recorded_stop(installation_smoke, stop):
+    branch = _smoke_branch(1599.2, 3026.4)
+    branch.alive[0] = False
+    branch.blocked_z[0] = stop
+    branch.blocked_key[0] = "condenser_aperture_2" if stop < branch.z[0] else "column_wall"
+    for name in ("x", "y", "tx", "ty"):
+        getattr(branch, name)[branch.z > stop, 0] = np.nan
+    simulation = SimpleNamespace(incident=_smoke_branch(0., 1599.2), branches={"optical": branch})
+    assert installation_smoke.column_history_summary(simulation)["stopped_rays_per_branch"] == [0, 1]
+
+
+@pytest.mark.parametrize("fault", ["before", "at", "infinity", "alive", "missing_stop", "missing_key",
+                                   "future_stop", "shape"])
+def test_installed_smoke_rejects_bad_history_even_with_a_stop(installation_smoke, fault):
+    branch = _smoke_branch(1599.2, 3026.4)
+    branch.alive[0] = False
+    branch.blocked_z[0] = 2000.
+    branch.blocked_key[0] = "column_wall"
+    if fault in {"before", "at"}:
+        branch.x[0, 0] = np.nan
+        if fault == "at":
+            branch.blocked_z[0] = branch.z[0]
+    elif fault == "infinity":
+        branch.x[-1, 0] = np.inf
+    elif fault == "alive":
+        branch.alive[0] = True
+    elif fault == "missing_stop":
+        branch.blocked_z[0] = np.nan
+    elif fault == "missing_key":
+        branch.blocked_key[0] = None
+    elif fault == "future_stop":
+        branch.blocked_z[0] = branch.z[-1] + 1.
+    else:
+        branch.tx = np.zeros((2, 1))
+    simulation = SimpleNamespace(incident=_smoke_branch(0., 1599.2), branches={"optical": branch})
     with pytest.raises(AssertionError, match="branch 1"):
         installation_smoke.column_history_summary(simulation)

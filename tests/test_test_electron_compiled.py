@@ -27,6 +27,69 @@ def settings(scene,**kwargs):
         max_path_length_m=kwargs.pop('max_path_length_m',.55),step_m=.001,max_steps=20000,**kwargs)
 
 
+def _axis_reference(scene, cfg, sample_z):
+    """Independent clock: exact integral of dz/v(K) in each linear-potential cell.
+
+    On this centred, undeflected column axis v is parallel to B and
+    K/e = K0/e + phi(z) - phi(z0). With k=K/(mc^2), u=sqrt(k*(k+2)),
+    the cell time is dz/c * (2+k0+k1)/(u0+u1). This rationalized form
+    also covers a constant potential without subtracting nearby momenta.
+    """
+    from temsim.physics.relativistic_lorentz import (
+        ELECTRON_MASS_KG, ELEMENTARY_CHARGE_C, SPEED_OF_LIGHT_M_PER_S,
+    )
+
+    nodes = scene.electric_base.z
+    z = np.unique(np.r_[sample_z, nodes[(nodes > sample_z[0]) & (nodes < sample_z[-1])]])
+    phi = scene.electric_base.interpolate(np.column_stack((np.zeros((len(z), 2)), z)))[0]
+    energy_ev = cfg.kinetic_energy_ev + phi - phi[0]
+    assert np.all(energy_ev > 0.)
+    rest_ev = ELECTRON_MASS_KG * SPEED_OF_LIGHT_M_PER_S**2 / ELEMENTARY_CHARGE_C
+    k = energy_ev / rest_ev
+    u = np.sqrt(k) * np.sqrt(k + 2.)
+    time = np.r_[0., np.cumsum(np.diff(z) / SPEED_OF_LIGHT_M_PER_S
+                               * (2. + k[:-1] + k[1:]) / (u[:-1] + u[1:]))]
+    indices = np.searchsorted(z, sample_z)
+    return (energy_ev[indices],
+            ELECTRON_MASS_KG * SPEED_OF_LIGHT_M_PER_S * u[indices], time[indices])
+
+
+def _assert_axis_path_parity(scene, cfg, actual, reference):
+    # Roundoff near zero step-doubling error can alter the accepted sampling
+    # sequence across compilers/CPUs. The physical path, clock and endpoint
+    # must still agree; the number of adaptive steps is not an observable.
+    clocks = []
+    for result in (actual, reference):
+        z = result.positions_m[:, 2]
+        assert np.all(np.diff(z) > 0.)
+        assert result.steps <= cfg.max_steps
+        energy, momentum, clock = _axis_reference(scene, cfg, z)
+        np.testing.assert_array_equal(result.positions_m[:, :2], 0.)
+        np.testing.assert_array_equal(result.momentum_kg_m_per_s[:, :2], 0.)
+        np.testing.assert_allclose(result.path_length_m, z - z[0], rtol=2e-10, atol=2e-12)
+        np.testing.assert_allclose(result.kinetic_energy_ev, energy, rtol=0., atol=1e-5)
+        np.testing.assert_allclose(result.momentum_kg_m_per_s[:, 2], momentum, rtol=2e-7, atol=1e-29)
+        # Independent absolute clock accuracy: 0.1 fs over the 3.0264 m
+        # accelerated path. Recorded step/tolerance refinement checks this
+        # additional bound; backend-to-backend tolerances below are unchanged.
+        np.testing.assert_allclose(result.time_s, clock, rtol=0., atol=1e-16)
+        assert result.energy_invariant_error_ev < 1e-5
+        clocks.append(clock)
+
+    for name, rtol, atol in (
+        ('positions_m', 2e-7, 2e-12), ('momentum_kg_m_per_s', 2e-7, 1e-29),
+        ('time_s', 2e-10, 1e-17), ('path_length_m', 2e-10, 2e-12),
+    ):
+        np.testing.assert_allclose(getattr(actual, name)[-1], getattr(reference, name)[-1],
+                                   rtol=rtol, atol=atol)
+    # Compare clocks on the same physical planes. Integrate the known axial
+    # speed exactly between saved samples, interpolating only numerical error
+    # (not the rapidly changing physical speed near extraction).
+    common_time = clocks[1] + np.interp(reference.positions_m[:, 2], actual.positions_m[:, 2],
+                                       actual.time_s - clocks[0])
+    np.testing.assert_allclose(common_time, reference.time_s, rtol=2e-10, atol=1e-17)
+
+
 def test_compiled_scalar_fields_match_native_every_source_and_support(captured_scene):
     scene=captured_scene
     data=prepare_compiled_fields(scene)
@@ -44,14 +107,23 @@ def test_compiled_scalar_fields_match_native_every_source_and_support(captured_s
                     assert potential == pytest.approx(reference[2],rel=2e-15,abs=1e-10)
 
 
-@pytest.mark.parametrize('angle,azimuth,length',[(0.,0.,3.0264),(2.61,0.,3.0264),(5.,45.,.55),(175.,45.,.001)])
-def test_compiled_complete_paths_match_reference_and_hardware_stops(captured_scene,angle,azimuth,length):
+@pytest.mark.parametrize('angle,azimuth,length,compiled_step',[
+    (0.,0.,3.0264,.001), (0.,0.,3.0264,.0005), (2.61,0.,3.0264,.001),
+    (5.,45.,.55,.001), (175.,45.,.001,.001),
+])
+def test_compiled_complete_paths_match_reference_and_hardware_stops(captured_scene,angle,azimuth,length,compiled_step):
     scene=captured_scene
     cfg=settings(scene,polar_angle_deg=angle,azimuth_angle_deg=azimuth,max_path_length_m=length)
     reference=trace_test_electron(scene,cfg,use_compiled=False)
-    actual=trace_test_electron(scene,cfg,use_compiled=True)
+    actual=trace_test_electron(scene,replace(cfg,step_m=compiled_step),use_compiled=True)
     assert actual.reason==reference.reason
     assert actual.completed==reference.completed
+    if angle == 0.:
+        assert actual.completed and actual.reason == 'path_limit'
+        if compiled_step != cfg.step_m:
+            assert actual.steps != reference.steps  # Exercise genuinely different accepted grids.
+        _assert_axis_path_parity(scene, cfg, actual, reference)
+        return
     assert actual.steps==reference.steps
     np.testing.assert_allclose(actual.positions_m,reference.positions_m,rtol=2e-7,atol=2e-12)
     np.testing.assert_allclose(actual.momentum_kg_m_per_s,reference.momentum_kg_m_per_s,rtol=2e-7,atol=1e-29)

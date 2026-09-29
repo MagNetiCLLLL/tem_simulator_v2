@@ -4,7 +4,8 @@ from collections import Counter
 
 CLASSICAL_CRITERIA = {
     "product-usability/AT-01": ("Physical source admission", ("tests/test_source_admission.py",)),
-    "product-usability/AT-02": ("Complete captured instrument", ("tests/test_working_point_contract.py", "tests/test_input_assets.py")),
+    "product-usability/AT-02": ("Complete captured instrument", ("tests/test_working_point_contract.py", "tests/test_input_assets.py",
+        "tests/test_component_position_contract.py", "tests/test_component_persistence.py")),
     "product-usability/AT-06": ("Transactional alignment", ("tests/test_alignment_transactions.py",)),
     "product-usability/AT-12": ("Unknown-input and opt-in vacuum invalidation", ("tests/test_parameter_registry.py", "tests/test_vacuum_opt_in.py")),
     "round2/R2-AT-03": ("Explicit classical acceptance", ("tests/test_classical_acceptance.py",)),
@@ -48,6 +49,8 @@ ACCEPTANCE_SCOPES = {
             "electron-execution/EE-02": ("Compiled field and trajectory parity with complete hardware stops", (
                 "tests/test_closed_gun_execution.py", "tests/test_test_electron_compiled.py",
                 "tests/test_test_electron_intercepts.py", "tests/test_test_electron_performance.py")),
+            "electron-execution/EE-08": ("Shared production column and virtual-electron transport", (
+                "tests/test_shared_electron_column.py",)),
             "electron-execution/EE-03": ("Owned real process, cancellation and accepted progress", (
                 "tests/test_test_electron_execution.py",)),
             "electron-execution/EE-04": ("Code-bound native caches without deleting historical evidence", (
@@ -83,6 +86,9 @@ ACCEPTANCE_SCOPES = {
                 "tests/test_electron_failure_gui.py",)),
             "field-ui/FU-07": ("Historical sessions and centralized diagnostic record ownership", (
                 "tests/test_electron_session_gui.py", "tests/test_diagnostic_electron_record.py")),
+            "field-ui/FU-08": ("Explicit assembly selection, configuration and working-point restoration", (
+                "tests/test_assembly_selection_state.py", "tests/test_assembly_navigation.py",
+                "tests/test_instrument_configuration.py", "tests/test_working_point_restore_gui.py")),
         },
     },
     "particle-continuation": {
