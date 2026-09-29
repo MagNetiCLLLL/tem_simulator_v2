@@ -245,7 +245,6 @@ class MainWindow(QMainWindow):
         self._design_explorer_dirty = True
         self._preview_deferred_for_sweep = False
 
-        self.assembly_panel.selection_requested.connect(self.load_assembly)
         self.assembly_panel.configuration_requested.connect(self.open_instrument_configuration)
         self.assembly_panel.operating_mode_requested.connect(
             self.apply_operating_modes
@@ -1684,10 +1683,7 @@ class MainWindow(QMainWindow):
     def _sync_working_point_selectors(self) -> None:
         """Display captured controls without emitting a new physical edit."""
         from temsim.physics.compute_backend import normalise_backend
-        with (QSignalBlocker(self.assembly_panel.gun),
-              QSignalBlocker(self.assembly_panel.column),
-              QSignalBlocker(self.assembly_panel.beam_blanker),
-              QSignalBlocker(self.compute_backend)):
+        with QSignalBlocker(self.compute_backend):
             if self.assembly_panel.catalog is not self.catalog:
                 self.assembly_panel.reload_catalog(self.catalog, self.selection)
             else:

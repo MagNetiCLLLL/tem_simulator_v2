@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
+from temsim.optics.component_position import TipReferencedPosition
+
 import numpy as np
 
 from temsim.optics.condenser_lens import AxialFieldTerm
@@ -13,8 +15,56 @@ from temsim.optics.lens_focal_length import raw_unit_field_peak
 from temsim.optics.model import Gaussian, Lens
 
 
+class TipReferencedRoundLensBehavior(TipReferencedPosition):
+    """Common excitation/readout methods without field or schema inheritance."""
+
+    def scale(self):
+        return (
+            self.b0_t * self.percent / 100.0
+            if self.enabled else 0.0
+        )
+
+    def focal_length_mm(self):
+        return _focal_length_mm(self, 300.0)
+
+    def field_support_mm(self, sigma_cutoff=7.0):
+        reaches = [
+            abs(term.offset * self.a_mm)
+            + float(sigma_cutoff) * abs(term.sigma * self.a_mm)
+            for term in self.gaussian
+        ]
+        half = max(reaches, default=0.0)
+        return self.z_mm - half, self.z_mm + half
+
+    def draw_layout(self):
+        return {
+            "key": self.key,
+            "mechanical_center_from_tip_mm": (
+                self.mechanical_center_from_tip_mm
+            ),
+            "mechanical_length_mm": self.mechanical_length_mm,
+            "mechanical_outer_diameter_mm": (
+                self.mechanical_outer_diameter_mm
+            ),
+            "bore_diameter_mm": self.bore_diameter_mm,
+            "pole_gap_mm": self.pole_gap_mm,
+            "shape_profile": self.shape_profile,
+        }
+
+    def draw_ray_overlay(self):
+        start, end = self.field_support_mm()
+        return {
+            "key": self.key,
+            "optical_reference_z_mm": self.z_mm,
+            "field_support_start_z_mm": start,
+            "field_support_end_z_mm": end,
+            "focal_length_mm": self.focal_length_mm(),
+            "enabled": self.enabled,
+        }
+
+
 @dataclass
-class RoundLensComponent:
+class RoundLensComponent(TipReferencedRoundLensBehavior):
     """One physical round lens shared by layout, solver, GUI and overlays."""
 
     name: str
@@ -43,36 +93,6 @@ class RoundLensComponent:
     KIND: ClassVar[str] = "round_lens"
     SHAPE_PROFILE: ClassVar[str] = "magnetic_lens_yoke"
     INTERACTION_KIND: ClassVar[str] = "axial_magnetic_field"
-
-    def __post_init__(self):
-        object.__setattr__(self, "_position_coupling_ready", True)
-
-    def __setattr__(self, name, value):
-        if name in {
-            "z_mm",
-            "mechanical_center_from_tip_mm",
-            "optical_reference_from_tip_mm",
-        }:
-            value = float(value)
-        coupling_ready = self.__dict__.get(
-            "_position_coupling_ready", False
-        )
-        if name == "mechanical_center_from_tip_mm" and coupling_ready:
-            delta_mm = float(value) - float(
-                self.mechanical_center_from_tip_mm
-            )
-            object.__setattr__(self, name, float(value))
-            optical = float(self.optical_reference_from_tip_mm) + delta_mm
-            object.__setattr__(
-                self, "optical_reference_from_tip_mm", optical
-            )
-            object.__setattr__(self, "z_mm", optical)
-            return
-        if name == "optical_reference_from_tip_mm" and coupling_ready:
-            object.__setattr__(self, name, float(value))
-            object.__setattr__(self, "z_mm", float(value))
-            return
-        object.__setattr__(self, name, value)
 
     @property
     def owner(self):
@@ -105,12 +125,6 @@ class RoundLensComponent:
     @property
     def effective_aperture_radius_mm(self):
         return self.bore_diameter_mm / 2.0
-
-    def scale(self):
-        return (
-            self.b0_t * self.percent / 100.0
-            if self.enabled else 0.0
-        )
 
     def validate(self):
         if self.EXPECTED_KEY is not None and self.key != self.EXPECTED_KEY:
@@ -151,10 +165,6 @@ class RoundLensComponent:
             )
         return self
 
-    def apply_optical_position(self):
-        self.z_mm = float(self.optical_reference_from_tip_mm)
-        return self
-
     def magnetic_field_t(self, z_mm):
         z = np.asarray(z_mm, dtype=float)
         field = np.zeros_like(z)
@@ -169,44 +179,6 @@ class RoundLensComponent:
         if self.normalise_profile_peak:
             field /= max(raw_unit_field_peak(self), 1e-15)
         return float(self.polarity) * self.scale() * field
-
-    def focal_length_mm(self):
-        return _focal_length_mm(self, 300.0)
-
-    def field_support_mm(self, sigma_cutoff=7.0):
-        reaches = [
-            abs(term.offset * self.a_mm)
-            + float(sigma_cutoff) * abs(term.sigma * self.a_mm)
-            for term in self.gaussian
-        ]
-        half = max(reaches, default=0.0)
-        return self.z_mm - half, self.z_mm + half
-
-    def draw_layout(self):
-        return {
-            "key": self.key,
-            "mechanical_center_from_tip_mm": (
-                self.mechanical_center_from_tip_mm
-            ),
-            "mechanical_length_mm": self.mechanical_length_mm,
-            "mechanical_outer_diameter_mm": (
-                self.mechanical_outer_diameter_mm
-            ),
-            "bore_diameter_mm": self.bore_diameter_mm,
-            "pole_gap_mm": self.pole_gap_mm,
-            "shape_profile": self.shape_profile,
-        }
-
-    def draw_ray_overlay(self):
-        start, end = self.field_support_mm()
-        return {
-            "key": self.key,
-            "optical_reference_z_mm": self.z_mm,
-            "field_support_start_z_mm": start,
-            "field_support_end_z_mm": end,
-            "focal_length_mm": self.focal_length_mm(),
-            "enabled": self.enabled,
-        }
 
 
 def restore_round_lens(component, values):

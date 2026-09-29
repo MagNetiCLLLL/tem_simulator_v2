@@ -2,7 +2,9 @@
 
 更新日期：2026-09-28。代码基准：`19ff33edc294e1ad316eed19086eb9e92dca12b7`。
 
-这份地图用于定位功能、界面、模型、测试和可重构位置。它是当前实现的静态导航，不是新一次物理验收。此次只整理文档，没有删除或修改程序功能，也没有运行数值模拟。
+2026-09-29 局部更新：第 8.1 节记录当前去重结果，详见 [代码清理验证记录](CODE_CLEANUP_AUDIT_ZH.md)。其余文件数量和行数仍是上述基准的导航快照。
+
+这份地图用于定位功能、界面、模型、测试和可重构位置。初版仅整理静态导航，不是物理验收；后续局部修改及其验证记录在上面的更新说明中。
 
 ## 1. 使用方式与范围
 
@@ -246,13 +248,15 @@ flowchart LR
 
 整文件完全相同只发现三个空的包初始化文件：`detector/__init__.py`、`optics/__init__.py`、`physics/__init__.py`。它们负责各自包边界，**不是重复功能，不应因此删除**。未发现其他逐字相同文件；这不等于不存在语义重复。
 
-| 已核对的重复 | 证据位置（基准行号） | 可优化方向 | 必须保留 |
+| 已合并的重复 | 当前共享实现 | 使用者 | 保留的差异 |
 | --- | --- | --- | --- |
-| 机械中心与光学参考面的联动设置 | `optics/diffraction_lens.py:230` 与 `diffraction_stigmator.py:217`，`__setattr__` 各 45 行 | 提取共同的位置同步逻辑/小型数据对象 | 透镜和 stigmator 的不同物理场 |
-| 下游布局重定位 | 上述两文件的 `resolve_against`，分别 `:367`、`:370`，各 27 行 | 与位置同步一并收敛到单一实现 | 两种安装方式、偏移与参考面的语义 |
-| 源参考坐标的位置联动 | `hexapole.py:46`、`probe_corrector.py:303`、`quadrupole.py:36`、`round_lens.py:49`、`single_plane_deflector.py:35` 的 `__setattr__`，各 26 行 | 共用位置契约并补坐标联动回归 | 各元件的数值算法和参数独立 |
+| 机械中心、光学参考面、安装切换与锚点重定位 | `optics/component_position.py`：`InstallationReferencedPosition` | Diffraction Lens、Diffraction Stigmator | 轴向场与四极场、几何类型、验证规则 |
+| tip 参考坐标的位置联动 | `optics/component_position.py`：`TipReferencedPosition` | Round Lens、Adapter Lens、Hexapole、Quadrupole、Single Plane Deflector | 各元件的物理算法、初始化字段和恢复机制 |
+| 圆透镜的励磁比例、焦距接口、场支持区和布局读出 | `optics/round_lens.py`：`TipReferencedRoundLensBehavior` | Round Lens、Adapter Lens | 峰值归一化、验证和 dataclass 字段集合 |
 
-另有明确的兼容状态残留：`gui/assembly_panel.py:61` 注释标记的三个隐藏 `QComboBox`（`gun`、`column`、`beam_blanker`）。它们仍被 `selection()`、`set_selection()`、`replace_catalog()` 使用，承担状态适配，并非死代码。后续可用直接的 `AssemblySelection` 状态替代，再统一配置/工作点恢复入口；本轮只记录，不删除。
+`gui/assembly_panel.py` 的三个隐藏装配下拉框已由经过目录验证的不可变 `AssemblySelection` 替代。`current_selection()`、`set_selection()`、`reload_catalog()` 共享这份状态；主窗口和工作点恢复不再依赖隐藏控件。无触发入口的 `_request_selection`、专用信号及主窗口连接已成组移除，Configure instrument 路径保留。
+
+位置与装配回归分别见 `tests/test_component_position_contract.py`、`tests/test_assembly_selection_state.py`，以及已有工作点、目录重载、配置和持久化测试。共享位置类不定义持久化字段。
 
 两项经调用阅读发现的算法/流程重叠，也值得单独优化：
 
@@ -305,8 +309,8 @@ flowchart LR
 
 | 顺序 | 工作包 | 建议改动 | 验收重点 |
 | --- | --- | --- | --- |
-| 1 | 清除隐藏 UI 兼容状态 | 用显式装配选择对象替代隐藏 ComboBox；恢复/应用仍走单一入口 | 配置选择、取消、工作点恢复、编辑后的值保留、UI 不跳动 |
-| 2 | 公共位置契约 | 收敛第 8.1 节三组重复，不合并元件物理模型 | 机械移动、光学参考面、两类安装模式、序列化往返 |
+| 1 | 清除隐藏 UI 兼容状态（2026-09-29 已实现） | 显式装配选择对象替代隐藏 ComboBox；恢复/应用仍走单一入口 | 配置选择、取消、工作点恢复、编辑后的值保留 |
+| 2 | 公共位置契约（2026-09-29 已实现） | 第 8.1 节的位置重复与相同圆透镜辅助方法已收敛，各元件物理模型保留 | 机械移动、光学参考面、两类安装模式、序列化往返 |
 | 3 | 拆分过大的界面文件 | 按页面拆 `diagnostic_tabs.py`；按场景/控制/布局拆 `visualization.py` | 页面切换、轴同步、颜色身份、尺寸持久化、无额外计算 |
 | 4 | 梳理任务与结果发布 | 划清 request、worker、取消/过期判定、归档、UI 发布；复用已有协调器 | 快速连续编辑、旧任务取消、最后结果归属、自动存档身份 |
 | 5 | 按实测优化缓存 | 围绕 gun、柱传播、样品、EDS、绘图分开统计命中和重算原因 | 同一输入精确复用；相关参数变化能使正确阶段失效 |

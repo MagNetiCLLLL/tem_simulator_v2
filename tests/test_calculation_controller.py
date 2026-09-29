@@ -437,7 +437,7 @@ def test_geometric_real_sample_requests_finite_specimen_transport():
     # Retired modes are rejected by the live routing API, rather than silently
     # treated as a real source without finite-specimen transport.
     state.sample.specimen_mode = "virtual"
-    with pytest.raises(ValueError, match="Virtual mode has been retired"):
+    with pytest.raises(ValueError, match="Sample mode must be 'vacuum' or 'atomic'"):
         simulation_pipeline._geometric_specimen_transport_requested(state)
 
 
@@ -643,6 +643,7 @@ def test_pipeline_reprojects_only_stale_sample_downstream(monkeypatch):
 
 def test_pipeline_shares_cached_specimen_exit_with_geometric_stem(monkeypatch):
     state = default_state()
+    state.sample.inserted = True
     state.sample.wave_enabled = False
     state.sample.specimen_mode = "atomic"
     state.sample.cif_path = "configured.cif"
@@ -800,6 +801,7 @@ def test_pipeline_builds_one_first_class_specimen_exit_for_geometric_stem(
     monkeypatch,
 ):
     state = default_state()
+    state.sample.inserted = True
     state.sample.wave_enabled = False
     state.sample.eds_enabled = False
     state.sample.specimen_mode = "atomic"
@@ -1246,6 +1248,7 @@ def test_high_accuracy_memory_guard_includes_tem_wave_grid(monkeypatch):
     # Isolate the allocation guard from source admission; no wave is generated.
     monkeypatch.setattr("temsim.physics.source_admission.admit_requested_wave_products", lambda state: None)
     state = default_state()
+    imported_sample(state)
     for detector in state.stem_detectors:
         detector.inserted = False
         detector.readout_enabled = False

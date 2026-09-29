@@ -37,7 +37,6 @@ class _NavigationTabs(QTabWidget):
 
 class AssemblyPanel(QWidget):
     configuration_requested = Signal()
-    selection_requested = Signal(object)
     operating_mode_requested = Signal(str, str)
     direct_alignment_requested = Signal(str, float)
     component_selected = Signal(object)
@@ -58,17 +57,6 @@ class AssemblyPanel(QWidget):
         self.configuration_summary.setWordWrap(True)
         self.configuration_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         box_layout.addWidget(self.configuration_summary)
-        # Internal compatibility adapters for profile/working-point selectors.
-        # Composite template names are no longer exposed as assembly controls.
-        self.gun = QComboBox(self)
-        self.column = QComboBox(self)
-        self.beam_blanker = QComboBox(self)
-        self.beam_blanker.setObjectName("beamBlankerSelector")
-        for selector in (self.gun, self.column, self.beam_blanker):
-            selector.hide()
-        self.gun.addItems([option.name for option in catalog.guns])
-        self.column.addItems([option.name for option in catalog.columns])
-        self.beam_blanker.addItems([option.name for option in catalog.beam_blankers])
         self.set_selection(selection)
 
         self.operating_mode_catalog = load_operating_mode_catalog()
@@ -236,13 +224,8 @@ class AssemblyPanel(QWidget):
         )
 
     def current_selection(self) -> AssemblySelection:
-        selection = AssemblySelection(
-            gun=self.gun.currentText(),
-            column=self.column.currentText(),
-            recording=self._recording_name,
-            beam_blanker=self.beam_blanker.currentText(),
-        )
-        return self.catalog.normalise_selection(selection)
+        """Return the validated immutable configuration, independent of widgets."""
+        return self._selection
 
     def _export_structure(self):
         from pathlib import Path
@@ -260,10 +243,6 @@ class AssemblyPanel(QWidget):
 
     def set_selection(self, selection: AssemblySelection) -> None:
         selection = self.catalog.normalise_selection(selection)
-        self.gun.setCurrentText(selection.gun)
-        self.column.setCurrentText(selection.column)
-        self.beam_blanker.setCurrentText(selection.beam_blanker)
-        self._recording_name = selection.recording
         from temsim.instrument_configuration import InstrumentUnits
         units = InstrumentUnits.from_selection(self.catalog, selection)
         names = ["Cold FEG" if units.source == "cold_feg" else "Thermionic"]
@@ -273,16 +252,11 @@ class AssemblyPanel(QWidget):
             ("image_corrector", "Image corrector"), ("energy_filter", "Energy filter"))
             if getattr(units, key))
         self.configuration_summary.setText(" · ".join(names))
+        self._selection = selection
 
     def reload_catalog(self, catalog, selection: AssemblySelection) -> None:
+        selection = catalog.normalise_selection(selection)
         self.catalog = catalog
-        for combo, options in (
-            (self.gun, catalog.guns),
-            (self.column, catalog.columns),
-            (self.beam_blanker, catalog.beam_blankers),
-        ):
-            combo.clear()
-            combo.addItems([option.name for option in options])
         self.set_selection(selection)
         self.operating_mode_catalog = load_operating_mode_catalog()
         self.direct_alignment_panel.set_catalog(self.operating_mode_catalog)
@@ -632,6 +606,3 @@ class AssemblyPanel(QWidget):
             return False
         self._emit_current_tree_selection(selected_tree)
         return True
-
-    def _request_selection(self) -> None:
-        self.selection_requested.emit(self.current_selection())

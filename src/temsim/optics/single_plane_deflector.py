@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
+from temsim.optics.component_position import TipReferencedPosition
+
 
 @dataclass
-class SinglePlaneDeflectorComponent:
+class SinglePlaneDeflectorComponent(TipReferencedPosition):
     name: str
     key: str
     z_mm: float
@@ -28,36 +30,6 @@ class SinglePlaneDeflectorComponent:
     KIND: ClassVar[str] = "deflector"
     SHAPE_PROFILE: ClassVar[str] = "single_deflector_coil"
     INTERACTION_KIND: ClassVar[str] = "thin_transverse_kick"
-
-    def __post_init__(self):
-        object.__setattr__(self, "_position_coupling_ready", True)
-
-    def __setattr__(self, name, value):
-        if name in {
-            "z_mm",
-            "mechanical_center_from_tip_mm",
-            "optical_reference_from_tip_mm",
-        }:
-            value = float(value)
-        coupling_ready = self.__dict__.get(
-            "_position_coupling_ready", False
-        )
-        if name == "mechanical_center_from_tip_mm" and coupling_ready:
-            delta_mm = float(value) - float(
-                self.mechanical_center_from_tip_mm
-            )
-            object.__setattr__(self, name, float(value))
-            optical = float(self.optical_reference_from_tip_mm) + delta_mm
-            object.__setattr__(
-                self, "optical_reference_from_tip_mm", optical
-            )
-            object.__setattr__(self, "z_mm", optical)
-            return
-        if name == "optical_reference_from_tip_mm" and coupling_ready:
-            object.__setattr__(self, name, float(value))
-            object.__setattr__(self, "z_mm", float(value))
-            return
-        object.__setattr__(self, name, value)
 
     @property
     def kind(self):
@@ -124,10 +96,6 @@ class SinglePlaneDeflectorComponent:
             raise ValueError(
                 f"{self.name} kick exceeds its configured limit."
             )
-        return self
-
-    def apply_optical_position(self):
-        self.z_mm = float(self.optical_reference_from_tip_mm)
         return self
 
     def kick_events(self):

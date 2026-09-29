@@ -48,9 +48,7 @@ def change_assembly_and_backend(window):
 
 def assert_restored(window, saved):
     assert capture_instrument_snapshot(window.state).digest == saved.snapshot.digest
-    assert window.assembly_panel.gun.currentText() == window.selection.gun
-    assert window.assembly_panel.column.currentText() == window.selection.column
-    assert window.assembly_panel.beam_blanker.currentText() == window.selection.beam_blanker
+    assert window.assembly_panel.current_selection() == window.selection
     assert window.compute_backend.currentData() == window.state.acceleration_backend
     assert window._active_working_checkpoint is saved
     assert not window.preview_timer.isActive()
@@ -65,8 +63,8 @@ def test_restore_synchronizes_assembly_and_backend_without_signals(window, monke
     saved = checkpoint(window)
     change_assembly_and_backend(window)
     edits = []
-    for combo in (window.assembly_panel.gun, window.assembly_panel.column,
-                  window.assembly_panel.beam_blanker, window.compute_backend):
+    for combo in (window.assembly_panel.probe_mode, window.assembly_panel.projector_mode,
+                  window.compute_backend):
         combo.currentIndexChanged.connect(lambda *_: edits.append(True))
     errors = []
     monkeypatch.setattr(window, "_show_error", errors.append)
@@ -116,8 +114,7 @@ def test_failed_restore_rolls_selectors_and_state_back(window, monkeypatch):
     assert errors and "Controlled view failure" in errors[0]
     assert capture_instrument_snapshot(window.state).digest == before.digest
     assert window.selection == before_selection
-    assert window.assembly_panel.gun.currentText() == before_selection.gun
-    assert window.assembly_panel.column.currentText() == before_selection.column
+    assert window.assembly_panel.current_selection() == before_selection
     assert window.compute_backend.currentData() == window.state.acceleration_backend
 
 

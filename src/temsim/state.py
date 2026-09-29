@@ -1,5 +1,3 @@
-from temsim.detector.recording_system import restore_recording_system
-
 from temsim.detector.recording_system import ensure_recording_system
 
 import json

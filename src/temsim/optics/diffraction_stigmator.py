@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
+from temsim.optics.component_position import (
+    InstallationReferencedPosition, STANDALONE_INSTALLATION, IMAGE_CORRECTED_INSTALLATION,
+)
+
 import numpy as np
 
 from temsim import module_manifest
@@ -19,8 +23,6 @@ from temsim.optics.selected_area_aperture import (
 from temsim.optics.selected_area_downstream import downstream_offset_mm
 
 
-STANDALONE_INSTALLATION = "standalone"
-IMAGE_CORRECTED_INSTALLATION = "image_corrected"
 _DEFAULT_MANIFEST_PART = module_manifest.part_data(
     "project_and_recording_system/NoEnergyFilter.toml",
     DIFFRACTION_STIGMATOR,
@@ -166,7 +168,7 @@ class DiffractionStigmatorDefinition:
 
 
 @dataclass
-class DiffractionStigmatorComponent(Stigmator):
+class DiffractionStigmatorComponent(InstallationReferencedPosition, Stigmator):
     anchor_key: str = SELECTED_AREA_APERTURE
     mechanical_center_downstream_of_anchor_mm: float = downstream_offset_mm(
         DIFFRACTION_STIGMATOR
@@ -210,55 +212,6 @@ class DiffractionStigmatorComponent(Stigmator):
     KIND: ClassVar[str] = "stigmator"
     SHAPE_PROFILE: ClassVar[str] = "quadrupole_body"
     INTERACTION_KIND: ClassVar[str] = "distributed_quadrupole_field"
-
-    def __post_init__(self):
-        object.__setattr__(self, "_position_coupling_ready", True)
-
-    def __setattr__(self, name, value):
-        ready = self.__dict__.get("_position_coupling_ready", False)
-        center_attributes = {
-            "standalone_mechanical_center_below_sample_mm": (
-                STANDALONE_INSTALLATION
-            ),
-            "image_corrected_mechanical_center_below_sample_mm": (
-                IMAGE_CORRECTED_INSTALLATION
-            ),
-        }
-        reference_attributes = {
-            "standalone_optical_reference_z_mm": STANDALONE_INSTALLATION,
-            "image_corrected_optical_reference_z_mm": (
-                IMAGE_CORRECTED_INSTALLATION
-            ),
-        }
-        if ready and name in center_attributes:
-            value = float(value)
-            delta_mm = value - float(getattr(self, name))
-            installation = center_attributes[name]
-            reference_attribute = (
-                f"{installation}_optical_reference_z_mm"
-            )
-            reference = float(getattr(self, reference_attribute)) + delta_mm
-            object.__setattr__(self, name, value)
-            object.__setattr__(self, reference_attribute, reference)
-            if self.active_installation == installation:
-                object.__setattr__(self, "z_mm", reference)
-            return
-        if ready and name in reference_attributes:
-            value = float(value)
-            object.__setattr__(self, name, value)
-            if self.active_installation == reference_attributes[name]:
-                object.__setattr__(self, "z_mm", value)
-            return
-        if ready and name == "z_mm":
-            value = float(value)
-            object.__setattr__(self, name, value)
-            object.__setattr__(
-                self,
-                f"{self.active_installation}_optical_reference_z_mm",
-                value,
-            )
-            return
-        object.__setattr__(self, name, value)
 
     @property
     def owner(self):
@@ -358,42 +311,6 @@ class DiffractionStigmatorComponent(Stigmator):
                 self, f"{installation}_optical_reference_z_mm"
             ),
         )
-
-    def select_installation(self, installation):
-        geometry = self.geometry_for(installation)
-        object.__setattr__(self, "active_installation", installation)
-        object.__setattr__(
-            self, "z_mm", float(geometry.optical_reference_z_mm)
-        )
-        return self
-
-    def resolve_against(self, selected_area_geometry):
-        mechanical_center = (
-            float(selected_area_geometry.mechanical_center_below_sample_mm)
-            + float(self.mechanical_center_downstream_of_anchor_mm)
-        )
-        optical_reference = (
-            float(selected_area_geometry.optical_reference_z_mm)
-            + float(self.mechanical_center_downstream_of_anchor_mm)
-        )
-        object.__setattr__(
-            self,
-            "optical_reference_downstream_of_anchor_mm",
-            float(self.mechanical_center_downstream_of_anchor_mm),
-        )
-        object.__setattr__(
-            self,
-            f"{self.active_installation}"
-            "_mechanical_center_below_sample_mm",
-            mechanical_center,
-        )
-        object.__setattr__(
-            self,
-            f"{self.active_installation}_optical_reference_z_mm",
-            optical_reference,
-        )
-        object.__setattr__(self, "z_mm", optical_reference)
-        return self.geometry_for(self.active_installation)
 
     def validate(self):
         from temsim.optics.stigmator_field import validate_stigmator_field

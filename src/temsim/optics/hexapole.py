@@ -6,11 +6,13 @@ from dataclasses import dataclass
 import math
 from typing import ClassVar
 
+from temsim.optics.component_position import TipReferencedPosition
+
 import numpy as np
 
 
 @dataclass
-class HexapoleComponent:
+class HexapoleComponent(TipReferencedPosition):
     """A signed, continuous hexapole with nonlinear transverse action.
 
     ``strength_m3`` is the on-axis envelope coefficient used by the paraxial
@@ -39,36 +41,6 @@ class HexapoleComponent:
     KIND: ClassVar[str] = "hexapole"
     SHAPE_PROFILE: ClassVar[str] = "hexapole_body"
     INTERACTION_KIND: ClassVar[str] = "distributed_hexapole_field"
-
-    def __post_init__(self):
-        object.__setattr__(self, "_position_coupling_ready", True)
-
-    def __setattr__(self, name, value):
-        if name in {
-            "z_mm",
-            "mechanical_center_from_tip_mm",
-            "optical_reference_from_tip_mm",
-        }:
-            value = float(value)
-        coupling_ready = self.__dict__.get(
-            "_position_coupling_ready", False
-        )
-        if name == "mechanical_center_from_tip_mm" and coupling_ready:
-            delta_mm = float(value) - float(
-                self.mechanical_center_from_tip_mm
-            )
-            object.__setattr__(self, name, float(value))
-            optical = float(self.optical_reference_from_tip_mm) + delta_mm
-            object.__setattr__(
-                self, "optical_reference_from_tip_mm", optical
-            )
-            object.__setattr__(self, "z_mm", optical)
-            return
-        if name == "optical_reference_from_tip_mm" and coupling_ready:
-            object.__setattr__(self, name, float(value))
-            object.__setattr__(self, "z_mm", float(value))
-            return
-        object.__setattr__(self, name, value)
 
     @property
     def owner(self):
@@ -135,10 +107,6 @@ class HexapoleComponent:
             )
         if not math.isfinite(float(self.orientation_rad)):
             raise ValueError(f"{self.name} orientation must be finite.")
-        return self
-
-    def apply_optical_position(self):
-        self.z_mm = float(self.optical_reference_from_tip_mm)
         return self
 
     def hexapole_strength_m3(self, z_mm):

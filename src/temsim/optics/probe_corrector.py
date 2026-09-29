@@ -35,7 +35,6 @@ from temsim.component_keys import (
     require_current_lens_key,
 )
 from temsim.optics.condenser_lens import AxialFieldTerm
-from temsim.optics.lens_focal_length import focal_length_mm as _focal_length_mm
 from temsim.optics.single_plane_deflector import (
     SinglePlaneDeflectorComponent,
     restore_single_plane_deflector,
@@ -46,6 +45,7 @@ from temsim.optics.quadrupole import (
 )
 from temsim.optics.hexapole import HexapoleComponent, restore_hexapole
 from temsim.optics.round_lens import (
+    TipReferencedRoundLensBehavior,
     RoundLensComponent,
     restore_round_lens,
 )
@@ -273,7 +273,7 @@ class AdapterLensDefinition:
 
 
 @dataclass
-class AdapterLensComponent:
+class AdapterLensComponent(TipReferencedRoundLensBehavior):
     """The single ADL record used by layout, magnetic solver and overlays."""
 
     name: str
@@ -296,36 +296,6 @@ class AdapterLensComponent:
     bore_diameter_mm: float
     pole_gap_mm: float
     optical_reference_from_tip_mm: float
-
-    def __post_init__(self):
-        object.__setattr__(self, "_position_coupling_ready", True)
-
-    def __setattr__(self, name, value):
-        if name in {
-            "z_mm",
-            "mechanical_center_from_tip_mm",
-            "optical_reference_from_tip_mm",
-        }:
-            value = float(value)
-        coupling_ready = self.__dict__.get(
-            "_position_coupling_ready", False
-        )
-        if name == "mechanical_center_from_tip_mm" and coupling_ready:
-            delta_mm = float(value) - float(
-                self.mechanical_center_from_tip_mm
-            )
-            object.__setattr__(self, name, float(value))
-            optical = float(self.optical_reference_from_tip_mm) + delta_mm
-            object.__setattr__(
-                self, "optical_reference_from_tip_mm", optical
-            )
-            object.__setattr__(self, "z_mm", optical)
-            return
-        if name == "optical_reference_from_tip_mm" and coupling_ready:
-            object.__setattr__(self, name, float(value))
-            object.__setattr__(self, "z_mm", float(value))
-            return
-        object.__setattr__(self, name, value)
 
     @property
     def owner(self):
@@ -355,12 +325,6 @@ class AdapterLensComponent:
     @property
     def effective_aperture_radius_mm(self):
         return self.bore_diameter_mm / 2.0
-
-    def scale(self):
-        return (
-            self.b0_t * self.percent / 100.0
-            if self.enabled else 0.0
-        )
 
     def validate(self):
         if self.key != ADAPTER_LENS:
@@ -397,10 +361,6 @@ class AdapterLensComponent:
             )
         return self
 
-    def apply_optical_position(self):
-        self.z_mm = float(self.optical_reference_from_tip_mm)
-        return self
-
     def magnetic_field_t(self, z_mm):
         z = np.asarray(z_mm, dtype=float)
         field = np.zeros_like(z)
@@ -413,44 +373,6 @@ class AdapterLensComponent:
                 -0.5 * ((z - centre) / sigma) ** 2
             )
         return float(self.polarity) * self.scale() * field
-
-    def focal_length_mm(self):
-        return _focal_length_mm(self, 300.0)
-
-    def field_support_mm(self, sigma_cutoff=7.0):
-        reaches = [
-            abs(term.offset * self.a_mm)
-            + float(sigma_cutoff) * abs(term.sigma * self.a_mm)
-            for term in self.gaussian
-        ]
-        half = max(reaches, default=0.0)
-        return self.z_mm - half, self.z_mm + half
-
-    def draw_layout(self):
-        return {
-            "key": self.key,
-            "mechanical_center_from_tip_mm": (
-                self.mechanical_center_from_tip_mm
-            ),
-            "mechanical_length_mm": self.mechanical_length_mm,
-            "mechanical_outer_diameter_mm": (
-                self.mechanical_outer_diameter_mm
-            ),
-            "bore_diameter_mm": self.bore_diameter_mm,
-            "pole_gap_mm": self.pole_gap_mm,
-            "shape_profile": self.shape_profile,
-        }
-
-    def draw_ray_overlay(self):
-        start, end = self.field_support_mm()
-        return {
-            "key": self.key,
-            "optical_reference_z_mm": self.z_mm,
-            "field_support_start_z_mm": start,
-            "field_support_end_z_mm": end,
-            "focal_length_mm": self.focal_length_mm(),
-            "enabled": self.enabled,
-        }
 
 
 @dataclass(frozen=True)
