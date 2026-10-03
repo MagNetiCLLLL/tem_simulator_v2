@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from temsim.immutable_json import json_digest
+from temsim.immutable_json import freeze_json, json_digest, thaw_json
 from temsim.physics.canonical_action import CanonicalPath
 from temsim.physics.multiplane_wave import propagate_plane_wave
 from temsim.physics.tip_gun_wave import _momentum_velocity, TipGunCheckpoint
@@ -27,6 +27,34 @@ def _trajectory_rng(seed, *identity):
     # Independent deterministic counters, unaffected by cached/skipped slices.
     digest = bytes.fromhex(json_digest((seed, identity)))
     return np.random.default_rng(np.frombuffer(digest, dtype=np.uint32))
+
+
+def _identity_collision(distribution):
+    """Exact identity instrument only; never threshold a rare physical event."""
+    zero = [c for c in distribution.channels if c.key == "real_zero_loss"]
+    return (distribution.absorbed_probability == 0.
+        and getattr(distribution, "mean_inelastic_events", 0.) == 0.
+        and len(zero) == 1 and zero[0].probability == 1. and zero[0].energy_loss_ev == 0.
+        and all(c.probability == 0. for c in distribution.channels if c.key != "real_zero_loss"))
+
+
+def _scale_step_weights(steps, factor):
+    """Keep probability bookkeeping in the grouped mode's reference units.
+
+    Only weights scale. Complex amplitudes, energies, clocks, phase and the
+    actually executed trajectory's diagnostics remain unchanged.
+    """
+    scaled = thaw_json(freeze_json(steps))
+    for step in scaled:
+        step["event"]["absorbed_weight"] *= factor
+        for column in step["column"]:
+            for name in ("input_weight", "output_weight"):
+                column[name] *= factor
+            for loss in column["losses"]:
+                for name in ("input_weight", "output_weight", "lost_weight"):
+                    if name in loss:  # column walls record lost weight only
+                        loss[name] *= factor
+    return scaled
 
 
 def _collide_slice(mode, inside, distribution, rng, z_mm):
@@ -90,7 +118,7 @@ def _propagate_inelastic_specimen(state, checkpoint, *, numerics, store, maximum
         grid_numerics, tip_time_s, cancelled, progress_callback, verify, use_cache):
     from temsim.physics.specimen_wave_transport import _with_material_refinement
     numerics.validate()
-    key = store.key("inelastic-specimen-adaptive-grid-v2", checkpoint.digest, asdict(numerics),
+    key = store.key("inelastic-specimen-adaptive-grid-v3", checkpoint.digest, asdict(numerics),
                     maximum_step_mm, asdict(grid_numerics), tip_time_s)
     cached = store.get(key) if use_cache else None
     if cached is not None:
@@ -131,6 +159,7 @@ def _propagate_inelastic_attempt(state, checkpoint, *, numerics, store, maximum_
     writer = store.writer(key, checkpoint.beam.reference_plane)
     records = []
     total = len(checkpoint.beam.modes)*len(configs)*numerics.trajectories_per_mode
+    completed = 0
     try:
         for source in checkpoint.beam.modes:
             base, regrid = _regrid_refined_mode(source, wave_x, wave_y, refinement_factor, grid_numerics)
@@ -143,9 +172,17 @@ def _propagate_inelastic_attempt(state, checkpoint, *, numerics, store, maximum_
                     initial = mode.weight_per_reference_electron
                     mode, band_loss = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction)
                     current_z, absorption, column_loss, steps = start, 0., 0., []
+                    identity_history = True
                     for si, dz in enumerate(dzs):
                         if cancelled():
                             raise InterruptedError("Inelastic trajectory slice cancelled")
+                        def report(label, *, finished=False):
+                            if progress_callback:
+                                progress_callback(completed*len(dzs)+si+int(finished), total*len(dzs),
+                                    f"Material trajectory {completed+1}/{total}, slice {si+1}/{len(dzs)}: {label}")
+                            if cancelled():
+                                raise InterruptedError("Inelastic trajectory slice cancelled")
+                        report("checking saved slice")
                         next_z = stop if si == len(dzs)-1 else current_z+float(dz)*1e-7
                         step_key = store.key("trajectory-slice", key, material_id, source.mode_id, ci, ti, si)
                         cached_slice = store.get(step_key) if use_cache else None
@@ -154,17 +191,21 @@ def _propagate_inelastic_attempt(state, checkpoint, *, numerics, store, maximum_
                             row = cached_slice.record
                             band_loss, absorption, column_loss = row["band_loss"], row["absorption"], row["column_loss"]
                             steps = list(row["steps"])
+                            identity_history = row.get("identity_history", False) is True
                             current_z = next_z
+                            report("saved slice restored", finished=True)
                             continue
                         projected = potential[si] if potential.ndim == 3 else potential*dz/sum(dzs)
                         sigma = interaction_constant_rad_per_v_angstrom(mode.energy_kev)
                         phase_before = phase_after = {"method": "no surviving wave"}
                         if mode.weight_per_reference_electron:
+                            report("elastic phase 1/2")
                             mode, phase_before = _material_phase(mode, projected, x, y, sigma, .5,
                                 numerics=grid_numerics, cancelled=cancelled)
                             mode, lost = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction); band_loss += lost
                         local = TipGunCheckpoint(BeamState((mode,), checkpoint.beam.reference_plane), current_z,
                             checkpoint.reference_current_a, {"specimen_parent": parent_id})
+                        report("column fields through material")
                         propagated = _propagate_column(state, local, next_z, maximum_step_mm=maximum_step_mm,
                             grid_numerics=grid_numerics, tip_time_s=tip_time_s, cancelled=cancelled,
                             retained_bytes=retained_potential_bytes+base.plane.amplitude.nbytes+source.plane.amplitude.nbytes)
@@ -172,11 +213,13 @@ def _propagate_inelastic_attempt(state, checkpoint, *, numerics, store, maximum_
                         mode = propagated.beam.modes[0]
                         event = {"kind": "already_absorbed", "absorbed_weight": 0.}
                         if mode.weight_per_reference_electron:
+                            report("elastic phase 2/2")
                             mode, phase_after = _material_phase(mode, projected, x, y, sigma, .5,
                                 numerics=grid_numerics, cancelled=cancelled)
                             sample = copy(state.sample)
                             sample.thickness_nm = float(dz)*.1
                             distribution = real_inelastic_distribution(SimpleNamespace(sample=sample, beam_voltage_kv=mode.energy_kev))
+                            identity_history = identity_history and _identity_collision(distribution)
                             xy = mode.plane.coordinates_m()*1e9
                             inside = scene.sample_contains_xy(xy[0], xy[1])
                             mode, event = _collide_slice(mode, inside, distribution,
@@ -185,12 +228,27 @@ def _propagate_inelastic_attempt(state, checkpoint, *, numerics, store, maximum_
                             mode, lost = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction); band_loss += lost
                         steps.append({"slice": si, "event": event, "column": propagated.record["modes"],
                                       "phase_before": phase_before, "phase_after": phase_after})
+                        report("verifying and saving slice")
                         verify()
                         saved = store.put(step_key, TipGunCheckpoint(BeamState((mode,), checkpoint.beam.reference_plane), next_z,
                             checkpoint.reference_current_a, {"steps": steps, "band_loss": band_loss,
-                                "absorption": absorption, "column_loss": column_loss, "parent": parent_id}))
+                                "absorption": absorption, "column_loss": column_loss, "parent": parent_id,
+                                "identity_history": identity_history}))
                         del local, propagated, saved
                         current_z = next_z
+                        report("slice saved", finished=True)
+                    # Prove equivalence from the FIRST complete execution at
+                    # every actual slice energy, not from one entrance rate or
+                    # the fact that a random sample happened to lose no energy.
+                    # Distinct source/phonon modes never share this proof.
+                    multiplicity = numerics.trajectories_per_mode if ti == 0 and identity_history else 1
+                    if multiplicity > 1:
+                        mode = replace(mode, weight_per_reference_electron=mode.weight_per_reference_electron*multiplicity)
+                        initial *= multiplicity
+                        band_loss *= multiplicity
+                        absorption *= multiplicity
+                        column_loss *= multiplicity
+                        steps = _scale_step_weights(steps, multiplicity)
                     accounted = mode.weight_per_reference_electron+band_loss+absorption+column_loss
                     if not math.isclose(accounted, initial, rel_tol=1e-9, abs_tol=1e-13):
                         raise ValueError("Quantum trajectory probability accounting failed")
@@ -198,10 +256,16 @@ def _propagate_inelastic_attempt(state, checkpoint, *, numerics, store, maximum_
                     records.append({"mode_id": mode.mode_id, "input_weight": initial, "output_weight": mode.weight_per_reference_electron,
                         "energy_kev": mode.energy_kev, "regrid": regrid, "steps": steps,
                         "band_loss": band_loss, "absorption": absorption, "column_loss": column_loss,
+                        "represented_trajectories": multiplicity, "identity_history": identity_history,
                         "probability_residual": initial-accounted})
                     del mode
+                    completed += multiplicity
                     if progress_callback:
-                        progress_callback(len(records), total, "Conditional inelastic wave saved; trajectory buffers released")
+                        label = (f"Material wave saved; {multiplicity} identical zero-event histories represented once"
+                                 if multiplicity > 1 else "Conditional material wave saved; trajectory buffers released")
+                        progress_callback(completed*len(dzs), total*len(dzs), label)
+                    if multiplicity > 1:
+                        break
             del source, base
         verify()
         if cancelled():
@@ -209,11 +273,12 @@ def _propagate_inelastic_attempt(state, checkpoint, *, numerics, store, maximum_
         return writer.finish(stop, checkpoint.reference_current_a,
             {"schema": "executed-inelastic-trajectories-v1", "upstream_digest": parent_id, "upstream": checkpoint.record,
              "potential": prepared.metrics, "modes": records, "numerics": asdict(numerics),
+             "requested_trajectories": total, "executed_trajectories": len(records),
              "material_grid_refinement": {"factor": refinement_factor, "attempts": refinement_history},
              "specimen_phase_method": grid_numerics.specimen_phase_method,
              "model": "local Markov momentum-transfer Kraus instrument of existing material Poisson channels",
              "phase": "conditional within each trajectory; no phase between environmental outcomes",
-             "statistics": "independent trajectories; converge count and seed, errors scale as N^-1/2",
+             "statistics": "stochastic histories stay independent; converge count and seed, errors scale as N^-1/2; exactly identity collision histories share one executed complex field with summed weights",
              "slice_model": "collision at slice exit; converge specimen slice thickness independently",
              "limitations": "representative losses/angles, including existing plural approximation; no atomic transition potentials or resolved EELS edges",
              "validation_status": "DEVELOPMENT"})

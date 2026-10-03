@@ -14,6 +14,12 @@ from temsim.gui.beam_display_source import downstream_display_branches
 
 def _maximum(values, valid=None):
     values = np.asarray(values)
+    # Historical records can omit the clock or carry an invalid clock field.
+    # Geometry remains usable; do not fabricate a time or crash the view.
+    if values.dtype.kind not in "fiu":
+        return 0.
+    if valid is not None and np.shape(valid) != values.shape:
+        return 0.
     known = np.isfinite(values) & (values >= 0)
     if valid is not None:
         known &= valid
@@ -27,7 +33,8 @@ def _branch_maximum(branch):
     times = np.asarray(raw)
     z = np.asarray(branch.z)
     stops = np.asarray(branch.blocked_z)
-    if times.shape != np.shape(branch.x) or times.ndim != 2 or stops.shape != (times.shape[1],):
+    if (times.dtype.kind not in "fiu" or times.shape != np.shape(branch.x)
+            or times.ndim != 2 or stops.shape != (times.shape[1],)):
         return 0.
     maximum = 0.
     # Bound temporary masks; do not copy/promote the full ray history.

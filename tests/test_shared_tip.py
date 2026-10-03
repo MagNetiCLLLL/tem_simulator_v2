@@ -17,6 +17,81 @@ from temsim.shared_tip import LINK, copy_catalog_tree
 TIP = ("parts", "feg_tip")
 
 
+def test_repeated_document_reads_reuse_parsing_without_reusing_mutable_inputs(tmp_path, monkeypatch):
+    import os
+    from temsim import shared_tip
+    path = tmp_path / "module.toml"
+    original = '[[parts]]\nkey="component"\nvalues=[1,2]\n'
+    path.write_bytes(original.encode("utf-8"))
+    shared_tip._parsed_document.cache_clear()
+    actual_parse = shared_tip.tomllib.loads
+    calls = []
+
+    def parse(text, *args, **kwargs):
+        calls.append(text)
+        return actual_parse(text, *args, **kwargs)
+
+    monkeypatch.setattr(shared_tip.tomllib, "loads", parse)
+    first = shared_tip.raw_document(path)
+    first["parts"][0]["values"].append(99)
+    assert shared_tip.raw_document(path)["parts"][0]["values"] == [1, 2]
+    assert module_manifest.read_document(path)["parts"][0]["values"] == [1, 2]
+    assert calls == [original]
+    stat = path.stat()
+    changed = original.replace("[1,2]", "[3,4]")
+    path.write_bytes(changed.encode("utf-8"))
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert module_manifest.read_document(path)["parts"][0]["values"] == [3, 4]
+    assert calls == [original, changed]
+    path.unlink()
+    with pytest.raises(FileNotFoundError):
+        shared_tip.raw_document(path)
+
+
+def test_document_parse_cache_is_bounded_and_never_caches_invalid_documents(tmp_path):
+    from temsim import shared_tip
+    shared_tip._parsed_document.cache_clear()
+    path = tmp_path / "module.toml"
+    for value in range(20):
+        path.write_text(f"value={value}", encoding="utf-8")
+        assert shared_tip.raw_document(path)["value"] == value
+    assert shared_tip._parsed_document.cache_info().currsize == 16
+    path.write_text("value=[", encoding="utf-8")
+    with pytest.raises(shared_tip.tomllib.TOMLDecodeError):
+        shared_tip.raw_document(path)
+    path.write_text("value=20", encoding="utf-8")
+    assert shared_tip.raw_document(path)["value"] == 20
+
+
+def test_document_parse_cache_keeps_archive_and_live_content_separate(tmp_path):
+    from hashlib import sha256
+    from types import SimpleNamespace
+    from temsim import input_io
+    from temsim.immutable_json import json_digest, thaw_json
+    path = tmp_path / "module.toml"
+    archived = b'[[parts]]\nkey="component"\nvalue=1\n'
+    live = archived.replace(b"value=1", b"value=2")
+    path.write_bytes(live)
+    payload = {"schema": input_io.ARCHIVE_SCHEMA, "config_root": str(tmp_path),
+        "runtime": thaw_json(input_io.runtime_identity()), "files": [{"path": str(path),
+        "content_hex": archived.hex(), "sha256": sha256(archived).hexdigest(),
+        "config_relative": "module.toml"}]}
+    payload["digest"] = json_digest(payload)
+    state = SimpleNamespace()
+    input_io.bind_archive(state, payload)
+    for _ in range(2):
+        assert module_manifest.read_document(path)["parts"][0]["value"] == 2
+        with input_io.input_scope(state):
+            saved = module_manifest.read_document(path)
+            assert saved["parts"][0]["value"] == 1
+            saved["parts"][0]["value"] = 99
+    path.unlink()
+    with input_io.input_scope(state):
+        assert module_manifest.read_document(path)["parts"][0]["value"] == 1
+    with pytest.raises(FileNotFoundError):
+        module_manifest.read_document(path)
+
+
 @pytest.fixture
 def root(tmp_path):
     root = tmp_path / "instruments"

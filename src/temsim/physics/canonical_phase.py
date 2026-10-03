@@ -61,26 +61,27 @@ def expanded_phase_amplitude(wave, wavelength_m: float) -> np.ndarray:
     """Materialize the full complex CELL amplitude, including tilt/curvature.
 
     FFT sign is exp(-2 pi i f.x); a positive phase gradient is positive momentum.
-    Occupied adjacent cells must sample the analytic carrier below Nyquist.
+    The envelope spectrum and analytic carrier share one Nyquist budget.
+    A nodal sign change is not a measurement of local wave bandwidth.
     No normalization, pupil replacement or resampling occurs here.
     """
     if not np.isfinite(wavelength_m) or wavelength_m <= 0:
         raise ValueError("Phase expansion requires a finite positive wavelength")
+    from temsim.physics.wave_grid import WaveSamplingError, check_combined_phase_sampling
+    try:
+        # Check the represented envelope spectrum and known UNWRAPPED
+        # analytic carrier. Differentiating angle(a1*conj(a0)) at zeros can
+        # falsely reject a well-resolved non-Gaussian field: a legitimate
+        # cosine sign change already has a pi branch, before adding any tilt.
+        # This sufficient spectral test retains every complex cell and uses
+        # the same cumulative-tail and 20% Nyquist guard as material stages.
+        check_combined_phase_sampling(wave, np.zeros(wave.amplitude.shape), wavelength_m)
+    except WaveSamplingError as error:
+        raise WaveSamplingError(f"Full-wave phase carrier is undersampled: {error}",
+                                required_scale=error.required_scale) from error
     xy = wave.coordinates_m() - wave.origin_m[:, None, None]
     q = np.zeros((2, 2)) if wave.curvature_m1 is None else wave.curvature_m1
     t = np.zeros(2) if wave.tilt_rad is None else wave.tilt_rad
     phase = (2*np.pi/wavelength_m) * (
         .5*np.einsum("iyx,ij,jyx->yx", xy, q, xy) + np.einsum("i,iyx->yx", t, xy))
-    occupied = np.abs(wave.amplitude) > np.max(np.abs(wave.amplitude))*1e-8
-    for axis in (0, 1):
-        low = np.take(occupied, np.arange(occupied.shape[axis]-1), axis=axis)
-        high = np.take(occupied, np.arange(1, occupied.shape[axis]), axis=axis)
-        a0 = np.take(wave.amplitude, np.arange(occupied.shape[axis]-1), axis=axis)
-        a1 = np.take(wave.amplitude, np.arange(1, occupied.shape[axis]), axis=axis)
-        # The envelope and analytic carrier share ONE Nyquist budget. The
-        # envelope is assumed already sampled; adding a separately safe carrier
-        # can still make the full physical field undersampled.
-        total_difference = np.angle(a1*np.conj(a0)) + np.diff(phase, axis=axis)
-        if np.any(np.abs(total_difference)[low & high] >= np.pi):
-            raise ValueError("Full-wave phase carrier is undersampled; refine the physical grid")
     return wave.amplitude * np.exp(1j*phase)

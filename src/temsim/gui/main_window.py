@@ -218,6 +218,8 @@ class MainWindow(QMainWindow):
         self.workspace.interactive_calculation.build_requested.connect(self._build_interactive_cache)
         self.workspace.interactive_calculation.tuning_changed.connect(self._apply_interactive_tuning)
         self.workspace.interactive_calculation.current_state = lambda: self.state
+        self.workspace.coherent_beam.state_provider = lambda: self.state
+        self.workspace.coherent_beam.set_state(self.state)
         self.workspace.interactive_calculation.high_accuracy_requested.connect(self.run_section_high_accuracy)
         self.workspace.calculation_requested.connect(self.run_page_calculation)
         self.workspace.interactive_calculation.section_changed.connect(self._section_configuration_changed)
@@ -1718,7 +1720,7 @@ class MainWindow(QMainWindow):
             # UI refresh may read the graph but must not normalize saved values.
             if capture_instrument_snapshot(state).digest != captured.digest:
                 raise ValueError("UI refresh attempted to change captured physical parameters")
-            self.workspace.mark_ray_stale(state)
+            self.workspace.mark_ray_stale(state, self.assembly)
             self.workspace.mark_high_accuracy_stale()
         except Exception:
             (self.state, self.assembly, self.selection, self._active_working_checkpoint,
@@ -1940,7 +1942,7 @@ class MainWindow(QMainWindow):
             page.particle_signal_status.setText("Previous pixel | settings changed; awaiting calculation.")
         if page._section_result is not None:
             page.invalidate_section_result("Settings changed; calculate the section again before saving.")
-        self.workspace.mark_ray_stale(self.state)
+        self.workspace.mark_ray_stale(self.state, self.assembly)
         self.workspace.physical_layout.model_editor.set_calculation_status(
             "stale", "Saved geometry, operating values or model settings changed; previous simulation results are out of date."
         )
@@ -2214,7 +2216,7 @@ class MainWindow(QMainWindow):
                                     or (page._live_mode and page.timer.isActive()))
             if self._interactive_preview_in_flight() and newer_values_pending:
                 page.invalidate_section_result("Newer settings are waiting; save after their section calculation completes.")
-                self.workspace.mark_ray_stale(self.state)
+                self.workspace.mark_ray_stale(self.state, self.assembly)
                 # This is a completed intermediate frame, not the latest lens
                 # setting. Never write its snapshot back into the live controls.
                 self.workspace.heading.setText(self.workspace.heading.text() + " | Updating")
@@ -2801,6 +2803,8 @@ class MainWindow(QMainWindow):
         interactive_done = self.workspace.interactive_calculation.shutdown()
         magnetic_done = self.workspace.model_inspector.validation_page.shutdown()
         experiment_files_done = self.workspace.design_explorer.shutdown()
+        selected_plane_done = self.workspace.selected_plane_readout.shutdown()
+        coherent_done = self.workspace.coherent_beam.shutdown()
         settings = QSettings()
         settings.setValue(self.SETTINGS_GEOMETRY, self.saveGeometry())
         settings.setValue(self.SETTINGS_STATE, self.saveState())
@@ -2814,7 +2818,7 @@ class MainWindow(QMainWindow):
         presets_done = self.operating_presets.pool.waitForDone(3_000)
         self.direct_alignments.invalidate_pending()
         alignments_done = self.direct_alignments.pool.waitForDone(3_000)
-        if not all((calculations_done, archives_done, sweeps_done, presets_done, alignments_done, interactive_done, magnetic_done, experiment_files_done)):
+        if not all((calculations_done, archives_done, sweeps_done, presets_done, alignments_done, interactive_done, magnetic_done, experiment_files_done, selected_plane_done, coherent_done)):
             self.status_label.setText("Waiting for owned calculations to reach their cancellation boundary; close again when they finish")
             event.ignore()
             return

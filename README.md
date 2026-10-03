@@ -18,6 +18,8 @@ The simulator does not currently provide autonomous microscope control.
   extraction, acceleration, lenses, deflectors, stigmators and apertures.
 - Interactive ray diagrams, transverse beam plots, flight-time colouring,
   magnetic-field views and individually adjustable virtual electron paths.
+- A separate coherent-beam development page with explicit tip-boundary inputs,
+  cached exact-Z observations and clear unsupported-operator limits.
 - Hardware tuning with beam measurements and comparison against a saved baseline.
 - Specimen scattering, detector signals, STEM scanning, EDS and optional
   energy-filter modelling.
@@ -26,10 +28,12 @@ The simulator does not currently provide autonomous microscope control.
 - Compressed result export/import (`.temresult`), reusable startup results and
   separate virtual-electron sessions (`.temdiag`).
 
-The current focus is classical particle transport; coherent tip-to-column wave
-development remains paused. Models target physical mechanisms and qualitative
-parameter trends, rather than a calibrated commercial instrument or a fully
-validated microscope.
+Classical particle transport remains the default. Independent coherent
+development resumed on 2026-10-02; the default tip-to-image chain and arbitrary
+Z within the gun or material are not yet qualified. See
+[coherent-beam inputs and limits](docs/COHERENT_BEAM.md). Models target physical
+mechanisms and qualitative parameter trends, rather than a calibrated
+commercial instrument or a fully validated microscope.
 
 Use **Run high-accuracy once** to update Ray Diagram. Then set specimen or
 detector parameters and click **Calculate** on that page; compatible executed

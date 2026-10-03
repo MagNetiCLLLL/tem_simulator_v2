@@ -5,7 +5,7 @@ from collections import Counter
 CLASSICAL_CRITERIA = {
     "product-usability/AT-01": ("Physical source admission", ("tests/test_source_admission.py",)),
     "product-usability/AT-02": ("Complete captured instrument", ("tests/test_working_point_contract.py", "tests/test_input_assets.py",
-        "tests/test_component_position_contract.py", "tests/test_component_persistence.py")),
+        "tests/test_component_position_contract.py", "tests/test_component_persistence.py", "tests/test_shared_tip.py")),
     "product-usability/AT-06": ("Transactional alignment", ("tests/test_alignment_transactions.py",)),
     "product-usability/AT-12": ("Unknown-input and opt-in vacuum invalidation", ("tests/test_parameter_registry.py", "tests/test_vacuum_opt_in.py")),
     "round2/R2-AT-03": ("Explicit classical acceptance", ("tests/test_classical_acceptance.py",)),
@@ -89,6 +89,17 @@ ACCEPTANCE_SCOPES = {
             "field-ui/FU-08": ("Explicit assembly selection, configuration and working-point restoration", (
                 "tests/test_assembly_selection_state.py", "tests/test_assembly_navigation.py",
                 "tests/test_instrument_configuration.py", "tests/test_working_point_restore_gui.py")),
+            "field-ui/FU-09": ("Captured-optics selected-Z conjugacy and latest cached plane readout", (
+                "tests/test_selected_plane.py", "tests/test_selected_plane_gui.py")),
+            "field-ui/FU-11": ("Selected-plane upstream hardware projections, recorded interceptions and beam views", (
+                "tests/test_plane_hardware_geometry.py", "tests/test_plane_hardware_overlay.py",
+                "tests/test_plane_cutoff_events.py", "tests/test_lazy_ray_panels.py",
+                "tests/test_ray_extent_workspace.py", "tests/test_incremental_ray_scene.py",
+                "tests/test_beam_analysis_modes.py", "tests/test_transverse_source_tracking.py",
+                "tests/test_filter_plane_analysis.py", "tests/test_ray_flight_time_colours.py",
+                "tests/test_transverse_plot_sizes.py", "tests/test_transverse_plot_size_persistence.py")),
+            "field-ui/FU-10": ("Separate coherent sessions and continuous latest-Z interaction", (
+                "tests/test_coherent_beam_gui.py",)),
         },
     },
     "particle-continuation": {
@@ -132,6 +143,26 @@ ACCEPTANCE_SCOPES = {
                 "tests/test_acceptance_runner.py",)),
             "acceptance-policy/AP-03": ("Bounded owned process cleanup and explicit cleanup failure", (
                 "tests/test_validation_process.py",)),
+        },
+    },
+    "coherent-development": {
+        "description": "Bounded tip-only coherent inputs and exact post-gun observation workflow",
+        "evidence_kind": "development-operators-and-offscreen-software-checks-not-full-chain-qualification",
+        "criteria": {
+            "coherent-development/CW-01": ("Explicit tip boundary, domain preflight and preserved source inputs", (
+                "tests/test_coherent_inputs.py", "tests/test_tip_coherent_emission.py")),
+            "coherent-development/CW-02": ("Executed upstream waves, exact plane routing and physical absorption", (
+                "tests/test_tip_wave_pipeline.py", "tests/test_column_wave_transport.py",
+                "tests/test_wave_checkpoint_publication.py",
+                "tests/test_column_wave_electric.py", "tests/test_tip_gun_wave.py",
+                "tests/test_electrostatic_column_transport.py", "tests/test_wave_grid.py",
+                "tests/test_tip_gun_shared_fields.py", "tests/test_canonical_action.py")),
+            "coherent-development/CW-03": ("Captured wave sessions, latest Z, resource ownership and bounded display", (
+                "tests/test_coherent_beam_gui.py",)),
+            "coherent-development/CW-04": ("Vacuum electrostatic boundaries do not depend on prescribed source phase", (
+                "tests/test_planar_gun_field.py",)),
+            "coherent-development/CW-05": ("Conditional material waves, exact deterministic reuse and slice continuation", (
+                "tests/test_inelastic_wave.py",)),
         },
     },
 }
@@ -245,7 +276,7 @@ def software_report(receipt, *, pytest_exit_code, source_unchanged,
         "cases": cases, "source_unchanged_during_tests": source_unchanged,
         "pytest_exit_code": pytest_exit_code,
         "exclusions": {
-            "coherent-tip-to-image": "Paused by user; source-admission tests are not image qualification",
+            "coherent-tip-to-image": "Development resumed; bounded operator and source-admission tests are not full image qualification",
             "actual-gpu-scientific-parity": "NOT_RUN in this software lane; emulated policy tests are not hardware evidence",
             "native-desktop": "Offscreen tests only",
             "experimental-calibration": "NOT_RUN; no OEM or experimental qualification",

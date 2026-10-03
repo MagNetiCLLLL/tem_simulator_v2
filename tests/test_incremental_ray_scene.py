@@ -90,6 +90,7 @@ def _result(scale=1.0, *, lens_z=3.0, bore_mm=2.0, aperture_mm=0.15,
             sample=SimpleNamespace(z_mm=10.0, inserted=True, specimen_mode="virtual"),
             recording_planes=(SimpleNamespace(
                 key="camera", z_mm=detector_z, inserted=True, readout_enabled=True,
+                geometry="square",
                 outer_width_mm=1.0, inner_diameter_mm=0.0,
                 centre_offset_x_mm=0.02, centre_offset_y_mm=-0.03,
             ),),
@@ -425,6 +426,10 @@ def test_new_result_preserves_detector_focus_after_an_earlier_cursor_selection(
     view.focus_component(first.assembly.part("camera"))
     assert transverse._focused_component_key == "camera"
     assert transverse._plane_z_mm == 18.0
+    first_outline = next(row for row in transverse.hardware.outlines if row.key == "camera")
+    assert first_outline.kind == "detector" and first_outline.z_mm == 18.0
+    assert first_outline.polylines_mm == (((-.5, -.5), (.5, -.5), (.5, .5),
+                                           (-.5, .5), (-.5, -.5)),)
     latest = _result(1.4, detector_z=17.0)
     view.display_result(latest, "Preview")
     assert view._selected_z_mm == 8.0
@@ -433,6 +438,9 @@ def test_new_result_preserves_detector_focus_after_an_earlier_cursor_selection(
     assert transverse._result is latest
     assert transverse._focused_component_key == "camera"
     assert transverse._plane_z_mm == 17.0
+    latest_outline = next(row for row in transverse.hardware.outlines if row.key == "camera")
+    assert latest_outline.z_mm == 17.0
+    assert latest_outline.polylines_mm == first_outline.polylines_mm
 
 
 def test_failed_static_layer_replacement_releases_partial_items_and_keeps_prior_layer(make_workspace):

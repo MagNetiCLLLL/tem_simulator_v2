@@ -356,20 +356,16 @@ class InstrumentSnapshot:
             raise ValueError("Working-point checksum mismatch")
         return result
 
-    def restore(self):
-        """Explicit restoration; changed/missing dependencies remain read-only.
-
-        Legacy records verify original files. Explicit portable copies resolve
-        their complete, verified input inventory without writing live files.
-        """
+    def _verify_implementation(self):
         from temsim.calculation_manifest import solver_source_identity
         if self.graph.get("schema") not in {SNAPSHOT_SCHEMA, ASSET_SNAPSHOT_SCHEMA}:
             raise ValueError("This record does not contain a restorable input graph; historical viewing only")
         if self.implementation != solver_source_identity():
             raise ValueError("Solver implementation changed; historical viewing only")
-        result = decode_instrument(self.graph)
+
+    def _verify_external_inputs(self, state):
         from temsim.physics.illumination import illumination_config
-        with input_io.input_scope(result, inherit=False) as resolver:
+        with input_io.input_scope(state, inherit=False) as resolver:
             if resolver is not None:
                 resolver.assert_current_runtime()
             for row in self.external_inputs:
@@ -380,12 +376,33 @@ class InstrumentSnapshot:
                 if sha256(content).hexdigest() != row["sha256"]:
                     raise ValueError(f"Changed {row['role']}; historical viewing only")
             from temsim.calculation_manifest import capture_external_input_identities
-            actual = {(row.role, row.path, row.sha256) for row in capture_external_input_identities(result)}
+            actual = {(row.role, row.path, row.sha256) for row in capture_external_input_identities(state)}
             expected = {(row["role"], row["path"], row["sha256"]) for row in self.external_inputs}
             if actual != expected:
                 raise ValueError("External dependency inventory changed; capture current inputs before recalculating")
-            illumination_config(result)
-            result.electron_gun.validate()
+            illumination_config(state)
+            state.electron_gun.validate()
+
+    def verify_current_inputs(self, restored_state):
+        """Recheck the complete source bytes and external input inventory.
+
+        The caller owns an already restored private state from this snapshot;
+        this validates its dependencies without rebuilding the object graph.
+        It is not an assertion that an arbitrary supplied state equals this
+        snapshot and must not admit edited controls as the captured inputs.
+        """
+        self._verify_implementation()
+        self._verify_external_inputs(restored_state)
+
+    def restore(self):
+        """Restore once, with the same complete checks used before commits.
+
+        Legacy records verify original files. Explicit portable copies resolve
+        their complete, verified input inventory without writing live files.
+        """
+        self._verify_implementation()
+        result = decode_instrument(self.graph)
+        self._verify_external_inputs(result)
         return result
 
 

@@ -176,6 +176,96 @@ def test_changed_or_missing_external_bytes_block_restore_but_keep_view(instrumen
     assert snapshot.to_dict()["digest"] == snapshot.digest
 
 
+def test_current_input_verification_does_not_rebuild_the_snapshot(instrument, monkeypatch):
+    import temsim.instrument_snapshot as module
+    snapshot = capture_instrument_snapshot(instrument)
+    restored = snapshot.restore()
+    monkeypatch.setattr(module, "decode_instrument", lambda *_a, **_k:
+                        pytest.fail("Verifying an already restored input must not rebuild the object graph"))
+    snapshot.verify_current_inputs(restored)
+    from temsim import calculation_manifest
+    monkeypatch.setattr(calculation_manifest, "solver_source_identity", lambda: "changed-source-bytes")
+    with pytest.raises(ValueError, match="Solver implementation changed"):
+        snapshot.verify_current_inputs(restored)
+
+
+def test_current_input_verification_checks_changed_missing_and_new_external_inputs(instrument, tmp_path):
+    path = tmp_path / "field.dat"
+    path.write_bytes(b"original field evidence")
+    instrument.lens_field_map_descriptors = {"objective_lens": {"source_path": str(path)}}
+    snapshot = capture_instrument_snapshot(instrument)
+    restored = snapshot.restore()
+    snapshot.verify_current_inputs(restored)
+    path.write_bytes(b"changed field evidence")
+    with pytest.raises(ValueError, match="Changed"):
+        snapshot.verify_current_inputs(restored)
+    path.unlink()
+    with pytest.raises(ValueError, match="Missing"):
+        snapshot.verify_current_inputs(restored)
+    path.write_bytes(b"original field evidence")
+    extra = tmp_path / "additional-field.dat"
+    extra.write_bytes(b"unconsumed new input")
+    restored.lens_field_map_descriptors["new_lens"] = {"source_path": str(extra)}
+    with pytest.raises(ValueError, match="External dependency inventory changed"):
+        snapshot.verify_current_inputs(restored)
+
+
+def test_current_input_verification_keeps_illumination_and_gun_validation(instrument, monkeypatch):
+    from temsim.physics import illumination
+    snapshot = capture_instrument_snapshot(instrument)
+    restored = snapshot.restore()
+    calls = []
+    actual_illumination = illumination.illumination_config
+    actual_gun = type(restored.electron_gun).validate
+    def validate_illumination(state):
+        calls.append("illumination")
+        return actual_illumination(state)
+    def validate_gun(gun):
+        calls.append("gun")
+        return actual_gun(gun)
+    monkeypatch.setattr(illumination, "illumination_config", validate_illumination)
+    monkeypatch.setattr(type(restored.electron_gun), "validate", validate_gun)
+    snapshot.verify_current_inputs(restored)
+    assert calls == ["illumination", "gun"]
+
+
+def test_solver_identity_preserves_path_order_and_detects_same_stat_edits(tmp_path, monkeypatch):
+    from hashlib import sha256
+    from pathlib import Path
+    import os
+    from temsim import calculation_manifest
+
+    package = tmp_path / "solver"
+    package.mkdir()
+    paths = ("a.py", "a/one.py", "a_.py", "B/two.py", "Z.py")
+    for relative in paths:
+        path = package / relative
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(relative.encode())
+    (package / "not-code.txt").write_bytes(b"not solver input")
+    monkeypatch.setattr(calculation_manifest, "__file__", str(package / "a.py"))
+
+    def reference():
+        digest = sha256()
+        for path in sorted(Path(package).rglob("*.py")):
+            digest.update(path.relative_to(package).as_posix().encode())
+            digest.update(path.read_bytes())
+        return digest.hexdigest()
+
+    initial = calculation_manifest.solver_source_identity()
+    assert initial == reference()
+    path = package / "a.py"
+    stat = path.stat()
+    path.write_bytes(b"edit")  # Same four bytes, restore timestamp as well.
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert calculation_manifest.solver_source_identity() == reference() != initial
+    path.unlink()
+    removed = calculation_manifest.solver_source_identity()
+    assert removed == reference()
+    path.write_bytes(b"new!")
+    assert calculation_manifest.solver_source_identity() == reference() != removed
+
+
 def test_manifest_capture_is_read_only_and_retains_complete_working_point(instrument):
     before = json_digest(encode_instrument(instrument))
     first = capture_calculation_manifest(instrument, ray_count=9, step_mm=2.)

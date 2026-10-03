@@ -77,7 +77,12 @@ def test_new_lanes_explicitly_cover_reviewed_feature_and_runtime_boundaries():
             "test_magnetic_field_identity.py", "test_electron_failure_gui.py",
             "test_hardware_tuning_feedback.py", "test_electron_session_gui.py", "test_diagnostic_electron_record.py",
             "test_assembly_selection_state.py", "test_assembly_navigation.py", "test_instrument_configuration.py",
-            "test_working_point_restore_gui.py"},
+            "test_working_point_restore_gui.py", "test_selected_plane.py", "test_selected_plane_gui.py",
+            "test_coherent_beam_gui.py", "test_plane_hardware_geometry.py", "test_plane_hardware_overlay.py",
+            "test_plane_cutoff_events.py", "test_lazy_ray_panels.py", "test_ray_extent_workspace.py",
+            "test_incremental_ray_scene.py",
+            "test_beam_analysis_modes.py", "test_transverse_source_tracking.py", "test_filter_plane_analysis.py",
+            "test_ray_flight_time_colours.py", "test_transverse_plot_sizes.py", "test_transverse_plot_size_persistence.py"},
         "particle-continuation": {"test_particle_sections.py", "test_particle_section_io.py",
             "test_completed_particle_sections.py", "test_material_particle_sections.py",
             "test_material_section_resume.py", "test_particle_section_eds_archive.py",
@@ -86,9 +91,27 @@ def test_new_lanes_explicitly_cover_reviewed_feature_and_runtime_boundaries():
         "acceptance-policy": {"test_acceptance_scopes.py", "test_acceptance_runner.py", "test_validation_process.py"},
         "performance-observation": {"test_electron_execution_performance.py", "test_electron_response_benchmark.py",
             "test_continuous_electron_response_benchmark.py", "test_particle_benchmark.py"},
+        "coherent-development": {"test_coherent_inputs.py", "test_tip_coherent_emission.py",
+            "test_inelastic_wave.py",
+            "test_wave_checkpoint_publication.py",
+            "test_tip_wave_pipeline.py", "test_column_wave_transport.py", "test_coherent_beam_gui.py",
+            "test_column_wave_electric.py", "test_tip_gun_wave.py", "test_tip_gun_shared_fields.py",
+            "test_electrostatic_column_transport.py", "test_wave_grid.py",
+            "test_planar_gun_field.py", "test_canonical_action.py"},
     }
     for scope, expected in required.items():
         assert {Path(path).name for path in scope_test_files(scope)} == expected
+
+
+@pytest.mark.parametrize("path", ("tests/test_selected_plane.py", "tests/test_selected_plane_gui.py"))
+def test_selected_plane_requires_both_numerical_and_gui_evidence(path):
+    receipt = receipt_for("field-ui")
+    missing = next(node for node in receipt["collected"] if node.startswith(path + "::"))
+    receipt["collected"].remove(missing)
+    del receipt["cases"][missing]
+    report = evaluate("field-ui", receipt)
+    assert report["software_scope_status"] == "INCOMPLETE"
+    assert report["criteria"]["field-ui/FU-09"]["status"] != "PASS"
 
 
 def test_shared_component_regressions_are_mandatory_classical_evidence():

@@ -510,6 +510,7 @@ class BeamAnalysisControls:
     def redraw(self):
         owner = self.owner
         self._drawing = True
+        data = None
         try:
             owner.plot.clear()
             owner._scatter = None
@@ -558,6 +559,7 @@ class BeamAnalysisControls:
             self.readout.setToolTip(str(exc))
         finally:
             self._drawing = False
+            self.owner.hardware.redraw(data)
 
     def _draw_points(self, data):
         owner = self.owner

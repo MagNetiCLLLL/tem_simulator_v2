@@ -168,10 +168,10 @@ class GunSourceDialog(QDialog):
             surface_form.addRow(label, edit)
             edit.textChanged.connect(self._surface_summary)
         self.surface_inputs["cap_half_angle_deg"].setToolTip("Geometric polar half-angle measured from the sphere centre. This defines emitting area, not the angular spread of electrons about each local normal.")
-        self.wave_options = QCheckBox("Show wave development (paused)")
+        self.wave_options = QCheckBox("Show wave development inputs")
         self.wave_options.setChecked(self._surface_draft.coherence is not None)
         surface_form.addRow(self.wave_options)
-        self.surface_coherent = QCheckBox("Coherent surface reservoir (development, paused)")
+        self.surface_coherent = QCheckBox("Coherent surface reservoir (development)")
         self.surface_coherent.setChecked(self._surface_draft.coherence is not None)
         surface_form.addRow(self.surface_coherent)
         self.quantum_inputs = {}
@@ -333,7 +333,7 @@ class GunSourceDialog(QDialog):
             self.surface_form.setRowVisible(edit, quantum)
         self.near_field_button.setVisible(quantum)
         self.near_field_button.setEnabled(False)
-        self.near_field_button.setToolTip("Wave propagation development is paused. Existing profiles and code are retained; this editor does not start a wave calculation.")
+        self.near_field_button.setToolTip("Calculate waves in the separate Coherent beam page. This source editor does not start propagation or qualify a TEM/STEM image.")
         self._surface_summary()
 
     def _use_particles(self):

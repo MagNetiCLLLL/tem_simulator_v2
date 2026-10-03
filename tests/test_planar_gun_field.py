@@ -168,9 +168,9 @@ def test_single_point_and_shaped_queries_preserve_input_shape(harmonic):
     np.testing.assert_array_equal(batch[1], np.broadcast_to(single[1], (2, 4, 3)))
 
 
-def test_default_electrodes_use_actual_voltages_and_keep_analytic_default():
+def test_default_electrodes_use_actual_voltages_and_keep_shared_closed_field():
     from temsim.optics.column import default_state
-    from temsim.optics.electron_gun.electrostatic import FegElectrostaticField
+    from temsim.physics.closed_gun_field import ClosedGunField
 
     gun = default_state().electron_gun
     emitter_before = copy.deepcopy(vars(gun.emitter))
@@ -185,7 +185,9 @@ def test_default_electrodes_use_actual_voltages_and_keep_analytic_default():
         [by_key[f"accelerator:{i}"]["potential_rise_v"] for i in range(10)],
         expected, rtol=0, atol=1e-9)
     assert result["domain"]["entrance_m"] == 0.0
-    assert isinstance(gun.electric_field, FegElectrostaticField)
+    # The current instrument uses the shared conductor-boundary field. A
+    # diagnostic request must not restore the retired analytic provider.
+    assert isinstance(gun.electric_field, ClosedGunField)
     # Constructing a field request must not replace or edit source parameters.
     assert repr(vars(gun.emitter)) == repr(emitter_before)
 

@@ -58,6 +58,7 @@ from temsim.gui.ray_calculation_extent import RayCalculationExtentBar
 from temsim.gui.ray_extent_data import completed_ray_extent
 from temsim.gui.accelerator_gap_overlay import AcceleratorGapOverlay, ACCELERATOR_GAP_TOOLTIP
 from temsim.gui.transport_adjustment_readout import TransportAdjustmentReadout
+from temsim.gui.selected_plane_readout import SelectedPlaneReadout
 from temsim.gui.design_explorer import DesignExplorerPage
 from temsim.gui.interactive_calculation import InteractiveCalculationPage
 from temsim.gui.model_inspector import ModelInspectorPage
@@ -917,6 +918,8 @@ class VisualizationWorkspace(QWidget):
         ray_primary_layout.addWidget(self.transport_adjustment_readout)
         ray_primary_layout.addWidget(navigation_hint)
         ray_primary_layout.addLayout(navigation_controls)
+        self.selected_plane_readout = SelectedPlaneReadout(self)
+        ray_primary_layout.addWidget(self.selected_plane_readout)
         ray_primary_layout.addWidget(self.plot, 1)
         self.ray_calculation_extent = RayCalculationExtentBar()
         self.ray_calculation_extent.bind_plot(self.plot)
@@ -1046,6 +1049,12 @@ class VisualizationWorkspace(QWidget):
             QSizePolicy.Policy.Ignored,
             QSizePolicy.Policy.Expanding,
         )
+        self.ray_beam_tabs = QTabWidget()
+        self.ray_beam_tabs.setObjectName("rayBeamAnalysisTabs")
+        self.ray_beam_tabs.setMinimumWidth(340)
+        self.ray_beam_tabs.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
+        self.ray_beam_tabs.addTab(self.transverse_beam, "Particle rays")
         # Preserve the compact ray-toolbar labels even at the workspace's
         # minimum width; 540 px is still small enough to keep the complete
         # two-column page below the existing 900 px shell threshold.
@@ -1068,7 +1077,7 @@ class VisualizationWorkspace(QWidget):
             "Beam analysis."
         )
         self.ray_workspace_splitter.addWidget(self.ray_vertical_splitter)
-        self.ray_workspace_splitter.addWidget(self.transverse_beam)
+        self.ray_workspace_splitter.addWidget(self.ray_beam_tabs)
         self.ray_workspace_splitter.setStretchFactor(0, 3)
         self.ray_workspace_splitter.setStretchFactor(1, 1)
         self.ray_workspace_splitter.setSizes((1350, 450))
@@ -1150,12 +1159,19 @@ class VisualizationWorkspace(QWidget):
         self.model_inspector = ModelInspectorPage()
         from temsim.gui.hardware_tuning_panel import HardwareTuningPanel
         self.hardware_tuning = HardwareTuningPanel()
+        from temsim.gui.coherent_beam import CoherentBeamPage, CoherentBeamMirror
+        self.coherent_beam = CoherentBeamPage()
+        self.coherent_ray_view = CoherentBeamMirror(self.coherent_beam)
+        self.ray_beam_tabs.addTab(self.coherent_ray_view, "Coherent XY")
         self.tabs = QTabWidget()
         self.tabs.setObjectName("visualizationTabs")
         self.tabs.tabBar().setExpanding(False)
         self.tabs.tabBar().setUsesScrollButtons(True)
         self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideNone)
         self.tabs.addTab(self.ray_page, "Ray Diagram")
+        self.tabs.addTab(self.coherent_beam, "Coherent beam")
+        self.coherent_ray_view.controls_requested.connect(
+            lambda: self.tabs.setCurrentWidget(self.coherent_beam))
         self.tabs.addTab(self.hardware_tuning, "Hardware tuning")
         self.tabs.addTab(self.physical_layout, "Physical Layout")
         self.tabs.addTab(self.energy_filter_page, "Energy Filter")
@@ -1194,7 +1210,7 @@ class VisualizationWorkspace(QWidget):
             lambda visible: self._set_ray_panel_visible(self.magnetic_field, visible)
         )
         self.transverse_beam_toggle.toggled.connect(
-            lambda visible: self._set_ray_panel_visible(self.transverse_beam, visible)
+            lambda visible: self._set_ray_panel_visible(self.ray_beam_tabs, visible)
         )
         self.fit_column.clicked.connect(self._fit_column_view)
         self.auto_zoom.toggled.connect(self._auto_zoom_toggled)
@@ -1285,6 +1301,7 @@ class VisualizationWorkspace(QWidget):
         # Presentation-only queues: one newest result per optional panel, not
         # another history cache. Scientific result publication below is eager.
         self._pending_ray_panels = {}
+        self._ray_hardware_preview = None
         self._pending_ray_focus = set()
         self._presented_ray_panels = set()
         self._transverse_focus_request = None
@@ -1295,6 +1312,7 @@ class VisualizationWorkspace(QWidget):
             panel.installEventFilter(self)
         self.tabs.currentChanged.connect(self._schedule_visible_ray_panels)
         self.ray_result_tabs.currentChanged.connect(self._schedule_visible_ray_panels)
+        self.ray_beam_tabs.currentChanged.connect(self._schedule_visible_ray_panels)
 
     def _optional_ray_panels(self):
         return (self.physical_layout, self.magnetic_field, self.transverse_beam)
@@ -1341,6 +1359,8 @@ class VisualizationWorkspace(QWidget):
                 if focus is not None and focus[0] == "component":
                     focus = (focus[0], self._current_presentation_part(result, focus[1]))
                 panel.display_result(result, focus=focus)
+                if self._ray_hardware_preview is not None:
+                    panel.hardware.set_geometry_preview(self._ray_hardware_preview)
             else:
                 panel.display_result(result)
                 part = self._current_presentation_part(result, self._focused_part)
@@ -2459,7 +2479,9 @@ class VisualizationWorkspace(QWidget):
     def _axial_cursor_moved(self, cursor) -> None:
         """Preview the transverse slice continuously while the cursor moves."""
 
+        self.coherent_beam.set_selected_z(float(cursor.value()))
         self._focus_transverse("z", float(cursor.value()))
+        self.selected_plane_readout.select_z(float(cursor.value()))
 
     def _axial_cursor_move_finished(self, cursor) -> None:
         self.jump_to_ray_position(float(cursor.value()))
@@ -2636,6 +2658,8 @@ class VisualizationWorkspace(QWidget):
         selected = float(np.clip(z_mm, lower_limit, upper_limit))
         self._selected_z_mm = selected
         self._focus_transverse("z", selected)
+        self.selected_plane_readout.select_z(selected)
+        self.coherent_beam.set_selected_z(selected)
         self.axial_position.setRange(lower_limit, upper_limit)
         self.axial_position.setValue(selected)
         if activate_tab:
@@ -4051,6 +4075,7 @@ class VisualizationWorkspace(QWidget):
         self._wall_stop_count = self._column_wall_stop_count(display_simulation)
         self._update_projection_text()
         self._update_interaction_detail()
+        self.selected_plane_readout.select_z(self._selected_z_mm)
         self._ray_scene_last_update_ms = (perf_counter() - started) * 1000.0
 
     def clear_result(self) -> None:
@@ -4064,9 +4089,11 @@ class VisualizationWorkspace(QWidget):
         self._projection_finalize_timer.stop()
         self._ray_panel_refresh_timer.stop()
         self._pending_ray_panels.clear()
+        self._ray_hardware_preview = None
         self._pending_ray_focus.clear()
         self._presented_ray_panels.clear()
         self._last_result = self._preview_result = self._high_accuracy_result = None
+        self.selected_plane_readout.clear()
         self._last_quality = ""
         self._high_accuracy_current = self._ray_extent_stale = False
         self.accelerator_gap_overlay.clear()
@@ -4151,6 +4178,7 @@ class VisualizationWorkspace(QWidget):
         # Geometry changes also preserve the user's view; Fit is explicit.
         preserve_ray_view = self._last_result is not None
         self._last_result = result
+        self._ray_hardware_preview = None
         self.result_readout.publish(result, quality)
         self.hardware_tuning.publish_result(result, quality)
         self.transport_adjustment_readout.display_result(result)
@@ -4163,6 +4191,7 @@ class VisualizationWorkspace(QWidget):
         self._last_quality = quality
         self.interactive_calculation.calculation_timing.set_result(result)
         self._ray_extent_stale = False
+        self.selected_plane_readout.set_result(result)
         self._refresh_ray_calculation_extent()
         no_illumination = sample_illumination_absent(
             getattr(result, "simulation", None),
@@ -4322,7 +4351,9 @@ class VisualizationWorkspace(QWidget):
             stale=self._ray_extent_stale, quality=self._last_quality,
         )
 
-    def mark_ray_stale(self, state) -> None:
+    def mark_ray_stale(self, state, assembly=None) -> None:
+        self.coherent_beam.set_state(state)
+        self._ray_hardware_preview = self.transverse_beam.hardware.set_current_state(state, assembly)
         self.result_readout.mark_stale("ray")
         self.hardware_tuning.mark_result_stale("ray")
         # A hidden panel must not later publish the obsolete queued snapshot
@@ -4331,6 +4362,7 @@ class VisualizationWorkspace(QWidget):
         self.magnetic_field.mark_inputs_stale()
         self.interactive_calculation.calculation_timing.mark_stale()
         self._ray_extent_stale = True
+        self.selected_plane_readout.mark_stale()
         self._refresh_ray_calculation_extent()
         from temsim.optics.electron_gun.tip_edit import tip_model_label
         gun = state.electron_gun

@@ -4394,6 +4394,9 @@ class TransverseBeamView(QWidget):
         self.analysis = BeamAnalysisControls(self)
         self.analysis_mode = self.analysis.mode_combo
         self.colour_mode = self.analysis.colour_combo
+        from temsim.gui.plane_hardware_overlay import PlaneHardwareOverlay
+
+        self.hardware = PlaneHardwareOverlay(self)
 
     def plot_size_state(self):
         return self.plot_layout.state()
@@ -4560,6 +4563,7 @@ class TransverseBeamView(QWidget):
             wave, self.analysis.wave = self.analysis.wave, None
             wave.deactivate()
         self.analysis.invalidate()
+        self.hardware.invalidate()
         self._result = result
         if focus is not None:
             kind, value = focus
@@ -4569,7 +4573,7 @@ class TransverseBeamView(QWidget):
                 self._focused_component_key = None
             else:
                 self.focus_z(value, redraw=False)
-        if self._plane_z_mm is None:
+        if self._plane_z_mm is None and result is not None:
             self._plane_z_mm = float(result.simulation.incident.z[-1])
         self._redraw()
 
@@ -4605,6 +4609,12 @@ class TransverseBeamView(QWidget):
         )
         if detector is not None:
             plane_z = float(detector.z_mm)
+        aperture = next((item for item in getattr(self._result, "aperture_stops", ())
+                         if str(item.get("key")) == key), None)
+        if aperture is not None:
+            # The opening is a thin optical mask, not the centre of a long
+            # mechanical carrier (and may belong to a previous capture).
+            plane_z = float(aperture["z_mm"])
         self._set_plane_z(plane_z, redraw=redraw, force_redraw=changed_focus)
 
     def focus_z(self, z_mm: float, *, redraw: bool = True) -> None:
@@ -4699,6 +4709,7 @@ class TransverseBeamView(QWidget):
         self._display_source_ids = np.empty(0, dtype=np.int64)
         if self._result is None or self._plane_z_mm is None:
             self.analysis.finish_position([])
+            self.hardware.redraw()
             return
         simulation = self._result.simulation
         if self._plane_z_mm <= float(simulation.incident.z[-1]) + 1.0e-9:
@@ -4745,6 +4756,7 @@ class TransverseBeamView(QWidget):
                 f"{source_label} | Z {plane:.6g} mm | no displayed rays reach this plane."
             )
             self.analysis.finish_position([])
+            self.hardware.redraw()
             self._settle_panel_layout()
             self._restore_centered_view_ranges()
             return
@@ -4858,6 +4870,7 @@ class TransverseBeamView(QWidget):
         )
         self.summary.setToolTip(detail_text)
         self.analysis.finish_position(interaction_styles)
+        self.hardware.redraw()
         self._settle_panel_layout()
         if self._view_scale_initialized:
             self._restore_centered_view_ranges()

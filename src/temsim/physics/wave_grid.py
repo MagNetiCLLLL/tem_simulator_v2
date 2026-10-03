@@ -22,6 +22,10 @@ class WaveSamplingError(ValueError):
         self.required_scale = float(required_scale)
 
 
+class WaveGridBudgetError(ValueError):
+    """A valid numerical request exceeds its declared grid/memory budget."""
+
+
 def check_combined_phase_sampling(wave, phase, wavelength_m):
     """Preflight the envelope + analytical carrier + added phase together.
 
@@ -114,7 +118,7 @@ class WaveGridNumerics:
         # polynomial phase arrays and field propagation work, not total RSS.
         required = int(retained_bytes)+256*math.prod(shape)
         if max(shape) > self.maximum_pixels or required > self.maximum_working_bytes:
-            raise ValueError(f"Wave refinement budget exceeded: grid={tuple(shape)}, estimated working bytes={required}; "
+            raise WaveGridBudgetError(f"Wave refinement budget exceeded: grid={tuple(shape)}, estimated working bytes={required}; "
                              f"maximum_pixels={self.maximum_pixels}, maximum_working_bytes={self.maximum_working_bytes}. "
                              "The unresolved optical operator was not applied; increase the numerical budget.")
         check_available_memory(required-int(retained_bytes))

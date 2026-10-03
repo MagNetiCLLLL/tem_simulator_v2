@@ -1,10 +1,13 @@
-"""Executed tip-to-exit wave transport in the installed analytic FEG fields.
+"""Executed tip-to-exit wave transport in the installed FEG fields.
 
 This is a scalar, stationary, second-order paraxial Hamiltonian solver. It
 retains variable longitudinal momentum, electrostatic focusing, both gun
 deflector coils, the rotated magnetic stigmator, the analytic Wien electric
 and magnetic fields, DPA/C1/slit masks and sampled absorbing body bores.
-It is not yet admission for full TEM/STEM or for arbitrary imported fields.
+The actual solved electrostatic provider is expanded to quadratic order about
+the optical axis. Captured column-lens tails and overlapping quadratic magnets
+are included when an instrument is supplied. This is not full TEM/STEM
+qualification or admission of arbitrary imported fields.
 
 Canonical coordinates use the constant *launch* momentum p_ref, so the map
 remains symplectic during acceleration. At the exit only the phase-carrier
@@ -36,12 +39,17 @@ class GunWaveNumerics:
     bore_step_mm: float = 1.0
     max_steps: int = 100_000
     maximum_checkpoint_bytes: int = 8 * 1024**3
+    maximum_fractional_energy_change: float = 0.05
 
     def validate(self):
         for name in ("field_step_mm", "bore_step_mm"):
             value = getattr(self, name)
             if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
                 raise ValueError(f"Gun wave {name} must be positive and finite")
+        fraction = self.maximum_fractional_energy_change
+        if (isinstance(fraction, bool) or not math.isfinite(fraction)
+                or not 0 < fraction <= 1):
+            raise ValueError("Gun wave maximum_fractional_energy_change must lie in (0, 1]")
         if isinstance(self.max_steps, bool) or not isinstance(self.max_steps, int) or not 1 <= self.max_steps <= 1_000_000:
             raise ValueError("Gun wave max_steps must be a positive bounded integer")
         if isinstance(self.maximum_checkpoint_bytes, bool) or not isinstance(self.maximum_checkpoint_bytes, int) or self.maximum_checkpoint_bytes <= 0:
@@ -96,40 +104,43 @@ def _momentum_velocity(energy_ev):
     return momentum, momentum*c*c/(kinetic+m_e*c*c)
 
 
-def _field_coefficients(gun, z_mm):
-    """Read the installed analytic providers, including the Wien fringe model.
-
-    E_perp and B_perp are affine functions of x,y in these providers; their
-    derivatives are exact divided differences. Arbitrary providers fail closed
-    rather than being silently linearised or substituted with a matched Wien.
-    """
+def _require_supported_gun_fields(gun):
+    """Reject unsupported providers before any field or mesh query."""
     from temsim.optics.electron_gun.field_emission import FieldEmissionGun
     from temsim.optics.electron_gun.monochromator import AnalyticWienField
     if type(gun) is not FieldEmissionGun or gun.type_key != "cold_feg":
-        raise ValueError("Tip wave gun transport currently requires the physical analytic FEG assembly")
+        raise ValueError("Tip wave gun transport currently requires the physical cold-FEG assembly")
     if gun.monochromator_installed and type(gun.monochromator.field_provider) is not AnalyticWienField:
         raise ValueError("Imported Wien fields need a validated non-quadratic wave operator; the installed provider cannot be skipped")
+
+
+def _field_coefficients(gun, z_mm, *, electric_provider=None):
+    """Read the installed solved E and supported analytic magnetic/Wien fields.
+
+    The electric provider is expanded to second order about the physical
+    optical axis. Magnetic gun dipoles and quadrupoles retain their exact
+    transverse law. Arbitrary providers fail closed rather than being
+    substituted with a matched Wien or an independently defined exit wave.
+    """
+    _require_supported_gun_fields(gun)
     z = np.asarray(z_mm, dtype=float)
     positions = np.zeros((len(z), 3))
     positions[:, 2] = z*1e-3
-    electric, magnetic = gun.electric_field, gun.magnetic_field
-    phi = electric.potential_v_at_global_positions(positions)
-    electric0 = electric.field_at_global_positions_v_per_m(positions)
+    electric = gun.electric_field if electric_provider is None else electric_provider
+    magnetic = gun.magnetic_field
+    from temsim.physics.wave_field_admission import sample_wave_electric
+    phi, gradient, hessian = sample_wave_electric(electric, z)
     magnetic0 = magnetic.field_at_global_positions_t(positions)
-    ej, bj = np.empty((len(z), 2, 2)), np.empty((len(z), 2, 2))
+    bj = np.empty((len(z), 2, 2))
     delta = 1e-4
     for axis in range(2):
         plus, minus = positions.copy(), positions.copy()
         plus[:, axis], minus[:, axis] = delta, -delta
-        ej[:, :, axis] = (electric.field_at_global_positions_v_per_m(plus)[:, :2]
-                         - electric.field_at_global_positions_v_per_m(minus)[:, :2])/(2*delta)
         bj[:, :, axis] = (magnetic.field_at_global_positions_t(plus)[:, :2]
                          - magnetic.field_at_global_positions_t(minus)[:, :2])/(2*delta)
     if np.any(magnetic0[:, 2] != 0):
         raise ValueError("An axial gun magnetic field requires its vector-potential rotation operator")
     # phi gradient/Hessian and grad(A_z)=(-B_y,B_x) for q=-e.
-    gradient = -electric0[:, :2]
-    hessian = -ej
     magnetic_force = np.stack((magnetic0[:, 1], -magnetic0[:, 0]), axis=1)
     magnetic_hessian = np.stack((bj[:, 1], -bj[:, 0]), axis=1)
     for array in (hessian, magnetic_hessian):
@@ -138,13 +149,78 @@ def _field_coefficients(gun, z_mm):
     return phi, gradient, hessian, magnetic_force, magnetic_hessian
 
 
-def _axial_grid(gun, numerics):
+def _refine_energy_grid(z_mm, electric, launch_energy_ev, numerics, cancelled=lambda: False):
+    """Bound axial energy change without replacing the installed field.
+
+    Midpoint quadrature in p(K), 1/p(K) and 1/v(K) needs an energy scale as
+    well as a distance scale near emission. Retain every original physical
+    node and insert midpoint nodes until the endpoint/midpoint energy range
+    is at most maximum_fractional_energy_change of its minimum. For a linear rising
+    non-relativistic potential the .05 default bounds the local 1/sqrt(K)
+    midpoint relative error by 3*fraction**2/32 (<0.024%). This is a local
+    quadrature bound, not a field or complete gun convergence certificate.
+    """
+    numerics.validate()
+    grid = np.asarray(z_mm, dtype=float)
+    if (grid.ndim != 1 or len(grid) < 2 or not np.isfinite(grid).all()
+            or grid[0] != 0 or np.any(np.diff(grid) <= 0)):
+        raise ValueError("Gun energy refinement needs a finite ordered grid beginning at the tip")
+    if len(grid)-1 > numerics.max_steps:
+        raise ValueError("Gun energy refinement exceeds max_steps")
+    query = getattr(electric, "potential_rise_v_at_global_positions", None)
+    if query is None:
+        query = electric.potential_v_at_global_positions
+
+    def potentials(nodes):
+        points = np.zeros((len(nodes), 3))
+        points[:, 2] = nodes*1e-3
+        values = np.asarray(query(points), dtype=float)
+        if values.shape != nodes.shape or not np.isfinite(values).all():
+            raise ValueError("Gun electric provider returned invalid axial potentials")
+        return values
+
+    if cancelled():
+        raise InterruptedError("Tip-to-exit wave energy refinement cancelled")
+    phi = potentials(grid)
+    energy = float(launch_energy_ev)+phi-phi[0]
+    _momentum_velocity(energy)  # Reject turning/forbidden nodes before transport.
+    for _ in range(64):
+        if cancelled():
+            raise InterruptedError("Tip-to-exit wave energy refinement cancelled")
+        mids = grid[:-1]+.5*np.diff(grid)
+        mid_energy = float(launch_energy_ev)+potentials(mids)-phi[0]
+        _momentum_velocity(mid_energy)
+        low = np.minimum(np.minimum(energy[:-1], energy[1:]), mid_energy)
+        high = np.maximum(np.maximum(energy[:-1], energy[1:]), mid_energy)
+        refine = (high-low)/low > numerics.maximum_fractional_energy_change
+        count = int(np.count_nonzero(refine))
+        if not count:
+            return grid
+        if len(grid)-1+count > numerics.max_steps:
+            raise ValueError("Gun energy refinement exceeds max_steps; increase the explicit numerical budget")
+        if np.any((mids[refine] <= grid[:-1][refine]) | (mids[refine] >= grid[1:][refine])):
+            raise ValueError("Gun energy refinement cannot resolve the requested tolerance in finite Z precision")
+        new_grid = np.sort(np.r_[grid, mids[refine]])
+        # Retain exact queried endpoint/midpoint values; no field interpolation
+        # or potential fit is introduced by the quadrature refinement.
+        positions = np.searchsorted(new_grid, grid)
+        new_energy = np.empty(len(new_grid))
+        new_energy[positions] = energy
+        new_energy[np.searchsorted(new_grid, mids[refine])] = mid_energy[refine]
+        grid, energy = new_grid, new_energy
+    raise ValueError("Gun energy refinement did not converge within its bounded refinement depth")
+
+
+def _axial_grid(gun, numerics, *, exact_z_mm=(), extra_mask_planes=(),
+                electric_provider=None, minimum_energy_ev=None, cancelled=lambda: False):
     stop = float(gun.exit_plane_z_mm)
     if not math.isfinite(stop) or stop <= 0:
         raise ValueError("Physical gun exit must follow the tip")
     # Boundaries come from geometry and field providers, never a source plane.
     events = {0., stop, float(gun.dpa_aperture.z_mm), float(gun.c1_aperture.z_mm)}
     masks = set(events)
+    masks.update(float(value) for value in extra_mask_planes)
+    events.update(float(value) for value in exact_z_mm)
     for component in gun.bore_components:
         start = component.mechanical_center_from_tip_mm-.5*component.mechanical_length_mm
         end = component.mechanical_center_from_tip_mm+.5*component.mechanical_length_mm
@@ -166,7 +242,16 @@ def _axial_grid(gun, numerics):
     grid = [ordered[0]]
     for a, b in zip(ordered, ordered[1:]):
         grid.extend(np.linspace(a, b, math.ceil((b-a)/numerics.field_step_mm)+1)[1:].tolist())
-    return np.array(grid), frozenset(v for v in masks if 0 < v <= stop)
+    grid = np.array(grid)
+    if electric_provider is not None or minimum_energy_ev is not None:
+        # The radial surface-boundary solver also uses this geometry helper;
+        # its different reference energy must not be silently substituted by
+        # the Gaussian tip's launch energy. The executed Gaussian gun always
+        # supplies its actual provider and minimum quadrature energy below.
+        electric = gun.electric_field if electric_provider is None else electric_provider
+        minimum = gun.emitter.emission_energy_ev if minimum_energy_ev is None else minimum_energy_ev
+        grid = _refine_energy_grid(grid, electric, minimum, numerics, cancelled)
+    return grid, frozenset(v for v in masks if 0 < v <= stop)
 
 
 def _kick(path, strength, force, depth=0):
@@ -196,10 +281,15 @@ def _drift(path, distance, depth=0):
         _drift(path, distance/2, depth+1)
 
 
-def _energy_transport(gun, z, mask_planes, coefficients, launch_energy, cancelled, axial_b_t=None):
+def _energy_transport(gun, z, mask_planes, coefficients, launch_energy, cancelled, axial_b_t=None,
+                      electric_provider=None):
     """Symmetric kick/drift/kick, retaining the continuous Weyl action and lift."""
     phi, gradient, hessian, magnetic_force, magnetic_hessian = coefficients
-    launch_phi = float(gun.electric_field.potential_v_at_global_positions(np.zeros((1, 3)))[0])
+    electric = gun.electric_field if electric_provider is None else electric_provider
+    query = getattr(electric, "potential_rise_v_at_global_positions", None)
+    if query is None:
+        query = electric.potential_v_at_global_positions
+    launch_phi = float(query(np.zeros((1, 3)))[0])
     energies = launch_energy+phi-launch_phi
     momentum, velocity = _momentum_velocity(energies)
     p_ref, _ = _momentum_velocity(launch_energy)
@@ -242,7 +332,7 @@ def _energy_transport(gun, z, mask_planes, coefficients, launch_energy, cancelle
             segments.append((float(z[i+1]), path.matrix, path.offset, path.phase_kwargs()))
             path = CanonicalPath(1e-3)
     exit_position = np.array(((0., 0., float(z[-1])*1e-3),))
-    exit_energy = launch_energy+float(gun.electric_field.potential_v_at_global_positions(exit_position)[0])-launch_phi
+    exit_energy = launch_energy+float(query(exit_position)[0])-launch_phi
     p_exit, _ = _momentum_velocity(exit_energy)
     return segments, {
         "launch_energy_ev": launch_energy, "exit_axial_energy_ev": exit_energy,
@@ -254,7 +344,7 @@ def _energy_transport(gun, z, mask_planes, coefficients, launch_energy, cancelle
         "phase_path_digest": json_digest([(plane, phase) for plane, _, _, phase in segments])}
 
 
-def _mask_plane(gun, wave, z_mm, prior):
+def _mask_plane(gun, wave, z_mm, prior, column_apertures=()):
     xy = wave.coordinates_m()*1e3
     rows = []
     for component in gun.bore_components:
@@ -287,7 +377,52 @@ def _mask_plane(gun, wave, z_mm, prior):
             rows.append({"component": aperture.key, "z_mm": z_mm, "kind": aperture.interaction_kind,
                          "incoming_probability": prior*before, "outgoing_probability": prior*wave.probability,
                          "lost_probability": prior*(before-wave.probability)})
+    # A column component moved into the gun is still a real absorbing opening.
+    # Gun-owned DPA/C1 masks above must not be applied a second time.
+    gun_keys = {gun.dpa_aperture.key, gun.c1_aperture.key}
+    for aperture in column_apertures:
+        if aperture.key in gun_keys or abs(z_mm-float(aperture.z_mm)) >= 1e-10:
+            continue
+        if float(aperture.radius_mm) <= 0:
+            mask = np.zeros(wave.amplitude.shape, dtype=bool)
+        elif hasattr(aperture, "transmission_mask"):
+            mask = np.asarray(aperture.transmission_mask(xy[0], xy[1]), dtype=bool)
+        else:
+            mask = np.hypot(xy[0]-aperture.offset_x_mm, xy[1]-aperture.offset_y_mm) <= aperture.radius_mm
+        if mask.shape != wave.amplitude.shape:
+            raise ValueError("Column aperture mask has the wrong shape inside the gun")
+        before = wave.probability
+        wave = replace(wave, amplitude=np.where(mask, wave.amplitude, 0j))
+        rows.append({"component": aperture.key, "z_mm": z_mm, "kind": "column_aperture",
+                     "incoming_probability": prior*before, "outgoing_probability": prior*wave.probability,
+                     "lost_probability": prior*(before-wave.probability)})
     return wave, rows
+
+
+def _column_magnetic_coefficients(column, midpoints):
+    """Actual column B terms not already present in the local gun provider.
+
+    Stigmator coefficients in the shared particle model use its nominal p/q.
+    Convert those coefficients back to B derivatives before combining with
+    the accelerating gun's fixed launch-momentum canonical Hamiltonian.
+    """
+    from temsim.physics.core import fields, multipole_focusing_fields, skew_quadrupole_field, electron
+    from temsim.physics.instrument_magnetic import column_dipole_fields, gun_paraxial_fields
+    axial = fields(midpoints, column)[0]
+    if fields(np.array((0.,)), column)[0][0] != 0:
+        raise ValueError("A magnetic field at the tip needs a magnetic emission boundary model")
+    positions = np.zeros((len(midpoints), 3))
+    positions[:, 2] = midpoints*1e-3
+    dipoles = sum((coil.field_at_global_positions_t(positions) for coil in column_dipole_fields(column)),
+                  np.zeros_like(positions))
+    sx, sy = multipole_focusing_fields(midpoints, column)
+    sxy = skew_quadrupole_field(midpoints, column)-gun_paraxial_fields(column, midpoints)[4]
+    tensor = np.empty((len(midpoints), 2, 2))
+    tensor[:, 0, 0], tensor[:, 1, 1] = sx, sy
+    tensor[:, 0, 1] = tensor[:, 1, 0] = sxy
+    tensor *= -electron(column)[1]/e
+    force = np.stack((dipoles[:, 1], -dipoles[:, 0]), axis=1)
+    return axial, force, tensor
 
 
 _CACHE = OrderedDict()
@@ -312,34 +447,58 @@ def build_tip_gun_checkpoint(gun, *, source_numerics=TipWaveNumerics(),
     working = deepcopy(gun)
     working.validate()
     emission = generate_tip_emission(working, source_numerics)
+    _require_supported_gun_fields(working)
     estimated_bytes = (emission.record["mode_count"]+8)*source_numerics.grid_pixels**2*16
     if estimated_bytes > numerics.maximum_checkpoint_bytes:
         raise ValueError(f"Gun checkpoint and wave buffers need approximately {estimated_bytes} bytes, above maximum_checkpoint_bytes={numerics.maximum_checkpoint_bytes}")
     from temsim.physics.wave_execution import check_available_memory
     check_available_memory(estimated_bytes)
-    z, masks = _axial_grid(working, numerics)
-    coefficients = _field_coefficients(working, (z[1:]+z[:-1])*.5)
-    column_record, axial_b = None, None
+    column_record, axial_b, electric, column = None, None, None, None
+    column_apertures, exact_z = (), ()
     if _column_state is not None:
-        from temsim.physics.core import build_propagation_plan, fields
+        from temsim.physics.core import build_propagation_plan
+        from temsim.physics.instrument_electric import capture_instrument_electric_field, configure_instrument_electric_domain
+        from temsim.physics.instrument_magnetic import active_column_events
         column = decode_instrument(encode_instrument(_column_state))
         if json_digest(encode_instrument(column.electron_gun)) != json_digest(encode_instrument(working)):
             raise ValueError("Shared column and gun inputs do not describe the same installed gun")
-        shared = build_propagation_plan(column, 0., float(z[-1]), save_z_mm=z)
-        from temsim.physics.wave_field_admission import require_supported_wave_dipoles
-        require_supported_wave_dipoles(column, 0., float(z[-1]), shared)
+        # Capture the SAME fixed full-instrument electrostatic solve used by
+        # the particles and subsequent column stages. A standalone gun domain
+        # must not silently replace this solve inside the accelerated stage.
+        electric = capture_instrument_electric_field(column)
+        configure_instrument_electric_domain(working, float(electric.bounds_m[1, 2])*1e3)
+        stop = float(working.exit_plane_z_mm)
+        shared = build_propagation_plan(column, 0., stop, active_column_events(column),
+                                       maximum_step_mm=numerics.field_step_mm)
+        # Quadratic column lenses, stigmators and finite dipoles are included
+        # below. Non-quadratic maps/correctors still fail explicitly.
         if shared.mapped_fields or any(np.any(getattr(shared, name)) for name in (
-                "sx_m2", "sy_m2", "midpoint_sx_m2", "midpoint_sy_m2", "midpoint_sxy_m2",
                 "hex_normal_m3", "hex_skew_m3", "midpoint_hex_normal_m3", "midpoint_hex_skew_m3",
-                "cs_kick_m3", "thin_power_m1", "thin_rotation_rad", "kick_x_rad", "kick_y_rad",
-                "dipole_bx_t", "dipole_by_t")):
-            raise ValueError("Non-axial column components inside the accelerating gun require a joint operator; they cannot be skipped")
-        # Sample on the gun's own grid so no post-hoc boundary phase is fitted.
-        axial_b = fields((z[1:]+z[:-1])*.5, column)[0]
-        if fields(np.array((0.,)), column)[0][0] != 0:
-            raise ValueError("A magnetic field at the tip needs a magnetic emission boundary model")
+                "cs_kick_m3", "thin_power_m1", "thin_rotation_rad", "kick_x_rad", "kick_y_rad")):
+            raise ValueError("Non-quadratic column components inside the accelerating gun require a joint operator; they cannot be skipped")
+        exact_z = tuple(shared.z_mm)
+        column_apertures = tuple(a for a in column.apertures
+            if all(bool(getattr(a, name, True)) for name in ("installed", "enabled", "inserted"))
+            and 0 < float(a.z_mm) <= stop)
         column_record = {"inputs": encode_instrument(column), "plan_signature": shared.signature,
+                         "electric_field_identity": electric.numerical_identity,
                          "boundary_gauge": "A=(-Bz*y/2,Bz*x/2,0); canonical momentum continuous"}
+    if electric is None:
+        electric = working.electric_field
+    base_electric = getattr(electric, "base_field", electric)
+    exact_z += tuple(float(value)*1e3 for value in getattr(base_electric, "z", ()))
+    z, masks = _axial_grid(working, numerics, exact_z_mm=exact_z,
+                          extra_mask_planes=(a.z_mm for a in column_apertures),
+                          electric_provider=electric,
+                          minimum_energy_ev=min(row["energy_ev"] for row in emission.record["energy_modes"]),
+                          cancelled=cancelled)
+    midpoints = (z[1:]+z[:-1])*.5
+    coefficients = _field_coefficients(working, midpoints, electric_provider=electric)
+    if column is not None:
+        axial_b, column_force, column_tensor = _column_magnetic_coefficients(column, midpoints)
+        phi, gradient, hessian, magnetic_force, magnetic_hessian = coefficients
+        coefficients = (phi, gradient, hessian,
+                        magnetic_force+column_force, magnetic_hessian+column_tensor)
     field_digest = sha256()
     for values in (z, *coefficients):
         field_digest.update(np.ascontiguousarray(values).tobytes())
@@ -364,7 +523,8 @@ def build_tip_gun_checkpoint(gun, *, source_numerics=TipWaveNumerics(),
         energy = mode.energy_kev*1000
         if energy not in energy_maps:
             energy_maps.clear()
-            energy_maps[energy] = _energy_transport(working, z, masks, coefficients, energy, cancelled, axial_b)
+            energy_maps[energy] = _energy_transport(working, z, masks, coefficients, energy, cancelled,
+                                                    axial_b, electric_provider=electric)
         segments, transport = energy_maps[energy]
         energy_records[energy] = transport
         wave, losses = mode.plane, []
@@ -373,7 +533,8 @@ def build_tip_gun_checkpoint(gun, *, source_numerics=TipWaveNumerics(),
                 raise InterruptedError("Tip-to-exit wave propagation cancelled")
             if wave.probability > 0:
                 wave = propagate_plane_wave(wave, matrix, offset, float(wavelength_m(energy)), **phase)
-                wave, rows = _mask_plane(working, wave, plane, mode.weight_per_reference_electron)
+                wave, rows = _mask_plane(working, wave, plane, mode.weight_per_reference_electron,
+                                         column_apertures)
                 losses.extend(rows)
         norm = wave.probability
         # This is a unit conversion of phase carriers, preserving their phase
@@ -396,10 +557,11 @@ def build_tip_gun_checkpoint(gun, *, source_numerics=TipWaveNumerics(),
         "numerics": asdict(numerics), "source_numerics": asdict(source_numerics),
         "physical_components": [component.key for component in working.components],
         "energy_transport": list(energy_records.values()), "mode_records": records,
-        "physics": "Stationary scalar quadratic paraxial Hamiltonian in installed analytic gun fields",
-        "integrator": "Symmetric potential kick / variable-momentum drift / potential kick",
+        "physics": "Stationary scalar second-order paraxial Hamiltonian in the installed solved gun electric field and captured magnetic components",
+        "integrator": "Energy-refined symmetric potential kick / variable-momentum drift / potential kick",
         "current_reference": "Physical tip emission before all gun losses",
         "limitations": ["Higher-order/non-paraxial gun dynamics not included in this operator",
+                        "Electric potential is expanded to second transverse order about the optical axis",
                         "Imported Wien fields require a separate validated operator",
                         "Body bores use axial absorbing projections; refine bore_step_mm",
                         "Reference flight time is axial, not a pulsed longitudinal wave packet"],

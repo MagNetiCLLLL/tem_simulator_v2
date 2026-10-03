@@ -345,9 +345,9 @@ def test_main_window_edit_uses_existing_invalidation_and_keeps_parameter_panel_i
 
     stale = []
     original_mark_stale = window.workspace.mark_ray_stale
-    def mark_stale(state):
+    def mark_stale(state, assembly=None):
         stale.append(state)
-        original_mark_stale(state)
+        original_mark_stale(state, assembly)
     monkeypatch.setattr(window.workspace, "mark_ray_stale", mark_stale)
     _edit(page, ("condenser_lens_1", "percent"), "43.5")
     assert window.parameter_panel.lens_excitation.value() == 43.5

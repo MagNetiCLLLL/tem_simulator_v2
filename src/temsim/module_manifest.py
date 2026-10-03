@@ -341,9 +341,8 @@ class PartGeometry:
 
 
 def read_document(path, *, capture_navigation=False):
-    from temsim.shared_tip import resolve_document
-    with input_io.open_input(path) as stream:
-        return resolve_document(tomllib.load(stream), path, capture_navigation=capture_navigation)
+    from temsim.shared_tip import raw_document, resolve_document
+    return resolve_document(raw_document(path), path, capture_navigation=capture_navigation)
 
 
 def part_data(module_path, key, root=None):

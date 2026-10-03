@@ -33,7 +33,7 @@ def test_result_cutoff_selection_cursor_and_staleness_stay_separate(make_workspa
     assert bar.extent["completed_z_mm"] == 16.
     # A changed physical input marks the old calculation, not the chosen plane.
     view.mark_ray_stale(SimpleNamespace(electron_gun=SimpleNamespace(
-        type_key="fixture", display_name="Electron source")))
+        type_key="fixture", display_name="Electron source"), apertures=()))
     assert bar.extent["stale"]
     view.display_result(completed(target=19.), "Preview")
     assert bar.extent["completed_z_mm"] == 19.

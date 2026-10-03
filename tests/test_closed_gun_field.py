@@ -7,6 +7,23 @@ from dataclasses import FrozenInstanceError
 import numpy as np
 import pytest
 
+
+def test_prescribed_tip_coherence_does_not_change_vacuum_electrostatic_request():
+    """With no space charge, electrode voltage/geometry alone fixes Laplace's problem."""
+    from temsim.optics.column import default_state
+    from temsim.optics.electron_gun.tip_coherence import TipCoherence
+    from temsim.physics.closed_gun_field import closed_field_request
+    gun = default_state().electron_gun
+    original = closed_field_request(gun)
+    gun.emitter.coherence = TipCoherence(incoherent_angle_rms_mrad=.5, curvature_xy_m1=20.)
+    assert closed_field_request(gun) == original
+    # Serialization validation consumes the field request but must neither
+    # discard the tip phase nor claim that a wave has been transported.
+    from temsim.optics.electron_gun.field_emission import field_emission_gun_from_dict
+    restored = field_emission_gun_from_dict(gun.to_dict())
+    assert restored.emitter.coherence == gun.emitter.coherence
+    assert closed_field_request(restored) == original
+
 from temsim.physics.continuous_curvature_conductor import (
     ContinuousCurvatureConductor,
     continuous_curvature_conductor,

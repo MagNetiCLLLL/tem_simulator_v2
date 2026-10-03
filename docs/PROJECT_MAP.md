@@ -4,7 +4,11 @@
 
 2026-09-29 局部更新：第 8.1 节记录当前去重结果，详见 [代码清理验证记录](CODE_CLEANUP_AUDIT_ZH.md)。其余文件数量和行数仍是上述基准的导航快照。
 
+2026-10-03 局部更新：用户已于 2026-10-02 明确恢复相干开发。独立 Coherent beam 页面由 `gui/coherent_beam.py` 和 `physics/tip_wave_pipeline.py` 负责针尖起源、共享电磁场及所选 Z 的开发观察，经典粒子流程仍为默认。当前注册八个验收范围，新增 `coherent-development`；有限算子和离屏 CPU 软件验证不等于完整 TEM/STEM、真实 GPU、原生桌面或实验资格。输入与支持边界见 [相干计算说明](COHERENT_BEAM.md)。其余文件统计仍保持上述历史基准。
+
 这份地图用于定位功能、界面、模型、测试和可重构位置。初版仅整理静态导航，不是物理验收；后续局部修改及其验证记录在上面的更新说明中。
+
+2026-10-03 所选平面轮廓：`gui/plane_hardware_geometry.py` 提取孔径、柱壁/枪体通道及探测器几何，保留真实 Z 并提供向上游看的轴向投影；`gui/plane_cutoff_events.py` 缓存已记录的真实截断位置，移动 Z 不重复插值路径；`gui/plane_hardware_overlay.py` 负责位置/强度图叠加、名称/Z 标注、独立显隐、显示重置以及并排 Fit beam / Fit cutoff。重合管壁仅合并绘图，成员身份仍保留。编辑硬件预览明确区别于已计算的 beam/stops，隐藏面板重新打开也保留最新预览。这些模块不重新计算电子；相关几何、截断、界面及延迟发布测试均纳入 `field-ui/FU-11`。异平面轮廓不是当前 Z 的有效接收掩模；截断点不是当前平面的到达点，也不是电子数量读出。
 
 ## 1. 使用方式与范围
 
@@ -42,7 +46,7 @@
 | `column/` | 5 | 从配置构建和解析柱体组件与布局 |
 | `optics/` 直接子文件 | 68 | 透镜、多极场、偏转器、校正器、对准、能量过滤器 |
 | `optics/electron_gun/` | 23 | tip、电子发射、提取/加速、枪透镜、光阑及枪追迹 |
-| `physics/` | 141 | 粒子/场/扫描数值计算；同时包含暂停的相干波研究代码 |
+| `physics/` | 141 | 粒子/场/扫描与相干波数值计算；文件数量是基准快照，当前开发范围见上述局部更新 |
 | `specimen/` | 22 | 样品、CIF、支撑、散射、材料内及下游传播 |
 | `detector/` | 18 | 电子计数、STEM、相机、EDS/EELS 响应和读出 |
 | `recorder/` | 7 | 独立的实验设备记录工具，不是模拟器求解器 |
@@ -228,7 +232,7 @@ flowchart LR
 .venv\Scripts\python.exe scripts\validate_classical_scope.py --scope field-ui --output outputs\agent-validation\field-ui
 ```
 
-这是未来修改后的验证示例，本轮没有执行。可用范围/约束以 `acceptance.py`、`PROJECT_FUNCTION_SPEC.md` 和实际命令行定义为准；CI 当前使用 `classical`、`acceptance-policy`、`gun-fields`、`electron-execution`、`field-ui`、`particle-continuation`、`performance-observation`。`full-report` 输出完整范围状态，不会使暂停的相干链路变成已验证。
+这是未来修改后的验证示例，不是通过报告。可用范围/约束以 `acceptance.py`、`PROJECT_FUNCTION_SPEC.md` 和实际命令行定义为准；CI 当前使用 `classical`、`acceptance-policy`、`gun-fields`、`electron-execution`、`field-ui`、`particle-continuation`、`performance-observation`、`coherent-development`。`full-report` 仅报告完整范围尚未覆盖项，不启动完整相干计算，也不授予物理资格。
 
 ## 7. 必须保留的非运行文件
 
@@ -316,7 +320,7 @@ flowchart LR
 | 5 | 按实测优化缓存 | 围绕 gun、柱传播、样品、EDS、绘图分开统计命中和重算原因 | 同一输入精确复用；相关参数变化能使正确阶段失效 |
 | 6 | 开发工具公共化 | 统一 CLI 结果目录、报告格式、资源限制；保留各实验独立物理问题 | 原脚本验收范围、退出码、失败证据、CI 和独立安装 |
 
-每次只重构一个边界，先记录现有行为，再运行对应验收。不要为了精简跳过提取、加速、光阑、样品或探测器作用；不要把末端源、历史 PASS 标签、缓存标签当成已经执行的上游传播。相干开发保持暂停，数值工作继续遵守进程可用逻辑 CPU 的一半上限。
+每次只重构一个边界，先记录现有行为，再运行对应验收。不要为了精简跳过提取、加速、光阑、样品或探测器作用；不要把末端源、历史 PASS 标签、缓存标签当成已经执行的上游传播。独立相干开发仅按明确请求和已注册范围执行；数值工作继续遵守进程可用逻辑 CPU 的一半上限。
 
 ## 10. 为 AI for experiments 保留的结构
 

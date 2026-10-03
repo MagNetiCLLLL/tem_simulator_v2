@@ -7,6 +7,7 @@ numerics. There is no API for supplying a replacement downstream source.
 from collections import OrderedDict
 from dataclasses import asdict, dataclass, replace
 import math
+from numbers import Real
 
 from temsim.detector.wave_readout import WaveReadoutOptions, read_wave_detector, _apply_recording_stop
 from temsim.immutable_json import json_digest
@@ -42,10 +43,19 @@ class TipWaveRequest:
     surface: SurfaceWaveNumerics = SurfaceWaveNumerics()
     radial_gun: RadialGunNumerics = RadialGunNumerics()
     radial_column: RadialColumnNumerics = RadialColumnNumerics()
+    observation_z_mm: float | None = None
 
     def validate(self):
-        if self.stop not in ("tip_near_field", "gun_exit", "specimen_entrance", "specimen_exit", "detector"):
+        if self.stop not in ("tip_near_field", "gun_exit", "specimen_entrance", "specimen_exit", "detector", "plane"):
             raise ValueError("Unknown tip wave stopping stage")
+        if self.stop == "plane":
+            if (isinstance(self.observation_z_mm, bool)
+                    or not isinstance(self.observation_z_mm, Real) or not math.isfinite(self.observation_z_mm)):
+                raise ValueError("A virtual observation plane needs a finite numeric axial Z in millimetres")
+            if self.detector_key is not None or self.detector_keys:
+                raise ValueError("A virtual observation plane cannot also select detector readouts")
+        elif self.observation_z_mm is not None:
+            raise ValueError("Observation Z is only used with stop='plane'")
         self.surface.validate()
         self.radial_gun.validate()
         self.radial_column.validate()
@@ -85,9 +95,71 @@ class TipWaveResult:
 
 _STAGES = OrderedDict()
 _MAXIMUM_CACHE_BYTES = 8*1024**3
+# Session-owned references to completed virtual observations and committed
+# intermediate column planes. Disk references reuse existing stage files;
+# they add no duplicate wave arrays or file format.
+_OBSERVATION_PREFIXES = OrderedDict()
+_MAXIMUM_OBSERVATION_PREFIXES = 512
 
 
-def _surface_segment(state, request, snapshot, *, use_cache, cancelled, progress_callback):
+def _find_observation_prefix(identity, minimum_z_mm, target_z_mm, store, *, segmented, cancelled):
+    candidates = sorted((key for key in _OBSERVATION_PREFIXES
+        if key[0] == identity and minimum_z_mm <= key[1] <= target_z_mm),
+        key=lambda key: key[1], reverse=True)
+    for key in candidates:
+        if cancelled():
+            raise InterruptedError("Virtual-plane prefix lookup cancelled")
+        cache_key, digest = _OBSERVATION_PREFIXES[key]
+        if segmented:
+            checkpoint = store.get(cache_key)
+        else:
+            entry = _STAGES.get(cache_key)
+            checkpoint = None if entry is None else entry[0]
+        if checkpoint is None:
+            del _OBSERVATION_PREFIXES[key]
+            continue
+        if checkpoint.plane_z_mm != key[1] or checkpoint.digest != digest:
+            raise ValueError("Executed virtual-plane prefix identity changed")
+        # Store.get validates the manifest. Load one immutable mode at a time
+        # to verify the existing array checksums even for an exact-Z readout.
+        if segmented:
+            for mode in checkpoint.beam.modes:
+                if cancelled():
+                    raise InterruptedError("Virtual-plane prefix verification cancelled")
+                del mode
+        if cancelled():
+            raise InterruptedError("Virtual-plane prefix verification cancelled")
+        _OBSERVATION_PREFIXES.move_to_end(key)
+        if not segmented:
+            _STAGES.move_to_end(cache_key)
+        return checkpoint
+    return None
+
+
+def _register_observation_prefix(identity, checkpoint, store, request, *, cancelled):
+    key = (identity, checkpoint.plane_z_mm)
+    digest = checkpoint.digest
+    if cancelled():
+        raise InterruptedError("Virtual-plane request cancelled before prefix registration")
+    if request.execution.segmented:
+        storage = checkpoint.record.get("storage", {})
+        if storage.get("dependency") != store.dependency or not storage.get("key"):
+            # Only a real committed execution can become a continuation.
+            return
+        cache_key = storage["key"]
+    else:
+        cache_key = (store.dependency, "observation_plane", json_digest(key))
+        _retain(cache_key, checkpoint, request.execution.maximum_ram_cache_bytes)
+        if cache_key not in _STAGES:
+            return
+    _OBSERVATION_PREFIXES[key] = (cache_key, digest)
+    _OBSERVATION_PREFIXES.move_to_end(key)
+    while len(_OBSERVATION_PREFIXES) > _MAXIMUM_OBSERVATION_PREFIXES:
+        _OBSERVATION_PREFIXES.popitem(last=False)
+
+
+def _surface_segment(state, request, snapshot, *, use_cache, cancelled, progress_callback,
+                     instrument_digest):
     """Near-tip development stage; never mislabelled as a gun-exit BeamState."""
     import numpy as np
     from temsim.physics.surface_wave import compute_surface_wave, _CACHE
@@ -104,12 +176,12 @@ def _surface_segment(state, request, snapshot, *, use_cache, cancelled, progress
     hit = any(result is old for old in cached)
     from temsim.immutable_json import freeze_json
     result = replace(result, record=freeze_json({**result.record,
-        "instrument_snapshot": snapshot.digest, "column_guard_plan": guard_signature,
+        "instrument_snapshot": instrument_digest, "column_guard_plan": guard_signature,
         "column_guard": "No active field, stop or intersecting wall in this near-field domain"}))
-    snapshot.restore()  # Verify implementation/external files before publication.
+    snapshot.verify_current_inputs(state)
     if cancelled():
         raise InterruptedError("Tip wave request cancelled")
-    return TipWaveResult(result, None, request, hit, snapshot.digest)
+    return TipWaveResult(result, None, request, hit, instrument_digest)
 
 
 def _recording_planes(state, key, keys=()):
@@ -138,6 +210,30 @@ def _recording_planes(state, key, keys=()):
     return planes, tuple(targets)
 
 
+def _observation_stops(state, gun_exit_z_mm, target_z_mm, entrance_z_mm, exit_z_mm, vacuum):
+    """All physical stops before a virtual plane, including unobserved ones.
+
+    A coincident virtual plane denotes the incident state at that physical
+    device. Absorption is included only when continuing strictly beyond it.
+    The current gun/specimen producers cannot insert a detector internally.
+    """
+    inserted = tuple(d for d in getattr(state, "recording_planes", ()) if bool(d.inserted))
+    if any(not math.isfinite(float(d.z_mm)) for d in inserted):
+        raise ValueError("Physical detector axial positions must be finite")
+    candidates = tuple(d for d in inserted if float(d.z_mm) < target_z_mm)
+    if len({d.key for d in candidates}) != len(candidates):
+        raise ValueError("Duplicate physical detector identity")
+    if any(float(d.z_mm) < gun_exit_z_mm for d in candidates):
+        raise ValueError("A detector inside the gun requires a jointly truncated coherent gun operator")
+    if not vacuum and any(entrance_z_mm < float(d.z_mm) < exit_z_mm for d in candidates):
+        raise ValueError("A detector inside the specimen requires a truncated specimen wave operator")
+    ordered = tuple(sorted(candidates, key=lambda d: float(d.z_mm)))
+    if any(math.isclose(a.z_mm, b.z_mm, rel_tol=0., abs_tol=1e-9)
+           for a, b in zip(ordered, ordered[1:])):
+        raise ValueError("Coincident inserted detector planes need an explicit physical absorption order")
+    return ordered
+
+
 def _retain(key, result, maximum_bytes=_MAXIMUM_CACHE_BYTES):
     size = sum(m.plane.amplitude.nbytes for m in result.beam.modes)
     if size > maximum_bytes:
@@ -146,6 +242,50 @@ def _retain(key, result, maximum_bytes=_MAXIMUM_CACHE_BYTES):
     _STAGES.move_to_end(key)
     while len(_STAGES) > 8 or sum(v[1] for v in _STAGES.values()) > maximum_bytes:
         _STAGES.popitem(last=False)
+
+
+class TipWaveObservationSession:
+    """Observe multiple exact Z planes from one privately captured instrument.
+
+    Supply the detached instrument controls captured at the user's Calculate
+    command. Snapshot capture and the first restore run lazily inside the first
+    observation worker. Later requests change only Z; no downstream wave/source
+    state is accepted. A caller editing physical inputs must create a new session.
+    """
+
+    def __init__(self, detached_state, request, *, use_cache=True):
+        import threading
+        request.validate()
+        if request.stop != "plane":
+            raise ValueError("A live observation session requires stop='plane'")
+        self.__pending_state = detached_state
+        self.__request = request
+        self.__use_cache = use_cache
+        self.__snapshot = self.__working = self.__instrument_digest = None
+        self.__lock = threading.Lock()
+
+    def observe(self, z_mm, *, cancelled=lambda: False, progress_callback=None):
+        request = replace(self.__request, observation_z_mm=z_mm).validate()
+        if cancelled():
+            raise InterruptedError("Tip wave observation cancelled")
+        if not self.__lock.acquire(blocking=False):
+            raise RuntimeError("Only one observation may execute in a coherent session at a time")
+        try:
+            if self.__snapshot is None:
+                snapshot = capture_instrument_snapshot(self.__pending_state)
+                working = snapshot.restore()
+                identity = snapshot.digest
+                self.__snapshot, self.__working = snapshot, working
+                self.__instrument_digest = identity
+                self.__pending_state = None
+            else:
+                self.__snapshot.verify_current_inputs(self.__working)
+            if cancelled():
+                raise InterruptedError("Tip wave observation cancelled before execution")
+            return _execute_tip_wave(self.__working, request, self.__snapshot, self.__instrument_digest,
+                use_cache=self.__use_cache, cancelled=cancelled, progress_callback=progress_callback)
+        finally:
+            self.__lock.release()
 
 
 def simulate_tip_wave(state, request=TipWaveRequest(), *, use_cache=True,
@@ -161,6 +301,27 @@ retain their established workflows and are not replaced by this entry point.
         raise InterruptedError("Tip wave request cancelled")
     snapshot = capture_instrument_snapshot(state)
     working = snapshot.restore()
+    return _execute_tip_wave(working, request, snapshot, snapshot.digest, use_cache=use_cache,
+                             cancelled=cancelled, progress_callback=progress_callback)
+
+
+def _execute_tip_wave(working, request, snapshot, instrument_digest, *, use_cache,
+                      cancelled, progress_callback):
+    """Execute from privately captured controls, never a replacement beam."""
+    def verify():
+        snapshot.verify_current_inputs(working)
+
+    # Admission and execution use the same immutable captured controls. Keep
+    # plans only within this request and only reuse their exact endpoint grid;
+    # a detector/material split must never borrow a larger interval's plan.
+    prepared_columns = {}
+
+    def admit_column(start, stop):
+        key = (float(start), float(stop))
+        prepared = _prepare_column(working, start, stop, request.column_step_mm)
+        prepared_columns[key] = prepared
+        return prepared
+
     if bool(getattr(working, "equivalent_image_lenses_enabled", False)):
         raise ValueError("Only executed upstream caches may replace distributed optics")
     nano = getattr(working, "nanopulser", None)
@@ -168,18 +329,32 @@ retain their established workflows and are not replaced by this entry point.
         raise ValueError("Installed electrostatic beam blanker needs time-energy wavepacket propagation")
     if request.stop == "tip_near_field":
         return _surface_segment(working, request, snapshot, use_cache=use_cache,
-            cancelled=cancelled, progress_callback=progress_callback)
+            cancelled=cancelled, progress_callback=progress_callback, instrument_digest=instrument_digest)
     # Every discrete upstream column event must have an owner, including a
     # component moved into the gun region by a custom assembly.
     gun_end = working.electron_gun.exit_plane_z_mm
     if _component_events(working, -1e-12, gun_end)[0]:
         raise ValueError("Column deflector events inside the gun need the joint accelerating operator")
     entrance = specimen_entrance_z_mm(working)
+    exit_z = float(working.sample.z_mm)+float(working.sample.thickness_nm)*.5e-6
     planes, targets = _recording_planes(working, request.detector_key, request.detector_keys) if request.stop == "detector" else ((), ())
     target = targets[-1] if targets else None
     end = {"gun_exit": gun_end, "specimen_entrance": entrance,
-           "specimen_exit": working.sample.z_mm+working.sample.thickness_nm*.5e-6,
-           "detector": None if target is None else target.z_mm}[request.stop]
+           "specimen_exit": exit_z,
+           "detector": None if target is None else target.z_mm,
+           "plane": request.observation_z_mm}[request.stop]
+    observation_stops, observation_vacuum = (), None
+    if request.stop == "plane":
+        end = float(end)
+        if end < gun_end:
+            raise ValueError("Virtual observation inside the gun needs a truncated coherent gun operator; this stage starts at the executed gun exit")
+        from temsim.specimen.scene import SpecimenScene
+        observation_vacuum = SpecimenScene.from_state(working).is_vacuum
+        if not observation_vacuum and entrance < gun_end and end > entrance:
+            raise ValueError("A specimen inside the gun requires a joint coherent gun/specimen operator")
+        if not observation_vacuum and entrance < end < exit_z:
+            raise ValueError("Virtual observation inside the specimen needs a truncated specimen wave operator")
+        observation_stops = _observation_stops(working, gun_end, end, entrance, exit_z, observation_vacuum)
     if bool(getattr(working, "energy_filter_installed", False)):
         boundary = float(working.energy_filter.entrance_z_mm)
         if not math.isfinite(boundary):
@@ -187,12 +362,11 @@ retain their established workflows and are not replaced by this entry point.
         if end >= boundary:
             raise ValueError(f"The installed energy filter requires its coherent field operator at z={boundary:.9g} mm; "
                              f"the requested path to z={end:.9g} mm cannot skip it")
-    if request.stop != "gun_exit":
-        _prepare_column(working, gun_end, entrance, request.column_step_mm)
+    if request.stop not in ("plane", "gun_exit"):
+        admit_column(gun_end, entrance)
         if target is not None:
-            _prepare_column(working, working.sample.z_mm+working.sample.thickness_nm*.5e-6,
-                            target.z_mm, request.column_step_mm)
-    propagation_id = json_digest({"instrument": snapshot.digest, "source": asdict(request.source),
+            admit_column(working.sample.z_mm+working.sample.thickness_nm*.5e-6, target.z_mm)
+    propagation_id = json_digest({"instrument": instrument_digest, "source": asdict(request.source),
                                  "gun": asdict(request.gun), "surface": asdict(request.surface),
                                  "radial_gun": asdict(request.radial_gun)})
     store = ExecutedWaveStore(request.execution.cache_directory, propagation_id, request.execution.maximum_disk_cache_bytes)
@@ -202,6 +376,16 @@ retain their established workflows and are not replaced by this entry point.
         _CACHE.clear()
     cache_hit = False
     epoch = float(getattr(working, "simulation_time_s", 0.) if request.tip_time_s is None else request.tip_time_s)
+    observation_identity = None
+    if request.stop == "plane":
+        numerics = asdict(request)
+        numerics.pop("observation_z_mm")
+        observation_identity = json_digest({"tip_execution": propagation_id,
+            "request_without_observation_z": numerics, "tip_epoch_s": epoch})
+    def remember_observation(checkpoint):
+        if use_cache and observation_identity is not None:
+            _register_observation_prefix(observation_identity, checkpoint, store, request,
+                                         cancelled=cancelled)
     def stage(name, producer, *, inputs=()):
         nonlocal cache_hit
         key = (propagation_id, name, json_digest(inputs))
@@ -217,7 +401,7 @@ retain their established workflows and are not replaced by this entry point.
             cache_hit = True
             return _STAGES[key][0]
         result = producer()
-        snapshot.restore()  # Verify source implementation and external bytes before caching.
+        verify()  # Recheck source implementation and external bytes before caching.
         if cancelled():
             raise InterruptedError("Tip wave request cancelled")
         if request.execution.segmented:
@@ -237,15 +421,19 @@ retain their established workflows and are not replaced by this entry point.
                         request.wave_grid.column_identity()))
             if upstream.plane_z_mm == stop:
                 return upstream
+        prepared = prepared_columns.pop((float(upstream.plane_z_mm), float(stop)), None)
         if request.execution.segmented:
             result, hit = _propagate_column_segmented(working, upstream, stop, store=store,
                 segment_steps=request.execution.segment_steps, maximum_step_mm=request.column_step_mm,
-                grid_numerics=request.wave_grid, tip_time_s=epoch, verify=snapshot.restore,
-                cancelled=cancelled, progress_callback=progress_callback, use_cache=use_cache)
+                grid_numerics=request.wave_grid, tip_time_s=epoch, verify=verify,
+                cancelled=cancelled, progress_callback=progress_callback, use_cache=use_cache,
+                checkpoint_callback=remember_observation if observation_identity is not None else None,
+                _prepared=prepared)
             cache_hit |= hit
             return result
         return _propagate_column(working, upstream, stop, maximum_step_mm=request.column_step_mm,
-            grid_numerics=request.wave_grid, tip_time_s=epoch, cancelled=cancelled, progress_callback=progress_callback)
+            grid_numerics=request.wave_grid, tip_time_s=epoch, cancelled=cancelled,
+            progress_callback=progress_callback, _prepared=prepared)
     def compute_gun():
         model = getattr(working.electron_gun.emitter, "surface_model", None)
         if model is not None and model.coherence is not None:
@@ -266,11 +454,86 @@ retain their established workflows and are not replaced by this entry point.
         return build_tip_gun_checkpoint(working.electron_gun, source_numerics=request.source,
             numerics=request.gun, _column_state=working, use_cache=use_cache and not request.execution.segmented,
             cancelled=cancelled, progress_callback=progress_callback)
-    gun = stage("gun_exit", compute_gun)
-    result = gun
+    prefix = (_find_observation_prefix(observation_identity, gun_end, end, store,
+        segmented=request.execution.segmented, cancelled=cancelled)
+        if use_cache and request.stop == "plane" else None)
+    if request.stop == "plane":
+        # A verified executed prefix already contains all upstream fields and
+        # physical stops. Admit only its unexecuted continuation: moving Z
+        # must not rebuild the complete gun-to-observation field plan.
+        from temsim.physics.wave_field_admission import require_supported_column_wave_fields
+        start = gun_end if prefix is None else prefix.plane_z_mm
+        spans = ([(start, end)] if observation_vacuum else [
+            (start, min(end, entrance)),
+            (max(start, entrance), min(end, exit_z)),
+            (max(start, exit_z), end)])
+        for lower, upper in spans:
+            if upper > lower:
+                prepared = admit_column(lower, upper)
+                require_supported_column_wave_fields(working, lower, upper, prepared[0])
+    result = stage("gun_exit", compute_gun) if prefix is None else prefix
+    if prefix is not None:
+        cache_hit = True
+    resume_z_mm = result.plane_z_mm
+    del prefix
+    if request.stop == "plane":
+        remember_observation(result)
+        def advance_column(upstream, stop):
+            if float(stop) == upstream.plane_z_mm:
+                return upstream
+            if request.execution.segmented:
+                result = column(upstream, float(stop))
+            else:
+                result = stage("observation_column", lambda: column(upstream, float(stop)),
+                    inputs=(upstream.digest, float(stop), request.column_step_mm,
+                            request.wave_grid.column_identity(), asdict(request.radial_column), epoch))
+            remember_observation(result)
+            return result
+
+        def advance_observation(upstream, stop):
+            if observation_vacuum or stop <= entrance:
+                return advance_column(upstream, stop)
+            if upstream.plane_z_mm < entrance:
+                upstream = advance_column(upstream, entrance)
+            if upstream.plane_z_mm < exit_z:
+                if request.inelastic.method == "trajectories":
+                    from temsim.physics.inelastic_wave import _propagate_inelastic_specimen
+                    upstream = _propagate_inelastic_specimen(working, upstream, numerics=request.inelastic,
+                        store=store, maximum_step_mm=request.column_step_mm, grid_numerics=request.wave_grid,
+                        tip_time_s=epoch, cancelled=cancelled, progress_callback=progress_callback,
+                        verify=verify, use_cache=use_cache)
+                else:
+                    incident = upstream
+                    upstream = stage("specimen_exit", lambda: _propagate_specimen(working, incident,
+                        maximum_checkpoint_bytes=request.gun.maximum_checkpoint_bytes,
+                        maximum_step_mm=request.column_step_mm, grid_numerics=request.wave_grid, tip_time_s=epoch,
+                        cancelled=cancelled, progress_callback=progress_callback),
+                        inputs=(incident.digest, asdict(request.inelastic), request.column_step_mm,
+                                asdict(request.wave_grid), epoch))
+                remember_observation(upstream)
+            return advance_column(upstream, stop)
+
+        for plane in observation_stops:
+            if float(plane.z_mm) < resume_z_mm:
+                continue  # Absorption at these devices is already executed.
+            result = advance_observation(result, float(plane.z_mm))
+            incident = result
+            if request.execution.segmented:
+                from temsim.detector.wave_readout import _recording_stop_streamed
+                result = _recording_stop_streamed(incident, plane, store, verify=verify,
+                    cancelled=cancelled, use_cache=use_cache)
+            else:
+                result = stage("detector_transmitted:"+plane.key,
+                    lambda: _apply_recording_stop(incident, plane), inputs=(incident.digest,))
+            del incident
+        result = advance_observation(result, end)
+        verify()
+        if cancelled():
+            raise InterruptedError("Virtual-plane wave request cancelled before publication")
+        remember_observation(result)
+        return TipWaveResult(result, None, request, cache_hit, instrument_digest)
     if request.stop != "gun_exit":
         result = column(result, entrance)
-    del gun
     if request.stop in ("specimen_exit", "detector"):
         upstream = result
         from temsim.specimen.scene import SpecimenScene
@@ -282,7 +545,7 @@ retain their established workflows and are not replaced by this entry point.
             result = _propagate_inelastic_specimen(working, upstream, numerics=request.inelastic,
                 store=store, maximum_step_mm=request.column_step_mm, grid_numerics=request.wave_grid,
                 tip_time_s=epoch, cancelled=cancelled, progress_callback=progress_callback,
-                verify=snapshot.restore, use_cache=use_cache)
+                verify=verify, use_cache=use_cache)
         else:
             result = stage("specimen_exit", lambda: _propagate_specimen(working, upstream,
                 maximum_checkpoint_bytes=request.gun.maximum_checkpoint_bytes,
@@ -309,10 +572,10 @@ retain their established workflows and are not replaced by this entry point.
                 incident = result
                 if request.execution.segmented:
                     from temsim.detector.wave_readout import _recording_stop_streamed
-                    result = _recording_stop_streamed(incident, plane, store, verify=snapshot.restore,
+                    result = _recording_stop_streamed(incident, plane, store, verify=verify,
                         cancelled=cancelled, use_cache=use_cache)
                 else:
                     result = stage("detector_transmitted:"+plane.key, lambda: _apply_recording_stop(incident, plane), inputs=(incident.digest,))
                 del incident
-    snapshot.restore()
-    return TipWaveResult(result, readouts[-1] if readouts else None, request, cache_hit, snapshot.digest, tuple(readouts))
+    verify()
+    return TipWaveResult(result, readouts[-1] if readouts else None, request, cache_hit, instrument_digest, tuple(readouts))

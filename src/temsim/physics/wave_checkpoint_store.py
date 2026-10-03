@@ -84,15 +84,27 @@ class _StoredBeam:
 
 class _ModeWriter:
     def __init__(self, store, key, reference):
+        store._validate_key(key)
         self.store, self.key, self.reference = store, key, reference
-        self.directory = store.root/("pending-"+uuid4().hex)
+        # Only the atomic index publishes a checkpoint. Allocate its unique
+        # directory at the final name so Windows readers/scanners may hold
+        # child files without blocking a redundant directory rename.
+        self.directory = store.root/(key+"-"+uuid4().hex)
         self.directory.mkdir()
+        self._owned_directory = self.directory
+        self._published = self._aborted = False
+        self._index_temporary = None
         self.rows, self.bytes = [], 0
         self.mode_ids = set()
         self.auxiliary = {}
 
+    def _require_open(self):
+        if self._published or self._aborted:
+            raise ValueError("Executed wave writer is already published or aborted")
+
     def append_auxiliary(self, name, value):
         """Retain mandatory non-plane state in the same atomic checkpoint."""
+        self._require_open()
         if (not isinstance(name, str) or not name or len(name) > 80
                 or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789_" for c in name)
                 or name in self.auxiliary):
@@ -109,6 +121,7 @@ class _ModeWriter:
         self.store._used_bytes += path.stat().st_size
 
     def append(self, mode):
+        self._require_open()
         if mode.reference_plane != self.reference:
             raise ValueError("Stored modes must retain their original electron reference")
         if mode.mode_id in self.mode_ids:
@@ -133,6 +146,7 @@ class _ModeWriter:
         self.mode_ids.add(mode.mode_id)
 
     def finish(self, z_mm, current_a, record):
+        self._require_open()
         if not self.rows:
             raise ValueError("An executed checkpoint needs at least one mode")
         data = {"schema": "executed-tip-wave-disk-v1", "dependency": self.store.dependency, "key": self.key,
@@ -146,24 +160,35 @@ class _ModeWriter:
         self.store.check_space(len(payload)+512)  # manifest and atomic index
         path.write_bytes(payload)
         self.store._used_bytes += len(payload)
-        destination = self.store.root/(self.key+"-"+uuid4().hex)
-        self.directory.rename(destination)
         # Index commit is atomic; readers never see a partially written mode.
         index = self.store.root/(self.key+".json")
         temporary = index.with_name("index-"+uuid4().hex+".json")
-        temporary.write_text(json.dumps({"directory": destination.name, "digest": data["manifest_digest"]}), encoding="utf-8")
+        self._index_temporary = temporary
+        temporary.write_text(json.dumps({"directory": self.directory.name, "digest": data["manifest_digest"]}), encoding="utf-8")
         self.store._used_bytes += temporary.stat().st_size-(index.stat().st_size if index.exists() else 0)
         os.replace(temporary, index)
+        # Publication precedes loading: a later read failure must never let
+        # finally: abort() remove a checkpoint that is already indexed.
+        self._published = True
+        self._index_temporary = None
         return self.store.get(self.key)
 
     def abort(self):
-        # Delete only this writer's verified private pending directory.
-        if self.directory.parent.resolve() != self.store.root.resolve() or not self.directory.name.startswith("pending-"):
+        if self._published or self._aborted:
+            return
+        # Delete only this writer's original, unindexed directory. Never follow
+        # a substituted directory/symlink or touch another writer's checkpoint.
+        if (self.directory != self._owned_directory or self.directory.is_symlink()
+                or self.directory.parent.resolve() != self.store.root
+                or self.directory.resolve() != self._owned_directory):
             raise ValueError("Invalid private cache cleanup path")
         if self.directory.exists():
             shutil.rmtree(self.directory)
-            # A failed np.save may have left bytes before its accounting update.
-            self.store._used_bytes = sum(p.stat().st_size for p in self.store.root.rglob("*") if p.is_file())
+        if self._index_temporary is not None:
+            self._index_temporary.unlink(missing_ok=True)
+        self._aborted = True
+        # A failed np.save/index write may precede its accounting update.
+        self.store._used_bytes = sum(p.stat().st_size for p in self.store.root.rglob("*") if p.is_file())
 
 
 class ExecutedWaveStore:
@@ -183,9 +208,13 @@ class ExecutedWaveStore:
     def writer(self, key, reference):
         return _ModeWriter(self, key, reference)
 
-    def _manifest(self, key):
-        if len(key) != 64 or any(c not in "0123456789abcdef" for c in key):
+    @staticmethod
+    def _validate_key(key):
+        if not isinstance(key, str) or len(key) != 64 or any(c not in "0123456789abcdef" for c in key):
             raise ValueError("Executed cache keys must be calculated dependency digests")
+
+    def _manifest(self, key):
+        self._validate_key(key)
         index = self.root/(key+".json")
         if not index.exists():
             return None

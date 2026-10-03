@@ -106,6 +106,15 @@ def test_scale_includes_full_population_but_excludes_uncalculated_stopped_tail()
     assert FlightTimeColourScale.from_result(result).maximum_s == 10e-9
 
 
+@pytest.mark.parametrize("clock", [None, ["missing"], [0., 1., 2., 3.], np.array([1j])])
+def test_invalid_historical_filter_clock_does_not_destroy_valid_particle_scale(clock):
+    result = timed_result()
+    result.energy_filter = SimpleNamespace(timed_planes=(SimpleNamespace(
+        time_reference="simultaneous_tip_emission", time_s=clock, reached=np.array([True, True]),
+    ),))
+    assert FlightTimeColourScale.from_result(result).maximum_s == 2e-9
+
+
 def test_completed_negative_z_gun_stop_does_not_invent_an_arrival_clock(workspace):
     result = timed_result()
     result.simulation.branches = {}

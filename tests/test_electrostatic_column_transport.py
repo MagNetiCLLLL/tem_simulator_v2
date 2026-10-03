@@ -158,10 +158,10 @@ def test_electric_resume_requires_actual_checkpoint_energy():
         core.execute_propagation_plan(state,plan,*(np.zeros(1),)*4,start_index=1)
 
 
-def test_paused_wave_rejects_active_electric_column_before_allocating_wave():
+def test_legacy_radial_wave_rejects_active_electric_column_before_allocating_wave():
     from temsim.physics.wave_field_admission import require_supported_wave_dipoles
     state,plan=fixture()
-    with pytest.raises(ValueError,match='Paused wave transport'):
+    with pytest.raises(ValueError,match='Wave development does not support'):
         require_supported_wave_dipoles(state,0.,10.,plan)
 
 

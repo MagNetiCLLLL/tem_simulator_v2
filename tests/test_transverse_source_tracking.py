@@ -204,9 +204,17 @@ def test_source_display_is_bounded_without_using_survivor_sample(view):
     result = recorded_result(3001)
     result.simulation.incident.blocked_z[::3] = .5
     view.display_result(result)
-    expected = np.linspace(0, 3000, view.MAX_DISPLAY_RAYS, dtype=int)
-    ids = [row["source_ray_id"] for row in view.source_plot.scatter.data["data"]]
-    np.testing.assert_array_equal(ids, expected)
+    ids = np.array([row["source_ray_id"] for row in view.source_plot.scatter.data["data"]])
+    # Representatives are identity-mixed to avoid correlations between launch
+    # record order and source sector. The contract is bounded, deterministic
+    # selection from every emitted ray, including later stopped rays.
+    assert len(ids) == view.MAX_DISPLAY_RAYS
+    assert len(np.unique(ids)) == len(ids)
+    assert np.all((ids >= 0) & (ids < 3001))
+    assert np.any(ids % 3 == 0)  # Later aperture stops still appear at the source.
+    view.display_result(result)
+    np.testing.assert_array_equal(
+        [row["source_ray_id"] for row in view.source_plot.scatter.data["data"]], ids)
     top = view.source_plot.scatter
     view.focus_z(.1)
     view.focus_z(.9)

@@ -13,7 +13,7 @@ from scipy.linalg import expm
 from temsim.physics.canonical_action import CanonicalPath
 from temsim.physics.core import build_propagation_plan, electron
 from temsim.physics.column_wall import _vacuum_segments, _expanded_profile_axis
-from temsim.physics.multiplane_wave import propagate_plane_wave
+from temsim.physics.multiplane_wave import propagate_plane_wave, reselect_phase_carrier
 from temsim.physics.multipole_wave import apply_multipole_phase
 from temsim.physics.tip_gun_wave import TipGunCheckpoint
 from temsim.physics.wave_flux import BeamState, WaveMode
@@ -22,7 +22,9 @@ from temsim.physics.wave_grid import WaveGridNumerics, apply_resolved_operator
 
 def _component_events(state, start, stop, *, arrival_time=None):
     events, owners, seen = [], [], set()
-    for component in (*state.deflectors, *getattr(state, "corrector_elements", ())):
+    from temsim.physics.instrument_magnetic import column_dipole_fields
+    physical_coils = column_dipole_fields(state)
+    for component in (*state.deflectors, *getattr(state, "stigmators", ()), *getattr(state, "corrector_elements", ())):
         if not getattr(component, "enabled", False):
             continue
         if component.key in seen:
@@ -37,7 +39,11 @@ def _component_events(state, start, stop, *, arrival_time=None):
         except TypeError:
             rows = component.kick_events()
         for row_index, (z, x, y) in enumerate(rows):
-            if start < z <= stop:
+            supports = [coil for coil in physical_coils
+                        if (coil.event_z_mm, coil.event_dx_rad, coil.event_dy_rad) == (z, x, y)]
+            finite = bool(supports)
+            overlaps = any(coil.lower_m < stop*1e-3 and coil.upper_m > start*1e-3 for coil in supports)
+            if overlaps or (not finite and start < z <= stop):
                 dynamic = bool(getattr(component, "scan_enabled", False) or getattr(component, "wobble_enabled", False))
                 time = None
                 if dynamic and arrival_time is not None:
@@ -48,7 +54,10 @@ def _component_events(state, start, stop, *, arrival_time=None):
                     _, x, y = actual[row_index]
                 events.append((z, x, y))
                 owners.append({"component": component.key, "z_mm": z, "kick_rad": (x, y),
-                               "dynamic": dynamic, "arrival_time_s": time})
+                               "dynamic": dynamic, "arrival_time_s": time,
+                               "finite_field": finite,
+                               "effective_thickness_mm": float(getattr(component, "effective_thickness_mm",
+                                                       getattr(component, "thickness_mm", 0.)))})
     return events, owners
 
 
@@ -73,8 +82,8 @@ def _prepare_column(state, start, stop, maximum_step_mm):
     events, owners = _component_events(state, start, stop)
     plan = build_propagation_plan(state, start, stop, events,
         save_z_mm=[a.z_mm for a in apertures]+boundaries, maximum_step_mm=maximum_step_mm)
-    from temsim.physics.wave_field_admission import require_supported_wave_dipoles
-    require_supported_wave_dipoles(state, start, stop, plan)
+    from temsim.physics.wave_field_admission import require_supported_column_wave_fields
+    require_supported_column_wave_fields(state, start, stop, plan)
     if plan.mapped_fields:
         raise ValueError("Installed 3-D field maps need their non-polynomial wave Hamiltonian; no linear substitute is allowed")
     if np.any(plan.thin_power_m1) or np.any(plan.thin_rotation_rad):
@@ -91,43 +100,195 @@ def _prepare_column(state, start, stop, maximum_step_mm):
     return plan, radii, stops, owners
 
 
-def _linear_factor(path, generator, distance, depth=0):
+def _linear_factor(path, generator, distance, depth=0, *, force=None):
     """Lift a known constant Hamiltonian; bisect without changing its map."""
     try:
-        path.append(expm(generator*distance))
+        if force is None or not np.any(force):
+            path.append(expm(generator*distance))
+        else:
+            # Integrate the driven centre and its central Weyl action in the
+            # same matrix exponential. a'=1/2(F_p.q-F_q.p), not a phase fitted
+            # to the final ray displacement. A uniform force then has the
+            # independently known a=F^2 L^3/12 in a unit drift.
+            extended = np.zeros((6, 6))
+            extended[:4, :4] = generator
+            extended[:4, 5] = force
+            extended[4, :4] = .5*np.r_[force[2:], -force[:2]]
+            result = expm(extended*distance)
+            path.append(result[:4, :4], result[:4, 5], action_m=float(result[4, 5]))
     except ValueError as error:
         if "Canonical phase path is undersampled" not in str(error) or depth >= 24:
             raise
-        _linear_factor(path, generator, distance/2, depth+1)
-        _linear_factor(path, generator, distance/2, depth+1)
+        _linear_factor(path, generator, distance/2, depth+1, force=force)
+        _linear_factor(path, generator, distance/2, depth+1, force=force)
 
 
-def _column_transports(plan, energy_kev):
-    from types import SimpleNamespace
-    q, momentum, _ = electron(SimpleNamespace(beam_voltage_kv=energy_kev))
+def _electric_coefficients(plan):
+    field = getattr(plan, "electric_field", None)
+    if field is None:
+        count = len(plan.step_m)
+        return np.zeros(count+1), np.zeros(count), np.zeros((count, 2)), np.zeros((count, 2, 2))
+    from temsim.physics.wave_field_admission import sample_wave_electric
+    nodes = sample_wave_electric(field, plan.z_mm)[0]
+    phi, gradient, hessian = sample_wave_electric(field, .5*(plan.z_mm[:-1]+plan.z_mm[1:]))
+    return nodes, phi, gradient, hessian
+
+
+def _column_transports(plan, energy_kev, *, electric=None, dipoles=None):
+    """Symplectic maps in fixed entrance-p canonical units during acceleration.
+
+    H/p0=(P+A)^2/(2 p(z) p0)-p(phi(x,y,z))/p0 plus the shared quadrupole
+    potentials. Expanding the scalar p(phi) to second order includes both
+    electrostatic curvature and the negative relativistic second derivative.
+    Lens/stigmator coefficients were defined at instrument reference momentum;
+    convert that force to this mode's fixed canonical units rather than changing
+    the captured magnetic field when energy changes.
+    """
+    from scipy.constants import e, m_e
+    from temsim.physics.tip_gun_wave import _momentum_velocity
+    nodes, phi, gradient, hessian = _electric_coefficients(plan) if electric is None else electric
+    entrance_p, _ = _momentum_velocity(energy_kev*1000.)
+    momentum, velocity = _momentum_velocity(energy_kev*1000.+phi-nodes[0])
+    reference_p = float(getattr(plan, "reference_momentum_kg_m_s", entrance_p))
+    scale = reference_p/entrance_p
+    strength = (e*hessian/velocity[:, None, None]
+        -(m_e*m_e*e*e/momentum**3)[:, None, None]*gradient[:, :, None]*gradient[:, None, :])/entrance_p
+    bx = np.asarray(getattr(plan, "dipole_bx_t", np.zeros(3*len(plan.step_m))))[1::3]
+    by = np.asarray(getattr(plan, "dipole_by_t", np.zeros(3*len(plan.step_m))))[1::3]
+    if dipoles is not None:
+        bx, by = dipoles
     for i, dz in enumerate(plan.step_m):
-        g = q*plan.midpoint_magnetic_t[i]/(2*momentum)
+        b = -e*plan.midpoint_magnetic_t[i]/2
+        g = b/momentum[i]
         rotation = np.array(((0., g), (-g, 0.)))
-        stiffness = np.diag((plan.midpoint_sx_m2[i]+g*g, plan.midpoint_sy_m2[i]+g*g))
-        stiffness[0, 1] = stiffness[1, 0] = plan.midpoint_sxy_m2[i]
-        generator = np.block([[rotation, np.eye(2)], [-stiffness, rotation]])
+        stiffness = np.diag((scale*plan.midpoint_sx_m2[i]+b*b/(entrance_p*momentum[i]),
+                             scale*plan.midpoint_sy_m2[i]+b*b/(entrance_p*momentum[i])))
+        stiffness[0, 1] = stiffness[1, 0] = scale*plan.midpoint_sxy_m2[i]
+        generator = np.block([[rotation, np.eye(2)*entrance_p/momentum[i]],
+                              [strength[i]-stiffness, rotation]])
+        force = np.r_[np.zeros(2), e*(gradient[i]/velocity[i]+np.array((by[i], -bx[i])))/entrance_p]
         path = CanonicalPath(1e-3)
-        _linear_factor(path, generator, float(dz))
+        if not np.any(rotation) and not np.any(strength[i]-stiffness) and not np.any(force):
+            matrix = np.eye(4)
+            matrix[:2, 2:] = np.eye(2)*float(dz)*entrance_p/momentum[i]
+            path.append(matrix)
+        else:
+            _linear_factor(path, generator, float(dz), force=force)
         yield path
 
 
+def _mode_dipoles(plan, owners, mode_owners, state):
+    """Re-evaluate finite driven coils without adding a second centre kick."""
+    from scipy.constants import e
+    count = len(plan.step_m)
+    bx = np.asarray(getattr(plan, "dipole_bx_t", np.zeros(3*count)))[1::3].copy()
+    by = np.asarray(getattr(plan, "dipole_by_t", np.zeros(3*count)))[1::3].copy()
+    reference_p = electron(state)[1]
+    z = .5*(plan.z_mm[:-1]+plan.z_mm[1:])
+    updated = {(row["component"], row["z_mm"]): row for row in mode_owners}
+    for old in owners:
+        new = updated[(old["component"], old["z_mm"])]
+        if not old.get("finite_field", False):
+            continue
+        length = old["effective_thickness_mm"]
+        active = abs(z-old["z_mm"]) < .5*length
+        dx, dy = np.subtract(new["kick_rad"], old["kick_rad"])
+        bx[active] -= reference_p*dy/(e*length*1e-3)
+        by[active] += reference_p*dx/(e*length*1e-3)
+    return bx, by
+
+
+def _inside_bore(shape, basis_m, origin_m, radius_mm):
+    """Prove every sample of an affine grid is strictly inside a circular bore."""
+    if not math.isfinite(radius_mm):
+        return True  # The existing wall operator is inactive for nonfinite radii.
+    ny, nx = shape
+    corners = np.array(((-(nx//2), -(ny//2)), (nx-1-nx//2, -(ny//2)),
+                        (nx-1-nx//2, ny-1-ny//2), (-(nx//2), ny-1-ny//2)), dtype=float)
+    corner_xy = (origin_m[:, None]+basis_m@corners.T)*1e3
+    coordinate_bound = (abs(origin_m)+abs(basis_m)@np.max(abs(corners), axis=0))*1e3
+    margin = 16*np.finfo(float).eps*np.hypot(*coordinate_bound)
+    return np.nextafter(np.max(np.hypot(*corner_xy))+margin, np.inf) < radius_mm
+
+
+def _linear_run(wave, wavelength, paths, first, plan, radii, stops, kick_x, kick_y):
+    """Compose resolved quadratic steps only while every intermediate grid is safe.
+
+    This changes the numerical carrier schedule, never the integrated fields.
+    No event or possibly active wall is crossed. All tests use the actual input
+    lattice after carrier selection, not a Gaussian fit or a ray envelope.
+    """
+    from temsim.physics.canonical_action import principal_reference_phase
+    curvature = np.zeros((2, 2)) if wave.curvature_m1 is None else wave.curvature_m1
+    tilt = np.zeros(2) if wave.tilt_rad is None else wave.tilt_rad
+    inverse_basis = np.linalg.inv(wave.basis_m)
+    basis_condition = np.linalg.cond(wave.basis_m)
+    theta = wavelength*np.linalg.norm(inverse_basis, ord=2)
+    extent = np.linalg.norm(wave.basis_m, ord=2)*min(wave.amplitude.shape)
+    nxny = np.array(wave.amplitude.shape[::-1])
+    combined = CanonicalPath(1e-3)
+    accepted, last = None, first
+    for i in range(first, len(paths)):
+        j = i+1
+        if (plan.midpoint_hex_normal_m3[i] or plan.midpoint_hex_skew_m3[i]
+                or plan.cs_kick_m3[j] or kick_x[j] or kick_y[j] or stops.get(j)):
+            break
+        child = paths[i]
+        # A child with an internally lifted full turn cannot be reconstructed
+        # from its endpoint. Keep the stepwise operator for that case.
+        if abs(child.reference_phase_rad-principal_reference_phase(
+                child.matrix, child.reference_length_m)) > 1e-10:
+            break
+        try:
+            combined.append(child.matrix, child.offset, action_m=child.action_m)
+        except ValueError as error:
+            if "Canonical phase path is undersampled" not in str(error):
+                raise
+            break
+        a, b = combined.matrix[:2, :2], combined.matrix[:2, 2:]
+        effective = a+b@curvature
+        condition = np.linalg.cond(effective) if np.isfinite(effective).all() else np.inf
+        if condition >= 1e8:
+            break
+        drift = np.linalg.solve(effective, b)
+        # Retain the existing angular-spectrum bound, plus a bound in each
+        # sampled direction for skew or highly anisotropic lattices.
+        index_drift = wavelength*inverse_basis@drift@inverse_basis.T
+        # Do not admit a boundary case merely because inverses/products rounded
+        # inward. Ill-conditioned lattices conservatively keep the step path.
+        slack = 64*np.finfo(float).eps*max(1., basis_condition, condition)
+        if (np.linalg.norm(drift, ord=2)*theta >= (1-slack)*.25*extent
+                or np.any(.5*np.sum(abs(index_drift), axis=1) >= (1-slack)*.25*nxny)):
+            break
+        basis = effective@wave.basis_m
+        origin = a@wave.origin_m+b@tilt+combined.offset[:2]
+        if not _inside_bore(wave.amplitude.shape, basis, origin, radii[j]):
+            break
+        # append mutates its owner, so the last accepted path needs a copy.
+        accepted = CanonicalPath(combined.reference_length_m)
+        accepted.matrix, accepted.offset = combined.matrix.copy(), combined.offset.copy()
+        accepted.action_m, accepted.reference_phase_rad = combined.action_m, combined.reference_phase_rad
+        last = j
+    return last, accepted
+
+
 def _clip(wave, radius_mm, apertures, z_mm, prior):
-    xy = wave.coordinates_m()*1e3
+    xy = None
     rows = []
     if math.isfinite(radius_mm):
-        before = wave.probability
-        mask = np.hypot(xy[0], xy[1]) < radius_mm
-        if not np.all(mask):
-            wave = replace(wave, amplitude=np.where(mask, wave.amplitude, 0j))
-        if wave.probability < before:
-            rows.append({"component": "column_wall", "z_mm": z_mm,
-                         "lost_weight": prior*(before-wave.probability)})
+        inside_bore = _inside_bore(wave.amplitude.shape, wave.basis_m, wave.origin_m, radius_mm)
+        if not inside_bore:
+            xy = wave.coordinates_m()*1e3
+            before = wave.probability
+            mask = np.hypot(xy[0], xy[1]) < radius_mm
+            if not np.all(mask):
+                wave = replace(wave, amplitude=np.where(mask, wave.amplitude, 0j))
+            if wave.probability < before:
+                rows.append({"component": "column_wall", "z_mm": z_mm,
+                             "lost_weight": prior*(before-wave.probability)})
     for a in apertures:
+        if xy is None:
+            xy = wave.coordinates_m()*1e3
         if float(getattr(a, "radius_mm", 1.)) <= 0:
             mask = np.zeros_like(xy[0], dtype=bool)
         elif hasattr(a, "transmission_mask"):
@@ -146,13 +307,13 @@ def _clip(wave, radius_mm, apertures, z_mm, prior):
 
 def _propagate_column(state, checkpoint, stop_z_mm, *, maximum_step_mm=.5,
                       grid_numerics=WaveGridNumerics(), retained_bytes=0,
-                      tip_time_s=None, _prepared=None,
+                      tip_time_s=None, _prepared=None, _combine_linear=True,
                       cancelled=lambda: False, progress_callback=None):
     from temsim.optics.electron_gun.tip_coherence import wavelength_m
-    from temsim.simulation_modes import is_ideal
     plan, radii, stops, owners = (_prepare_column(state, checkpoint.plane_z_mm, stop_z_mm, maximum_step_mm)
                                  if _prepared is None else _prepared)
     outputs, records, maps = [], [], {}
+    electric = _electric_coefficients(plan)
     from temsim.physics.wave_checkpoint_store import resident_wave_bytes
     retained_bytes += resident_wave_bytes(checkpoint.beam)
     map_bytes = 512*len(plan.step_m)
@@ -162,12 +323,16 @@ def _propagate_column(state, checkpoint, stop_z_mm, *, maximum_step_mm=.5,
     for index, mode in enumerate(checkpoint.beam.modes):
         if cancelled():
             raise InterruptedError("Column wave propagation cancelled")
-        optical_energy = state.beam_voltage_kv if is_ideal(state) else mode.energy_kev
-        if optical_energy not in maps:
-            maps.clear()  # only one energy's current segment, never all past paths
-            maps[optical_energy] = tuple(_column_transports(plan, optical_energy))
         from temsim.physics.tip_gun_wave import _momentum_velocity
-        momentum, velocity = _momentum_velocity(mode.energy_kev*1000)
+        entrance_p, entrance_v = _momentum_velocity(mode.energy_kev*1000)
+        nodes, phi, _, _ = electric
+        energies = mode.energy_kev*1000+phi-nodes[0]
+        momentum, velocity = _momentum_velocity(energies)
+        exit_energy = mode.energy_kev*1000+nodes[-1]-nodes[0]
+        exit_p, _ = _momentum_velocity(exit_energy)
+        elapsed = np.r_[0., np.cumsum(plan.step_m/velocity)]
+        flight_increment = float(elapsed[-1])
+        action_increment = float(np.sum(plan.step_m*momentum))
         dynamic_actions = any(row.get("dynamic", False) for row in owners)
         mode_owners, kick_x, kick_y = owners, plan.kick_x_rad, plan.kick_y_rad
         if dynamic_actions:
@@ -177,14 +342,22 @@ def _propagate_column(state, checkpoint, stop_z_mm, *, maximum_step_mm=.5,
             if not math.isfinite(epoch):
                 raise ValueError("Tip emission clock must be finite")
             events, mode_owners = _component_events(state, checkpoint.plane_z_mm, stop_z_mm,
-                arrival_time=lambda z: epoch+mode.axial_reference.flight_time_s+(z-checkpoint.plane_z_mm)*1e-3/velocity)
+                arrival_time=lambda z: epoch+mode.axial_reference.flight_time_s+
+                (float(np.interp(z, plan.z_mm, elapsed)) if plan.z_mm[0] <= z <= plan.z_mm[-1]
+                 else (z-checkpoint.plane_z_mm)*1e-3/entrance_v))
             kick_x, kick_y = np.zeros(len(plan.z_mm)), np.zeros(len(plan.z_mm))
-            for z, x, y in events:
+            for (z, x, y), owner in zip(events, mode_owners):
+                if owner.get("finite_field", False):
+                    continue
                 node = int(np.argmin(abs(plan.z_mm-z)))
                 if abs(plan.z_mm[node]-z) > 1e-9:
                     raise ValueError("Dynamic coil is missing from the physical integration grid")
                 kick_x[node] += x; kick_y[node] += y
-        wave, losses, refinements = mode.plane, [], []
+        if mode.energy_kev not in maps or dynamic_actions:
+            maps.clear()  # only one energy's current segment, never all past paths
+            maps[mode.energy_kev] = tuple(_column_transports(plan, mode.energy_kev, electric=electric,
+                dipoles=_mode_dipoles(plan, owners, mode_owners, state) if dynamic_actions else None))
+        wave, losses, refinements, linear_runs = mode.plane, [], [], []
         wavelength = float(wavelength_m(mode.energy_kev*1000))
         def multipole(wave, z, **strengths):
             if not any(strengths.values()):
@@ -202,7 +375,41 @@ def _propagate_column(state, checkpoint, stop_z_mm, *, maximum_step_mm=.5,
                 progress_callback(index*len(plan.step_m)+i, len(checkpoint.beam.modes)*len(plan.step_m),
                                   f"Column wave refined {rows[0]['from_shape']} -> {rows[-1]['to_shape']} at {z:.9g} mm")
             return result
-        for i, (dz, path) in enumerate(zip(plan.step_m, maps[optical_energy])):
+        def linear(wave, path, z, *, input_z, operator="distributed_linear", selected_gauge=None):
+            output_rows = []
+            try:
+                if selected_gauge is None:
+                    wave, gauge_rows = reselect_phase_carrier(wave, wavelength,
+                        grid_numerics=grid_numerics, retained_bytes=retained_bytes, cancelled=cancelled)
+                else:
+                    wave, gauge_rows = selected_gauge
+                result, rows = apply_resolved_operator(wave,
+                    lambda value: propagate_plane_wave(value, path.matrix, path.offset,
+                        wavelength, **path.phase_kwargs(), grid_numerics=grid_numerics,
+                        retained_bytes=retained_bytes, cancelled=cancelled,
+                        sampling_records=output_rows),
+                    numerics=grid_numerics, retained_bytes=retained_bytes, cancelled=cancelled)
+            except ValueError as error:
+                raise ValueError(f"Column linear z={z:.9g} mm, mode {mode.mode_id}: {error}") from error
+            for row in gauge_rows:
+                row.update(z_mm=float(input_z), input_z_mm=float(input_z), output_z_mm=float(z),
+                           mode_id=mode.mode_id, operator="phase_carrier_representation")
+            rows = gauge_rows+rows+output_rows
+            for row in rows[len(gauge_rows):]:
+                row.update(z_mm=float(z), input_z_mm=float(input_z), output_z_mm=float(z),
+                           mode_id=mode.mode_id, operator=operator)
+            refinements.extend(rows)
+            if rows and progress_callback:
+                changed = rows[0]['from_shape'] != rows[-1]['to_shape']
+                message = (f"Column wave grid {rows[0]['from_shape']} -> {rows[-1]['to_shape']}" if changed
+                           else "Column wave phase representation checked")
+                progress_callback(index*len(plan.step_m)+i, len(checkpoint.beam.modes)*len(plan.step_m),
+                    f"{message} at {z:.9g} mm")
+            return result
+        i = 0
+        paths = maps[mode.energy_kev]
+        while i < len(paths):
+            dz, path = plan.step_m[i], paths[i]
             if i % 64 == 0:
                 if cancelled():
                     raise InterruptedError("Column wave propagation cancelled")
@@ -210,41 +417,61 @@ def _propagate_column(state, checkpoint, stop_z_mm, *, maximum_step_mm=.5,
                     progress_callback(index*len(plan.step_m)+i, len(checkpoint.beam.modes)*len(plan.step_m), "Distributed column wave")
             if wave.probability == 0:
                 break
-            hn, hs = plan.midpoint_hex_normal_m3[i]*dz/2, plan.midpoint_hex_skew_m3[i]*dz/2
+            multipole_scale = float(getattr(plan, "reference_momentum_kg_m_s", entrance_p))/entrance_p
+            hn, hs = plan.midpoint_hex_normal_m3[i]*dz*multipole_scale/2, plan.midpoint_hex_skew_m3[i]*dz*multipole_scale/2
             wave = multipole(wave, plan.z_mm[i], normal_m2=hn, skew_m2=hs)
-            wave = propagate_plane_wave(wave, path.matrix, path.offset, wavelength, **path.phase_kwargs())
+            selected = None
+            if _combine_linear and not hn and not hs:
+                selected = reselect_phase_carrier(wave, wavelength,
+                    grid_numerics=grid_numerics, retained_bytes=retained_bytes, cancelled=cancelled)
+                last, combined = _linear_run(selected[0], wavelength, paths, i, plan, radii, stops, kick_x, kick_y)
+                if last > i+1:
+                    wave = linear(wave, combined, plan.z_mm[last], input_z=plan.z_mm[i], selected_gauge=selected)
+                    linear_runs.append({"first_step": i, "last_step_exclusive": last})
+                    i = last
+                    continue
+            wave = linear(wave, path, plan.z_mm[i+1], input_z=plan.z_mm[i], selected_gauge=selected)
             wave = multipole(wave, plan.z_mm[i+1], normal_m2=hn, skew_m2=hs)
             j = i+1
             if kick_x[j] or kick_y[j]:
                 kick = CanonicalPath(1e-3)
-                kick.append(np.eye(4), np.array((0., 0., kick_x[j], kick_y[j])))
-                wave = propagate_plane_wave(wave, kick.matrix, kick.offset, wavelength, **kick.phase_kwargs())
-            wave = multipole(wave, plan.z_mm[j], spherical_m3=plan.cs_kick_m3[j])
+                local_p, _ = _momentum_velocity(mode.energy_kev*1000+nodes[j]-nodes[0])
+                kick.append(np.eye(4), np.array((0., 0., kick_x[j], kick_y[j]))*local_p/entrance_p)
+                wave = linear(wave, kick, plan.z_mm[j], input_z=plan.z_mm[j], operator="physical_impulse")
+            local_p, _ = _momentum_velocity(mode.energy_kev*1000+nodes[j]-nodes[0])
+            wave = multipole(wave, plan.z_mm[j], spherical_m3=plan.cs_kick_m3[j]*local_p/entrance_p)
             wave, rows = _clip(wave, radii[j], stops.get(j, ()), float(plan.z_mm[j]), mode.weight_per_reference_electron)
             losses.extend(rows)
+            i += 1
         norm = wave.probability
-        length = (stop_z_mm-checkpoint.plane_z_mm)*1e-3
-        reference = None if mode.axial_reference is None else mode.axial_reference.advance(float(length/velocity), float(length*momentum))
-        output = replace(mode, plane=replace(wave, amplitude=wave.amplitude/math.sqrt(norm) if norm else wave.amplitude),
+        reference = None if mode.axial_reference is None else mode.axial_reference.advance(flight_increment, action_increment)
+        ratio = float(entrance_p/exit_p)
+        output = replace(mode, plane=replace(wave, amplitude=wave.amplitude/math.sqrt(norm) if norm else wave.amplitude,
+                         curvature_m1=None if wave.curvature_m1 is None else wave.curvature_m1*ratio,
+                         tilt_rad=None if wave.tilt_rad is None else wave.tilt_rad*ratio),
                          weight_per_reference_electron=mode.weight_per_reference_electron*norm,
+                         energy_kev=float(exit_energy)*1e-3,
                          axial_reference=reference)
         outputs.append(output)
         retained_bytes += output.plane.amplitude.nbytes
         records.append({"mode_id": mode.mode_id, "energy_kev": mode.energy_kev,
                         "input_weight": mode.weight_per_reference_electron,
-                        "reference_flight_time_increment_s": float(length/velocity),
-                        "reference_longitudinal_action_increment_j_s": float(length*momentum),
+                        "output_energy_kev": output.energy_kev,
+                        "reference_flight_time_increment_s": flight_increment,
+                        "reference_longitudinal_action_increment_j_s": action_increment,
                         "axial_reference": None if reference is None else asdict(reference),
                         "deflector_actions": mode_owners,
                         "output_weight": output.weight_per_reference_electron, "losses": losses,
-                        "grid_refinements": refinements, "output_shape": wave.amplitude.shape})
+                        "grid_refinements": refinements, "quadratic_runs": linear_runs, "output_shape": wave.amplitude.shape})
     return TipGunCheckpoint(BeamState(tuple(outputs), checkpoint.beam.reference_plane), stop_z_mm,
         checkpoint.reference_current_a, {"schema": "executed-column-wave-v1", "upstream_digest": checkpoint.digest,
         "upstream": checkpoint.record, "field_plan_signature": plan.signature, "step_count": len(plan.step_m),
         "maximum_step_mm": maximum_step_mm, "deflector_actions": owners, "modes": records,
         "grid_numerics": grid_numerics.column_identity(),
-        "integrator": "second-order midpoint quadratic Hamiltonian / symmetric cubic split / discrete Cs",
-        "coordinate_basis": "laboratory normalized canonical; continuous symmetric axial-field gauge",
+        "integrator": "second-order midpoint affine quadratic Hamiltonian with variable longitudinal momentum / symmetric cubic split / discrete Cs",
+        "coordinate_basis": "laboratory canonical normalized to each mode entrance momentum; output phase carriers converted to exit momentum; continuous symmetric axial-field gauge",
+        "electric_model": "captured static scalar field, near-axis second-order transverse expansion; axis energy, axial action and flight time carried",
+        "dipole_model": "shared finite field supports; driven coils frozen at per-mode axial arrival time, no longitudinal pulse envelope",
         "time_model": "actual coil laws at per-mode axial arrival times; frozen transverse slices, no longitudinal pulse wavepacket",
         "validation_status": "DEVELOPMENT"})
 
@@ -259,18 +486,32 @@ def _slice_prepared(prepared, first, last):
         "midpoint_sxy_m2",
         "midpoint_hex_normal_m3", "midpoint_hex_skew_m3")}
     values.update({name: getattr(plan, name)[first:last+1] for name in ("z_mm", "kick_x_rad", "kick_y_rad", "cs_kick_m3")})
+    values.update({name: getattr(plan, name)[3*first:3*last] for name in ("dipole_bx_t", "dipole_by_t")
+                   if hasattr(plan, name)})
+    for name in ("electric_field", "electric_field_identity", "reference_momentum_kg_m_s"):
+        if hasattr(plan, name):
+            values[name] = getattr(plan, name)
     values["signature"] = json_digest((plan.signature, first, last))
     return (SimpleNamespace(**values), radii[first:last+1],
             {i-first: value for i, value in stops.items() if first < i <= last},
-            [r for r in owners if plan.z_mm[first] < r["z_mm"] <= plan.z_mm[last]])
+            [r for r in owners if (
+                r["z_mm"]+.5*r.get("effective_thickness_mm", 0.) > plan.z_mm[first]
+                and r["z_mm"]-.5*r.get("effective_thickness_mm", 0.) < plan.z_mm[last])
+             if r.get("finite_field", False)] +
+            [r for r in owners if not r.get("finite_field", False)
+             and plan.z_mm[first] < r["z_mm"] <= plan.z_mm[last]])
 
 
 def _propagate_column_segmented(state, checkpoint, stop_z_mm, *, store, segment_steps,
                                maximum_step_mm=.5, grid_numerics=WaveGridNumerics(), tip_time_s=None,
-                               cancelled=lambda: False, progress_callback=None, verify=lambda: None, use_cache=True):
+                               cancelled=lambda: False, progress_callback=None, verify=lambda: None, use_cache=True,
+                               checkpoint_callback=None, _prepared=None):
     from temsim.immutable_json import json_digest
-    prepared = _prepare_column(state, checkpoint.plane_z_mm, stop_z_mm, maximum_step_mm)
+    prepared = (_prepare_column(state, checkpoint.plane_z_mm, stop_z_mm, maximum_step_mm)
+                if _prepared is None else _prepared)
     plan = prepared[0]
+    if plan.z_mm[0] != checkpoint.plane_z_mm or plan.z_mm[-1] != stop_z_mm:
+        raise ValueError("Prepared column plan must match the exact executed interval")
     result, hit = checkpoint, False
     for first in range(0, len(plan.step_m), segment_steps):
         if cancelled():
@@ -282,6 +523,8 @@ def _propagate_column_segmented(state, checkpoint, stop_z_mm, *, store, segment_
         cached = store.get(key) if use_cache else None
         if cached is not None:
             result, hit = cached, True
+            if checkpoint_callback is not None:
+                checkpoint_callback(result)
             continue
         writer = store.writer(key, result.beam.reference_plane)
         records = []
@@ -305,6 +548,8 @@ def _propagate_column_segmented(state, checkpoint, stop_z_mm, *, store, segment_
                  "memory_policy": "stream one mode; previous segment arrays released after commit"})
         finally:
             writer.abort()
+        if checkpoint_callback is not None:
+            checkpoint_callback(result)
         if progress_callback:
             progress_callback(last, len(plan.step_m), "Column segment saved; previous wave buffers released")
     return result, hit

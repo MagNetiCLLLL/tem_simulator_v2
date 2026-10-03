@@ -87,7 +87,7 @@ class TipWaveNumerics:
 def _require_emitter(emitter):
     if getattr(emitter, "surface_model", None) is not None:
         if emitter.surface_model.coherence is not None:
-            raise ValueError("Coherent surface near-field calculation is available via stop='tip_near_field'. Matching that complex field to full relativistic gun transport is not yet connected; no legacy source will be substituted.")
+            raise ValueError("A coherent surface tip must use the joint two-way round-gun development solver; the Gaussian tip model cannot replace its complex boundary.")
         raise ValueError("The grounded surface model specifies classical outgoing flux, not coherent amplitudes. Surface-to-wave transport is not yet available; no legacy source will be substituted.")
     if getattr(emitter, "kind", None) != "cold_field_emitter":
         raise ValueError("Coherent emission is implemented only at a cold FEG tip")

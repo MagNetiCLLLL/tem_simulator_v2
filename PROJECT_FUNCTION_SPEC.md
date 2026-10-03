@@ -30,6 +30,22 @@ presentation tabs and per-ray-panel visibility variants across restarts. Layout
 switches must save the outgoing layout without clearing calculation results or
 changing optical parameters. See [Workspace layouts](docs/WORKSPACE_LAYOUTS.md).
 
+Selected-plane spatial beam views offer an axial **Cutoff projection** looking
+upstream from the chosen Z. Column/gun clear bores, active aperture openings
+and inserted detectors retain their actual X/Y geometry and labelled Z; dashed
+off-plane contours are not effective acceptance masks at the observation plane.
+Detector readout being disabled does not remove physical absorption. **Stops**
+shows retained path representatives at their own recorded interception X/Y/Z,
+with hover identifying the cause; numerical boundaries are labelled separately.
+These crosses are not electron counts or arriving beam points. Missing histories
+are reported without extrapolation. The **Cutoffs…** menu hides each boundary or
+stop group independently; **Reset** restores display visibility only. **Fit beam**
+and **Fit cutoff** sit together; the latter includes visible boundaries and stops.
+All coordinates follow Ray Diagram U/V rotation. Length contours are excluded
+from angular axes, bent filter frames and unbound wave checkpoints. Hardware
+edits immediately show an explicitly labelled geometry preview; retained beam
+and stops still belong to the previous executed result until recalculation.
+
 TEM Simulator v2 is a research simulator for new TEM designs: real TEM structure
 and physics provide the baseline, while ideal continuous design variables
 allow exploration beyond the fixed controls of existing instruments.
@@ -210,7 +226,7 @@ the current implementation document qualifies later extensions.
 | UR-026 | Every dark-theme checkbox needs a clearly distinguishable checked state. | Implemented | `app.APPLICATION_STYLE`; separate unchecked, checked, partial, hover and disabled SVG states |
 | UR-027 | All project-facing UI, documentation and newly written project content must be English. | Implemented; constraint | English UI/source/configuration text; translated specification and historical geometry research, retaining IDs and evidence |
 | UR-028 | Execute the six-stage extension through shared field transport, geometry fields, intermediate coherent propagation, field-derived aberrations, model evidence and multi-parameter design studies, without automatically recalculating lens presets. | Implemented initial numerical scope; explicit limits remain | `docs/SIX_STAGE_PHYSICS_IMPLEMENTATION.md`; linear axisymmetric fields, approximate finite-pupil fits and runtime-parameter sweeps, not arbitrary 3-D FEM or unrestricted geometry search |
-| UR-029 | Implement the product-usability development guide through evidence-bound working points, sampling diagnostics, complete portable inputs, resource coordination, constrained alignment and detached experiments. | Integrated implementation; cross-package acceptance and explicit physical/hardware limitations tracked in the progress receipt | `CODEX_DEVELOPMENT_GUIDE.md`, `docs/development/PRODUCT_USABILITY_PROGRESS.md`; current classical-particle scope and paused coherent development remain authoritative |
+| UR-029 | Implement the product-usability development guide through evidence-bound working points, sampling diagnostics, complete portable inputs, resource coordination, constrained alignment and detached experiments. | Integrated implementation; cross-package acceptance and explicit physical/hardware limitations tracked in the progress receipt | `CODEX_DEVELOPMENT_GUIDE.md`, `docs/development/PRODUCT_USABILITY_PROGRESS.md`; classical-particle defaults remain; independent coherent development resumed on 2026-10-02 under section 29 |
 | UR-030 | Implement Round 2 incrementally: namespaced classical acceptance distinct from full-image qualification, observable job ownership/cancellation, conservative accelerator failure policy and stage-specific backend evidence; preserve existing physical/default/source constraints. | In progress; scoped evidence recorded separately | `CODEX_OPTIMIZATION_ROUND2.md`, `docs/development/ROUND2_OPTIMIZATION_PROGRESS.md`; no implicit full-image or hardware qualification |
 | UR-031 | Add independently transported stigmator X/Y bases and explicit scan/descan drive calibration, including structural TOML; continue ready Round 2 tasks without changing production defaults. | Implemented ideal-field contract; validation and remaining scope recorded separately | `docs/stigmator-and-scan.md`; user authorization 2026-09-17 supersedes the missing G1/G2 design decision, not their hardware or full-image qualification boundaries |
 
@@ -721,6 +737,28 @@ Use all ray weights, not the at-most-48 displayed trajectories. Report:
 - Real material, t/lambda and combined IMFP.
 - When available, a separate non-exclusive conditional-zero-loss coherent
   redistribution observable from TEM waves.
+
+### 13.5 Selected-Z optical plane status
+
+- Ray Diagram reports image, diffraction or mixed conjugacy using the displayed
+  calculation's captured specimen-to-Z first-order transfer, not a component
+  name or the requested projector mode. The transfer follows enabled lens and
+  stigmator fields, their strengths/positions and nominal electron energy.
+- Use the specimen canonical/Larmor angular input basis of the existing
+  diffraction analysis. Mechanical-slope optical records are not interchangeable
+  with that basis when the specimen lies in an axial magnetic field.
+- Show both existing conjugacy residuals with units: image `||J_diff||2` in
+  m/rad, diffraction `||J_img||2` dimensionless. This nominal-energy paraxial
+  diagnostic does not calculate crystalline interference or a diffraction image.
+- Query an exact selected Z in the shared numerical background worker, coalesce
+  continuous cursor edits and retain a bounded cache for the captured result.
+  Cursor movement never runs the transfer solver on the GUI thread.
+- Changed inputs mark previous optics explicitly; replaced results, cancellation
+  and window shutdown reject late diagnostic responses. The cache is disposable
+  presentation data and does not change result files or resumable beam state.
+- Identify the specimen reference and upstream planes separately. Do not label
+  uncalculated ranges or the unsupported curved energy-filter path with a
+  straight-column conjugacy result.
 
 ## 14. Transverse X-Y
 
@@ -1242,10 +1280,12 @@ must still be retained.
 
 ## 27. Product usability implementation (UR-029)
 
-The dated AGENTS.md decisions remain authoritative: coherent tip-to-column
-development is paused, the active source is physical particle emission, vacuum
-transport remains opt-in, and numerical aids may not create an exit source or
-change physical emission support, current or installed optical components.
+This implementation initially kept coherent tip-to-column development paused
+under the dated AGENTS.md decisions. The user resumed independent coherent
+development on 2026-10-02 (section 29). Physical particle emission remains the
+default workflow, vacuum transport remains opt-in, and numerical aids may not
+create an exit source or change physical emission support, current or installed
+optical components.
 
 Continuation on 2026-09-17 adds transactional illumination-only apply, manifest-only
 archive indexing and explicit retained-data verification, separate input migration,
@@ -1338,7 +1378,7 @@ inputs and implementation. Viewing, plotting and exporting do not apply candidat
   projected geometric RMS emittances. SI evidence is separate from nm/mrad display.
   No aggregate phase is inferred from particles; no solve runs when viewing it.
 - Coil response calibration, electronics lag/hysteresis, full numerical-plan
-  qualification, active-vacuum observer validation and paused coherent imaging
+  qualification, active-vacuum observer validation and full coherent imaging
   remain outside this acceptance. Actual tests are in the Round 2 progress receipt.
 
 ### 28.1 Bounded multi-level numerical evidence
@@ -1358,3 +1398,71 @@ inputs and implementation. Viewing, plotting and exporting do not apply candidat
   `NUMERICALLY_CHECKED_FOR_DECLARED_SCOPE` conclusion. It never qualifies the
   instrument, source law, image chain or OEM calibration. Interrupted process
   timing without a terminal receipt remains unknown and cannot grant a free retry.
+
+## 29. Independent coherent beam development (2026-10-02)
+
+- The user explicitly resumed coherent development. Classical calculations retain
+  their default workflow; the new Coherent beam page owns a separate captured
+  tip-origin wave session, never an independently configurable downstream source.
+- Selecting a quantum tip boundary is explicit. Captured tip geometry, current
+  and hardware remain authoritative. Existing coherent boundaries are retained;
+  an unconfigured flat-tip wave page uses the user-selected idealised diffraction
+  source defaults (2026-10-03), independently of classical source settings. A new surface
+  reservoir requires explicit mean energy/RMS; classical emission probabilities
+  cannot create its complex boundary. Electrostatic vacuum boundaries do not
+  depend on prescribed coherence in the absence of space charge.
+- Calculate coherent beam runs source preflight, then the existing development
+  pipeline in the coordinated worker. Exact selected-Z results preserve all modes,
+  phase references and physical absorptions. Incoherent modes sum intensities.
+- After Calculate, selected Z can follow the Ray Diagram cursor or a continuous
+  slider with a user-selected browsing range. One running readout completes while
+  input replaces one latest pending Z; continuous dragging does not cancel useful
+  work. Displayed and requested Z are distinguished when propagation lags. Exact
+  cached targets take precedence over in-flight older queries; cancelled/stale
+  sessions reject late results. Executed intermediate upstream checkpoints reduce
+  repeated transport without propagating backwards through absorption. The virtual
+  screen does not absorb electrons. At a physical
+  detector's Z it denotes the incident state; continuing beyond includes absorption.
+- Ray Diagram's Beam analysis panel offers Particle rays and Coherent XY. The
+  coherent view mirrors the same session and completed screen as the full page;
+  it does not launch a second solver. Follow Ray Z and intensity scale stay
+  synchronized. Hidden screens defer graphics uploads, and the previous complete
+  image remains visible during exact-Z propagation with its actual Z label.
+- Current coherent observation assumes ideal vacuum without residual-gas
+  scattering or pressure attenuation; optical fields, specimen interactions,
+  apertures, column walls and detector absorption remain modelled.
+- A live Z session restores its privately captured instrument once. Repeated
+  queries and commits verify implementation bytes and external input contents and
+  inventory without rebuilding the object graph. It accepts no replacement beam;
+  changed source, hardware or numerics require a new explicitly captured session.
+- Reuse within one query is restricted to identical start/end-Z column plans.
+  A detector/material boundary requires its own exact interval. Display bounds
+  use stored geometry metadata before one complete verified mode-read pass.
+  Input parsing is bounded and keyed by exact current content, with independent
+  mutable copies for callers; source and input bytes are still checked on each
+  query and commit, including edits that preserve file size and timestamps.
+- The initial observation API supports exact gun-exit and post-gun planes. Gun
+  interior, material interior, unimplemented map operators and filter-crossing
+  paths remain explicitly unsupported. The Gaussian route includes the captured
+  distributed electric field's quadratic expansion and finite magnetic dipoles.
+  Explicit narrow low-energy tip
+  source admission may fail; no automatic source enlargement or energy change.
+- Bounded coherent-development evidence uses the existing scoped runner and CI
+  receipts, with separate offscreen interaction tests. Its PASS is not full
+  coherent tip-to-image qualification. User inputs, numerical controls and pending
+  physical work are described in `docs/COHERENT_BEAM.md`.
+
+### 29.1 Explicit coherent tip controls (2026-10-03)
+
+- The user authorizes edits to physical tip width, launch energy law, coherence,
+  wavefront curvature and tilt for the independent wave calculation. They are
+  explicit inputs on the Coherent beam page's detached state; the particle
+  instrument is not silently rewritten and no downstream source is introduced.
+- Gun and column operators consume the same captured fields. Gaussian transport
+  includes extraction, acceleration, residual electric focusing, axial lens
+  fields, normal/skew stigmators, finite deflectors and physical apertures.
+  A second-order paraxial field expansion is a declared numerical model, not
+  unrestricted nonpolynomial field-map support.
+- Linear/log intensity colouring changes display only. Crystal peaks must come
+  from imported CIF scattering propagated to an executed observation Z, with
+  vacuum controls and numerical refinement evidence recorded separately.

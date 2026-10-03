@@ -37,14 +37,26 @@ SOLVER_IMPLEMENTATION_SCHEMA = "temsim-solver-2026-09-working-point-v3"
 
 
 def solver_source_identity():
-    """Hash the installed solver code, including an uncommitted working tree."""
+    """Read all installed solver bytes, including an uncommitted working tree.
+
+    No mtime/content cache: equal-size edits with restored timestamps must
+    still invalidate execution. Walk strings once instead of constructing and
+    resolving Path objects repeatedly for each file at every Z checkpoint.
+    The component-wise ordering preserves the existing digest definition.
+    """
     import hashlib
-    from pathlib import Path
-    root = Path(__file__).resolve().parent
+    import os
+    root = os.path.dirname(os.path.realpath(__file__))
+    files = []
+    for directory, directories, names in os.walk(root):
+        for name in (*directories, *names):
+            if os.path.normcase(name).endswith(".py"):
+                files.append(os.path.join(directory, name))
     digest = hashlib.sha256()
-    for path in sorted(root.rglob("*.py")):
-        digest.update(path.relative_to(root).as_posix().encode())
-        digest.update(path.read_bytes())
+    for path in sorted(files, key=lambda p: tuple(os.path.normcase(p).split(os.sep))):
+        digest.update(path[len(root)+1:].replace(os.sep, "/").encode())
+        with open(path, "rb") as stream:
+            digest.update(stream.read())
     return digest.hexdigest()
 
 
@@ -566,13 +578,14 @@ def _external_inputs(state: object) -> tuple[ExternalInputIdentity, ...]:
             rows[(row.role, row.path)] = row
             if row.available:
                 from temsim.shared_tip import raw_document, definition_path
-                for part in raw_document(root / relative).get("parts", ()):
+                document = raw_document(root / relative)
+                for part in document.get("parts", ()):
                     source = definition_path(root / relative, part)
                     if source is not None:
                         shared = _file_identity("assembly:tip_definition", source)
                         rows[(shared.role, shared.path)] = shared
                 from temsim.subassemblies import dependencies as subassembly_dependencies
-                for source in subassembly_dependencies(raw_document(root / relative), root / relative):
+                for source in subassembly_dependencies(document, root / relative):
                     dependency = _file_identity("assembly:subassembly", source)
                     rows[(dependency.role, dependency.path)] = dependency
         catalog = _file_identity("assembly:catalog", root / "catalog.toml")

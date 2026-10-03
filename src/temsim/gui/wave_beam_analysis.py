@@ -255,6 +255,7 @@ class WaveBeamAnalysis:
             owner.summary.setText(f"Wave view unavailable: {error}")
         finally:
             a._drawing = False
+            owner.hardware.redraw()
 
     def mouse_moved(self, position):
         if self._hover is None or not self.owner.plot.sceneBoundingRect().contains(position):

@@ -64,9 +64,16 @@ def planar_field_request(gun, *, cathode_boundary, cells_per_bore=8,
     if (getattr(emitter, "surface_model", None) is not None
             or float(getattr(emitter, "curvature_nm_inv", 0.)) != 0.):
         raise ValueError("The planar diagnostic requires a flat source; curved geometry cannot be omitted")
-    if (getattr(emitter, "coherence", None) is not None
-            or getattr(gun, "source_representation", "classical_particles") != "classical_particles"):
-        raise ValueError("The planar diagnostic supports classical tip emission only; coherent work is paused")
+    # A prescribed tip mutual intensity does not change a vacuum Laplace
+    # boundary. This field request does not propagate or admit a wave source.
+    coherence = getattr(emitter, "coherence", None)
+    if coherence is not None:
+        from temsim.optics.electron_gun.tip_coherence import TipCoherence
+        if not isinstance(coherence, TipCoherence):
+            raise ValueError("Unknown tip coherence model")
+        coherence.validate()
+    if getattr(gun, "source_representation", "classical_particles") != "classical_particles":
+        raise ValueError("The planar field requires the physical tip-origin instrument")
     if gun.monochromator_installed:
         raise ValueError("An installed monochromator cannot be bypassed by the axisymmetric planar diagnostic")
     if type(cells_per_bore) is not int or not 4 <= cells_per_bore <= 64:

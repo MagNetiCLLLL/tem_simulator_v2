@@ -1,6 +1,77 @@
-"""Explicit limits of the paused coherent transport implementation."""
+"""Explicit operator limits of the coherent development implementation."""
 
 import numpy as np
+
+
+def sample_wave_electric(field, z_mm):
+    """Second-order transverse expansion of the actual static scalar field.
+
+    Potentials remain in volts and derivatives use metres. The supported
+    axisymmetric providers interpolate regularly in r^2 close to the axis;
+    differentiation inside their first radial cell reads that same law. The
+    analytic Wien contribution is affine. Imported non-polynomial providers
+    are not admitted by pretending that a few samples define their operator.
+    """
+    from temsim.physics.instrument_electric import InstrumentElectricField
+    from temsim.physics.closed_gun_field import ClosedGunField
+    from temsim.physics.planar_gun_field import PlanarGunField
+    from temsim.physics.grounded_tip_field import GroundedTipField
+    from temsim.optics.electron_gun.monochromator import CombinedElectricField, AnalyticWienField
+    if type(field) is InstrumentElectricField:
+        provider, base = field.provider, field.base_field
+    else:
+        provider = field
+        base = field.base_field if type(field) is CombinedElectricField else field
+    if type(base) not in (ClosedGunField, PlanarGunField, GroundedTipField):
+        raise ValueError("Non-polynomial electric maps need their resolved wave Hamiltonian")
+    if provider is not base and type(provider) is not CombinedElectricField:
+        raise ValueError("Unknown composed electric provider cannot define a coherent operator")
+    wien = getattr(provider, "wien_field", None)
+    if wien is not None and type(wien) is not AnalyticWienField:
+        raise ValueError("Imported Wien electric maps need their resolved wave Hamiltonian")
+    z = np.asarray(z_mm, dtype=float)
+    if z.ndim != 1 or not np.all(np.isfinite(z)):
+        raise ValueError("Wave electric sampling needs finite axial positions in mm")
+    points = np.zeros((len(z), 3))
+    points[:, 2] = z*1e-3
+    potential_query = getattr(field, "potential_rise_v_at_global_positions", None)
+    if potential_query is None:
+        potential_query = field.potential_v_at_global_positions
+    phi = np.asarray(potential_query(points), float)
+    electric0 = np.asarray(field.field_at_global_positions_v_per_m(points), float)
+    first_cell = float(np.asarray(base.r)[1])
+    delta = min(first_cell*.25, 1e-6)
+    if not np.isfinite(delta) or delta <= 0:
+        raise ValueError("Wave electric field has no regular resolved axis cell")
+    hessian = np.empty((len(z), 2, 2))
+    for axis in range(2):
+        plus, minus = points.copy(), points.copy()
+        plus[:, axis], minus[:, axis] = delta, -delta
+        hessian[:, :, axis] = -(field.field_at_global_positions_v_per_m(plus)[:, :2]
+            -field.field_at_global_positions_v_per_m(minus)[:, :2])/(2*delta)
+    if not np.all(np.isfinite((phi,))) or not np.all(np.isfinite(electric0)) or not np.all(np.isfinite(hessian)):
+        raise ValueError("Captured electric field has non-finite wave coefficients")
+    if not np.allclose(hessian, hessian.transpose(0, 2, 1), rtol=1e-10, atol=1e-8):
+        raise ValueError("Captured electric field is not a scalar symmetric wave Hessian")
+    return phi, -electric0[:, :2], hessian
+
+
+def require_supported_column_wave_fields(state, start_z_mm, stop_z_mm, plan):
+    """Admission only for the column solver that executes E and dipole B.
+
+    The older radial solver still uses the rejecting guard below. Keeping a
+    separate capable entry point prevents an admission change from silently
+    enabling omitted forces in another caller.
+    """
+    from temsim.physics.instrument_magnetic import column_dipole_fields
+    field = getattr(plan, "electric_field", None)
+    if field is not None:
+        sample_wave_electric(field, np.asarray((start_z_mm, stop_z_mm)))
+    low, high = float(start_z_mm)*1e-3, float(stop_z_mm)*1e-3
+    active = any((coil.bx_t != 0. or coil.by_t != 0.)
+        and coil.lower_m < high and coil.upper_m > low for coil in column_dipole_fields(state))
+    if active and not hasattr(plan, "dipole_bx_t"):
+        raise ValueError("The shared wave plan is missing finite magnetic dipoles")
 
 
 def require_supported_wave_dipoles(state, start_z_mm, stop_z_mm, plan):
@@ -14,7 +85,7 @@ def require_supported_wave_dipoles(state, start_z_mm, stop_z_mm, plan):
     from temsim.physics.electrostatic_column_transport import active_electric_field
     if active_electric_field(plan) is not None:
         raise ValueError(
-            "Paused wave transport does not support the captured distributed "
+            "Wave development does not support the captured distributed "
             "electric column field; it cannot be silently omitted"
         )
 
@@ -27,5 +98,5 @@ def require_supported_wave_dipoles(state, start_z_mm, stop_z_mm, plan):
     if active_column or np.any(plan.dipole_bx_t) or np.any(plan.dipole_by_t):
         raise ValueError(
             "Finite magnetic dipole wave transport is not implemented; "
-            "coherent development is paused and these fields cannot be omitted"
+            "these captured fields cannot be omitted"
         )

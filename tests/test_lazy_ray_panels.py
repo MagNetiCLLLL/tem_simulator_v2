@@ -234,7 +234,8 @@ def test_live_input_change_cancels_hidden_field_publication_until_new_result(wor
     monkeypatch.setattr(workspace, "_refresh_ray_calculation_extent", lambda: None)
     workspace.display_result(_result(), "Preview")
     assert workspace.magnetic_field in workspace._pending_ray_panels
-    live = SimpleNamespace(electron_gun=SimpleNamespace(type_key="thermionic", display_name="Thermionic source"))
+    live = SimpleNamespace(electron_gun=SimpleNamespace(type_key="thermionic", display_name="Thermionic source"),
+                           apertures=())
     workspace.mark_ray_stale(live)
     assert workspace.magnetic_field not in workspace._pending_ray_panels
     assert workspace.magnetic_field._inputs_stale
@@ -247,6 +248,36 @@ def test_live_input_change_cancels_hidden_field_publication_until_new_result(wor
     workspace.display_result(latest, "Preview")
     assert calls == [latest]
     assert not workspace.magnetic_field._inputs_stale
+
+
+def test_hidden_transverse_keeps_latest_insertion_preview_when_deferred_result_opens(workspace, qtbot, monkeypatch):
+    from temsim.optics.column import default_state
+    from temsim.gui.plane_hardware_geometry import hardware_geometry_snapshot
+    state = default_state()
+    detector = state.dark_field_detector
+    geometry = hardware_geometry_snapshot(state)
+    latest = _result()
+    latest.state_snapshot = geometry.state_snapshot
+    latest.aperture_stops = geometry.aperture_stops
+    workspace.transverse_beam_toggle.setChecked(False)
+    workspace.display_result(latest, "Preview")
+    workspace._focus_transverse("z", detector.z_mm)
+    monkeypatch.setattr(workspace, "_refresh_ray_calculation_extent", lambda: None)
+    detector.inserted = False
+    workspace.mark_ray_stale(state)
+    workspace.transverse_beam_toggle.setChecked(True)
+    qtbot.waitUntil(lambda: workspace.transverse_beam._result is latest)
+    hardware = workspace.transverse_beam.hardware
+    assert "Edited hardware preview" in hardware.status.text()
+    assert not any(row.key == detector.key and row.kind == "detector" for row in hardware.outlines)
+    assert workspace.transverse_beam not in workspace._pending_ray_panels
+    # An accepted fresh result removes the preview label; no obsolete queued
+    # result becomes a new calculation merely because the panel was opened.
+    fresh = _result(2.)
+    new_geometry = hardware_geometry_snapshot(state)
+    fresh.state_snapshot, fresh.aperture_stops = new_geometry.state_snapshot, new_geometry.aperture_stops
+    workspace.display_result(fresh, "Preview")
+    assert "Edited hardware preview" not in hardware.status.text()
 
 
 def test_standalone_transverse_api_remains_eager(qtbot):

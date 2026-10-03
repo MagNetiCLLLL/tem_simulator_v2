@@ -4,6 +4,7 @@ Embedded assembly values are portable snapshots. A declared link must resolve;
 missing definitions never silently fall back to those snapshots.
 """
 from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 from temsim import input_io
 import tomllib
@@ -17,8 +18,18 @@ SHARED_FIELDS = PART_FIELDS | {
 }
 
 
+@lru_cache(maxsize=16)
+def _parsed_document(text):
+    # Private parse tree; callers always receive a separate mutable copy.
+    return tomllib.loads(text)
+
+
 def raw_document(path):
-    return tomllib.loads(input_io.read_text(path, encoding="utf-8-sig"))
+    # Read current bytes on every call, including archived input resolution.
+    # Cache only parsing by exact content, never paths or modification times.
+    text = input_io.read_text(path, encoding="utf-8-sig")
+    parsed = _parsed_document(text) if len(text) <= 512*1024 else tomllib.loads(text)
+    return deepcopy(parsed)
 
 
 def definition_path(path, part):
