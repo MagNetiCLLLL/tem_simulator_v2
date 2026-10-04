@@ -10,6 +10,7 @@ from copy import copy
 import math
 
 import numpy as np
+from scipy.fft import next_fast_len
 from scipy.ndimage import map_coordinates
 
 from temsim.optics.electron_gun.tip_coherence import wavelength_m
@@ -77,72 +78,150 @@ physical flux and cannot restore any upstream aperture loss.
         "physical_weight_unchanged": mode.weight_per_reference_electron}
 
 
-def _slice_phase(mode, potential, x_m, y_m, sigma, fraction):
+def _material_device_scope(amplitude, numerics, work_items, required_bytes):
+    from temsim.physics.wave_device import array_module, device_scope
+    requested = getattr(numerics, "compute_backend", "cpu")
+    resident = array_module(amplitude) is not np
+    if resident:
+        requested = "Require GPU"
+    return device_scope(requested,
+        maximum_working_bytes=getattr(numerics, "maximum_device_working_bytes", 24*1024**3),
+        work_items=work_items, required_bytes=required_bytes,
+        acceleration_enabled=True if resident else getattr(numerics, "acceleration_enabled", True))
+
+
+def _material_coordinates(wave, xp, shape, factor=1):
+    ny, nx = shape
+    yy, xx = xp.meshgrid(xp.arange(ny)-ny//2, xp.arange(nx)-nx//2, indexing="ij")
+    return xp.asarray(wave.origin_m)[:, None, None]+xp.einsum(
+        "ij,jyx->iyx", xp.asarray(wave.basis_m)/factor, xp.stack((xx, yy)))
+
+
+def _material_sample(potential, xy, x_m, y_m, xp):
+    coords = xp.stack(((xy[1]-float(y_m[0]))/float(y_m[1]-y_m[0]),
+                       (xy[0]-float(x_m[0]))/float(x_m[1]-x_m[0])))
+    nearest = xp.rint(coords)
+    coords = xp.where(abs(coords-nearest) < 1e-10, nearest, coords)
+    if xp is np:
+        interpolate = map_coordinates
+    else:
+        from cupyx.scipy.ndimage import map_coordinates as interpolate
+    return interpolate(xp.asarray(potential, dtype=xp.float64), coords,
+                       order=1, mode="constant", cval=0.)
+
+
+def _material_output(amplitude, original):
+    from temsim.physics.wave_device import array_module, to_host
+    return to_host(amplitude) if array_module(original) is np else amplitude
+
+
+def _slice_phase(mode, potential, x_m, y_m, sigma, fraction, *, numerics=None):
     wave = mode.plane
-    xy = wave.coordinates_m()
-    coords = np.stack(((xy[1]-y_m[0])/(y_m[1]-y_m[0]), (xy[0]-x_m[0])/(x_m[1]-x_m[0])))
-    nearest = np.rint(coords)
-    coords = np.where(abs(coords-nearest) < 1e-10, nearest, coords)
-    sampled = map_coordinates(np.asarray(potential, dtype=np.float64), coords, order=1, mode="constant", cval=0.)
-    phase = sigma*fraction*sampled
-    # Reject BEFORE multiplication. A post-hoc low-pass filter cannot identify
-    # high-angle intensity that has already folded into a false low-frequency
-    # peak. Do not auto-refine an already sampled potential as if it were new
-    # physical information; callers must re-plan both grids on this typed error.
-    check_combined_phase_sampling(wave, phase, float(wavelength_m(mode.energy_kev*1000)))
-    return replace(mode, plane=replace(wave, amplitude=wave.amplitude*np.exp(1j*phase)))
+    required = 160*wave.amplitude.size+potential.nbytes
+    with _material_device_scope(wave.amplitude, numerics, wave.amplitude.size, required) as scope:
+        xp = scope.xp
+        working = replace(wave, amplitude=xp.asarray(wave.amplitude, dtype=xp.complex128))
+        xy = _material_coordinates(working, xp, wave.amplitude.shape)
+        phase = sigma*fraction*_material_sample(potential, xy, x_m, y_m, xp)
+        # Reject BEFORE multiplication. Neither GPU execution nor a later
+        # low-pass filter may replace the existing physical sampling guard.
+        check_combined_phase_sampling(working, phase, float(wavelength_m(mode.energy_kev*1000)))
+        amplitude = working.amplitude*xp.exp(1j*phase)
+        return replace(mode, plane=replace(wave, amplitude=_material_output(amplitude, wave.amplitude)))
 
 
-def _bandlimit_mode(mode, fraction):
+def _bandlimit_mode(mode, fraction, *, frame="laboratory", numerics=None):
+    """Numerical Fourier projection with its physical carrier convention.
+
+    In a carrier basis, the physical projector is U P U†: P acts on the
+    envelope and U is retained analytically. This is a numerical basis cutoff,
+    not a laboratory momentum aperture. The historical sampled method uses
+    the laboratory projector and must resolve carrier expansion first.
+    """
     if not math.isfinite(fraction) or not 0 < fraction <= 1:
         raise ValueError("Specimen bandwidth fraction must be in (0, 1]")
+    if frame not in ("laboratory", "carrier"):
+        raise ValueError("Specimen bandwidth frame must be laboratory or carrier")
     wave = mode.plane
     # With no analytical carrier this is an orthogonal projection of already
     # represented Fourier coefficients, not a product that can alias. A
     # genuine carrier expansion still needs the combined bandwidth check.
     carrier_present = any(value is not None and np.any(value) for value in
                           (wave.curvature_m1, wave.tilt_rad))
-    if carrier_present:
+    if frame == "laboratory" and carrier_present:
         check_combined_phase_sampling(wave, np.zeros(wave.amplitude.shape),
                                       float(wavelength_m(mode.energy_kev*1000)))
-    full = wave.full_amplitude(float(wavelength_m(mode.energy_kev*1000))) if carrier_present else wave.amplitude
-    fy, fx = np.meshgrid(np.fft.fftfreq(full.shape[0]), np.fft.fftfreq(full.shape[1]), indexing="ij")
-    frequency = np.einsum("ij,jyx->iyx", np.linalg.inv(wave.basis_m).T, np.stack((fx, fy)))
-    cutoff = .5*fraction/np.linalg.svd(wave.basis_m, compute_uv=False).max()
-    filtered = np.fft.ifft2(np.fft.fft2(full)*(np.hypot(frequency[0], frequency[1]) <= cutoff))
-    norm = float(np.sum(abs(filtered)**2))
-    before = mode.weight_per_reference_electron
-    result = replace(mode, plane=PlaneWave(filtered/math.sqrt(norm) if norm else filtered, wave.basis_m, wave.origin_m),
-                     weight_per_reference_electron=before*norm)
-    return result, before-result.weight_per_reference_electron
+    full = (wave.full_amplitude(float(wavelength_m(mode.energy_kev*1000)))
+            if frame == "laboratory" and carrier_present else wave.amplitude)
+    with _material_device_scope(full, numerics, full.size, 160*full.size) as scope:
+        xp = scope.xp
+        full = xp.asarray(full, dtype=xp.complex128)
+        fy, fx = xp.meshgrid(xp.fft.fftfreq(full.shape[0]), xp.fft.fftfreq(full.shape[1]), indexing="ij")
+        frequency = xp.einsum("ij,jyx->iyx", xp.asarray(np.linalg.inv(wave.basis_m).T), xp.stack((fx, fy)))
+        cutoff = .5*fraction/np.linalg.svd(wave.basis_m, compute_uv=False).max()
+        filtered = xp.fft.ifft2(xp.fft.fft2(full)*(xp.hypot(frequency[0], frequency[1]) <= cutoff))
+        norm = float(xp.sum(abs(filtered)**2))
+        before = mode.weight_per_reference_electron
+        amplitude = _material_output(filtered/math.sqrt(norm) if norm else filtered, wave.amplitude)
+        plane = (replace(wave, amplitude=amplitude) if frame == "carrier" else
+                 PlaneWave(amplitude, wave.basis_m, wave.origin_m))
+        result = replace(mode, plane=plane,
+                         weight_per_reference_electron=before*norm)
+        return result, before-result.weight_per_reference_electron
 
 
 def _material_phase(mode, potential, x_m, y_m, sigma, fraction, *, numerics, cancelled):
+    from temsim.physics.wave_device import array_module, normalise_backend
+    from temsim.physics.compute_backend import gpu_failure_category, gpu_retry_reason
+    try:
+        return _material_phase_once(mode, potential, x_m, y_m, sigma, fraction,
+                                    numerics=numerics, cancelled=cancelled)
+    except Exception as error:
+        policy = normalise_backend(getattr(numerics, "compute_backend", "cpu"))
+        if (array_module(mode.plane.amplitude) is not np or array_module(potential) is not np
+                or policy in ("CPU", "Numba CPU")
+                or gpu_failure_category(error) not in ("unavailable", "out_of_memory")):
+            raise
+        reason = gpu_retry_reason(error, policy, stage="coherent_material_phase")
+        # Retry quadrature AND phase from the unchanged incident wave; no
+        # partially propagated device field is ever substituted for its source.
+        result, record = _material_phase_once(mode, potential, x_m, y_m, sigma, fraction,
+            numerics=replace(numerics, compute_backend="cpu"), cancelled=cancelled)
+        return result, {**record, "fallback_reason": reason}
+
+
+def _material_phase_once(mode, potential, x_m, y_m, sigma, fraction, *, numerics, cancelled):
     numerics.validate()
     if numerics.specimen_phase_method == "sampled":
-        return _slice_phase(mode, potential, x_m, y_m, sigma, fraction), {"method": "sampled-phase-v1"}
+        # Keep the legacy CPU call shape for adapters of the sampled operator.
+        if getattr(numerics, "compute_backend", "cpu") == "cpu":
+            result = _slice_phase(mode, potential, x_m, y_m, sigma, fraction)
+        else:
+            result = _slice_phase(mode, potential, x_m, y_m, sigma, fraction, numerics=numerics)
+        return result, {"method": "sampled-phase-v1"}
     from temsim.physics.galerkin_potential import potential_action
     wave = mode.plane
-    lam = float(wavelength_m(mode.energy_kev*1000))
-    carrier_present = any(value is not None and np.any(value) for value in
-                          (wave.curvature_m1, wave.tilt_rad))
-    if carrier_present:
-        check_combined_phase_sampling(wave, np.zeros(wave.amplitude.shape), lam)
     ny, nx = wave.amplitude.shape
     factor = numerics.specimen_quadrature_factor
     numerics.check((factor*ny, factor*nx), retained_bytes=wave.amplitude.nbytes+potential.nbytes)
-    yy, xx = np.meshgrid(np.arange(factor*ny)-(factor*ny)//2,
-                         np.arange(factor*nx)-(factor*nx)//2, indexing="ij")
-    xy = wave.origin_m[:, None, None]+np.einsum("ij,jyx->iyx", wave.basis_m/factor, np.stack((xx, yy)))
-    coords = np.stack(((xy[1]-y_m[0])/(y_m[1]-y_m[0]), (xy[0]-x_m[0])/(x_m[1]-x_m[0])))
-    nearest = np.rint(coords)
-    coords = np.where(abs(coords-nearest) < 1e-10, nearest, coords)
-    quadrature = map_coordinates(np.asarray(potential, float), coords, order=1, mode="constant", cval=0.)
-    full = wave.full_amplitude(lam) if carrier_present else wave.amplitude
-    amplitude, record = potential_action(full, sigma*fraction*quadrature,
-        maximum_working_bytes=numerics.maximum_working_bytes, cancelled=cancelled)
-    # The complete analytical carrier was expanded, not fitted or removed.
-    return replace(mode, plane=PlaneWave(amplitude, wave.basis_m, wave.origin_m)), record
+    fine_size = factor*factor*ny*nx
+    required = 320*fine_size+256*ny*nx+potential.nbytes
+    with _material_device_scope(wave.amplitude, numerics, fine_size, required) as scope:
+        xp = scope.xp
+        xy = _material_coordinates(wave, xp, (factor*ny, factor*nx), factor)
+        quadrature = _material_sample(potential, xy, x_m, y_m, xp)
+        del xy
+        # Scalar V commutes with the analytic carrier. Retain the complete U
+        # and evaluate every Taylor iteration on the same selected device.
+        amplitude, record = potential_action(xp.asarray(wave.amplitude, dtype=xp.complex128), sigma*fraction*quadrature,
+            maximum_working_bytes=numerics.maximum_working_bytes,
+            backend="cpu" if xp is np else "gpu",
+            maximum_device_working_bytes=getattr(numerics, "maximum_device_working_bytes", 24*1024**3),
+            cancelled=cancelled)
+        record = {**record, "basis": "carrier-covariant Fourier", "carrier_retained": True,
+            "fallback_reason": scope.fallback_reason,
+            "estimated_material_working_bytes": required}
+        return replace(mode, plane=replace(wave, amplitude=_material_output(amplitude, wave.amplitude))), record
 
 
 def _material_wave_axes(x, y, numerics):
@@ -157,8 +236,20 @@ def _material_wave_axes(x, y, numerics):
     return tuple(axes)
 
 
+def _material_fft_pixels(minimum_pixels, quadrature_factor):
+    """Round the wave lattice upward, retaining an even origin and full FOV."""
+    base = math.ceil(minimum_pixels/quadrature_factor)
+    base += base % 2
+    while True:
+        fast = next_fast_len(base)
+        if fast % 2 == 0:
+            return fast*quadrature_factor
+        base = fast+1
+
+
 def _prepare_material_grid(state, checkpoint, *, refinement_factor=1, grid_numerics=WaveGridNumerics()):
     from temsim.physics.wave_imaging import prepare_specimen_potentials
+    from temsim.physics.wave_sampling import PotentialPreparationBudget
     from temsim.specimen.presets import load_specimen_preset
     from temsim.specimen.scene import SpecimenScene
     scene = SpecimenScene.from_state(state)
@@ -183,15 +274,41 @@ def _prepare_material_grid(state, checkpoint, *, refinement_factor=1, grid_numer
     if base_pixels > reference_pixels:
         base_pixels += base_pixels % 2
     quadrature_factor = grid_numerics.specimen_quadrature_factor if grid_numerics.specimen_phase_method == "galerkin" else 1
-    pixels = int(base_pixels*refinement_factor*quadrature_factor)
+    requested_pixels = int(base_pixels*refinement_factor*quadrature_factor)
+    pixels = _material_fft_pixels(requested_pixels, quadrature_factor)
     grid_numerics.check((pixels, pixels), retained_bytes=resident_wave_bytes(checkpoint.beam))
     numerical_state = copy(state)
     numerical_state.sample = copy(state.sample)
     numerical_state.sample.wave_grid_pixels = pixels
     numerical_state.sample.wave_field_of_view_angstrom = fov*1e10
+    configurations = (int(state.sample.wave_frozen_phonon_configurations)
+                      if state.sample.wave_frozen_phonon_enabled else 1)
+    wave_pixels = pixels//quadrature_factor
+    # _material_phase retains coordinate/interpolation arrays while applying
+    # the Galerkin FFT action (128 bytes/fine pixel +160/coarse pixel there).
+    # Reserve 320/fine +256/coarse for their combined peak and column/regrid
+    # buffers, plus possible completed output modes. All potential slices and
+    # masking copies are added separately by the potential-only planner.
+    preparation_budget = PotentialPreparationBudget(
+        grid_numerics.maximum_working_bytes,
+        retained_bytes=resident_wave_bytes(checkpoint.beam),
+        propagation_working_bytes=(320*pixels*pixels+256*wave_pixels*wave_pixels
+            +16*wave_pixels*wave_pixels*len(checkpoint.beam.modes)*configurations))
     prepared = prepare_specimen_potentials(numerical_state, preset,
         field_of_view_angstrom_override=fov*1e10, calculation_roi_centre_nm=tuple(centre*1e9),
-        calculation_roi_bounds_nm=tuple(np.r_[centre[0]-fov/2, centre[0]+fov/2, centre[1]-fov/2, centre[1]+fov/2]*1e9))
+        calculation_roi_bounds_nm=tuple(np.r_[centre[0]-fov/2, centre[0]+fov/2, centre[1]-fov/2, centre[1]+fov/2]*1e9),
+        preparation_budget=preparation_budget)
+    prepared = replace(prepared, metrics={**prepared.metrics,
+        "coherent_material_grid": {
+            "requested_potential_pixels": requested_pixels,
+            "executed_potential_pixels": pixels,
+            "requested_wave_pixels": requested_pixels//quadrature_factor,
+            "executed_wave_pixels": wave_pixels,
+            "field_of_view_m": fov,
+            "requested_sampling_m": fov/requested_pixels,
+            "executed_sampling_m": fov/pixels,
+            "fft_rounding": "upward even wave grid; physical domain unchanged",
+        }})
     if prepared.metrics.get("atomistic_fallback_reason"):
         raise ValueError("Selected specimen potential was not computed: "+str(prepared.metrics["atomistic_fallback_reason"]))
     x = prepared.x_angstrom*1e-10+centre[0]
@@ -277,6 +394,7 @@ def _propagate_specimen_attempt(state, checkpoint, *, maximum_step_mm, maximum_c
     scene, prepared, x, y, dzs = material
     configs = prepared.potential_configurations_v_angstrom
     wave_x, wave_y = _material_wave_axes(x, y, grid_numerics)
+    bandwidth_frame = "carrier" if grid_numerics.specimen_phase_method == "galerkin" else "laboratory"
     required = len(wave_x)*len(wave_y)*(16*len(checkpoint.beam.modes)*len(configs)+256)+sum(p.nbytes for p in configs)
     if required > maximum_checkpoint_bytes:
         raise ValueError(f"Specimen wave modes and working buffers need approximately {required} bytes, above maximum_checkpoint_bytes={maximum_checkpoint_bytes}")
@@ -298,13 +416,13 @@ def _propagate_specimen_attempt(state, checkpoint, *, maximum_step_mm, maximum_c
             initial_weight, current_z, slice_records = mode.weight_per_reference_electron, start, []
             first_events = {key: 0. for key in ("real_plasmon", "real_ionisation", "real_other_inelastic", "effective_absorption")}
             column_loss = 0.
-            mode, band_loss = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction)
+            mode, band_loss = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction, frame=bandwidth_frame, numerics=grid_numerics)
             sigma = interaction_constant_rad_per_v_angstrom(mode.energy_kev)
             for i, dz in enumerate(dzs):
                 projected = potential[i] if potential.ndim == 3 else potential*dz/sum(dzs)
                 mode, phase_before = _material_phase(mode, projected, x, y, sigma, .5,
                     numerics=grid_numerics, cancelled=cancelled)
-                mode, lost = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction)
+                mode, lost = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction, frame=bandwidth_frame, numerics=grid_numerics)
                 band_loss += lost
                 local = TipGunCheckpoint(BeamState((mode,), checkpoint.beam.reference_plane), current_z,
                     checkpoint.reference_current_a, {"specimen_parent": checkpoint.digest, "configuration": config_index, "slice": i})
@@ -324,7 +442,7 @@ def _propagate_specimen_attempt(state, checkpoint, *, maximum_step_mm, maximum_c
                 mode, channel_record = _attenuate_zero_loss(mode, inside, float(dz)*.1, distribution)
                 for event in channel_record["events"]:
                     first_events[event["kind"]] += event["weight"]
-                mode, lost = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction)
+                mode, lost = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction, frame=bandwidth_frame, numerics=grid_numerics)
                 band_loss += lost
                 slice_records.append({"slice": i, "z_mm": next_z, "column": transported.record["modes"],
                                       "phase_before": phase_before, "phase_after": phase_after,
@@ -357,5 +475,6 @@ def _propagate_specimen_attempt(state, checkpoint, *, maximum_step_mm, maximum_c
          "inelastic_phase": "UNDEFINED; removed probability recorded; energy-loss branches remain in the existing particle workflow",
          "integrator": "symmetric specimen phase / distributed column Hamiltonian / specimen phase",
          "specimen_phase_method": grid_numerics.specimen_phase_method,
-         "bandwidth_policy": "Galerkin uses a Hermitian non-circular potential action; sampled phase uses the combined bandwidth guard. Carrier expansion is checked; the selected post-step band projection records its numerical loss. Independent grid convergence remains required.",
+         "numerical_bandwidth_frame": bandwidth_frame,
+         "bandwidth_policy": "Galerkin retains the analytical carrier and projects residual Fourier frequencies: physical U P U†, a numerical moving-basis cutoff, not a laboratory angular aperture. Sampled phase retains the laboratory projection with checked carrier expansion. Numerical loss is recorded; independent basis and potential-grid convergence remain required.",
          "validation_status": "DEVELOPMENT"})

@@ -60,7 +60,7 @@ def definitions(document, path):
         if child.get("coordinate_system") != "module_local_z_mm" or not child.get("parts"):
             raise ValueError(f"Subassembly must contain module-local parts: {source}")
         if any("tip_definition_file" in part for part in child["parts"]):
-            raise ValueError("Keep the shared FEG tip in its gun authority; subassemblies must be independent")
+            raise ValueError("Keep the Tip definition in its gun authority; subassemblies must be independent")
         result.append((entry, source, child))
     return result
 

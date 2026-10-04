@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from threading import Event
 
 import numpy as np
+import pytest
 
 from temsim.gui.magnetic_field_3d import MagneticField3DPage
 
@@ -19,6 +20,37 @@ def geometry(reference=1.):
 
 def records():
     return (SimpleNamespace(key="lens", name="Magnetic lens", peak_t=1.),)
+
+
+@pytest.mark.parametrize("stale", [False, True])
+def test_compute_policy_recaptures_only_virtual_execution_and_preserves_optics(qtbot, stale):
+    from temsim.optics.column import default_state
+    page = MagneticField3DPage()
+    qtbot.addWidget(page)
+    state = default_state()
+    state.acceleration_backend, state.acceleration_enabled = "CPU", False
+    prepared = object()
+    page.update_snapshot(state, records(), (0., 10.), prepared_scene=prepared,
+                         result_reference="captured-rays")
+    previous_geometry = geometry()
+    page._current_geometry = previous_geometry
+    page.electron._cache["previous-policy"] = object()
+    if stale:
+        page.mark_inputs_stale()
+    generation = page.electron._generation
+    page.set_compute_policy("Require GPU", True)
+    updated, captured_field, bounds = page.electron._scene_request
+    assert updated is not state
+    assert updated.acceleration_backend == "Require GPU" and updated.acceleration_enabled
+    assert (state.acceleration_backend, state.acceleration_enabled) == ("CPU", False)
+    assert updated.electron_gun is state.electron_gun and updated.lenses is state.lenses
+    assert captured_field is prepared and bounds == (0., 10.)
+    assert page._current_geometry is previous_geometry
+    assert not page.electron._cache and page.electron._generation > generation
+    assert page.electron._fields_stale is stale
+    generation = page.electron._generation
+    page.set_compute_policy("Require GPU", True)
+    assert page.electron._generation == generation
 
 
 def test_stale_field_geometry_stays_visible_without_rebuilding_for_display_edits(qtbot, monkeypatch):

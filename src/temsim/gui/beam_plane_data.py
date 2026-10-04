@@ -18,6 +18,7 @@ from temsim.gui.beam_display_source import downstream_display_branches
 from temsim.gui.beam_tracking_modes import branch_interaction_style
 from temsim.physics.ray_identity import branch_identity, source_identity
 from temsim.physics.flight_time import sample_flight_time
+from temsim.physics.particle_energy import sample_kinetic_energy
 
 
 _PROBABILITY_TOL = 1.0e-10
@@ -52,6 +53,7 @@ class BeamPlaneData:
     diagnostics: tuple[str, ...] = ()
     flight_time_s: np.ndarray | None = None
     coordinate_frame: str = "column"
+    kinetic_energy_ev: np.ndarray | None = None
 
     @property
     def ray_count(self) -> int:
@@ -317,18 +319,24 @@ def sample_beam_plane(result, z_mm: float) -> BeamPlaneData:
         )
         key, label, rgb, symbol = branch_interaction_style(branch)
         size = int(np.count_nonzero(keep))
+        try:
+            energy = sample_kinetic_energy(branch, selected_z, validate_history=False)
+        except (TypeError, ValueError):
+            energy = None
+            diagnostics.append("Cached kinetic energy is invalid; energy comparison is unavailable.")
         columns.append((
             *(value[keep] for value in points), ids[keep], azimuths[keep],
             fractions[keep], np.full(size, key), np.full(size, label),
             np.tile(np.asarray(rgb, dtype=np.uint8), (size, 1)),
             np.full(size, symbol), global_indices[keep],
             sample_flight_time(branch, selected_z)[keep],
+            np.full(size, np.nan) if energy is None else energy[keep],
         ))
     if columns:
         arrays = [_frozen(np.concatenate([column[index] for column in columns]))
-                  for index in range(13)]
+                  for index in range(14)]
     else:
-        arrays = [_frozen([], dtype=float) for _ in range(13)]
+        arrays = [_frozen([], dtype=float) for _ in range(14)]
         arrays[4] = _frozen([], dtype=np.int64)
         arrays[7] = arrays[8] = arrays[10] = _frozen([], dtype="U1")
         arrays[9] = _frozen(np.empty((0, 3), dtype=np.uint8))
@@ -343,6 +351,7 @@ def sample_beam_plane(result, z_mm: float) -> BeamPlaneData:
         selected_z, *arrays[:12], total_columns, provenance, status,
         source_current, bool(valid), tuple(dict.fromkeys(diagnostics)),
         flight_time_s=arrays[12],
+        kinetic_energy_ev=arrays[13],
     )
 
 

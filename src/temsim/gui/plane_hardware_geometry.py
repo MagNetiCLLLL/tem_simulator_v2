@@ -200,39 +200,6 @@ def _detectors(state, z: float, segments: int, *, project_upstream=False):
     return tuple(rows)
 
 
-def _projected_column_walls(result, z: float, segments: int):
-    """Deduplicate repeated segments of one captured body with one diameter."""
-    grouped = {}
-    assembly = getattr(result, "assembly", None)
-    for row in getattr(assembly, "vacuum_bore_segments", ()):
-        start = _number(row.start_z_mm, "Vacuum bore start Z")
-        stop = _number(row.end_z_mm, "Vacuum bore end Z")
-        if stop < start:
-            raise ValueError("Vacuum bore end must follow its start")
-        if start > z + _WALL_TOLERANCE_MM:
-            continue
-        radius = .5 * _number(row.inner_diameter_mm, "Vacuum bore diameter", positive=True)
-        key = str(getattr(row, "key", "column_wall"))
-        name = str(getattr(row, "name", "Column vacuum wall"))
-        grouped.setdefault((key, name, radius), []).append((start, stop))
-    outlines = []
-    for (key, name, radius), ranges in grouped.items():
-        # Keep disjoint intervals explicit. A long carrier or a missing tube
-        # segment does not become an invented continuous physical restriction.
-        ranges = sorted(set(ranges))
-        positions = "; ".join(f"{start:.12g}\u2013{stop:.12g}" for start, stop in ranges)
-        label = ("Column vacuum wall" if name == "Column vacuum wall" or ":" in name
-                 else f"Column vacuum wall \u2014 {name}")
-        outlines.append(_outline(
-            key, label, "column", "wall", ranges[0][0],
-            (_circle(radius, 0., 0., segments),),
-            f"Column vacuum wall; clear diameter {2. * radius:.9g} mm. "
-            f"Captured body {name}; key {key}; Z range(s) {positions} mm. "
-            "At or outside this radius rays contact the wall at its own Z."
-        ))
-    return tuple(outlines)
-
-
 def hardware_geometry_snapshot(state, assembly=None):
     """Capture lightweight edited geometry for an explicitly labelled preview.
 
@@ -283,12 +250,14 @@ def plane_hardware_outlines(result, z_mm, *, coordinate_frame="column",
 
 def projected_hardware_outlines(result, z_mm, *, coordinate_frame="column",
                                 circle_segments=128) -> tuple[PlaneHardwareOutline, ...]:
-    """Look upstream along the column from selected Z without transporting masks.
+    """Project upstream apertures, detectors and cameras from selected Z.
 
     The polylines retain the hardware's laboratory X/Y geometry and actual Z;
     they are axial projections of restrictions encountered earlier on the
     path, not effective acceptance at the selected plane. Lenses and ray slopes
     prevent identifying clipping by comparing these outlines to current dots.
+    Gun and column clear bores are omitted from this display only; their
+    physical interception and exact-section geometry remain unchanged.
     Components downstream of selected Z are excluded. Bent filter coordinates
     cannot use straight-column projected boundaries.
     """
@@ -296,9 +265,7 @@ def projected_hardware_outlines(result, z_mm, *, coordinate_frame="column",
     if result is None or coordinate_frame != "column":
         return ()
     state = getattr(result, "state_snapshot", None)
-    outlines = (*_projected_column_walls(result, z, segments),
-                *_gun_bores(state, z, segments, project_upstream=True),
-                *_apertures(result, z, segments, project_upstream=True),
+    outlines = (*_apertures(result, z, segments, project_upstream=True),
                 *_detectors(state, z, segments, project_upstream=True))
     return tuple(replace(row, description=(
         f"Axial projection looking upstream from Z {z:.12g} mm. "

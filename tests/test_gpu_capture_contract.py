@@ -23,8 +23,7 @@ def test_actual_gpu_capture_matches_cpu_cube_and_detector_reintegration(tmp_path
     monkeypatch.setattr(stem_wave_imaging, "propagate_multislice", forbidden)
     monkeypatch.setattr(stem_wave_imaging, "stem_diffraction_intensity", forbidden)
     monkeypatch.setattr(stem_wave_imaging, "resident_stem_batch_size", lambda *a, **k: 2)
-    gpu_state = _state("CUDA GPU", atomistic=True)
-    gpu_state.sample.stem_execution_policy = "require_gpu"
+    gpu_state = _state("Require GPU", atomistic=True)
     gpu_sink = FourDSTEMCaptureSink(tmp_path / "gpu.npy", electrons_per_frame=999, store_raw_probability=True)
     gpu = stem_wave_imaging._simulate_angle_resolved_stem_single(gpu_state, sim, _detectors(), scan_x, scan_y, diffraction_sink=gpu_sink)
     assert gpu.metrics["cuda_resident_pipeline"]
@@ -42,6 +41,9 @@ def test_actual_gpu_capture_matches_cpu_cube_and_detector_reintegration(tmp_path
     assert provenance["actual_wave_backend"] == "CuPy CUDA"
     assert len(provenance["solver_source_sha256"]) == 64
     assert len(provenance["potential_sha256"]) == 2
+    assert len(set(provenance["potential_sha256"])) == 2
+    assert gpu.metrics["specimen_atomistic_source_kind"] == "cif"
+    assert gpu.metrics["specimen_frozen_phonon_applied"] is True
     record_property("wp07_actual_gpu",json.dumps({"device":compute_backend.cupy_capability().detail,
         "maximum_probability_difference":float(np.max(np.abs(gpu_sink.artifact.data-cpu_sink.artifact.data))),
         "relative_tolerance":2e-4,"absolute_probability_tolerance":2e-7,

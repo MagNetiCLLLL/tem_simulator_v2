@@ -97,6 +97,7 @@ def test_open_current_profile_uses_mutator_contract_and_commits_once(qtbot, monk
     def apply(candidate, values):
         assert candidate is not before
         candidate.objective_lens.percent = values["fixture"]
+        candidate.acceleration_backend, candidate.acceleration_enabled = "CPU", False
         actions.append("applied")
         # Current profile application is an in-place mutator with no skip list.
     monkeypatch.setattr(shell, "apply_profile_values", apply)
@@ -108,6 +109,8 @@ def test_open_current_profile_uses_mutator_contract_and_commits_once(qtbot, monk
     assert actions == ["applied", "invalidated", "preview"]
     assert window.state is not before
     assert window.state.objective_lens.percent == pytest.approx(requested)
+    assert window.compute_backend.currentData() == "CPU"
+    assert not window.state.acceleration_enabled
     assert "Loaded current profile: current.toml" in window.log_output.toPlainText()
     assert "skipped values" not in window.log_output.toPlainText()
 

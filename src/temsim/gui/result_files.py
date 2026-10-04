@@ -90,9 +90,18 @@ class ResultFiles(QObject):
 
     def _conflicting_work(self):
         w = self.window
+        pair = getattr(w, "paired_beams", None)
+        coherent = getattr(w.workspace, "coherent_beam", None)
+        paired_work = bool(
+            (pair is not None and pair.calculations.has_pending_requests)
+            or (coherent is not None and coherent._pair_context is not None
+                and coherent._worker is not None)
+        )
+        # Completed pairs retain their token and observations. Their mere
+        # existence must not prevent opening a saved result.
         return bool(w.calculations.has_pending_requests or w.workspace.interactive_calculation.busy
                     or w.design_sweeps.running or w._direct_alignment_state_token is not None
-                    or w._preset_state_token is not None)
+                    or w._preset_state_token is not None or paired_work)
 
     def refresh_actions(self, *_):
         """Update availability on live frames without file IO or menu rebuilds."""

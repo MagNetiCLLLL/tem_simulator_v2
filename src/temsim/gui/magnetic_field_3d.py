@@ -283,6 +283,29 @@ class MagneticField3DPage(QWidget):
         self.electron.mark_fields_stale()
         self._set_field_status("Stale magnetic field — instrument inputs changed; recalculate the main beam.")
 
+    def set_compute_policy(self, policy, enabled):
+        """Refresh diagnostic execution without replacing captured optics."""
+        from copy import copy
+        from temsim.optics.model import State
+        from temsim.physics.compute_backend import normalise_backend, validate_backend_selection
+        policy = validate_backend_selection(normalise_backend(policy))
+        if not isinstance(self._state, State):
+            return
+        if (normalise_backend(self._state.acceleration_backend) == policy
+                and self._state.acceleration_enabled == bool(enabled)):
+            return
+        # Only these scalar execution fields change. Reusing the captured
+        # physical objects avoids copying retained ray histories or fitting
+        # a new field; scene preparation freezes the complete column graph.
+        state = copy(self._state)
+        state.acceleration_backend = policy
+        state.acceleration_enabled = bool(enabled)
+        self._state = state
+        self.electron.set_captured_scene(state, self._prepared_scene, self._z_limits_mm,
+                                         result_reference=self._result_reference)
+        if self._fields_stale:
+            self.electron.mark_fields_stale()
+
     def invalidate(self, message="Magnetic field view pending a current calculation snapshot."):
         self._generation += 1
         self._fields_stale = False

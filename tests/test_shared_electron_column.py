@@ -83,6 +83,32 @@ def test_captured_column_inputs_do_not_follow_later_live_edits(column):
     np.testing.assert_array_equal(after.kinetic_energy_ev, before.kinetic_energy_ev)
 
 
+@pytest.mark.parametrize("policy,enabled,compiled", [
+    ("CPU", False, True), ("Auto", True, True), ("Require GPU", True, True),
+    ("Require GPU", False, True), ("Require GPU", True, False),
+])
+def test_virtual_column_preserves_captured_compute_policy(column, monkeypatch, policy, enabled, compiled):
+    from temsim.instrument_snapshot import encode_instrument, decode_instrument
+    from temsim.physics import core
+    state, scene = column
+    state.acceleration_backend, state.acceleration_enabled = policy, enabled
+    scene = replace(scene, _column_input_graph=encode_instrument(state))
+    settings = TestElectronSettings(position_m=(0., 0., .5), kinetic_energy_ev=200000.,
+        max_path_length_m=.001, step_m=.00025)
+    class DispatchObserved(Exception):
+        pass
+    def capture(captured, *_args, **_kwargs):
+        assert captured.acceleration_backend == (policy if compiled else "CPU")
+        assert captured.acceleration_enabled == (enabled if compiled else False)
+        raise DispatchObserved
+    monkeypatch.setattr(core, "execute_propagation_plan", capture)
+    with pytest.raises(DispatchObserved):
+        trace_test_electron(scene, settings, use_compiled=compiled)
+    # A CPU-reference request cannot mutate the captured instrument policy.
+    restored = decode_instrument(scene._column_input_graph)
+    assert (restored.acceleration_backend, restored.acceleration_enabled) == (policy, enabled)
+
+
 def test_column_progress_prefix_remains_an_executed_state(column):
     _, scene = column
     settings = TestElectronSettings(position_m=(0., 0., .5), kinetic_energy_ev=200000.,

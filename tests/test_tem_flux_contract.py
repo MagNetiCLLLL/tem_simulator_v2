@@ -77,6 +77,51 @@ def test_at06_known_aperture_transmission_is_not_renormalised(tem_benchmark):
     assert result.metrics["camera_collected_zero_loss_relative_intensity"] == pytest.approx(.2, abs=1e-10)
 
 
+def test_require_gpu_tem_phase_object_reports_cpu_only_stage(tem_benchmark):
+    from temsim.physics.compute_backend import GPUExecutionError
+    f = tem_benchmark
+    f.state.acceleration_backend = "Require GPU"
+    f.state.acceleration_enabled = True
+    with pytest.raises(GPUExecutionError, match="unsupported_stage.*phase-object"):
+        f.run()
+
+
+def test_tem_multislice_receives_captured_toolbar_policy(tem_benchmark, monkeypatch):
+    from temsim.physics.compute_backend import GPUExecutionError, WAVE_BACKEND_CUPY
+    f = tem_benchmark
+    f.state.acceleration_backend = "Require GPU"
+    f.state.acceleration_enabled = True
+    f.state.sample.wave_multislice_enabled = True
+    monkeypatch.setattr(imaging, "choose_wave_backend", lambda *args, **kwargs: (WAVE_BACKEND_CUPY, None))
+
+    def fail_at_multislice(*args, **kwargs):
+        assert kwargs["requested_policy"] == "Require GPU"
+        assert kwargs["compute_backend"] == WAVE_BACKEND_CUPY
+        raise GPUExecutionError("out_of_memory", "TEM specimen allocation failed")
+
+    monkeypatch.setattr(imaging, "propagate_multislice", fail_at_multislice)
+    with pytest.raises(GPUExecutionError, match="TEM specimen allocation failed"):
+        f.run()
+
+
+def test_tem_auto_keeps_gpu_fft_after_cpu_only_phase_object(tem_benchmark, monkeypatch):
+    from temsim.physics.compute_backend import GPUExecutionError, WAVE_BACKEND_CUPY
+    f = tem_benchmark
+    f.state.acceleration_backend = "Auto"
+    f.state.acceleration_enabled = True
+    monkeypatch.setattr(imaging, "choose_wave_backend", lambda *args, **kwargs: (WAVE_BACKEND_CUPY, None))
+
+    def fail_at_fft(*args, **kwargs):
+        assert kwargs["requested_policy"] == "Auto"
+        assert kwargs["compute_backend"] == WAVE_BACKEND_CUPY
+        assert "phase-object" in kwargs["fallback_reason"]
+        raise GPUExecutionError("out_of_memory", "TEM FFT allocation failed")
+
+    monkeypatch.setattr(imaging, "apply_coherent_transfer", fail_at_fft)
+    with pytest.raises(GPUExecutionError, match="TEM FFT allocation failed"):
+        f.run()
+
+
 def test_at02_offset_aperture_selects_nonzero_diffraction_order(tem_benchmark):
     f = tem_benchmark
     f.incident = np.sqrt(.2) * f.incident + np.sqrt(.8) * f.order_wave
@@ -147,9 +192,12 @@ def test_at08_real_phase_grating_ensemble_keeps_prior_and_loss(tem_benchmark):
     f.state.sample.wave_multislice_enabled = True
     f.state.sample.wave_bandwidth_fraction = 1.
     sigma = imaging.interaction_constant_rad_per_v_angstrom(f.state.beam_voltage_kv)
-    # Alternating phase +/- phi gives zero-order intensity cos(phi)^2.
+    # Equal-width +/- phi stripes give zero-order intensity cos(phi)^2.
+    # Four samples per period keep the discrete transmission at +/- pi/2,
+    # inside the production 0.8*pi sampling guard; a two-sample checkerboard
+    # sits exactly at Nyquist and is not an admitted propagation input.
     # One genuine multislice grating per configuration, no mocked propagation.
-    checker = np.broadcast_to((-1.)**np.arange(32), (32, 32))
+    checker = np.broadcast_to((-1.)**(np.arange(32) // 2), (32, 32))
     configs = tuple((checker * np.arccos(np.sqrt(t)) / sigma)[None, :, :] for t in (.2, .8))
     f.prepared = replace(f.prepared, potential_configurations_v_angstrom=configs,
                          slice_thicknesses_angstrom=np.array([1.]))
@@ -203,7 +251,7 @@ def test_at09_lossless_guard_detects_corrupted_propagation(monkeypatch):
     assert good.probability == pytest.approx(1., abs=1e-12)
     # The kernel returns the propagated wave and its analytic chart phase.
     # Corrupt amplitude only; the public lossless guard must still detect it.
-    monkeypatch.setattr(mp, "_propagate_plane_wave", lambda *args: (replace(wave, amplitude=wave.amplitude*.9), 0.))
+    monkeypatch.setattr(mp, "_propagate_plane_wave", lambda *args, **kwargs: (replace(wave, amplitude=wave.amplitude*.9), 0.))
     with pytest.raises(ValueError, match="lossless wave norm changed"):
         mp.propagate_plane_wave(wave, np.eye(4), np.zeros(4), 2e-12)
 
@@ -219,10 +267,16 @@ def test_duplicate_physical_execution_rejected():
 
 
 def test_numerical_bandwidth_loss_is_retained_and_not_physical_absorption(tem_benchmark):
+    from dataclasses import replace
     f = tem_benchmark
     f.state.sample.wave_multislice_enabled = True
     f.state.sample.wave_bandwidth_fraction = 2/3
     f.state.objective_aperture.enabled = False
+    # Execute a declared slice even though the instrument defaults to vacuum.
+    # A zero-thickness vacuum legitimately performs no bandwidth-filter step.
+    f.prepared = replace(f.prepared,
+        potential_configurations_v_angstrom=(np.zeros((1, 32, 32)),),
+        slice_thicknesses_angstrom=np.array([1.]))
     high_order = np.broadcast_to(np.exp(2j*np.pi*12*f.axis/32), (32, 32))
     f.incident = np.sqrt(.2)*f.incident + np.sqrt(.8)*high_order
     result = f.run()

@@ -1046,13 +1046,12 @@ def execute_propagation_plan(
     if electric_field is None and medium_transport is None and not plan.mapped_fields and not tuning:
         from temsim.physics.ray_device_cache import STAGE_COSTS, measured_workload
         workload = measured_workload((*inputs, *timing.values()) if timing else inputs)
-        if policy == "auto" and getattr(state, "acceleration_enabled", False):
-            from temsim.physics.compute_backend import cuda_capability
+        if (policy == "auto" and backend != BACKEND_CUDA
+                and getattr(state, "acceleration_enabled", False)):
+            # CPU cost history must not override Auto's available-GPU choice.
             eligible = [BACKEND_CPU]
             if NUMBA_AVAILABLE:
                 eligible.append(BACKEND_NUMBA)
-            if backend == BACKEND_CUDA or (BACKEND_CUDA in STAGE_COSTS.rows.get(workload, {}) and cuda_capability().available):
-                eligible.append(BACKEND_CUDA)
             backend, measured_reason = STAGE_COSTS.choose(workload, eligible, backend)
             fallback_reason = measured_reason or fallback_reason
     transport_started = perf_counter()
@@ -1101,7 +1100,7 @@ def execute_propagation_plan(
         outputs = vector_map_rk4(*inputs, z_mm=zfull, mapped_fields=plan.mapped_fields,
                                 defer_nonfinite_until_clipping=defer_nonfinite_until_clipping,
                                 step_operator=medium_transport, **timing)
-    elif (tuning and NUMBA_AVAILABLE
+    elif (tuning and NUMBA_AVAILABLE and backend == BACKEND_NUMBA
           and getattr(state, "acceleration_enabled", False)
           and getattr(state, "acceleration_backend", "Auto") == "Auto"):
         try:

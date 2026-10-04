@@ -732,9 +732,9 @@ class ParameterPanel(QWidget):
         if hasattr(obj, "ray_count"):
             source_fields = (
                 ("emission_current_na", "Emission current", " nA"),
-                ("virtual_source_fwhm_nm", "Virtual source FWHM", " nm"),
+                ("virtual_source_fwhm_nm", "Physical emission FWHM", " nm"),
                 ("angular_cutoff_mrad", "Angular cutoff", " mrad"),
-                ("energy_spread_fwhm_ev", "Energy spread FWHM", " eV"),
+                ("energy_spread_fwhm_ev", "Energy width (RMS-equivalent FWHM)", " eV"),
                 (
                     "minimum_kinetic_energy_ev",
                     "Minimum kinetic energy",
@@ -924,8 +924,12 @@ class ParameterPanel(QWidget):
             if self._runtime_target is not None else ()
         )
         if getattr(self._runtime_target, "key", None) == "feg_tip":
-            parameters = tuple(p for p in parameters if p.name == "ray_count")
-        return parameters
+            # Tip physics has its dedicated editor; numerical populations
+            # are owned by the main toolbar, including for other emitters.
+            return ()
+        target_key = getattr(self._runtime_target, "key", None)
+        return tuple(p for p in parameters if p.name != "ray_count"
+                     and not (target_key == "simulation" and p.name == "step_mm"))
 
     def _load_runtime(self) -> None:
         parameters = self._runtime_parameters()

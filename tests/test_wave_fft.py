@@ -74,3 +74,17 @@ def test_cupy_fft_oom_falls_back_without_losing_the_result(monkeypatch):
     assert diffraction == pytest.approx(reference_diffraction)
     assert diagnostics.compute_backend == "NumPy CPU"
     assert "synthetic FFT failure" in diagnostics.fallback_reason
+
+
+@pytest.mark.parametrize("operation", ["tem", "stem"])
+def test_require_gpu_fft_preserves_resource_failure(monkeypatch, operation):
+    def unavailable():
+        raise compute_backend.GPUExecutionError("out_of_memory", "required FFT allocation failed")
+
+    monkeypatch.setattr(wave_fft, "cupy_module", unavailable)
+    wave, _, _ = _test_wave(32)
+    with pytest.raises(compute_backend.GPUExecutionError, match="required FFT allocation failed"):
+        if operation == "tem":
+            form_tem_image(wave, np.ones_like(wave), compute_backend="CuPy CUDA", requested_policy="Require GPU")
+        else:
+            stem_diffraction_intensity(wave, compute_backend="CuPy CUDA", requested_policy="Require GPU")

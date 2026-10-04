@@ -36,6 +36,7 @@ _SAMPLE_MODEL_KEY = "__sample_model__"
 _SIMULATION_MODEL_KEY = "__simulation_model__"
 _PROFILE_VERSION_KEY = "__profile_format_version__"
 _SLIT_PHYSICAL_FIELDS = frozenset({"gap_m", "centre_m", "zero_loss_offset_m", "calibrated_dispersion_um_per_ev"})
+_COMPUTE_FIELDS = frozenset({"acceleration_backend", "acceleration_enabled"})
 
 
 @lru_cache(maxsize=None)
@@ -94,6 +95,16 @@ def save_profile(path: str | Path, state, selection: AssemblySelection) -> None:
             values.update({name: getattr(target.obj, name) for name in sorted(_SLIT_PHYSICAL_FIELDS)})
         if key == "sample":
             values.update({name: getattr(state.sample, name) for name in sorted(SAMPLE_SOURCE_FIELDS)})
+        if key == "simulation":
+            # Toolbar ownership must not remove these persisted settings.
+            values.update({name: getattr(state, name) for name in sorted(_COMPUTE_FIELDS)})
+            from temsim.physics.compute_backend import BACKEND_AUTO, normalise_backend, validate_backend_selection
+            selected = values["acceleration_backend"]
+            canonical = normalise_backend(selected)
+            if canonical == BACKEND_AUTO and selected != BACKEND_AUTO:
+                # Unknown text must not silently become an Auto preference.
+                validate_backend_selection(selected)
+            values["acceleration_backend"] = validate_backend_selection(canonical)
         if values:
             devices[key] = values
     document = {
@@ -385,7 +396,12 @@ def apply_profile_values(state, values: dict) -> None:
             allowed.update(_SLIT_PHYSICAL_FIELDS)
         if key == "sample":
             allowed.update(SAMPLE_SOURCE_FIELDS)
+        if key == "simulation":
+            allowed.update(_COMPUTE_FIELDS)
         for name, value in attributes.items():
+            if key == "sample" and name == "stem_execution_policy":
+                # The former page override cannot become an active policy.
+                continue
             if value is None:
                 if name not in allowed or name not in _nullable_fields(type(target.obj)):
                     raise ValueError(f"{key}.{name} cannot be none")
@@ -397,6 +413,9 @@ def apply_profile_values(state, values: dict) -> None:
             # incoming model/width, never against partially restored values.
             converted = validate_runtime_assignment(target, name, value,
                                                      validate_source_geometry=False)
+            if key == "simulation" and name == "acceleration_backend":
+                from temsim.physics.compute_backend import validate_backend_selection
+                converted = validate_backend_selection(converted)
             pending.append((target.obj, name, converted))
     # Validate coupled controls on a separate sample before
     # committing any device changes, including optional coefficient resets.

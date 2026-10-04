@@ -232,6 +232,12 @@ def parameter_definition(component, name, *, lens=False):
     elif component == "feg_tip" and name in _TIP_RESPONSES:
         category = "execution" if name == "ray_count" else "operating"
         label, detail = "Tip " + label, _TIP_RESPONSES[name]
+        label = {
+            "virtual_source_fwhm_nm": "Tip projected emission FWHM",
+            "emission_energy_ev": "Tip mean launch kinetic energy",
+            "energy_spread_fwhm_ev": "Tip energy width (RMS-equivalent FWHM)",
+            "tip_radius_nm": "Tip radius metadata",
+        }.get(name, label)
         # Explanation coverage is not new sweep authorization.
         sweep = name in {"emission_current_na", "virtual_source_fwhm_nm", "angular_rms_mrad",
                          "angular_cutoff_mrad", "energy_spread_fwhm_ev"}

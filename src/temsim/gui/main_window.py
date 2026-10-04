@@ -57,6 +57,7 @@ from temsim.gui.direct_alignment_controller import (
 )
 from temsim.gui.design_sweep_controller import DesignSweepController
 from temsim.gui.operating_preset_controller import OperatingPresetController
+from temsim.gui.paired_beam_controller import PairedBeamController
 from temsim.gui.parameter_panel import ParameterPanel
 from temsim.gui.instrument_tree import TreeSelection
 from temsim.gui.visualization import VisualizationWorkspace
@@ -110,7 +111,7 @@ class MainWindow(QMainWindow):
         self.selection = self.catalog.default_selection()
         self.state = default_state()
         self.assembly = self.catalog.apply(self.state, self.selection)
-        # Source defaults are owned by the shared tip / assembly loader, not a
+        # Source defaults are owned by the tip / assembly loader, not a
         # GUI-only override. Explicit profile and model choices remain separate.
         if (not self.result_files.hold_automatic_preview
                 and self._apply_state_operating_modes(self.state, self.selection) is None):
@@ -219,7 +220,21 @@ class MainWindow(QMainWindow):
         self.workspace.interactive_calculation.tuning_changed.connect(self._apply_interactive_tuning)
         self.workspace.interactive_calculation.current_state = lambda: self.state
         self.workspace.coherent_beam.state_provider = lambda: self.state
+        self.workspace.coherent_beam.source_applier = self._apply_tip_emission
         self.workspace.coherent_beam.set_state(self.state)
+        self.paired_beams = PairedBeamController(lambda: self.state, self,
+            artifact_store=self.calculations.artifact_store)
+        coherent_page = self.workspace.coherent_beam
+        coherent_page.paired_busy_provider = lambda: (
+            self.paired_beams.token is not None
+            and self.paired_beams._stage in {"rays", "sample"}
+        )
+        coherent_page.compare_classical.setEnabled(True)
+        coherent_page.paired_calculation_requested.connect(self._calculate_paired_beams)
+        coherent_page.pair_invalidated.connect(self.paired_beams.cancel)
+        self.paired_beams.progress.connect(coherent_page.status.setText)
+        self.paired_beams.ready.connect(self._paired_particles_ready)
+        self.paired_beams.failed.connect(self._paired_beams_failed)
         self.workspace.interactive_calculation.high_accuracy_requested.connect(self.run_section_high_accuracy)
         self.workspace.calculation_requested.connect(self.run_page_calculation)
         self.workspace.interactive_calculation.section_changed.connect(self._section_configuration_changed)
@@ -305,6 +320,7 @@ class MainWindow(QMainWindow):
         )
         self.parameter_panel.geometry_edit_requested.connect(self._edit_part_geometry)
         self.parameter_panel.tip_editor_requested.connect(self._open_tip_editor)
+        self.workspace.coherent_beam.tip_editor_requested.connect(self._open_tip_editor)
         self.workspace.model_inspector.tip_editor_requested.connect(self._open_tip_editor)
         self.workspace.physical_layout.model_editor.tip_editor_requested.connect(self._open_tip_editor)
         self.workspace.physical_layout.model_editor.component_selected.connect(
@@ -378,6 +394,7 @@ class MainWindow(QMainWindow):
         self._restore_workspace()
         self.workspace_layouts.restore_active()
         self.workspace.interactive_calculation.controller.busy_changed.connect(self.result_files.refresh_actions)
+        self.calculations.pool.coordinator.changed.connect(self.result_files.refresh_actions)
         self.result_files.refresh_actions()
         if self.result_files.hold_automatic_preview:
             QTimer.singleShot(0, self.result_files.start)
@@ -440,6 +457,15 @@ class MainWindow(QMainWindow):
         )
         self.simulation_menu.aboutToShow.connect(self._refresh_simulation_mode)
         self.simulation_menu.set_state(self.state)
+        self.simulation_menu.addSeparator()
+        self.classical_rays_action = self.simulation_menu.addAction("Calculate classical rays")
+        self.classical_rays_action.setObjectName("calculateClassicalRaysAction")
+        self.classical_rays_action.setToolTip(
+            "Calculate the classical trajectory approximation for comparison. "
+            "This updates Ray Diagram and retains the executed beam before the sample; "
+            "it does not calculate diffraction or the complex beam state."
+        )
+        self.classical_rays_action.triggered.connect(self.run_high_accuracy)
         self.simulation_menu.addSeparator()
         self.cache_settings_action = self.simulation_menu.addAction("Performance and cache...")
         self.cache_settings_action.setObjectName("performanceCacheAction")
@@ -593,12 +619,8 @@ class MainWindow(QMainWindow):
         self.high_rays.setObjectName("highAccuracyRayCount")
         self.high_rays.setRange(1_000, 1_000_000)
         self.high_rays.setSingleStep(1_000)
-        # Tuned for the supported 32 GiB workstation profile. The controller
-        # also enforces a conservative 24 GiB process budget for custom values.
-        self.high_rays.setValue(15_000)
-        self.high_rays.valueChanged.connect(
-            self._schedule_design_explorer_refresh
-        )
+        self._sync_ray_count_selector()
+        self.high_rays.valueChanged.connect(self._high_ray_count_changed)
         toolbar.addWidget(self.high_rays)
 
         toolbar.addWidget(QLabel("Step (mm)"))
@@ -606,10 +628,11 @@ class MainWindow(QMainWindow):
         self.high_step.setObjectName("highAccuracyStep")
         self.high_step.setDecimals(4)
         self.high_step.setRange(0.01, 1.0)
-        self.high_step.setValue(0.1)
-        self.high_step.valueChanged.connect(
-            self._schedule_design_explorer_refresh
-        )
+        # Preserve the established GUI accuracy while making this toolbar
+        # value part of the persisted instrument's numerical settings.
+        self.state.step_mm = 0.1
+        self._sync_step_selector()
+        self.high_step.valueChanged.connect(self._high_step_changed)
         toolbar.addWidget(self.high_step)
 
         toolbar.addWidget(QLabel("Compute"))
@@ -618,7 +641,7 @@ class MainWindow(QMainWindow):
         for backend in BACKEND_CHOICES:
             label = backend
             if backend == BACKEND_AUTO:
-                label = "Auto (GPU / CPU)"
+                label = "Auto (GPU first)"
             self.compute_backend.addItem(label, backend)
         selected_backend = str(
             getattr(self.state, "acceleration_backend", BACKEND_AUTO)
@@ -630,9 +653,9 @@ class MainWindow(QMainWindow):
         cuda_detail = capability_detail_for_display(cuda_capability)
         cupy_detail = capability_detail_for_display(cupy_capability)
         self.compute_backend.setToolTip(
-            "Shared ray and wave-optics preference. Auto uses CUDA for "
-            "sufficiently large ray bundles and CuPy for sufficiently large "
-            "multislice/FFT workloads; small jobs remain on CPU. "
+            "The single device preference for all calculation pages. Auto "
+            "uses an available GPU for supported ray and wave operations, "
+            "including small jobs, and uses CPU when GPU is unavailable. "
             "Prefer GPU reports CPU fallback; Require GPU rejects unavailable or unsupported accelerated stages. "
             "CUDA GPU requests acceleration and reports any CPU retry. "
             "Gun extraction/acceleration and other CPU-only preparation remain separate. "
@@ -643,12 +666,16 @@ class MainWindow(QMainWindow):
         )
         toolbar.addWidget(self.compute_backend)
 
-        high_button = QPushButton("Run high-accuracy once")
-        high_button.setObjectName("highAccuracyButton")
-        high_button.setProperty("calculationAction", True)
-        high_button.setToolTip("Update Ray Diagram and retain the executed beam before the sample. Calculate sample interactions and detector readouts with the buttons on their pages.")
-        high_button.clicked.connect(self.run_high_accuracy)
-        toolbar.addWidget(high_button)
+        beam_button = QPushButton("Calculate beam")
+        beam_button.setObjectName("calculateBeamButton")
+        beam_button.setProperty("calculationAction", True)
+        beam_button.setToolTip(
+            "Open Electron beam and calculate from the applied Tip and instrument settings. "
+            "The optional classical comparison follows the Electron beam advanced setting; "
+            "pending Tip edits are not applied automatically."
+        )
+        beam_button.clicked.connect(self._calculate_beam)
+        toolbar.addWidget(beam_button)
         cancel_button = QPushButton("Cancel calculations")
         cancel_button.setObjectName("cancelCapturedCalculations")
         cancel_button.setToolTip("Cancel queued/running Preview and High calculations at safe boundaries. Completed working points and independent experiments remain available.")
@@ -657,6 +684,7 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
     def _cancel_calculations(self):
+        self.workspace.coherent_beam.cancel()
         self.preview_timer.stop()
         self._interactive_preview_pending = False
         self._interactive_preview_generation = None
@@ -708,6 +736,9 @@ class MainWindow(QMainWindow):
 
     @input_io.using_state_inputs
     def _refresh_assembly_views(self) -> None:
+        # A new gun can restore its own persisted sampling population.
+        self._sync_ray_count_selector()
+        self._sync_step_selector()
         self.workspace.vacuum_map.set_state(self.state)
         self.workspace.physical_layout.set_cell_state(self.state)
         self._refresh_simulation_mode()
@@ -1343,6 +1374,86 @@ class MainWindow(QMainWindow):
             from temsim.tip_emission_view import emission_view_values
             values["feg_tip"]["tip_analytic_emission"] = emission_view_values(gun.emitter)
 
+    def _apply_tip_emission(self, settings):
+        """Publish one validated tip boundary and invalidate both readouts.
+
+        Source editing is explicit and does not launch a calculation. The
+        normal revision path rejects late results and updates all tip editors;
+        source/field cache identities remain those of the instrument snapshot.
+        """
+        from temsim.physics.coherent_inputs import candidate_tip_emission
+
+        gun = self.state.electron_gun
+        candidate = candidate_tip_emission(self.state, settings)
+        if candidate.to_dict() == gun.to_dict():
+            return self.state
+        gun.emitter = candidate.emitter
+        gun.source_representation = candidate.source_representation
+        gun._trace_cache = gun._trace_cache_key = None
+        self._refresh_assembly_views()
+        self._runtime_parameter_changed("Tip emission", request_preview=False)
+        self.log_output.appendPlainText(
+            "Tip emission applied to particle and coherent calculations. "
+            "Previous results retain their captured source; recalculate each view."
+        )
+        self.status_label.setText(
+            "Tip applied. Calculate beam to observe the new source; enable the advanced classical comparison when needed."
+        )
+        return self.state
+
+    def _calculate_paired_beams(self):
+        """One explicit action freezes both computations before either starts."""
+        if self.result_files.loading:
+            return
+        page = self.workspace.coherent_beam
+        try:
+            captured, request, summary = page.capture_calculation_inputs()
+            surface = getattr(captured.electron_gun.emitter, "surface_model", None)
+            if surface is not None and surface.coherence is not None and not surface.shared_boundary:
+                raise ValueError("The historical surface reservoir has no shared particle representation. "
+                                 "Explicitly replace it in Tip parameters before calculating a pair.")
+            if bool(getattr(getattr(captured, "vacuum_map", None), "enabled", False)):
+                raise ValueError("Paired beams currently require ideal vacuum for both methods. Disable vacuum scattering explicitly before calculating a pair; no settings were changed.")
+            self.preview_timer.stop()
+            self._interactive_preview_pending = False
+            self._interactive_preview_generation = None
+            self.calculations.invalidate_pending(include_explicit=True)
+            self.result_files.hold_automatic_preview = False
+            page.mark_inputs_stale()
+            self.paired_beams.start(captured, request, summary,
+                self.high_rays.value(), self.high_step.value())
+            page.cancel_button.setEnabled(True)
+        except Exception as error:
+            self._paired_beams_failed(str(error))
+
+    def _paired_particles_ready(self, captured, request, summary, context, duration):
+        if context.token != self.paired_beams.token or not self.paired_beams.is_current():
+            self._paired_beams_failed("Captured inputs are no longer current; no mixed pair was published.")
+            return
+        if self.result_files.loading or self.result_files.hold_automatic_preview:
+            self._paired_beams_failed("A result-file operation prevented particle publication; no coherent pair was started.")
+            return
+        self._calculation_ready("High accuracy", context.particle_result, duration,
+                                paired_token=context.token)
+        # Publication can refuse a result or invalidate the pair while
+        # updating linked views. Only the accepted Ray Diagram may be paired.
+        if (self.result_files.loading or self.result_files.hold_automatic_preview
+                or context.token != self.paired_beams.token
+                or not self.paired_beams.is_current()
+                or self.workspace._last_result is not context.particle_result):
+            self._paired_beams_failed("Particle result was not accepted as the current Ray Diagram; no coherent pair was started.")
+            return
+        self.workspace.coherent_beam.start_captured_calculation(
+            captured, request, summary, pair_context=context)
+
+    def _paired_beams_failed(self, message):
+        self.paired_beams.cancel()
+        page = self.workspace.coherent_beam
+        page.mark_inputs_stale()
+        page.invalidate_pair("Paired calculation incomplete. No matched comparison was produced.")
+        page.status.setText(f"Paired calculation failed: {message}")
+        self.log_output.appendPlainText(f"Paired calculation: {message}")
+
     def _open_tip_editor(self):
         """All tip entry points navigate here; Apply publishes one valid edit."""
         self._reveal_physical_model("feg_tip", 0.)
@@ -1693,6 +1804,8 @@ class MainWindow(QMainWindow):
             self.compute_backend.setCurrentIndex(
                 self.compute_backend.findData(normalise_backend(self.state.acceleration_backend))
             )
+        self._sync_ray_count_selector()
+        self._sync_step_selector()
 
     @input_io.using_state_inputs
     def _install_working_point(self, state, checkpoint, *, fork=False) -> None:
@@ -2023,12 +2136,56 @@ class MainWindow(QMainWindow):
                 "Condenser preset cancelled after a microscope state change."
             )
 
+    def _sync_ray_count_selector(self) -> None:
+        """Display persisted sampling without modifying a loaded instrument."""
+        emitter = getattr(self.state.electron_gun, "emitter", self.state.electron_gun)
+        count = int(emitter.ray_count)
+        quadrature = getattr(emitter, "quadrature", None)
+        with QSignalBlocker(self.high_rays):
+            self.high_rays.setRange(min(1_000, count), max(1_000_000, count))
+            self.high_rays.setValue(count)
+            self.high_rays.setEnabled(quadrature is None)
+        self.high_rays.setToolTip(
+            "Derived from the complete Tip position × direction × energy quadrature. "
+            "Change its factors to change this population." if quadrature is not None else
+            "Particle samples for Ray Diagram and page calculations. Preview uses its own smaller captured population.")
+
+    def _high_ray_count_changed(self, count: int) -> None:
+        emitter = getattr(self.state.electron_gun, "emitter", self.state.electron_gun)
+        if getattr(emitter, "quadrature", None) is not None:
+            # Product sampling requires every declared stratum. Do not
+            # replace a loaded quadrature with a differently sized draw.
+            self._sync_ray_count_selector()
+            return
+        if int(emitter.ray_count) == int(count):
+            return
+        emitter.ray_count = int(count)
+        self._invalidate_direct_alignment()
+        self.schedule_preview("ray_count", automatic=False)
+
+    def _sync_step_selector(self) -> None:
+        """Display loaded integration steps without emitting a settings edit."""
+        step = float(self.state.step_mm)
+        with QSignalBlocker(self.high_step):
+            self.high_step.setRange(min(0.01, step), max(1.0, step))
+            self.high_step.setValue(step)
+
+    def _high_step_changed(self, step: float) -> None:
+        if float(self.state.step_mm) == float(step):
+            return
+        self.state.step_mm = float(step)
+        self._invalidate_direct_alignment()
+        self.schedule_preview("step_mm", automatic=False)
+
     def _compute_backend_changed(self, _index: int) -> None:
         self._invalidate_direct_alignment()
         from temsim.physics.compute_backend import validate_backend_selection
         backend = validate_backend_selection(self.compute_backend.currentData() or BACKEND_AUTO)
         self.state.acceleration_backend = backend
         self.state.acceleration_enabled = backend != BACKEND_CPU
+        self.workspace.magnetic_field.field_lines.set_compute_policy(
+            backend, self.state.acceleration_enabled)
+        self.schedule_preview("acceleration_backend", automatic=False)
         if backend == BACKEND_CUDA:
             from temsim.physics.compute_backend import capability_detail_for_display
             ray_detail = capability_detail_for_display(cuda_capability)
@@ -2042,7 +2199,6 @@ class MainWindow(QMainWindow):
         self.log_output.appendPlainText(
             f"Compute backend requested: {backend}{detail}."
         )
-        self._schedule_design_explorer_refresh()
 
     def run_preview(self) -> None:
         if self.result_files.loading or (self.sender() is self.preview_timer
@@ -2096,8 +2252,14 @@ class MainWindow(QMainWindow):
         if interactive:
             self._interactive_preview_generation = self.calculations.generation
 
+    def _calculate_beam(self) -> None:
+        """The primary toolbar uses the same applied-input entry as its page."""
+        page = self.workspace.coherent_beam
+        self.workspace.tabs.setCurrentWidget(page)
+        page.calculate()
+
     def run_high_accuracy(self) -> None:
-        """The toolbar prepares rays; page buttons request their own readouts."""
+        """Explicit classical comparison; page buttons request its readouts."""
         self._submit_high_accuracy(workflow="rays")
 
     def run_section_high_accuracy(self) -> None:
@@ -2113,7 +2275,7 @@ class MainWindow(QMainWindow):
                 raise ValueError("Use the Ray Diagram or Live tuning calculation button for this request")
             seed = self.workspace._high_accuracy_result
             if seed is None or getattr(seed, "simulation", None) is None:
-                raise ValueError("Run high-accuracy once to calculate Ray Diagram before calculating this page.")
+                raise ValueError("Use Simulation → Calculate classical rays to prepare Ray Diagram before calculating this page.")
             self._submit_high_accuracy(workflow=workflow, existing_result=seed)
         except ValueError as exc:
             self._show_error(str(exc))
@@ -2181,9 +2343,11 @@ class MainWindow(QMainWindow):
         if stage.startswith("Backend requirements |"):
             self.log_output.appendPlainText(stage)
 
-    def _calculation_ready(self, quality: str, result, duration: float) -> None:
+    def _calculation_ready(self, quality: str, result, duration: float, *, paired_token=None) -> None:
         if self.result_files.loading or self.result_files.hold_automatic_preview:
             return
+        if self.paired_beams.token is not None and paired_token != self.paired_beams.token:
+            self.workspace.coherent_beam.mark_inputs_stale()
         if quality not in ("Preview", "Medium") and getattr(result, "calculation_manifest", None) is not None:
             from temsim.working_point import WorkingPointCheckpoint
             try:
@@ -2703,6 +2867,7 @@ class MainWindow(QMainWindow):
             self.assembly = candidate_assembly
             self.assembly_panel.set_selection(selection)
             self._refresh_assembly_views()
+            self._sync_working_point_selectors()
             self.log_output.appendPlainText(
                 f"Loaded current profile: {path}."
             )
@@ -2805,6 +2970,7 @@ class MainWindow(QMainWindow):
         experiment_files_done = self.workspace.design_explorer.shutdown()
         selected_plane_done = self.workspace.selected_plane_readout.shutdown()
         coherent_done = self.workspace.coherent_beam.shutdown()
+        paired_done = self.paired_beams.shutdown()
         settings = QSettings()
         settings.setValue(self.SETTINGS_GEOMETRY, self.saveGeometry())
         settings.setValue(self.SETTINGS_STATE, self.saveState())
@@ -2818,7 +2984,7 @@ class MainWindow(QMainWindow):
         presets_done = self.operating_presets.pool.waitForDone(3_000)
         self.direct_alignments.invalidate_pending()
         alignments_done = self.direct_alignments.pool.waitForDone(3_000)
-        if not all((calculations_done, archives_done, sweeps_done, presets_done, alignments_done, interactive_done, magnetic_done, experiment_files_done, selected_plane_done, coherent_done)):
+        if not all((calculations_done, archives_done, sweeps_done, presets_done, alignments_done, interactive_done, magnetic_done, experiment_files_done, selected_plane_done, coherent_done, paired_done)):
             self.status_label.setText("Waiting for owned calculations to reach their cancellation boundary; close again when they finish")
             event.ignore()
             return

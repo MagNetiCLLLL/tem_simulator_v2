@@ -39,6 +39,7 @@ def form_tem_image(
     *,
     compute_backend: str = WAVE_BACKEND_NUMPY,
     fallback_reason: str | None = None,
+    requested_policy: str = "Auto",
 ) -> tuple[np.ndarray, np.ndarray, WaveFftDiagnostics]:
     """Return raw image and shifted diffraction intensities on the host."""
 
@@ -47,6 +48,7 @@ def form_tem_image(
         transfer,
         compute_backend=compute_backend,
         fallback_reason=fallback_reason,
+        requested_policy=requested_policy,
     )
     return np.abs(image_wave) ** 2, raw_diffraction, diagnostics
 
@@ -57,6 +59,7 @@ def apply_coherent_transfer(
     *,
     compute_backend: str = WAVE_BACKEND_NUMPY,
     fallback_reason: str | None = None,
+    requested_policy: str = "Auto",
 ) -> tuple[np.ndarray, np.ndarray, WaveFftDiagnostics]:
     """Apply one coherent pupil/aberration transfer and retain its wave.
 
@@ -85,7 +88,7 @@ def apply_coherent_transfer(
             from temsim.physics.compute_backend import gpu_retry_reason
             fallback_reason = _combined_reason(
                 fallback_reason,
-                "CuPy CUDA FFT failed: " + gpu_retry_reason(exc, "auto"),
+                "CuPy CUDA FFT failed: " + gpu_retry_reason(exc, requested_policy),
             )
             if cp is not None:
                 _release_cupy_pools(cp)
@@ -111,6 +114,7 @@ def stem_diffraction_intensity(
     compute_backend: str = WAVE_BACKEND_NUMPY,
     fallback_reason: str | None = None,
     reference_norm: float | None = None,
+    requested_policy: str = "Auto",
 ) -> tuple[np.ndarray, WaveFftDiagnostics]:
     """Return shifted diffraction. Production passes the pre-specimen norm.
 
@@ -144,7 +148,7 @@ def stem_diffraction_intensity(
             from temsim.physics.compute_backend import gpu_retry_reason
             fallback_reason = _combined_reason(
                 fallback_reason,
-                "CuPy CUDA FFT failed: " + gpu_retry_reason(exc, "auto"),
+                "CuPy CUDA FFT failed: " + gpu_retry_reason(exc, requested_policy),
             )
             if cp is not None:
                 _release_cupy_pools(cp)

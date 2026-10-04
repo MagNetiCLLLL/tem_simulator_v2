@@ -266,46 +266,54 @@ def test_projected_masks_follow_insertion_and_readout_is_not_physical_removal():
         apertures=(_aperture(enabled=False), _aperture(key="missing", installed=False),
                    _slit(key="slit", slit_inserted=False)),
         detectors=(_detector("retracted", inserted=False),
-                   _detector("readout_off", readout_enabled=False)),
+                   _detector("readout_off", readout_enabled=False),
+                   _detector("camera", "square", readout_enabled=False),
+                   _detector("retracted_camera", "square", inserted=False)),
     )
     projected = projected_hardware_outlines(result, 30.)
-    assert [row.key for row in projected] == ["slit", "readout_off"]
+    assert [row.key for row in projected] == ["slit", "readout_off", "camera"]
     assert len(projected[0].polylines_mm) == 1
     assert "physical absorption is still active" in projected[1].description
+    assert "physical absorption is still active" in projected[2].description
 
 
-def test_projected_column_walls_deduplicate_one_body_without_filling_axial_gaps():
+def test_projection_omits_column_walls_but_exact_sections_retain_them():
     walls = (_wall(0., 10., 4., "body"), _wall(12., 20., 4., "body"),
              _wall(30., 40., 2., "later"))
     result = _result(walls=walls)
-    projected, = projected_hardware_outlines(result, 25., circle_segments=16)
-    assert projected.key == "body"
-    assert projected.z_mm == 0.
-    assert projected.polylines_mm[0][0] == (2., 0.)
-    assert "0\u201310; 12\u201320" in projected.description
-    assert "Column vacuum wall" in projected.name
+    for z in (5., 11., 25., 35., 45.):
+        assert projected_hardware_outlines(result, z, circle_segments=16) == ()
+    section, = plane_hardware_outlines(result, 5., circle_segments=16)
+    assert section.key == "body" and section.kind == "column"
+    assert section.polylines_mm[0][0] == (2., 0.)
     assert plane_hardware_outlines(result, 11.) == ()
 
 
-def test_projected_column_uses_functional_name_but_preserves_raw_identity():
-    wall = _wall(0., 30., 20., "module_id")
+def test_projected_apertures_and_detectors_do_not_process_excluded_bore_metadata():
+    wall = _wall(0., 30., -2., "module_id")
     wall.name = "project_and_recording_system:noenergyfilter vacuum drift"
-    outline, = projected_hardware_outlines(_result(walls=(wall,)), 20.)
-    assert outline.name == "Column vacuum wall"
-    assert wall.name in outline.description
-    assert "key module_id" in outline.description
+    result = _result(walls=(wall,), apertures=(_aperture(),),
+                     detectors=(_detector(), _detector("camera", "square")))
+    projected = projected_hardware_outlines(result, 20.)
+    assert [row.key for row in projected] == ["aperture", "detector", "camera"]
+    assert all(row.kind in {"aperture", "detector"} for row in projected)
+    assert all(wall.name not in row.description for row in projected)
+    assert wall.inner_diameter_mm == -2.  # Presentation never repairs saved inputs.
+    with pytest.raises(ValueError, match="Vacuum bore diameter"):
+        plane_hardware_outlines(result, 20.)
 
 
-def test_projected_gun_body_keeps_upstream_extent_even_after_leaving_body():
+def test_projection_omits_gun_clear_bores_but_preserves_exact_section_geometry():
     body = SimpleNamespace(key="gun_lens", name="Gun lens body", installed=True,
                            enabled=False, mechanical_center_from_tip_mm=5.,
                            mechanical_length_mm=2., mechanical_clear_bore_diameter_mm=.8)
     result = _result(gun_bores=(body,))
-    assert projected_hardware_outlines(result, 3.) == ()
-    outline, = projected_hardware_outlines(result, 8., circle_segments=16)
-    assert outline.z_mm == 4.
+    for z in (3., 5., 8.):
+        assert projected_hardware_outlines(result, z, circle_segments=16) == ()
+    outline, = plane_hardware_outlines(result, 5., circle_segments=16)
+    assert outline.kind == "gun_bore"
+    assert outline.z_mm == 5.
     assert outline.polylines_mm[0][0] == (.4, 0.)
-    assert "4\u20136 mm" in outline.description
     assert plane_hardware_outlines(result, 8.) == ()
 
 
@@ -359,6 +367,7 @@ def test_actual_default_projection_at_2822_contains_upstream_haadf_and_df_only()
     assert detectors["haadf"].polylines_mm[1][0] == (2., 0.)
     assert detectors["df"].polylines_mm[0][0] == (7., 0.)
     assert detectors["df"].polylines_mm[1][0] == (1., 0.)
+    assert all(row.kind in {"aperture", "detector"} for row in projected)
     local = plane_hardware_outlines(snapshot, 2822.04)
     assert all(row.kind == "column" for row in local)
     assert len(projected) < len(snapshot.assembly.vacuum_bore_segments)

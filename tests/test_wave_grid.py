@@ -40,6 +40,44 @@ def test_even_negative_nyquist_bin_keeps_its_complex_phase_and_norm():
     assert result.probability == pytest.approx(1., abs=2e-15)
 
 
+def test_cuda_fourier_refinement_and_nonlinear_carriers_preserve_phase_and_rejections():
+    cp = pytest.importorskip("cupy")
+    try:
+        available = cp.cuda.runtime.getDeviceCount() > 0
+    except cp.cuda.runtime.CUDARuntimeError:
+        available = False
+    if not available:
+        pytest.skip("CUDA is unavailable")
+    from temsim.physics.wave_device import device_scope
+    source = gaussian(128)
+    x, y = source.coordinates_m()
+    source = replace(source, amplitude=source.amplitude*(1+.1*x/16e-9+.03j*y/16e-9),
+                     curvature_m1=np.array(((300., 20.), (20., -100.))),
+                     tilt_rad=np.array((1e-6, -2e-6)))
+    strengths = dict(normal_m2=2e8, skew_m2=-3e8, spherical_m3=4e15)
+    expected = apply_multipole_phase(refine_plane_wave(source, (257, 259)), 2e-12, **strengths)
+    with device_scope("Require GPU", maximum_working_bytes=256*1024**2):
+        device = replace(source, amplitude=cp.asarray(source.amplitude))
+        actual = apply_multipole_phase(refine_plane_wave(device, (257, 259)), 2e-12, **strengths)
+        assert isinstance(actual.amplitude, cp.ndarray)
+        np.testing.assert_allclose(cp.asnumpy(actual.full_amplitude(2e-12)), expected.full_amplitude(2e-12),
+                                   rtol=2e-11, atol=2e-13)
+        assert actual.probability == pytest.approx(expected.probability, abs=2e-14)
+        with pytest.raises(WaveSamplingError, match="undersampled"):
+            apply_multipole_phase(device, 2e-12, spherical_m3=1e26)
+
+
+def test_wave_compute_policy_and_device_budget_are_validated_and_identified():
+    for policy in ("cpu", "gpu", "auto", "CPU", "Numba CPU", "CUDA GPU", "Prefer GPU", "Require GPU"):
+        numerics = WaveGridNumerics(compute_backend=policy, maximum_device_working_bytes=2*1024**3)
+        numerics.validate()
+        assert numerics.column_identity()["compute_backend"] == policy
+        assert numerics.column_identity()["maximum_device_working_bytes"] == 2*1024**3
+    for value in (True, 0, -1, 1.5):
+        with pytest.raises(ValueError, match="device working memory"):
+            WaveGridNumerics(maximum_device_working_bytes=value).validate()
+
+
 def gaussian(n):
     axis = (np.arange(n)-n//2)*(128/n)*4e-9
     xx, yy = np.meshgrid(axis, axis)

@@ -72,7 +72,7 @@ class ThermionicEmitter:
     emitting_radius_um: float = 10.0
     cathode_anode_gap_mm: float = 1.0
     extraction_field_scale: float = 1.0
-    ray_count: int = 1000
+    ray_count: int = 3000
 
     @property
     def label(self):

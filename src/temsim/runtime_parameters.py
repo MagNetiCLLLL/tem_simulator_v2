@@ -23,6 +23,7 @@ INTERNAL_FIELDS = frozenset({
     "lower_coil_gain",
     "source_representation", "effective_source", "coherence", "surface_model",
     "active_backend",
+    "acceleration_backend", "acceleration_enabled",
     "active_installation",
     "accelerator_restore_profile",
     "calibrated_dispersion_um_per_ev",
@@ -363,8 +364,6 @@ def validate_runtime_assignment(
         raise ValueError(f"{target.key}.{name} must be in (0, 1]")
     if name == "wave_objective_aperture_strategy" and converted not in {"physical_plane", "equivalent_pupil"}:
         raise ValueError("Objective aperture strategy must be physical_plane or equivalent_pupil")
-    if name == "stem_execution_policy" and converted not in {"auto", "prefer_gpu", "require_gpu"}:
-        raise ValueError("STEM execution policy must be auto, prefer_gpu or require_gpu")
     if name == "stem_fourdstem_host_budget_mb" and not 1 <= int(converted) <= 4096:
         raise ValueError("STEM host output budget must be 1–4096 MiB")
     if name == "wave_frozen_phonon_configurations" and not (

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from specimen_inputs import imported_sample, SI_CIF
 from temsim.optics.column import default_state
 from temsim.physics import compute_backend, stem_wave_imaging
 from temsim.physics.compute_backend import WAVE_BACKEND_CUPY
@@ -29,7 +30,14 @@ def _state(backend: str, *, atomistic: bool = False):
     state.illumination_mode = "STEM"
     state.acceleration_enabled = backend != "CPU"
     state.acceleration_backend = backend
-    state.sample.specimen_preset_key = "si_110" if atomistic else "vacuum"
+    if atomistic:
+        imported_sample(state, path=SI_CIF, zone=(1, 1, 0), in_plane=(1, -1, 0))
+        # Explicit displacement input for this local CPU/CUDA comparison;
+        # the imported CIF has no displacement factors to infer it from.
+        state.sample.wave_frozen_phonon_sigma_angstrom = 0.085
+    else:
+        state.sample.specimen_mode = "vacuum"
+        state.sample.cif_path = ""
     state.sample.inserted = atomistic
     state.sample.thickness_nm = 0.4
     state.sample.wave_grid_pixels = 32
@@ -140,6 +148,9 @@ def test_resident_cuda_frozen_phonon_detector_signals_match_cpu_reference():
     )
     assert gpu.metrics["cuda_resident_pipeline"] is True
     assert gpu.metrics["cuda_configuration_count"] == 2
+    assert gpu.metrics["specimen_atomistic_source_kind"] == "cif"
+    assert gpu.metrics["specimen_atomistic_applied"] is True
+    assert gpu.metrics["specimen_frozen_phonon_applied"] is True
     assert gpu.metrics["cuda_potential_upload_count"] == 2
     assert gpu.metrics["cuda_resident_potential_bytes"] > 0
     assert gpu.metrics["cuda_multislice_plan_build_count"] == 1
@@ -281,6 +292,47 @@ def test_dynamic_detector_centres_match_cpu_even_after_partial_cuda_resource_fai
     np.testing.assert_allclose(result.truncated_fraction, cpu.truncated_fraction, rtol=2e-4, atol=2e-7)
     assert progress == sorted(progress)
     assert progress[-1] == 1.0
+
+
+def test_toolbar_cpu_ignores_obsolete_sample_gpu_policy(monkeypatch):
+    requested = []
+    original_choice = stem_wave_imaging.choose_wave_backend
+
+    def choose(backend, **kwargs):
+        requested.append((backend, kwargs["acceleration_enabled"]))
+        return original_choice(backend, **kwargs)
+
+    monkeypatch.setattr(stem_wave_imaging, "choose_wave_backend", choose)
+    state = _state("CPU")
+    state.sample.stem_execution_policy = "require_gpu"
+    result = simulate_local_stem_operator(
+        state, SimpleNamespace(incident=_incident_bundle()), _detectors(), *_scan()
+    )
+    assert requested == [("CPU", False)]
+    assert result.metrics["wave_compute_backend"] == "NumPy CPU"
+    assert result.metrics["cuda_resident_pipeline"] is False
+
+
+def test_toolbar_require_gpu_does_not_retry_stem_on_cpu(monkeypatch):
+    monkeypatch.setattr(
+        stem_wave_imaging, "choose_wave_backend",
+        lambda *_args, **_kwargs: (WAVE_BACKEND_CUPY, None),
+    )
+
+    def resource_failure(**_kwargs):
+        raise compute_backend.GPUExecutionError("out_of_memory", "synthetic resident allocation failure")
+
+    def forbidden_cpu(*_args, **_kwargs):
+        pytest.fail("The toolbar Require GPU choice must not restart STEM on CPU")
+
+    monkeypatch.setattr(stem_wave_imaging, "run_resident_stem_cuda", resource_failure)
+    monkeypatch.setattr(stem_wave_imaging, "propagate_multislice", forbidden_cpu)
+    state = _state("Require GPU")
+    state.sample.stem_execution_policy = "auto"
+    with pytest.raises(compute_backend.GPUExecutionError, match="synthetic resident allocation failure"):
+        simulate_local_stem_operator(
+            state, SimpleNamespace(incident=_incident_bundle()), _detectors(), *_scan()
+        )
 
 
 # This module tests supplied local fields; production admission remains active.

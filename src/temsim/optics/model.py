@@ -323,7 +323,6 @@ class Sample:
     # acquisition.  Detector-response defaults are ideal simulator values,
     # not an OEM pixel-detector calibration.
     stem_fourdstem_enabled: bool = False
-    stem_execution_policy: str = "auto"
     stem_fourdstem_host_budget_mb: int = 64
 
     stem_fourdstem_output_path: str = ""
@@ -1925,6 +1924,8 @@ class State:
             raise ValueError("Monochromator installation belongs to the current electron_gun object")
 
         sample_data = dict(d.get("sample", {}))
+        # Historical page-specific choices no longer override the toolbar.
+        sample_data.pop("stem_execution_policy", None)
         if "reference_sample_key" in sample_data or sample_data.get("specimen_mode") == "reference":
             raise ValueError("Reference CIF selection has been removed. Import the original CIF explicitly or select Vacuum sample.")
         from temsim.specimen.source import specimen_mode

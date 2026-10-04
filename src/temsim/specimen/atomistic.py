@@ -604,9 +604,12 @@ def build_atomistic_potential_ensemble(
     calculation_roi_centre_xy_angstrom=(0.0, 0.0),
     thermal_sigma_by_element_angstrom=None,
     thermal_sigma_source: str = "",
+    max_potential_bytes: int = MAX_ATOMISTIC_POTENTIAL_BYTES,
 ) -> AtomisticPotentialEnsemble:
     """Build static or frozen-phonon finite-projection potential slices."""
 
+    if type(max_potential_bytes) is not int or max_potential_bytes <= 0:
+        raise ValueError("Atomistic potential storage limit must be a positive integer")
     crystal = preset.atomistic
     custom_cif = bool(str(cif_path).strip())
     preset_sigma = (
@@ -706,10 +709,10 @@ def build_atomistic_potential_ensemble(
         * gpts_xy[1]
         * np.dtype(np.float64).itemsize
     )
-    if estimated_storage > MAX_ATOMISTIC_POTENTIAL_BYTES:
+    if estimated_storage > max_potential_bytes:
         raise ValueError(
             "Atomistic potential ensemble would require approximately "
-            f"{estimated_storage / 1024**3:.2f} GiB, above the 4 GiB "
+            f"{estimated_storage / 1024**3:.2f} GiB, above the {max_potential_bytes / 1024**3:.3g} GiB "
             "specimen-potential safety limit. Reduce grid pixels, thickness "
             "or frozen-phonon configurations."
         )

@@ -47,8 +47,8 @@ claim agreement with general BF/DF diffraction theory: Bragg interference,
 phase contrast and channeling remain outside its scope. Material support grids
 and detector paths traversing an energy filter are explicitly unsupported in
 this readout; they are not silently ignored. **Material particle paths** retains
-the finite-volume Monte Carlo readout. The independent Coherent beam development
-page now executes an explicitly selected tip-origin wave chain; the production
+the finite-volume Monte Carlo readout. The Electron beam page's **Calculate
+beam** entry executes the applied tip-origin wave chain; the production
 Scanning Image coherent workflow remains unqualified. See
 [coherent inputs and limits](COHERENT_BEAM.md).
 
@@ -67,8 +67,8 @@ shows bright atomic columns. No image is inverted to enforce that expectation.
 Each image uses an independent linear grayscale (larger signal is brighter).
 
 For historical coherent-wave results, the Images page reports angular coverage
-for each detector. These displays do not qualify the separate Coherent beam
-development page or the production TEM/STEM image workflow:
+for each detector. These displays do not qualify the Electron beam development
+path or the production TEM/STEM image workflow:
 
 - **Band covered:** the conservative acceptance bound fits inside the grid.
   This is necessary, but it is not a convergence certificate.

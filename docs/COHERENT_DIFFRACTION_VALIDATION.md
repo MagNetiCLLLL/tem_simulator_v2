@@ -1,4 +1,169 @@
-# Bounded coherent Si diffraction evidence — 3 October 2026
+# Bounded coherent Si diffraction evidence
+
+## 4 October 2026 — actual GPU execution and bounded comparison
+
+The complete public `TipWaveObservationSession` executed from the same applied
+Tip through the gun, column and imported Si specimen to
+**Z = 1605.1934995243355 mm** on an **NVIDIA RTX 5090, 32 GB**. The resulting
+image resolves the direct beam and eight surrounding diffraction peaks. Column
+and material operators used CuPy **complex128 / float64**, without CPU fallback;
+near-tip and gun propagation remained on CPU. Extraction, acceleration,
+focusing, multipoles, apertures, walls and physical detector interception were
+retained. No source width, energy, optical strength or numerical resolution was
+changed to obtain the speed improvement.
+
+The physical input snapshot is identical to the small-source CPU example below
+(SHA256 `a891504c434e03f06aa5df31bf647837845270f9af3ffa0650dc5c766ce3f8d3`).
+The execution request selects **Require GPU**, a **24 GiB device working
+limit**, and a fresh checkpoint directory. It retains three energy modes,
+reference material grid 96, 40 Å field, 10 Å target slices, 0.2 mm column step,
+and the final **three 6720 × 6720 complex modes**. This is the user's monatomic
+Fm-3m FCC structure, not a substituted diamond-Si structure.
+
+Baseline: dirty `master`, HEAD
+`c4bbd11f87610e3df06fc35c9b61e7b1c8cf5990`; existing edits and deletions were
+preserved. Executed solver source identity:
+`7a97ef1d2372d1c7117cbb75b677f8320bf243235859f2a2612cfdc53d3560e4`.
+Environment: Windows, Python 3.12.3, NumPy 2.4.6, SciPy 1.18.0, CuPy 14.1.1,
+PySide6 6.8.3, NVIDIA driver 610.62. Numerical jobs were serialized with a
+maximum 16-worker CPU budget on the 32-logical-CPU host; regression tests used
+one numerical thread. Device modes share one bounded allocator and execute
+sequentially.
+
+| Executed stage | GPU-enabled run | Historical CPU run | GPU retained probability per tip electron |
+| --- | ---: | ---: | ---: |
+| Tip through specimen entrance, including readout | 213.16 s | 568.16 s | 0.9981835308440273 |
+| Specimen and column to diffraction Z, including readout | 118.97 s | 903.66 s | 0.989817072141876 |
+| Complete run, including output handling | **343.24 s** | **1473.33 s** | Same final field |
+
+The approximately 4.29-fold end-to-end reduction compares the earlier CPU
+source revision with this GPU revision, using identical physical inputs and
+discretisation. It is historical whole-chain evidence, not a same-revision
+controlled speed ratio. Both executions used fresh propagation-cache locations;
+OS file caches and library initialization were not independently controlled.
+
+A separate **same-revision** comparison loaded the completed diffraction
+checkpoint and propagated its three full 6720² modes through one actual column
+step, from 1605.1934995243355 to 1605.1944995243355 mm. CPU took **49.4056 s**;
+Require GPU took **11.2720 s**, a **4.383-fold** local reduction including device
+transfers and setup. CPU ran first; neither path received explicit FFT warmup.
+The maximum relative complex-field L2 difference was **9.283 × 10⁻¹⁶**, without
+fitted phase or renormalisation. Coordinate basis, origin, curvature, tilt and
+final Z matched exactly; mode-weight differences were at most 5.56 × 10⁻¹⁷.
+This checks the actual column operator, not all possible material or hardware
+settings, and is not a whole-application speed guarantee.
+
+On identical 800 × 800 physical readout bins over ±100 µm, the completed GPU
+intensity differs from the historical CPU result by **1.534 × 10⁻⁹ relative
+L2**. Full per-mode complex comparisons, with no fitted phase, report a worst
+nodal residual of **7.708 × 10⁻⁶** and corresponding coordinate differences
+below 9.52 × 10⁻¹⁵ m. These different-revision residuals are reported evidence,
+not an invented acceptance tolerance or physical convergence certification.
+
+The initial GPU attempt stopped on the third energy mode because private
+allocator split blocks survived scope cleanup. Its failure receipt was retained.
+The fix keeps allocator ownership until live arrays are released and then drains
+unused blocks; it does not relax memory admission or lower precision. After the
+fix, 24 repeated real material operations held device use constant at
+1,712,914,432 bytes. The successful full run and controlled comparison finished
+with no retained private pool.
+
+Focused validation on the final source:
+
+- **115 passed, zero failed/skipped, exit 0**, 41.426 s: complete coherent-page
+  test file, device test file and the backward-plane continuation regression.
+  This covers offscreen Qt dispatch, backend capture, errors and actual CUDA
+  device cases. Receipt: `outputs/gpu-coherent-20261004/final-gui-device-regression.xml`.
+- **11 CUDA material regression cases passed, exit 0**, including repeated
+  allocator cleanup and preservation of live device results. This is a separate
+  selected suite; the counts are not a claim of a complete registered scope.
+- An earlier continuation run correctly rejected a solver identity changed
+  during execution. After freezing the source, that specific case passed in the
+  115-case run; the original failed receipt remains available.
+
+Generated evidence remains ignored under
+`outputs/gpu-coherent-20261004/si-public-final-gpu-v2/`: `receipt.json`,
+`diffraction-roi.png`, `readout-comparison.json`,
+`historical-complex-comparison.json`, `same-revision-column-benchmark.json`,
+the input snapshot, full execution records and complex checkpoints. No generated
+arrays or calculation caches are intended for Git. Changes are local and
+uncommitted. Native-desktop interaction, a fresh isolated-wheel install and full
+scope/convergence validation are **NOT_RUN** for this acceleration change.
+The physical-model limitations of the small-source CPU example remain in force.
+
+## 4 October 2026 — small-source CPU result
+
+The public tip-to-observation pipeline completed with **5 nm planar emission
+FWHM, 0.3 eV mean kinetic energy and 0.3 eV RMS-equivalent FWHM**, using the
+explicit driven Gaussian-Schell boundary. The source was neither widened nor
+raised to the older demonstration's 30 eV. The user's Fm-3m FCC Si (a =
+3.82166108 Å, [001]/[100], 10 nm disk, 5 nm thickness) produced a direct beam and
+**eight distinct surrounding 200/220 diffraction peaks** at
+**Z = 1605.1934995243355 mm**, the Ray Diagram objective diffraction reference.
+The independent fine-field reference is 1605.1934964 mm; the production 0.2 mm
+quadratic discretisation predicts 1605.1935413 mm. These are numerical
+comparisons within this column model, not instrument calibration.
+
+Execution used Windows CPU, Python **3.12.3**, PySide6 **6.8.3**, with bounded
+internal parallelism. Repository baseline was `master` at
+`c4bbd11f87610e3df06fc35c9b61e7b1c8cf5990`, with pre-existing uncommitted work
+preserved. Executed solver source identity:
+`9cd4bdf0a3620eb6fe005c90d64e34c28dda59e973f4b05fd25d8daaec85cc08`.
+
+| Executed stage | Time | Retained probability per tip electron |
+| --- | ---: | ---: |
+| Tip through specimen entrance | 568.16 s | 0.9981835308440414 |
+| Specimen and remaining column to reference Z | 903.66 s | 0.989817072208214 |
+| Complete local run including readout | 1473.33 s | Same final field |
+
+Three energy modes retain the physical nonzero energy spread. Material inputs
+were reference grid 96 over an explicit 40 Å field, 10 Å target slices and a
+24 GiB working budget. The entire incident field was retained, with upward
+FFT rounding and carrier-covariant Galerkin propagation; final complex modes
+were 6720 × 6720. These qualitative settings do not establish grid,
+slice-thickness, energy-quadrature or diffraction-intensity convergence.
+The exact optical changes and editable GUI controls are in
+[COHERENT_BEAM.md](COHERENT_BEAM.md).
+
+Independent reciprocal-lattice predictions use the imported cell and current
+optics, without fitting the image. On a common ±100 µm ROI with 0.25 µm bins,
+fixed-window maxima are **0.497–0.526 µm** from the eight predictions. These
+measure maxima, not fitted centroids. Probability outside that ROI is
+**3.5826 × 10⁻⁸**. A vacuum control propagated the same executed incident field
+through the same downstream optics and lacks the distinct surrounding Si
+spots. Neither readout was renormalised to conceal numerical bandwidth loss.
+
+The real `CoherentBeamPage` accepted the published final checkpoint and
+displayed all eight spots in its normal logarithmic **128 × 128-bin** readout.
+Offscreen Qt screenshots have readable verified fonts; no synthetic intensity,
+markers or extra propagation were injected. Native-desktop calculation,
+real GPU validation and a new installed-wheel check are **NOT_RUN** for this
+update. Earlier installation or scope results below are historical evidence,
+not a claim that they were rerun on this source.
+
+Targeted regressions passed with one numerical thread: **53 cases in 12.42 s**
+across wave-domain planning, material-grid refinement and Galerkin potential
+(budget boundaries/cache isolation, real small Si complex-state equality,
+upward-only grids, FFT phase/norm and CPU caps); then **28 cases in 17.41 s**
+across Galerkin specimen and material refinement (independent dense
+carrier-conjugated operators/projectors, sampled-path rejection, real Si,
+cache/cancellation). These selections overlap and are not complete registered
+validation scopes. The three actual incident modes also passed bounded
+carrier-preserving zero-potential admission, with relative complex errors
+below 5.52 × 10⁻¹⁶; that check alone is not specimen validation.
+
+Local evidence is under ignored
+`outputs/realistic-tip-optics-20261004/si-public-final/`: input/request records,
+published checkpoint identities, ROI/vacuum comparisons and offscreen readout
+receipts. Generated arrays and images are not part of this lightweight record.
+Changes remain local and uncommitted. Planar driven emission is not metal
+tunnelling; approximate near-tip transverse fields, paraxial continuation after
+the executed prefix, current/brightness calibration and complete microscope
+convergence remain unqualified. The bounded near-tip refinement comparison
+does not establish convergence of the small reflected fraction.
+
+The remaining sections preserve the separate **3 October 2026** large-source
+demonstration and its historical checks.
 
 ## Result and scope
 

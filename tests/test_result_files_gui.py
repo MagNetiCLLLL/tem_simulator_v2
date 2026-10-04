@@ -334,6 +334,43 @@ def test_opening_file_menu_refreshes_library_contents(window, monkeypatch):
     assert files.startup_menu.actions()[1].isChecked()
 
 
+@pytest.mark.parametrize("stage", ["particles", "wave"])
+def test_file_open_waits_for_running_pair_but_allows_completed_pair(window, monkeypatch, gui_environment, stage):
+    from threading import Event
+    from types import SimpleNamespace
+    _, errors, root = gui_environment
+    files, pair = window.result_files, window.paired_beams
+    page = window.workspace.coherent_beam
+    before = capture_instrument_snapshot(window.state).digest
+    previous = window.workspace._last_result
+    loads = []
+    monkeypatch.setattr(window.calculations, "load_section_archive", lambda *a: loads.append(a))
+    # Use real request bookkeeping without executing the numerical worker.
+    monkeypatch.setattr(pair.calculations.pool, "start", lambda worker: None)
+    pair.start(window.state, None, None, 1000, .1)
+    if stage == "wave":
+        pair.calculations.invalidate_pending(include_explicit=True)
+        page._pair_context = SimpleNamespace(token=pair.token)
+        page._worker = SimpleNamespace(event=Event())
+    try:
+        pair.calculations.pool.coordinator.changed.emit()
+        assert not files.open_action.isEnabled()
+        files.load(root / "must-not-open.temresult")
+        assert not loads and not files.loading
+        assert errors and "Finish or cancel" in errors[-1]
+        assert capture_instrument_snapshot(window.state).digest == before
+        assert window.workspace._last_result is previous
+    finally:
+        pair.calculations.invalidate_pending(include_explicit=True)
+        page._worker = None
+    # A completed pair retains its token and comparison context. That alone
+    # must never keep file actions disabled after work has finished.
+    assert pair.token is not None
+    pair.calculations.pool.coordinator.changed.emit()
+    assert files.open_action.isEnabled()
+    assert files.saved_menu.isEnabled()
+
+
 def test_real_compressed_file_background_load_restores_gui_without_transport(window, executed_section, monkeypatch, gui_environment, qtbot):
     from temsim.particle_section_io import save_section_result
     from temsim.optics.electron_gun import source

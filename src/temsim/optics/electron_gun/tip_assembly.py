@@ -126,7 +126,8 @@ def apply_tip_part(emitter, part, *, reset_source=False):
         # Reloading dimensions must not activate a different source family in
         # an explicit historical planar or coherent profile.
         if (previous is not None or emitter.curvature_nm_inv != 0) and (emitter.surface_model is None
-                or emitter.surface_model.coherence is not None or emitter.coherence is not None):
+                or (emitter.surface_model.coherence is not None and not emitter.surface_model.shared_boundary)
+                or emitter.coherence is not None):
             emitter._tip_assembly_signature = signature
             return
         if previous is not None:
@@ -143,6 +144,11 @@ def apply_tip_part(emitter, part, *, reset_source=False):
                 field_numerics=_retain_operating_overrides(
                     active.field_numerics, old_defaults.field_numerics, model.field_numerics))
             model.validate()  # Reject incompatible geometry before publishing.
+        elif emitter.surface_model is not None and emitter.surface_model.shared_boundary:
+            # A restored shared boundary without a prior assembly signature
+            # still owns its explicit emission inputs. Bind geometry without
+            # silently replacing its phase/current/spectrum with defaults.
+            model = replace(emitter.surface_model, geometry=model.geometry).validate()
         emitter.surface_model = model
         emitter.coherence = None
         emitter.tip_radius_nm = model.geometry.apex_radius_nm

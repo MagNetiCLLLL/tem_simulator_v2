@@ -7,8 +7,8 @@ display operations; neither retraces particles nor changes hardware.
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton
+from PySide6.QtGui import QAction, QPainterPath
+from PySide6.QtWidgets import QCheckBox, QGraphicsPathItem, QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton
 
 from temsim.gui.plane_cutoff_events import PlaneCutoffEventsCache
 from temsim.gui.plane_hardware_geometry import hardware_geometry_snapshot, projected_hardware_outlines
@@ -16,13 +16,13 @@ from temsim.gui.transverse_projection import transverse_view_coordinates
 
 
 class PlaneHardwareOverlay:
-    COLOURS = {"wall": "#cbd5e1", "opening": "#fbbf24", "absorbing": "#22d3ee"}
     PALETTE = ("#fbbf24", "#22d3ee", "#f472b6", "#a78bfa", "#4ade80", "#fb923c", "#60a5fa")
     SPATIAL_MODES = {"position", "intensity"}
 
     def __init__(self, owner):
         self.owner = owner
         self.items, self.labels, self.label_lines, self.stop_items = [], [], [], []
+        self.fill_items = []
         self._annotations = []
         self.outlines = ()
         self._coordinates = ()
@@ -36,7 +36,7 @@ class PlaneHardwareOverlay:
         self.toggle = QCheckBox("Cutoff projection")
         self.toggle.setObjectName("selectedPlaneHardwareOutlines")
         self.toggle.setChecked(True)
-        self.toggle.setToolTip("Look upstream from selected Z: show hardware at its own position, not a mask at selected Z.")
+        self.toggle.setToolTip("Look upstream from selected Z: show apertures, detectors and cameras at their own positions, not a mask at selected Z.")
         self.stops_toggle = QCheckBox("Stops")
         self.stops_toggle.setChecked(True)
         self.stops_toggle.setToolTip("Show retained path representatives at their recorded interception X/Y and Z; hover for cause.")
@@ -106,10 +106,11 @@ class PlaneHardwareOverlay:
 
     def _remove_items(self):
         present = self.owner.plot.items()
-        for item in (*self.items, *self.labels, *self.label_lines, *self.stop_items):
+        for item in (*self.items, *self.fill_items, *self.labels, *self.label_lines, *self.stop_items):
             if item in present:
                 self.owner.plot.removeItem(item)
         self.items, self.labels, self.label_lines, self.stop_items = [], [], [], []
+        self.fill_items = []
         self._annotations = []
         self._coordinates = ()
 
@@ -126,10 +127,8 @@ class PlaneHardwareOverlay:
 
     @staticmethod
     def _boundary_id(outline, index):
-        # One body can have several physical bore diameters; detector inner and
-        # outer circles are also individually selectable.
-        span = tuple(np.ptp(np.asarray(outline.polylines_mm[index]), axis=0)) if outline.kind == "column" else ()
-        return ("outline", outline.kind, str(outline.key), outline.name, index, span)
+        # Detector inner and outer strokes remain individually selectable.
+        return ("outline", outline.kind, str(outline.key), outline.name, index)
 
     @staticmethod
     def _boundary_name(outline, index):
@@ -203,18 +202,40 @@ class PlaneHardwareOverlay:
         self.stops_toggle.blockSignals(False)
         self.redraw()
 
-    def _draw_outline(self, row, index, ordinal, coincident=(), count=1):
+    def _draw_fill(self, row, colour):
+        """Shade the physical sensitive area; an unpainted inner stroke is still a hole."""
+        path = QPainterPath()
+        path.setFillRule(Qt.FillRule.OddEvenFill)
+        for boundary in row.polylines_mm:
+            xy = np.asarray(boundary, dtype=float)
+            u, v = transverse_view_coordinates(xy[:, 0], xy[:, 1], self.owner._projection_angle_deg)
+            path.moveTo(float(u[0] * 1e3), float(v[0] * 1e3))
+            for x, y in zip(u[1:], v[1:]):
+                path.lineTo(float(x * 1e3), float(y * 1e3))
+            path.closeSubpath()
+        item = QGraphicsPathItem(path)
+        brush_colour = pg.mkColor(colour)
+        brush_colour.setAlpha(48)
+        item.setBrush(pg.mkBrush(brush_colour))
+        item.setPen(pg.mkPen(None))
+        # Keep dots above the fill. Intensity images need a translucent overlay
+        # above their opaque raster; boundary strokes stay above both.
+        item.setZValue(1. if self.owner.analysis.mode == "intensity" else -1.)
+        item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        item.setToolTip(row.description)
+        self.owner.plot.addItem(item, ignoreBounds=True)
+        self.fill_items.append(item)
+
+    def _draw_outline(self, row, index, ordinal, colour, count=1):
         xy = np.asarray(row.polylines_mm[index], dtype=float)
         u, v = transverse_view_coordinates(xy[:, 0], xy[:, 1], self.owner._projection_angle_deg)
         u, v = u * 1e3, v * 1e3  # Captured millimetres to plot micrometres.
-        colour = self.COLOURS["wall"] if row.role == "wall" else self.PALETTE[ordinal % len(self.PALETTE)]
         at_plane = abs(row.z_mm - self.owner._plane_z_mm) <= 1e-9
         pen = pg.mkPen(colour, width=1.2, cosmetic=True,
                        style=Qt.PenStyle.SolidLine if at_plane else Qt.PenStyle.DashLine)
         item = pg.PlotDataItem(u, v, pen=pen, skipFiniteCheck=True)
         item.setZValue(10.)
-        description = "\n".join(self._boundary_name(part, boundary) + "\n" + part.description
-                                 for part, boundary in coincident) if coincident else row.description
+        description = row.description
         item.setToolTip(description)
         self.owner.plot.addItem(item, ignoreBounds=True)
         self.items.append(item)
@@ -224,10 +245,9 @@ class PlaneHardwareOverlay:
         centre_u, centre_v = .5 * (u.min() + u.max()), .5 * (v.min() + v.max())
         score = (u - centre_u) * np.cos(angle) + (v - centre_v) * np.sin(angle)
         anchor = int(np.argmax(score))
-        name = (f"Clear bore Ø {np.ptp(xy[:, 0]):.6g} mm | {len(coincident)} parts"
-                if len(coincident) > 1 else self._boundary_name(row, index))
+        name = self._boundary_name(row, index)
         # Keep annotation labels short; the menu and tooltip retain full names.
-        name = name.replace(" Detector", "").replace("Column vacuum wall — ", "Bore: ")
+        name = name.replace(" Detector", "")
         name = name.replace("Projection-Chamber Differential-Pumping Aperture", "Projection chamber aperture")
         left = ordinal % 2 == 0
         label = pg.TextItem(name, color=colour,
@@ -315,7 +335,8 @@ class PlaneHardwareOverlay:
         self.visibility_button.setEnabled(spatial and bool(self.visibility_actions))
         descriptions = [row.description for row in self.outlines]
         preview = self._preview_geometry is not None
-        self.status.setToolTip("Axial projection looking upstream; dashed contours show the upstream projection. Body ranges are listed below.\n"
+        self.status.setToolTip("Aperture, detector and camera projection looking upstream; dashed contours show upstream components.\n"
+            "Detector fill marks the absorbing area; annular holes remain transparent. Hide the outer boundary to hide its fill.\n"
             "Each restriction acts at its own Z. These outlines are not an effective mask at selected Z.\n"
             "Stop crosses use cached interception positions, not arrival coordinates or electron counts.\n"
             + ("Edited hardware preview; beam and recorded stops belong to the previous calculation.\n" if preview else "Captured hardware and recorded stops.\n")
@@ -325,19 +346,18 @@ class PlaneHardwareOverlay:
             return
         coordinates, stop_descriptions = [], []
         if self.toggle.isChecked():
-            grouped = {}
-            for row in self.outlines:
-                for index in range(len(row.polylines_mm)):
-                    if self._boundary_id(row, index) not in self._hidden:
-                        # Identical bore silhouettes are one drawn circle, not
-                        # dozens of overlaid lines/names. Each original body
-                        # keeps its independent visibility and true-Z tooltip.
-                        identity = ((row.role, tuple(np.asarray(row.polylines_mm[index]).ravel()))
-                                    if row.role == "wall" else self._boundary_id(row, index))
-                        grouped.setdefault(identity, []).append((row, index))
-            for ordinal, members in enumerate(grouped.values()):
-                row, index = members[0]
-                coordinates.append(self._draw_outline(row, index, ordinal, members, len(grouped)))
+            visible = [(row, [index for index in range(len(row.polylines_mm))
+                              if self._boundary_id(row, index) not in self._hidden])
+                       for row in self.outlines]
+            count = sum(len(indices) for _row, indices in visible)
+            ordinal = 0
+            for component, (row, indices) in enumerate(visible):
+                colour = self.PALETTE[component % len(self.PALETTE)]
+                if row.role == "absorbing" and 0 in indices:
+                    self._draw_fill(row, colour)
+                for index in indices:
+                    coordinates.append(self._draw_outline(row, index, ordinal, colour, count))
+                    ordinal += 1
         if self.stops_toggle.isChecked():
             for group in events.groups:
                 if self._stop_id(group) not in self._hidden:

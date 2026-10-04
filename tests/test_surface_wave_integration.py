@@ -126,7 +126,7 @@ def test_archive_keeps_complex_mode_and_does_not_overwrite(tmp_path):
     assert (tmp_path/"near.png").stat().st_size > 1000
 
 
-def test_surface_editor_hides_duplicate_classical_energies(qtbot):
+def test_historical_surface_editor_retains_read_only_energy_record(qtbot):
     from temsim.gui.gun_source_dialog import GunSourceDialog
     state = configured()
     dialog = GunSourceDialog(state.electron_gun, instrument_state=state)
@@ -134,12 +134,13 @@ def test_surface_editor_hides_duplicate_classical_energies(qtbot):
     assert dialog.surface_coherent.isChecked()
     assert dialog.surface_inputs["normal_mean_energy_ev"].isHidden()
     assert not dialog.quantum_inputs["mean_energy_ev"].isHidden()
+    assert dialog.quantum_inputs["mean_energy_ev"].isReadOnly()
     assert not dialog.near_field_button.isEnabled()
     assert "paused" in dialog.near_field_button.toolTip().lower()
     dialog.quantum_inputs["mean_energy_ev"].setText("0.4")
     dialog.surface_inputs["normal_mean_energy_ev"].setText("invalid inactive draft")
     dialog.accept()
-    assert dialog.value()["surface_model"].coherence.mean_energy_ev == .4
+    assert dialog.value()["surface_model"].coherence.mean_energy_ev == .3
     assert state.electron_gun.emitter.surface_model.coherence.mean_energy_ev == .3
 
 

@@ -658,7 +658,9 @@ def _trace_feg_to_exit(gun, count=None, *, cancelled=None) -> GunTraceResult:
             "extraction_voltage_kv": float(gun.extractor.voltage_kv),
             "electrostatic_field": dict(electric_base.report),
             "launch_boundary": launch_boundary_report,
-            "scope": "classical prescribed outgoing flux; no coherent phase or tunnelling prediction",
+            "scope": ("geometric rays from the shared incident tip boundary; quantum phase and reflected flux are not propagated by rays"
+                      if surface_model is not None and surface_model.shared_boundary else
+                      "classical prescribed outgoing flux; no coherent phase or tunnelling prediction"),
         }
         object.__setattr__(result, "electrostatic_model_report", report)
         if surface_model is not None:

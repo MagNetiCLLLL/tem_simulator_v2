@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import numpy as np
 import pyqtgraph as pg
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
 
 import temsim.gui.plane_hardware_overlay as overlay_module
 import temsim.gui.beam_analysis as analysis_module
@@ -36,8 +36,8 @@ def hardware_geometry(monkeypatch):
     calls = []
     rows = (
         outline("offset_aperture", "Offset aperture", rectangle(.1, -.4, .3, -.2)),
-        outline("column_wall", "Column bore", rectangle(-2., -2., 2., 2.),
-                kind="column", role="wall"),
+        outline("camera", "Camera", rectangle(-2., -2., 2., 2.),
+                kind="detector", role="absorbing"),
         outline("pixel_detector", "Pixelated detector", rectangle(-.5, -.4, .5, .4),
                 kind="detector", role="absorbing"),
     )
@@ -91,7 +91,9 @@ def test_hardware_enabled_by_default_with_explicit_fit_and_captured_details(view
     assert calls == [(result, 1.)]
     combined = hardware.status.text() + "\n" + hardware.status.toolTip()
     assert "Offset aperture" in combined
-    assert "Column bore" in combined
+    assert "Camera" in combined
+    assert "Clear bore" not in combined
+    assert len(hardware.fill_items) == 2
 
 
 @pytest.mark.parametrize("mode", ["position", "tof", "intensity"])
@@ -137,7 +139,8 @@ def test_empty_arriving_population_keeps_hardware_visible(view, hardware_geometr
         switch(view, mode)
     assert view._scatter is None or len(view._scatter.data) == 0
     assert len(view.hardware.items) == len(rows)
-    assert "Column bore" in view.hardware.status.text() + view.hardware.status.toolTip()
+    assert "Camera" in view.hardware.status.text() + view.hardware.status.toolTip()
+    assert len(view.hardware.fill_items) == 2
 
 
 @pytest.mark.parametrize("mode", ["angular", "phase_u", "phase_v", "angle_histogram", "interactions"])
@@ -225,7 +228,7 @@ def test_plane_changes_and_rotation_keep_manual_scale_until_explicit_fit(view, h
 
 def test_hardware_fit_includes_full_beam_and_preserves_intensity_mode_range(view, hardware_geometry):
     result = make_result()
-    result.simulation.incident.x[-1, 0] = .003  # Beam outside the 2 mm bore.
+    result.simulation.incident.x[-1, 0] = .003  # Beam outside the 2 mm camera half-width.
     view.display_result(result)
     view.hardware.fit()
     bounds = np.asarray(view.plot.viewRange())
@@ -358,9 +361,23 @@ def test_annular_detector_inner_outer_visibility_is_independent(view, monkeypatc
     outer_action = next(action for identity, action in actions.items() if identity[4] == 0)
     inner_action = next(action for identity, action in actions.items() if identity[4] == 1)
     assert "outer" in outer_action.text() and "inner" in inner_action.text()
+    fill, = view.hardware.fill_items
+    assert fill.path().contains(QPointF(1500., 0.))
+    assert not fill.path().contains(QPointF(0., 0.))
+    assert not fill.path().contains(QPointF(2500., 0.))
+    assert 0 < fill.brush().color().alpha() < 255
+    assert view.hardware.items[0].opts["pen"].color() == view.hardware.items[1].opts["pen"].color()
+    assert fill.brush().color().name() == view.hardware.items[0].opts["pen"].color().name()
     inner_action.setChecked(False)
     assert outer_action.isChecked() and len(view.hardware.items) == 1
     np.testing.assert_array_equal(view.hardware.items[0].getData()[0], outer[:, 0] * 1000.)
+    # Hiding the inner stroke never fills its physically transmitting hole.
+    fill, = view.hardware.fill_items
+    assert not fill.path().contains(QPointF(0., 0.))
+    outer_action.setChecked(False)
+    assert not view.hardware.items and not view.hardware.fill_items
+    view.hardware.reset_visibility()
+    assert len(view.hardware.items) == 2 and len(view.hardware.fill_items) == 1
 
 
 def stopped_result():
@@ -435,29 +452,82 @@ def test_live_insertion_preview_detaches_inputs_and_keeps_executed_stops(view, m
     assert "Edited hardware preview" not in view.hardware.status.text()
 
 
-def test_coincident_wall_rendering_preserves_each_name_and_independent_visibility(view, monkeypatch):
-    points = rectangle(-2., -2., 2., 2.)
-    rows = (outline("wall_a", "Body A", points, kind="column", role="wall", z_mm=.2),
-            outline("wall_b", "Body B", points, kind="column", role="wall", z_mm=.4))
-    monkeypatch.setattr(overlay_module, "projected_hardware_outlines", lambda *_a, **_k: rows)
-    view.display_result(make_result())
+def test_real_projection_excludes_bores_from_labels_menu_and_fit(view):
+    from temsim.gui.plane_hardware_geometry import hardware_geometry_snapshot
+    from temsim.optics.column import default_state
+    state = default_state()
+    snapshot = hardware_geometry_snapshot(state)
+    result = make_result()
+    result.state_snapshot = snapshot.state_snapshot
+    result.aperture_stops = snapshot.aperture_stops
+    result.assembly = snapshot.assembly
+    view.display_result(result, focus=("z", 2822.04))
     hardware = view.hardware
-    assert len(hardware.items) == 1
-    assert "Body A | Z 0.2 mm" in hardware.items[0].toolTip()
-    assert "Body B | Z 0.4 mm" in hardware.items[0].toolTip()
-    label = hardware.labels[0].toPlainText()
-    view.set_projection_angle(13.)
-    assert hardware.labels[0].toPlainText() == label  # Physical diameter is invariant.
-    action_a = next(action for identity, action in hardware.visibility_actions.items() if identity[2] == "wall_a")
-    action_b = next(action for identity, action in hardware.visibility_actions.items() if identity[2] == "wall_b")
-    action_a.setChecked(False)
-    assert len(hardware.items) == 1
-    assert "Body A" not in hardware.items[0].toolTip()
-    assert "Body B" in hardware.items[0].toolTip()
-    action_b.setChecked(False)
-    assert not hardware.items
+    assert hardware.outlines and hardware.fill_items
+    assert {row.kind for row in hardware.outlines} <= {"aperture", "detector", "camera"}
+    assert all(row.role != "wall" for row in hardware.outlines)
+    assert all("Clear bore" not in label.toPlainText() for label in hardware.labels)
+    outline_actions = [action for identity, action in hardware.visibility_actions.items()
+                       if identity[0] == "outline"]
+    assert all("bore" not in action.text().lower() for action in outline_actions)
+    assert any("HAADF" in action.text() for action in outline_actions)
     hardware.reset_visibility()
-    assert len(hardware.items) == 1 and len(hardware.visibility_actions) == 2
+    assert all(row.role != "wall" for row in hardware.outlines)
+    # Hidden bore geometry cannot expand the explicit fit.
+    hardware.fit()
+    baseline = np.asarray(view.plot.viewRange())
+    result.assembly = SimpleNamespace(vacuum_bore_segments=(SimpleNamespace(
+        key="huge", name="Huge bore", start_z_mm=0., end_z_mm=3000., inner_diameter_mm=1e5),))
+    hardware.invalidate()
+    hardware.redraw()
+    hardware.fit()
+    np.testing.assert_allclose(view.plot.viewRange(), baseline)
+
+
+def test_detector_fill_uses_rotated_real_annular_geometry_and_cleans_up(view):
+    from temsim.gui.plane_hardware_geometry import hardware_geometry_snapshot
+    from temsim.optics.column import default_state
+    state = default_state()
+    for detector in state.recording_planes:
+        detector.inserted = False
+    detector = state.dark_field_detector
+    detector.inserted = True
+    detector.centre_offset_x_mm = .3
+    detector.centre_offset_y_mm = -.4
+    result = make_result()
+    # Extend the display-only fixture past the real detector plane (Z in mm).
+    for branch in (result.simulation.incident, *result.simulation.branches.values()):
+        branch.z *= 2000.
+    result.state_snapshot = hardware_geometry_snapshot(state).state_snapshot
+    result.aperture_stops = ()
+    view.display_result(result, focus=("z", detector.z_mm))
+    hardware = view.hardware
+    fill, = hardware.fill_items
+    assert not fill.path().contains(QPointF(300., -400.))
+    radius = .25 * (detector.inner_diameter_mm + detector.outer_width_mm)
+    assert fill.path().contains(QPointF((.3 + radius) * 1000., -400.))
+    view.set_projection_angle(90.)
+    fill, = hardware.fill_items
+    assert not fill.path().contains(QPointF(-400., -300.))
+    assert fill.path().contains(QPointF(-400., -(.3 + radius) * 1000.))
+    assert fill.zValue() < view._scatter.zValue()
+    switch(view, "intensity")
+    fill, = hardware.fill_items
+    images = [item for item in view.plot.items() if isinstance(item, pg.ImageItem)]
+    assert images and fill.zValue() > images[0].zValue()
+    old_fill = fill
+    detector.inserted = False
+    hardware.set_current_state(state)
+    assert not hardware.fill_items and old_fill not in view.plot.items()
+    detector.inserted = True
+    hardware.set_current_state(state)
+    assert len(hardware.fill_items) == 1
+    hardware.toggle.setChecked(False)
+    assert not hardware.fill_items
+    hardware.reset_visibility()
+    assert len(hardware.fill_items) == 1
+    view.display_result(None)
+    assert not hardware.fill_items
 
 
 def test_stop_summary_immediately_names_component_and_true_z(view, hardware_geometry):

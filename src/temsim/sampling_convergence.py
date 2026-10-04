@@ -84,8 +84,9 @@ class ConvergenceRequest:
         require_physical_gun_source(state.electron_gun)
         emitter = state.electron_gun.emitter
         surface = getattr(emitter, "surface_model", None)
-        if getattr(emitter, "coherence", None) is not None or (surface is not None and surface.coherence is not None):
-            raise ValueError("Coherent tip-to-column development is paused; this assistant runs classical particles only")
+        if getattr(emitter, "coherence", None) is not None or (surface is not None
+                and surface.coherence is not None and not surface.shared_boundary):
+            raise ValueError("This particle sampling comparison needs a classical source law or the shared-cap geometric-ray representation")
         if bool(getattr(getattr(state, "vacuum_map", None), "enabled", False)):
             raise ValueError("The incident audit does not qualify active vacuum scattering; the saved on/off choice is preserved")
         if self.axis in {"gun_step", "joint_steps"} and not hasattr(state.electron_gun, "trace_step_mm"):

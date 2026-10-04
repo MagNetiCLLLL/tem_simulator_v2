@@ -72,6 +72,28 @@ def _assert_same_mode(actual, expected):
     assert actual.scattering_history == expected.scattering_history
 
 
+def test_near_field_traces_survive_atomic_storage_and_detect_corruption(tmp_path):
+    traces = {
+        "near_tip_m0_spectral_amplitude": np.array([[1.+2j, 3.-4j]]),
+        "near_tip_m0_spectral_derivative": np.array([[4.-2j, 6.+3j]]),
+        "near_tip_m0_log_transmission": np.array([[-1000.+2j, -.5+1j]]),
+    }
+    original = replace(_checkpoint(), auxiliary_arrays=traces)
+    store = ExecutedWaveStore(tmp_path, "mandatory-near-state", 1<<20)
+    key = store.key("completed-gun")
+    restored = store.put(key, original)
+    assert set(restored.auxiliary_arrays) == set(traces)
+    for name, expected in traces.items():
+        np.testing.assert_array_equal(restored.auxiliary_arrays[name], expected)
+        assert not restored.auxiliary_arrays[name].flags.writeable
+    folder, data, _ = store._manifest(key)
+    name = next(iter(traces))
+    path = folder / data["auxiliary"][name]["file"]
+    path.write_bytes(b"corrupted near field")
+    with pytest.raises(ValueError, match="checksum"):
+        _ = store.get(key).auxiliary_arrays[name]
+
+
 def test_commit_with_windows_child_handle_without_delete_sharing(tmp_path):
     store = ExecutedWaveStore(tmp_path, "windows-share-fixture", 1<<20)
     expected = _checkpoint()

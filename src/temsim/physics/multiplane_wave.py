@@ -10,6 +10,8 @@ from types import SimpleNamespace
 import math
 import numpy as np
 
+from temsim.physics.wave_device import array_module, max_abs, to_host
+
 
 class _AngularSpectrumDomainUnavailable(ValueError):
     """Only an optional domain chart's disabled/exceeded budget, not physics."""
@@ -28,8 +30,9 @@ class PlaneWave:
     tilt_rad: np.ndarray | None = None
 
     def __post_init__(self):
-        amplitude = np.asarray(self.amplitude)
-        if amplitude.ndim != 2 or min(amplitude.shape) < 2 or not np.all(np.isfinite(amplitude)):
+        xp = array_module(self.amplitude)
+        amplitude = xp.asarray(self.amplitude)
+        if amplitude.ndim != 2 or min(amplitude.shape) < 2 or not bool(xp.all(xp.isfinite(amplitude))):
             raise ValueError("Plane wave must be a finite two-dimensional sampled amplitude")
         basis, origin = np.asarray(self.basis_m), np.asarray(self.origin_m)
         if (basis.shape != (2, 2) or origin.shape != (2,)
@@ -50,6 +53,12 @@ class PlaneWave:
         for name in ("amplitude", "basis_m", "origin_m", "curvature_m1", "tilt_rad"):
             value = getattr(self, name)
             if value is not None:
+                if name == "amplitude" and xp is not np:
+                    # Device fields own their storage. GPU stages never mutate
+                    # a retained input; public checkpoints return to immutable
+                    # CPU storage at the explicit stage boundary.
+                    object.__setattr__(self, name, xp.array(value, dtype=xp.complex128, copy=True))
+                    continue
                 array = np.asarray(value, dtype=complex if name == "amplitude" else float)
                 frozen = np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
                 object.__setattr__(self, name, frozen)
@@ -60,13 +69,16 @@ class PlaneWave:
         return expanded_phase_amplitude(self, wavelength_m)
 
     def coordinates_m(self):
+        xp = array_module(self.amplitude)
         ny, nx = self.amplitude.shape
-        yy, xx = np.meshgrid(np.arange(ny) - ny // 2, np.arange(nx) - nx // 2, indexing="ij")
-        return self.origin_m[:, None, None] + np.einsum("ij,jyx->iyx", self.basis_m, np.stack((xx, yy)))
+        yy, xx = xp.meshgrid(xp.arange(ny) - ny // 2, xp.arange(nx) - nx // 2, indexing="ij")
+        return xp.asarray(self.origin_m)[:, None, None] + xp.einsum(
+            "ij,jyx->iyx", xp.asarray(self.basis_m), xp.stack((xx, yy)))
 
     @property
     def probability(self):
-        return float(np.sum(np.abs(self.amplitude) ** 2))
+        xp = array_module(self.amplitude)
+        return float(xp.sum(xp.abs(self.amplitude) ** 2))
 
     def canonical_covariance(self, wavelength_m):
         """Symmetrised (x,y,p_x/p0,p_y/p0) covariance of the full field.
@@ -77,17 +89,19 @@ class PlaneWave:
         norm = self.probability
         if norm <= 0:
             raise ValueError("An empty wave has no phase-space covariance")
+        xp = array_module(self.amplitude)
         ny, nx = self.amplitude.shape
-        fy, fx = np.meshgrid(np.fft.fftfreq(ny), np.fft.fftfreq(nx), indexing="ij")
-        frequency = np.einsum("ij,jyx->iyx", np.linalg.inv(self.basis_m).T, np.stack((fx, fy)))
-        xy = self.coordinates_m() - self.origin_m[:, None, None]
+        fy, fx = xp.meshgrid(xp.fft.fftfreq(ny), xp.fft.fftfreq(nx), indexing="ij")
+        frequency = xp.einsum("ij,jyx->iyx", xp.asarray(np.linalg.inv(self.basis_m).T), xp.stack((fx, fy)))
+        xy = self.coordinates_m() - xp.asarray(self.origin_m)[:, None, None]
         curvature = np.zeros((2, 2)) if self.curvature_m1 is None else self.curvature_m1
         tilt = np.zeros(2) if self.tilt_rad is None else self.tilt_rad
-        momentum = (wavelength_m*np.fft.ifft2(frequency*np.fft.fft2(self.amplitude), axes=(-2, -1))
-                    + (np.einsum("ij,jyx->iyx", curvature, xy)+tilt[:, None, None])*self.amplitude)
-        vectors = np.concatenate((xy*self.amplitude, momentum)).reshape(4, -1)
-        mean = np.real(vectors@self.amplitude.conj().ravel())/norm
-        return np.real(vectors.conj()@vectors.T)/norm - np.outer(mean, mean)
+        momentum = (wavelength_m*xp.fft.ifft2(frequency*xp.fft.fft2(self.amplitude), axes=(-2, -1))
+                    + (xp.einsum("ij,jyx->iyx", xp.asarray(curvature), xy)
+                       + xp.asarray(tilt)[:, None, None])*self.amplitude)
+        vectors = xp.concatenate((xy*self.amplitude, momentum)).reshape(4, -1)
+        mean = xp.real(vectors@self.amplitude.conj().ravel())/norm
+        return to_host(xp.real(vectors.conj()@vectors.T)/norm - xp.outer(mean, mean))
 
 
 def reselect_phase_carrier(wave, wavelength_m, *, grid_numerics,
@@ -130,28 +144,29 @@ def reselect_phase_carrier(wave, wavelength_m, *, grid_numerics,
         return wave, []
     selected_rows = []
     def rephase(current):
+        xp = array_module(current.amplitude)
         if cancelled():
             raise InterruptedError("Phase-carrier selection cancelled")
-        local = current.coordinates_m()-current.origin_m[:, None, None]
-        compensation = -np.pi/wavelength_m*np.einsum("iyx,ij,jyx->yx", local, delta, local)
-        occupied = abs(current.amplitude) > np.max(abs(current.amplitude))*1e-8
-        spectrum = abs(np.fft.fft2(current.amplitude, norm="ortho"))**2
+        local = current.coordinates_m()-xp.asarray(current.origin_m)[:, None, None]
+        compensation = -np.pi/wavelength_m*xp.einsum("iyx,ij,jyx->yx", local, xp.asarray(delta), local)
+        occupied = abs(current.amplitude) > max_abs(current.amplitude)*1e-8
+        spectrum = abs(xp.fft.fft2(current.amplitude, norm="ortho"))**2
         total, largest = float(spectrum.sum()), 0.
         for axis in (0, 1):
             count = current.amplitude.shape[axis]
-            low = np.take(occupied, np.arange(count-1), axis=axis)
-            high = np.take(occupied, np.arange(1, count), axis=axis)
-            added = float(abs(np.diff(compensation, axis=axis))[low & high].max(initial=0.))
-            frequencies = abs(2*np.pi*np.fft.fftfreq(count))
+            low = xp.take(occupied, xp.arange(count-1), axis=axis)
+            high = xp.take(occupied, xp.arange(1, count), axis=axis)
+            added = max_abs(xp.diff(compensation, axis=axis)[low & high])
+            frequencies = abs(2*np.pi*xp.fft.fftfreq(count))
             marginal = spectrum.sum(axis=1-axis)
-            order = np.argsort(frequencies)
-            tails = np.cumsum(marginal[order][::-1])[::-1]
-            support = float(frequencies[order][tails > total*1e-12].max(initial=0.))
+            order = xp.argsort(frequencies)
+            tails = xp.cumsum(marginal[order][::-1])[::-1]
+            support = max_abs(frequencies[order][tails > total*1e-12])
             largest = max(largest, support+added)
         if largest >= .8*np.pi:
             raise WaveSamplingError(f"Phase-carrier envelope plus compensating chirp is undersampled "
                 f"({largest:.6g} rad per cell); refine BEFORE exact gauge rephasing", largest/(.8*np.pi))
-        result = replace(current, amplitude=current.amplitude*np.exp(1j*compensation), curvature_m1=selected)
+        result = replace(current, amplitude=current.amplitude*xp.exp(1j*compensation), curvature_m1=selected)
         check_lossless_norm(current.probability, result.probability, context="Exact phase-carrier gauge")
         selected_rows.append({"method": "exact envelope chirp compensation; full complex field retained",
             "from_curvature_m1": old.tolist(), "to_curvature_m1": selected.tolist(),
@@ -189,11 +204,12 @@ def propagate_plane_wave(wave, matrix, translation, wavelength_m, *,
     from temsim.physics.canonical_action import (
         affine_centre_action, principal_reference_phase, validate_reference_phase,
     )
+    xp = array_module(wave.amplitude)
     validate_canonical_map(matrix)
     if (np.shape(matrix) != (4, 4) or np.shape(translation) != (4,)
             or not np.all(np.isfinite(matrix)) or not np.all(np.isfinite(translation))):
         raise ValueError("Canonical wave map and translation must be finite 4-D arrays")
-    if (not np.all(np.isfinite(wave.amplitude)) or not np.all(np.isfinite(wave.basis_m))
+    if (not bool(xp.all(xp.isfinite(wave.amplitude))) or not np.all(np.isfinite(wave.basis_m))
             or abs(np.linalg.det(wave.basis_m)) == 0
             or not np.isfinite(wavelength_m) or wavelength_m <= 0):
         raise ValueError("Invalid wave, sampling lattice or wavelength")
@@ -284,8 +300,9 @@ def _propagate_fresnel_chart(wave, matrix, shift, wavelength_m, reference_length
                             grid_numerics=None, retained_bytes=0,
                             cancelled=lambda: False, sampling_records=None):
     """Original image/Collins chart, retaining its sampling and budget gates."""
+    xp = array_module(wave.amplitude)
     a, b, c, d = matrix[:2, :2], matrix[:2, 2:], matrix[2:, :2], matrix[2:, 2:]
-    local_input = wave.coordinates_m()-wave.origin_m[:, None, None]
+    local_input = wave.coordinates_m()-xp.asarray(wave.origin_m)[:, None, None]
     curvature = np.zeros((2, 2)) if wave.curvature_m1 is None else wave.curvature_m1
     tilt = np.zeros(2) if wave.tilt_rad is None else wave.tilt_rad
     ny, nx = wave.amplitude.shape
@@ -302,23 +319,23 @@ def _propagate_fresnel_chart(wave, matrix, shift, wavelength_m, reference_length
         raise ValueError("Rank-deficient mixed-conjugacy wave map; increase plane separation or use a resolved grid")
     inverse = np.linalg.inv(b)
     chirp_matrix = inverse @ a + curvature
-    action = .5 * np.einsum("iyx,ij,jyx->yx", local_input, chirp_matrix, local_input)
+    action = .5 * xp.einsum("iyx,ij,jyx->yx", local_input, xp.asarray(chirp_matrix), local_input)
     phase = 2 * np.pi * action / wavelength_m
     # Undersampled chirps would generate false diffraction features. Reject
     # instead of presenting a aliased image as a high-accuracy result.
-    occupied = np.abs(wave.amplitude) > np.max(np.abs(wave.amplitude)) * 1e-5
+    occupied = abs(wave.amplitude) > max_abs(wave.amplitude) * 1e-5
     largest_increment = 0.
     for axis in (0, 1):
-        adjacent = np.take(occupied, range(occupied.shape[axis] - 1), axis=axis) & np.take(occupied, range(1, occupied.shape[axis]), axis=axis)
+        adjacent = xp.take(occupied, xp.arange(occupied.shape[axis] - 1), axis=axis) & xp.take(occupied, xp.arange(1, occupied.shape[axis]), axis=axis)
         largest_increment = max(largest_increment,
-            float(np.abs(np.diff(phase, axis=axis))[adjacent].max(initial=0.)))
+            max_abs(xp.diff(phase, axis=axis)[adjacent]))
     if largest_increment > np.pi:
         from temsim.physics.wave_grid import WaveSamplingError
         raise WaveSamplingError(
             f"Intermediate-plane phase is undersampled ({largest_increment:.6g} rad per cell); refine the wave grid",
             largest_increment/(.8*np.pi))
     basis = wavelength_m * b @ np.linalg.inv(wave.basis_m).T @ np.diag((1 / nx, 1 / ny))
-    chirped = wave.amplitude * np.exp(1j * phase)
+    chirped = wave.amplitude * xp.exp(1j * phase)
     # A natural Fresnel FFT may put a narrow far-field beam into only one or
     # two output pixels. Evaluate the SAME Collins integral on a finer affine
     # output lattice with a chirp-z transform. Covariance chooses only the
@@ -365,10 +382,10 @@ def _propagate_fresnel_chart(wave, matrix, shift, wavelength_m, reference_length
                     raise ValueError(f"Collins output refinement budget exceeded: {error}") from error
                 if cancelled():
                     raise InterruptedError("Collins output refinement cancelled")
-                padded = np.zeros(shape, dtype=np.complex128)
+                padded = xp.zeros(shape, dtype=xp.complex128)
                 first_y, first_x = shape[0]//2-ny//2, shape[1]//2-nx//2
                 padded[first_y:first_y+ny, first_x:first_x+nx] = chirped
-                amplitude = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(padded), norm="ortho"))
+                amplitude = xp.fft.fftshift(xp.fft.fft2(xp.fft.ifftshift(padded), norm="ortho"))
                 basis = basis/factor
                 if sampling_records is not None:
                     sampling_records.append({"from_shape": (ny, nx), "to_shape": shape,
@@ -377,12 +394,15 @@ def _propagate_fresnel_chart(wave, matrix, shift, wavelength_m, reference_length
                         "czt_last_probability": failed_czt_norm,
                         "input_boundary_probability": boundary,
                         "estimated_working_bytes": required,
-                        "probability": float(np.sum(abs(amplitude)**2)),
+                        "probability": float(xp.sum(abs(amplitude)**2)),
                         "method": "zero-padded spatial Collins quadrature; complete output frequency period"})
             else:
-                amplitude = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(chirped), norm="ortho"))
+                amplitude = xp.fft.fftshift(xp.fft.fft2(xp.fft.ifftshift(chirped), norm="ortho"))
         else:
-            from scipy.signal import zoom_fft
+            if xp is np:
+                from scipy.signal import zoom_fft
+            else:
+                from cupyx.scipy.signal import zoom_fft
             amplitude = chirped
             for axis, size in ((0, ny), (1, nx)):
                 # Unit-circle chirps must be evaluated as exp(i*phase), not
@@ -391,10 +411,10 @@ def _propagate_fresnel_chart(wave, matrix, shift, wavelength_m, reference_length
                 # ZoomFFT evaluates exactly these SAME frequency points.
                 frequencies = (-scale*(size//2)/size, scale*(size-size//2)/size)
                 amplitude = zoom_fft(amplitude, frequencies, m=size, fs=1., endpoint=False, axis=axis)
-                correction = np.exp(2j*np.pi*(size//2)*scale*(np.arange(size)-size//2)/size)
+                correction = xp.exp(2j*np.pi*(size//2)*scale*(xp.arange(size)-size//2)/size)
                 amplitude *= correction[:, None] if axis == 0 else correction[None, :]
             amplitude *= scale/math.sqrt(nx*ny)
-        norm = float(np.sum(abs(amplitude)**2))
+        norm = float(xp.sum(abs(amplitude)**2))
         if math.isclose(norm, wave.probability, rel_tol=1e-10, abs_tol=1e-14) or scale == 1.:
             break
         failed_czt_norm = norm
@@ -414,10 +434,11 @@ def _propagate_fresnel_chart(wave, matrix, shift, wavelength_m, reference_length
 def _input_boundary_probability(amplitude):
     """Probability in all four two-cell edge strips, counted exactly once."""
     ny, nx = amplitude.shape
+    xp = array_module(amplitude)
     if min(ny, nx) <= 4:
-        return float(np.sum(abs(amplitude)**2))
-    return float(np.sum(abs(amplitude[:2])**2)+np.sum(abs(amplitude[-2:])**2)
-        +np.sum(abs(amplitude[2:-2, :2])**2)+np.sum(abs(amplitude[2:-2, -2:])**2))
+        return float(xp.sum(abs(amplitude)**2))
+    return float(xp.sum(abs(amplitude[:2])**2)+xp.sum(abs(amplitude[-2:])**2)
+        +xp.sum(abs(amplitude[2:-2, :2])**2)+xp.sum(abs(amplitude[2:-2, -2:])**2))
 
 
 def _extend_angular_spectrum_domain(wave, drift, wavelength_m, diagnostic, *, numerics,
@@ -437,6 +458,7 @@ def _extend_angular_spectrum_domain(wave, drift, wavelength_m, diagnostic, *, nu
         raise _AngularSpectrumDomainUnavailable(
             "Angular-spectrum physical-domain extension is required; automatic refinement is disabled", initial_diagnostic)
     initial = wave
+    xp = array_module(initial.amplitude)
     ny, nx = initial.amplitude.shape
     original_boundary = _input_boundary_probability(initial.amplitude)
     inverse_basis = np.linalg.inv(initial.basis_m)
@@ -462,7 +484,7 @@ def _extend_angular_spectrum_domain(wave, drift, wavelength_m, diagnostic, *, nu
         if np.any(group_cells >= margin):
             factor *= 2
             continue
-        padded = np.zeros(shape, dtype=np.complex128)
+        padded = xp.zeros(shape, dtype=xp.complex128)
         start_y, start_x = shape[0]//2-ny//2, shape[1]//2-nx//2
         padded[start_y:start_y+ny, start_x:start_x+nx] = initial.amplitude
         wave = replace(initial, amplitude=padded)
@@ -488,7 +510,7 @@ def _extend_angular_spectrum_domain(wave, drift, wavelength_m, diagnostic, *, nu
                     "input_period_vectors_m": (initial.basis_m@np.diag((nx, ny))).tolist(),
                     "output_period_vectors_m": (wave.basis_m@np.diag((shape[1], shape[0]))).tolist(),
                     "basis_m": wave.basis_m.tolist(), "estimated_working_bytes": required,
-                    "probability": float(np.sum(abs(amplitude)**2)),
+                    "probability": float(xp.sum(abs(amplitude)**2)),
                     "continuum_tail_scope": "All executed finite cells retained; unknown exterior continuum tails are not established"})
             return wave, amplitude
         diagnostic = attempt
@@ -506,41 +528,42 @@ def _sampled_angular_spectrum(wave, drift, wavelength_m, *, conservative, full_b
         diagnostic = {}
     if np.all(drift == 0):
         return wave.amplitude
+    xp = array_module(wave.amplitude)
     ny, nx = wave.amplitude.shape
-    fy, fx = np.meshgrid(np.fft.fftfreq(ny), np.fft.fftfreq(nx), indexing="ij")
-    frequency = np.einsum("ij,jyx->iyx", np.linalg.inv(wave.basis_m).T, np.stack((fx, fy)))
-    phase = -np.pi*wavelength_m*np.einsum("iyx,ij,jyx->yx", frequency, drift, frequency)
-    spectrum = np.fft.fft2(wave.amplitude)
+    fy, fx = xp.meshgrid(xp.fft.fftfreq(ny), xp.fft.fftfreq(nx), indexing="ij")
+    frequency = xp.einsum("ij,jyx->iyx", xp.asarray(np.linalg.inv(wave.basis_m).T), xp.stack((fx, fy)))
+    phase = -np.pi*wavelength_m*xp.einsum("iyx,ij,jyx->yx", frequency, xp.asarray(drift), frequency)
+    spectrum = xp.fft.fft2(wave.amplitude)
     if not conservative:
         # Cumulative marginal probability bounds include collectively
         # significant weak tails, rather than discarding each small bin by
         # a threshold relative to the brightest spectral pixel. This is a
         # guard only: every complex frequency remains in the FFT operator.
         if full_band:
-            occupied = np.ones(wave.amplitude.shape, bool)
+            occupied = xp.ones(wave.amplitude.shape, bool)
         else:
             power, support = abs(spectrum)**2, []
             total = float(power.sum())
             for axis, count in ((0, ny), (1, nx)):
-                frequency_axis = abs(2*np.pi*np.fft.fftfreq(count))
+                frequency_axis = abs(2*np.pi*xp.fft.fftfreq(count))
                 marginal = power.sum(axis=1-axis)
-                order = np.argsort(frequency_axis)
-                tail = np.cumsum(marginal[order][::-1])[::-1]
-                support.append(float(frequency_axis[order][tail > total*1e-12].max(initial=0.)))
-            occupied = np.fft.fftshift((abs(2*np.pi*fy) <= support[0]) & (abs(2*np.pi*fx) <= support[1]))
-        ordered_phase = np.fft.fftshift(phase)
+                order = xp.argsort(frequency_axis)
+                tail = xp.cumsum(marginal[order][::-1])[::-1]
+                support.append(max_abs(frequency_axis[order][tail > total*1e-12]))
+            occupied = xp.fft.fftshift((abs(2*np.pi*fy) <= support[0]) & (abs(2*np.pi*fx) <= support[1]))
+        ordered_phase = xp.fft.fftshift(phase)
         largest = 0.
         for axis in (0, 1):
-            low = np.take(occupied, np.arange(occupied.shape[axis]-1), axis=axis)
-            high = np.take(occupied, np.arange(1, occupied.shape[axis]), axis=axis)
-            largest = max(largest, float(abs(np.diff(ordered_phase, axis=axis))[low | high].max(initial=0.)))
+            low = xp.take(occupied, xp.arange(occupied.shape[axis]-1), axis=axis)
+            high = xp.take(occupied, xp.arange(1, occupied.shape[axis]), axis=axis)
+            largest = max(largest, max_abs(xp.diff(ordered_phase, axis=axis)[low | high]))
         diagnostic.update(spectral_phase_increment_rad=largest, spectral_tail_probability_per_axis=1e-12)
         if largest >= np.pi:
             diagnostic["failure"] = "spectral_sampling"
             return None
-    amplitude = np.fft.ifft2(spectrum*np.exp(1j*phase))
+    amplitude = xp.fft.ifft2(spectrum*xp.exp(1j*phase))
     if not conservative:
-        probability = float(np.sum(abs(amplitude)**2))
+        probability = float(xp.sum(abs(amplitude)**2))
         boundary = _input_boundary_probability(amplitude)
         diagnostic.update(output_boundary_probability=boundary)
         if boundary > max(1e-30, probability*1e-12):
@@ -598,8 +621,9 @@ def intermediate_apertures(state, stop_z_mm, *, excluded_keys=()):
 
 
 def project_through_apertures(state, wave, x_m, y_m, wavelength_m, target_z_mm, *, excluded_keys=()):
+    xp = array_module(wave)
     dx, dy = float(x_m[1] - x_m[0]), float(y_m[1] - y_m[0])
-    current = PlaneWave(np.asarray(wave) * np.sqrt(dx * dy), np.diag((dx, dy)),
+    current = PlaneWave(xp.asarray(wave) * np.sqrt(dx * dy), np.diag((dx, dy)),
                         np.array((x_m[len(x_m)//2], y_m[len(y_m)//2])))
     previous, previous_offset = np.eye(4), np.zeros(4)
     rows = []
@@ -611,9 +635,9 @@ def project_through_apertures(state, wave, x_m, y_m, wavelength_m, target_z_mm, 
             xy = current.coordinates_m()
             # Aperture APIs consume metres, unlike detector readout masks.
             mask = (plane.transmission_mask(xy[0], xy[1]) if plane.radius_mm > 0
-                    else np.zeros(current.amplitude.shape, bool))
+                    else xp.zeros(current.amplitude.shape, bool))
             before = current.probability
-            current = PlaneWave(np.where(mask, current.amplitude, 0j), current.basis_m, current.origin_m,
+            current = PlaneWave(xp.where(mask, current.amplitude, 0j), current.basis_m, current.origin_m,
                                 current.curvature_m1, current.tilt_rad)
             rows.append({"key": plane.key, "physical_element_id": "aperture:" + plane.key,
                          "strategy": "physical_plane", "z_mm": float(plane.z_mm), "incoming_probability": before,

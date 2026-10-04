@@ -41,6 +41,20 @@ class SurfaceWaveNumerics:
     element_order: int = 1
     joint_radial_phase: bool = True
 
+    @classmethod
+    def joint_gun(cls):
+        """Resolve the default 16-mode interface of the complete round gun.
+
+        The separate near-field viewer can use a smaller local domain. The
+        joined gun cannot: its default Laguerre basis extends beyond 1.5 cap
+        radii. Four cap radii retain that basis; quadratic radial elements at
+        385 nodes resolve its interface mass to better than 0.1 percent.
+        These are numerical coordinates, not changes to the emitting cap.
+        Independent mesh, axial and basis convergence is still required.
+        """
+        return cls(radial_nodes=385, axial_nodes=97, outer_radius_factor=4.,
+                   element_order=2)
+
     def validate(self):
         for name, lo, hi in (("radial_nodes", 3, 4097), ("axial_nodes", 3, 4097),
                              ("energy_samples", 1, 64), ("maximum_nodes", 9, 10_000_000)):
@@ -300,8 +314,8 @@ def _compute_surface_wave(gun, numerics, *, use_cache, cancelled, progress_callb
     model = getattr(working.emitter, "surface_model", None)
     if model is None or model.coherence is None:
         raise ValueError("Explicit coherent surface parameters are required at the physical tip")
-    source = model.coherence.validate()
-    energies, weights = source.energy_quadrature(numerics.energy_samples)
+    model.validate()
+    energies, weights = model.energy_quadrature(numerics.energy_samples)
     geometry = model.geometry
     extent = geometry.apex_radius_nm*math.sin(math.radians(model.emission.cap_half_angle_deg))*numerics.outer_radius_factor
     if extent >= geometry.apex_radius_nm*math.cos(math.radians(geometry.cone_half_angle_deg)):
@@ -352,10 +366,8 @@ def _compute_surface_wave(gun, numerics, *, use_cache, cancelled, progress_callb
         if np.any(extra != 0):
             raise ValueError("An installed Wien field reaches the near-field domain and needs the joint electric/magnetic wave operator")
     matrices = fem_volume(points, triangles, potential)
-    arc = np.arcsin(r/geometry.apex_radius_nm)/math.radians(model.emission.cap_half_angle_deg)
-    envelope = np.where(arc < 1., np.cos(.5*math.pi*np.minimum(arc, 1.))**2, 0.)
     drive = np.zeros(len(points), complex)
-    drive[surface_ids] = envelope*np.exp(1j*source.edge_phase_rad*arc**2)
+    drive[surface_ids] = model.source_amplitude(r)
     if problem_only:
         return {"points": points, "triangles": triangles, "edges": edges, "z": z,
             "radius_nm": r, "potential": potential, "drive": drive, "matrices": matrices,

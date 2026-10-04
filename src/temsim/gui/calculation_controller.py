@@ -228,11 +228,11 @@ def estimate_calculation_memory_bytes(
     # that precision and the extra map-grid nodes in the memory guard.
     history = (
         pre_history + branch_count * post_history
-    ) * rays * (4 * history_itemsize + 8)  # Float64 executed flight clock.
+    ) * rays * (4 * history_itemsize + 2 * 8)  # Float64 flight clock and kinetic energy.
     checkpoint_count = len(
         _column_checkpoint_planes(gun_start, sample_z, rays)
     )
-    checkpoint_storage = checkpoint_count * rays * 5 * 8
+    checkpoint_storage = checkpoint_count * rays * 6 * 8
     gpu_checkpoint_copy = bool(
         getattr(state, "acceleration_enabled", True)
         and str(getattr(state, "acceleration_backend", "Auto"))

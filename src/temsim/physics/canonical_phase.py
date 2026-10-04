@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from temsim.physics.wave_device import array_module
+
 CANONICAL_BASIS = "laboratory-normalized-canonical"
 SYMPLECTIC_TOLERANCE = 1e-7
 
@@ -68,6 +70,7 @@ def expanded_phase_amplitude(wave, wavelength_m: float) -> np.ndarray:
     if not np.isfinite(wavelength_m) or wavelength_m <= 0:
         raise ValueError("Phase expansion requires a finite positive wavelength")
     from temsim.physics.wave_grid import WaveSamplingError, check_combined_phase_sampling
+    xp = array_module(wave.amplitude)
     try:
         # Check the represented envelope spectrum and known UNWRAPPED
         # analytic carrier. Differentiating angle(a1*conj(a0)) at zeros can
@@ -75,13 +78,14 @@ def expanded_phase_amplitude(wave, wavelength_m: float) -> np.ndarray:
         # cosine sign change already has a pi branch, before adding any tilt.
         # This sufficient spectral test retains every complex cell and uses
         # the same cumulative-tail and 20% Nyquist guard as material stages.
-        check_combined_phase_sampling(wave, np.zeros(wave.amplitude.shape), wavelength_m)
+        check_combined_phase_sampling(wave, xp.zeros(wave.amplitude.shape), wavelength_m)
     except WaveSamplingError as error:
         raise WaveSamplingError(f"Full-wave phase carrier is undersampled: {error}",
                                 required_scale=error.required_scale) from error
-    xy = wave.coordinates_m() - wave.origin_m[:, None, None]
+    xy = wave.coordinates_m() - xp.asarray(wave.origin_m)[:, None, None]
     q = np.zeros((2, 2)) if wave.curvature_m1 is None else wave.curvature_m1
     t = np.zeros(2) if wave.tilt_rad is None else wave.tilt_rad
     phase = (2*np.pi/wavelength_m) * (
-        .5*np.einsum("iyx,ij,jyx->yx", xy, q, xy) + np.einsum("i,iyx->yx", t, xy))
-    return wave.amplitude * np.exp(1j*phase)
+        .5*xp.einsum("iyx,ij,jyx->yx", xy, xp.asarray(q), xy)
+        + xp.einsum("i,iyx->yx", xp.asarray(t), xy))
+    return wave.amplitude * xp.exp(1j*phase)

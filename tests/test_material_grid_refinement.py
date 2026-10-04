@@ -41,8 +41,9 @@ def install_potential_fixture(monkeypatch):
         potential = np.ones((2, n, n))*0.01
         calls.append((n, fov, kw["calculation_roi_centre_nm"],
                       state.sample.wave_frozen_phonon_seed))
-        return SimpleNamespace(x_angstrom=axis, y_angstrom=axis,
+        return imaging.PreparedSpecimen(x_angstrom=axis, y_angstrom=axis,
             potential_configurations_v_angstrom=(potential,), slice_thicknesses_angstrom=np.array([2., 2.]),
+            mean_projected_potential_v_angstrom=potential.sum(axis=0),
             metrics={"fixture": "constant phase", "prepared_specimen_cache_hit": len(calls) > 1})
     monkeypatch.setattr(imaging, "prepare_specimen_potentials", prepare)
     return calls
@@ -50,11 +51,72 @@ def install_potential_fixture(monkeypatch):
 
 def state_and_wave():
     state = quiet_state()
+    from specimen_inputs import imported_sample
+    imported_sample(state.sample, zone=(0, 0, 1), in_plane=(1, 0, 0))
     state.sample.thickness_nm = .4
     state.sample.wave_slice_thickness_angstrom = 2.
     state.sample.wave_grid_pixels = 64
     state.sample.wave_field_of_view_angstrom = 30.
+    # Imported CIFs no longer invent material MFPs. This declared weak
+    # absorption keeps the lossy retry fixture nontrivial and its independent
+    # inelastic histories distinct from the exact identity-channel shortcut.
+    state.sample.real_inelastic_enabled = True
+    state.sample.real_absorption_mean_free_path_nm = 1000.
     return state, entrance(state)
+
+
+@pytest.mark.parametrize("minimum,factor,expected", ((6616, 2, 6720), (136, 2, 140), (65, 1, 66), (128, 2, 128)))
+def test_material_fft_rounding_only_adds_even_samples(minimum, factor, expected):
+    # Production-size planning is scalar only; no large potential is built.
+    pixels = transport._material_fft_pixels(minimum, factor)
+    assert pixels == expected
+    assert pixels >= minimum and (pixels//factor) % 2 == 0
+    assert pixels % factor == 0
+
+
+def test_fft_rounding_keeps_full_material_domain_origin_and_finer_sampling(monkeypatch):
+    calls = install_potential_fixture(monkeypatch)
+    state, source = state_and_wave()
+    state.sample.wave_grid_pixels = 68
+    before = vars(state.sample).copy()
+    centre, fov = transport._covering_domain(source.beam)
+    numerics = WaveGridNumerics(maximum_pixels=256)
+    _, prepared, x, y, _ = transport._prepare_material_grid(state, source, grid_numerics=numerics)
+    record = prepared.metrics["coherent_material_grid"]
+    assert record["requested_potential_pixels"] == 136
+    assert record["executed_potential_pixels"] > 136
+    assert record["executed_sampling_m"] <= record["requested_sampling_m"]
+    assert record["field_of_view_m"] == fov
+    assert calls[0][1] == pytest.approx(fov*1e10)
+    wave_axes = transport._material_wave_axes(x, y, numerics)
+    for axis, coarse, origin in zip((x, y), wave_axes, centre, strict=True):
+        assert axis[len(axis)//2] == origin == coarse[len(coarse)//2]
+        assert len(axis)*(axis[1]-axis[0]) == pytest.approx(fov)
+        assert len(coarse)*(coarse[1]-coarse[0]) == pytest.approx(fov)
+    xx, yy = source.beam.modes[0].plane.coordinates_m()
+    assert xx.min() >= x[0]-(x[1]-x[0])/2
+    assert xx.max() <= x[-1]+(x[1]-x[0])/2
+    assert yy.min() >= y[0]-(y[1]-y[0])/2
+    assert yy.max() <= y[-1]+(y[1]-y[0])/2
+    assert vars(state.sample) == before
+
+
+@pytest.mark.parametrize("limit", ("pixels", "bytes"))
+def test_fft_rounding_is_budgeted_before_any_potential_allocation(monkeypatch, limit):
+    calls = install_potential_fixture(monkeypatch)
+    state, source = state_and_wave()
+    state.sample.wave_grid_pixels = 68
+    from temsim.physics.wave_checkpoint_store import resident_wave_bytes
+    from temsim.physics.wave_grid import WaveGridBudgetError
+    numerics = (WaveGridNumerics(maximum_pixels=136) if limit == "pixels" else
+        WaveGridNumerics(maximum_pixels=256,
+            maximum_working_bytes=resident_wave_bytes(source.beam)+256*136**2))
+    # The requested lattice fits exactly; the larger execution lattice does
+    # not, so neither atom generation nor potential construction may start.
+    numerics.check((136, 136), retained_bytes=resident_wave_bytes(source.beam))
+    with pytest.raises(WaveGridBudgetError, match="budget exceeded"):
+        transport._prepare_material_grid(state, source, grid_numerics=numerics)
+    assert not calls
 
 
 def test_retry_rebuilds_potential_preserves_physical_domain_source_and_phase(monkeypatch):
@@ -167,3 +229,39 @@ def test_inelastic_retry_does_not_reuse_slices_from_a_coarser_potential(monkeypa
         np.testing.assert_array_equal(a.plane.amplitude, b.plane.amplitude)
         assert a.energy_kev == b.energy_kev
         assert a.scattering_history == b.scattering_history
+
+
+def test_real_cif_material_budget_changes_no_complex_field_or_source():
+    """Actual small Si IAM + coherent transport; no potential/solver mock."""
+    from copy import deepcopy
+    from dataclasses import asdict
+    from specimen_inputs import imported_sample
+    from temsim.specimen.atomistic import atomistic_capability
+    if not atomistic_capability().available:
+        pytest.skip("Atomistic CIF backend unavailable")
+    state, source = state_and_wave()
+    imported_sample(state.sample, zone=(0, 0, 1), in_plane=(1, 0, 0))
+    state.sample.envelope_shape = "rectangle"
+    state.sample.size_x_nm = state.sample.size_y_nm = 2.
+    state.sample.wave_atomistic_enabled = state.sample.wave_multislice_enabled = True
+    original = deepcopy(asdict(state.sample))
+    original_source = source.digest
+    base = WaveGridNumerics(maximum_pixels=512, maximum_working_bytes=64*1024**2)
+    small = transport._propagate_specimen(state, source, grid_numerics=base)
+    larger = transport._propagate_specimen(state, source,
+        grid_numerics=replace(base, maximum_working_bytes=96*1024**2))
+    assert small.record["potential"]["atomistic_applied"]
+    assert small.record["potential"]["atom_count"] > 0
+    assert small.plane_z_mm == larger.plane_z_mm
+    assert small.reference_current_a == larger.reference_current_a == source.reference_current_a
+    assert 0 < small.beam.total_weight <= source.beam.total_weight
+    for a, b in zip(small.beam.modes, larger.beam.modes, strict=True):
+        assert a.mode_id == b.mode_id
+        assert a.energy_kev == b.energy_kev
+        assert a.axial_reference == b.axial_reference
+        assert a.weight_per_reference_electron == b.weight_per_reference_electron
+        for name in ("amplitude", "basis_m", "origin_m", "curvature_m1", "tilt_rad"):
+            np.testing.assert_array_equal(getattr(a.plane, name), getattr(b.plane, name))
+        assert np.max(abs(a.plane.amplitude.imag)) > 0
+    assert source.digest == original_source
+    assert asdict(state.sample) == original

@@ -26,12 +26,7 @@ BACKEND_CHOICES = (
 )
 WAVE_BACKEND_NUMPY = "NumPy CPU"
 WAVE_BACKEND_CUPY = "CuPy CUDA"
-AUTO_CUDA_MIN_RAYS = 2_048
 AUTO_NUMBA_MIN_RAYS = 256
-# One work item represents one complex grid point propagated through one
-# specimen slice.  Below this scale PCIe transfers and CUDA-plan setup tend to
-# cost more than the FFT work in an interactive preview.
-AUTO_CUPY_MIN_WORK_ITEMS = 1_000_000
 
 class GPUExecutionError(RuntimeError):
     def __init__(self, category, detail):
@@ -240,9 +235,10 @@ def choose_wave_backend(
     """Choose the FFT/multislice backend actually used by wave optics.
 
     Numba's CPU selection maps to the NumPy reference because the wave solver
-    uses vectorised FFTs rather than ray-wise kernels.  Explicit CUDA requests
-    attempt CuPy even for small grids; Auto uses it only when the estimated
-    grid-point-by-slice work is large enough to amortise setup and transfers.
+    uses vectorised FFTs rather than ray-wise kernels. Auto prefers a usable
+    GPU for every workload; explicit CPU and disabled acceleration remain
+    authoritative. Work estimates belong to resource admission, not a separate
+    per-page device policy.
     """
 
     policy = normalise_backend(requested).lower().replace(" ", "_")
@@ -267,8 +263,6 @@ def choose_wave_backend(
             return WAVE_BACKEND_CUPY, None
         return WAVE_BACKEND_NUMPY, status.detail
 
-    if int(work_items) < AUTO_CUPY_MIN_WORK_ITEMS:
-        return WAVE_BACKEND_NUMPY, None
     status = cupy_capability()
     if status.available:
         return WAVE_BACKEND_CUPY, None
@@ -313,14 +307,13 @@ def choose_ray_backend(
             return BACKEND_NUMBA, None
         return BACKEND_CPU, numba_status.detail
 
-    # Auto avoids accelerator launch/JIT overhead for tiny GUI previews.
+    # Auto shares the wave policy: use an available GPU, including previews.
+    cuda_status = cuda_capability()
+    if cuda_status.available:
+        return BACKEND_CUDA, None
     if int(ray_count) < AUTO_NUMBA_MIN_RAYS:
-        return BACKEND_CPU, None
-    if int(ray_count) >= AUTO_CUDA_MIN_RAYS:
-        cuda_status = cuda_capability()
-        if cuda_status.available:
-            return BACKEND_CUDA, None
+        return BACKEND_CPU, cuda_status.detail
     numba_status = numba_cpu_capability()
     if int(ray_count) >= AUTO_NUMBA_MIN_RAYS and numba_status.available:
-        return BACKEND_NUMBA, None
-    return BACKEND_CPU, None
+        return BACKEND_NUMBA, cuda_status.detail
+    return BACKEND_CPU, cuda_status.detail

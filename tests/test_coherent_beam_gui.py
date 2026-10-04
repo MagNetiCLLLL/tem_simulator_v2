@@ -52,17 +52,47 @@ class _GuiObservationSession:
 
 @pytest.fixture
 def panel(qtbot, monkeypatch):
-    monkeypatch.setattr(module, "prepare_coherent_state", lambda state, settings:
-        deepcopy(state) if settings.enabled else (_ for _ in ()).throw(
-            ValueError("Select a coherent tip boundary before calculating a wave")))
+    def capture(state, settings):
+        if not settings.enabled:
+            raise ValueError("Select a coherent tip boundary before calculating a wave")
+        active = module.source_settings_from_state(state)
+        if settings != active:
+            raise ValueError("Tip source draft differs from the active instrument. Apply tip parameters first")
+        return deepcopy(state)
+
+    monkeypatch.setattr(module, "prepare_coherent_state", capture)
     monkeypatch.setattr(module, "wave_input_summary", lambda *_args:
         {"status": "SOURCE_READY", "model": "GUI-only fixture", "mode_count": 1})
     monkeypatch.setattr(module, "simulate_tip_wave", lambda _state, request, **_kwargs:
                         result(request.observation_z_mm))
     monkeypatch.setattr(module, "TipWaveObservationSession", _GuiObservationSession)
     monkeypatch.setattr(module, "_intensity_preview", lambda *_args, **_kwargs: preview())
+    # This fixture substitutes physical execution with a minimal instrument;
+    # it has no installed field providers. Other tests exercise those fields.
+    monkeypatch.setattr(module, "_plane_axial_field", lambda *_args: .125)
     view = CoherentBeamPage()
     qtbot.addWidget(view)
+    def apply_fixture(settings):
+        # A software-control fixture; real candidate admission is exercised in
+        # dedicated tests below, not simulated by this lightweight fake gun.
+        from temsim.optics.electron_gun.tip_coherence import TipCoherence
+        emitter = view._state.electron_gun.emitter
+        for setting, field in (("tip_fwhm_nm", "virtual_source_fwhm_nm"),
+                ("tip_mean_energy_ev", "emission_energy_ev"),
+                ("tip_minimum_energy_ev", "minimum_kinetic_energy_ev"),
+                ("tip_energy_spread_fwhm_ev", "energy_spread_fwhm_ev")):
+            setattr(emitter, field, getattr(settings, setting))
+        emitter.coherence = (TipCoherence(
+            incoherent_angle_rms_mrad=settings.incoherent_angle_rms_mrad,
+            curvature_x_m1=settings.tip_curvature_x_m1,
+            curvature_xy_m1=settings.tip_curvature_xy_m1,
+            curvature_y_m1=settings.tip_curvature_y_m1,
+            offset_x_nm=settings.tip_offset_x_nm, offset_y_nm=settings.tip_offset_y_nm,
+            tilt_x_mrad=settings.tip_tilt_x_mrad, tilt_y_mrad=settings.tip_tilt_y_mrad)
+            if settings.enabled else None)
+        return view._state
+
+    view.source_applier = apply_fixture
     view.set_state(instrument())
     view.show()
     yield view
@@ -71,6 +101,7 @@ def panel(qtbot, monkeypatch):
 
 def calculate(panel, qtbot):
     panel.source_enabled.setChecked(True)
+    panel.apply_source()
     qtbot.mouseClick(panel.calculate_button, Qt.MouseButton.LeftButton)
     qtbot.waitUntil(lambda: panel.result is not None)
     qtbot.waitUntil(lambda: panel._worker is None)
@@ -108,6 +139,7 @@ def test_explicit_calculate_requires_tip_opt_in(panel, qtbot):
 
 def test_worker_uses_captured_copy_and_runs_off_gui_thread(panel, qtbot, monkeypatch):
     calls = []
+    fields = []
     original = panel._state
 
     def solve(state, request, **kwargs):
@@ -116,9 +148,15 @@ def test_worker_uses_captured_copy_and_runs_off_gui_thread(panel, qtbot, monkeyp
         return result(request.observation_z_mm)
 
     monkeypatch.setattr(module, "simulate_tip_wave", solve)
+    def recorded_field(state, z_mm):
+        fields.append((state is original, QThread.currentThread() == panel.thread(), z_mm))
+        return .375
+    monkeypatch.setattr(module, "_plane_axial_field", recorded_field)
     calculate(panel, qtbot)
     assert calls[0][:2] == (False, False)
-    assert original.electron_gun.emitter.coherence is None
+    assert fields == [(False, False, 100.)]
+    assert panel.preview.axial_bz_t == .375
+    assert original.electron_gun.emitter.coherence is not None
     assert original.electron_gun.emitter.emission_energy_ev == .3
     assert original.electron_gun.emitter.virtual_source_fwhm_nm == 5.
     assert calls[0][2].stop == "plane"
@@ -139,8 +177,8 @@ def test_explicit_tip_controls_change_only_requested_boundary(panel):
     assert panel.result is None and panel._worker is None
 
 
-@pytest.mark.parametrize("entry", ["manual", "defaults"])
-def test_fresh_gui_can_capture_every_gaussian_tip_input_without_changing_particles(panel, monkeypatch, entry):
+@pytest.mark.parametrize("entry", ["manual", "saved"])
+def test_gui_applies_one_source_then_captures_without_source_overrides(panel, monkeypatch, entry):
     from dataclasses import asdict
     from temsim.instrument_snapshot import capture_instrument_snapshot
     from temsim.optics.column import default_state
@@ -148,70 +186,65 @@ def test_fresh_gui_can_capture_every_gaussian_tip_input_without_changing_particl
     from temsim.physics.coherent_inputs import prepare_coherent_state, wave_input_summary
 
     state = default_state()
+    emitter = state.electron_gun.emitter
+    expected = TipCoherence(.125, 100., 17.125, 200., 1.25, -2.5, .01, -.02)
+    # Numerically admissible control fixture, not a calibrated physical tip.
+    if entry == "saved":
+        emitter.virtual_source_fwhm_nm = 100.
+        emitter.emission_energy_ev = 2.
+        emitter.minimum_kinetic_energy_ev = .1
+        emitter.energy_spread_fwhm_ev = .1
+        emitter.coherence = expected
     before = capture_instrument_snapshot(state).digest
-    assert state.electron_gun.emitter.coherence is None
     panel.set_state(state)
-    # These are the explicitly prescribed tip-boundary values in the retained
-    # Si example. This test checks GUI capture, not diffraction propagation.
-    expected = TipCoherence(curvature_x_m1=624.3690658100246,
-        curvature_xy_m1=-9.348776164576383e-12,
-        curvature_y_m1=624.369065810008,
-        offset_x_nm=-.06696090871824144, offset_y_nm=-.07266953387249751,
-        tilt_x_mrad=-4.18060377176702e-5, tilt_y_mrad=-4.537013038384244e-5)
+    panel.source_applier = None  # Exercise real transactional admission.
+    panel.tip_boundary.setCurrentIndex(panel.tip_boundary.findData(expected.boundary_model))
     for control, value in (
             (panel.angle_rms, expected.incoherent_angle_rms_mrad),
             (panel.tip_curvature_x, expected.curvature_x_m1),
             (panel.tip_curvature_xy, expected.curvature_xy_m1),
             (panel.tip_curvature_y, expected.curvature_y_m1),
-            (panel.tip_offset_x, expected.offset_x_nm),
-            (panel.tip_offset_y, expected.offset_y_nm),
-            (panel.tip_tilt_x, expected.tilt_x_mrad),
-            (panel.tip_tilt_y, expected.tilt_y_mrad)):
-        assert control.isEnabled() and not control.isHidden()
-        # Exercise Qt's text parser, as when the user pastes a decimal value;
-        # setValue alone would not establish a reachable manual-entry path.
+            (panel.tip_offset_x, expected.offset_x_nm), (panel.tip_offset_y, expected.offset_y_nm),
+            (panel.tip_tilt_x, expected.tilt_x_mrad), (panel.tip_tilt_y, expected.tilt_y_mrad),
+            (panel.tip_fwhm, 100.), (panel.tip_energy, 2.),
+            (panel.tip_minimum_energy, .1), (panel.tip_energy_spread, .1)):
         if entry == "manual":
             control.lineEdit().setText(f"{value:.{control.decimals()}f}")
             control.interpretText()
         assert control.value() == pytest.approx(value, rel=2e-15, abs=5e-16)
-    for control, value in ((panel.tip_fwhm, 28390.10000542304),
-            (panel.tip_energy, 30.), (panel.tip_minimum_energy, .01),
-            (panel.tip_energy_spread, 0.)):
-        if entry == "manual":
-            control.lineEdit().setText(f"{value:.{control.decimals()}f}")
-            control.interpretText()
-        assert control.value() == pytest.approx(value, rel=2e-15, abs=5e-16)
-    if entry == "manual":
-        panel.energy_samples.setValue(1)
-    assert panel.energy_samples.value() == 1
-    assert not panel.source_enabled.isChecked()
     panel.source_enabled.setChecked(True)
     monkeypatch.setattr(module, "prepare_coherent_state", prepare_coherent_state)
     monkeypatch.setattr(module, "wave_input_summary", wave_input_summary)
     queued = []
     monkeypatch.setattr(panel.pool, "start", queued.append)
+    if entry == "manual":
+        panel.calculate()
+        assert not queued
+        assert "Apply tip parameters" in panel.status.text()
+        assert capture_instrument_snapshot(state).digest == before
+    panel.apply_source()
+    # A loaded source is already published; applying identical values is a
+    # no-op and must retain the session instead of emitting a fresh revision.
+    message = "Tip unchanged" if entry == "saved" else "Tip applied"
+    assert message in panel.status.text()
+    assert not queued
+    applied = capture_instrument_snapshot(state).digest
     panel.calculate()
-    assert len(queued) == 1  # Job is captured, but never executed in this test.
+    assert len(queued) == 1  # No numerical propagation is executed.
     assert "Source ready" in panel.status.text()
     captured = panel._captured.electron_gun.emitter
     for field, value in asdict(expected).items():
         assert getattr(captured.coherence, field) == pytest.approx(value, rel=2e-15, abs=5e-16)
-    assert captured.virtual_source_fwhm_nm == pytest.approx(28390.10000542304, rel=2e-15)
-    assert captured.emission_energy_ev == 30.
-    assert captured.minimum_kinetic_energy_ev == .01
-    assert captured.energy_spread_fwhm_ev == 0.
-    assert state.electron_gun.emitter.coherence is None
-    assert capture_instrument_snapshot(state).digest == before
+        assert getattr(state.electron_gun.emitter.coherence, field) == pytest.approx(value, rel=2e-15, abs=5e-16)
+    assert captured.virtual_source_fwhm_nm == state.electron_gun.emitter.virtual_source_fwhm_nm == 100.
+    assert captured.emission_energy_ev == state.electron_gun.emitter.emission_energy_ev == 2.
+    assert captured.energy_spread_fwhm_ev == state.electron_gun.emitter.energy_spread_fwhm_ev == .1
+    assert capture_instrument_snapshot(state).digest == applied
     assert "not the metal" in panel.source_assumption.text()
-    assert "Idealised diffraction example defaults" in panel.source_info.text()
+    assert "Planar Gaussian boundary" in panel.source_info.text()
     assert "not the metal apex radius" in panel.tip_fwhm.toolTip()
     panel.cancel()
-    for control in (panel.tip_offset_x, panel.tip_offset_y, panel.tip_curvature_xy):
-        panel._stale = False
-        panel._session_ready = True
-        control.setValue(control.value()+1e-6)
-        assert panel._stale and not panel._session_ready
-    assert capture_instrument_snapshot(state).digest == before
+
 
 
 def test_existing_gaussian_centre_and_cross_curvature_initialize_and_reset(panel):
@@ -231,11 +264,11 @@ def test_existing_gaussian_centre_and_cross_curvature_initialize_and_reset(panel
     assert panel.tip_energy_spread.value() == .2
     assert panel.energy_samples.value() == 9
     panel.set_state(instrument())
-    assert panel.tip_offset_x.value() == pytest.approx(-.06696090871824144)
-    assert panel.tip_offset_y.value() == pytest.approx(-.07266953387249751)
-    assert panel.tip_curvature_xy.value() == pytest.approx(-9.348776164576383e-12, abs=5e-16)
+    assert panel.tip_offset_x.value() == 0.
+    assert panel.tip_offset_y.value() == 0.
+    assert panel.tip_curvature_xy.value() == 0.
     assert panel.angle_rms.value() == 0.
-    assert panel.energy_samples.value() == 1
+    assert panel.energy_samples.value() == 9
 
 
 def test_saved_zero_phase_boundary_is_preserved_instead_of_example_defaults(panel):
@@ -250,7 +283,7 @@ def test_saved_zero_phase_boundary_is_preserved_instead_of_example_defaults(pane
     assert panel.tip_curvature_x.value() == panel.tip_curvature_xy.value() == 0.
     assert panel.tip_curvature_y.value() == 0.
     assert panel.tip_offset_x.value() == panel.tip_offset_y.value() == 0.
-    assert "Captured tip boundary" in panel.source_info.text()
+    assert "Planar Gaussian boundary" in panel.source_info.text()
 
 
 def test_gaussian_defaults_do_not_replace_curved_geometry_inputs(panel):
@@ -267,7 +300,7 @@ def test_gaussian_defaults_do_not_replace_curved_geometry_inputs(panel):
 def test_default_energy_mode_budget_is_not_reset_by_instrument_publication(panel):
     from temsim.optics.electron_gun.tip_coherence import TipCoherence
 
-    assert panel.energy_samples.value() == 1
+    assert panel.energy_samples.value() == 9
     panel.energy_samples.setValue(7)
     loaded = instrument()
     loaded.electron_gun.emitter.coherence = TipCoherence()
@@ -301,12 +334,12 @@ def test_snapshot_restored_custom_coherent_source_keeps_all_values(panel):
             (panel.tip_offset_y, -2.5), (panel.tip_tilt_x, .01), (panel.tip_tilt_y, -.02)):
         assert control.value() == value
     assert panel.energy_samples.value() == 9
-    assert not panel.source_enabled.isChecked()
+    assert panel.source_enabled.isChecked()
     assert capture_instrument_snapshot(restored).digest == before.digest
 
 
 def test_nonzero_energy_spread_updates_only_automatic_mode_budget(panel):
-    assert panel.energy_samples.value() == 1
+    assert panel.energy_samples.value() == 9
     panel.tip_energy_spread.setValue(.1)
     assert panel.energy_samples.value() == 9
     panel.tip_energy_spread.setValue(0.)
@@ -409,7 +442,7 @@ def test_follow_checkbox_prevents_linked_queries_but_manual_z_works(panel, qtbot
 
 
 @pytest.mark.parametrize("control", ["source_enabled", "angle_rms", "grid_pixels",
-                                    "working_gib", "ram_cache_gib"])
+                                    "working_gib", "gpu_working_gib", "ram_cache_gib"])
 def test_source_or_numerical_edit_requires_new_explicit_session(panel, qtbot, control):
     calculate(panel, qtbot)
     old = panel.result
@@ -542,10 +575,11 @@ def test_unsupported_source_does_not_enter_worker_or_mutate_source(panel, qtbot,
     monkeypatch.setattr(module, "wave_input_summary", lambda *_args:
         {"status": "SOURCE_UNSUPPORTED", "reason": "Fixture source domain failure"})
     panel.source_enabled.setChecked(True)
+    panel.apply_source()
     panel.calculate()
     assert "Fixture source domain failure" in panel.status.text()
     assert panel._worker is None
-    assert panel._state.electron_gun.emitter.coherence is None
+    assert panel._state.electron_gun.emitter.coherence is not None
 
 
 def test_saved_low_energy_source_rejection_displays_real_checks_without_propagation(qtbot, monkeypatch):
@@ -618,6 +652,7 @@ def test_rejected_check_keeps_previous_image_and_marks_report_stale(panel, qtbot
     assert panel.result is previous_result and panel._stale
     monkeypatch.setattr(module, "wave_input_summary", lambda *_args:
         {"status": "SOURCE_READY", "model": "GUI source fixture", "mode_count": 1})
+    panel.apply_source()
     panel.calculate()
     qtbot.waitUntil(lambda: panel._worker is None)
     assert "Source check passed" in panel.preflight_message.text()
@@ -645,6 +680,7 @@ def test_partial_source_report_does_not_break_error_display(panel, monkeypatch, 
         {"status": "SOURCE_UNSUPPORTED", "reason": "Partial source check fixture",
          "source_domain": domain})
     panel.source_enabled.setChecked(True)
+    panel.apply_source()
     panel.calculate()
     assert "propagation did not start" in panel.status.text()
     assert "Model limit unavailable" in panel.preflight_message.text()
@@ -652,28 +688,58 @@ def test_partial_source_report_does_not_break_error_display(panel, monkeypatch, 
     assert panel._worker is None and panel.result is None
 
 
-def test_surface_assumption_is_explicit_and_values_are_passed_only_on_calculate(panel, qtbot, monkeypatch):
-    surface = SimpleNamespace(coherence=SimpleNamespace(mean_energy_ev=.4,
-        energy_rms_ev=.07, edge_phase_rad=.3),
-        geometry=SimpleNamespace(apex_radius_nm=30.), current_na=12.)
+def test_saved_surface_phase_is_preserved_read_only(panel, qtbot, monkeypatch):
+    from temsim.optics.electron_gun.tip_surface import load_tip_surface_reference, SurfaceCoherence
+    surface = replace(load_tip_surface_reference(),
+        coherence=SurfaceCoherence(mean_energy_ev=.4, energy_rms_ev=.07, edge_phase_rad=.3))
     state = instrument(surface)
     panel.set_state(state)
-    settings = []
-    monkeypatch.setattr(module, "prepare_coherent_state", lambda original, options:
-        (settings.append(options), deepcopy(original))[1])
-    assert not panel.source_enabled.isChecked()
+    assert panel.source_enabled.isChecked()
     assert panel.surface_mean.value() == .4
     assert panel.surface_rms.value() == .07
-    assert "Explicit quantum assumption" in panel.source_assumption.text()
+    assert "wave-only" in panel.source_assumption.text()
+    assert panel.surface_mean.isReadOnly() and panel.surface_rms.isReadOnly()
+    assert not panel.apply_source_button.isEnabled()
+    assert not panel.source_enabled.isEnabled()
     assert panel.angle_rms.isHidden()
-    panel.source_enabled.setChecked(True)
-    panel.surface_mean.setValue(.5)
+    assert panel._settings().surface_edge_phase_rad == .3
     panel.calculate()
     qtbot.waitUntil(lambda: panel.result is not None)
-    assert settings[-1].surface_mean_energy_ev == .5
-    assert settings[-1].surface_energy_rms_ev == .07
-    assert settings[-1].surface_edge_phase_rad is None
+    qtbot.waitUntil(lambda: panel._worker is None)
+    old = panel.result
+    panel.surface_mean.setValue(.5)  # Even programmatic edits cannot override a captured source.
+    panel.calculate()
+    assert "Apply tip parameters" in panel.status.text()
+    assert panel.result is old and panel._worker is None
     assert state.electron_gun.emitter.surface_model.coherence.mean_energy_ev == .4
+    assert panel._settings().surface_edge_phase_rad == .3
+
+
+def test_shared_surface_page_edits_actual_energy_and_editor_does_not_compute(panel, monkeypatch):
+    from temsim.optics.column import default_state
+    from temsim.optics.electron_gun.tip_surface import load_tip_surface_reference
+    state = default_state()
+    surface = load_tip_surface_reference()
+    state.electron_gun.emitter.surface_model = surface
+    panel.set_state(state)
+    panel.source_applier = None
+    opened = []
+    panel.tip_editor_requested.connect(lambda: opened.append(True))
+    panel.edit_tip_button.click()
+    assert opened == [True] and panel._worker is None
+    panel.surface_mean.setValue(.65)
+    panel.surface_rms.setValue(.09)
+    panel.source_enabled.setChecked(True)
+    panel.apply_source()
+    applied = state.electron_gun.emitter.surface_model
+    assert applied.shared_boundary and applied.geometry == surface.geometry
+    assert applied.emission.mean_energy_ev == .65
+    assert applied.emission.energy_sigma_ev == .09
+    assert not hasattr(applied.coherence, "mean_energy_ev")
+    assert not panel.surface_mean.isReadOnly()
+    assert "unavailable" not in panel.status.text()
+    assert "No calculation started" in panel.status.text() and panel._worker is None
+
 
 
 def test_advanced_budgets_only_change_numerics(panel):
@@ -684,6 +750,8 @@ def test_advanced_budgets_only_change_numerics(panel):
     panel.energy_samples.setValue(3)
     panel.column_step.setValue(.1)
     panel.working_gib.setValue(12.)
+    assert panel.gpu_working_gib.value() == 24.
+    panel.gpu_working_gib.setValue(6.)
     panel.ram_cache_gib.setValue(10.)
     panel.disk_cache_gib.setValue(128.)
     request = panel._make_request()
@@ -691,6 +759,7 @@ def test_advanced_budgets_only_change_numerics(panel):
     assert request.source.energy_samples == request.surface.energy_samples == 3
     assert request.column_step_mm == .1
     assert request.wave_grid.maximum_working_bytes == 12*module.GIB
+    assert request.wave_grid.maximum_device_working_bytes == 6*module.GIB
     assert request.gun.maximum_checkpoint_bytes == 12*module.GIB
     assert request.surface.maximum_working_bytes == 12*module.GIB
     assert request.radial_gun.maximum_working_bytes == 12*module.GIB
@@ -699,6 +768,92 @@ def test_advanced_budgets_only_change_numerics(panel):
     assert request.execution.maximum_disk_cache_bytes == 128*module.GIB
     assert request.execution.segmented
     assert request.inelastic.method == "trajectories"
+
+
+@pytest.mark.parametrize("policy", ["Auto", "CPU", "Numba CPU", "CUDA GPU", "Prefer GPU", "Require GPU"])
+def test_wave_request_uses_applied_toolbar_backend_policy(panel, policy):
+    panel._state.acceleration_backend = policy
+    request = panel._make_request()
+    assert request.wave_grid.compute_backend == policy
+    assert request.wave_grid.maximum_device_working_bytes == 24*module.GIB
+    # A device budget is not an additional host-memory reservation.
+    before = module._wave_resource_claim(panel._state, request)
+    panel.gpu_working_gib.setValue(4.)
+    after = module._wave_resource_claim(panel._state, panel._make_request())
+    assert after.working_bytes == before.working_bytes
+
+
+@pytest.mark.parametrize("policy", ["Auto", "CUDA GPU", "Prefer GPU", "Require GPU"])
+def test_wave_request_preserves_explicitly_disabled_acceleration(panel, policy):
+    panel._state.acceleration_backend = policy
+    panel._state.acceleration_enabled = False
+    request = panel._make_request()
+    assert request.wave_grid.compute_backend == policy
+    assert request.wave_grid.acceleration_enabled is False
+
+
+def test_capture_reads_backend_from_same_captured_state_as_optics(panel):
+    panel.source_enabled.setChecked(True)
+    panel.apply_source()
+    panel._state.acceleration_backend = "CPU"
+    provider_state = deepcopy(panel._state)
+    provider_state.acceleration_backend = "Require GPU"
+    provider_state.acceleration_enabled = False
+    calls = []
+    def current_state():
+        calls.append(1)
+        return provider_state if len(calls) == 1 else panel._state
+    panel.state_provider = current_state
+    captured, request, _ = panel.capture_calculation_inputs()
+    assert captured.acceleration_backend == "Require GPU"
+    assert request.wave_grid.compute_backend == captured.acceleration_backend
+    assert request.wave_grid.acceleration_enabled is False
+    assert len(calls) == 1
+    provider_state.acceleration_backend = "CPU"
+    assert request.wave_grid.compute_backend == "Require GPU"
+    assert panel._state.acceleration_backend == "CPU"
+
+
+@pytest.mark.parametrize("backend,label", [("cupy", "GPU (CuPy)"), ("numpy", "CPU (NumPy)")])
+def test_result_displays_executed_device_not_requested_policy(panel, qtbot, backend, label):
+    panel._state.acceleration_backend = "CUDA GPU" if backend == "numpy" else "CPU"
+    calculate(panel, qtbot)
+    calculated = result(panel._target_z_mm)
+    calculated.checkpoint.record = {"schema": "executed-column-segment-v1", "modes": [
+        {"compute_backend": backend, "numeric_precision": "complex128 / float64", "fallback_reason": None}]}
+    panel._solved(panel._generation, panel._session, calculated, preview())
+    assert f"Column: {label}; complex128 / float64" in panel.readout.text()
+    assert "Gun: CPU" in panel.readout.text()
+    assert "Displayed wave grid: 4 × 4 cells" in panel.readout.text()
+
+
+@pytest.mark.parametrize("schema,step_key", [
+    ("executed-inelastic-trajectories-v1", "steps"), ("executed-specimen-wave-v1", "slices")])
+def test_result_separates_current_column_fallback_and_material_gpu(panel, qtbot, schema, step_key):
+    calculate(panel, qtbot)
+    gpu = {"compute_backend": "cupy", "numeric_precision": "complex128 / float64", "fallback_reason": None}
+    calculated = result(panel._target_z_mm)
+    calculated.checkpoint.record = {
+        "schema": "executed-column-segment-v1",
+        "modes": [{"compute_backend": "numpy", "numeric_precision": "complex128 / float64",
+                   "fallback_reason": "out_of_memory: current device allocation"}],
+        "upstream": {"schema": schema, "modes": [
+            {step_key: [{"phase_before": gpu, "phase_after": gpu, "column": [gpu]}]}],
+            "upstream": {"schema": "executed-column-segment-v1", "modes": [
+                dict(gpu, fallback_reason="older unrelated stage")]}}}
+    panel._solved(panel._generation, panel._session, calculated, preview())
+    text = panel.readout.text()
+    assert "Column: CPU (NumPy); complex128 / float64" in text
+    assert "Material: GPU (CuPy); complex128 / float64" in text
+    assert "fallback: out_of_memory: current device allocation" in text
+    assert "older unrelated stage" not in text
+
+
+def test_old_result_without_device_evidence_does_not_claim_gpu(panel, qtbot):
+    panel._state.acceleration_backend = "CUDA GPU"
+    calculate(panel, qtbot)
+    assert "Column: execution device not recorded" in panel.readout.text()
+    assert "GPU (CuPy)" not in panel.readout.text()
 
 
 def test_si_example_grid_and_material_budget_are_explicit_and_invalidate_session(panel, qtbot):
@@ -725,9 +880,8 @@ def test_si_example_grid_and_material_budget_are_explicit_and_invalidate_session
 @pytest.mark.parametrize("surface", [False, True])
 def test_working_caps_and_stage_peak_are_independent_of_large_ram_cache(panel, surface):
     if surface:
-        model = SimpleNamespace(coherence=SimpleNamespace(mean_energy_ev=.3,
-            energy_rms_ev=.1, edge_phase_rad=0.),
-            geometry=SimpleNamespace(apex_radius_nm=30.), current_na=12.)
+        from temsim.optics.electron_gun.tip_surface import load_tip_surface_reference, SurfaceCoherence
+        model = replace(load_tip_surface_reference(), coherence=SurfaceCoherence())
         panel.set_state(instrument(model))
     panel.working_gib.setValue(1.)
     panel.ram_cache_gib.setValue(80.)
@@ -760,6 +914,7 @@ def test_complete_source_modes_above_working_budget_are_rejected_before_job(pane
          "minimum_initial_wave_bytes": 2*module.GIB})
     panel.working_gib.setValue(1.)
     panel.source_enabled.setChecked(True)
+    panel.apply_source()
     panel.calculate()
     assert "Initial complete mode fields need at least" in panel.status.text()
     assert "no source modes were removed" in panel.status.text()
@@ -913,6 +1068,7 @@ def test_z_motion_during_first_calculation_keeps_authorized_session(panel, qtbot
 
     monkeypatch.setattr(module, "simulate_tip_wave", solve)
     panel.source_enabled.setChecked(True)
+    panel.apply_source()
     panel.calculate()
     qtbot.waitUntil(started.is_set)
     try:
@@ -1113,7 +1269,7 @@ def test_workspace_ray_z_wiring_is_lazy_before_first_calculation(qtbot, monkeypa
     monkeypatch.setattr(module, "simulate_tip_wave", lambda *_args, **_kwargs: calls.append(1))
     view.display_result(_result(), "Preview")
     view.show()
-    assert view.tabs.tabText(view.tabs.indexOf(view.coherent_beam)) == "Coherent beam"
+    assert view.tabs.tabText(view.tabs.indexOf(view.coherent_beam)) == "Electron beam"
     assert view.tabs.currentWidget() is not view.coherent_beam
     assert view.ray_beam_tabs.currentWidget() is view.transverse_beam
     view.ray_beam_tabs.setCurrentWidget(view.coherent_ray_view)
@@ -1390,3 +1546,195 @@ def test_shutdown_cannot_be_reopened_by_late_state_or_button(panel, qtbot):
     assert panel.result is old
     assert panel._worker is None
     assert not panel.timer.isActive()
+
+
+def test_fresh_source_controls_are_actual_instrument_values_without_demo_overrides(panel):
+    emitter = panel._state.electron_gun.emitter
+    assert panel.tip_fwhm.value() == emitter.virtual_source_fwhm_nm == 5.
+    assert panel.tip_energy.value() == emitter.emission_energy_ev == .3
+    assert panel.tip_energy_spread.value() == emitter.energy_spread_fwhm_ev == .2
+    assert panel.tip_curvature_x.value() == panel.tip_curvature_y.value() == 0.
+    assert not panel.source_enabled.isChecked()
+    assert "28390" not in panel.source_info.text()
+    assert "RMS-equiv." in panel.source_info.text()
+    assert "not the energy spread" in panel.tip_energy.toolTip()
+    assert panel._worker is None
+
+
+def test_source_drafts_require_explicit_apply_before_capture(panel, qtbot):
+    calls = []
+    panel.source_applied.connect(calls.append)
+    panel.source_enabled.setChecked(True)
+    panel.tip_fwhm.setValue(150.)
+    panel.tip_energy.setValue(3.)
+    panel.calculate()
+    assert "Apply tip parameters" in panel.status.text()
+    assert panel._worker is None and panel.result is None
+    assert panel._state.electron_gun.emitter.virtual_source_fwhm_nm == 5.
+    assert panel._state.electron_gun.emitter.coherence is None
+    panel.target_z.setValue(120.)
+    panel.z_range_min.setValue(40.)
+    panel.z_range_max.setValue(200.)
+    qtbot.mouseClick(panel.apply_source_button, Qt.MouseButton.LeftButton)
+    assert calls == [panel._state]
+    assert panel._state.electron_gun.emitter.virtual_source_fwhm_nm == 150.
+    assert panel._state.electron_gun.emitter.emission_energy_ev == 3.
+    assert panel._state.electron_gun.emitter.coherence is not None
+    assert panel._target_z_mm == panel.target_z.value() == 120.
+    assert panel.z_range_min.value() == 40. and panel.z_range_max.value() == 200.
+    assert panel._worker is None and panel.result is None
+    assert not panel.timer.isActive()
+    panel.calculate()
+    qtbot.waitUntil(lambda: panel.result is not None)
+    assert panel._captured.electron_gun.emitter.virtual_source_fwhm_nm == 150.
+
+
+def test_historical_forward_low_energy_source_apply_rejects_without_overwriting_particles(panel):
+    from temsim.instrument_snapshot import capture_instrument_snapshot
+    from temsim.optics.column import default_state
+
+    state = default_state()
+    before = capture_instrument_snapshot(state).digest
+    panel.set_state(state)
+    panel.source_applier = None
+    panel.source_enabled.setChecked(True)
+    panel.tip_boundary.setCurrentIndex(panel.tip_boundary.findData("forward_gaussian_schell"))
+    panel.apply_source()
+    assert "Tip not applied" in panel.status.text()
+    assert "source" in panel.status.text().lower()
+    assert capture_instrument_snapshot(state).digest == before
+    assert state.electron_gun.emitter.coherence is None
+    assert state.electron_gun.emitter.emission_energy_ev == .3
+    assert state.electron_gun.emitter.energy_spread_fwhm_ev == .3
+    assert panel._worker is None and panel.result is None
+
+
+def test_default_driven_tip_applies_without_changing_physical_scalars_or_starting_work(panel):
+    from temsim.optics.column import default_state
+    state = default_state()
+    panel.set_state(state)
+    panel.source_applier = None
+    assert panel.tip_boundary.currentData() == "driven_gaussian_schell"
+    panel.source_enabled.setChecked(True)
+    panel.apply_source()
+    emitter = state.electron_gun.emitter
+    assert emitter.coherence.boundary_model == "driven_gaussian_schell"
+    assert (emitter.virtual_source_fwhm_nm, emitter.emission_energy_ev,
+            emitter.energy_spread_fwhm_ev, emitter.minimum_kinetic_energy_ev) == (5., .3, .3, .01)
+    assert panel._settings().boundary_model == "driven_gaussian_schell"
+    assert panel._worker is None and panel.result is None
+
+
+def test_reentrant_source_callback_synchronizes_current_state_without_calculation(panel):
+    calls = []
+    existing_apply = panel.source_applier
+
+    def apply(settings):
+        calls.append(settings)
+        state = existing_apply(settings)
+        panel.set_state(state)  # Main window invalidation publishes synchronously.
+        return state
+
+    panel.source_applier = apply
+    panel.source_enabled.setChecked(True)
+    panel.angle_rms.setValue(.25)
+    panel.target_z.setValue(135.)
+    panel.apply_source()
+    assert len(calls) == 1
+    assert panel.source_enabled.isChecked()
+    assert panel.angle_rms.value() == .25
+    assert panel._state.electron_gun.emitter.coherence.incoherent_angle_rms_mrad == .25
+    assert panel._target_z_mm == 135.
+    assert panel._worker is None and not panel.timer.isActive()
+
+
+def test_unedited_display_rounding_preserves_exact_applied_source_values(panel):
+    from temsim.optics.electron_gun.tip_coherence import TipCoherence
+
+    state = instrument()
+    emitter = state.electron_gun.emitter
+    emitter.virtual_source_fwhm_nm = 100.12345678901234
+    emitter.coherence = TipCoherence(tilt_x_mrad=1.123456789e-17,
+                                    curvature_xy_m1=-9.348776164576383e-12)
+    panel.set_state(state)
+    settings = panel._settings()
+    assert settings.tip_fwhm_nm == emitter.virtual_source_fwhm_nm
+    assert settings.tip_tilt_x_mrad == emitter.coherence.tilt_x_mrad
+    assert settings.tip_curvature_xy_m1 == emitter.coherence.curvature_xy_m1
+    panel.apply_source()
+    assert emitter.virtual_source_fwhm_nm == 100.12345678901234
+    assert emitter.coherence.tilt_x_mrad == 1.123456789e-17
+    assert emitter.coherence.curvature_xy_m1 == -9.348776164576383e-12
+    panel.tip_fwhm.setValue(120.)
+    assert panel._settings().tip_fwhm_nm == 120.
+
+
+def test_unchanged_apply_retains_completed_wave_session(panel, qtbot):
+    calculate(panel, qtbot)
+    retained = (panel.result, panel._observation_session, panel._generation)
+    cache = dict(panel._cache)
+    signals = []
+    panel.source_applied.connect(signals.append)
+    qtbot.mouseClick(panel.apply_source_button, Qt.MouseButton.LeftButton)
+    assert (panel.result, panel._observation_session, panel._generation) == retained
+    assert panel._cache == cache
+    assert not panel._stale and signals == []
+    assert "unchanged" in panel.status.text()
+
+
+def test_same_plane_comparison_uses_pair_identity_and_unavailable_energy(panel):
+    context = SimpleNamespace(token="current-pair", physical_identity="frozen-inputs")
+    panel._pair_context = context
+    summary = {"z_mm": 103., "current_a": 2e-9, "source_fraction": .2,
+        "centroid_xy_m": (1e-6, -2e-6), "rms_xy_m": (3e-6, 4e-6),
+        "radial_rms_m": 5e-6, "mean_energy_ev": 300000., "rms_energy_ev": .1,
+        "energy_definition": "declared test energy"}
+    compared = replace(preview(), pair_token=context.token,
+                       comparison={"particle": dict(summary, mean_energy_ev=None),
+                                   "wave": summary})
+    panel._display(result(103.), compared)
+    assert panel.comparison_table.isVisible()
+    assert panel.comparison_table.item(0, 1).text() == "Unavailable"
+    assert panel.comparison_table.item(2, 2).text() == "2000"
+    assert panel.comparison_table.item(4, 1).text() == "1, -2"
+    assert "compared Z 103 mm" in panel.comparison_status.text()
+    assert "individual wave modes only" in panel.comparison_status.text()
+    panel._display(result(103.), replace(compared, pair_token="previous-pair"))
+    assert not panel.comparison_table.isVisible()
+    panel.invalidate_pair()
+    assert panel._pair_context is None and panel.comparison_table.rowCount() == 0
+
+
+def test_pair_context_is_owned_by_each_z_worker_and_source_edits_drop_it(panel, monkeypatch):
+    panel.source_enabled.setChecked(True)
+    panel.apply_source()
+    captured, request, summary = panel.capture_calculation_inputs()
+    context = SimpleNamespace(token="pair-1", physical_identity="captured-inputs",
+                              particle_result=SimpleNamespace(history=np.ones((16, 16))))
+    monkeypatch.setattr(panel.pool, "start", lambda worker: None)
+    panel.start_captured_calculation(captured, request, summary, pair_context=context)
+    assert panel._worker.pair_context is context
+    assert context in panel._worker.existing_result
+    assert context in panel._retained_wave_roots()
+    cancelled = []
+    panel.pair_invalidated.connect(lambda: cancelled.append(True))
+    panel.tip_tilt_x.setValue(.01)
+    assert cancelled and panel._worker is None
+    assert panel._pair_context is None
+    assert not panel.comparison_table.isVisible()
+
+
+def test_thermionic_source_has_no_feg_controls_and_switching_back_restores_them(panel):
+    from temsim.optics.electron_gun.thermionic import ThermionicGun
+    state = SimpleNamespace(electron_gun=ThermionicGun(), sample=SimpleNamespace(z_mm=100.))
+    original = state.electron_gun.to_dict()
+    panel.set_state(state)
+    assert "gun family" in panel.source_info.text()
+    assert not panel.source_enabled.isEnabled()
+    assert not panel.apply_source_button.isEnabled()
+    assert not panel.gaussian_inputs.isVisible()
+    assert panel._loaded_source_settings is None
+    assert state.electron_gun.to_dict() == original
+    panel.set_state(instrument())
+    assert panel.source_enabled.isEnabled() and panel.apply_source_button.isEnabled()
+    assert panel.gaussian_inputs.isVisible() and panel.tip_fwhm.value() == 5.

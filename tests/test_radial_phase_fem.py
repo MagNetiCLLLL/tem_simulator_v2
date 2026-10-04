@@ -61,3 +61,31 @@ def test_missing_joined_face_is_rejected_without_rescaling_the_source():
     assert gun.emitter.surface_model == source
     with pytest.raises(ValueError, match="numerical Laguerre coordinate"):
         RadialGunNumerics(coordinate_width_over_cap_radius=float("nan")).validate()
+
+
+def test_default_joint_gun_resolves_the_complete_radial_interface():
+    """Numerical interface coverage, not complete gun convergence evidence."""
+    from dataclasses import replace
+    from temsim.optics.column import default_state
+    from temsim.optics.electron_gun.tip_surface import load_tip_surface_reference, SurfaceCoherence
+    from temsim.physics.surface_wave import SurfaceWaveNumerics
+    from temsim.physics.radial_gun_wave import RadialGunNumerics, basis_values
+    from temsim.physics.surface_gun_wave import validate_joint_radial_domain
+    from temsim.physics.tip_wave_pipeline import TipWaveRequest
+
+    gun = default_state().electron_gun
+    gun.emitter.surface_model = replace(load_tip_surface_reference(), coherence=SurfaceCoherence())
+    before = gun.emitter.surface_model.to_dict()
+    numerical = SurfaceWaveNumerics.joint_gun()
+    radial = RadialGunNumerics()
+    assert TipWaveRequest().surface == numerical
+    assert validate_joint_radial_domain(gun, numerical, radial) < numerical.flux_tolerance
+    # Cap-normalised coordinates give the same interface for any cap size.
+    r = np.linspace(0., numerical.outer_radius_factor, numerical.radial_nodes)
+    points, _, edges, _ = mesh(r, np.zeros(len(r)), 1., 3)
+    top = np.unique(edges["top"])
+    trace = basis_values(points[top, 0], radial.coordinate_width_over_cap_radius,
+                         0., 1., radial.radial_modes)
+    error = np.linalg.norm(interface_gram(points, edges["top"], trace)-np.eye(radial.radial_modes), 2)
+    assert error < .001
+    assert gun.emitter.surface_model.to_dict() == before

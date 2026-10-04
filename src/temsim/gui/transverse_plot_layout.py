@@ -68,9 +68,29 @@ class TransversePlotLayout(QObject):
         self.set_state(None, emit=False)
 
     def eventFilter(self, watched, event):
+        if getattr(self, "_responsive", False):
+            return False
         if event.type() in (QEvent.Type.LayoutRequest, QEvent.Type.Resize, QEvent.Type.Show):
             self._height_timer.start(0)
         return False
+
+    def use_available_space(self):
+        """Expand a standalone observation view; sidebar sizes remain unchanged."""
+        from PySide6.QtWidgets import QSizePolicy
+        self._responsive = True
+        self._height_timer.stop()
+        self.button.hide()
+        layout = self.content.layout()
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetDefaultConstraint)
+        layout.setAlignment(self.owner.section_beam_panel, Qt.AlignmentFlag(0))
+        layout.setStretch(layout.indexOf(self.owner.section_beam_panel), 1)
+        layout.setStretch(layout.count()-1, 0)
+        for widget in (self.owner.section_beam_panel, self.owner.plot):
+            widget.setMinimumSize(0, 0)
+            widget.setMaximumSize(16777215, 16777215)
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.owner.section_beam_panel.layout().setAlignment(self.owner.plot, Qt.AlignmentFlag(0))
+        self.owner.plot.setMinimumHeight(160)
 
     def _refresh_panel_heights(self):
         # Qt's ordinary minimumSizeHint can be lower than heightForWidth for

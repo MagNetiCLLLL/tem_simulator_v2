@@ -44,7 +44,7 @@ def attach_execution_evidence(result, state, product):
     manifest = {**deepcopy(old), "schema":"execution-evidence-v2", "product":product,"nodes":nodes,"summary":summary,
                 "source_energy_mode_count":modes,"phonon_configuration_count":phonons,
                 "requested_backend":getattr(state,"acceleration_backend","Auto"),
-                "requested_policy":getattr(state.sample,"stem_execution_policy","auto") if product=="STEM" else "auto",
+                "requested_policy":getattr(state,"acceleration_backend","Auto"),
                 "actual_backend":metrics.get("wave_compute_backend",old.get("backend")),
                 "fallback_reason":metrics.get("specimen_fallback_reason") or metrics.get("fft_fallback_reason"),
                 "aberration_coverage":{"wave_terms":[term.name for term in WAVE_TERMS], "unsupported":list(UNIMPLEMENTED_TERMS),

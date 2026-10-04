@@ -17,16 +17,17 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from copy import deepcopy
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from hashlib import sha256
 import math
+from types import MappingProxyType
 
 import numpy as np
 from scipy.constants import c, e, h, m_e
 
 from temsim.immutable_json import freeze_json, json_digest
 from temsim.optics.electron_gun.tip_coherence import (
-    TIP_REFERENCE, TipWaveNumerics, generate_tip_emission, wavelength_m,
+    TIP_REFERENCE, TipWaveNumerics, generate_tip_boundary_emission, generate_tip_emission, wavelength_m,
 )
 from temsim.physics.canonical_action import CanonicalPath
 from temsim.physics.multiplane_wave import propagate_plane_wave
@@ -63,6 +64,7 @@ class TipGunCheckpoint:
     plane_z_mm: float
     reference_current_a: float
     record: object
+    auxiliary_arrays: object = field(default_factory=dict)
 
     def __post_init__(self):
         if self.beam.reference_plane != TIP_REFERENCE:
@@ -74,6 +76,21 @@ class TipGunCheckpoint:
         if self.beam.total_weight > 1+1e-10:
             raise ValueError("Gun propagation created electron probability")
         object.__setattr__(self, "record", freeze_json(self.record))
+        # Committed disk checkpoints expose a checksum-checked immutable lazy
+        # mapping. Their manifest already binds every auxiliary payload; do
+        # not read all near-tip arrays during an unrelated Z browse.
+        if hasattr(self.beam, "content_identity"):
+            return
+        auxiliary = {}
+        for name, value in self.auxiliary_arrays.items():
+            if (not isinstance(name, str) or not name or len(name) > 80
+                    or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789_" for c in name)):
+                raise ValueError("Checkpoint auxiliary state needs a plain array name")
+            array = np.asarray(value)
+            if array.dtype.hasobject:
+                raise ValueError("Checkpoint auxiliary state cannot contain Python objects")
+            auxiliary[name] = np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
+        object.__setattr__(self, "auxiliary_arrays", MappingProxyType(auxiliary))
 
     @property
     def digest(self):
@@ -81,6 +98,10 @@ class TipGunCheckpoint:
             return json_digest({"record": self.record, "stored_payload": self.beam.content_identity,
                                 "plane_z_mm": self.plane_z_mm, "current_a": self.reference_current_a})
         digest = sha256()
+        for name, array in sorted(self.auxiliary_arrays.items()):
+            digest.update(name.encode())
+            digest.update(str((array.dtype.str, array.shape)).encode())
+            digest.update(array.tobytes())
         for mode in self.beam.modes:
             for name in ("amplitude", "basis_m", "origin_m", "curvature_m1", "tilt_rad"):
                 value = getattr(mode.plane, name)
@@ -212,12 +233,15 @@ def _refine_energy_grid(z_mm, electric, launch_energy_ev, numerics, cancelled=la
 
 
 def _axial_grid(gun, numerics, *, exact_z_mm=(), extra_mask_planes=(),
-                electric_provider=None, minimum_energy_ev=None, cancelled=lambda: False):
+                electric_provider=None, minimum_energy_ev=None, cancelled=lambda: False,
+                start_z_mm=0.):
     stop = float(gun.exit_plane_z_mm)
     if not math.isfinite(stop) or stop <= 0:
         raise ValueError("Physical gun exit must follow the tip")
+    if not math.isfinite(start_z_mm) or not 0 <= start_z_mm < stop:
+        raise ValueError("Executed gun continuation must begin before the gun exit")
     # Boundaries come from geometry and field providers, never a source plane.
-    events = {0., stop, float(gun.dpa_aperture.z_mm), float(gun.c1_aperture.z_mm)}
+    events = {0., start_z_mm, stop, float(gun.dpa_aperture.z_mm), float(gun.c1_aperture.z_mm)}
     masks = set(events)
     masks.update(float(value) for value in extra_mask_planes)
     events.update(float(value) for value in exact_z_mm)
@@ -251,7 +275,10 @@ def _axial_grid(gun, numerics, *, exact_z_mm=(), extra_mask_planes=(),
         electric = gun.electric_field if electric_provider is None else electric_provider
         minimum = gun.emitter.emission_energy_ev if minimum_energy_ev is None else minimum_energy_ev
         grid = _refine_energy_grid(grid, electric, minimum, numerics, cancelled)
-    return grid, frozenset(v for v in masks if 0 < v <= stop)
+    # A non-paraxial prefix has already executed every earlier interval. Keep
+    # its exact face and all later physical events without double propagation.
+    grid = grid[grid >= start_z_mm]
+    return grid, frozenset(v for v in masks if start_z_mm < v <= stop)
 
 
 def _kick(path, strength, force, depth=0):
@@ -289,7 +316,8 @@ def _energy_transport(gun, z, mask_planes, coefficients, launch_energy, cancelle
     query = getattr(electric, "potential_rise_v_at_global_positions", None)
     if query is None:
         query = electric.potential_v_at_global_positions
-    launch_phi = float(query(np.zeros((1, 3)))[0])
+    launch_position = np.array(((0., 0., float(z[0])*1e-3),))
+    launch_phi = float(query(launch_position)[0])
     energies = launch_energy+phi-launch_phi
     momentum, velocity = _momentum_velocity(energies)
     p_ref, _ = _momentum_velocity(launch_energy)
@@ -336,6 +364,7 @@ def _energy_transport(gun, z, mask_planes, coefficients, launch_energy, cancelle
     p_exit, _ = _momentum_velocity(exit_energy)
     return segments, {
         "launch_energy_ev": launch_energy, "exit_axial_energy_ev": exit_energy,
+        "executed_start_z_mm": float(z[0]),
         "reference_flight_time_s": float(flight_time), "momentum_ratio_tip_to_exit": float(p_ref/p_exit),
         "reference_longitudinal_action_j_s": longitudinal_action,
         "longitudinal_carrier_phase_rad": 2*np.pi*longitudinal_action/h,
@@ -446,7 +475,16 @@ def build_tip_gun_checkpoint(gun, *, source_numerics=TipWaveNumerics(),
     numerics.validate()
     working = deepcopy(gun)
     working.validate()
-    emission = generate_tip_emission(working, source_numerics)
+    driven = getattr(working.emitter.coherence, "boundary_model", "forward_gaussian_schell") == "driven_gaussian_schell"
+    emission = (generate_tip_boundary_emission(working, source_numerics) if driven
+                else generate_tip_emission(working, source_numerics))
+    if driven and _column_state is None:
+        raise ValueError("The driven Tip boundary requires the captured instrument so all shared electric and magnetic fields are retained")
+    near_numerics = None
+    if driven:
+        from temsim.physics.accelerating_tip_boundary import AcceleratingTipNumerics
+        near_numerics = AcceleratingTipNumerics(maximum_working_bytes=numerics.maximum_checkpoint_bytes)
+    start_z_mm = 0. if near_numerics is None else near_numerics.end_z_nm*1e-9*1e3
     _require_supported_gun_fields(working)
     estimated_bytes = (emission.record["mode_count"]+8)*source_numerics.grid_pixels**2*16
     if estimated_bytes > numerics.maximum_checkpoint_bytes:
@@ -491,7 +529,7 @@ def build_tip_gun_checkpoint(gun, *, source_numerics=TipWaveNumerics(),
                           extra_mask_planes=(a.z_mm for a in column_apertures),
                           electric_provider=electric,
                           minimum_energy_ev=min(row["energy_ev"] for row in emission.record["energy_modes"]),
-                          cancelled=cancelled)
+                          cancelled=cancelled, start_z_mm=start_z_mm)
     midpoints = (z[1:]+z[:-1])*.5
     coefficients = _field_coefficients(working, midpoints, electric_provider=electric)
     if column is not None:
@@ -507,15 +545,41 @@ def build_tip_gun_checkpoint(gun, *, source_numerics=TipWaveNumerics(),
     implementation = solver_source_identity()
     dependency = json_digest({"gun": encode_instrument(working), "source": emission.digest,
         "numerics": asdict(numerics), "sampled_fields": field_digest.hexdigest(),
-        "implementation": implementation, "shared_column": column_record, "schema": "executed-tip-gun-v1"})
+        "implementation": implementation, "shared_column": column_record,
+        "accelerating_tip_numerics": None if near_numerics is None else asdict(near_numerics),
+        "schema": "executed-tip-gun-v1"})
     if use_cache and dependency in _CACHE:
         if cancelled():
             raise InterruptedError("Tip-to-exit wave propagation cancelled")
         _CACHE.move_to_end(dependency)
         return _CACHE[dependency]
+    near = None
+    auxiliary = {}
+    if driven:
+        from temsim.physics.accelerating_tip_boundary import execute_accelerating_tip
+        near = execute_accelerating_tip(column, emission, electric, numerics=near_numerics,
+            cancelled=cancelled, progress_callback=progress_callback)
+        if near.plane_z_mm != float(z[0]):
+            raise ValueError("Executed near-tip endpoint does not match the gun continuation face")
+        for index, (mode, original) in enumerate(zip(near.modes, emission.modes())):
+            prefix = f"near_tip_m{index}_"
+            for name, values in (("spectral_amplitude", near.spectral_amplitudes[index]),
+                                 ("spectral_derivative", near.spectral_derivatives_per_m[index]),
+                                 ("log_transmission", near.logarithmic_transmissions[index]),
+                                 ("source_amplitude", original.plane.full_amplitude(float(wavelength_m(original.energy_kev*1e3)))),
+                                 ("source_basis_m", original.plane.basis_m),
+                                 ("source_origin_m", original.plane.origin_m)):
+                auxiliary[prefix+name] = values
+            for name in ("amplitude", "basis_m", "origin_m", "curvature_m1", "tilt_rad"):
+                value = getattr(mode.plane, name)
+                if value is not None:
+                    auxiliary[prefix+"exit_"+name] = value
+        required = sum(a.nbytes for a in auxiliary.values())+estimated_bytes
+        if required > numerics.maximum_checkpoint_bytes:
+            raise ValueError(f"Retained near-tip state and gun buffers need {required} bytes, above maximum_checkpoint_bytes={numerics.maximum_checkpoint_bytes}")
     energy_maps, energy_records, outputs, records = {}, {}, [], []
     total = emission.record["mode_count"]
-    for index, mode in enumerate(emission.modes()):
+    for index, mode in enumerate(emission.modes() if near is None else near.modes):
         if cancelled():
             raise InterruptedError("Tip-to-exit wave propagation cancelled")
         if progress_callback is not None:
@@ -557,15 +621,19 @@ def build_tip_gun_checkpoint(gun, *, source_numerics=TipWaveNumerics(),
         "numerics": asdict(numerics), "source_numerics": asdict(source_numerics),
         "physical_components": [component.key for component in working.components],
         "energy_transport": list(energy_records.values()), "mode_records": records,
-        "physics": "Stationary scalar second-order paraxial Hamiltonian in the installed solved gun electric field and captured magnetic components",
+        "accelerating_tip": None if near is None else {"digest": near.digest, "plane_z_mm": near.plane_z_mm,
+            "record": near.record, "retained_auxiliary_arrays": sorted(auxiliary)},
+        "physics": ("Two-way scalar driven Tip boundary followed by an executed second-order paraxial continuation in the installed fields"
+                    if driven else "Stationary scalar second-order paraxial Hamiltonian in the installed solved gun electric field and captured magnetic components"),
         "integrator": "Energy-refined symmetric potential kick / variable-momentum drift / potential kick",
         "current_reference": "Physical tip emission before all gun losses",
-        "limitations": ["Higher-order/non-paraxial gun dynamics not included in this operator",
+        "limitations": ["After the bounded non-paraxial prefix, higher-order/non-paraxial gun dynamics are not included" if driven
+                         else "Higher-order/non-paraxial gun dynamics not included in this operator",
                         "Electric potential is expanded to second transverse order about the optical axis",
                         "Imported Wien fields require a separate validated operator",
                         "Body bores use axial absorbing projections; refine bore_step_mm",
                         "Reference flight time is axial, not a pulsed longitudinal wave packet"],
-        "validation_status": "DEVELOPMENT_NOT_FULL_TEM_STEM_ACCEPTANCE"})
+        "validation_status": "DEVELOPMENT_NOT_FULL_TEM_STEM_ACCEPTANCE"}, auxiliary)
     if cancelled():
         raise InterruptedError("Tip-to-exit wave propagation cancelled; result not cached")
     if solver_source_identity() != implementation:
@@ -573,7 +641,8 @@ def build_tip_gun_checkpoint(gun, *, source_numerics=TipWaveNumerics(),
     if use_cache:
         _CACHE[dependency] = checkpoint
         _CACHE.move_to_end(dependency)
-        while len(_CACHE) > 4 or sum(sum(m.plane.amplitude.nbytes for m in v.beam.modes) for v in _CACHE.values()) > numerics.maximum_checkpoint_bytes:
+        while len(_CACHE) > 4 or sum(sum(m.plane.amplitude.nbytes for m in v.beam.modes)
+                +sum(a.nbytes for a in v.auxiliary_arrays.values()) for v in _CACHE.values()) > numerics.maximum_checkpoint_bytes:
             _CACHE.popitem(last=False)
     if progress_callback is not None:
         progress_callback(total, total, "FEG coherent gun checkpoint computed")

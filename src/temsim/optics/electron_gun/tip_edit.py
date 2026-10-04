@@ -30,4 +30,5 @@ def tip_model_label(gun):
     scope = "centre Z = 0; edges bend upstream"
     field = ("coupled electrode field" if gun.uses_geometry_electric_field
              else "analytic gun field")
-    return f"{geometry} · {scope} · {field} · {gun.emitted_current_a*1e9:g} nA"
+    source = " · Gaussian-Schell emission" if gun.emitter.coherence is not None else ""
+    return f"{geometry} · {scope} · {field} · {gun.emitted_current_a*1e9:g} nA{source}"

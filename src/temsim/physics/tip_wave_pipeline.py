@@ -40,7 +40,7 @@ class TipWaveRequest:
     inelastic: InelasticWaveNumerics = InelasticWaveNumerics()
     tip_time_s: float | None = None
     detector_keys: tuple[str, ...] = ()
-    surface: SurfaceWaveNumerics = SurfaceWaveNumerics()
+    surface: SurfaceWaveNumerics = SurfaceWaveNumerics.joint_gun()
     radial_gun: RadialGunNumerics = RadialGunNumerics()
     radial_column: RadialColumnNumerics = RadialColumnNumerics()
     observation_z_mm: float | None = None
@@ -286,6 +286,8 @@ class TipWaveObservationSession:
                 use_cache=self.__use_cache, cancelled=cancelled, progress_callback=progress_callback)
         finally:
             self.__lock.release()
+            from temsim.physics.wave_device import release_device_memory
+            release_device_memory()
 
 
 def simulate_tip_wave(state, request=TipWaveRequest(), *, use_cache=True,
@@ -301,8 +303,12 @@ retain their established workflows and are not replaced by this entry point.
         raise InterruptedError("Tip wave request cancelled")
     snapshot = capture_instrument_snapshot(state)
     working = snapshot.restore()
-    return _execute_tip_wave(working, request, snapshot, snapshot.digest, use_cache=use_cache,
-                             cancelled=cancelled, progress_callback=progress_callback)
+    try:
+        return _execute_tip_wave(working, request, snapshot, snapshot.digest, use_cache=use_cache,
+                                 cancelled=cancelled, progress_callback=progress_callback)
+    finally:
+        from temsim.physics.wave_device import release_device_memory
+        release_device_memory()
 
 
 def _execute_tip_wave(working, request, snapshot, instrument_digest, *, use_cache,

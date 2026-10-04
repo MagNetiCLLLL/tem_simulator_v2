@@ -6,9 +6,13 @@
 
 2026-10-03 局部更新：用户已于 2026-10-02 明确恢复相干开发。独立 Coherent beam 页面由 `gui/coherent_beam.py` 和 `physics/tip_wave_pipeline.py` 负责针尖起源、共享电磁场及所选 Z 的开发观察，经典粒子流程仍为默认。当前注册八个验收范围，新增 `coherent-development`；有限算子和离屏 CPU 软件验证不等于完整 TEM/STEM、真实 GPU、原生桌面或实验资格。输入与支持边界见 [相干计算说明](COHERENT_BEAM.md)。其余文件统计仍保持上述历史基准。
 
+2026-10-04 多初态观察：`gui/coherent_state_list.py` 负责初态列表、名称、权重和显隐；`gui/coherent_state_controller.py` 负责已应用针尖初态的捕获、当前光学配置中的逐项计算、缓存与取消；`physics/coherent_state_set.py` 负责几何身份约束及同 Z、共同物理网格上的非相干强度叠加。它们复用现有传播引擎，保留各成员复场，不产生下游独立源或混合态的总相位。三个对应测试文件纳入 `field-ui/FU-10` 和 `coherent-development/CW-03`。操作方法和支持范围见相干计算说明；原文件统计未重算。
+
+2026-10-04 Tip 参数入口：界面统一使用 Tip / Tip parameters，几何、发射及相位参数归属于同一个 Tip。`physics/coherent_inputs.py` 的 `TipEmissionSettings` 仅表示待应用的发射参数编辑，`candidate_tip_emission` 验证编辑，计算读取已应用的 Tip；多初态列表记录该 Tip 的不同发射初态。`gui/gun_source_dialog.py` 始终提供已有 Gaussian-Schell 发射模型入口，未启用时也可在 Tip 编辑器中选择。历史配置标识未改，未扩展传播模型适用范围。
+
 这份地图用于定位功能、界面、模型、测试和可重构位置。初版仅整理静态导航，不是物理验收；后续局部修改及其验证记录在上面的更新说明中。
 
-2026-10-03 所选平面轮廓：`gui/plane_hardware_geometry.py` 提取孔径、柱壁/枪体通道及探测器几何，保留真实 Z 并提供向上游看的轴向投影；`gui/plane_cutoff_events.py` 缓存已记录的真实截断位置，移动 Z 不重复插值路径；`gui/plane_hardware_overlay.py` 负责位置/强度图叠加、名称/Z 标注、独立显隐、显示重置以及并排 Fit beam / Fit cutoff。重合管壁仅合并绘图，成员身份仍保留。编辑硬件预览明确区别于已计算的 beam/stops，隐藏面板重新打开也保留最新预览。这些模块不重新计算电子；相关几何、截断、界面及延迟发布测试均纳入 `field-ui/FU-11`。异平面轮廓不是当前 Z 的有效接收掩模；截断点不是当前平面的到达点，也不是电子数量读出。
+2026-10-03 所选平面轮廓：`gui/plane_hardware_geometry.py` 提取孔径、柱壁/枪体通道及探测器几何，保留真实 Z；向上游看的轴向投影仅显示孔径和已插入的探测器/相机，不显示枪体或柱壁通道；`gui/plane_cutoff_events.py` 缓存已记录的真实截断位置，移动 Z 不重复插值路径；`gui/plane_hardware_overlay.py` 负责位置/强度图叠加、名称/Z 标注、独立显隐、显示重置以及并排 Fit beam / Fit cutoff。探测器敏感区域半透明填色，环形内孔透明且内外边界同色；隐藏外边界同时隐藏填色，独立隐藏内边界不会填平物理内孔。编辑硬件预览明确区别于已计算的 beam/stops，隐藏面板重新打开也保留最新预览。这些模块不重新计算电子；相关几何、截断、界面及延迟发布测试均纳入 `field-ui/FU-11`。异平面轮廓不是当前 Z 的有效接收掩模；截断点不是当前平面的到达点，也不是电子数量读出。
 
 ## 1. 使用方式与范围
 
@@ -232,12 +236,10 @@ flowchart LR
 .venv\Scripts\python.exe scripts\validate_classical_scope.py --scope field-ui --output outputs\agent-validation\field-ui
 ```
 
-这是未来修改后的验证示例，不是通过报告。可用范围/约束以 `acceptance.py`、`PROJECT_FUNCTION_SPEC.md` 和实际命令行定义为准；CI 当前使用 `classical`、`acceptance-policy`、`gun-fields`、`electron-execution`、`field-ui`、`particle-continuation`、`performance-observation`、`coherent-development`。`full-report` 仅报告完整范围尚未覆盖项，不启动完整相干计算，也不授予物理资格。
+这是未来修改后的验证示例，不是通过报告。可用范围以 `acceptance.py` 和实际命令行定义为准；CI 当前使用 `classical`、`acceptance-policy`、`gun-fields`、`electron-execution`、`field-ui`、`particle-continuation`、`performance-observation`、`coherent-development`。`full-report` 仅报告完整范围尚未覆盖项，不启动完整相干计算，也不授予物理资格。
 
 ## 7. 必须保留的非运行文件
 
-- [AGENTS.md](../AGENTS.md)：物理源、资源、缓存、命名和当前范围约束。
-- [PROJECT_FUNCTION_SPEC.md](../PROJECT_FUNCTION_SPEC.md)：当前验收契约及其来源身份的一部分，不是可以随意删除的旧报告。
 - `docs/development/evidence/default-assembly-identity-map-v1.json`：装配身份回归夹具。
 - `docs/development/tip_curvature_193_20260915.json`：现存验证工具的参考输入。
 - `docs/references/`、`instrument_records/`：来源与原始证据，不是计算缓存。
@@ -343,15 +345,13 @@ flowchart LR
 下面是基准提交的完整清单。每个路径只出现一次；用途简述优先使用源码中的原始模块说明，便于与程序核对。无模块说明时列出顶层类/函数；测试旁列出的静态依赖是定位线索，**不是覆盖率证明**。折叠标题后的数量和各行行数均为本次快照。
 
 <details>
-<summary>根目录 · 9 个文件</summary>
+<summary>根目录 · 7 个文件（已移除的旧文档不再列入）</summary>
 
 | 文件 | 行数 | 用途 / 源码定位 |
 | --- | ---: | --- |
 | [.gitattributes](../.gitattributes) | 2 | Git 文件属性与科学数据字节约定 |
 | [.gitignore](../.gitignore) | 28 | 本地环境、缓存与生成产物排除规则 |
-| [AGENTS.md](../AGENTS.md) | 93 | 文档：Physical source and cache requirements |
 | [LICENSE](../LICENSE) | 21 | MIT 许可证 |
-| [PROJECT_FUNCTION_SPEC.md](../PROJECT_FUNCTION_SPEC.md) | 1360 | 文档：TEM Simulator v2 — Living Function and Requirements Specification |
 | [README.md](../README.md) | 52 | 文档：TEM Simulator v2 |
 | [main.py](../main.py) | 8 | PyCharm-friendly application entry point. |
 | [pyproject.toml](../pyproject.toml) | 86 | 操作配置/依赖构建声明 |

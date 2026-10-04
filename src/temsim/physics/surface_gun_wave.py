@@ -95,7 +95,7 @@ def solve_joint_boundary(problem, energy, load, frame, *, cancelled=lambda: Fals
     return psi*np.exp(1j*phase), coefficients, flux
 
 
-def build_surface_gun_checkpoint(gun, *, surface=SurfaceWaveNumerics(element_order=2),
+def build_surface_gun_checkpoint(gun, *, surface=SurfaceWaveNumerics.joint_gun(),
         radial=RadialGunNumerics(), grid_pixels=256, column_state=None,
         cancelled=lambda: False, progress_callback=None, _mode_completed=None, _energy_cache=None,
         _reuse_energy_cache=True):

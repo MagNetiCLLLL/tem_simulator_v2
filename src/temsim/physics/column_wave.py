@@ -4,12 +4,16 @@ Internal stage function, not a configurable source. Public tip-to-detector
 requests execute the gun first. Every quadratic field, nonlinear multipole,
 physical kick, aperture and sampled vacuum bore is owned by the shared plan.
 """
-from dataclasses import asdict, replace
+from dataclasses import asdict, fields as dataclass_fields, is_dataclass, replace
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 import math
+from threading import Event, Lock
 
 import numpy as np
 from scipy.linalg import expm
 
+from temsim.cpu_resources import initialize_numerical_thread, numerical_thread_budget
 from temsim.physics.canonical_action import CanonicalPath
 from temsim.physics.core import build_propagation_plan, electron
 from temsim.physics.column_wall import _vacuum_segments, _expanded_profile_axis
@@ -17,7 +21,8 @@ from temsim.physics.multiplane_wave import propagate_plane_wave, reselect_phase_
 from temsim.physics.multipole_wave import apply_multipole_phase
 from temsim.physics.tip_gun_wave import TipGunCheckpoint
 from temsim.physics.wave_flux import BeamState, WaveMode
-from temsim.physics.wave_grid import WaveGridNumerics, apply_resolved_operator
+from temsim.physics.wave_grid import WaveGridNumerics, WaveMemoryBudgetError, apply_resolved_operator
+from temsim.physics.wave_device import array_module, device_scope, normalise_backend, to_host
 
 
 def _component_events(state, start, stop, *, arrival_time=None):
@@ -273,6 +278,7 @@ def _linear_run(wave, wavelength, paths, first, plan, radii, stops, kick_x, kick
 
 
 def _clip(wave, radius_mm, apertures, z_mm, prior):
+    xp = array_module(wave.amplitude)
     xy = None
     rows = []
     if math.isfinite(radius_mm):
@@ -280,9 +286,9 @@ def _clip(wave, radius_mm, apertures, z_mm, prior):
         if not inside_bore:
             xy = wave.coordinates_m()*1e3
             before = wave.probability
-            mask = np.hypot(xy[0], xy[1]) < radius_mm
-            if not np.all(mask):
-                wave = replace(wave, amplitude=np.where(mask, wave.amplitude, 0j))
+            mask = xp.hypot(xy[0], xy[1]) < radius_mm
+            if not bool(xp.all(mask)):
+                wave = replace(wave, amplitude=xp.where(mask, wave.amplitude, 0j))
             if wave.probability < before:
                 rows.append({"component": "column_wall", "z_mm": z_mm,
                              "lost_weight": prior*(before-wave.probability)})
@@ -290,24 +296,69 @@ def _clip(wave, radius_mm, apertures, z_mm, prior):
         if xy is None:
             xy = wave.coordinates_m()*1e3
         if float(getattr(a, "radius_mm", 1.)) <= 0:
-            mask = np.zeros_like(xy[0], dtype=bool)
+            mask = xp.zeros_like(xy[0], dtype=bool)
         elif hasattr(a, "transmission_mask"):
-            mask = np.asarray(a.transmission_mask(xy[0], xy[1]), dtype=bool)
+            # Runtime apertures can supply non-circular/slit geometry. Keep
+            # their authoritative mask; only transfer geometry at this event.
+            mask = xp.asarray(a.transmission_mask(to_host(xy[0]), to_host(xy[1])), dtype=bool)
         else:
-            mask = np.hypot(xy[0]-a.offset_x_mm, xy[1]-a.offset_y_mm) <= a.radius_mm
+            mask = xp.hypot(xy[0]-a.offset_x_mm, xy[1]-a.offset_y_mm) <= a.radius_mm
         if mask.shape != wave.amplitude.shape:
             raise ValueError("Column aperture mask has the wrong shape")
         before = wave.probability
-        wave = replace(wave, amplitude=np.where(mask, wave.amplitude, 0j))
+        wave = replace(wave, amplitude=xp.where(mask, wave.amplitude, 0j))
         rows.append({"component": a.key, "z_mm": z_mm,
             "input_weight": prior*before, "output_weight": prior*wave.probability,
             "lost_weight": prior*(before-wave.probability)})
     return wave, rows
 
 
+def _maximum_mode_pixels(checkpoint):
+    modes = checkpoint.beam.modes
+    if hasattr(modes, "rows"):
+        # This is only a resource estimate. The normal mode reader still
+        # verifies checksums and validates every array before execution.
+        return max((math.prod(row["arrays"]["amplitude"]["shape"]) for row in modes.rows), default=0)
+    return max((mode.plane.amplitude.size for mode in modes), default=0)
+
+
 def _propagate_column(state, checkpoint, stop_z_mm, *, maximum_step_mm=.5,
                       grid_numerics=WaveGridNumerics(), retained_bytes=0,
                       tip_time_s=None, _prepared=None, _combine_linear=True,
+                      cancelled=lambda: False, progress_callback=None):
+    """Execute a segment with resident device fields and host checkpoints."""
+    from temsim.physics.compute_backend import gpu_failure_category, gpu_retry_reason
+    prepared = (_prepare_column(state, checkpoint.plane_z_mm, stop_z_mm, maximum_step_mm)
+                if _prepared is None else _prepared)
+    largest = _maximum_mode_pixels(checkpoint)
+    arguments = dict(maximum_step_mm=maximum_step_mm, grid_numerics=grid_numerics,
+        retained_bytes=retained_bytes, tip_time_s=tip_time_s, _prepared=prepared,
+        _combine_linear=_combine_linear, cancelled=cancelled, progress_callback=progress_callback)
+    try:
+        with device_scope(grid_numerics.compute_backend,
+                acceleration_enabled=grid_numerics.acceleration_enabled,
+                maximum_working_bytes=grid_numerics.maximum_device_working_bytes,
+                work_items=largest*len(prepared[0].step_m), required_bytes=256*largest) as device:
+            return _propagate_column_impl(state, checkpoint, stop_z_mm, _device=device, **arguments)
+    except Exception as error:
+        # Physics, grid and cancellation failures never become CPU successes.
+        if gpu_failure_category(error) is None:
+            raise
+        reason = gpu_retry_reason(error, normalise_backend(grid_numerics.compute_backend),
+                                  stage="coherent_column")
+        error.__traceback__ = None
+        if cancelled():
+            raise InterruptedError("Column wave propagation cancelled") from None
+    if progress_callback:
+        progress_callback(0, len(prepared[0].step_m), "GPU memory unavailable; retrying the unchanged column segment on CPU")
+    with device_scope("CPU") as device:
+        device.fallback_reason = reason
+        return _propagate_column_impl(state, checkpoint, stop_z_mm, _device=device, **arguments)
+
+
+def _propagate_column_impl(state, checkpoint, stop_z_mm, *, maximum_step_mm=.5,
+                      grid_numerics=WaveGridNumerics(), retained_bytes=0,
+                      tip_time_s=None, _prepared=None, _combine_linear=True, _device,
                       cancelled=lambda: False, progress_callback=None):
     from temsim.optics.electron_gun.tip_coherence import wavelength_m
     plan, radii, stops, owners = (_prepare_column(state, checkpoint.plane_z_mm, stop_z_mm, maximum_step_mm)
@@ -358,6 +409,8 @@ def _propagate_column(state, checkpoint, stop_z_mm, *, maximum_step_mm=.5,
             maps[mode.energy_kev] = tuple(_column_transports(plan, mode.energy_kev, electric=electric,
                 dipoles=_mode_dipoles(plan, owners, mode_owners, state) if dynamic_actions else None))
         wave, losses, refinements, linear_runs = mode.plane, [], [], []
+        if _device.backend == "cupy":
+            wave = replace(wave, amplitude=_device.xp.asarray(wave.amplitude))
         wavelength = float(wavelength_m(mode.energy_kev*1000))
         def multipole(wave, z, **strengths):
             if not any(strengths.values()):
@@ -446,7 +499,8 @@ def _propagate_column(state, checkpoint, stop_z_mm, *, maximum_step_mm=.5,
         norm = wave.probability
         reference = None if mode.axial_reference is None else mode.axial_reference.advance(flight_increment, action_increment)
         ratio = float(entrance_p/exit_p)
-        output = replace(mode, plane=replace(wave, amplitude=wave.amplitude/math.sqrt(norm) if norm else wave.amplitude,
+        amplitude = wave.amplitude/math.sqrt(norm) if norm else wave.amplitude
+        output = replace(mode, plane=replace(wave, amplitude=to_host(amplitude),
                          curvature_m1=None if wave.curvature_m1 is None else wave.curvature_m1*ratio,
                          tilt_rad=None if wave.tilt_rad is None else wave.tilt_rad*ratio),
                          weight_per_reference_electron=mode.weight_per_reference_electron*norm,
@@ -454,7 +508,7 @@ def _propagate_column(state, checkpoint, stop_z_mm, *, maximum_step_mm=.5,
                          axial_reference=reference)
         outputs.append(output)
         retained_bytes += output.plane.amplitude.nbytes
-        records.append({"mode_id": mode.mode_id, "energy_kev": mode.energy_kev,
+        records.append({"mode_id": mode.mode_id, "energy_kev": mode.energy_kev, **_device.evidence(),
                         "input_weight": mode.weight_per_reference_electron,
                         "output_energy_kev": output.energy_kev,
                         "reference_flight_time_increment_s": flight_increment,
@@ -502,6 +556,149 @@ def _slice_prepared(prepared, first, last):
              and plan.z_mm[first] < r["z_mm"] <= plan.z_mm[last]])
 
 
+def _column_mode_workers(checkpoint, requested=None):
+    """Capture the owning numerical job's budget before starting threads."""
+    return min(8, len(checkpoint.beam.modes), numerical_thread_budget(requested))
+
+
+def _column_shared_bytes(checkpoint, prepared):
+    """Resident inputs shared by workers, without loading stored amplitudes."""
+    from temsim.physics.wave_checkpoint_store import resident_wave_bytes
+    resident = resident_wave_bytes(checkpoint.beam)
+    if not hasattr(checkpoint.beam, "content_identity"):
+        resident += sum(value.nbytes for value in checkpoint.auxiliary_arrays.values())
+    plan = prepared[0]
+    values = ((getattr(plan, item.name) for item in dataclass_fields(plan))
+              if is_dataclass(plan) else vars(plan).values())
+    arrays = [value for value in values if isinstance(value, np.ndarray)]
+    arrays.append(prepared[1])
+    return resident+sum(value.nbytes for value in arrays)
+
+
+def _memory_budget_cause(error):
+    """Follow explicit contextual wrappers; never infer from error strings."""
+    seen = set()
+    while error is not None and id(error) not in seen:
+        if isinstance(error, WaveMemoryBudgetError):
+            return error
+        seen.add(id(error))
+        error = error.__cause__
+    return None
+
+
+def _write_column_modes(state, checkpoint, stop_z_mm, writer, *, prepared, maximum_step_mm,
+                        grid_numerics, workers, shared_bytes, tip_time_s, cancelled,
+                        progress_callback, parent_digest):
+    """Bounded slots include in-flight inputs, scratch and pending outputs.
+
+    Each batch has at most one mode per slot. Finished modes retain their slot
+    until the main thread writes them in source order; no additional work is
+    submitted while those outputs are pending. The 256-byte-per-pixel working
+    estimate therefore covers both active scratch and a completed slot's
+    immutable output. Shared inputs and plan arrays are reserved separately.
+    """
+    stop = Event()
+    progress_lock = Lock()
+    remaining = grid_numerics.maximum_working_bytes-shared_bytes
+    if remaining < workers:
+        raise WaveMemoryBudgetError("Resident column inputs and plan leave no working-memory partition")
+    worker_bytes = remaining//workers
+    local_numerics = replace(grid_numerics, maximum_working_bytes=worker_bytes)
+    records = []
+
+    def report(*args):
+        if progress_callback is not None:
+            with progress_lock:
+                progress_callback(*args)
+
+    def execute(index, *, threaded=False):
+        if threaded:
+            # BLAS is already serial in the owning numerical job. Numba's
+            # thread-local mask must also be one in each mode worker.
+            initialize_numerical_thread(1)
+        if cancelled() or stop.is_set():
+            raise InterruptedError("Column mode propagation cancelled")
+        mode = checkpoint.beam.modes[index]
+        local = TipGunCheckpoint(BeamState((mode,), checkpoint.beam.reference_plane), checkpoint.plane_z_mm,
+            checkpoint.reference_current_a, {"executed_parent": parent_digest})
+        return _propagate_column(state, local, stop_z_mm, maximum_step_mm=maximum_step_mm,
+            grid_numerics=local_numerics, tip_time_s=tip_time_s, _prepared=prepared,
+            cancelled=lambda: cancelled() or stop.is_set(), progress_callback=report)
+
+    def append(transported):
+        if cancelled():
+            raise InterruptedError("Column modes cancelled before writing checkpoint")
+        writer.append(transported.beam.modes[0])
+        records.extend(transported.record["modes"])
+
+    if workers == 1:
+        for index in range(len(checkpoint.beam.modes)):
+            transported = execute(index)
+            append(transported)
+            del transported
+        return records, worker_bytes
+
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="temsim-wave-mode")
+    futures = []
+    errors = []
+    try:
+        for first in range(0, len(checkpoint.beam.modes), workers):
+            futures = [pool.submit(copy_context().run, execute, index, threaded=True)
+                       for index in range(first, min(first+workers, len(checkpoint.beam.modes)))]
+            errors = []
+            positions = {future: index for index, future in enumerate(futures)}
+            completed, next_write = set(), 0
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except CancelledError:
+                    pass
+                except BaseException as error:
+                    errors.append(error)
+                    stop.set()
+                    for pending in futures:
+                        pending.cancel()
+                else:
+                    completed.add(positions[future])
+                    while not errors and next_write in completed:
+                        transported = futures[next_write].result()
+                        append(transported)
+                        del transported
+                        next_write += 1
+            if cancelled():
+                raise InterruptedError("Column mode propagation cancelled")
+            if errors:
+                # A genuine physical/grid error must not be hidden by a
+                # concurrent partition failure or its cooperative cancellation.
+                genuine = [error for error in errors
+                           if _memory_budget_cause(error) is None and not isinstance(error, InterruptedError)]
+                if genuine:
+                    raise genuine[0]
+                memory = next((_memory_budget_cause(error) for error in errors
+                               if _memory_budget_cause(error) is not None), None)
+                if memory is not None:
+                    message = str(memory)
+                    # Release failed-worker frames before the serial retry;
+                    # tracebacks otherwise retain their large intermediate grids.
+                    for error in errors:
+                        while error is not None:
+                            error.__traceback__ = None
+                            error = error.__cause__
+                    raise WaveMemoryBudgetError(message) from None
+                raise errors[0]
+            positions.clear()
+            futures.clear()
+            del future
+        return records, worker_bytes
+    finally:
+        stop.set()
+        for future in futures:
+            future.cancel()
+        pool.shutdown(wait=True, cancel_futures=True)
+        futures.clear()
+        errors.clear()
+
+
 def _propagate_column_segmented(state, checkpoint, stop_z_mm, *, store, segment_steps,
                                maximum_step_mm=.5, grid_numerics=WaveGridNumerics(), tip_time_s=None,
                                cancelled=lambda: False, progress_callback=None, verify=lambda: None, use_cache=True,
@@ -519,35 +716,58 @@ def _propagate_column_segmented(state, checkpoint, stop_z_mm, *, store, segment_
         last = min(first+segment_steps, len(plan.step_m))
         segment = _slice_prepared(prepared, first, last)
         time_key = tip_time_s if any(row["dynamic"] for row in segment[3]) else None
-        key = store.key("column-segment", result.digest, segment[0].signature, grid_numerics.column_identity(), time_key)
+        parent_digest = result.digest
+        key = store.key("column-segment", parent_digest, segment[0].signature, grid_numerics.column_identity(), time_key)
         cached = store.get(key) if use_cache else None
         if cached is not None:
             result, hit = cached, True
             if checkpoint_callback is not None:
                 checkpoint_callback(result)
             continue
-        writer = store.writer(key, result.beam.reference_plane)
-        records = []
-        try:
-            for mode in result.beam.modes:
-                local = TipGunCheckpoint(BeamState((mode,), result.beam.reference_plane), result.plane_z_mm,
-                    result.reference_current_a, {"executed_parent": result.digest})
-                transported = _propagate_column(state, local, float(plan.z_mm[last]), maximum_step_mm=maximum_step_mm,
-                    grid_numerics=grid_numerics, tip_time_s=tip_time_s, _prepared=segment,
-                    cancelled=cancelled, progress_callback=progress_callback)
-                writer.append(transported.beam.modes[0])
-                records.extend(transported.record["modes"])
-                del mode, local, transported
-            verify()
-            if cancelled():
-                raise InterruptedError("Segment cancelled before checkpoint commit")
-            result = writer.finish(float(plan.z_mm[last]), result.reference_current_a,
-                {"schema": "executed-column-segment-v1", "upstream_digest": result.digest,
-                 "upstream": result.record, "parent_plan_signature": plan.signature,
-                 "node_span": (first, last), "modes": records,
-                 "memory_policy": "stream one mode; previous segment arrays released after commit"})
-        finally:
-            writer.abort()
+        shared_bytes = _column_shared_bytes(result, prepared)
+        workers = _column_mode_workers(result)
+        # The device pool belongs to one wave mode at a time. CPU mode workers
+        # must not each independently claim the complete GPU memory budget.
+        from temsim.physics.compute_backend import choose_wave_backend, WAVE_BACKEND_CUPY
+        largest = _maximum_mode_pixels(result)
+        selected, _ = choose_wave_backend(normalise_backend(grid_numerics.compute_backend),
+            acceleration_enabled=grid_numerics.acceleration_enabled, work_items=largest*len(segment[0].step_m))
+        if selected == WAVE_BACKEND_CUPY:
+            workers = 1
+        retry_serial = False
+        while True:
+            writer = store.writer(key, result.beam.reference_plane)
+            try:
+                records, worker_bytes = _write_column_modes(state, result, float(plan.z_mm[last]), writer,
+                    prepared=segment, maximum_step_mm=maximum_step_mm, grid_numerics=grid_numerics,
+                    workers=workers, shared_bytes=shared_bytes, tip_time_s=tip_time_s,
+                    cancelled=cancelled, progress_callback=progress_callback, parent_digest=parent_digest)
+                verify()
+                if cancelled():
+                    raise InterruptedError("Segment cancelled before checkpoint commit")
+                result = writer.finish(float(plan.z_mm[last]), result.reference_current_a,
+                    {"schema": "executed-column-segment-v1", "upstream_digest": parent_digest,
+                     "upstream": result.record, "parent_plan_signature": plan.signature,
+                     "node_span": (first, last), "modes": records,
+                     "mode_execution": {"workers": workers, "retry_serial_for_memory": retry_serial,
+                         "maximum_working_bytes": grid_numerics.maximum_working_bytes,
+                         "shared_retained_bytes": shared_bytes, "worker_working_bytes": worker_bytes},
+                     "memory_policy": "bounded mode slots; shared inputs reserved; ordered streaming commit"})
+                break
+            except WaveMemoryBudgetError as error:
+                if workers == 1 or cancelled():
+                    raise
+                error.__traceback__ = None
+                error.__cause__ = None
+                error.__context__ = None
+                # The pool has joined and no partial checkpoint is published.
+                # Retry the same modes/operators with the full remaining budget.
+                workers, retry_serial = 1, True
+                if progress_callback:
+                    progress_callback(first, len(plan.step_m),
+                        "Column mode memory partition too small; continuing serially")
+            finally:
+                writer.abort()
         if checkpoint_callback is not None:
             checkpoint_callback(result)
         if progress_callback:

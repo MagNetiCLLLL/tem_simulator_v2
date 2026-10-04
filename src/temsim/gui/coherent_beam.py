@@ -6,6 +6,7 @@ intensities; their individual complex fields remain in the executed checkpoint.
 """
 
 from collections import OrderedDict
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 import json
 import math
@@ -19,17 +20,64 @@ from PySide6.QtCore import QObject, QRectF, QRunnable, QTimer, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
     QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox, QSplitter,
-    QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem, QHeaderView,
+    QAbstractItemView,
 )
 
 from temsim.gui.job_coordinator import CoordinatedPool, ResourceClaim
 from temsim.immutable_json import thaw_json
 from temsim.physics.coherent_inputs import (
-    CoherentSourceSettings, default_gaussian_tip_settings, prepare_coherent_state, wave_input_summary,
+    TipEmissionSettings, candidate_tip_emission, prepare_coherent_state,
+    source_settings_from_state, wave_input_summary,
 )
 from temsim.physics.tip_wave_pipeline import TipWaveObservationSession, TipWaveRequest, simulate_tip_wave
 
 GIB = 1024**3
+
+
+def _coherent_backend_text(checkpoint):
+    """Describe executed column/material records, never the requested policy."""
+    column_rows = None
+    material_rows = None
+    record = getattr(checkpoint, "record", None)
+    seen = set()
+    while isinstance(record, Mapping) and id(record) not in seen:
+        seen.add(id(record))
+        schema = record.get("schema")
+        if column_rows is None and schema in ("executed-column-wave-v1", "executed-column-segment-v1"):
+            # Only the current column stage supplies its device evidence. An
+            # older upstream GPU stage must not relabel a CPU fallback.
+            column_rows = record.get("modes", ())
+        if material_rows is None and schema in ("executed-specimen-wave-v1", "executed-inelastic-trajectories-v1"):
+            material_rows = []
+            material_column = []
+            for mode in record.get("modes", ()):
+                steps = mode.get("steps", mode.get("slices", ()))
+                for step in steps:
+                    material_rows.extend(step[key] for key in ("phase_before", "phase_after") if key in step)
+                if steps:
+                    material_column.extend(steps[-1].get("column", ()))
+            if column_rows is None:
+                column_rows = material_column
+        if column_rows is not None and material_rows is not None:
+            break
+        record = record.get("upstream")
+
+    def describe(name, rows):
+        rows = [row for row in (rows or ()) if isinstance(row, Mapping)]
+        backends = sorted({str(row["compute_backend"]) for row in rows if row.get("compute_backend")})
+        if not backends:
+            return f"{name}: execution device not recorded"
+        labels = {"cupy": "GPU (CuPy)", "numpy": "CPU (NumPy)"}
+        text = f"{name}: " + ", ".join(labels.get(value, value) for value in backends)
+        precision = sorted({str(row["numeric_precision"]) for row in rows if row.get("numeric_precision")})
+        text += "; " + (", ".join(precision) if precision else "precision not recorded")
+        reasons = sorted({str(row["fallback_reason"]) for row in rows if row.get("fallback_reason")})
+        if reasons:
+            text += "; fallback: " + "; ".join(reasons)
+        return text
+
+    return " | ".join((describe("Column", column_rows), describe("Material", material_rows), "Gun: CPU"))
 
 
 def _wave_resource_claim(state, request):
@@ -67,6 +115,10 @@ class _Preview:
     mode_count: int
     retained_bytes: int
     grid_shapes: tuple[tuple[int, int], ...] = ()
+    pair_token: str | None = None
+    comparison: object = None
+    comparison_error: str | None = None
+    axial_bz_t: float | None = None
 
 
 def _intensity_preview(checkpoint, *, cancelled=lambda: False, bins=128):
@@ -137,8 +189,17 @@ class _Signals(QObject):
     finished = Signal(int)
 
 
+def _plane_axial_field(state, z_mm):
+    """Capture diagnostic metadata from this execution's installed optics."""
+    from temsim.input_io import input_scope
+    from temsim.physics.core import bz
+    with input_scope(state, inherit=False):
+        return float(bz(np.array([z_mm]), state)[0])
+
+
 class _WaveWorker(QRunnable):
-    def __init__(self, generation, session, state, request, event, retained=(), *, observer=None):
+    def __init__(self, generation, session, state, request, event, retained=(), *, observer=None,
+                 pair_context=None):
         super().__init__()
         self.generation = generation
         self.session = session
@@ -146,9 +207,11 @@ class _WaveWorker(QRunnable):
         self.request = request
         self.event = event
         self.observer = observer
+        self.pair_context = pair_context
         # Inventory roots only: these executed displays are never supplied as
         # a replacement source to simulate_tip_wave.
-        self.existing_result = retained+((observer,) if observer is not None else ())
+        self.existing_result = (retained+((pair_context,) if pair_context is not None else ())
+                                +((observer,) if observer is not None else ()))
         self._last_progress_time = 0.
         self.job_input_identity = f"coherent-session:{session}:Z:{request.observation_z_mm.hex()}"
         self.resource_claim = _wave_resource_claim(state, request)
@@ -162,6 +225,11 @@ class _WaveWorker(QRunnable):
 
     def run(self):
         try:
+            if self.pair_context is not None:
+                from temsim.instrument_snapshot import capture_instrument_snapshot
+                if capture_instrument_snapshot(self.state).digest != self.pair_context.instrument_identity:
+                    raise ValueError("Captured coherent source or optics do not match this pair")
+                self.pair_context.verify_particle()
             # CoordinatedPool holds the application's shared numerical lease
             # and its CPU budget. Do not create a nested independent pool.
             if self.observer is None:
@@ -171,13 +239,39 @@ class _WaveWorker(QRunnable):
                 result = self.observer.observe(self.request.observation_z_mm,
                     cancelled=self.event.is_set, progress_callback=self._report_progress)
             preview = _intensity_preview(result.checkpoint, cancelled=self.event.is_set)
+            # Probability current needs the executed magnetic state, not the
+            # live instrument which may have changed while this job ran.
+            preview = replace(preview, axial_bz_t=_plane_axial_field(
+                self.state, result.checkpoint.plane_z_mm))
+            if self.pair_context is not None and not self.event.is_set():
+                context = self.pair_context
+                try:
+                    if result.instrument_digest != context.instrument_identity:
+                        raise ValueError("Executed wave identity does not match this captured pair")
+                    from temsim.gui.beam_plane_data import sample_beam_plane
+                    from temsim.physics.beam_comparison import compare_beam_planes
+                    plane = sample_beam_plane(context.particle_result, result.checkpoint.plane_z_mm)
+                    if (context.specimen_active and plane.z_mm > context.specimen_z_mm
+                            and plane.provenance != "Specimen exit"):
+                        raise ValueError("Executed specimen-exit particles are unavailable at this Z; the optical reference is not a specimen comparison")
+                    comparison = compare_beam_planes(plane, result.checkpoint)
+                    preview = replace(preview, pair_token=context.token, comparison=comparison)
+                except (ValueError, TypeError) as error:
+                    preview = replace(preview, pair_token=context.token,
+                                      comparison_error=str(error))
             if not self.event.is_set():
                 self.signals.solved.emit(self.generation, self.session, result, preview)
         except Exception as error:
             if not self.event.is_set():
                 self.signals.failed.emit(self.generation, str(error))
         finally:
-            self.signals.finished.emit(self.generation)
+            # The exception variable has now released its numerical frames.
+            # Drain retired device pools even after cancellation or failure.
+            from temsim.physics.wave_device import release_device_memory
+            try:
+                release_device_memory()
+            finally:
+                self.signals.finished.emit(self.generation)
 
 
 class _ObservableLabel(QLabel):
@@ -306,7 +400,7 @@ class CoherentBeamMirror(QWidget):
         self.setObjectName("rayCoherentBeamReadout")
         self.follow_ray = QCheckBox("Follow Ray Z")
         self.follow_ray.setChecked(owner.follow_ray.isChecked())
-        self.follow_ray.setToolTip("Shares the Coherent beam page setting. When unchecked, Ray Diagram Z does not change the coherent observation plane.")
+        self.follow_ray.setToolTip("Shares the Electron beam page setting. When unchecked, Ray Diagram Z does not change the observation plane.")
         self.follow_ray.toggled.connect(owner.follow_ray.setChecked)
         owner.follow_ray.toggled.connect(self.follow_ray.setChecked)
         self.intensity_scale = QComboBox()
@@ -329,6 +423,7 @@ class CoherentBeamMirror(QWidget):
         self.screen = CoherentIntensityView()
         toolbar.insertWidget(toolbar.count()-1, self.screen.fit_button)
         self.readout = _label(owner.readout.text())
+        self.comparison_status = _label(owner.comparison_status.text())
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addLayout(toolbar)
@@ -336,9 +431,11 @@ class CoherentBeamMirror(QWidget):
         layout.addWidget(self.status)
         layout.addWidget(self.screen, 1)
         layout.addWidget(self.readout)
+        layout.addWidget(self.comparison_status)
         owner.status.text_changed.connect(self.status.setText)
         owner.plane_positions.text_changed.connect(self.plane_positions.setText)
         owner.readout.text_changed.connect(self.readout.setText)
+        owner.comparison_status.text_changed.connect(self.comparison_status.setText)
         owner.observation_changed.connect(self.screen.set_observation)
         self.screen.set_observation(owner.result, owner.preview,
                                     owner.intensity_scale.currentIndex())
@@ -350,6 +447,10 @@ class CoherentBeamPage(QWidget):
     QUERY_INTERVAL_MS = 40
     CACHE_LIMIT = 64
     observation_changed = Signal(object, object, int)
+    source_applied = Signal(object)
+    tip_editor_requested = Signal()
+    paired_calculation_requested = Signal()
+    pair_invalidated = Signal()
     _SCOPE = (
         "Development: physical tip → extraction → acceleration → installed column → exact Z. "
         "Ideal vacuum (no gas scattering/attenuation); fields and hardware absorption remain active. "
@@ -362,6 +463,11 @@ class CoherentBeamPage(QWidget):
         super().__init__(parent)
         self.setObjectName("coherentBeamPage")
         self.state_provider = state_provider
+        self.source_applier = None
+        self.paired_busy_provider = None
+        self._surface_edge_phase_rad = None
+        self._loaded_source_settings = None
+        self._loaded_source_values = {}
         self._state = None
         self._captured = None
         self._request = None
@@ -379,15 +485,20 @@ class CoherentBeamPage(QWidget):
         self._source_model = "gaussian"
         self._energy_samples_edited = False
         self._target_z_mm = 1.
+        self._pair_context = None
 
-        self.calculate_button = QPushButton("Calculate coherent beam")
-        self.calculate_button.setObjectName("calculateCoherentBeam")
+        self.calculate_button = QPushButton("Calculate beam")
+        self.calculate_button.setObjectName("calculateElectronBeam")
         self.calculate_button.setProperty("calculationAction", True)
         self.calculate_button.setStyleSheet(
             "QPushButton {background:#3ce878; color:#073519; border:1px solid #28b961; padding:5px 9px;}"
             "QPushButton:disabled {background:#29483a; color:#b5c5bc;}")
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setEnabled(False)
+        self.compare_classical = QCheckBox("Compare classical rays")
+        self.compare_classical.setObjectName("compareClassicalRays")
+        self.compare_classical.setToolTip("Also calculate classical trajectories from the same applied Tip and optics. This approximation does not include interference. Applies to Current tip parameters; saved states retain individual wave results.")
+        self.compare_classical.setEnabled(False)
         self.target_z = _double(1., -1e6, 1e6, " mm", 12)
         self.target_z.setObjectName("coherentObservationZ")
         self.follow_ray = QCheckBox("Follow Ray Z")
@@ -426,9 +537,22 @@ class CoherentBeamPage(QWidget):
         browse.addWidget(self.z_range_end_label)
         browse.addWidget(self.z_range_max)
 
-        self.source_enabled = QCheckBox("Use a coherent boundary at the physical tip")
-        self.source_enabled.setObjectName("coherentTipEnabled")
-        self.source_enabled.setToolTip("Explicitly select a tip phase/mutual-intensity model for this captured wave session. Particle settings are unchanged.")
+        self.source_enabled = QCheckBox("Gaussian-Schell emission")
+        self.tip_boundary = QComboBox()
+        self.tip_boundary.setObjectName("tipBoundaryModel")
+        self.tip_boundary.addItem("Driven emission · non-paraxial near tip", "driven_gaussian_schell")
+        self.tip_boundary.addItem("Forward emission · paraxial", "forward_gaussian_schell")
+        self.tip_boundary.setToolTip("Driven emission retains the low-energy near field and reflection. Rays are the geometric-optics comparison of the same Tip; wave diffraction is calculated separately. Apply tip parameters is required.")
+        self.source_enabled.setObjectName("tipCoherenceModelEnabled")
+        self.source_enabled.setToolTip("Select the Tip emission and coherence model. Apply tip parameters writes these physical inputs to the instrument; every calculation reads that Tip. Calculate never applies pending edits.")
+        self.apply_source_button = QPushButton("Apply tip parameters")
+        self.apply_source_button.setObjectName("applyTipParameters")
+        self.apply_source_button.setToolTip("Apply these physical-tip inputs to the instrument and invalidate both results. Does not start a calculation or adjust lenses.")
+        self.apply_source_button.setEnabled(False)
+        self.edit_tip_button = QPushButton("Tip parameters…")
+        self.edit_tip_button.setObjectName("tipParameterEditor")
+        self.edit_tip_button.setToolTip("Edit the instrument's physical tip. A curved metal tip uses its actual surface and electrode fields for both rays and waves.")
+        self.edit_tip_button.clicked.connect(self.tip_editor_requested)
         self.source_info = _label("No instrument inputs available.")
         self.source_assumption = _label()
         self.preflight_message = _label()
@@ -447,31 +571,32 @@ class CoherentBeamPage(QWidget):
         preflight_layout.addWidget(self.preflight_details)
         self.preflight_group.setVisible(False)
         self.angle_rms = _double(0., 0., 1e4, " mrad", 15)
-        self.surface_mean = _double(.3, 1e-9, 1e6, " eV", 6)
-        self.surface_rms = _double(.1, 0., 1e6, " eV", 6)
+        self.surface_mean = _double(.3, 1e-9, 1e6, " eV", 15)
+        self.surface_rms = _double(.1, 0., 1e6, " eV", 15)
         self.angle_caption = QLabel("Incoherent angular RMS")
-        self.mean_caption = QLabel("Tip reservoir mean energy")
-        self.rms_caption = QLabel("Tip reservoir energy RMS")
-        tip_defaults = default_gaussian_tip_settings()
-        self.tip_fwhm = _double(tip_defaults.tip_fwhm_nm, 1e-6, 1e6, " nm", 12)
+        self.mean_caption = QLabel("Tip mean kinetic energy")
+        self.rms_caption = QLabel("Tip energy RMS")
+        self.tip_fwhm = _double(5., 1e-6, 1e6, " nm", 12)
         self.tip_fwhm.setToolTip("Intensity FWHM of the prescribed planar Gaussian emission boundary at the physical tip. This is an emission width, not the metal apex radius or a downstream virtual source size.")
-        self.tip_energy = _double(tip_defaults.tip_mean_energy_ev, 1e-9, 1e6, " eV", 15)
-        self.tip_minimum_energy = _double(tip_defaults.tip_minimum_energy_ev, 1e-9, 1e6, " eV", 15)
-        self.tip_energy_spread = _double(tip_defaults.tip_energy_spread_fwhm_ev, 0., 1e6, " eV", 15)
-        self.tip_offset_x = _double(tip_defaults.tip_offset_x_nm, -1e6, 1e6, " nm", 15)
-        self.tip_offset_y = _double(tip_defaults.tip_offset_y_nm, -1e6, 1e6, " nm", 15)
-        self.tip_curvature_x = _double(tip_defaults.tip_curvature_x_m1, -1e12, 1e12, " m⁻¹", 15)
-        self.tip_curvature_xy = _double(tip_defaults.tip_curvature_xy_m1, -1e12, 1e12, " m⁻¹", 15)
-        self.tip_curvature_y = _double(tip_defaults.tip_curvature_y_m1, -1e12, 1e12, " m⁻¹", 15)
-        self.tip_tilt_x = _double(tip_defaults.tip_tilt_x_mrad, -1e4, 1e4, " mrad", 15)
-        self.tip_tilt_y = _double(tip_defaults.tip_tilt_y_mrad, -1e4, 1e4, " mrad", 15)
+        self.tip_energy = _double(.3, 1e-9, 1e6, " eV", 15)
+        self.tip_energy.setToolTip("Mean kinetic energy at the physical tip before extraction; this is not the energy spread.")
+        self.tip_minimum_energy = _double(.01, 1e-9, 1e6, " eV", 15)
+        self.tip_energy_spread = _double(.3, 0., 1e6, " eV", 15)
+        self.tip_energy_spread.setToolTip("RMS-equivalent FWHM of the Tip's positive Young/Boersch energy law. The asymmetric distribution's literal half-maximum width can differ.")
+        self.tip_offset_x = _double(0., -1e6, 1e6, " nm", 15)
+        self.tip_offset_y = _double(0., -1e6, 1e6, " nm", 15)
+        self.tip_curvature_x = _double(0., -1e12, 1e12, " m⁻¹", 15)
+        self.tip_curvature_xy = _double(0., -1e12, 1e12, " m⁻¹", 15)
+        self.tip_curvature_y = _double(0., -1e12, 1e12, " m⁻¹", 15)
+        self.tip_tilt_x = _double(0., -1e4, 1e4, " mrad", 15)
+        self.tip_tilt_y = _double(0., -1e4, 1e4, " mrad", 15)
         self.gaussian_inputs = QWidget()
         tip_form = QFormLayout(self.gaussian_inputs)
         tip_form.setContentsMargins(0, 0, 0, 0)
-        for caption, control in (("Tip emission FWHM", self.tip_fwhm),
+        for caption, control in (("Physical emission FWHM", self.tip_fwhm),
                 ("Tip mean kinetic energy", self.tip_energy),
                 ("Minimum kinetic energy", self.tip_minimum_energy),
-                ("Energy spread FWHM", self.tip_energy_spread),
+                ("Energy spread (RMS-equiv. FWHM)", self.tip_energy_spread),
                 ("Tip emission centre X", self.tip_offset_x),
                 ("Tip emission centre Y", self.tip_offset_y),
                 ("Wavefront curvature X", self.tip_curvature_x),
@@ -484,11 +609,12 @@ class CoherentBeamPage(QWidget):
         source_form.addRow(self.mean_caption, self.surface_mean)
         source_form.addRow(self.rms_caption, self.surface_rms)
 
-        self.advanced = QGroupBox("Advanced numerical budgets")
+        self.advanced = QGroupBox("Advanced calculation options")
         self.advanced.setCheckable(True)
         self.advanced.setChecked(False)
         self.advanced_body = QWidget()
         numerics = QFormLayout(self.advanced_body)
+        numerics.addRow(self.compare_classical)
         default_request = TipWaveRequest()
         self.grid_pixels = _integer(128, 32, 4096)
         self.maximum_grid_pixels = _integer(default_request.wave_grid.maximum_pixels, 32, 65536)
@@ -507,6 +633,9 @@ class CoherentBeamPage(QWidget):
         self.segment_steps = _integer(128, 1, 100000)
         self.working_gib = _double(8., .25, 80., " GiB", 2)
         self.working_gib.setToolTip("Working limit for each numerical stage. Coupled tip/radial stages can overlap; shared admission also accounts for retained checkpoints.")
+        self.gpu_working_gib = _double(24., .25, 1024., " GiB", 2)
+        self.gpu_working_gib.setObjectName("coherentGpuWorkingLimit")
+        self.gpu_working_gib.setToolTip("GPU working-memory limit for coherent column and material operators. The toolbar compute policy selects the requested device; actual device use and any CPU fallback appear with the result. Gun propagation remains on CPU. This limit is separate from the CPU stage and cache limits.")
         self.ram_cache_gib = _double(8., .25, 80., " GiB", 2)
         self.disk_cache_gib = _double(192., 1., 2048., " GiB", 2)
         for caption, control in (("Initial grid pixels", self.grid_pixels),
@@ -517,7 +646,8 @@ class CoherentBeamPage(QWidget):
                 ("Gun field step", self.gun_step), ("Gun bore sampling step", self.gun_bore_step),
                 ("Gun energy change per step", self.gun_energy_step),
                 ("Steps per segment", self.segment_steps),
-                ("Working limit per stage", self.working_gib), ("RAM cache limit", self.ram_cache_gib),
+                ("Working limit per stage", self.working_gib), ("GPU working limit", self.gpu_working_gib),
+                ("RAM cache limit", self.ram_cache_gib),
                 ("Disk cache limit", self.disk_cache_gib)):
             numerics.addRow(caption, control)
         advanced_layout = QVBoxLayout(self.advanced)
@@ -527,11 +657,20 @@ class CoherentBeamPage(QWidget):
 
         controls = QWidget()
         controls_layout = QVBoxLayout(controls)
-        controls_layout.addWidget(self.source_enabled)
-        controls_layout.addWidget(self.source_info)
-        controls_layout.addWidget(self.source_assumption)
-        controls_layout.addWidget(self.gaussian_inputs)
-        controls_layout.addLayout(source_form)
+        from temsim.gui.coherent_state_list import TipStateList
+        self.state_list = TipStateList()
+        controls_layout.addWidget(self.state_list)
+        self.tip_parameters = QGroupBox("Tip parameters")
+        tip_layout = QVBoxLayout(self.tip_parameters)
+        tip_layout.addWidget(self.source_enabled)
+        tip_layout.addWidget(self.tip_boundary)
+        tip_layout.addWidget(self.edit_tip_button)
+        tip_layout.addWidget(self.source_info)
+        tip_layout.addWidget(self.source_assumption)
+        tip_layout.addWidget(self.gaussian_inputs)
+        tip_layout.addLayout(source_form)
+        tip_layout.addWidget(self.apply_source_button)
+        controls_layout.addWidget(self.tip_parameters)
         controls_layout.addWidget(self.preflight_message)
         controls_layout.addWidget(self.preflight_group)
         controls_layout.addWidget(self.advanced)
@@ -541,24 +680,35 @@ class CoherentBeamPage(QWidget):
         scroll.setWidget(controls)
         scroll.setMinimumWidth(250)
         self.screen = CoherentIntensityView()
-        toolbar.insertWidget(toolbar.count()-1, self.screen.fit_button)
+        from temsim.gui.electron_beam_observation import ElectronBeamObservation
+        self.observation = ElectronBeamObservation(self.screen)
         self.plot, self.image = self.screen.plot, self.screen.image
-        self.observation_changed.connect(self.screen.set_observation)
+        self.observation_changed.connect(self.observation.set_observation)
         splitter = QSplitter()
         splitter.addWidget(scroll)
-        splitter.addWidget(self.screen)
+        splitter.addWidget(self.observation)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([310, 900])
+        splitter.setSizes([560, 900])
         self.scope_label = _label(self._SCOPE)
         self.scope_label.setStyleSheet("color:#d3ab61;")
-        self.status = _label("Select a tip coherence model, then click Calculate coherent beam. No calculation starts when this tab opens.", observable=True)
+        self.status = _label("Apply the Tip parameters, then click Calculate beam. Choose an observation without recalculating propagation.", observable=True)
         self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
         self.plane_positions = _label(observable=True)
         self.plane_positions.setObjectName("coherentPlanePositions")
         self.plane_positions.setToolTip("Requested Z is the newest input. Calculating Z is the submitted worker target, including any wait for shared resources. Displayed Z belongs to the last completed image; moving the cursor does not relabel it.")
         self._update_plane_positions()
         self.readout = _label("Screen intensity density per tip electron; no detector counts or aggregate phase.", observable=True)
+        self.comparison_status = _label("Optional classical comparison: enable Compare classical rays under Advanced calculation options before Calculate beam.", observable=True)
+        self.comparison_status.setObjectName("pairedBeamStatus")
+        self.comparison_table = QTableWidget(0, 3)
+        self.comparison_table.setObjectName("pairedBeamComparison")
+        self.comparison_table.setHorizontalHeaderLabels(("Same-Z observable", "Particles", "Coherent modes"))
+        self.comparison_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.comparison_table.verticalHeader().hide()
+        self.comparison_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.comparison_table.setMaximumHeight(205)
+        self.comparison_table.hide()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.addLayout(toolbar)
@@ -568,6 +718,8 @@ class CoherentBeamPage(QWidget):
         layout.addWidget(self.status)
         layout.addWidget(splitter, 1)
         layout.addWidget(self.readout)
+        layout.addWidget(self.comparison_status)
+        layout.addWidget(self.comparison_table)
 
         self.pool = CoordinatedPool(self)
         self.pool.setMaxThreadCount(1)
@@ -581,20 +733,25 @@ class CoherentBeamPage(QWidget):
         self.z_slider.valueChanged.connect(self._slider_changed)
         self.z_range_min.valueChanged.connect(self._sync_z_slider)
         self.z_range_max.valueChanged.connect(self._sync_z_slider)
-        self.source_enabled.toggled.connect(self.mark_inputs_stale)
+        self.source_enabled.toggled.connect(self._mark_source_draft)
+        self.tip_boundary.currentIndexChanged.connect(self._mark_source_draft)
+        self.apply_source_button.clicked.connect(self.apply_source)
         self.intensity_scale.currentIndexChanged.connect(self._refresh_intensity)
         for control in (self.angle_rms, self.surface_mean, self.surface_rms,
                         self.tip_fwhm, self.tip_energy, self.tip_minimum_energy, self.tip_energy_spread,
                         self.tip_offset_x, self.tip_offset_y,
                         self.tip_curvature_x, self.tip_curvature_xy, self.tip_curvature_y,
-                        self.tip_tilt_x, self.tip_tilt_y,
-                        self.grid_pixels, self.maximum_grid_pixels, self.energy_samples,
+                        self.tip_tilt_x, self.tip_tilt_y):
+            control.valueChanged.connect(self._mark_source_draft)
+        for control in (self.grid_pixels, self.maximum_grid_pixels, self.energy_samples,
                         self.material_trajectories, self.column_step,
                         self.gun_step, self.gun_bore_step, self.gun_energy_step,
-                        self.segment_steps, self.working_gib,
+                        self.segment_steps, self.working_gib, self.gpu_working_gib,
                         self.ram_cache_gib, self.disk_cache_gib):
             control.valueChanged.connect(self.mark_inputs_stale)
         self._show_source_controls()
+        from temsim.gui.coherent_state_controller import CoherentStateController
+        self.state_set = CoherentStateController(self, self.state_list)
 
     def _mark_energy_samples_edited(self, *_args):
         self._energy_samples_edited = True
@@ -611,7 +768,9 @@ class CoherentBeamPage(QWidget):
 
     def _show_source_controls(self):
         surface = self._source_model == "surface"
+        self.source_enabled.setText("Constant-phase surface emission" if surface else "Gaussian-Schell emission")
         self.gaussian_inputs.setVisible(not surface)
+        self.tip_boundary.setVisible(not surface)
         for control in (self.angle_caption, self.angle_rms):
             control.setVisible(not surface)
         for control in (self.mean_caption, self.surface_mean, self.rms_caption, self.surface_rms):
@@ -622,6 +781,9 @@ class CoherentBeamPage(QWidget):
             return
         self._state = state
         self.mark_inputs_stale()
+        self.apply_source_button.setEnabled(False)
+        self._loaded_source_settings = None
+        self._loaded_source_values = None
         if state is None:
             self.source_info.setText("No instrument inputs available.")
             return
@@ -629,58 +791,95 @@ class CoherentBeamPage(QWidget):
         if emitter is None:
             self.source_info.setText("No physical tip input fields are available for this source. Coherent calculation requires a supported physical tip.")
             return
+        try:
+            settings = source_settings_from_state(state)
+        except ValueError as error:
+            self.source_enabled.blockSignals(True)
+            self.source_enabled.setChecked(False)
+            self.source_enabled.blockSignals(False)
+            self.source_enabled.setEnabled(False)
+            self.gaussian_inputs.hide()
+            for control in (self.angle_caption, self.angle_rms, self.mean_caption,
+                            self.surface_mean, self.rms_caption, self.surface_rms):
+                control.hide()
+            self.source_info.setText(str(error))
+            self.source_assumption.clear()
+            return
+        self.source_enabled.setEnabled(True)
         surface = emitter.surface_model
         self._source_model = "gaussian" if surface is None else "surface"
         self._show_source_controls()
+        self._surface_edge_phase_rad = settings.surface_edge_phase_rad
+        self.source_enabled.blockSignals(True)
+        self.source_enabled.setChecked(settings.enabled)
+        self.source_enabled.blockSignals(False)
+        self.apply_source_button.setEnabled(True)
         if surface is None:
-            coherence = emitter.coherence
-            use_defaults = coherence is None and float(getattr(emitter, "curvature_nm_inv", 0.)) == 0.
-            defaults = default_gaussian_tip_settings()
-            for control, setting, value in (
-                    (self.tip_fwhm, "tip_fwhm_nm", emitter.virtual_source_fwhm_nm),
-                    (self.tip_energy, "tip_mean_energy_ev", emitter.emission_energy_ev),
-                    (self.tip_minimum_energy, "tip_minimum_energy_ev", emitter.minimum_kinetic_energy_ev),
-                    (self.tip_energy_spread, "tip_energy_spread_fwhm_ev", emitter.energy_spread_fwhm_ev),
-                    (self.tip_offset_x, "tip_offset_x_nm", 0. if coherence is None else coherence.offset_x_nm),
-                    (self.tip_offset_y, "tip_offset_y_nm", 0. if coherence is None else coherence.offset_y_nm),
-                    (self.tip_curvature_x, "tip_curvature_x_m1", 0. if coherence is None else coherence.curvature_x_m1),
-                    (self.tip_curvature_xy, "tip_curvature_xy_m1", 0. if coherence is None else coherence.curvature_xy_m1),
-                    (self.tip_curvature_y, "tip_curvature_y_m1", 0. if coherence is None else coherence.curvature_y_m1),
-                    (self.tip_tilt_x, "tip_tilt_x_mrad", 0. if coherence is None else coherence.tilt_x_mrad),
-                    (self.tip_tilt_y, "tip_tilt_y_mrad", 0. if coherence is None else coherence.tilt_y_mrad)):
+            self.tip_boundary.blockSignals(True)
+            self.tip_boundary.setCurrentIndex(self.tip_boundary.findData(settings.boundary_model))
+            self.tip_boundary.blockSignals(False)
+            for control, field in (
+                    (self.tip_fwhm, "tip_fwhm_nm"),
+                    (self.tip_energy, "tip_mean_energy_ev"),
+                    (self.tip_minimum_energy, "tip_minimum_energy_ev"),
+                    (self.tip_energy_spread, "tip_energy_spread_fwhm_ev"),
+                    (self.tip_offset_x, "tip_offset_x_nm"),
+                    (self.tip_offset_y, "tip_offset_y_nm"),
+                    (self.tip_curvature_x, "tip_curvature_x_m1"),
+                    (self.tip_curvature_xy, "tip_curvature_xy_m1"),
+                    (self.tip_curvature_y, "tip_curvature_y_m1"),
+                    (self.tip_tilt_x, "tip_tilt_x_mrad"),
+                    (self.tip_tilt_y, "tip_tilt_y_mrad"),
+                    (self.angle_rms, "incoherent_angle_rms_mrad")):
                 control.blockSignals(True)
-                control.setValue(getattr(defaults, setting) if use_defaults else value)
+                control.setValue(getattr(settings, field))
                 control.blockSignals(False)
-            self.angle_rms.blockSignals(True)
-            self.angle_rms.setValue(0. if coherence is None else coherence.incoherent_angle_rms_mrad)
-            self.angle_rms.blockSignals(False)
-            if use_defaults:
-                self.source_info.setText(
-                    f"Idealised diffraction example defaults | FWHM {defaults.tip_fwhm_nm:g} nm | "
-                    f"emission energy {defaults.tip_mean_energy_ev:g} eV | energy spread 0 eV | "
-                    f"current {emitter.emission_current_na:g} nA from the instrument.")
-            else:
-                self.source_info.setText(
-                    f"Captured tip boundary | FWHM {emitter.virtual_source_fwhm_nm:g} nm | "
-                    f"emission energy {emitter.emission_energy_ev:g} eV | energy spread "
-                    f"{emitter.energy_spread_fwhm_ev:g} eV | current {emitter.emission_current_na:g} nA.")
+            self.source_info.setText(
+                f"Planar Gaussian boundary | emission FWHM {emitter.virtual_source_fwhm_nm:g} nm | "
+                f"mean kinetic energy {emitter.emission_energy_ev:g} eV | "
+                f"energy spread {emitter.energy_spread_fwhm_ev:g} eV (RMS-equiv. FWHM) | "
+                f"current {emitter.emission_current_na:g} nA.")
             self.source_assumption.setText(
-                ("Default inputs were designed for a centred 1.5 nm intensity FWHM at the specimen with the example optics. They are idealised planar-cathode inputs, not measured metal-tip properties. " if use_defaults else "") +
-                "Edits below prescribe a planar Gaussian emission boundary at the physical tip of this captured wave session. Emission FWHM and wavefront curvature are not the metal tip radius or its mechanical curvature. Particle inputs and installed fields are unchanged. Source-domain checks still apply.")
+                "These are the instrument's Tip parameters. Every calculation reads the applied values. "
+                "Driven emission propagates the low-energy near field before continuing through the gun. "
+                "Rays sample the same intensity, energy and local phase directions as a geometric-optics "
+                "comparison; the wave additionally includes diffraction and reflection. Emission FWHM and wavefront "
+                "curvature are not the metal tip radius or mechanical curvature. "
+                "This boundary uses a planar cathode field, not the stored metal apex radius. "
+                "Use Tip parameters to edit the physical geometry and emission model. "
+                "Forward emission retains its separate paraxial support check. "
+                "Neither model changes the source width or energy to pass a check.")
             self._refresh_energy_sample_default()
         else:
-            coherence = surface.coherence
-            if coherence is not None:
-                for control, value in ((self.surface_mean, coherence.mean_energy_ev),
-                                       (self.surface_rms, coherence.energy_rms_ev)):
-                    control.blockSignals(True)
+            for control, value in ((self.surface_mean, settings.surface_mean_energy_ev),
+                                   (self.surface_rms, settings.surface_energy_rms_ev)):
+                control.blockSignals(True)
+                control.setEnabled(value is not None)
+                if value is not None:
                     control.setValue(value)
-                    control.blockSignals(False)
-            self.source_info.setText(f"Curved physical tip | apex radius {surface.geometry.apex_radius_nm:g} nm | current {surface.current_na:g} nA. Geometry and extraction settings come from the instrument.")
-            self.source_assumption.setText(
-                "Explicit quantum assumption: the mean energy and energy RMS below define a coherent cap reservoir, one axisymmetric spatial mode per energy. "
-                "They are not inferred from classical emission probabilities. Enable the tip boundary and click Calculate to select this model.")
-            self._set_default_energy_samples(9)
+                control.blockSignals(False)
+            self.source_info.setText(f"Curved physical tip | apex radius {surface.geometry.apex_radius_nm:g} nm | cap {surface.emission.cap_half_angle_deg:g}° | reference current {surface.current_na:g} nA. The actual metal geometry is used by the electrode-field solver.")
+            historical = surface.coherence is not None and not surface.shared_boundary
+            self.surface_mean.setReadOnly(historical)
+            self.surface_rms.setReadOnly(historical)
+            self.source_enabled.setEnabled(not historical)
+            self.apply_source_button.setEnabled(not historical)
+            if historical:
+                self.source_assumption.setText(
+                    "Historical wave-only reservoir: no matching particle source. Inputs are read-only. "
+                    "Use Tip parameters to explicitly replace this historical boundary.")
+            else:
+                self.source_assumption.setText(
+                    "These are the instrument's Tip parameters. Constant-phase surface emission "
+                    "selects a cosine-cap flux profile and positive total-energy law. "
+                    "Rays follow the local surface normals as a geometric-optics "
+                    "comparison; waves additionally retain diffraction and reflection. "
+                    "Reference current is outward injected flux; net escaping current is a result. "
+                    "This supported axisymmetric boundary has constant surface phase. "
+                    "Mean energy and RMS are editable physical inputs, not fixed acceptance values.")
+            self._set_default_energy_samples(1 if settings.surface_energy_rms_ev == 0. else 9)
+        self._loaded_source_settings = settings
+        self._loaded_source_values = asdict(self._draft_settings())
         if self.result is None:
             # Non-vacuum specimen interiors need a truncated material
             # operator. Choose the actual exit boundary for the first view.
@@ -698,6 +897,66 @@ class CoherentBeamPage(QWidget):
             self.z_range_min.setValue(start)
             self.z_range_max.setValue(max(positions))
             self._sync_z_slider()
+
+    @Slot()
+    def _mark_source_draft(self, *_args):
+        if self._closed:
+            return
+        self.mark_inputs_stale()
+        self.status.setText("Tip source draft changed. Click Apply tip parameters before Calculate beam."
+                            + (" Previous optics remain displayed." if self.result is not None else ""))
+
+    @Slot()
+    def apply_source(self):
+        """Publish a validated tip edit, never a propagation request."""
+        if self._closed:
+            return
+        target = self._target_z_mm
+        lower, upper = self.z_range_min.value(), self.z_range_max.value()
+        try:
+            state = self.state_provider() if self.state_provider is not None else self._state
+            if state is None:
+                raise ValueError("No current instrument inputs are available")
+            settings = self._settings()
+            previous = source_settings_from_state(state)
+            generation = self._generation
+            if self.source_applier is not None:
+                state = self.source_applier(settings)
+                if state is None:
+                    raise ValueError("Tip application did not return the current instrument")
+            else:
+                candidate = candidate_tip_emission(state, settings)
+                gun = state.electron_gun
+                if candidate.to_dict() != gun.to_dict():
+                    gun.emitter = candidate.emitter
+                    gun.source_representation = candidate.source_representation
+                    gun._trace_cache = gun._trace_cache_key = None
+        except Exception as error:
+            self.status.setStyleSheet("color:#ffb86b;")
+            self.status.setText(f"Tip not applied; active source unchanged: {error}")
+            return
+        if (state is self._state and previous == source_settings_from_state(state)
+                and generation == self._generation):
+            self.status.setStyleSheet("")
+            self.status.setText("Tip unchanged. Existing calculation and cache retained.")
+            return
+        self.set_state(state)
+        # Source editing does not change the observation cursor or its range.
+        self.target_z.blockSignals(True)
+        self.target_z.setValue(target)
+        self.target_z.blockSignals(False)
+        self._target_z_mm = target
+        self.z_range_min.setValue(lower)
+        self.z_range_max.setValue(upper)
+        self._sync_z_slider()
+        self._update_plane_positions()
+        surface = state.electron_gun.emitter.surface_model
+        message = ("Saved surface wave source applied; its particle representation remains unavailable."
+                   if surface is not None and surface.coherence is not None and not surface.shared_boundary else
+                   "Tip applied. Particle and coherent results require recalculation.")
+        self.status.setStyleSheet("")
+        self.status.setText(message+" No calculation started.")
+        self.source_applied.emit(state)
 
     @Slot()
     def _sync_z_slider(self, *_args):
@@ -729,13 +988,22 @@ class CoherentBeamPage(QWidget):
             self._worker.event.set()
         self.pool.clear()
         self._worker = None
-        self.cancel_button.setEnabled(False)
+        self._update_cancel_enabled()
         self._update_plane_positions()
+
+    def _update_cancel_enabled(self):
+        states = getattr(self, "state_set", None)
+        paired_busy = bool(self.paired_busy_provider and self.paired_busy_provider())
+        self.cancel_button.setEnabled(self._worker is not None
+            or (states is not None and states.worker is not None) or paired_busy)
 
     @Slot()
     def mark_inputs_stale(self, *_args):
         if self._closed:
             return
+        if hasattr(self, "state_set"):
+            self.state_set.inputs_changed()
+        self.invalidate_pair("Pair invalidated by input changes; calculate a new pair to compare results.")
         self._cancel_request()
         self._stale = True
         self._session_ready = False
@@ -743,9 +1011,9 @@ class CoherentBeamPage(QWidget):
         self._observation_session = None
         self.status.setStyleSheet("")
         if self.preflight_details.toPlainText():
-            self.preflight_message.setText("Previous source check; inputs changed. Click Calculate coherent beam to check the current settings. The retained report describes the previous attempt.")
+            self.preflight_message.setText("Previous source check; inputs changed. Click Calculate beam to check the current settings. The retained report describes the previous attempt.")
             self.preflight_message.setStyleSheet("color:#d3ab61;")
-        self.status.setText("Inputs changed. Click Calculate coherent beam to capture a new session."
+        self.status.setText("Inputs changed. Click Calculate beam to capture a new session."
                             + (" Previous optics remain displayed." if self.result is not None else ""))
 
     def _show_source_check(self, summary, settings, error=None):
@@ -772,9 +1040,9 @@ class CoherentBeamPage(QWidget):
                  else "Calculation setup rejected; propagation did not start."]
         if data is not None:
             inputs = data.get("inputs", {})
-            for key, label, unit in (("virtual_source_fwhm_nm", "Tip emission FWHM", "nm"),
+            for key, label, unit in (("virtual_source_fwhm_nm", "Physical emission FWHM", "nm"),
                     ("emission_energy_ev", "Tip mean kinetic energy", "eV"),
-                    ("energy_spread_fwhm_ev", "Energy spread FWHM", "eV")):
+                    ("energy_spread_fwhm_ev", "Energy width (RMS-equivalent FWHM)", "eV")):
                 if key in inputs:
                     lines.append(f"{label}: {inputs[key]:.9g} {unit}.")
             domain = data.get("source_domain", {})
@@ -800,7 +1068,7 @@ class CoherentBeamPage(QWidget):
                 else:
                     lines.append("Model limit unavailable in this source report; no physical values were substituted.")
                 lines.append("Particle ray count or observation Z cannot change this source check. The bound is a probability-region estimate, not an individual electron angle.")
-            lines.append("Review the explicit tip width, energy law and coherence, or load the documented Si input example. Inputs are not adjusted automatically; source admission alone does not guarantee propagation.")
+            lines.append("Review the tip model and its validity range. Inputs are not adjusted automatically; source admission alone does not guarantee propagation.")
         else:
             lines.append(str(error))
         self.preflight_message.setText("\n".join(lines))
@@ -808,11 +1076,24 @@ class CoherentBeamPage(QWidget):
         self.preflight_group.setChecked(True)
 
     def _settings(self):
+        draft = self._draft_settings()
+        if self._loaded_source_settings is None:
+            return draft
+        # Spin boxes round for display. Unedited values retain all original
+        # bits on Apply as well as Calculate, preserving source cache identity.
+        unchanged = {name: getattr(self._loaded_source_settings, name)
+                     for name, value in asdict(draft).items()
+                     if name != "enabled" and value == self._loaded_source_values.get(name)}
+        return replace(draft, **unchanged)
+
+    def _draft_settings(self):
         if self._source_model == "surface":
-            return CoherentSourceSettings(enabled=self.source_enabled.isChecked(),
-                surface_mean_energy_ev=self.surface_mean.value(),
-                surface_energy_rms_ev=self.surface_rms.value())
-        return CoherentSourceSettings(enabled=self.source_enabled.isChecked(),
+            return TipEmissionSettings(enabled=self.source_enabled.isChecked(),
+                surface_mean_energy_ev=self.surface_mean.value() if self.surface_mean.isEnabled() else None,
+                surface_energy_rms_ev=self.surface_rms.value() if self.surface_rms.isEnabled() else None,
+                surface_edge_phase_rad=self._surface_edge_phase_rad)
+        return TipEmissionSettings(enabled=self.source_enabled.isChecked(),
+            boundary_model=self.tip_boundary.currentData(),
             incoherent_angle_rms_mrad=self.angle_rms.value(),
             tip_fwhm_nm=self.tip_fwhm.value(), tip_mean_energy_ev=self.tip_energy.value(),
             tip_minimum_energy_ev=self.tip_minimum_energy.value(),
@@ -822,9 +1103,12 @@ class CoherentBeamPage(QWidget):
             tip_curvature_y_m1=self.tip_curvature_y.value(),
             tip_tilt_x_mrad=self.tip_tilt_x.value(), tip_tilt_y_mrad=self.tip_tilt_y.value())
 
-    def _make_request(self):
+    def _make_request(self, state=None):
         default = TipWaveRequest()
         working = round(self.working_gib.value()*GIB)
+        if state is None:
+            state = self.state_provider() if self.state_provider is not None else self._state
+        compute_backend = getattr(state, "acceleration_backend", "Auto")
         return replace(default, stop="plane", observation_z_mm=self._target_z_mm,
             source=replace(default.source, grid_pixels=self.grid_pixels.value(),
                            energy_samples=self.energy_samples.value()),
@@ -837,22 +1121,17 @@ class CoherentBeamPage(QWidget):
             radial_gun=replace(default.radial_gun, maximum_working_bytes=working),
             column_step_mm=self.column_step.value(),
             wave_grid=replace(default.wave_grid, maximum_pixels=self.maximum_grid_pixels.value(),
-                              maximum_working_bytes=working),
+                              maximum_working_bytes=working, compute_backend=compute_backend,
+                              acceleration_enabled=getattr(state, "acceleration_enabled", True),
+                              maximum_device_working_bytes=round(self.gpu_working_gib.value()*GIB)),
             inelastic=replace(default.inelastic, trajectories_per_mode=self.material_trajectories.value()),
             maximum_readout_bytes=working,
             execution=replace(default.execution, segment_steps=self.segment_steps.value(),
                 maximum_ram_cache_bytes=round(self.ram_cache_gib.value()*GIB),
                 maximum_disk_cache_bytes=round(self.disk_cache_gib.value()*GIB))).validate()
 
-    @Slot()
-    def calculate(self):
-        if self._closed:
-            return
-        self._cancel_request()
-        self._session += 1
-        self._session_ready = False
-        self._cache.clear()
-        self._observation_session = None
+    def capture_calculation_inputs(self):
+        """Check drafts and freeze one source, optics and numerical request."""
         summary = None
         settings = None
         try:
@@ -861,7 +1140,7 @@ class CoherentBeamPage(QWidget):
             if state is None:
                 raise ValueError("No current instrument inputs are available")
             captured = prepare_coherent_state(state, settings)
-            request = self._make_request()
+            request = self._make_request(captured)
             summary = wave_input_summary(captured, request)
             if summary["status"] != "SOURCE_READY":
                 raise ValueError(summary.get("reason", "Coherent tip inputs are not ready"))
@@ -878,8 +1157,54 @@ class CoherentBeamPage(QWidget):
                       and summary.get("status") != "SOURCE_READY" else "Coherent beam not calculated; propagation did not start")
             self.status.setText(f"{prefix}: {error}"
                                 + (" Previous result remains displayed." if self.result is not None else ""))
-            return
+            raise
         self._show_source_check(summary, settings)
+        return captured, request, summary
+
+    @Slot()
+    def calculate(self):
+        if self._closed:
+            return
+        if self.state_set.viewing_states():
+            self.state_set.calculate()
+            return
+        # Closing the advanced group hides its controls; it must not change
+        # the selected calculation. Only the explicit availability flag on
+        # this checkbox decides whether a host supports classical pairing.
+        if (self.compare_classical.isEnabledTo(self.advanced_body)
+                and self.compare_classical.isChecked()):
+            self.paired_calculation_requested.emit()
+            return
+        self.invalidate_pair("Independent coherent calculation; no matched particle result is claimed.")
+        self._cancel_request()
+        self._session_ready = False
+        self._cache.clear()
+        self._observation_session = None
+        try:
+            captured, request, summary = self.capture_calculation_inputs()
+        except Exception:
+            return
+        self.start_captured_calculation(captured, request, summary)
+
+    def set_projection_angle(self, angle):
+        self.observation.set_projection_angle(angle)
+
+    def start_captured_calculation(self, captured, request, summary, *, pair_context=None):
+        """Run already validated captured inputs; never re-read live controls."""
+        if self._closed:
+            return
+        self.state_set.cancel()
+        self.state_list.mode.setCurrentIndex(self.state_list.mode.findData("current"))
+        self._cancel_request()
+        self._session += 1
+        self._session_ready = False
+        self._cache.clear()
+        self._pair_context = pair_context
+        if pair_context is not None:
+            self.comparison_status.setText(
+                f"Pair {pair_context.token[:8]} | input identity {pair_context.physical_identity[:12]} | "
+                "particles completed; waiting for a same-Z coherent plane.")
+        self.comparison_table.hide()
         self.status.setStyleSheet("")
         self._captured = captured
         self._request = request
@@ -888,13 +1213,60 @@ class CoherentBeamPage(QWidget):
         self.status.setText(f"Source ready | {summary['model']} | {summary['mode_count']} modes. Queued exact-Z calculation; field support is checked during execution.")
         self._start_query()
 
+    def invalidate_pair(self, message="Paired calculation cancelled; previous images are retained."):
+        self._pair_context = None
+        self.comparison_table.hide()
+        self.comparison_table.setRowCount(0)
+        self.comparison_status.setText(message)
+        self.pair_invalidated.emit()
+
+    def _display_comparison(self, preview):
+        context = self._pair_context
+        if context is None or preview.pair_token != context.token:
+            self.comparison_table.hide()
+            return
+        if preview.comparison is None:
+            self.comparison_table.hide()
+            self.comparison_status.setText(f"Pair {context.token[:8]} | comparison unavailable: {preview.comparison_error or 'no matched data'}")
+            return
+        values = preview.comparison
+        particle, wave = values["particle"], values["wave"]
+        self.comparison_status.setText(
+            f"Pair {context.token[:8]} | same captured inputs {context.physical_identity[:12]} | "
+            f"compared Z {wave['z_mm']:.9g} mm | laboratory X/Y. "
+            "Interference can change wave intensity and width; agreement is not assumed. "
+            "Wave energy is the propagated mode reference. Phase belongs to individual wave modes only.")
+        self.comparison_status.setToolTip(
+            f"Particle energy: {particle['energy_definition']}\nWave energy: {wave['energy_definition']}\n"
+            "Statistics use the complete retained populations, not the plotted points or image viewport.")
+        rows = (("Mean energy (eV)", "mean_energy_ev", 1.),
+                ("Energy RMS (eV)", "rms_energy_ev", 1.),
+                ("Current (pA)", "current_a", 1e12),
+                ("Tip reference fraction (%)", "source_fraction", 100.),
+                ("Centre X, Y (µm)", "centroid_xy_m", 1e6),
+                ("RMS X, Y (µm)", "rms_xy_m", 1e6),
+                ("Radial RMS (µm)", "radial_rms_m", 1e6))
+        self.comparison_table.setRowCount(len(rows))
+        for row, (label, key, scale) in enumerate(rows):
+            self.comparison_table.setItem(row, 0, QTableWidgetItem(label))
+            for col, data in ((1, particle), (2, wave)):
+                value = data[key]
+                text = ("Unavailable" if value is None else
+                        ", ".join(f"{float(v)*scale:.6g}" for v in value)
+                        if isinstance(value, (tuple, list)) else f"{float(value)*scale:.6g}")
+                self.comparison_table.setItem(row, col, QTableWidgetItem(text))
+        self.comparison_table.show()
+
     def _retained_wave_roots(self):
         """Keep idle wave products visible to all shared calculation owners."""
-        return self.result, self.preview, self._cache, self._captured, self._observation_session
+        return self.result, self.preview, self._cache, self._captured, self._pair_context, self._observation_session
 
     def _update_plane_positions(self):
-        calculating = (f"{self._worker.request.observation_z_mm:.9g} mm"
-                       if self._worker is not None else "—")
+        worker = self._worker
+        if hasattr(self, "state_set") and self.state_set.worker is not None:
+            worker = self.state_set.worker
+        calculating = (f"{worker.request.observation_z_mm:.9g} mm"
+                       if worker is not None else "—")
         displayed = (f"{self.result.checkpoint.plane_z_mm:.9g} mm"
                      if self.result is not None else "—")
         self.plane_positions.setText(
@@ -925,8 +1297,11 @@ class CoherentBeamPage(QWidget):
         self._target_z_mm = float(z_mm)
         self._update_plane_positions()
         self._sync_z_slider()
+        if self.state_set.viewing_states():
+            self.state_set.set_z()
+            return
         if self._stale or (not self._session_ready and self._worker is None):
-            self.status.setText("Click Calculate coherent beam to start a session at this Z."
+            self.status.setText("Click Calculate beam to start a session at this Z."
                                 + (" Previous optics remain displayed." if self.result is not None else ""))
             return
         cached = self._cache.get(float(z_mm))
@@ -955,7 +1330,7 @@ class CoherentBeamPage(QWidget):
         request = replace(self._request, observation_z_mm=self._target_z_mm)
         retained = tuple(self._cache.values())+(self.result, self.preview)
         worker = _WaveWorker(self._generation, self._session, self._captured, request, Event(), retained,
-                             observer=self._observation_session)
+                             observer=self._observation_session, pair_context=self._pair_context)
         worker.signals.solved.connect(self._solved)
         worker.signals.failed.connect(self._failed)
         worker.signals.progress.connect(self._progress)
@@ -992,6 +1367,8 @@ class CoherentBeamPage(QWidget):
 
     def _display(self, result, preview):
         self.result, self.preview = result, preview
+        self.state_set.single_display = (result, preview)
+        self._display_comparison(preview)
         self._update_plane_positions()
         self._refresh_intensity()
         self.status.setStyleSheet("")
@@ -1002,7 +1379,7 @@ class CoherentBeamPage(QWidget):
         grids = "; ".join(f"{nx} × {ny}" for ny, nx in preview.grid_shapes)
         grid_text = (f"Displayed wave grid{'s' if len(preview.grid_shapes) > 1 else ''}: {grids} cells"
                      if grids else "Displayed wave grid: unavailable")
-        self.readout.setText(f"{grid_text} | Density / µm² per tip electron | {preview.mode_count} modes | displayed probability {preview.probability:.8g} per tip electron | "
+        self.readout.setText(f"{_coherent_backend_text(result.checkpoint)} | {grid_text} | Density / µm² per tip electron | {preview.mode_count} modes | displayed probability {preview.probability:.8g} per tip electron | "
             f"tip reference current {result.checkpoint.reference_current_a*1e9:.6g} nA | "
             f"{preview.density.shape[1]} × {preview.density.shape[0]} display bins; the executed wave grid is unchanged. Individual complex fields and phase references are preserved. Mixed modes add intensity, never a single aggregate phase.")
 
@@ -1037,7 +1414,7 @@ class CoherentBeamPage(QWidget):
         if generation == self._generation:
             self._worker = None
             self._update_plane_positions()
-            self.cancel_button.setEnabled(False)
+            self._update_cancel_enabled()
             if self._pending_z and not self._closed and not self._stale:
                 # The prior task is allowed to commit reusable upstream work.
                 # No queue of obsolete planes is submitted to the coordinator.
@@ -1047,6 +1424,8 @@ class CoherentBeamPage(QWidget):
     def cancel(self):
         if self._closed:
             return
+        self.invalidate_pair()
+        self.state_set.cancel()
         self._cancel_request()
         self.status.setText("Coherent beam request cancelled."
                             + (" Previous complete plane remains displayed." if self.result is not None else ""))
@@ -1056,7 +1435,9 @@ class CoherentBeamPage(QWidget):
             self._cancel_request()
             self._closed = True
             self._observation_session = None
-        return self.pool.waitForDone(msecs)
+        states_finished = self.state_set.shutdown(msecs)
+        observations_finished = self.observation.shutdown(msecs)
+        return self.pool.waitForDone(msecs) and states_finished and observations_finished
 
     def closeEvent(self, event):
         if self.shutdown():

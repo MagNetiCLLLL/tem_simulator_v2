@@ -18,6 +18,7 @@ def test_execution_export_matches_actual_nodes_and_keeps_verification_separate(t
     assert {row["node_id"] for row in result.metrics["camera_flux_ledger"]} <= operations
     assert manifest["source_energy_mode_count"]==1
     assert manifest["phonon_configuration_count"]==1
+    assert manifest["requested_policy"] == manifest["requested_backend"]
     assert manifest["verification"]["experimental_calibration"]=="NOT_RUN"
     assert manifest["verification"]["numerical_convergence"]=="NOT_RUN"
     assert "A5" in manifest["aberration_coverage"]["wave_terms"]
@@ -66,16 +67,31 @@ def test_old_profile_is_rejected_before_applying_hardware_values(tmp_path):
     assert state.to_dict() == before
 
 
-def test_stem_execution_policy_and_budget_are_persisted_and_validated(tmp_path,qtbot):
+@pytest.mark.parametrize("backend,old_policy", [("CPU", "require_gpu"), ("Require GPU", "auto")])
+def test_legacy_stem_policy_cannot_override_toolbar_and_scan_controls_load(qtbot, backend, old_policy):
+    from temsim.gui.scan_panel import ScanControlView
     from temsim.optics.column import default_state
     from temsim.optics.model import State
-    from temsim.runtime_parameters import runtime_targets,validate_runtime_assignment
+    from temsim.runtime_parameters import editable_parameters, runtime_targets, validate_runtime_assignment
     state=default_state()
-    state.sample.stem_execution_policy="require_gpu"
+    state.acceleration_backend=backend
+    state.acceleration_enabled=backend != "CPU"
     state.sample.stem_fourdstem_host_budget_mb=32
-    restored=State.from_dict(state.to_dict())
-    assert restored.sample.stem_execution_policy=="require_gpu"
+    saved=state.to_dict()
+    saved["sample"]["stem_execution_policy"]=old_policy
+    restored=State.from_dict(saved)
+    assert restored.acceleration_backend==backend
+    assert restored.acceleration_enabled==(backend != "CPU")
+    assert not hasattr(restored.sample, "stem_execution_policy")
+    assert "stem_execution_policy" not in restored.to_dict()["sample"]
     assert restored.sample.stem_fourdstem_host_budget_mb==32
-    target=runtime_targets(state)["sample"]
-    for field,value in (("stem_execution_policy","random"),("stem_fourdstem_host_budget_mb",0)):
-        with pytest.raises(ValueError): validate_runtime_assignment(target,field,value)
+    targets=runtime_targets(restored)
+    simulation_fields={parameter.name for parameter in editable_parameters(targets["simulation"])}
+    assert not {"acceleration_backend", "acceleration_enabled"} & simulation_fields
+    with pytest.raises(ValueError):
+        validate_runtime_assignment(targets["sample"], "stem_fourdstem_host_budget_mb", 0)
+    view=ScanControlView()
+    qtbot.addWidget(view)
+    view.set_state(restored)
+    assert not hasattr(view, "stem_execution_policy")
+    assert view.fourdstem_host_budget.value()==32

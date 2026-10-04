@@ -9,6 +9,18 @@ from temsim.physics.multiplane_wave import PlaneWave, propagate_plane_wave, rese
 from temsim.physics.wave_grid import WaveGridNumerics, WaveSamplingError, WaveGridBudgetError, refine_plane_wave
 
 
+@pytest.fixture
+def cuda_wave_module():
+    cp = pytest.importorskip("cupy")
+    try:
+        available = cp.cuda.runtime.getDeviceCount() > 0
+    except cp.cuda.runtime.CUDARuntimeError:
+        available = False
+    if not available:
+        pytest.skip("A CUDA device is required for complex128 parity")
+    return cp
+
+
 def gaussian():
     sigma, step, n = 5e-9, 5e-10, 512
     x = (np.arange(n)-n//2)*step
@@ -283,6 +295,51 @@ def _sheared_non_gaussian_carrier():
     amplitude /= np.linalg.norm(amplitude)
     return replace(zero, amplitude=amplitude, curvature_m1=np.array(((-2200., 300.), (300., 1800.))),
         tilt_rad=np.array((3e-5, -2e-5))), lam
+
+
+@pytest.mark.parametrize("operation", ["spectral", "collins", "domain", "carrier"])
+def test_cuda_lct_and_gauge_keep_complete_complex_field_on_device(cuda_wave_module, monkeypatch, operation):
+    """Compare actual CPU/CUDA kernels, including the CZT and padded charts."""
+    import temsim.physics.multiplane_wave as module
+    from temsim.physics.wave_device import device_scope
+    cp = cuda_wave_module
+    if operation == "collins":
+        source, matrix, lam, *_ = _collins_tail_fixture(angle=.37)
+    elif operation == "domain":
+        source, lam, length, *_ = _short_drift_domain_fixture()
+        matrix = drift(length)
+    else:
+        source, lam = _sheared_non_gaussian_carrier()
+        matrix = drift(2e-6)
+    numerics = WaveGridNumerics(maximum_pixels=1024, maximum_working_bytes=512*1024**2)
+    def execute(wave):
+        if operation == "carrier":
+            return reselect_phase_carrier(wave, lam, grid_numerics=numerics)[0]
+        return propagate_plane_wave(wave, matrix, np.zeros(4), lam, grid_numerics=numerics)
+    expected = execute(source)
+    transfers = []
+    original_to_host = module.to_host
+    def only_small_covariance(value):
+        transfers.append(value.shape)
+        assert value.shape == (4, 4)
+        return original_to_host(value)
+    monkeypatch.setattr(module, "to_host", only_small_covariance)
+    with device_scope("Require GPU", maximum_working_bytes=512*1024**2):
+        input_array = cp.asarray(source.amplitude)
+        device_source = replace(source, amplitude=input_array)
+        input_array[:] = 0  # PlaneWave must own a complex128 copy.
+        actual = execute(device_source)
+        assert isinstance(actual.amplitude, cp.ndarray)
+        assert actual.amplitude.dtype == cp.complex128
+        assert isinstance(actual.coordinates_m(), cp.ndarray)
+        np.testing.assert_allclose(cp.asnumpy(actual.amplitude), expected.amplitude, rtol=2e-10, atol=2e-12)
+        assert actual.probability == pytest.approx(expected.probability, abs=2e-12)
+        covariance = actual.canonical_covariance(lam)
+        np.testing.assert_allclose(covariance, expected.canonical_covariance(lam), rtol=2e-10, atol=1e-24)
+        for name in ("basis_m", "origin_m", "curvature_m1", "tilt_rad"):
+            np.testing.assert_allclose(getattr(actual, name), getattr(expected, name), rtol=2e-10, atol=1e-12)
+            assert not getattr(actual, name).flags.writeable
+    assert transfers and set(transfers) == {(4, 4)}
 
 
 def test_exact_carrier_gauge_preserves_off_axis_sheared_non_gaussian_full_field_and_inverse():

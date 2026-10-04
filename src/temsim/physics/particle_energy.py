@@ -27,24 +27,35 @@ def energy_survival_mask(branch, z_mm):
     return (np.isnan(blocked) & alive) | (z < blocked-1e-9)
 
 
-def sample_kinetic_energy(branch, z_mm):
+def sample_kinetic_energy(branch, z_mm, *, validate_history=True):
     """Read/interpolate retained energy; None means unavailable historical data.
 
     Exact stored planes retain their values. This is a readout interpolation,
     never the state used to resume an integration between checkpoints.
+    Readout-only callers may validate just the selected rows. Full-history
+    validation remains the default and is required for transport admission.
     """
     values = getattr(branch, "kinetic_energy_ev", None)
     if values is None:
         return None
     z = np.asarray(branch.z, dtype=float)
     energy = np.asarray(values)
-    validate_kinetic_energy_array(energy, np.shape(branch.x), allow_unknown=True)
+    if validate_history:
+        validate_kinetic_energy_array(energy, np.shape(branch.x), allow_unknown=True)
+    elif energy.shape != np.shape(branch.x) or energy.dtype != np.dtype(np.float64):
+        raise ValueError("Particle kinetic energies must be float64 values matching geometry")
+    if z.ndim != 1 or not np.all(np.isfinite(z)) or np.any(np.diff(z) <= 0):
+        raise ValueError("Particle energy history requires increasing finite axial planes")
     target = float(z_mm)
     if not np.isfinite(target) or not len(z) or target < z[0] or target > z[-1]:
         return np.full(energy.shape[1], np.nan)
     upper = int(np.searchsorted(z, target, side="left"))
     if z[upper] == target:
+        if not validate_history:
+            validate_kinetic_energy_array(energy[upper], (energy.shape[1],), allow_unknown=True)
         return energy[upper].copy()
     lower = upper-1
+    if not validate_history:
+        validate_kinetic_energy_array(energy[lower:upper+1], (2, energy.shape[1]), allow_unknown=True)
     fraction = (target-z[lower])/(z[upper]-z[lower])
     return energy[lower]*(1.-fraction)+energy[upper]*fraction

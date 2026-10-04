@@ -140,24 +140,28 @@ class PlaneStop:
 
         if self.kind != "aperture":
             raise TypeError("Only an aperture has a transmission mask")
-        x_mm = np.asarray(x_m, dtype=float) * 1.0e3 - self.offset_x_mm
-        y_mm = np.asarray(y_m, dtype=float) * 1.0e3 - self.offset_y_mm
+        from temsim.physics.wave_device import array_module
+        xp = array_module(x_m)
+        x_mm = xp.asarray(x_m, dtype=float) * 1.0e3 - self.offset_x_mm
+        y_mm = xp.asarray(y_m, dtype=float) * 1.0e3 - self.offset_y_mm
         if self.radius_mm == 0:
-            return np.zeros(np.broadcast_shapes(x_mm.shape, y_mm.shape), dtype=bool)
-        return np.hypot(x_mm, y_mm) <= self.radius_mm
+            return xp.zeros(np.broadcast_shapes(x_mm.shape, y_mm.shape), dtype=bool)
+        return xp.hypot(x_mm, y_mm) <= self.radius_mm
 
     def hit_mask(self, x_m, y_m) -> np.ndarray:
         """Return the active detector region for coordinates expressed in metres."""
 
         if self.kind != "detector":
             raise TypeError("Only a detector has a hit mask")
-        x_mm = np.asarray(x_m, dtype=float) * 1.0e3 - self.offset_x_mm
-        y_mm = np.asarray(y_m, dtype=float) * 1.0e3 - self.offset_y_mm
+        from temsim.physics.wave_device import array_module
+        xp = array_module(x_m)
+        x_mm = xp.asarray(x_m, dtype=float) * 1.0e3 - self.offset_x_mm
+        y_mm = xp.asarray(y_m, dtype=float) * 1.0e3 - self.offset_y_mm
         geometry = str(self.geometry).lower()
         half_width = 0.5 * self.outer_width_mm
         if geometry in {"square", "rectangle", "camera"}:
-            return (np.abs(x_mm) <= half_width) & (np.abs(y_mm) <= half_width)
-        radius = np.hypot(x_mm, y_mm)
+            return (xp.abs(x_mm) <= half_width) & (xp.abs(y_mm) <= half_width)
+        radius = xp.hypot(x_mm, y_mm)
         if geometry == "annulus":
             return (
                 (radius >= 0.5 * self.inner_diameter_mm)

@@ -4,7 +4,7 @@ Only the pipeline constructs lookup keys from captured physical inputs. This
 is not an import API for a user-supplied beam. No pickle or executable codec.
 Incomplete writes are never indexed; immutable mode buffers load one at a time.
 """
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 import json
@@ -80,6 +80,28 @@ class _StoredBeam:
     @property
     def resident_bytes(self):
         return 0
+
+
+@dataclass(frozen=True)
+class _StoredAuxiliary(Mapping):
+    """Mandatory near-field traces, verified lazily without retaining buffers."""
+    reader: _StoredModes
+    rows: object
+
+    def __post_init__(self):
+        object.__setattr__(self, "rows", freeze_json(self.rows))
+
+    def __iter__(self):
+        return iter(self.rows)
+
+    def __len__(self):
+        return len(self.rows)
+
+    def __getitem__(self, name):
+        array = self.reader._array(self.rows[name])
+        # Own an immutable snapshot after checksum validation. The Mapping
+        # retains only metadata; a caller can release this one array at once.
+        return np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
 
 
 class _ModeWriter:
@@ -248,13 +270,16 @@ class ExecutedWaveStore:
         beam = _StoredBeam(_StoredModes(directory, data["modes"], data["reference_plane"]), data["reference_plane"], identity)
         return TipGunCheckpoint(beam, data["plane_z_mm"], data["current_a"],
             {**data["record"], "storage": {"manifest_digest": identity, "key": key,
-                                          "dependency": self.dependency, "directory": str(directory)}})
+                                          "dependency": self.dependency, "directory": str(directory)}},
+            auxiliary_arrays=_StoredAuxiliary(beam.modes, data.get("auxiliary", {})))
 
     def put(self, key, checkpoint):
         writer = self.writer(key, checkpoint.beam.reference_plane)
         try:
             for mode in checkpoint.beam.modes:
                 writer.append(mode)
+            for name, array in checkpoint.auxiliary_arrays.items():
+                writer.append_auxiliary(name, array)
             return writer.finish(checkpoint.plane_z_mm, checkpoint.reference_current_a, checkpoint.record)
         finally:
             writer.abort()

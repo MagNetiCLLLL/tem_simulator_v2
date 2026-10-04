@@ -21,6 +21,8 @@ from temsim.physics.continuous_gun_field import ContinuousGunField
 from temsim.physics.axis_regular_potential import AxisRegularPotential
 from temsim.physics.axisymmetric_cut_field import AxisymmetricCutField
 from temsim.physics.continuous_curvature_conductor import ContinuousCurvatureConductor
+from temsim.physics.grounded_tip_field import GroundedTipField
+from temsim.optics.electron_gun.tip_surface import TipGeometry
 
 
 def _method_contract(cls, names):
@@ -36,6 +38,11 @@ _ELECTRIC_METHODS = {
 _REGULAR_METHODS = _method_contract(AxisRegularPotential, ("interpolate",))
 _FEM_METHODS = _method_contract(AxisymmetricCutField, ("interpolate", "surface_z"))
 _CONDUCTOR_METHODS = _method_contract(ContinuousCurvatureConductor, ("surface_z_m", "radius_m"))
+_GROUNDED_METHODS = _method_contract(GroundedTipField, (
+    "_interpolate", "potential_v_at_global_positions", "potential_rise_v_at_global_positions",
+    "field_at_global_positions_v_per_m", "_metal_surface_z", "tip_material_mask", "surface_mesh_positions"))
+_TIP_GEOMETRY_METHODS = _method_contract(TipGeometry, ("radius_m",))
+_GROUNDED_SCHEMA = "axisymmetric-grounded-feg-laplace-v2"
 
 
 def _methods_match(value, methods):
@@ -84,6 +91,18 @@ def _physical_request(request):
     from temsim.physics.closed_gun_field import SCHEMA as closed_schema
     from temsim.physics.continuous_gun_field import SCHEMA as curved_schema
     from temsim.physics.planar_gun_field import SCHEMA as planar_schema
+
+    if isinstance(request, dict) and request.get("schema") == _GROUNDED_SCHEMA:
+        request_digest(request)
+        required = ("geometry", "numerics", "rings", "high_tension_v", "exit_m",
+                    "gun_lens_voltage_reference", "potential_interpolation", "mesh_generation")
+        if any(key not in request for key in required) or not request["rings"]:
+            raise ValueError("Grounded tip field request is incomplete")
+        TipGeometry(**request["geometry"]).validate()
+        return {key: deepcopy(request[key]) for key in
+                ("schema", "geometry", "rings", "high_tension_v", "exit_m", "gun_lens_voltage_reference")} | {
+            "potential_reference": "final_anode_ground_0V",
+            "boundary_conditions": "insulating radial/back boundaries; grounded exit; constant grounded continuation"}
 
     schemas = (closed_schema, curved_schema, planar_schema)
     required = ("potential_reference", "source_admission", "rings", "high_tension_v",
@@ -160,9 +179,13 @@ def _current_interpolation_identity(provider_type):
         names.extend(("physics/continuous_gun_field.py", "physics/axis_regular_potential.py",
                       "physics/axisymmetric_cut_field.py", "physics/continuous_curvature_conductor.py",
                       "physics/axis_field_interpolation.py"))
+    elif provider_type is GroundedTipField:
+        names.extend(("physics/grounded_tip_field.py", "physics/axis_regular_potential.py",
+                      "physics/axisymmetric_cut_field.py", "physics/axis_field_interpolation.py",
+                      "optics/electron_gun/tip_surface.py"))
     root = Path(__file__).parent
     libraries = {"numpy": np.__version__}
-    if provider_type is ContinuousGunField:
+    if provider_type in (ContinuousGunField, GroundedTipField):
         for name in ("numba", "llvmlite"):
             try:
                 libraries[name] = metadata.version(name)
@@ -171,6 +194,57 @@ def _current_interpolation_identity(provider_type):
     return identity_digest("electric-interpolation-implementation-v1", {
         "files": {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in names},
         "libraries": libraries})
+
+
+def _grounded_field_identity(provider):
+    """Identify the executed curved-tip field, including its actual FEM data.
+
+    Its historical request has a different boundary model from the continuing
+    liner solver. Do not relabel it as that model or grant unknown providers
+    identity merely from an equal parameter dictionary.
+    """
+    from temsim.physics.continuous_gun_field import _FEM_ARRAYS
+    request = provider.request
+    if request.get("schema") != _GROUNDED_SCHEMA:
+        raise ValueError("Grounded tip field request schema is unknown")
+    physical_id = identity_digest("electric-physical-v1", _physical_request(request))
+    if (not _methods_match(provider, _GROUNDED_METHODS)
+            or type(provider.geometry) is not TipGeometry
+            or not _methods_match(provider.geometry, _TIP_GEOMETRY_METHODS)
+            or asdict(provider.geometry) != request["geometry"]
+            or provider.high_tension_v != request["high_tension_v"]
+            or provider.report.get("potential_reference") != "final_anode_ground_0V"
+            or provider.report.get("potential_interpolation") != request["potential_interpolation"]
+            or type(provider._regular) is not AxisRegularPotential
+            or type(provider._fem) is not AxisymmetricCutField
+            or not _methods_match(provider._regular, _REGULAR_METHODS)
+            or not _methods_match(provider._fem, _FEM_METHODS)
+            or provider._regular.field is not provider._fem
+            or provider.r is not provider._fem.r or provider.z is not provider._fem.z
+            or provider.rise is not provider._fem.nodal_voltage):
+        raise ValueError("Grounded tip field has custom or inconsistent interpolation data")
+    arrays = {f"fem.{name}": getattr(provider._fem, name) for name in _FEM_ARRAYS}
+    arrays.update({f"regular.{name}": getattr(provider._regular, name)
+                   for name in ("radius_m", "s", "slope")})
+    if any(not isinstance(value, np.ndarray) or value.flags.writeable for value in arrays.values()):
+        raise ValueError("Grounded tip field data are not immutable arrays")
+    r, z = provider.r, provider.z
+    if (r.ndim != 1 or z.ndim != 1 or len(r) < 2 or len(z) < 2 or r[0] != 0.
+            or np.any(np.diff(r) <= 0.) or np.any(np.diff(z) <= 0.)
+            or provider.rise.shape != (len(r), len(z)) or z[-1] != request["exit_m"]):
+        raise ValueError("Grounded tip field has invalid interpolation axes")
+    support = (float(r[-1]), float(z[0]), float(z[-1]))
+    request_id = request_digest(request)
+    numerical_id = identity_digest("electric-numerical-v1", {
+        "request_sha256": request_id, "provider": type(provider).__name__,
+        "support_r_z_m": support,
+        "current_interpolation": _current_interpolation_identity(type(provider)),
+        "regular_compiled_requested": bool(provider._regular.compiled),
+        "regular_axis_fraction": provider._regular.fraction,
+        "executed_report": provider.report,
+        "arrays": {name: field_array_digest(value) for name, value in arrays.items()},
+    })
+    return ElectricFieldIdentity("known", physical_id, numerical_id, request_id, support)
 
 
 def electric_field_identity(provider) -> ElectricFieldIdentity:
@@ -183,9 +257,11 @@ def electric_field_identity(provider) -> ElectricFieldIdentity:
     from temsim.physics.continuous_gun_field import ContinuousGunField, SCHEMA as curved_schema
     from temsim.physics.planar_gun_field import PlanarGunField, SCHEMA as planar_schema
 
-    if type(provider) not in (ClosedGunField, ContinuousGunField, PlanarGunField):
+    if type(provider) not in (ClosedGunField, ContinuousGunField, PlanarGunField, GroundedTipField):
         return ElectricFieldIdentity("unknown", reason="Unsupported electric provider identity")
     try:
+        if type(provider) is GroundedTipField:
+            return _grounded_field_identity(provider)
         if not _methods_match(provider, _ELECTRIC_METHODS[type(provider)]):
             raise ValueError("Electric provider uses a custom field method")
         request = provider.request

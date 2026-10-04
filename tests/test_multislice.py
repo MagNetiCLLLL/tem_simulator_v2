@@ -192,3 +192,13 @@ def test_cupy_oom_retries_the_complex128_cpu_reference(monkeypatch):
     assert diagnostics.compute_backend == "NumPy CPU"
     assert diagnostics.numeric_precision == "complex128 / float64"
     assert "synthetic GPU failure" in diagnostics.fallback_reason
+
+
+def test_require_gpu_multislice_preserves_resource_failure(monkeypatch):
+    def unavailable():
+        raise compute_backend.GPUExecutionError("out_of_memory", "required multislice allocation failed")
+
+    monkeypatch.setattr(multislice, "cupy_module", unavailable)
+    wave = _normalised_plane_wave(24)
+    with pytest.raises(compute_backend.GPUExecutionError, match="required multislice allocation failed"):
+        _propagate(wave, np.zeros(wave.shape), compute_backend="CuPy CUDA", requested_policy="Require GPU")

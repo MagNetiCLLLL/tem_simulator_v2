@@ -96,10 +96,19 @@ def test_coherent_cache_cannot_substitute_an_exit_source(state, historical):
 
 def test_physical_dispatch_preserves_gun_history_and_cached_upstream_work(state):
     from temsim.optics.electron_gun.source import trace_source_to_exit
+    from temsim.physics.gun_field_environment import instrument_gun_field_context
     gun = state.electron_gun
     trace = trace_source_to_exit(state)
     assert trace_source_to_exit(state) is trace
-    assert trace is gun.trace_to_exit()
+    # A direct call shares the result only when it executes the same captured
+    # instrument E/B domain. Outside that scope it is a standalone gun-local
+    # calculation and must not retain magnetic fields from an earlier capture.
+    with instrument_gun_field_context(state):
+        assert gun.trace_to_exit() is trace
+    standalone = gun.trace_to_exit()
+    assert standalone is not trace
+    assert gun.trace_to_exit() is standalone
+    assert trace_source_to_exit(state) is trace
     assert trace.z_mm[0] == 0
     assert trace.z_mm[-1] == gun.exit_plane_z_mm
     assert trace.z_mm.size > 2

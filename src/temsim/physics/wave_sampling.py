@@ -22,6 +22,32 @@ class WaveSamplingPlan:
     expanded: bool
 
 
+@dataclass(frozen=True, slots=True)
+class PotentialPreparationBudget:
+    """Explicit potential-only stage budget for a separately owned wave solver.
+
+    Potential construction retains all configurations, a projected mean and
+    temporarily a second full copy while masking or making cache snapshots.
+    The 128 bytes per potential pixel reserve covers builder, mask, projection
+    and coordinate scratch. The caller supplies its independently estimated
+    propagation working set; these phases are sequential, not simultaneous.
+    """
+
+    maximum_working_bytes: int
+    retained_bytes: int = 0
+    propagation_working_bytes: int = 0
+
+    def validate(self):
+        for name, minimum in (("maximum_working_bytes", 1), ("retained_bytes", 0),
+                              ("propagation_working_bytes", 0)):
+            value = getattr(self, name)
+            if type(value) is not int or value < minimum:
+                raise ValueError(f"Potential preparation {name} must be an integer >= {minimum}")
+        if self.retained_bytes >= self.maximum_working_bytes:
+            raise ValueError("Retained wave inputs leave no specimen-potential working memory")
+        return self
+
+
 def plan_wave_sampling(
     *,
     reference_fov_angstrom: float,
@@ -33,6 +59,7 @@ def plan_wave_sampling(
     atomistic: bool = True,
     max_potential_bytes: int = 4 * 1024**3,
     max_working_bytes: int = 8 * 1024**3,
+    preparation_budget: PotentialPreparationBudget | None = None,
 ) -> WaveSamplingPlan:
     """Preserve the configured FOV/grid spacing when a beam needs more space.
 
@@ -55,6 +82,10 @@ def plan_wave_sampling(
     if (not math.isfinite(configuration_count)
             or int(configuration_count) != configuration_count or configuration_count < 1):
         raise ValueError("Wave configuration count must be a positive integer.")
+    if preparation_budget is not None:
+        preparation_budget.validate()
+        max_working_bytes = preparation_budget.maximum_working_bytes
+        max_potential_bytes = max_working_bytes-preparation_budget.retained_bytes
     if not math.isfinite(max_potential_bytes) or max_potential_bytes <= 0:
         raise ValueError("Wave potential storage limit must be positive.")
     if not math.isfinite(max_working_bytes) or max_working_bytes <= 0:
@@ -91,13 +122,20 @@ def plan_wave_sampling(
     # configuration waves and two potential copies. Dynamic STEM grids are
     # unknown to the controller's reference-grid preflight. Bound this extra
     # working set here even for vacuum (whose potential alone is very small).
-    working = pixels * pixels * (1024 + 48 * int(configuration_count)) + 2 * storage
+    if preparation_budget is None:
+        working = pixels * pixels * (1024 + 48 * int(configuration_count)) + 2 * storage
+        scope = "FFT/probe buffers"
+    else:
+        working = preparation_budget.retained_bytes+max(
+            2*storage+128*pixels*pixels,
+            storage+preparation_budget.propagation_working_bytes)
+        scope = "all potential configurations/copies, retained waves and the owning solver's scratch"
     if working > max_working_bytes:
         raise ValueError(
             f"Wave grid {pixels:,} x {pixels:,} needs approximately "
             f"{working / 1024**3:.3g} GiB of wave working memory "
-            f"(limit {max_working_bytes / 1024**3:.3g} GiB), including FFT/probe "
-            "buffers. Reduce probe defocus or scan extent; the grid will not "
+            f"(limit {max_working_bytes / 1024**3:.3g} GiB), including {scope}. "
+            "Reduce probe defocus or scan extent; the grid will not "
             "be silently coarsened."
         )
     return WaveSamplingPlan(

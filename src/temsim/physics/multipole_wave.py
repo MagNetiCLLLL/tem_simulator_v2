@@ -12,6 +12,7 @@ import numpy as np
 
 from temsim.physics.wave_flux import check_lossless_norm
 from temsim.physics.wave_grid import WaveSamplingError
+from temsim.physics.wave_device import array_module, max_abs
 
 
 def multipole_action(x, y, *, normal_m2=0., skew_m2=0., spherical_m3=0.):
@@ -33,6 +34,7 @@ def apply_multipole_phase(wave, wavelength_m, *, normal_m2=0., skew_m2=0., spher
         raise ValueError("Multipole phase requires positive wavelength")
     if normal_m2 == skew_m2 == spherical_m3 == 0:
         return wave
+    xp = array_module(wave.amplitude)
     x, y = wave.coordinates_m()
     x0, y0 = wave.origin_m
     u, v = x-x0, y-y0
@@ -50,25 +52,25 @@ def apply_multipole_phase(wave, wavelength_m, *, normal_m2=0., skew_m2=0., spher
     residual -= cs*(x0*u+y0*v)*(u*u+v*v)
     phase = (2*np.pi/wavelength_m)*residual
     amplitude = wave.amplitude
-    occupied = abs(amplitude) > np.max(abs(amplitude))*1e-8
+    occupied = abs(amplitude) > max_abs(amplitude)*1e-8
     required_scale, largest = 1., 0.
     # Bound represented envelope frequencies by marginal spectral probability.
     # A wrapped neighbour phase is not a frequency bound: zeros and vortices
     # legitimately have pi jumps. No spectrum is removed by this check.
-    spectrum = abs(np.fft.fft2(amplitude, norm="ortho"))**2
+    spectrum = abs(xp.fft.fft2(amplitude, norm="ortho"))**2
     total = float(spectrum.sum())
     for axis in (0, 1):
         n = amplitude.shape[axis]
-        low = np.take(occupied, np.arange(n-1), axis=axis)
-        high = np.take(occupied, np.arange(1, n), axis=axis)
-        operator_difference = abs(np.diff(phase, axis=axis))[low & high]
-        added = float(operator_difference.max(initial=0.))
-        frequencies = abs(2*np.pi*np.fft.fftfreq(n))
+        low = xp.take(occupied, xp.arange(n-1), axis=axis)
+        high = xp.take(occupied, xp.arange(1, n), axis=axis)
+        operator_difference = abs(xp.diff(phase, axis=axis))[low & high]
+        added = max_abs(operator_difference)
+        frequencies = abs(2*np.pi*xp.fft.fftfreq(n))
         marginal = spectrum.sum(axis=1-axis)
-        order = np.argsort(frequencies)
-        tail = np.cumsum(marginal[order][::-1])[::-1]
+        order = xp.argsort(frequencies)
+        tail = xp.cumsum(marginal[order][::-1])[::-1]
         support = frequencies[order][tail > total*1e-12]
-        bandwidth = float(support.max(initial=0.))
+        bandwidth = max_abs(support)
         largest = max(largest, added+bandwidth)
         required_scale = max(required_scale, (added+bandwidth)/(.8*np.pi))
     if required_scale > 1:
@@ -76,7 +78,7 @@ def apply_multipole_phase(wave, wavelength_m, *, normal_m2=0., skew_m2=0., spher
                                 f"{largest:.6g} rad, budget 0.8*pi); refine the physical wave grid", required_scale)
     curvature = np.zeros((2, 2)) if wave.curvature_m1 is None else wave.curvature_m1
     tilt = np.zeros(2) if wave.tilt_rad is None else wave.tilt_rad
-    result = replace(wave, amplitude=amplitude*np.exp(1j*(phase+2*np.pi*constant/wavelength_m)),
+    result = replace(wave, amplitude=amplitude*xp.exp(1j*(phase+2*np.pi*constant/wavelength_m)),
                      curvature_m1=curvature+hessian, tilt_rad=tilt+gradient)
     check_lossless_norm(wave.probability, result.probability, context="Column multipole phase")
     return result

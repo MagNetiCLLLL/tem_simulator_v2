@@ -1144,7 +1144,7 @@ class PartModelEditorPage(QWidget):
         self.source_label.setText(f"{marker}{path.name} · {self._selected_key or ''}{suffix}")
         self.source_label.setToolTip(
             f"Source: {path}\nComponent: {self._selected_key or ''}\n"
-            + (f"Shared tip: {shared}\nSaving tip dimensions or emission settings updates every linked FEG assembly."
+            + (f"Tip: {shared}\nSaving tip dimensions or emission settings updates every linked FEG assembly."
                if shared is not None else "Components belonging to this module share this TOML file.")
         )
         if storage is not None:

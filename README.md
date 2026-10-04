@@ -18,8 +18,9 @@ The simulator does not currently provide autonomous microscope control.
   extraction, acceleration, lenses, deflectors, stigmators and apertures.
 - Interactive ray diagrams, transverse beam plots, flight-time colouring,
   magnetic-field views and individually adjustable virtual electron paths.
-- A separate coherent-beam development page with explicit tip-boundary inputs,
-  cached exact-Z observations and clear unsupported-operator limits.
+- One **Calculate beam** entry for a captured Tip and instrument state, with
+  intensity, simulated electron arrivals, per-mode phase and probability-flow
+  observations, cached exact-Z planes and named emission-state intensity overlays.
 - Hardware tuning with beam measurements and comparison against a saved baseline.
 - Specimen scattering, detector signals, STEM scanning, EDS and optional
   energy-filter modelling.
@@ -28,18 +29,31 @@ The simulator does not currently provide autonomous microscope control.
 - Compressed result export/import (`.temresult`), reusable startup results and
   separate virtual-electron sessions (`.temdiag`).
 
-Classical particle transport remains the default. Independent coherent
-development resumed on 2026-10-02; the default tip-to-image chain and arbitrary
-Z within the gun or material are not yet qualified. See
-[coherent-beam inputs and limits](docs/COHERENT_BEAM.md). Models target physical
+The **Electron beam** page and top **Calculate beam** button use the same
+calculation entry. Apply supported Tip emission/phase parameters explicitly;
+opening the page or calculating never enables a source model or applies a draft.
+The default tip-to-image chain and arbitrary Z within the gun or material are
+not yet qualified. See [electron-beam inputs and limits](docs/COHERENT_BEAM.md). Models target physical
 mechanisms and qualitative parameter trends, rather than a calibrated
 commercial instrument or a fully validated microscope.
 
-Use **Run high-accuracy once** to update Ray Diagram. Then set specimen or
-detector parameters and click **Calculate** on that page; compatible executed
-beam states before the specimen are reused, and downstream rays update with the
-result. Tab changes do not calculate. Live tuning retains its separate cutoff
-and continuation controls.
+Choose the current Tip, a saved state or an intensity overlay, then press
+**Calculate beam**. Switch observation views without propagating again. Electron
+arrivals sample the calculated screen probabilities, including electrons that
+do not reach that screen; phase belongs to one coherent mode, and probability-flow
+arrows show local current directions rather than measured electron trajectories.
+For a same-input classical comparison, enable **Compare classical rays** under
+the advanced settings before Calculate beam. **Update rays** remains a fast
+geometric preview; **Simulation → Calculate classical rays** explicitly prepares
+the classical Ray Diagram and its specimen/detector page calculations. Those
+pages reuse compatible executed particle states. Tab changes do not calculate.
+Live tuning retains its cutoff and continuation controls.
+
+High-accuracy particle calculations default to **3,000 rays**. The top toolbar's
+**Compute** control is the single CPU/GPU selection for all pages. **Auto** uses
+a usable GPU for supported operations, including small jobs, and otherwise uses
+CPU. CPU-only preparation remains on CPU; completed results report the actual
+backend. Individual pages do not override this preference.
 
 For fast CIF-dependent HAADF/BF/DF images, choose **Projected atoms (fast
 approximation)** in Scanning Image, set the scan pixel size and click

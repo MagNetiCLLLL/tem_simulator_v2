@@ -37,14 +37,14 @@ def definition_path(path, part):
     if reference is None:
         return None
     if part.get("mechanical_only"):
-        raise ValueError("A mechanical copy must be detached from the shared emitting-tip definition")
+        raise ValueError("A mechanical copy must be detached from the instrument Tip definition")
     if part.get("key") != "feg_tip" or not isinstance(reference, str) or not reference.strip():
-        raise ValueError("A shared tip link must identify the feg_tip component")
+        raise ValueError("A tip link must identify the feg_tip component")
     if Path(reference).is_absolute() or Path(reference).drive:
-        raise ValueError("Shared tip references must be relative to the assembly TOML for portable validation and copying")
+        raise ValueError("Tip references must be relative to the assembly TOML for portable validation and copying")
     result = (Path(path).resolve().parent / reference).resolve()
     if result == Path(path).resolve():
-        raise ValueError("A shared tip definition cannot link to itself")
+        raise ValueError("A tip definition cannot link to itself")
     return result
 
 
@@ -66,13 +66,13 @@ def resolve_document(document, path, *, capture_navigation=False):
         try:
             shared = raw_document(source)
         except OSError as exc:
-            raise ValueError(f"Shared FEG tip definition is unavailable: {source}") from exc
+            raise ValueError(f"Tip definition is unavailable: {source}") from exc
         rows = [row for row in shared.get("parts", ()) if row.get("key") == "feg_tip"]
         if len(rows) != 1 or LINK in rows[0]:
-            raise ValueError("Shared FEG tip must contain one independent feg_tip definition")
+            raise ValueError("Tip must contain one independent feg_tip definition")
         validate_tip_part(rows[0])
         if "tip_particle_model" not in rows[0]:
-            raise ValueError("Shared FEG tip must declare its particle model")
+            raise ValueError("Tip must declare its emission model")
         for field in SHARED_FIELDS:
             if field in rows[0]:
                 part[field] = deepcopy(rows[0][field])

@@ -118,7 +118,7 @@ def _propagate_inelastic_specimen(state, checkpoint, *, numerics, store, maximum
         grid_numerics, tip_time_s, cancelled, progress_callback, verify, use_cache):
     from temsim.physics.specimen_wave_transport import _with_material_refinement
     numerics.validate()
-    key = store.key("inelastic-specimen-adaptive-grid-v3", checkpoint.digest, asdict(numerics),
+    key = store.key("inelastic-specimen-carrier-basis-v4", checkpoint.digest, asdict(numerics),
                     maximum_step_mm, asdict(grid_numerics), tip_time_s)
     cached = store.get(key) if use_cache else None
     if cached is not None:
@@ -146,6 +146,7 @@ def _propagate_inelastic_attempt(state, checkpoint, *, numerics, store, maximum_
     scene, prepared, x, y, dzs = material
     configs = prepared.potential_configurations_v_angstrom
     wave_x, wave_y = _material_wave_axes(x, y, grid_numerics)
+    bandwidth_frame = "carrier" if grid_numerics.specimen_phase_method == "galerkin" else "laboratory"
     # Bind consumed arrays, not cache-hit/timing diagnostics (nor process-local
     # function ids). Interrupted slices must remain reusable after restart.
     digest = sha256()
@@ -170,7 +171,7 @@ def _propagate_inelastic_attempt(state, checkpoint, *, numerics, store, maximum_
                     mode = replace(base, mode_id=base.mode_id+f"/phonon:{ci}/trajectory:{ti}",
                         weight_per_reference_electron=base.weight_per_reference_electron/(len(configs)*numerics.trajectories_per_mode))
                     initial = mode.weight_per_reference_electron
-                    mode, band_loss = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction)
+                    mode, band_loss = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction, frame=bandwidth_frame, numerics=grid_numerics)
                     current_z, absorption, column_loss, steps = start, 0., 0., []
                     identity_history = True
                     for si, dz in enumerate(dzs):
@@ -202,7 +203,7 @@ def _propagate_inelastic_attempt(state, checkpoint, *, numerics, store, maximum_
                             report("elastic phase 1/2")
                             mode, phase_before = _material_phase(mode, projected, x, y, sigma, .5,
                                 numerics=grid_numerics, cancelled=cancelled)
-                            mode, lost = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction); band_loss += lost
+                            mode, lost = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction, frame=bandwidth_frame, numerics=grid_numerics); band_loss += lost
                         local = TipGunCheckpoint(BeamState((mode,), checkpoint.beam.reference_plane), current_z,
                             checkpoint.reference_current_a, {"specimen_parent": parent_id})
                         report("column fields through material")
@@ -225,7 +226,7 @@ def _propagate_inelastic_attempt(state, checkpoint, *, numerics, store, maximum_
                             mode, event = _collide_slice(mode, inside, distribution,
                                 _trajectory_rng(numerics.seed, source.mode_id, ci, ti, si), next_z)
                             absorption += event["absorbed_weight"]
-                            mode, lost = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction); band_loss += lost
+                            mode, lost = _bandlimit_mode(mode, state.sample.wave_bandwidth_fraction, frame=bandwidth_frame, numerics=grid_numerics); band_loss += lost
                         steps.append({"slice": si, "event": event, "column": propagated.record["modes"],
                                       "phase_before": phase_before, "phase_after": phase_after})
                         report("verifying and saving slice")
@@ -276,6 +277,8 @@ def _propagate_inelastic_attempt(state, checkpoint, *, numerics, store, maximum_
              "requested_trajectories": total, "executed_trajectories": len(records),
              "material_grid_refinement": {"factor": refinement_factor, "attempts": refinement_history},
              "specimen_phase_method": grid_numerics.specimen_phase_method,
+             "numerical_bandwidth_frame": bandwidth_frame,
+             "bandwidth_policy": "Galerkin retains the analytical carrier and projects residual Fourier frequencies: physical U P U†, a numerical moving-basis cutoff, not a laboratory angular aperture. Sampled phase retains the laboratory projection with checked carrier expansion. Numerical loss is recorded; independent basis and potential-grid convergence remain required.",
              "model": "local Markov momentum-transfer Kraus instrument of existing material Poisson channels",
              "phase": "conditional within each trajectory; no phase between environmental outcomes",
              "statistics": "stochastic histories stay independent; converge count and seed, errors scale as N^-1/2; exactly identity collision histories share one executed complex field with summed weights",

@@ -40,6 +40,38 @@ def test_partial_current_assignment_preserves_unrelated_settings():
     assert state.simulation_mode == before["simulation_mode"]
 
 
+@pytest.mark.parametrize("backend", ["CPU", "Auto", "CUDA GPU", "Require GPU", "gpu"])
+def test_toolbar_compute_policy_roundtrips_without_an_editable_parameter_row(tmp_path, backend):
+    from temsim.runtime_parameters import editable_parameters, runtime_targets
+    from temsim.physics.compute_backend import normalise_backend
+    state = default_state()
+    state.acceleration_backend, state.acceleration_enabled = backend, backend != "CPU"
+    selection = AssemblySelection("FEG", "C3 + Probe Corrector", "No Energy Filter")
+    AssemblyCatalog().apply(state, selection)
+    path = tmp_path / "device.toml"
+    save_profile(path, state, selection)
+    _, values = read_profile(path)
+    assert values["simulation"]["acceleration_backend"] == normalise_backend(backend)
+    # Old page-specific preferences must not override the toolbar on load.
+    values.setdefault("sample", {})["stem_execution_policy"] = "require_gpu"
+    restored = default_state()
+    apply_profile_values(restored, values)
+    assert restored.acceleration_backend == normalise_backend(backend)
+    assert restored.acceleration_enabled is (backend != "CPU")
+    assert not hasattr(restored.sample, "stem_execution_policy")
+    fields = {p.name for p in editable_parameters(runtime_targets(restored)["simulation"])}
+    assert not fields.intersection({"acceleration_backend", "acceleration_enabled"})
+
+
+def test_invalid_profile_device_policy_cannot_partially_change_optics():
+    state = default_state()
+    before = deepcopy(state.to_dict())
+    with pytest.raises(ValueError, match="compute policy"):
+        apply_profile_values(state, {"objective_lens": {"percent": 20.},
+                                     "simulation": {"acceleration_backend": "unknown"}})
+    assert state.to_dict() == before
+
+
 @pytest.mark.parametrize("gun", ["FEG", "FEG + Mono", "Thermionic"])
 def test_current_profile_roundtrip_for_each_gun(tmp_path, gun):
     catalog = AssemblyCatalog()

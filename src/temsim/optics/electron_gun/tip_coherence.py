@@ -22,6 +22,10 @@ from temsim.physics.wave_flux import WaveMode
 from temsim.physics.wave_reference import AxialWaveReference
 
 TIP_REFERENCE = "physical-feg-tip-emitted-electron"
+PHYSICAL_TIP_SOURCE_SCHEMA = "physical-tip-source-description-v1"
+FORWARD_GAUSSIAN_SCHELL = "forward_gaussian_schell"
+DRIVEN_GAUSSIAN_SCHELL = "driven_gaussian_schell"
+TIP_BOUNDARY_MODELS = (FORWARD_GAUSSIAN_SCHELL, DRIVEN_GAUSSIAN_SCHELL)
 
 
 def wavelength_m(energy_ev):
@@ -35,8 +39,11 @@ def wavelength_m(energy_ev):
 class TipCoherence:
     """Additional physical tip inputs; None on the emitter retains its old law.
 
-    Selecting this distribution also selects its positive Wigner distribution
-    for the particle diagnostics. The former classical angular RMS/cutoff and
+    The forward model selects its positive Wigner distribution for particle
+    diagnostics. The driven model instead prescribes a complex injection
+    boundary: particles are the geometric-optics limit of its phase gradient
+    and incoherent tilts, not the quantum transverse-frequency distribution.
+    The former classical angular RMS/cutoff and
     3-sigma position cutoff are retained for the legacy emission law; they are
     not apertures and do not truncate this different, explicitly selected law.
     Installed gun/column apertures always act downstream of emission.
@@ -49,9 +56,16 @@ class TipCoherence:
     offset_y_nm: float = 0.0
     tilt_x_mrad: float = 0.0
     tilt_y_mrad: float = 0.0
+    # Missing historical fields keep their original forward-Wigner semantics.
+    # A driven boundary is a different, explicitly selected source model.
+    boundary_model: str = FORWARD_GAUSSIAN_SCHELL
 
     def validate(self):
+        if not isinstance(self.boundary_model, str) or self.boundary_model not in TIP_BOUNDARY_MODELS:
+            raise ValueError("Unknown Tip boundary model")
         for name, value in asdict(self).items():
+            if name == "boundary_model":
+                continue
             if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(float(value)):
                 raise ValueError(f"Tip coherence {name} must be finite")
         if self.incoherent_angle_rms_mrad < 0:
@@ -101,6 +115,80 @@ def _require_emitter(emitter):
     return parameters
 
 
+def describe_physical_tip_source(emitter):
+    """Describe the one published source using physical, canonical labels.
+
+    ``virtual_source_fwhm_nm`` remains the single historical stored field. Its
+    value is the intensity FWHM at the physical tip emission plane; it is not
+    a back-projected virtual source or an independently placed exit beam.
+    This record is input provenance, never an executed upstream checkpoint.
+    Particle and wave algorithms may use it without copying or editing a
+    second set of source parameters.
+    """
+    emitter.validate()
+    surface = getattr(emitter, "surface_model", None)
+    common = {
+        "schema": PHYSICAL_TIP_SOURCE_SCHEMA,
+        "reference_id": TIP_REFERENCE,
+        "origin": "physical tip before extraction and acceleration",
+        "geometry": {
+            "tip_radius_nm": float(emitter.tip_radius_nm),
+            "tip_cone_half_angle_deg": float(emitter.tip_cone_half_angle_deg),
+            "curvature_nm_inv": float(emitter.curvature_nm_inv),
+        },
+        "current_na": float(emitter.emitted_current_a)*1e9,
+        "scope": "Published source input description, not an executed beam or image qualification",
+    }
+    if surface is not None:
+        common.update(
+            model="physical-surface-emission",
+            geometry=asdict(surface.geometry),
+            surface=surface.to_dict(),
+        )
+        if surface.shared_boundary:
+            common.update(
+                current_definition="Incident injection at the physical tip; net escaping wave current is computed after reflection",
+                particle_representation="Normal-launch geometric-optics comparison of the same injection boundary; not an exact quantum Wigner distribution",
+                mean_kinetic_energy_ev=float(surface.mean_energy_ev),
+                energy_rms_ev=float(surface.energy_sigma_ev),
+                spatial_flux_profile=surface.emission.flux_profile,
+            )
+    else:
+        phase = emitter.coherence
+        common.update(
+            model="gaussian-schell-tip-boundary" if phase is not None else "classical-truncated-gaussian-tip",
+            emission_fwhm_nm=float(emitter.virtual_source_fwhm_nm),
+            width_definition="Intensity FWHM at the physical tip plane",
+            mean_kinetic_energy_ev=float(emitter.emission_energy_ev),
+            minimum_kinetic_energy_ev=float(emitter.minimum_kinetic_energy_ev),
+            energy_spread_fwhm_ev=float(emitter.energy_spread_fwhm_ev),
+            energy_spread_definition="Existing positive energy law, RMS-equivalent FWHM",
+            energy_law={
+                "young_decay_width_ev": float(emitter.young_decay_width_ev),
+                "boersch_sigma_ev": float(emitter.boersch_sigma_ev),
+                "half_range_ev": float(emitter.energy_half_range_ev),
+            },
+            phase=None if phase is None else asdict(phase),
+        )
+        if phase is None:
+            common["classical_direction_law"] = {
+                "angular_rms_mrad": float(emitter.angular_rms_mrad),
+                "angular_cutoff_mrad": float(emitter.angular_cutoff_mrad),
+                "position_cutoff_sigma": 3.,
+            }
+        else:
+            common["boundary_model"] = phase.boundary_model
+            if phase.boundary_model == DRIVEN_GAUSSIAN_SCHELL:
+                common.update(
+                    current_definition="Incident injection at the physical tip; net escaping wave current is computed after reflection",
+                    particle_representation="Geometric-optics phase-gradient rays of the same spatial injection and energy law; not an exact quantum Wigner distribution",
+                    wave_representation="Driven complex Gaussian-Schell boundary with a normal Robin injection condition",
+                )
+            else:
+                common["particle_representation"] = "Positive Gaussian-Schell Wigner distribution within its forward/paraxial source domain"
+    return freeze_json(common)
+
+
 def tip_energy_samples(emitter, count):
     """The same deterministic, positive Young/Boersch law as particle emission.
 
@@ -136,19 +224,31 @@ def tip_covariance(emitter, energy_ev):
 
 
 def tip_particle_samples(emitter, count):
-    """Sample the SAME tip mutual intensity's positive Gaussian Wigner law."""
+    """Sample the particle representation declared by the one Tip model.
+
+    Driven boundaries use geometric rays of their phase and incoherent tilt
+    distribution. Quantum diffraction is retained in the wave calculation;
+    frequencies above the free-electron wave number never become real rays.
+    """
     from temsim.optics.electron_gun.base import EmissionBundle
     from temsim.optics.electron_gun.emitter import _halton_dimensions
     p = _require_emitter(emitter)
-    from temsim.optics.electron_gun.tip_source_domain import validate_tip_source_domain
-    validate_tip_source_domain(emitter)
+    from temsim.optics.electron_gun.tip_source_domain import (
+        validate_tip_geometric_domain, validate_tip_source_domain,
+    )
+    driven = p.boundary_model == DRIVEN_GAUSSIAN_SCHELL
+    if driven:
+        validate_tip_geometric_domain(emitter)
+    else:
+        validate_tip_source_domain(emitter)
     if isinstance(count, bool) or int(count) != count or count < 9:
         raise ValueError("Tip particle diagnostics require at least nine samples")
     n = int(count)
     normal = np.array([ndtri(u) for u in _halton_dimensions(n, (2, 3, 5, 7))])
     energies = tip_energy_samples(emitter, n)
     sigma = float(emitter.virtual_source_fwhm_nm) * 1e-9 / math.sqrt(8 * math.log(2))
-    angle = np.hypot(wavelength_m(energies)/(4*np.pi*sigma), p.incoherent_angle_rms_mrad*1e-3)
+    angle = (p.incoherent_angle_rms_mrad*1e-3 if driven else
+             np.hypot(wavelength_m(energies)/(4*np.pi*sigma), p.incoherent_angle_rms_mrad*1e-3))
     xy = sigma * normal[:2]
     slope = p.curvature @ xy + angle * normal[2:]
     xy += np.array((p.offset_x_nm, p.offset_y_nm))[:, None] * 1e-9
@@ -158,7 +258,8 @@ def tip_particle_samples(emitter, count):
     # (px/p,py/p,1), which would silently narrow the distribution.
     transverse2 = np.sum(slope*slope, axis=0)
     if np.any(transverse2 >= 1):
-        raise ValueError("Tip Wigner samples contain non-forward momenta; a non-paraxial source model is required")
+        representation = "geometric" if driven else "Wigner"
+        raise ValueError(f"Tip {representation} samples contain non-forward momenta; change the declared phase or angular distribution")
     tangent = slope / np.sqrt(1-transverse2)
     return EmissionBundle(xy[0], xy[1], tangent[0], tangent[1],
                           energies-emitter.emission_energy_ev,
@@ -240,15 +341,34 @@ class TipEmission:
                                    axial_reference=AxialWaveReference(0., 0.))
 
 
-def generate_tip_emission(gun, numerics=TipWaveNumerics()):
-    """Read only a physical gun's tip; no user-selectable launch plane or energy gain."""
+def _generate_tip_emission(gun, numerics, *, driven_boundary):
     from temsim.optics.electron_gun.source_policy import require_physical_gun_source
     require_physical_gun_source(gun)
     emitter = gun.emitter
     _require_emitter(emitter)
     numerics.validate()
-    from temsim.optics.electron_gun.tip_source_domain import validate_tip_source_domain
-    source_domain = validate_tip_source_domain(emitter)
+    from temsim.optics.electron_gun.tip_source_domain import (
+        SOURCE_DOMAIN_SCHEMA, inspect_tip_source_domain,
+        validate_tip_boundary, validate_tip_geometric_domain, validate_tip_source_domain,
+    )
+    boundary = validate_tip_boundary(emitter) if driven_boundary else None
+    if driven_boundary:
+        geometric_domain = validate_tip_geometric_domain(emitter)
+        try:
+            source_domain = inspect_tip_source_domain(emitter)
+        except ValueError as error:
+            # A legal positive energy distribution may approach zero kinetic
+            # energy, leaving no finite worst-case paraxial bound. Preserve
+            # that explicit limitation; the driven solver still has to admit
+            # every actual positive energy component and its spatial grid.
+            source_domain = {
+                "schema": SOURCE_DOMAIN_SCHEMA,
+                "status": "BOUND_UNAVAILABLE",
+                "reason": str(error),
+                "scope": "No ray or paraxial admission; the complex boundary remains separately defined",
+            }
+    else:
+        source_domain = validate_tip_source_domain(emitter)
     energies = tip_energy_samples(emitter, numerics.energy_samples)
     rows = [_mode_row(emitter, energy, numerics) for energy in energies]
     count = sum(row["modes_per_axis"]**2 for row in rows)
@@ -259,7 +379,7 @@ def generate_tip_emission(gun, numerics=TipWaveNumerics()):
         "virtual_source_fwhm_nm", "energy_spread_fwhm_ev", "young_decay_width_ev",
         "boersch_sigma_ev", "energy_half_range_ev")}
     parameters["coherence"] = asdict(emitter.coherence)
-    return TipEmission(parameters, numerics, {
+    record = {
         "schema": "physical-tip-mutual-intensity-v2", "plane_z_mm": 0.,
         "source_domain": source_domain,
         "reference_id": TIP_REFERENCE, "model": "circular Gaussian-Schell at FEG tip",
@@ -267,4 +387,34 @@ def generate_tip_emission(gun, numerics=TipWaveNumerics()):
         "omitted_probability": float(np.mean([row["omitted_probability"] for row in rows])),
         "energy_law": "Existing positive Young/Boersch quantile law; equal-weight energy samples",
         "energy_convergence": "NOT_VALIDATED", "emission_boundary": "After tunnelling, before extraction/acceleration",
-        "physical_calibration": "USER_DEFINED_TIP_NOT_MEASURED"})
+        "physical_calibration": "USER_DEFINED_TIP_NOT_MEASURED"}
+    if driven_boundary:
+        record.update(
+            schema="physical-tip-driven-gaussian-boundary-v1",
+            boundary=boundary,
+            physical_source=describe_physical_tip_source(emitter),
+            representation="Driven complex boundary; non-propagating support is not a ray ensemble",
+            injected_flux_status="REQUIRES_BOUNDARY_SOLVER",
+            particle_domain=geometric_domain,
+        )
+    return TipEmission(parameters, numerics, record)
+
+
+def generate_tip_emission(gun, numerics=TipWaveNumerics()):
+    """Generate modes under the Tip's explicitly published boundary model."""
+    if getattr(getattr(gun.emitter, "coherence", None), "boundary_model", None) == DRIVEN_GAUSSIAN_SCHELL:
+        return generate_tip_boundary_emission(gun, numerics)
+    return _generate_tip_emission(gun, numerics, driven_boundary=False)
+
+
+def generate_tip_boundary_emission(gun, numerics=TipWaveNumerics()):
+    """Build the same physical tip boundary for an explicit non-paraxial solve.
+
+    No source width, energy, phase, current or mode shape is changed. The
+    result is a prescribed complex boundary with L2-normalized mode fields.
+    A two-way/near-field solver must supply the injection condition and flux
+    normalization; these modes must not be consumed as paraxial rays. Calling
+    this opt-in function does not change the Tip's published model. Production
+    selection requires boundary_model='driven_gaussian_schell' on the Tip.
+    """
+    return _generate_tip_emission(gun, numerics, driven_boundary=True)

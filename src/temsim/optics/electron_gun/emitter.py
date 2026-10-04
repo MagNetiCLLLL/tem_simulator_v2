@@ -81,7 +81,7 @@ class ColdFieldEmitter:
     young_decay_width_ev: float = 0.20
     boersch_sigma_ev: float = 0.10
     energy_half_range_ev: float = 1.0
-    ray_count: int = 1000
+    ray_count: int = 3000
 
     @property
     def quadrature(self):
@@ -188,8 +188,9 @@ class ColdFieldEmitter:
     def validate(self):
         if self.quadrature is not None:
             self.quadrature.validate()
-            if self.coherence is not None or (self.surface_model is not None and self.surface_model.coherence is not None):
-                raise ValueError("Product quadrature is classical only; coherent development is paused")
+            if self.coherence is not None or (self.surface_model is not None
+                    and self.surface_model.coherence is not None and not self.surface_model.shared_boundary):
+                raise ValueError("Product quadrature is classical only for this source model; use a classical law or the shared cap geometric-ray representation")
         from temsim.optics.electron_gun.tip_curvature import validate_curvature
         validate_curvature(self)
         if self.surface_model is not None:

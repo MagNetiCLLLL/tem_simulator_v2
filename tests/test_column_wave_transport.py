@@ -63,6 +63,29 @@ def test_captured_residual_electric_field_is_executed_in_column_wave_operator():
     assert result.beam.total_weight == pytest.approx(checkpoint().beam.total_weight, rel=1e-10)
 
 
+def test_segmented_column_uses_actual_slotted_propagation_plan(tmp_path, monkeypatch):
+    """Exercise production plan storage, not only analytic namespace fixtures."""
+    import temsim.physics.column_wave as column
+    from temsim.physics.wave_checkpoint_store import ExecutedWaveStore
+    state = default_state()
+    prepared = column._prepare_column(state, 2000., 2000.01, .01)
+    assert not hasattr(prepared[0], "__dict__")
+    source = checkpoint(two=True)
+    monkeypatch.setattr(column, "numerical_thread_budget", lambda requested=None: 2)
+    output, hit = column._propagate_column_segmented(state, source, 2000.01,
+        store=ExecutedWaveStore(tmp_path, "actual-slotted-column", 1<<28),
+        maximum_step_mm=.01, segment_steps=128, _prepared=prepared)
+    assert not hit
+    assert output.plane_z_mm == 2000.01
+    assert [m.mode_id for m in output.beam.modes] == [m.mode_id for m in source.beam.modes]
+    assert output.beam.total_weight == pytest.approx(source.beam.total_weight, rel=1e-10)
+    resources = output.record["mode_execution"]
+    assert resources["workers"] == 2
+    assert resources["shared_retained_bytes"] > 0
+    assert (resources["shared_retained_bytes"] + resources["workers"]*resources["worker_working_bytes"]
+            <= resources["maximum_working_bytes"])
+
+
 def test_regrid_retains_phase_carriers_without_fitting_or_cropping():
     from temsim.optics.electron_gun.tip_coherence import wavelength_m
     mode = checkpoint().beam.modes[0]
@@ -427,3 +450,220 @@ def test_column_grouping_keeps_actual_intermediate_and_final_aperture_losses():
         for key in ("input_weight", "output_weight", "lost_weight"):
             assert actual[key] == pytest.approx(expected[key], abs=2e-10)
     assert fast.beam.total_weight == pytest.approx(reference.beam.total_weight, abs=2e-10)
+
+
+def _parallel_column_fixture(count=3):
+    """Different coherent states through one analytic field and physical stop."""
+    from types import SimpleNamespace
+    original = checkpoint()
+    plane = _resolved_non_gaussian_wave()
+    modes = tuple(replace(original.beam.modes[0], mode_id=f"column-mode:{i}",
+        plane=replace(plane, amplitude=plane.amplitude*np.exp(.37j*i)),
+        energy_kev=300.-20*i, weight_per_reference_electron=.4-.1*i,
+        axial_reference=AxialWaveReference(2e-8+i*1e-9, (1+i)*1e-22))
+        for i in range(count))
+    original = replace(original, beam=replace(original.beam, modes=modes))
+    prepared = _quadratic_fixture(4)
+    plan = prepared[0]
+    plan.midpoint_magnetic_t[:] = 1e-5
+    plan.midpoint_sx_m2[:] = 2.
+    plan.midpoint_sy_m2[:] = 3.
+    plan.midpoint_sxy_m2[:] = .7
+    plan.dipole_bx_t = np.full(3*len(plan.step_m), 2e-7)
+    plan.dipole_by_t = np.full(3*len(plan.step_m), -3e-7)
+    # The final mask removes real probability and preserves the complex phase
+    # of transmitted cells. Its effect cannot be hidden by renormalizing weight.
+    prepared[2][4] = (SimpleNamespace(key="offset-cut", radius_mm=1.,
+        transmission_mask=lambda x, y: (x <= .001) & (y >= -.001)),)
+    return original, prepared
+
+
+def _track_real_column_executor(monkeypatch):
+    """Observe real numerical threads; never replace a propagation operator."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    import temsim.physics.column_wave as column
+    observed = {"workers": [], "threads": set(), "active": 0, "peak": 0}
+    lock = threading.Lock()
+    class ObservedExecutor(ThreadPoolExecutor):
+        def __init__(self, max_workers=None, **kwargs):
+            observed["workers"].append(max_workers)
+            self._first_batch = threading.Barrier(max_workers, timeout=5)
+            self._submitted = 0
+            super().__init__(max_workers=max_workers, **kwargs)
+
+        def submit(self, function, /, *args, **kwargs):
+            initial = self._submitted < self._first_batch.parties
+            self._submitted += 1
+            def execute():
+                with lock:
+                    observed["threads"].add(threading.get_ident())
+                    observed["active"] += 1
+                    observed["peak"] = max(observed["peak"], observed["active"])
+                try:
+                    if initial:
+                        self._first_batch.wait()
+                    return function(*args, **kwargs)
+                finally:
+                    with lock:
+                        observed["active"] -= 1
+            return super().submit(execute)
+    monkeypatch.setattr(column, "ThreadPoolExecutor", ObservedExecutor)
+    return observed
+
+
+def _assert_column_complex_result(actual, expected):
+    assert actual.plane_z_mm == expected.plane_z_mm
+    assert actual.reference_current_a == expected.reference_current_a
+    assert [m.mode_id for m in actual.beam.modes] == [m.mode_id for m in expected.beam.modes]
+    for a, b in zip(actual.beam.modes, expected.beam.modes):
+        assert a.energy_kev == b.energy_kev
+        assert a.axial_reference == b.axial_reference
+        assert a.scattering_history == b.scattering_history
+        assert a.weight_per_reference_electron == pytest.approx(b.weight_per_reference_electron, abs=1e-14)
+        # Absolute complex envelope and its complete analytical phase carrier;
+        # no fitted phase, rescaling, or intensity-only equality is accepted.
+        for name in ("amplitude", "basis_m", "origin_m", "curvature_m1", "tilt_rad"):
+            np.testing.assert_allclose(getattr(a.plane, name), getattr(b.plane, name),
+                                       rtol=2e-13, atol=2e-15)
+    assert actual.record["modes"] == expected.record["modes"]
+    resources = actual.record["mode_execution"]
+    assert (resources["shared_retained_bytes"] + resources["workers"]*resources["worker_working_bytes"]
+            <= resources["maximum_working_bytes"])
+
+
+@pytest.mark.parametrize("cpu_limit", (1, 2))
+def test_segmented_column_parallel_preserves_complex_states_losses_and_cpu_limit(tmp_path, monkeypatch, cpu_limit):
+    import temsim.physics.column_wave as column
+    from temsim.physics.wave_checkpoint_store import ExecutedWaveStore
+    source, prepared = _parallel_column_fixture()
+    state = default_state()
+    monkeypatch.setattr(column, "numerical_thread_budget", lambda requested=None: 1)
+    reference, _ = column._propagate_column_segmented(state, source, prepared[0].z_mm[-1],
+        store=ExecutedWaveStore(tmp_path/"serial", "same-column", 1<<28),
+        segment_steps=4, _prepared=prepared)
+    observed = _track_real_column_executor(monkeypatch)
+    monkeypatch.setattr(column, "numerical_thread_budget", lambda requested=None: cpu_limit)
+    actual, reused = column._propagate_column_segmented(state, source, prepared[0].z_mm[-1],
+        store=ExecutedWaveStore(tmp_path/"parallel", "same-column", 1<<28),
+        segment_steps=4, _prepared=prepared)
+    assert not reused
+    _assert_column_complex_result(actual, reference)
+    assert 0 < actual.beam.total_weight < source.beam.total_weight
+    assert all(row["losses"][0]["component"] == "offset-cut" for row in actual.record["modes"])
+    assert not np.allclose(actual.beam.modes[0].plane.origin_m,
+                           source.beam.modes[0].plane.origin_m, rtol=0., atol=1e-12)
+    assert actual.record["mode_execution"]["workers"] <= cpu_limit
+    if cpu_limit == 1:
+        assert not observed["workers"]
+    else:
+        assert observed["workers"] == [2]
+        assert len(observed["threads"]) == observed["peak"] == 2
+
+
+@pytest.mark.parametrize("failure", ("cancel", "invalid_physical_aperture"))
+def test_parallel_column_failure_aborts_partial_writer_without_publication(tmp_path, monkeypatch, failure):
+    import threading
+    from types import SimpleNamespace
+    import temsim.physics.column_wave as column
+    from temsim.physics.wave_checkpoint_store import ExecutedWaveStore
+    source, prepared = _parallel_column_fixture(2)
+    stored, cancelled, writers, published = threading.Event(), threading.Event(), [], []
+    second = source.beam.modes[1]
+    second = replace(second, plane=replace(second.plane, origin_m=np.array((1e-4, 0.))))
+    source = replace(source, beam=replace(source.beam, modes=(source.beam.modes[0], second)))
+    def physical_mask(x, y):
+        if float(x.mean()) > .05:
+            assert stored.wait(5), "First successful mode was not streamed"
+            if failure == "invalid_physical_aperture":
+                return np.ones((2, 2), dtype=bool)
+        return x <= .001
+    prepared[2][4] = (SimpleNamespace(key="controlled-stop", radius_mm=1.,
+                                     transmission_mask=physical_mask),)
+    store = ExecutedWaveStore(tmp_path, "no-partial-column", 1<<28)
+    make_writer = store.writer
+    def tracked_writer(*args):
+        writer = make_writer(*args)
+        writers.append(writer)
+        append = writer.append
+        def append_completed(mode):
+            append(mode)
+            if failure == "cancel":
+                cancelled.set()
+            stored.set()
+        writer.append = append_completed
+        return writer
+    monkeypatch.setattr(store, "writer", tracked_writer)
+    monkeypatch.setattr(column, "numerical_thread_budget", lambda requested=None: 2)
+    observed = _track_real_column_executor(monkeypatch)
+    exception, message = ((InterruptedError, "cancel") if failure == "cancel" else (ValueError, "wrong shape"))
+    with pytest.raises(exception, match=message):
+        column._propagate_column_segmented(default_state(), source, prepared[0].z_mm[-1],
+            store=store, segment_steps=4, _prepared=prepared, cancelled=cancelled.is_set,
+            checkpoint_callback=published.append)
+    assert stored.is_set() and len(writers) == 1  # Genuine failures are never retried as memory failures.
+    assert writers[0].rows and not writers[0]._published
+    assert observed["workers"] == [2] and observed["active"] == 0
+    assert not published and store.get(writers[0].key) is None
+    assert not list(tmp_path.iterdir())
+
+
+def _refining_column_modes():
+    from test_column_wave_electric import _astigmatic_focus_checkpoint
+    from test_tip_wave_pipeline import _quiet_prepared_column
+    source = _astigmatic_focus_checkpoint(64)
+    first = source.beam.modes[0]
+    source = replace(source, beam=replace(source.beam, modes=(first,
+        replace(first, mode_id="second-focus-mode", weight_per_reference_electron=.3, plane=replace(first.plane,
+            amplitude=first.plane.amplitude*np.exp(.47j))))))
+    return source, _quiet_prepared_column(None, 2000., 2000.1, .1)
+
+
+def test_parallel_column_partition_memory_retries_serial_without_changing_complex_result(tmp_path, monkeypatch):
+    import temsim.physics.column_wave as column
+    from temsim.physics.wave_checkpoint_store import ExecutedWaveStore
+    from temsim.physics.wave_grid import WaveGridNumerics
+    source, prepared = _refining_column_modes()
+    numerics = WaveGridNumerics(maximum_pixels=512, maximum_working_bytes=128*1024**2)
+    monkeypatch.setattr(column, "numerical_thread_budget", lambda requested=None: 1)
+    reference, _ = column._propagate_column_segmented(default_state(), source, 2000.1,
+        store=ExecutedWaveStore(tmp_path/"serial", "refined-column", 1<<28), segment_steps=1,
+        _prepared=prepared, grid_numerics=numerics)
+    observed = _track_real_column_executor(monkeypatch)
+    monkeypatch.setattr(column, "numerical_thread_budget", lambda requested=None: 2)
+    actual, _ = column._propagate_column_segmented(default_state(), source, 2000.1,
+        store=ExecutedWaveStore(tmp_path/"retry", "refined-column", 1<<28), segment_steps=1,
+        _prepared=prepared, grid_numerics=numerics)
+    _assert_column_complex_result(actual, reference)
+    assert actual.record["mode_execution"]["retry_serial_for_memory"]
+    assert observed["workers"] == [2] and observed["active"] == 0
+    assert all(m.plane.amplitude.shape == (512, 512) for m in actual.beam.modes)
+    assert len(list((tmp_path/"retry").glob("*.json"))) == 1
+    assert len(list((tmp_path/"retry").iterdir())) == 2  # Published index + its complete mode directory.
+
+
+def test_parallel_column_pixel_cap_is_not_retried_as_memory_shortage(tmp_path, monkeypatch):
+    import temsim.physics.column_wave as column
+    from temsim.physics.wave_checkpoint_store import ExecutedWaveStore
+    from temsim.physics.wave_grid import WaveGridNumerics, WaveGridBudgetError, WaveMemoryBudgetError
+    source, prepared = _refining_column_modes()
+    store = ExecutedWaveStore(tmp_path, "hard-grid-cap", 1<<28)
+    writers, original_writer = [], store.writer
+    def track_writer(*args):
+        writer = original_writer(*args)
+        writers.append(writer)
+        return writer
+    monkeypatch.setattr(store, "writer", track_writer)
+    monkeypatch.setattr(column, "numerical_thread_budget", lambda requested=None: 2)
+    observed = _track_real_column_executor(monkeypatch)
+    with pytest.raises(ValueError, match="Wave refinement budget exceeded") as failure:
+        column._propagate_column_segmented(default_state(), source, 2000.1, store=store,
+            segment_steps=1, _prepared=prepared,
+            grid_numerics=WaveGridNumerics(maximum_pixels=64, maximum_working_bytes=128*1024**2))
+    error = failure.value
+    while error.__cause__ is not None:
+        error = error.__cause__
+    assert isinstance(error, WaveGridBudgetError) and not isinstance(error, WaveMemoryBudgetError)
+    assert len(writers) == 1 and not writers[0]._published
+    assert observed["workers"] == [2] and observed["active"] == 0
+    assert not list(tmp_path.iterdir())

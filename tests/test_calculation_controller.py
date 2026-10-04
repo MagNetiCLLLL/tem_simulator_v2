@@ -1269,6 +1269,24 @@ def test_high_accuracy_memory_guard_includes_tem_wave_grid(monkeypatch):
         controller.submit(state, "High accuracy", 15_000, 0.1)
 
 
+def test_particle_memory_estimate_retains_double_precision_energy_and_clock(monkeypatch):
+    import math
+    import temsim.gui.calculation_controller as module
+    state = default_state()
+    state.acceleration_enabled = False
+    monkeypatch.setattr(module, "_column_checkpoint_planes", lambda *_: (1., 2., 3.))
+    start = state.electron_gun.exit_plane_z_mm
+    centre = state.sample.z_mm
+    end = module.determine_tem_stop_z(state)
+    histories = math.ceil(max(0., centre-start)/.5)+2 + math.ceil(max(0., end-centre)/.5)+2
+    # Compare two populations so the fixed field/storage safety allowance
+    # cancels. Each ray retains XY/slopes float32, time+energy float64,
+    # six float64 checkpoint quantities, and 64 float64 working vectors.
+    small = estimate_calculation_memory_bytes(state, "High accuracy", 100, .1, workflow="rays")
+    large = estimate_calculation_memory_bytes(state, "High accuracy", 101, .1, workflow="rays")
+    assert large-small == histories*(4*4+2*8)+3*6*8+64*8
+
+
 def test_wave_imaging_is_disabled_only_for_preview():
     controller = CalculationController()
     captured = []

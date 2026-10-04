@@ -35,6 +35,63 @@ def test_backend_display_preserves_requested_policy_and_explicit_disabled_flag(w
     assert not window.state.acceleration_enabled
 
 
+def test_toolbar_owns_persisted_particle_population_and_preview_remains_local(window, monkeypatch, tmp_path):
+    from temsim.profile_io import save_profile, read_profile
+    from temsim.gui.calculation_request import apply_request_numerics
+    from temsim.instrument_snapshot import encode_instrument, decode_instrument
+    from temsim.runtime_parameters import runtime_targets, editable_parameters
+    assert window.high_rays.value() == window.state.electron_gun.ray_count == 3000
+    assert window.high_step.value() == window.state.step_mm == 0.1
+    changes = []
+    monkeypatch.setattr(window, "schedule_preview", lambda parameter, **options: changes.append((parameter, options)))
+    window.high_rays.setValue(4000)
+    assert window.state.electron_gun.ray_count == 4000
+    assert changes == [("ray_count", {"automatic": False})]
+    window.high_step.setValue(0.02)
+    assert window.high_step.value() == window.state.step_mm == 0.02
+    assert changes[-1] == ("step_mm", {"automatic": False})
+    snapshot = decode_instrument(encode_instrument(window.state))
+    apply_request_numerics(snapshot, "Preview", 49, 1.)
+    assert snapshot.electron_gun.ray_count == 49
+    assert snapshot.step_mm == 1.
+    assert window.high_step.value() == window.state.step_mm == 0.02
+    assert window.state.electron_gun.ray_count == window.high_rays.value() == 4000
+    path = tmp_path / "ray-count.toml"
+    save_profile(path, window.state, window.selection)
+    _, values = read_profile(path)
+    assert values["feg_tip"]["ray_count"] == 4000
+    assert values["simulation"]["step_mm"] == 0.02
+    target = runtime_targets(window.state)["feg_tip"]
+    assert "ray_count" in {p.name for p in editable_parameters(target)}
+    window.parameter_panel._runtime_target = target
+    assert not window.parameter_panel._runtime_parameters()
+    target = runtime_targets(window.state)["simulation"]
+    assert "step_mm" in {p.name for p in editable_parameters(target)}
+    window.parameter_panel._runtime_target = target
+    assert "step_mm" not in {p.name for p in window.parameter_panel._runtime_parameters()}
+    assert "history_step_mm" in {p.name for p in window.parameter_panel._runtime_parameters()}
+
+
+def test_loaded_ray_count_and_product_quadrature_are_displayed_without_mutation(window, monkeypatch):
+    from temsim.optics.electron_gun.emitter import EmissionQuadrature
+    changes = []
+    monkeypatch.setattr(window, "schedule_preview", lambda *args, **kwargs: changes.append((args, kwargs)))
+    emitter = window.state.electron_gun.emitter
+    emitter.ray_count = 217
+    window.state.step_mm = 2.5
+    window._refresh_assembly_views()
+    assert window.high_rays.value() == 217 and window.high_rays.isEnabled()
+    assert emitter.ray_count == 217 and not changes
+    assert window.high_step.value() == window.state.step_mm == 2.5
+    emitter.quadrature = EmissionQuadrature(3, 5, 7)
+    emitter.ray_count = emitter.quadrature.total
+    window._sync_working_point_selectors()
+    assert window.high_rays.value() == 105 and not window.high_rays.isEnabled()
+    window.high_rays.setValue(1000)
+    assert window.high_rays.value() == emitter.ray_count == 105
+    assert not changes
+
+
 @pytest.mark.parametrize("quality", ["Preview", "Medium"])
 def test_toolbar_preview_uses_background_preparation(window, monkeypatch, quality):
     from temsim.physics.optical_tuning import TUNING_PROFILES
@@ -172,6 +229,7 @@ def test_rejected_surface_image_keeps_applied_source_and_previous_result(window,
 
 
 def test_high_toolbar_routes_to_background_without_foreground_memory_preparation(window, monkeypatch):
+    assert window.high_rays.value() == 3000
     calls = []
     window._working_point_parent = "captured-parent-fixture"
     monkeypatch.setattr(window.calculations, "submit_background", lambda *args, **kwargs: calls.append((args, kwargs)))
@@ -180,8 +238,41 @@ def test_high_toolbar_routes_to_background_without_foreground_memory_preparation
     monkeypatch.setattr(module, "estimate_calculation_memory_bytes", lambda *_: pytest.fail("Heavy memory estimation belongs in preparation worker"))
     window.run_high_accuracy()
     assert len(calls) == 1 and calls[0][0][1] == "High accuracy"
+    assert calls[0][0][2] == 3000
     assert calls[0][1] == {"parent_id": "captured-parent-fixture", "section_request": None,
                             "workflow": "rays", "existing_result": None}
+
+
+@pytest.mark.parametrize("policy", ["CPU", "Auto", "CUDA GPU"])
+def test_toolbar_owns_device_policy_for_ray_wave_and_page_requests(window, monkeypatch, policy):
+    from types import SimpleNamespace
+    from temsim.runtime_parameters import editable_parameters, runtime_targets
+    synchronized = []
+    monkeypatch.setattr(window.workspace.magnetic_field.field_lines, "set_compute_policy",
+                        lambda *values: synchronized.append(values))
+    previous = window.compute_backend.currentData()
+    window.compute_backend.setCurrentIndex(window.compute_backend.findData(policy))
+    assert window.state.acceleration_backend == policy
+    assert window.state.acceleration_enabled is (policy != "CPU")
+    if previous != policy:
+        assert synchronized == [(policy, policy != "CPU")]
+    assert not window.preview_timer.isActive()
+    names = {item.name for item in editable_parameters(runtime_targets(window.state)["simulation"])}
+    assert not {"acceleration_backend", "acceleration_enabled"}.intersection(names)
+    assert not hasattr(window.workspace.scan_control, "stem_execution_policy")
+    wave = window.workspace.coherent_beam._make_request().wave_grid
+    assert wave.compute_backend == policy
+    assert wave.acceleration_enabled is (policy != "CPU")
+    calls = []
+    monkeypatch.setattr(window.calculations, "submit_background",
+                        lambda *args, **kwargs: calls.append((args, kwargs)))
+    window.run_high_accuracy()
+    window.workspace._high_accuracy_result = SimpleNamespace(simulation=object())
+    window.workspace.sample_page.calculation_bar.button.click()
+    assert len(calls) == 2
+    for args, _kwargs in calls:
+        assert args[0].acceleration_backend == policy
+        assert args[2] == 3000
 
 
 def test_sample_edits_and_tab_switches_do_not_launch_calculation(window, monkeypatch, qtbot):

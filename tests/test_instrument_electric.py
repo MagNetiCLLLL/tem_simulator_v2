@@ -147,6 +147,25 @@ def test_unsupported_real_instrument_model_is_not_silently_omitted(tiny_solver):
         prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., 3000.))
 
 
+def test_compute_policy_changes_execution_identity_without_changing_captured_fields(tiny_solver):
+    from temsim.magnetic_field_scene import prepare_magnetic_scene
+    from temsim.diagnostic_execution_identity import trajectory_execution_identity
+    from temsim.magnetic_test_particle import TestElectronSettings
+    state = default_state()
+    state.acceleration_backend, state.acceleration_enabled = "CPU", False
+    magnetic = prepare_magnetic_scene(state)
+    cpu = prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., 3000.))
+    state.acceleration_backend, state.acceleration_enabled = "Require GPU", True
+    gpu = prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., 3000.))
+    assert cpu.physical_identity == gpu.physical_identity
+    assert cpu.numerical_identity == gpu.numerical_identity
+    assert cpu._column_identity != gpu._column_identity
+    assert cpu.transport_identity != gpu.transport_identity
+    settings = TestElectronSettings()
+    assert trajectory_execution_identity(cpu, settings) != trajectory_execution_identity(gpu, settings)
+    assert len(tiny_solver) == 1
+
+
 def test_stale_magnetic_capture_cannot_rebuild_a_different_column(tiny_solver):
     from temsim.magnetic_field_scene import prepare_magnetic_scene
     state = default_state()

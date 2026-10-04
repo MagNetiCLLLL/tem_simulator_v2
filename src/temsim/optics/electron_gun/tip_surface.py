@@ -7,6 +7,7 @@ Kinetic energy is local to the surface; voltage zero is the final anode.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 from temsim import input_io
 import math
@@ -17,6 +18,7 @@ import numpy as np
 from temsim.paths import CONFIG_ROOT
 
 SCHEMA = "grounded-cold-feg-surface-v1"
+SHARED_BOUNDARY = "shared-cap-boundary-v1"
 REFERENCE = CONFIG_ROOT / "sources" / "cold_feg_tip.toml"
 
 
@@ -80,8 +82,14 @@ class SurfaceEmission:
     angular_refinement_gain: float = 0.0
     angular_refinement_width_sigma: float = .1
     angular_stratum_allocation: tuple[int, ...] = ()
+    # Physical flux density on the cap, distinct from numerical sampling.
+    flux_profile: str = "uniform_area"
 
     def validate(self, geometry, *, coherent=False):
+        if self.flux_profile not in {"uniform_area", "cosine_cap"}:
+            raise ValueError("Unknown physical emitting-cap flux profile")
+        if self.flux_profile != "uniform_area" and self.spatial_sampling != "uniform_area":
+            raise ValueError("The tapered cap currently requires uniform flux-CDF sampling")
         if self.angular_sampling not in {"uniform_cdf", "tangent_stratified_v1", "tangent_stratified_v2"}:
             raise ValueError("Unknown tip angular quadrature")
         if self.angular_stratum_allocation and (
@@ -150,9 +158,16 @@ class SurfaceEmission:
         return patch_dimensions(geometry, self.cap_half_angle_deg)["surface_area_nm2"]
 
     def total_current_na(self, geometry):
+        # For a tapered profile this is its area-mean flux, not peak flux.
         if self.flux_electrons_per_nm2_s is None:
             return self.current_na
         return self.flux_electrons_per_nm2_s * self.area_nm2(geometry) * 1.602176634e-10
+
+    def energy_quadrature(self, count):
+        """Energy nodes of the same gamma/monoenergetic law used by rays."""
+        if self.energy_distribution not in {"gamma", "monoenergetic"}:
+            raise ValueError("This surface wave boundary needs a shared gamma or monoenergetic energy law")
+        return _positive_energy_quadrature(self.mean_energy_ev, self.energy_sigma_ev, count)
 
 
 @dataclass(frozen=True)
@@ -218,28 +233,55 @@ class SurfaceCoherence:
 
     def energy_quadrature(self, count):
         """Positive gamma-law quadrature, or a single monochromatic component."""
-        from scipy.linalg import eigh_tridiagonal
         self.validate()
-        if type(count) is not int or not 1 <= count <= 64:
-            raise ValueError("Coherent energy samples must be an integer in [1, 64]")
-        if self.energy_rms_ev == 0:
-            return np.array([self.mean_energy_ev]), np.ones(1)
-        if count < 2:
-            raise ValueError("A nonzero energy width needs at least two energy samples")
-        shape = (self.mean_energy_ev/self.energy_rms_ev)**2
-        if not math.isfinite(shape) or shape <= 0:
-            raise ValueError("This gamma quadrature needs a better-conditioned narrow-spectrum rule; no width was changed")
-        # Orthonormal Laguerre Jacobi matrix (Golub-Welsch), already in eV.
-        # Avoid Gamma(shape) overflow and division by very small gamma scales.
-        scale = self.energy_rms_ev**2/self.mean_energy_ev
-        n = np.arange(count, dtype=float)
-        diagonal = self.mean_energy_ev + 2*n*scale
-        off = np.sqrt(n[1:])*np.sqrt(self.energy_rms_ev**2+(n[1:]-1)*scale**2)
-        nodes, vectors = eigh_tridiagonal(diagonal, off)
-        weights = vectors[0]**2
-        if np.any(nodes <= 0) or not np.all(np.isfinite(nodes)):
-            raise ValueError("The positive source energy law is unresolved in floating point")
-        return nodes, weights/weights.sum()
+        return _positive_energy_quadrature(self.mean_energy_ev, self.energy_rms_ev, count)
+
+
+def _positive_energy_quadrature(mean_ev, rms_ev, count):
+    from scipy.linalg import eigh_tridiagonal
+    if type(count) is not int or not 1 <= count <= 64:
+        raise ValueError("Coherent energy samples must be an integer in [1, 64]")
+    if rms_ev == 0:
+        return np.array([mean_ev]), np.ones(1)
+    if count < 2:
+        raise ValueError("A nonzero energy width needs at least two energy samples")
+    shape = (mean_ev/rms_ev)**2
+    if not math.isfinite(shape) or shape <= 0:
+        raise ValueError("This gamma quadrature needs a better-conditioned narrow-spectrum rule; no width was changed")
+    # Orthonormal Laguerre Jacobi matrix (Golub-Welsch), already in eV.
+    # Avoid Gamma(shape) overflow and division by very small gamma scales.
+    scale = rms_ev**2/mean_ev
+    n = np.arange(count, dtype=float)
+    diagonal = mean_ev + 2*n*scale
+    off = np.sqrt(n[1:])*np.sqrt(rms_ev**2+(n[1:]-1)*scale**2)
+    nodes, vectors = eigh_tridiagonal(diagonal, off)
+    weights = vectors[0]**2
+    if np.any(nodes <= 0) or not np.all(np.isfinite(nodes)):
+        raise ValueError("The positive source energy law is unresolved in floating point")
+    return nodes, weights/weights.sum()
+
+
+@dataclass(frozen=True)
+class SharedSurfaceCoherence:
+    """Phase of a shared physical cap injection boundary, with no second source.
+
+    Spatial flux, energies and current belong to SurfaceEmission. Particles
+    are the normal-launch geometric-optics comparator, not an exact quantum
+    phase-space distribution. The current is incident tip-reservoir current;
+    reflected waves can make net escaping current smaller. A nonconstant
+    phase needs an oblique source-port operator and is not silently ignored.
+    """
+    edge_phase_rad: float = 0.0
+    model: str = SHARED_BOUNDARY
+
+    def validate(self):
+        if self.model != SHARED_BOUNDARY:
+            raise ValueError("Unknown shared surface boundary model")
+        if isinstance(self.edge_phase_rad, bool) or not math.isfinite(self.edge_phase_rad):
+            raise ValueError("Shared surface phase must be finite")
+        if self.edge_phase_rad != 0:
+            raise ValueError("A phase gradient needs an oblique shared source-port operator; only constant surface phase is implemented")
+        return self
 
 
 @dataclass(frozen=True)
@@ -251,11 +293,51 @@ class TipSurfaceModel:
     status: str = "idealised_reference_not_calibrated"
     potential_reference: str = "final_accelerating_anode_ground_0V"
     geometry_reference: str = ""
-    coherence: SurfaceCoherence | None = None
+    coherence: SurfaceCoherence | SharedSurfaceCoherence | None = None
 
     @property
     def current_na(self):
         return self.emission.total_current_na(self.geometry)
+
+    @property
+    def shared_boundary(self):
+        return isinstance(self.coherence, SharedSurfaceCoherence)
+
+    @property
+    def mean_energy_ev(self):
+        return (self.coherence.mean_energy_ev if isinstance(self.coherence, SurfaceCoherence)
+                else self.emission.mean_energy_ev)
+
+    @property
+    def energy_sigma_ev(self):
+        return (self.coherence.energy_rms_ev if isinstance(self.coherence, SurfaceCoherence)
+                else self.emission.energy_sigma_ev)
+
+    def energy_quadrature(self, count):
+        self.validate()
+        if isinstance(self.coherence, SurfaceCoherence):
+            return self.coherence.energy_quadrature(count)
+        if not self.shared_boundary:
+            raise ValueError("Select a coherent physical tip boundary before wave emission")
+        return self.emission.energy_quadrature(count)
+
+    def source_amplitude(self, radius_nm):
+        """Dimensionless reservoir amplitude at the actual curved conductor.
+
+        The solver normalises *incoming* flux before solving, preserving
+        reflection. Historical reservoirs retain their recorded cos-squared
+        amplitude; a shared boundary uses its emission-owned flux profile.
+        """
+        self.validate()
+        if self.coherence is None:
+            raise ValueError("A classical flux distribution does not define a complex boundary")
+        radius = np.asarray(radius_nm, dtype=float)
+        apex = self.geometry.apex_radius_nm
+        if np.any(~np.isfinite(radius)) or np.any(radius < 0) or np.any(radius > apex):
+            raise ValueError("Source amplitude requires radii on the spherical tip cap")
+        arc = np.arcsin(radius/apex)/math.radians(self.emission.cap_half_angle_deg)
+        envelope = np.where(arc < 1., np.cos(.5*math.pi*np.minimum(arc, 1.))**2, 0.)
+        return envelope*np.exp(1j*self.coherence.edge_phase_rad*arc**2)
 
     def validate(self):
         if self.schema != SCHEMA or self.potential_reference != "final_accelerating_anode_ground_0V":
@@ -266,6 +348,11 @@ class TipSurfaceModel:
         self.field_numerics.validate()
         if self.coherence is not None:
             self.coherence.validate()
+        if self.shared_boundary:
+            if (self.emission.flux_profile != "cosine_cap"
+                    or self.emission.energy_distribution not in {"gamma", "monoenergetic"}
+                    or self.emission.maximum_angle_deg != 0):
+                raise ValueError("The shared cap boundary requires cosine_cap flux, gamma/monoenergetic energy and normal launch (maximum angle zero)")
         return self
 
     def to_dict(self):
@@ -278,6 +365,8 @@ class TipSurfaceModel:
             result["field_numerics"].pop("electrode_corner_cells")
         if result["emission"]["spatial_sampling"] == "uniform_area":
             result["emission"].pop("spatial_sampling")
+        if result["emission"]["flux_profile"] == "uniform_area":
+            result["emission"].pop("flux_profile")
         if not result["emission"]["spatial_stratum_allocation"]:
             result["emission"].pop("spatial_stratum_allocation")
         if not result["emission"]["angular_stratum_allocation"]:
@@ -307,7 +396,9 @@ class TipSurfaceModel:
                     row["emission"].angular_stratum_allocation))
             row["field_numerics"] = TipFieldNumerics(**row["field_numerics"])
             if row.get("coherence") is not None:
-                row["coherence"] = SurfaceCoherence(**row["coherence"])
+                coherence_type = (SharedSurfaceCoherence if row["coherence"].get("model") == SHARED_BOUNDARY
+                                  else SurfaceCoherence)
+                row["coherence"] = coherence_type(**row["coherence"])
             return cls(**row).validate()
         except (KeyError, TypeError) as error:
             raise ValueError(f"Invalid tip surface model: {error}") from error
@@ -323,18 +414,57 @@ def _positive(value, name, allow_zero=False):
         raise ValueError(f"{name} must be finite and {'non-negative' if allow_zero else 'positive'}")
 
 
+@lru_cache(maxsize=32)
+def _cosine_cap_flux_cdf(half_angle_deg):
+    """Integrate the specified cos^4 flux with spherical area measure.
+
+    The cap coordinate q=theta/theta_cap removes the small-angle scale from
+    the integrand. This tiny cached numerical table is unrelated to any
+    transported state or downstream acceptance. Its whole domain is retained.
+    """
+    from scipy.integrate import cumulative_simpson
+    angle = math.radians(half_angle_deg)
+    coordinate = np.linspace(0., 1., 8193)
+    density = coordinate*np.sinc(angle*coordinate/np.pi)*np.cos(.5*np.pi*coordinate)**4
+    cumulative = cumulative_simpson(density, x=coordinate, initial=0.)
+    cumulative = np.maximum.accumulate(cumulative/cumulative[-1])
+    # At the zero-flux edge the final CDF increments can round to zero.
+    # Removing duplicate abscissae does not omit their zero numerical mass.
+    keep = np.r_[True, np.diff(cumulative) > 0]
+    return cumulative[keep], coordinate[keep]
+
+
+def cap_flux_area_quantiles(model, quantiles):
+    """Convert flux-CDF samples to uniform-area coordinates on the real cap."""
+    values = np.asarray(quantiles, dtype=float)
+    if (values.ndim != 1 or np.any(~np.isfinite(values))
+            or np.any(values < 0) or np.any(values > 1)):
+        raise ValueError("Cap flux sampling needs one-dimensional quantiles in [0, 1]")
+    if model.emission.flux_profile == "uniform_area":
+        return values
+    if model.emission.flux_profile != "cosine_cap":
+        raise ValueError("Unknown physical emitting-cap flux profile")
+    angle = math.radians(model.emission.cap_half_angle_deg)
+    cdf, coordinate = _cosine_cap_flux_cdf(model.emission.cap_half_angle_deg)
+    fraction = np.interp(values, cdf, coordinate)
+    fraction = np.where(values == 1., 1., fraction)
+    return np.square(np.sin(.5*angle*fraction)/math.sin(.5*angle))
+
+
 def emit_surface(model, count):
     """Positions [m], directions, local energies [eV], outgoing-flux weights.
 
-    Uniform area on a spherical cap. Normal and tangential energy have
+    The prescribed flux profile on a spherical cap. Normal and tangential energy have
     exponential laws conditioned on the local angular limit, or a specified
     positive total-energy law with uniform solid-angle directions. This specifies
     one consistent energy/direction distribution. No extra energy FWHM,
     virtual-source size or second downstream source is applied.
+    A shared cap boundary supplies normal-launch geometric rays, rather than
+    claiming an exact nonnegative quantum phase-space representation.
     """
     from temsim.optics.electron_gun.emitter import _halton_dimensions
     model.validate()
-    if model.coherence is not None:
+    if model.coherence is not None and not model.shared_boundary:
         raise ValueError("The coherent surface boundary must be propagated as a wave; classical ray sampling is not its phase-space distribution")
     if isinstance(count, bool) or int(count) != count or count < 9:
         raise ValueError("Surface emission requires at least 9 samples")
@@ -376,6 +506,7 @@ def emit_surface(model, count):
         u, a = np.repeat(site_u, sizes), np.repeat(site_a, sizes)
         weights = np.repeat(site_weight/sizes, sizes)
     from temsim.optics.electron_gun.tip_patch import sample_cap_frame
+    u = cap_flux_area_quantiles(model, u)
     positions, normals, tangent1, tangent2 = sample_cap_frame(model.geometry, p.cap_half_angle_deg, u, a)
     if p.angular_sampling.startswith("tangent_stratified_"):
         from temsim.optics.electron_gun.tip_sampling import stratified_tangent_momenta, tangent_cell_ids

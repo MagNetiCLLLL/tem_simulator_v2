@@ -19,7 +19,7 @@ def tip_dimension_overrides(part, specs, runtime):
             for kind, name, label, unit in (
                 ("runtime", "curvature_nm_inv", "Active emission curvature", "nm⁻¹"),
                 ("derived", "emission_radius_nm", "Emission radius (∞ = flat)", "nm"),
-                ("runtime", "virtual_source_fwhm_nm", "Projected source FWHM", "nm"),
+                ("runtime", "virtual_source_fwhm_nm", "Projected emission FWHM", "nm"),
                 ("derived", "emission_support_diameter_nm", "Emission support diameter", "nm"),
                 ("derived", "emission_depth_nm", "Emission edge depth", "nm")))
         return active + specs

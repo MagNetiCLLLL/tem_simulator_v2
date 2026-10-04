@@ -42,9 +42,10 @@ def surface_product_samples(model, plan):
     from scipy.special import gammaincinv
     from temsim.optics.electron_gun.emitter import _halton_dimensions
     from temsim.optics.electron_gun.tip_patch import sample_cap_frame
+    from temsim.optics.electron_gun.tip_surface import cap_flux_area_quantiles
     model.validate()
-    if model.coherence is not None:
-        raise ValueError("Surface product quadrature is classical only")
+    if model.coherence is not None and not model.shared_boundary:
+        raise ValueError("Surface product quadrature needs the shared cap geometric-ray representation")
     si, di, ei = _product_indices(plan)
     emission = model.emission
     if emission.spatial_sampling == "apex_stratified_v1":
@@ -52,7 +53,8 @@ def surface_product_samples(model, plan):
     else:
         area, azimuth = _halton_dimensions(plan.spatial, (2, 3))
         site_weight = np.full(plan.spatial, 1/plan.spatial)
-    positions, normals, tangent1, tangent2 = sample_cap_frame(model.geometry, emission.cap_half_angle_deg, area, azimuth)
+    positions, normals, tangent1, tangent2 = sample_cap_frame(
+        model.geometry, emission.cap_half_angle_deg, cap_flux_area_quantiles(model, area), azimuth)
     u, phi = _halton_dimensions(plan.directions, (5, 7))
     energy_u, = _halton_dimensions(plan.energies, (11,))
     maximum = np.deg2rad(emission.maximum_angle_deg)

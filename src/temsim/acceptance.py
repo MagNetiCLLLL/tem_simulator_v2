@@ -4,8 +4,12 @@ from collections import Counter
 
 CLASSICAL_CRITERIA = {
     "product-usability/AT-01": ("Physical source admission", ("tests/test_source_admission.py",)),
+    "product-usability/AT-13": ("Shared particle/wave tip edits and captured source ownership", (
+        "tests/test_shared_tip_workflow.py", "tests/test_coherent_inputs.py",
+        "tests/test_shared_surface_source.py")),
     "product-usability/AT-02": ("Complete captured instrument", ("tests/test_working_point_contract.py", "tests/test_input_assets.py",
-        "tests/test_component_position_contract.py", "tests/test_component_persistence.py", "tests/test_shared_tip.py")),
+        "tests/test_component_position_contract.py", "tests/test_component_persistence.py", "tests/test_shared_tip.py",
+        "tests/test_current_profile_contract.py")),
     "product-usability/AT-06": ("Transactional alignment", ("tests/test_alignment_transactions.py",)),
     "product-usability/AT-12": ("Unknown-input and opt-in vacuum invalidation", ("tests/test_parameter_registry.py", "tests/test_vacuum_opt_in.py")),
     "round2/R2-AT-03": ("Explicit classical acceptance", ("tests/test_classical_acceptance.py",)),
@@ -15,7 +19,7 @@ CLASSICAL_CRITERIA = {
     "round2/R2-AT-07": ("Captured inputs and latest live work", ("tests/test_background_calculation_requests.py", "tests/test_background_preview_gui.py", "tests/test_calculation_controller.py")),
     "round2/R2-AT-08": ("Exactly-once terminal ownership", ("tests/test_job_lifecycle.py", "tests/test_job_coordination.py")),
     "round2/R2-AT-09": ("Independent High and experiment ownership", ("tests/test_job_coordination_gui.py", "tests/test_result_readout.py")),
-    "round2/R2-AT-10": ("Backend absence/resource policy", ("tests/test_ray_gpu_policy.py", "tests/test_backend_failure_semantics.py")),
+    "round2/R2-AT-10": ("Backend absence/resource policy and available-GPU selection", ("tests/test_compute_backend.py", "tests/test_ray_gpu_policy.py", "tests/test_backend_failure_semantics.py")),
     "round2/R2-AT-11": ("Original non-retryable failures", ("tests/test_backend_failure_semantics.py",)),
     "round2/R2-AT-12": ("Stage reporting and device ownership fixtures", ("tests/test_backend_failure_semantics.py", "tests/test_ray_device_residency.py", "tests/test_calculation_performance.py")),
 }
@@ -37,7 +41,8 @@ ACCEPTANCE_SCOPES = {
             "gun-fields/GF-02": ("Continuous tip emission, transport and saved inputs", (
                 "tests/test_continuous_tip_curvature.py", "tests/test_tip_curvature_comparison.py")),
             "gun-fields/GF-03": ("Exact field identity, conservative reuse and domain comparison metrics", (
-                "tests/test_diagnostic_field_identity.py", "tests/test_diagnostic_gun_domains.py")),
+                "tests/test_diagnostic_field_identity.py", "tests/test_grounded_field_identity.py",
+                "tests/test_diagnostic_gun_domains.py")),
         },
     },
     "electron-execution": {
@@ -98,8 +103,13 @@ ACCEPTANCE_SCOPES = {
                 "tests/test_beam_analysis_modes.py", "tests/test_transverse_source_tracking.py",
                 "tests/test_filter_plane_analysis.py", "tests/test_ray_flight_time_colours.py",
                 "tests/test_transverse_plot_sizes.py", "tests/test_transverse_plot_size_persistence.py")),
-            "field-ui/FU-10": ("Separate coherent sessions and continuous latest-Z interaction", (
-                "tests/test_coherent_beam_gui.py",)),
+            "field-ui/FU-10": ("Tip controls, coherent sessions and continuous latest-Z interaction", (
+                "tests/test_coherent_beam_gui.py", "tests/test_shared_tip_workflow.py",
+                "tests/test_electron_beam_observation.py", "tests/test_wave_beam_analysis.py",
+                "tests/test_coherent_state_list.py", "tests/test_coherent_state_controller.py",
+                "tests/test_coherent_state_set.py",
+                "tests/test_tip_source_gui.py", "tests/test_beam_comparison.py",
+                "tests/test_particle_energy_handoff.py")),
         },
     },
     "particle-continuation": {
@@ -150,19 +160,31 @@ ACCEPTANCE_SCOPES = {
         "evidence_kind": "development-operators-and-offscreen-software-checks-not-full-chain-qualification",
         "criteria": {
             "coherent-development/CW-01": ("Explicit tip boundary, domain preflight and preserved source inputs", (
-                "tests/test_coherent_inputs.py", "tests/test_tip_coherent_emission.py")),
+                "tests/test_coherent_inputs.py", "tests/test_tip_coherent_emission.py",
+                "tests/test_shared_tip_workflow.py", "tests/test_shared_surface_source.py",
+                "tests/test_surface_wave_integration.py", "tests/test_radial_phase_fem.py")),
             "coherent-development/CW-02": ("Executed upstream waves, exact plane routing and physical absorption", (
                 "tests/test_tip_wave_pipeline.py", "tests/test_column_wave_transport.py",
                 "tests/test_wave_checkpoint_publication.py",
                 "tests/test_column_wave_electric.py", "tests/test_tip_gun_wave.py",
-                "tests/test_electrostatic_column_transport.py", "tests/test_wave_grid.py",
+                "tests/test_electrostatic_column_transport.py", "tests/test_wave_grid.py", "tests/test_wave_device.py",
                 "tests/test_tip_gun_shared_fields.py", "tests/test_canonical_action.py")),
+            "coherent-development/CW-06": ("Driven near-tip boundary and gun continuation; not full microscope qualification", (
+                "tests/test_planar_tip_boundary.py", "tests/test_driven_tip_gun.py")),
             "coherent-development/CW-03": ("Captured wave sessions, latest Z, resource ownership and bounded display", (
-                "tests/test_coherent_beam_gui.py",)),
+                "tests/test_coherent_beam_gui.py", "tests/test_beam_comparison.py",
+                "tests/test_electron_detection.py", "tests/test_electron_beam_observation.py",
+                "tests/test_wave_beam_analysis.py", "tests/test_wave_plane_observables.py",
+                "tests/test_coherent_state_list.py", "tests/test_coherent_state_controller.py",
+                "tests/test_coherent_state_set.py")),
             "coherent-development/CW-04": ("Vacuum electrostatic boundaries do not depend on prescribed source phase", (
                 "tests/test_planar_gun_field.py",)),
             "coherent-development/CW-05": ("Conditional material waves, exact deterministic reuse and slice continuation", (
-                "tests/test_inelastic_wave.py",)),
+                "tests/test_inelastic_wave.py", "tests/test_galerkin_potential.py", "tests/test_galerkin_specimen.py")),
+            "coherent-development/CW-07": ("Shared device policy and bounded local TEM/STEM operators", (
+                "tests/test_multislice.py", "tests/test_wave_fft.py", "tests/test_tem_flux_contract.py",
+                "tests/test_stem_cuda_pipeline.py", "tests/test_gpu_capture_contract.py",
+                "tests/test_execution_migration_contract.py")),
         },
     },
 }

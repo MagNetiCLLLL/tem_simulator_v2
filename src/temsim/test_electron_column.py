@@ -74,16 +74,19 @@ def trace_instrument_electron(scene, settings, cancelled, progress, interval, us
 
     state = decode_instrument(scene._column_input_graph)
     state._tuning_cancelled = cancelled
-    # Backend choice changes numerical execution only. The diagnostic's
-    # one-particle reference route must be available even on a GPU-configured
-    # instrument; the shared production kernel still defines every force.
-    state.acceleration_enabled = bool(use_compiled)
-    state.acceleration_backend = "Auto" if use_compiled else "CPU"
+    # Normal diagnostics follow the captured toolbar policy, even for a
+    # single electron. Only the explicit validation/reference option may
+    # select uncompiled CPU execution instead of that captured preference.
+    if not use_compiled:
+        state.acceleration_enabled = False
+        state.acceleration_backend = "CPU"
+    state._active_backends_used = set()
     state._optical_tuning = True
     state.step_mm = min(float(state.step_mm), settings.step_m*1000.)
     state.history_step_mm = state.step_mm
 
     reason = "domain_exit"
+    column_executed = False
     next_progress = monotonic()+interval
     from temsim.test_electron_intercepts import prepare_compiled_intercepts, compiled_intercept
     packed_contacts = prepare_compiled_intercepts(scene) if use_compiled else None
@@ -104,6 +107,11 @@ def trace_instrument_electron(scene, settings, cancelled, progress, interval, us
             "Gun and column use their common production segment methods; this is not an independent full-Lorentz column reference.",
             "Forward column step is capped by both instrument and diagnostic step sizes. Relative error tolerance controls the adaptive gun segment; column accuracy is checked by step refinement.",
             "Column travelled path is reconstructed by second-order speed integration between executed checkpoints; contact positions and times are interpolated within the stopping interval.")
+        extras += (f"Column compute policy: {state.acceleration_backend}; acceleration "
+                   f"{'enabled' if state.acceleration_enabled else 'disabled'}; executed backend: "
+                   f"{state.active_backend if column_executed else 'not executed'}.",)
+        if not use_compiled:
+            extras += ("Explicit uncompiled CPU reference requested for this diagnostic; the captured instrument compute policy was not changed.",)
         if is_ideal(state):
             extras += ("Ideal optics retains the production chromatic-free trajectory approximation; reported kinetic energy and flight time use the actual electron energy.",)
         notes = tuple(note for note in output.notes
@@ -154,6 +162,7 @@ def trace_instrument_electron(scene, settings, cancelled, progress, interval, us
                 if cancelled():
                     return result("cancelled")
                 raise
+            column_executed = True
             checkpoints = values[-1]
             # Reconstruct the executed single-particle history in one batch.
             # Repeating NumPy allocation and scalar field interpolation at

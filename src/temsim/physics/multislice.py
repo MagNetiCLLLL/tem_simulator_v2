@@ -416,6 +416,7 @@ def propagate_multislice(
     bandwidth_fraction: float = 2.0 / 3.0,
     compute_backend: str = WAVE_BACKEND_NUMPY,
     fallback_reason: str | None = None,
+    requested_policy: str = "Auto",
 ) -> tuple[np.ndarray, MultisliceDiagnostics]:
     """Propagate one wave or a leading batch of waves through a specimen.
 
@@ -427,8 +428,8 @@ def propagate_multislice(
 
     The NumPy CPU path is the complex128 scientific reference.  The optional
     CuPy CUDA path uses complex64, returns a NumPy host array, and falls back
-    to the reference path if importing CuPy, allocating device memory, or an
-    FFT operation fails.
+    to the reference path for resource failures when requested_policy permits
+    it. Require GPU never silently restarts this stage on the CPU.
     """
 
     common = {
@@ -460,7 +461,7 @@ def propagate_multislice(
             return cp.asnumpy(result), diagnostics
         except Exception as exc:
             from temsim.physics.compute_backend import gpu_retry_reason
-            runtime_reason = "CuPy CUDA failed: " + gpu_retry_reason(exc, "auto")
+            runtime_reason = "CuPy CUDA failed: " + gpu_retry_reason(exc, requested_policy)
             fallback_reason = _combined_reason(
                 fallback_reason, runtime_reason
             )

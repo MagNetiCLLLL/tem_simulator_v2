@@ -110,7 +110,7 @@ def test_source_dialog_exposes_flat_default_without_enabling_curved_or_waves(qtb
     dialog = GunSourceDialog(gun)
     qtbot.addWidget(dialog)
     assert not dialog.surface_enabled.isChecked()
-    assert "Historical" in dialog.surface_enabled.text()
+    assert "Curved metal tip with electrode fields" == dialog.surface_enabled.text()
     assert "Flat tip" in dialog.model_change_summary.text()
     dialog.accept()
     assert dialog.result() == dialog.DialogCode.Accepted, dialog.error.text()

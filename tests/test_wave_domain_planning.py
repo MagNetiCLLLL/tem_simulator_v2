@@ -137,6 +137,75 @@ def test_vacuum_working_memory_is_guarded_even_when_potential_storage_fits():
     assert planned.estimated_working_bytes > 8 * 1024**3
 
 
+def test_coherent_potential_context_admits_full_material_grid_without_stem_probe_reservation():
+    """Plan the reported 6,616-square case without allocating any large array."""
+    from temsim.physics.wave_sampling import PotentialPreparationBudget
+    settings = dict(reference_fov_angstrom=1377.58, reference_pixels=6616,
+        requested_fov_angstrom=1377.58, thickness_angstrom=50.,
+        target_slice_thickness_angstrom=2.)
+    storage = 6616**2*(4*25+8)
+    assert storage > 4*1024**3
+    # Existing TEM/STEM admission must still enforce its original limit.
+    with pytest.raises(ValueError, match="potential storage alone"):
+        plan_wave_sampling(**settings)
+    retained, propagation = 1024**2, 3*1024**3
+    required = retained+max(2*storage+128*6616**2, storage+propagation)
+    context = PotentialPreparationBudget(24*1024**3, retained, propagation)
+    plan = plan_wave_sampling(**settings, preparation_budget=context)
+    assert plan.pixels == 6616 and plan.field_of_view_angstrom == 1377.58
+    assert plan.sampling_angstrom == 1377.58/6616
+    assert plan.estimated_potential_bytes == storage
+    assert plan.estimated_working_bytes == required < context.maximum_working_bytes
+    # Byte-exact admission includes preparation copies/scratch and retained
+    # upstream state. It must never obtain admission by reducing the grid.
+    accepted = plan_wave_sampling(**settings,
+        preparation_budget=PotentialPreparationBudget(required, retained, propagation))
+    assert accepted == plan
+    with pytest.raises(ValueError, match="working|budget|memory"):
+        plan_wave_sampling(**settings,
+            preparation_budget=PotentialPreparationBudget(required-1, retained, propagation))
+
+
+@pytest.mark.parametrize("configurations,propagation", ((1, 0), (3, 20*1024**2)))
+def test_potential_only_budget_includes_every_configuration_and_retained_propagation(configurations, propagation):
+    from temsim.physics.wave_sampling import PotentialPreparationBudget
+    retained = 1234567
+    storage = 256**2*(4*5*configurations+8)
+    expected = retained+max(2*storage+128*256**2, storage+propagation)
+    plan = _plan(configuration_count=configurations,
+        preparation_budget=PotentialPreparationBudget(expected, retained, propagation))
+    assert plan.estimated_potential_bytes == storage
+    assert plan.estimated_working_bytes == expected
+    with pytest.raises(ValueError, match="working|budget|memory"):
+        _plan(configuration_count=configurations,
+            preparation_budget=PotentialPreparationBudget(expected-1, retained, propagation))
+
+
+def test_cached_real_potential_does_not_bypass_a_lower_preparation_budget(monkeypatch):
+    from temsim.physics.wave_sampling import PotentialPreparationBudget
+    state, preset = _small_wave_state(), load_specimen_preset("si_110")
+    original = deepcopy(asdict(state.sample))
+    calls, actual_builder = [], wave_imaging.build_atomistic_potential_ensemble
+    def track_builder(*args, **kwargs):
+        calls.append(kwargs)
+        return actual_builder(*args, **kwargs)
+    monkeypatch.setattr(wave_imaging, "build_atomistic_potential_ensemble", track_builder)
+    context = PotentialPreparationBudget(64*1024**2, retained_bytes=1024**2)
+    before = prepare_specimen_potentials(state, preset, preparation_budget=context)
+    hit = prepare_specimen_potentials(state, preset, preparation_budget=context)
+    assert before.metrics["atomistic_applied"] and hit.metrics["prepared_specimen_cache_hit"]
+    assert len(calls) == 1
+    np.testing.assert_array_equal(before.mean_projected_potential_v_angstrom,
+                                  hit.mean_projected_potential_v_angstrom)
+    with pytest.raises(ValueError, match="potential|working|budget|memory"):
+        prepare_specimen_potentials(state, preset,
+            preparation_budget=PotentialPreparationBudget(1))
+    assert len(calls) == 1  # No atoms, slices, or giant working arrays were built.
+    assert asdict(state.sample) == original
+    np.testing.assert_array_equal(before.mean_projected_potential_v_angstrom,
+                                  hit.mean_projected_potential_v_angstrom)
+
+
 @pytest.mark.parametrize(
     "override",
     (

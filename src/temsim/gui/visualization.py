@@ -1054,7 +1054,7 @@ class VisualizationWorkspace(QWidget):
         self.ray_beam_tabs.setMinimumWidth(340)
         self.ray_beam_tabs.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
-        self.ray_beam_tabs.addTab(self.transverse_beam, "Particle rays")
+        self.ray_beam_tabs.addTab(self.transverse_beam, "Classical rays")
         # Preserve the compact ray-toolbar labels even at the workspace's
         # minimum width; 540 px is still small enough to keep the complete
         # two-column page below the existing 900 px shell threshold.
@@ -1162,14 +1162,14 @@ class VisualizationWorkspace(QWidget):
         from temsim.gui.coherent_beam import CoherentBeamPage, CoherentBeamMirror
         self.coherent_beam = CoherentBeamPage()
         self.coherent_ray_view = CoherentBeamMirror(self.coherent_beam)
-        self.ray_beam_tabs.addTab(self.coherent_ray_view, "Coherent XY")
+        self.ray_beam_tabs.addTab(self.coherent_ray_view, "Beam observation")
         self.tabs = QTabWidget()
         self.tabs.setObjectName("visualizationTabs")
         self.tabs.tabBar().setExpanding(False)
         self.tabs.tabBar().setUsesScrollButtons(True)
         self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideNone)
         self.tabs.addTab(self.ray_page, "Ray Diagram")
-        self.tabs.addTab(self.coherent_beam, "Coherent beam")
+        self.tabs.addTab(self.coherent_beam, "Electron beam")
         self.coherent_ray_view.controls_requested.connect(
             lambda: self.tabs.setCurrentWidget(self.coherent_beam))
         self.tabs.addTab(self.hardware_tuning, "Hardware tuning")
@@ -2311,6 +2311,7 @@ class VisualizationWorkspace(QWidget):
                            and self.transverse_beam not in self._pending_ray_panels)
         )
         self.magnetic_field.set_projection_angle(angle)
+        self.coherent_beam.set_projection_angle(angle)
         if changed and not self.transverse_beam.isVisible() and self._last_result is not None:
             self._pending_ray_panels[self.transverse_beam] = self._last_result
         if changed and self._last_result is not None:

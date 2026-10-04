@@ -22,8 +22,11 @@ import numpy as np
 
 from temsim.physics.core import C, E, H, M, electron
 from temsim.physics.compute_backend import (
+    BACKEND_REQUIRE_GPU,
+    GPUExecutionError,
     WAVE_BACKEND_NUMPY,
     choose_wave_backend,
+    normalise_backend,
 )
 from temsim.physics.multislice import propagate_multislice
 from temsim.physics.beam_statistics import branch_sample_statistics
@@ -536,7 +539,7 @@ def projected_potential(
 
 def _prepared_specimen_identity(
     state, preset, *, field_of_view_angstrom_override,
-    calculation_roi_centre_nm, calculation_roi_bounds_nm,
+    calculation_roi_centre_nm, calculation_roi_bounds_nm, preparation_budget=None,
 ):
     """Potential dependencies only; incident beam/lens/detector state is absent."""
     from temsim.specimen import atomistic
@@ -591,6 +594,7 @@ def _prepared_specimen_identity(
         ),
         "backend": backend,
         "potential_limit": MAX_ATOMISTIC_POTENTIAL_BYTES,
+        "preparation_budget": None if preparation_budget is None else asdict(preparation_budget),
         "implementation": tuple(id(function) for function in (
             _prepare_specimen_potentials_uncached, build_atomistic_potential_ensemble,
             projected_potential, plan_wave_sampling, atomistic.build_equilibrium_atoms,
@@ -606,6 +610,7 @@ def prepare_specimen_potentials(
     field_of_view_angstrom_override: float | None = None,
     calculation_roi_centre_nm=(0.0, 0.0),
     calculation_roi_bounds_nm=None,
+    preparation_budget=None,
 ) -> PreparedSpecimen:
     """Reuse exact specimen potentials independently of wave propagation."""
     started = perf_counter()
@@ -615,6 +620,7 @@ def prepare_specimen_potentials(
         "calculation_roi_bounds_nm": (
             tuple(calculation_roi_bounds_nm) if calculation_roi_bounds_nm is not None else None
         ),
+        "preparation_budget": preparation_budget,
     }
     try:
         key = _prepared_specimen_identity(state, preset, **arguments)
@@ -646,6 +652,7 @@ def _prepare_specimen_potentials_uncached(
     field_of_view_angstrom_override: float | None = None,
     calculation_roi_centre_nm=(0.0, 0.0),
     calculation_roi_bounds_nm=None,
+    preparation_budget=None,
 ) -> PreparedSpecimen:
     """Build the selected qualitative or atomistic specimen representation."""
 
@@ -728,7 +735,11 @@ def _prepare_specimen_potentials_uncached(
             and scene.matter_thickness_nm > 0.0 and overlaps
         ),
         max_potential_bytes=MAX_ATOMISTIC_POTENTIAL_BYTES,
+        preparation_budget=preparation_budget,
     )
+    if preparation_budget is not None:
+        from temsim.physics.wave_execution import check_available_memory
+        check_available_memory(sampling_plan.estimated_working_bytes-preparation_budget.retained_bytes)
     pixels = sampling_plan.pixels
     material_bounds_nm = None
     if overlaps and scene.matter_thickness_nm > 0.0:
@@ -742,6 +753,7 @@ def _prepare_specimen_potentials_uncached(
         )
     domain_metrics = {
         "wave_sampling_plan": asdict(sampling_plan),
+        "potential_preparation_budget": None if preparation_budget is None else asdict(preparation_budget),
         "wave_window_bounds_nm": wave_bounds_nm,
         # This is a bounding box. The physical disk mask further clips atoms.
         "atom_generation_bounds_nm": material_bounds_nm,
@@ -834,6 +846,8 @@ def _prepare_specimen_potentials_uncached(
                     )
                     or {}
                 ),
+                max_potential_bytes=(MAX_ATOMISTIC_POTENTIAL_BYTES if preparation_budget is None else
+                    preparation_budget.maximum_working_bytes-preparation_budget.retained_bytes),
             )
         except AtomisticBackendUnavailable as exc:
             if cif_path:
@@ -1331,8 +1345,11 @@ def _simulate_wave_image(state, simulation) -> WaveImagingResult:
     configuration_count = len(
         prepared.potential_configurations_v_angstrom
     )
+    requested_backend = getattr(state, "acceleration_backend", "Auto")
+    if not multislice_enabled and normalise_backend(requested_backend) == BACKEND_REQUIRE_GPU:
+        raise GPUExecutionError("unsupported_stage", "TEM projected phase-object propagation is CPU-only; Require GPU cannot execute this stage")
     wave_backend, wave_fallback_reason = choose_wave_backend(
-        getattr(state, "acceleration_backend", "Auto"),
+        requested_backend,
         acceleration_enabled=bool(
             getattr(state, "acceleration_enabled", True)
         ),
@@ -1366,6 +1383,7 @@ def _simulate_wave_image(state, simulation) -> WaveImagingResult:
                 ),
                 compute_backend=wave_backend,
                 fallback_reason=wave_fallback_reason,
+                requested_policy=requested_backend,
             )
             exit_waves.append(exit_wave)
             diagnostic_records.append(asdict(multislice_diagnostics))
@@ -1446,7 +1464,7 @@ def _simulate_wave_image(state, simulation) -> WaveImagingResult:
             "maximum_relative_intensity_change": 0.0,
             "compute_backend": WAVE_BACKEND_NUMPY,
             "numeric_precision": "complex128 / float64",
-            "fallback_reason": None,
+            "fallback_reason": "TEM projected phase-object propagation is CPU-only" if wave_backend != WAVE_BACKEND_NUMPY else wave_fallback_reason,
             "pixel_size_y_angstrom": spacing_y,
             "pixel_size_x_angstrom": spacing_x,
         }
@@ -1488,12 +1506,9 @@ def _simulate_wave_image(state, simulation) -> WaveImagingResult:
     # The projector owns the physical stop. Equivalent pupils, when explicitly
     # selected and valid, also execute there exactly once.
     transfer = np.exp(-1j * chi)
-    specimen_backend = str(specimen_metrics["compute_backend"])
-    fft_backend = (
-        specimen_backend
-        if specimen_backend in {WAVE_BACKEND_NUMPY, "CuPy CUDA"}
-        else WAVE_BACKEND_NUMPY
-    )
+    # A CPU-only phase-object operator does not force supported FFTs onto
+    # the CPU. A permitted multislice retry already updates wave_backend.
+    fft_backend = wave_backend
     fft_fallback_seed = (
         specimen_metrics.get("fallback_reason") or wave_fallback_reason
     )
@@ -1509,6 +1524,7 @@ def _simulate_wave_image(state, simulation) -> WaveImagingResult:
                 transfer,
                 compute_backend=fft_backend,
                 fallback_reason=fft_fallback_seed,
+                requested_policy=requested_backend,
             )
         )
         phase_rtol = FLOAT32_FLUX_RTOL if "complex64" in fft_diagnostics.numeric_precision else FLUX_RTOL

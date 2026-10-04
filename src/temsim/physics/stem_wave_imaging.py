@@ -629,11 +629,9 @@ def _simulate_angle_resolved_stem_single(
     configuration_count = len(
         prepared.potential_configurations_v_angstrom
     )
-    execution_policy = getattr(state.sample, "stem_execution_policy", "auto")
-    if execution_policy not in {"auto", "prefer_gpu", "require_gpu"}:
-        raise ValueError("Unknown STEM execution policy")
+    requested_backend = getattr(state, "acceleration_backend", "Auto")
     wave_backend, wave_fallback_reason = choose_wave_backend(
-        getattr(state, "acceleration_backend", "Auto") if execution_policy == "auto" else execution_policy,
+        requested_backend,
         acceleration_enabled=bool(
             getattr(state, "acceleration_enabled", True)
         ),
@@ -975,7 +973,7 @@ def _simulate_angle_resolved_stem_single(
             )
         except Exception as exc:
             from temsim.physics.compute_backend import gpu_retry_reason
-            failure_detail = gpu_retry_reason(exc, execution_policy)
+            failure_detail = gpu_retry_reason(exc, requested_backend)
             cuda_failure = (
                 "Resident CuPy STEM pipeline failed: "
                 + failure_detail
@@ -1096,6 +1094,7 @@ def _simulate_angle_resolved_stem_single(
                     ),
                     compute_backend=wave_backend,
                     fallback_reason=wave_fallback_reason,
+                    requested_policy=requested_backend,
                 )
                 diagnostic_records.append(asdict(diagnostics))
                 if diagnostics.compute_backend != wave_backend:
@@ -1113,6 +1112,7 @@ def _simulate_angle_resolved_stem_single(
                 compute_backend=fft_backend,
                 fallback_reason=fft_fallback_reason,
                 reference_norm=1.,
+                requested_policy=requested_backend,
             )
             fft_records.append(fft_diagnostics)
             if fft_diagnostics.compute_backend != fft_backend:

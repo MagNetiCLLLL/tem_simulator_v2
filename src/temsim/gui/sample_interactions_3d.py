@@ -912,10 +912,10 @@ def _beam_model_diagnostic_text(calculation_result) -> str:
     emitter = getattr(getattr(state, "electron_gun", None), "emitter", None)
     source_parts = []
     for attribute, label, unit in (
-        ("virtual_source_fwhm_nm", "source FWHM", "nm"),
+        ("virtual_source_fwhm_nm", "projected emission FWHM", "nm"),
         ("angular_rms_mrad", "angular RMS", "mrad"),
         ("angular_cutoff_mrad", "angular cutoff", "mrad"),
-        ("energy_spread_fwhm_ev", "energy FWHM", "eV"),
+        ("energy_spread_fwhm_ev", "energy width", "eV"),
     ):
         value = getattr(emitter, attribute, None)
         if value is not None and math.isfinite(float(value)):
@@ -925,7 +925,8 @@ def _beam_model_diagnostic_text(calculation_result) -> str:
     if surface is not None:
         source_text = (f"surface cap {surface.emission.cap_half_angle_deg:g} deg; "
             f"launch mean {surface.emission.mean_energy_ev:g} eV; "
-            f"energy RMS {surface.emission.energy_sigma_ev:.4g} eV; prescribed classical flux")
+            f"energy RMS {surface.emission.energy_sigma_ev:.4g} eV; "
+            + ("Tip injection flux" if surface.shared_boundary else "prescribed classical flux"))
     if source_text:
         source_text = "; " + source_text
     return (
