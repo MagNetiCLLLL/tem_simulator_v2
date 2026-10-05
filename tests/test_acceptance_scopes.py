@@ -79,6 +79,7 @@ def test_new_lanes_explicitly_cover_reviewed_feature_and_runtime_boundaries():
             "test_hardware_tuning_feedback.py", "test_electron_session_gui.py", "test_diagnostic_electron_record.py",
             "test_assembly_selection_state.py", "test_assembly_navigation.py", "test_instrument_configuration.py",
             "test_working_point_restore_gui.py", "test_selected_plane.py", "test_selected_plane_gui.py",
+            "test_conjugate_planes.py", "test_conjugate_plane_gui.py", "test_conjugate_plane_workspace.py",
             "test_coherent_beam_gui.py", "test_shared_tip_workflow.py", "test_tip_source_gui.py",
             "test_electron_beam_observation.py", "test_wave_beam_analysis.py",
             "test_coherent_state_controller.py", "test_coherent_state_list.py", "test_coherent_state_set.py",
@@ -115,7 +116,9 @@ def test_new_lanes_explicitly_cover_reviewed_feature_and_runtime_boundaries():
         assert {Path(path).name for path in scope_test_files(scope)} == expected
 
 
-@pytest.mark.parametrize("path", ("tests/test_selected_plane.py", "tests/test_selected_plane_gui.py"))
+@pytest.mark.parametrize("path", ("tests/test_selected_plane.py", "tests/test_selected_plane_gui.py",
+                                "tests/test_conjugate_planes.py", "tests/test_conjugate_plane_gui.py",
+                                "tests/test_conjugate_plane_workspace.py"))
 def test_selected_plane_requires_both_numerical_and_gui_evidence(path):
     receipt = receipt_for("field-ui")
     missing = next(node for node in receipt["collected"] if node.startswith(path + "::"))

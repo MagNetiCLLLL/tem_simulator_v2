@@ -91,11 +91,12 @@ def _check_cancelled(cancelled: Callable[[], bool] | None) -> None:
 
 
 def _exact_saved_transfer(simulation, source_z_mm, target_z_mm):
-    # Simulation's analysis transfer uses canonical/Larmor specimen slopes.
-    # Generic optical records use mechanical source slopes and are not
-    # interchangeable when the specimen is inside a nonzero axial field.
+    # Old saved transfers may use mechanical slopes. Explicitly require the
+    # shared canonical convention even when the source and target Z match.
+    from temsim.physics.first_order import SPECIMEN_CANONICAL_MOMENTUM
     transfer = getattr(simulation, "sample_to_analysis_transfer", None)
     if (isinstance(transfer, TransverseTransfer)
+            and getattr(transfer, "input_basis", None) == SPECIMEN_CANONICAL_MOMENTUM
             and transfer.source_z_mm == source_z_mm
             and transfer.target_z_mm == target_z_mm):
         return transfer

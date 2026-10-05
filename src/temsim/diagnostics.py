@@ -18,7 +18,6 @@ from temsim.physics.first_order import (
     TransverseTransfer,
     detector_frame_from_component,
     linear_map_properties,
-    trace_transverse_transfers,
 )
 
 
@@ -611,12 +610,12 @@ def _sample_to_plane_larmor_rotation_deg(state, plane_z_mm: float) -> float:
 
 
 def _sample_to_plane_image_maps(state, plane_z_values_mm):
-    """Trace a reference plus four transverse bases at requested planes."""
+    """Evaluate the common specimen-canonical basis at requested planes."""
+    from temsim.optics.direct_alignment import diffraction_transfers
 
     sample_z_mm = float(state.sample.z_mm)
-    transfers = trace_transverse_transfers(
+    transfers = diffraction_transfers(
         state,
-        sample_z_mm,
         (
             float(value) for value in plane_z_values_mm
             if float(value) > sample_z_mm
@@ -631,11 +630,14 @@ def _sample_to_plane_image_maps(state, plane_z_values_mm):
 def optical_transfer_records(state) -> tuple[OpticalTransferRecord, ...]:
     """Return full signed J_img/J_diff data at named downstream planes.
 
-    Objective reference planes use the simulator's laboratory X-Y frame.
+    Input positions and canonical momenta use the specimen basis shared with
+    wave phase and selected-Z classification. Output positions use column X-Y.
     Physical recording planes additionally carry their detector/display-axis
     calibration.  The curved Energy Filter branch is not folded into these
     straight-column matrices; its entrance is exposed as a chain boundary.
     """
+
+    from temsim.optics.direct_alignment import diffraction_transfers
 
     sample_z_mm = float(state.sample.z_mm)
     candidates: list[
@@ -701,9 +703,8 @@ def optical_transfer_records(state) -> tuple[OpticalTransferRecord, ...]:
             continue
         prepared.append(candidate)
         used_keys.add(key)
-    transfers = trace_transverse_transfers(
+    transfers = diffraction_transfers(
         state,
-        sample_z_mm,
         (candidate[2] for candidate in prepared),
     )
     records = []

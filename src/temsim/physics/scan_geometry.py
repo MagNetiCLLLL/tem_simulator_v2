@@ -11,15 +11,12 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from temsim.physics.scan_calibration import held, restore_held, sample_reference_z_mm, capture_record
+from temsim.physics.first_order import SPECIMEN_CANONICAL_MOMENTUM
 
 from temsim.physics.beam_observation import (
     transverse_kick_phase_space_response,
     transverse_kick_response,
     transverse_kick_response_path,
-)
-from temsim.physics.first_order import (
-    trace_transverse_transfer,
-    trace_transverse_transfers,
 )
 
 
@@ -148,14 +145,17 @@ def calibrate_ac_pure_shift(state):
 
 
 def classify_sample_plane_transfer(transfer) -> tuple[str, float, float]:
-    """Classify a plane from the full sample-to-plane first-order map.
+    """Classify the specimen-canonical position/momentum response.
 
     A sample-conjugate image plane has ``J_diff = 0``.  A diffraction plane
     has ``J_img = 0``.  A plane satisfying neither tolerance is explicitly
     reported as mixed contrast rather than inheriting the projector-mode
-    label.
+    label. Mechanical input slopes are not interchangeable inside the
+    specimen's axial magnetic field; callers must use diffraction_transfer(s).
     """
 
+    if getattr(transfer, "input_basis", None) != SPECIMEN_CANONICAL_MOMENTUM:
+        raise ValueError("Plane classification requires specimen canonical momentum coordinates")
     image_residual = float(
         np.linalg.norm(transfer.j_diff_m_per_rad, ord=2)
     )
@@ -173,6 +173,24 @@ def classify_sample_plane_transfer(transfer) -> tuple[str, float, float]:
     else:
         kind = "mixed"
     return kind, image_residual, diffraction_residual
+
+
+def _sample_plane_classification(state, target_z_mm, transfer=None):
+    """Classify downstream canonical optics without tracing backwards.
+
+    The physical scan reference can be the specimen entrance. Its raster may
+    include stations before the specimen centre used for optical conjugacy.
+    """
+    source_z_mm = float(state.sample.z_mm)
+    target_z_mm = float(target_z_mm)
+    if target_z_mm <= source_z_mm:
+        kind = "specimen" if target_z_mm == source_z_mm else "upstream"
+        return kind, float("nan"), float("nan")
+    if transfer is None:
+        from temsim.optics.direct_alignment import diffraction_transfer
+
+        transfer = diffraction_transfer(state, target_z_mm)
+    return classify_sample_plane_transfer(transfer)
 
 
 def synchronize_scan_raster(source, target) -> None:
@@ -405,13 +423,10 @@ def calibrate_descan_image_plane(state) -> DescanCalibrationResult:
                 lower_response,
             )
         )
-        transfer = trace_transverse_transfer(
-            state,
-            sample_reference_z_mm(state),
-            target_z_mm,
-        )
-        plane_kind, image_residual, _ = classify_sample_plane_transfer(
-            transfer
+        # Plane labels share the specimen-canonical observer used by the Ray
+        # Diagram. Mechanical kick responses above remain the scan geometry.
+        plane_kind, image_residual, _ = _sample_plane_classification(
+            state, target_z_mm
         )
         descan.set_image_plane_coupling(
             lower_from_upper,
@@ -481,7 +496,7 @@ def _measure_descan(state):
     ac = paired_kick_response(state, state.ac_deflector, z)
     ds = paired_kick_response(state, state.descan_deflector, z)
     residual = float(np.linalg.norm(ac-ds) / max(np.linalg.norm(ac), 1e-30))
-    kind, image, _ = classify_sample_plane_transfer(trace_transverse_transfer(state, sample_reference_z_mm(state), z))
+    kind, image, _ = _sample_plane_classification(state, z)
     return DescanCalibrationResult(key, name, z,
         np.asarray(state.descan_deflector.image_plane_lower_ratio_matrix), residual, image, kind)
 
@@ -838,10 +853,14 @@ def calculate_scan_geometry(state, *, observation_stop_z_mm=None, calibration=No
     plane_roles = {}
     plane_image_residuals = {}
     plane_diffraction_residuals = {}
-    plane_transfers = trace_transverse_transfers(
+    from temsim.optics.direct_alignment import diffraction_transfers
+
+    # Classification always refers to canonical specimen-centre coordinates;
+    # entrance/centre scan calibration still controls the mechanical raster.
+    plane_transfers = diffraction_transfers(
         state,
-        sample_z_mm,
-        (float(plane.z_mm) for plane in observation_planes),
+        (float(plane.z_mm) for plane in observation_planes
+         if float(plane.z_mm) > float(state.sample.z_mm)),
     )
     for plane in observation_planes:
         observation_z_mm = float(plane.z_mm)
@@ -864,8 +883,8 @@ def calculate_scan_geometry(state, *, observation_stop_z_mm=None, calibration=No
         )
         plane_names[plane_key] = f"{plane.name}{reference_suffix}"
         kind, image_residual, diffraction_residual = (
-            classify_sample_plane_transfer(
-                plane_transfers[observation_z_mm]
+            _sample_plane_classification(
+                state, observation_z_mm, plane_transfers.get(observation_z_mm)
             )
         )
         plane_roles[plane_key] = kind

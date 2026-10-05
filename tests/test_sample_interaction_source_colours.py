@@ -177,6 +177,11 @@ def test_colour_mode_changes_only_rendering_and_preserves_camera(qtbot, monkeypa
     page = SampleInteractions3DPage()
     qtbot.addWidget(page)
     page.display_result(result)
+    assert page.colour_by.currentText() == "Interaction type"
+    assert page._path_colour(page.scene_snapshot.paths[0]) == QColor(
+        PATH_STYLES["elastic"][1]
+    )
+    page.colour_by.setCurrentIndex(page.colour_by.findData("source"))
     page.set_view_mode("xz")
     page.view.setRange(xRange=(-20, 20), yRange=(-150, 25), padding=0)
     before = np.asarray(page.view.viewRange())
@@ -196,9 +201,9 @@ def test_colour_mode_changes_only_rendering_and_preserves_camera(qtbot, monkeypa
     monkeypatch.setattr(view_module, "SpecimenFieldTransport", forbidden)
     requests = []
     page.sample_region_requested.connect(lambda: requests.append(True))
-    page.colour_by.setCurrentIndex(1)
+    page.colour_by.setCurrentIndex(page.colour_by.findData("interaction"))
     assert page._path_colour(scene.paths[0]) == QColor(PATH_STYLES["elastic"][1])
-    page.colour_by.setCurrentIndex(0)
+    page.colour_by.setCurrentIndex(page.colour_by.findData("source"))
     assert page.scene_snapshot is scene
     assert not requests
     np.testing.assert_allclose(page.view.viewRange(), before)
@@ -209,6 +214,7 @@ def test_colour_mode_changes_only_rendering_and_preserves_camera(qtbot, monkeypa
 def test_unknown_source_stays_neutral_and_photons_keep_category_colour(qtbot):
     page = SampleInteractions3DPage()
     qtbot.addWidget(page)
+    page.colour_by.setCurrentIndex(page.colour_by.findData("source"))
     positions = np.asarray(((0.0, 0.0, 0.0), (1.0, 2.0, 3.0)))
     unknown = ScenePath(positions, "elastic")
     photon = ScenePath(positions, "xray_generated")

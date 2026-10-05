@@ -39,6 +39,8 @@ from temsim.physics.core import E, fields, propagate, interleaved_rk4_values, sk
 from temsim.physics.ray_integrator import _canonical_step_numba
 from temsim.physics.first_order import (
     TransverseTransfer,
+    SPECIMEN_CANONICAL_MOMENTUM,
+    PLANE_CANONICAL_MOMENTUM,
     trace_transverse_transfer,
     trace_transverse_transfers,
 )
@@ -195,113 +197,141 @@ def _column_reference_momentum(state, source_z_mm, electric_field=None):
 def diffraction_transfer(
     state, target_z_mm: float, *, stable_axisymmetric: bool = True
 ) -> TransverseTransfer:
-    """Return the stable specimen-canonical diffraction transfer.
+    """Return the specimen-canonical map used by every plane diagnostic."""
+    target = float(target_z_mm)
+    return diffraction_transfers(
+        state, (target,), stable_axisymmetric=stable_axisymmetric
+    )[target]
 
-    Post-specimen projector optics are axisymmetric in the configured model,
-    so the Larmor-frame scalar equation avoids the severe step-size error of
-    integrating fast magnetic rotation and ``dBz/dz`` separately.  A future
-    deliberately enabled post-specimen quadrupole, imported field, or distributed
-    electric field uses the general laboratory-frame tracer and the same
-    canonical input-basis transform.
+
+def diffraction_transfers(
+    state, target_z_values_mm, *, stable_axisymmetric: bool = True
+) -> dict[float, TransverseTransfer]:
+    """Trace canonical specimen-position/momentum responses once for all planes.
+
+    All plane diagnostics use this input basis, including planes named as image
+    or diffraction references. Output positions remain in column X/Y and output
+    slopes remain mechanical. Actual particle transport retains its mechanical
+    input map. The axisymmetric Larmor equation avoids derivative/rotation error;
+    non-axisymmetric, mapped or electric fields use the full field tracer.
     """
+    return canonical_transfers(
+        state, float(state.sample.z_mm), target_z_values_mm,
+        stable_axisymmetric=stable_axisymmetric,
+        input_basis=SPECIMEN_CANONICAL_MOMENTUM,
+    )
 
-    source_z_mm = float(state.sample.z_mm)
-    target_z_mm = float(target_z_mm)
-    electric_field = _active_column_electric_field(state, source_z_mm, target_z_mm)
-    if not stable_axisymmetric or active_mapped_providers(state) or electric_field is not None:
-        raw = trace_transverse_transfer(
-            state,
-            source_z_mm,
-            target_z_mm,
-            maximum_step_mm=0.025,
+
+def canonical_transfers(
+    state, source_z_mm, target_z_values_mm, *, stable_axisymmetric=True,
+    input_basis=PLANE_CANONICAL_MOMENTUM,
+) -> dict[float, TransverseTransfer]:
+    """The same captured-field observer, based at an explicit reference plane.
+
+    Positions are in column X/Y; input angles are canonical momentum divided
+    by reference momentum and output angles are mechanical slopes. This does
+    not move the specimen or any hardware. The caller must restrict use to the
+    paraxial, straight-column domain; material interactions are not traversed.
+    """
+    source = float(source_z_mm)
+    targets = sorted({float(value) for value in target_z_values_mm})
+    if not math.isfinite(source) or any(not math.isfinite(z) for z in targets):
+        raise ValueError("Canonical transfer requires finite source and target Z")
+    if any(z < source for z in targets):
+        raise ValueError("Canonical transfer targets must not precede the reference plane")
+    if not targets:
+        return {}
+    target = targets[-1]
+    electric_field = _active_column_electric_field(state, source, target)
+
+    def canonical_from_mechanical(source_g, requested_targets):
+        raw_maps = trace_transverse_transfers(
+            state, source, requested_targets, maximum_step_mm=0.025,
         )
-        source_field_t = float(
-            fields(np.asarray((source_z_mm,)), state)[0][0]
+        basis = _canonical_source_basis(source_g)
+        result = {}
+        for z, raw in raw_maps.items():
+            matrix = raw.matrix @ basis
+            result[z] = TransverseTransfer(
+                source_z_mm=source, target_z_mm=z,
+                j_img=matrix[:2, :2], j_diff_m_per_rad=matrix[:2, 2:],
+                k_img_rad_per_m=matrix[2:, :2], k_diff=matrix[2:, 2:],
+                position_offset_m=raw.position_offset_m,
+                angle_offset_rad=raw.angle_offset_rad,
+                input_basis=input_basis,
+            )
+        return result
+
+    if (not stable_axisymmetric or active_mapped_providers(state)
+            or electric_field is not None or target == source):
+        source_b = float(fields(np.asarray((source,)), state)[0][0])
+        momentum = _column_reference_momentum(state, source, electric_field)
+        # A field encountered only after an earlier target must not switch that
+        # target away from the solver used for an individual selected-Z query.
+        prefix = []
+        if stable_axisymmetric and not active_mapped_providers(state) and electric_field is not None:
+            prefix = [z for z in targets if electric_field.is_constant_on_interval(source, z)]
+        result = canonical_from_mechanical(
+            -E * source_b / (2.0 * momentum),
+            [z for z in targets if z not in prefix],
         )
-        momentum = _column_reference_momentum(state, source_z_mm, electric_field)
-        source_g_m1 = -E * source_field_t / (2.0 * momentum)
-        matrix = raw.matrix @ _canonical_source_basis(source_g_m1)
-        return TransverseTransfer(
-            source_z_mm=source_z_mm,
-            target_z_mm=target_z_mm,
-            j_img=matrix[:2, :2],
-            j_diff_m_per_rad=matrix[:2, 2:],
-            k_img_rad_per_m=matrix[2:, :2],
-            k_diff=matrix[2:, 2:],
-            position_offset_m=raw.position_offset_m,
-            angle_offset_rad=raw.angle_offset_rad,
-        )
-    # Match the independently required production-validation resolution so
-    # GUI diagnostics cannot regress to a visibly different coarse-step plane.
+        if prefix:
+            result.update(canonical_transfers(state, source, prefix, input_basis=input_basis))
+        return result
+
+    # All requested endpoints are represented exactly, in a single field pass.
     step_mm = min(max(float(state.step_mm), 1.0e-6), 0.025)
-    z_mm = _piecewise_endpoint_exact_grid(
-        source_z_mm, target_z_mm, step_mm
-    )
-    stage_z_mm = interleaved_rk4_values(
-        z_mm, 0.5 * (z_mm[:-1] + z_mm[1:])
-    )
+    z_mm = _piecewise_endpoint_exact_grid(source, target, step_mm, targets)
+    stage_z_mm = interleaved_rk4_values(z_mm, 0.5 * (z_mm[:-1] + z_mm[1:]))
     magnetic_t, sx_m2, sy_m2 = fields(stage_z_mm, state)
     momentum = _electron_momentum_kg_m_s(state.beam_voltage_kv)
     g = np.ascontiguousarray(-E * magnetic_t / (2.0 * momentum))
     gun_bx, gun_by, *_ = gun_paraxial_fields(state, stage_z_mm)
-    position_offset = angle_offset = (0., 0.)
-    if (
-        np.max(np.abs(sx_m2), initial=0.0) > 1.0e-15
-        or np.max(np.abs(sy_m2), initial=0.0) > 1.0e-15
-        or np.any(skew_quadrupole_field(stage_z_mm, state) != 0.)
-        or np.any(gun_bx != 0.) or np.any(gun_by != 0.)
+    indices = np.asarray(np.searchsorted(z_mm, targets), dtype=np.int64)
+    non_axisymmetric = np.logical_or.accumulate(
+        (np.abs(sx_m2) > 1.0e-15) | (np.abs(sy_m2) > 1.0e-15)
+        | (skew_quadrupole_field(stage_z_mm, state) != 0.)
+        | (gun_bx != 0.) | (gun_by != 0.)
+    )
+    dipoles = column_dipole_fields(state)
+    general_targets = [
+        z for z, index in zip(targets, indices)
+        if non_axisymmetric[2 * index]
         or any((coil.bx_t != 0. or coil.by_t != 0.)
-               and coil.lower_m < target_z_mm*1e-3
-               and coil.upper_m > source_z_mm*1e-3
-               for coil in column_dipole_fields(state))
-    ):
-        raw = trace_transverse_transfer(
-            state,
-            source_z_mm,
-            target_z_mm,
-            maximum_step_mm=0.025,
-        )
-        matrix = raw.matrix @ _canonical_source_basis(g[0])
-        position_offset = raw.position_offset_m
-        angle_offset = raw.angle_offset_rad
-    else:
-        z_m = np.ascontiguousarray(z_mm * 1.0e-3)
-        radial = _rk4_axisymmetric_larmor_matrix(g, z_m)
-        phase = float(np.sum(
-            (g[:-2:2] + 4.0 * g[1::2] + g[2::2])
-            * np.diff(z_m) / 6.0
-        ))
-        target_g = float(g[-1])
+               and coil.lower_m < z*1e-3 and coil.upper_m > source*1e-3
+               for coil in dipoles)
+    ]
+    if general_targets:
+        result = canonical_from_mechanical(g[0], general_targets)
+        prefix = [z for z in targets if z not in general_targets]
+        if prefix:
+            result.update(canonical_transfers(state, source, prefix, input_basis=input_basis))
+        return result
 
-        def complex_map(value: complex) -> np.ndarray:
-            return np.asarray((
-                (value.real, -value.imag),
-                (value.imag, value.real),
-            ))
+    z_m = np.ascontiguousarray(z_mm * 1.0e-3)
+    radials = _rk4_axisymmetric_larmor_matrices(g, z_m, indices)
+    phases = np.concatenate(([0.0], np.cumsum(
+        (g[:-2:2] + 4.0 * g[1::2] + g[2::2]) * np.diff(z_m) / 6.0
+    )))
 
-        rotation = complex(math.cos(-phase), math.sin(-phase))
+    def complex_map(value):
+        return np.asarray(((value.real, -value.imag), (value.imag, value.real)))
+
+    result = {}
+    for z, index, radial in zip(targets, indices, radials):
+        rotation = complex(math.cos(-phases[index]), math.sin(-phases[index]))
+        target_g = float(g[2 * index])
         a, b = float(radial[0, 0]), float(radial[0, 1])
         c, d = float(radial[1, 0]), float(radial[1, 1])
-        matrix = np.block([
-            [
-                complex_map(rotation * a),
-                complex_map(rotation * b),
-            ],
-            [
-                complex_map(rotation * complex(c, -target_g * a)),
-                complex_map(rotation * complex(d, -target_g * b)),
-            ],
-        ])
-    return TransverseTransfer(
-        source_z_mm=source_z_mm,
-        target_z_mm=target_z_mm,
-        j_img=matrix[:2, :2],
-        j_diff_m_per_rad=matrix[:2, 2:],
-        k_img_rad_per_m=matrix[2:, :2],
-        k_diff=matrix[2:, 2:],
-        position_offset_m=position_offset,
-        angle_offset_rad=angle_offset,
-    )
+        result[z] = TransverseTransfer(
+            source_z_mm=source, target_z_mm=z,
+            j_img=complex_map(rotation * a),
+            j_diff_m_per_rad=complex_map(rotation * b),
+            k_img_rad_per_m=complex_map(rotation * complex(c, -target_g * a)),
+            k_diff=complex_map(rotation * complex(d, -target_g * b)),
+            input_basis=input_basis,
+        )
+    return result
 
 
 def projector_field_calibration_rows(state):
@@ -475,6 +505,13 @@ def _rk4_transfer_matrix(g, sx, sy, z_m):
 
 @njit(cache=True)
 def _rk4_axisymmetric_larmor_matrix(g, z_m):
+    return _rk4_axisymmetric_larmor_matrices(
+        g, z_m, np.asarray((z_m.size - 1,), dtype=np.int64)
+    )[0]
+
+
+@njit(cache=True)
+def _rk4_axisymmetric_larmor_matrices(g, z_m, capture_indices):
     """Integrate ``u'' + g**2 u = 0`` for an axisymmetric magnetic field.
 
     Working in the Larmor frame removes the axial-field derivative and the
@@ -483,7 +520,12 @@ def _rk4_axisymmetric_larmor_matrix(g, z_m):
     stable optimiser model for strongly overlapping projector fields.
     """
 
+    captured = np.empty((capture_indices.size, 2, 2), dtype=np.float64)
+    capture = 0
     a, b, c, d = 1.0, 0.0, 0.0, 1.0
+    if capture < capture_indices.size and capture_indices[capture] == 0:
+        captured[capture] = np.eye(2)
+        capture += 1
     for index in range(z_m.size - 1):
         h = z_m[index + 1] - z_m[index]
         q0 = g[2 * index] * g[2 * index]
@@ -511,7 +553,13 @@ def _rk4_axisymmetric_larmor_matrix(g, z_m):
         b += h * (b1 + 2.0 * b2 + 2.0 * b3 + b4) / 6.0
         c += h * (c1 + 2.0 * c2 + 2.0 * c3 + c4) / 6.0
         d += h * (d1 + 2.0 * d2 + 2.0 * d3 + d4) / 6.0
-    return np.asarray(((a, b), (c, d)), dtype=np.float64)
+        if capture < capture_indices.size and capture_indices[capture] == index + 1:
+            captured[capture, 0, 0] = a
+            captured[capture, 0, 1] = b
+            captured[capture, 1, 0] = c
+            captured[capture, 1, 1] = d
+            capture += 1
+    return captured
 
 
 def _electron_momentum_kg_m_s(voltage_kv: float) -> float:

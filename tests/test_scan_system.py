@@ -7,6 +7,7 @@ from temsim.detector.stem_signal import DetectorSignal, StemScanResult
 from temsim.detector import stem_signal
 from temsim.gui.scan_panel import ScanControlView
 from temsim.gui.visualization import VisualizationWorkspace
+from temsim.optics import direct_alignment
 from temsim.optics.ac_deflector import create_ac_deflector
 from temsim.optics.column import default_state
 from temsim.optics.descan_deflector import create_descan_deflector
@@ -99,8 +100,14 @@ def test_paired_response_uses_both_planes_and_cross_axis_coupling(monkeypatch):
     assert actual == pytest.approx(expected)
 
 
-def test_descan_uses_opposite_ac_command_and_cancels_at_image_reference(
-    monkeypatch,
+@pytest.mark.parametrize(("image", "angular", "kind"), (
+    (1.0, 0.0, "image"),
+    (0.0, 0.1, "diffraction"),
+    (1.0, 0.1, "mixed"),
+    (0.0, 0.0, "degenerate"),
+))
+def test_descan_cancellation_and_measurement_use_canonical_plane_classification(
+    monkeypatch, image, angular, kind,
 ):
     ac = create_ac_deflector()
     ac.wobble_enabled = False
@@ -131,11 +138,12 @@ def test_descan_uses_opposite_ac_command_and_cancels_at_image_reference(
         lambda _state, start, _stop: responses[float(start)],
     )
     monkeypatch.setattr(
-        scan_geometry,
-        "trace_transverse_transfer",
+        direct_alignment,
+        "diffraction_transfer",
         lambda *_args: SimpleNamespace(
-            j_img=np.eye(2),
-            j_diff_m_per_rad=np.zeros((2, 2)),
+            j_img=image * np.eye(2),
+            j_diff_m_per_rad=angular * np.eye(2),
+            input_basis="specimen_canonical_momentum",
         ),
     )
     state = SimpleNamespace(
@@ -162,7 +170,96 @@ def test_descan_uses_opposite_ac_command_and_cancels_at_image_reference(
     )
     assert descan_response == pytest.approx(ac_response, abs=1.0e-12)
     assert result.response_match_residual < 1.0e-12
-    assert result.plane_kind == "image"
+    assert result.plane_kind == kind
+    measured = scan_geometry._measure_descan(state)
+    assert measured.plane_kind == kind
+    assert measured.conjugacy_residual_m_per_rad == pytest.approx(angular)
+    assert measured.response_match_residual < 1.0e-12
+
+
+@pytest.mark.parametrize(("target_z", "kind"), (
+    (99.5, "upstream"), (100.0, "specimen"),
+))
+def test_scan_specimen_boundary_does_not_trace_a_backward_canonical_map(
+    monkeypatch, target_z, kind,
+):
+    state = SimpleNamespace(sample=SimpleNamespace(z_mm=100.0))
+    monkeypatch.setattr(direct_alignment, "diffraction_transfer",
+                        lambda *_args: pytest.fail("Boundary must not be traced"))
+    actual, image_residual, diffraction_residual = scan_geometry._sample_plane_classification(
+        state, target_z
+    )
+    assert actual == kind
+    assert np.isnan(image_residual) and np.isnan(diffraction_residual)
+
+
+def test_scan_plane_labels_use_canonical_maps_without_changing_mechanical_raster(
+    monkeypatch,
+):
+    ac = create_ac_deflector()
+    ac.scan_enabled = True
+    ac.wobble_enabled = False
+    ac.scan_pixels_x = ac.scan_lines = 2
+    ac.scan_reference = "sample_entrance"
+    ac.set_pure_shift_coupling(-np.eye(2), 0.0)
+    ac.set_scan_command_matrix_mrad(np.eye(2), 0.0)
+    descan = create_descan_deflector()
+    descan.enabled = descan.scan_enabled = False
+    target = SimpleNamespace(key="screen", name="Screen", z_mm=120.0)
+    entrance_station = SimpleNamespace(key="entrance_station", name="Entrance station", z_mm=99.5)
+    centre_station = SimpleNamespace(key="centre_station", name="Centre station", z_mm=100.0)
+    state = SimpleNamespace(
+        ac_deflector=ac, descan_deflector=descan,
+        sample=SimpleNamespace(z_mm=100.0, upper_surface_z_mm=99.0),
+        recording_planes=(target, entrance_station, centre_station),
+    )
+    monkeypatch.setattr(scan_geometry, "_ac_angle_residual", lambda _state: 0.0)
+    paths = {
+        "upper": (
+            np.array([0.0, 200.0]),
+            np.array([np.zeros((2, 2)), np.eye(2)]),
+        ),
+        "lower": (
+            np.array([0.0, 200.0]),
+            np.zeros((2, 2, 2)),
+        ),
+    }
+    monkeypatch.setattr(scan_geometry, "_component_paths", lambda *_args, **_kwargs: paths)
+    canonical_calls = []
+    canonical_blocks = [np.eye(2), np.zeros((2, 2))]
+
+    def canonical_maps(snapshot, targets):
+        targets = tuple(targets)
+        canonical_calls.append((snapshot.sample.z_mm, targets))
+        return {z: SimpleNamespace(
+            j_img=canonical_blocks[0], j_diff_m_per_rad=canonical_blocks[1],
+            input_basis="specimen_canonical_momentum",
+        ) for z in targets}
+
+    monkeypatch.setattr(direct_alignment, "diffraction_transfers", canonical_maps)
+    calibration = (np.eye(2), 0.0, None)
+    image_geometry = scan_geometry.calculate_scan_geometry(state, calibration=calibration)
+    canonical_blocks[:] = [np.zeros((2, 2)), 0.1 * np.eye(2)]
+    diffraction_geometry = scan_geometry.calculate_scan_geometry(state, calibration=calibration)
+
+    assert canonical_calls == [(100.0, (120.0,)), (100.0, (120.0,))]
+    assert image_geometry.plane_roles["screen"] == "image"
+    assert diffraction_geometry.plane_roles["screen"] == "diffraction"
+    for geometry in (image_geometry, diffraction_geometry):
+        assert geometry.plane_roles["entrance_station"] == "upstream"
+        assert geometry.plane_roles["centre_station"] == "specimen"
+        for key in ("entrance_station", "centre_station"):
+            assert np.isnan(geometry.plane_image_residuals_m_per_rad[key])
+            assert np.isnan(geometry.plane_diffraction_residuals[key])
+            assert all(np.all(np.isfinite(axis)) for axis in geometry.plane_positions_um[key])
+    assert diffraction_geometry.plane_diffraction_residuals["screen"] == 0.0
+    assert diffraction_geometry.plane_image_residuals_m_per_rad["screen"] == pytest.approx(0.1)
+    assert np.ptp(image_geometry.sample_x_um) > 0.0
+    assert diffraction_geometry.sample_x_um == pytest.approx(image_geometry.sample_x_um)
+    assert diffraction_geometry.sample_y_um == pytest.approx(image_geometry.sample_y_um)
+    assert np.asarray(diffraction_geometry.plane_positions_um["screen"]) == pytest.approx(
+        np.asarray(image_geometry.plane_positions_um["screen"])
+    )
 
 
 def test_default_column_scan_descan_symmetry_and_optical_cancellation():
@@ -237,7 +334,8 @@ def test_plane_classification_distinguishes_image_diffraction_and_mixed(
     expected,
 ):
     kind, _, _ = scan_geometry.classify_sample_plane_transfer(
-        SimpleNamespace(j_img=j_img, j_diff_m_per_rad=j_diff)
+        SimpleNamespace(j_img=j_img, j_diff_m_per_rad=j_diff,
+                        input_basis="specimen_canonical_momentum")
     )
 
     assert kind == expected
@@ -377,7 +475,8 @@ def test_detector_position_and_size_define_collection_angle(monkeypatch):
                 response_m_per_rad
                 if detector_z == 300.0
                 else np.zeros((2, 2))
-            )
+            ),
+            input_basis="specimen_canonical_momentum",
         ),
     )
     state = SimpleNamespace(sample=SimpleNamespace(z_mm=100.0))

@@ -59,6 +59,8 @@ from temsim.gui.ray_extent_data import completed_ray_extent
 from temsim.gui.accelerator_gap_overlay import AcceleratorGapOverlay, ACCELERATOR_GAP_TOOLTIP
 from temsim.gui.transport_adjustment_readout import TransportAdjustmentReadout
 from temsim.gui.selected_plane_readout import SelectedPlaneReadout
+from temsim.gui.conjugate_plane_panel import ConjugatePlanePanel
+from temsim.gui.conjugate_plane_overlay import ConjugatePlaneOverlay
 from temsim.gui.design_explorer import DesignExplorerPage
 from temsim.gui.interactive_calculation import InteractiveCalculationPage
 from temsim.gui.model_inspector import ModelInspectorPage
@@ -362,12 +364,12 @@ class WaveImagingView(QWidget):
         plane_name = str(
             metrics.get("recording_plane_name", "Camera")
         )
-        observable = (
-            "Diffraction pattern"
-            if metrics.get("recording_plane_observable")
-            == "diffraction_pattern"
-            else "Image"
-        )
+        observable = {
+            "image": "Image",
+            "diffraction": "Diffraction pattern",
+            "mixed": "Mixed-plane intensity",
+            "degenerate": "Degenerate-plane intensity",
+        }.get(metrics.get("recording_plane_kind"), "Intensity")
         self.image.getView().setTitle(
             f"{plane_name}: {observable} (display-normalised)"
         )
@@ -834,6 +836,7 @@ class VisualizationWorkspace(QWidget):
         self.plot.setMenuEnabled(True)
         self._style_ray_legend(self.plot.addLegend(offset=(10, 10)))
         self.accelerator_gap_overlay = AcceleratorGapOverlay(self.plot)
+        self.conjugate_plane_overlay = ConjugatePlaneOverlay(self.plot)
         self.transport_adjustment_readout = TransportAdjustmentReadout()
         self.component_marker_items = []
         self._component_labels = []
@@ -919,7 +922,25 @@ class VisualizationWorkspace(QWidget):
         ray_primary_layout.addWidget(navigation_hint)
         ray_primary_layout.addLayout(navigation_controls)
         self.selected_plane_readout = SelectedPlaneReadout(self)
-        ray_primary_layout.addWidget(self.selected_plane_readout)
+        self.selected_plane_readout.tooltip_changed.connect(self._set_selected_plane_equation_tooltip)
+        plane_readout_row = QHBoxLayout()
+        plane_readout_row.addWidget(self.selected_plane_readout, 1)
+        self.conjugate_planes_toggle = QPushButton("Conjugate planes")
+        self.conjugate_planes_toggle.setObjectName("toggleConjugatePlanes")
+        self.conjugate_planes_toggle.setCheckable(True)
+        self.conjugate_planes_toggle.setToolTip(
+            "Find first-order image conjugates of a pinned axial reference plane. "
+            "This does not calculate crystal diffraction intensities."
+        )
+        plane_readout_row.addWidget(self.conjugate_planes_toggle)
+        ray_primary_layout.addLayout(plane_readout_row)
+        self.conjugate_planes = ConjugatePlanePanel(self)
+        self.conjugate_planes.setVisible(False)
+        self.conjugate_planes_toggle.toggled.connect(self.conjugate_planes.setVisible)
+        self.conjugate_planes_toggle.toggled.connect(self.conjugate_plane_overlay.setVisible)
+        self.conjugate_planes.plane_selected.connect(self.jump_to_ray_position)
+        self.conjugate_planes.search_changed.connect(self.conjugate_plane_overlay.set_search)
+        ray_primary_layout.addWidget(self.conjugate_planes)
         ray_primary_layout.addWidget(self.plot, 1)
         self.ray_calculation_extent = RayCalculationExtentBar()
         self.ray_calculation_extent.bind_plot(self.plot)
@@ -1085,17 +1106,12 @@ class VisualizationWorkspace(QWidget):
         self.sample_page = SamplePage()
         self.sample_interactions_3d = SampleInteractions3DPage()
         self.eds_page = EDSPage()
-        self.sample_interactions_3d.set_parameters_widget(
-            self.eds_page.settings_panel
-        )
         self.wave_imaging = WaveImagingView()
         self.sample_interactions_3d.calculation_bar = PageCalculationBar(
             "detailed sample", "sampleInteractions3DCalculate",
             button=self.sample_interactions_3d.calculate_paths,
         )
-        self.sample_interactions_3d.layout().insertWidget(
-            0, self.sample_interactions_3d.calculation_bar
-        )
+        self.eds_page.set_interaction_page(self.sample_interactions_3d)
         # The existing button already emits sample_region_requested. Keep one
         # route to the worker; its old synchronous enrichment is not a UI path.
         self.sample_interactions_3d.calculate_paths.setEnabled(True)
@@ -1177,7 +1193,6 @@ class VisualizationWorkspace(QWidget):
         self.tabs.addTab(self.energy_filter_page, "Energy Filter")
         self.tabs.addTab(self.sample_page, "Sample")
         self.tabs.addTab(self.vacuum_map, "Vacuum map")
-        self.tabs.addTab(self.sample_interactions_3d, "Sample Interactions 3D")
         self.tabs.addTab(self.eds_page, "EDS")
         self.tabs.addTab(self.scanning_page, "Scanning Image")
         self.tabs.addTab(self.illuminating_page, "Illuminating Image")
@@ -2465,10 +2480,8 @@ class VisualizationWorkspace(QWidget):
         if limits is not None:
             cursor.setBounds(limits)
         cursor.setZValue(45)
-        cursor.setToolTip(
-            "Selected axial position; drag to another Z or double-click "
-            "an axial plot"
-        )
+        cursor.setToolTip(self.selected_plane_readout.label.toolTip())
+        cursor.label.setToolTip(cursor.toolTip())
         self._register_ray_label(cursor.label)
         cursor.sigPositionChangeFinished.connect(
             self._axial_cursor_move_finished
@@ -2477,12 +2490,20 @@ class VisualizationWorkspace(QWidget):
         self.plot.addItem(cursor)
         self.axial_cursor_item = cursor
 
+    def _set_selected_plane_equation_tooltip(self, tooltip):
+        cursor = self.axial_cursor_item
+        if cursor is not None:
+            cursor.setToolTip(tooltip)
+            if cursor.label is not None:
+                cursor.label.setToolTip(tooltip)
+
     def _axial_cursor_moved(self, cursor) -> None:
         """Preview the transverse slice continuously while the cursor moves."""
 
         self.coherent_beam.set_selected_z(float(cursor.value()))
         self._focus_transverse("z", float(cursor.value()))
         self.selected_plane_readout.select_z(float(cursor.value()))
+        self.conjugate_planes.select_z(float(cursor.value()))
 
     def _axial_cursor_move_finished(self, cursor) -> None:
         self.jump_to_ray_position(float(cursor.value()))
@@ -2660,6 +2681,7 @@ class VisualizationWorkspace(QWidget):
         self._selected_z_mm = selected
         self._focus_transverse("z", selected)
         self.selected_plane_readout.select_z(selected)
+        self.conjugate_planes.select_z(selected)
         self.coherent_beam.set_selected_z(selected)
         self.axial_position.setRange(lower_limit, upper_limit)
         self.axial_position.setValue(selected)
@@ -4077,6 +4099,8 @@ class VisualizationWorkspace(QWidget):
         self._update_projection_text()
         self._update_interaction_detail()
         self.selected_plane_readout.select_z(self._selected_z_mm)
+        self.conjugate_planes.select_z(self._selected_z_mm)
+        self.conjugate_plane_overlay.refresh()
         self._ray_scene_last_update_ms = (perf_counter() - started) * 1000.0
 
     def clear_result(self) -> None:
@@ -4095,6 +4119,7 @@ class VisualizationWorkspace(QWidget):
         self._presented_ray_panels.clear()
         self._last_result = self._preview_result = self._high_accuracy_result = None
         self.selected_plane_readout.clear()
+        self.conjugate_planes.clear()
         self._last_quality = ""
         self._high_accuracy_current = self._ray_extent_stale = False
         self.accelerator_gap_overlay.clear()
@@ -4193,6 +4218,7 @@ class VisualizationWorkspace(QWidget):
         self.interactive_calculation.calculation_timing.set_result(result)
         self._ray_extent_stale = False
         self.selected_plane_readout.set_result(result)
+        self.conjugate_planes.set_result(result)
         self._refresh_ray_calculation_extent()
         no_illumination = sample_illumination_absent(
             getattr(result, "simulation", None),
@@ -4364,6 +4390,7 @@ class VisualizationWorkspace(QWidget):
         self.interactive_calculation.calculation_timing.mark_stale()
         self._ray_extent_stale = True
         self.selected_plane_readout.mark_stale()
+        self.conjugate_planes.mark_stale()
         self._refresh_ray_calculation_extent()
         from temsim.optics.electron_gun.tip_edit import tip_model_label
         gun = state.electron_gun

@@ -236,7 +236,7 @@ def test_reset_only_affects_selected_layout_and_registry_covers_workspace(window
     make, _ = windows
     window = make()
     manager, workspace = window.workspace_layouts, window.workspace
-    assert {"samplePageSplitter", "sampleInteractionContentSplitter", "scanningImageSplitter",
+    assert {"samplePageSplitter", "scanningImageSplitter",
             "scanPlotSplitter", "energyFilterSplitter", "designExplorerSplitter",
             "designExplorerVerticalSplitter", "designSweepTablesSplitter", "magneticValidationSplitter",
             "instrumentEditorSplitter", "interactiveCalculationSplitter"} <= manager.splitters.keys()

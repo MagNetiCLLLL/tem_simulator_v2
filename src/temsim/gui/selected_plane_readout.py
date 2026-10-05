@@ -1,6 +1,7 @@
 """Debounced, captured-optics readout for the selected Ray Diagram plane."""
 
 from collections import OrderedDict
+from html import escape
 import math
 from threading import Event
 
@@ -8,6 +9,7 @@ from PySide6.QtCore import QObject, QRunnable, QTimer, Qt, Signal, Slot
 from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from temsim.gui.job_coordinator import CoordinatedPool, ResourceClaim
+from temsim.gui.plane_equations import plane_equation_tooltip
 from temsim.cpu_resources import numerical_job
 from temsim.physics.selected_plane import (
     SelectedPlaneDiagnostic,
@@ -59,16 +61,9 @@ class SelectedPlaneReadout(QWidget):
     callers can have changed its arrays or captured state in place.
     """
 
+    tooltip_changed = Signal(str)
     CACHE_LIMIT = 64
     DEBOUNCE_MS = 180
-    _SCOPE = (
-        "First-order paraxial specimen-to-plane transfer in captured instrument "
-        "settings; classification follows calculated fields, lens excitation, "
-        "geometry and electron energy. It is an optical conjugacy diagnostic, "
-        "not calculated crystal diffraction intensity. The specimen angular "
-        "input uses canonical/Larmor coordinates. Nonlinear aberrations "
-        "and the curved energy-filter branch are outside this matrix."
-    )
     _NAMES = {
         "image": "Image plane",
         "diffraction": "Diffraction plane",
@@ -95,7 +90,7 @@ class SelectedPlaneReadout(QWidget):
             | Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
         self.label.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-        self.label.setToolTip(self._SCOPE)
+        self._set_equation_tooltip()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.label)
@@ -137,10 +132,17 @@ class SelectedPlaneReadout(QWidget):
         self._stale = False
         self._show_waiting()
 
+    def _set_equation_tooltip(self, kind="pending", *, stale=False, detail=""):
+        tooltip = plane_equation_tooltip(kind, stale=stale)
+        if detail:
+            tooltip += f"<p>{escape(str(detail))}</p>"
+        self.label.setToolTip(tooltip)
+        self.tooltip_changed.emit(tooltip)
+
     def _show_waiting(self):
         self.label.setText("Plane state: choose an axial Z in a calculated Ray Diagram")
         self.label.setStyleSheet("color: #94a3b8;")
-        self.label.setToolTip(self._SCOPE)
+        self._set_equation_tooltip()
 
     def select_z(self, z_mm):
         if self._closed or self._result is None or z_mm is None:
@@ -177,7 +179,7 @@ class SelectedPlaneReadout(QWidget):
             return
         self.label.setText(f"Plane state | Z {z_mm:.9g} mm | evaluating captured optics…")
         self.label.setStyleSheet("color: #94a3b8;")
-        self.label.setToolTip(self._SCOPE)
+        self._set_equation_tooltip()
         self._pending = (self._generation, self._result_generation, self._result, z_mm)
         self.timer.start(self.DEBOUNCE_MS)
 
@@ -241,8 +243,13 @@ class SelectedPlaneReadout(QWidget):
         self.label.setText(text)
         colour = "#fbbf24" if self._stale else "#a5f3fc"
         self.label.setStyleSheet(f"color: {colour};")
-        detail = str(diagnostic.detail).strip()
-        self.label.setToolTip("\n".join((text, detail, self._SCOPE)).strip())
+        # The equations remain symbolic; numerical residuals stay in the readout.
+        # Retain boundary/failure reasons without inserting captured values into
+        # the mathematical expressions or treating an unavailable plane as solved.
+        detail = (str(diagnostic.detail).strip()
+                  if diagnostic.kind in {"upstream", "not_calculated", "unavailable"}
+                  else "")
+        self._set_equation_tooltip(diagnostic.kind, stale=self._stale, detail=detail)
 
     def _display_previous_pending(self):
         self.label.setText(
@@ -250,7 +257,7 @@ class SelectedPlaneReadout(QWidget):
             "recalculate Ray Diagram to evaluate this plane"
         )
         self.label.setStyleSheet("color: #fbbf24;")
-        self.label.setToolTip(self._SCOPE)
+        self._set_equation_tooltip(stale=True)
 
     def mark_stale(self):
         self._cancel_request()
@@ -262,6 +269,7 @@ class SelectedPlaneReadout(QWidget):
         else:
             self.label.setText("Previous optics — inputs changed | recalculate Ray Diagram")
             self.label.setStyleSheet("color: #fbbf24;")
+            self._set_equation_tooltip(stale=True)
 
     def clear(self):
         self.set_result(None)

@@ -95,7 +95,9 @@ ACCEPTANCE_SCOPES = {
                 "tests/test_assembly_selection_state.py", "tests/test_assembly_navigation.py",
                 "tests/test_instrument_configuration.py", "tests/test_working_point_restore_gui.py")),
             "field-ui/FU-09": ("Captured-optics selected-Z conjugacy and latest cached plane readout", (
-                "tests/test_selected_plane.py", "tests/test_selected_plane_gui.py")),
+                "tests/test_selected_plane.py", "tests/test_selected_plane_gui.py",
+                "tests/test_conjugate_planes.py", "tests/test_conjugate_plane_gui.py",
+                "tests/test_conjugate_plane_workspace.py")),
             "field-ui/FU-11": ("Selected-plane upstream hardware projections, recorded interceptions and beam views", (
                 "tests/test_plane_hardware_geometry.py", "tests/test_plane_hardware_overlay.py",
                 "tests/test_plane_cutoff_events.py", "tests/test_lazy_ray_panels.py",

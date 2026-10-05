@@ -54,6 +54,9 @@ def test_calculation_runs_in_coordinated_worker_and_displays_residuals(panel, qt
     assert "diffraction ‖A‖ 0.25" in panel.label.text()
     assert "captured instrument settings" in panel.label.toolTip()
     assert "not calculated crystal diffraction intensity" in panel.label.toolTip()
+    assert "r(z) = A(z)" in panel.label.toolTip()
+    assert "Mixed plane" in panel.label.toolTip()
+    assert "0.02" not in panel.label.toolTip()  # Keep equations symbolic.
     assert panel.label.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse
     assert not panel.label.wordWrap()
 
@@ -131,9 +134,11 @@ def test_stale_inputs_keep_cached_result_and_cancel_new_plane_work(panel, qtbot,
     wait_kind(qtbot, panel)
     panel.mark_stale()
     assert "Previous optics" in panel.label.text()
+    assert "previous result (stale)" in panel.label.toolTip()
     assert "Mixed plane" in panel.label.text()
     panel.select_z(13.0)
     assert "inputs changed" in panel.label.text()
+    assert "Model only" in panel.label.toolTip()
     assert "recalculate Ray Diagram" in panel.label.text()
     assert not panel.timer.isActive()
     panel.select_z(12.0)
@@ -227,6 +232,8 @@ def test_failed_calculation_is_visible_and_new_selection_recovers(panel, qtbot, 
     assert 12.0 not in panel._cache
     panel.select_z(13.0)
     wait_kind(qtbot, panel, "image")
+    assert "Image plane" in panel.label.toolTip()
+    assert "intentional failure" not in panel.label.toolTip()
 
 
 def test_clear_and_shutdown_cancel_pending_work_and_reject_late_results(panel, qtbot, monkeypatch):

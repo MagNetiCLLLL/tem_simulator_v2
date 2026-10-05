@@ -30,6 +30,7 @@ from temsim.physics.first_order import (
     linear_map_properties,
 )
 from temsim.physics.recording_stop import active_tem_recording_plane
+from temsim.physics.scan_geometry import classify_sample_plane_transfer
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,6 +304,9 @@ def _project_wave_to_plane(
         state,
         float(recording_plane.z_mm),
     )
+    plane_kind, image_residual, diffraction_residual = (
+        classify_sample_plane_transfer(transfer)
+    )
     transfer_basis = "specimen_canonical_momentum"
     detector_frame = detector_frame_from_component(recording_plane)
     rotation = detector_frame.column_to_detector
@@ -499,10 +503,13 @@ def _project_wave_to_plane(
         "projector_exit_wave_bandlimit_mrad": represented_angle_rad * 1.0e3,
         "camera_wave_propagation_method": method,
         "camera_projector_mode": projector_mode,
+        "recording_plane_kind": plane_kind,
+        "recording_plane_image_residual_m_per_rad": image_residual,
+        "recording_plane_diffraction_residual": diffraction_residual,
         "recording_plane_observable": (
             "diffraction_pattern"
-            if projector_mode == "diffraction"
-            else "image"
+            if plane_kind == "diffraction"
+            else plane_kind
         ),
         "intermediate_post_sample_masks_applied": bool(aperture_rows),
         "intermediate_aperture_transmissions": aperture_rows,

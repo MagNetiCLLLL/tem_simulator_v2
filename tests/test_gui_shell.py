@@ -196,36 +196,56 @@ def test_ray_and_transverse_angles_remain_synchronised_without_eds_plots(qtbot):
     assert workspace.projection_slider.value() == 1234
 
 
-def test_eds_contains_only_spectrum_and_sample_hosts_shared_settings(qtbot):
-    from PySide6.QtWidgets import QTabWidget, QTableWidget
-
+def test_eds_owns_spectrum_interactions_and_single_settings_page(qtbot):
     workspace = VisualizationWorkspace()
     qtbot.addWidget(workspace)
     eds = workspace.eds_page
     sample = workspace.sample_interactions_3d
-    assert eds.findChildren(pg.PlotWidget) == [eds.spectrum_plot]
-    assert not eds.findChildren(QTabWidget)
-    assert not eds.findChildren(QTableWidget)
+    assert workspace.tabs.indexOf(eds) >= 0
+    assert workspace.tabs.indexOf(sample) == -1
+    assert [eds.sub_tabs.tabText(i) for i in range(eds.sub_tabs.count())] == [
+        "Spectrum", "Interactions 3D", "Parameters",
+    ]
+    assert eds.sub_tabs.widget(0) is eds.spectrum_page
+    assert eds.sub_tabs.widget(1) is sample
+    assert eds.sub_tabs.widget(2) is eds.settings_panel
     assert not hasattr(eds, "eds_trajectory_plot")
-    assert sample.parameters_panel is eds.settings_panel
     assert eds.isAncestorOf(eds.eds_acquire)
-    assert sample.isAncestorOf(eds.sample_region_upstream)
+    assert eds.isAncestorOf(eds.sample_region_upstream)
+    assert not sample.isAncestorOf(eds.sample_region_upstream)
     assert not hasattr(eds, "sample_region_run")
-    assert not eds.isAncestorOf(eds.eds_group)
-    assert eds.settings_panel.isHidden()
+    assert eds.isAncestorOf(eds.eds_group)
+    assert not hasattr(sample, "parameters_toggle")
     events = []
+    calculations = []
+    workspace.resize(1200, 850)
+    workspace.tabs.setCurrentWidget(eds)
+    workspace.show()
+    qtbot.wait(10)
+    initial_tab_y = eds.sub_tabs.y()
     workspace.scan_parameters_changed.connect(events.append)
-    sample.parameters_toggle.click()
+    workspace.calculation_requested.connect(calculations.append)
+    eds.sub_tabs.setCurrentWidget(eds.settings_panel)
     assert not eds.settings_panel.isHidden()
-    sample.parameters_toggle.click()
-    assert eds.settings_panel.isHidden()
+    assert not eds.calculation_bar.isHidden()
+    eds.sub_tabs.setCurrentWidget(sample)
+    qtbot.wait(10)
+    assert eds.sub_tabs.y() == initial_tab_y
+    assert eds.calculation_bar.isHidden()
+    assert not sample.calculate_paths.isHidden()
+    eds.sub_tabs.setCurrentWidget(eds.spectrum_page)
+    assert not eds.calculation_bar.isHidden()
     assert events == []
+    assert calculations == []
 
     state = default_state()
     eds.set_state(state)
     eds.eds_scalar_controls["eds_detector_efficiency"].setValue(0.75)
     assert state.sample.eds_detector_efficiency == pytest.approx(0.75)
     assert len(events) == 1
+    eds.calculate_button.click()
+    sample.calculate_paths.click()
+    assert calculations == ["eds", "sample_region"]
 
 
 def test_ray_diagram_sections_are_user_resizable_and_keep_ray_priority(qtbot):
@@ -2648,12 +2668,12 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
         for index in range(window.workspace.tabs.count())
     ] == [
         "Ray Diagram",
+        "Electron beam",
         "Hardware tuning",
         "Physical Layout",
         "Energy Filter",
         "Sample",
         "Vacuum map",
-        "Sample Interactions 3D",
         "EDS",
         "Scanning Image",
         "Illuminating Image",

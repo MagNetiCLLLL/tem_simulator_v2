@@ -28,13 +28,11 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMenu,
     QPushButton,
     QSizePolicy,
-    QSplitter,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -114,6 +112,11 @@ SIGNAL_GROUPS = (
         ("elastic_event", "inelastic_event", "relaxation_event"),
     ),
 )
+
+SCATTERING_CATEGORIES = frozenset({
+    "elastic", "backscattered", "downstream_elastic", *EVENT_STYLES,
+})
+DIRECT_CATEGORIES = frozenset({"incident", "primary", "downstream_primary"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,6 +224,32 @@ def _global_mm_to_local_nm(positions_mm, sample_z_mm: float) -> np.ndarray:
     local[:, :2] *= 1.0e6
     local[:, 2] = (local[:, 2] - float(sample_z_mm)) * 1.0e6
     return local
+
+
+def _material_display_bounds(paths, events, thickness_nm: float):
+    """Frame local scattering without changing or stretching any trajectory.
+
+    Unscattered rays can cover a much wider area than the interacting paths.
+    Prefer scattering and event sites when available. With boundary states
+    alone, use their nearest cached sample-plane points instead of the long
+    upstream/downstream context lines.
+    """
+    points = [
+        path.positions_nm for path in paths
+        if path.category in {"elastic", "backscattered"}
+    ] + [event.positions_nm for event in events]
+    if not points:
+        points = [path.positions_nm for path in paths if path.category == "primary"]
+    if not points:
+        points = [
+            path.positions_nm[[int(np.argmin(np.abs(path.positions_nm[:, 2])))]]
+            for path in paths if path.category in SIGNAL_GROUPS[0][1]
+        ]
+    lower, upper = _bounds(points, max(0.5 * thickness_nm, 10.0))
+    half_z = max(0.5 * thickness_nm, 0.5)
+    lower[2] = min(lower[2], -1.08 * half_z)
+    upper[2] = max(upper[2], 1.08 * half_z)
+    return lower, upper
 
 
 def _gl_display_positions(positions_nm) -> np.ndarray:
@@ -804,20 +833,7 @@ def build_sample_interaction_scene(
         if values
     )
 
-    material_categories = {"primary", "elastic", "backscattered"}
-    material_points = [
-        path.positions_nm for path in paths if path.category in material_categories
-    ] + [event.positions_nm for event in events]
-    if not material_points:
-        material_points = [
-            path.positions_nm
-            for path in paths
-            if path.category not in {"xray_generated", "xray_detected"}
-        ]
-    material_bounds = _bounds(
-        material_points,
-        max(0.5 * thickness_nm, 10.0),
-    )
+    material_bounds = _material_display_bounds(paths, events, thickness_nm)
     region_bounds = _bounds(
         [path.positions_nm for path in paths]
         + [event.positions_nm for event in events],
@@ -973,7 +989,6 @@ class SampleInteractions3DPage(QWidget):
         self._hidden_view_state = None
         self._pending_view_restore = None
         self._view_states = {}
-        self.parameters_panel = None
 
         self.summary = QLabel(
             "Run High accuracy to populate cached specimen trajectories."
@@ -996,11 +1011,20 @@ class SampleInteractions3DPage(QWidget):
         self._signal_widget_actions: list[QWidgetAction] = []
         self.show_all_signals = self.signal_menu.addAction("Show all signals")
         self.hide_all_signals = self.signal_menu.addAction("Hide all signals")
+        self.focus_scattering = QPushButton("Focus scattering")
+        self.focus_scattering.setObjectName("sampleInteractionsFocusScattering")
+        self.focus_scattering.setToolTip(
+            "Show scattered electron paths and interaction sites, then fit "
+            "the local material. Use Visible signals to restore other categories."
+        )
         self.show_all_signals.triggered.connect(
-            lambda: self._set_all_signal_visibility(True)
+            lambda: self._set_signal_visibility(self.signal_actions)
         )
         self.hide_all_signals.triggered.connect(
-            lambda: self._set_all_signal_visibility(False)
+            lambda: self._set_signal_visibility(())
+        )
+        self.focus_scattering.clicked.connect(
+            lambda: self._set_signal_visibility(SCATTERING_CATEGORIES, refit=True)
         )
         self.signal_menu.addSeparator()
         all_styles = {**PATH_STYLES, **EVENT_STYLES}
@@ -1033,9 +1057,11 @@ class SampleInteractions3DPage(QWidget):
 
         self.colour_by = QComboBox()
         self.colour_by.setObjectName("sampleInteractionsColourBy")
-        self.colour_by.addItem("Source position", "source")
         self.colour_by.addItem("Interaction type", "interaction")
+        self.colour_by.addItem("Source position", "source")
         self.colour_by.setToolTip(
+            "Interaction type: distinguish direct, scattered and backscattered "
+            "electrons. "
             "Source position: preserve each electron's emission-position hue "
             "through scattering and downstream transport; unknown source is grey. "
             "X-rays and event sites retain their category colours. "
@@ -1054,7 +1080,9 @@ class SampleInteractions3DPage(QWidget):
         self.calculate_paths.clicked.connect(self.sample_region_requested.emit)
         self.fit_material = QPushButton("Fit material")
         self.fit_material.setToolTip(
-            "Fit the nanometre-scale material trajectories and event sites."
+            "Fit visible local scattering and event sites, falling back to "
+            "primary paths when no scattering is visible. Long boundary "
+            "context lines do not set the zoom. Angles remain physically scaled."
         )
         self.fit_region = QPushButton("Fit interaction region")
         self.fit_region.setToolTip(
@@ -1072,19 +1100,20 @@ class SampleInteractions3DPage(QWidget):
 
         visibility_controls = QHBoxLayout()
         visibility_controls.addWidget(self.signal_filter)
+        visibility_controls.addWidget(self.focus_scattering)
         visibility_controls.addWidget(self.context_toggle)
         visibility_controls.addWidget(QLabel("Colour by"))
         visibility_controls.addWidget(self.colour_by)
         visibility_controls.addStretch(1)
-        action_controls = QGridLayout()
-        for index, widget in enumerate((
+        action_controls = QHBoxLayout()
+        for widget in (
             self.calculate_paths,
             self.fit_material,
             self.fit_region,
             self.fit_sample,
-        )):
-            action_controls.addWidget(widget, index // 2, index % 2)
-        action_controls.setColumnStretch(2, 1)
+        ):
+            action_controls.addWidget(widget)
+        action_controls.addStretch(1)
 
         self.legend = QLabel(self._legend_html())
         self.legend.setObjectName("sampleInteractions3DLegend")
@@ -1094,6 +1123,8 @@ class SampleInteractions3DPage(QWidget):
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
         self.legend.setToolTip(
+            "Interaction type: the colour keys distinguish cached signal types. "
+            "Direct electron paths are dimmed so scattering is easier to see.\n\n"
             "Source position: electron hue is fixed by emission position; "
             "grey means source unavailable. Category names below are filters, "
             "not electron colour keys in this mode. X-rays and sites always "
@@ -1172,19 +1203,6 @@ class SampleInteractions3DPage(QWidget):
             self.view_buttons[mode] = button
             view_controls.addWidget(button)
         view_controls.addStretch(1)
-        self.parameters_toggle = QPushButton("Parameters")
-        self.parameters_toggle.setObjectName("sampleInteractionParametersToggle")
-        self.parameters_toggle.setCheckable(True)
-        self.parameters_toggle.setEnabled(False)
-        self.parameters_toggle.setToolTip("Show sample transport and EDS settings.")
-        self.parameters_toggle.toggled.connect(self._set_parameters_visible)
-        view_controls.addWidget(self.parameters_toggle)
-
-        self.content_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.content_splitter.setObjectName("sampleInteractionContentSplitter")
-        self.content_splitter.setHandleWidth(7)
-        self.content_splitter.addWidget(self.view_stack)
-        self.content_splitter.setStretchFactor(0, 1)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.summary)
@@ -1192,7 +1210,7 @@ class SampleInteractions3DPage(QWidget):
         layout.addLayout(action_controls)
         layout.addLayout(view_controls)
         layout.addWidget(self.legend)
-        layout.addWidget(self.content_splitter, 1)
+        layout.addWidget(self.view_stack, 1)
 
     @property
     def _using_gl(self) -> bool:
@@ -1201,21 +1219,6 @@ class SampleInteractions3DPage(QWidget):
     @property
     def _projection_axis(self) -> int:
         return 1 if self._view_mode == "yz" else 0
-
-    def set_parameters_widget(self, widget: QWidget) -> None:
-        """Host the existing controls, without duplicating settings or solvers."""
-        if self.parameters_panel is not None:
-            raise ValueError("Sample interaction parameters are already installed")
-        self.parameters_panel = widget
-        self.content_splitter.addWidget(widget)
-        self.content_splitter.setStretchFactor(1, 0)
-        self.content_splitter.setSizes((900, 380))
-        widget.hide()
-        self.parameters_toggle.setEnabled(True)
-
-    def _set_parameters_visible(self, visible: bool) -> None:
-        if self.parameters_panel is not None:
-            self.parameters_panel.setVisible(visible)
 
     def set_view_mode(self, mode: str) -> None:
         """Change only the renderer; never build a new interaction scene."""
@@ -1309,14 +1312,16 @@ class SampleInteractions3DPage(QWidget):
             self.legend.setText(self._legend_html())
         self._redraw(refit=False)
 
-    def _set_all_signal_visibility(self, visible: bool) -> None:
+    def _set_signal_visibility(self, categories, *, refit: bool = False) -> None:
         self._signal_filter_guard = True
         try:
-            for toggle in self.signal_actions.values():
-                toggle.setChecked(bool(visible))
+            for category, toggle in self.signal_actions.items():
+                toggle.setChecked(category in categories)
         finally:
             self._signal_filter_guard = False
         self._signal_visibility_changed()
+        if refit:
+            self._fit("material")
 
     @property
     def scene_snapshot(self) -> SampleInteractionScene | None:
@@ -1571,6 +1576,11 @@ class SampleInteractions3DPage(QWidget):
             "the default side view, so the incident beam appears top-to-bottom; "
             "rotating, zooming, filtering, and fitting only redraw this cache."
         )
+        parts.append(
+            "Fit material prioritises visible scattering and interaction sites; "
+            "use Focus scattering to hide the direct beam "
+            "and X-rays. Path angles are never exaggerated."
+        )
         detail_text = " ".join(parts)
         self.summary.setText(
             f"{specimen_label} ({scene.specimen_source_key}) | "
@@ -1654,10 +1664,11 @@ class SampleInteractions3DPage(QWidget):
             if not self._path_visible(path.category):
                 continue
             colour = self._path_colour(path)
+            direct = path.category in DIRECT_CATEGORIES
             item = gl.GLLinePlotItem(
                 pos=_gl_display_positions(path.positions_nm),
-                color=self._rgba(colour, 0.92),
-                width=1.5,
+                color=self._rgba(colour, 0.28 if direct else 0.95),
+                width=1.0 if direct else 2.0,
                 antialias=True,
                 mode="line_strip",
             )
@@ -1704,10 +1715,12 @@ class SampleInteractions3DPage(QWidget):
             if not self._path_visible(path.category):
                 continue
             colour = self._path_colour(path)
+            direct = path.category in DIRECT_CATEGORIES
+            colour.setAlphaF(0.28 if direct else 0.95)
             self.view.plot(
                 path.positions_nm[:, axis],
                 path.positions_nm[:, 2],
-                pen=pg.mkPen(colour, width=1.4),
+                pen=pg.mkPen(colour, width=1.0 if direct else 2.0),
             )
         for group in scene.events:
             if not self._event_visible(group.category):
@@ -1742,7 +1755,11 @@ class SampleInteractions3DPage(QWidget):
             return self._scene.sample_bounds_nm
         if self._fit_scope == "region":
             return self._scene.region_bounds_nm
-        return self._scene.material_bounds_nm
+        return _material_display_bounds(
+            [path for path in self._scene.paths if self._path_visible(path.category)],
+            [event for event in self._scene.events if self._event_visible(event.category)],
+            self._scene.sample_thickness_nm,
+        )
 
     def _fit(self, scope: str) -> None:
         self._fit_scope = (
