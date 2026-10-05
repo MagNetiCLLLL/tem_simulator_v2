@@ -2025,16 +2025,22 @@ class ProbeCorrectorSystem:
         synchronise_probe_corrector_physical_axis(self.state)
 
     def resolve_complete_mechanical_axis(self):
+        """Resolve the legacy calibration coordinate chain.
+
+        This compatibility API includes auxiliary channel extents used to
+        anchor optical positions; it is not a list of independent hardware
+        bodies. Material/display consumers use component_representation.
+        """
         self._sync_mechanical_anchors()
-        physical_components = tuple(
+        axis_components = tuple(
             component
             for component in self.components
             if component.key != PROBE_DP12_SCAN_DEFLECTOR
         )
         return resolve_mechanical_axis(
-            physical_components,
+            axis_components,
             tuple(
-                component.key for component in physical_components
+                component.key for component in axis_components
             ),
         )
 

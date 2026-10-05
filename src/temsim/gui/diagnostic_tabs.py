@@ -1295,6 +1295,7 @@ class PhysicalLayoutView(QWidget):
         self._recording_device_items = {}
         self._recording_device_labels = []
         self._part_by_key = {}
+        self._channel_marker_items = {}
         self._component_label_items = {}
         self._component_label_leader_items = {}
         self._component_label_records = ()
@@ -1370,6 +1371,10 @@ class PhysicalLayoutView(QWidget):
             "color: #64748b; font-weight: 600;"
         )
         self.fit_all = QPushButton("Fit all hardware")
+        self.channel_legend = QLabel("Hollow diamonds / dashed markers: control channels and virtual references; no separate body")
+        self.channel_legend.setWordWrap(True)
+        self.channel_legend.setStyleSheet("color: #94a3b8;")
+        self.channel_legend.hide()
         self.fit_bore = QPushButton("Fit vacuum bore")
         for button in (self.fit_all, self.fit_bore):
             button.setStyleSheet(BUTTON_STYLE)
@@ -1417,6 +1422,7 @@ class PhysicalLayoutView(QWidget):
         layout.addWidget(self.aperture_legend)
         layout.addWidget(self.accelerator_legend)
         layout.addWidget(self.eds_legend)
+        layout.addWidget(self.channel_legend)
         layout.addWidget(self.plot, 1)
         layout.addWidget(self.summary)
 
@@ -2711,6 +2717,10 @@ class PhysicalLayoutView(QWidget):
             0.5 * float(record.outer_diameter_mm),
             0.5 * float(record.vacuum_inner_diameter_mm) + 1.0,
         )
+        if record.key == "feg_dpa_aperture":
+            # This upstream gun mechanism is not mounted in the accelerator.
+            # Its nearby, much larger HV stack cannot supply a housing radius.
+            return envelope_radius, record, 0.0
         candidates = []
         for candidate in self._records:
             if candidate.profile not in self.APERTURE_COLUMN_WALL_PROFILES:
@@ -2798,6 +2808,15 @@ class PhysicalLayoutView(QWidget):
             f"Optical aperture plane Z = {plate_z:.6g} mm\n"
             f"Evidence: {source}"
         )
+        if record.key == "feg_dpa_aperture":
+            common += (
+                "\nGun Aperture (also called Extractor Aperture): intercepts "
+                "electrons outside the opening and serves as a differential "
+                "pumping restriction between gun-side and column-side vacuum. "
+                "Located after Gun Lens, before Accelerator. "
+                "Vacuum pressures are specified independently; aperture "
+                "conductance and pumping speed are not solved."
+            )
 
         envelope = QGraphicsRectItem(
             record.start_z_mm,
@@ -3249,6 +3268,10 @@ class PhysicalLayoutView(QWidget):
 
     @staticmethod
     def _component_label_text(record) -> str:
+        if record.layout_role == "control_channel":
+            return f"{record.name.split()[0]} (channel)"
+        if record.layout_role == "virtual_reference":
+            return f"{record.name.split()[0]} (virtual)"
         for names in (
             LENS_SHORT_NAMES,
             APERTURE_SHORT_NAMES,
@@ -3274,6 +3297,8 @@ class PhysicalLayoutView(QWidget):
         return text if len(text) <= 24 else f"{text[:21]}..."
 
     def _component_label_priority(self, record) -> int:
+        if record.layout_role:
+            return 2
         if (
             record.key in LENS_SHORT_NAMES
             or record.key in APERTURE_SHORT_NAMES
@@ -3333,9 +3358,10 @@ class PhysicalLayoutView(QWidget):
             label.setToolTip(
                 f"{record.name}\n"
                 f"Z = {record.center_z_mm:.6g} mm\n"
-                "The dashed leader terminates at this component. Labels are "
-                "packed into multiple screen-space rows and relaid out when "
-                "the view is zoomed."
+                + (record.representation_note if record.layout_role else
+                   "The dashed leader terminates at this component. Labels are "
+                   "packed into multiple screen-space rows and relaid out when "
+                   "the view is zoomed.")
             )
             label.hide()
             self.plot.addItem(label)
@@ -3659,6 +3685,8 @@ class PhysicalLayoutView(QWidget):
         self._label_callouts = {}
         self._label_rows_per_side = 0
         self._selectable_item_keys = {}
+        self._channel_marker_items = {}
+        self.channel_legend.setVisible(any(record.layout_role for record in self._records))
         if not self._records:
             return
 
@@ -3679,7 +3707,18 @@ class PhysicalLayoutView(QWidget):
             from temsim.magnetic_circuits import radial_profile_mm
             part = self._part_by_key.get(record.key)
             radial_profile = radial_profile_mm(part.data, part.length_mm) if part is not None else None
-            if radial_profile is not None:
+            if record.layout_role:
+                line = self.plot.plot(
+                    [record.center_z_mm, record.center_z_mm], [-8.0, 8.0],
+                    pen=pg.mkPen(colour, width=1.2, style=Qt.PenStyle.DashLine),
+                )
+                line.setToolTip(
+                    f"{record.name}\nOptical reference Z {record.center_z_mm:.6g} mm\n"
+                    + record.representation_note
+                )
+                self._channel_marker_items[record.key] = line
+                _register_selectable_graphics_item(self._selectable_item_keys, line, record.key)
+            elif radial_profile is not None:
                 self._add_magnetic_radial_profile(record, colour, radial_profile)
             elif (
                 record.profile == "magnetic_pole_piece"
@@ -3772,7 +3811,7 @@ class PhysicalLayoutView(QWidget):
                         rect,
                         record.key,
                     )
-            for reference in record.optical_references_mm:
+            for reference in (() if record.layout_role else record.optical_references_mm):
                 reference_item = self.plot.plot(
                     [reference, reference],
                     [-max(bore_half, 0.3), max(bore_half, 0.3)],
@@ -3792,8 +3831,9 @@ class PhysicalLayoutView(QWidget):
                 spots.append({
                     "pos": (marker_z, 0.0),
                     "data": record.key,
-                    "brush": pg.mkBrush(colour),
+                    "brush": pg.mkBrush(None) if record.layout_role else pg.mkBrush(colour),
                     "pen": pg.mkPen("#ffffff", width=0.8),
+                    "symbol": "d" if record.layout_role else "o",
                     "size": 7,
                 })
 
@@ -3849,8 +3889,13 @@ class PhysicalLayoutView(QWidget):
         self.plot.addItem(centres)
         self.plot.autoRange()
         self._layout_component_labels()
+        channel_count = sum(bool(record.layout_role) for record in self._records)
+        component_count = len(self._records) - channel_count
+        count_text = f"{component_count} components"
+        if channel_count:
+            count_text += f" | {channel_count} channel/reference markers"
         self.heading.setText(
-            f"Resolved mechanical layout — {len(self._records)} components | "
+            f"Resolved mechanical layout — {count_text} | "
             f"vacuum ID {minimum_diameter:.6g}–{maximum_diameter:.6g} mm"
         )
 
@@ -3918,11 +3963,13 @@ class PhysicalLayoutView(QWidget):
             "Recording-device actuators and housings are schematic while "
             "their thin active planes retain the calculated coordinates. "
             "Names are packed into multiple screen-space rows; dashed leaders "
-            "connect each visible name to its physical component and relayout "
-            "automatically while zooming."
+            "connect each visible name to its component or channel reference "
+            "and relayout automatically while zooming. Control channels and "
+            "virtual references use hollow diamonds and short dashed markers; "
+            "they have no independent material envelope."
         )
         self.summary.setText(
-            f"TOML mechanical layout | {len(self._records)} components | "
+            f"TOML mechanical layout | {count_text} | "
             f"column OD {column_od_text} | select or hover for details"
         )
         self.summary.setToolTip(layout_detail)
@@ -3990,6 +4037,20 @@ class PhysicalLayoutView(QWidget):
             return
         if self._highlight is not None:
             self.plot.removeItem(self._highlight)
+        if record.layout_role:
+            self._semantic_selected_summary = None
+            self._highlight = pg.InfiniteLine(
+                record.center_z_mm, angle=90, movable=False,
+                pen=pg.mkPen("#facc15", width=1.5, style=Qt.PenStyle.DashLine),
+            )
+            self._highlight.setZValue(35)
+            self.plot.addItem(self._highlight)
+            self.summary.setText(
+                f"Selected: {self._component_label_text(record)} | "
+                f"optical reference Z {record.center_z_mm:.6g} mm | no separate body"
+            )
+            self.summary.setToolTip(record.representation_note)
+            return
         half_width = max(0.5 * (record.end_z_mm - record.start_z_mm), 0.5)
         self._highlight = pg.LinearRegionItem(
             values=(record.center_z_mm - half_width, record.center_z_mm + half_width),

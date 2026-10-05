@@ -11,6 +11,7 @@ import math
 from numbers import Real
 
 from temsim.mechanical_profiles import MAGNETIC_LENS_MECHANICAL_PROFILES
+from temsim.component_representation import non_material_role
 
 
 def _dimension(name, value):
@@ -112,6 +113,8 @@ class AnnularPartGeometry:
 
 def geometry_from_part(part: Mapping, *, parent: Mapping | None = None):
     """Read an annular primitive; pass its parent to check assembly-owned shapes."""
+    if non_material_role(part):
+        raise ValueError("A control channel or virtual reference has no material body to dimension")
     if part.get("mechanical_profile") not in MAGNETIC_LENS_MECHANICAL_PROFILES:
         raise ValueError("Graphical dimensions currently support coils, housings and magnetic yokes")
     if part.get("magnetic_radial_profile_mm") is not None:

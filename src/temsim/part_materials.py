@@ -11,6 +11,7 @@ from temsim.magnetic_circuits import MAGNETIC_BODIES, is_custom_mechanical_part,
 from temsim.magnetic_geometry import objective_layer_intervals_mm
 from temsim.magnetic_materials import lens_material_defaults, validate_bh_material
 from temsim.mechanical_profiles import MAGNETIC_EXCITATION_COIL, MAGNETIC_LENS_HOUSING
+from temsim.component_representation import non_material_role
 
 
 MATERIAL_PROFILES = MAGNETIC_BODIES | {MAGNETIC_EXCITATION_COIL, MAGNETIC_LENS_HOUSING}
@@ -120,6 +121,9 @@ def configured_region_colour(part, region="body", fallback=(0.55, 0.61, 0.69, 1.
 
 def material_application_scope(part) -> str:
     """Describe this component's actual solver participation for editors/reports."""
+    if non_material_role(part_data(part)):
+        return ("Control channel or virtual reference: no independent material body. "
+                "Stored material metadata does not create a solid or change its calibrated field.")
     profile = part_data(part).get("mechanical_profile")
     if is_custom_mechanical_part(part) or profile not in MATERIAL_PROFILES:
         return ("Material definition only: this component has no modeled magnetostatic solid. "
@@ -138,6 +142,8 @@ def part_material_updates(part, key, region="body") -> dict:
     if region not in REGIONS:
         raise ValueError(f"Unsupported material region: {region}")
     row = part_data(part)
+    if non_material_role(row):
+        raise ValueError("A control channel or virtual reference has no material body to assign")
     choices = {value["material_key"]: value for value in material_catalog()}
     if key not in choices:
         raise ValueError(f"Unknown material key: {key}")
@@ -174,7 +180,7 @@ def validate_part_materials(parts) -> None:
 
 def is_magnetostatic_body(data) -> bool:
     """Include a housing only when an explicit magnetic response is assigned."""
-    if is_custom_mechanical_part(data):
+    if non_material_role(data) or is_custom_mechanical_part(data):
         return False
     profile = data.get("mechanical_profile")
     if profile in MAGNETIC_BODIES:

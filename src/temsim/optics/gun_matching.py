@@ -81,6 +81,14 @@ def candidate_with_gun_geometry(state, *, extractor_center_mm, lens_center_mm,
             placements[key] = assembly.part(key).center_z_mm-origin+shift
     if dpa_center_mm is not None:
         placements["feg_dpa_aperture"] = float(dpa_center_mm)
+    else:
+        # Preserve the lens-exit gap when tuning the gun lens. The
+        # aperture is independent of the downstream accelerator placement.
+        lens_shift = (float(lens_center_mm) + origin
+                      - assembly.part("feg_electrostatic_lens").center_z_mm)
+        placements["feg_dpa_aperture"] = (
+            assembly.part("feg_dpa_aperture").center_z_mm - origin + lens_shift
+        )
     for key, centre in placements.items():
         part = assembly.part(key)
         shift = float(centre)-part.center_z_mm+origin
@@ -99,14 +107,12 @@ def candidate_with_gun_geometry(state, *, extractor_center_mm, lens_center_mm,
             < lens.end_z_mm < accelerator.start_z_mm
             < accelerator.end_z_mm < assembly.part("feg_deflector").start_z_mm):
         raise ValueError("Retain tip/extractor/gun-lens/accelerator order and separated bodies")
-    if not accelerator.start_z_mm < dpa.start_z_mm < dpa.end_z_mm < accelerator.end_z_mm:
-        raise ValueError("Gun DPA must remain inside its parent accelerator")
-    # A separately moved aperture cannot intersect a voltage-carrying ring.
-    if dpa_center_mm is not None:
-        half = .5*float(accelerator.data.get("electrode_thickness_mm", 1.))
-        for z in accelerator.data["stage_centers_z_mm"]:
-            if dpa.start_z_mm < origin+float(z)+half and dpa.end_z_mm > origin+float(z)-half:
-                raise ValueError("Gun DPA body overlaps an accelerator electrode")
+    if not lens.end_z_mm < dpa.start_z_mm < dpa.end_z_mm < accelerator.start_z_mm:
+        raise ValueError("Gun Aperture must remain after the gun lens and before the accelerator")
+    if candidate.electron_gun.monochromator_installed:
+        body = assembly.part("feg_monochromator_wien")
+        if dpa.start_z_mm < body.end_z_mm and dpa.end_z_mm > body.start_z_mm:
+            raise ValueError(f"Gun Aperture body overlaps {body.name}")
     parts = tuple(changed.get(p.key, p) for p in assembly.parts)
     local_parts = tuple(replace(p, start_z_mm=changed[p.key].start_z_mm-origin,
         center_z_mm=changed[p.key].center_z_mm-origin, end_z_mm=changed[p.key].end_z_mm-origin,

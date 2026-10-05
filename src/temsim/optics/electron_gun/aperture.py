@@ -219,8 +219,11 @@ def _create_feg_aperture(key, name, colour="#8e24aa"):
 
 
 def create_dpa_aperture():
+    # Retain the key/factory name for saved inputs. This physical Gun Aperture
+    # (also called Extractor Aperture) intercepts electrons and represents the
+    # differential-pumping restriction downstream of the gun lens.
     return _create_feg_aperture(
-        GUN_EXTRACTOR_APERTURE, "Gun / DPA Aperture"
+        GUN_EXTRACTOR_APERTURE, "Gun Aperture"
     )
 
 

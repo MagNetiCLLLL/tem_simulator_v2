@@ -199,4 +199,10 @@ def default_state():
     apply_physical_layout_to_state(
         state, preserve_operating_parameters=False
     )
+    # New sessions start ready for raster acquisition. Keep this preference
+    # here so restoring saved components preserves their selected drive mode.
+    # AC raster and alignment wobble cannot be active at the same time.
+    state.ac_deflector.wobble_enabled = False
+    state.ac_deflector.scan_enabled = True
+    state.descan_deflector.scan_enabled = True
     return state

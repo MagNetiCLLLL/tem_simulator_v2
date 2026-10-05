@@ -100,11 +100,13 @@ def test_collision_leaves_file_and_state_intact_and_keeps_draft(window):
     before = _document(window)
     state = window.state
     dialog = window._edit_part_geometry(TARGET)
-    _change(dialog, "outer_diameter_mm", 110.0)
+    yoke = next(part for part in before["parts"] if part["key"] == "intermediate_lens_yoke")
+    conflicting_outer = yoke["mechanical_inner_diameter_mm"] + 10.0
+    _change(dialog, "outer_diameter_mm", conflicting_outer)
     dialog.apply()
     assert _document(window) == before
     assert window.state is state
-    assert dialog.geometry.outer_diameter_mm == 110.0
+    assert dialog.geometry.outer_diameter_mm == conflicting_outer
     assert dialog.apply_button.isEnabled()
     assert "intermediate_lens_yoke" in dialog.error_label.text()
     _change(dialog, "outer_diameter_mm", 95.0)

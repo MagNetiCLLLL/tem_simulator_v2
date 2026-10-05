@@ -371,15 +371,16 @@ def test_part_selection_preserves_shared_draft_and_undo_redo_revert(page):
 
 def test_invalid_dimensions_keep_editable_draft_until_corrected(page):
     source = page.session.path.read_bytes()
-    _edit(page, COIL, "mechanical_inner_diameter_mm", 100)
-    assert page.session.part(COIL)["mechanical_inner_diameter_mm"] == 100
+    invalid_inner = page.session.part(COIL)["mechanical_outer_diameter_mm"] + 1.0
+    _edit(page, COIL, "mechanical_inner_diameter_mm", invalid_inner)
+    assert page.session.part(COIL)["mechanical_inner_diameter_mm"] == invalid_inner
     assert "valid dimensions" in page.model_note.text()
     assert _dimension(page, COIL, "mechanical_inner_diameter_mm").flags() & Qt.ItemFlag.ItemIsEditable
     assert not page.save()
     assert page.session.dirty and page.session.path.read_bytes() == source
     page.select_part(HOUSING)
     page.select_part(COIL)
-    assert float(_dimension(page, COIL, "mechanical_inner_diameter_mm").text()) == 100
+    assert float(_dimension(page, COIL, "mechanical_inner_diameter_mm").text()) == invalid_inner
     _edit(page, COIL, "mechanical_inner_diameter_mm", 70)
     assert page.save(), page.status.text()
     assert not page.session.dirty

@@ -1,10 +1,60 @@
 """Backend admission and retry control; no hardware-GPU equivalence claim."""
 from dataclasses import replace
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from temsim.physics import compute_backend as backend
+
+
+@pytest.mark.parametrize("ray_count,tuning,expected,field_route", [
+    (3, False, "CPU", "electric"), (3, True, "Numba CPU", "electric"),
+    (256, False, "Numba CPU", "electric"), (3, False, "CPU", "magnetic"),
+])
+def test_auto_missing_cuda_compiler_completes_column_on_cpu(
+    monkeypatch, ray_count, tuning, expected, field_route,
+):
+    from numba import cuda
+    from numba.cuda.cudadrv import driver
+    from temsim.optics.column import default_state
+    from temsim.physics import core
+    from temsim.physics.backend_execution import backend_receipts
+
+    monkeypatch.setattr(cuda, "is_available", lambda: False)
+    monkeypatch.setattr(driver, "driver", SimpleNamespace(is_available=True))
+    state = default_state()
+    state.step_mm = 1.
+    state.acceleration_enabled = True
+    state.acceleration_backend = "CPU"
+    state._particle_tuning = tuning
+    start = state.electron_gun.exit_plane_z_mm
+    plan = core.build_propagation_plan(state, start, start+1., checkpoint_z_mm=(start+1.,))
+    if field_route == "magnetic":
+        plan = replace(plan, electric_field=None, electric_field_identity=None,
+                       electric_reference_invariant_ev=None)
+        from temsim.physics.ray_device_cache import STAGE_COSTS
+        monkeypatch.setattr(STAGE_COSTS, "choose", lambda *_: ("CPU", "measured CPU choice"))
+    source = (np.linspace(-1e-8, 1e-8, ray_count), np.full(ray_count, 1e-5),
+              np.linspace(1e-8, -1e-8, ray_count), np.full(ray_count, -1e-5))
+    reference = core.execute_propagation_plan(state, plan, *source)
+    state.acceleration_backend = "Auto"
+    state._active_backends_used = set()
+    rows = []
+    with backend_receipts(rows):
+        result = core.execute_propagation_plan(state, plan, *source)
+    assert state.acceleration_backend == "Auto"
+    assert state.active_backend.startswith(expected)
+    assert "toolchain_unavailable" in state.active_backend
+    assert rows[-1]["requested"] == "Auto" and rows[-1]["actual"] == expected
+    assert rows[-1]["outcome"] == "returned"
+    assert "toolchain_unavailable" in rows[-1]["reason"]
+    if field_route == "magnetic":
+        assert "measured CPU choice" in rows[-1]["reason"]
+    assert result[0][-1] == start+1.
+    for actual, cpu in zip(result[:5], reference[:5]):
+        assert np.all(np.isfinite(actual))
+        np.testing.assert_allclose(actual, cpu, rtol=1e-10, atol=1e-12)
 
 
 @pytest.mark.parametrize("policy", ["Require GPU", "require_gpu", " Require GPU "])

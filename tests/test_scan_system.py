@@ -333,6 +333,7 @@ def test_scan_view_exposes_pixel_pitch_and_derived_fov(qtbot):
     assert not view.ac_controls["lower_coil_gain"].isEnabled()
     assert not view.descan_controls["lower_coil_gain"].isEnabled()
     for controls in (view.ac_controls, view.descan_controls):
+        assert controls["scan_enabled"].isChecked()
         assert controls["scan_pixel_size_nm"].value() == pytest.approx(0.02)
         assert controls["scan_pixels_x"].value() == 64
         assert controls["scan_lines"].value() == 64
@@ -340,6 +341,7 @@ def test_scan_view_exposes_pixel_pitch_and_derived_fov(qtbot):
     assert view.ac_fov_y.text() == "1.28 nm"
     assert view.descan_fov_x.text() == "1.28 nm"
     assert view.descan_fov_y.text() == "1.28 nm"
+    assert not state.ac_deflector.wobble_enabled
     assert view.result_tabs.tabText(0) == "Geometry"
     assert view.result_tabs.tabText(1) == "Images"
     for image_view in view.detector_image_views.values():
@@ -351,11 +353,13 @@ def test_scan_view_exposes_pixel_pitch_and_derived_fov(qtbot):
 def test_saved_custom_scan_sampling_survives_new_defaults():
     state = default_state()
     for component in (state.ac_deflector, state.descan_deflector):
+        component.scan_enabled = False
         component.scan_pixel_size_nm = 0.1
         component.scan_pixels_x = 20
         component.scan_lines = 30
     loaded = type(state).from_dict(state.to_dict())
     for component in (loaded.ac_deflector, loaded.descan_deflector):
+        assert not component.scan_enabled
         assert component.scan_pixel_size_nm == pytest.approx(0.1)
         assert component.scan_pixels_x == 20
         assert component.scan_lines == 30

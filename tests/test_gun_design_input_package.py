@@ -14,7 +14,7 @@ from temsim.working_point import WorkingPointCheckpoint
 def test_design_package_restores_geometry_sampling_and_controls_without_cached_rays(tmp_path):
     original = default_state()
     s = candidate_with_gun_geometry(original, extractor_center_mm=2.1,
-        lens_center_mm=8.2, accelerator_center_mm=218., dpa_center_mm=210.)
+        lens_center_mm=12., accelerator_center_mm=218., dpa_center_mm=18.)
     s.electron_gun.electrostatic_lens.voltage_reference = 'tip'
     model = model_from_part(module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     s.electron_gun.emitter.surface_model = replace(model, emission=replace(model.emission,
@@ -40,8 +40,8 @@ def test_design_package_restores_geometry_sampling_and_controls_without_cached_r
     assert restored.electron_gun.emitter.surface_model == s.electron_gun.emitter.surface_model
     assert restored.objective_lens.percent == s.objective_lens.percent
     assert restored.electron_gun.electrostatic_lens.voltage_reference == 'tip'
-    for key,z in [('feg_extractor',2.1),('feg_electrostatic_lens',8.2),
-                  ('feg_accelerator',218.),('feg_dpa_aperture',210.)]:
+    for key,z in [('feg_extractor',2.1),('feg_electrostatic_lens',12.),
+                  ('feg_accelerator',218.),('feg_dpa_aperture',18.)]:
         assert restored._resolved_assembly.part(key).center_z_mm == pytest.approx(z)
     assert original.electron_gun.electrostatic_lens.voltage_reference == 'extractor'
 

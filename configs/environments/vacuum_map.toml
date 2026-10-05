@@ -10,7 +10,9 @@ max_transport_nodes = 2000000
 key = "gun_tip"
 name = "Gun — tip and extraction"
 start_anchor = "source"
-end_anchor = "gun_acceleration_start"
+end_anchor = "gun_vacuum_boundary"
+# FEG: the Gun Aperture plane; Thermionic: existing accelerator entrance.
+# This is a prescribed pressure boundary, not a conductance/pumping solution.
 pressure_reference = "IGPa 3.25e-11 mbar, rounded; approximate tip/extraction assignment"
 [regions.medium]
 formula = "N2"
@@ -19,7 +21,7 @@ pressure_mbar = 3e-11
 [[regions]]
 key = "gun_accelerator"
 name = "Gun — accelerator"
-start_anchor = "gun_acceleration_start"
+start_anchor = "gun_vacuum_boundary"
 end_anchor = "gun_exit"
 pressure_reference = "IGPb 2.24e-8 mbar, rounded; approximate accelerator assignment"
 [regions.medium]

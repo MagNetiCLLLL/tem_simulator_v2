@@ -165,6 +165,11 @@ field_polarity_source = "Existing coupled-corrector sign convention; physical co
 [[parts]]
 order = 15
 key = "probe_dph2_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "probe_corrector"
+physical_host_status = "unverified"
+
 name = "DPH2 Deflector"
 branch = "illumination"
 local_start_z_mm = 656.4
@@ -180,6 +185,11 @@ optical_reference_local_z_mm = 663.65
 [[parts]]
 order = 16
 key = "probe_qph2_quadrupole"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "probe_corrector"
+physical_host_status = "unverified"
+
 name = "QPH2 Quadrupole"
 branch = "illumination"
 local_start_z_mm = 670.9
@@ -264,6 +274,11 @@ field_polarity_source = "Existing coupled-corrector sign convention; physical co
 [[parts]]
 order = 19
 key = "probe_dp22_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "probe_corrector"
+physical_host_status = "unverified"
+
 name = "DP22 Deflector"
 branch = "illumination"
 local_start_z_mm = 729.1
@@ -279,6 +294,11 @@ optical_reference_local_z_mm = 736.35
 [[parts]]
 order = 20
 key = "probe_hpc_hexapole"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "probe_corrector"
+physical_host_status = "unverified"
+
 name = "HPC Hexapole"
 branch = "illumination"
 local_start_z_mm = 743.6
@@ -294,6 +314,11 @@ optical_reference_local_z_mm = 750.85
 [[parts]]
 order = 21
 key = "probe_qpc_quadrupole"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "probe_corrector"
+physical_host_status = "unverified"
+
 name = "QPC Quadrupole"
 branch = "illumination"
 local_start_z_mm = 758.1
@@ -309,6 +334,11 @@ optical_reference_local_z_mm = 765.35
 [[parts]]
 order = 22
 key = "probe_dp21_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "probe_corrector"
+physical_host_status = "unverified"
+
 name = "DP21 Deflector"
 branch = "illumination"
 local_start_z_mm = 772.6
@@ -345,6 +375,11 @@ field_polarity_source = "Existing coupled-corrector sign convention; physical co
 [[parts]]
 order = 24
 key = "probe_dph1_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "probe_corrector"
+physical_host_status = "unverified"
+
 name = "DPH1 Deflector"
 branch = "illumination"
 local_start_z_mm = 812.7
@@ -360,6 +395,11 @@ optical_reference_local_z_mm = 819.95
 [[parts]]
 order = 25
 key = "probe_qph1_quadrupole"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "probe_corrector"
+physical_host_status = "unverified"
+
 name = "QPH1 Quadrupole"
 branch = "illumination"
 local_start_z_mm = 827.2
@@ -390,6 +430,11 @@ optical_reference_local_z_mm = 850.85
 [[parts]]
 order = 27
 key = "probe_hpol_hexapole"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "probe_corrector"
+physical_host_status = "unverified"
+
 name = "HPol Hexapole"
 branch = "illumination"
 local_start_z_mm = 859.9
@@ -405,6 +450,11 @@ optical_reference_local_z_mm = 867.2
 [[parts]]
 order = 28
 key = "probe_qpol_quadrupole"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "probe_corrector"
+physical_host_status = "unverified"
+
 name = "QPol Quadrupole"
 branch = "illumination"
 local_start_z_mm = 874.5
@@ -420,6 +470,11 @@ optical_reference_local_z_mm = 881.75
 [[parts]]
 order = 29
 key = "probe_dp11_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "probe_corrector"
+physical_host_status = "unverified"
+
 name = "DP11 Deflector"
 branch = "illumination"
 local_start_z_mm = 889.0
@@ -529,6 +584,10 @@ parent_key = "objective_lens"
 [[parts]]
 order = 31
 key = "probe_dp12_scan_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "virtual_reference"
+layout_owner = "probe_corrector"
+
 name = "DP12 (virtual)"
 branch = "illumination"
 local_start_z_mm = 934.0

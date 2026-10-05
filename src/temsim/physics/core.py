@@ -1053,7 +1053,7 @@ def execute_propagation_plan(
             if NUMBA_AVAILABLE:
                 eligible.append(BACKEND_NUMBA)
             backend, measured_reason = STAGE_COSTS.choose(workload, eligible, backend)
-            fallback_reason = measured_reason or fallback_reason
+            fallback_reason = "; ".join(filter(None, (fallback_reason, measured_reason))) or None
     transport_started = perf_counter()
     from temsim.physics.transport_progress import report_transport_progress
     report_transport_progress(
@@ -1080,7 +1080,6 @@ def execute_propagation_plan(
                 and policy == "auto" and backend == BACKEND_CPU
                 and (tuning or electric_work >= 4096)):
             backend = BACKEND_NUMBA
-            fallback_reason = None
         try:
             outputs, backend, electric_reason = electrostatic_column_rk4(inputs, backend=backend, **electric_options)
             fallback_reason = electric_reason or fallback_reason

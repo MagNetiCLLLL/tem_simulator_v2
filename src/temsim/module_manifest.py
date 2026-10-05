@@ -1777,9 +1777,28 @@ def _validate_post_projector_detector_chamber(parts):
 
 
 def _validate_gun_mechanical_relationships(parts):
-    """Validate co-located C1 and monochromator-slit mechanics."""
+    """Validate the upstream Gun Aperture and co-located C1/slit mechanics."""
 
     by_key = {str(part["key"]): part for part in parts}
+    aperture = by_key.get("feg_dpa_aperture")
+    if aperture is not None:
+        extractor = by_key.get("feg_extractor")
+        gun_lens = by_key.get("feg_electrostatic_lens")
+        accelerator = by_key.get("feg_accelerator")
+        if extractor is None or gun_lens is None or accelerator is None:
+            raise ValueError("Gun Aperture requires Extractor, Gun Lens and Accelerator")
+        start = float(aperture["local_start_z_mm"])
+        end = float(aperture["local_end_z_mm"])
+        if (aperture.get("parent_key") == "feg_accelerator"
+                or not max(float(extractor["local_end_z_mm"]),
+                           float(gun_lens["local_end_z_mm"])) < start < end
+                < float(accelerator["local_start_z_mm"])):
+            raise ValueError("Gun Aperture must lie after Gun Lens and before Accelerator")
+        for key in ("feg_electrostatic_lens", "feg_monochromator_wien"):
+            other = by_key.get(key)
+            if (other is not None and start < float(other["local_end_z_mm"])
+                    and end > float(other["local_start_z_mm"])):
+                raise ValueError(f"Gun Aperture must not overlap {key}")
     slit = by_key.get("feg_monochromator_slit")
     if slit is None:
         return
@@ -2721,6 +2740,8 @@ def _validate_column_order(parts):
 
 
 def _validate_column_mechanical_overlaps(parts):
+    from temsim.component_representation import non_material_role
+
     tolerance = 1.0e-9
     by_key = {str(part["key"]): part for part in parts}
 
@@ -2894,7 +2915,7 @@ def _validate_column_mechanical_overlaps(parts):
             )
     physical = [
         part for part in parts
-        if float(part["length_mm"]) > tolerance
+        if float(part["length_mm"]) > tolerance and not non_material_role(part)
     ]
     for index, first in enumerate(physical):
         first_start, first_end = axial_envelope(first)

@@ -282,6 +282,7 @@ class VacuumMapPage(QWidget):
         saved = {r.start_anchor for r in state.vacuum_map.regions} | {r.end_anchor for r in state.vacuum_map.regions}
         special = {"axis_origin": "Global Z", "source": "Source start", "gun_exit": "Gun exit",
                    "sample": "Specimen plane", "gun_acceleration_start": "Accelerator entrance",
+                   "gun_vacuum_boundary": "Gun / column boundary (Gun / Extractor Aperture for FEG)",
                    "projection_dpa": "Projection DPA", "column_end": "Column end"}
         for widget in (self.start_anchor, self.end_anchor):
             widget.clear()

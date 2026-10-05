@@ -100,11 +100,12 @@ def test_layers_require_material_class_without_assigning_a_material(recording_do
         validate_document(recording_document)
 
 
-@pytest.mark.parametrize("role,outer,neighbour", (
-    ("excitation_coil", 110.0, "yoke"),
-    ("yoke", 178.0, "housing"),
+@pytest.mark.parametrize("role,neighbour", (
+    ("excitation_coil", "yoke"),
+    ("yoke", "housing"),
 ))
-def test_overlapping_radial_layers_report_both_parts(recording_document, role, outer, neighbour):
+def test_overlapping_radial_layers_report_both_parts(recording_document, role, neighbour):
+    outer = _part(recording_document, neighbour)["mechanical_inner_diameter_mm"] + 3.0
     _part(recording_document, role)["mechanical_outer_diameter_mm"] = outer
     with pytest.raises(ValueError, match="Mechanical radial layers overlap") as caught:
         validate_document(recording_document)
@@ -124,7 +125,8 @@ def test_profiled_yoke_is_not_filled_to_its_cylindrical_envelope(recording_docum
     yoke = _part(recording_document, "yoke")
     # The envelope reaches the housing, but the actual 85 mm outer radius does not.
     yoke["mechanical_outer_diameter_mm"] = 178.0
-    yoke["magnetic_radial_profile_mm"] = [[0.0, 50.0, 85.0], [yoke["length_mm"], 50.0, 85.0]]
+    inner_radius = yoke["mechanical_inner_diameter_mm"] / 2.0
+    yoke["magnetic_radial_profile_mm"] = [[0.0, inner_radius, 85.0], [yoke["length_mm"], inner_radius, 85.0]]
     validate_document(recording_document)
 
 

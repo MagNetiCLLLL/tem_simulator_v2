@@ -300,12 +300,31 @@ def module_axial_ranges(state):
     return tuple(result)
 
 
+def _gun_vacuum_anchors(gun):
+    """Share physical gun boundaries between installed and standalone callers."""
+    from temsim.component_keys import GUN_EXTRACTOR_APERTURE
+
+    acceleration_start = float(gun.accelerator.mechanical_center_from_tip_mm
+                               - gun.accelerator.mechanical_length_mm / 2)
+    # FEG uses the live Gun Aperture plane, including profile edits. Thermionic
+    # retains its accelerator-entry boundary. Old maps can still name that
+    # entry explicitly instead of the new default differential-pumping plane.
+    aperture = getattr(gun, "dpa_aperture", None)
+    return {
+        "gun_exit": float(gun.exit_plane_z_mm),
+        "gun_acceleration_start": acceleration_start,
+        "gun_vacuum_boundary": (float(aperture.z_mm)
+                                if getattr(aperture, "key", None) == GUN_EXTRACTOR_APERTURE
+                                else acceleration_start),
+    }
+
+
 def boundary_anchors(state):
     from temsim.component_keys import PROJECTION_CHAMBER_DPA_APERTURE
     from temsim.assembly_navigation import assembly_sections, component_anchor
     gun = state.electron_gun
     # Accelerator entrance comes from the installed physical electrode object.
-    anchors = {"axis_origin": 0.0, "source": 0.0, "gun_exit": float(gun.exit_plane_z_mm),
+    anchors = {**_gun_vacuum_anchors(gun), "axis_origin": 0.0, "source": 0.0,
                "sample": float(state.sample.z_mm)}
     for module in module_axial_ranges(state):
         for suffix, z in (("origin", module.origin_z_mm), ("start", module.start_z_mm),
@@ -321,7 +340,6 @@ def boundary_anchors(state):
         for point in ("origin", "start", "end"):
             anchors[f"{section.key}.{point}"] = float(getattr(section, point+"_z_mm"))
     anchors["source"] = min(0., anchors.get("feg_tip.start", 0.))
-    anchors["gun_acceleration_start"] = float(gun.accelerator.mechanical_center_from_tip_mm-gun.accelerator.mechanical_length_mm/2)
     dpa = next((p for p in getattr(assembly, "parts", ()) if p.key == PROJECTION_CHAMBER_DPA_APERTURE), None)
     if dpa is not None:
         anchors["projection_dpa"] = float(dpa.center_z_mm)
@@ -454,8 +472,8 @@ def ensure_standalone_gun_environment(gun):
         return
     config = VacuumMap.load()
     surface = getattr(gun.emitter, "surface_model", None)
-    anchors = {"source": -surface.geometry.shank_length_um*.001 if surface is not None else 0., "gun_exit": float(gun.exit_plane_z_mm),
-               "gun_acceleration_start": float(gun.accelerator.mechanical_center_from_tip_mm-gun.accelerator.mechanical_length_mm/2)}
+    anchors = {**_gun_vacuum_anchors(gun),
+               "source": -surface.geometry.shank_length_um*.001 if surface is not None else 0.}
     gun._vacuum_regions = tuple(fill_region_gaps([ResolvedMedium(r.key, r.name,
         anchors[r.start_anchor]+r.start_offset_mm, anchors[r.end_anchor]+r.end_offset_mm, r.medium)
         for r in config.regions if config.enabled and r.start_anchor in anchors and r.end_anchor in anchors]))

@@ -50,7 +50,8 @@ def test_dimensions_are_staged_across_parts_then_saved_with_comments_retained(do
 
 def test_conflicting_dimensions_stay_as_draft_and_do_not_write(document):
     original = document.path.read_bytes()
-    document.set_dimension(("parts", KEY, "mechanical_outer_diameter_mm"), 110.0)
+    conflicting_outer = document.part("intermediate_lens_yoke")["mechanical_inner_diameter_mm"] + 10.0
+    document.set_dimension(("parts", KEY, "mechanical_outer_diameter_mm"), conflicting_outer)
     with pytest.raises(ValueError, match="overlap"):
         document.save()
     assert document.dirty

@@ -729,9 +729,9 @@ _UPPER_SEQUENCE = (
     FEG_TIP,
     FEG_EXTRACTOR,
     FEG_ELECTROSTATIC_LENS,
+    GUN_EXTRACTOR_APERTURE,
     FEG_MONOCHROMATOR_WIEN,
     FEG_ACCELERATOR,
-    GUN_EXTRACTOR_APERTURE,
     FEG_DEFLECTOR,
     FEG_STIGMATOR,
     C1_APERTURE,
@@ -1087,12 +1087,7 @@ def _base_specs(configuration):
         )
         nested_parent_key = None
         mechanical_overlap_reason = ""
-        if key == GUN_EXTRACTOR_APERTURE:
-            nested_parent_key = FEG_ACCELERATOR
-            mechanical_overlap_reason = (
-                "The DPA aperture is mounted inside the accelerator envelope."
-            )
-        elif key == THERMIONIC_ANODE_APERTURE:
+        if key == THERMIONIC_ANODE_APERTURE:
             nested_parent_key = THERMIONIC_ACCELERATOR
             mechanical_overlap_reason = (
                 "The anode aperture is mounted inside the accelerator envelope."
@@ -2311,9 +2306,6 @@ def _pair_gaps(specs):
         # Layout allocation only: runtime coordinates retain the physical
         # 4 mm Wien-to-accelerator gap and the fixed C1 plane.
         (FEG_MONOCHROMATOR_WIEN, FEG_ACCELERATOR): 1.0,
-        # DPA is embedded inside the accelerator body rather than consuming
-        # an additional serial column length.
-        (FEG_ACCELERATOR, GUN_EXTRACTOR_APERTURE): -271.0,
         (THERMIONIC_C1_APERTURE, CONDENSER_LENS_1): 4.0,
         (THERMIONIC_ACCELERATOR, THERMIONIC_DEFLECTOR): 5.0,
         (CONDENSER_APERTURE_2, CONDENSER_DEFLECTOR): 0.0,

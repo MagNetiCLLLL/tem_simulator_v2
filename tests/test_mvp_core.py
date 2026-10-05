@@ -20,9 +20,9 @@ PROJECTOR_RECONSTRUCTION = {
         "envelope_length": 100.0,
         "housing_od": 180.0,
         "yoke_od": 170.0,
-        "yoke_id": 99.5,
-        "coil_id": 75.0,
-        "coil_od": 91.5,
+        "yoke_id": 140.0,
+        "coil_id": 60.0,
+        "coil_od": 132.0,
         "coil_length": 90.0,
         "pole_bore": 21.5,
         "clear_bore": 20.0,
@@ -36,9 +36,9 @@ PROJECTOR_RECONSTRUCTION = {
         "envelope_length": 230.0,
         "housing_od": 180.0,
         "yoke_od": 170.0,
-        "yoke_id": 99.98322635,
-        "coil_id": 75.0,
-        "coil_od": 91.98322635,
+        "yoke_id": 140.0,
+        "coil_id": 60.0,
+        "coil_od": 132.0,
         "coil_length": 162.0,
         "pole_bore": 21.5,
         "clear_bore": 20.0,
@@ -52,9 +52,9 @@ PROJECTOR_RECONSTRUCTION = {
         "envelope_length": 120.0,
         "housing_od": 180.0,
         "yoke_od": 170.0,
-        "yoke_id": 97.52,
-        "coil_id": 75.0,
-        "coil_od": 89.52,
+        "yoke_id": 140.0,
+        "coil_id": 60.0,
+        "coil_od": 132.0,
         "coil_length": 108.0,
         "pole_bore": 21.5,
         "clear_bore": 20.0,
@@ -68,9 +68,9 @@ PROJECTOR_RECONSTRUCTION = {
         "envelope_length": 275.0,
         "housing_od": 180.0,
         "yoke_od": 170.0,
-        "yoke_id": 97.16,
-        "coil_id": 75.0,
-        "coil_od": 89.16,
+        "yoke_id": 140.0,
+        "coil_id": 60.0,
+        "coil_od": 132.0,
         "coil_length": 162.0,
         "pole_bore": 21.5,
         "clear_bore": 20.0,
@@ -819,9 +819,14 @@ def test_projector_manifests_use_compact_user_defined_envelopes(
         assert yoke["mechanical_inner_diameter_mm"] == pytest.approx(
             expected["yoke_id"]
         )
-        # Coil diameters are user-editable, like its axial envelope. Keep
-        # checking material thickness, vacuum clearance and radial nesting
-        # without replacing a valid custom diameter with the reconstruction.
+        # Shipped projector windings share the objective's radial proportions;
+        # the editor tests separately cover valid custom dimensions.
+        assert coil["mechanical_inner_diameter_mm"] == pytest.approx(
+            expected["coil_id"]
+        )
+        assert coil["mechanical_outer_diameter_mm"] == pytest.approx(
+            expected["coil_od"]
+        )
         assert lens["mechanical_clear_bore_diameter_mm"] <= coil["mechanical_inner_diameter_mm"]
         assert coil["mechanical_inner_diameter_mm"] < coil["mechanical_outer_diameter_mm"]
         assert coil["mechanical_outer_diameter_mm"] <= yoke["mechanical_inner_diameter_mm"]

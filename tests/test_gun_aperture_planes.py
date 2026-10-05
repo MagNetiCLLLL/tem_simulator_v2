@@ -117,6 +117,82 @@ def test_gun_rejects_an_aperture_outside_its_transport_interval(position):
         gun.validate()
 
 
+def test_feg_aperture_is_serial_after_gun_lens_and_unchanged_by_monochromator():
+    gun = FieldEmissionGun()
+    original_z = gun.dpa_aperture.z_mm
+    for installed in (False, True, False):
+        if installed:
+            gun.install_monochromator()
+        else:
+            gun.remove_monochromator()
+        axis = gun.resolve_mechanical_axis()
+        aperture = axis.by_key[gun.dpa_aperture.key]
+        assert aperture.nested_parent_key is None
+        assert axis.by_key[gun.electrostatic_lens.key].end_z_mm < aperture.start_z_mm
+        assert aperture.end_z_mm < axis.by_key[gun.accelerator.key].start_z_mm
+        assert gun.dpa_aperture.z_mm == original_z == 24.
+        assert not gun.mechanical_nesting_permissions
+        assert [p.key for p in gun.components] == list(axis.axis_order)
+
+
+@pytest.mark.parametrize('position', [8., 12., 18., 120.])
+@pytest.mark.parametrize('placement', ['body', 'plane'])
+def test_feg_rejects_aperture_before_lens_exit_or_inside_accelerator(position, placement):
+    gun = FieldEmissionGun()
+    if placement == 'body':
+        gun.dpa_aperture.mechanical_center_from_tip_mm = position
+    else:
+        gun.dpa_aperture.field_center_offset_mm = position-gun.dpa_aperture.mechanical_center_from_tip_mm
+    with pytest.raises(ValueError, match='[Gg]un aperture'):
+        gun.validate()
+
+
+@pytest.mark.parametrize('placement', ['body', 'plane'])
+def test_feg_rejects_aperture_overlapping_installed_wien(placement):
+    gun = FieldEmissionGun()
+    gun.install_monochromator()
+    if placement == 'body':
+        gun.dpa_aperture.mechanical_center_from_tip_mm = 51.
+    else:
+        gun.dpa_aperture.field_center_offset_mm = 51.-gun.dpa_aperture.mechanical_center_from_tip_mm
+    with pytest.raises(ValueError, match='Gun aperture overlaps'):
+        gun.validate()
+
+
+@pytest.mark.parametrize('installed', [False, True])
+@pytest.mark.parametrize('legacy_position', [12., 120.])
+def test_old_profile_aperture_name_and_coordinates_follow_manifest(installed, legacy_position):
+    from temsim.optics.electron_gun.field_emission import field_emission_gun_from_dict
+    gun = FieldEmissionGun()
+    if installed:
+        gun.install_monochromator()
+    gun.dpa_aperture.radius_mm = .35
+    gun.dpa_aperture.offset_x_mm = .02
+    gun.dpa_aperture.offset_y_mm = -.03
+    saved = gun.to_dict()
+    saved_aperture = saved['components'][gun.dpa_aperture.key]
+    saved_aperture['mechanical_center_from_tip_mm'] = (
+        170. if installed and legacy_position == 120. else legacy_position
+    )
+    saved_aperture['name'] = 'Gun / DPA Aperture'
+    restored = field_emission_gun_from_dict(saved)
+    assert restored.monochromator_installed == installed
+    assert restored.dpa_aperture.z_mm == 24.
+    assert restored.dpa_aperture.name == 'Gun Aperture'
+    assert restored.dpa_aperture.radius_mm == .35
+    assert restored.dpa_aperture.offset_x_mm == .02
+    assert restored.dpa_aperture.offset_y_mm == -.03
+    assert restored.to_dict()['components'][gun.dpa_aperture.key]['name'] == 'Gun Aperture'
+    assert not restored.resolve_mechanical_axis().by_key[gun.dpa_aperture.key].nested_parent_key
+
+
+def test_thermionic_anode_retains_its_existing_accelerator_mount():
+    from temsim.optics.electron_gun.thermionic import ThermionicGun
+    gun = ThermionicGun()
+    aperture = gun.resolve_mechanical_axis().by_key[gun.dpa_aperture.key]
+    assert aperture.nested_parent_key == gun.accelerator.key
+
+
 @pytest.mark.parametrize('curved', [False, True])
 def test_full_tip_gun_keeps_c1_arrival_separate_and_does_not_clip_exit_again(curved):
     from temsim import module_manifest

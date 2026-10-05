@@ -38,7 +38,7 @@ class PlaneHardwareOverlay:
         self.toggle.setChecked(True)
         self.toggle.setToolTip("Look upstream from selected Z: show apertures, detectors and cameras at their own positions, not a mask at selected Z.")
         self.stops_toggle = QCheckBox("Stops")
-        self.stops_toggle.setChecked(True)
+        self.stops_toggle.setChecked(False)
         self.stops_toggle.setToolTip("Show retained path representatives at their recorded interception X/Y and Z; hover for cause.")
         self.visibility_button = QToolButton()
         self.visibility_button.setText("Cutoffs…")

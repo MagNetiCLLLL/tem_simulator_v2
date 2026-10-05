@@ -1,3 +1,6 @@
+# Projector radial layers match the existing Objective lens reconstruction:
+# coil ID/OD 60/132 mm (36 mm radial), yoke 140/170 mm (15 mm radial).
+# All axial lengths and positions are retained; these are non-OEM design values.
 # Reusable mechanical module exported from the current TEM assembly.
 # All coordinates are local to this module, not source-absolute.
 # Positive z follows the electron-beam direction.
@@ -44,7 +47,7 @@ parts_end_z_mm = 1350.0
 # service gap and 20 mm electron-accessible vacuum ID. Its magnetic-lens
 # housings now share the 180 mm reconstructed column OD used by the condenser,
 # objective and corrector lenses. The 174 mm housing ID surrounds a 170 mm
-# magnetic yoke, while each strength-ranked coil remains inside that yoke. The
+# magnetic yoke, while each 36 mm radial coil remains inside that yoke. The
 # pole mechanical bore is 21.5 mm before two 0.75 mm liner walls.
 
 [[parts]]
@@ -611,7 +614,7 @@ local_center_z_mm = 82.5
 local_end_z_mm = 132.5
 length_mm = 100.0
 vacuum_inner_diameter_mm = 20.0
-mechanical_inner_diameter_mm = 99.5
+mechanical_inner_diameter_mm = 140.0
 mechanical_outer_diameter_mm = 170.0
 mechanical_profile = "magnetic_lens_yoke"
 mechanical_part_role = "yoke"
@@ -632,8 +635,8 @@ local_center_z_mm = 82.5
 local_end_z_mm = 127.5
 length_mm = 90.0
 vacuum_inner_diameter_mm = 20.0
-mechanical_inner_diameter_mm = 75.0
-mechanical_outer_diameter_mm = 91.5
+mechanical_inner_diameter_mm = 60.0
+mechanical_outer_diameter_mm = 132.0
 mechanical_profile = "magnetic_excitation_coil"
 mechanical_part_role = "excitation_coil"
 material_class = "insulated_copper_winding"
@@ -675,7 +678,7 @@ local_center_z_mm = 252.5
 local_end_z_mm = 367.5
 length_mm = 230.0
 vacuum_inner_diameter_mm = 20.0
-mechanical_inner_diameter_mm = 99.98322635
+mechanical_inner_diameter_mm = 140.0
 mechanical_outer_diameter_mm = 170.0
 mechanical_profile = "magnetic_lens_yoke"
 mechanical_part_role = "yoke"
@@ -696,8 +699,8 @@ local_center_z_mm = 252.5
 local_end_z_mm = 333.5
 length_mm = 162.0
 vacuum_inner_diameter_mm = 20.0
-mechanical_inner_diameter_mm = 75.0
-mechanical_outer_diameter_mm = 91.98322635
+mechanical_inner_diameter_mm = 60.0
+mechanical_outer_diameter_mm = 132.0
 mechanical_profile = "magnetic_excitation_coil"
 mechanical_part_role = "excitation_coil"
 material_class = "insulated_copper_winding"
@@ -739,7 +742,7 @@ local_center_z_mm = 432.5
 local_end_z_mm = 492.5
 length_mm = 120.0
 vacuum_inner_diameter_mm = 20.0
-mechanical_inner_diameter_mm = 97.52
+mechanical_inner_diameter_mm = 140.0
 mechanical_outer_diameter_mm = 170.0
 mechanical_profile = "magnetic_lens_yoke"
 mechanical_part_role = "yoke"
@@ -760,8 +763,8 @@ local_center_z_mm = 432.5
 local_end_z_mm = 486.5
 length_mm = 108.0
 vacuum_inner_diameter_mm = 20.0
-mechanical_inner_diameter_mm = 75.0
-mechanical_outer_diameter_mm = 89.52
+mechanical_inner_diameter_mm = 60.0
+mechanical_outer_diameter_mm = 132.0
 mechanical_profile = "magnetic_excitation_coil"
 mechanical_part_role = "excitation_coil"
 material_class = "insulated_copper_winding"
@@ -803,7 +806,7 @@ local_center_z_mm = 635.0
 local_end_z_mm = 772.5
 length_mm = 275.0
 vacuum_inner_diameter_mm = 20.0
-mechanical_inner_diameter_mm = 97.16
+mechanical_inner_diameter_mm = 140.0
 mechanical_outer_diameter_mm = 170.0
 mechanical_profile = "magnetic_lens_yoke"
 mechanical_part_role = "yoke"
@@ -824,8 +827,8 @@ local_center_z_mm = 635.0
 local_end_z_mm = 716.0
 length_mm = 162.0
 vacuum_inner_diameter_mm = 20.0
-mechanical_inner_diameter_mm = 75.0
-mechanical_outer_diameter_mm = 89.16
+mechanical_inner_diameter_mm = 60.0
+mechanical_outer_diameter_mm = 132.0
 mechanical_profile = "magnetic_excitation_coil"
 mechanical_part_role = "excitation_coil"
 material_class = "insulated_copper_winding"

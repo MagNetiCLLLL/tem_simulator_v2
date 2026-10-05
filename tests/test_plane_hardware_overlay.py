@@ -83,6 +83,7 @@ def test_hardware_enabled_by_default_with_explicit_fit_and_captured_details(view
     view.display_result(result)
     hardware = view.hardware
     assert hardware.toggle.isChecked()
+    assert not hardware.stops_toggle.isChecked()
     assert hardware.toggle.text() == "Cutoff projection"
     assert hardware.fit_button.text() == "Fit cutoff"
     assert len(hardware.items) == len(rows)
@@ -394,6 +395,8 @@ def test_stop_crosses_use_actual_interception_xy_z_and_rotate_with_beam(view, ha
     result = stopped_result()
     branch = result.simulation.incident
     view.display_result(result)
+    assert not view.hardware.stop_items
+    view.hardware.stops_toggle.setChecked(True)
     item, = view.hardware.stop_items
     expected_x = (.75 * branch.x[0, 0] + .25 * branch.x[1, 0]) * 1e6
     expected_y = (.75 * branch.y[0, 0] + .25 * branch.y[1, 0]) * 1e6
@@ -415,6 +418,7 @@ def test_stop_visibility_independent_of_outlines_and_no_particle_resolve(view, h
     hardware = view.hardware
     points, bounds = ray_snapshot(view), np.asarray(view.plot.viewRange())
     monkeypatch.setattr(view.analysis, "plane_data", lambda: pytest.fail("Visibility sampled arrivals"))
+    hardware.stops_toggle.setChecked(True)
     hardware.toggle.setChecked(False)
     assert not hardware.items and hardware.stop_items
     hardware.stops_toggle.setChecked(False)
@@ -532,6 +536,7 @@ def test_detector_fill_uses_rotated_real_annular_geometry_and_cleans_up(view):
 
 def test_stop_summary_immediately_names_component_and_true_z(view, hardware_geometry):
     view.display_result(stopped_result())
+    view.hardware.stops_toggle.setChecked(True)
     text = view.hardware.status.text()
     assert "Offset aperture" in text and "shown Z 0.25 mm" in text
     assert "1/1 paths" in text

@@ -219,6 +219,10 @@ def _create_stigmator():
 def _apply_part_geometry(component, module_path):
     geometry = module_manifest.part_geometry(module_path, component.key)
     part = module_manifest.part_data(module_path, component.key)
+    if component.key == GUN_EXTRACTOR_APERTURE:
+        # Saved profiles retain the compatibility key, but the assembly owns
+        # the Gun Aperture label as well as its corrected upstream placement.
+        component.name = str(part["name"])
     _apply_electrical_defaults(component, part)
     if isinstance(component, ColdFieldEmitter):
         from temsim.optics.electron_gun.tip_assembly import apply_tip_part
@@ -554,11 +558,8 @@ class FieldEmissionGun:
         base = self.base_components
         if not self.monochromator_installed:
             return base
-        return (
-            *base[:3],
-            self.monochromator.wien,
-            *base[3:],
-        )
+        return tuple(sorted((*base, self.monochromator.wien),
+                            key=lambda part: part.mechanical_center_from_tip_mm))
 
     @property
     def bore_components(self):
@@ -584,8 +585,15 @@ class FieldEmissionGun:
             self.extractor.key,
             self.electrostatic_lens.key,
         ]
+        extraction_components = []
         if self.monochromator_installed:
-            order.append(self.monochromator.wien.key)
+            extraction_components.append(self.monochromator.wien)
+        if self.type_key == "cold_feg":
+            extraction_components.append(self.dpa_aperture)
+        order.extend(component.key for component in sorted(
+            extraction_components,
+            key=lambda part: part.mechanical_center_from_tip_mm,
+        ))
         order.extend((
             self.accelerator.key,
             self.deflector.key,
@@ -596,12 +604,14 @@ class FieldEmissionGun:
 
     @property
     def mechanical_nesting_permissions(self):
+        if self.type_key == "cold_feg":
+            return ()
         return (
             MechanicalNestingPermission(
                 self.dpa_aperture.key,
                 self.accelerator.key,
                 (
-                    "The DPA/anode aperture is mounted inside the "
+                    "The thermionic anode aperture is mounted inside the "
                     "accelerator envelope."
                 ),
             ),
@@ -734,10 +744,34 @@ class FieldEmissionGun:
         ):
             raise ValueError("Electron-gun tracing steps must be positive.")
         if self.dpa_aperture.z_mm >= self.c1_aperture.z_mm:
-            raise ValueError("DPA aperture must precede C1 aperture.")
+            raise ValueError("Gun aperture must precede C1 aperture.")
         if not (0.0 <= self.dpa_aperture.z_mm < self.c1_aperture.z_mm
                 <= self.exit_plane_z_mm < float("inf")):
             raise ValueError("Gun apertures must lie between the tip and the gun exit plane.")
+        if self.type_key == "cold_feg":
+            lens_end = (self.electrostatic_lens.mechanical_center_from_tip_mm
+                        + 0.5 * self.electrostatic_lens.mechanical_length_mm)
+            accelerator_start = (self.accelerator.mechanical_center_from_tip_mm
+                                 - 0.5 * self.accelerator.mechanical_length_mm)
+            aperture = self.dpa_aperture
+            half_length = 0.5 * aperture.mechanical_length_mm
+            aperture_start = aperture.mechanical_center_from_tip_mm - half_length
+            aperture_end = aperture.mechanical_center_from_tip_mm + half_length
+            if not (
+                lens_end < aperture_start < aperture_end < accelerator_start
+                and lens_end < aperture.z_mm < accelerator_start
+            ):
+                raise ValueError(
+                    "Gun aperture must remain after the gun lens and before "
+                    "the accelerator."
+                )
+            if self.monochromator_installed:
+                body = self.monochromator.wien
+                start = body.mechanical_center_from_tip_mm - 0.5 * body.mechanical_length_mm
+                end = body.mechanical_center_from_tip_mm + 0.5 * body.mechanical_length_mm
+                if (aperture_start < end and aperture_end > start
+                        or start <= aperture.z_mm <= end):
+                    raise ValueError(f"Gun aperture overlaps {body.name}.")
         return self
 
     def emit(self, count=None):

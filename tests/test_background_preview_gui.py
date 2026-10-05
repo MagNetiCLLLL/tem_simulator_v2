@@ -229,6 +229,8 @@ def test_rejected_surface_image_keeps_applied_source_and_previous_result(window,
 
 
 def test_high_toolbar_routes_to_background_without_foreground_memory_preparation(window, monkeypatch):
+    from PySide6.QtWidgets import QPushButton
+
     assert window.high_rays.value() == 3000
     calls = []
     window._working_point_parent = "captured-parent-fixture"
@@ -236,9 +238,10 @@ def test_high_toolbar_routes_to_background_without_foreground_memory_preparation
     monkeypatch.setattr(window.calculations, "submit", lambda *_: pytest.fail("Foreground High preparation"))
     import temsim.gui.main_window as module
     monkeypatch.setattr(module, "estimate_calculation_memory_bytes", lambda *_: pytest.fail("Heavy memory estimation belongs in preparation worker"))
-    window.run_high_accuracy()
+    window.findChild(QPushButton, "highAccuracyButton").click()
     assert len(calls) == 1 and calls[0][0][1] == "High accuracy"
     assert calls[0][0][2] == 3000
+    assert calls[0][0][3] == window.high_step.value()
     assert calls[0][1] == {"parent_id": "captured-parent-fixture", "section_request": None,
                             "workflow": "rays", "existing_result": None}
 
@@ -287,16 +290,35 @@ def test_sample_edits_and_tab_switches_do_not_launch_calculation(window, monkeyp
     assert "Click Calculate" in window.status_label.text()
 
 
-def test_page_button_routes_current_beam_to_background(window, monkeypatch):
+@pytest.mark.parametrize("page_name,workflow", [
+    ("sample_page", "sample"), ("eds_page", "eds"), ("scan_control", "stem"),
+])
+def test_page_button_requires_completed_high_accuracy_then_reuses_beam(window, monkeypatch, page_name, workflow):
     from types import SimpleNamespace
-    calls = []
+    from PySide6.QtWidgets import QPushButton
+
+    calls, errors = [], []
+    page = getattr(window.workspace, page_name)
+    window.workspace._high_accuracy_result = None
+    monkeypatch.setattr(window, "_show_error", errors.append)
+    monkeypatch.setattr(window.calculations, "submit_background", lambda *args, **kw: calls.append((args, kw)))
+    page.calculation_bar.button.click()
+    assert not calls and len(errors) == 1
+    assert "Run high-accuracy once" in errors[-1]
+
+    window.findChild(QPushButton, "highAccuracyButton").click()
+    assert len(calls) == 1 and calls[0][1]["workflow"] == "rays"
+    page.calculation_bar.button.click()
+    assert len(calls) == 1 and len(errors) == 2  # Submission alone is not a completed beam.
+
+    # Metadata-only completion fixture; physical prerequisite checks have
+    # separate coverage in test_simulation_workflows.
     seed = SimpleNamespace(simulation=object())
     window.workspace._high_accuracy_result = seed
-    monkeypatch.setattr(window.calculations, "submit_background", lambda *args, **kw: calls.append((args, kw)))
-    window.workspace.sample_page.calculation_bar.button.click()
-    assert len(calls) == 1
-    assert calls[0][1]["workflow"] == "sample"
-    assert calls[0][1]["existing_result"] is seed
+    page.calculation_bar.button.click()
+    assert len(errors) == 2 and len(calls) == 2
+    assert calls[1][1]["workflow"] == workflow
+    assert calls[1][1]["existing_result"] is seed
 
 
 @pytest.mark.parametrize("dispatch_attempt", range(5))

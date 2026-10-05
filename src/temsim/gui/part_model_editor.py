@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from temsim.gui.input_policy import WheelSafeComboBox as QComboBox
+from temsim.component_representation import non_material_role, representation_note
 from temsim.manifest_editor import format_toml_value
 from temsim.part_model_document import PartModelDocument
 
@@ -628,6 +629,12 @@ class PartModelEditorPage(QWidget):
             from temsim.tip_emission_view import emission_parameter_information
             meaning, impact = emission_parameter_information(part, path,
                 self._model_runtime_values().get(part["key"]), meaning, impact)
+        if non_material_role(part):
+            label = (field.label if field is not None else "Stored " + " / ".join(
+                str(piece).removesuffix("_" + meaning.unit).replace("_", " ") for piece in path[2:]))
+            meaning = replace(meaning, label=label, category="unknown",
+                              category_label="Channel / reference metadata",
+                              description=representation_note(part))
         label = field.label if field is not None else meaning.label
         reason = field.reason if field is not None and field.reason else meaning.description
         text = (f"{label} · {meaning.category_label}\n"
@@ -876,12 +883,13 @@ class PartModelEditorPage(QWidget):
             if feature["id"] == selected:
                 self.feature_tree.setCurrentItem(node)
         self.feature_tree.blockSignals(blocked)
-        self.reset_model_button.setEnabled(bool(model))
-        self.edit_feature_button.setEnabled(self.feature_tree.currentItem() is not None)
-        self.remove_feature_button.setEnabled(self.feature_tree.currentItem() is not None)
+        material = self._material_editing_enabled()
+        self.reset_model_button.setEnabled(material and bool(model))
+        self.edit_feature_button.setEnabled(material and self.feature_tree.currentItem() is not None)
+        self.remove_feature_button.setEnabled(material and self.feature_tree.currentItem() is not None)
 
     def _apply_base_shape(self):
-        if self.session is None or self._selected_key is None:
+        if not self._material_editing_enabled():
             return
         from copy import deepcopy
         from temsim.part_model_features import default_model_3d
@@ -904,7 +912,7 @@ class PartModelEditorPage(QWidget):
             self._message(str(exc), error=True)
 
     def _reset_model_shape(self):
-        if self.session is not None:
+        if self._material_editing_enabled():
             self.session.set_model_3d(self._selected_key, None)
             prefix = ("parts", self._selected_key, "model_3d")
             self._invalid_inputs = {path: text for path, text in self._invalid_inputs.items() if path[:3] != prefix}
@@ -935,7 +943,7 @@ class PartModelEditorPage(QWidget):
         return feature
 
     def _edit_feature(self, kind=None):
-        if self.session is None or not self._selected_key:
+        if not self._material_editing_enabled():
             return
         from temsim.gui.part_feature_dialog import PartFeatureDialog
         if kind:
@@ -966,7 +974,7 @@ class PartModelEditorPage(QWidget):
 
     def _remove_feature(self):
         current = self.feature_tree.currentItem()
-        if self.session is not None and current is not None:
+        if self._material_editing_enabled() and current is not None:
             feature_id = current.data(0, Qt.ItemDataRole.UserRole)
             index = next(index for index, item in enumerate(self.session.part(self._selected_key)["model_3d"]["features"])
                          if item["id"] == feature_id)
@@ -988,8 +996,9 @@ class PartModelEditorPage(QWidget):
         if self._loading or self.session is None:
             return
         node = self.feature_tree.currentItem()
-        self.edit_feature_button.setEnabled(node is not None)
-        self.remove_feature_button.setEnabled(node is not None)
+        material = self._material_editing_enabled()
+        self.edit_feature_button.setEnabled(material and node is not None)
+        self.remove_feature_button.setEnabled(material and node is not None)
         if node is None:
             return
         features = self.session.part(self._selected_key).get("model_3d", {}).get("features", ())
@@ -1258,6 +1267,7 @@ class PartModelEditorPage(QWidget):
         self.tip_emission_button.setVisible(is_tip and key == "feg_tip")
         self.tip_emission_button.setEnabled(self._document_is_active())
         self.tip_detail_button.setVisible(is_tip)
+        self._update_buttons()
         if emit:
             self._emit_project_selection()
 
@@ -1454,6 +1464,9 @@ class PartModelEditorPage(QWidget):
         from temsim.part_materials import material_for_region, material_application_scope
         self._selected_region = self.region.currentData() or "body"
         self._sync_view_selection()
+        if non_material_role(self.session.part(self._selected_key)):
+            self.material_current.setText(representation_note(self.session.part(self._selected_key)))
+            return
         try:
             assignment = material_for_region(self.session.part(self._selected_key), self._selected_region)
             current_class = self.session.part(self._selected_key).get("material_class", "").lower()
@@ -1472,7 +1485,7 @@ class PartModelEditorPage(QWidget):
             self.material_current.setText(str(exc))
 
     def assign_material(self):
-        if self.session is None or self._selected_key is None:
+        if not self._material_editing_enabled():
             return
         try:
             self.session.assign_material(self._selected_key, self.material.currentData(), self._selected_region)
@@ -1516,7 +1529,8 @@ class PartModelEditorPage(QWidget):
                      if analytic else "3D model")
             self.view.set_view_labels(title=title, empty_text=(
                 "Point emission: zero projected source size; no finite surface to display."
-                if analytic else "Select a part to view its 3D model"))
+                if analytic else representation_note(selected) if non_material_role(selected)
+                else "Select a part to view its 3D model"))
             if analytic and display != "reference":
                 if display == "emission" and self.scope.currentData() == "part":
                     meshes = [mesh for mesh in meshes if mesh.key != self._selected_key]
@@ -1664,6 +1678,10 @@ class PartModelEditorPage(QWidget):
         self.status.setText(text)
         self.status.setStyleSheet("color: #ffb4a9;" if error else "")
 
+    def _material_editing_enabled(self):
+        return (self.session is not None and self._selected_key is not None
+                and not non_material_role(self.session.part(self._selected_key)))
+
     def _update_buttons(self):
         loaded = self.session is not None
         self.subassembly_button.setEnabled(loaded and bool(self.session.document.get("subassemblies")) and not self._invalid_inputs)
@@ -1672,11 +1690,14 @@ class PartModelEditorPage(QWidget):
         self.revert_button.setEnabled(loaded and (self.session.dirty or bool(self._invalid_inputs)))
         self.undo_button.setEnabled(loaded and (self.session.can_undo or bool(self._invalid_inputs)))
         self.redo_button.setEnabled(loaded and self.session.can_redo and not self._invalid_inputs)
-        self.assign_button.setEnabled(loaded and self._selected_key is not None)
-        self.apply_shape_button.setEnabled(loaded)
-        self.base_shape.setEnabled(loaded)
-        self.add_hole_button.setEnabled(loaded)
-        self.add_slot_button.setEnabled(loaded)
+        material = self._material_editing_enabled()
+        for control in (self.assign_button, self.material, self.region, self.apply_shape_button,
+                        self.base_shape, self.add_hole_button, self.add_slot_button):
+            control.setEnabled(material)
+        model = self.session.part(self._selected_key).get("model_3d", {}) if material else {}
+        self.reset_model_button.setEnabled(material and bool(model))
+        self.edit_feature_button.setEnabled(material and self.feature_tree.currentItem() is not None)
+        self.remove_feature_button.setEnabled(material and self.feature_tree.currentItem() is not None)
         for button in (self.new_component_button, self.place_component_button, self.copy_component_button):
             button.setEnabled(loaded and self._selected_key is not None and not self._invalid_inputs)
         if loaded:

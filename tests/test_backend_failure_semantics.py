@@ -111,15 +111,47 @@ def test_missing_optional_cupy_is_unavailable_not_hardware_pass(monkeypatch):
     assert not backend.cupy_capability().available
 
 
-def test_missing_numba_compiler_is_not_reported_as_absent_device(monkeypatch):
+@pytest.fixture
+def missing_numba_cuda_compiler(monkeypatch):
     from numba import cuda
     from numba.cuda.cudadrv import driver
     monkeypatch.setattr(cuda, "is_available", lambda: False)
     monkeypatch.setattr(driver, "driver", SimpleNamespace(is_available=True))
-    with pytest.raises(backend.GPUExecutionError, match="compiler"):
-        backend.cuda_capability()
+
+
+def test_missing_numba_compiler_is_not_reported_as_absent_device(missing_numba_cuda_compiler):
+    status = backend.cuda_capability()
+    assert not status.available
+    assert "CUDA driver found" in status.detail
+    assert "compiler is unavailable" in status.detail
     text = backend.capability_detail_for_display(backend.cuda_capability)
-    assert "Capability check failed" in text and "toolchain_unavailable" in text
+    assert text == status.detail and "toolchain_unavailable" in text
+
+
+@pytest.mark.parametrize("policy,ray_count,numba_available,expected", [
+    ("Auto", 3, True, "CPU"),
+    ("Auto", 3000, True, "Numba CPU"),
+    ("Auto", 3000, False, "CPU"),
+    ("Prefer GPU", 3000, True, "Numba CPU"),
+    ("Prefer GPU", 3000, False, "CPU"),
+    ("CUDA GPU", 3000, True, "Numba CPU"),
+    ("CUDA GPU", 3000, False, "CPU"),
+])
+def test_missing_numba_compiler_allows_policy_cpu_fallback(
+    missing_numba_cuda_compiler, monkeypatch, policy, ray_count, numba_available, expected,
+):
+    monkeypatch.setattr(backend, "numba_cpu_capability",
+                        lambda: backend.BackendCapability(numba_available, "CPU fixture"))
+    actual, reason = backend.choose_ray_backend(
+        policy, acceleration_enabled=True, ray_count=ray_count)
+    assert actual == expected
+    assert "toolchain_unavailable" in reason
+    assert "CUDA driver found" in reason
+
+
+def test_missing_numba_compiler_still_rejects_require_gpu(missing_numba_cuda_compiler):
+    with pytest.raises(backend.GPUExecutionError, match="toolchain_unavailable"):
+        backend.choose_ray_backend("Require GPU", acceleration_enabled=True, ray_count=3000)
 
 
 def test_wave_policy_does_not_ignore_disabled_acceleration(monkeypatch):

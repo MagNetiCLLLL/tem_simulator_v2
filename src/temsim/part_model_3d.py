@@ -13,6 +13,7 @@ from numbers import Integral, Real
 
 import numpy as np
 
+from temsim.component_representation import non_material_role, representation_note
 from temsim.magnetic_circuits import is_custom_mechanical_part, radial_profile_mm
 from temsim.magnetic_geometry import objective_layer_intervals_mm
 from temsim.mechanical_profiles import MAGNETIC_LENS_MECHANICAL_PROFILES
@@ -417,6 +418,10 @@ def _join_meshes(pieces):
 
 
 def _part_meshes(part, by_key, count, aperture_index=0, runtime=None):
+    # Saved channel envelopes (or even an explicit CAD base) do not establish
+    # material ownership. Keep their metadata available without making solids.
+    if non_material_role(part):
+        return (), (f"{part['key']}: {representation_note(part)}",)
     from temsim.part_model_features import apply_model_features, annotate_legacy_mesh, validate_model_3d
     validate_model_3d(part)
     # An explicit new base can model parts whose old display has no usable solid.
@@ -446,9 +451,25 @@ def part_dimension_specs(document, part_key, *, runtime_values=None):
     if part.get("tip_particle_model"):
         from temsim.tip_model_3d import tip_dimension_overrides
         specs = tip_dimension_overrides(part, specs, (runtime_values or {}).get(part_key))
-    return tuple(item if item.meaning is not None else replace(
+    specs = tuple(item if item.meaning is not None else replace(
         item, meaning=describe_parameter(by_key.get(item.path[1], part), item.path, by_key=by_key))
         for item in specs)
+    if non_material_role(part):
+        # Legacy fields remain inspectable/editable for saved solver settings;
+        # their old envelope names must not imply an independently built part.
+        reason = (representation_note(part) + " This stored value is not a dimension "
+                  "of an independently drawn material body.")
+        metadata = []
+        for item in specs:
+            label = "Stored " + " / ".join(
+                str(piece).removesuffix("_" + item.unit).replace("_", " ") for piece in item.path[2:])
+            metadata.append(replace(
+                item, label=label, reason=reason,
+                meaning=replace(item.meaning, label=label, category="unknown",
+                                category_label="Channel / reference metadata", description=reason),
+            ))
+        specs = tuple(metadata)
+    return specs
 
 
 def part_model_from_document(document, part_key, *, angular_segments=32, include_children=True,

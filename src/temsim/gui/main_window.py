@@ -666,16 +666,16 @@ class MainWindow(QMainWindow):
         )
         toolbar.addWidget(self.compute_backend)
 
-        beam_button = QPushButton("Calculate beam")
-        beam_button.setObjectName("calculateBeamButton")
-        beam_button.setProperty("calculationAction", True)
-        beam_button.setToolTip(
-            "Open Electron beam and calculate from the applied Tip and instrument settings. "
-            "The optional classical comparison follows the Electron beam advanced setting; "
-            "pending Tip edits are not applied automatically."
+        high_button = QPushButton("Run high-accuracy once")
+        high_button.setObjectName("highAccuracyButton")
+        high_button.setProperty("calculationAction", True)
+        high_button.setToolTip(
+            "Calculate classical particle trajectories using High-accuracy rays and Step. "
+            "Update Ray Diagram and retain the incident beam for Scanning Image, Sample "
+            "and detector calculations. Then use Calculate on the corresponding page."
         )
-        beam_button.clicked.connect(self._calculate_beam)
-        toolbar.addWidget(beam_button)
+        high_button.clicked.connect(self.run_high_accuracy)
+        toolbar.addWidget(high_button)
         cancel_button = QPushButton("Cancel calculations")
         cancel_button.setObjectName("cancelCapturedCalculations")
         cancel_button.setToolTip("Cancel queued/running Preview and High calculations at safe boundaries. Completed working points and independent experiments remain available.")
@@ -2252,14 +2252,8 @@ class MainWindow(QMainWindow):
         if interactive:
             self._interactive_preview_generation = self.calculations.generation
 
-    def _calculate_beam(self) -> None:
-        """The primary toolbar uses the same applied-input entry as its page."""
-        page = self.workspace.coherent_beam
-        self.workspace.tabs.setCurrentWidget(page)
-        page.calculate()
-
     def run_high_accuracy(self) -> None:
-        """Explicit classical comparison; page buttons request its readouts."""
+        """Prepare classical rays for the dependent sample and detector pages."""
         self._submit_high_accuracy(workflow="rays")
 
     def run_section_high_accuracy(self) -> None:
@@ -2275,7 +2269,7 @@ class MainWindow(QMainWindow):
                 raise ValueError("Use the Ray Diagram or Live tuning calculation button for this request")
             seed = self.workspace._high_accuracy_result
             if seed is None or getattr(seed, "simulation", None) is None:
-                raise ValueError("Use Simulation → Calculate classical rays to prepare Ray Diagram before calculating this page.")
+                raise ValueError("Click Run high-accuracy once in the top toolbar to prepare Ray Diagram before calculating this page.")
             self._submit_high_accuracy(workflow=workflow, existing_result=seed)
         except ValueError as exc:
             self._show_error(str(exc))

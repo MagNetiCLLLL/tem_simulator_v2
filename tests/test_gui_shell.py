@@ -2326,7 +2326,7 @@ def test_physical_layout_separates_aperture_plate_screw_and_rear_rod(qtbot):
         view.aperture_legend.toolTip()
     )
     expected_wall_source_keys = {
-        "feg_dpa_aperture": "feg_accelerator",
+        "feg_dpa_aperture": "feg_dpa_aperture",
         "feg_c1_aperture": "condenser_lens_1_housing",
         "condenser_aperture_2": "condenser_lens_2_housing",
         "condenser_aperture_3": "condenser_lens_3_housing",

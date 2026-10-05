@@ -119,11 +119,13 @@ def cuda_capability() -> BackendCapability:
         from numba import cuda
 
         if not cuda.is_available():
-            # Numba combines driver presence AND NVVM availability here. A
-            # broken compiler is not confirmed absence of a CUDA device.
+            # Numba combines driver presence AND NVVM availability here.
+            # A missing compiler makes this backend unavailable before any
+            # kernel runs; let the selected policy decide whether CPU is allowed.
             from numba.cuda.cudadrv.driver import driver
             if driver.is_available:
-                raise GPUExecutionError("toolchain_unavailable", "CUDA driver found, but Numba's CUDA compiler is unavailable")
+                return BackendCapability(False,
+                    "toolchain_unavailable: CUDA driver found, but Numba's CUDA compiler is unavailable")
             return BackendCapability(False, "No usable CUDA device or driver")
         device = cuda.get_current_device()
         name = device.name

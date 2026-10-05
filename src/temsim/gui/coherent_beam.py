@@ -1017,7 +1017,7 @@ class CoherentBeamPage(QWidget):
                             + (" Previous optics remain displayed." if self.result is not None else ""))
 
     def _show_source_check(self, summary, settings, error=None):
-        """Show the executed preflight without changing inputs or its admission."""
+        """Refresh the report while preserving the user's detail visibility."""
         data = None if summary is None else thaw_json(summary)
         report = {"source_summary": data,
                   "tip_inputs": None if settings is None else asdict(settings),
@@ -1034,7 +1034,6 @@ class CoherentBeamPage(QWidget):
         if ready:
             self.preflight_message.setText(f"Source check passed, but calculation setup rejected; propagation did not start: {error}. This is not propagation or image qualification.")
             self.preflight_message.setStyleSheet("color:#ffb86b;")
-            self.preflight_group.setChecked(True)
             return
         lines = ["Tip source check rejected; propagation did not start." if data is not None and not ready
                  else "Calculation setup rejected; propagation did not start."]
@@ -1073,7 +1072,6 @@ class CoherentBeamPage(QWidget):
             lines.append(str(error))
         self.preflight_message.setText("\n".join(lines))
         self.preflight_message.setStyleSheet("color:#ffb86b;")
-        self.preflight_group.setChecked(True)
 
     def _settings(self):
         draft = self._draft_settings()

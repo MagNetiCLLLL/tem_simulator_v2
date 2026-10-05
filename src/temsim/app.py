@@ -27,6 +27,16 @@ QMenuBar, QMenu, QStatusBar, QToolBar {
     background: #172033;
     color: #e5e7eb;
 }
+/* Custom item layout keeps menu check indicators at their shared size. */
+QMenu::item {
+    padding: 4px 12px;
+}
+QMenu::item:selected {
+    background: #334155;
+}
+QMenu::item:disabled {
+    color: #94a3b8;
+}
 QDockWidget::title {
     background: #1f2937;
     padding: 6px;
@@ -80,35 +90,45 @@ QCheckBox:hover, QCheckBox:focus {
 QCheckBox:disabled {
     color: #94a3b8;
 }
-QCheckBox::indicator {
+QCheckBox::indicator, QGroupBox::indicator,
+QAbstractItemView::indicator, QMenu::indicator {
     width: 18px;
     height: 18px;
 }
-QCheckBox::indicator:unchecked {
+QCheckBox::indicator:unchecked, QGroupBox::indicator:unchecked,
+QAbstractItemView::indicator:unchecked, QMenu::indicator:non-exclusive:unchecked {
     image: url("__CHECKBOX_ASSET_ROOT__/checkbox_unchecked.svg");
 }
-QCheckBox::indicator:unchecked:hover {
+QCheckBox::indicator:unchecked:hover, QGroupBox::indicator:unchecked:hover,
+QAbstractItemView::indicator:unchecked:hover, QMenu::indicator:non-exclusive:unchecked:selected {
     image: url("__CHECKBOX_ASSET_ROOT__/checkbox_unchecked_hover.svg");
 }
-QCheckBox::indicator:checked {
+QCheckBox::indicator:checked, QGroupBox::indicator:checked,
+QAbstractItemView::indicator:checked, QMenu::indicator:non-exclusive:checked {
     image: url("__CHECKBOX_ASSET_ROOT__/checkbox_checked.svg");
 }
-QCheckBox::indicator:checked:hover {
+QCheckBox::indicator:checked:hover, QGroupBox::indicator:checked:hover,
+QAbstractItemView::indicator:checked:hover, QMenu::indicator:non-exclusive:checked:selected {
     image: url("__CHECKBOX_ASSET_ROOT__/checkbox_checked_hover.svg");
 }
-QCheckBox::indicator:indeterminate {
+QCheckBox::indicator:indeterminate, QGroupBox::indicator:indeterminate,
+QAbstractItemView::indicator:indeterminate {
     image: url("__CHECKBOX_ASSET_ROOT__/checkbox_indeterminate.svg");
 }
-QCheckBox::indicator:indeterminate:hover {
+QCheckBox::indicator:indeterminate:hover, QGroupBox::indicator:indeterminate:hover,
+QAbstractItemView::indicator:indeterminate:hover {
     image: url("__CHECKBOX_ASSET_ROOT__/checkbox_indeterminate_hover.svg");
 }
-QCheckBox::indicator:unchecked:disabled {
+QCheckBox::indicator:unchecked:disabled, QGroupBox::indicator:unchecked:disabled,
+QAbstractItemView::indicator:unchecked:disabled, QMenu::indicator:non-exclusive:unchecked:disabled {
     image: url("__CHECKBOX_ASSET_ROOT__/checkbox_unchecked_disabled.svg");
 }
-QCheckBox::indicator:checked:disabled {
+QCheckBox::indicator:checked:disabled, QGroupBox::indicator:checked:disabled,
+QAbstractItemView::indicator:checked:disabled, QMenu::indicator:non-exclusive:checked:disabled {
     image: url("__CHECKBOX_ASSET_ROOT__/checkbox_checked_disabled.svg");
 }
-QCheckBox::indicator:indeterminate:disabled {
+QCheckBox::indicator:indeterminate:disabled, QGroupBox::indicator:indeterminate:disabled,
+QAbstractItemView::indicator:indeterminate:disabled {
     image: url("__CHECKBOX_ASSET_ROOT__/checkbox_indeterminate_disabled.svg");
 }
 QProgressBar {

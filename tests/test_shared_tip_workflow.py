@@ -21,7 +21,7 @@ def supported_settings(state):
                    incoherent_angle_rms_mrad=.2)
 
 
-def test_unified_beam_entry_and_observation_labels(window):
+def test_particle_toolbar_and_beam_page_have_separate_entries(window):
     workspace = window.workspace
     page = workspace.coherent_beam
     assert page.calculate_button.text() == "Calculate beam"
@@ -32,13 +32,14 @@ def test_unified_beam_entry_and_observation_labels(window):
         workspace.ray_beam_tabs.indexOf(workspace.transverse_beam)) == "Classical rays"
     assert workspace.ray_beam_tabs.tabText(
         workspace.ray_beam_tabs.indexOf(workspace.coherent_ray_view)) == "Beam observation"
-    toolbar_button = window.findChild(QPushButton, "calculateBeamButton")
-    assert toolbar_button is not None and toolbar_button.text() == "Calculate beam"
+    toolbar_button = window.findChild(QPushButton, "highAccuracyButton")
+    assert toolbar_button is not None and toolbar_button.text() == "Run high-accuracy once"
+    assert window.findChild(QPushButton, "calculateBeamButton") is None
     assert window.classical_rays_action in window.simulation_menu.actions()
     assert window.classical_rays_action.text() == "Calculate classical rays"
 
 
-def test_toolbar_calculate_uses_page_entry_without_applying_tip_draft(window, monkeypatch):
+def test_toolbar_high_accuracy_keeps_current_page_and_unapplied_tip_draft(window, monkeypatch):
     workspace = window.workspace
     page = workspace.coherent_beam
     before = capture_instrument_snapshot(window.state)
@@ -47,14 +48,15 @@ def test_toolbar_calculate_uses_page_entry_without_applying_tip_draft(window, mo
     page.tip_offset_x.setValue(page.tip_offset_x.value() + .125)
     draft = page._settings()
     calls = []
-    monkeypatch.setattr(page, "calculate", lambda: calls.append(workspace.tabs.currentWidget()))
+    monkeypatch.setattr(page, "calculate", lambda: pytest.fail("Particle toolbar started a wave calculation"))
     monkeypatch.setattr(page, "source_applier", lambda _settings: pytest.fail("Toolbar applied a Tip draft"))
-    monkeypatch.setattr(window, "_submit_high_accuracy", lambda **_kwargs: pytest.fail("Toolbar started classical rays"))
-    workspace.tabs.setCurrentWidget(workspace.ray_page)
+    monkeypatch.setattr(window, "_submit_high_accuracy", lambda **kwargs: calls.append(kwargs))
+    workspace.tabs.setCurrentWidget(workspace.scanning_page)
 
-    window.findChild(QPushButton, "calculateBeamButton").click()
+    window.findChild(QPushButton, "highAccuracyButton").click()
 
-    assert calls == [page]
+    assert calls == [{"workflow": "rays"}]
+    assert workspace.tabs.currentWidget() is workspace.scanning_page
     assert page._settings() == draft
     assert not page.compare_classical.isChecked()
     assert capture_instrument_snapshot(window.state).digest == before.digest

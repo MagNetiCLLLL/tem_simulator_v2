@@ -145,6 +145,7 @@ def test_high_accuracy_pipeline_reports_completed_real_stages(monkeypatch):
     # so it does not request the now-mandatory non-scanning material transport.
     state.sample.inserted = False
     state.ac_deflector.scan_enabled = False
+    state.descan_deflector.scan_enabled = False
     simulation = SimpleNamespace(
         incident=SimpleNamespace(),
         branches={},

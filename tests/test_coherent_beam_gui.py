@@ -616,7 +616,8 @@ def test_saved_low_energy_source_rejection_displays_real_checks_without_propagat
     assert "Particle ray count" in view.preflight_message.text()
     assert "0.198997" in view.preflight_message.text()
     assert view.preflight_details.isReadOnly()
-    assert view.preflight_group.isChecked()
+    assert not view.preflight_group.isChecked()
+    assert view.preflight_details.isHidden()
     assert view._worker is None and view.result is None
     assert not view.cancel_button.isEnabled()
     assert capture_instrument_snapshot(state).digest == before
@@ -667,6 +668,13 @@ def test_missing_opt_in_has_copyable_settings_but_no_source_report(panel, qtbot)
     assert report["tip_inputs"]["enabled"] is False
     assert "Select a coherent tip boundary" in report["error"]
     assert panel._worker is None and not panel.source_enabled.isChecked()
+    assert not panel.preflight_group.isChecked()
+    assert panel.preflight_details.isHidden()
+    panel.preflight_group.setChecked(True)
+    assert not panel.preflight_details.isHidden()
+    panel.calculate()
+    assert panel.preflight_group.isChecked()
+    assert not panel.preflight_details.isHidden()
 
 
 @pytest.mark.parametrize("domain", [

@@ -262,8 +262,8 @@ def optical_component_planes(state, *, full_path=False):
 An installed but disabled lens is still a boundary in the assembly order.
 Derived image planes, stage solids and decorative pole parts are not new
 optical components. Paired devices use their canonical device reference plane.
-With full_path, include gun apertures and post-specimen devices. Remaining
-inside the accelerator body alone does not prove a waist stayed before DPA.
+With full_path, include gun apertures and post-specimen devices. Gun Aperture
+is an independent optical boundary upstream of the FEG accelerator.
 """
     kinds = {"aperture", "continuous_aperture", "deflector", "paired_deflector",
              "finite_paired_deflector", "finite_quadrupole_stigmator", "hexapole",

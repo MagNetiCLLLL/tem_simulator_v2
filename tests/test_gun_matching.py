@@ -71,7 +71,7 @@ def test_invalid_variational_inputs_are_rejected(energy, scale, intervals):
         axis_variational_map(AxialFixture(), emission_energy_ev=energy, scale_m=scale, intervals=intervals)
 
 
-@pytest.mark.parametrize("extractor,centre", [(8.,22.8),(4.,14.8)])
+@pytest.mark.parametrize("extractor,centre", [(8.,22.8),(4.,14.8),(4.,18.)])
 def test_placement_moves_field_and_bore_together_without_mutating_original(extractor,centre):
     from temsim.optics.column import default_state
     from temsim.physics.grounded_tip_field import field_request
@@ -96,13 +96,14 @@ def test_placement_moves_field_and_bore_together_without_mutating_original(extra
     assert candidate.electron_gun.electrostatic_lens.voltage_kv == 1.1
     assert candidate.electron_gun.electrostatic_lens.voltage_reference == gun.electrostatic_lens.voltage_reference
     assert candidate.electron_gun.extractor.mechanical_center_from_tip_mm == pytest.approx(extractor)
+    assert candidate.electron_gun.dpa_aperture.z_mm == pytest.approx(centre + 6.)
     assert candidate.electron_gun.electrostatic_lens.mechanical_center_from_tip_mm == pytest.approx(centre)
     moved = assembly.part("feg_electrostatic_lens")
     assert (moved.start_z_mm, moved.center_z_mm, moved.end_z_mm) == pytest.approx((centre-4,centre,centre+4))
     assert any(s.start_z_mm == pytest.approx(centre-4) and s.end_z_mm == pytest.approx(centre+4)
                and s.inner_diameter_mm == 8 for s in assembly.vacuum_bore_segments)
     for part in state._resolved_assembly.parts:
-        if part.key not in {"feg_extractor", "feg_electrostatic_lens"}:
+        if part.key not in {"feg_extractor", "feg_electrostatic_lens", "feg_dpa_aperture"}:
             assert assembly.part(part.key) == part
     assert field_request(candidate.electron_gun) != field_request(gun)
     assert candidate.electron_gun._cache_key(193) != original_key
@@ -120,7 +121,7 @@ def test_overlapping_or_nonfinite_placements_are_rejected(ext,lens):
         candidate_with_gun_geometry(default_state(), extractor_center_mm=ext, lens_center_mm=lens)
 
 
-def test_accelerator_placement_moves_stages_and_attached_aperture_once():
+def test_accelerator_placement_moves_stages_without_dragging_upstream_aperture():
     from temsim.optics.column import default_state
     from temsim.instrument_snapshot import capture_instrument_snapshot
     from temsim.physics.grounded_tip_field import field_request
@@ -128,12 +129,12 @@ def test_accelerator_placement_moves_stages_and_attached_aperture_once():
     state.electron_gun.emitter.surface_model = model_from_part(
         module_manifest.part_data("gun/FEG.toml", "feg_tip"))
     before = capture_instrument_snapshot(state).digest
-    candidate = candidate_with_gun_geometry(state, extractor_center_mm=8., lens_center_mm=22.8,
+    candidate = candidate_with_gun_geometry(state, extractor_center_mm=8., lens_center_mm=18.,
                                            accelerator_center_mm=210.)
     old, new = state._resolved_assembly, candidate._resolved_assembly
-    for key in ("feg_accelerator", "feg_dpa_aperture"):
-        assert new.part(key).center_z_mm == pytest.approx(old.part(key).center_z_mm+10.)
-        assert new.part(key).length_mm == old.part(key).length_mm
+    assert new.part("feg_accelerator").center_z_mm == pytest.approx(old.part("feg_accelerator").center_z_mm+10.)
+    assert new.part("feg_accelerator").length_mm == old.part("feg_accelerator").length_mm
+    assert new.part("feg_dpa_aperture") == old.part("feg_dpa_aperture")
     assert [s.center_from_tip_mm for s in candidate.electron_gun.accelerator.stages] == pytest.approx(
         [s.center_from_tip_mm+10. for s in state.electron_gun.accelerator.stages])
     assert new.part("feg_deflector") == old.part("feg_deflector")
@@ -149,35 +150,47 @@ def test_accelerator_overlap_and_nonfinite_are_rejected(accelerator):
                                     accelerator_center_mm=accelerator)
 
 
-def test_independent_dpa_placement_keeps_parent_wall_and_field_geometry_consistent():
+def test_independent_gun_aperture_placement_keeps_stop_and_wall_geometry_consistent():
     from temsim.optics.column import default_state
     from temsim.instrument_snapshot import capture_instrument_snapshot
     state = default_state()
     before = capture_instrument_snapshot(state).digest
-    candidate = candidate_with_gun_geometry(state, extractor_center_mm=2.1, lens_center_mm=8.2,
-                                           accelerator_center_mm=218., dpa_center_mm=210.)
+    candidate = candidate_with_gun_geometry(state, extractor_center_mm=8., lens_center_mm=22.8,
+                                           accelerator_center_mm=218., dpa_center_mm=34.)
     part = candidate._resolved_assembly.part("feg_dpa_aperture")
-    assert (part.start_z_mm, part.center_z_mm, part.end_z_mm) == pytest.approx((209., 210., 211.))
-    assert candidate.electron_gun.dpa_aperture.z_mm == pytest.approx(210.)
-    assert part.data["parent_key"] == "feg_accelerator"
-    assert any(row.start_z_mm == pytest.approx(209.) and row.end_z_mm == pytest.approx(211.)
+    assert (part.start_z_mm, part.center_z_mm, part.end_z_mm) == pytest.approx((33., 34., 35.))
+    assert candidate.electron_gun.dpa_aperture.z_mm == pytest.approx(34.)
+    assert not part.data.get("parent_key")
+    assert any(row.start_z_mm == pytest.approx(33.) and row.end_z_mm == pytest.approx(35.)
                and row.inner_diameter_mm == 6. for row in candidate._resolved_assembly.vacuum_bore_segments)
-    assert capture_instrument_snapshot(candidate).restore().electron_gun.dpa_aperture.z_mm == pytest.approx(210.)
+    assert capture_instrument_snapshot(candidate).restore().electron_gun.dpa_aperture.z_mm == pytest.approx(34.)
     assert capture_instrument_snapshot(state).digest == before
-    for centre in (20., 202.22222222222223, 400., np.nan):
+    for centre in (8., 12., 20., 210., 400., np.nan):
         with pytest.raises(ValueError):
-            candidate_with_gun_geometry(state, extractor_center_mm=2.1, lens_center_mm=8.2,
+            candidate_with_gun_geometry(state, extractor_center_mm=8., lens_center_mm=22.8,
                                         accelerator_center_mm=218., dpa_center_mm=centre)
     from temsim.optics.beam_path_audit import optical_component_planes, require_same_topology
     original_planes = optical_component_planes(state, full_path=True)
     candidate_planes = optical_component_planes(candidate, full_path=True)
     assert "projector_lens_1" in dict(candidate_planes)
     assert "feg_dpa_aperture" not in dict(optical_component_planes(candidate))
-    # A waist before the DPA must remain there, not just inside the same
-    # distributed accelerator body. Geometry movement cannot weaken this gate.
-    require_same_topology([41.5], [202.], original_planes, candidate_component_planes=candidate_planes)
-    unmoved_dpa = candidate_with_gun_geometry(state, extractor_center_mm=2.1, lens_center_mm=8.2,
+    # A waist before the Gun Aperture must remain upstream of that physical
+    # stop. Geometry movement cannot weaken this topology gate.
+    require_same_topology([23.], [32.], original_planes, candidate_component_planes=candidate_planes)
+    unmoved_dpa = candidate_with_gun_geometry(state, extractor_center_mm=8., lens_center_mm=22.8,
                                              accelerator_center_mm=218.)
     with pytest.raises(ValueError, match="topology changed"):
-        require_same_topology([41.5], [202.], original_planes,
+        require_same_topology([23.], [32.], original_planes,
                              candidate_component_planes=optical_component_planes(unmoved_dpa, full_path=True))
+
+
+def test_gun_aperture_can_occupy_a_free_gap_after_the_gun_lens():
+    from temsim.optics.column import default_state
+    candidate = candidate_with_gun_geometry(default_state(), extractor_center_mm=8.,
+        lens_center_mm=18., dpa_center_mm=25.)
+    gun = candidate.electron_gun
+    axis = gun.resolve_mechanical_axis()
+    assert axis.axis_order.index(gun.electrostatic_lens.key) < axis.axis_order.index(gun.dpa_aperture.key)
+    assert axis.axis_order.index(gun.dpa_aperture.key) < axis.axis_order.index(gun.accelerator.key)
+    assert not axis.by_key[gun.dpa_aperture.key].nested_parent_key
+    gun.validate()

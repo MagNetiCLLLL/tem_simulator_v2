@@ -41,6 +41,31 @@ The simulator therefore retains field strengths and excitation settings in its
 own units. No A-to-field conversion, OEM accuracy, or manufacturer's calibrated
 aberration-control response is inferred from the photographed current values.
 
+## Devices and control-channel markers
+
+The probe layout distinguishes independently represented device envelopes
+(HP1/HP2 and ADL/TL22/TL21/TL12) from auxiliary control channels. DPH1/DPH2,
+QPH1/QPH2, DP11/DP21/DP22, HPC/QPC and HPol/QPol are channel-only records:
+the available evidence does not establish separate housings or physical host
+assignments for these outputs. This does not mean their fields have no hardware
+source. Their optical-model coordinates must not be interpreted as verified
+mechanical positions or automatically moved into a guessed parent device.
+
+Both probe manifests declare `layout_role = "control_channel"` and
+`physical_host_status = "unverified"`; DP12 declares `virtual_reference`.
+Canonical channel keys are also recognized in older saved manifests. The 2D
+view uses dashed markers and hollow diamonds at the existing optical reference
+positions, with explicit channel/virtual labels. Part previews and whole-column
+3D omit their material surfaces, including old envelopes and saved custom CAD
+bases. Channels do not define vacuum walls, material collisions or FEM bodies.
+The real continuous vacuum liner supplies the beam-passage boundary.
+
+Existing excitation controls, optical positions, field strengths and effective
+lengths remain in the numerical model. Legacy envelope fields are retained for
+file compatibility and identified as stored channel metadata, not independently
+verified hardware dimensions. Main-device geometry remains provisional; this
+separation does not establish OEM dimensions or a production-ready DCOR model.
+
 ## Additional DCORPRIME reference
 
 The two additional user photographs are preserved without alteration:

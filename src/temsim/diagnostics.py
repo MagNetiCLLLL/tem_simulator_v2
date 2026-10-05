@@ -8,6 +8,7 @@ import math
 import numpy as np
 
 from temsim.component_keys import CONDENSER_LENS_KEYS
+from temsim.component_representation import non_material_role, representation_note
 from temsim.optics.lens_focal_length import focal_length_mm
 from temsim.optics.magnetic_lens_aberration import spherical_aberration_mm
 from temsim.physics.core import electron, fields
@@ -58,6 +59,8 @@ class PhysicalLayoutRecord:
     accelerator_electrode_stack_evidence_source: str
     optical_references_mm: tuple[float, ...]
     excitation_enabled: bool | None
+    layout_role: str = ""
+    representation_note: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +169,9 @@ def physical_layout_records(result) -> tuple[PhysicalLayoutRecord, ...]:
             "mechanical_profile",
             getattr(shape, "profile", "axial_envelope"),
         )
+        layout_role = non_material_role(part.data, profile=profile)
+        references = _optical_references(part)
+        marker_z = sum(references) / len(references) if references else float(part.center_z_mm)
         recording_surface = profile in {
             "retractable_detector_plane",
             "camera_sensor_plane",
@@ -233,12 +239,12 @@ def physical_layout_records(result) -> tuple[PhysicalLayoutRecord, ...]:
                 "value",
                 part.branch,
             )),
-            start_z_mm=float(part.start_z_mm),
-            center_z_mm=float(part.center_z_mm),
-            end_z_mm=float(part.end_z_mm),
-            outer_diameter_mm=max(float(outer), 0.001),
-            bore_diameter_mm=max(min(float(bore), float(outer)), 0.0),
-            mechanical_bore_diameter_mm=max(min(float(part.data.get(
+            start_z_mm=marker_z if layout_role else float(part.start_z_mm),
+            center_z_mm=marker_z if layout_role else float(part.center_z_mm),
+            end_z_mm=marker_z if layout_role else float(part.end_z_mm),
+            outer_diameter_mm=0.0 if layout_role else max(float(outer), 0.001),
+            bore_diameter_mm=0.0 if layout_role else max(min(float(bore), float(outer)), 0.0),
+            mechanical_bore_diameter_mm=0.0 if layout_role else max(min(float(part.data.get(
                 "mechanical_bore_diameter_mm",
                 part.data.get(
                     "mechanical_clear_bore_diameter_mm",
@@ -311,10 +317,12 @@ def physical_layout_records(result) -> tuple[PhysicalLayoutRecord, ...]:
             accelerator_electrode_stack_evidence_source=str(part.data.get(
                 "accelerator_electrode_stack_evidence_source", "",
             )),
-            optical_references_mm=_optical_references(part),
+            optical_references_mm=references,
             excitation_enabled=getattr(
                 excitation_source, "excitation_enabled", None
             ),
+            layout_role=layout_role,
+            representation_note=representation_note(part.data, profile=profile),
         ))
     return tuple(records)
 

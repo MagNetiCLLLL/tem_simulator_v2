@@ -5,6 +5,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from temsim import module_manifest
+from temsim.component_representation import non_material_role
 from temsim.component_keys import (
     AC_DEFLECTOR,
     BEAM_DEFLECTOR,
@@ -231,7 +232,10 @@ def _module_vacuum_segments(module, origin, resolved_parts):
 
     module_start = origin + module.entrance_z_mm
     module_end = origin + module.exit_z_mm
-    parts = [part for part in resolved_parts if part.module_key == module.key]
+    # Field/control planes retain their numerical coordinates, but neither
+    # their legacy envelopes nor their bore metadata define a vacuum wall.
+    parts = [part for part in resolved_parts
+             if part.module_key == module.key and not non_material_role(part.data)]
     breakpoints = {float(module_start), float(module_end)}
     continuous_tube = _module_continuous_vacuum_tube(module, origin)
     if continuous_tube is not None:

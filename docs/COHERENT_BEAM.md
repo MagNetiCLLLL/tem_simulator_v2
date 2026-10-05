@@ -1,7 +1,7 @@
 # Electron beam and continuous Z observation
 
-The **Electron beam** page and main toolbar share one **Calculate beam** entry.
-It captures the applied instrument Tip, electrodes, lenses, apertures, specimen
+The **Electron beam** page has its own **Calculate beam** button. It captures
+the applied instrument Tip, electrodes, lenses, apertures, specimen
 and detectors for the development wave pipeline. Intensity, electron arrivals,
 phase and probability flow are observations of its executed state. Optional
 **Compare classical rays** under the advanced settings adds a matched classical
@@ -9,7 +9,13 @@ calculation; it is off by default. This does not invent phase from particle
 positions or flight times, or accept a configurable gun-exit or specimen-plane
 source. Existing stored source settings remain unchanged until explicitly applied.
 
-This workflow assumes ideal vacuum: it does not simulate residual-gas
+The main toolbar's **Run high-accuracy once** button runs classical particles
+and prepares the incident beam required by Scanning Image and the
+specimen/detector pages. It is also available as **Simulation → Calculate
+classical rays**. Run that calculation before using those pages' calculation
+buttons; **Update rays** provides a fast particle preview.
+
+The electron-wave workflow assumes ideal vacuum: it does not simulate residual-gas
 scattering or pressure attenuation. Electric and magnetic fields, specimen
 interactions, apertures, column walls and physical detector absorption remain
 active. Ideal vacuum does not mean ideal lenses or removal of aberrations.
@@ -339,15 +345,16 @@ the record cannot convert it into a new particle source.
    and waves. Applying a source marks previous results stale but starts no
    calculation. The 28.39 micrometre / 30 eV monochromatic demonstration below
    is an explicit historical example, never a startup or fallback source.
-3. Review observation Z and press **Calculate beam** on the page or main
-   toolbar. Both use the selected current Tip or saved-state display mode.
+3. Review observation Z and press **Calculate beam** on the Electron beam
+   page. It uses the selected current Tip or saved-state display mode.
    For a matched comparison of the current Tip, enable **Compare classical rays**
    in the advanced settings first. This freezes the applied source and optics
    once, executes classical transport and active specimen interactions, then
    starts the wave calculation from those same inputs. It uses the toolbar's
    particle count/step and this page's separate wave numerical budgets.
-   **Update rays** and **Simulation → Calculate classical rays** remain explicit
-   classical operations and do not establish a matched pair. Unapplied source
+   **Update rays** and **Run high-accuracy once** (also available as
+   **Simulation → Calculate classical rays**) remain explicit classical
+   operations and do not establish a matched pair. Unapplied source
    edits are rejected. Failed source-domain checks do not change tip dimensions,
    energy or energy spread.
 4. After Calculate, return to **Ray Diagram**, enable **Beam analysis**, and
