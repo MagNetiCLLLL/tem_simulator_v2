@@ -59,7 +59,7 @@ jobs:
         # Collect independent scope evidence even when the installation fails.
         # Earlier failures still fail this job; no continue-on-error is used.
         if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
-        run: python scripts/validate_classical_scope.py --scope classical --output outputs/spec-acceptance
+        run: python scripts/validate_classical_scope.py --scope classical --output outputs/spec-acceptance --allow-gpu-skips
       - name: Retain validation records
         if: always()
         uses: actions/upload-artifact@v4
@@ -88,7 +88,9 @@ jobs:
           python -m pip check
           if ($LASTEXITCODE -ne 0) { throw "Validation dependencies are inconsistent" }
       - name: Run declared scope with one numerical thread
-        run: python scripts/validate_classical_scope.py --scope ${{ matrix.scope }} --output outputs/agent-validation/${{ matrix.scope }} --timeout-seconds 1800
+        # Hosted Windows runners have no CUDA device. Keep real-GPU tests in
+        # collection and report normal skips as NOT_RUN, never as GPU success.
+        run: python scripts/validate_classical_scope.py --scope ${{ matrix.scope }} --output outputs/agent-validation/${{ matrix.scope }} --timeout-seconds 1800 --allow-gpu-skips
       - name: Retain scope evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4

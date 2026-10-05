@@ -14,6 +14,28 @@ def runner():
     return runpy.run_path(str(ROOT / "scripts/validate_classical_scope.py"))
 
 
+def test_real_child_gpu_skip_is_recorded_separately_in_explicit_cpu_lane(runner, tmp_path):
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    target = tests / "test_compute_backend.py"
+    target.write_text(
+        "import pytest\n"
+        "def test_cpu_contract():\n    assert True\n"
+        "def test_auto_cuda_ray_trace_matches_cpu_with_energy_spread():\n"
+        "    pytest.skip('CUDA device unavailable')\n", encoding="utf-8",
+    )
+    relative = "tests/test_compute_backend.py"
+    report = runner["run_scope"](tmp_path, tmp_path / "evidence", "acceptance-policy", 45,
+        criteria={"policy/cpu-fixture": ("CPU contract and real-device dependency", (relative,))},
+        selected=(relative,), allow_gpu_skips=True)
+    assert report["exit_code"] == 0
+    assert report["collected_count"] == 2
+    assert report["gpu_hardware"]["status"] == "NOT_RUN"
+    assert len(report["gpu_hardware"]["not_run"]) == 1
+    receipt = json.loads(Path(report["artifacts"]["receipt"]["path"]).read_text())
+    assert receipt["cases"][relative + "::test_auto_cuda_ray_trace_matches_cpu_with_energy_spread"]["call"] == "skipped"
+
+
 @pytest.mark.parametrize("case, expected_code", [
     ("pass", 0), ("missing", 4), ("empty", 5), ("fail", 1),
     ("timeout", 124), ("source-change", 0),

@@ -13,6 +13,10 @@ def captured_scene():
     from temsim.test_electron_scene import prepare_test_electron_scene
     with numerical_job(1):
         state=default_state()
+        # The analytic axial clock below requires an undeflected column;
+        # raster-ready application defaults otherwise apply transverse kicks.
+        state.ac_deflector.scan_enabled = False
+        state.descan_deflector.scan_enabled = False
         magnetic=prepare_magnetic_scene(state,z_limits_mm=(0.,3026.4))
         scene = prepare_test_electron_scene(state,magnetic,z_limits_mm=(0.,3026.4))
         # This suite isolates the scalar/compiled full-field pusher. The

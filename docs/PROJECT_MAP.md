@@ -244,6 +244,8 @@ flowchart LR
 
 这是未来修改后的验证示例，不是通过报告。可用范围以 `acceptance.py` 和实际命令行定义为准；CI 当前使用 `classical`、`acceptance-policy`、`gun-fields`、`electron-execution`、`field-ui`、`particle-continuation`、`performance-observation`、`coherent-development`。`full-report` 仅报告完整范围尚未覆盖项，不启动完整相干计算，也不授予物理资格。
 
+GitHub 的 Windows CPU runner 使用 `--allow-gpu-skips`：`acceptance_gpu.py` 明确登记的真实 GPU 测试仍保留收集和结果，在无设备时记为 `gpu_hardware.NOT_RUN`，不冒充 GPU 验证通过。GPU 测试失败、缺失执行阶段、普通 CPU 测试跳过仍使任务失败。不带此参数时维持所有测试必须完整通过的严格规则；本地有 GPU 时仍执行这些测试。
+
 ## 7. 必须保留的非运行文件
 
 - `docs/development/evidence/default-assembly-identity-map-v1.json`：装配身份回归夹具。

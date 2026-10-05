@@ -202,3 +202,79 @@ def test_malformed_case_entry_is_nonpassing_evidence(outcomes):
     report = evaluate("acceptance-policy", receipt)
     assert report["exit_code"] == 1
     assert any("Invalid test outcome" in error for error in report["errors"])
+
+
+def _gpu_skip_receipt():
+    receipt = receipt_for("classical")
+    node = "tests/test_compute_backend.py::test_auto_cuda_ray_trace_matches_cpu_with_energy_spread"
+    receipt["collected"].append(node)
+    receipt["cases"][node] = {"setup": "passed", "call": "skipped", "teardown": "passed"}
+    receipt["skip_reasons"] = {node: "Skipped: CUDA device unavailable"}
+    return receipt, node
+
+
+def test_cpu_lane_may_report_reviewed_gpu_absence_without_claiming_gpu_success():
+    receipt, node = _gpu_skip_receipt()
+    assert evaluate("classical", receipt)["exit_code"] == 1
+    report = evaluate("classical", receipt, allow_gpu_skips=True)
+    assert report["exit_code"] == 0
+    assert report["gpu_hardware"]["status"] == "NOT_RUN"
+    assert report["gpu_hardware"]["not_run"] == [node]
+    assert report["cases"][node]["call"] == "skipped"
+    assert report["criteria"]["round2/R2-AT-10"]["gpu_not_run"] == [node]
+    assert report["full_simulator_qualification"] == "UNQUALIFIED"
+
+
+@pytest.mark.parametrize("outcomes", [
+    {"setup": "passed", "call": "failed", "teardown": "passed"},
+    {"setup": "passed", "call": "skipped", "teardown": "failed"},
+    {"setup": "passed", "call": "skipped"},
+    {"setup": "passed", "call": "passed", "teardown": "skipped"},
+    {},
+])
+def test_cpu_lane_never_ignores_gpu_failures_or_incomplete_execution(outcomes):
+    receipt, node = _gpu_skip_receipt()
+    receipt["cases"][node] = outcomes
+    assert evaluate("classical", receipt, allow_gpu_skips=True)["exit_code"] == 1
+
+
+def test_cpu_lane_still_rejects_unreviewed_skips_and_records_gpu_execution():
+    receipt, node = _gpu_skip_receipt()
+    receipt["cases"][node]["call"] = "passed"
+    report = evaluate("classical", receipt, allow_gpu_skips=True)
+    assert report["gpu_hardware"]["status"] == "EXECUTED"
+    assert not report["gpu_hardware"]["not_run"]
+    receipt["cases"][receipt["collected"][0]]["call"] = "skipped"
+    assert evaluate("classical", receipt, allow_gpu_skips=True)["exit_code"] == 1
+
+
+@pytest.mark.parametrize("reason", ["", "Atomistic backend unavailable", "Known failure", "Skipped: memory mismatch"])
+def test_cpu_lane_rejects_non_device_skip_reasons_even_for_reviewed_gpu_tests(reason):
+    receipt, node = _gpu_skip_receipt()
+    receipt["skip_reasons"][node] = reason
+    assert evaluate("classical", receipt, allow_gpu_skips=True)["exit_code"] == 1
+
+
+def test_gpu_setup_skip_still_requires_completed_teardown_and_device_reason():
+    receipt, node = _gpu_skip_receipt()
+    receipt["cases"][node] = {"setup": "skipped", "teardown": "passed"}
+    receipt["skip_reasons"][node] = "Skipped: could not import 'cupy': No module named 'cupy'"
+    assert evaluate("classical", receipt, allow_gpu_skips=True)["exit_code"] == 0
+    receipt["cases"][node].pop("teardown")
+    assert evaluate("classical", receipt, allow_gpu_skips=True)["exit_code"] == 1
+
+
+def test_gpu_registry_keeps_cpu_parameters_mandatory_and_matches_existing_tests():
+    import ast
+    from temsim.acceptance_gpu import GPU_TEST_IDS, GPU_PARAMETER_IDS, is_gpu_hardware_test
+
+    for node in GPU_TEST_IDS | GPU_PARAMETER_IDS:
+        filename, name = node.split("::", 1)
+        definitions = ast.parse((ROOT / filename).read_text(encoding="utf-8-sig"))
+        assert name.split("[", 1)[0] in {item.name for item in definitions.body if isinstance(item, ast.FunctionDef)}
+    prefix = ("tests/test_electrostatic_column_transport.py::"
+              "test_closed_electric_and_magnetic_actions_match_reference_backend")
+    assert is_gpu_hardware_test(prefix + "[CUDA GPU]")
+    assert not is_gpu_hardware_test(prefix + "[Numba CPU]")
+    assert not is_gpu_hardware_test(prefix + "[CPU]")
+    assert not is_gpu_hardware_test("tests/test_stem_cuda_pipeline.py::test_toolbar_require_gpu_does_not_retry_stem_on_cpu")
