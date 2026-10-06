@@ -32,6 +32,8 @@ class ColumnDipoleField:
     event_dy_rad: float
     reference_momentum: float
     captured_time_s: float | None = None
+    drive_keys: tuple[str, ...] = ()
+    dynamic: bool = False
 
     def field_at_global_positions_t(self, points):
         points = np.asarray(points, dtype=float)
@@ -42,41 +44,75 @@ class ColumnDipoleField:
         return result
 
 
-@input_io.using_state_inputs
-def column_dipole_fields(state):
-    """Freeze the actual scan/deflection commands once at instrument energy.
+def _component_kick_events(component, time_s):
+    if hasattr(component, "kick_events"):
+        try:
+            return tuple(component.kick_events(time_s=time_s)), True
+        except TypeError:
+            return tuple(component.kick_events()), False
+    if all(hasattr(component, name) for name in
+           ("upper_z_mm", "lower_z_mm", "upper_x_mrad", "upper_y_mrad", "lower_x_mrad", "lower_y_mrad")):
+        return ((component.upper_z_mm, component.upper_x_mrad*1e-3, component.upper_y_mrad*1e-3),
+                (component.lower_z_mm, component.lower_x_mrad*1e-3, component.lower_y_mrad*1e-3)), False
+    return (), False
 
-    The same records supply both the main beam's interval forces and the
-    diagnostic Lorentz field. No query depends on a test electron's energy.
-    """
-    from temsim.physics.core import electron
+
+@input_io.using_state_inputs
+def column_deflector_drives(state, *, time_s=None):
+    """Resolve logical commands once per physical deflector host and foil."""
+    from temsim.component_representation import SHARED_DEFLECTOR_HOSTS
+    from temsim.optics.shared_deflectors import bind_shared_deflector_channels
+    bind_shared_deflector_channels(state)
     components = (*getattr(state, "stigmators", ()),
                   *getattr(state, "corrector_elements", ()),
                   *getattr(state, "deflectors", ()))
-    charge, momentum, _ = electron(state) if components else (-1., 0., 0.)
+    by_key = {str(component.key): component for component in components}
+    captured_time = float(getattr(state, "simulation_time_s", 0.) if time_s is None else time_s)
     result, seen = [], set()
     for component in components:
         key = str(component.key)
-        if key in seen or not bool(getattr(component, "enabled", False)):
+        if key in seen or key in SHARED_DEFLECTOR_HOSTS or not bool(getattr(component, "enabled", False)):
             continue
         seen.add(key)
-        captured_time = None
-        if hasattr(component, "kick_events"):
-            try:
-                captured_time = float(getattr(state, "simulation_time_s", 0.))
-                events = component.kick_events(time_s=captured_time)
-            except TypeError:
-                captured_time = None
-                events = component.kick_events()
-        elif all(hasattr(component, name) for name in
-                 ("upper_z_mm", "lower_z_mm", "upper_x_mrad", "upper_y_mrad", "lower_x_mrad", "lower_y_mrad")):
-            events = ((component.upper_z_mm, component.upper_x_mrad*1e-3, component.upper_y_mrad*1e-3),
-                      (component.lower_z_mm, component.lower_x_mrad*1e-3, component.lower_y_mrad*1e-3))
-        else:
-            continue
-        events = tuple(events)
+        events, timed = _component_kick_events(component, captured_time)
         if not events:
             continue
+        drive_keys = [key]
+        dynamic = bool(getattr(component, "scan_enabled", False) or getattr(component, "wobble_enabled", False))
+        for channel_key, host_key in SHARED_DEFLECTOR_HOSTS.items():
+            channel = by_key.get(channel_key)
+            if host_key != key or channel is None or not bool(getattr(channel, "enabled", False)):
+                continue
+            contribution, channel_timed = _component_kick_events(channel, captured_time)
+            if len(contribution) != len(events) or any(
+                    float(left[0]) != float(right[0]) for left, right in zip(events, contribution)):
+                raise ValueError(f"{channel_key}: shared deflector drive must use {key}'s physical coil planes")
+            events = tuple((float(z), float(dx)+float(cx), float(dy)+float(cy))
+                           for (z, dx, dy), (_, cx, cy) in zip(events, contribution))
+            drive_keys.append(channel_key)
+            timed = timed or channel_timed
+            dynamic = dynamic or bool(getattr(channel, "scan_enabled", False) or getattr(channel, "wobble_enabled", False))
+        if len(drive_keys) > 1:
+            limit_mrad = float(getattr(component, "maximum_kick_mrad", np.inf))
+            if max(abs(float(value))*1e3 for row in events for value in row[1:]) > limit_mrad:
+                raise ValueError(f"{key}: summed alignment and scan drive exceeds the physical coil limit ({limit_mrad:g} mrad)")
+        result.append((component, events, tuple(drive_keys), dynamic, captured_time if timed else None))
+    return tuple(result)
+
+
+@input_io.using_state_inputs
+def column_dipole_fields(state, *, time_s=None):
+    """Freeze summed physical coil drives for particle and diagnostic fields.
+
+    Logical scan commands share their host's planes, length and material bore.
+    No query depends on a test electron's energy.
+    """
+    from temsim.physics.core import electron
+    drives = column_deflector_drives(state, time_s=time_s)
+    charge, momentum, _ = electron(state) if drives else (-1., 0., 0.)
+    result = []
+    for component, events, drive_keys, dynamic, captured_time in drives:
+        key = str(component.key)
         thickness = float(getattr(component, "effective_thickness_mm", getattr(component, "thickness_mm", 0.)))
         if not np.isfinite(thickness) or thickness <= 0.:
             raise ValueError(f"{key}: magnetic deflection requires a positive effective coil thickness")
@@ -87,7 +123,8 @@ def column_dipole_fields(state):
             result.append(ColumnDipoleField(
                 f"{key}:{index}", (z-.5*thickness)*1e-3, (z+.5*thickness)*1e-3,
                 momentum/charge*dy/length, -momentum/charge*dx/length,
-                float(z), float(dx), float(dy), float(momentum), captured_time))
+                float(z), float(dx), float(dy), float(momentum), captured_time,
+                drive_keys, dynamic))
     return tuple(result)
 
 

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from temsim.physics.scan_calibration import held, restore_held, sample_reference_z_mm, capture_record
+from temsim.optics.shared_deflectors import shared_channel_enabled
 
 from temsim.physics.beam_observation import (
     transverse_kick_phase_space_response,
@@ -491,7 +492,7 @@ def calibrate_scan_system(state, *, force=False, hold=False, observation_stop_z_
 
     components = state.ac_deflector, state.descan_deflector
     def consumed(component):
-        return bool(component.enabled and component.scan_enabled and (
+        return bool(shared_channel_enabled(component) and component.scan_enabled and (
             observation_stop_z_mm is None or min(float(component.upper_z_mm),
                 float(component.lower_z_mm)) <= float(observation_stop_z_mm)))
     if observation_stop_z_mm is not None and not any(consumed(component) for component in components):
@@ -562,7 +563,7 @@ def raster_sample_grid(
 
 def _scan_kicks_mrad(component, times_s: np.ndarray) -> np.ndarray:
     if not (
-        bool(getattr(component, "enabled", False))
+        shared_channel_enabled(component)
         and bool(getattr(component, "scan_enabled", False))
     ):
         return np.zeros((*times_s.shape, 2), dtype=float)
@@ -678,8 +679,8 @@ def calculate_scan_geometry(state, *, observation_stop_z_mm=None, calibration=No
 
     ac = state.ac_deflector
     descan = state.descan_deflector
-    ac_enabled = bool(ac.enabled and ac.scan_enabled)
-    descan_enabled = bool(descan.enabled and descan.scan_enabled)
+    ac_enabled = bool(shared_channel_enabled(ac) and ac.scan_enabled)
+    descan_enabled = bool(shared_channel_enabled(descan) and descan.scan_enabled)
     if not (ac_enabled or descan_enabled):
         return None
     if calibration is None:
@@ -955,10 +956,10 @@ def calculate_scan_ray_paths(state, simulation, *, calibrated=False) -> ScanRayP
     """Precompute scan-response bases used by GUI-only frame playback."""
 
     ac = state.ac_deflector
-    if not bool(ac.enabled and ac.scan_enabled):
+    if not bool(shared_channel_enabled(ac) and ac.scan_enabled):
         return None
     descan = state.descan_deflector
-    descan_active = bool(descan.enabled and descan.scan_enabled)
+    descan_active = bool(shared_channel_enabled(descan) and descan.scan_enabled)
     if not calibrated:
         calibrate_ac_scan_scale(state)
     if descan_active and not calibrated:

@@ -165,7 +165,7 @@ def test_descan_uses_opposite_ac_command_and_cancels_at_image_reference(
     assert result.plane_kind == "image"
 
 
-def test_default_column_scan_descan_symmetry_and_optical_cancellation():
+def test_default_column_shared_descan_hardware_and_optical_cancellation():
     state = default_state()
     state.ac_deflector.wobble_enabled = False
     state.ac_deflector.scan_enabled = True
@@ -188,9 +188,10 @@ def test_default_column_scan_descan_symmetry_and_optical_cancellation():
         @ np.asarray(state.descan_deflector.scan_command_matrix_mrad)
     )
 
-    assert state.sample.z_mm - state.ac_deflector.z_mm == pytest.approx(
-        state.descan_deflector.z_mm - state.sample.z_mm
-    )
+    host = state.image_diffraction_deflector
+    assert (state.descan_deflector.upper_z_mm, state.descan_deflector.lower_z_mm) == (
+        host.upper_z_mm, host.lower_z_mm)
+    assert state.ac_deflector.lower_z_mm < state.sample.z_mm < host.upper_z_mm
     assert np.asarray(
         state.descan_deflector.scan_command_matrix_mrad
     ) == pytest.approx(-np.asarray(command))
@@ -396,11 +397,15 @@ def test_detector_position_and_size_define_collection_angle(monkeypatch):
     assert angle.anisotropic is True
 
 
-def test_scan_view_replays_one_cached_detector_frame_until_stopped(qtbot):
+def test_scan_view_stops_after_one_cached_detector_frame(qtbot, monkeypatch):
     view = ScanControlView()
     qtbot.addWidget(view)
+    clock = [0.]
+    monkeypatch.setattr("temsim.gui.scan_panel.perf_counter", lambda: clock[0])
     playback_times = []
     view.playback_time_changed.connect(playback_times.append)
+    active_changes = []
+    view.playback_active_changed.connect(active_changes.append)
     view._state = SimpleNamespace(
         ac_deflector=SimpleNamespace(
             enabled=True,
@@ -443,14 +448,22 @@ def test_scan_view_replays_one_cached_detector_frame_until_stopped(qtbot):
 
     assert view._playback_timer.isActive()
     assert playback_times
-    assert "Scanning continuously" in view.detector_playback_summary.text()
-    view._state.ac_deflector.scan_enabled = False
-    view._set_playback_active(False)
+    clock[0] = .2
+    view._playback_tick()
     assert not view._playback_timer.isActive()
-    assert "last frame retained" in view.detector_playback_summary.text()
+    assert view._state.ac_deflector.scan_enabled
+    assert active_changes == [True, False]
+    assert playback_times[-1] == pytest.approx(.2 * 11.5 / 12)
+    for key, values in images.items():
+        np.testing.assert_array_equal(view.detector_image_items[key].image, values.T)
+    count = len(playback_times)
+    clock[0] = 1.
+    view._playback_tick()
+    assert len(playback_times) == count
+    assert active_changes == [True, False]
 
 
-def test_scan_image_pause_keeps_previous_complete_frame_while_playback_continues(
+def test_stopped_scan_retains_complete_frame_and_accepts_its_replacement(
     qtbot,
 ):
     view = ScanControlView()
@@ -478,15 +491,12 @@ def test_scan_image_pause_keeps_previous_complete_frame_while_playback_continues
     view._render_stem_rows(1)
     assert np.isnan(view.detector_image_items["haadf"].image).any()
 
-    view.pause_image_refresh.setChecked(True)
+    view._set_playback_active(False)
 
-    assert view._playback_timer.isActive()
+    assert not view._playback_timer.isActive()
     np.testing.assert_allclose(
         view.detector_image_items["haadf"].image,
         images["haadf"].T,
-    )
-    assert "previous complete frame displayed" in (
-        view.detector_playback_summary.text()
     )
 
     replacement = StemScanResult(
@@ -498,13 +508,8 @@ def test_scan_image_pause_keeps_previous_complete_frame_while_playback_continues
     )
     view._set_stem_frame(replacement)
     view._playback_tick()
-    np.testing.assert_allclose(
-        view.detector_image_items["haadf"].image,
-        images["haadf"].T,
-    )
-
-    view._playback_timer.stop()
-    view.pause_image_refresh.setChecked(False)
+    assert not view._playback_timer.isActive()
+    assert view._stem_frame is replacement
     np.testing.assert_allclose(
         view.detector_image_items["haadf"].image,
         (images["haadf"] + 100.0).T,

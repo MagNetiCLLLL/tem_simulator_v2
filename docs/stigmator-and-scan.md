@@ -44,7 +44,43 @@ cancelled or stale solve cannot change the live instrument. Numerical search
 bounds are not hardware ratings. This geometric task does not measure or certify
 wave astigmatism, full convergence or atomic-resolution imaging.
 
+## Single-frame STEM images
+
+Prepare the particle result with **Run high-accuracy once**. Enabling the AC
+raster and **Generate STEM detector images** requests one frame when the second
+of these two options is switched on. The completed HAADF, DF and BF arrays are
+revealed once, then remain displayed. There is no repeating refresh or Pause
+refresh control. Short frame periods display the complete frame immediately.
+
+Click **Calculate STEM (single frame)** to request another single scan. Valid
+upstream particle results and matching frame data can be reused; replaying a
+stored result never changes the Poisson seed or generates new detector counts.
+Changing input values retains the previous complete frame until a new result
+arrives. Tab, result-source, contrast and display-quantity changes do not start
+another acquisition or another playback pass.
+
 ## Scan/descan controls
+
+The Descan entry is a control channel of the **Image/Diffraction Deflectors**.
+Static image/diffraction-shift and dynamic descan commands drive the same upper
+and lower coils. Their drives are summed once at the host's interaction centres;
+Descan has no independent solid, vacuum restriction or collision envelope.
+This relationship follows the
+[FEI Tecnai manual, sections 3.3.3–3.3.4](https://www.dartmouth.edu/emlab/docs/fei_tecnai_f20_alignments_doc.pdf).
+
+The upstream Beam Shift/Tilt pair and downstream AC Scan pair remain separate.
+In a probe-corrected column the scan must remain after the corrector and before
+the objective, as described by [CEOS](https://www.ceos-gmbh.de/de/produkte/residualsCEXCOR).
+Shared control channels do not imply that every deflection function along the
+column uses the same hardware. Axial coordinates and coil dimensions remain
+adjustable simulator values, not measured OEM geometry.
+
+Older held calibrations used an independent Descan position. After loading one,
+use **Calibrate and hold** again before enabling Descan; the saved host identity
+prevents those old matrices from silently driving the relocated shared coils.
+Automatic calibration uses the current host geometry. Disabling the physical
+Image/Diffraction pair suppresses all its drives while retaining each channel's
+stored operating settings.
 
 In **Scanning Image > Scanning Parameters > Scan / descan calibration**:
 

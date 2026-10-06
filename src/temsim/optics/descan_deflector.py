@@ -1,4 +1,4 @@
-"""Post-sample AC Descan Coil with image-plane raster compensation."""
+"""Descan operating channel of the post-sample Image/Diffraction pair."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from math import isfinite
 from typing import ClassVar
 
 from temsim import module_manifest
+from temsim.optics.shared_deflectors import SharedDeflectorChannel
 from temsim.component_keys import (
     DESCAN_DEFLECTOR,
     SELECTED_AREA_APERTURE,
@@ -31,7 +32,7 @@ _DEFAULT_INTERACTIONS = tuple(
 @dataclass(frozen=True)
 class DescanDeflectorDefinition:
     key: str = DESCAN_DEFLECTOR
-    label: str = "AC Descan Coil"
+    label: str = "Descan control channel"
     mechanical_center_below_sample_mm: float = (
         float(_DEFAULT_PART["local_center_z_mm"])
         - float(_DEFAULT_SAMPLE["local_center_z_mm"])
@@ -110,7 +111,7 @@ class DescanDeflectorDefinition:
 
 
 @dataclass
-class DescanDeflectorComponent:
+class DescanDeflectorComponent(SharedDeflectorChannel):
     name: str
     key: str
     z_mm: float
@@ -650,6 +651,6 @@ def descan_deflector_from_dict(data):
         if attribute in values:
             object.__setattr__(component, attribute, values[attribute])
     component.key = DESCAN_DEFLECTOR
-    component.name = "AC Descan Coil"
+    component.name = "Descan control channel"
     component.corrector = DESCAN_DEFLECTOR_DEFINITION.owner
     return component.apply_optical_position().validate()

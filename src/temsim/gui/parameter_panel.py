@@ -30,6 +30,9 @@ from PySide6.QtWidgets import (
 )
 
 from temsim.component_keys import ENERGY_FILTER_SLIT, FIXED_APERTURE_KEYS
+from temsim.component_representation import (
+    SHARED_DEFLECTOR_HOSTS, representation_note, shared_deflector_field_owner,
+)
 from temsim.manifest_editor import (
     format_toml_value,
     parse_toml_value,
@@ -1025,6 +1028,13 @@ class ParameterPanel(QWidget):
 
     def _load_manifest(self) -> None:
         self.manifest_draft_notice.hide()
+        key = getattr(self._manifest_target, "part_key", None)
+        if key in SHARED_DEFLECTOR_HOSTS:
+            self.manifest_draft_notice.setText(
+                representation_note({"key": key}) + " Edit "
+                + SHARED_DEFLECTOR_HOSTS[key] + " to change the shared structure."
+            )
+            self.manifest_draft_notice.show()
         self._manifest_delegate.close_pending_editors()
         blocked = self.manifest_table.blockSignals(True)
         try:
@@ -1082,6 +1092,9 @@ class ParameterPanel(QWidget):
                             "Source: " + meaning.source_label + ". " + meaning.source_note,
                             meaning.description, interaction,
                         )))
+                    host = shared_deflector_field_owner(field.path[1], field.path[2])
+                    if host:
+                        tooltip = f"Read-only shared structure. Edit {host} to change this value."
                     label.setToolTip(tooltip)
                     value.setToolTip(tooltip)
                 self.manifest_table.setItem(row, 0, label)

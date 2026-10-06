@@ -8,6 +8,7 @@ import pytest
 from temsim.assembly_catalog import AssemblyCatalog, AssemblySelection
 from temsim.assembly_model_3d import assembly_model_from_assembly
 from temsim.component_keys import IMAGE_CORRECTOR_KEYS
+from temsim.component_representation import IMAGE_CONTROL_CHANNEL_KEYS
 from temsim.diagnostics import physical_layout_records
 from temsim.module_manifest import read_document, validate_document
 from temsim.optics.column import default_state
@@ -58,8 +59,14 @@ def test_resolved_2d_3d_geometry_agrees_and_outer_resize_does_not_change_ray_tra
     meshes = {key: [m for m in model.meshes if m.key == key] for key in RESIZED}
     components = {c.key: c for c in state.corrector_elements}
     for key in RESIZED:
-        assert records[key].outer_diameter_mm == 180.0
         assert components[key].mechanical_outer_diameter_mm == 180.0
+        if key in IMAGE_CONTROL_CHANNEL_KEYS:
+            assert records[key].outer_diameter_mm == 0
+            assert records[key].layout_role == "control_channel"
+            assert not meshes[key]
+            assert key in model.omitted_keys
+            continue
+        assert records[key].outer_diameter_mm == 180.0
         assert meshes[key], model.errors
         for mesh in meshes[key]:
             radius = np.linalg.norm(mesh.vertices[:, :2], axis=1)

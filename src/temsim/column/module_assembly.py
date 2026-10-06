@@ -1595,6 +1595,8 @@ def _apply_manifest_runtime_geometry(state, parts, assembly):
         ).validate_between_poles(objective_lens)
     _apply_energy_filter_manifest_geometry(state, parts)
     _apply_nanopulser_manifest_geometry(state, parts)
+    from temsim.optics.shared_deflectors import bind_shared_deflector_channels
+    bind_shared_deflector_channels(state)
 
 
 def _apply_nanopulser_manifest_geometry(state, parts):

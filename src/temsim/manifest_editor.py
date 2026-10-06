@@ -12,6 +12,7 @@ import tomllib
 
 from temsim import module_manifest
 from temsim.column.module_assembly import resolve_module_assembly
+from temsim.component_representation import shared_deflector_field_owner
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,7 +145,8 @@ class ManifestEditor:
                     path=("parts", target.part_key, str(field)),
                     label=str(field),
                     value=value,
-                    editable=str(field) not in STRUCTURAL_READ_ONLY_FIELDS,
+                    editable=(str(field) not in STRUCTURAL_READ_ONLY_FIELDS
+                              and not shared_deflector_field_owner(target.part_key, field)),
                     meaning=describe_parameter(part, ("parts", target.part_key, str(field)), by_key=by_key),
                 )
                 for field, value in part.items()
@@ -174,6 +176,11 @@ class ManifestEditor:
     def save(self, target: ManifestTarget, updates: dict[tuple[str, ...], object], configuration):
         if not updates:
             return
+        for path in updates:
+            if len(path) >= 3 and path[0] == "parts":
+                host = shared_deflector_field_owner(path[1], path[2])
+                if host:
+                    raise ValueError(f"{path[1]} uses shared hardware; edit {host} to change its structure")
         from temsim.component_operations import PartChangeSet
         from temsim.shared_tip import dependencies, catalog_definitions
 

@@ -122,17 +122,16 @@ def test_generate_selects_counts_but_old_frame_stays_explicitly_unavailable_unti
     assert view.image_display_quantity.currentData() == "poisson"
 
 
-def test_paused_stale_and_bank_counts_keep_captured_seed_dwell_and_arrays(view):
+def test_retained_stale_and_bank_counts_keep_captured_seed_dwell_and_arrays(view):
     old, new, bank = count_frame(), count_frame(seed=9, dwell=.5, offset=3), count_frame(seed=11, dwell=.125, offset=7)
     view._set_stem_frame(old)
     choose(view, "poisson")
-    view.pause_image_refresh.setChecked(True)
     view._set_stem_frame(new)
     view._state.sample.stem_poisson_seed = 999
     view._state.ac_deflector.scan_frame_period_s = 99.
-    assert_counts(view, old)
-    assert "Seed 7" in view.image_quantity_notice.text()
-    assert "Dwell 0.01 s/pixel" in view.image_quantity_notice.text()
+    assert_counts(view, new)
+    assert "Seed 9" in view.image_quantity_notice.text()
+    assert "Dwell 0.5 s/pixel" in view.image_quantity_notice.text()
     view.set_bank_readout(SimpleNamespace(stem=bank, state_snapshot=default_state()))
     view.image_source.setCurrentIndex(view.image_source.findData("bank"))
     assert_counts(view, bank)
@@ -143,27 +142,27 @@ def test_paused_stale_and_bank_counts_keep_captured_seed_dwell_and_arrays(view):
     assert_counts(view, bank)
     assert "Seed 11" in view.image_quantity_notice.text()
     view.image_source.setCurrentIndex(view.image_source.findData("current"))
-    assert_counts(view, old)
-    assert "inputs changed" in view.image_model_notice.text()
-    assert "Seed 7" in view.image_quantity_notice.text()
-    view.pause_image_refresh.setChecked(False)
     assert_counts(view, new)
+    assert "inputs changed" in view.image_model_notice.text()
     assert "Seed 9" in view.image_quantity_notice.text()
     assert "Dwell 0.5 s/pixel" in view.image_quantity_notice.text()
 
 
-def test_missing_counts_in_paused_and_bank_frames_do_not_borrow_current_counts(view):
+def test_missing_counts_in_bank_frame_do_not_borrow_current_counts(view):
     old = replace(count_frame(), poisson_counts=None)
     view._set_stem_frame(old)
-    view.pause_image_refresh.setChecked(True)
-    view._set_stem_frame(count_frame(seed=8))
     choose(view, "poisson")
     assert all(item.image is None for item in view.detector_image_items.values())
-    assert "Resume refresh" in view.image_quantity_notice.text()
+    assert "Unavailable" in view.image_quantity_notice.text()
+    new = count_frame(seed=8)
+    view._set_stem_frame(new)
+    assert_counts(view, new)
     view.set_bank_readout(SimpleNamespace(stem=old))
     view.image_source.setCurrentIndex(view.image_source.findData("bank"))
     assert "bank frame" in view.image_quantity_notice.text()
     assert all(item.image is None for item in view.detector_image_items.values())
+    view.image_source.setCurrentIndex(view.image_source.findData("current"))
+    assert_counts(view, new)
 
 
 def test_line_playback_and_quantity_switch_reveal_one_fixed_count_realization(view, monkeypatch):
@@ -172,7 +171,8 @@ def test_line_playback_and_quantity_switch_reveal_one_fixed_count_realization(vi
     choose(view, "poisson")
     original = frame.poisson_counts["bf"].copy()
     monkeypatch.setattr(np.random, "default_rng", lambda *_: pytest.fail("Playback must not sample"))
-    view._playback_started_s = 0.
+    monkeypatch.setattr("temsim.gui.scan_panel.perf_counter", lambda: 0.)
+    view._set_playback_active(True)
     monkeypatch.setattr("temsim.gui.scan_panel.perf_counter", lambda: 1.)
     view._playback_tick()
     item = view.detector_image_items["bf"]
@@ -189,7 +189,11 @@ def test_line_playback_and_quantity_switch_reveal_one_fixed_count_realization(vi
     assert tuple(item.levels) == (0., 12.)
     monkeypatch.setattr("temsim.gui.scan_panel.perf_counter", lambda: 11.)
     view._playback_tick()
-    np.testing.assert_array_equal(item.image, first_line)
+    np.testing.assert_array_equal(item.image, original.T)
+    assert not view._playback_timer.isActive()
+    monkeypatch.setattr("temsim.gui.scan_panel.perf_counter", lambda: 31.)
+    view._playback_tick()
+    np.testing.assert_array_equal(item.image, original.T)
     np.testing.assert_array_equal(frame.poisson_counts["bf"], original)
 
 

@@ -439,13 +439,8 @@ def resolved_runtime_geometry_fingerprint(state, planes: Sequence[PlaneStop]) ->
 def _dynamic_column_coils(state, source_z_mm, target_z_mm):
     """Captured dynamic coils whose physical support intersects this span."""
     from temsim.physics.instrument_magnetic import column_dipole_fields
-    keys = {str(component.key)
-        for collection in ("deflectors", "corrector_elements", "stigmators")
-        for component in getattr(state, collection, ())
-        if getattr(component, "enabled", False)
-        and (getattr(component, "scan_enabled", False) or getattr(component, "wobble_enabled", False))}
     return tuple(coil for coil in column_dipole_fields(state)
-        if coil.key.rsplit(":", 1)[0] in keys
+        if coil.dynamic
         and coil.lower_m < target_z_mm*1e-3 and coil.upper_m > source_z_mm*1e-3)
 
 

@@ -121,9 +121,8 @@ def default_corrector_elements():
         create_ac_deflector(),
 
 
-        # FEI column order after objective post-field: objective stigmator,
-
-        # image deflector, descan deflector, TEM corrector, diffraction section.
+        # Descan is an operating channel on the Image/Diffraction pair.
+        # Keeping its controls here does not define another physical device.
 
         create_descan_deflector(),
 

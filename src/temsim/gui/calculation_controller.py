@@ -1362,6 +1362,7 @@ class CalculationController(QObject):
     ) -> frozenset[str]:
         """Return the products requested by the current microscope mode."""
 
+        from temsim.optics.shared_deflectors import shared_channel_enabled
         requested = {"incident", "column", "diagnostics"}
         sample = state.sample
         specimen_active = specimen_interactions_active(sample)
@@ -1373,7 +1374,7 @@ class CalculationController(QObject):
         stem_requested = bool(scan.enabled and scan.scan_enabled)
         scan_geometry_requested = bool(
             stem_requested
-            or (descan.enabled and descan.scan_enabled)
+            or (shared_channel_enabled(descan) and descan.scan_enabled)
         )
         if scan_geometry_requested:
             requested.add("scan_geometry")

@@ -2188,11 +2188,12 @@ class VisualizationWorkspace(QWidget):
             self._redraw_projection_items()
         self._update_scale_notice()
 
-    def _prepare_scan_ray_playback(self, result) -> None:
+    def _prepare_scan_ray_playback(self, result, *, preserve_playback=False) -> None:
         self._scan_ray_paths = getattr(result, "scan_ray_paths", None)
         self._scan_ray_offsets_m = {}
-        self._scan_playback_active = False
-        self._scan_playback_time_s = None
+        if not preserve_playback:
+            self._scan_playback_active = False
+            self._scan_playback_time_s = None
 
     def _scan_playback_active_changed(self, active: bool) -> None:
         self._scan_playback_active = bool(active)
@@ -2224,11 +2225,12 @@ class VisualizationWorkspace(QWidget):
             state.ac_deflector.scan_kick_mrad(float(time_s)),
             dtype=float,
         )
+        from temsim.optics.shared_deflectors import shared_channel_enabled
         descan = state.descan_deflector
         descan_command_mrad = np.asarray(
             (
                 descan.scan_kick_mrad(float(time_s))
-                if bool(descan.enabled and descan.scan_enabled)
+                if bool(shared_channel_enabled(descan) and descan.scan_enabled)
                 else (0.0, 0.0)
             ),
             dtype=float,
@@ -4201,7 +4203,15 @@ class VisualizationWorkspace(QWidget):
         no_illumination = no_illumination and bool(sample_reached)
         if not optical_tuning and (not is_preview or no_illumination or particle_tuning):
             self._sample_region_result = getattr(result, "sample_region", None)
-        self._prepare_scan_ray_playback(result)
+        frame = getattr(result, "stem_scan", None)
+        preserve_scan_playback = bool(
+            calculation_scope != "stem"
+            and frame is not None
+            and frame is self.scan_control._stem_frame
+            and self._scan_ray_paths is not None
+            and getattr(result, "scan_ray_paths", None) is self._scan_ray_paths
+        )
+        self._prepare_scan_ray_playback(result, preserve_playback=preserve_scan_playback)
         # Queue before drawing the axial cursor: its focus notifications must
         # never interpolate the previous result while a new one is arriving.
         self._publish_optional_ray_panels(result, refresh=False)
@@ -4210,6 +4220,11 @@ class VisualizationWorkspace(QWidget):
             quality,
             preserve_view=preserve_ray_view,
         )
+        if preserve_scan_playback and self._scan_playback_time_s is not None:
+            # Cached STEM products can accompany another page's calculation.
+            # The image timer does not restart, so restore its held/current
+            # raster position on the newly drawn curves without waiting for it.
+            self._scan_playback_time_changed(self._scan_playback_time_s)
         self._refresh_visible_ray_panels()
         if optical_tuning and is_preview:
             # Low-count tuning can miss a tiny aperture. It must never erase

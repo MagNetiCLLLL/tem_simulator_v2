@@ -318,19 +318,25 @@ mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Len
 [[parts]]
 order = 18
 key = "descan_deflector"
+# A dynamic control channel on the existing deflector; not a separate coil assembly.
+layout_role = "control_channel"
+layout_owner = "image_diffraction_deflector"
+physical_host_key = "image_diffraction_deflector"
+physical_host_status = "shared_hardware"
+# Host coordinates and dimensions are adjustable model values, not OEM measurements.
 scan_structure = "two_axial_xy_dipole_pairs"
 field_basis = "column_xy"
 drive_clock = "shared_ac_raster"
 field_geometry_status = "ideal_kicks_at_declared_interaction_centres_not_measured_coil_map"
-name = "AC Descan Coil"
+name = "Descan control channel"
 branch = "image"
-local_start_z_mm = 662.9
-local_center_z_mm = 682.9
-local_end_z_mm = 702.9
+local_start_z_mm = 742.9
+local_center_z_mm = 762.9
+local_end_z_mm = 782.9
 length_mm = 40.0
 vacuum_inner_diameter_mm = 20
-optical_reference_local_z_mm = 682.9
-interaction_centers_local_z_mm = [670.4, 695.4]
+optical_reference_local_z_mm = 762.9
+interaction_centers_local_z_mm = [750.4, 775.4]
 mechanical_outer_diameter_mm = 54.0
 mechanical_clear_bore_diameter_mm = 20.0
 effective_thickness_mm = 15.0

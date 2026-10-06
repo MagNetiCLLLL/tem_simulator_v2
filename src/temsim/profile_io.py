@@ -237,6 +237,14 @@ def read_profile(path: str | Path) -> tuple[AssemblySelection, dict]:
         if set(names) & attributes.keys():
             raise ValueError(f"Operating profile device {key} has conflicting none values")
         values[key] = {**attributes, **dict.fromkeys(names)}
+    # Earlier writers included these two geometry readouts as operating fields.
+    # Preserve the rest of those profiles while the physical host owns geometry.
+    from temsim.component_representation import SHARED_DEFLECTOR_HOSTS
+    for key in SHARED_DEFLECTOR_HOSTS:
+        attributes = values.get(key)
+        if isinstance(attributes, dict):
+            values[key] = {name: value for name, value in attributes.items()
+                           if name not in {"effective_thickness_mm", "optical_plane_separation_mm"}}
     values[_PROFILE_VERSION_KEY] = format_version
     for table, target in (("vacuum_map", "__vacuum_map__"),
                          ("simulation_model", _SIMULATION_MODEL_KEY),

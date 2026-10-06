@@ -103,7 +103,7 @@ def _selection_boundary(state, keys):
             raise ValueError(f"Unknown section tuning component: {key}")
         component = components[key]
         dipole_support = [coil.lower_m*1e3 for coil in dipoles
-                          if coil.key.rsplit(":", 1)[0] == key]
+                          if key in coil.drive_keys or coil.key.rsplit(":", 1)[0] == key]
         if dipole_support:
             bounds.append(min(dipole_support))
             continue

@@ -28,41 +28,31 @@ from temsim.physics.wave_device import array_module, device_scope, normalise_bac
 def _component_events(state, start, stop, *, arrival_time=None):
     events, owners, seen = [], [], set()
     from temsim.physics.instrument_magnetic import column_dipole_fields
-    physical_coils = column_dipole_fields(state)
     for component in (*state.deflectors, *getattr(state, "stigmators", ()), *getattr(state, "corrector_elements", ())):
         if not getattr(component, "enabled", False):
             continue
         if component.key in seen:
             raise ValueError(f"Duplicate column component {component.key}")
         seen.add(component.key)
-        if not hasattr(component, "kick_events"):
-            continue
         if (getattr(component, "scan_enabled", False) or getattr(component, "wobble_enabled", False)) and hasattr(component, "validate"):
             component.validate()
-        try:
-            rows = component.kick_events(time_s=float(getattr(state, "simulation_time_s", 0.)))
-        except TypeError:
-            rows = component.kick_events()
-        for row_index, (z, x, y) in enumerate(rows):
-            supports = [coil for coil in physical_coils
-                        if (coil.event_z_mm, coil.event_dx_rad, coil.event_dy_rad) == (z, x, y)]
-            finite = bool(supports)
-            overlaps = any(coil.lower_m < stop*1e-3 and coil.upper_m > start*1e-3 for coil in supports)
-            if overlaps or (not finite and start < z <= stop):
-                dynamic = bool(getattr(component, "scan_enabled", False) or getattr(component, "wobble_enabled", False))
-                time = None
-                if dynamic and arrival_time is not None:
-                    time = float(arrival_time(z))
-                    actual = component.kick_events(time_s=time)
-                    if len(actual) != len(rows) or actual[row_index][0] != z:
-                        raise ValueError("Dynamic coil geometry changed with time")
-                    _, x, y = actual[row_index]
-                events.append((z, x, y))
-                owners.append({"component": component.key, "z_mm": z, "kick_rad": (x, y),
-                               "dynamic": dynamic, "arrival_time_s": time,
-                               "finite_field": finite,
-                               "effective_thickness_mm": float(getattr(component, "effective_thickness_mm",
-                                                       getattr(component, "thickness_mm", 0.)))})
+    for coil in column_dipole_fields(state):
+        if not (coil.lower_m < stop*1e-3 and coil.upper_m > start*1e-3):
+            continue
+        z, x, y = coil.event_z_mm, coil.event_dx_rad, coil.event_dy_rad
+        time = None
+        if coil.dynamic and arrival_time is not None:
+            time = float(arrival_time(z))
+            actual = next((item for item in column_dipole_fields(state, time_s=time)
+                           if item.key == coil.key), None)
+            if actual is None or (actual.lower_m, actual.upper_m, actual.event_z_mm) != (coil.lower_m, coil.upper_m, z):
+                raise ValueError("Dynamic coil geometry changed with time")
+            x, y = actual.event_dx_rad, actual.event_dy_rad
+        events.append((z, x, y))
+        owners.append({"component": coil.key.rsplit(":", 1)[0], "drive_keys": coil.drive_keys,
+                       "z_mm": z, "kick_rad": (x, y), "dynamic": coil.dynamic,
+                       "arrival_time_s": time, "finite_field": True,
+                       "effective_thickness_mm": (coil.upper_m-coil.lower_m)*1e3})
     return events, owners
 
 

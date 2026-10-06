@@ -103,6 +103,8 @@ def test_tilted_direct_disk_exposes_df_adjustment_action(qtbot):
 
 
 def test_auto_contrast_exposes_nonzero_black_level_from_actual_displayed_frame(qtbot):
+    import re
+
     view, state, frame = setup(qtbot)
     values = np.array([[.2, .4], [.6, .8]])
     frame = replace(frame, fractions={**frame.fractions, "df": values.copy()})
@@ -113,16 +115,18 @@ def test_auto_contrast_exposes_nonzero_black_level_from_actual_displayed_frame(q
     label = view.detector_contrast_labels["df"]
     qtbot.waitUntil(label.isVisible)
     assert label.text() == "Auto contrast\nSignal range: 0.2\u20130.8"
-    assert "Black = minimum (0.2)" in label.toolTip()
-    assert "white = maximum (0.8)" in label.toolTip()
+    endpoints = re.search(r"Black = minimum \(([^)]+)\); white = maximum \(([^)]+)\)", label.toolTip())
+    assert endpoints is not None
+    assert tuple(map(float, endpoints.groups())) == (.2, .8)
     assert tuple(view.detector_image_items["df"].levels) == (.2, .8)
     np.testing.assert_array_equal(view.detector_image_items["df"].image, values.T)
     np.testing.assert_array_equal(frame.fractions["df"], values)
     assert view.detector_contrast_labels["haadf"].isHidden()  # Outside wave grid.
 
-    view.pause_image_refresh.setChecked(True)
+    state.sample.wave_grid_pixels += 32
+    view.mark_stem_frame_stale()
     newer = replace(frame, fractions={**frame.fractions, "df": values + 1.})
-    view._set_stem_frame(newer)
+    assert view._stem_frame is frame
     assert label.text() == "Auto contrast\nSignal range: 0.2\u20130.8"
     np.testing.assert_array_equal(view.detector_image_items["df"].image, values.T)
 
@@ -139,7 +143,8 @@ def test_auto_contrast_exposes_nonzero_black_level_from_actual_displayed_frame(q
 
     view.image_source.setCurrentIndex(view.image_source.findData("current"))
     assert label.text() == "Auto contrast\nSignal range: 0.2\u20130.8"
-    view.pause_image_refresh.setChecked(False)
+    view._set_stem_frame(newer)
+    assert view._stem_frame is newer and not view._stem_frame_stale
     assert label.text() == "Auto contrast\nSignal range: 1.2\u20131.8"
     np.testing.assert_array_equal(view.detector_image_items["df"].image, (values + 1.).T)
     view.display_result(None, complete=True)
@@ -179,14 +184,20 @@ def test_cancel_and_stale_proposal_do_not_mutate_state(qtbot, monkeypatch):
     assert state.sample.wave_grid_pixels == pixels
 
 
-def test_pause_keeps_sampling_labels_and_data_from_same_complete_frame(qtbot):
+def test_pending_scan_keeps_sampling_labels_and_data_until_new_complete_frame(qtbot):
     view, state, frame = setup(qtbot)
-    view.pause_image_refresh.setChecked(True)
+    captured = view._stem_frame_context
+    state.sample.wave_grid_pixels += 32
+    view.set_state(state)
+    view.mark_stem_frame_stale()
     newer = replace(frame, metrics={"model": "geometric_detector_interception"})
-    view._set_stem_frame(newer)
+    assert view._stem_frame is frame and view._stem_frame_context is captured
+    assert captured.sample.wave_grid_pixels != state.sample.wave_grid_pixels
     assert "Limited angular coverage" in view.image_model_notice.text()
     assert view.detector_image_items["haadf"].image is None
-    view.pause_image_refresh.setChecked(False)
+    np.testing.assert_array_equal(view.detector_image_items["bf"].image, frame.fractions["bf"].T)
+    view._set_stem_frame(newer)
+    assert view._stem_frame is newer and not view._stem_frame_stale
     assert "Geometry preview only" in view.image_model_notice.text()
     assert view.detector_image_items["haadf"].image is not None
     assert view.detector_sampling_labels["haadf"].isHidden()

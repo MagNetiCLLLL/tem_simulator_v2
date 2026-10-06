@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from temsim.gui.input_policy import WheelSafeComboBox as QComboBox
-from temsim.component_representation import non_material_role, representation_note
+from temsim.component_representation import SHARED_DEFLECTOR_HOSTS, non_material_role, representation_note
 from temsim.manifest_editor import format_toml_value
 from temsim.part_model_document import PartModelDocument
 
@@ -1700,6 +1700,14 @@ class PartModelEditorPage(QWidget):
         self.remove_feature_button.setEnabled(material and self.feature_tree.currentItem() is not None)
         for button in (self.new_component_button, self.place_component_button, self.copy_component_button):
             button.setEnabled(loaded and self._selected_key is not None and not self._invalid_inputs)
+        host = SHARED_DEFLECTOR_HOSTS.get(self._selected_key)
+        if host:
+            for button in (self.place_component_button, self.copy_component_button):
+                button.setEnabled(False)
+                button.setToolTip(f"This control channel shares {host}; select the physical host to edit its placement.")
+        else:
+            self.place_component_button.setToolTip("Translate the selected component and its children; review local or resolved global Z")
+            self.copy_component_button.setToolTip("Create an independent copy in this file or another assembly TOML; Save writes it")
         if loaded:
             self._sync_source_context()
         self._refresh_calculation_status()

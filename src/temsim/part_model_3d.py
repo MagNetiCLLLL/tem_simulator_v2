@@ -13,7 +13,9 @@ from numbers import Integral, Real
 
 import numpy as np
 
-from temsim.component_representation import non_material_role, representation_note
+from temsim.component_representation import (
+    non_material_role, representation_note, shared_deflector_field_owner,
+)
 from temsim.magnetic_circuits import is_custom_mechanical_part, radial_profile_mm
 from temsim.magnetic_geometry import objective_layer_intervals_mm
 from temsim.mechanical_profiles import MAGNETIC_LENS_MECHANICAL_PROFILES
@@ -455,18 +457,20 @@ def part_dimension_specs(document, part_key, *, runtime_values=None):
         item, meaning=describe_parameter(by_key.get(item.path[1], part), item.path, by_key=by_key))
         for item in specs)
     if non_material_role(part):
-        # Legacy fields remain inspectable/editable for saved solver settings;
+        # Legacy fields remain inspectable for saved solver settings;
         # their old envelope names must not imply an independently built part.
         reason = (representation_note(part) + " This stored value is not a dimension "
                   "of an independently drawn material body.")
         metadata = []
         for item in specs:
+            host = shared_deflector_field_owner(part_key, item.path[2])
+            item_reason = reason + (f" Edit {host} to change the shared structure." if host else "")
             label = "Stored " + " / ".join(
                 str(piece).removesuffix("_" + item.unit).replace("_", " ") for piece in item.path[2:])
             metadata.append(replace(
-                item, label=label, reason=reason,
+                item, label=label, reason=item_reason, editable=item.editable and not host,
                 meaning=replace(item.meaning, label=label, category="unknown",
-                                category_label="Channel / reference metadata", description=reason),
+                                category_label="Channel / reference metadata", description=item_reason),
             ))
         specs = tuple(metadata)
     return specs

@@ -1255,7 +1255,7 @@ class State:
 
     @property
     def ac_deflector(self):
-        """Return the sole shared-column AC wobble deflector."""
+        """Return the independent post-corrector scanning deflector pair."""
         from temsim.component_keys import AC_DEFLECTOR
 
         cached = getattr(self, "_ac_deflector", None)
@@ -1273,7 +1273,7 @@ class State:
 
     @property
     def descan_deflector(self):
-        """Return the sole independent post-objective Descan Deflector."""
+        """Return the Descan channel of the Image/Diffraction Deflector pair."""
         from temsim.component_keys import DESCAN_DEFLECTOR
 
         cached = getattr(self, "_descan_deflector", None)
@@ -1288,7 +1288,9 @@ class State:
                 if item.key == DESCAN_DEFLECTOR
             )
             self._descan_deflector = cached
-        return cached
+        from temsim.optics.shared_deflectors import bind_shared_deflector_channel
+        return bind_shared_deflector_channel(
+            cached, self.image_diffraction_deflector, self.sample.z_mm)
 
     @property
     def dp22_deflector(self):

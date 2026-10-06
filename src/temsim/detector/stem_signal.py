@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from temsim.optics.shared_deflectors import shared_channel_enabled
+
 from temsim.physics.beam_current import (
     effective_source_current_pa,
     sample_illumination_absent,
@@ -244,7 +246,7 @@ def _stem_result(
     metadata = dict(metrics or {})
     if "detector_sampling" in metadata:
         # A sampling proposal belongs to this exact acquisition state, not a
-        # later edited state or the previous frame frozen by Pause refresh.
+        # later edited state or a previously retained completed frame.
         metadata["sampling_state_signature"] = calculation_signatures(state)["stem"]
     metadata.update(
         {
@@ -590,7 +592,7 @@ def _detector_center_shifts_mrad(
         np.asarray(kick_grid_mrad, dtype=float)
         - np.asarray(baseline_scan_mrad, dtype=float)
     ) * 1.0e-3
-    if descan.enabled:
+    if shared_channel_enabled(descan):
         descan_commands_mrad = np.asarray(
             [
                 descan.instantaneous_kick_mrad(float(time_s))
@@ -642,7 +644,7 @@ def _detector_center_shifts_mrad(
             paired_kick_response(state, component, detector.z_mm),
             scan_delta_rad,
         )
-        if descan.enabled:
+        if shared_channel_enabled(descan):
             direct_displacement_m += np.einsum(
                 "ij,...j->...i",
                 paired_kick_response(state, descan, detector.z_mm),
@@ -846,7 +848,7 @@ def _virtual_stem_scan(
             np.asarray(
                 (
                     descan.scan_kick_mrad(scan_time_s)
-                    if descan.enabled
+                    if shared_channel_enabled(descan)
                     else (0.0, 0.0)
                 ),
                 dtype=float,
@@ -954,7 +956,7 @@ def _virtual_stem_scan(
             np.sum(scatter_branch_probabilities)
         ),
         "descan_detector_shift_applied": bool(
-            descan.enabled and descan.scan_enabled
+            shared_channel_enabled(descan) and descan.scan_enabled
         ),
     }
     return _stem_result(
@@ -1269,7 +1271,7 @@ def acquire_stem_scan(
             descan.scan_kick_mrad(
                 float(getattr(state, "simulation_time_s", 0.0))
             )
-            if descan.enabled
+            if shared_channel_enabled(descan)
             else (0.0, 0.0)
         ),
         dtype=float,
@@ -1721,7 +1723,7 @@ def acquire_stem_scan(
                 np.asarray(
                     (
                         descan.scan_kick_mrad(scan_time_s)
-                        if descan.enabled
+                        if shared_channel_enabled(descan)
                         else (0.0, 0.0)
                     ),
                     dtype=float,
@@ -1851,7 +1853,7 @@ def acquire_stem_scan(
             "scan_field_of_view_y_nm": float(
                 component.scan_field_of_view_y_nm
             ),
-            "descan_applied": bool(descan.enabled and descan.scan_enabled),
+            "descan_applied": bool(shared_channel_enabled(descan) and descan.scan_enabled),
             "physical_detector_masks": True,
             "sequential_detector_interception": True,
             "post_sample_lens_transport_applied": True,

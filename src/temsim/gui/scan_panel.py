@@ -67,8 +67,6 @@ class ScanControlView(QWidget):
         self._stem_frame = None
         self._stem_frame_context = None
         self._stem_frame_stale = False
-        self._paused_display_frame = None
-        self._paused_display_context = None
         self._bank_readout = None
         self._bank_display_context = None
         self._wave_action_needed = True
@@ -82,6 +80,7 @@ class ScanControlView(QWidget):
         self._stem_auto_range_pending = True
         self._updating = False
         self._playback_started_s = 0.0
+        self._playback_completed_rows = 0
         self._playback_timer = QTimer(self)
         self._playback_timer.setInterval(33)
         self._playback_timer.timeout.connect(self._playback_tick)
@@ -150,12 +149,12 @@ class ScanControlView(QWidget):
         self.component_fov_labels = {}
         self.ac_controls = self._add_component_controls(
             controls_layout,
-            title="AC Scan Foils",
+            title="AC Scan Coils",
             prefix="ac",
         )
         self.descan_controls = self._add_component_controls(
             controls_layout,
-            title="Descan Foils",
+            title="Descan control (Image/Diffraction)",
             prefix="descan",
         )
         self.image_enabled = QCheckBox("Generate STEM detector images")
@@ -426,6 +425,12 @@ class ScanControlView(QWidget):
         from temsim.gui.page_calculation import PageCalculationBar
         self.calculation_bar = PageCalculationBar("STEM", "calculateStem")
         self.calculate_button = self.calculation_bar.button
+        self.calculate_button.setText("Calculate STEM (single frame)")
+        self.calculate_button.setToolTip(
+            "Calculate one HAADF / DF / BF frame, then keep the completed images. "
+            "Click again for another single scan. Run high-accuracy once first "
+            "to prepare the particle result. Valid upstream results can be reused."
+        )
         self.calculation_bar.requested.connect(self.calculation_requested.emit)
         self.parameters_changed.connect(self.calculation_bar.mark_stale)
         parameters_layout.addWidget(self.calculation_bar)
@@ -480,17 +485,6 @@ class ScanControlView(QWidget):
         detector_page = QWidget()
         detector_layout = QVBoxLayout(detector_page)
         detector_layout.setContentsMargins(0, 0, 0, 0)
-        self.pause_image_refresh = QCheckBox(
-            "Pause refresh (show previous complete frame)"
-        )
-        self.pause_image_refresh.setObjectName("stemPauseImageRefresh")
-        self.pause_image_refresh.setToolTip(
-            "Freeze HAADF / DF / BF image updates on the previous complete "
-            "frame. The scan clock and Ray Diagram playback continue."
-        )
-        self.pause_image_refresh.toggled.connect(
-            self._image_refresh_pause_changed
-        )
         refresh_row = QHBoxLayout()
         refresh_row.addWidget(QLabel("Result source"))
         self.image_source = QComboBox()
@@ -504,7 +498,6 @@ class ScanControlView(QWidget):
         )
         self.image_source.currentIndexChanged.connect(self._image_source_changed)
         refresh_row.addWidget(self.image_source)
-        refresh_row.addWidget(self.pause_image_refresh)
         self.match_detector_sampling = QPushButton("Match detector sampling")
         self.match_detector_sampling.setObjectName("stemMatchDetectorSampling")
         self.match_detector_sampling.hide()
@@ -934,11 +927,9 @@ class ScanControlView(QWidget):
         """Bind all controls to the current live microscope state."""
 
         if state is not self._state:
-            self._playback_timer.stop()
+            self._set_playback_active(False)
             self._stem_frame = None
             self._stem_frame_context = None
-            self._paused_display_frame = None
-            self._paused_display_context = None
             self._fourdstem_artifact = None
             self._fourdstem_virtual_image = None
             self._fourdstem_physical_result = None
@@ -1028,7 +1019,7 @@ class ScanControlView(QWidget):
                 int(getattr(state.sample, "stem_poisson_seed", 0))
             )
             if not self._showing_bank_images():
-                self._update_detector_geometry_labels(self._paused_display_frame or self._stem_frame)
+                self._update_detector_geometry_labels(self._stem_frame)
         finally:
             self._updating = False
         self._sync_fourdstem_control_state()
@@ -1038,8 +1029,22 @@ class ScanControlView(QWidget):
     def _image_readout_changed(self, enabled):
         if self._updating or self._state is None:
             return
+        was_enabled = bool(getattr(self._state.sample, "stem_image_enabled", True))
         self._state.sample.stem_image_enabled = bool(enabled)
+        if not enabled:
+            self._set_playback_active(False)
         self.parameters_changed.emit("sample.stem_image_enabled")
+        if enabled and not was_enabled:
+            self._request_enabled_frame()
+
+    def _request_enabled_frame(self) -> None:
+        """Use the normal particle-backed page request once when raster is armed."""
+        if self._updating or self._state is None:
+            return
+        ac = self._state.ac_deflector
+        if (ac.enabled and ac.scan_enabled
+                and bool(getattr(self._state.sample, "stem_image_enabled", True))):
+            self.calculation_requested.emit()
 
     def _stem_particle_model_changed(self, _index: int) -> None:
         if self._updating or self._state is None:
@@ -1066,8 +1071,6 @@ class ScanControlView(QWidget):
         self.enable_wave_images.setEnabled(False)
         self.enable_wave_images.setText("Coherent imaging paused")
         note = "Classical tip particles are active. Coherent tip-to-column imaging is not qualified; historical images remain viewable."
-        if self.pause_image_refresh.isChecked():
-            note += " Resume refresh to show new frames."
         if self._showing_bank_images():
             note += " The bank image retains its captured settings."
         self.wave_image_action_note.setText(note)
@@ -1657,14 +1660,16 @@ class ScanControlView(QWidget):
             self._updating = False
         if prefix == "ac" and field == "scan_enabled":
             if converted:
-                self._playback_timer.stop()
+                self._set_playback_active(False)
                 if not self._showing_bank_images():
                     self.detector_playback_summary.setText(
-                        "Calculating one HAADF / DF / BF detector-signal frame..."
+                        "Single-frame scan enabled."
                     )
             else:
                 self._set_playback_active(False)
         self.parameters_changed.emit(f"{prefix}.{field}")
+        if prefix == "ac" and field == "scan_enabled" and converted and not old_value:
+            self._request_enabled_frame()
 
     def _showing_bank_images(self) -> bool:
         return self.image_source.currentData() == "bank"
@@ -1673,9 +1678,7 @@ class ScanControlView(QWidget):
         """Change presentation of stored arrays without touching acquisition."""
         self.image_contrast_mode.setEnabled(self.image_display_quantity.currentData() == "ideal")
         bank = self._showing_bank_images()
-        frame = (getattr(self._bank_readout, "stem", None) if bank else
-                 self._paused_display_frame if self.pause_image_refresh.isChecked()
-                 and self._paused_display_frame is not None else self._stem_frame)
+        frame = getattr(self._bank_readout, "stem", None) if bank else self._stem_frame
         if frame is None:
             self._clear_detector_images()
             return
@@ -1769,8 +1772,6 @@ class ScanControlView(QWidget):
                           if quantity == "poisson" else "Click Calculate STEM to store expected electrons.")
                 if bank:
                     action += " Regenerate or select a bank frame containing these data."
-                elif self.pause_image_refresh.isChecked():
-                    action += " Resume refresh to display the new frame."
                 text += "\n" + action
         self.image_quantity_notice.setText(text)
         self.image_quantity_notice.setToolTip("\n".join(detail))
@@ -1794,8 +1795,6 @@ class ScanControlView(QWidget):
             return self._bank_display_context
         if frame is None:
             return self._capture_image_context(self._state)
-        if frame is self._paused_display_frame:
-            return self._paused_display_context
         if frame is self._stem_frame:
             return self._stem_frame_context
         return None
@@ -1823,12 +1822,10 @@ class ScanControlView(QWidget):
 
     def _image_source_changed(self, _index: int = 0) -> None:
         bank = self._showing_bank_images()
-        self.pause_image_refresh.setEnabled(not bank)
         if bank:
             self._display_bank_images()
             return
-        frame = (self._paused_display_frame if self.pause_image_refresh.isChecked()
-                 and self._paused_display_frame is not None else self._stem_frame)
+        frame = self._stem_frame
         self._update_detector_geometry_labels(frame)
         self._update_image_model_notice(frame, check_cif=False)
         if frame is None:
@@ -1836,10 +1833,12 @@ class ScanControlView(QWidget):
             self.detector_playback_summary.setText("Current calculation | no STEM frame")
             self.detector_playback_summary.setToolTip("")
             return
+        if self._playback_timer.isActive():
+            self._playback_tick()
+            return
         self._render_stem_rows(np.asarray(frame.scan_x_um).shape[0], frame=frame,
                                preserve_range=self._images_have_frame)
-        status = ("Image refresh paused; previous complete frame displayed"
-                  if self.pause_image_refresh.isChecked() else "Current calculation; complete frame")
+        status = "Current calculation; complete frame"
         self.detector_playback_summary.setText(self._stem_frame_summary(status, frame=frame))
         self.detector_playback_summary.setToolTip("")
 
@@ -1887,6 +1886,8 @@ class ScanControlView(QWidget):
                        explicit_calculation=False) -> None:
         """Display scan geometry and one reusable detector-signal frame."""
 
+        start_frame = stem_frame is not None and (
+            stem_frame is not self._stem_frame or explicit_calculation)
         self._result = result
         if stem_frame is not None:
             self._set_stem_frame(stem_frame, state_snapshot=state_snapshot,
@@ -1894,8 +1895,6 @@ class ScanControlView(QWidget):
         elif complete:
             self._stem_frame = None
             self._stem_frame_context = None
-            self._paused_display_frame = None
-            self._paused_display_context = None
             if not self._showing_bank_images():
                 self._clear_detector_images()
                 self._update_image_model_notice(None)
@@ -1912,8 +1911,12 @@ class ScanControlView(QWidget):
             and live_ac is not None
             and live_ac.enabled
             and live_ac.scan_enabled
+            and bool(getattr(getattr(self._state, "sample", None), "stem_image_enabled", True))
         )
-        self._set_playback_active(scanning and self._stem_frame is not None)
+        if start_frame:
+            self._set_playback_active(scanning)
+        elif not scanning or (complete and stem_frame is None):
+            self._set_playback_active(False)
         previous_key = self.plane_selector.currentData()
         self.plane_selector.blockSignals(True)
         self.plane_selector.clear()
@@ -2031,7 +2034,7 @@ class ScanControlView(QWidget):
         self._set_playback_active(False)
         if self._showing_bank_images():
             return
-        frame = self._paused_display_frame or self._stem_frame
+        frame = self._stem_frame
         self._update_image_model_notice(frame, check_cif=False)
 
     def set_particle_signals(self, rows, *, scan_enabled=False) -> None:
@@ -2095,25 +2098,17 @@ class ScanControlView(QWidget):
 
     def _set_stem_frame(self, frame, *, state_snapshot=None, explicit_calculation=False) -> None:
         self._validate_stem_frame(frame)
-        previous_frame = self._stem_frame
-        previous_context = self._stem_frame_context
+        new_pass = frame is not self._stem_frame or explicit_calculation
+        if new_pass and self._playback_timer.isActive():
+            self._playback_timer.stop()
+            self.playback_active_changed.emit(False)
         self._stem_frame = frame
-        self._stem_frame_context = self._capture_image_context(
-            self._state if state_snapshot is None else state_snapshot
-        )
+        if new_pass:
+            self._stem_frame_context = self._capture_image_context(
+                self._state if state_snapshot is None else state_snapshot
+            )
         self._stem_frame_stale = False
-        if self.pause_image_refresh.isChecked():
-            if explicit_calculation:
-                # An explicit page request publishes its completed frame while
-                # retaining the user's choice to pause automatic playback.
-                self._paused_display_frame = frame
-                self._paused_display_context = self._stem_frame_context
-            elif self._paused_display_frame is None:
-                self._paused_display_frame = previous_frame or frame
-                self._paused_display_context = previous_context if previous_frame is not None else self._stem_frame_context
-            display_frame = self._paused_display_frame
-        else:
-            display_frame = frame
+        display_frame = frame
         self.calculation_bar.set_result_available(True)
         if explicit_calculation and self._showing_bank_images():
             self.image_source.setCurrentIndex(self.image_source.findData("current"))
@@ -2123,7 +2118,8 @@ class ScanControlView(QWidget):
             return
         self._update_detector_geometry_labels(display_frame)
         self._update_image_model_notice(display_frame)
-        display_rows = np.asarray(display_frame.scan_x_um).shape[0]
+        display_rows = (self._rendered_image_rows if not new_pass and self._playback_timer.isActive()
+                        else np.asarray(display_frame.scan_x_um).shape[0])
         self._render_stem_rows(display_rows, frame=display_frame)
 
     def _update_image_model_notice(self, frame, *, bank=False, check_cif=True) -> None:
@@ -2372,11 +2368,10 @@ class ScanControlView(QWidget):
         """Recheck proposal authority at request time and again before saving."""
         from temsim.calculation_cache import calculation_signatures
 
-        shown = (self._paused_display_frame if self.pause_image_refresh.isChecked()
-                 and self._paused_display_frame is not None else self._stem_frame)
+        shown = self._stem_frame
         if (self._showing_bank_images() or self._stem_frame_stale or frame is None
                 or frame is not self._stem_frame or frame is not shown or self._state is None):
-            raise ValueError("DF dimensions require the current calculated frame. Resume refresh and click Calculate STEM.")
+            raise ValueError("DF dimensions require the current calculated frame. Click Calculate STEM.")
         metrics = getattr(frame, "metrics", None) or {}
         signature = metrics.get("sampling_state_signature")
         if not signature or signature != calculation_signatures(self._state)["stem"]:
@@ -2399,8 +2394,7 @@ class ScanControlView(QWidget):
             return
         from temsim.calculation_cache import calculation_signatures
 
-        frame = (self._paused_display_frame if self.pause_image_refresh.isChecked()
-                 and self._paused_display_frame is not None else self._stem_frame)
+        frame = self._stem_frame
         metrics = getattr(frame, "metrics", None) or {}
         report = frame_sampling_report(metrics)
         pixels = None if report is None else report.get("recommended_grid_pixels")
@@ -2521,73 +2515,25 @@ class ScanControlView(QWidget):
             value = self._state.ac_deflector.scan_frame_period_s
         return max(float(value or 1.0), 1.0e-6)
 
-    def _image_refresh_pause_changed(self, paused: bool) -> None:
-        self._update_wave_image_action()
-        if paused:
-            self._paused_display_frame = self._stem_frame
-            self._paused_display_context = self._stem_frame_context
-            if self._showing_bank_images():
-                return
-            if self._paused_display_frame is not None:
-                rows = np.asarray(
-                    self._paused_display_frame.scan_x_um
-                ).shape[0]
-                self._render_stem_rows(
-                    rows,
-                    frame=self._paused_display_frame,
-                )
-                self.detector_playback_summary.setText(
-                    self._stem_frame_summary(
-                        "Image refresh paused; previous complete frame displayed",
-                        frame=self._paused_display_frame,
-                    )
-                )
-            return
-        self._paused_display_frame = None
-        self._paused_display_context = None
-        if self._showing_bank_images():
-            return
-        if self._stem_frame is None:
-            return
-        self._update_detector_geometry_labels(self._stem_frame)
-        self._update_image_model_notice(self._stem_frame)
-        if self._playback_timer.isActive():
-            self._playback_tick()
-        else:
-            rows = np.asarray(self._stem_frame.scan_x_um).shape[0]
-            self._render_stem_rows(rows)
-            self.detector_playback_summary.setText(
-                self._stem_frame_summary("Stopped; last frame retained")
-            )
-
     def _set_playback_active(self, active: bool) -> None:
         if active and self._stem_frame is not None:
             self._playback_started_s = perf_counter()
-            if not self._playback_timer.isActive():
-                self._playback_timer.start()
+            self._playback_completed_rows = 0
+            self._playback_timer.start()
             self.playback_active_changed.emit(True)
             self._playback_tick()
             return
+        was_active = self._playback_timer.isActive()
         self._playback_timer.stop()
-        self.playback_active_changed.emit(False)
+        if was_active:
+            self.playback_active_changed.emit(False)
         if self._showing_bank_images():
             return
         if self._stem_frame is not None:
-            display_frame = (
-                self._paused_display_frame
-                if self.pause_image_refresh.isChecked()
-                and self._paused_display_frame is not None
-                else self._stem_frame
-            )
-            rows = np.asarray(display_frame.scan_x_um).shape[0]
-            self._render_stem_rows(rows, frame=display_frame)
-            status = (
-                "Image refresh paused; previous complete frame displayed"
-                if self.pause_image_refresh.isChecked()
-                else "Stopped; last frame retained"
-            )
+            rows = np.asarray(self._stem_frame.scan_x_um).shape[0]
+            self._render_stem_rows(rows)
             self.detector_playback_summary.setText(
-                self._stem_frame_summary(status, frame=display_frame)
+                self._stem_frame_summary("Single frame complete; result retained")
             )
         else:
             self.detector_playback_summary.setText(
@@ -2595,41 +2541,32 @@ class ScanControlView(QWidget):
             )
 
     def _playback_tick(self) -> None:
-        if self._stem_frame is None:
-            self._playback_timer.stop()
+        # A queued timeout after completion cannot clear or restart the frame.
+        if not self._playback_timer.isActive():
             return
-        rows = np.asarray(self._stem_frame.scan_x_um).shape[0]
+        if self._stem_frame is None:
+            self._set_playback_active(False)
+            return
+        rows, columns = np.asarray(self._stem_frame.scan_x_um).shape
         period_s = self._frame_period_s()
         elapsed_s = max(perf_counter() - self._playback_started_s, 0.0)
-        frame_time_s = elapsed_s % period_s
-        if period_s <= 2.0 * self._playback_timer.interval() * 1.0e-3:
-            completed_rows = rows
-            frame_number = int(elapsed_s / period_s) + 1
-        else:
-            frame_number = int(elapsed_s / period_s) + 1
-            phase = frame_time_s / period_s
-            completed_rows = min(rows, max(1, int(phase * rows) + 1))
+        finished = (elapsed_s >= period_s
+                    or period_s <= 2.0 * self._playback_timer.interval() * 1.0e-3)
+        # Stay at the final pixel's midpoint, never at the next frame's t=0.
+        last_pixel_s = period_s * (1.0 - 0.5 / (rows * columns))
+        frame_time_s = last_pixel_s if finished else min(elapsed_s, last_pixel_s)
         self.playback_time_changed.emit(frame_time_s)
+        if finished:
+            self._set_playback_active(False)
+            return
+        completed_rows = min(rows, max(1, int(elapsed_s / period_s * rows) + 1))
+        self._playback_completed_rows = max(self._playback_completed_rows, completed_rows)
         if self._showing_bank_images():
             return
-        paused = self.pause_image_refresh.isChecked()
-        if not paused:
-            self._render_stem_rows(completed_rows)
-        playback = (
-            "Image refresh paused; previous complete frame displayed; "
-            f"scan continues at frame {frame_number}, line {completed_rows}/{rows}"
-            if paused
-            else (
-                f"Scanning continuously; frame {frame_number}, "
-                f"line {completed_rows}/{rows}"
-            )
-        )
-        self.detector_playback_summary.setText(
-            self._stem_frame_summary(
-                playback,
-                frame=(self._paused_display_frame if paused else None),
-            )
-        )
+        self._render_stem_rows(self._playback_completed_rows)
+        self.detector_playback_summary.setText(self._stem_frame_summary(
+            f"Scanning single frame; line {self._playback_completed_rows}/{rows}"
+        ))
 
     def _stem_frame_summary(self, playback: str, *, frame=None) -> str:
         frame = self._stem_frame if frame is None else frame

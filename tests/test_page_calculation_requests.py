@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from temsim.detector.stem_signal import StemScanResult
 from temsim.gui.scan_panel import ScanControlView
@@ -71,24 +72,66 @@ def test_changed_page_inputs_mark_refresh_needed_without_requesting_calculation(
     assert workspace.eds_page.calculate_button.isEnabled()
 
 
-def test_explicit_stem_result_replaces_frozen_frame_without_changing_pause(qtbot):
+def test_completed_stem_result_replaces_retained_frame_and_explicit_request_selects_current(qtbot):
     view = ScanControlView()
     qtbot.addWidget(view)
     state = default_state()
     view.set_state(state)
     old, automatic, explicit = _frame(.1), _frame(.2), _frame(.3)
     view.display_result(None, old, complete=True, state_snapshot=state)
-    view.pause_image_refresh.setChecked(True)
+    captured = view._stem_frame_context
+    old_thickness = captured.sample.thickness_nm
+    state.sample.thickness_nm += 1.
+    view.set_state(state)
+    view.mark_stem_frame_stale()
+    assert view._stem_frame is old and view._stem_frame_context is captured
+    assert captured.sample.thickness_nm == old_thickness
+    np.testing.assert_array_equal(view.detector_image_items["bf"].image, old.fractions["bf"].T)
     view.display_result(None, automatic, complete=True, state_snapshot=state)
-    assert view._paused_display_frame is old
+    assert view._stem_frame is automatic and not view._stem_frame_stale
+    assert view._stem_frame_context.sample.thickness_nm == state.sample.thickness_nm
+    np.testing.assert_array_equal(view.detector_image_items["bf"].image, automatic.fractions["bf"].T)
     view.set_bank_readout(SimpleNamespace(stem=_frame(.9), state_snapshot=state))
     view.image_source.setCurrentIndex(view.image_source.findData("bank"))
     view.display_result(None, explicit, complete=True, state_snapshot=state,
                         explicit_calculation=True)
-    assert view.pause_image_refresh.isChecked()
     assert view.image_source.currentData() == "current"
-    assert view._stem_frame is explicit and view._paused_display_frame is explicit
+    assert view._stem_frame is explicit
     np.testing.assert_array_equal(view.detector_image_items["bf"].image, explicit.fractions["bf"].T)
+
+
+@pytest.mark.parametrize("last_enabled", ["raster", "images"])
+def test_enabling_last_scan_requirement_requests_once_after_invalidation(qtbot, monkeypatch, last_enabled):
+    monkeypatch.setattr("temsim.gui.scan_panel.calibrate_scan_system", lambda *_a, **_kw: None)
+    view = ScanControlView()
+    qtbot.addWidget(view)
+    state = default_state()
+    state.ac_deflector.enabled = True
+    state.ac_deflector.scan_enabled = False
+    state.sample.stem_image_enabled = False
+    requests, events = [], []
+    view.calculation_requested.connect(lambda: (requests.append(True), events.append("request")))
+    view.parameters_changed.connect(events.append)
+    view.set_state(state)
+    assert requests == [] and events == []
+    controls = {"raster": view.ac_controls["scan_enabled"], "images": view.image_enabled}
+    first = "images" if last_enabled == "raster" else "raster"
+    controls[first].setChecked(True)
+    assert requests == []
+    controls[last_enabled].setChecked(True)
+    assert requests == [True]
+    assert events[-1] == "request" and events[-2] != "request"
+    controls[last_enabled].setChecked(True)
+    view.set_state(state)
+    view.ac_controls["scan_pixel_size_nm"].setValue(.04)
+    assert requests == [True]
+    view.descan_controls["scan_enabled"].setChecked(False)
+    view.descan_controls["scan_enabled"].setChecked(True)
+    assert requests == [True]
+    controls[last_enabled].setChecked(False)
+    assert requests == [True]
+    controls[last_enabled].setChecked(True)
+    assert requests == [True, True]
 
 
 def test_scan_off_displays_executed_pixel_counts_and_unavailable_is_not_zero(qtbot):

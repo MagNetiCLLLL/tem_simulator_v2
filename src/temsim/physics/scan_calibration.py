@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import numpy as np
+from temsim.optics.shared_deflectors import shared_channel_enabled
 
 
 def held(state):
@@ -48,6 +49,9 @@ def validate_record(text):
         raise ValueError("Held descan calibration requires an explicit physical target key")
     if record.get("reference") not in ("sample_centre", "sample_entrance"):
         raise ValueError("Invalid held scan reference")
+    host_key = record.get("descan_physical_host_key")
+    if "descan_physical_host_key" in record and (not isinstance(host_key, str) or not host_key.strip()):
+        raise ValueError("Held descan calibration must name its physical deflector host")
     return record
 
 
@@ -63,6 +67,7 @@ def capture_record(state, *, descan_calibrated: bool):
                   target_key=descan.image_plane_target_key,
                   target_z_mm=descan.image_plane_target_z_mm or float(state.sample.z_mm),
                   descan_calibrated=descan_calibrated,
+                  descan_physical_host_key=str(getattr(descan, "_physical_host_key", descan.key)),
                   reference=ac.scan_reference)
     encoded = json.dumps(record, sort_keys=True, allow_nan=False, separators=(",", ":"))
     validate_record(encoded)
@@ -76,8 +81,12 @@ def restore_held(state):
     record = validate_record(ac.calibration_record_json)
     if record["reference"] != ac.scan_reference:
         raise ValueError("Scan reference changed. Calibrate and hold at the new specimen plane.")
-    if descan.enabled and descan.scan_enabled and not record["descan_calibrated"]:
+    if shared_channel_enabled(descan) and descan.scan_enabled and not record["descan_calibrated"]:
         raise ValueError("Descan was not calibrated. Enable it and use Calibrate and hold.")
+    host = getattr(descan, "_physical_host", None)
+    if (host is not None and shared_channel_enabled(descan) and descan.scan_enabled
+            and record.get("descan_physical_host_key") != str(host.key)):
+        raise ValueError("The held descan calibration belongs to an older or different physical deflector. Use Calibrate and hold.")
     fov = np.array((ac.scan_field_of_view_x_nm, ac.scan_field_of_view_y_nm))
     command = np.asarray(record["command_mrad"]) * (fov / record["fov_nm"])[None, :]
     snapshots = [dict(c.__dict__) for c in (ac, descan)]

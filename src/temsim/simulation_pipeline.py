@@ -434,10 +434,11 @@ def calculate(
         state.ac_deflector.enabled and state.ac_deflector.scan_enabled
         and getattr(state.sample, "stem_image_enabled", True)
     )
+    from temsim.optics.shared_deflectors import shared_channel_enabled
     scan_geometry_requested = bool(
         (state.ac_deflector.enabled and state.ac_deflector.scan_enabled)
         or (
-            state.descan_deflector.enabled
+            shared_channel_enabled(state.descan_deflector)
             and state.descan_deflector.scan_enabled
         )
     )

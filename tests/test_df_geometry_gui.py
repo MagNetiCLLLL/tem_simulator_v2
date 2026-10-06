@@ -34,7 +34,7 @@ def frame_for(state):
                                    "sampling_state_signature": calculation_signatures(state)["stem"]})
 
 
-def test_df_action_guards_bank_stale_paused_and_changed_camera_length(qtbot):
+def test_df_action_guards_bank_stale_and_changed_camera_length_until_new_frame(qtbot):
     view = ScanControlView()
     qtbot.addWidget(view)
     state = default_state()
@@ -57,15 +57,20 @@ def test_df_action_guards_bank_stale_paused_and_changed_camera_length(qtbot):
     view._request_df_geometry()
     assert len(requested) == 1
     view.image_source.setCurrentIndex(view.image_source.findData("current"))
-    view.pause_image_refresh.setChecked(True)
-    newer = frame_for(state)
-    view._set_stem_frame(newer)
+    state.lenses[-1].percent += .001
+    view.mark_stem_frame_stale()
+    assert view._stem_frame is frame
+    np.testing.assert_array_equal(view.detector_image_items["df"].image, frame.fractions["df"].T)
     assert not view.exclude_direct_beam.isEnabled()
     view._request_df_geometry()
     assert len(requested) == 1
-    view.pause_image_refresh.setChecked(False)
-    view.mark_stem_frame_stale()
-    assert not view.exclude_direct_beam.isEnabled()
+    newer = frame_for(state)
+    newer.fractions["df"] *= .5
+    view._set_stem_frame(newer)
+    assert view.exclude_direct_beam.isEnabled()
+    view._request_df_geometry()
+    assert requested == [frame, newer]
+    np.testing.assert_array_equal(view.detector_image_items["df"].image, newer.fractions["df"].T)
 
 
 @pytest.fixture

@@ -372,19 +372,25 @@ mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Len
 [[parts]]
 order = 23
 key = "descan_deflector"
+# A dynamic control channel on the existing deflector; not a separate coil assembly.
+layout_role = "control_channel"
+layout_owner = "image_diffraction_deflector"
+physical_host_key = "image_diffraction_deflector"
+physical_host_status = "shared_hardware"
+# Host coordinates and dimensions are adjustable model values, not OEM measurements.
 scan_structure = "two_axial_xy_dipole_pairs"
 field_basis = "column_xy"
 drive_clock = "shared_ac_raster"
 field_geometry_status = "ideal_kicks_at_declared_interaction_centres_not_measured_coil_map"
-name = "AC Descan Coil"
+name = "Descan control channel"
 branch = "image"
-local_start_z_mm = 912.9
-local_center_z_mm = 932.9
-local_end_z_mm = 952.9
+local_start_z_mm = 992.9
+local_center_z_mm = 1012.9
+local_end_z_mm = 1032.9
 length_mm = 40.0
 vacuum_inner_diameter_mm = 20
-optical_reference_local_z_mm = 932.9
-interaction_centers_local_z_mm = [920.4, 945.4]
+optical_reference_local_z_mm = 1012.9
+interaction_centers_local_z_mm = [1000.4, 1025.4]
 mechanical_outer_diameter_mm = 54.0
 mechanical_clear_bore_diameter_mm = 20.0
 effective_thickness_mm = 15.0
@@ -510,6 +516,11 @@ field_polarity_source = "Existing coupled-corrector sign convention; physical co
 [[parts]]
 order = 27
 key = "image_hpol_hexapole"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "image_corrector"
+physical_host_status = "unverified"
+
 name = "Image Corrector HPol Hexapole"
 branch = "image"
 local_start_z_mm = 1089.9
@@ -525,6 +536,11 @@ effective_length_mm = 6.0
 [[parts]]
 order = 28
 key = "image_qpol_quadrupole"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "image_corrector"
+physical_host_status = "unverified"
+
 name = "Image Corrector QPol Quadrupole"
 branch = "image"
 local_start_z_mm = 1095.9
@@ -540,6 +556,11 @@ effective_length_mm = 6.0
 [[parts]]
 order = 29
 key = "image_dp11_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "image_corrector"
+physical_host_status = "unverified"
+
 name = "Image Corrector DP11 Deflector"
 branch = "image"
 local_start_z_mm = 1101.9
@@ -576,6 +597,11 @@ field_polarity_source = "Existing coupled-corrector sign convention; physical co
 [[parts]]
 order = 31
 key = "image_dp12_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "image_corrector"
+physical_host_status = "unverified"
+
 name = "Image Corrector DP12 Deflector"
 branch = "image"
 local_start_z_mm = 1165.4
@@ -618,6 +644,11 @@ mechanical_overlap_reason = "TL12 is an optical thin-lens channel integrated in 
 [[parts]]
 order = 33
 key = "image_dph1_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "image_corrector"
+physical_host_status = "unverified"
+
 name = "Image Corrector DPH1 Deflector"
 branch = "image"
 local_start_z_mm = 1187.4
@@ -652,6 +683,11 @@ active_diameter_mm = 152.0
 [[parts]]
 order = 35
 key = "image_dp21_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "image_corrector"
+physical_host_status = "unverified"
+
 name = "Image Corrector DP21 Deflector"
 branch = "image"
 local_start_z_mm = 1224.4
@@ -688,6 +724,11 @@ field_polarity_source = "Existing coupled-corrector sign convention; physical co
 [[parts]]
 order = 37
 key = "image_dp22_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "image_corrector"
+physical_host_status = "unverified"
+
 name = "Image Corrector DP22 Deflector"
 branch = "image"
 local_start_z_mm = 1274.4
@@ -724,6 +765,11 @@ field_polarity_source = "Existing coupled-corrector sign convention; physical co
 [[parts]]
 order = 39
 key = "image_dph2_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "image_corrector"
+physical_host_status = "unverified"
+
 name = "Image Corrector DPH2 Deflector"
 branch = "image"
 local_start_z_mm = 1331.4
@@ -779,6 +825,11 @@ field_polarity_source = "Existing coupled-corrector sign convention; physical co
 [[parts]]
 order = 42
 key = "image_ish_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "image_corrector"
+physical_host_status = "unverified"
+
 name = "Image Corrector ISh Deflector"
 branch = "image"
 local_start_z_mm = 1413.4
@@ -794,6 +845,11 @@ effective_thickness_mm = 14.0
 [[parts]]
 order = 43
 key = "image_dsh_deflector"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "image_corrector"
+physical_host_status = "unverified"
+
 name = "Image Corrector DSh Deflector"
 branch = "image"
 local_start_z_mm = 1440.4
@@ -809,6 +865,11 @@ effective_thickness_mm = 8.0
 [[parts]]
 order = 44
 key = "image_dstg_quadrupole"
+# Optical/control coordinates below do not define a separate material body.
+layout_role = "control_channel"
+layout_owner = "image_corrector"
+physical_host_status = "unverified"
+
 name = "Image Corrector DStg Quadrupole"
 branch = "image"
 local_start_z_mm = 1448.4

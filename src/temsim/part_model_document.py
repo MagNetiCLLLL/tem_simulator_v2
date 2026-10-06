@@ -10,6 +10,7 @@ import tomllib
 
 from temsim import module_manifest
 from temsim.manifest_editor import resized_part_axial_coordinates
+from temsim.component_representation import SHARED_DEFLECTOR_HOSTS, shared_deflector_field_owner
 from temsim.component_operations import (
     PartChangeSet, added_component_document, placed_component_document,
     copied_component_document, validate_component_graph, CUSTOM_COMPONENT_ROLES,
@@ -117,6 +118,8 @@ class PartModelDocument:
 
     def place_component(self, key, center_z_mm, include_children=True):
         """Translate module-local axial coordinates, optionally with children."""
+        if key in SHARED_DEFLECTOR_HOSTS:
+            raise ValueError(f"{key} uses shared hardware; place {SHARED_DEFLECTOR_HOSTS[key]} instead")
         candidate, keys = placed_component_document(
             self.document, key, center_z_mm, include_children=include_children,
         )
@@ -126,6 +129,8 @@ class PartModelDocument:
     def copy_component_from(self, source, key, new_key, center_z_mm,
                             parent_key=None, include_children=True, *, name=None):
         """Make an independent mechanical copy without adding optical controls."""
+        if key in SHARED_DEFLECTOR_HOSTS:
+            raise ValueError(f"{key} is a control channel on {SHARED_DEFLECTOR_HOSTS[key]}, not independent hardware")
         candidate, new_key = copied_component_document(
             self.document, source, key, new_key, center_z_mm,
             parent_key=parent_key, include_children=include_children, name=name,
@@ -200,6 +205,9 @@ class PartModelDocument:
         value = self._finite_dimension(value)
         if len(path) < 3 or path[0] != "parts":
             raise ValueError("Only existing part dimensions can be edited")
+        host = shared_deflector_field_owner(path[1], path[2])
+        if host:
+            raise ValueError(f"{path[1]} uses shared hardware; edit {host} to change its structure")
         part = deepcopy(self.part(path[1]))
         field = path[2]
         if field == "model_3d":

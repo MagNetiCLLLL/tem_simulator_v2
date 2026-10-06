@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from temsim.optics.shared_deflectors import shared_channel_enabled
+
 from temsim.physics.optical_tuning import check_tuning_cancelled
 from temsim.physics.scan_geometry import paired_kick_response
 from temsim.specimen.elastic_transport import incident_rays_from_simulation
@@ -113,7 +115,7 @@ def acquire_projected_stem_scan(
             scan_delta = (kick_grid_mrad[row, col] - baseline_scan_mrad) * 1e-3 + origin_command
             descan = state.descan_deflector
             descan_command = (descan.scan_kick_mrad(float(scan_times_s[row, col]))
-                              if descan.enabled else (0., 0.))
+                              if shared_channel_enabled(descan) else (0., 0.))
             descan_delta = (np.asarray(descan_command) - baseline_descan_scan_mrad) * 1e-3
             for key, (weights, plane_data) in prepared.items():
                 pixel_weight = survival * float(probabilities[key][row, col])
@@ -158,7 +160,7 @@ def acquire_projected_stem_scan(
         "scan_pixel_size_nm": float(state.ac_deflector.scan_pixel_size_nm),
         "scan_field_of_view_x_nm": float(state.ac_deflector.scan_field_of_view_x_nm),
         "scan_field_of_view_y_nm": float(state.ac_deflector.scan_field_of_view_y_nm),
-        "descan_applied": bool(state.descan_deflector.enabled and state.descan_deflector.scan_enabled),
+        "descan_applied": bool(shared_channel_enabled(state.descan_deflector) and state.descan_deflector.scan_enabled),
         "model_limitation": (
             "Independent-atom, thin projected scattering with an executed Gaussian probe. "
             "HAADF estimates incoherent atomic contrast. BF/DF show particle redistribution, "

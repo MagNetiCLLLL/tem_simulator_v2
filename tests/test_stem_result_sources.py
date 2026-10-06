@@ -71,17 +71,17 @@ def test_selector_presents_bank_without_changing_current_state_or_signals(view):
     choose_bank(view)
     assert_image(view, bank)
     assert view._state is state and view._result is geometry
-    assert view._stem_frame is current and view._paused_display_frame is None
-    assert not view.pause_image_refresh.isEnabled()
+    assert view._stem_frame is current
     choose_current(view)
     assert_image(view, current)
     assert signals == []
 
 
-def test_new_main_frame_and_playback_do_not_replace_bank_images(view):
+def test_new_main_frame_and_single_playback_do_not_replace_bank_images(view, monkeypatch):
+    clock = [0.]
+    monkeypatch.setattr("temsim.gui.scan_panel.perf_counter", lambda: clock[0])
     current, newer, bank = frame(), frame(3.0), frame(8.0)
     view._set_stem_frame(current)
-    view.pause_image_refresh.setChecked(True)
     view.set_bank_readout(readout(bank))
     choose_bank(view)
     view._set_stem_frame(newer)
@@ -93,13 +93,14 @@ def test_new_main_frame_and_playback_do_not_replace_bank_images(view):
     assert view._playback_timer.isActive()
     assert_image(view, bank)
     assert "Advanced bank" in view.detector_playback_summary.text()
-    assert view._stem_frame is newer and view._paused_display_frame is current
+    assert view._stem_frame is newer
+    clock[0] = 10.
+    view._playback_tick()
+    assert not view._playback_timer.isActive()
+    assert_image(view, bank)
     choose_current(view)
-    assert_image(view, current)
-    assert "paused" in view.detector_playback_summary.text()
-    view._playback_timer.stop()
-    view.pause_image_refresh.setChecked(False)
     assert_image(view, newer)
+    assert not view._playback_timer.isActive()
 
 
 def test_pending_error_retains_previous_bank_but_missing_product_clears_only_bank(view):

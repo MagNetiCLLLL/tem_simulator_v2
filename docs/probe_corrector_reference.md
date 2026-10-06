@@ -66,6 +66,36 @@ file compatibility and identified as stored channel metadata, not independently
 verified hardware dimensions. Main-device geometry remains provisional; this
 separation does not establish OEM dimensions or a production-ready DCOR model.
 
+## Image-corrector channels and scan hardware
+
+The same distinction applies to the image corrector. CEOS's
+[2025 workshop, page 26](https://www.ceos-gmbh.de/de/grundlagen/Workshop-Beitraege/01_How-do-aberration-correctors-work-pdf.pdf#page=26)
+separates the principal OL/TL/HP/ADL optics from additional alignment channels:
+HPol, QPol, DP11/DP12/DPH1/DP21/DP22/DPH2, ISh, DSh and DSt. Both image
+manifests mark these auxiliary records as control channels with an unverified
+physical host. Older records are classified by their canonical keys as well.
+Their optical fields and coordinates remain available, but legacy envelopes
+do not become separate material bodies, vacuum walls or beam stops. This does
+not imply that the channels lack physical coils or multipoles.
+
+OL post, HP1/HP2, transfer lenses and the adapter retain their existing optical
+and provisional mechanical models. The schematic does not supply OEM internal
+dimensions or prove a physical host for an auxiliary channel. In particular,
+stored DPH parent links and the DP12/TL12 overlap describe the existing model,
+not verified manufacturer packaging. TL12 remains its existing effective-lens
+representation; no new housing or host is inferred from the channel diagram.
+Corrector ISh/DSh names alone do not establish that they share the microscope's
+main image/diffraction-deflector pair.
+
+The pre-corrector beam deflector and the downstream AC scan pair remain
+separate model hardware. CEOS's
+[CESCOR description](https://www.ceos-gmbh.de/de/produkte/residualsCEXCOR)
+places the scan between the corrector and objective, and distinguishes BTlt
+above the corrector from DP12 below it for coma alignment. Generic microscope
+beam/scan reuse therefore does not establish a common physical pair across
+the corrector. This evidence supports the ordering, not the simulator's
+millimetre coordinates or a particular manufacturer's full wiring map.
+
 ## Additional DCORPRIME reference
 
 The two additional user photographs are preserved without alteration:

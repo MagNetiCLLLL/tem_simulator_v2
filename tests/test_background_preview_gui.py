@@ -321,6 +321,39 @@ def test_page_button_requires_completed_high_accuracy_then_reuses_beam(window, m
     assert calls[1][1]["existing_result"] is seed
 
 
+def test_arming_single_stem_frame_uses_existing_particle_seed_once(window, monkeypatch):
+    from types import SimpleNamespace
+
+    calls, errors = [], []
+    monkeypatch.setattr(window, "_show_error", errors.append)
+    monkeypatch.setattr(window.calculations, "submit_background",
+                        lambda *args, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("temsim.gui.scan_panel.calibrate_scan_system", lambda *_a, **_kw: None)
+    page = window.workspace.scan_control
+    window.state.ac_deflector.scan_enabled = False
+    window.state.sample.stem_image_enabled = False
+    page.set_state(window.state)
+    assert calls == []
+    window.workspace._high_accuracy_result = None
+    page.ac_controls["scan_enabled"].setChecked(True)
+    page.image_enabled.setChecked(True)
+    assert calls == [] and len(errors) == 1
+    assert "Run high-accuracy once" in errors[0]
+
+    seed = SimpleNamespace(simulation=object())
+    window.workspace._high_accuracy_result = seed
+    page.image_enabled.setChecked(False)
+    page.image_enabled.setChecked(True)
+    assert len(calls) == 1
+    assert calls[0]["workflow"] == "stem" and calls[0]["existing_result"] is seed
+    page.image_enabled.setChecked(True)
+    assert len(calls) == 1
+    # A subsequent deliberate single scan uses the same established request path.
+    page.calculate_button.click()
+    assert len(calls) == 2 and calls[1]["workflow"] == "stem"
+    assert calls[1]["existing_result"] is seed
+
+
 @pytest.mark.parametrize("dispatch_attempt", range(5))
 def test_live_edits_during_preparation_keep_one_frame_and_latest_pending(window, qtbot, monkeypatch, dispatch_attempt):
     from threading import Event

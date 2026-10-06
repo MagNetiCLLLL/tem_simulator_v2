@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import math
 from typing import Any
 from temsim.component_keys import FIXED_APERTURE_KEYS
+from temsim.component_representation import SHARED_DEFLECTOR_HOSTS, shared_deflector_field_owner
 
 
 SCALAR_TYPES = (bool, int, float, str)
@@ -206,6 +207,21 @@ def is_geometry_owned(name: str) -> bool:
     return any(marker in name for marker in GEOMETRY_MARKERS)
 
 
+def shared_runtime_geometry_owner(key: str, name: str) -> str:
+    """Shared channels cannot independently override their installed hardware."""
+    host = SHARED_DEFLECTOR_HOSTS.get(key, "")
+    if host and (
+        is_geometry_owned(name) or name in TOML_OWNED_FIELDS
+        or shared_deflector_field_owner(key, name)
+        or name.startswith("_physical_host")
+        or name in {"effective_thickness_mm", "optical_plane_separation_mm",
+                    "effective_aperture_radius_mm", "center_from_source_mm",
+                    "thickness_mm", "inter_coil_gap_mm"}
+    ):
+        return host
+    return ""
+
+
 def editable_parameters(target: RuntimeTarget) -> tuple[RuntimeParameter, ...]:
     if getattr(target.obj, "KIND", None) == "virtual_layout":
         return ()
@@ -225,6 +241,7 @@ def editable_parameters(target: RuntimeTarget) -> tuple[RuntimeParameter, ...]:
             or name in INTERNAL_FIELDS
             or name in TOML_OWNED_FIELDS
             or is_geometry_owned(name)
+            or shared_runtime_geometry_owner(target.key, name)
             or (target.key == "energy_filter" and name == "enabled")
             or (target.key in FIXED_APERTURE_KEYS and name == "enabled")
             or (target.key == "sample" and (
@@ -258,6 +275,9 @@ def validate_runtime_assignment(
 ) -> object:
     """Type-check and domain-check one profile/runtime assignment."""
 
+    host = shared_runtime_geometry_owner(target.key, name)
+    if host:
+        raise ValueError(f"{target.key}.{name} belongs to shared hardware; edit {host} instead")
     old_value = getattr(target.obj, name)
     if name == "wave_illumination" and target.key == "sample":
         from temsim.physics.illumination import validate_illumination_config, require_production_illumination

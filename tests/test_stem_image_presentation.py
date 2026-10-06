@@ -171,15 +171,17 @@ def test_particle_model_does_not_silently_select_another_model_for_invalid_state
     assert not changes
 
 
-def test_contrast_change_uses_paused_frame_and_never_changes_state_or_requests_work(view, monkeypatch):
+def test_contrast_change_uses_retained_frame_until_replacement_without_requesting_work(view, monkeypatch):
     from copy import deepcopy
 
     frame = _frame(model="projected_atomic_scattering")
     view._set_stem_frame(frame)
-    view.pause_image_refresh.setChecked(True)
+    captured = view._stem_frame_context
+    view._state.sample.thickness_nm += 1.
+    view.set_state(view._state)
+    view.mark_stem_frame_stale()
     new = _frame(model="projected_atomic_scattering")
     new.fractions["bf"] *= .5
-    view._set_stem_frame(new)
     original = {key: values.copy() for key, values in frame.fractions.items()}
     state = deepcopy(view._state.to_dict())
     requests = []
@@ -195,9 +197,14 @@ def test_contrast_change_uses_paused_frame_and_never_changes_state_or_requests_w
     assert tuple(item.levels) == (float(original["bf"].min()), float(original["bf"].max()))
     assert "0.2354" in view.detector_contrast_labels["bf"].text()
     assert not requests and view._state.to_dict() == state
-    assert view.pause_image_refresh.isChecked() and view._paused_display_frame is frame
+    assert view._stem_frame is frame and view._stem_frame_context is captured
     for key, values in original.items():
         np.testing.assert_array_equal(frame.fractions[key], values)
+    view._set_stem_frame(new)
+    assert view._stem_frame is new and not view._stem_frame_stale
+    np.testing.assert_array_equal(item.image, new.fractions["bf"].T)
+    assert tuple(item.levels) == (float(new.fractions["bf"].min()), float(new.fractions["bf"].max()))
+    assert not requests and view._state.to_dict() == state
 
 
 def test_fixed_fraction_constant_remains_uniform_at_its_actual_brightness(view):
@@ -214,13 +221,14 @@ def test_fixed_fraction_constant_remains_uniform_at_its_actual_brightness(view):
     assert "fixed fraction scale" in view.detector_contrast_labels["bf"].text()
 
 
-def test_paused_wave_mode_preserves_setting_and_historical_image(view, qtbot):
+def test_unqualified_wave_action_preserves_setting_and_retained_image(view, qtbot):
     view._state.sample.stem_wave_enabled = False
     view.set_state(view._state)
     assert "coherent imaging paused" in view.image_model_notice.text()
     frame = _frame()
     view._set_stem_frame(frame)
-    view.pause_image_refresh.setChecked(True)
+    view._state.sample.thickness_nm += 1.
+    view.mark_stem_frame_stale()
     assert "selected CIF not used" in view.image_model_notice.text()
     qtbot.waitUntil(view.enable_wave_images.isVisible)
     changes = []
@@ -230,29 +238,27 @@ def test_paused_wave_mode_preserves_setting_and_historical_image(view, qtbot):
     assert changes == []
     assert not view._state.sample.stem_wave_enabled and not view.wave_scan_enabled.isChecked()
     assert "not qualified" in view.wave_image_action_note.text()
-    assert "Resume refresh" in view.wave_image_action_note.text()
-    assert view._stem_frame is frame and view._paused_display_frame is frame
+    assert "Resume refresh" not in view.wave_image_action_note.text()
+    assert view._stem_frame is frame and view._stem_frame_stale
     np.testing.assert_array_equal(view.detector_image_items["bf"].image, before.T)
 
 
-def test_paused_and_bank_frames_keep_their_coordinates_mode_and_capture_context(view):
+def test_retained_and_bank_frames_keep_capture_context_until_new_frame_arrives(view):
     captured = default_state()
     captured.sample.specimen_mode = "atomic"
     captured.sample.cif_path = "capture-A.cif"
     captured.stem_detectors[0].z_mm = 1234.
     old = _frame()
     view.display_result(None, old, complete=True, state_snapshot=captured)
-    view.pause_image_refresh.setChecked(True)
     view._state.sample.cif_path = "live-B.cif"
     view._state.sample.specimen_mode = "atomic"
     view._state.stem_detectors[0].z_mm = 9876.
     view.set_state(view._state)
-    new = _frame(pitch_nm=1., model="multislice_angle_resolved")
-    view.display_result(None, new, complete=True, state_snapshot=view._state)
+    view.mark_stem_frame_stale()
     assert "capture-A.cif" in view.image_model_notice.toolTip()
     assert "Geometry preview only" in view.image_model_notice.text()
     assert "1234" in view.detector_geometry_labels[captured.stem_detectors[0].key].text()
-    assert view._stem_image_rect(view._paused_display_frame).width() == pytest.approx(.00064)
+    assert view._stem_frame is old and view._stem_image_rect(view._stem_frame).width() == pytest.approx(.00064)
 
     bank_state = default_state()
     bank_state.sample.specimen_mode = "atomic"
@@ -269,7 +275,15 @@ def test_paused_and_bank_frames_keep_their_coordinates_mode_and_capture_context(
     view.image_source.setCurrentIndex(view.image_source.findData("current"))
     assert "capture-A.cif" in view.image_model_notice.toolTip()
     assert "FOV 640 pm" in view.image_model_notice.text()
-    view.pause_image_refresh.setChecked(False)
+    view.image_source.setCurrentIndex(view.image_source.findData("bank"))
+    new = _frame(pitch_nm=1., model="multislice_angle_resolved")
+    view.display_result(None, new, complete=True, state_snapshot=view._state)
+    assert view._stem_frame is new
+    assert "bank-C.cif" in view.image_model_notice.toolTip()
+    assert item.mapRectToParent(item.boundingRect()).width() == pytest.approx(.0016)
+    view.image_source.setCurrentIndex(view.image_source.findData("current"))
+    assert view._stem_frame_context.cif_path == "live-B.cif"
+    assert "9876" in view.detector_geometry_labels[captured.stem_detectors[0].key].text()
     assert "Specimen image" in view.image_model_notice.text()
     assert "FOV 32 nm" in view.image_model_notice.text()
     assert view.enable_wave_images.isHidden()

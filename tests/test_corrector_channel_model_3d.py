@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from temsim.assembly_model_3d import assembly_model_from_assembly
+from temsim.component_representation import IMAGE_CONTROL_CHANNEL_KEYS
 from temsim.part_model_3d import module_model_from_document, part_model_from_document
 
 
@@ -34,7 +35,7 @@ def _assembly(rows):
     return SimpleNamespace(parts=parts, modules=(), vacuum_liner_segments=())
 
 
-@pytest.mark.parametrize("key", CHANNEL_KEYS)
+@pytest.mark.parametrize("key", (*CHANNEL_KEYS, *sorted(IMAGE_CONTROL_CHANNEL_KEYS)))
 def test_legacy_nonzero_channel_envelopes_remain_inspectable_without_solids(key):
     document = {"parts": [_row(key)]}
     before = deepcopy(document)
@@ -69,15 +70,18 @@ def test_non_material_classification_precedes_explicit_solid_generation(changes)
     assert not whole.meshes and not whole.errors and whole.omitted_keys == (row["key"],)
 
 
-def test_virtual_children_do_not_hide_their_material_parent():
-    parent = _row("probe_hp1_hexapole", mechanical_profile="magnetic_lens_assembly")
-    child = _row("probe_qph1_quadrupole", parent_key=parent["key"])
-    rows = [parent, child, _row("probe_hp2_hexapole")]
+@pytest.mark.parametrize("prefix,child_key", (
+    ("probe", "probe_qph1_quadrupole"), ("image", "image_dph1_deflector"),
+))
+def test_virtual_children_do_not_hide_their_material_parent(prefix, child_key):
+    parent = _row(f"{prefix}_hp1_hexapole", mechanical_profile="magnetic_lens_assembly")
+    child = _row(child_key, parent_key=parent["key"])
+    rows = [parent, child, _row(f"{prefix}_hp2_hexapole")]
     whole = assembly_model_from_assembly(_assembly(rows), angular_segments=8)
     module = module_model_from_document({"parts": rows}, angular_segments=8)
     assert not whole.errors
     for model in (whole, module):
-        assert {mesh.key for mesh in model.meshes} == {"probe_hp1_hexapole", "probe_hp2_hexapole"}
+        assert {mesh.key for mesh in model.meshes} == {f"{prefix}_hp1_hexapole", f"{prefix}_hp2_hexapole"}
 
 
 def test_real_zero_thickness_detector_surface_is_still_available_in_part_preview():

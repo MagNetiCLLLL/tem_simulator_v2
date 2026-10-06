@@ -342,7 +342,9 @@ class PartGeometry:
 
 def read_document(path, *, capture_navigation=False):
     from temsim.shared_tip import raw_document, resolve_document
-    return resolve_document(raw_document(path), path, capture_navigation=capture_navigation)
+    from temsim.optics.shared_deflectors import resolve_shared_deflector_parts
+    return resolve_shared_deflector_parts(resolve_document(
+        raw_document(path), path, capture_navigation=capture_navigation))
 
 
 def part_data(module_path, key, root=None):
@@ -715,9 +717,10 @@ def stage_manifest_text(text, updates, *, validate=True):
 
 
 def validate_document(document):
+    from temsim.optics.shared_deflectors import resolve_shared_deflector_parts
     from temsim.optics.electron_gun.tip_assembly import validate_tip_part, validate_electrical_defaults
     from temsim.magnetic_circuits import is_custom_mechanical_part
-    document = dict(document)
+    document = dict(resolve_shared_deflector_parts(document))
     document["parts"] = [
         (
             resolve_eds_detector_part_data(part)
@@ -2640,50 +2643,24 @@ def _validate_objective_assembly(parts):
             "Objective TOML planes must be ordered BFP, image inside assembly"
         )
 
-    if {"ac_deflector", "descan_deflector"}.issubset(by_key):
-        ac_scan = by_key["ac_deflector"]
-        descan = by_key["descan_deflector"]
-        ac_distance = sample_center - float(
-            ac_scan["local_center_z_mm"]
-        )
-        descan_distance = float(descan["local_center_z_mm"]) - sample_center
-        if (
-            ac_distance <= 0.0
-            or descan_distance <= 0.0
-            or abs(ac_distance - descan_distance) > tolerance
-        ):
-            raise ValueError(
-                "AC Scan and Descan centres must mirror about the sample"
-            )
-        for field in (
-            "length_mm",
-            "mechanical_coil_length_mm",
-            "mechanical_inter_coil_gap_mm",
-            "effective_thickness_mm",
-        ):
-            if abs(float(ac_scan[field]) - float(descan[field])) > tolerance:
-                raise ValueError(
-                    f"AC Scan and Descan must match in {field}"
-                )
-        ac_interactions = tuple(
-            float(value)
-            for value in ac_scan["interaction_centers_local_z_mm"]
-        )
-        descan_interactions = tuple(
-            float(value)
-            for value in descan["interaction_centers_local_z_mm"]
-        )
-        if (
-            len(ac_interactions) != 2
-            or len(descan_interactions) != 2
-            or abs(
-                (ac_interactions[1] - ac_interactions[0])
-                - (descan_interactions[1] - descan_interactions[0])
-            ) > tolerance
-        ):
-            raise ValueError(
-                "AC Scan and Descan optical-plane separations must match"
-            )
+    # Scan and the shared image/descan hardware need not be mirror images
+    # or have identical coil geometry across the specimen.
+    for key, upstream in (("beam_deflector", True),
+                          ("ac_deflector", True),
+                          ("image_diffraction_deflector", False)):
+        if key not in by_key:
+            continue
+        planes = tuple(float(z) for z in by_key[key]["interaction_centers_local_z_mm"])
+        if (len(planes) != 2 or planes[0] >= planes[1]
+                or (upstream and planes[1] >= sample_center)
+                or (not upstream and planes[0] <= sample_center)):
+            raise ValueError(f"{key}: both physical coil planes must be on their side of the sample")
+
+    if "ac_deflector" in by_key and "probe_tl12_lens" in by_key:
+        scan_start = float(by_key["ac_deflector"]["local_start_z_mm"])
+        corrector_end = float(by_key["probe_tl12_lens"]["local_end_z_mm"])
+        if scan_start < corrector_end - tolerance:
+            raise ValueError("AC Scan coils must remain downstream of the probe corrector")
 
 
 def _expected_column_order(parts):

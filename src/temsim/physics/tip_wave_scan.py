@@ -7,6 +7,7 @@ import numpy as np
 from temsim.instrument_snapshot import capture_instrument_snapshot
 from temsim.physics.wave_execution import ScanWaveNumerics
 from temsim.physics.tip_wave_pipeline import TipWaveRequest, simulate_tip_wave
+from temsim.optics.shared_deflectors import bind_shared_deflector_channels, shared_channel_enabled
 
 
 @dataclass(frozen=True)
@@ -101,7 +102,8 @@ class ScanResponseAccumulator:
 
 def physical_scan_samples(state, numerics=ScanWaveNumerics()):
     numerics.validate()
-    active = [d for d in (*state.deflectors, *getattr(state, "corrector_elements", ())) if getattr(d, "enabled", False) and getattr(d, "scan_enabled", False)
+    bind_shared_deflector_channels(state)
+    active = [d for d in (*state.deflectors, *getattr(state, "corrector_elements", ())) if shared_channel_enabled(d) and getattr(d, "scan_enabled", False)
               and hasattr(d, "scan_pixels_x") and "descan" not in d.key.lower()]
     if len(active) != 1:
         raise ValueError("Select exactly one installed active raster scan controller")

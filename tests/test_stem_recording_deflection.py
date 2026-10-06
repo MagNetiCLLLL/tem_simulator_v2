@@ -29,6 +29,7 @@ def recording_column(monkeypatch):
         for component in collection:
             component.enabled = False
     descan = state.descan_deflector
+    state.image_diffraction_deflector.enabled = True
     descan.enabled = True
     descan.scan_enabled = True
     descan.kick_x_mrad = 0.4

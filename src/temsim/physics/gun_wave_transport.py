@@ -72,21 +72,13 @@ def upstream_component_events(state):
         if component.key in seen:
             raise ValueError(f"Duplicate deflector in the source graph: {component.key}")
         seen.add(component.key)
-        if hasattr(component, "kick_events"):
-            try:
-                rows = component.kick_events(time_s=float(getattr(state, "simulation_time_s", 0.)))
-            except TypeError:
-                rows = component.kick_events()
-        elif all(hasattr(component, name) for name in ("upper_z_mm", "lower_z_mm", "upper_x_mrad", "upper_y_mrad", "lower_x_mrad", "lower_y_mrad")):
-            rows = [(component.upper_z_mm, component.upper_x_mrad*1e-3, component.upper_y_mrad*1e-3),
-                    (component.lower_z_mm, component.lower_x_mrad*1e-3, component.lower_y_mrad*1e-3)]
-        else:
-            # Corrector field terms live in the shared field plan, not kicks.
-            continue
+    from temsim.physics.instrument_magnetic import column_deflector_drives
+    for component, rows, drive_keys, _, _ in column_deflector_drives(state):
         for z, tx, ty in rows:
             if state.electron_gun.exit_plane_z_mm <= z <= stop:
                 events.append((z, tx, ty))
-                owners.append({"component_id": component.key, "plane_z_mm": z, "kick_rad": (tx, ty)})
+                owners.append({"component_id": component.key, "drive_keys": drive_keys,
+                               "plane_z_mm": z, "kick_rad": (tx, ty)})
     return events, owners
 
 

@@ -18,6 +18,9 @@ from temsim.part_materials import (
 @pytest.mark.parametrize("channel", (
     {"key": "probe_qph1_quadrupole"},  # Legacy saved rows have no role.
     {"key": "probe_dp12_scan_deflector"},
+    {"key": "image_ish_deflector"},
+    {"key": "image_dsh_deflector"},
+    {"key": "image_hpol_hexapole"},
     {"key": "test_control", "layout_role": "control_channel"},
     {"key": "test_reference", "layout_role": "virtual_reference"},
 ))
@@ -59,9 +62,10 @@ def test_channel_envelope_does_not_collide_but_physical_envelopes_still_do():
         _validate_column_mechanical_overlaps((body, {**channel, "key": "second_body"}))
 
 
-def test_saved_material_metadata_cannot_turn_channel_into_magnetic_body():
+@pytest.mark.parametrize("key", ("probe_qpc_quadrupole", "image_hpol_hexapole", "image_dph1_deflector"))
+def test_saved_material_metadata_cannot_turn_channel_into_magnetic_body(key):
     iron = next(row for row in material_catalog() if row["material_key"] == "femm_pure_iron")
-    channel = {"key": "probe_qpc_quadrupole", "mechanical_profile": "magnetic_lens_yoke",
+    channel = {"key": key, "mechanical_profile": "magnetic_lens_yoke",
                "material_regions": {"body": iron}}
     assert validated_material_regions(channel)["body"] == iron
     assert not is_magnetostatic_body(channel)

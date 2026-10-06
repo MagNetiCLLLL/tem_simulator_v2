@@ -18,7 +18,7 @@ from temsim.column.state_layout import layout_configuration_from_state
 from temsim.optics.column import default_state
 
 
-def test_scan_and_descan_are_mirrored_about_sample_in_every_column_toml():
+def test_scan_and_shared_image_descan_keep_their_physical_order_in_every_column_toml():
     root = Path(__file__).parents[1] / "configs" / "instruments" / "column"
     checked = 0
     for path in sorted(root.glob("*.toml")):
@@ -30,11 +30,11 @@ def test_scan_and_descan_are_mirrored_about_sample_in_every_column_toml():
         sample_z = float(parts["sample"]["local_center_z_mm"])
         ac_z = float(parts["ac_deflector"]["local_center_z_mm"])
         descan_z = float(parts["descan_deflector"]["local_center_z_mm"])
-        assert sample_z - ac_z == pytest.approx(descan_z - sample_z)
-        assert (
-            float(parts["objective_stigmator"]["local_start_z_mm"])
-            - float(parts["descan_deflector"]["local_end_z_mm"])
-        ) == pytest.approx(5.0)
+        host = parts["image_diffraction_deflector"]
+        assert ac_z < sample_z < descan_z
+        assert descan_z == pytest.approx(host["local_center_z_mm"])
+        assert parts["descan_deflector"]["interaction_centers_local_z_mm"] == host["interaction_centers_local_z_mm"]
+        assert parts["descan_deflector"]["physical_host_key"] == host["key"]
         assert (
             float(parts["image_diffraction_deflector"]["local_start_z_mm"])
             - float(parts["objective_stigmator"]["local_end_z_mm"])
