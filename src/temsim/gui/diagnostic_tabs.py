@@ -158,23 +158,38 @@ class EnergyFilterView(QWidget):
     """Curvilinear Energy filter public topology and non-OEM branch model."""
 
     component_selected = Signal(str)
+    result_displayed = Signal(object)
+    result_stale = Signal()
     MAXIMUM_DISPLAY_RAYS = 80
     M12_COLOUR = "#c084fc"
     SECTOR_COLOUR = "#60a5fa"
     LABEL_EDGE_PADDING_PX = 10.0
     LABEL_ROW_GAP_PX = 5.0
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, *, show_rays=True, show_outputs=True) -> None:
         super().__init__(parent)
+        self._show_rays = bool(show_rays)
+        self._show_outputs = bool(show_outputs)
+        self._result = None
+        self._selected_key = None
+        self._selection_item = None
+        self._ray_items = []
         self.heading = QLabel(
-            "Energy Filter physical layout and ray diagram"
+            "Energy Filter physical layout and ray diagram" if self._show_outputs
+            else "Energy Filter internal rays" if self._show_rays
+            else "Energy Filter structure"
         )
-        self.summary = QLabel("Curvilinear Energy Filter branch")
+        self.summary = QLabel(
+            "Calculate Energy Filter on its page to display internal rays."
+            if self._show_rays and not self._show_outputs
+            else "Curvilinear Energy Filter branch"
+        )
         self.summary.setToolTip(
             "The branch is drawn in its own curvilinear X-Z frame; "
             "public topology is separated from adjustable non-OEM geometry."
         )
         self.summary.setWordWrap(True)
+        self.summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.summary.setStyleSheet("color: #64748b; font-weight: 600;")
         self.fit_all = QPushButton("Fit Energy Filter")
         self.fit_all.setStyleSheet(BUTTON_STYLE)
@@ -196,6 +211,27 @@ class EnergyFilterView(QWidget):
         physical_layout.setContentsMargins(0, 0, 0, 0)
         physical_layout.addWidget(self.plot, 1)
 
+        content = (self._create_output_tabs(physical_page)
+                   if self._show_outputs else physical_page)
+        layout = QVBoxLayout(self)
+        layout.addLayout(header)
+        layout.addWidget(content, 1)
+        layout.addWidget(self.summary)
+        self.fit_all.clicked.connect(self.plot.autoRange)
+        self._prism_clear_aperture_items = []
+        self._multipole_housing_items = []
+        self._device_body_items = []
+        self._multipole_centres = None
+        self._device_centres = None
+        self._label_callouts = {}
+        self._selectable_item_keys = {}
+        view_box.sigRangeChanged.connect(self._layout_labels)
+        self.plot.scene().sigMouseClicked.connect(
+            self._component_item_clicked
+        )
+
+    def _create_output_tabs(self, physical_page):
+        """Only the owning Energy Filter page creates scientific readouts."""
         self.spectrum_plot = pg.PlotWidget(background="#050816")
         self.spectrum_plot.setObjectName("energyFilterSpectrumPlot")
         self.spectrum_plot.setLabel("bottom", "Energy loss", units="eV")
@@ -265,22 +301,7 @@ class EnergyFilterView(QWidget):
         self.output_tabs.addTab(physical_page, "Physical + rays")
         self.output_tabs.addTab(spectrum_page, "EELS spectrum")
         self.output_tabs.addTab(eftem_page, "EFTEM image")
-        layout = QVBoxLayout(self)
-        layout.addLayout(header)
-        layout.addWidget(self.output_tabs, 1)
-        layout.addWidget(self.summary)
-        self.fit_all.clicked.connect(self.plot.autoRange)
-        self._prism_clear_aperture_items = []
-        self._multipole_housing_items = []
-        self._device_body_items = []
-        self._multipole_centres = None
-        self._device_centres = None
-        self._label_callouts = {}
-        self._selectable_item_keys = {}
-        view_box.sigRangeChanged.connect(self._layout_labels)
-        self.plot.scene().sigMouseClicked.connect(
-            self._component_item_clicked
-        )
+        return self.output_tabs
 
     def _spectrum_mouse_moved(self, scene_position) -> None:
         """Read the nearest cached spectrum bin without recalculation."""
@@ -307,6 +328,8 @@ class EnergyFilterView(QWidget):
     def _display_scientific_outputs(self, branch_result, mode: str) -> None:
         """Render only data already attached to the completed result."""
 
+        if not self._show_outputs:
+            return
         forward = getattr(branch_result, "eels_forward", None)
         if forward is None:
             self._spectrum_energy_ev = np.asarray((), dtype=float)
@@ -378,6 +401,7 @@ class EnergyFilterView(QWidget):
 
     def _component_clicked(self, _item, points, _event=None) -> None:
         if points:
+            self.focus_component(str(points[0].data()))
             self.component_selected.emit(str(points[0].data()))
 
     def _component_item_clicked(self, event) -> None:
@@ -393,6 +417,7 @@ class EnergyFilterView(QWidget):
         )
         if key is None:
             return
+        self.focus_component(key)
         self.component_selected.emit(key)
         event.accept()
 
@@ -701,8 +726,11 @@ class EnergyFilterView(QWidget):
         )
 
     def display_result(self, result) -> None:
+        self._result = result
         self._display_scientific_outputs(None, "")
         self.plot.clear()
+        self._selection_item = None
+        self._ray_items = []
         self._prism_clear_aperture_items = []
         self._multipole_housing_items = []
         self._device_body_items = []
@@ -721,6 +749,7 @@ class EnergyFilterView(QWidget):
                 anchor=(0.5, 0.5),
             )
             self.summary.setText("Energy Filter branch is not installed.")
+            self.result_displayed.emit(result)
             return
         from temsim.optics.energy_filter_sector import (
             multipole_housing_bank_polygons_xz_mm,
@@ -1090,7 +1119,7 @@ class EnergyFilterView(QWidget):
         branch_result = getattr(result, "energy_filter", None)
         mode = str(energy_filter.operating_mode).upper()
         self._display_scientific_outputs(branch_result, mode)
-        if branch_result is not None and branch_result.paths_u_mm:
+        if self._show_rays and branch_result is not None and branch_result.paths_u_mm:
             path_count = len(branch_result.paths_u_mm)
             indices = np.unique(np.linspace(
                 0,
@@ -1100,13 +1129,13 @@ class EnergyFilterView(QWidget):
             ))
             for index in indices:
                 colour = branch_result.colours[index]
-                self.plot.plot(
+                self._ray_items.append(self.plot.plot(
                     branch_result.paths_u_mm[index],
                     branch_result.paths_v_mm[index],
                     pen=pg.mkPen(colour, width=0.8),
-                )
+                ))
 
-        metrics = getattr(energy_filter, "_last_slit_metrics", None)
+        metrics = getattr(energy_filter, "_last_slit_metrics", None) if self._show_rays else None
         metric_text = (
             f" | dispersion {metrics.dispersion_um_per_ev:.4g} um/eV | "
             f"non-iso RMS {metrics.non_isochromaticity_ev_rms:.4g} eV"
@@ -1117,10 +1146,11 @@ class EnergyFilterView(QWidget):
             f" | {branch_result.status}"
             if branch_result is not None
             else " | Preview shows mechanics; High accuracy traces branch rays"
-        )
-        self.heading.setText(
-            f"Energy Filter physical layout - {mode}"
-        )
+        ) if self._show_rays else " | Structure only"
+        title = ("Energy Filter physical layout" if self._show_outputs
+                 else "Energy Filter internal rays" if self._show_rays
+                 else "Energy Filter structure")
+        self.heading.setText(f"{title} - {mode}")
         entrance_carrier = energy_filter.multipoles[0]
         exit_carrier = energy_filter.multipoles[3]
         detail_text = (
@@ -1156,6 +1186,28 @@ class EnergyFilterView(QWidget):
         self.summary.setToolTip(detail_text)
         self.plot.autoRange()
         self._layout_labels()
+        self.focus_component(self._selected_key)
+        self.result_displayed.emit(result)
+
+    def focus_component(self, part) -> bool:
+        """Highlight a shared part key in branch coordinates without navigation."""
+        self._selected_key = getattr(part, "key", part)
+        if self._selection_item is not None:
+            self.plot.removeItem(self._selection_item)
+            self._selection_item = None
+        key = (ENERGY_FILTER_ENTRANCE_APERTURE
+               if self._selected_key == "energy_filter" else self._selected_key)
+        callout = next((item for item in self._label_callouts.values()
+                        if item.component_key == key), None)
+        if callout is None:
+            return False
+        self._selection_item = pg.ScatterPlotItem(
+            [callout.anchor_x_mm], [callout.anchor_z_mm], size=17,
+            pen=pg.mkPen("#facc15", width=2), brush=pg.mkBrush(0, 0, 0, 0),
+        )
+        self._selection_item.setZValue(45)
+        self.plot.addItem(self._selection_item)
+        return True
 
     def mark_result_stale(self) -> None:
         """Keep the last complete branch trace visible after input changes."""
@@ -1163,9 +1215,12 @@ class EnergyFilterView(QWidget):
         self.summary.setText(
             "Previous Energy Filter trace retained | inputs changed"
         )
+        self.result_stale.emit()
         self.summary.setToolTip(
             "Run High accuracy to update the branch ray trace for the current state."
         )
+        if not self._show_outputs:
+            return
         if self._spectrum_energy_ev.size:
             self.spectrum_status.setText(
                 "Previous complete EELS spectrum retained | inputs changed"
@@ -1270,9 +1325,12 @@ class PhysicalLayoutView(QWidget):
         *STEM_DETECTOR_KEYS,
     })
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, *, include_editor=True) -> None:
         super().__init__(parent)
         self._result = None
+        self._defer_filter_structure = not include_editor
+        self._filter_structure_pending = False
+        self._label_layout_paused = False
         self._records = ()
         self._record_by_key = {}
         self._highlight = None
@@ -1426,18 +1484,28 @@ class PhysicalLayoutView(QWidget):
         layout.addWidget(self.plot, 1)
         layout.addWidget(self.summary)
 
-        from temsim.gui.part_model_editor import PartModelEditorPage
         from temsim.gui.assembly_model_page import AssemblyModelPage
-        self.model_editor = PartModelEditorPage()
+        self.model_editor = None
+        if include_editor:
+            from temsim.gui.part_model_editor import PartModelEditorPage
+            self.model_editor = PartModelEditorPage()
         self.assembly_3d = AssemblyModelPage()
+        self.energy_filter_structure = EnergyFilterView(show_rays=False, show_outputs=False)
+        self.energy_filter_structure.setObjectName("energyFilterStructureView")
+        self.energy_filter_structure.component_selected.connect(self.component_selected)
         self.tabs = QTabWidget()
         self.tabs.setObjectName("physicalLayoutTabs")
         self.tabs.addTab(self.section_page, "2D")
-        self.tabs.addTab(self.model_editor, "3D Parts")
+        if self.model_editor is not None:
+            self.tabs.addTab(self.model_editor, "3D Parts")
         self.tabs.addTab(self.assembly_3d, "3D")
+        self.tabs.addTab(self.energy_filter_structure, "Energy Filter")
         self.tabs.setTabToolTip(0, "Two-dimensional mechanical section")
-        self.tabs.setTabToolTip(1, "Inspect and edit individual component geometry")
-        self.tabs.setTabToolTip(2, "Read-only 3D view of the saved column assembly")
+        if self.model_editor is not None:
+            self.tabs.setTabToolTip(self.tabs.indexOf(self.model_editor), "Inspect and edit individual component geometry")
+        self.tabs.setTabToolTip(self.tabs.indexOf(self.assembly_3d), "Read-only 3D view of the saved column assembly")
+        self.tabs.setTabToolTip(self.tabs.indexOf(self.energy_filter_structure), "Energy Filter structure in its own branch coordinates")
+        self.tabs.currentChanged.connect(self._display_pending_filter_structure)
         self.assembly_3d.component_selected.connect(self.component_selected)
         self.assembly_3d.edit_part_requested.connect(self.component_activated)
         outer_layout = QVBoxLayout(self)
@@ -1456,6 +1524,12 @@ class PhysicalLayoutView(QWidget):
             self._layout_component_labels
         )
         self.plot.getViewBox().sigResized.connect(self._layout_component_labels)
+
+    def _display_pending_filter_structure(self, *_args):
+        if (self._filter_structure_pending
+                and self.tabs.currentWidget() is self.energy_filter_structure):
+            self.energy_filter_structure.display_result(self._result)
+            self._filter_structure_pending = False
 
     def set_cell_state(self, state):
         """Refresh live applied cell geometry without waiting for a ray solve."""
@@ -3408,7 +3482,7 @@ class PhysicalLayoutView(QWidget):
     def _layout_component_labels(self, *_args) -> None:
         """Pack linked labels into dynamic screen-space rows."""
 
-        if not self._label_callouts:
+        if self._label_layout_paused or not self._label_callouts:
             return
         view_box = self.plot.getViewBox()
         # A lazily activated page can receive its range/resize signal before
@@ -3438,6 +3512,7 @@ class PhysicalLayoutView(QWidget):
             return
 
         label_heights = []
+        label_rectangles = {}
         for callout in callouts:
             callout.label.setPos(callout.anchor_z_mm, 0.0)
             callout.label.show()
@@ -3447,6 +3522,7 @@ class PhysicalLayoutView(QWidget):
             # bounds. Resolve its screen-space transform before any packing.
             callout.label.updateTransform(force=True)
             rectangle = callout.label.sceneBoundingRect()
+            label_rectangles[callout.key] = rectangle
             if rectangle.isValid() and rectangle.height() > 0.0:
                 label_heights.append(float(rectangle.height()))
             callout.label.hide()
@@ -3501,10 +3577,7 @@ class PhysicalLayoutView(QWidget):
                 callout.anchor_z_mm,
                 0.0,
             ))
-            callout.label.setPos(callout.anchor_z_mm, 0.0)
-            callout.label.show()
-            measured = callout.label.sceneBoundingRect()
-            callout.label.hide()
+            measured = label_rectangles[callout.key]
             label_width = max(float(measured.width()), 24.0)
             left_limit = (
                 float(scene_bounds.left())
@@ -3555,27 +3628,22 @@ class PhysicalLayoutView(QWidget):
                             ),
                             right_limit,
                         )
-                        position = view_box.mapSceneToView(QPointF(
-                            scene_x,
-                            scene_y,
-                        ))
-                        callout.label.setPos(position)
-                        callout.label.show()
-                        rectangle = (
-                            callout.label.sceneBoundingRect().adjusted(
-                                -4.0,
-                                -2.0,
-                                4.0,
-                                2.0,
-                            )
-                        )
+                        # Text remains fixed in screen pixels. Test translated
+                        # rectangles without moving the actual Qt item for each
+                        # rejected candidate (thousands on a full-column view).
+                        rectangle = measured.translated(
+                            scene_x - float(anchor_scene.x()),
+                            scene_y - float(anchor_scene.y()),
+                        ).adjusted(-4.0, -2.0, 4.0, 2.0)
                         if any(
                             rectangle.intersects(other)
                             for other in occupied
                         ):
-                            callout.label.hide()
                             continue
                         occupied.append(rectangle)
+                        position = view_box.mapSceneToView(QPointF(scene_x, scene_y))
+                        callout.label.setPos(position)
+                        callout.label.show()
                         source_y = side * callout.anchor_radius_mm
                         elbow_y = float(position.y()) - side * 0.035 * y_span
                         callout.leader.setData(
@@ -3653,6 +3721,23 @@ class PhysicalLayoutView(QWidget):
 
     def display_result(self, result) -> None:
         self._result = result
+        if (self._defer_filter_structure
+                and self.tabs.currentWidget() is not self.energy_filter_structure):
+            self._filter_structure_pending = True
+        else:
+            self.energy_filter_structure.display_result(result)
+            self._filter_structure_pending = False
+        from temsim.energy_filter_model_3d import energy_filter_render_values
+        branch_values = energy_filter_render_values(getattr(result, "state_snapshot", None))
+        if branch_values:
+            runtime = dict(self.assembly_3d._runtime_values)
+            for key, values in branch_values.items():
+                # A retained calculation can be older than the live editor.
+                # Its snapshot supplies missing geometry inputs only.
+                runtime[key] = {**values, **runtime.get(key, {})}
+            assembly = self.assembly_3d._assembly
+            self.assembly_3d.set_assembly(
+                assembly if assembly is not None else result.assembly, runtime)
         self._records = physical_layout_records(result)
         self._record_by_key = {item.key: item for item in self._records}
         self._part_by_key = {
@@ -3887,7 +3972,12 @@ class PhysicalLayoutView(QWidget):
         )
         centres.sigClicked.connect(self._centre_clicked)
         self.plot.addItem(centres)
-        self.plot.autoRange()
+        # autoRange emits range changes itself; pack once at its final range.
+        self._label_layout_paused = True
+        try:
+            self.plot.autoRange()
+        finally:
+            self._label_layout_paused = False
         self._layout_component_labels()
         channel_count = sum(bool(record.layout_role) for record in self._records)
         component_count = len(self._records) - channel_count
@@ -4032,6 +4122,7 @@ class PhysicalLayoutView(QWidget):
 
     def focus_component(self, part) -> None:
         self.assembly_3d.focus_component(part)
+        self.energy_filter_structure.focus_component(part)
         record = self._record_by_key.get(getattr(part, "key", ""))
         if record is None:
             return
@@ -4146,11 +4237,20 @@ class PhysicalLayoutView(QWidget):
     def reveal_component(self, part) -> bool:
         """Highlight and centre a component without enabling live auto-range."""
 
+        if (getattr(part, "branch", "") == "energy_filter"
+                and self._filter_structure_pending
+                and self.tabs.currentWidget() is not self.assembly_3d):
+            self.tabs.setCurrentWidget(self.energy_filter_structure)
+            self._display_pending_filter_structure()
         self.focus_component(part)
         if self.tabs.currentWidget() is self.assembly_3d:
             return self.assembly_3d.fit_current_selection()
         if self.tabs.currentWidget() is self.model_editor:
             self.model_editor.reveal_project_part(part)
+            return True
+        if (getattr(part, "branch", "") == "energy_filter"
+                and self.energy_filter_structure.focus_component(part)):
+            self.tabs.setCurrentWidget(self.energy_filter_structure)
             return True
         record = self._record_by_key.get(getattr(part, "key", ""))
         if record is None:

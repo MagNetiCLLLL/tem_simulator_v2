@@ -300,7 +300,6 @@ def test_scan_rejects_target_before_any_inserted_detector(material_case, monkeyp
 
 @pytest.mark.parametrize("eds_enabled", [False, True])
 def test_high_current_pixel_matches_particle_section_without_recentering(material_case, monkeypatch, eds_enabled):
-    from temsim.specimen import downstream_transport
     case = material_case
     monkeypatch.setattr(sections, "_events", lambda state: ((451., .0002, -.0001),))
     preview = pipeline.calculate_particle_section(case.state, 456.)
@@ -308,7 +307,7 @@ def test_high_current_pixel_matches_particle_section_without_recentering(materia
     # additionally verifies its material stage explicitly requests loss physics.
     upstream = replace(preview.simulation, branches={}, real_interactions=None)
     monkeypatch.setattr(pipeline, "run", lambda *args, **kwargs: upstream)
-    monkeypatch.setattr(downstream_transport, "determine_tem_stop_z", lambda state: 456.)
+    monkeypatch.setattr(sections, "section_limits", lambda state: (state.electron_gun.exit_plane_z_mm, 456.))
     case.state.sample.eds_enabled = eds_enabled
     requests = []
     original = pipeline.run_specimen_interactions

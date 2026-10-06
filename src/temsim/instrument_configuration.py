@@ -66,9 +66,9 @@ class CheckedInstrumentAssembly:
 
     def restore_for(self, state):
         if capture_instrument_snapshot(state).physical_digest != self.original.physical_digest:
-            raise ValueError("Instrument settings changed. Check the assembly again.")
+            raise ValueError("Instrument settings changed. Click Assemble again.")
         # Restore also verifies consumed files and solver identity. A changed
-        # definition cannot be applied under a previous Check result.
+        # definition cannot be applied under a previously validated candidate.
         return self.candidate.restore()
 
 
@@ -80,7 +80,7 @@ def check_instrument_configuration(state, catalog, units):
     if selection != current:
         catalog.apply(candidate, selection, preserve_operating_parameters=True)
     # Preserve exact settings on an unchanged selection; do not reset a live
-    # tip, lens or aperture merely by opening/checking the configuration window.
+    # tip, lens or aperture merely by applying an unchanged configuration.
     candidate.electron_gun.validate()
     return CheckedInstrumentAssembly(units, selection, original, capture_instrument_snapshot(candidate))
 

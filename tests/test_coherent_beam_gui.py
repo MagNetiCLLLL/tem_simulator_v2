@@ -1569,6 +1569,84 @@ def test_fresh_source_controls_are_actual_instrument_values_without_demo_overrid
     assert panel._worker is None
 
 
+def test_optics_publication_retains_tip_draft_and_cancels_old_work(panel, monkeypatch):
+    state = panel._state
+    applied = module.source_settings_from_state(state)
+    panel.source_enabled.setChecked(True)
+    panel.tip_offset_x.setValue(.125)
+    panel.tip_curvature_xy.setValue(17.25)
+    draft = panel._settings()
+    worker = SimpleNamespace(event=Event())
+    panel._worker = worker
+    panel._session_ready = True
+    panel._cache["old optics"] = object()
+    monkeypatch.setattr(panel.pool, "start", lambda *_: pytest.fail("Publication must not calculate"))
+
+    state.sample.z_mm += 1.
+    panel.set_state(state)
+
+    assert panel._settings() == draft
+    assert module.source_settings_from_state(state) == applied
+    assert worker.event.is_set() and panel._worker is None
+    assert panel._stale and not panel._session_ready and not panel._cache
+    assert "unapplied Tip draft retained" in panel.status.text()
+    with pytest.raises(ValueError, match="Apply tip parameters"):
+        panel.capture_calculation_inputs()
+
+
+def test_optics_publication_preserves_exact_unedited_values_in_tip_draft(panel):
+    state = panel._state
+    exact_width = 100.12345678901234
+    state.electron_gun.emitter.virtual_source_fwhm_nm = exact_width
+    panel.set_state(state)
+    panel.tip_offset_x.setValue(.125)
+    panel.set_state(state)
+    assert panel._settings().tip_fwhm_nm == exact_width
+    assert panel._settings().tip_offset_x_nm == .125
+
+
+def test_external_tip_change_replaces_unapplied_tip_draft(panel):
+    state = panel._state
+    panel.source_enabled.setChecked(True)
+    panel.tip_offset_x.setValue(.125)
+    state.electron_gun.emitter.emission_energy_ev = 1.5
+    panel.set_state(state)
+    assert panel._settings() == module.source_settings_from_state(state)
+    assert panel.tip_energy.value() == 1.5 and panel.tip_offset_x.value() == 0.
+    assert not panel.source_enabled.isChecked()
+
+
+@pytest.mark.parametrize("reset", ["new_instrument", "explicit_source"])
+def test_source_reset_discards_unapplied_tip_draft(panel, reset):
+    panel.source_enabled.setChecked(True)
+    panel.tip_offset_x.setValue(.125)
+    if reset == "new_instrument":
+        panel.set_state(instrument())
+    else:
+        panel.set_state(panel._state, reset_source=True)
+    assert panel._settings() == module.source_settings_from_state(panel._state)
+    assert panel.tip_offset_x.value() == 0.
+    assert not panel.source_enabled.isChecked()
+
+
+def test_optics_publication_preserves_unapplied_surface_energy_draft(panel):
+    from temsim.optics.electron_gun.tip_surface import load_tip_surface_reference
+
+    state = instrument(load_tip_surface_reference())
+    panel.set_state(state)
+    applied = module.source_settings_from_state(state)
+    panel.surface_mean.setValue(.65)
+    panel.surface_rms.setValue(.09)
+    panel.source_enabled.setChecked(True)
+    draft = panel._settings()
+    state.sample.z_mm += 1.
+    panel.set_state(state)
+    assert panel._settings() == draft
+    assert module.source_settings_from_state(state) == applied
+    assert panel.surface_mean.value() == .65 and panel.surface_rms.value() == .09
+    assert panel._worker is None and not panel.timer.isActive()
+
+
 def test_source_drafts_require_explicit_apply_before_capture(panel, qtbot):
     calls = []
     panel.source_applied.connect(calls.append)

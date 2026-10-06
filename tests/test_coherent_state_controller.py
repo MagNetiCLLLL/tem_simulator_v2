@@ -262,6 +262,60 @@ def test_saved_states_reexecute_new_optics_and_z_then_reuse_exact_plane(page, qt
     assert len(page.execution.calls) == 6
 
 
+@pytest.mark.parametrize("mode", ["overlay", "selected"])
+@pytest.mark.parametrize("draft", [False, True])
+def test_live_refresh_readmits_saved_states_or_yields_to_tip_draft(page, qtbot, mode, draft):
+    """Keep actual snapshot/admission/publication; only propagation is fake."""
+    from temsim.gui.live_beam_refresh import LiveBeamRefresh
+
+    first, second = _two_states(page)
+    page.state_list.mode.setCurrentIndex(page.state_list.mode.findData(mode))
+    page.state_list.table.selectRow(1)
+    expected_ids = {first, second} if mode == "overlay" else {second}
+    _calculate(page, qtbot, count=len(expected_ids))
+    previous = page.result
+    old_count = len(page.execution.calls)
+    old_keys = dict(page.state_set.row_keys)
+    source_digests = {identity: snapshot.digest for identity, snapshot in page.state_set.snapshots.items()}
+    refresh = LiveBeamRefresh(page, page)
+    refresh.SETTLE_MS = 20
+    try:
+        page._state.lenses[0].percent += 1.
+        expected_percent = page._state.lenses[0].percent
+        live_digest = capture_instrument_snapshot(page._state).digest
+        refresh.invalidate(lambda: page.set_state(page._state))
+        assert refresh.pending
+        assert page.state_set.admitted_ids == set() and not page.state_set.active
+        if draft:
+            page.tip_offset_x.setValue(.125)
+        refresh.particle_ready()
+        if draft:
+            qtbot.wait(60)
+            assert not refresh.pending
+            assert len(page.execution.calls) == old_count
+            assert page.result is previous and page.state_set.admitted_ids == set()
+            assert page.state_set.worker is None and not page.state_set.active
+            assert page.tip_offset_x.value() == .125
+        else:
+            qtbot.waitUntil(lambda: page.result is not previous and page.state_set.worker is None,
+                            timeout=10000)
+            assert page.state_set.admitted_ids == expected_ids
+            assert len(page.result.members) == len(expected_ids)
+            assert len(page.execution.calls) == old_count + len(expected_ids)
+            assert all(page.state_set.row_keys[identity] != old_keys[identity] for identity in expected_ids)
+            assert all(call[2].restore().lenses[0].percent == expected_percent
+                       for call in page.execution.calls[old_count:])
+            energies = [call[0] for call in page.execution.calls[old_count:]]
+            assert energies == ([4., 5.] if mode == "overlay" else [5.])
+            refresh.particle_ready()
+            qtbot.wait(40)
+            assert len(page.execution.calls) == old_count + len(expected_ids)
+        assert capture_instrument_snapshot(page._state).digest == live_digest
+        assert {identity: snapshot.digest for identity, snapshot in page.state_set.snapshots.items()} == source_digests
+    finally:
+        refresh.cancel()
+
+
 def test_failed_member_retains_previous_complete_plane_and_no_partial_overlay(page, qtbot):
     _two_states(page)
     _calculate(page, qtbot)
@@ -316,6 +370,12 @@ def test_load_selected_publishes_source_for_both_paths_without_job(page):
     assert page.tip_energy.value() == 4.
     assert page.execution.calls == []
     assert "no calculation started" in page.status.text().lower()
+    # Explicitly loading the same applied source still discards editor drafts.
+    page.tip_offset_x.setValue(.125)
+    page.state_list.restore_button.click()
+    assert page._settings() == source_settings_from_state(page._state)
+    assert page.tip_offset_x.value() == 0.
+    assert page.execution.calls == []
 
 
 def test_current_tip_result_survives_overlay_and_switch_back(page, qtbot):

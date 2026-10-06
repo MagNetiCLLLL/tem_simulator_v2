@@ -45,6 +45,8 @@ ACCEPTANCE_SCOPES = {
             "gun-fields/GF-03": ("Exact field identity, conservative reuse and domain comparison metrics", (
                 "tests/test_diagnostic_field_identity.py", "tests/test_grounded_field_identity.py",
                 "tests/test_diagnostic_gun_domains.py")),
+            "gun-fields/GF-04": ("Grounded instrument coverage and installed filter axial handoff", (
+                "tests/test_instrument_electric.py",)),
         },
     },
     "electron-execution": {
@@ -114,6 +116,11 @@ ACCEPTANCE_SCOPES = {
                 "tests/test_coherent_state_set.py",
                 "tests/test_tip_source_gui.py", "tests/test_beam_comparison.py",
                 "tests/test_particle_energy_handoff.py")),
+            "field-ui/FU-12": ("Shared filter mechanics, assembled 3D geometry and workspace views", (
+                "tests/test_energy_filter_mechanical_clipping.py", "tests/test_energy_filter_model_3d.py",
+                "tests/test_energy_filter_workspace_views.py")),
+            "field-ui/FU-13": ("Settled live edits and latest particle frame gate coherent refresh", (
+                "tests/test_live_beam_refresh.py",)),
         },
     },
     "particle-continuation": {
@@ -131,6 +138,8 @@ ACCEPTANCE_SCOPES = {
             "particle-continuation/PC-04": ("Archive identity and latest file-request ownership", (
                 "tests/test_section_archive_identity.py", "tests/test_result_file_request_routing.py",
                 "tests/test_result_files_gui.py")),
+            "particle-continuation/PC-05": ("Specimen downstream handoff, branch weights and executed flight times", (
+                "tests/test_downstream_transport.py", "tests/test_specimen_time_of_flight.py")),
         },
     },
     "performance-observation": {

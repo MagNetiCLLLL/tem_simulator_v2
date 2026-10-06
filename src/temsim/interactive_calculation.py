@@ -1,8 +1,9 @@
 """Bounded, detached optical banks and independent physical signal readout.
 
 Lens and pre-specimen aperture axes are solved at explicit grid nodes. Post-
-specimen stops are replayed on retained, unmasked trajectory coordinates; wave
-readout propagates complex configurations again, never subtracts intensities.
+specimen stops are replayed on retained, unmasked trajectory coordinates.
+Completed historical image products may be reused. New coherent images and TEM
+reprojection remain source-gated; the Electron beam pipeline is separate.
 No bank result is published into the main-window high-accuracy result cache.
 """
 from __future__ import annotations

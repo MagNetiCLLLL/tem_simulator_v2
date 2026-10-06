@@ -1,7 +1,8 @@
 """Numerical budgets for optical diagnostics and physical particle tuning.
 
 X/Y are metres, slopes radians and axial positions millimetres. Medium
-tuning traces interior source quadrature plus zero-current support probes.
+tuning adds zero-current support probes unless the source has an explicit
+product quadrature, whose complete weighted population is retained unchanged.
 An envelope is a display guide, not a reconstructed electron distribution.
 """
 from dataclasses import dataclass
@@ -29,12 +30,17 @@ def is_tuning_quality(quality):
 def resolve_tuning_ray_count(state, quality, requested):
     """Keep all selected source strata, including in a small optical preview.
 
-    High accuracy uses its explicit user budget. Ordinary sources retain the
-    existing 49/193-ray defaults. Support probes carry no source current.
+    High accuracy uses its explicit user budget. Explicit product quadratures
+    keep all their factors and samples; ordinary sources retain the existing
+    49/193-ray defaults. Support probes carry no source current.
     """
     if quality not in TUNING_PROFILES:
         return int(requested)
-    model = getattr(getattr(state.electron_gun,"emitter",None),"surface_model",None)
+    emitter = getattr(state.electron_gun, "emitter", None)
+    quadrature = getattr(emitter, "quadrature", None)
+    if quadrature is not None:
+        return int(quadrature.validate().total)
+    model = getattr(emitter, "surface_model", None)
     if model is None or model.emission.spatial_sampling != "apex_stratified_v1":
         return int(requested)
     minimum = 81 if model.emission.angular_sampling.startswith("tangent_stratified_") else 9
@@ -54,11 +60,14 @@ def prepare_tuning_snapshot(state, quality, *, particle_signals=False):
     state._tuning_quality = quality
     emitter = getattr(state.electron_gun, "emitter", None)
     if emitter is not None:
-        emitter._tuning_boundary_probes = profile.boundary_probes
-        emitter._tuning_surface_probes = (33 if quality == "Medium" else 1)
+        # A product quadrature is an indivisible weighted population. Replacing
+        # its samples with probes would change its factors and physical weights.
+        product = getattr(emitter, "quadrature", None) is not None
+        emitter._tuning_boundary_probes = 0 if product else profile.boundary_probes
+        emitter._tuning_surface_probes = 0 if product else (33 if quality == "Medium" else 1)
     # The legacy optical diagnostic omits raster and material observables.
     # Physical particle tuning preserves raster, elastic/inelastic scattering
-    # and independently selected EDS. Coherent wave development stays paused.
+    # and independently selected EDS. Live tuning does not request wave products.
     if not particle_signals:
         state.ac_deflector.scan_enabled = False
         state.descan_deflector.scan_enabled = False

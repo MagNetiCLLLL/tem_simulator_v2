@@ -1,8 +1,9 @@
 """One captured instrument electrostatic solution, independent of observation.
 
-The grounded column liner and its assembled downstream end define the cold-FEG
-solve domain. A user cutoff only limits particle transport; it never changes
-the grid or downstream Dirichlet boundary of the upstream electric field.
+The grounded column liner and its assembled axial downstream end define the
+cold-FEG solve domain. An installed curved filter owns the path beyond its
+declared entrance handoff, not the recording module's layout envelope. A user
+cutoff never changes the grid or downstream Dirichlet boundary.
 """
 from __future__ import annotations
 
@@ -27,6 +28,22 @@ def instrument_electric_end_mm(state):
     ends = [float(row["end_z_mm"] if isinstance(row, dict) else row.end_z_mm) for row in rows]
     if assembly is not None and hasattr(assembly, "exit_z_mm"):
         end = float(assembly.exit_z_mm)
+        from temsim.component_keys import ENERGY_FILTER_ENTRANCE_APERTURE
+        parts = {part.key: part for part in getattr(assembly, "parts", ())}
+        interface = parts.get("energy_filter")
+        entrance = parts.get(ENERGY_FILTER_ENTRANCE_APERTURE)
+        if interface is not None or entrance is not None:
+            if interface is None or entrance is None:
+                raise ValueError("Instrument electric domain requires the complete Energy Filter entrance interface")
+            handoff = float(interface.center_z_mm)
+            if (not np.isfinite(handoff) or not np.isclose(
+                    handoff, float(entrance.center_z_mm), rtol=0., atol=1e-9)
+                    or handoff > end):
+                raise ValueError("Energy Filter axial handoff must coincide with its resolved entrance aperture inside the assembly")
+            # This installed mechanical coordinate is independent of runtime
+            # recording choices and observation cutoffs. Never silently shrink
+            # it to a truncated liner: missing coverage remains a hard error.
+            end = handoff
     elif ends:
         # Standalone physical-input fixtures can carry the same resolved liner
         # without owning a State. This is still mechanical, never a view limit.
@@ -35,7 +52,8 @@ def instrument_electric_end_mm(state):
         raise ValueError("Instrument electric field needs a resolved mechanical domain")
     if not np.isfinite(end) or end <= float(gun.exit_plane_z_mm):
         raise ValueError("Instrument electric domain must extend beyond the physical gun exit")
-    if getattr(gun, "type_key", "") == "cold_feg" and (not ends or max(ends) < end-1e-10):
+    if getattr(gun, "type_key", "") == "cold_feg" and (
+            not ends or not np.isfinite(ends).all() or max(ends) < end-1e-10):
         raise ValueError("Instrument electric domain is not covered by the connected grounded liner")
     return end
 

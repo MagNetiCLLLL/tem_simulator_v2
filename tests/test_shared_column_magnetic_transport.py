@@ -221,7 +221,7 @@ def test_gun_quadrupole_uses_one_shared_coefficient_in_field_queries_and_plans(r
                                expected, atol=1e-12)
 
 
-def test_paused_wave_preparation_rejects_finite_gun_dipole_before_propagation(monkeypatch):
+def test_wave_preparation_rejects_undeclared_electric_operator_with_gun_dipole(monkeypatch):
     from temsim.optics.electron_gun.alignment import GunDeflector
     from temsim.physics import column_wave
     state, _ = state_with_coil(step=.5)
@@ -230,19 +230,28 @@ def test_paused_wave_preparation_rejects_finite_gun_dipole_before_propagation(mo
     state.electron_gun = SimpleNamespace(deflector=GunDeflector(
         5., 8., 20., 10., 5., 8., 2., soft_edge_mm=.5, upper_field_y_mt=.01))
     monkeypatch.setattr(column_wave, "_vacuum_segments", lambda *_args: ())
-    with pytest.raises(ValueError, match="coherent development is paused"):
+    # This synthetic gun's electric provider has no declared wave operator.
+    # Finite magnetic support no longer triggers a blanket coherent pause.
+    with pytest.raises(ValueError, match="Non-polynomial electric maps need their resolved wave Hamiltonian"):
         column_wave._prepare_column(state, 0., 10., .5)
 
 
-def test_paused_wave_preparation_rejects_overlap_even_when_coil_center_is_outside(monkeypatch):
+def test_wave_preparation_retains_finite_overlap_when_coil_center_is_outside(monkeypatch):
     from temsim.physics import column_wave
     state, _ = state_with_coil(step=.2)
     state.apertures = []
     monkeypatch.setattr(column_wave, "_vacuum_segments", lambda *_args: ())
     # The powered coil spans 4--6 mm while its centre lies beyond this segment.
-    # Its original wave event builder produces no affine event here.
-    with pytest.raises(ValueError, match="coherent development is paused"):
-        column_wave._prepare_column(state, 0., 4.5, .2)
+    # Its centre lies outside, but the shared plan must retain the first quarter
+    # of its finite force without relocating a thin kick to the endpoint.
+    plan, _radii, _stops, owners = column_wave._prepare_column(state, 0., 4.5, .2)
+    assert len(owners) == 1 and owners[0]["finite_field"]
+    assert owners[0]["z_mm"] == 5.
+    assert np.any(plan.dipole_bx_t) and np.any(plan.dipole_by_t)
+    assert not np.any(plan.kick_x_rad) and not np.any(plan.kick_y_rad)
+    result = core.execute_propagation_plan(state, plan, *(np.zeros(1),)*4)
+    assert result[2][-1, 0] == pytest.approx(.0003/4, abs=1e-18)
+    assert result[1][-1, 0] == pytest.approx(.0003/4*.0005/2, abs=1e-19)
 
 
 def test_alignment_uses_complete_xy_map_for_shared_gun_skew():

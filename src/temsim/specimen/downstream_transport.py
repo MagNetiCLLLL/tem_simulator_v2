@@ -26,7 +26,6 @@ from temsim.physics.chromatic import (
 from temsim.physics.column_wall import clip_column_wall
 from temsim.physics.core import propagate
 from temsim.physics.recording_clipping import clip_recording_planes
-from temsim.physics.recording_stop import determine_tem_stop_z
 from temsim.physics.simulation import Branch, RAY_INTERACTION_COLOURS
 from temsim.specimen.inelastic import real_inelastic_ray_branches
 from temsim.specimen.axial_field_transport import (
@@ -283,7 +282,12 @@ def build_geometric_specimen_exit(
     population; elastic and inelastic branch weights are never added together.
     """
 
-    stop_z_mm = float(determine_tem_stop_z(state) if stop_z_mm is None else stop_z_mm)
+    if stop_z_mm is None:
+        # Default transport ends at the straight-column handoff, including
+        # the installed filter entrance rather than a recording-plane margin.
+        from temsim.physics.particle_sections import section_limits
+        stop_z_mm = section_limits(state)[1]
+    stop_z_mm = float(stop_z_mm)
     if not math.isfinite(stop_z_mm) or stop_z_mm < float(state.sample.z_mm):
         raise ValueError("Specimen downstream stop must be finite and at or after its reference plane")
     save_z_mm = tuple(float(value) for value in save_z_mm

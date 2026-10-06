@@ -252,3 +252,91 @@ def test_potential_rise_gauge_and_wien_field_are_added_once():
     potential, electric = record.interpolate([[0.,0.,.1]])
     np.testing.assert_array_equal(potential, [4.])
     np.testing.assert_array_equal(electric, [[4.,0.,2.]])
+
+
+def _filter_state():
+    from temsim.assembly_catalog import AssemblyCatalog, AssemblySelection
+    state = default_state()
+    AssemblyCatalog().apply(state, AssemblySelection("FEG", "C3", "Energy Filter"))
+    return state
+
+
+@pytest.mark.parametrize("curvature", [0., .02])
+def test_installed_filter_fixed_electric_domain_reaches_declared_axial_handoff(curvature):
+    from temsim.physics.particle_sections import section_limits
+    from temsim.physics.closed_gun_field import _physical_liner_rows
+    state = _filter_state()
+    gun, assembly = state.electron_gun, state._resolved_assembly
+    gun.emitter.curvature_nm_inv = curvature
+    handoff = assembly.part("energy_filter").center_z_mm
+    assert handoff == assembly.part("energy_filter_entrance_aperture").center_z_mm
+    assert instrument_electric_end_mm(state) == handoff == section_limits(state)[1]
+    assert handoff < assembly.exit_z_mm
+    assert max(row.end_z_mm for row in assembly.vacuum_liner_segments) == handoff
+    physical = _physical_liner_rows(gun, None)
+    assert physical[-1]["stop_m"] == handoff * 1e-3
+    with instrument_gun_field_context(state):
+        request = closed_field_request(gun)
+    assert request["domain"]["exit_m"] == handoff * 1e-3
+    assert request["grounded_liner"] == physical
+    assert not hasattr(gun, "_instrument_electric_end_mm")
+
+
+def test_filter_inlet_carrier_interval_is_covered_by_same_cached_electric_field(tiny_solver):
+    state = _filter_state()
+    inlet = state._resolved_assembly.part("energy_filter_entrance_aperture")
+    captured = capture_instrument_electric_field(state)
+    assert captured.bounds_m[1, 2] == inlet.center_z_mm * 1e-3
+    for stop in (1.7, inlet.start_z_mm * 1e-3, (inlet.center_z_mm - .1) * 1e-3, inlet.center_z_mm * 1e-3):
+        _, provider, _ = _prepare_electric_provider(state, stop)
+        assert provider is captured.provider
+        captured.interpolate([[0., 0., stop]])
+    with pytest.raises(ValueError, match="outside the fixed instrument"):
+        _prepare_electric_provider(state, inlet.center_z_mm * 1e-3 + 1e-6)
+    assert len(tiny_solver) == 1
+
+
+def test_filter_domain_does_not_follow_observation_or_carrier_envelope():
+    state = _filter_state()
+    assembly = state._resolved_assembly
+    end = instrument_electric_end_mm(state)
+    state.camera.inserted = not state.camera.inserted
+    state.step_mm *= 2.
+    state._resolved_assembly = replace(assembly, parts=tuple(
+        replace(part, start_z_mm=part.start_z_mm - 1., length_mm=part.length_mm + 1.)
+        if part.key == "energy_filter_entrance_aperture" else part for part in assembly.parts))
+    assert instrument_electric_end_mm(state) == end
+
+
+def test_filter_domain_rejects_truncated_liner_instead_of_silently_shortening():
+    state = _filter_state()
+    gun = state.electron_gun
+    rows = list(gun._grounded_outlet_liner_segments)
+    last = max(range(len(rows)), key=lambda index: rows[index].end_z_mm)
+    rows[last] = replace(rows[last], end_z_mm=rows[last].end_z_mm - .1)
+    gun._grounded_outlet_liner_segments = tuple(rows)
+    with pytest.raises(ValueError, match="not covered by the connected grounded liner"):
+        instrument_electric_end_mm(state)
+
+
+def test_filter_field_request_still_rejects_disconnected_actual_liner():
+    state = _filter_state()
+    gun = state.electron_gun
+    rows = list(gun._grounded_outlet_liner_segments)
+    last = max(range(len(rows)), key=lambda index: rows[index].end_z_mm)
+    rows[last] = replace(rows[last], start_z_mm=rows[last].start_z_mm + .1)
+    gun._grounded_outlet_liner_segments = tuple(rows)
+    # Endpoint coverage alone is insufficient: the ordinary field request
+    # must retain its complete continuity validation before any solver runs.
+    assert instrument_electric_end_mm(state) == state.energy_filter.entrance_z_mm
+    with instrument_gun_field_context(state), pytest.raises(ValueError, match="contiguous and non-overlapping"):
+        closed_field_request(gun)
+
+
+def test_filter_domain_rejects_inconsistent_resolved_interface():
+    state = _filter_state()
+    state._resolved_assembly = replace(state._resolved_assembly, parts=tuple(
+        replace(part, center_z_mm=part.center_z_mm + 1.) if part.key == "energy_filter" else part
+        for part in state._resolved_assembly.parts))
+    with pytest.raises(ValueError, match="handoff must coincide"):
+        instrument_electric_end_mm(state)

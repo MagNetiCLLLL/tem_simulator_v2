@@ -31,7 +31,7 @@ class InstrumentConfigurationDialog(QDialog):
         self.catalog, self.state_provider, self.on_assemble = catalog, state_provider, on_assemble
         self.settings = settings if settings is not None else QSettings()
         self.settings_key = f"instrument_configuration/v1/{layout_id}"
-        self.checked = None
+        self._assembling = False
         self._updating = False
         self._assembly = None
         self.setObjectName("instrumentConfigurationDialog")
@@ -39,7 +39,7 @@ class InstrumentConfigurationDialog(QDialog):
         self.resize(1240, 780)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         outer = QVBoxLayout(self)
-        note = QLabel("Choose units from source to detector. Check the draft, then assemble.")
+        note = QLabel("Choose units from source to detector, then Assemble.")
         note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         outer.addWidget(note)
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -82,10 +82,9 @@ class InstrumentConfigurationDialog(QDialog):
         self.unit_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         left_layout.addWidget(self.unit_status)
         self.splitter.addWidget(left)
-        self.review = PhysicalLayoutView()
+        self.review = PhysicalLayoutView(include_editor=False)
         self.review.setObjectName("configurationPhysicalReview")
         # Configuration chooses whole units, never edits a component definition.
-        self.review.tabs.setTabVisible(1, False)
         self.review.edit_cell.hide()
         self.review.assembly_3d.edit_part.hide()
         self.review.plot.setToolTip("Select hardware to highlight its assembly unit. Geometry is read-only here.")
@@ -93,23 +92,20 @@ class InstrumentConfigurationDialog(QDialog):
         self.review.component_activated.connect(lambda key, _: self.select_component(key))
         self.splitter.addWidget(self.review)
         self.splitter.setSizes([390, 850])
-        self.preview_status = QLabel("Installed assembly · draft not checked")
+        self.preview_status = QLabel("Installed assembly")
         self.preview_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         outer.addWidget(self.preview_status)
-        self.status = QLabel("Check validates assembly geometry and interfaces; existing operating values are retained where supported.")
+        self.status = QLabel("Assemble validates geometry and interfaces before applying; existing operating values are retained where supported.")
         self.status.setWordWrap(True)
         self.status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         outer.addWidget(self.status)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
-        self.check_button = QPushButton("Check")
         self.assemble_button = QPushButton("Assemble")
-        self.assemble_button.setEnabled(False)
         self.close_button = QPushButton("Close")
-        for button in (self.check_button, self.assemble_button, self.close_button):
+        for button in (self.assemble_button, self.close_button):
             buttons.addWidget(button)
         outer.addLayout(buttons)
-        self.check_button.clicked.connect(self.check)
         self.assemble_button.clicked.connect(self.assemble)
         self.close_button.clicked.connect(self.reject)
         self.table.currentCellChanged.connect(lambda *_: self._select_unit())
@@ -152,17 +148,19 @@ class InstrumentConfigurationDialog(QDialog):
         if self._updating:
             return
         self._dependencies()
-        self.checked = None
-        self.assemble_button.setEnabled(False)
-        self.preview_status.setText("Previous assembly view · draft changed; Check to update")
-        self.status.setText("Draft changed. Check before assembling.")
+        self.preview_status.setText("Installed assembly shown · draft changed")
+        self.status.setText("Draft changed. Assemble to apply these choices.")
         self.table.setCurrentCell(dict((k, i) for i, (k, _) in enumerate(UNITS))[key], 0)
 
     def _show_preview(self, state):
+        from temsim.energy_filter_model_3d import energy_filter_render_values
         self._assembly = state._resolved_assembly
+        runtime = dict(self.review.assembly_3d._runtime_values)
+        for key, values in energy_filter_render_values(state).items():
+            runtime[key] = {**runtime.get(key, {}), **values}
+        self.review.assembly_3d.set_assembly(self._assembly, runtime)
         self.review.display_result(SimpleNamespace(assembly=self._assembly,
             layout=state._resolved_optics_layout, state_snapshot=state))
-        self.review.assembly_3d.set_assembly(self._assembly)
         self._select_unit()
 
     def _select_unit(self):
@@ -191,30 +189,20 @@ class InstrumentConfigurationDialog(QDialog):
         row = next(i for i, (name, _) in enumerate(UNITS) if name == unit)
         self.table.setCurrentCell(row, 0)
 
-    def check(self):
-        self.checked = None
+    def assemble(self):
+        if self._assembling:
+            return
+        self._assembling = True
         self.assemble_button.setEnabled(False)
         try:
             checked = check_instrument_configuration(self.state_provider(), self.catalog, self.units())
-            self._show_preview(checked.candidate.restore())
-            self.checked = checked
-            self.preview_status.setText("Checked draft · current instrument unchanged")
-            self.status.setText("Check passed. Assemble applies this configuration; lens preset calibration is separate.")
-            self.assemble_button.setEnabled(True)
+            self.on_assemble(checked)
         except Exception as exc:
-            self.status.setText(f"Check failed: {exc}")
-
-    def assemble(self):
-        if self.checked is None or self.checked.units != self.units():
-            self.status.setText("Check this draft before assembling.")
-            return
-        try:
-            self.on_assemble(self.checked)
-        except Exception as exc:
-            self.checked = None
-            self.assemble_button.setEnabled(False)
             self.status.setText(f"Assembly not applied: {exc}")
             return
+        finally:
+            self._assembling = False
+            self.assemble_button.setEnabled(True)
         self.accept()
 
     def done(self, result):

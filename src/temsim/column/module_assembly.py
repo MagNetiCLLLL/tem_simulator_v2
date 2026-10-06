@@ -20,6 +20,7 @@ from temsim.component_keys import (
     ENERGY_FILTER_CAMERA_DEFLECTOR,
     ENERGY_FILTER_DYNAMIC_FOCUS_QUADRUPOLE,
     ENERGY_FILTER_EFTEM_OUTPUT_PLANE,
+    ENERGY_FILTER_ENTRANCE_APERTURE,
     ENERGY_FILTER_MULTIPOLE_KEYS,
     ENERGY_FILTER_SHUTTER,
     ENERGY_FILTER_SLIT,
@@ -236,6 +237,20 @@ def _module_vacuum_segments(module, origin, resolved_parts):
     # their legacy envelopes nor their bore metadata define a vacuum wall.
     parts = [part for part in resolved_parts
              if part.module_key == module.key and not non_material_role(part.data)]
+    filter_entrance = next(
+        (part for part in parts if part.key == ENERGY_FILTER_ENTRANCE_APERTURE),
+        None,
+    )
+    if filter_entrance is not None:
+        # The recording module's exit is its layout envelope, not an axial
+        # pipe endpoint once the beam enters the curved filter branch. The
+        # straight enclosure reaches the declared optical handoff inside the
+        # inlet carrier, not merely the carrier's upstream envelope face.
+        # Particle transport, grounded electrostatics, bore clipping and both
+        # layout views therefore share this physical axial boundary.
+        module_end = float(filter_entrance.center_z_mm)
+        if not module_start < module_end <= origin + module.exit_z_mm:
+            raise ValueError("Energy Filter inlet must terminate the module vacuum span")
     breakpoints = {float(module_start), float(module_end)}
     continuous_tube = _module_continuous_vacuum_tube(module, origin)
     if continuous_tube is not None:

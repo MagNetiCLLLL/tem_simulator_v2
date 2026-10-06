@@ -122,6 +122,65 @@ def _stub_times(z, tx, ty, energy_offset, **kwargs):
     return initial[None, :] + distance / _speed(energy)[None, :]
 
 
+@pytest.mark.parametrize("filter_option", ["No Energy Filter", "Energy Filter"])
+@pytest.mark.parametrize("explicit_stop", [False, True])
+def test_geometric_exit_default_respects_resolved_column_handoff(
+    monkeypatch, filter_option, explicit_stop,
+):
+    from temsim.assembly_catalog import AssemblyCatalog, AssemblySelection
+    from temsim.component_keys import ENERGY_FILTER_ENTRANCE_APERTURE
+    from temsim.optics.column import default_state
+    from temsim.physics.particle_sections import section_limits
+
+    physical_state = default_state()
+    assembly = AssemblyCatalog().apply(
+        physical_state, AssemblySelection("FEG", "C3", filter_option)
+    )
+    handoff = section_limits(physical_state)[1]
+    if filter_option == "Energy Filter":
+        assert handoff == pytest.approx(
+            assembly.part(ENERGY_FILTER_ENTRANCE_APERTURE).center_z_mm
+        )
+
+    # Use the resolved instrument's stop geometry with the small field-free
+    # transport fixture: this verifies dispatch and returned planes, no solver.
+    state = _test_state()
+    state.electron_gun = physical_state.electron_gun
+    state.energy_filter = physical_state.energy_filter
+    state.recording_planes = physical_state.recording_planes
+    assert section_limits(state)[1] == pytest.approx(handoff)
+    expected = 2.5 if explicit_stop else handoff
+    dispatched = []
+
+    def fake_propagate(_s, start, stop, x, tx, y, ty, _events, energy,
+                       *, save_z_mm=(), **kwargs):
+        dispatched.append(stop)
+        z = np.asarray((start, *save_z_mm, stop))
+        return (z,) + tuple(
+            np.tile(values, (len(z), 1)) for values in (x, tx, y, ty)
+        ) + (_stub_times(z, tx, ty, energy, **kwargs),)
+
+    monkeypatch.setattr(downstream_transport, "propagate", fake_propagate)
+    for name in ("clip_recording_planes", "clip_column_wall"):
+        monkeypatch.setattr(
+            downstream_transport, name,
+            lambda _s, _z, _x, _y, alive, blocked, keys: (alive, blocked, keys),
+        )
+    result = build_geometric_specimen_exit(
+        state, _test_simulation(), _test_transport(),
+        stop_z_mm=expected if explicit_stop else None,
+        save_z_mm=(expected - 0.1, expected + 0.1),
+    )
+
+    assert dispatched and all(stop == expected for stop in dispatched)
+    assert result.metrics["downstream_stop_z_mm"] == pytest.approx(expected)
+    assert result.branches
+    for branch in result.branches:
+        assert branch.z[-1] == pytest.approx(expected)
+        assert np.all(branch.z <= expected)
+        assert np.any(np.isclose(branch.z, expected - 0.1))
+
+
 def test_geometric_exit_multiplies_elastic_and_inelastic_probabilities(monkeypatch):
     def fake_propagate(
         _state,
@@ -148,7 +207,6 @@ def test_geometric_exit_multiplies_elastic_and_inelastic_probabilities(monkeypat
             _stub_times(z, tx, ty, _energy, **kwargs),
         )
 
-    monkeypatch.setattr(downstream_transport, "determine_tem_stop_z", lambda _s: 3.0)
     monkeypatch.setattr(downstream_transport, "propagate", fake_propagate)
     monkeypatch.setattr(
         downstream_transport,
@@ -167,6 +225,7 @@ def test_geometric_exit_multiplies_elastic_and_inelastic_probabilities(monkeypat
         _test_transport(),
         _test_inelastic_distribution(),
         save_z_mm=(2.0,),
+        stop_z_mm=3.0,
     )
 
     assert len(result.branches) == 4
@@ -219,7 +278,6 @@ def test_geometric_exit_back_projects_terminal_line_to_common_sample_plane(
             _stub_times(z, tx, ty, _energy, **kwargs),
         )
 
-    monkeypatch.setattr(downstream_transport, "determine_tem_stop_z", lambda _s: 3.0)
     monkeypatch.setattr(downstream_transport, "propagate", fake_propagate)
     monkeypatch.setattr(
         downstream_transport,
@@ -236,6 +294,7 @@ def test_geometric_exit_back_projects_terminal_line_to_common_sample_plane(
         _test_state(),
         _test_simulation(),
         _test_transport(),
+        stop_z_mm=3.0,
     )
 
     expected_scattered_x_m = (
@@ -255,7 +314,6 @@ def test_grouped_specimen_exit_preserves_sparse_repeated_source_lineage(monkeypa
             np.tile(values, (2, 1)) for values in (x, tx, y, ty)
         ) + (_stub_times(z, tx, ty, _energy, **_kw),)
 
-    monkeypatch.setattr(downstream_transport, "determine_tem_stop_z", lambda _s: 3.0)
     monkeypatch.setattr(downstream_transport, "propagate", fake_propagate)
     for name in ("clip_recording_planes", "clip_column_wall"):
         monkeypatch.setattr(
@@ -279,10 +337,10 @@ def test_grouped_specimen_exit_preserves_sparse_repeated_source_lineage(monkeypa
     )
     transport = replace(_test_transport(), terminal_electrons=terminal)
     result = build_geometric_specimen_exit(
-        _test_state(), simulation, transport, _test_inelastic_distribution()
+        _test_state(), simulation, transport, _test_inelastic_distribution(), stop_z_mm=3.0
     )
     baseline = build_geometric_specimen_exit(
-        _test_state(), _test_simulation(), transport, _test_inelastic_distribution()
+        _test_state(), _test_simulation(), transport, _test_inelastic_distribution(), stop_z_mm=3.0
     )
     assert len(result.branches) == 4
     assert result.metrics == baseline.metrics

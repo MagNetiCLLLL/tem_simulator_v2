@@ -465,6 +465,7 @@ class CoherentBeamPage(QWidget):
         self.state_provider = state_provider
         self.source_applier = None
         self.paired_busy_provider = None
+        self.live_refresh_enabled = False
         self._surface_edge_phase_rad = None
         self._loaded_source_settings = None
         self._loaded_source_values = {}
@@ -776,9 +777,13 @@ class CoherentBeamPage(QWidget):
         for control in (self.mean_caption, self.surface_mean, self.rms_caption, self.surface_rms):
             control.setVisible(surface)
 
-    def set_state(self, state):
+    def set_state(self, state, *, reset_source=False):
         if self._closed:
             return
+        loaded_settings = self._loaded_source_settings
+        loaded_values = self._loaded_source_values
+        draft = (self._settings() if not reset_source and state is self._state
+                 and loaded_settings is not None else None)
         self._state = state
         self.mark_inputs_stale()
         self.apply_source_button.setEnabled(False)
@@ -806,18 +811,26 @@ class CoherentBeamPage(QWidget):
             self.source_assumption.clear()
             return
         self.source_enabled.setEnabled(True)
+        # Live optics edits publish the same instrument without applying its
+        # Tip editor. Keep that draft until Apply, an explicit source reset or
+        # a genuinely changed applied source replaces it. Stale/cancel above
+        # still applies to every optical change.
+        preserve_draft = (draft is not None and settings == loaded_settings
+                          and draft != settings)
         surface = emitter.surface_model
         self._source_model = "gaussian" if surface is None else "surface"
         self._show_source_controls()
         self._surface_edge_phase_rad = settings.surface_edge_phase_rad
-        self.source_enabled.blockSignals(True)
-        self.source_enabled.setChecked(settings.enabled)
-        self.source_enabled.blockSignals(False)
+        if not preserve_draft:
+            self.source_enabled.blockSignals(True)
+            self.source_enabled.setChecked(settings.enabled)
+            self.source_enabled.blockSignals(False)
         self.apply_source_button.setEnabled(True)
         if surface is None:
-            self.tip_boundary.blockSignals(True)
-            self.tip_boundary.setCurrentIndex(self.tip_boundary.findData(settings.boundary_model))
-            self.tip_boundary.blockSignals(False)
+            if not preserve_draft:
+                self.tip_boundary.blockSignals(True)
+                self.tip_boundary.setCurrentIndex(self.tip_boundary.findData(settings.boundary_model))
+                self.tip_boundary.blockSignals(False)
             for control, field in (
                     (self.tip_fwhm, "tip_fwhm_nm"),
                     (self.tip_energy, "tip_mean_energy_ev"),
@@ -831,9 +844,10 @@ class CoherentBeamPage(QWidget):
                     (self.tip_tilt_x, "tip_tilt_x_mrad"),
                     (self.tip_tilt_y, "tip_tilt_y_mrad"),
                     (self.angle_rms, "incoherent_angle_rms_mrad")):
-                control.blockSignals(True)
-                control.setValue(getattr(settings, field))
-                control.blockSignals(False)
+                if not preserve_draft:
+                    control.blockSignals(True)
+                    control.setValue(getattr(settings, field))
+                    control.blockSignals(False)
             self.source_info.setText(
                 f"Planar Gaussian boundary | emission FWHM {emitter.virtual_source_fwhm_nm:g} nm | "
                 f"mean kinetic energy {emitter.emission_energy_ev:g} eV | "
@@ -855,7 +869,7 @@ class CoherentBeamPage(QWidget):
                                    (self.surface_rms, settings.surface_energy_rms_ev)):
                 control.blockSignals(True)
                 control.setEnabled(value is not None)
-                if value is not None:
+                if value is not None and not preserve_draft:
                     control.setValue(value)
                 control.blockSignals(False)
             self.source_info.setText(f"Curved physical tip | apex radius {surface.geometry.apex_radius_nm:g} nm | cap {surface.emission.cap_half_angle_deg:g}° | reference current {surface.current_na:g} nA. The actual metal geometry is used by the electrode-field solver.")
@@ -879,7 +893,11 @@ class CoherentBeamPage(QWidget):
                     "Mean energy and RMS are editable physical inputs, not fixed acceptance values.")
             self._set_default_energy_samples(1 if settings.surface_energy_rms_ev == 0. else 9)
         self._loaded_source_settings = settings
-        self._loaded_source_values = asdict(self._draft_settings())
+        self._loaded_source_values = loaded_values if preserve_draft else asdict(self._draft_settings())
+        if preserve_draft:
+            self.status.setText("Inputs changed; unapplied Tip draft retained. "
+                                "Click Apply tip parameters before Calculate beam."
+                                + (" Previous optics remain displayed." if self.result is not None else ""))
         if self.result is None:
             # Non-vacuum specimen interiors need a truncated material
             # operator. Choose the actual exit boundary for the first view.
@@ -940,7 +958,7 @@ class CoherentBeamPage(QWidget):
             self.status.setStyleSheet("")
             self.status.setText("Tip unchanged. Existing calculation and cache retained.")
             return
-        self.set_state(state)
+        self.set_state(state, reset_source=True)
         # Source editing does not change the observation cursor or its range.
         self.target_z.blockSignals(True)
         self.target_z.setValue(target)
@@ -1370,10 +1388,13 @@ class CoherentBeamPage(QWidget):
         self._update_plane_positions()
         self._refresh_intensity()
         self.status.setStyleSheet("")
+        input_hint = ("Live tuning refreshes after edits settle; other input changes require Calculate."
+                      if self.live_refresh_enabled else
+                      "Source or instrument changes require Calculate.")
         self.status.setText(f"Completed exact plane Z {result.checkpoint.plane_z_mm:.9g} mm in captured optics. "
             + (f"Updating requested Z {self._target_z_mm:.9g} mm automatically."
                if result.checkpoint.plane_z_mm != self._target_z_mm else
-               "Move Z for automatic readout; source or instrument changes require Calculate."))
+               "Move Z for automatic readout. " + input_hint))
         grids = "; ".join(f"{nx} × {ny}" for ny, nx in preview.grid_shapes)
         grid_text = (f"Displayed wave grid{'s' if len(preview.grid_shapes) > 1 else ''}: {grids} cells"
                      if grids else "Displayed wave grid: unavailable")

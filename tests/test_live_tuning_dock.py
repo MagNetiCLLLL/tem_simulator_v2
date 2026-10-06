@@ -153,7 +153,7 @@ def test_shared_ray_status_cannot_replace_cached_signal_readout(windows, qtbot, 
     page.notes.setText("Cached model details")
     frame = SimpleNamespace(simulation=SimpleNamespace(metrics={"tuning_quality": "Medium"}))
     rendered = []
-    monkeypatch.setattr(window.workspace, "display_result", lambda r, q: rendered.append((r, q)))
+    monkeypatch.setattr(window.workspace, "display_result", lambda r, q, **_kwargs: rendered.append((r, q)))
     monkeypatch.setattr(window, "_interactive_preview_in_flight", lambda: True)
     window._interactive_preview_pending = True
     window._calculation_ready("Medium", frame, 0.1)

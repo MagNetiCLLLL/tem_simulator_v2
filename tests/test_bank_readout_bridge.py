@@ -140,7 +140,7 @@ def test_build_marks_previous_before_any_immediate_result(page, monkeypatch):
     page._readout_ready(previous)
     page.source_state = object()
     monkeypatch.setattr(page, "plan", lambda: SimpleNamespace(point_count=1))
-    monkeypatch.setattr(page.controller, "build", lambda *args: page._readout_ready(replacement))
+    monkeypatch.setattr(page.controller, "build", lambda *args, **kwargs: page._readout_ready(replacement))
     events = _events(page)
     page.start_build()
     assert events[0][0] == "status"
@@ -189,3 +189,65 @@ def test_readout_preserves_legacy_positional_constructor():
     assert result.wave == "wave" and result.stem == "stem"
     assert result.notes == ("notes",)
     assert result.state_snapshot is None
+
+
+@pytest.mark.parametrize("captured_backend, current_backend", [
+    ("CPU", "Require GPU"), ("Require GPU", "CPU"),
+])
+def test_new_bank_latches_current_backend_without_recapturing_physics(
+        page, monkeypatch, captured_backend, current_backend):
+    """Exercise page -> controller -> original worker without numerical work."""
+    import temsim.gui.interactive_controller as controller_module
+    from temsim.physics.compute_backend import BACKEND_CPU
+
+    captured = backend.detached_state(default_state())
+    captured.acceleration_backend = captured_backend
+    captured.acceleration_enabled = captured_backend != BACKEND_CPU
+    captured.lenses[0].percent = 37.
+    captured_before = captured.to_dict()
+    current = default_state()
+    current.acceleration_backend = current_backend
+    current.acceleration_enabled = current_backend != BACKEND_CPU
+    current.lenses[0].percent = 63.
+    page.set_source(captured)
+    page.current_state = lambda: current
+    control = next(c for c in page.controls if c.group == "lens")
+    page.choice.setCurrentIndex(page.choice.findData(control))
+    page._add_range()
+    page.ranges.cellWidget(0, 1).setText("35")
+    page.ranges.cellWidget(0, 2).setText("39")
+    previous_bank = object()
+    page.controller.bank = previous_bank
+    workers, submitted = [], []
+    monkeypatch.setattr(page.controller.pool, "start", workers.append)
+
+    def bounded_build(state, plan, **kwargs):
+        submitted.append(state)
+        raise RuntimeError("Stopped before numerical solver")
+
+    monkeypatch.setattr(controller_module, "build_bank", bounded_build)
+    page.start_build()
+    assert len(workers) == 1
+    assert page.busy
+    pending = workers[0].state
+    assert pending is not captured and pending is not current
+    assert pending.acceleration_backend == current_backend
+    assert pending.acceleration_enabled == (current_backend != BACKEND_CPU)
+    assert pending.lenses[0].percent == 37.
+    expected = dict(captured_before, acceleration_backend=current_backend,
+                    acceleration_enabled=current_backend != BACKEND_CPU)
+    assert pending.to_dict() == expected
+    assert captured.to_dict() == captured_before
+
+    # A preference changed while queued applies to the next job. It cannot
+    # alter this bank midway, nor rewrite the previous bank's provenance.
+    current.acceleration_backend = captured_backend
+    current.acceleration_enabled = captured_backend != BACKEND_CPU
+    current.lenses[0].percent = 81.
+    workers[0].run()
+    assert submitted == [pending]
+    assert submitted[0].acceleration_backend == current_backend
+    assert submitted[0].lenses[0].percent == 37.
+    assert not page.busy
+    assert page.controller.bank is previous_bank
+    assert captured.to_dict() == captured_before

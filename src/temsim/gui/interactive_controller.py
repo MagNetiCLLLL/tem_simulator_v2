@@ -72,11 +72,20 @@ class InteractiveController(QObject):
         self.busy_changed.emit(True)
         self.pool.start(worker)
 
-    def build(self, state, plan, seeds=()):
+    def build(self, state, plan, seeds=(), *, compute_backend=None):
         from temsim.interactive_calculation import detached_state
         from temsim.instrument_snapshot import capture_instrument_snapshot
         from temsim.immutable_json import json_digest
+        from temsim.physics.compute_backend import BACKEND_CPU, validate_backend_selection
+        if compute_backend is not None:
+            compute_backend = validate_backend_selection(compute_backend)
         state = detached_state(state)
+        if compute_backend is not None:
+            # Keep captured physical inputs and completed results untouched.
+            # One execution policy is fixed before this job enters the queue;
+            # later toolbar edits cannot change individual optical points.
+            state.acceleration_backend = compute_backend
+            state.acceleration_enabled = compute_backend != BACKEND_CPU
         identity = json_digest(dict(state=capture_instrument_snapshot(state).digest, plan=plan))
         self._pending_readout = None
         self._start("build", lambda cancel, progress: build_bank(

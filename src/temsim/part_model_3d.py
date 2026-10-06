@@ -214,7 +214,7 @@ def _dimensions(part, by_key=None):
         unit = next((unit for unit in ("mm", "um", "nm", "deg") if name.endswith("_" + unit)), None)
         if unit is None:
             continue
-        if not any(token in name for token in ("diameter", "radius", "length", "width", "height", "thickness", "gap", "inset", "angle", "radial_profile", "material_intervals")):
+        if not any(token in name for token in ("diameter", "radius", "length", "width", "height", "thickness", "gap", "inset", "angle", "radial_profile", "material_intervals", "path_center", "path_entrance", "strip_center_pitch")):
             continue
         append(value, ("parts", part["key"], name),
                name.removesuffix("_" + unit).replace("_", " ").capitalize(), unit)
@@ -312,6 +312,9 @@ def _pole_section(part, start, end):
 
 
 def _legacy_part_meshes(part, by_key, count, aperture_index=0, runtime=None):
+    from temsim.energy_filter_model_3d import energy_filter_meshes, supports_energy_filter_part
+    if supports_energy_filter_part(part):
+        return energy_filter_meshes(part, by_key, count, runtime, aperture_index)
     from temsim.optics.electron_gun.tip_assembly import is_tip_part
     if is_tip_part(part):
         from temsim.tip_model_3d import tip_meshes
@@ -434,7 +437,36 @@ def _part_meshes(part, by_key, count, aperture_index=0, runtime=None):
         meshes, notes = _legacy_part_meshes(part, by_key, count, aperture_index, runtime)
     meshes = tuple(annotate_legacy_mesh(mesh, part, by_key) for mesh in meshes)
     if "model_3d" in part:
-        meshes = apply_model_features(part, meshes, angular_segments=count)
+        from temsim.energy_filter_model_3d import (
+            energy_filter_component_pose, rigid_mesh, supports_energy_filter_part,
+        )
+        if supports_energy_filter_part(part):
+            # The shared feature schema keeps its existing component-local
+            # transverse XY/longitudinal Z convention. Convert branch meshes
+            # to those axes before editing, then restore the branch frame.
+            origin, rotation = energy_filter_component_pose(part, by_key)
+            center = np.array((0., 0., _number(part["local_center_z_mm"], "local_center_z_mm")))
+            local = tuple(rigid_mesh(mesh, rotation.T, center - rotation.T @ origin) for mesh in meshes)
+            updated = apply_model_features(part, local, angular_segments=count)
+            if not explicit and not any(feature.get("enabled", True) for feature in part["model_3d"].get("features", ())):
+                # The generic solid annotator does not retain open-boundary or
+                # path-guide edges. Carry them through the same CAD transform.
+                from temsim.part_model_features import _transform
+                matrix, offset = _transform(part)
+                preserved = []
+                for old, new in zip(local, updated, strict=True):
+                    ids = {edge["id"] for edge in new.edges}
+                    extra = []
+                    for edge in old.edges:
+                        if edge["id"] not in ids:
+                            points = (edge["vertices"] - center) @ matrix.T + center + offset
+                            points.setflags(write=False)
+                            extra.append({**edge, "vertices": points})
+                    preserved.append(replace(new, edges=new.edges + tuple(extra)))
+                updated = tuple(preserved)
+            meshes = tuple(rigid_mesh(mesh, rotation, origin - rotation @ center) for mesh in updated)
+        else:
+            meshes = apply_model_features(part, meshes, angular_segments=count)
         notes += (f"{part['key']}: explicit 3D solid and feature geometry; the optical/magnetic solver does not infer a new field model from this mesh.",)
     return meshes, notes
 
@@ -453,6 +485,10 @@ def part_dimension_specs(document, part_key, *, runtime_values=None):
     if part.get("tip_particle_model"):
         from temsim.tip_model_3d import tip_dimension_overrides
         specs = tip_dimension_overrides(part, specs, (runtime_values or {}).get(part_key))
+    if part.get("branch_path_only"):
+        specs = tuple(replace(item, editable=False,
+                              reason="Zero main-column packing length; this component uses its branch path coordinate and its separately declared physical dimensions.")
+                      if item.path[-1] == "length_mm" else item for item in specs)
     specs = tuple(item if item.meaning is not None else replace(
         item, meaning=describe_parameter(by_key.get(item.path[1], part), item.path, by_key=by_key))
         for item in specs)

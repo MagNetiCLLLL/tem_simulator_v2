@@ -52,28 +52,29 @@ remain available below the matched rows, labelled **Active only**.
    Intermediate complete frames are labelled **Updating**. Release flushes the
    final value. Display rate depends on solver and drawing time, not mouse speed;
    50 ms is an input throttle, not a promised frame time.
-4. After tuning, select **Run high-accuracy once at current settings**. This
+4. After tuning, select **Run high-accuracy once at current settings** in the dock. This
    flushes the final slider value and submits one current-state calculation,
    not a sweep. Existing TEM/STEM/EDS enablement still determines its products.
 
-Preview traces 49 deterministic source samples with a maximum 1 mm integration
-step. Medium traces 160 interior samples plus 33 source-support probes at a
-maximum 0.25 mm step. The support probes span source-position and angle azimuths,
-plus the central ray; their current weights are zero. Interior samples retain
-the configured truncated Gaussian source and energy distribution. These are
+Preview normally traces 49 source samples with a maximum 1 mm integration
+step; Medium normally uses a 193-ray budget at a maximum 0.25 mm step, including
+zero-current support probes. Source-specific strata may require a larger bundle.
+An explicitly configured Tip position × direction × energy quadrature retains
+its complete population and weights in both tiers; it is never repartitioned
+or replaced by support probes. These are
 sampling/resolution tiers, independent of the Simulation menu's physical-model
 tiers; they do not silently replace a selected field model with ideal optics.
 
-Both tuning tiers omit specimen scattering, multislice, spectra, scan-frame
-generation and full transfer diagnostics. They retain the selected column field
-model, static deflection and physical clipping. Dynamic raster drive is paused
-in the detached tuning snapshot only. Medium shading joins sampled limits: it
-is not electron density or guaranteed beam support. Outer rays alone cannot
-determine interior aperture losses or nonlinear caustics. A small bundle may
-miss a narrow opening; quantitative signals still require the final calculation.
+The Live tuning particle path retains the selected source, column fields,
+scan drive, physical clipping, specimen scattering and independently enabled
+EDS transport. It updates particle detector signals for the current scan pixel;
+it does not acquire a complete STEM raster or request legacy TEM/STEM wave
+products. Medium shading joins sampled limits: it is not electron density or
+guaranteed beam support. A small bundle may miss a narrow opening; quantitative
+signals still require the final calculation.
 
-Auto can use a serial Numba instance of the existing RK4 equations for small
-tuning bundles, with NumPy fallback. CPU/GPU preferences remain available.
+All calculations use the toolbar's single CPU/GPU selection. Auto can use an
+available GPU; the reported backend records actual execution, including fallbacks.
 Ordinary model edits reject obsolete workers. During live slider motion, the
 current ray frame finishes before calculating the latest accumulated settings;
 intermediate frames never write their older values back to the live controls.
@@ -83,6 +84,24 @@ Cancellation checks bracket integration segments; an active native kernel is
 not force-killed. Previous high-accuracy images/spectra remain stored and are
 marked stale after edits, never erased because a low-count preview missed a stop.
 Nonlinear/FEM field solves and the first JIT compilation can still be slow.
+
+### Electron beam during Live tuning
+
+First use **Calculate beam** in **Electron beam** to obtain a successful wave
+result. Subsequent Live slider edits retain that image as previous data, cancel
+obsolete wave work, and wait until edits have settled for 300 ms and the latest
+particle preview has completed. They then submit one **Calculate beam** action
+with the latest optics and observation Z. This also honours the selected saved
+state/overlay mode and advanced classical-comparison option. There is no second
+source or backend control, and no interpolation between complex wave fields.
+The existing wave pipeline owns source admission, propagation and cache reuse.
+
+A particle-only session does not automatically start its first wave calculation.
+Unapplied Tip drafts are preserved and block automatic refresh. Explicit
+**Calculate beam**, **Cancel**, other input changes and a failed particle preview
+supersede a queued refresh. After a failure, use **Calculate beam** to retry;
+there is no repeated automatic retry. The 300 ms interval coalesces edits, not
+a guaranteed wave frame rate. Full wave propagation may still take much longer.
 
 Repeated exact Preview/Medium settings now use a bounded result history. Rotation
 and pan reuse display data; scalar edits no longer rebuild the instrument before
@@ -99,8 +118,8 @@ Their delayed presentation does not delay or clear shared scientific products.
 
 ## Optional advanced multi-point bank
 
-1. Configure the sample, installed/inserted components and requested TEM/STEM
-   wave products in their existing pages. Set High-accuracy rays and Step in
+1. Configure the sample and installed/inserted components in their existing
+   pages. Set High-accuracy rays and Step in
    the toolbar. Finish any running calculation or alignment.
 2. Select **Capture current settings**. Existing complete high-accuracy results
    are offered as dependency-checked seeds, not modified.
@@ -117,6 +136,10 @@ Their delayed presentation does not delay or clear shared scientific products.
    failure, cancellation or changed external inputs never publishes a partial bank.
    A conservative first-point storage projection stops an oversized request
    early. It can overestimate shared storage; live tuning avoids this bank cost.
+   The current toolbar compute backend is captured when **Build** is selected
+   and stays fixed for every point in that build, even if the toolbar changes
+   while the job is queued or running. Changing the backend does not require
+   recapturing physical settings and does not rewrite previous result provenance.
 6. Use **Cached controls** in the dock's right column and inspect
    the detector table in **Ray Diagram > Cached signals**. For images, select
    **Advanced bank** in the usual TEM/STEM image viewer. The controls belong to the
@@ -129,13 +152,20 @@ JSON; export describes ranges only and is not a portable simulation checkpoint.
 The RAM bank is session-local. Capture/build again after changing the sample,
 assembly, field map or an unlisted parameter. No automatic extrapolation occurs.
 
+Bank builds use the captured full-calculation workflow. They do not inherit the
+currently selected page's calculation workflow or execute the **Electron beam**
+development pipeline. Requests requiring new coherent TEM/STEM images remain
+blocked by production source admission, including when the shared tip has
+coherence parameters. Completed historical images can still be displayed.
+
 ### Shared image viewers
 
 - **Current calculation** displays the main calculation result. **Advanced bank**
   displays the last completed bank readout at its selected optical node and
-  declared readout values. Both use the same parameter schema and physical
-  pipeline, but a bank retains settings from capture time rather than following
-  later edits to the main instrument.
+  declared readout values. A bank retains physical settings from capture time
+  rather than following later edits to the main instrument. Its execution
+  backend is selected separately at build start; completed products retain
+  their original execution provenance.
 - Selecting a result source only selects stored products. It does not submit
   propagation, rebuild a bank, reproject a wave, recollect detector data or write
   cached parameters back into the instrument. Changing **Cached controls** still
@@ -162,8 +192,8 @@ simulation results.
 | Control | Work required |
 | --- | --- |
 | Lens excitation; upstream aperture diameter/X/Y | Precomputed optical nodes, using compatible source/specimen checkpoints |
-| Downstream aperture diameter/X/Y | Re-evaluate ray masks; repropagate coherent waves |
-| Inserted recording-detector Z, supported X/Y, width or annular inner diameter | Re-evaluate sequential interception; update wave/angle-resolved readout |
+| Downstream aperture diameter/X/Y | Re-evaluate ray masks; changed-stop TEM output is unavailable while coherent source admission is closed |
+| Inserted recording-detector Z, supported X/Y, width or annular inner diameter | Re-evaluate sequential ray interception; recollect retained STEM angular intensities when supported |
 
 Only controls implemented by each component are listed. Retracted apertures and
 detectors must first be inserted in the main settings and captured again. Detector
@@ -181,15 +211,15 @@ readout-plane displacements. TOML geometry is not rewritten by these controls.
   stops. Ordered physical stops are re-evaluated, preserving original source
   weights. Reopening an aperture never resurrects an upstream or wall loss.
   A zero-diameter aperture blocks even an exactly on-axis numerical ray.
-- TEM stores separate pre- and post-Objective-pupil complex configurations.
-  Aperture changes reapply the pupil and downstream coherent propagation;
-  frozen-phonon intensities are averaged incoherently. The existing paraxial
-  Objective-pupil and intermediate-plane wave approximations are retained.
-  Legacy results lacking a pre-pupil checkpoint need one TEM calculation.
-- Wave STEM automatically retains an in-memory diffraction-probability cube
-  when requested by the captured scan settings. No duplicate file-output
-  setting is needed. Allocation is checked against the remaining bank and
-  application budgets before the cube is created. Incomplete cubes are rejected.
+- An unchanged completed historical TEM recording may be reused. Changed
+  stops request TEM reprojection, which currently fails the production source
+  gate and is reported as unavailable. A retained Objective checkpoint or
+  configured coherent tip does not qualify a new coherent image. The separate
+  **Electron beam** workflow does not supply an Advanced-bank wave product.
+- Completed STEM products may contain an in-memory diffraction-probability
+  cube for changed-stop recollection. New wave STEM production remains
+  source-gated. Existing memory limits and incomplete-cube rejection apply;
+  a bank never substitutes missing raw angular data with a rendered image.
 - BF/DF/HAADF recollection uses the existing angle-resolved first-order physical
   routing model, including ordered apertures/detectors. It is not arbitrary-plane
   coherent STEM imaging: intensity data cannot reconstruct discarded phase.
@@ -214,11 +244,15 @@ describes pupil filtering before image formation.
 `tests/test_interactive_calculation.py` covers finite ranges, exact-node lookup,
 source weighting, shrink/reopen, detector-Z readout, first-detector precedence, upstream/wall losses,
 zero opening, cancellation, stale inputs, RAM bounds, incomplete cubes, UI
-required fields and retained-bank transaction semantics. Small CPU production
-tests verify source-checkpoint reuse, TEM replay versus a fresh projection, and
-one STEM specimen calculation shared by two P2 nodes and changed detector readout.
-These are limited-grid software tests, not instrument calibration or a claim of
-interactive frame rate for large production calculations.
+required fields and retained-bank transaction semantics. The TEM admission test
+explicitly imports the Si CIF fixture because the startup specimen is vacuum;
+TEM/STEM admission tests prohibit transport when the source is unqualified.
+The separate bounded particle-bank test covers source-checkpoint reuse.
+`tests/test_bank_readout_bridge.py` covers the current toolbar backend at build
+dispatch, fixed policy while queued, unchanged captured physical inputs and
+preserved previous-bank provenance. These software tests do not qualify a
+coherent source-to-image calculation or claim an interactive frame rate for
+large production calculations.
 
 `tests/test_optical_tuning.py` separately verifies source-support weights,
 omission of expensive specimen/scan solvers, serial/NumPy RK4 equivalence and

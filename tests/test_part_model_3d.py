@@ -300,7 +300,9 @@ def test_all_shipped_modules_have_finite_preview_without_changing_source(path):
     before = deepcopy(document)
     model = module_model_from_document(document, angular_segments=8)
     for mesh in model.meshes:
-        _assert_mesh(mesh, closed="plane" not in mesh.description)
+        closed = ("plane" not in mesh.description and not mesh.wireframe
+                  and not any(surface.get("open_surface") for surface in mesh.surfaces.values()))
+        _assert_mesh(mesh, closed=closed)
     assert len({(mesh.key, mesh.region) for mesh in model.meshes}) == len(model.meshes)
     assert document == before
     assert path.read_bytes() == original

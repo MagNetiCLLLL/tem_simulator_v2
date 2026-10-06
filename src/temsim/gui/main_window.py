@@ -41,6 +41,7 @@ from temsim.column.state_layout import (
     layout_configuration_from_state,
 )
 from temsim.component_keys import ENERGY_FILTER_INTERNAL_KEYS
+from temsim.energy_filter_model_3d import energy_filter_render_values
 from temsim.calculation_cache import external_model_signature
 from temsim.cache_preferences import load_cache_preferences
 from temsim.design_explorer import (
@@ -58,6 +59,7 @@ from temsim.gui.direct_alignment_controller import (
 from temsim.gui.design_sweep_controller import DesignSweepController
 from temsim.gui.operating_preset_controller import OperatingPresetController
 from temsim.gui.paired_beam_controller import PairedBeamController
+from temsim.gui.live_beam_refresh import LiveBeamRefresh
 from temsim.gui.parameter_panel import ParameterPanel
 from temsim.gui.instrument_tree import TreeSelection
 from temsim.gui.visualization import VisualizationWorkspace
@@ -225,6 +227,7 @@ class MainWindow(QMainWindow):
         self.paired_beams = PairedBeamController(lambda: self.state, self,
             artifact_store=self.calculations.artifact_store)
         coherent_page = self.workspace.coherent_beam
+        coherent_page.live_refresh_enabled = True
         coherent_page.paired_busy_provider = lambda: (
             self.paired_beams.token is not None
             and self.paired_beams._stage in {"rays", "sample"}
@@ -254,6 +257,15 @@ class MainWindow(QMainWindow):
         self.preview_timer.setInterval(self.PREVIEW_DEBOUNCE_MS)
         self._interactive_preview_generation: int | None = None
         self._interactive_preview_pending = False
+        self.live_beam_refresh = LiveBeamRefresh(
+            coherent_page, self, allowed=lambda: (
+                not self.result_files.loading
+                and not self.result_files.hold_automatic_preview
+                and not self._interactive_preview_pending
+                and not self.workspace.interactive_calculation.busy
+                and not self.design_sweeps.running
+                and self._direct_alignment_state_token is None
+                and self._preset_state_token is None))
         self.design_explorer_timer = QTimer(self)
         self.design_explorer_timer.setSingleShot(True)
         self.design_explorer_timer.setInterval(
@@ -609,7 +621,7 @@ class MainWindow(QMainWindow):
         self.tuning_quality.setObjectName("tuningQuality")
         self.tuning_quality.addItem("Preview: fast rays", "Preview")
         self.tuning_quality.addItem("Medium: sampled beam", "Medium")
-        self.tuning_quality.setToolTip("Live lens edits update ray optics only. Medium adds internal samples and zero-current boundary probes. High accuracy is a separate, explicit calculation.")
+        self.tuning_quality.setToolTip("Live edits update particle rays and current-pixel signals. An already calculated coherent beam refreshes after edits settle and the latest ray frame completes. Medium adds internal samples and zero-current support probes; explicit Tip quadrature retains its complete population. High accuracy is a separate calculation.")
         self.tuning_quality.currentIndexChanged.connect(self._tuning_quality_changed)
         toolbar.addWidget(self.tuning_quality)
         toolbar.addSeparator()
@@ -684,6 +696,7 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
     def _cancel_calculations(self):
+        self.live_beam_refresh.cancel()
         self.workspace.coherent_beam.cancel()
         self.preview_timer.stop()
         self._interactive_preview_pending = False
@@ -748,6 +761,8 @@ class MainWindow(QMainWindow):
             key: {parameter.name: parameter.value for parameter in editable_parameters(target)}
             for key, target in self._runtime_targets.items()
         }
+        for key, values in energy_filter_render_values(self.state).items():
+            geometry_runtime.setdefault(key, {}).update(values)
         self._add_tip_render_values(geometry_runtime)
         self.workspace.physical_layout.model_editor.set_project_context(
             self.manifest_editor.root, self.assembly, self._save_model_document,
@@ -2055,7 +2070,12 @@ class MainWindow(QMainWindow):
             page.particle_signal_status.setText("Previous pixel | settings changed; awaiting calculation.")
         if page._section_result is not None:
             page.invalidate_section_result("Settings changed; calculate the section again before saving.")
-        self.workspace.mark_ray_stale(self.state, self.assembly)
+        if _parameter == "interactive_tuning":
+            self.live_beam_refresh.invalidate(
+                lambda: self.workspace.mark_ray_stale(self.state, self.assembly))
+        else:
+            self.live_beam_refresh.cancel()
+            self.workspace.mark_ray_stale(self.state, self.assembly)
         self.workspace.physical_layout.model_editor.set_calculation_status(
             "stale", "Saved geometry, operating values or model settings changed; previous simulation results are out of date."
         )
@@ -2103,6 +2123,8 @@ class MainWindow(QMainWindow):
         self._refresh_simulation_mode()
         geometry_runtime = {key: {item.name: item.value for item in editable_parameters(target)}
                             for key, target in self._runtime_targets.items()}
+        for key, values in energy_filter_render_values(self.state).items():
+            geometry_runtime.setdefault(key, {}).update(values)
         self._add_tip_render_values(geometry_runtime)
         self.workspace.physical_layout.model_editor.set_runtime_values(geometry_runtime)
         self.workspace.physical_layout.assembly_3d.set_runtime_values(geometry_runtime)
@@ -2278,6 +2300,7 @@ class MainWindow(QMainWindow):
         if self.result_files.loading:
             return
         self.result_files.hold_automatic_preview = False
+        self.live_beam_refresh.cancel()
         # Shared admission queues this explicitly captured request behind any
         # existing experiment/alignment without losing the user's submission.
         self.preview_timer.stop()
@@ -2374,7 +2397,8 @@ class MainWindow(QMainWindow):
                                     or (page._live_mode and page.timer.isActive()))
             if self._interactive_preview_in_flight() and newer_values_pending:
                 page.invalidate_section_result("Newer settings are waiting; save after their section calculation completes.")
-                self.workspace.mark_ray_stale(self.state, self.assembly)
+                self.live_beam_refresh.invalidate(
+                    lambda: self.workspace.mark_ray_stale(self.state, self.assembly))
                 # This is a completed intermediate frame, not the latest lens
                 # setting. Never write its snapshot back into the live controls.
                 self.workspace.heading.setText(self.workspace.heading.text() + " | Updating")
@@ -2387,6 +2411,8 @@ class MainWindow(QMainWindow):
                 return
             if page._section_result is result:
                 self.workspace.jump_to_ray_position(float(result.simulation.metrics["section_target_z_mm"]), activate_tab=False)
+            if not newer_values_pending:
+                self.live_beam_refresh.particle_ready()
         else:
             self.workspace.interactive_calculation.set_section_result(result)
         self._archive_matching_particle_result(result)
@@ -2455,6 +2481,7 @@ class MainWindow(QMainWindow):
                 self.log_output.appendPlainText(line)
 
     def _calculation_failed(self, quality: str, message: str) -> None:
+        self.live_beam_refresh.cancel()
         if self.result_files.loading or self.result_files.hold_automatic_preview:
             return
         self.workspace.physical_layout.model_editor.set_calculation_status("failed", f"{quality}: {message}. Previous results have not been replaced.")

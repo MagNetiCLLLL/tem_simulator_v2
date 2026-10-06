@@ -110,6 +110,11 @@ def configured_region_colour(part, region="body", fallback=(0.55, 0.61, 0.69, 1.
     The palette matches the 3D Parts editor. No assignment means the existing
     mesh colour is retained; this helper does not change any material law.
     """
+    if region not in REGIONS:
+        # Known Energy Filter patches share their validated body material;
+        # display region IDs must not add fictitious solver material domains.
+        from temsim.energy_filter_model_3d import energy_filter_material_region
+        region = energy_filter_material_region(part_data(part), region)
     assignment = material_for_region(part, region)
     if assignment is None:
         return tuple(fallback)

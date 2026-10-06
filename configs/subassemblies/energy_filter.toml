@@ -32,7 +32,14 @@ mechanical_part_role = "branch_interface"
 path_coordinate = "curvilinear_s_mm"
 vacuum_inner_diameter_mm = 20
 public_topology_status = "public_functional_topology_confirmed_mechanical_dimensions_non_oem"
-public_topology_source = "Thermo Fisher public product material and author publications as summarized by the user; no production mechanical drawing is claimed."
+public_topology_source = "Thermo Fisher Iliad features and DS0510 confirm the prism/multipole and detector topology. Public patent sections inform component construction only; no production mechanical drawing or dimensional calibration is claimed."
+public_topology_source_urls = [
+    "https://www.thermofisher.com/de/de/home/electron-microscopy/products/transmission-electron-microscopes/iliad/features.html",
+    "https://documents.thermofisher.com/TFS-Assets/MSD/Datasheets/iliad-ultra-datasheet-ds0510.pdf",
+    "https://patents.google.com/patent/US9966219B2/en",
+    "https://patents.google.com/patent/US10431420B2/en",
+]
+reference_drawing_scope = "US9966219B2 Fig. 1-4: post-column bend and opposed slit blades. JP2011103273A Fig. 3/7: pole-gap section only, not its different in-column architecture. Drawings are not a scale ruler for this model."
 confirmed_large_tapered_prism_count = 1
 confirmed_multipole_count = 10
 multipole_family_evidence = "Most of the ten multipole elements are publicly described as dodecapoles; individual pole assignments are not public."
@@ -92,6 +99,10 @@ bend_angle_status = "provisional_patent_example_not_product_confirmed"
 outer_yoke_envelope_status = "not_public_not_drawn"
 mechanical_geometry_status = "provisional_parameterized_non_oem"
 mechanical_geometry_source = "Legacy simulator reference orbit retained as an adjustable start value; public energy-filter evidence confirms a large tapered prism but not radius, bend angle, gap or field length."
+mechanical_geometry_source_urls = [
+    "https://patents.google.com/patent/US9966219B2/en",
+    "https://patents.google.com/patent/JP2011103273A/en",
+]
 
 [[parts]]
 order = 101
@@ -385,6 +396,7 @@ xo_crossover_plane_confirmed = true
 eftem_energy_selection_optional = true
 mechanical_geometry_status = "provisional_parameterized_non_oem"
 mechanical_geometry_source = "Public material confirms an XO/slit plane and optional slit or knife edge, but not its coordinate, travel or blade dimensions."
+mechanical_geometry_source_urls = ["https://patents.google.com/patent/US9966219B2/en"]
 
 [[parts]]
 order = 112
@@ -524,4 +536,6 @@ provisional_strip_center_pitch_mm = 1.0
 strip_center_pitch_status = "adjustable_unknown_not_public"
 external_envelope_status = "not_public_not_drawn"
 mechanical_geometry_status = "public_active_area_external_envelope_unknown"
-detector_geometry_source = "Active areas are derived from public pixel counts and active pixel sizes; strip gaps, frame and package dimensions remain unknown."
+detector_geometry_source = "DS0510 confirms 2048 spectral pixels, 14 um pitch, five strips and 256x2048 alignment pixels. These determine spectral width and alignment area only. Strip height 0.8 mm and centre pitch 1 mm are provisional simulator dimensions; frame and package dimensions remain unknown."
+detector_geometry_source_urls = ["https://documents.thermofisher.com/TFS-Assets/MSD/Datasheets/iliad-ultra-datasheet-ds0510.pdf"]
+strip_height_status = "provisional_non_oem_not_derived_from_spectral_pixel_count"

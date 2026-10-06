@@ -2,7 +2,8 @@
 
 This is a view of the captured resolved assembly, not a CAD import or a field
 solve. Existing part builders own all shapes and their approximation labels.
-The only added transform is the resolved module-local to global Z translation.
+Axial parts use their resolved module-local to global Z translation. Energy
+Filter parts additionally share a proper rigid mount of the existing bent path.
 """
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -17,6 +18,10 @@ from temsim.component_representation import non_material_role, representation_no
 from temsim.part_model_3d import TriangleMesh, _extent, _segments, part_model_from_document
 from temsim.part_model_apertures import _opening, is_strip_aperture
 from temsim.part_materials import configured_region_colour
+from temsim.energy_filter_model_3d import (
+    energy_filter_origin_mm, mount_energy_filter_mesh, slit_render_dependency,
+    supports_energy_filter_part,
+)
 
 
 @dataclass(frozen=True)
@@ -73,6 +78,13 @@ def _runtime_dependencies(parts, runtime_values):
         row = part.data
         if row.get("tip_particle_model"):
             dependencies.append((part.key, _document_value(values.get(part.key, {}).get("tip_surface_model", "saved"))))
+        if (supports_energy_filter_part(row) and row.get("mechanical_profile") == "xo_energy_slit_assembly"
+                and row.get("model_3d", {}).get("base", {}).get("kind", "existing") == "existing"):
+            try:
+                opening = slit_render_dependency(row, values.get(part.key))
+            except (TypeError, ValueError, OverflowError) as exc:
+                opening = ("invalid slit opening", str(exc))
+            dependencies.append((part.key, opening))
         if (not is_strip_aperture(row)
                 or row.get("model_3d", {}).get("base", {}).get("kind", "existing") != "existing"):
             continue
@@ -104,7 +116,7 @@ def assembly_model_fingerprint(assembly, runtime_values=None) -> str:
     """
     parts, documents = _contexts(assembly)
     payload = {
-        "schema": "resolved-assembly-surfaces-v1",
+        "schema": "resolved-assembly-surfaces-v2-energy-filter-mount",
         "documents": documents,
         "placements": [(part.module_key, part.key, part.start_z_mm, part.center_z_mm,
                         part.end_z_mm, part.length_mm, part.parent_key) for part in parts],
@@ -155,10 +167,12 @@ def _global_mesh(mesh, shift):
 
 def _omission_reason(part, physical_parent_keys):
     row = part.data
-    if row.get("branch_path_only"):
-        return "branch-path component; its curvilinear geometry belongs to Energy Filter"
     if non_material_role(row):
         return representation_note(row)
+    if supports_energy_filter_part(row):
+        return None
+    if row.get("branch_path_only"):
+        return "branch-path reference or unsupported component; no material geometry is defined"
     if "model_3d" in row:
         return None
     if ((row.get("mechanical_profile") == "magnetic_lens_assembly"
@@ -213,9 +227,17 @@ def assembly_model_from_assembly(assembly, *, runtime_values=None, angular_segme
                 include_children=False, runtime_values=runtime_values,
             )
             source = next(row for row in documents[part.module_key]["parts"] if row["key"] == part.key)
-            global_meshes = tuple(_global_mesh(replace(
-                mesh, color=configured_region_colour(source, mesh.region, mesh.color)), shift)
-                for mesh in model.meshes)
+            coloured = tuple(replace(mesh, color=configured_region_colour(source, mesh.region, mesh.color))
+                             for mesh in model.meshes)
+            if supports_energy_filter_part(source):
+                by_key = {row["key"]: row for row in documents[part.module_key]["parts"]}
+                entrance_z = shift + energy_filter_origin_mm(by_key)
+                # Freeze the rotated coordinates and semantic edges through the
+                # same snapshot boundary as ordinary translated column parts.
+                global_meshes = tuple(_global_mesh(mount_energy_filter_mesh(mesh, entrance_z), 0.)
+                                      for mesh in coloured)
+            else:
+                global_meshes = tuple(_global_mesh(mesh, shift) for mesh in coloured)
             meshes.extend(global_meshes)
             notes.extend(model.notes)
             if not global_meshes:
@@ -240,7 +262,11 @@ def assembly_model_from_assembly(assembly, *, runtime_values=None, angular_segme
         except (ValueError, TypeError, KeyError, OverflowError, RuntimeError) as exc:
             omitted.append(row["key"])
             errors.append(f"{row['key']}: {exc}")
-    notes.insert(0, "Configured mechanical positions in global column mm; runtime strip openings and XY offsets only. "
+    notes.insert(0, "Configured mechanical positions in global column mm; runtime aperture/slit openings and offsets. "
                     "No insertion mechanism, detector motion or new lens field is inferred.")
+    if any(supports_energy_filter_part(part.data) for part in parts):
+        notes.insert(1, "Energy Filter rigid mount: branch (X,Y,Z) maps to column (-Z,Y,X), translated to the resolved entrance. "
+                        "Incoming +X becomes downward column +Z; a configured 90-degree bend exits along column +X. "
+                        "Reference-path and gap outlines are not material or vacuum-tube walls.")
     return AssemblyModel3D(tuple(meshes), tuple(dict.fromkeys(notes)),
                            tuple(dict.fromkeys(omitted)), tuple(errors))

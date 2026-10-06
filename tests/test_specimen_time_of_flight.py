@@ -122,7 +122,6 @@ def _downstream_fixture(monkeypatch, *, offsets=True, exact_plane=True):
         elapsed = (z-start)[:, None] * 1e-3 * np.sqrt(1+tx*tx+ty*ty)[None, :] / _speed(kinetic)[None, :]
         return z, np.tile(x, (2, 1)), np.tile(tx, (2, 1)), np.tile(y, (2, 1)), np.tile(ty, (2, 1)), time+elapsed
     monkeypatch.setattr(downstream, "propagate", drift)
-    monkeypatch.setattr(downstream, "determine_tem_stop_z", lambda _: 2.)
     for name in ("clip_recording_planes", "clip_column_wall"):
         monkeypatch.setattr(downstream, name, lambda _s, _z, _x, _y, alive, blocked, keys: (alive, blocked, keys))
     return state, SimpleNamespace(incident=incident), transport
@@ -130,7 +129,7 @@ def _downstream_fixture(monkeypatch, *, offsets=True, exact_plane=True):
 
 def test_downstream_keeps_distinct_descendant_delays_and_parent_column_mapping(monkeypatch):
     state, simulation, transport = _downstream_fixture(monkeypatch)
-    result = downstream.build_geometric_specimen_exit(state, simulation, transport)
+    result = downstream.build_geometric_specimen_exit(state, simulation, transport, stop_z_mm=2.)
     branch = result.branches[0]
     assert np.all(np.isnan(branch.flight_time_s[0]))  # Virtual pre-terminal reference row.
     expected = np.array((2e-9, 1e-9, 2e-9)) + np.array((1e-16, 2e-16, 3e-16))
@@ -145,7 +144,7 @@ def test_downstream_keeps_distinct_descendant_delays_and_parent_column_mapping(m
 def test_legacy_or_sparse_incident_timing_stays_unknown(monkeypatch, missing):
     state, simulation, transport = _downstream_fixture(
         monkeypatch, offsets=missing != "terminal", exact_plane=missing != "reference")
-    result = downstream.build_geometric_specimen_exit(state, simulation, transport)
+    result = downstream.build_geometric_specimen_exit(state, simulation, transport, stop_z_mm=2.)
     assert np.all(np.isnan(result.branches[0].flight_time_s))
     assert result.branches[0].weight == pytest.approx(1.)
 
@@ -156,7 +155,7 @@ def test_aggregate_inelastic_loss_has_no_invented_event_time(monkeypatch):
         SimpleNamespace(key="real_zero_loss", probability=.7, characteristic_angle_mrad=0., energy_loss_ev=0.),
         SimpleNamespace(key="real_plasmon", probability=.2, characteristic_angle_mrad=2., energy_loss_ev=20.)),
         tracked_probability=.9, absorbed_probability=.1)
-    result = downstream.build_geometric_specimen_exit(state, simulation, transport, distribution)
+    result = downstream.build_geometric_specimen_exit(state, simulation, transport, distribution, stop_z_mm=2.)
     zero, loss = result.branches
     assert np.all(np.isfinite(zero.flight_time_s[-1]))
     assert np.all(np.isnan(loss.flight_time_s))
@@ -186,7 +185,7 @@ def test_specimen_exit_integrates_clock_through_real_column_propagator(monkeypat
                         lambda _state: zero_electric)
     from temsim.physics.core import propagate
     monkeypatch.setattr(downstream, "propagate", propagate)
-    result = downstream.build_geometric_specimen_exit(state, simulation, transport)
+    result = downstream.build_geometric_specimen_exit(state, simulation, transport, stop_z_mm=2.)
     expected = np.array((2e-9, 1e-9, 2e-9)) + np.array((1e-16, 2e-16, 3e-16))
     expected += (1e-3 - 5e-9) / _speed(200_000.)
     np.testing.assert_allclose(result.branches[0].flight_time_s[-1], expected, rtol=3e-15, atol=0.)

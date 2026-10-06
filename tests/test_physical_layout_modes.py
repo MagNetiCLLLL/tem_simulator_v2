@@ -154,7 +154,7 @@ def test_three_modes_use_saved_assembly_without_calculation(window, qtbot):
     state = deepcopy(window.state.to_dict())
     high = object()
     workspace._high_accuracy_result = high
-    assert [layout.tabs.tabText(i) for i in range(layout.tabs.count())] == ["2D", "3D Parts", "3D"]
+    assert [layout.tabs.tabText(i) for i in range(layout.tabs.count())] == ["2D", "3D Parts", "3D", "Energy Filter"]
     assert layout.assembly_3d.mesh_builds == 0
     workspace.tabs.setCurrentWidget(layout)
     layout.tabs.setCurrentWidget(layout.assembly_3d)

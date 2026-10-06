@@ -223,6 +223,7 @@ class InteractiveCalculationPage(QWidget):
         self.range_summary = _label("Minimum and maximum are required. Optical samples are exact nodes; readout ranges are continuous.")
         advanced_form.addWidget(self.range_summary)
         self.build = QPushButton("Build high-accuracy bank (advanced)")
+        self.build.setToolTip("Uses captured physical settings and the current toolbar compute backend. The backend is fixed for the entire build.")
         self.build.setEnabled(False)
         self.build.clicked.connect(self.build_requested)
         self.cancel = QPushButton("Cancel")
@@ -240,7 +241,7 @@ class InteractiveCalculationPage(QWidget):
         form.addWidget(self.status)
         self.live_status = _label("")
         form.addWidget(self.live_status)
-        self.status.setToolTip("Lens and pre-specimen aperture changes use precomputed nodes. Post-specimen stops reuse ray coordinates and repropagate coherent waves. Range edits do not change an existing bank. Capture again after changing the sample or assembly.")
+        self.status.setToolTip("Optical changes use precomputed nodes; post-specimen stops reuse ray coordinates. Completed historical TEM/STEM images can be viewed when available, but new coherent imaging and TEM reprojection are currently unavailable here. Electron beam calculations use their separate workflow. Range edits do not change an existing bank. Capture again after changing the sample or assembly.")
         self.export = QPushButton("Export range plan...")
         self.export.clicked.connect(self._export)
         advanced_form.addWidget(self.export)
@@ -872,7 +873,9 @@ class InteractiveCalculationPage(QWidget):
             self.range_summary.setText(f"{plan.point_count} optical combinations | {self.budget.value():g} GiB cache limit | no lens interpolation")
             self.status.setText("Building independent range cache; previous results retained.")
             self._mark_readout_previous("Building a replacement bank")
-            self.controller.build(self.source_state, plan, self.seeds)
+            compute_backend = getattr(self.current_state(), "acceleration_backend", "Auto")
+            self.controller.build(self.source_state, plan, self.seeds,
+                                  compute_backend=compute_backend)
         except (ValueError, RuntimeError, TypeError) as exc:
             self.show_error(str(exc))
 

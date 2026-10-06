@@ -436,8 +436,10 @@ def _representative_entrance_rays(rays, maximum_count):
 
 def _m12_bore_blocked(element, positions_m):
     local = element.local_positions_m(positions_m)
+    # Mechanical material extends beyond the independently defined field
+    # support. Its end faces must not disappear when the field is shorter.
     within_length = (
-        np.abs(local[..., 2]) <= 0.5 * float(element.length_m)
+        np.abs(local[..., 2]) <= 0.5 * float(element.housing_length_m)
     )
     outside_bore = np.hypot(
         local[..., 0],

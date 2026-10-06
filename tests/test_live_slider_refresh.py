@@ -148,7 +148,7 @@ def test_intermediate_frame_is_labelled_and_never_writes_back_lens_values(qtbot,
     window.run_preview()
     window._apply_interactive_tuning(((axis, 68.25),))
     rendered = []
-    monkeypatch.setattr(window.workspace, "display_result", lambda r, q: rendered.append((r, q)))
+    monkeypatch.setattr(window.workspace, "display_result", lambda r, q, **_kwargs: rendered.append((r, q)))
     monkeypatch.setattr(page, "display_tuning_status", lambda *a: None)
     monkeypatch.setattr(window.workspace.model_inspector, "display_result",
                         lambda *a: pytest.fail("Intermediate frame must not replace current diagnostics"))
@@ -163,6 +163,73 @@ def test_intermediate_frame_is_labelled_and_never_writes_back_lens_values(qtbot,
     assert window.workspace._high_accuracy_result is old_high
     window.calculations.invalidate_pending()
     page.shutdown()
+
+
+def test_latest_particle_publication_refreshes_coherent_beam_once(
+        qtbot, monkeypatch, tmp_path, controlled_solver_requests):
+    """Exercise request generations and MainWindow publication, not physics."""
+    from PySide6.QtCore import QSettings
+    from temsim.gui import main_window as shell, interactive_calculation as gui, calculation_controller
+
+    settings = QSettings(str(tmp_path / "live-wave.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr(shell, "QSettings", lambda: settings)
+    monkeypatch.setattr(gui, "QSettings", lambda: settings)
+    monkeypatch.setattr(calculation_controller, "default_artifact_cache_root", lambda: tmp_path / "artifacts")
+    monkeypatch.setattr(MainWindow, "INITIAL_PREVIEW_DELAY_MS", 60000)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.preview_timer.stop()
+    controlled_solver_requests(window)
+    workers, rendered, wave_calls = [], [], []
+    monkeypatch.setattr(window.calculations.pool, "start", workers.append)
+    monkeypatch.setattr(window.workspace, "display_result",
+                        lambda result, quality, **_kwargs: rendered.append(result))
+    monkeypatch.setattr(window.workspace.model_inspector, "display_result", lambda *_: None)
+    monkeypatch.setattr(window.workspace.vacuum_map, "set_result", lambda *_: None)
+    monkeypatch.setattr(window.assembly_panel, "update_direct_alignment_metrics", lambda *_: None)
+    window._selected_component_key = None
+    live = window.workspace.interactive_calculation
+    _configure(live, window.state)
+    axis = live.live_plan.ranges[0]
+    wave = window.workspace.coherent_beam
+    wave.result = SimpleNamespace(checkpoint=SimpleNamespace(plane_z_mm=1600.))
+    wave._stale = False
+    wave._session_ready = True
+    monkeypatch.setattr(wave, "calculate", lambda: wave_calls.append(window.state.objective_lens.percent))
+    window.live_beam_refresh.SETTLE_MS = 20
+
+    def frame(worker):
+        return SimpleNamespace(state_snapshot=worker.state, simulation=SimpleNamespace(
+            metrics={}, incident=SimpleNamespace(x=np.zeros((1, 1)))))
+
+    window._apply_interactive_tuning(((axis, 67.5),))
+    window.preview_timer.stop()
+    window.run_preview()
+    first = workers[0]
+    window._apply_interactive_tuning(((axis, 68.25),))
+    previous = frame(first)
+    window.calculations._accept_result(first.generation, first.quality, previous, .1)
+    assert rendered == [previous] and wave_calls == []
+    assert "last completed frame" in live.live_status.text()
+    window.calculations._accept_finished(first.generation, first.quality)
+    qtbot.waitUntil(lambda: len(workers) == 2)
+    latest = workers[1]
+    assert latest.state.objective_lens.percent == pytest.approx(68.25)
+    qtbot.wait(45)
+    assert wave_calls == [], "An old frame cannot authorize the current wave inputs"
+    # A late duplicate from the obsolete generation must not publish or arm.
+    window.calculations._accept_result(first.generation, first.quality, previous, .1)
+    assert rendered == [previous]
+    current = frame(latest)
+    window.calculations._accept_result(latest.generation, latest.quality, current, .1)
+    window.calculations._accept_finished(latest.generation, latest.quality)
+    qtbot.waitUntil(lambda: len(wave_calls) == 1)
+    assert rendered == [previous, current]
+    assert wave_calls == [68.25]
+    assert not window.live_beam_refresh.pending
+    window.calculations._accept_result(latest.generation, latest.quality, current, .1)
+    qtbot.wait(45)
+    assert rendered == [previous, current] and wave_calls == [68.25]
 
 
 def test_real_ray_frames_arrive_during_sustained_slider_motion(qtbot, monkeypatch):

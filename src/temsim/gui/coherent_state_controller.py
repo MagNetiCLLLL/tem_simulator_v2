@@ -146,7 +146,7 @@ class CoherentStateController(QObject):
                 emitter.__dict__.update(candidate.electron_gun.emitter.__dict__)
                 state.electron_gun.source_representation = candidate.electron_gun.source_representation
                 state.electron_gun._trace_cache = state.electron_gun._trace_cache_key = None
-            self.page.set_state(state)
+            self.page.set_state(state, reset_source=True)
             self.page.source_applied.emit(state)
             self._message("Selected tip state applied to the shared instrument. Both particle rays and coherent waves now read it; no calculation started.")
         except Exception as error:

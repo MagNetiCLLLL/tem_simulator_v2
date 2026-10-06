@@ -1159,6 +1159,15 @@ class VisualizationWorkspace(QWidget):
         self.ray_result_tabs.addTab(self.ray_workspace_splitter, "Rays")
         self.ray_result_tabs.addTab(self.interactive_calculation.readout_panel, "Cached signals")
         self.ray_result_tabs.setTabToolTip(1, "Current pixel detector counts and separate Advanced-bank readout")
+        self.energy_filter_rays = EnergyFilterView(show_outputs=False)
+        self.energy_filter_rays.setObjectName("energyFilterRayView")
+        self.ray_result_tabs.addTab(self.energy_filter_rays, "Energy Filter rays")
+        self.ray_result_tabs.setTabToolTip(2, "Internal branch rays from the existing Energy Filter calculation")
+        # Mirror accepted publication and invalidation, including retained cached
+        # traces. Opening either tab never creates another calculation request.
+        self.energy_filter.result_displayed.connect(self.energy_filter_rays.display_result)
+        self.energy_filter.result_stale.connect(self.energy_filter_rays.mark_result_stale)
+        self.energy_filter_rays.component_selected.connect(self._energy_filter_plot_selected)
         ray_layout.addWidget(self.ray_result_tabs, 1)
         self.interactive_calculation.rays_requested.connect(self.show_ray_diagram)
         self.interactive_calculation.readout_updated.connect(self.scan_control.set_bank_readout)
@@ -1256,7 +1265,10 @@ class VisualizationWorkspace(QWidget):
         )
         self.magnetic_field.field_lines.session_projection_requested.connect(self._set_projection_angle)
         self.energy_filter.component_selected.connect(
-            self.component_selected.emit
+            self._energy_filter_plot_selected
+        )
+        self.physical_layout.energy_filter_structure.component_selected.connect(
+            self.select_energy_filter_component
         )
         self.energy_filter_component_selector.currentIndexChanged.connect(
             self._energy_filter_component_changed
@@ -1433,9 +1445,16 @@ class VisualizationWorkspace(QWidget):
                 self.energy_filter_component_selector.setCurrentIndex(index)
         del blocker
 
+    def _energy_filter_plot_selected(self, key: str) -> None:
+        self.select_energy_filter_component(key)
+        self.component_selected.emit(key)
+
     def select_energy_filter_component(self, key: str) -> bool:
         """Select one Energy Filter-local component without recursion."""
 
+        for view in (self.energy_filter, self.energy_filter_rays,
+                     self.physical_layout.energy_filter_structure):
+            view.focus_component(key)
         index = self.energy_filter_component_selector.findData(str(key))
         if index < 0:
             return False
@@ -2341,6 +2360,8 @@ class VisualizationWorkspace(QWidget):
     def focus_component(self, part) -> None:
         """Remember the selected part and optionally focus its optical region."""
         self._focused_part = part
+        self.energy_filter.focus_component(part)
+        self.energy_filter_rays.focus_component(part)
         self.vacuum_map.focus_component(part)
         self._pending_ray_focus.update((self.physical_layout, self.magnetic_field))
         self._focus_transverse("component", part)

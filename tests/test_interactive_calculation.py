@@ -1,6 +1,7 @@
 """Analytical clipping, bounded banks, and isolated Qt range planning."""
 from copy import deepcopy
 from dataclasses import dataclass, replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -298,6 +299,10 @@ def test_production_tem_aperture_replay_agrees_with_fresh_projection_requires_qu
     import temsim.simulation_pipeline as pipeline
     state = default_state()
     state.illumination_mode = "TEM"
+    # Startup is vacuum. This gate test must explicitly request a material
+    # image so that it reaches coherent-source admission before transport.
+    state.sample.specimen_mode = "atomic"
+    state.sample.cif_path = str(Path(__file__).parent / "fixtures" / "cif" / "Si.cif")
     from temsim.component_keys import STEM_DETECTOR_KEYS
     for detector in state.recording_planes:
         if detector.key in STEM_DETECTOR_KEYS:

@@ -519,10 +519,11 @@ class PartModelEditorPage(QWidget):
         return values.get(key, {})
 
     def _runtime_mesh_dependencies(self):
-        """Only strip openings consume operating values in the CAD renderer."""
+        """Track only operating values consumed by the selected mesh builders."""
         if self.session is None or self._selected_key is None:
             return ()
         from temsim.part_model_apertures import _opening, is_strip_aperture
+        from temsim.energy_filter_model_3d import slit_render_dependency, supports_energy_filter_part
 
         parts = {part["key"]: part for part in self.session.document["parts"]}
         scope = self.scope.currentData()
@@ -549,6 +550,14 @@ class PartModelEditorPage(QWidget):
                 tip = runtime.get(key, {})
                 dependencies.append((key, deepcopy(tip.get("tip_surface_model", "saved")),
                                      deepcopy(tip.get("tip_analytic_emission"))))
+            if (key in keys and supports_energy_filter_part(part)
+                    and part.get("mechanical_profile") == "xo_energy_slit_assembly"
+                    and part.get("model_3d", {}).get("base", {}).get("kind", "existing") == "existing"):
+                try:
+                    opening = slit_render_dependency(part, runtime.get(key))
+                except (TypeError, ValueError, OverflowError) as exc:
+                    opening = str(exc)
+                dependencies.append((key, opening))
             if (key not in keys or not is_strip_aperture(part)
                     or part.get("model_3d", {}).get("base", {}).get("kind", "existing") != "existing"):
                 continue
@@ -932,7 +941,12 @@ class PartModelEditorPage(QWidget):
         hit = next((item for item in reversed(self._topology_selection) if item.get("key") == self._selected_key), None)
         if hit and hit.get("point") is not None:
             from temsim.part_model_features import feature_placement
-            center, axis, depth = feature_placement(part, hit["point"], hit.get("normal", [0, 0, 1]))
+            from temsim.energy_filter_model_3d import energy_filter_feature_hit, supports_energy_filter_part
+            point, normal = hit["point"], hit.get("normal", [0, 0, 1])
+            if supports_energy_filter_part(part):
+                by_key = {row["key"]: row for row in self.session.document["parts"]}
+                point, normal = energy_filter_feature_hit(part, by_key, point, normal)
+            center, axis, depth = feature_placement(part, point, normal)
         feature = dict(id=f"{kind}_{count}", kind=kind, axis=axis,
                        center_mm=list(center), depth_mm=float(depth))
         size = max(0.01, min(diameter * 0.08, max(diameter - inner, 0.1) * 0.25))

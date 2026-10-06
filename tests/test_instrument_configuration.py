@@ -95,18 +95,24 @@ def test_units_include_mechanical_children_and_filter_entrance(state):
 
 
 def _dialog(qtbot, state, tmp_path, on_assemble=None):
-    from PySide6.QtCore import QSettings
+    from PySide6.QtCore import QSettings, Qt
     from temsim.gui.instrument_configuration_dialog import InstrumentConfigurationDialog
     dialog = InstrumentConfigurationDialog(AssemblyCatalog(), lambda: state,
         on_assemble or (lambda checked: None), settings=QSettings(str(tmp_path/"ui.ini"), QSettings.Format.IniFormat))
+    # Successful Assemble closes the dialog; pytest-qt still owns its wrapper
+    # and closes it during teardown.
+    dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
     qtbot.addWidget(dialog)
     return dialog
 
 
-def test_dialog_dependencies_check_invalidation_and_linked_review(qtbot, state, tmp_path):
+def test_dialog_dependencies_draft_and_linked_review(qtbot, state, tmp_path):
     d = _dialog(qtbot, state, tmp_path)
     before = capture_instrument_snapshot(state).digest
-    assert not d.assemble_button.isEnabled()
+    assembly = d._assembly
+    assert d.assemble_button.isEnabled()
+    assert not hasattr(d, "check_button") and not hasattr(d, "check")
+    assert d.review.model_editor is None
     d.options["c3_lens"].setChecked(False)
     for key in ("probe_corrector", "image_corrector"):
         assert not d.options[key].isEnabled() and not d.options[key].isChecked()
@@ -115,32 +121,78 @@ def test_dialog_dependencies_check_invalidation_and_linked_review(qtbot, state, 
     assert not d.options["monochromator"].isEnabled()
     assert not d.options["monochromator"].isChecked()
     d.options["energy_filter"].setChecked(False)
-    d.check()
-    assert d.checked is not None, d.status.text()
     assert d.assemble_button.isEnabled()
-    assert "energy_filter" not in {p.key for p in d._assembly.parts}
+    assert d._assembly is assembly  # Read-only review retains the installed unit.
     assert capture_instrument_snapshot(state).digest == before
-    d.select_component("thermionic_cathode")
+    d.select_component("feg_tip")
     assert d.table.currentRow() == 0
     d.options["c3_lens"].setChecked(True)
     assert d.options["probe_corrector"].isEnabled()
-    assert d.checked is None and not d.assemble_button.isEnabled()
+    assert d.assemble_button.isEnabled()
     assert "draft changed" in d.preview_status.text().lower()
 
 
-def test_dialog_failed_apply_stays_open_and_clears_check(qtbot, state, tmp_path):
+def test_dialog_single_click_validates_current_state_and_applies_once(qtbot, state, tmp_path):
+    from PySide6.QtWidgets import QDialog
+    applied = []
+
     def apply(checked):
-        checked.restore_for(state)
+        assert not d.assemble_button.isEnabled()
+        d.assemble()  # A nested event cannot apply the same draft again.
+        applied.append(checked.restore_for(state))
+
     d = _dialog(qtbot, state, tmp_path, apply)
-    d.check()
-    assert d.checked is not None, d.status.text()
-    state.objective_lens.percent += .1
-    d.assemble()
-    assert "changed" in d.status.text()
-    assert d.checked is None and not d.assemble_button.isEnabled()
+    d.options["energy_filter"].setChecked(True)
+    # Live edits after opening are captured at this click, not rejected against
+    # an obsolete separately checked draft.
+    state.objective_lens.percent += .125
+    before = capture_instrument_snapshot(state).digest
+    d.assemble_button.click()
+    assert len(applied) == 1
+    assert applied[0].energy_filter_installed
+    assert applied[0].objective_lens.percent == state.objective_lens.percent
+    assert capture_instrument_snapshot(state).digest == before
+    assert d.result() == QDialog.DialogCode.Accepted
 
 
-def test_dialog_layout_is_saved_separately_and_check_does_not_apply(qtbot, state, tmp_path):
+def test_dialog_validation_failure_does_not_apply_and_can_retry(qtbot, state, tmp_path, monkeypatch):
+    applied = []
+    d = _dialog(qtbot, state, tmp_path, applied.append)
+    before = capture_instrument_snapshot(state).digest
+    valid_units = d.units
+    monkeypatch.setattr(d, "units", lambda: InstrumentUnits(source="thermionic", monochromator=True))
+    d.show()
+    d.assemble_button.click()
+    assert not applied and d.isVisible()
+    assert "requires Cold FEG" in d.status.text()
+    assert d.assemble_button.isEnabled()
+    assert capture_instrument_snapshot(state).digest == before
+    monkeypatch.setattr(d, "units", valid_units)
+    d.assemble_button.click()
+    assert len(applied) == 1
+
+
+def test_dialog_failed_apply_stays_open_and_can_retry(qtbot, state, tmp_path):
+    attempts = []
+
+    def apply(checked):
+        candidate = checked.restore_for(state)
+        attempts.append(candidate)
+        if len(attempts) == 1:
+            raise RuntimeError("Installation rejected")
+
+    d = _dialog(qtbot, state, tmp_path, apply)
+    before = capture_instrument_snapshot(state).digest
+    d.show()
+    d.assemble_button.click()
+    assert "Installation rejected" in d.status.text()
+    assert d.isVisible() and d.assemble_button.isEnabled()
+    assert capture_instrument_snapshot(state).digest == before
+    d.assemble_button.click()
+    assert len(attempts) == 2
+
+
+def test_dialog_layout_is_saved_separately_and_draft_does_not_apply(qtbot, state, tmp_path):
     from PySide6.QtCore import QSettings, Qt
     from temsim.gui.instrument_configuration_dialog import InstrumentConfigurationDialog
     settings = QSettings(str(tmp_path/"layout.ini"), QSettings.Format.IniFormat)
@@ -158,7 +210,7 @@ def test_dialog_layout_is_saved_separately_and_check_does_not_apply(qtbot, state
     d.splitter.setSizes([260, 500])
     expected = d.size()
     expected_split = d.splitter.sizes()
-    d.check()
+    d.options["energy_filter"].setChecked(not d.options["energy_filter"].isChecked())
     assert not applied
     d.reject()
     restored = InstrumentConfigurationDialog(AssemblyCatalog(), lambda: state, applied.append,
@@ -171,42 +223,50 @@ def test_dialog_layout_is_saved_separately_and_check_does_not_apply(qtbot, state
     assert settings.value("instrument_configuration/v1/default/geometry") is None
 
 
-def test_main_window_configuration_applies_once_without_preset_or_ray_solve(qtbot, monkeypatch):
-    from temsim.gui.main_window import MainWindow
-    window = MainWindow()
+def _window(qtbot, monkeypatch, tmp_path):
+    from PySide6.QtCore import QSettings
+    from temsim.gui import main_window as shell, interactive_calculation, instrument_configuration_dialog
+    settings = QSettings(str(tmp_path / "window.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr(shell, "QSettings", lambda: settings)
+    monkeypatch.setattr(interactive_calculation, "QSettings", lambda: settings)
+    monkeypatch.setattr(instrument_configuration_dialog, "QSettings", lambda: settings)
+    monkeypatch.setattr(shell.MainWindow, "INITIAL_PREVIEW_DELAY_MS", 60000)
+    monkeypatch.setattr(shell.MainWindow, "_apply_state_operating_modes", lambda *_: object())
+    window = shell.MainWindow()
     qtbot.addWidget(window)
     window.preview_timer.stop()
+    monkeypatch.setattr(window.calculations.pool, "start", lambda *_: pytest.fail("Configuration must not calculate"))
+    return window
+
+
+def test_main_window_configuration_applies_once_without_preset_or_ray_solve(qtbot, monkeypatch, tmp_path):
+    window = _window(qtbot, monkeypatch, tmp_path)
     previews = []
     monkeypatch.setattr(window, "schedule_preview", lambda *a: previews.append(True))
     monkeypatch.setattr(window, "_start_operating_preset", lambda *a, **kw: pytest.fail("Automatic preset"))
     d = window.open_instrument_configuration()
     assert window.open_instrument_configuration() is d
     d.options["beam_blanker"].setChecked(True)
-    d.options["energy_filter"].setChecked(False)
-    d.check()
-    assert d.checked is not None, d.status.text()
-    d.assemble()
+    d.options["energy_filter"].setChecked(True)
+    d.assemble_button.click()
     assert window.state.nanopulser.installed
-    assert not window.state.energy_filter_installed
-    assert window.selection.recording == "No Energy Filter"
+    assert window.state.energy_filter_installed
+    assert window.selection.recording == "Energy Filter"
     assert window.assembly_panel.current_selection() == window.selection
     assert previews == [True]
     assert window.workspace.physical_layout._result.assembly is window.assembly
     assert window._configuration_dialog is None
 
 
-def test_closing_main_window_saves_open_configuration_without_applying(qtbot, tmp_path):
+def test_closing_main_window_saves_open_configuration_without_applying(qtbot, tmp_path, monkeypatch):
     from PySide6.QtCore import QSettings
-    from temsim.gui.main_window import MainWindow
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.preview_timer.stop()
+    window = _window(qtbot, monkeypatch, tmp_path)
     before = capture_instrument_snapshot(window.state).digest
     d = window.open_instrument_configuration()
     settings = QSettings(str(tmp_path / "close.ini"), QSettings.Format.IniFormat)
     d.settings = settings
     key = d.settings_key
-    d.options["energy_filter"].setChecked(False)
+    d.options["energy_filter"].setChecked(not d.options["energy_filter"].isChecked())
     window.close()
     assert settings.value(key + "/geometry") is not None
     assert settings.value(key + "/splitter") is not None
