@@ -18,6 +18,8 @@ The simulator does not currently provide autonomous microscope control.
   extraction, acceleration, lenses, deflectors, stigmators and apertures.
 - Interactive ray diagrams, transverse beam plots, flight-time colouring,
   magnetic-field views and individually adjustable virtual electron paths.
+- Ray Diagram conjugate-plane searches from a pinned Z, with magnification,
+  rotation and separate point-image / line-focus diagnostics.
 - **Calculate beam** on the **Electron beam** page for a captured Tip and
   instrument state, with intensity, simulated electron arrivals, per-mode phase
   and probability-flow observations, cached exact-Z planes and named
@@ -53,6 +55,22 @@ Calculate classical rays**) prepares the classical Ray Diagram and the incident
 beam required by Scanning Image and the specimen/detector page calculations.
 Those pages reuse compatible executed particle states. Tab changes do not
 calculate. Live tuning retains its cutoff and continuation controls.
+
+In **Ray Diagram**, select an axial Z and open **Conjugate planes**. Click
+**Find conjugate planes** to pin that reference and search the captured optics.
+Click a row to inspect its Z; the reference stays pinned. To search from another
+plane, choose **Use selected Z**, then **Find conjugate planes**. The column
+transfer is cached until a new result is published or optics become stale.
+Hover the selected-plane status, Selected Z line, or a conjugate candidate to
+see its symbolic transfer equation, classification rule and reference convention.
+These are nominal-energy, first-order real-plane diagnostics in the supported
+straight column; they do not establish beam transmission or crystal diffraction
+intensity. Near-tip non-paraxial transport and the curved energy-filter branch
+are outside this search.
+
+**EDS** groups **Spectrum**, **Interactions 3D** and **Parameters**. Its local
+interaction view highlights scattering by type and can focus on the material;
+the spectrum and detailed paths keep separate explicit calculation buttons.
 
 New instrument states start with both **AC** and **Descan** raster drives enabled;
 loaded profiles retain their saved drive settings.

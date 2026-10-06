@@ -140,12 +140,18 @@ flowchart LR
 | 三套调节入口 | `gui/hardware_tuning_panel.py`、`direct_alignment_panel.py`、`interactive_calculation.py` | 见第 8 节，职责不同 |
 | 样品 / 扫描 / EDS | `gui/sample_panel.py`、`scan_panel.py`、`eds_panel.py` | 数值实现在 `specimen/`、`physics/`、`detector/` |
 | Physical Layout / Energy Filter / Transverse Beam / Optical Transfer / Magnetic Field | [diagnostic_tabs.py](../src/temsim/gui/diagnostic_tabs.py) | 最大界面文件，后续拆页优先候选 |
+| Optical Transfer 图形概览 | [optical_transfer_overview.py](../src/temsim/gui/optical_transfer_overview.py) | 读取已计算的 J_img/J_diff；展示位置圆和 canonical 动量角锥的响应、矩阵判定的共轭类型。相对参考轨迹、独立坐标尺度，不是束强度或衍射斑；原始矩阵及模式比较仍在 `OpticalTransferView` 子页 |
+| 任意所选 Z 的共轭面查找 | `physics/conjugate_planes.py`、`gui/conjugate_plane_panel.py`、`gui/conjugate_plane_overlay.py`、`gui/conjugate_plane_context.py` | 捕获光学状态的一阶传输缓存；固定参考 Z 后查找前后实共轭面、近似面及单方向焦面。完整二维 B 判据、排除自身、坐标和插值误差检查；列表点击仅移动观察光标，不改变参考面，并读取已记录路径及截断部件的实际 Z。后台取消及旧结果隔离，不重新传播完整粒子束或电子波，不宣称透过率或衍射强度合格。`tests/test_conjugate_planes.py`、`test_conjugate_plane_gui.py`、`test_conjugate_plane_workspace.py` 注册于 `field-ui/FU-09`。 |
 | Illuminating Image 与成像/衍射结果显示 | `gui/visualization.py` 的 `WaveImagingView` | `aberration_view.py` 为像差展示；历史波数据可读不代表恢复相干计算 |
 | 结果打开/导出和摘要 | `gui/result_files.py`、`result_readout.py` | 存档底层见下一节 |
 
 `Optical` 显示参与光学运行的组件；`Mechanical` 显示没有独立光学运行对象的机械部件；`Assembly` 提供完整装配层级。三者应共享同一装配身份，而不是为每个视图维护一套设备。
 
-中央的 13 个标签统一在 `VisualizationWorkspace`（`visualization.py:1127` 起）装配：Ray Diagram、Hardware tuning、Physical Layout、Energy Filter、Sample、Vacuum map、Sample Interactions 3D、EDS、Scanning Image、Illuminating Image、Optical Transfer、Model Inspector、Design Explorer。四个 Dock 在 `MainWindow` 装配：Instrument setup and parameters、Live tuning、Virtual electrons、Status and calculation log。Working points 是 Live tuning 的子页，不是另一个独立顶层标签。
+中央的 13 个标签统一在 `VisualizationWorkspace`（`visualization.py`）装配：Ray Diagram、Electron beam、Hardware tuning、Physical Layout、Energy Filter、Sample、Vacuum map、EDS、Scanning Image、Illuminating Image、Optical Transfer、Model Inspector、Design Explorer。EDS 下的 Spectrum、Interactions 3D、Parameters 子页分别承载能谱、局部相互作用诊断及唯一一套 EDS/局部输运参数；切换子页不启动计算。四个 Dock 在 `MainWindow` 装配：Instrument setup and parameters、Live tuning、Virtual electrons、Status and calculation log。Working points 是 Live tuning 的子页，不是另一个独立顶层标签。
+
+平面类型的公共入口是 `optics/direct_alignment.py` 的 `diffraction_transfer(s)`：以样品中心的位置和 canonical 动量为输入，输出柱坐标 X/Y；`physics/scan_geometry.py` 的分类器统一判据并拒绝 mechanical 输入矩阵。Optical Transfer、Selected Z、扫描/Descan 和 Camera 波动结果标签共同使用它。真实粒子输运及扫描位移仍用 mechanical 方向，不能直接替换其传播矩阵；`TransverseTransfer.input_basis` 明确记录区别。旧的无坐标标记缓存需重新求取诊断，不能继承旧分类。
+
+`gui/plane_equations.py` 统一提供符号方程的悬停提示，供 Selected Z 状态与光标、共轭候选列表与标记、Optical Transfer 类型标签使用。提示分别说明所选平面分类器和共轭搜索的现有判据、参考面、canonical 坐标与高阶像差限制；它只展示文字，不执行分类或传播，不代入当前数值。
 
 需要注意两处实际布局所有权：`diagnostic_tabs.py` 的 `TransverseBeamView` 持有右侧两张图的容器；`magnetic_test_electron.py` 持有虚拟电子完整表单与控制器，`virtual_electron_panel.py` 目前主要负责 Dock 内容的排版。修改大小/布局时先确认真正的控件所有者。
 
@@ -237,6 +243,8 @@ flowchart LR
 ```
 
 这是未来修改后的验证示例，不是通过报告。可用范围以 `acceptance.py` 和实际命令行定义为准；CI 当前使用 `classical`、`acceptance-policy`、`gun-fields`、`electron-execution`、`field-ui`、`particle-continuation`、`performance-observation`、`coherent-development`。`full-report` 仅报告完整范围尚未覆盖项，不启动完整相干计算，也不授予物理资格。
+
+GitHub 的 Windows CPU runner 使用 `--allow-gpu-skips`：`acceptance_gpu.py` 明确登记的真实 GPU 测试仍保留收集和结果，在无设备时记为 `gpu_hardware.NOT_RUN`，不冒充 GPU 验证通过。GPU 测试失败、缺失执行阶段、普通 CPU 测试跳过仍使任务失败。不带此参数时维持所有测试必须完整通过的严格规则；本地有 GPU 时仍执行这些测试。
 
 ## 7. 必须保留的非运行文件
 
@@ -557,7 +565,7 @@ flowchart LR
 | [dimension_audit.py](../src/temsim/gui/dimension_audit.py) | 132 | Read-only, searchable dimensions and evidence audit with source navigation.；入口：DimensionAuditDialog |
 | [direct_alignment_controller.py](../src/temsim/gui/direct_alignment_controller.py) | 110 | Single-worker background controller for coupled Direct Alignment solves.；入口：DirectAlignmentWorkerSignals, DirectAlignmentWorker, DirectAlignmentController |
 | [direct_alignment_panel.py](../src/temsim/gui/direct_alignment_panel.py) | 724 | User-level coupled lens adjustments for the Direct Alignment page.；入口：DirectAlignmentPanel |
-| [eds_panel.py](../src/temsim/gui/eds_panel.py) | 1175 | Spectrum-only EDS page with shared acquisition settings hosted by the sample view.；入口：EDSPage |
+| [eds_panel.py](../src/temsim/gui/eds_panel.py) | — | EDS 能谱、相互作用及共享参数子页；入口：EDSPage |
 | [eds_peak_labels.py](../src/temsim/gui/eds_peak_labels.py) | 206 | Display-only EDS line annotations backed by the shared offline line library.；入口：EDSPeakLabels |
 | [electron_display_geometry.py](../src/temsim/gui/electron_display_geometry.py) | 101 | Bounded display-only reduction of one connected chronological polyline.；入口：simplify_screen_vertices |
 | [electron_session_actions.py](../src/temsim/gui/electron_session_actions.py) | 176 | Transactional diagnostic-session actions, separate from calculation ownership.；入口：scene_dependency, ElectronSessionActions |

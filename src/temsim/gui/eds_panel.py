@@ -1,4 +1,4 @@
-"""Spectrum-only EDS page with shared acquisition settings hosted by the sample view."""
+"""EDS spectrum, local interaction view and shared acquisition settings."""
 
 from __future__ import annotations
 
@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QStackedWidget,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -33,7 +35,7 @@ from temsim.gui.eds_peak_labels import EDSPeakLabels
 
 
 class EDSPage(QWidget):
-    """Show the spectrum; retain one set of settings for the shared sample workflow."""
+    """Own the EDS readouts and one set of sample-transport/acquisition settings."""
 
     parameters_changed = Signal(str)
     error = Signal(str)
@@ -266,26 +268,38 @@ class EDSPage(QWidget):
 
         controls_scroll = QScrollArea(self)
         self.settings_panel = controls_scroll
-        controls_scroll.setObjectName("sampleInteractionSettingsScrollArea")
+        controls_scroll.setObjectName("edsSettingsScrollArea")
         controls_scroll.setWidgetResizable(True)
         controls_scroll.setMinimumWidth(280)
         controls_scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         controls_scroll.setWidget(controls)
-        # The workspace reparents this one settings widget into the sample view.
-        # Keep it hidden when the spectrum page is used on its own.
-        controls_scroll.hide()
-
-        spectrum_layout = QVBoxLayout(self)
-        spectrum_layout.setContentsMargins(6, 6, 6, 6)
+        page_layout = QVBoxLayout(self)
+        page_layout.setContentsMargins(6, 6, 6, 6)
         from temsim.gui.page_calculation import PageCalculationBar
         self.calculation_bar = PageCalculationBar(
             "EDS", "sampleEdsAcquirePoint", button=self.eds_acquire,
             note="Uses the current instrument and executed upstream state.",
         )
         self.calculate_button = self.eds_acquire
-        spectrum_layout.addWidget(self.calculation_bar)
+        self.calculation_stack = QStackedWidget()
+        self.calculation_stack.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
+        self.calculation_stack.addWidget(self.calculation_bar)
+        page_layout.addWidget(self.calculation_stack)
+        self.spectrum_page = QWidget()
+        self.spectrum_page.setObjectName("edsSpectrumPage")
+        spectrum_layout = QVBoxLayout(self.spectrum_page)
+        spectrum_layout.setContentsMargins(0, 0, 0, 0)
+        self.sub_tabs = QTabWidget()
+        self.sub_tabs.setObjectName("edsResultTabs")
+        self.sub_tabs.addTab(self.spectrum_page, "Spectrum")
+        self.sub_tabs.addTab(controls_scroll, "Parameters")
+        self.interaction_page = None
+        self.sub_tabs.currentChanged.connect(self._update_calculation_visibility)
+        page_layout.addWidget(self.sub_tabs, 1)
         self.spectrum_plot = pg.PlotWidget(background="#050816")
         self.spectrum_plot.setObjectName("edsSpectrumPlot")
         self.spectrum_plot.setLabel("bottom", "X-ray energy", units="keV")
@@ -390,6 +404,28 @@ class EDSPage(QWidget):
                     name, value
                 )
             )
+
+    def set_interaction_page(self, page: QWidget) -> None:
+        """Embed the existing diagnostic view without duplicating its solver."""
+        if self.interaction_page is not None:
+            raise ValueError("EDS interaction page is already installed")
+        self.interaction_page = page
+        self.calculation_stack.addWidget(page.calculation_bar)
+        self.sub_tabs.insertTab(1, page, "Interactions 3D")
+        self._update_calculation_visibility()
+
+    def _update_calculation_visibility(self, *_args) -> None:
+        # Keep both calculation actions in one fixed row so the subtab bar
+        # does not jump. Navigation changes neither inputs nor calculations.
+        interaction_selected = (
+            self.interaction_page is not None
+            and self.sub_tabs.currentWidget() is self.interaction_page
+        )
+        self.calculation_stack.setCurrentWidget(
+            self.interaction_page.calculation_bar
+            if interaction_selected else self.calculation_bar
+        )
+
     @staticmethod
     def _double_control(
         object_name, minimum, maximum, *, decimals=6, suffix=""

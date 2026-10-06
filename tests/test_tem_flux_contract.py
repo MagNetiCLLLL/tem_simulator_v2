@@ -58,7 +58,8 @@ def tem_benchmark(monkeypatch):
 
     def transfer(*args):
         m = matrix()
-        return SimpleNamespace(matrix=m, j_img=m[:2, :2], j_diff_m_per_rad=m[:2, 2:])
+        return SimpleNamespace(matrix=m, j_img=m[:2, :2], j_diff_m_per_rad=m[:2, 2:],
+                               input_basis="specimen_canonical_momentum")
 
     monkeypatch.setattr(direct_alignment, "diffraction_transfer", transfer)
     monkeypatch.setattr(camera_wave, "_camera_affine_offset_m", lambda *args: np.zeros(2))

@@ -4964,7 +4964,8 @@ class OpticalTransferView(QWidget):
         self.heading = QLabel("Signed first-order optical transfer")
         self.summary = QLabel("Recalculate to evaluate J_img and J_diff.")
         self.summary.setWordWrap(True)
-        self.summary.setStyleSheet("color: #64748b; font-weight: 600;")
+        self.summary.setStyleSheet("color: #94a3b8; font-weight: 600;")
+        self.summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
         self.target_plane = QComboBox()
         self.target_plane.setObjectName("opticalTransferPlane")
@@ -5012,13 +5013,24 @@ class OpticalTransferView(QWidget):
             "padding: 8px;"
         )
 
+        from temsim.gui.optical_transfer_overview import OpticalTransferOverview
+        self.overview = OpticalTransferOverview()
+        self.display_tabs = QTabWidget()
+        self.display_tabs.setObjectName("opticalTransferDisplayTabs")
+        self.display_tabs.addTab(self.overview, "Overview")
+        self.display_tabs.addTab(self.matrix_text, "Numeric details")
+        comparison = QWidget()
+        comparison_layout = QVBoxLayout(comparison)
+        comparison_layout.addLayout(action_row)
+        comparison_layout.addWidget(self.pair_summary)
+        comparison_layout.addStretch(1)
+        self.display_tabs.addTab(comparison, "Mode comparison")
+
         layout = QVBoxLayout(self)
         layout.addLayout(heading_row)
         layout.addLayout(target_row)
-        layout.addLayout(action_row)
         layout.addWidget(self.summary)
-        layout.addWidget(self.matrix_text, 1)
-        layout.addWidget(self.pair_summary)
+        layout.addWidget(self.display_tabs, 1)
 
         self.target_plane.currentIndexChanged.connect(
             self._display_selected_record
@@ -5063,13 +5075,25 @@ class OpticalTransferView(QWidget):
         state = getattr(result, "state_snapshot", None)
         if state is None:
             self._records = ()
+            self.target_plane.clear()
             self.matrix_text.setPlainText("")
+            self.overview.clear()
+            self.capture_current.setEnabled(False)
+            self.heading.setText("Signed first-order optical transfer")
             self.summary.setText("No calculation state snapshot is available.")
             return
         records = tuple(
             getattr(result.simulation, "optical_transfers", ()) or ()
         )
-        self._records = records or optical_transfer_records(state)
+        from temsim.physics.first_order import SPECIMEN_CANONICAL_MOMENTUM
+        canonical_records = bool(records) and all(
+            getattr(getattr(record, "transfer", None), "input_basis", None)
+            == SPECIMEN_CANONICAL_MOMENTUM
+            for record in records
+        )
+        # Earlier cached records used mechanical source slopes. Their plane
+        # labels do not establish the input basis inside a specimen field.
+        self._records = records if canonical_records else optical_transfer_records(state)
         self._current_mode = str(getattr(state, "projector_mode", ""))
         self._current_wavelength_m = (
             float(result.simulation.metrics.get("lambda_nm", math.nan))
@@ -5125,6 +5149,8 @@ class OpticalTransferView(QWidget):
         record = self._selected_record()
         if record is None:
             self.matrix_text.setPlainText("")
+            self.overview.clear()
+            self.summary.setText("No calculated target plane is available.")
             return
         transfer = record.transfer
         image_detector_map = (
@@ -5138,7 +5164,6 @@ class OpticalTransferView(QWidget):
         diffraction_detector_properties = linear_map_properties(
             diffraction_detector_map
         )
-        active = "J_img" if self._current_mode == "image" else "J_diff"
         insertion = (
             "reference plane"
             if record.inserted is None
@@ -5149,27 +5174,36 @@ class OpticalTransferView(QWidget):
         )
         detail_text = (
             f"{record.name} | Z {record.z_mm:.6g} mm | {insertion} | "
-            f"active conjugate map {active}. Straight-column paraxial "
+            "position and specimen-canonical angular responses. Straight-column paraxial "
             "Jacobian; spherical aberration, hexapole nonlinearity and the "
             "curved Energy Filter branch are outside this matrix."
         )
         self.summary.setText(
-            f"{record.name} | Z {record.z_mm:.6g} mm | {insertion} | {active}"
+            f"{record.name} | Z {record.z_mm:.6g} mm | {insertion}"
         )
         self.summary.setToolTip(detail_text)
+        self.overview.show_record(
+            record, provisional_polarity=self._provisional_field_polarity
+        )
         detector = record.detector_frame
         calibration = (
             "calibrated" if detector.is_calibrated else "UNCALIBRATED placeholder"
         )
         self.matrix_text.setPlainText(
             "Coordinate convention\n"
-            "  state = (x, y, theta_x, theta_y); electrons travel along +Z\n"
-            "  r_plane = J_img @ r_sample + J_diff @ theta_sample\n\n"
-            "J_img (dimensionless, column X-Y)\n"
+            "  Input = (x, y, eta_x, eta_y); eta = p_perp(canonical) / p0\n"
+            "  p0 is the specimen reference momentum; eta uses radian-equivalent angular units.\n"
+            "  Canonical angle can differ from mechanical ray slope inside a magnetic field.\n"
+            "  Output = (X, Y, theta_X, theta_Y); target theta are mechanical ray slopes.\n"
+            "  Positions use column X-Y; electrons travel along +Z.\n"
+            "  Delta r_plane = J_img @ Delta r_sample + J_diff @ Delta eta_sample\n"
+            "  Relative to the traced reference ray; absolute position also includes its offset.\n"
+            f"  Reference-ray offset: {transfer.position_offset_m} m\n\n"
+            "J_img (dimensionless; fixed specimen canonical momentum, column X-Y)\n"
             f"{self._matrix_text(transfer.j_img)}\n"
             f"  {self._orientation_text(record.image_properties)}\n"
             f"  equivalent magnification {record.image_properties.isotropic_scale:.9g}\n\n"
-            "J_diff (m/rad; numerically identical in mm/mrad, column X-Y)\n"
+            "J_diff (m/rad of canonical angle; numerically identical in mm/mrad, column X-Y)\n"
             f"{self._matrix_text(transfer.j_diff_m_per_rad)}\n"
             f"  {self._orientation_text(record.diffraction_properties)}\n"
             "  equivalent camera length "

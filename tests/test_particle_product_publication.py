@@ -1,5 +1,5 @@
 """Publication routing only: panel spies avoid transport or plotting calculations."""
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 
 import numpy as np
 import pytest
@@ -51,11 +51,23 @@ class PanelSpy:
 
 
 class ScanPanelSpy(PanelSpy):
-    def display_result(self, geometry, frame=None, *, complete=False, state_snapshot=None):
+    def __init__(self):
+        super().__init__()
+        self._stem_frame = None
+        self.explicit_calculations = []
+        self.particle_signals = None
+
+    def display_result(self, geometry, frame=None, *, complete=False, state_snapshot=None,
+                       explicit_calculation=False):
         self.calls.append((geometry, frame, complete, state_snapshot))
+        self.explicit_calculations.append(explicit_calculation)
         if frame is not None or complete:
+            self._stem_frame = frame
             self.displayed = frame
             self.stale = False
+
+    def set_particle_signals(self, rows, *, scan_enabled=False):
+        self.particle_signals = (rows, scan_enabled)
 
 
 @pytest.fixture
@@ -67,23 +79,34 @@ def workspace():
 
     view = SimpleNamespace(
         _ray_display_cache={}, _ray_display_cache_bytes=0, _last_result=None,
+        _ray_flight_time_colours=SimpleNamespace(invalidate=noop),
+        transverse_beam=SimpleNamespace(analysis=SimpleNamespace(
+            tof=SimpleNamespace(invalidate=noop))),
         _high_accuracy_result=None, _high_accuracy_current=False,
         _sample_region_result=None, _scan_ray_paths=None,
         result_readout=PanelSpy(), ray_source_status=Label(), heading=Label(),
+        hardware_tuning=SimpleNamespace(publish_result=noop, mark_result_stale=noop),
+        selected_plane_readout=SimpleNamespace(set_result=noop),
+        conjugate_planes=SimpleNamespace(set_result=noop),
         interactive_calculation=SimpleNamespace(calculation_timing=SimpleNamespace(set_result=noop)),
         _refresh_ray_calculation_extent=noop,
         _publish_optional_ray_panels=noop, _draw_ray_diagram=noop,
         _refresh_visible_ray_panels=noop, _set_sample_region_result=noop,
         _update_sample_region_control_availability=noop, _update_projection_text=noop,
     )
-    for name in ("probe_aberrations", "image_aberrations", "optical_transfer", "sample_page", "wave_imaging"):
+    for name in ("probe_aberrations", "image_aberrations", "optical_transfer", "sample_page",
+                 "wave_imaging", "transport_adjustment_readout"):
         setattr(view, name, PanelSpy())
     view.energy_filter = PanelSpy("energy_filter")
     view.eds_page = PanelSpy("specimen_interactions")
     view.sample_interactions_3d = PanelSpy("specimen_interactions")
     view.scan_control = ScanPanelSpy()
+    for page in (view.sample_page, view.eds_page, view.scan_control, view.wave_imaging,
+                 view.energy_filter, view.sample_interactions_3d):
+        page.calculation_bar = SimpleNamespace(mark_stale=noop, set_result_available=noop)
+    view.sample_interactions_3d.calculate_paths = SimpleNamespace(setEnabled=noop)
     view.mark_high_accuracy_stale = lambda: VisualizationWorkspace.mark_high_accuracy_stale(view)
-    view._prepare_scan_ray_playback = lambda result: VisualizationWorkspace._prepare_scan_ray_playback(view, result)
+    view._prepare_scan_ray_playback = MethodType(VisualizationWorkspace._prepare_scan_ray_playback, view)
     return view
 
 

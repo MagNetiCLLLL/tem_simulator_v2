@@ -39,7 +39,7 @@ def publication(monkeypatch):
     for name in (
         "_ray_flight_time_colours", "transverse_beam", "result_readout",
         "hardware_tuning", "transport_adjustment_readout", "ray_source_status",
-        "interactive_calculation", "selected_plane_readout", "probe_aberrations",
+        "interactive_calculation", "selected_plane_readout", "conjugate_planes", "probe_aberrations",
         "image_aberrations", "optical_transfer", "energy_filter", "sample_page",
         "sample_interactions_3d", "eds_page", "wave_imaging",
         "_refresh_ray_calculation_extent", "_publish_optional_ray_panels",
@@ -77,6 +77,9 @@ def test_cached_frame_publication_restores_ray_time_and_activity_after_drawing(p
     VisualizationWorkspace.display_result(view, result, "High accuracy", calculation_scope=scope)
 
     assert view._last_result is result
+    # Retaining the raster time must not skip diagnostic republication: the
+    # conjugate panel invalidates old search work even for this same result.
+    view.conjugate_planes.set_result.assert_called_once_with(result)
     assert view._scan_playback_time_s == time_s
     assert view._scan_playback_active is active
     assert events == ["draw", "offset"]

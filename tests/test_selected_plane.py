@@ -31,7 +31,8 @@ def _result(state=None, *, completed=1300.):
 
 def _map(source, target, a=1., b=.2):
     identity, zeros = np.eye(2), np.zeros((2, 2))
-    return TransverseTransfer(source, target, a*identity, b*identity, zeros, identity)
+    return TransverseTransfer(source, target, a*identity, b*identity, zeros, identity,
+                              input_basis="specimen_canonical_momentum")
 
 
 @pytest.mark.parametrize(("z", "kind"), ((999., "upstream"), (1000., "specimen"),

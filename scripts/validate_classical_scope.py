@@ -65,7 +65,7 @@ def validation_environment(receipt_path):
     return env
 
 
-def run_scope(root, out, scope, timeout, *, criteria=None, selected=None):
+def run_scope(root, out, scope, timeout, *, criteria=None, selected=None, allow_gpu_skips=False):
     """Execute one declared scope and retain evidence even on child failure.
 
     Explicit criteria/selection are used by isolated command-level policy tests;
@@ -130,7 +130,8 @@ def run_scope(root, out, scope, timeout, *, criteria=None, selected=None):
                 execution_errors.append(f"Invalid pytest receipt: {exc}")
     report = software_report(receipt, scope=executed_scope, pytest_exit_code=code,
                              source_unchanged=before == source_hashes(root),
-                             selected=selected, criteria=declared)
+                             selected=selected, criteria=declared,
+                             allow_gpu_skips=allow_gpu_skips)
     if executed_scope == "classical":
         report["criteria"] = merge_criteria(report["criteria"], legacy_exclusions(root))
     report.update(provenance, completed_utc=datetime.now(timezone.utc).isoformat(),
@@ -153,14 +154,26 @@ def main(argv=None):
     parser.add_argument("--scope", choices=(*ACCEPTANCE_SCOPES, "full-report"), default="classical")
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--timeout-seconds", type=int, default=900)
+    parser.add_argument("--allow-gpu-skips", action="store_true",
+                        help="CPU CI only: report reviewed real-GPU skips as NOT_RUN; other skips and failures still fail")
     args = parser.parse_args(argv)
     if args.timeout_seconds <= 0:
         parser.error("Timeout must be positive")
     root = Path(__file__).resolve().parents[1]
     output = args.output or root / "outputs" / "agent-validation" / args.scope
-    report = run_scope(root, output, args.scope, args.timeout_seconds)
+    report = run_scope(root, output, args.scope, args.timeout_seconds,
+                       allow_gpu_skips=args.allow_gpu_skips)
     print(json.dumps({key: report[key] for key in (
         "software_scope_status", "full_simulator_qualification", "exit_code", "run_id")}), flush=True)
+    if report["gpu_hardware"]["not_run"]:
+        print(f"GPU hardware: NOT_RUN ({len(report['gpu_hardware']['not_run'])} skipped cases)", flush=True)
+    if report["exit_code"]:
+        for node, phases in report["cases"].items():
+            if "failed" in phases.values() or ("skipped" in phases.values()
+                    and node not in report["allowed_gpu_skips"]):
+                print(f"Nonpassing test: {node} | {phases}", flush=True)
+        for error in report["errors"]:
+            print(f"Acceptance error: {error}", flush=True)
     return report["exit_code"]
 
 

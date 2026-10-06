@@ -22,6 +22,13 @@ def completed():
     state.step_mm = 2.
     state.sample.inserted = False
     state.sample.eds_enabled = False
+    # Exercise exact stationary-column continuation. New sessions enable AC
+    # and Descan raster drives; their automatic calibration may change the
+    # executed kicks and legitimately invalidate checkpoints after the coils.
+    # Scan calibration / continuation has separate coverage in the material
+    # particle-section tests.
+    state.ac_deflector.scan_enabled = False
+    state.descan_deflector.scan_enabled = False
     # This fixture validates persistence, not the Python reference integrator.
     state.acceleration_backend = "Numba CPU"
     assert not state.sample.wave_enabled and not state.sample.stem_wave_enabled

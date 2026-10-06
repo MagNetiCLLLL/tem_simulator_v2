@@ -47,17 +47,26 @@ def test_wrapped_captions_never_overlap_fixed_plots_across_modes_and_sizes(view,
             preset(view, mode)
             if mode == "advanced":
                 view.colour_mode.setCurrentIndex(view.colour_mode.findData("emission_angle"))
+            # Deliver posted mode/layout changes before inspecting geometry;
+            # otherwise an immediate predicate can accept the previous layout.
             qtbot.wait(20)
-            for plot, caption in ((view.source_plot.plot, view.source_plot.summary), (view.plot, view.summary)):
-                canvas = QRect(plot.mapToGlobal(QPoint()), plot.size())
-                text = QRect(caption.mapToGlobal(QPoint()), caption.size())
-                title = plot.getAxis("bottom").label
-                scene_title = title.mapRectToScene(title.boundingRect()).toAlignedRect()
-                title_rect = QRect(plot.viewport().mapToGlobal(scene_title.topLeft()), scene_title.size())
-                assert text.top() > canvas.bottom()
-                assert not text.intersects(title_rect)
-                assert canvas.contains(title_rect)
-            assert not view.plot_layout._height_timer.isActive()
+
+            def assert_settled_layout():
+                assert not view.plot_layout._height_timer.isActive()
+                for plot, caption in ((view.source_plot.plot, view.source_plot.summary), (view.plot, view.summary)):
+                    canvas = QRect(plot.mapToGlobal(QPoint()), plot.size())
+                    text = QRect(caption.mapToGlobal(QPoint()), caption.size())
+                    title = plot.getAxis("bottom").label
+                    scene_title = title.mapRectToScene(title.boundingRect()).toAlignedRect()
+                    title_rect = QRect(plot.viewport().mapToGlobal(scene_title.topLeft()), scene_title.size())
+                    assert text.top() > canvas.bottom()
+                    assert not text.intersects(title_rect)
+                    assert canvas.contains(title_rect)
+
+            # Deferred layout requests can take several event-loop turns on
+            # CI. Require idle, correct geometry instead of a 20 ms deadline;
+            # a layout that never settles still fails the bounded wait.
+            qtbot.waitUntil(assert_settled_layout, timeout=2000)
 
 
 def test_sizes_survive_window_changes_modes_and_new_results(view, qtbot):

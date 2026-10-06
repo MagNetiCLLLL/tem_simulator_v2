@@ -21,7 +21,11 @@ import numpy as np
 
 from temsim.physics.core import propagate
 
-FIRST_ORDER_RESPONSE_SCHEMA = "captured-field-affine-float64-checkpoints-v3"
+FIRST_ORDER_RESPONSE_SCHEMA = "captured-field-affine-canonical-diagnostics-v4"
+
+MECHANICAL_SLOPES = "mechanical_slopes"
+SPECIMEN_CANONICAL_MOMENTUM = "specimen_canonical_momentum"
+PLANE_CANONICAL_MOMENTUM = "plane_canonical_momentum"
 
 
 def _trace_basis(state, source, stop, *, save_z_mm=(), maximum_step_mm=None, events=None):
@@ -162,7 +166,12 @@ class DetectorFrameCalibration:
 
 @dataclass(frozen=True, slots=True)
 class TransverseTransfer:
-    """Signed local 4x4 Jacobian and affine reference-ray displacement."""
+    """Signed local Jacobian with an explicit input momentum convention.
+
+    Output positions and slopes remain in mechanical column X/Y coordinates.
+    Canonical input slopes are momentum divided by the specimen reference
+    momentum; they differ from mechanical slopes inside an axial field.
+    """
 
     source_z_mm: float
     target_z_mm: float
@@ -172,8 +181,12 @@ class TransverseTransfer:
     k_diff: np.ndarray
     position_offset_m: tuple[float, float] = (0.0, 0.0)
     angle_offset_rad: tuple[float, float] = (0.0, 0.0)
+    input_basis: str = MECHANICAL_SLOPES
 
     def __post_init__(self) -> None:
+        if self.input_basis not in {MECHANICAL_SLOPES, SPECIMEN_CANONICAL_MOMENTUM,
+                                    PLANE_CANONICAL_MOMENTUM}:
+            raise ValueError(f"Unknown transverse input basis: {self.input_basis}")
         for name in ("position_offset_m", "angle_offset_rad"):
             values = tuple(float(value) for value in getattr(self, name))
             if len(values) != 2 or not np.all(np.isfinite(values)):
@@ -198,7 +211,7 @@ class TransverseTransfer:
 
     @property
     def matrix(self) -> np.ndarray:
-        """Return the 4x4 map in (x, y, theta_x, theta_y) ordering."""
+        """Return the 4x4 map; input theta follows ``input_basis``."""
 
         return np.block([
             [self.j_img, self.j_diff_m_per_rad],

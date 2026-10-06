@@ -1,6 +1,8 @@
 """Fail-closed, namespaced software evidence; never physical qualification."""
 from collections import Counter
 
+from temsim.acceptance_gpu import is_complete_skip, is_gpu_hardware_test, is_gpu_unavailable_reason
+
 
 CLASSICAL_CRITERIA = {
     "product-usability/AT-01": ("Physical source admission", ("tests/test_source_admission.py",)),
@@ -95,7 +97,9 @@ ACCEPTANCE_SCOPES = {
                 "tests/test_assembly_selection_state.py", "tests/test_assembly_navigation.py",
                 "tests/test_instrument_configuration.py", "tests/test_working_point_restore_gui.py")),
             "field-ui/FU-09": ("Captured-optics selected-Z conjugacy and latest cached plane readout", (
-                "tests/test_selected_plane.py", "tests/test_selected_plane_gui.py")),
+                "tests/test_selected_plane.py", "tests/test_selected_plane_gui.py",
+                "tests/test_conjugate_planes.py", "tests/test_conjugate_plane_gui.py",
+                "tests/test_conjugate_plane_workspace.py")),
             "field-ui/FU-11": ("Selected-plane upstream hardware projections, recorded interceptions and beam views", (
                 "tests/test_plane_hardware_geometry.py", "tests/test_plane_hardware_overlay.py",
                 "tests/test_plane_cutoff_events.py", "tests/test_lazy_ray_panels.py",
@@ -214,12 +218,16 @@ def merge_criteria(*groups):
 
 
 def software_report(receipt, *, pytest_exit_code, source_unchanged,
-                    scope="classical", selected=None, criteria=None):
-    """Require every collected item, including setup/teardown, without skips.
+                    scope="classical", selected=None, criteria=None,
+                    allow_gpu_skips=False):
+    """Require complete CPU evidence and explicitly report real-device gaps.
 
     The allowlist is a scope contract, not inferred from whichever tests happened
     to run. Unknown/omitted files, deselection, duplicates and empty collection
-    fail closed. Synthetic receipts exercise this policy, not any physics.
+    fail closed. With ``allow_gpu_skips=True``, normal skips of reviewed actual
+    GPU cases are NOT_RUN hardware evidence, not a CPU failure or a GPU pass.
+    GPU failures and all other skips remain failures of this software scope.
+    Synthetic receipts exercise this policy, not any physics.
     """
     definition = _scope_definition(scope)
     if criteria is None:
@@ -269,6 +277,16 @@ def software_report(receipt, *, pytest_exit_code, source_unchanged,
         errors.append("Source or input definitions changed during execution")
     if pytest_exit_code != 0:
         errors.append(f"pytest exited {pytest_exit_code}")
+    skip_reasons = receipt.get("skip_reasons", {})
+    if not isinstance(skip_reasons, dict) or not all(isinstance(node, str) and isinstance(reason, str)
+                                                  for node, reason in skip_reasons.items()):
+        errors.append("Invalid skip reasons: expected named text reasons")
+        skip_reasons = {}
+    gpu_cases = {node: cases.get(node, {}) for node in collected if is_gpu_hardware_test(node)}
+    gpu_not_run = [node for node, outcomes in gpu_cases.items() if is_complete_skip(outcomes)]
+    allowed_skips = {node for node in gpu_not_run if is_gpu_unavailable_reason(skip_reasons.get(node, ""))}
+    if allow_gpu_skips is not True:
+        allowed_skips.clear()
     rows = {}
     for key, (title, files) in criteria.items():
         nodes = [node for node in collected if node.split("::")[0] in files]
@@ -276,14 +294,17 @@ def software_report(receipt, *, pytest_exit_code, source_unchanged,
         status = "PASS"
         for node in nodes:
             outcomes = cases.get(node, {})
+            if node in allowed_skips:
+                continue
             if "failed" in outcomes.values():
                 status = "FAIL"
                 break
             if outcomes != {"setup": "passed", "call": "passed", "teardown": "passed"}:
                 status = "NOT_RUN"
-        if missing or not nodes:
+        if missing or not (set(nodes) - allowed_skips):
             status = "NOT_RUN" if status != "FAIL" else status
-        rows[key] = {"description": title, "status": status, "tests": nodes, "missing_files": missing}
+        rows[key] = {"description": title, "status": status, "tests": nodes,
+                     "missing_files": missing, "gpu_not_run": sorted(set(nodes) & allowed_skips)}
     passed = not errors and bool(rows) and all(row["status"] == "PASS" for row in rows.values())
     return {
         "schema": ("classical-software-acceptance-v1" if scope == "classical"
@@ -297,9 +318,21 @@ def software_report(receipt, *, pytest_exit_code, source_unchanged,
         "selected_tests": list(selected), "collected_count": len(set(collected)),
         "cases": cases, "source_unchanged_during_tests": source_unchanged,
         "pytest_exit_code": pytest_exit_code,
+        "allow_gpu_skips": allow_gpu_skips is True,
+        "allowed_gpu_skips": sorted(allowed_skips),
+        "skip_reasons": skip_reasons,
+        "gpu_hardware": {
+            "status": ("FAIL" if any("failed" in value.values() for value in gpu_cases.values())
+                       else "NOT_RUN" if not gpu_cases or gpu_not_run
+                       else "EXECUTED" if all(value == {"setup": "passed", "call": "passed", "teardown": "passed"}
+                                              for value in gpu_cases.values()) else "INCOMPLETE"),
+            "not_run": gpu_not_run,
+            "cases": gpu_cases,
+            "note": "Only the collected hardware cases; never full GPU or microscope qualification.",
+        },
         "exclusions": {
             "coherent-tip-to-image": "Development resumed; bounded operator and source-admission tests are not full image qualification",
-            "actual-gpu-scientific-parity": "NOT_RUN in this software lane; emulated policy tests are not hardware evidence",
+            "actual-gpu-scientific-parity": "Full GPU qualification is outside this software lane; see gpu_hardware for executed cases. Emulated policy tests are not hardware evidence",
             "native-desktop": "Offscreen tests only",
             "experimental-calibration": "NOT_RUN; no OEM or experimental qualification",
             **({"round2/R2-AT-13..40": "Later packages are not selected by the R2-00..03 software lane"}

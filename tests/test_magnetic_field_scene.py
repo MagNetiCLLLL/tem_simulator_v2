@@ -64,8 +64,12 @@ def mapped(native, *, kind="axisymmetric_rz", registration=None, status="measure
     return MappedLensFieldProvider(native.key, field_map, native, binding(native.key), model_status=status)
 
 
-def test_real_default_axis_equals_existing_round_lens_bz():
+def test_centred_column_axis_equals_existing_round_lens_bz():
     state = default_state()
+    # New-session defaults enable raster scanning. The zero-transverse-field
+    # identity applies to an undeflected column, not to an active scan pixel.
+    state.ac_deflector.scan_enabled = False
+    state.descan_deflector.scan_enabled = False
     scene = prepare_magnetic_scene(state, z_limits_mm=(0., 3100.))
     z_mm = np.linspace(0., 3100., 119)
     points = np.column_stack((np.zeros((len(z_mm), 2)), z_mm * 1e-3))

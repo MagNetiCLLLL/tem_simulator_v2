@@ -319,20 +319,29 @@ def test_toolbar_require_gpu_does_not_retry_stem_on_cpu(monkeypatch):
         lambda *_args, **_kwargs: (WAVE_BACKEND_CUPY, None),
     )
 
-    def resource_failure(**_kwargs):
+    resident_attempts = []
+
+    def resource_failure(**kwargs):
+        resident_attempts.append(kwargs["batch_size"])
         raise compute_backend.GPUExecutionError("out_of_memory", "synthetic resident allocation failure")
 
     def forbidden_cpu(*_args, **_kwargs):
         pytest.fail("The toolbar Require GPU choice must not restart STEM on CPU")
 
     monkeypatch.setattr(stem_wave_imaging, "run_resident_stem_cuda", resource_failure)
+    monkeypatch.setattr(stem_wave_imaging, "resident_stem_batch_size", lambda *a, **k: 4)
     monkeypatch.setattr(stem_wave_imaging, "propagate_multislice", forbidden_cpu)
     state = _state("Require GPU")
+    # This supplied-field operator test must reach the injected STEM failure,
+    # not require a real GPU for the upstream corrector's calibration trace.
+    state.simulation_mode = "ideal"
     state.sample.stem_execution_policy = "auto"
-    with pytest.raises(compute_backend.GPUExecutionError, match="synthetic resident allocation failure"):
+    with pytest.raises(compute_backend.GPUExecutionError, match="synthetic resident allocation failure") as caught:
         simulate_local_stem_operator(
             state, SimpleNamespace(incident=_incident_bundle()), _detectors(), *_scan()
         )
+    assert resident_attempts == [4]
+    assert caught.value.category == "out_of_memory"
 
 
 # This module tests supplied local fields; production admission remains active.

@@ -7,9 +7,12 @@ from PySide6.QtGui import QVector3D
 from PySide6.QtWidgets import QTabWidget, QWidget
 
 from temsim.gui.sample_interactions_3d import (
+    SCATTERING_CATEGORIES,
     SampleInteractions3DPage,
+    ScenePath,
     _gl_display_bounds,
     _gl_display_positions,
+    _material_display_bounds,
     build_sample_interaction_scene,
 )
 from temsim.optics.column import default_state
@@ -108,6 +111,63 @@ def test_high_accuracy_cache_builds_local_3d_scene_without_new_physics():
     }
     assert scene.coherent_wave_available
     assert not scene.has_bounded_result
+
+
+def test_material_fit_keeps_scattering_readable_amid_wide_primary_context():
+    scattered = ScenePath(
+        np.asarray(((-1.0, 0.0, -5.0), (3.0, 2.0, 5.0))), "elastic"
+    )
+    direct = ScenePath(
+        np.asarray(((5000.0, 0.0, -5.0), (5000.0, 0.0, 5.0))), "primary"
+    )
+    boundary = ScenePath(
+        np.asarray(((0.0, 0.0, -100000.0), (0.0, 0.0, -5.0))), "incident"
+    )
+    original = tuple(path.positions_nm.copy() for path in (scattered, direct, boundary))
+
+    lower, upper = _material_display_bounds((scattered, direct, boundary), (), 10.0)
+
+    assert lower == pytest.approx((-1.5, -0.5, -5.8))
+    assert upper == pytest.approx((3.5, 2.5, 5.8))
+    # A boundary-only cache frames the material plane, not 100 micrometres upstream.
+    lower, upper = _material_display_bounds((boundary,), (), 10.0)
+    assert lower[2] > -6.0
+    assert upper[2] >= 5.0
+    for path, positions in zip((scattered, direct, boundary), original, strict=True):
+        np.testing.assert_array_equal(path.positions_nm, positions)
+
+
+def test_focus_scattering_filters_cached_paths_without_changing_angles(qtbot, monkeypatch):
+    import temsim.gui.sample_interactions_3d as view_module
+
+    page = SampleInteractions3DPage()
+    qtbot.addWidget(page)
+    page.display_result(_calculation_result())
+    cached = page.scene_snapshot
+    originals = tuple(path.positions_nm.copy() for path in cached.paths)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Scattering focus must only change display filtering and camera")
+
+    monkeypatch.setattr(view_module, "build_sample_interaction_scene", forbidden)
+    monkeypatch.setattr(view_module, "SpecimenFieldTransport", forbidden)
+    page.focus_scattering.click()
+
+    assert page.visible_signal_categories == SCATTERING_CATEGORIES
+    assert page.signal_filter.text() == "Visible signals: 6/11"
+    assert page.colour_by.currentText() == "Interaction type"
+    assert page.scene_snapshot is cached
+    assert page._fit_scope == "material"
+    assert "Incident" not in page.legend.text()
+    assert "Elastic" in page.legend.text()
+    page.set_view_mode("xz")
+    assert page.view.listDataItems()[0].xData == pytest.approx(originals[0][:, 0])
+    assert page.view.listDataItems()[0].yData == pytest.approx(originals[0][:, 2])
+    assert page.view.getViewBox().state["aspectLocked"] == 1
+    for path, positions in zip(cached.paths, originals, strict=True):
+        np.testing.assert_array_equal(path.positions_nm, positions)
+    page.show_all_signals.trigger()
+    assert len(page.visible_signal_categories) == 11
 
 
 def test_xz_yz_views_reproject_one_scene_without_calculation(qtbot, monkeypatch):

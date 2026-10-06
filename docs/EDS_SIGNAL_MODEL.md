@@ -10,12 +10,12 @@ The simulator names this subsystem **EDS**. The currently installed six-segment 
 - `temsim.detector.eds_signal` accepts weighted electron track segments in any material. A segment can explicitly identify a primary or elastically scattered history; the vacancy and photon calculation is identical.
 - `temsim.specimen.elastic_transport` generates event-by-event three-dimensional elastic trajectories through the finite rectangular or disk specimen and the downstream support. It resolves mesh openings, sidewalls, bars, the annular rim and material/vacuum boundaries.
 - The explicit point calculation takes its history count directly from the upstream column result: every weighted ray surviving to the physical sample plane is transported once. There is no independent EDS trajectory-count input. Sample-plane X/Y, both incident slopes (including calculated rotation), source energy offset and source-current weight are retained. The point coordinate translates only the weighted beam centroid; it does not replace the calculated phase-space spread.
-- **Straight primary reference** remains available as a deterministic diagnostic. Retained histories and collision points are displayed in **Sample Interactions 3D**, while every reaching ray contributes to the EDS calculation. Its `3D / X-Z / Y-Z` controls render the same cached scene without rerunning transport. **EDS** contains only the spectrum, short status and hover energy/counts; it has no separate trajectory plots or line table.
+- **Straight primary reference** remains available as a deterministic diagnostic. Retained histories and collision points are displayed in **EDS > Interactions 3D**, while every reaching ray contributes to the EDS calculation. Its `3D / X-Z / Y-Z` controls render the same cached scene without rerunning transport. **EDS > Spectrum** shows the spectrum, short status and hover energy/counts; the interaction view and shared settings occupy separate subtabs.
 - Direct-vacancy fluorescence yield, radiative transition probability, line energy, atomic weight, elemental density and photon mass attenuation come from xraylib. Each result records the library version.
 - The installed angular acceptance supplies the collection fraction. The user can select the holder-conditioned or unshadowed aggregate solid angle.
 - The detector response currently supports an explicit ideal scalar efficiency, optional Gaussian energy broadening and reproducible Poisson counting.
-- **Update point EDS** and the existing EDS/support settings are available in **Sample Interactions 3D > Parameters**. They reuse compatible shared High-accuracy products. Merely changing the view or opening the settings does not calculate a spectrum or lens preset.
-- **Run sample-region high accuracy** is an explicit local calculation that reuses compatible shared products. Its
+- **Calculate EDS** updates the spectrum using the EDS/support settings in **EDS > Parameters**. It reuses compatible shared High-accuracy products. Merely changing the view or opening the settings does not calculate a spectrum or lens preset.
+- **Calculate detailed sample** in **EDS > Interactions 3D** is an explicit local calculation that reuses compatible shared products. Its
   adjustable entry plane samples the cached upstream column phase space; the
   finite material kernel runs about the sample; forward terminal electrons are
   reinjected at the sample reference and propagated through the actual
@@ -39,7 +39,7 @@ The simulator names this subsystem **EDS**. The currently installed six-segment 
 
 ## Weighted overlap integration (2026-09-08)
 
-**Sample Interactions 3D > Parameters > Weighted beam / sample overlap (EDS)**
+**EDS > Parameters > Weighted beam / sample overlap (EDS)**
 is enabled by default. `sample.eds_overlap_sampling_points` defaults to 256
 (32–4096); `sample.eds_overlap_sampling_enabled` can restore the original
 discrete-ray estimate. Both settings are saved in operating profiles.
