@@ -188,3 +188,53 @@ def test_legacy_optical_preview_retains_existing_material_and_scan_products(work
                   workspace.scan_control):
         assert len(panel.calls) == 1
         assert panel.stale
+
+
+@pytest.mark.parametrize("quality", ["Preview", "Medium"])
+@pytest.mark.parametrize("retained", [False, True])
+def test_ray_preview_without_acquisition_keeps_stem_empty_or_preserves_prior_frame(
+    workspace, qtbot, quality, retained,
+):
+    from temsim.detector.stem_signal import StemScanResult
+    from temsim.gui.scan_panel import ScanControlView
+    from temsim.optics.column import default_state
+
+    state = default_state()
+    view = ScanControlView()
+    qtbot.addWidget(view)
+    view.set_state(state)
+    workspace.scan_control = view
+    assert state.ac_deflector.scan_enabled and state.sample.stem_image_enabled
+    previous = None
+    if retained:
+        x, y = np.meshgrid(np.arange(2) * .001, np.arange(2) * .001)
+        previous = StemScanResult(
+            scan_x_um=x, scan_y_um=y,
+            fractions={key: np.full((2, 2), .4) for key in ("haadf", "df", "bf")},
+            detector_signals={}, metrics={},
+        )
+        view._set_stem_frame(previous, state_snapshot=state)
+    context = view._stem_frame_context
+    current = result()
+    current.state_snapshot = state
+    current.simulation.metrics["section_scan_status"] = "not_requested"
+
+    VisualizationWorkspace.display_result(workspace, current, quality)
+
+    assert view._stem_frame is previous
+    assert view._stem_frame_context is context
+    assert not view._playback_timer.isActive()
+    assert "Click Calculate STEM" in view.calculation_bar.status.text()
+    assert "not been calculated" in view.summary.text()
+    for key, item in view.detector_image_items.items():
+        if retained:
+            np.testing.assert_array_equal(item.image, previous.fractions[key].T)
+        else:
+            assert item.image is None
+            assert view.detector_contrast_labels[key].isHidden()
+    if retained:
+        assert view._stem_frame_stale
+        assert "previous STEM frame retained" in view.image_model_notice.text()
+    else:
+        assert "STEM not calculated" in view.image_model_notice.text()
+        assert "STEM not calculated" in view.detector_playback_summary.text()

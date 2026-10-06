@@ -170,6 +170,42 @@ def test_scan_off_and_unreached_detector_do_not_generate_frames(material_case, m
     assert early.simulation.metrics["section_scan_status"] == "detectors_not_reached"
 
 
+def test_unrequested_raster_keeps_material_and_current_pixel_but_no_frame(material_case, monkeypatch):
+    from temsim.detector.particle_readout import measure_particle_detectors
+    case = material_case
+    _enable_small_scan(case.state)
+    monkeypatch.setattr("temsim.physics.scan_geometry.calibrate_scan_system",
+                        lambda s, **kw: (np.zeros((2, 2)), 0., None))
+    for name in ("calculate_scan_geometry", "calculate_scan_ray_paths", "calculate_stem_scan_frame"):
+        monkeypatch.setattr(pipeline, name, lambda *a, **k: pytest.fail("Unrequested raster acquisition"))
+
+    preview = pipeline.calculate_particle_section(case.state, 456., acquire_stem=False)
+    assert preview.stem_scan is preview.scan_geometry is preview.scan_ray_paths is None
+    assert preview.simulation.metrics["section_scan_status"] == "not_requested"
+    assert preview.simulation.metrics["sample_scattering_applied"]
+    assert preview.specimen_interactions is not None and preview.specimen_exit is not None
+    assert "stem_scan" not in preview.calculated_products
+    assert case.state.ac_deflector.scan_enabled and case.state.sample.stem_image_enabled
+    detector_keys = {detector.key for detector in case.state.stem_detectors}
+    signals = [row for row in measure_particle_detectors(preview) if row.key in detector_keys]
+    assert {row.key for row in signals} == detector_keys
+    assert all(row.status == "AVAILABLE" and row.fraction is not None for row in signals)
+
+    # Explicit section acquisition retains the default, reuses the executed
+    # specimen transport, and has a different complete-request identity.
+    frame, calls = object(), []
+    monkeypatch.setattr(pipeline, "calculate_scan_geometry", lambda *a, **k: object())
+    monkeypatch.setattr(pipeline, "calculate_scan_ray_paths", lambda *a, **k: object())
+    monkeypatch.setattr(pipeline, "calculate_stem_scan_frame",
+                        lambda *a, **k: calls.append(k) or frame)
+    explicit = pipeline.calculate_particle_section(case.state, 456., existing_result=preview)
+    assert len(calls) == 1 and explicit.stem_scan is frame
+    assert calls[0]["geometric_specimen_exit"] is preview.specimen_exit
+    assert explicit.simulation.metrics["section_scan_status"] == "calculated"
+    assert explicit.signatures["request"] != preview.signatures["request"]
+    assert explicit.signatures["sample_downstream"] == preview.signatures["sample_downstream"]
+
+
 def test_scan_uses_existing_bounded_exit_and_produces_real_2d_detector_arrays(material_case, monkeypatch):
     from temsim.detector import stem_signal
     case = material_case

@@ -46,6 +46,11 @@ wave astigmatism, full convergence or atomic-resolution imaging.
 
 ## Single-frame STEM images
 
+The startup ray preview and later Preview/Medium updates do not acquire STEM
+frames, even when raster and image generation are already enabled. Until the
+first acquisition, the detector image panels remain empty. Later ray previews
+retain the previous STEM frame and indicate that it needs updating.
+
 Prepare the particle result with **Run high-accuracy once**. Enabling the AC
 raster and **Generate STEM detector images** requests one frame when the second
 of these two options is switched on. The completed HAADF, DF and BF arrays are

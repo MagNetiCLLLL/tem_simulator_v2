@@ -28,7 +28,6 @@ class WorkspaceLayouts(QObject):
             "magnetic": workspace.magnetic_field_toggle,
             "magnetic_link_ray": workspace.magnetic_field.field_lines.link_view,
             "transverse": workspace.transverse_beam_toggle,
-            "accelerator_gaps": workspace.accelerator_gaps,
             "advanced_bank": workspace.interactive_calculation.advanced_bank,
         }
         self.ray_variant = self._ray_variant()

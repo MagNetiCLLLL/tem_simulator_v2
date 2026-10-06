@@ -24,6 +24,48 @@ def window(qtbot, monkeypatch, tmp_path, request):
     instance.calculations.pool.waitForDone(3000)
 
 
+def test_startup_preview_request_keeps_armed_stem_controls_uncomputed(window, monkeypatch):
+    from PySide6.QtCore import QSignalBlocker
+    from temsim.physics.optical_tuning import TUNING_PROFILES
+
+    page = window.workspace.scan_control
+    calls, acquisition_requests = [], []
+    monkeypatch.setattr(window.calculations, "submit_background",
+                        lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(window.calculations, "submit",
+                        lambda *args, **kwargs: pytest.fail("Startup must use detached preview preparation"))
+    page.calculation_requested.connect(lambda: acquisition_requests.append(True))
+    assert window.state.ac_deflector.enabled and window.state.ac_deflector.scan_enabled
+    assert window.state.sample.stem_image_enabled
+    assert page.ac_controls["scan_enabled"].isChecked() and page.image_enabled.isChecked()
+    assert page._stem_frame is None
+    assert all(item.image is None for item in page.detector_image_items.values())
+    assert window.workspace._last_result is None
+    assert window.workspace._high_accuracy_result is None
+    assert not window.result_files.hold_automatic_preview
+
+    # Exercise checkbox changes during binding without editing the live state.
+    with QSignalBlocker(page.ac_controls["scan_enabled"]), QSignalBlocker(page.image_enabled):
+        page.ac_controls["scan_enabled"].setChecked(False)
+        page.image_enabled.setChecked(False)
+    page.set_state(window.state)
+    assert page.ac_controls["scan_enabled"].isChecked() and page.image_enabled.isChecked()
+    assert not calls and not acquisition_requests
+
+    # The fixture stops the delayed startup timer; deliver its signal directly
+    # after replacing submission so this regression never executes transport.
+    assert window.preview_timer.interval() == window.INITIAL_PREVIEW_DELAY_MS
+    assert window.tuning_quality.currentData() == "Preview"
+    window.preview_timer.timeout.emit()
+    profile = TUNING_PROFILES["Preview"]
+    assert calls == [((window.state, "Preview", profile.rays, profile.step_mm),
+                     {"particle_tuning": True})]
+    assert not acquisition_requests
+    assert window.workspace._high_accuracy_result is None
+    assert page._stem_frame is None
+    assert all(item.image is None for item in page.detector_image_items.values())
+
+
 @pytest.mark.parametrize("window", [("gpu", False), ("Require GPU", False)], indirect=True)
 def test_backend_display_preserves_requested_policy_and_explicit_disabled_flag(window):
     requested = window.state.acceleration_backend

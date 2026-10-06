@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, Q
     QSpinBox, QScrollArea, QFileDialog)
 
 from temsim.vacuum import VacuumMap, Medium, boundary_anchors, resolve_regions, module_axial_ranges, DEFAULT_PATH
-from temsim.assembly_navigation import assembly_sections, component_anchor
+from temsim.assembly_navigation import assembly_sections, component_anchor, physical_assembly_sections
 from temsim.gui.vacuum_axial_view import VacuumAxialView
 from temsim.gui.cell_environment_editor import CellChamberView
 
@@ -168,9 +168,9 @@ class VacuumMapPage(QWidget):
         self.chamber.set_state(self.state)
         try:
             rows = resolve_regions(self.state, include_disabled=True)
-            self.diagram.set_regions(rows, assembly_sections(getattr(self.state, "_resolved_assembly", None)), self.current_key)
+            self.diagram.set_regions(rows, physical_assembly_sections(getattr(self.state, "_resolved_assembly", None)), self.current_key)
         except ValueError as exc:
-            self.diagram.set_regions((), assembly_sections(getattr(self.state, "_resolved_assembly", None)), self.current_key)
+            self.diagram.set_regions((), physical_assembly_sections(getattr(self.state, "_resolved_assembly", None)), self.current_key)
             self.status.setText(f"Invalid vacuum map: {exc}")
 
     def showEvent(self, event):
@@ -373,7 +373,7 @@ class VacuumMapPage(QWidget):
             resolved = next((v for v in rows if v.key == key), None)
             self.bounds.setText(f"Z {resolved.start_z_mm:g} to {resolved.end_z_mm:g} mm" if resolved else "Relative to specimen centre")
             self.modules_text.setText("\n".join(f"{m.name} · {m.source_file}"
-                for m in assembly_sections(getattr(self.state, "_resolved_assembly", None)) if resolved and
+                for m in physical_assembly_sections(getattr(self.state, "_resolved_assembly", None)) if resolved and
                 m.start_z_mm < resolved.end_z_mm and m.end_z_mm > resolved.start_z_mm))
             if cell:
                 centre = self.state.sample.z_mm+config.cell.offset_z_mm

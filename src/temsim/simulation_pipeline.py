@@ -1141,12 +1141,15 @@ def calculate(
 
 @input_io.using_state_inputs
 def calculate_particle_section(state, target_z_mm=None, component_keys=(), *,
-                               existing_result=None, progress_callback=None):
+                               existing_result=None, progress_callback=None,
+                               acquire_stem: bool = True):
     """Execute a tip-origin classical particle section, including its specimen.
 
     A missing target requests the complete physical path, including an assembled
     energy filter. An explicit straight-column target stops at that exact plane;
     no detector exposure downstream of that plane is implied.
+    Raster acquisition is a separate intent: previews can retain the scan drives
+    and current-pixel transport without calculating a STEM frame.
     """
     import hashlib
     import math
@@ -1197,7 +1200,8 @@ def calculate_particle_section(state, target_z_mm=None, component_keys=(), *,
     signatures["column"] = scoped("column", base_signatures["column"], target)
     signatures["sample_downstream"] = particle_section_downstream_signature(state, target)
     signatures["energy_filter"] = scoped("filter", base_signatures["energy_filter"], target, full_path)
-    signatures["request"] = scoped("request", base_signatures.get("request", ""), target, keys, full_path)
+    signatures["request"] = scoped("request", base_signatures.get("request", ""),
+                                   target, keys, full_path, bool(acquire_stem))
     if target < sample_z:
         signatures["incident"] = scoped("incident", base_signatures["incident"], target)
     material_signature = scoped("specimen", base_signatures["elastic"], solver_source_identity())
@@ -1366,9 +1370,10 @@ def calculate_particle_section(state, target_z_mm=None, component_keys=(), *,
     inserted_detectors = tuple(detector for detector in state.stem_detectors if detector.inserted)
     scan_planes_reached = target > sample_z and all(float(detector.z_mm) <= target for detector in inserted_detectors)
     simulation.metrics["section_scan_status"] = (
-        "disabled" if not scan_requested else "detectors_not_reached" if not scan_planes_reached
+        "not_requested" if not acquire_stem else "disabled" if not scan_requested
+        else "detectors_not_reached" if not scan_planes_reached
         else "no_inserted_detectors" if not inserted_detectors else "no_illumination" if no_illumination else "calculated")
-    if scan_requested and scan_planes_reached and inserted_detectors and not no_illumination:
+    if acquire_stem and scan_requested and scan_planes_reached and inserted_detectors and not no_illumination:
         scan_geometry = calculate_scan_geometry(state, observation_stop_z_mm=target,
             calibration=scan_calibration)
         scan_ray_paths = calculate_scan_ray_paths(state, simulation, calibrated=True)

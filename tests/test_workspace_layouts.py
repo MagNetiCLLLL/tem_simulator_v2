@@ -106,7 +106,6 @@ def test_restart_restores_active_layout_and_hidden_splitters(windows, qtbot):
     window.live_tuning_dock.toggleViewAction().trigger()
     qtbot.wait(30)
     workspace.interactive_calculation.advanced_bank.setChecked(True)
-    workspace.accelerator_gaps.setChecked(False)
     qtbot.wait(30)
     control_ratio = _resize_splitter(window, "interactiveCalculationSplitter", [610, 370], qtbot)
     manager.save_current()
@@ -119,7 +118,6 @@ def test_restart_restores_active_layout_and_hidden_splitters(windows, qtbot):
     assert manager.active_id == saved_id
     assert not restored.live_tuning_dock.isHidden()
     assert workspace.interactive_calculation.advanced_bank.isChecked()
-    assert not workspace.accelerator_gaps.isChecked()
     _assert_ratio(manager.splitters["interactiveCalculationSplitter"], control_ratio)
     for page, name, expected in (
         (workspace.sample_page, "samplePageSplitter", sample_width),

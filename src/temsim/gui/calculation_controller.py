@@ -519,7 +519,8 @@ class CalculationWorker(QRunnable):
                     result = calculate_particle_section(self.state,
                         target_z_mm=(self.section_request["target_z_mm"] if self.section_request else None),
                         component_keys=(self.section_request["component_keys"] if self.section_request else ()),
-                        existing_result=self.existing_result, progress_callback=self._report_progress)
+                        existing_result=self.existing_result, progress_callback=self._report_progress,
+                        acquire_stem=not is_tuning_quality(self.quality))
                 result.model_signature = self.model_signature
                 result.signatures = dict(result.signatures or {})
                 for key in ("request", "section", "particle_tuning"):
@@ -1809,7 +1810,9 @@ class CalculationController(QObject):
         if particle_tuning:
             from temsim.immutable_json import json_digest
             request_signatures = dict(request_signatures)
-            request_signatures["particle_tuning"] = "physical-particle-live-v1"
+            request_signatures["particle_tuning"] = (
+                "physical-particle-live-v2-no-stem" if is_tuning_quality(quality)
+                else "physical-particle-live-v2-stem")
             request_signatures["request"] = json_digest({"request": request_signatures["request"],
                 "particle_tuning": request_signatures["particle_tuning"]})
         if section_request is not None:

@@ -3,10 +3,11 @@
 These intervals describe component extents, not separate vacuum chambers.
 They can overlap. No files are read and no coordinates are resolved here.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import posixpath
 
 from temsim.assembly_structure import GROUPS, build_assembly_structure, stable_id
+from temsim.component_representation import non_material_role
 
 
 @dataclass(frozen=True)
@@ -75,3 +76,25 @@ def assembly_sections(assembly):
 
 def section_by_component(assembly):
     return {key: section for section in assembly_sections(assembly) for key in section.part_keys}
+
+
+def physical_assembly_sections(assembly):
+    """Display physical section spans without treating control channels as bodies.
+
+    The complete navigation sections remain the authority for saved vacuum
+    anchors. Filter only this display projection, including canonical legacy
+    channel keys whose captured records predate layout-role metadata.
+    """
+    if assembly is None:
+        return ()
+    physical = {part.key: part for part in assembly.parts
+                if not part.data.get("branch_path_only")
+                and not non_material_role({**part.data, "key": part.key})}
+    result = []
+    for section in assembly_sections(assembly):
+        keys = tuple(key for key in section.part_keys if key in physical)
+        if keys:
+            result.append(replace(section, part_keys=keys,
+                start_z_mm=min(physical[key].start_z_mm for key in keys),
+                end_z_mm=max(physical[key].end_z_mm for key in keys)))
+    return tuple(sorted(result, key=lambda row: (row.start_z_mm, row.end_z_mm, row.key)))

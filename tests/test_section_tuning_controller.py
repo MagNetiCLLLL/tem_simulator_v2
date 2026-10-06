@@ -21,6 +21,7 @@ def test_section_target_and_components_isolate_exact_preview_cache(qtbot, monkey
 
     monkeypatch.setattr(module, "run_ray_simulation", trace)
     def physical(snapshot, **kwargs):
+        assert kwargs["acquire_stem"] is False
         simulation = trace(snapshot, observation_stop_z_mm=kwargs["target_z_mm"],
                            tuning_component_keys=kwargs["component_keys"])
         return pipeline.CalculationResult(simulation=simulation, state_snapshot=snapshot,
@@ -100,10 +101,12 @@ def test_high_accuracy_section_keeps_requested_budget_and_needs_no_tuning_ranges
     qtbot.waitUntil(lambda: len(results) == 1)
     assert observed[0][:2] == (5000, .2)
     assert observed[0][2]["component_keys"] == ()
+    assert observed[0][2]["acquire_stem"] is True
     assert results[0].simulation.metrics["tuning_quality"] == "High accuracy"
 
 
-def test_physical_preview_preserves_requested_scan_and_cannot_hit_optical_cache(qtbot, monkeypatch):
+@pytest.mark.parametrize("quality", ("Preview", "Medium"))
+def test_physical_preview_preserves_requested_scan_and_cannot_hit_optical_cache(qtbot, monkeypatch, quality):
     from temsim.gui import calculation_controller as module
     from temsim import simulation_pipeline as pipeline
     from temsim.optics.column import default_state
@@ -112,19 +115,21 @@ def test_physical_preview_preserves_requested_scan_and_cannot_hit_optical_cache(
     state.ac_deflector.enabled = state.ac_deflector.scan_enabled = True
     calls = []
     def physical(snapshot, **kwargs):
+        assert kwargs["acquire_stem"] is False
         assert snapshot._particle_tuning and not snapshot._optical_tuning
         assert snapshot.ac_deflector.scan_enabled
+        assert snapshot.sample.stem_image_enabled
         assert not snapshot.sample.wave_enabled and not snapshot.sample.stem_wave_enabled
         calls.append("physical")
         return pipeline.CalculationResult(
             simulation=SimpleNamespace(incident=object(), branches={},
-                metrics={"particle_tuning":True,"tuning_quality":"Preview"}),
+                metrics={"particle_tuning":True,"tuning_quality":quality}),
             state_snapshot=snapshot, energy_filter=None,
             signatures={"request":"inner scoped physical request", "sample_downstream":"bounded material"})
     def optical(snapshot, **kwargs):
         assert not snapshot.ac_deflector.scan_enabled
         calls.append("optical")
-        return SimpleNamespace(incident=object(), branches={}, metrics={"tuning_quality":"Preview"})
+        return SimpleNamespace(incident=object(), branches={}, metrics={"tuning_quality":quality})
     monkeypatch.setattr(pipeline, "calculate_particle_section", physical)
     monkeypatch.setattr(module, "run_ray_simulation", optical)
     monkeypatch.setattr(module, "detect_all_lens_crossovers", lambda *a: ())
@@ -136,7 +141,7 @@ def test_physical_preview_preserves_requested_scan_and_cannot_hit_optical_cache(
     for particle in (False, True, True):
         count = len(workers)
         delivered = len(results)
-        controller.submit(state, "Preview", 49, 1., particle_tuning=particle)
+        controller.submit(state, quality, 49, 1., particle_tuning=particle)
         if len(workers) > count:
             workers[-1].run()
         qtbot.waitUntil(lambda: len(results)>delivered)
@@ -144,5 +149,7 @@ def test_physical_preview_preserves_requested_scan_and_cannot_hit_optical_cache(
     assert results[-1].cache_hit
     assert results[-1].particle_signals == ("measured",)
     assert results[-1].signatures["sample_downstream"] == "bounded material"
+    assert results[-1].signatures["particle_tuning"] == "physical-particle-live-v2-no-stem"
     assert results[0].signatures["request"] != results[-1].signatures["request"]
     assert state.ac_deflector.scan_enabled
+    assert state.sample.stem_image_enabled

@@ -541,7 +541,7 @@ class ScanControlView(QWidget):
         quantity_row.addWidget(self.image_quantity_notice, 1)
         detector_layout.addLayout(quantity_row)
         self.detector_playback_summary = QLabel(
-            "Enable AC Scan to calculate one HAADF / DF / BF frame."
+            "No STEM frame calculated. Click Calculate STEM to acquire one frame."
         )
         self.detector_playback_summary.setObjectName(
             "stemScanPlaybackSummary"
@@ -1942,7 +1942,13 @@ class ScanControlView(QWidget):
         if result is None:
             self.sample_plot.clear()
             self.downstream_plot.clear()
+            raster_enabled = any(
+                getattr(component, "enabled", False) and getattr(component, "scan_enabled", False)
+                for component in (live_ac, getattr(self._state, "descan_deflector", None))
+            )
             self.summary.setText(
+                "Scan geometry has not been calculated. Click Calculate STEM."
+                if raster_enabled else
                 "AC Scan and Descan are both off. Enable either raster drive "
                 "to calculate first-order scan geometry."
             )
@@ -2036,6 +2042,23 @@ class ScanControlView(QWidget):
             return
         frame = self._stem_frame
         self._update_image_model_notice(frame, check_cif=False)
+
+    def mark_stem_not_requested(self) -> None:
+        """A ray preview does not acquire or replace a detector image."""
+        self.calculation_bar.status.setText("Ray preview only. Click Calculate STEM to acquire a frame.")
+        if self._showing_bank_images():
+            return
+        message = (
+            "Ray preview only; previous STEM frame retained. Click Calculate STEM to update."
+            if self._stem_frame is not None else
+            "STEM not calculated. Click Calculate STEM to acquire a frame."
+        )
+        self.image_model_notice.setText(message)
+        self.image_model_notice.setToolTip(
+            "Raster settings are enabled, but ray previews do not acquire a STEM frame. "
+            "Run high-accuracy once to prepare the particles, then click Calculate STEM."
+        )
+        self.detector_playback_summary.setText(message)
 
     def set_particle_signals(self, rows, *, scan_enabled=False) -> None:
         """Show executed detector counts; never derive a pixel from a raster image."""
@@ -2537,7 +2560,7 @@ class ScanControlView(QWidget):
             )
         else:
             self.detector_playback_summary.setText(
-                "Enable AC Scan to calculate one HAADF / DF / BF frame."
+                "No STEM frame calculated. Click Calculate STEM to acquire one frame."
             )
 
     def _playback_tick(self) -> None:

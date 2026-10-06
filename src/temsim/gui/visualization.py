@@ -56,7 +56,7 @@ from temsim.gui.ray_scene import StaticRayLayers
 from temsim.gui.ray_curve_item import RayCurveItem
 from temsim.gui.ray_calculation_extent import RayCalculationExtentBar
 from temsim.gui.ray_extent_data import completed_ray_extent
-from temsim.gui.accelerator_gap_overlay import AcceleratorGapOverlay, ACCELERATOR_GAP_TOOLTIP
+from temsim.gui.accelerator_gap_overlay import AcceleratorGapOverlay
 from temsim.gui.transport_adjustment_readout import TransportAdjustmentReadout
 from temsim.gui.selected_plane_readout import SelectedPlaneReadout
 from temsim.gui.conjugate_plane_panel import ConjugatePlanePanel
@@ -676,11 +676,6 @@ class VisualizationWorkspace(QWidget):
         self.fit_column.setToolTip(
             "Fit the complete axial range and column inner diameter"
         )
-        self.accelerator_gaps = QPushButton("Accelerator electrodes")
-        self.accelerator_gaps.setObjectName("acceleratorGapsToggle")
-        self.accelerator_gaps.setCheckable(True)
-        self.accelerator_gaps.setChecked(True)
-        self.accelerator_gaps.setToolTip(ACCELERATOR_GAP_TOOLTIP)
         self.match_transport = QPushButton("Auto-adjust condensers")
         self.match_transport.setObjectName("matchColumnTransportButton")
         self.match_transport.setToolTip(
@@ -727,7 +722,6 @@ class VisualizationWorkspace(QWidget):
             self.auto_zoom,
             self.component_centres,
             self.crossovers,
-            self.accelerator_gaps,
             self.match_transport,
             self.column_walls,
             self.fit_column,
@@ -766,7 +760,6 @@ class VisualizationWorkspace(QWidget):
             self.column_walls,
             self.component_centres,
             self.crossovers,
-            self.accelerator_gaps,
             self.match_transport,
         )
         for button in option_buttons:
@@ -1218,7 +1211,6 @@ class VisualizationWorkspace(QWidget):
         self.component_centres.toggled.connect(self._redraw_last_result)
         self.crossovers.toggled.connect(self._redraw_last_result)
         self.column_walls.toggled.connect(self._redraw_last_result)
-        self.accelerator_gaps.toggled.connect(self.accelerator_gap_overlay.setVisible)
         self.ray_colour_mode.currentIndexChanged.connect(self._ray_colour_mode_changed)
         self.transverse_beam.colour_quantity_changed.connect(self._beam_colour_quantity_changed)
         self.magnetic_field_toggle.toggled.connect(
@@ -3796,7 +3788,7 @@ class VisualizationWorkspace(QWidget):
         return signature
 
     def _sync_ray_static_layers(self, result) -> None:
-        self.accelerator_gap_overlay.sync(result, visible=self.accelerator_gaps.isChecked())
+        self.accelerator_gap_overlay.sync(result)
         layers = self._ray_static_layers
         layers.begin(self)
         assembly = getattr(result, "assembly", None)
@@ -4189,6 +4181,7 @@ class VisualizationWorkspace(QWidget):
         is_preview = str(quality).strip().lower().startswith("preview") or quality == "Medium"
         optical_tuning = bool((getattr(result.simulation, "metrics", None) or {}).get("optical_tuning", False))
         particle_tuning = bool((getattr(result.simulation, "metrics", None) or {}).get("particle_tuning", False))
+        stem_not_requested = (getattr(result.simulation, "metrics", None) or {}).get("section_scan_status") == "not_requested"
         sample_reached = (getattr(result.simulation, "metrics", None) or {}).get("section_sample_reference_reached", True)
         if is_preview:
             self._preview_result = result
@@ -4279,11 +4272,13 @@ class VisualizationWorkspace(QWidget):
             self.scan_control.display_result(
                 getattr(result, "scan_geometry", None),
                 getattr(result, "stem_scan", None),
-                complete=not is_preview or no_illumination or particle_tuning,
+                complete=(not is_preview or no_illumination or particle_tuning) and not stem_not_requested,
                 state_snapshot=getattr(result, "state_snapshot", None),
                 explicit_calculation=calculation_scope == "stem",
             )
-            if no_illumination:
+            if stem_not_requested:
+                self.scan_control.mark_stem_not_requested()
+            elif no_illumination:
                 self.scan_control.image_model_notice.setText(
                     "No incident current at the specimen | no STEM frame"
                 )

@@ -13,15 +13,6 @@ from PySide6.QtCore import Qt
 import pyqtgraph as pg
 
 
-ACCELERATOR_GAP_TOOLTIP = (
-    "Amber marks show the displayed calculation's accelerator stages. "
-    "For the analytic field, bands span each potential transition "
-    "(field centre plus or minus soft edge); lines mark its centre. "
-    "For a coupled electrode field, lines mark electrode positions only; "
-    "they do not define the electric-field extent. Hover for stage coordinates."
-)
-
-
 @dataclass(frozen=True, slots=True)
 class AcceleratorGapRecord:
     """Detached geometry for one stage; absent bounds mean electrode only."""
@@ -97,9 +88,8 @@ def accelerator_gap_records(result) -> tuple[AcceleratorGapRecord, ...]:
 class AcceleratorGapOverlay:
     """Own lightweight pyqtgraph items without affecting rays or auto-ranging.
 
-    Call ``sync(result, visible=...)`` when the displayed result changes and
-    ``setVisible(...)`` for the toggle. Neither operation requests a retrace.
-    Unchanged stage graphics survive publications and visibility toggles.
+    Call ``sync(result)`` when the displayed result changes. This does not
+    request a retrace. Unchanged stage graphics survive publications.
     """
 
     def __init__(self, plot) -> None:

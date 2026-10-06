@@ -3,7 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from temsim.assembly_navigation import assembly_sections, component_anchor, section_by_component
+from temsim.assembly_navigation import (
+    assembly_sections, component_anchor, physical_assembly_sections, section_by_component,
+)
 from temsim.assembly_catalog import AssemblyCatalog
 from temsim.optics.column import default_state
 from temsim.vacuum import boundary_anchors, resolve_regions, VacuumMap
@@ -49,6 +51,70 @@ def test_legacy_snapshot_uses_functional_sections_and_does_not_invent_subassembl
         geometry={k: v for k, v in m.geometry.items() if k != "navigation_subassemblies"}) for m in assembly.modules))
     assert all(r.kind == "functional" for r in assembly_sections(state._resolved_assembly))
     assert len(resolve_regions(state, include_disabled=True)) == 6
+
+
+@pytest.mark.parametrize("include_real_component", [False, True])
+def test_vacuum_display_omits_legacy_descan_body_without_rebinding_saved_map(
+    state, qtbot, include_real_component,
+):
+    from temsim.gui.vacuum_map_page import VacuumMapPage
+    from temsim.instrument_snapshot import capture_instrument_snapshot
+
+    assembly = state._resolved_assembly
+    channel = assembly.part("descan_deflector")
+    # Reproduce the old parentless record without newer control-channel metadata.
+    old_data = {key: value for key, value in channel.data.items()
+                if key not in {"parent_key", "layout_role", "layout_owner",
+                               "physical_host_key", "physical_host_status"}}
+    channel = replace(channel, parent_key=None, data=old_data)
+    parts = tuple(channel if p.key == channel.key else p for p in assembly.parts)
+    if include_real_component:
+        hardware = replace(channel, key="custom_hardware", name="Custom hardware",
+                           start_z_mm=2200., center_z_mm=2200.5, end_z_mm=2201.,
+                           length_mm=1., data={"key": "custom_hardware"})
+        parts += (hardware,)
+    state._resolved_assembly = replace(assembly, parts=parts)
+    legacy_section = next(section for section in assembly_sections(state._resolved_assembly)
+                          if channel.key in section.part_keys)
+    assert legacy_section.name == "Other components"
+    region = next(r for r in state.vacuum_map.regions if r.key == "post_column")
+    region.start_anchor = legacy_section.key + ".start"
+    region.start_offset_mm = 0.
+    anchors = boundary_anchors(state)
+    regions = resolve_regions(state, include_disabled=True)
+    before = capture_instrument_snapshot(state).digest
+
+    page = VacuumMapPage()
+    qtbot.addWidget(page)
+    page.set_state(state)
+    page.select_region("post_column")
+    displayed_keys = [key for section in page.diagram.modules for key in section.part_keys]
+    assert channel.key not in displayed_keys
+    assert displayed_keys.count("image_diffraction_deflector") == 1
+    other = [section for section in page.diagram.modules if section.name == "Other components"]
+    if include_real_component:
+        assert len(other) == 1
+        assert other[0].part_keys == (hardware.key,)
+        assert (other[0].start_z_mm, other[0].end_z_mm) == (2200., 2201.)
+    else:
+        assert not other
+        assert "Other components" not in page.modules_text.text()
+    assert page.start_anchor.currentData() == region.start_anchor
+    assert boundary_anchors(state) == anchors
+    assert resolve_regions(state, include_disabled=True) == regions
+    assert capture_instrument_snapshot(state).digest == before
+
+
+def test_virtual_member_cannot_expand_displayed_physical_section(state):
+    assembly = state._resolved_assembly
+    expected = physical_assembly_sections(assembly)
+    virtual = replace(assembly.part("objective_lens"), key="virtual_reference_fixture",
+                      start_z_mm=10000., center_z_mm=10005., end_z_mm=10010.,
+                      parent_key="objective_lens",
+                      data={"key": "virtual_reference_fixture", "layout_role": "virtual_reference"})
+    expanded = replace(assembly, parts=(*assembly.parts, virtual))
+    assert any(section.end_z_mm == 10010. for section in assembly_sections(expanded))
+    assert physical_assembly_sections(expanded) == expected
 
 
 def test_baseline_allowance_checks_metadata_and_does_not_hide_physical_changes(state):
